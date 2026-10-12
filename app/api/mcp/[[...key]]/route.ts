@@ -1,11 +1,11 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { bearerToken, checkToken } from '@/lib/auth';
+import { bearerToken, checkToken, urlTokenAllowed } from '@/lib/auth';
 import { createMcpServer } from '@/lib/mcp/server';
 
-// MCP endpoint (Streamable HTTP, stateless). Authenticated with MCP_TOKEN, given either as
-//   Authorization: Bearer <token>        → POST /api/mcp
-//   a path segment (for clients that can't set headers, e.g. claude.ai custom connectors)
-//                                        → POST /api/mcp/<token>
+// MCP endpoint (Streamable HTTP, stateless). Authenticated with the MCP_TOKEN API key in a header:
+//   Authorization: Bearer <key>   or   X-API-Key: <key>        → POST /api/mcp
+// Optional fallback for clients that can't send headers, only when MCP_ALLOW_URL_TOKEN=1:
+//                                                             → POST /api/mcp/<key>
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,8 +15,8 @@ type Ctx = { params: Promise<{ key?: string[] }> };
 
 async function authorized(req: Request, ctx: Ctx): Promise<boolean> {
   const { key } = await ctx.params;
-  if (key && key.length > 1) return false;
-  return checkToken(key?.[0] ?? bearerToken(req));
+  if (key?.length) return key.length === 1 && urlTokenAllowed() && checkToken(key[0]);
+  return checkToken(bearerToken(req));
 }
 
 function baseUrl(req: Request): string {

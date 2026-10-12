@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { SESSION_COOKIE, bearerToken, checkToken, uiAuthConfigured, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
 
 // Guards every page, server action and API route except /login and /api/mcp
-// (which checks its own token). API routes also accept `Authorization: Bearer <MCP_TOKEN>`.
+// (which checks its own key). API routes also accept the API key: `Authorization: Bearer <MCP_TOKEN>` or `X-API-Key`.
 export async function proxy(req: NextRequest) {
   if (uiAuthDisabled()) return NextResponse.next();
 

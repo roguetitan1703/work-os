@@ -3,7 +3,7 @@
 //
 //   APP_PASSWORD    password for the web UI
 //   SESSION_SECRET  HMAC key for the session cookie (long random string)
-//   MCP_TOKEN       secret for the MCP endpoint and the JSON API
+//   MCP_TOKEN       API key for the MCP endpoint and the JSON API (sent as a header)
 //
 // In development, leaving APP_PASSWORD unset disables UI auth. In production,
 // missing secrets fail closed.
@@ -74,8 +74,15 @@ export async function checkToken(token: string | null | undefined): Promise<bool
   return safeEqual(token, expected);
 }
 
+/** API key from `Authorization: Bearer <key>` or `X-API-Key: <key>`. */
 export function bearerToken(req: Request): string | null {
   const h = req.headers.get('authorization');
   const m = h?.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1].trim() : null;
+  if (m) return m[1].trim();
+  return req.headers.get('x-api-key')?.trim() || null;
+}
+
+/** Token-in-URL (/api/mcp/<key>) is off unless MCP_ALLOW_URL_TOKEN=1, for clients that can't send headers. */
+export function urlTokenAllowed(): boolean {
+  return process.env.MCP_ALLOW_URL_TOKEN === '1' || process.env.MCP_ALLOW_URL_TOKEN === 'true';
 }

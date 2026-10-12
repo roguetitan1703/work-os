@@ -2,6 +2,7 @@ import { headers } from 'next/headers';
 import { CopyBox } from '@/components/copy-box';
 import { INSTRUCTIONS, TOOLS, type ToolName } from '@/lib/mcp/docs';
 import { cn } from '@/lib/utils';
+import { urlTokenAllowed } from '@/lib/auth';
 
 export const metadata = { title: 'Connect Claude · Work OS' };
 
@@ -50,7 +51,9 @@ export default async function ConnectPage() {
   const base = await baseUrl();
   const token = process.env.MCP_TOKEN;
   const ready = !!token && token.length >= 24;
-  const url = `${base}/api/mcp/${token ?? '<MCP_TOKEN>'}`;
+  const key = token ?? '<MCP_TOKEN>';
+  const url = `${base}/api/mcp`;
+  const urlFallback = urlTokenAllowed();
 
   return (
     <div className="max-w-3xl space-y-8">
@@ -72,22 +75,37 @@ export default async function ConnectPage() {
       <Step n={1} title="Add the connector">
         <ol className="list-decimal pl-5 space-y-1 text-sm text-foreground/90">
           <li>
-            On claude.ai open <b>Settings → Connectors</b> and click <b>Add custom connector</b>.
+            On claude.ai open <b>Settings → Connectors</b> and click <b>Add custom connector</b>. Name it <b>Work OS</b>.
           </li>
+          <li>Server URL:</li>
+        </ol>
+        <CopyBox text={url} />
+        <ol start={3} className="list-decimal pl-5 space-y-1 text-sm text-foreground/90">
           <li>
-            Name it <b>Work OS</b> and paste this URL. Leave OAuth / advanced settings empty.
+            Authentication: choose <b>no sign-in</b> (no OAuth). Under <b>Request headers</b> add:
           </li>
         </ol>
-        <CopyBox text={url} secret={token} />
+        <div className="grid grid-cols-[120px_1fr] gap-2 items-center text-sm">
+          <span className="text-muted-foreground text-xs">Header name</span>
+          <CopyBox text="Authorization" />
+          <span className="text-muted-foreground text-xs">Header value</span>
+          <CopyBox text={`Bearer ${key}`} secret={token} />
+        </div>
         <p className="text-xs text-muted-foreground">
-          The secret is part of the URL, so treat the whole URL like a password. To revoke it, change <code>MCP_TOKEN</code> in Vercel, redeploy, and
-          update the connector.
+          <code>X-API-Key: {'<key>'}</code> works too. The key is <code>MCP_TOKEN</code> in Vercel; to rotate it, change it there, redeploy, and update the header.
         </p>
-        <ol start={3} className="list-decimal pl-5 space-y-1 text-sm text-foreground/90">
+        <ol start={4} className="list-decimal pl-5 space-y-1 text-sm text-foreground/90">
           <li>
             In a chat, open the tools menu and make sure <b>Work OS</b> is switched on. Try: <i>&quot;What&apos;s on me today in Work OS?&quot;</i>
           </li>
         </ol>
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer">My connector dialog has no Request headers field</summary>
+          <p className="mt-2">
+            Older layouts only offer OAuth. As a stopgap, set <code>MCP_ALLOW_URL_TOKEN=1</code> in Vercel and use <code>{url}/{'<key>'}</code> as the URL (the key then
+            lives in the URL, so treat the URL as a password). Currently: <b>{urlFallback ? 'enabled' : 'disabled'}</b>.
+          </p>
+        </details>
       </Step>
 
       <Step n={2} title="Tell Claude how you use it">
@@ -137,10 +155,10 @@ export default async function ConnectPage() {
       <section className="space-y-2">
         <h2 className="text-sm font-semibold text-foreground">Test the endpoint</h2>
         <p className="text-sm text-muted-foreground">From the repo:</p>
-        <CopyBox text={`node scripts/test-mcp.mjs ${url}`} secret={token} />
+        <CopyBox text={`node scripts/test-mcp.mjs ${url} ${key}`} secret={token} />
         <p className="text-sm text-muted-foreground">Or raw, with curl:</p>
         <CopyBox
-          text={`curl -s -X POST ${url} -H "content-type: application/json" -H "accept: application/json, text/event-stream" -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"daily_summary","arguments":{}}}'`}
+          text={`curl -s -X POST ${url} -H "Authorization: Bearer ${key}" -H "content-type: application/json" -H "accept: application/json, text/event-stream" -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"daily_summary","arguments":{}}}'`}
           secret={token}
         />
       </section>

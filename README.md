@@ -28,7 +28,7 @@ All reads and writes go through `lib/data/*`, which is shared by the UI (server 
 | Surface | How |
 |---|---|
 | Web UI | `/login` with `APP_PASSWORD` → signed, httpOnly cookie (`SESSION_SECRET`), checked in `proxy.ts` and again in every server action |
-| `/api/mcp` | `MCP_TOKEN`, either `Authorization: Bearer <token>` or as a path segment: `/api/mcp/<token>` |
+| `/api/mcp` | API key `MCP_TOKEN` in a header: `Authorization: Bearer <key>` or `X-API-Key: <key>`. (`/api/mcp/<key>` only if `MCP_ALLOW_URL_TOKEN=1`) |
 | other `/api/*` | session cookie or `Authorization: Bearer <MCP_TOKEN>` |
 
 In production, missing secrets fail closed.
@@ -37,17 +37,16 @@ In production, missing secrets fail closed.
 
 `list_tasks`, `get_task`, `add_task`, `update_task`, `log_progress`, `complete_task`, `add_note`, `update_checklist`, `list_projects`, `add_project`, `update_project`, `daily_summary`, `recent_activity`. No delete.
 
-Connector URL for claude.ai (Settings → Connectors → Add custom connector):
+Connector for claude.ai (Settings → Connectors → Add custom connector; the app's `/connect` page has copy buttons):
 
-```
-https://<your-app>.vercel.app/api/mcp/<MCP_TOKEN>
-```
+- URL: `https://<your-app>.vercel.app/api/mcp`
+- Authentication: no sign-in; Request headers: `Authorization: Bearer <MCP_TOKEN>`
 
 Smoke test:
 
 ```bash
-node scripts/test-mcp.mjs https://<your-app>.vercel.app/api/mcp/<MCP_TOKEN>          # read-only
-node scripts/test-mcp.mjs https://<your-app>.vercel.app/api/mcp/<MCP_TOKEN> --write  # also creates, progresses, completes and drops a test task
+node scripts/test-mcp.mjs https://<your-app>.vercel.app/api/mcp <MCP_TOKEN>          # read-only
+node scripts/test-mcp.mjs https://<your-app>.vercel.app/api/mcp <MCP_TOKEN> --write  # also creates, progresses, completes and drops a test task
 ```
 
 ## Migrating the old `data/tasks.json`

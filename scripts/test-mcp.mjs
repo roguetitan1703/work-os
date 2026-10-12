@@ -1,13 +1,12 @@
-// Smoke-test the MCP endpoint the same way claude.ai will call it.
+// Smoke-test the MCP endpoint the same way claude.ai calls it (API key in a header).
 //
-//   node scripts/test-mcp.mjs https://your-app.vercel.app/api/mcp/<MCP_TOKEN>
-//   node scripts/test-mcp.mjs http://localhost:3000/api/mcp <MCP_TOKEN>      (token as Bearer header)
-//   add --write to also create a test task, log progress and complete it.
+//   node scripts/test-mcp.mjs https://your-app.vercel.app/api/mcp <MCP_TOKEN>
+//   add --write to also create a test task, log progress, complete it, then drop it.
 
 const [url, token] = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const write = process.argv.includes('--write');
 if (!url) {
-  console.error('usage: node scripts/test-mcp.mjs <mcp-url> [token] [--write]');
+  console.error('usage: node scripts/test-mcp.mjs <mcp-url> <api-key> [--write]');
   process.exit(1);
 }
 
