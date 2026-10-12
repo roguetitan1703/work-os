@@ -11,7 +11,8 @@ export const INSTRUCTIONS = `Work OS is Om's personal task system (solo founder 
 - Modes (type of work): ${ModeSchema.options.join(', ')}.
 - Every write you make is recorded in the task's history as done by Claude. Include a short "note" saying why, especially for status and progress changes.
 - Use log_progress (not update_task) to report progress; use complete_task to finish a task. There is no delete. To abandon a task set status Dropped.
-- For the morning brief, call daily_summary once; it already contains overdue, due today, in progress, blocked, completions and changes since the previous workday.`;
+- For the morning brief, call daily_summary once; it already contains overdue, due today, in progress, blocked, completions and changes since the previous workday.
+- Discord (server "Delpat", read-only): discord_needs_attention is the one call for "what needs me on Discord". It lists items Om flagged for later by tagging the bot (with the message he was replying to), mentions of him/his roles/@everyone, replies to him, and new activity in threads he is in, each marked handled if he posted after it. The bot cannot post, so never claim to have replied on Discord. Use discord_message_to_task to turn a message into a task (it won't duplicate one already tracked).`;
 
 export type ToolName =
   | 'list_tasks'
@@ -26,7 +27,11 @@ export type ToolName =
   | 'add_project'
   | 'update_project'
   | 'daily_summary'
-  | 'recent_activity';
+  | 'recent_activity'
+  | 'discord_needs_attention'
+  | 'discord_list_channels'
+  | 'discord_read_messages'
+  | 'discord_message_to_task';
 
 export const TOOLS: Record<ToolName, { title: string; description: string; writes: boolean; example: string }> = {
   daily_summary: {
@@ -104,6 +109,34 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
     description: 'Rename a project or change its client, description or status (active, paused, done, archived).',
     writes: true,
     example: 'Pause the Swiggy project',
+  },
+  discord_needs_attention: {
+    title: 'Discord: needs attention',
+    description:
+      'What on Discord needs Om since a time (default: start of the previous workday, Asia/Kolkata): items he flagged for later by tagging the bot (with the message he replied to), mentions of him or his roles, @everyone/@here, replies to him, and new activity in threads he is in. Grouped by channel with jump links; each marked handled if he posted after it. Only channels active since the cutoff are read.',
+    writes: false,
+    example: 'Anything on Discord I need to deal with?',
+  },
+  discord_list_channels: {
+    title: 'Discord: list channels',
+    description:
+      'Channels and active threads in the Delpat server with category/parent, type and last activity time; filter to those active since a time. Lists channels the bot cannot read separately.',
+    writes: false,
+    example: 'Which Discord channels were active today?',
+  },
+  discord_read_messages: {
+    title: 'Discord: read messages',
+    description:
+      'Read messages from a channel or thread (by name, id or link): since a time, or before/after/around a message id. Each message has author (and whether it is Om), time, text, mentions, reply reference, attachment names, thread info and a jump link.',
+    writes: false,
+    example: 'What did the team say in #dev since this morning?',
+  },
+  discord_message_to_task: {
+    title: 'Discord: message to task',
+    description:
+      'Create a Work OS task from a Discord message (by jump link, or channel + message id): title drafted from the message unless you pass one, description with the excerpt, author, channel and link; project/mode guessed from the channel. Returns the existing task instead if that message is already tracked.',
+    writes: true,
+    example: 'Make a task from that message in #client-terrah, due Friday',
   },
   recent_activity: {
     title: 'Recent activity',

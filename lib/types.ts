@@ -23,8 +23,8 @@ export type Status = z.infer<typeof StatusSchema>;
 export const CLOSED_STATUSES: Status[] = ['Done', 'Dropped'];
 export const OPEN_STATUSES: Status[] = ['Not Started', 'In Progress', 'Blocked'];
 
-/** Who made a change. `me` = the app UI, `claude` = the MCP connector, `system` = migrations/automation. */
-export const ActorSchema = z.enum(['me', 'claude', 'system']);
+/** Who made a change. `me` = the app UI, `discord` = me via Discord commands, `claude` = the MCP connector, `system` = migrations/automation. */
+export const ActorSchema = z.enum(['me', 'discord', 'claude', 'system']);
 export type Actor = z.infer<typeof ActorSchema>;
 
 export const ChecklistItemSchema = z.object({
@@ -74,6 +74,18 @@ export type Task = {
   doneAt: string | null;
   doneOn: string | null; // YYYY-MM-DD in app timezone
   doneBy: Actor | null;
+  /** Where the task came from, when created from an external message. */
+  source?: TaskSource;
+};
+
+export type TaskSource = {
+  kind: 'discord';
+  guildId: string;
+  channelId: string;
+  messageId: string;
+  url: string;
+  channelName?: string;
+  author?: string;
 };
 
 export const ACTIVITY_TYPES = [

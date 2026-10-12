@@ -1,6 +1,6 @@
 import 'server-only';
 import { MongoClient, type Db, type Collection } from 'mongodb';
-import type { Activity, Actor, ActivityType, FieldChange, ProjectStatus, Mode, Priority, Status, ChecklistItem, Link, Recurrence, WeeklyReview, FiverrRitualLog } from './types';
+import type { TaskSource, Activity, Actor, ActivityType, FieldChange, ProjectStatus, Mode, Priority, Status, ChecklistItem, Link, Recurrence, WeeklyReview, FiverrRitualLog } from './types';
 
 // ── Document shapes as stored in MongoDB ────────────────────────────────────
 
@@ -31,6 +31,7 @@ export type TaskDoc = {
   doneAt: Date | null;
   doneOn: string | null;
   doneBy: Actor | null;
+  source?: TaskSource;
 };
 
 export type ActivityDoc = {
@@ -111,6 +112,7 @@ async function ensureIndexes(db: Db): Promise<void> {
       { key: { status: 1, due: 1 }, name: 'status_due' },
       { key: { projectId: 1 }, name: 'project' },
       { key: { doneAt: -1 }, name: 'doneAt' },
+      { key: { 'source.messageId': 1 }, name: 'source_message', sparse: true },
     ]),
     db.collection('activity').createIndexes([
       { key: { taskId: 1, at: -1 }, name: 'task_at' },

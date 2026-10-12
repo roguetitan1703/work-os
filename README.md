@@ -49,6 +49,25 @@ node scripts/test-mcp.mjs https://<your-app>.vercel.app/api/mcp <MCP_TOKEN>     
 node scripts/test-mcp.mjs https://<your-app>.vercel.app/api/mcp <MCP_TOKEN> --write  # also creates, progresses, completes and drops a test task
 ```
 
+## Discord (server "Delpat")
+
+No hosted bot, no gateway, nothing stored. Claude reads Discord on demand through MCP tools that call Discord's REST API with the bot token; commands arrive on `/api/discord/interactions` (signature-verified) and only the owner can use them. The bot never posts; its only output is ephemeral replies.
+
+MCP tools (read-only, plus one write into Work OS):
+
+- `discord_needs_attention`: flagged-for-later items (your messages that tag the bot, with what you replied to), mentions of you/your roles/@everyone, replies to you, new activity in your threads; each marked handled if you posted after. Only channels active since the cutoff are read.
+- `discord_list_channels`: channels + active threads with last activity, filterable; unreadable ones listed separately.
+- `discord_read_messages`: messages from a channel/thread by time or around/before/after a message.
+- `discord_message_to_task`: create a task from a message (deduped by message id).
+
+Commands: right-click a message → Apps → **Add to Work OS**, `/task`, `/today`, `/done`, `/progress` (writes show in history as "You · Discord").
+
+Setup, invite URL, env vars and live status are on the app's `/connect` page. Env: `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `DISCORD_OWNER_ID`. Register commands (guild-scoped) with:
+
+```bash
+curl -X POST https://<your-app>.vercel.app/api/admin/discord/register -H "Authorization: Bearer <MCP_TOKEN>"
+```
+
 ## Migrating the old `data/tasks.json`
 
 The deployed app does the import itself, so no database credentials are needed locally:

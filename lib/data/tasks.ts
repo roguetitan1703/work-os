@@ -21,6 +21,7 @@ import {
   type Task,
   type TaskInput,
   type TaskPatch,
+  type TaskSource,
 } from '../types';
 import { addDays, addMonths, resolveDate, todayStr, weekday, weekStart } from '../dates';
 import { resolveProject, toProject } from './projects';
@@ -56,6 +57,7 @@ export function toTask(d: TaskDoc): Task {
     doneAt: d.doneAt ? d.doneAt.toISOString() : null,
     doneOn: d.doneOn,
     doneBy: d.doneBy,
+    ...(d.source ? { source: d.source } : {}),
   };
 }
 
@@ -176,10 +178,21 @@ async function logActivity(
 
 // ── Create ──────────────────────────────────────────────────────────────────
 
-export async function createTask(input: TaskInput, actor: Actor, opts: { note?: string } = {}): Promise<Task> {
+export async function createTask(
+  input: TaskInput,
+  actor: Actor,
+  opts: { note?: string; source?: TaskSource } = {},
+): Promise<Task> {
   const data = TaskInputSchema.parse(input);
   const c = await collections();
-  return toTask(await insertTask(c, data, actor, opts.note));
+  return toTask(await insertTask(c, data, actor, opts.note, opts.source));
+}
+
+/** The task already created from this external message, if any. */
+export async function findTaskBySourceMessage(messageId: string): Promise<Task | null> {
+  const c = await collections();
+  const d = await c.tasks.findOne({ 'source.messageId': messageId });
+  return d ? toTask(d) : null;
 }
 
 async function insertTask(
@@ -187,6 +200,7 @@ async function insertTask(
   data: ReturnType<typeof TaskInputSchema.parse>,
   actor: Actor,
   note?: string,
+  source?: TaskSource,
 ): Promise<TaskDoc> {
   const now = new Date();
   const today = todayStr();
@@ -221,6 +235,7 @@ async function insertTask(
     doneAt: done ? now : null,
     doneOn: done ? today : null,
     doneBy: done ? actor : null,
+    ...(source ? { source } : {}),
   };
   await c.tasks.insertOne(doc);
   await logActivity(c, doc, actor, 'created', { note });

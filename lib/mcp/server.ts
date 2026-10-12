@@ -6,8 +6,10 @@ import * as projects from '../data/projects';
 import { briefTask, dailySummary } from '../data/summary';
 import { InputError, NotFoundError } from '../data/errors';
 import { INSTRUCTIONS, TOOLS, type ToolName } from './docs';
+import * as discord from '../discord/read';
+import { DiscordError } from '../discord/client';
 import { describeActivity } from '../activity-text';
-import { APP_TZ, addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
+import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
 import { ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, type Task, type TaskPatch } from '../types';
 
 const ACTOR = 'claude' as const;
@@ -29,7 +31,7 @@ function handler<A>(fn: (args: A) => Promise<unknown>) {
       return ok(await fn(args));
     } catch (err) {
       if (err instanceof ZodError) return fail(err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '));
-      if (err instanceof InputError || err instanceof NotFoundError) return fail(err.message);
+      if (err instanceof InputError || err instanceof NotFoundError || err instanceof DiscordError) return fail(err.message);
       console.error('[mcp]', err);
       return fail('Internal error');
     }
@@ -382,7 +384,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     {
       inputSchema: {
         since: z.string().optional().describe('Default 24h. yesterday | 48h | 7d | YYYY-MM-DD | ISO datetime'),
-        actor: z.enum(['me', 'claude', 'system']).optional().describe('me = Om in the app'),
+        actor: z.enum(['me', 'discord', 'claude', 'system']).optional().describe('me = Om in the app, discord = Om via Discord commands'),
         project: z.string().optional(),
         limit: z.number().int().min(1).max(300).optional().describe('Default 100'),
       },
@@ -396,6 +398,75 @@ export function createMcpServer(ctx: Ctx): McpServer {
         count: list.length,
         events: list.map(e => ({ at: e.at, by: e.actor, task: `#${e.taskRef} ${e.taskTitle}`, type: e.type, text: describeActivity(e) })),
       };
+    }),
+  );
+
+  // ── Discord (read-only; the bot never posts) ──────────────────────────────
+
+  tool(
+    'discord_needs_attention',
+    {
+      inputSchema: {
+        since: z.string().optional().describe('Default: start of previous workday. yesterday | 24h | 3d | YYYY-MM-DD | ISO datetime'),
+        max_channels: z.number().int().min(1).max(50).optional().describe('Most-active channels to scan (default 25)'),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    handler(async a => discord.needsAttention({ since: parseSince(a.since), maxChannels: a.max_channels })),
+  );
+
+  tool(
+    'discord_list_channels',
+    {
+      inputSchema: {
+        active_since: z.string().optional().describe('Only channels/threads with messages since: today | 24h | 3d | YYYY-MM-DD | ISO'),
+        include_threads: z.boolean().optional().describe('Default true'),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    handler(async a => discord.listChannels({ activeSince: parseSince(a.active_since), includeThreads: a.include_threads })),
+  );
+
+  tool(
+    'discord_read_messages',
+    {
+      inputSchema: {
+        channel: z.string().describe('Channel or thread name (e.g. "dev"), id, or link'),
+        since: z.string().optional().describe('today | 24h | 3d | YYYY-MM-DD | ISO; returns up to limit (max 300) newest since then'),
+        before: z.string().optional().describe('Message id'),
+        after: z.string().optional().describe('Message id'),
+        around: z.string().optional().describe('Message id'),
+        limit: z.number().int().min(1).max(300).optional().describe('Default 50 (max 100 without since)'),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    handler(async a =>
+      discord.readMessages({ channel: a.channel, since: parseSince(a.since), before: a.before, after: a.after, around: a.around, limit: a.limit }),
+    ),
+  );
+
+  tool(
+    'discord_message_to_task',
+    {
+      inputSchema: {
+        message_link: z.string().optional().describe('Discord jump link to the message'),
+        channel: z.string().optional().describe('Alternative to message_link: channel name or id'),
+        message_id: z.string().optional(),
+        title: z.string().optional().describe('Short, verb-first title; drafted from the message if omitted'),
+        project: z.string().nullable().optional(),
+        mode: ModeSchema.nullable().optional(),
+        priority: PrioritySchema.optional(),
+        due: dateArg.nullable().optional().describe('Only if the message states a date'),
+        note: z.string().optional().describe('Why this became a task; stored in history'),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    handler(async a => {
+      const r = await discord.messageToTask(
+        { link: a.message_link, channel: a.channel, messageId: a.message_id },
+        { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note },
+      );
+      return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: r.message };
     }),
   );
 

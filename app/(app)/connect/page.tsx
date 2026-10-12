@@ -3,6 +3,7 @@ import { CopyBox } from '@/components/copy-box';
 import { INSTRUCTIONS, TOOLS, type ToolName } from '@/lib/mcp/docs';
 import { cn } from '@/lib/utils';
 import { urlTokenAllowed } from '@/lib/auth';
+import { DiscordSection } from './discord-section';
 
 export const metadata = { title: 'Connect Claude · Work OS' };
 
@@ -29,7 +30,10 @@ Call the Work OS daily_summary tool once. From it, write:
 3. Blocked / waiting — with the reason or what it's waiting on.
 4. Since yesterday — what got completed and what changed (say when Claude made the change).
 5. One line on projects with overdue work.
-Keep it short; link each task with its url. If nothing is overdue or due, say so in one line.`;
+Keep it short; link each task with its url. If nothing is overdue or due, say so in one line.
+
+Discord section:
+Call discord_needs_attention once (default window is since the start of the last workday). List "Flagged for later" first (my bot-tagged notes, with the message I was replying to), then what needs me grouped by channel, unhandled first, each with its jump link. Mention threads I'm in that moved. If it reports warnings (content intent off, channels it can't read, capped), add one line about it.`;
 
 const ORDER: ToolName[] = [
   'daily_summary',
@@ -45,6 +49,10 @@ const ORDER: ToolName[] = [
   'update_checklist',
   'add_project',
   'update_project',
+  'discord_needs_attention',
+  'discord_list_channels',
+  'discord_read_messages',
+  'discord_message_to_task',
 ];
 
 export default async function ConnectPage() {
@@ -119,6 +127,8 @@ export default async function ConnectPage() {
         <p className="text-sm text-muted-foreground">Add this to the prompt of your weekday 8am brief, alongside Calendar, Gmail and Vercel.</p>
         <CopyBox text={BRIEF_PROMPT} multiline />
       </Step>
+
+      <DiscordSection base={base} />
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-foreground">What Claude can do</h2>

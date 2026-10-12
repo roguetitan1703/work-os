@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { SESSION_COOKIE, bearerToken, checkToken, uiAuthConfigured, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
 
-// Guards every page, server action and API route except /login and /api/mcp
-// (which checks its own key). API routes also accept the API key: `Authorization: Bearer <MCP_TOKEN>` or `X-API-Key`.
+// Guards every page, server action and API route except /login, /api/mcp
+// and /api/discord/interactions (which check their own key / Discord signature). API routes also accept the API key: `Authorization: Bearer <MCP_TOKEN>` or `X-API-Key`.
 export async function proxy(req: NextRequest) {
   if (uiAuthDisabled()) return NextResponse.next();
 
@@ -29,5 +29,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|login|api/mcp|\\.well-known|robots.txt).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|login|api/mcp|api/discord/interactions|\\.well-known|robots.txt).*)'],
 };

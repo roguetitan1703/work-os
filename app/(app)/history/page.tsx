@@ -89,7 +89,7 @@ async function Completed({ weeks }: { weeks: number }) {
 }
 
 async function ActivityFeed({ actor }: { actor?: string }) {
-  const a = actor === 'me' || actor === 'claude' || actor === 'system' ? actor : undefined;
+  const a = actor === 'me' || actor === 'discord' || actor === 'claude' || actor === 'system' ? actor : undefined;
   const since = startOfDay(addDays(todayStr(), -14));
   const items = await listActivity({ since, actor: a, limit: 400 });
   const byDay = new Map<string, typeof items>();
@@ -100,13 +100,13 @@ async function ActivityFeed({ actor }: { actor?: string }) {
   return (
     <div className="space-y-5">
       <div className="flex gap-2 text-xs">
-        {[undefined, 'me', 'claude'].map(x => (
+        {[undefined, 'me', 'discord', 'claude'].map(x => (
           <Link
             key={x ?? 'all'}
             href={`/history?tab=activity${x ? `&actor=${x}` : ''}`}
             className={cn('px-2 py-1 rounded border border-border', a === x ? 'bg-muted text-foreground' : 'text-muted-foreground')}
           >
-            {x === 'me' ? 'By me' : x === 'claude' ? 'By Claude' : 'Everyone'}
+            {x === 'me' ? 'By me (app)' : x === 'discord' ? 'By me (Discord)' : x === 'claude' ? 'By Claude' : 'Everyone'}
           </Link>
         ))}
         <span className="text-muted-foreground self-center">Last 14 days</span>
