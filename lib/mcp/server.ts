@@ -5,20 +5,13 @@ import * as tasks from '../data/tasks';
 import * as projects from '../data/projects';
 import { briefTask, dailySummary } from '../data/summary';
 import { InputError, NotFoundError } from '../data/errors';
+import { INSTRUCTIONS, TOOLS, type ToolName } from './docs';
 import { describeActivity } from '../activity-text';
 import { APP_TZ, addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
 import { ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, type Task, type TaskPatch } from '../types';
 
 const ACTOR = 'claude' as const;
 
-const INSTRUCTIONS = `Work OS is Om's personal task system (solo founder of a software agency). You can read and update it.
-- Tasks have a short number ("ref"); refer to them as #12. Any tool that takes "task" accepts 12, "#12" or the task id.
-- Dates are calendar dates (YYYY-MM-DD) in ${APP_TZ}. Date inputs also accept today, tomorrow, a weekday name (next occurrence), +3d, +2w.
-- Statuses: Not Started, In Progress, Blocked, Done, Dropped. Priorities: P1 (must ship today) … P4 (backlog).
-- Modes (type of work): ${ModeSchema.options.join(', ')}.
-- Every write you make is recorded in the task's history as done by Claude. Include a short "note" saying why, especially for status and progress changes.
-- Use log_progress (not update_task) to report progress; use complete_task to finish a task. There is no delete. To abandon a task set status Dropped.
-- For the morning brief, call daily_summary once; it already contains overdue, due today, in progress, blocked, completions and changes since the previous workday.`;
 
 type Ctx = { baseUrl: string };
 
@@ -165,13 +158,13 @@ const fieldShape = {
 
 export function createMcpServer(ctx: Ctx): McpServer {
   const server = new McpServer({ name: 'work-os', version: '1.0.0' }, { instructions: INSTRUCTIONS });
+  // Title/description come from docs.ts so the /connect page shows exactly what Claude sees.
+  const tool = ((name: ToolName, config: object, cb: unknown) =>
+    server.registerTool(name, { ...config, title: TOOLS[name].title, description: TOOLS[name].description }, cb as never)) as unknown as typeof server.registerTool;
 
-  server.registerTool(
+  tool(
     'list_tasks',
     {
-      title: 'List tasks',
-      description:
-        'List/filter tasks. By default returns open (Not Started / In Progress / Blocked), non-archived tasks sorted by priority. Set include_closed or status to see Done/Dropped.',
       inputSchema: {
         status: z.array(StatusSchema).optional(),
         include_closed: z.boolean().optional().describe('Include Done and Dropped tasks'),
@@ -217,22 +210,18 @@ export function createMcpServer(ctx: Ctx): McpServer {
     }),
   );
 
-  server.registerTool(
+  tool(
     'get_task',
     {
-      title: 'Get task',
-      description: 'Full detail for one task, including checklist, links, dependencies and its recent activity history.',
       inputSchema: { task: taskKey, activity_limit: z.number().int().min(1).max(200).optional().describe('Default 20') },
       annotations: { readOnlyHint: true },
     },
     handler(async a => fullTask(a.task, ctx, a.activity_limit)),
   );
 
-  server.registerTool(
+  tool(
     'add_task',
     {
-      title: 'Add task',
-      description: 'Create a task. Only title is required. Defaults: priority P2, status Not Started.',
       inputSchema: {
         title: z.string().min(1),
         ...fieldShape,
@@ -248,12 +237,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     }),
   );
 
-  server.registerTool(
+  tool(
     'update_task',
     {
-      title: 'Update task',
-      description:
-        'Change fields on a task (title, description, project, mode, priority, status, tags, dates, estimate, links, blocked reason, dependencies, recurrence). Only fields you pass change. Changes are diffed into the history with your note.',
       inputSchema: {
         task: taskKey,
         title: z.string().min(1).optional(),
@@ -270,12 +256,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     }),
   );
 
-  server.registerTool(
+  tool(
     'log_progress',
     {
-      title: 'Log progress',
-      description:
-        'Record a progress update: percent complete plus a note on what moved. Moves Not Started → In Progress automatically. Optionally change status (e.g. Blocked, with the reason in the note).',
       inputSchema: {
         task: taskKey,
         progress: z.number().int().min(0).max(100),
@@ -294,11 +277,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     }),
   );
 
-  server.registerTool(
+  tool(
     'complete_task',
     {
-      title: 'Complete task',
-      description: 'Mark a task Done (progress 100). Recurring tasks automatically get their next occurrence created.',
       inputSchema: { task: taskKey, note: z.string().optional().describe('Outcome / what shipped') },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
@@ -309,11 +290,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     }),
   );
 
-  server.registerTool(
+  tool(
     'add_note',
     {
-      title: 'Add note',
-      description: 'Add a note/comment to a task’s history without changing any fields.',
       inputSchema: { task: taskKey, note: z.string().min(1) },
       annotations: { destructiveHint: false },
     },
@@ -323,11 +302,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     }),
   );
 
-  server.registerTool(
+  tool(
     'update_checklist',
     {
-      title: 'Update checklist',
-      description: 'Add, check, uncheck or remove checklist items. Items are matched by number (1-based), id, or text.',
       inputSchema: {
         task: taskKey,
         add: z.array(z.string()).optional(),
@@ -343,11 +320,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     }),
   );
 
-  server.registerTool(
+  tool(
     'list_projects',
     {
-      title: 'List projects',
-      description: 'Projects/clients with open, overdue, in-progress, blocked and completed counts and a completion percentage.',
       inputSchema: { include_inactive: z.boolean().optional().describe('Include done/archived projects') },
       annotations: { readOnlyHint: true },
     },
@@ -357,11 +332,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     }),
   );
 
-  server.registerTool(
+  tool(
     'add_project',
     {
-      title: 'Add project',
-      description: 'Create a project. If one with the same name exists it is returned instead.',
       inputSchema: {
         name: z.string().min(1),
         client: z.string().optional(),
@@ -373,11 +346,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => projects.createProject(a)),
   );
 
-  server.registerTool(
+  tool(
     'update_project',
     {
-      title: 'Update project',
-      description: 'Rename a project or change its client, description or status (active, paused, done, archived).',
       inputSchema: {
         project: z.string().describe('Project id or name'),
         name: z.string().min(1).optional(),
@@ -395,12 +366,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     }),
   );
 
-  server.registerTool(
+  tool(
     'daily_summary',
     {
-      title: 'Daily summary',
-      description:
-        'One call for the morning brief: counts plus overdue, due today, in progress, blocked (incl. waiting on dependencies), due in the next 7 days, tasks completed since, all task changes since (with who made them), and per-project open/overdue counts. "since" defaults to the start of the previous workday (Monday → Friday).',
       inputSchema: {
         since: z.string().optional().describe('yesterday | last_workday | 24h | 3d | YYYY-MM-DD | ISO datetime'),
       },
@@ -409,11 +377,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => dailySummary({ since: parseSince(a.since), baseUrl: ctx.baseUrl })),
   );
 
-  server.registerTool(
+  tool(
     'recent_activity',
     {
-      title: 'Recent activity',
-      description: 'History feed across all tasks (status changes, progress, edits, notes, completions), newest first.',
       inputSchema: {
         since: z.string().optional().describe('Default 24h. yesterday | 48h | 7d | YYYY-MM-DD | ISO datetime'),
         actor: z.enum(['me', 'claude', 'system']).optional().describe('me = Om in the app'),
