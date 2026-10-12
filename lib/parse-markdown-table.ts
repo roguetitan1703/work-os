@@ -1,7 +1,16 @@
-import { Task } from './types';
+import type { Mode, Priority, Status } from './types';
 import { MODE_NAMES } from './modes';
 
-export type ParsedTaskInput = Omit<Task, 'id' | 'addedOn' | 'lastTouched'>;
+export type ParsedTaskInput = {
+  title: string;
+  mode: Mode | null;
+  project: string | null;
+  priority: Priority;
+  estimateMins: number | null;
+  due?: string;
+  status: Status;
+  description: string;
+};
 
 export function parseMarkdownTable(input: string): { tasks: ParsedTaskInput[]; errors: string[] } {
   const errors: string[] = [];
@@ -13,9 +22,9 @@ export function parseMarkdownTable(input: string): { tasks: ParsedTaskInput[]; e
     return { tasks, errors };
   }
 
-  const headerIdx = lines.findIndex(l => /\|\s*mode\s*\|/i.test(l) && /\|\s*task\s*\|/i.test(l));
+  const headerIdx = lines.findIndex(l => /\|\s*(task|title)\s*\|/i.test(l));
   if (headerIdx === -1) {
-    errors.push('Could not find header row with Mode and Task columns.');
+    errors.push('Could not find a header row with a Task column.');
     return { tasks, errors };
   }
 
@@ -26,7 +35,7 @@ export function parseMarkdownTable(input: string): { tasks: ParsedTaskInput[]; e
 
   const colIndex = (name: string) => headerCols.findIndex(c => c.includes(name.toLowerCase()));
   const modeCol = colIndex('mode');
-  const taskCol = colIndex('task');
+  const taskCol = headerCols.findIndex(c => c === 'task' || c === 'title');
   const projectCol = colIndex('project');
   const priorityCol = colIndex('priority');
   const estimateCol = colIndex('estimate');
@@ -53,8 +62,8 @@ export function parseMarkdownTable(input: string): { tasks: ParsedTaskInput[]; e
       continue;
     }
 
-    const matchedMode = MODE_NAMES.find(m => m.toLowerCase() === rawMode.toLowerCase());
-    if (!matchedMode) {
+    const matchedMode = MODE_NAMES.find(m => m.toLowerCase() === rawMode.toLowerCase()) ?? null;
+    if (rawMode && !matchedMode) {
       errors.push(`Row ${i - dataStart + 1}: invalid mode "${rawMode}". Must be one of: ${MODE_NAMES.join(', ')}`);
       continue;
     }
@@ -68,20 +77,20 @@ export function parseMarkdownTable(input: string): { tasks: ParsedTaskInput[]; e
     ) ?? 'Not Started';
 
     const rawEstimate = parseInt(get(estimateCol).replace(/\D/g, ''), 10);
-    const estimateMins = isNaN(rawEstimate) ? 30 : rawEstimate;
+    const estimateMins = isNaN(rawEstimate) ? null : rawEstimate;
 
     const rawDue = get(dueCol);
     const due = /^\d{4}-\d{2}-\d{2}$/.test(rawDue) ? rawDue : undefined;
 
     tasks.push({
-      task: rawTask,
-      mode: matchedMode as any,
-      projectClient: get(projectCol),
-      priority: priority as any,
+      title: rawTask,
+      mode: matchedMode as Mode | null,
+      project: get(projectCol) || null,
+      priority: priority as Priority,
       estimateMins,
       due,
-      status: matchedStatus as any,
-      notes: get(notesCol),
+      status: matchedStatus as Status,
+      description: get(notesCol),
     });
   }
 

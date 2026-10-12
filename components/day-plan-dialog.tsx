@@ -4,7 +4,7 @@ import { useMemo, useTransition } from 'react';
 import { Task, Status } from '@/lib/types';
 import { buildDayPlan, SlotAssignment } from '@/lib/day-plan';
 import { getBlockColor } from '@/lib/modes';
-import { updateTask } from '@/app/actions';
+import { completeTaskAction } from '@/app/actions';
 import { PriorityBadge } from '@/components/priority-badge';
 import { toast } from 'sonner';
 import {
@@ -38,7 +38,7 @@ function fmtMins(m: number): string {
   return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
 }
 
-function fmtDate(d?: string) {
+function fmtDate(d?: string | null) {
   if (!d) return null;
   try { return format(parseISO(d), 'MMM d'); } catch { return null; }
 }
@@ -49,8 +49,9 @@ export function DayPlanDialog({ open, onClose, allTasks, weekday }: Props) {
 
   function markDone(id: string) {
     startTransition(async () => {
-      await updateTask(id, { status: 'Done' });
-      toast.success('Marked done.');
+      const res = await completeTaskAction(id);
+      if (res.ok) toast.success('Marked done.');
+      else toast.error(res.error);
     });
   }
 
@@ -58,7 +59,7 @@ export function DayPlanDialog({ open, onClose, allTasks, weekday }: Props) {
   const totalActive = allTasks.filter(t => t.status !== 'Done' && t.status !== 'Dropped').length;
   const totalEstimate = allTasks
     .filter(t => t.status !== 'Done' && t.status !== 'Dropped')
-    .reduce((s, t) => s + t.estimateMins, 0);
+    .reduce((s, t) => s + (t.estimateMins ?? 0), 0);
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
@@ -111,7 +112,7 @@ export function DayPlanDialog({ open, onClose, allTasks, weekday }: Props) {
                 {plan.unscheduled.map(({ task, reason }) => (
                   <div key={task.id} className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-muted/50 group">
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[task.status]}`} />
-                    <span className="text-sm text-foreground flex-1 truncate">{task.task}</span>
+                    <span className="text-sm text-foreground flex-1 truncate">{task.title}</span>
                     <PriorityBadge priority={task.priority} />
                     <span className="text-xs text-muted-foreground truncate max-w-[160px]">{reason}</span>
                   </div>
@@ -183,17 +184,14 @@ function SlotSection({ slot, onMarkDone }: { slot: SlotAssignment; onMarkDone: (
 
               {/* Task name */}
               <span className={`text-sm flex-1 min-w-0 truncate ${isDone ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                {task.task}
+                {task.title}
               </span>
 
               {/* Metadata chips */}
               <div className="flex items-center gap-1.5 shrink-0">
-                {task.projectClient && (
-                  <span className="text-xs text-muted-foreground hidden group-hover:inline">{task.projectClient}</span>
-                )}
                 <PriorityBadge priority={task.priority} />
                 <span className={`text-xs tabular-nums font-mono ${!fitsInSlot ? 'text-amber-500' : 'text-muted-foreground'}`}>
-                  {fmtMins(task.estimateMins)}
+                  {fmtMins(task.estimateMins ?? 30)}
                 </span>
                 {due && (
                   <span className="text-xs text-muted-foreground">{due}</span>

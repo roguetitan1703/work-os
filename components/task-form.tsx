@@ -1,243 +1,164 @@
-"use client";
+'use client';
 
-import { useState, useTransition } from "react";
-import { toast } from "sonner";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { createTask, updateTask, deleteTask } from "@/app/actions";
-import { Task, Mode, Priority, Status } from "@/lib/types";
-import { MODES } from "@/lib/modes";
+import { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { createTaskAction } from '@/app/actions';
+import { MODES } from '@/lib/modes';
+import { PRIORITIES, STATUSES, type Mode, type Priority, type Status, type TaskInput } from '@/lib/types';
+import { useApp } from './app-context';
 
-const PRIORITIES: Priority[] = ["P1", "P2", "P3", "P4"];
-const STATUSES: Status[] = [
-  "Not Started",
-  "In Progress",
-  "Blocked",
-  "Done",
-  "Dropped",
-];
+const field = 'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring dark:bg-input/30';
 
 type Props = {
   open: boolean;
   onClose: () => void;
-  task?: Task;
-  defaultMode?: Mode;
+  initial?: Partial<TaskInput>;
 };
 
-export function TaskForm({ open, onClose, task, defaultMode }: Props) {
-  const isEdit = !!task;
-  const [pending, startTransition] = useTransition();
-
-  const [fields, setFields] = useState({
-    task: task?.task ?? "",
-    mode: task?.mode ?? defaultMode ?? ("Code & Dev" as Mode),
-    projectClient: task?.projectClient ?? "",
-    priority: task?.priority ?? ("P2" as Priority),
-    estimateMins: task?.estimateMins ?? 30,
-    due: task?.due ?? "",
-    status: task?.status ?? ("Not Started" as Status),
-    notes: task?.notes ?? "",
+export function TaskForm({ open, onClose, initial }: Props) {
+  const { projects } = useApp();
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [f, setF] = useState({
+    title: initial?.title ?? '',
+    description: initial?.description ?? '',
+    project: initial?.project ?? '',
+    mode: (initial?.mode ?? '') as Mode | '',
+    priority: (initial?.priority ?? 'P2') as Priority,
+    status: (initial?.status ?? 'Not Started') as Status,
+    due: initial?.due ?? '',
+    start: initial?.start ?? '',
+    estimateMins: initial?.estimateMins?.toString() ?? '',
+    tags: initial?.tags?.join(', ') ?? '',
+    checklist: '',
+    links: '',
   });
+  const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF(p => ({ ...p, [k]: v }));
 
-  function set<K extends keyof typeof fields>(k: K, v: (typeof fields)[K]) {
-    setFields((prev) => ({ ...prev, [k]: v }));
-  }
-
-  function handleSubmit(e: React.FormEvent) {
+  function submit(e: React.FormEvent, openAfter = false) {
     e.preventDefault();
-    startTransition(async () => {
-      try {
-        if (isEdit) {
-          await updateTask(task!.id, fields);
-          toast.success("Task updated.");
-        } else {
-          await createTask(fields);
-          toast.success("Task created.");
-        }
-        onClose();
-      } catch {
-        toast.error("Something went wrong.");
-      }
-    });
-  }
-
-  function handleDelete() {
-    if (!task) return;
-    startTransition(async () => {
-      try {
-        await deleteTask(task.id);
-        toast.success("Task deleted.");
-        onClose();
-      } catch {
-        toast.error("Failed to delete.");
-      }
+    const lines = (s: string) => s.split('\n').map(l => l.trim()).filter(Boolean);
+    const input: TaskInput = {
+      title: f.title,
+      description: f.description,
+      project: f.project.trim() || null,
+      mode: f.mode || null,
+      priority: f.priority,
+      status: f.status,
+      due: f.due || null,
+      start: f.start || null,
+      estimateMins: f.estimateMins ? parseInt(f.estimateMins, 10) : null,
+      tags: f.tags.split(',').map(t => t.trim()).filter(Boolean),
+      checklist: lines(f.checklist),
+      links: lines(f.links),
+    };
+    start(async () => {
+      const res = await createTaskAction(input);
+      if (!res.ok) return void toast.error(res.error);
+      toast.success(`Created #${res.data.ref}`);
+      onClose();
+      if (openAfter) router.push(`/tasks/${res.data.ref}`);
     });
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-lg">
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit Task" : "Add Task"}</DialogTitle>
+          <DialogTitle>New task</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="task">Task *</Label>
-            <Input
-              id="task"
-              value={fields.task}
-              onChange={(e) => set("task", e.target.value)}
-              required
-              autoFocus
-            />
+        <form onSubmit={submit} className="space-y-3">
+          <Input value={f.title} onChange={e => set('title', e.target.value)} placeholder="Title" required autoFocus />
+          <Textarea value={f.description} onChange={e => set('description', e.target.value)} placeholder="Description, context, acceptance criteria…" rows={4} />
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Project / client</Label>
+              <input list="project-options" className={field} value={f.project} onChange={e => set('project', e.target.value)} placeholder="New or existing" />
+              <datalist id="project-options">
+                {projects.map(p => (
+                  <option key={p.id} value={p.name} />
+                ))}
+              </datalist>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Mode</Label>
+              <select className={field} value={f.mode} onChange={e => set('mode', e.target.value as Mode | '')}>
+                <option value="">—</option>
+                {MODES.map(m => (
+                  <option key={m.name} value={m.name}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-4 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Priority</Label>
+              <select className={field} value={f.priority} onChange={e => set('priority', e.target.value as Priority)}>
+                {PRIORITIES.map(p => (
+                  <option key={p}>{p}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1 col-span-1">
+              <Label className="text-xs">Status</Label>
+              <select className={field} value={f.status} onChange={e => set('status', e.target.value as Status)}>
+                {STATUSES.map(s => (
+                  <option key={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Start</Label>
+              <input type="date" className={field} value={f.start} onChange={e => set('start', e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Due</Label>
+              <input type="date" className={field} value={f.due} onChange={e => set('due', e.target.value)} />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Mode *</Label>
-              <Select
-                value={fields.mode}
-                onValueChange={(v) => set("mode", v as Mode)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MODES.map((m) => (
-                    <SelectItem key={m.name} value={m.name}>
-                      {m.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="space-y-1">
+              <Label className="text-xs">Estimate (min)</Label>
+              <input type="number" min={0} className={field} value={f.estimateMins} onChange={e => set('estimateMins', e.target.value)} />
             </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="project">Project / Client</Label>
-              <Input
-                id="project"
-                value={fields.projectClient}
-                onChange={(e) => set("projectClient", e.target.value)}
-              />
+            <div className="space-y-1">
+              <Label className="text-xs">Tags (comma separated)</Label>
+              <input className={field} value={f.tags} onChange={e => set('tags', e.target.value)} />
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label>Priority</Label>
-              <Select
-                value={fields.priority}
-                onValueChange={(v) => set("priority", v as Priority)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PRIORITIES.map((p) => (
-                    <SelectItem key={p} value={p}>
-                      {p}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Checklist (one per line)</Label>
+              <Textarea value={f.checklist} onChange={e => set('checklist', e.target.value)} rows={3} />
             </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="estimate">Estimate (min)</Label>
-              <Input
-                id="estimate"
-                type="number"
-                min={0}
-                value={fields.estimateMins}
-                onChange={(e) =>
-                  set("estimateMins", parseInt(e.target.value) || 0)
-                }
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="due">Due Date</Label>
-              <Input
-                id="due"
-                type="date"
-                value={fields.due}
-                onChange={(e) => set("due", e.target.value)}
-              />
+            <div className="space-y-1">
+              <Label className="text-xs">Links (one per line)</Label>
+              <Textarea value={f.links} onChange={e => set('links', e.target.value)} rows={3} />
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Status</Label>
-            <Select
-              value={fields.status}
-              onValueChange={(v) => set("status", v as Status)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STATUSES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="notes">Notes</Label>
-            <Textarea
-              id="notes"
-              value={fields.notes}
-              onChange={(e) => set("notes", e.target.value)}
-              rows={3}
-            />
-          </div>
-
-          <div className="flex justify-between pt-1">
-            {isEdit ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
-                onClick={handleDelete}
-                disabled={pending}
-              >
-                Delete
-              </Button>
-            ) : (
-              <div />
-            )}
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onClose}
-                disabled={pending}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={pending || !fields.task.trim()}>
-                {pending ? "Saving…" : isEdit ? "Save" : "Add Task"}
-              </Button>
-            </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
+              Cancel
+            </Button>
+            <Button type="button" variant="outline" disabled={pending || !f.title.trim()} onClick={e => submit(e, true)}>
+              Create &amp; open
+            </Button>
+            <Button type="submit" disabled={pending || !f.title.trim()}>
+              {pending ? 'Saving…' : 'Create'}
+            </Button>
           </div>
         </form>
       </DialogContent>

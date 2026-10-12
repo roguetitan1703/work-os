@@ -1,27 +1,70 @@
 # Work OS
 
-Personal task manager. Localhost only. No auth, no cloud.
+Personal task system: Today view, board, projects, per-task history, and an MCP endpoint so Claude (claude.ai chat and a morning brief) can read and update tasks.
+
+Next.js 16 on Vercel, data in MongoDB Atlas.
 
 ## Setup
 
 ```bash
 npm install
+cp .env.example .env.local   # fill in MONGODB_URI etc.
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open http://localhost:3000. With `APP_PASSWORD` unset, local dev skips the login screen.
 
-## Data
+## Data model
 
-Tasks are stored in `data/tasks.json` (created automatically on first run). This file is gitignored — your data stays local.
+- **tasks**: title, description, project, mode, priority (P1–P4), status (Not Started / In Progress / Blocked / Done / Dropped), tags, start and due dates, estimate, progress %, checklist, links, blocked reason, dependencies, recurrence, archived. Each task has a short number (`#12`).
+- **activity**: one entry per change (created, status, progress with note, edit diff, note, checklist, completed, reopened, archived), with who did it: `me` (the UI), `claude` (MCP) or `system`.
+- **projects**: name, client, description, status.
+- **reviews**, **ritualLogs**: weekly review and the Fiverr ritual check-in.
 
-## Usage
+All reads and writes go through `lib/data/*`, which is shared by the UI (server actions), the JSON API and the MCP server. Nothing is ever hard-deleted: tasks are archived or set to Dropped.
 
-- **Today** — see today's schedule and all P1 tasks
-- **Modes** — 8 work modes, each with its own task list
-- **Paste Import** — paste a markdown table from Claude to bulk-insert tasks
-- **Hidden Work** — tasks not touched in 7+ days
-- **Archive** — completed tasks grouped by week
-- **Weekly Review** — log shipped/slipped/adjustments each week
-- **Timetable** — full Mon–Fri schedule grid
-- **Recovery** — playbook for when the day breaks
+## Auth
+
+| Surface | How |
+|---|---|
+| Web UI | `/login` with `APP_PASSWORD` → signed, httpOnly cookie (`SESSION_SECRET`), checked in `proxy.ts` and again in every server action |
+| `/api/mcp` | `MCP_TOKEN`, either `Authorization: Bearer <token>` or as a path segment: `/api/mcp/<token>` |
+| other `/api/*` | session cookie or `Authorization: Bearer <MCP_TOKEN>` |
+
+In production, missing secrets fail closed.
+
+## MCP tools
+
+`list_tasks`, `get_task`, `add_task`, `update_task`, `log_progress`, `complete_task`, `add_note`, `update_checklist`, `list_projects`, `add_project`, `update_project`, `daily_summary`, `recent_activity`. No delete.
+
+Connector URL for claude.ai (Settings → Connectors → Add custom connector):
+
+```
+https://<your-app>.vercel.app/api/mcp/<MCP_TOKEN>
+```
+
+Smoke test:
+
+```bash
+node scripts/test-mcp.mjs https://<your-app>.vercel.app/api/mcp/<MCP_TOKEN>          # read-only
+node scripts/test-mcp.mjs https://<your-app>.vercel.app/api/mcp/<MCP_TOKEN> --write  # also creates, progresses, completes and drops a test task
+```
+
+## Migrating the old `data/tasks.json`
+
+```bash
+node --env-file=.env.local scripts/migrate-from-json.mjs --dry-run
+node --env-file=.env.local scripts/migrate-from-json.mjs
+```
+
+Safe to re-run. The source file is only read. Afterwards it checks every task, review and ritual log against the source.
+
+## Quick capture
+
+Press `N` anywhere (or use the bar on Today, Board and project pages):
+
+```
+Send invoice @"Grant Leads" !1 #billing due:fri ~20m mode:admin
+```
+
+`@project`, `!1`–`!4`, `#tag`, `due:` / `start:` (today, tomorrow, fri, +3d, 2026-10-20), `~45m` / `~1h30m`, `mode:code|client|team|sales|growth|research|founder|admin`. Shift+Enter opens the full form.

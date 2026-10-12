@@ -16,7 +16,8 @@ import {
   parseMarkdownTable,
   ParsedTaskInput,
 } from "@/lib/parse-markdown-table";
-import { bulkInsertTasks } from "@/app/actions";
+import { bulkCreateTasksAction } from "@/app/actions";
+import type { Mode, Priority, Status } from "@/lib/types";
 import { PriorityBadge } from "@/components/priority-badge";
 
 type Tab = "markdown" | "json";
@@ -25,14 +26,14 @@ type Props = { open: boolean; onClose: () => void };
 const JSON_SCHEMA_HINT = `Ask Claude to output a JSON array like this:
 [
   {
-    "task": "Write proposal for Acme",
+    "title": "Write proposal for Acme",
     "mode": "Client Delivery",
-    "projectClient": "Acme Corp",
+    "project": "Acme Corp",
     "priority": "P1",
     "estimateMins": 45,
     "due": "2026-05-10",
     "status": "Not Started",
-    "notes": ""
+    "description": ""
   }
 ]
 
@@ -88,11 +89,12 @@ function parseJSON(raw: string): {
     const row = parsed[i] as Record<string, unknown>;
     const rowNum = i + 1;
 
-    if (!row.task || typeof row.task !== "string" || !row.task.trim()) {
-      errors.push(`Row ${rowNum}: missing "task"`);
+    const title = row.title ?? row.task;
+    if (!title || typeof title !== "string" || !title.trim()) {
+      errors.push(`Row ${rowNum}: missing "title"`);
       continue;
     }
-    if (!row.mode || !VALID_MODES.includes(row.mode as string)) {
+    if (row.mode && !VALID_MODES.includes(row.mode as string)) {
       errors.push(
         `Row ${rowNum}: invalid mode "${row.mode}". Must be one of: ${VALID_MODES.join(", ")}`,
       );
@@ -115,7 +117,7 @@ function parseJSON(raw: string): {
     const estimateMins =
       typeof row.estimateMins === "number" && row.estimateMins >= 0
         ? Math.round(row.estimateMins)
-        : 30;
+        : null;
 
     const due =
       typeof row.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.due)
@@ -123,15 +125,15 @@ function parseJSON(raw: string): {
         : undefined;
 
     tasks.push({
-      task: row.task.trim(),
-      mode: row.mode as any,
-      projectClient:
-        typeof row.projectClient === "string" ? row.projectClient : "",
-      priority: priority as any,
+      title: title.trim(),
+      mode: (row.mode as Mode) ?? null,
+      project:
+        typeof (row.project ?? row.projectClient) === "string" ? String(row.project ?? row.projectClient) || null : null,
+      priority: priority as Priority,
       estimateMins,
       due,
-      status: status as any,
-      notes: typeof row.notes === "string" ? row.notes : "",
+      status: status as Status,
+      description: typeof (row.description ?? row.notes) === "string" ? String(row.description ?? row.notes) : "",
     });
   }
 
@@ -170,7 +172,8 @@ export function PasteImportDialog({ open, onClose }: Props) {
     if (selected.length === 0) return;
     setImporting(true);
     try {
-      await bulkInsertTasks(selected);
+      const res = await bulkCreateTasksAction(selected);
+      if (!res.ok) throw new Error(res.error);
       toast.success(
         `Inserted ${selected.length} task${selected.length !== 1 ? "s" : ""}. View them in Today or by mode.`,
       );
@@ -228,7 +231,7 @@ export function PasteImportDialog({ open, onClose }: Props) {
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Ask Claude to output:{" "}
                   <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">
-                    | Mode | Task | Project/Client | Priority | Estimate | Due |
+                    | Task | Mode | Project | Priority | Estimate | Due |
                     Status | Notes |
                   </code>
                 </p>
@@ -305,19 +308,19 @@ export function PasteImportDialog({ open, onClose }: Props) {
                         />
                       </td>
                       <td className="px-3 py-2 font-medium max-w-xs truncate">
-                        {row.task.task}
+                        {row.task.title}
                       </td>
                       <td className="px-3 py-2 text-gray-600 dark:text-gray-400 text-xs">
-                        {row.task.mode}
+                        {row.task.mode ?? "—"}
                       </td>
                       <td className="px-3 py-2 text-gray-500 dark:text-gray-400">
-                        {row.task.projectClient || "—"}
+                        {row.task.project || "—"}
                       </td>
                       <td className="px-3 py-2">
                         <PriorityBadge priority={row.task.priority} />
                       </td>
                       <td className="px-3 py-2 text-gray-500 dark:text-gray-400">
-                        {row.task.estimateMins}m
+                        {row.task.estimateMins ? `${row.task.estimateMins}m` : "—"}
                       </td>
                       <td className="px-3 py-2 text-gray-500 dark:text-gray-400">
                         {row.task.due || "—"}

@@ -1,0 +1,35 @@
+import { Sidebar } from '@/components/sidebar';
+import { CurrentBlockBar } from '@/components/current-block-bar';
+import { PageTint } from '@/components/page-tint';
+import { AppContextProvider } from '@/components/app-context';
+import { listProjectsBasic } from '@/lib/data/projects';
+import { getStats } from '@/lib/data/summary';
+import { collections } from '@/lib/db';
+import { OPEN_STATUSES } from '@/lib/types';
+import { todayStr } from '@/lib/dates';
+
+// Every page reads live data (the MCP connector writes too), so never prerender.
+export const dynamic = 'force-dynamic';
+
+async function hiddenCount(): Promise<number> {
+  const c = await collections();
+  return c.tasks.countDocuments({
+    archived: false,
+    status: { $in: OPEN_STATUSES },
+    updatedAt: { $lt: new Date(Date.now() - 7 * 86_400_000) },
+  });
+}
+
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const [projects, stats, hidden] = await Promise.all([listProjectsBasic(), getStats(), hiddenCount()]);
+  return (
+    <AppContextProvider today={todayStr()} projects={projects.map(p => ({ id: p.id, name: p.name, status: p.status }))}>
+      <PageTint />
+      <Sidebar stats={stats} hiddenCount={hidden} />
+      <main className="flex-1 min-w-0 overflow-y-auto pb-12 relative z-10">
+        <div className="p-6">{children}</div>
+      </main>
+      <CurrentBlockBar />
+    </AppContextProvider>
+  );
+}

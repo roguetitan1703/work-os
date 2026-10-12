@@ -1,0 +1,65 @@
+import Link from 'next/link';
+import { listProjects } from '@/lib/data/projects';
+import { fmtAgo } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import { NewProjectButton } from './new-project';
+
+type Props = { searchParams: Promise<{ all?: string }> };
+
+export default async function ProjectsPage({ searchParams }: Props) {
+  const { all } = await searchParams;
+  const projects = await listProjects({ includeInactive: all === '1' });
+
+  return (
+    <div className="space-y-5 max-w-6xl">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Projects</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {projects.length} {all === '1' ? 'total' : 'active or paused'} ·{' '}
+            <Link href={all === '1' ? '/projects' : '/projects?all=1'} className="underline">
+              {all === '1' ? 'hide finished' : 'show all'}
+            </Link>
+          </p>
+        </div>
+        <NewProjectButton />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {projects.map(p => (
+          <Link
+            key={p.id}
+            href={`/projects/${p.id}`}
+            className={cn('rounded-xl border border-border bg-card p-4 space-y-3 hover:bg-muted/40 transition-colors', p.status !== 'active' && 'opacity-70')}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-semibold text-foreground truncate">{p.name}</div>
+                {p.client && <div className="text-xs text-muted-foreground truncate">{p.client}</div>}
+              </div>
+              {p.status !== 'active' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{p.status}</span>}
+            </div>
+            <div className="space-y-1">
+              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                <div className="h-full bg-green-500" style={{ width: `${p.stats.completion}%` }} />
+              </div>
+              <div className="flex justify-between text-[11px] text-muted-foreground">
+                <span>
+                  {p.stats.done} done · {p.stats.open} open
+                </span>
+                <span>{p.stats.completion}%</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-xs flex-wrap">
+              {p.stats.overdue > 0 && <span className="text-red-600 dark:text-red-400 font-medium">{p.stats.overdue} overdue</span>}
+              {p.stats.inProgress > 0 && <span className="text-blue-600 dark:text-blue-400">{p.stats.inProgress} in progress</span>}
+              {p.stats.blocked > 0 && <span className="text-red-600 dark:text-red-400">{p.stats.blocked} blocked</span>}
+              {p.stats.doneThisWeek > 0 && <span className="text-green-600 dark:text-green-400">{p.stats.doneThisWeek} done this week</span>}
+              {p.stats.lastActivityAt && <span className="text-muted-foreground ml-auto">{fmtAgo(p.stats.lastActivityAt)}</span>}
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}

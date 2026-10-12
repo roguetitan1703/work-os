@@ -35,7 +35,7 @@ export type DayPlan = {
 function slotDurationMins(blk: ScheduleBlock): number {
   const [sh, sm] = blk.start.split(':').map(Number);
   const [eh, em] = blk.end.split(':').map(Number);
-  let start = sh * 60 + sm;
+  const start = sh * 60 + sm;
   let end = eh * 60 + em;
   if (end <= start) end += 24 * 60;
   return end - start;
@@ -57,12 +57,13 @@ export function buildDayPlan(
     if (a.due && b.due) return a.due.localeCompare(b.due);
     if (a.due) return -1;
     if (b.due) return 1;
-    return a.estimateMins - b.estimateMins;
+    return (a.estimateMins ?? 30) - (b.estimateMins ?? 30);
   });
 
   // Group tasks by mode
   const tasksByMode = new Map<string, Task[]>();
   for (const t of sorted) {
+    if (!t.mode) continue;
     if (!tasksByMode.has(t.mode)) tasksByMode.set(t.mode, []);
     tasksByMode.get(t.mode)!.push(t);
   }
@@ -108,10 +109,10 @@ export function buildDayPlan(
     .filter(t => !placed.has(t.id))
     .map(t => ({
       task: t,
-      reason: `No time slot scheduled for ${t.mode} today`,
+      reason: t.mode ? `No time slot scheduled for ${t.mode} today` : 'No mode set',
     }));
 
-  const totalTaskMins = active.reduce((s, t) => s + t.estimateMins, 0);
+  const totalTaskMins = active.reduce((s, t) => s + (t.estimateMins ?? 0), 0);
   const totalSlotMins = slots.reduce((s, sl) => s + sl.slotMins, 0);
 
   return { slots, unscheduled, totalTaskMins, totalSlotMins };

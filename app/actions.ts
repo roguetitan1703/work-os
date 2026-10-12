@@ -1,101 +1,116 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { randomUUID } from 'node:crypto';
-import { readData, writeData } from '@/lib/storage';
-import { Task, TaskSchema, WeeklyReview, WeeklyReviewSchema, FiverrRitualLog, FiverrRitualLogSchema } from '@/lib/types';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { ZodError } from 'zod';
+import { SESSION_COOKIE, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
+import * as tasks from '@/lib/data/tasks';
+import * as projects from '@/lib/data/projects';
+import * as reviews from '@/lib/data/reviews';
+import { InputError, NotFoundError } from '@/lib/data/errors';
+import type {
+  FiverrRitualLog,
+  Project,
+  ProjectInput,
+  Status,
+  Task,
+  TaskInput,
+  TaskPatch,
+  WeeklyReview,
+} from '@/lib/types';
 
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+export type Result<T> = { ok: true; data: T } | { ok: false; error: string };
+
+async function requireUser(): Promise<void> {
+  if (uiAuthDisabled()) return;
+  const value = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (!(await verifySessionValue(value))) throw new Error('Not signed in');
 }
 
-export async function createTask(input: Omit<Task, 'id' | 'addedOn' | 'lastTouched'>): Promise<Task> {
-  const data = readData();
-  const now = todayISO();
-  const task: Task = TaskSchema.parse({
-    ...input,
-    id: randomUUID(),
-    addedOn: now,
-    lastTouched: now,
-  });
-  data.tasks.push(task);
-  writeData(data);
-  revalidatePath('/', 'layout');
-  return task;
+async function run<T>(fn: () => Promise<T>): Promise<Result<T>> {
+  try {
+    await requireUser();
+    const data = await fn();
+    revalidatePath('/', 'layout');
+    return { ok: true, data };
+  } catch (err) {
+    if (err instanceof ZodError) return { ok: false, error: err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') };
+    if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
+    console.error(err);
+    return { ok: false, error: err instanceof Error && err.message === 'Not signed in' ? err.message : 'Something went wrong' };
+  }
 }
 
-export async function updateTask(id: string, patch: Partial<Task>): Promise<Task | null> {
-  const data = readData();
-  const idx = data.tasks.findIndex(t => t.id === id);
-  if (idx === -1) return null;
+// ── Tasks (actor: me) ───────────────────────────────────────────────────────
 
-  const now = todayISO();
-  const updated: Task = TaskSchema.parse({
-    ...data.tasks[idx],
-    ...patch,
-    lastTouched: now,
-    doneDate: patch.status === 'Done' && !data.tasks[idx].doneDate ? now : data.tasks[idx].doneDate,
-  });
-  data.tasks[idx] = updated;
-  writeData(data);
-  revalidatePath('/', 'layout');
-  return updated;
+export async function createTaskAction(input: TaskInput): Promise<Result<Task>> {
+  return run(() => tasks.createTask(input, 'me'));
 }
 
-export async function deleteTask(id: string): Promise<void> {
-  const data = readData();
-  data.tasks = data.tasks.filter(t => t.id !== id);
-  writeData(data);
-  revalidatePath('/', 'layout');
+export async function bulkCreateTasksAction(inputs: TaskInput[]): Promise<Result<Task[]>> {
+  return run(() => tasks.bulkCreateTasks(inputs, 'me'));
 }
 
-export async function bulkInsertTasks(tasks: Omit<Task, 'id' | 'addedOn' | 'lastTouched'>[]): Promise<Task[]> {
-  const data = readData();
-  const now = todayISO();
-  const inserted: Task[] = tasks.map(t => TaskSchema.parse({
-    ...t,
-    id: randomUUID(),
-    addedOn: now,
-    lastTouched: now,
-  }));
-  data.tasks.push(...inserted);
-  writeData(data);
-  revalidatePath('/', 'layout');
-  return inserted;
+export async function updateTaskAction(id: string, patch: TaskPatch, note?: string): Promise<Result<Task>> {
+  return run(() => tasks.updateTask(id, patch, 'me', { note }));
 }
+
+export async function logProgressAction(id: string, progress: number, note?: string, status?: Status): Promise<Result<Task>> {
+  return run(() => tasks.logProgress(id, progress, note, 'me', status));
+}
+
+export async function completeTaskAction(id: string, note?: string): Promise<Result<Task>> {
+  return run(() => tasks.completeTask(id, note, 'me'));
+}
+
+export async function addCommentAction(id: string, note: string): Promise<Result<Task>> {
+  return run(() => tasks.addComment(id, note, 'me'));
+}
+
+export async function setArchivedAction(id: string, archived: boolean): Promise<Result<Task>> {
+  return run(() => tasks.setArchived(id, archived, 'me'));
+}
+
+export async function checklistAction(id: string, ops: tasks.ChecklistOps): Promise<Result<Task>> {
+  return run(() => tasks.updateChecklist(id, ops, 'me'));
+}
+
+// ── Projects ────────────────────────────────────────────────────────────────
+
+export async function createProjectAction(input: ProjectInput): Promise<Result<{ project: Project; created: boolean }>> {
+  return run(() => projects.createProject(input));
+}
+
+export async function updateProjectAction(id: string, patch: Partial<ProjectInput>): Promise<Result<Project>> {
+  return run(() => projects.updateProject(id, patch));
+}
+
+// ── Weekly review + Fiverr ritual ───────────────────────────────────────────
 
 export async function createReview(input: Omit<WeeklyReview, 'id'>): Promise<WeeklyReview> {
-  const data = readData();
-  const review = WeeklyReviewSchema.parse({ ...input, id: randomUUID() });
-  data.reviews.push(review);
-  writeData(data);
+  await requireUser();
+  const r = await reviews.createReview(input);
   revalidatePath('/review');
-  return review;
+  return r;
 }
 
 export async function updateReview(id: string, patch: Partial<WeeklyReview>): Promise<void> {
-  const data = readData();
-  const idx = data.reviews.findIndex(r => r.id === id);
-  if (idx === -1) return;
-  data.reviews[idx] = WeeklyReviewSchema.parse({ ...data.reviews[idx], ...patch });
-  writeData(data);
+  await requireUser();
+  await reviews.updateReview(id, patch);
   revalidatePath('/review');
 }
 
-export async function logFiverrRitual(
-  input: { bidsPlaced: number; notes?: string },
-): Promise<FiverrRitualLog> {
-  const data = readData();
-  const date = todayISO();
-  const existing = data.ritualLogs.findIndex(r => r.date === date);
-  const log = FiverrRitualLogSchema.parse({ ...input, id: randomUUID(), date });
-  if (existing !== -1) {
-    // overwrite today's log if re-submitted
-    data.ritualLogs[existing] = log;
-  } else {
-    data.ritualLogs.push(log);
-  }
-  writeData(data);
+export async function logFiverrRitual(input: { bidsPlaced: number; notes?: string }): Promise<FiverrRitualLog> {
+  await requireUser();
+  const log = await reviews.logFiverrRitual(input);
   revalidatePath('/', 'layout');
   return log;
+}
+
+// ── Session ─────────────────────────────────────────────────────────────────
+
+export async function logoutAction(): Promise<void> {
+  (await cookies()).delete(SESSION_COOKIE);
+  redirect('/login');
 }
