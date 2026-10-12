@@ -66,8 +66,21 @@ type Cache = { client?: Promise<MongoClient>; indexes?: Promise<void> };
 const g = globalThis as unknown as { __workosMongo?: Cache };
 const cache: Cache = (g.__workosMongo ??= {});
 
+/** Env var names that look like a Mongo connection string (Vercel integrations may add a prefix). */
+export function mongoEnvNames(): string[] {
+  return Object.keys(process.env).filter(k => /MONGO/i.test(k)).sort();
+}
+
+function mongoUri(): string | undefined {
+  if (process.env.MONGODB_URI) return process.env.MONGODB_URI;
+  const key = Object.keys(process.env).find(
+    k => /(^|_)MONGODB_URI$|(^|_)MONGO_URL$|(^|_)MONGO_URI$/i.test(k) && process.env[k]?.startsWith('mongodb'),
+  );
+  return key ? process.env[key] : undefined;
+}
+
 function getClient(): Promise<MongoClient> {
-  const uri = process.env.MONGODB_URI;
+  const uri = mongoUri();
   if (!uri) throw new Error('MONGODB_URI is not set');
   if (!cache.client) {
     cache.client = new MongoClient(uri, { maxPoolSize: 5, appName: 'work-os' }).connect().catch(err => {

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { bearerToken, checkToken, uiAuthConfigured } from '@/lib/auth';
-import { collections } from '@/lib/db';
+import { collections, mongoEnvNames } from '@/lib/db';
 import { APP_TZ, todayStr } from '@/lib/dates';
 
 // Connects to MongoDB (creating collections/indexes on first run) and reports what is configured.
@@ -13,6 +13,8 @@ export async function GET(req: Request) {
   if (!(await checkToken(bearerToken(req)))) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const env = {
     MONGODB_URI: !!process.env.MONGODB_URI,
+    mongoVarsSeen: mongoEnvNames(),
+    VERCEL_ENV: process.env.VERCEL_ENV ?? null,
     MONGODB_DB: process.env.MONGODB_DB || 'workos (default)',
     APP_PASSWORD_and_SESSION_SECRET: uiAuthConfigured(),
     MCP_TOKEN: true,
