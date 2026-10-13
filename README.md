@@ -49,6 +49,10 @@ node scripts/test-mcp.mjs https://<your-app>.vercel.app/api/mcp <MCP_TOKEN>     
 node scripts/test-mcp.mjs https://<your-app>.vercel.app/api/mcp <MCP_TOKEN> --write  # also creates, progresses, completes and drops a test task
 ```
 
+## Phone app (PWA)
+
+Under 768px the app switches to a phone UI (desktop is unchanged): bottom tabs (Today, Tasks, +, Notes, More), a Today screen of overdue / due today / in progress / blocked / up next with tap-to-complete and undo, a searchable Tasks list with segments and project chips, a quick-add bottom sheet with one-tap due/priority/project, and a full-screen task view with one-tap status and priority, native date/project pickers, checklist, note, comments and a sticky Mark done. Installable: web manifest (`app/manifest.ts`), generated icons (`/icons/*`), service worker (`public/sw.js`, network-first pages, offline fallback), safe-area aware. Install: iPhone Safari → Share → Add to Home Screen; Android Chrome → Install app.
+
 ## Notes
 
 Notion-style pages (BlockNote editor: `/` menu, toggles, callouts, colours, tables, drag handles, `@` mentions of tasks and projects, sub-pages, images and files). A task has one note; projects can have many; sub-pages nest inside any note. Blocks are stored as the source of truth with a markdown copy for search and for Claude, who edits by block id (`read_note` → `write_note` with `block_ops`) so formatting it doesn't touch is kept. Saves carry the version they edited; if Claude changed the page meanwhile, the editor reloads instead of overwriting.

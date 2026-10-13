@@ -100,7 +100,7 @@ export function TaskForm({ open, onClose, initial }: Props) {
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">Priority</Label>
               <select className={field} value={f.priority} onChange={e => set('priority', e.target.value as Priority)}>

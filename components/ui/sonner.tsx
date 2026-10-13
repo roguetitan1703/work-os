@@ -1,15 +1,28 @@
 "use client"
 
+import { useSyncExternalStore } from "react"
 import { useTheme } from "next-themes"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
+// Phones get toasts at the top, clear of the tab bar and the sticky "Mark done" button.
+const PHONE = "(max-width: 767px)"
+const subscribe = (cb: () => void) => {
+  const m = window.matchMedia(PHONE)
+  m.addEventListener("change", cb)
+  return () => m.removeEventListener("change", cb)
+}
+
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme()
+  const phone = useSyncExternalStore(subscribe, () => window.matchMedia(PHONE).matches, () => false)
 
   return (
     <Sonner
       theme={theme as ToasterProps["theme"]}
+      position={phone ? "top-center" : "bottom-right"}
+      mobileOffset={{ top: "calc(env(safe-area-inset-top) + 8px)" }}
+      duration={phone ? 2500 : 4000}
       className="toaster group"
       icons={{
         success: (

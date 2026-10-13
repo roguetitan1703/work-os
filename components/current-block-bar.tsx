@@ -22,7 +22,7 @@ export function CurrentBlockBar() {
 
   if (!now) {
     return (
-      <div className="fixed bottom-0 left-0 right-0 h-10 bg-gray-100 dark:bg-black border-t border-gray-200 dark:border-gray-700 flex items-center px-4 text-xs text-gray-400 dark:text-gray-500 z-50">
+      <div className="hidden md:flex fixed bottom-0 left-0 right-0 h-10 bg-gray-100 dark:bg-black border-t border-gray-200 dark:border-gray-700 items-center px-4 text-xs text-gray-400 dark:text-gray-500 z-50">
         Loading…
       </div>
     );
@@ -37,7 +37,7 @@ export function CurrentBlockBar() {
 
   if (!block || !weekday) {
     return (
-      <div className="fixed bottom-0 left-0 right-0 h-10 bg-gray-100 dark:bg-black border-t border-gray-200 dark:border-gray-700 flex items-center px-4 gap-4 text-xs text-gray-500 dark:text-gray-400 z-50">
+      <div className="hidden md:flex fixed bottom-0 left-0 right-0 h-10 bg-gray-100 dark:bg-black border-t border-gray-200 dark:border-gray-700 items-center px-4 gap-4 text-xs text-gray-500 dark:text-gray-400 z-50">
         <span className="font-mono">{timeStr}</span>
         <span>Off-schedule</span>
       </div>
@@ -49,7 +49,7 @@ export function CurrentBlockBar() {
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 h-10 border-t flex items-center px-4 gap-4 text-xs font-medium z-50"
+      className="hidden md:flex fixed bottom-0 left-0 right-0 h-10 border-t items-center px-4 gap-4 text-xs font-medium z-50"
       style={{
         backgroundColor: theme === "dark" ? "black" : color.light,
         borderColor: color.hex + "40",

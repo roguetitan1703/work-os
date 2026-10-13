@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>Offline · Work OS</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fff; --fg: #111; --muted: #6b7280; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0a0a0a; --fg: #ededed; --muted: #9ca3af; } }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--fg);
+         font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 24px; box-sizing: border-box; text-align: center; }
+  h1 { font-size: 22px; margin: 16px 0 6px; }
+  p { color: var(--muted); margin: 0 0 20px; }
+  button { height: 48px; padding: 0 24px; border-radius: 14px; border: 0; background: var(--fg); color: var(--bg); font-size: 16px; font-weight: 600; }
+</style>
+</head>
+<body>
+  <div>
+    <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 8.8a15 15 0 0 1 20 0M5 12.6a10 10 0 0 1 14 0M8.5 16.4a5 5 0 0 1 7 0M12 20h.01"/><path d="M3 3l18 18"/></svg>
+    <h1>You're offline</h1>
+    <p>Work OS needs a connection to load your tasks.</p>
+    <button onclick="location.reload()">Try again</button>
+  </div>
+</body>
+</html>

@@ -34,7 +34,7 @@ export function PageTint() {
 
   return (
     <div
-      className="pointer-events-none fixed inset-0 z-0 transition-colors duration-1000"
+      className="hidden md:block pointer-events-none fixed inset-0 z-0 transition-colors duration-1000"
       style={{
         background: `linear-gradient(135deg, ${color.light}60 0%, transparent 40%)`,
         borderLeft: `3px solid ${color.hex}40`,

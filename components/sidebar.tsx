@@ -9,7 +9,7 @@ import { QuickAddLauncher } from './quick-add';
 
 export function Sidebar({ stats, hiddenCount }: { stats: Stats; hiddenCount: number }) {
   return (
-    <aside className="w-56 shrink-0 h-screen sticky top-0 border-r bg-white dark:bg-black flex flex-col overflow-y-auto">
+    <aside className="hidden md:flex w-56 shrink-0 h-screen sticky top-0 border-r bg-white dark:bg-black flex-col overflow-y-auto">
       <div className="p-4 border-b border-border">
         <span className="font-bold text-sm tracking-tight text-foreground">Work OS</span>
       </div>

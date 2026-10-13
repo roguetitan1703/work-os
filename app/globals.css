@@ -167,3 +167,11 @@
 .wo-page-link:hover {
   background: var(--color-muted);
 }
+
+/* ── Phone ────────────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  /* 16px+ inputs stop iOS from zooming in on focus. */
+  input, textarea, select { font-size: max(16px, 1em); }
+  .wo-editor .bn-editor { padding-inline: 0.75rem; }
+  html, body { overscroll-behavior-y: none; -webkit-tap-highlight-color: transparent; }
+}

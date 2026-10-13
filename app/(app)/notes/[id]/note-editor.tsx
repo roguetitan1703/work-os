@@ -63,7 +63,7 @@ export function NoteEditor({ note, blocks, focusTitle }: { note: NoteProps; bloc
               (document.querySelector('.wo-editor [contenteditable=true]') as HTMLElement | null)?.focus();
             }
           }}
-          className="flex-1 min-w-0 bg-transparent text-4xl font-bold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/40"
+          className="flex-1 min-w-0 bg-transparent text-[28px] md:text-4xl font-bold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/40"
         />
         <div className="flex items-center gap-1 pt-3 shrink-0">
           <SaveBadge state={state} />

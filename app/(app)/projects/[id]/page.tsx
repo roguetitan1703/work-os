@@ -29,11 +29,11 @@ export default async function ProjectPage({ params }: Props) {
   const s = project.stats;
 
   return (
-    <div className="grid grid-cols-[minmax(0,_1.7fr)_minmax(0,_1fr)] gap-6 items-start max-w-6xl">
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,_1.7fr)_minmax(0,_1fr)] gap-6 items-start max-w-6xl">
       <div className="space-y-5">
         <ProjectHeader project={project} />
 
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <Stat label="Open" value={s.open} />
           <Stat label="Overdue" value={s.overdue} tone={s.overdue ? 'text-red-600 dark:text-red-400' : ''} />
           <Stat label="Done this week" value={s.doneThisWeek} tone="text-green-600 dark:text-green-400" />

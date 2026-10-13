@@ -204,7 +204,7 @@ export function BlockEditor({
   );
 
   return (
-    <div onClickCapture={onClick} className="wo-editor -mx-12">
+    <div onClickCapture={onClick} className="wo-editor -mx-3 md:-mx-12">
       <BlockNoteView editor={editor} theme={resolvedTheme === 'dark' ? 'dark' : 'light'} slashMenu={false} onChange={schedule}>
         <SuggestionMenuController triggerCharacter="/" getItems={slashItems} />
         <SuggestionMenuController triggerCharacter="@" getItems={mentionItems} />

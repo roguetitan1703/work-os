@@ -3,6 +3,8 @@ import { listProjectsBasic } from '@/lib/data/projects';
 import { todayStr, weekStart } from '@/lib/dates';
 import { ModeSchema, type Mode } from '@/lib/types';
 import { BoardClient } from './board-client';
+import { MobileTasks } from '@/components/mobile/m-tasks';
+import { noteIndex } from '@/lib/data/notes';
 
 type Props = { searchParams: Promise<{ project?: string; mode?: string; due?: string; q?: string }> };
 
@@ -18,11 +20,21 @@ export default async function BoardPage({ searchParams }: Props) {
     listTasks({ ...common, due: undefined, status: ['Done'], doneFrom: weekStart(todayStr()), sort: 'done' }),
     listProjectsBasic(),
   ]);
+  const active = projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => ({ id: p.id, name: p.name }));
+  const all = [...open, ...doneThisWeek];
+  const notes = await noteIndex({ taskIds: all.map(t => t.id) });
   return (
+    <>
+      <div className="md:hidden">
+        <MobileTasks tasks={all} projects={active} noteTaskIds={[...notes.byTask.keys()]} />
+      </div>
+      <div className="hidden md:block">
     <BoardClient
       tasks={[...open, ...doneThisWeek]}
       projects={projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => ({ id: p.id, name: p.name }))}
       filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', q: sp.q ?? '' }}
     />
+      </div>
+    </>
   );
 }
