@@ -7,6 +7,8 @@ import { ACTOR_LABEL } from '@/lib/activity-text';
 import { cn } from '@/lib/utils';
 import { NewNoteButton } from '@/components/new-note-button';
 import { MobileHeader } from '@/components/mobile/tab-bar';
+import { MobileNoteFilters, NewNoteSheetButton } from '@/components/mobile/m-notes';
+import { Suspense } from 'react';
 
 export const metadata = { title: 'Notes · Work OS' };
 
@@ -36,7 +38,10 @@ export default async function NotesPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-4 md:space-y-5 max-w-4xl">
-      <MobileHeader title="Notes" subtitle={`${total} ${state === 'archived' ? 'archived' : 'notes'}`} right={<NewNoteButton projects={activeProjects.map(p => ({ id: p.id, name: p.name }))} defaultProject={sp.project} label="New" />} />
+      <MobileHeader title="Notes" subtitle={`${total} ${state === 'archived' ? 'archived' : 'notes'}`} right={<NewNoteSheetButton projects={activeProjects.map(p => ({ id: p.id, name: p.name }))} defaultProject={sp.project} />} />
+      <Suspense>
+        <MobileNoteFilters projects={activeProjects.map(p => ({ id: p.id, name: p.name }))} />
+      </Suspense>
       <div className="hidden md:flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Notes</h1>
@@ -45,7 +50,7 @@ export default async function NotesPage({ searchParams }: Props) {
         <NewNoteButton projects={activeProjects.map(p => ({ id: p.id, name: p.name }))} defaultProject={sp.project} />
       </div>
 
-      <form action="/notes" className="flex flex-wrap items-center gap-2 [&_input]:h-11 md:[&_input]:h-9 [&_select]:h-11 md:[&_select]:h-9">
+      <form action="/notes" className="hidden md:flex flex-wrap items-center gap-2">
         {state !== 'active' && <input type="hidden" name="state" value={state} />}
         {kind !== 'all' && <input type="hidden" name="kind" value={kind} />}
         <input
@@ -65,7 +70,7 @@ export default async function NotesPage({ searchParams }: Props) {
         <button className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium">Filter</button>
       </form>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="hidden md:flex flex-wrap items-center gap-3">
         <Segment items={(['active', 'archived', 'all'] as State[]).map(s => ({ key: s, label: s, href: href({ state: s }) }))} value={state} />
         <Segment
           items={(['all', 'task', 'project'] as Kind[]).map(k => ({ key: k, label: k === 'all' ? 'any' : `${k} notes`, href: href({ kind: k }) }))}

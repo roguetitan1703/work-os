@@ -1,10 +1,7 @@
 import Link from 'next/link';
-import { Archive, ChevronRight, Clock, EyeOff, FolderOpen, History, LifeBuoy, LogOut, Plug, Repeat2, Trash2 } from 'lucide-react';
+import { Archive, Bell, ChevronRight, Clock, EyeOff, FolderOpen, History, LifeBuoy, Plug, Repeat2, Settings, Trash2 } from 'lucide-react';
 import { listProjects } from '@/lib/data/projects';
-import { uiAuthDisabled } from '@/lib/auth';
 import { MobileHeader } from '@/components/mobile/tab-bar';
-import { ThemeToggle } from '@/components/theme-toggle';
-import { logoutAction } from '@/app/actions';
 
 export const metadata = { title: 'More · Work OS' };
 
@@ -33,18 +30,9 @@ export default async function MorePage() {
       </Group>
 
       <Group title="Settings">
+        <Item href="/settings" icon={<Settings className="w-5 h-5 text-muted-foreground" />} label="Settings, notifications & status" />
+        <Item href="/notifications" icon={<Bell className="w-5 h-5 text-red-500" />} label="Notifications" />
         <Item href="/connect" icon={<Plug className="w-5 h-5 text-orange-500" />} label="Connect Claude & Discord" />
-        <div className="flex items-center justify-between px-4 h-14">
-          <span className="text-[16px]">Appearance</span>
-          <ThemeToggle />
-        </div>
-        {!uiAuthDisabled() && (
-          <form action={logoutAction}>
-            <button type="submit" className="w-full flex items-center gap-3 px-4 h-14 text-[16px] text-red-600 dark:text-red-400 active:bg-muted/60">
-              <LogOut className="w-5 h-5" /> Sign out
-            </button>
-          </form>
-        )}
       </Group>
     </div>
   );

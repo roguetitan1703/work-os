@@ -1,6 +1,7 @@
 import { differenceInDays, parseISO } from 'date-fns';
 import { listTasks } from '@/lib/data/tasks';
 import { TaskRow } from '@/components/task-row';
+import { MTaskRow } from '@/components/mobile/m-task-row';
 
 export default async function HiddenPage() {
   const today = new Date();
@@ -23,7 +24,17 @@ export default async function HiddenPage() {
       {stale.length === 0 ? (
         <div className="text-sm text-muted-foreground py-12 text-center">Nothing hidden — all open tasks touched within the last 7 days.</div>
       ) : (
-        <div className="space-y-0.5">
+        <>
+        <div className="md:hidden rounded-2xl bg-card border border-border/70 divide-y divide-border/60 overflow-hidden">
+          {stale.map(({ t, days }) => (
+            <MTaskRow
+              key={t.id}
+              task={t}
+              hint={<span className={days > 30 ? 'text-red-600 dark:text-red-400' : days > 14 ? 'text-amber-600 dark:text-amber-400' : ''}>untouched {days}d</span>}
+            />
+          ))}
+        </div>
+        <div className="hidden md:block space-y-0.5">
           {stale.map(({ t, days }) => (
             <TaskRow
               key={t.id}
@@ -36,6 +47,7 @@ export default async function HiddenPage() {
             />
           ))}
         </div>
+        </>
       )}
     </div>
   );

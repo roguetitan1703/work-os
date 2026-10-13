@@ -92,7 +92,7 @@ export function QuickAddSheet({ open, onClose, defaultProject }: { open: boolean
 
   if (!open) return null;
   return (
-    <div className="md:hidden fixed inset-0 z-50">
+    <div className="md:hidden fixed inset-0 z-50" data-sheet>
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/40 animate-in fade-in duration-150" />
       <div
         data-quick-add

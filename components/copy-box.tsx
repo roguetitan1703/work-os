@@ -30,7 +30,7 @@ export function CopyBox({
   }
 
   return (
-    <div className={cn('group relative rounded-lg border border-border bg-muted/40', className)}>
+    <div className={cn('group relative min-w-0 max-w-full rounded-lg border border-border bg-muted/40', className)}>
       <pre
         className={cn(
           'px-3 py-2.5 pr-20 text-xs font-mono text-foreground',

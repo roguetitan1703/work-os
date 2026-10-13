@@ -86,6 +86,11 @@ export type AlertLogDoc = { _id: string; kind: AlertKind; taskId?: string; sentA
 /** Event alerts waiting for the next send (queued inside the write's transaction). */
 export type AlertQueueDoc = { _id: string; kind: 'unblocked'; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null };
 
+/** In-app inbox: every alert delivered (plus test notifications). */
+export type NotificationDoc = { _id: string; kind: AlertKind | 'test'; title: string; body: string; url: string; createdAt: Date; readAt: Date | null };
+/** Web Push subscriptions, keyed by endpoint (one per device/browser). */
+export type PushSubDoc = { _id: string; keys: { p256dh: string; auth: string }; device: string; createdAt: Date; updatedAt: Date };
+
 /** A deleted task with its history, kept 30 days so it can be restored. */
 export type TrashDoc = {
   _id: string; // task id
@@ -170,6 +175,7 @@ async function ensureIndexes(db: Db): Promise<void> {
     db.collection('ritualLogs').createIndexes([{ key: { date: 1 }, unique: true, name: 'date_unique' }]),
     db.collection('alertLog').createIndexes([{ key: { taskId: 1 }, name: 'task' }, { key: { sentAt: 1 }, name: 'sentAt' }]),
     db.collection('alertQueue').createIndexes([{ key: { sentAt: 1 }, name: 'sentAt' }]),
+    db.collection('notifications').createIndexes([{ key: { createdAt: -1 }, name: 'created' }, { key: { readAt: 1 }, name: 'read' }]),
     db.collection('notes').createIndexes([
       { key: { taskId: 1, deletedAt: 1 }, name: 'one_live_note_per_task', unique: true, partialFilterExpression: { taskId: { $type: 'string' } } },
       { key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' },
@@ -194,6 +200,8 @@ export async function collections() {
     notes: db.collection<NoteDoc>('notes'),
     alertLog: db.collection<AlertLogDoc>('alertLog'),
     alertQueue: db.collection<AlertQueueDoc>('alertQueue'),
+    notifications: db.collection<NotificationDoc>('notifications'),
+    pushSubs: db.collection<PushSubDoc>('pushSubs'),
   };
   const session = txStore.getStore();
   return session ? (Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, withSession(v, session)])) as typeof cols) : cols;

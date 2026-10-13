@@ -3,6 +3,7 @@ import { bearerToken, checkToken, urlTokenAllowed } from '@/lib/auth';
 import { after } from 'next/server';
 import { createMcpServer } from '@/lib/mcp/server';
 import { flushQueuedAlerts } from '@/lib/alerts';
+import { markSeen } from '@/lib/notify';
 
 // MCP endpoint (Streamable HTTP, stateless). Authenticated with the MCP_TOKEN API key in a header:
 //   Authorization: Bearer <key>   or   X-API-Key: <key>        → POST /api/mcp
@@ -31,7 +32,7 @@ async function handle(req: Request, ctx: Ctx): Promise<Response> {
   }
   const base = baseUrl(req);
   const server = createMcpServer({ baseUrl: base });
-  after(() => flushQueuedAlerts(base));
+  after(() => Promise.all([flushQueuedAlerts(base), markSeen('mcp')]));
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

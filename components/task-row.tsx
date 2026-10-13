@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { useApp } from './app-context';
 import { PrioritySelect, StatusSelect } from './inline-selects';
 import { ProgressDialog } from './progress-dialog';
+import { MTaskRow } from './mobile/m-task-row';
 
 type Props = {
   task: Task;
@@ -121,12 +122,19 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
 }
 
 export function TaskList({ tasks, empty = 'No tasks.', ...rest }: { tasks: Task[]; empty?: string } & Omit<Props, 'task'>) {
-  if (!tasks.length) return <div className="text-xs text-muted-foreground py-3 px-2">{empty}</div>;
+  if (!tasks.length) return <div className="text-sm md:text-xs text-muted-foreground py-3 px-2">{empty}</div>;
   return (
-    <div className="space-y-0.5">
-      {tasks.map(t => (
-        <TaskRow key={t.id} task={t} {...rest} />
-      ))}
-    </div>
+    <>
+      <div className="md:hidden rounded-2xl bg-card border border-border/70 divide-y divide-border/60 overflow-hidden">
+        {tasks.map(t => (
+          <MTaskRow key={t.id} task={t} showProject={rest.showProject} hint={rest.hint} />
+        ))}
+      </div>
+      <div className="hidden md:block space-y-0.5">
+        {tasks.map(t => (
+          <TaskRow key={t.id} task={t} {...rest} />
+        ))}
+      </div>
+    </>
   );
 }

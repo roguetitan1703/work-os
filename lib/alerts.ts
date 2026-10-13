@@ -4,6 +4,7 @@ export type { AlertKind };
 import { APP_TZ, addDays, dateInTz, weekday } from './dates';
 import { CLOSED_STATUSES, OPEN_STATUSES } from './types';
 import { api, discordConfig, DiscordError } from './discord/client';
+import { addToInbox, getNotifySettings, pushConfigured, sendPush } from './notify';
 
 // Nudges sent to Om as Discord DMs from the existing bot. Runs every 15 minutes
 // (/api/cron/alerts, triggered by an external scheduler) and right after writes that
@@ -188,19 +189,50 @@ export async function sendDm(content: string): Promise<void> {
 
 export type RunResult = { quiet: boolean; dryRun: boolean; sent: number; messages: string[]; items: AlertItem[]; error?: string };
 
+const KIND_TITLE: Record<AlertKind, string> = {
+  unblocked: 'Unblocked',
+  overdue: 'Overdue',
+  due_today: 'Due today',
+  due_tomorrow: 'Due tomorrow',
+  never_started: 'P1 not started',
+  stalled: 'Stalled',
+};
+
 export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?: Date }): Promise<RunResult> {
-  const { items, quiet } = await computeAlerts(opts.now);
+  const { items: due, quiet } = await computeAlerts(opts.now);
+  const settings = await getNotifySettings();
+  const items = due.filter(i => settings.kinds[i.kind] !== false);
   const messages = formatAlerts(items, opts.baseUrl);
   const res: RunResult = { quiet, dryRun: !!opts.dryRun, sent: 0, messages, items };
-  if (opts.dryRun || !items.length) return res;
-  try {
-    for (const m of messages) await sendDm(m);
-  } catch (e) {
-    return { ...res, error: e instanceof Error ? e.message : String(e) };
+  if (opts.dryRun || !due.length) return res;
+
+  // Deliver: inbox always; push and Discord if enabled. A failing channel doesn't block the others.
+  const errors: string[] = [];
+  if (items.length) {
+    await addToInbox(items.map(i => ({ kind: i.kind, title: `${KIND_TITLE[i.kind]}: #${i.ref} ${i.title}`, body: i.detail ?? '', url: `/tasks/${i.ref}` })));
+    if (settings.channels.push && pushConfigured()) {
+      const one = items.length === 1 ? items[0] : null;
+      const r = await sendPush(
+        one
+          ? { title: `${KIND_TITLE[one.kind]} · #${one.ref}`, body: one.title + (one.detail ? ` (${one.detail})` : ''), url: `/tasks/${one.ref}`, tag: one.key }
+          : { title: `Work OS · ${items.length} alerts`, body: items.slice(0, 4).map(i => `${KIND_TITLE[i.kind]}: ${i.title}`).join('\n'), url: '/notifications', tag: 'alerts' },
+      );
+      if (r.error) errors.push(`push: ${r.error}`);
+    }
+    if (settings.channels.discord && discordConfig()) {
+      try {
+        for (const m of messages) await sendDm(m);
+        res.sent = messages.length;
+      } catch (e) {
+        errors.push(`discord: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
   }
+
+  // Record everything that was due (including switched-off kinds) so nothing piles up.
   const c = await collections();
   const now = new Date();
-  const logged = items.filter(i => i.kind !== 'unblocked');
+  const logged = due.filter(i => i.kind !== 'unblocked');
   if (logged.length) {
     const taskIds = new Map((await c.tasks.find({ ref: { $in: logged.map(i => i.ref) } }, { projection: { ref: 1 } }).toArray()).map(t => [t.ref, t._id]));
     await c.alertLog.bulkWrite(
@@ -208,7 +240,7 @@ export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?:
     );
   }
   await c.alertQueue.updateMany({ sentAt: null }, { $set: { sentAt: now } });
-  return { ...res, sent: messages.length };
+  return { ...res, ...(errors.length ? { error: errors.join('; ') } : {}) };
 }
 
 /** Clear alert history older than 60 days. */
@@ -225,7 +257,7 @@ export async function pruneAlertLog(): Promise<void> {
  */
 export async function flushQueuedAlerts(baseUrl: string): Promise<void> {
   try {
-    if (!discordConfig() || isQuietHour()) return;
+    if (isQuietHour()) return;
     const c = await collections();
     if (!(await c.alertQueue.countDocuments({ sentAt: null }))) return;
     const r = await runAlerts({ baseUrl });

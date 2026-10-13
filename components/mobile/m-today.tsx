@@ -7,6 +7,7 @@ import { addDays } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import { useApp } from '../app-context';
 import { MobileHeader } from './tab-bar';
+import { BellButton } from './bell';
 import { MSection, MTaskRow } from './m-task-row';
 
 const RANK: Record<string, number> = { P1: 0, P2: 1, P3: 2, P4: 3 };
@@ -36,7 +37,7 @@ export function MobileToday({ dayName, tasks, waiting, noteTaskIds }: { dayName:
 
   return (
     <div>
-      <MobileHeader title="Today" subtitle={dayName} />
+      <MobileHeader title="Today" subtitle={dayName} right={<BellButton />} />
       <div className="grid grid-cols-3 gap-2 mt-1">
         <Stat label="Overdue" value={overdue.length} tone={overdue.length ? 'text-red-600 dark:text-red-400' : undefined} onClick={() => jump('m-overdue')} />
         <Stat label="Due today" value={dueToday.length} onClick={() => jump('m-today')} />

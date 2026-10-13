@@ -48,6 +48,8 @@ export function Sidebar({ stats, hiddenCount }: { stats: Stats; hiddenCount: num
         <NavItem href="/review">Weekly Review</NavItem>
         <NavItem href="/timetable">Timetable</NavItem>
         <NavItem href="/recovery">Recovery</NavItem>
+        <NavItem href="/notifications">Notifications</NavItem>
+        <NavItem href="/settings">Settings &amp; status</NavItem>
         <NavItem href="/connect">Connect Claude</NavItem>
       </nav>
 

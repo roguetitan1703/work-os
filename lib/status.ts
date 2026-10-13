@@ -1,0 +1,98 @@
+import 'server-only';
+import { getDb } from './db';
+import { discordConfig, guildContext } from './discord/client';
+import { lastRunStatus } from './alerts';
+import { lastSeen, pushConfigured, pushDeviceCount } from './notify';
+import { converterCheck } from './notes-convert';
+
+// Live health of everything Work OS depends on, for the Settings → Status panel.
+
+export type Level = 'ok' | 'warn' | 'error' | 'off';
+export type Check = { name: string; level: Level; summary: string; detail?: string };
+
+async function timed<T>(fn: () => Promise<T>, ms = 6000): Promise<T> {
+  return Promise.race([fn(), new Promise<T>((_, no) => setTimeout(() => no(new Error(`timed out after ${ms / 1000}s`)), ms))]);
+}
+
+const ago = (iso: string | null) => {
+  if (!iso) return null;
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60_000);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+};
+
+export async function systemStatus(): Promise<Check[]> {
+  const [db, discord, alerts, seen, push, notes] = await Promise.all([
+    timed(async () => {
+      const d = await getDb();
+      const t = Date.now();
+      await d.command({ ping: 1 });
+      const ms = Date.now() - t;
+      const tasks = await d.collection('tasks').countDocuments();
+      return { ms, tasks };
+    }).catch((e: Error) => e),
+    timed(async () => (discordConfig() ? guildContext() : null)).catch((e: Error) => e),
+    lastRunStatus().catch(() => null),
+    lastSeen().catch(() => ({ mcp: null, discord: null })),
+    pushDeviceCount().catch(() => 0),
+    timed(converterCheck, 8000).catch((e: Error) => e.message),
+  ]);
+
+  const checks: Check[] = [];
+
+  checks.push(
+    db instanceof Error
+      ? { name: 'Database', level: 'error', summary: 'Not reachable', detail: db.message }
+      : { name: 'Database', level: db.ms > 150 ? 'warn' : 'ok', summary: `MongoDB Atlas · ${db.ms} ms`, detail: `${db.tasks} tasks` },
+  );
+
+  const region = process.env.VERCEL_REGION ?? 'local';
+  const sha = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7);
+  checks.push({
+    name: 'Server',
+    level: region === 'local' || region === 'bom1' ? 'ok' : 'warn',
+    summary: `Vercel ${region}${sha ? ` · ${sha}` : ''}`,
+    detail: `${process.env.VERCEL_ENV ?? 'development'} · Node ${process.version}${region !== 'bom1' && region !== 'local' ? ' · not Mumbai: slower' : ''}`,
+  });
+
+  checks.push(
+    !process.env.MCP_TOKEN
+      ? { name: 'Claude connector', level: 'error', summary: 'MCP_TOKEN not set' }
+      : { name: 'Claude connector', level: seen.mcp ? 'ok' : 'warn', summary: seen.mcp ? `Last used ${ago(seen.mcp)}` : 'Ready, not used yet', detail: 'claude.ai → Settings → Connectors' },
+  );
+
+  if (!discordConfig()) checks.push({ name: 'Discord bot', level: 'off', summary: 'Not configured' });
+  else if (discord instanceof Error) checks.push({ name: 'Discord bot', level: 'error', summary: 'Discord API error', detail: discord.message });
+  else if (discord) {
+    const readable = discord.channels.filter(c => c.canRead).length;
+    checks.push({
+      name: 'Discord bot',
+      level: discord.contentIntent ? 'ok' : 'warn',
+      summary: `Connected · ${readable} channels readable`,
+      detail: [
+        discord.contentIntent ? null : 'Message Content Intent is OFF',
+        discord.blocked.size ? `${discord.blocked.size} blocked as sensitive` : 'no channels blocked',
+        seen.discord ? `last command ${ago(seen.discord)}` : 'no commands used yet',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    });
+  }
+
+  checks.push(
+    !process.env.CRON_SECRET
+      ? { name: 'Scheduled alerts', level: 'warn', summary: 'CRON_SECRET not set', detail: 'Alerts only fire on unblock until the 15-minute job is set up' }
+      : !alerts?.lastRunAt
+        ? { name: 'Scheduled alerts', level: 'warn', summary: 'No check has run yet', detail: 'Create the cron-job.org job (see Connect page)' }
+        : { name: 'Scheduled alerts', level: alerts.stale ? 'warn' : 'ok', summary: `Last check ${ago(alerts.lastRunAt)}`, detail: alerts.lastResult ?? undefined },
+  );
+
+  checks.push(
+    !pushConfigured()
+      ? { name: 'Phone notifications', level: 'warn', summary: 'Push keys not set', detail: 'Add VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT in Vercel' }
+      : { name: 'Phone notifications', level: push ? 'ok' : 'warn', summary: push ? `${push} device${push === 1 ? '' : 's'}` : 'No devices yet', detail: push ? undefined : 'Turn on "Notifications on this device" above' },
+  );
+
+  checks.push({ name: 'Notes converter', level: notes === 'ok' ? 'ok' : 'error', summary: notes === 'ok' ? 'Working' : 'Failing', detail: notes === 'ok' ? undefined : String(notes) });
+
+  return checks;
+}

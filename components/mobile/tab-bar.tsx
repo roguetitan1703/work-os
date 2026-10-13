@@ -12,7 +12,7 @@ const TABS = [
   { href: '/board', label: 'Tasks', icon: LayoutList, match: ['/board', '/tasks', '/projects'] },
   null, // + in the middle
   { href: '/notes', label: 'Notes', icon: FileText, match: ['/notes'] },
-  { href: '/more', label: 'More', icon: Menu, match: ['/more', '/history', '/connect', '/hidden', '/review', '/timetable', '/recovery', '/modes', '/archive'] },
+  { href: '/more', label: 'More', icon: Menu, match: ['/more', '/settings', '/notifications', '/history', '/connect', '/hidden', '/review', '/timetable', '/recovery', '/modes', '/archive'] },
 ] as const;
 
 /** Phone navigation: four tabs and a centre "add" button, above the home indicator. */

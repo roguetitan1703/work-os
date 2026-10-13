@@ -74,7 +74,7 @@ export default async function ConnectPage() {
   const urlFallback = urlTokenAllowed();
 
   return (
-    <div className="max-w-3xl space-y-8">
+    <div className="max-w-3xl space-y-8 min-w-0">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Connect Claude</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
@@ -103,7 +103,7 @@ export default async function ConnectPage() {
             Authentication: choose <b>no sign-in</b> (no OAuth). Under <b>Request headers</b> add:
           </li>
         </ol>
-        <div className="grid grid-cols-[120px_1fr] gap-2 items-center text-sm">
+        <div className="grid grid-cols-[minmax(0,_auto)_minmax(0,_1fr)] md:grid-cols-[120px_minmax(0,_1fr)] gap-2 items-center text-sm">
           <span className="text-muted-foreground text-xs">Header name</span>
           <CopyBox text="Authorization" />
           <span className="text-muted-foreground text-xs">Header value</span>
