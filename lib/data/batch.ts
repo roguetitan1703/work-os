@@ -45,7 +45,7 @@ export class BatchError extends InputError {
     public opName: string,
     message: string,
   ) {
-    super(`Op ${index + 1} (${opName}) failed: ${message.replace(/.+$/, "")}. Nothing was changed.`);
+    super(`Op ${index + 1} (${opName}) failed: ${message.replace(/\.+$/, '')}. Nothing was changed.`);
   }
 }
 
