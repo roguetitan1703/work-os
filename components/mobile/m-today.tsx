@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { CheckCircle2 } from 'lucide-react';
 import type { Task } from '@/lib/types';
 import { addDays } from '@/lib/dates';
@@ -23,8 +24,12 @@ export function MobileToday({ dayName, tasks, waiting, noteTaskIds }: { dayName:
   const inProgress = take(tasks.filter(t => t.status === 'In Progress').sort(byPrio));
   const blocked = take(tasks.filter(t => t.status === 'Blocked' || waiting[t.id]).sort(byPrio));
   const week = addDays(today, 7);
-  const upNext = take(tasks.filter(t => t.priority === 'P1' || (t.due && t.due <= week)).sort(byPrio)).slice(0, 12);
-  const rest = tasks.length - seen.size;
+  const upNext = take(tasks.filter(t => t.priority === 'P1' || (t.due && t.due <= week)).sort(byPrio));
+  // Everything else that's open, so Today is never empty while there is open work.
+  const otherAll = take([...tasks].sort(byPrio));
+  const OTHER_MAX = 15;
+  const other = otherAll.slice(0, OTHER_MAX);
+  const rest = otherAll.length - other.length;
 
   const row = (t: Task, extra?: React.ReactNode) => <MTaskRow key={t.id} task={t} hasNote={notes.has(t.id)} hint={extra} />;
   const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -38,11 +43,11 @@ export function MobileToday({ dayName, tasks, waiting, noteTaskIds }: { dayName:
         <Stat label="In progress" value={inProgress.length} tone="text-blue-600 dark:text-blue-400" onClick={() => jump('m-progress')} />
       </div>
 
-      {!overdue.length && !dueToday.length && !inProgress.length && !blocked.length && !upNext.length ? (
+      {!tasks.length ? (
         <div className="mt-16 flex flex-col items-center text-center text-muted-foreground">
           <CheckCircle2 className="w-12 h-12 text-green-500 mb-3" />
           <div className="text-lg font-semibold text-foreground">All clear</div>
-          <div className="text-sm">Nothing due or in progress. Tap + to add something.</div>
+          <div className="text-sm">No open tasks. Tap + to add something.</div>
         </div>
       ) : (
         <>
@@ -52,7 +57,7 @@ export function MobileToday({ dayName, tasks, waiting, noteTaskIds }: { dayName:
             </MSection>
           </div>
           <div id="m-today" className="scroll-mt-24">
-            <MSection title="Due today" count={dueToday.length} empty="Nothing due today.">
+            <MSection title="Due today" count={dueToday.length}>
               {dueToday.map(t => row(t))}
             </MSection>
           </div>
@@ -67,7 +72,14 @@ export function MobileToday({ dayName, tasks, waiting, noteTaskIds }: { dayName:
           <MSection title="Up next" count={upNext.length}>
             {upNext.map(t => row(t))}
           </MSection>
-          {rest > 0 && <p className="mt-4 text-center text-sm text-muted-foreground">{rest} more open in Tasks</p>}
+          <MSection title={upNext.length || overdue.length || dueToday.length || inProgress.length || blocked.length ? 'Also open' : 'Open'} count={otherAll.length}>
+            {other.map(t => row(t))}
+          </MSection>
+          {rest > 0 && (
+            <Link href="/board" className="mt-4 block text-center text-sm text-muted-foreground active:opacity-60">
+              {rest} more open in Tasks →
+            </Link>
+          )}
         </>
       )}
     </div>
