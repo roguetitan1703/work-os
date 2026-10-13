@@ -4,6 +4,8 @@ import { z, ZodError } from 'zod';
 import * as tasks from '../data/tasks';
 import * as projects from '../data/projects';
 import { briefTask, dailySummary } from '../data/summary';
+import { applyChanges, MAX_OPS, type BatchOp } from '../data/batch';
+import { getProjectTree } from '../data/tree';
 import { InputError, NotFoundError } from '../data/errors';
 import { INSTRUCTIONS, TOOLS, type ToolName } from './docs';
 import * as discord from '../discord/read';
@@ -92,7 +94,7 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     updatedAt: t.updatedAt,
     doneAt: t.doneAt,
     doneBy: t.doneBy,
-    activity: d.activity.map(a => ({ at: a.at, by: a.actor, type: a.type, text: describeActivity(a) })),
+    activity: d.activity.map(a => ({ id: a.id, at: a.at, by: a.actor, type: a.type, text: describeActivity(a) })),
   };
 }
 
@@ -293,7 +295,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   );
 
   tool(
-    'add_note',
+    'add_comment',
     {
       inputSchema: { task: taskKey, note: z.string().min(1) },
       annotations: { destructiveHint: false },
@@ -398,6 +400,129 @@ export function createMcpServer(ctx: Ctx): McpServer {
         count: list.length,
         events: list.map(e => ({ at: e.at, by: e.actor, task: `#${e.taskRef} ${e.taskTitle}`, type: e.type, text: describeActivity(e) })),
       };
+    }),
+  );
+
+  // ── Batch, nested read, trash ─────────────────────────────────────────────
+
+  const key = z.union([z.number().int(), z.string()]).describe('Ref (12, "#12"), task id, or "$name" from an earlier create_task');
+  const item = z.union([z.number().int(), z.string()]);
+  const OpSchema = z.discriminatedUnion('op', [
+    z.object({ op: z.literal('create_task'), as: z.string().optional().describe('"$name" to refer to this task in later ops'), title: z.string().min(1), ...fieldShape, status: StatusSchema.optional(), note: z.string().optional() }),
+    z.object({ op: z.literal('update_task'), task: key, title: z.string().min(1).optional(), ...fieldShape, status: StatusSchema.optional(), note: z.string().optional() }),
+    z.object({ op: z.literal('log_progress'), task: key, progress: z.number().int().min(0).max(100), note: z.string().optional(), status: StatusSchema.optional() }),
+    z.object({ op: z.literal('complete_task'), task: key, note: z.string().optional() }),
+    z.object({ op: z.literal('add_comment'), task: key, text: z.string().min(1) }),
+    z.object({ op: z.literal('edit_comment'), comment_id: z.string().describe('History entry id from get_task'), text: z.string() }),
+    z.object({ op: z.literal('delete_comment'), comment_id: z.string() }),
+    z.object({ op: z.literal('update_checklist'), task: key, add: z.array(z.string()).optional(), check: z.array(item).optional(), uncheck: z.array(item).optional(), remove: z.array(item).optional() }),
+    z.object({ op: z.literal('archive_task'), task: key, archived: z.boolean().optional() }),
+    z.object({ op: z.literal('delete_task'), task: key, title: z.string().describe('The task title (or its start), as a safety check'), reason: z.string().optional() }),
+    z.object({ op: z.literal('restore_task'), task: key }),
+    z.object({ op: z.literal('add_project'), name: z.string().min(1), client: z.string().optional(), description: z.string().optional() }),
+    z.object({ op: z.literal('update_project'), project: z.string(), name: z.string().optional(), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional() }),
+  ]);
+
+  function toBatchOp(o: z.infer<typeof OpSchema>): BatchOp {
+    if (o.op === 'create_task') {
+      const { op, as, note, title, ...fields } = o;
+      return { op, as, note, ...toPatch(fields), title } as BatchOp;
+    }
+    if (o.op === 'update_task') {
+      const { op, task, note, ...fields } = o;
+      return { op, task, note, ...toPatch(fields) } as BatchOp;
+    }
+    return o as BatchOp;
+  }
+
+  tool(
+    'apply_changes',
+    {
+      inputSchema: {
+        ops: z.array(OpSchema).min(1).max(MAX_OPS),
+        dry_run: z.boolean().optional().describe('Run everything, then roll back and report what would happen'),
+      },
+      annotations: { destructiveHint: true, idempotentHint: false },
+    },
+    handler(async a => {
+      const r = await applyChanges(a.ops.map(toBatchOp), ACTOR, { dryRun: a.dry_run });
+      return {
+        ...r,
+        ...(r.dryRun ? { note: 'Dry run: nothing was saved. Call again without dry_run to apply.' } : {}),
+        results: r.results.map(x => ({ ...x, ...(x.ref ? { url: `${ctx.baseUrl}/tasks/${x.ref}` } : {}) })),
+      };
+    }),
+  );
+
+  tool(
+    'get_project',
+    {
+      inputSchema: {
+        project: z.string().describe('Project name or id'),
+        depth: z.enum(['project', 'tasks', 'full']).optional().describe('Default tasks'),
+        include_closed: z.boolean().optional().describe('Also Done/Dropped tasks'),
+        activity_per_task: z.number().int().min(1).max(30).optional().describe('depth full: history entries per task (default 5)'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    handler(async a => {
+      const t = await getProjectTree(a.project, { depth: a.depth, includeClosed: a.include_closed, activityPerTask: a.activity_per_task });
+      const names = await projects.projectNameMap();
+      const act = (x: { id: string; at: string; actor: string; type: string; taskRef: number }, text: string) => ({ id: x.id, at: x.at, by: x.actor, type: x.type, ref: x.taskRef, text });
+      return {
+        project: { id: t.project.id, name: t.project.name, client: t.project.client || undefined, status: t.project.status, description: t.project.description || undefined, url: `${ctx.baseUrl}/projects/${t.project.id}`, ...t.project.stats },
+        recentActivity: t.recentActivity.map(x => act(x, describeActivity(x))),
+        ...(t.tasks
+          ? {
+              tasks: t.tasks.map(x => ({
+                ...briefTask(x, names, { baseUrl: ctx.baseUrl }),
+                ...(a.depth === 'full'
+                  ? {
+                      description: x.description || undefined,
+                      checklist: x.checklist.length ? x.checklist.map((i, n) => ({ n: n + 1, text: i.text, done: i.done })) : undefined,
+                      waitingOn: x.waitingOn,
+                      activity: x.activity?.map(y => act(y, describeActivity(y))),
+                    }
+                  : x.waitingOn
+                    ? { waitingOn: x.waitingOn }
+                    : {}),
+              })),
+            }
+          : {}),
+        ...(t.closedOmitted ? { closedOmitted: t.closedOmitted } : {}),
+      };
+    }),
+  );
+
+  tool(
+    'delete_task',
+    {
+      inputSchema: {
+        task: taskKey,
+        title: z.string().describe('The task title (or its start), as a safety check'),
+        reason: z.string().optional(),
+      },
+      annotations: { destructiveHint: true },
+    },
+    handler(async a => {
+      const r = await tasks.trashTask(a.task, ACTOR, { reason: a.reason, expectTitle: a.title });
+      return { deleted: `#${r.ref} ${r.title}`, restorable: `for ${tasks.TRASH_DAYS} days with restore_task` };
+    }),
+  );
+
+  tool(
+    'restore_task',
+    { inputSchema: { task: taskKey }, annotations: { destructiveHint: false } },
+    handler(async a => ({ restored: await brief(await tasks.restoreTask(a.task, ACTOR), ctx) })),
+  );
+
+  tool(
+    'list_trash',
+    { inputSchema: {}, annotations: { readOnlyHint: true } },
+    handler(async () => {
+      const list = await tasks.listTrash();
+      const names = await projects.projectNameMap();
+      return list.map(t => ({ ...t, project: t.projectId ? (names.get(t.projectId) ?? null) : null, projectId: undefined }));
     }),
   );
 

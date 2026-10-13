@@ -1,5 +1,6 @@
 import 'server-only';
-import { MongoClient, type Db, type Collection } from 'mongodb';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { MongoClient, type ClientSession, type Db, type Collection } from 'mongodb';
 import type { TaskSource, Activity, Actor, ActivityType, FieldChange, ProjectStatus, Mode, Priority, Status, ChecklistItem, Link, Recurrence, WeeklyReview, FiverrRitualLog } from './types';
 
 // ── Document shapes as stored in MongoDB ────────────────────────────────────
@@ -60,6 +61,17 @@ export type ProjectDoc = {
 export type ReviewDoc = Omit<WeeklyReview, 'id'> & { _id: string };
 export type RitualDoc = Omit<FiverrRitualLog, 'id'> & { _id: string };
 export type CounterDoc = { _id: string; seq: number };
+/** A deleted task with its history, kept 30 days so it can be restored. */
+export type TrashDoc = {
+  _id: string; // task id
+  ref: number;
+  title: string;
+  task: TaskDoc;
+  activity: ActivityDoc[];
+  deletedAt: Date;
+  deletedBy: Actor;
+  reason: string;
+};
 /** App settings, one doc per area. `discord.blockedIds` = channel/category/thread ids Work OS must never read. */
 export type SettingsDoc = { _id: string; blockedIds?: string[]; updatedAt?: Date };
 
@@ -122,12 +134,13 @@ async function ensureIndexes(db: Db): Promise<void> {
     ]),
     db.collection('projects').createIndexes([{ key: { nameLower: 1 }, unique: true, name: 'name_unique' }]),
     db.collection('ritualLogs').createIndexes([{ key: { date: 1 }, unique: true, name: 'date_unique' }]),
+    db.collection('trash').createIndexes([{ key: { deletedAt: -1 }, name: 'deletedAt' }, { key: { ref: 1 }, name: 'ref' }]),
   ]);
 }
 
 export async function collections() {
   const db = await getDb();
-  return {
+  const cols = {
     tasks: db.collection<TaskDoc>('tasks'),
     activity: db.collection<ActivityDoc>('activity'),
     projects: db.collection<ProjectDoc>('projects'),
@@ -135,7 +148,69 @@ export async function collections() {
     ritualLogs: db.collection<RitualDoc>('ritualLogs'),
     counters: db.collection<CounterDoc>('counters'),
     settings: db.collection<SettingsDoc>('settings'),
+    trash: db.collection<TrashDoc>('trash'),
   };
+  const session = txStore.getStore();
+  return session ? (Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, withSession(v, session)])) as typeof cols) : cols;
+}
+
+// ── Transactions ────────────────────────────────────────────────────────────
+// inTransaction(fn) runs fn with every collections() call bound to one session, so the
+// whole batch commits or rolls back together. The data layer needs no session plumbing.
+
+const txStore = new AsyncLocalStorage<ClientSession>();
+
+/** Position of the options argument for collection methods the data layer uses. */
+const OPTIONS_ARG: Record<string, number> = {
+  find: 1, findOne: 1, countDocuments: 1, aggregate: 1, distinct: 2,
+  insertOne: 1, insertMany: 1, updateOne: 2, updateMany: 2, replaceOne: 2,
+  deleteOne: 1, deleteMany: 1, bulkWrite: 1, findOneAndUpdate: 2, findOneAndDelete: 1,
+};
+
+function withSession<C extends object>(col: C, session: ClientSession): C {
+  return new Proxy(col, {
+    get(target, prop, receiver) {
+      const v = Reflect.get(target, prop, receiver);
+      if (typeof v !== 'function') return v;
+      const i = typeof prop === 'string' ? OPTIONS_ARG[prop] : undefined;
+      if (i === undefined) return v.bind(target);
+      return (...args: unknown[]) => {
+        const a = [...args];
+        while (a.length < i) a.push(undefined);
+        a[i] = { ...((a[i] as object | undefined) ?? {}), session };
+        return v.apply(target, a);
+      };
+    },
+  });
+}
+
+export function inTransactionNow(): boolean {
+  return !!txStore.getStore();
+}
+
+/** Run fn atomically. dryRun runs everything, then rolls back and returns fn's result. */
+export async function inTransaction<T>(fn: () => Promise<T>, opts: { dryRun?: boolean } = {}): Promise<T> {
+  if (txStore.getStore()) return fn(); // already inside one
+  await getDb();
+  const client = await getClient();
+  const session = client.startSession();
+  try {
+    if (opts.dryRun) {
+      session.startTransaction();
+      try {
+        return await txStore.run(session, fn);
+      } finally {
+        await session.abortTransaction().catch(() => {});
+      }
+    }
+    let result!: T;
+    await session.withTransaction(async () => {
+      result = await txStore.run(session, fn);
+    });
+    return result;
+  } finally {
+    await session.endSession();
+  }
 }
 
 export type Collections = Awaited<ReturnType<typeof collections>>;

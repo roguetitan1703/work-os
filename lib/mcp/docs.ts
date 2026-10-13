@@ -10,7 +10,8 @@ export const INSTRUCTIONS = `Work OS is Om's personal task system (solo founder 
 - Statuses: Not Started, In Progress, Blocked, Done, Dropped. Priorities: P1 (must ship today) … P4 (backlog).
 - Modes (type of work): ${ModeSchema.options.join(', ')}.
 - Every write you make is recorded in the task's history as done by Claude. Include a short "note" saying why, especially for status and progress changes.
-- Use log_progress (not update_task) to report progress; use complete_task to finish a task. There is no delete. To abandon a task set status Dropped.
+- Use log_progress (not update_task) to report progress; use complete_task to finish a task. To abandon a task set status Dropped; to remove a task added by mistake use delete_task (it goes to a 30-day trash; restore_task brings it back).
+- Several changes at once (a handover, a cleanup, re-planning): use apply_changes, one atomic call; run it with dry_run first when it deletes or touches many tasks. For a full picture of a project use get_project (depth full) instead of many get_task calls.
 - For the morning brief, call daily_summary once; it already contains overdue, due today, in progress, blocked, completions and changes since the previous workday.
 - Discord (server "Delpat", read-only): discord_needs_attention is the one call for "what needs me on Discord". It lists items Om flagged for later by tagging the bot (with the message he was replying to), mentions of him/his roles/@everyone, replies to him, and new activity in threads he is in, each marked handled if he posted after it. The bot cannot post, so never claim to have replied on Discord. Use discord_message_to_task to turn a message into a task (it won't duplicate one already tracked).`;
 
@@ -21,7 +22,12 @@ export type ToolName =
   | 'update_task'
   | 'log_progress'
   | 'complete_task'
-  | 'add_note'
+  | 'add_comment'
+  | 'apply_changes'
+  | 'get_project'
+  | 'delete_task'
+  | 'restore_task'
+  | 'list_trash'
   | 'update_checklist'
   | 'list_projects'
   | 'add_project'
@@ -80,11 +86,44 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
     writes: true,
     example: 'Mark #12 done, invoice sent',
   },
-  add_note: {
-    title: 'Add note',
-    description: 'Add a note/comment to a task’s history without changing any fields.',
+  add_comment: {
+    title: 'Add comment',
+    description: 'Add a comment to a task’s history without changing any fields. To change or remove one of your own comments later, use apply_changes (edit_comment / delete_comment) with its id from get_task.',
     writes: true,
-    example: 'Note on #9: client wants the call moved to Thursday',
+    example: 'Comment on #9: client wants the call moved to Thursday',
+  },
+  apply_changes: {
+    title: 'Apply changes (batch)',
+    description:
+      'Many changes in ONE atomic call: all apply or none do. ops (max 100) run in order: create_task, update_task, log_progress, complete_task, add_comment, edit_comment, delete_comment, update_checklist, archive_task, delete_task, restore_task, add_project, update_project. A create_task can set as:"$name" and later ops may use "$name" as the task (also in depends_on). delete_task needs the task title as a safety check and moves the task to a 30-day trash. dry_run:true runs everything then rolls back, so you can check the result first.',
+    writes: true,
+    example: 'Set up the Terrah handover: 6 tasks with dependencies and a comment on #31',
+  },
+  get_project: {
+    title: 'Get project (nested)',
+    description:
+      'One call for a project’s full picture: stats and recent activity; depth "tasks" adds its open tasks (include_closed for all); depth "full" adds each task’s checklist, what it waits on, and recent history entries with their ids.',
+    writes: false,
+    example: 'Give me the full state of the Grant Leads project',
+  },
+  delete_task: {
+    title: 'Delete task',
+    description:
+      'Move a task (with its history) to the trash for 30 days. Requires the task’s title as confirmation, so a wrong ref can’t delete the wrong task. Use for tasks added by mistake; for real work that stopped, set status Dropped instead.',
+    writes: true,
+    example: 'Delete #88, I added it twice',
+  },
+  restore_task: {
+    title: 'Restore task',
+    description: 'Bring a deleted task (and its history) back from the trash.',
+    writes: true,
+    example: 'Restore #88',
+  },
+  list_trash: {
+    title: 'List trash',
+    description: 'Deleted tasks still restorable, with who deleted them, why, and when they will be purged.',
+    writes: false,
+    example: 'What did we delete this week?',
   },
   update_checklist: {
     title: 'Update checklist',

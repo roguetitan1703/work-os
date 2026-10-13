@@ -58,6 +58,7 @@ async function insertProject(
       createdAt: now,
       updatedAt: now,
     };
+    if (await c.projects.findOne({ _id: doc._id }, { projection: { _id: 1 } })) continue;
     try {
       await c.projects.insertOne(doc);
       return doc;

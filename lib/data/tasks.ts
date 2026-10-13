@@ -1,7 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { Filter } from 'mongodb';
-import { collections, nextSeq, toActivity, type ActivityDoc, type Collections, type TaskDoc } from '../db';
+import { collections, nextSeq, toActivity, type ActivityDoc, type Collections, type TaskDoc, type TrashDoc } from '../db';
 import {
   CLOSED_STATUSES,
   OPEN_STATUSES,
@@ -315,6 +315,10 @@ export async function updateTask(key: string | number, patch: TaskPatch, actor: 
       set.doneOn = null;
       set.doneBy = null;
     }
+    // Reopening: don't leave progress at 100%. Restore what it was before completion.
+    if (CLOSED_STATUSES.includes(cur.status) && isOpen(status) && data.progress === undefined && cur.progress >= 100) {
+      apply('progress', status === 'Not Started' ? 0 : await progressBeforeCompletion(c, cur._id));
+    }
   }
   if (data.progress !== undefined) apply('progress', data.progress);
 
@@ -353,6 +357,12 @@ export async function updateTask(key: string | number, patch: TaskPatch, actor: 
   return toTask(next);
 }
 
+async function progressBeforeCompletion(c: Collections, taskId: string): Promise<number> {
+  const done = await c.activity.findOne({ taskId, type: 'completed', 'changes.progress.from': { $type: 'number' } }, { sort: { at: -1 } });
+  const from = done?.changes?.progress?.from;
+  return typeof from === 'number' && from < 100 ? from : 0;
+}
+
 export async function logProgress(
   key: string | number,
   progress: number,
@@ -385,6 +395,112 @@ export async function setArchived(key: string | number, archived: boolean, actor
   await c.tasks.updateOne({ _id: cur._id }, { $set: { archived, updatedAt: now } });
   await logActivity(c, cur, actor, archived ? 'archived' : 'unarchived');
   return toTask({ ...cur, archived, updatedAt: now });
+}
+
+// ── Delete (trash), restore ─────────────────────────────────────────────────
+// Deleting moves the task and its history into `trash` for 30 days; nothing else needs
+// a "deleted" filter. `expectTitle` guards against deleting the wrong ref by typo.
+
+export const TRASH_DAYS = 30;
+
+function titleMatches(actual: string, expected: string): boolean {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const a = norm(actual);
+  const e = norm(expected);
+  return !!e && (a === e || (e.length >= 8 && a.startsWith(e)) || (e.length >= 12 && a.includes(e)));
+}
+
+export async function trashTask(
+  key: string | number,
+  actor: Actor,
+  opts: { reason?: string; expectTitle?: string } = {},
+): Promise<{ ref: number; title: string }> {
+  const c = await collections();
+  const cur = await findTaskDoc(c, key);
+  if (opts.expectTitle !== undefined && !titleMatches(cur.title, opts.expectTitle)) {
+    throw new InputError(`#${cur.ref} is "${cur.title}", not "${opts.expectTitle}". Nothing deleted.`);
+  }
+  const activity = await c.activity.find({ taskId: cur._id }).toArray();
+  const doc: TrashDoc = {
+    _id: cur._id,
+    ref: cur.ref,
+    title: cur.title,
+    task: cur,
+    activity,
+    deletedAt: new Date(),
+    deletedBy: actor,
+    reason: opts.reason?.trim() ?? '',
+  };
+  await c.trash.replaceOne({ _id: cur._id }, doc, { upsert: true });
+  await c.tasks.deleteOne({ _id: cur._id });
+  await c.activity.deleteMany({ taskId: cur._id });
+  return { ref: cur.ref, title: cur.title };
+}
+
+export async function restoreTask(key: string | number, actor: Actor): Promise<Task> {
+  const c = await collections();
+  const f = taskKeyFilter(key);
+  const t = await c.trash.findOne('ref' in f ? { ref: f.ref as number } : { _id: f._id as string }, { sort: { deletedAt: -1 } });
+  if (!t) throw new NotFoundError(`Task ${typeof key === 'number' ? '#' + key : key} is not in the trash`);
+  if (await c.tasks.findOne({ ref: t.ref }, { projection: { _id: 1 } })) throw new InputError(`#${t.ref} already exists`);
+  await c.tasks.insertOne(t.task);
+  if (t.activity.length) await c.activity.insertMany(t.activity);
+  await c.trash.deleteOne({ _id: t._id });
+  await logActivity(c, t.task, actor, 'edit', { note: 'Restored from trash' });
+  return toTask(t.task);
+}
+
+export type TrashItem = { ref: number; title: string; status: Status; projectId: string | null; deletedAt: string; deletedBy: Actor; reason: string; purgeOn: string };
+
+export async function listTrash(): Promise<TrashItem[]> {
+  const c = await collections();
+  await purgeTrash();
+  const docs = await c.trash.find({}, { projection: { activity: 0 } }).sort({ deletedAt: -1 }).toArray();
+  return docs.map(d => ({
+    ref: d.ref,
+    title: d.title,
+    status: d.task.status,
+    projectId: d.task.projectId,
+    deletedAt: d.deletedAt.toISOString(),
+    deletedBy: d.deletedBy,
+    reason: d.reason,
+    purgeOn: new Date(d.deletedAt.getTime() + TRASH_DAYS * 86_400_000).toISOString().slice(0, 10),
+  }));
+}
+
+/** Permanently remove trash older than 30 days (or one item now, by ref). */
+export async function purgeTrash(ref?: number): Promise<number> {
+  const c = await collections();
+  const r = await c.trash.deleteMany(ref !== undefined ? { ref } : { deletedAt: { $lt: new Date(Date.now() - TRASH_DAYS * 86_400_000) } });
+  return r.deletedCount;
+}
+
+// ── Comments: edit / delete ─────────────────────────────────────────────────
+// Claude may only touch its own entries; it can remove only comments (other entries
+// record what changed, so only their note text can be edited). Om can do either on any.
+
+async function ownedEntry(c: Collections, id: string, actor: Actor): Promise<ActivityDoc> {
+  const a = await c.activity.findOne({ _id: id });
+  if (!a) throw new NotFoundError(`History entry ${id} not found`);
+  if (actor === 'claude' && a.actor !== 'claude') throw new InputError('Claude can only edit or delete its own history entries.');
+  return a;
+}
+
+export async function editComment(id: string, text: string, actor: Actor): Promise<Activity> {
+  const c = await collections();
+  const a = await ownedEntry(c, id, actor);
+  const note = text.trim();
+  if (!note && a.type === 'comment') throw new InputError('Comment text is empty; delete it instead.');
+  await c.activity.updateOne({ _id: id }, note ? { $set: { note } } : { $unset: { note: '' } });
+  return toActivity({ ...a, note: note || undefined });
+}
+
+export async function deleteComment(id: string, actor: Actor): Promise<{ taskRef: number }> {
+  const c = await collections();
+  const a = await ownedEntry(c, id, actor);
+  if (a.type !== 'comment') throw new InputError(`That entry is a "${a.type}" record, not a comment; only its note can be edited.`);
+  await c.activity.deleteOne({ _id: id });
+  return { taskRef: a.taskRef };
 }
 
 // ── Checklist ───────────────────────────────────────────────────────────────
