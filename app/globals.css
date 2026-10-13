@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -127,4 +128,42 @@
   html {
     @apply font-sans;
   }
+}
+/* ── Notes editor (BlockNote) ─────────────────────────────────────────────── */
+.wo-editor .bn-container {
+  --bn-font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+.wo-editor .bn-container[data-color-scheme] {
+  --bn-colors-editor-background: transparent;
+}
+.wo-editor .bn-editor {
+  padding-inline: 3rem;
+}
+.wo-mention {
+  display: inline;
+  padding: 0 0.3em;
+  border-radius: 0.3em;
+  background: color-mix(in oklab, var(--color-blue-500) 12%, transparent);
+  color: var(--color-blue-700);
+  text-decoration: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+.dark .wo-mention {
+  color: var(--color-blue-300);
+}
+.wo-page-link {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.15em 0.25em;
+  border-radius: 0.3em;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, currentColor 30%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.wo-page-link:hover {
+  background: var(--color-muted);
 }

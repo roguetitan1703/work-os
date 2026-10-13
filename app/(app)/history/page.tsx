@@ -1,17 +1,21 @@
 import Link from 'next/link';
 import { format, parseISO } from 'date-fns';
-import { listActivity, listTasks } from '@/lib/data/tasks';
+import { listActivity, listTasks, listTrash, TRASH_DAYS } from '@/lib/data/tasks';
+import { projectNameMap } from '@/lib/data/projects';
+import { ACTOR_LABEL } from '@/lib/activity-text';
+import { fmtAgo, fmtDate, fmtDateTime } from '@/lib/format';
+import { PurgeTrashButton, RestoreTrashButton } from '@/components/trash-controls';
 import { addDays, dateInTz, startOfDay, todayStr, weekStart } from '@/lib/dates';
 import { ActivityTimeline } from '@/components/activity-timeline';
 import { TaskList } from '@/components/task-row';
 import { cn } from '@/lib/utils';
 
-type Tab = 'completed' | 'activity' | 'archived';
+type Tab = 'completed' | 'activity' | 'archived' | 'trash';
 type Props = { searchParams: Promise<{ tab?: string; actor?: string; weeks?: string }> };
 
 export default async function HistoryPage({ searchParams }: Props) {
   const sp = await searchParams;
-  const tab: Tab = sp.tab === 'activity' || sp.tab === 'archived' ? sp.tab : 'completed';
+  const tab: Tab = sp.tab === 'activity' || sp.tab === 'archived' || sp.tab === 'trash' ? sp.tab : 'completed';
   const weeks = Math.min(52, Math.max(1, Number(sp.weeks) || 8));
 
   return (
@@ -21,7 +25,7 @@ export default async function HistoryPage({ searchParams }: Props) {
         <p className="text-sm text-muted-foreground mt-0.5">How work actually moved.</p>
       </div>
       <div className="flex gap-1 bg-muted rounded-lg p-1 w-fit">
-        {(['completed', 'activity', 'archived'] as Tab[]).map(t => (
+        {(['completed', 'activity', 'archived', 'trash'] as Tab[]).map(t => (
           <Link
             key={t}
             href={`/history?tab=${t}`}
@@ -37,6 +41,7 @@ export default async function HistoryPage({ searchParams }: Props) {
       {tab === 'completed' && <Completed weeks={weeks} />}
       {tab === 'activity' && <ActivityFeed actor={sp.actor} />}
       {tab === 'archived' && <Archived />}
+      {tab === 'trash' && <Trash />}
     </div>
   );
 }
@@ -128,6 +133,49 @@ async function Archived() {
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">Archived tasks are hidden everywhere else. Open one and press Restore to bring it back.</p>
       <TaskList tasks={tasks} empty="Nothing archived." />
+    </div>
+  );
+}
+
+async function Trash() {
+  const [items, names] = await Promise.all([listTrash(), projectNameMap()]);
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        {`Deleted tasks stay here for ${TRASH_DAYS} days with their history, then they're gone for good.`}
+      </p>
+      {items.length ? (
+        <ul className="divide-y divide-border rounded-lg border border-border bg-card">
+          {items.map(t => {
+            const project = t.projectId ? names.get(t.projectId) : null;
+            return (
+              <li key={t.ref} className="flex items-start gap-3 px-3 py-2.5">
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <div className="text-sm text-foreground truncate">
+                    <span className="font-mono text-muted-foreground">#{t.ref}</span> {t.title}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-muted-foreground">
+                    {project && <span className="text-foreground/80">{project}</span>}
+                    {project && <span>·</span>}
+                    <span title={fmtDateTime(t.deletedAt)}>
+                      deleted {fmtAgo(t.deletedAt)} by {ACTOR_LABEL[t.deletedBy] ?? t.deletedBy}
+                    </span>
+                    <span>·</span>
+                    <span>purged on {fmtDate(t.purgeOn, 'MMM d')}</span>
+                  </div>
+                  {t.reason && <p className="text-xs text-muted-foreground italic">&ldquo;{t.reason}&rdquo;</p>}
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <RestoreTrashButton taskRef={t.ref} />
+                  <PurgeTrashButton taskRef={t.ref} title={t.title} />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="text-sm text-muted-foreground py-2">{`Trash is empty. Deleted tasks show up here for ${TRASH_DAYS} days.`}</p>
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { describeActivity, ACTOR_LABEL } from '@/lib/activity-text';
 import { ACTOR_STYLE, fmtDateTime } from '@/lib/format';
 import type { Activity, ActivityType } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { CommentEntry } from './comment-entry';
 
 const ICONS: Record<ActivityType, React.ComponentType<{ className?: string }>> = {
   created: Plus,
@@ -27,14 +28,26 @@ export function ActorBadge({ actor }: { actor: string }) {
   );
 }
 
-export function ActivityTimeline({ items, showTask = false, empty = 'No history yet.' }: { items: Activity[]; showTask?: boolean; empty?: string }) {
+export function ActivityTimeline({
+  items,
+  showTask = false,
+  editable = false,
+  empty = 'No history yet.',
+}: {
+  items: Activity[];
+  showTask?: boolean;
+  /** show hover Edit / Delete on comments */
+  editable?: boolean;
+  empty?: string;
+}) {
   if (!items.length) return <p className="text-xs text-muted-foreground py-2">{empty}</p>;
   return (
     <ol className="relative space-y-3 before:absolute before:left-[7px] before:top-1 before:bottom-1 before:w-px before:bg-border">
       {items.map(a => {
         const Icon = ICONS[a.type] ?? Pencil;
+        const editableComment = editable && a.type === 'comment' && !!a.note;
         return (
-          <li key={a.id} className="relative pl-6">
+          <li key={a.id} className={cn('relative pl-6', editableComment && 'group')}>
             <span
               className={cn(
                 'absolute left-0 top-0.5 flex h-[15px] w-[15px] items-center justify-center rounded-full bg-background ring-1 ring-border',
@@ -53,7 +66,11 @@ export function ActivityTimeline({ items, showTask = false, empty = 'No history 
                 </Link>
               )}
             </div>
-            <p className="text-sm text-foreground mt-0.5 whitespace-pre-wrap break-words">{describeActivity(a)}</p>
+            {editableComment ? (
+              <CommentEntry key={a.note} id={a.id} note={a.note!} />
+            ) : (
+              <p className="text-sm text-foreground mt-0.5 whitespace-pre-wrap break-words">{describeActivity(a)}</p>
+            )}
           </li>
         );
       })}

@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { PrioritySelect, StatusSelect } from '@/components/inline-selects';
 import { ProgressDialog } from '@/components/progress-dialog';
+import { DeleteTaskButton } from '@/components/trash-controls';
 import { useApp } from '@/components/app-context';
 import { MODES } from '@/lib/modes';
 import { fmtAgo, fmtDue } from '@/lib/format';
@@ -63,7 +64,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
               {projectName}
             </Link>
           )}
-          <span>· created {fmtAgo(task.createdAt)} by {task.createdBy === 'claude' ? 'Claude' : task.createdBy === 'me' ? 'you' : 'system'}</span>
+          <span suppressHydrationWarning>· created {fmtAgo(task.createdAt)} by {task.createdBy === 'claude' ? 'Claude' : task.createdBy === 'me' ? 'you' : 'system'}</span>
           {task.archived && <span className="px-1.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300">archived</span>}
         </div>
         <input
@@ -99,6 +100,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
           {task.archived ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
           {task.archived ? 'Restore' : 'Archive'}
         </Button>
+        <DeleteTaskButton taskRef={task.ref} title={task.title} />
       </div>
 
       {task.status === 'Blocked' && (

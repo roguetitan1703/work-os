@@ -49,6 +49,12 @@ node scripts/test-mcp.mjs https://<your-app>.vercel.app/api/mcp <MCP_TOKEN>     
 node scripts/test-mcp.mjs https://<your-app>.vercel.app/api/mcp <MCP_TOKEN> --write  # also creates, progresses, completes and drops a test task
 ```
 
+## Notes
+
+Notion-style pages (BlockNote editor: `/` menu, toggles, callouts, colours, tables, drag handles, `@` mentions of tasks and projects, sub-pages, images and files). A task has one note; projects can have many; sub-pages nest inside any note. Blocks are stored as the source of truth with a markdown copy for search and for Claude, who edits by block id (`read_note` → `write_note` with `block_ops`) so formatting it doesn't touch is kept. Saves carry the version they edited; if Claude changed the page meanwhile, the editor reloads instead of overwriting.
+
+Images and files go to a **private** Vercel Blob store and are served only to a logged-in session via `/api/notes/file`. Setup: Vercel → Storage → Create → Blob (private) → connect to this project (adds `BLOB_READ_WRITE_TOKEN`) → redeploy.
+
 ## Discord (server "Delpat")
 
 No hosted bot, no gateway, nothing stored. Claude reads Discord on demand through MCP tools that call Discord's REST API with the bot token; commands arrive on `/api/discord/interactions` (signature-verified) and only the owner can use them. The bot never posts; its only output is ephemeral replies.

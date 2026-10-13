@@ -24,6 +24,7 @@ export function Sidebar({ stats, hiddenCount }: { stats: Stats; hiddenCount: num
         </NavItem>
         <NavItem href="/board">Board</NavItem>
         <NavItem href="/projects">Projects</NavItem>
+        <NavItem href="/notes">Notes</NavItem>
         <NavItem href="/history">History</NavItem>
 
         <div className="pt-3 pb-1">

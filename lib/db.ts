@@ -61,6 +61,25 @@ export type ProjectDoc = {
 export type ReviewDoc = Omit<WeeklyReview, 'id'> & { _id: string };
 export type RitualDoc = Omit<FiverrRitualLog, 'id'> & { _id: string };
 export type CounterDoc = { _id: string; seq: number };
+export type NoteDoc = {
+  _id: string;
+  title: string;
+  /** Editor blocks (source of truth). Missing on notes written before the block editor; derived from body then. */
+  blocks?: unknown[];
+  body: string; // markdown, derived from blocks (search, previews, Claude)
+  /** Sub-page: the note this page lives in. */
+  parentId?: string | null;
+  taskId: string | null; // task note (at most one live per task)
+  projectId: string | null; // project note (when taskId is null)
+  archived: boolean;
+  createdBy: Actor;
+  createdAt: Date;
+  updatedBy: Actor;
+  updatedAt: Date;
+  deletedAt: Date | null;
+  deletedBy?: Actor;
+};
+
 /** A deleted task with its history, kept 30 days so it can be restored. */
 export type TrashDoc = {
   _id: string; // task id
@@ -71,6 +90,8 @@ export type TrashDoc = {
   deletedAt: Date;
   deletedBy: Actor;
   reason: string;
+  /** The task's note, soft-deleted alongside it. */
+  noteIds?: string[];
 };
 /** App settings, one doc per area. `discord.blockedIds` = channel/category/thread ids Work OS must never read. */
 export type SettingsDoc = { _id: string; blockedIds?: string[]; updatedAt?: Date };
@@ -134,6 +155,12 @@ async function ensureIndexes(db: Db): Promise<void> {
     ]),
     db.collection('projects').createIndexes([{ key: { nameLower: 1 }, unique: true, name: 'name_unique' }]),
     db.collection('ritualLogs').createIndexes([{ key: { date: 1 }, unique: true, name: 'date_unique' }]),
+    db.collection('notes').createIndexes([
+      { key: { taskId: 1, deletedAt: 1 }, name: 'one_live_note_per_task', unique: true, partialFilterExpression: { taskId: { $type: 'string' } } },
+      { key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' },
+      { key: { updatedAt: -1 }, name: 'updated' },
+      { key: { parentId: 1 }, name: 'parent', sparse: true },
+    ]),
     db.collection('trash').createIndexes([{ key: { deletedAt: -1 }, name: 'deletedAt' }, { key: { ref: 1 }, name: 'ref' }]),
   ]);
 }
@@ -149,6 +176,7 @@ export async function collections() {
     counters: db.collection<CounterDoc>('counters'),
     settings: db.collection<SettingsDoc>('settings'),
     trash: db.collection<TrashDoc>('trash'),
+    notes: db.collection<NoteDoc>('notes'),
   };
   const session = txStore.getStore();
   return session ? (Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, withSession(v, session)])) as typeof cols) : cols;

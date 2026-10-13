@@ -6,6 +6,7 @@ import * as projects from '../data/projects';
 import { briefTask, dailySummary } from '../data/summary';
 import { applyChanges, MAX_OPS, type BatchOp } from '../data/batch';
 import { getProjectTree } from '../data/tree';
+import * as notesData from '../data/notes';
 import { InputError, NotFoundError } from '../data/errors';
 import { INSTRUCTIONS, TOOLS, type ToolName } from './docs';
 import * as discord from '../discord/read';
@@ -66,12 +67,14 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
   const d = await tasks.getTaskDetail(key, { activityLimit });
   if (!d) throw new NotFoundError(`Task ${key} not found`);
   const t = d.task;
+  const note = (await notesData.noteIndex({ taskIds: [t.id] })).byTask.get(t.id) ?? null;
   return {
     ref: t.ref,
     id: t.id,
     url: `${ctx.baseUrl}/tasks/${t.ref}`,
     title: t.title,
     description: t.description,
+    note: note ? { ...note, url: `${ctx.baseUrl}/notes/${note.id}` } : null,
     status: t.status,
     priority: t.priority,
     progress: t.progress,
@@ -332,7 +335,16 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const list = await projects.listProjects({ includeInactive: a.include_inactive });
-      return list.map(p => ({ id: p.id, name: p.name, client: p.client || undefined, status: p.status, ...p.stats, url: `${ctx.baseUrl}/projects/${p.id}` }));
+      const idx = await notesData.noteIndex({ projectIds: list.map(p => p.id) });
+      return list.map(p => ({
+        id: p.id,
+        name: p.name,
+        client: p.client || undefined,
+        status: p.status,
+        ...p.stats,
+        notes: idx.byProject.get(p.id)?.map(n => ({ id: n.id, title: n.title })),
+        url: `${ctx.baseUrl}/projects/${p.id}`,
+      }));
     }),
   );
 
@@ -419,6 +431,24 @@ export function createMcpServer(ctx: Ctx): McpServer {
     z.object({ op: z.literal('archive_task'), task: key, archived: z.boolean().optional() }),
     z.object({ op: z.literal('delete_task'), task: key, title: z.string().describe('The task title (or its start), as a safety check'), reason: z.string().optional() }),
     z.object({ op: z.literal('restore_task'), task: key }),
+    z.object({
+      op: z.literal('write_note'),
+      note_id: z.string().optional(),
+      task: key.optional(),
+      project: z.string().optional(),
+      parent_id: z.string().optional(),
+      title: z.string().optional(),
+      body: z.string().optional(),
+      append: z.string().optional(),
+      block_ops: z
+        .array(
+          z.object({ op: z.enum(['replace', 'insert', 'delete']), block_id: z.string().optional(), after: z.string().optional(), before: z.string().optional(), markdown: z.string().optional() }),
+        )
+        .optional(),
+      edits: z.array(z.object({ find: z.string().min(1), replace: z.string() })).optional(),
+      archived: z.boolean().optional(),
+    }),
+    z.object({ op: z.literal('delete_note'), note_id: z.string(), title: z.string() }),
     z.object({ op: z.literal('add_project'), name: z.string().min(1), client: z.string().optional(), description: z.string().optional() }),
     z.object({ op: z.literal('update_project'), project: z.string(), name: z.string().optional(), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional() }),
   ]);
@@ -468,14 +498,18 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const t = await getProjectTree(a.project, { depth: a.depth, includeClosed: a.include_closed, activityPerTask: a.activity_per_task });
       const names = await projects.projectNameMap();
+      const idx = await notesData.noteIndex({ projectIds: [t.project.id], taskIds: t.tasks?.map(x => x.id) });
+      const nref = (n: notesData.NoteRef) => ({ id: n.id, title: n.title, firstLine: n.firstLine, chars: n.chars, updatedAt: n.updatedAt });
       const act = (x: { id: string; at: string; actor: string; type: string; taskRef: number }, text: string) => ({ id: x.id, at: x.at, by: x.actor, type: x.type, ref: x.taskRef, text });
       return {
         project: { id: t.project.id, name: t.project.name, client: t.project.client || undefined, status: t.project.status, description: t.project.description || undefined, url: `${ctx.baseUrl}/projects/${t.project.id}`, ...t.project.stats },
+        notes: (idx.byProject.get(t.project.id) ?? []).map(nref),
         recentActivity: t.recentActivity.map(x => act(x, describeActivity(x))),
         ...(t.tasks
           ? {
               tasks: t.tasks.map(x => ({
                 ...briefTask(x, names, { baseUrl: ctx.baseUrl }),
+                ...(idx.byTask.get(x.id) ? { note: nref(idx.byTask.get(x.id)!) } : {}),
                 ...(a.depth === 'full'
                   ? {
                       description: x.description || undefined,
@@ -523,6 +557,100 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const list = await tasks.listTrash();
       const names = await projects.projectNameMap();
       return list.map(t => ({ ...t, project: t.projectId ? (names.get(t.projectId) ?? null) : null, projectId: undefined }));
+    }),
+  );
+
+  // ── Notes ───────────────────────────────────────────────────────────────────
+
+  const noteOut = (n: notesData.Note, withBody: boolean) => ({
+    id: n.id,
+    title: n.title,
+    url: `${ctx.baseUrl}/notes/${n.id}`,
+    attachedTo: n.taskRef ? `#${n.taskRef} ${n.taskTitle}` : n.parentId ? `sub-page of "${n.parentTitle}" (${n.parentId})` : n.projectName ? `project ${n.projectName}` : null,
+    project: n.projectName,
+    archived: n.archived || undefined,
+    archivedBecause: n.archivedBecause,
+    updatedAt: n.updatedAt,
+    updatedBy: n.updatedBy,
+    chars: n.chars,
+    ...(n.subPages.length ? { subPages: n.subPages } : {}),
+    ...(withBody ? {} : { firstLine: n.firstLine }),
+  });
+
+  const blockOp = z.discriminatedUnion('op', [
+    z.object({ op: z.literal('replace'), block_id: z.string(), markdown: z.string() }),
+    z.object({ op: z.literal('insert'), after: z.string().optional(), before: z.string().optional(), markdown: z.string().describe('Inserted after/before that block id; at the end if neither') }),
+    z.object({ op: z.literal('delete'), block_id: z.string() }),
+  ]);
+
+  tool(
+    'write_note',
+    {
+      inputSchema: {
+        note_id: z.string().optional().describe('Update this note'),
+        task: taskKey.optional().describe("The task's note (created if missing)"),
+        project: z.string().optional().describe('Create a NEW project note (only when no existing note fits)'),
+        parent_id: z.string().optional().describe('Create a NEW sub-page inside this note'),
+        title: z.string().optional(),
+        body: z.string().optional().describe('Markdown; replaces the whole page (loses Notion-only formatting). Prefer block_ops'),
+        append: z.string().optional().describe('Markdown added at the end'),
+        block_ops: z.array(blockOp).optional().describe('Per-block changes using block ids from read_note; untouched blocks keep their formatting'),
+        edits: z.array(z.object({ find: z.string().min(1), replace: z.string() })).optional().describe('Text replacements; each find must occur exactly once in the page; only that block is rewritten'),
+        archived: z.boolean().optional(),
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => {
+      const r = await notesData.writeNote(
+        { noteId: a.note_id, task: a.task, project: a.project, parentId: a.parent_id, title: a.title, body: a.body, append: a.append, blockOps: a.block_ops, edits: a.edits, archived: a.archived },
+        ACTOR,
+      );
+      return { [r.created ? 'created' : 'updated']: noteOut(r.note, false) };
+    }),
+  );
+
+  tool(
+    'read_note',
+    {
+      inputSchema: { note_id: z.string().optional(), task: taskKey.optional() },
+      annotations: { readOnlyHint: true },
+    },
+    handler(async a => {
+      if (!a.note_id && a.task === undefined) throw new InputError('Give note_id or task');
+      const id = a.note_id ?? (await notesData.getTaskNoteId(a.task!));
+      const r = id ? await notesData.getNoteWithBlocks(id, { outline: true }) : null;
+      if (!r) throw new NotFoundError(a.note_id ? `Note ${a.note_id} not found` : `Task ${a.task} has no note`);
+      return { ...noteOut(r.note, true), markdown: r.note.body, blocks: r.outline };
+    }),
+  );
+
+  tool(
+    'list_notes',
+    {
+      inputSchema: {
+        project: z.string().optional(),
+        state: z.enum(['active', 'archived', 'all']).optional().describe('Default active'),
+        kind: z.enum(['task', 'project', 'all']).optional(),
+        query: z.string().optional().describe('Search titles and text'),
+        limit: z.number().int().min(1).max(200).optional().describe('Default 50'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    handler(async a => {
+      const r = await notesData.listNotes({ project: a.project, state: a.state, kind: a.kind, q: a.query, limit: a.limit ?? 50 });
+      return { total: r.total, notes: r.notes.map(n => noteOut(n, false)) };
+    }),
+  );
+
+  tool(
+    'delete_note',
+    {
+      inputSchema: { note_id: z.string(), title: z.string().describe('The note title, as a safety check') },
+      annotations: { destructiveHint: true },
+    },
+    handler(async a => {
+      const r = await notesData.deleteNote(a.note_id, ACTOR, { expectTitle: a.title });
+      return { deleted: r.title, restorable: `for ${notesData.NOTE_TRASH_DAYS} days` };
     }),
   );
 

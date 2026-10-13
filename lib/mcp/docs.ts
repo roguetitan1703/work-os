@@ -11,6 +11,7 @@ export const INSTRUCTIONS = `Work OS is Om's personal task system (solo founder 
 - Modes (type of work): ${ModeSchema.options.join(', ')}.
 - Every write you make is recorded in the task's history as done by Claude. Include a short "note" saying why, especially for status and progress changes.
 - Use log_progress (not update_task) to report progress; use complete_task to finish a task. To abandon a task set status Dropped; to remove a task added by mistake use delete_task (it goes to a 30-day trash; restore_task brings it back).
+- Notes are pages (markdown) for anything longer than a line or two: problem statements, handovers, drafts, client terms, idea lists. Keep task descriptions short and put the real content in a note. A task has at most one note; projects can have many. Reads (get_task, get_project, list_projects) show each note's id, title and first line: always update an existing note by note_id (or by task for a task's note) before creating a new one, and prefer append or edits over rewriting.
 - Several changes at once (a handover, a cleanup, re-planning): use apply_changes, one atomic call; run it with dry_run first when it deletes or touches many tasks. For a full picture of a project use get_project (depth full) instead of many get_task calls.
 - For the morning brief, call daily_summary once; it already contains overdue, due today, in progress, blocked, completions and changes since the previous workday.
 - Discord (server "Delpat", read-only): discord_needs_attention is the one call for "what needs me on Discord". It lists items Om flagged for later by tagging the bot (with the message he was replying to), mentions of him/his roles/@everyone, replies to him, and new activity in threads he is in, each marked handled if he posted after it. The bot cannot post, so never claim to have replied on Discord. Use discord_message_to_task to turn a message into a task (it won't duplicate one already tracked).`;
@@ -28,6 +29,10 @@ export type ToolName =
   | 'delete_task'
   | 'restore_task'
   | 'list_trash'
+  | 'write_note'
+  | 'read_note'
+  | 'list_notes'
+  | 'delete_note'
   | 'update_checklist'
   | 'list_projects'
   | 'add_project'
@@ -95,7 +100,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   apply_changes: {
     title: 'Apply changes (batch)',
     description:
-      'Many changes in ONE atomic call: all apply or none do. ops (max 100) run in order: create_task, update_task, log_progress, complete_task, add_comment, edit_comment, delete_comment, update_checklist, archive_task, delete_task, restore_task, add_project, update_project. A create_task can set as:"$name" and later ops may use "$name" as the task (also in depends_on). delete_task needs the task title as a safety check and moves the task to a 30-day trash. dry_run:true runs everything then rolls back, so you can check the result first.',
+      'Many changes in ONE atomic call: all apply or none do. ops (max 100) run in order: create_task, update_task, log_progress, complete_task, add_comment, edit_comment, delete_comment, update_checklist, archive_task, delete_task, restore_task, write_note, delete_note, add_project, update_project. A create_task can set as:"$name" and later ops may use "$name" as the task (also in depends_on). delete_task needs the task title as a safety check and moves the task to a 30-day trash. dry_run:true runs everything then rolls back, so you can check the result first.',
     writes: true,
     example: 'Set up the Terrah handover: 6 tasks with dependencies and a comment on #31',
   },
@@ -118,6 +123,31 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
     description: 'Bring a deleted task (and its history) back from the trash.',
     writes: true,
     example: 'Restore #88',
+  },
+  write_note: {
+    title: 'Write note',
+    description:
+      'Create or update a note (a Notion-style page). Update by note_id, or by task (a task has one note; created if missing). New project note: project + title, only when no existing note fits (get_project / list_notes show what a project holds). New sub-page: parent_id + title. Change content with ONE of: block_ops (replace/insert/delete by block id from read_note; keeps formatting elsewhere; preferred), edits [{find, replace}] (rewrites only the block containing it), append (markdown at the end), or body (replaces the whole page). Link tasks/projects as [#12 Title](/tasks/12) or [Name](/projects/<id>); they become mentions. archived:true archives a note.',
+    writes: true,
+    example: 'Put the Terrah handover in a note on #76',
+  },
+  read_note: {
+    title: 'Read note',
+    description: 'A note by note_id, or the note of a task: its markdown, its blocks (id, type, markdown) for targeted edits, and its sub-pages.',
+    writes: false,
+    example: 'What are the client terms we noted for Grant Leads?',
+  },
+  list_notes: {
+    title: 'List notes',
+    description: 'Flat list of notes (id, title, first line, what it is attached to, last edited), newest first. Filter by project, state (active, archived, all), kind (task, project) and text search.',
+    writes: false,
+    example: 'Find the note about pricing',
+  },
+  delete_note: {
+    title: 'Delete note',
+    description: 'Delete a note (restorable for 30 days). Requires the note title as confirmation. Prefer updating or archiving.',
+    writes: true,
+    example: 'Delete the duplicate ideas note',
   },
   list_trash: {
     title: 'List trash',

@@ -10,6 +10,7 @@ import * as projects from '@/lib/data/projects';
 import * as reviews from '@/lib/data/reviews';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 import type {
+  Activity,
   FiverrRitualLog,
   Project,
   ProjectInput,
@@ -74,6 +75,34 @@ export async function setArchivedAction(id: string, archived: boolean): Promise<
 
 export async function checklistAction(id: string, ops: tasks.ChecklistOps): Promise<Result<Task>> {
   return run(() => tasks.updateChecklist(id, ops, 'me'));
+}
+
+// ── Trash (delete / restore) and comment edits ─────────────────────────────
+// run() revalidates the whole layout, which covers the task page, /history, /today,
+// /board and project pages.
+
+export async function deleteTaskAction(ref: number | string, reason?: string): Promise<Result<{ ref: number; title: string }>> {
+  return run(() => tasks.trashTask(ref, 'me', { reason }));
+}
+
+export async function restoreTaskAction(ref: number | string): Promise<Result<Task>> {
+  return run(() => tasks.restoreTask(ref, 'me'));
+}
+
+export async function purgeTrashItemAction(ref: number): Promise<Result<number>> {
+  return run(async () => {
+    const n = await tasks.purgeTrash(ref);
+    if (!n) throw new NotFoundError(`#${ref} is not in the trash`);
+    return n;
+  });
+}
+
+export async function editCommentAction(activityId: string, text: string): Promise<Result<Activity>> {
+  return run(() => tasks.editComment(activityId, text, 'me'));
+}
+
+export async function deleteCommentAction(activityId: string): Promise<Result<{ taskRef: number }>> {
+  return run(() => tasks.deleteComment(activityId, 'me'));
 }
 
 // ── Projects ────────────────────────────────────────────────────────────────

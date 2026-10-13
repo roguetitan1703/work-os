@@ -5,6 +5,7 @@ import type { Actor, Task, TaskInput, TaskPatch } from '../types';
 import { InputError, NotFoundError } from './errors';
 import * as tasks from './tasks';
 import * as projects from './projects';
+import * as notes from './notes';
 
 // Many changes in one atomic call: either every op applies or none does (MongoDB transaction).
 // A create can carry `as: "$name"`; later ops may use "$name" anywhere a task is expected,
@@ -26,6 +27,8 @@ export type BatchOp =
   | { op: 'archive_task'; task: Key; archived?: boolean }
   | { op: 'delete_task'; task: Key; title: string; reason?: string }
   | { op: 'restore_task'; task: Key }
+  | ({ op: 'write_note'; note_id?: string; task?: Key; project?: string; parent_id?: string; block_ops?: notes.BlockOp[] } & Omit<notes.NoteWrite, 'noteId' | 'task' | 'project' | 'parentId' | 'blockOps' | 'blocks'>)
+  | { op: 'delete_note'; note_id: string; title: string }
   | { op: 'add_project'; name: string; client?: string; description?: string }
   | { op: 'update_project'; project: string; name?: string; client?: string; description?: string; status?: 'active' | 'paused' | 'done' | 'archived' };
 
@@ -125,6 +128,17 @@ export async function applyChanges(ops: BatchOp[], actor: Actor, opts: { dryRun?
           case 'restore_task':
             done(i, o.op, await tasks.restoreTask(key(o.task), actor));
             break;
+          case 'write_note': {
+            const { op: _op, note_id, task, project, parent_id, block_ops, ...w } = o;
+            const r = await notes.writeNote({ ...w, noteId: note_id, task: task !== undefined ? key(task) : undefined, project, parentId: parent_id, blockOps: block_ops }, actor);
+            done(i, o.op, undefined, `${r.created ? 'created' : 'updated'} note ${r.note.id} "${r.note.title}"`);
+            break;
+          }
+          case 'delete_note': {
+            const r = await notes.deleteNote(o.note_id, actor, { expectTitle: o.title });
+            done(i, o.op, undefined, `deleted note "${r.title}"`);
+            break;
+          }
           case 'add_project': {
             const r = await projects.createProject({ name: o.name, client: o.client, description: o.description });
             done(i, o.op, undefined, `${r.project.name}${r.created ? '' : ' (already existed)'}`);

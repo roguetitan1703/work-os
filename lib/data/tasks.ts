@@ -421,6 +421,7 @@ export async function trashTask(
     throw new InputError(`#${cur.ref} is "${cur.title}", not "${opts.expectTitle}". Nothing deleted.`);
   }
   const activity = await c.activity.find({ taskId: cur._id }).toArray();
+  const notes = await c.notes.find({ taskId: cur._id, deletedAt: null }, { projection: { _id: 1 } }).toArray();
   const doc: TrashDoc = {
     _id: cur._id,
     ref: cur.ref,
@@ -430,7 +431,9 @@ export async function trashTask(
     deletedAt: new Date(),
     deletedBy: actor,
     reason: opts.reason?.trim() ?? '',
+    ...(notes.length ? { noteIds: notes.map(n => n._id) } : {}),
   };
+  if (notes.length) await c.notes.updateMany({ _id: { $in: notes.map(n => n._id) } }, { $set: { deletedAt: doc.deletedAt, deletedBy: actor } });
   await c.trash.replaceOne({ _id: cur._id }, doc, { upsert: true });
   await c.tasks.deleteOne({ _id: cur._id });
   await c.activity.deleteMany({ taskId: cur._id });
@@ -445,6 +448,7 @@ export async function restoreTask(key: string | number, actor: Actor): Promise<T
   if (await c.tasks.findOne({ ref: t.ref }, { projection: { _id: 1 } })) throw new InputError(`#${t.ref} already exists`);
   await c.tasks.insertOne(t.task);
   if (t.activity.length) await c.activity.insertMany(t.activity);
+  if (t.noteIds?.length) await c.notes.updateMany({ _id: { $in: t.noteIds } }, { $set: { deletedAt: null }, $unset: { deletedBy: '' } });
   await c.trash.deleteOne({ _id: t._id });
   await logActivity(c, t.task, actor, 'edit', { note: 'Restored from trash' });
   return toTask(t.task);
