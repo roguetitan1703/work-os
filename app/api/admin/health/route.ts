@@ -33,7 +33,8 @@ export async function GET(req: Request) {
       c.counters.findOne({ _id: 'task' }),
     ]);
     const notesConverter = await converterCheck();
-    return NextResponse.json({ ok: true, today: todayStr(), env, notesConverter, blobStorage: !!process.env.BLOB_READ_WRITE_TOKEN, counts: { tasks, activity, projects, reviews, ritualLogs, lastRef: counter?.seq ?? 0 } });
+    const runtime = process.version;
+    return NextResponse.json({ ok: true, today: todayStr(), env, runtime, notesConverter, blobStorage: !!process.env.BLOB_READ_WRITE_TOKEN, counts: { tasks, activity, projects, reviews, ritualLogs, lastRef: counter?.seq ?? 0 } });
   } catch (err) {
     return NextResponse.json({ ok: false, env, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
