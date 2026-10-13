@@ -1,6 +1,7 @@
 import { CopyBox } from '@/components/copy-box';
 import { discordConfig, guildContext, CONTENT_INTENT_WARNING } from '@/lib/discord/client';
 import { cn } from '@/lib/utils';
+import { BlockedChannels } from './blocked-channels';
 
 // View Channel (1<<10) + Read Message History (1<<16). Nothing else: the bot never posts.
 const PERMISSIONS = String((1 << 10) | (1 << 16));
@@ -19,6 +20,8 @@ async function status() {
       contentIntent: ctx.contentIntent,
       ownerName: ctx.ownerName,
       ownerFound: ctx.ownerRoleIds.length > 0 || ctx.ownerName !== 'Om',
+      layout: ctx.layout,
+      blockedCount: ctx.blocked.size,
     };
   } catch (e) {
     return { ok: false as const, error: e instanceof Error ? e.message : 'failed' };
@@ -54,6 +57,7 @@ export async function DiscordSection({ base }: { base: string }) {
             </div>
             {!s.contentIntent && <div className="text-red-600 dark:text-red-400">{CONTENT_INTENT_WARNING}</div>}
             {s.noAccess.length > 0 && <div className="text-muted-foreground">Bot can&apos;t read: {s.noAccess.join(', ')}</div>}
+            <div className="text-muted-foreground">{s.blockedCount ? `${s.blockedCount} channels blocked as sensitive.` : 'No channels blocked as sensitive yet.'}</div>
           </div>
         ) : (
           <div className="space-y-1">
@@ -97,6 +101,18 @@ export async function DiscordSection({ base }: { base: string }) {
           <CopyBox text={`curl -X POST ${base}/api/admin/discord/register -H "Authorization: Bearer $MCP_TOKEN"`} className="mt-2" />
         </li>
       </ol>
+
+      {s.ok && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-foreground">Sensitive channels: never read</h3>
+          <p className="text-sm text-muted-foreground">
+            Tick channels that hold passwords, credentials or anything Claude shouldn&apos;t see. They&apos;re dropped before any read: not listed, not
+            scanned, and links or right-clicks into them are refused. For a hard guarantee, also deny the bot&apos;s role <b>View Channel</b> in each
+            of them (Edit Channel → Permissions); then Discord itself won&apos;t hand the bot those messages.
+          </p>
+          <BlockedChannels layout={s.layout} />
+        </div>
+      )}
 
       <div className="rounded-lg border border-border divide-y divide-border text-sm">
         {[

@@ -1,4 +1,5 @@
 import 'server-only';
+import { collections } from '../db';
 
 // Read-only Discord REST client used by the MCP tools and the interactions endpoint.
 // No gateway, no storage: everything is fetched on demand with the bot token.
@@ -217,7 +218,11 @@ export type GuildContext = {
   ownerRoleIds: string[];
   roleNames: Map<string, string>;
   contentIntent: boolean;
-  channels: ChannelInfo[]; // readable types + threads, incl. ones the bot can't read (canRead=false)
+  channels: ChannelInfo[]; // readable types + threads, incl. ones the bot can't read (canRead=false); blocked ones removed
+  /** Every guild channel incl. categories and blocked ones, for the settings UI. */
+  layout: { id: string; name: string; type: string; parentId: string | null; blocked: boolean }[];
+  /** Ids blocked in settings (channels, categories or threads) and every channel/thread under them. */
+  blocked: Set<string>;
   myThreadIds: Set<string>; // active threads the owner is known to be in (filled lazily)
   fetchedAt: number;
 };
@@ -248,13 +253,14 @@ function computePerms(ch: RawChannel, everyone: RawRole | undefined, roles: Map<
 async function loadContext(): Promise<GuildContext> {
   const cfg = requireConfig();
   const b = budget(15_000);
-  const [me, app, channels, threads, roles, owner] = await Promise.all([
+  const [me, app, channels, threads, roles, owner, blockedRoots] = await Promise.all([
     api<RawUser>('/users/@me', { budget: b }),
     api<{ flags?: number }>('/applications/@me', { budget: b }).catch(() => ({ flags: undefined })),
     api<RawChannel[]>(`/guilds/${cfg.guildId}/channels`, { budget: b }),
     api<{ threads: RawChannel[] }>(`/guilds/${cfg.guildId}/threads/active`, { budget: b }),
     api<RawRole[]>(`/guilds/${cfg.guildId}/roles`, { budget: b }),
     api<RawMember>(`/guilds/${cfg.guildId}/members/${cfg.ownerId}`, { budget: b }).catch(() => null),
+    blockedIds(),
   ]);
   const botMember = await api<RawMember>(`/guilds/${cfg.guildId}/members/${me.id}`, { budget: b });
   const roleMap = new Map(roles.map(r => [r.id, r]));
@@ -281,12 +287,30 @@ async function loadContext(): Promise<GuildContext> {
     };
   };
 
+  // A channel is blocked if it, its category, or (for threads) its parent channel or that channel's category is blocked.
+  const blocked = new Set<string>();
+  const isBlocked = (c: RawChannel): boolean => {
+    if (blockedRoots.has(c.id)) return true;
+    const parent = c.parent_id ? byId.get(c.parent_id) : undefined;
+    if (c.parent_id && blockedRoots.has(c.parent_id)) return true;
+    return !!parent?.parent_id && blockedRoots.has(parent.parent_id);
+  };
   const infos: ChannelInfo[] = [];
-  for (const c of channels) if (READABLE.has(c.type)) infos.push(toInfo(c, c));
+  for (const c of channels) {
+    if (!READABLE.has(c.type)) continue;
+    if (isBlocked(c)) blocked.add(c.id);
+    else infos.push(toInfo(c, c));
+  }
   for (const t of threads.threads) {
     const parent = t.parent_id ? byId.get(t.parent_id) : undefined;
-    if (parent) infos.push(toInfo(t, parent));
+    if (isBlocked(t)) blocked.add(t.id);
+    else if (parent) infos.push(toInfo(t, parent));
   }
+  for (const id of blockedRoots) blocked.add(id);
+  const layout = channels
+    .filter(c => c.type === 4 || READABLE.has(c.type))
+    .sort((a, c) => (a.position ?? 0) - (c.position ?? 0))
+    .map(c => ({ id: c.id, name: c.name ?? c.id, type: CHANNEL_TYPES[c.type] ?? String(c.type), parentId: c.parent_id ?? null, blocked: blockedRoots.has(c.id) }));
 
   // GATEWAY_MESSAGE_CONTENT (1<<19) or _LIMITED (1<<18)
   const flags = app.flags;
@@ -302,9 +326,45 @@ async function loadContext(): Promise<GuildContext> {
     roleNames: new Map(roles.map(r => [r.id, r.name])),
     contentIntent,
     channels: infos,
+    layout,
+    blocked,
     myThreadIds: new Set(),
     fetchedAt: Date.now(),
   };
+}
+
+// ── Blocked channels (sensitive: passwords etc.) ────────────────────────────
+// Stored in Mongo (settings._id = 'discord'), editable on /connect; DISCORD_BLOCKED_CHANNELS
+// (comma-separated ids) adds more from env. Blocked channels never reach any tool or command.
+
+async function blockedIds(): Promise<Set<string>> {
+  const fromEnv = (process.env.DISCORD_BLOCKED_CHANNELS ?? '').split(/[\s,]+/).filter(s => /^\d{15,22}$/.test(s));
+  const doc = await (await collections()).settings.findOne({ _id: 'discord' });
+  return new Set([...fromEnv, ...(doc?.blockedIds ?? [])]);
+}
+
+export async function setBlockedIds(ids: string[]): Promise<void> {
+  const clean = [...new Set(ids.filter(s => /^\d{15,22}$/.test(s)))];
+  await (await collections()).settings.updateOne({ _id: 'discord' }, { $set: { blockedIds: clean, updatedAt: new Date() } }, { upsert: true });
+  cache.ctx = undefined;
+}
+
+export class BlockedChannelError extends Error {
+  constructor() {
+    super('That channel is blocked in Work OS settings (marked sensitive), so it is never read.');
+    this.name = 'BlockedChannelError';
+  }
+}
+
+/** Throws if the channel (or its parent/category, for channels not in the cached list such as archived threads) is blocked. */
+export async function assertNotBlocked(ctx: GuildContext, channelId: string, b?: Budget): Promise<void> {
+  if (ctx.blocked.has(channelId)) throw new BlockedChannelError();
+  if (ctx.channels.some(c => c.id === channelId)) return;
+  const ch = await api<RawChannel>(`/channels/${channelId}`, { budget: b }).catch(() => null);
+  if (!ch) return;
+  if (ch.parent_id && ctx.blocked.has(ch.parent_id)) throw new BlockedChannelError();
+  const parent = ch.parent_id ? ctx.layout.find(c => c.id === ch.parent_id) : undefined;
+  if (parent?.parentId && ctx.blocked.has(parent.parentId)) throw new BlockedChannelError();
 }
 
 export async function guildContext(opts: { fresh?: boolean } = {}): Promise<GuildContext> {

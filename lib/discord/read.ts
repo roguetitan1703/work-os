@@ -22,6 +22,7 @@ import {
   type GuildContext,
   type MessageView,
   type RawMessage,
+  assertNotBlocked,
   renderContent,
 } from './client';
 import { taskFromMessage, type MessageTaskOverrides, type MessageTaskResult } from './to-task';
@@ -57,6 +58,7 @@ export async function listChannels(opts: { activeSince?: Date; includeThreads?: 
     count: rows.filter(c => c.canRead).length,
     channels: rows.filter(c => c.canRead).map(shape),
     noAccess: rows.filter(c => !c.canRead).map(c => where(c)),
+    ...(ctx.blocked.size ? { blockedInSettings: ctx.blocked.size } : {}),
     ...(ctx.contentIntent ? {} : { warning: CONTENT_INTENT_WARNING }),
   };
 }
@@ -75,6 +77,7 @@ export async function readMessages(q: {
   const ch = findChannel(ctx, q.channel);
   const channelId = ch?.id ?? q.channel.match(/channels\/\d+\/(\d+)/)?.[1] ?? (/^\d{15,22}$/.test(q.channel.trim()) ? q.channel.trim() : null);
   if (!channelId) throw new NotFoundError(`No channel or thread matches "${q.channel}". Use discord_list_channels to see names.`);
+  await assertNotBlocked(ctx, channelId);
   if (ch && !ch.canRead) throw new InputError(`The bot can't read ${where(ch)} (missing View Channel / Read Message History there).`);
 
   const limit = Math.min(Math.max(q.limit ?? 50, 1), q.since ? 300 : 100);
@@ -255,6 +258,7 @@ export async function messageToTask(
     channelId = findChannel(ctx, ref.channel)?.id ?? (/^\d{15,22}$/.test(ref.channel) ? ref.channel : undefined);
   }
   if (!channelId || !messageId) throw new InputError('Give either message_link, or channel + message_id.');
+  await assertNotBlocked(ctx, channelId);
   let m: RawMessage;
   try {
     m = await fetchMessage(channelId, messageId, budget(15_000));

@@ -7,7 +7,7 @@ import { briefTask, dailySummary } from '../data/summary';
 import { InputError, NotFoundError } from '../data/errors';
 import { INSTRUCTIONS, TOOLS, type ToolName } from './docs';
 import * as discord from '../discord/read';
-import { DiscordError } from '../discord/client';
+import { BlockedChannelError, DiscordError } from '../discord/client';
 import { describeActivity } from '../activity-text';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
 import { ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, type Task, type TaskPatch } from '../types';
@@ -31,7 +31,7 @@ function handler<A>(fn: (args: A) => Promise<unknown>) {
       return ok(await fn(args));
     } catch (err) {
       if (err instanceof ZodError) return fail(err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '));
-      if (err instanceof InputError || err instanceof NotFoundError || err instanceof DiscordError) return fail(err.message);
+      if (err instanceof InputError || err instanceof NotFoundError || err instanceof DiscordError || err instanceof BlockedChannelError) return fail(err.message);
       console.error('[mcp]', err);
       return fail('Internal error');
     }

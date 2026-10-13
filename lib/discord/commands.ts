@@ -6,7 +6,7 @@ import { listProjectsBasic, projectNameMap } from '../data/projects';
 import { addDays, resolveDate, todayStr } from '../dates';
 import { fmtDate } from '../format';
 import { ModeSchema, PRIORITIES, type Mode, type Priority, type Task } from '../types';
-import { DiscordError, findChannel, guildContext, type ChannelInfo, type RawMessage } from './client';
+import { BlockedChannelError, DiscordError, assertNotBlocked, findChannel, guildContext, type ChannelInfo, type RawMessage } from './client';
 import { taskFromMessage } from './to-task';
 
 // Slash commands, the "Add to Work OS" message command and their component/modal follow-ups.
@@ -116,7 +116,7 @@ function clip(s: string, n: number): string {
 
 export function errorText(err: unknown): string {
   if (err instanceof ZodError) return 'Invalid input: ' + err.issues.map(i => `${i.path.join('.') || 'value'}: ${i.message}`).join('; ');
-  if (err instanceof InputError || err instanceof NotFoundError || err instanceof DiscordError) return err.message;
+  if (err instanceof InputError || err instanceof NotFoundError || err instanceof DiscordError || err instanceof BlockedChannelError) return err.message;
   console.error('[discord] interaction failed:', err instanceof Error ? `${err.name}: ${err.message}` : err);
   return 'Something went wrong. Check the server logs.';
 }
@@ -185,12 +185,9 @@ function findModalValue(rows: ModalRow[] | undefined, id: string): string | unde
 async function addFromMessage(i: Interaction, c: Ctx): Promise<ReplyBody> {
   const target = i.data?.target_id ? i.data.resolved?.messages?.[i.data.target_id] : undefined;
   if (!target) return { content: 'Could not read that message.' };
-  let channel: ChannelInfo | undefined;
-  try {
-    channel = findChannel(await guildContext(), target.channel_id);
-  } catch {
-    channel = undefined; // fall back to the name Discord sent with the interaction
-  }
+  const ctx = await guildContext();
+  await assertNotBlocked(ctx, target.channel_id);
+  const channel: ChannelInfo | undefined = findChannel(ctx, target.channel_id);
   const { task, existing } = await taskFromMessage(
     target,
     { guildId: i.guild_id!, channel, channelName: channel ? undefined : i.channel?.name },

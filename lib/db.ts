@@ -60,6 +60,8 @@ export type ProjectDoc = {
 export type ReviewDoc = Omit<WeeklyReview, 'id'> & { _id: string };
 export type RitualDoc = Omit<FiverrRitualLog, 'id'> & { _id: string };
 export type CounterDoc = { _id: string; seq: number };
+/** App settings, one doc per area. `discord.blockedIds` = channel/category/thread ids Work OS must never read. */
+export type SettingsDoc = { _id: string; blockedIds?: string[]; updatedAt?: Date };
 
 // ── Connection (cached across hot reloads and warm serverless invocations) ──
 
@@ -132,6 +134,7 @@ export async function collections() {
     reviews: db.collection<ReviewDoc>('reviews'),
     ritualLogs: db.collection<RitualDoc>('ritualLogs'),
     counters: db.collection<CounterDoc>('counters'),
+    settings: db.collection<SettingsDoc>('settings'),
   };
 }
 
