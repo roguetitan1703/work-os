@@ -1,6 +1,8 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { bearerToken, checkToken, urlTokenAllowed } from '@/lib/auth';
+import { after } from 'next/server';
 import { createMcpServer } from '@/lib/mcp/server';
+import { flushQueuedAlerts } from '@/lib/alerts';
 
 // MCP endpoint (Streamable HTTP, stateless). Authenticated with the MCP_TOKEN API key in a header:
 //   Authorization: Bearer <key>   or   X-API-Key: <key>        → POST /api/mcp
@@ -27,7 +29,9 @@ async function handle(req: Request, ctx: Ctx): Promise<Response> {
   if (!(await authorized(req, ctx))) {
     return Response.json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized' }, id: null }, { status: 401 });
   }
-  const server = createMcpServer({ baseUrl: baseUrl(req) });
+  const base = baseUrl(req);
+  const server = createMcpServer({ baseUrl: base });
+  after(() => flushQueuedAlerts(base));
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

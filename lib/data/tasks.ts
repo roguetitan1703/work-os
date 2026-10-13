@@ -26,6 +26,7 @@ import {
 import { addDays, addMonths, resolveDate, todayStr, weekday, weekStart } from '../dates';
 import { resolveProject, toProject } from './projects';
 import { InputError, NotFoundError } from './errors';
+import { queueUnblocked } from '../alerts';
 
 // ── Conversions & helpers ───────────────────────────────────────────────────
 
@@ -351,6 +352,7 @@ export async function updateTask(key: string | number, patch: TaskPatch, actor: 
     await logActivity(c, next, actor, type, { changes, note: opts.note });
   }
 
+  if (statusChanged && CLOSED_STATUSES.includes(status) && isOpen(cur.status)) await queueUnblocked(c, next);
   if (statusChanged && status === 'Done' && next.recurrence && !next.nextRef) {
     next.nextRef = await spawnNextOccurrence(c, next, actor);
   }

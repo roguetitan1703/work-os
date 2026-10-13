@@ -80,6 +80,12 @@ export type NoteDoc = {
   deletedBy?: Actor;
 };
 
+export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked';
+/** One row per alert sent (key encodes task + occasion), so each is sent once. */
+export type AlertLogDoc = { _id: string; kind: AlertKind; taskId?: string; sentAt: Date };
+/** Event alerts waiting for the next send (queued inside the write's transaction). */
+export type AlertQueueDoc = { _id: string; kind: 'unblocked'; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null };
+
 /** A deleted task with its history, kept 30 days so it can be restored. */
 export type TrashDoc = {
   _id: string; // task id
@@ -94,7 +100,14 @@ export type TrashDoc = {
   noteIds?: string[];
 };
 /** App settings, one doc per area. `discord.blockedIds` = channel/category/thread ids Work OS must never read. */
-export type SettingsDoc = { _id: string; blockedIds?: string[]; updatedAt?: Date };
+export type SettingsDoc = {
+  _id: string;
+  blockedIds?: string[];
+  updatedAt?: Date;
+  /** _id 'alerts': last scheduled run */
+  lastRunAt?: Date;
+  lastResult?: string;
+};
 
 // ── Connection (cached across hot reloads and warm serverless invocations) ──
 
@@ -155,6 +168,8 @@ async function ensureIndexes(db: Db): Promise<void> {
     ]),
     db.collection('projects').createIndexes([{ key: { nameLower: 1 }, unique: true, name: 'name_unique' }]),
     db.collection('ritualLogs').createIndexes([{ key: { date: 1 }, unique: true, name: 'date_unique' }]),
+    db.collection('alertLog').createIndexes([{ key: { taskId: 1 }, name: 'task' }, { key: { sentAt: 1 }, name: 'sentAt' }]),
+    db.collection('alertQueue').createIndexes([{ key: { sentAt: 1 }, name: 'sentAt' }]),
     db.collection('notes').createIndexes([
       { key: { taskId: 1, deletedAt: 1 }, name: 'one_live_note_per_task', unique: true, partialFilterExpression: { taskId: { $type: 'string' } } },
       { key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' },
@@ -177,6 +192,8 @@ export async function collections() {
     settings: db.collection<SettingsDoc>('settings'),
     trash: db.collection<TrashDoc>('trash'),
     notes: db.collection<NoteDoc>('notes'),
+    alertLog: db.collection<AlertLogDoc>('alertLog'),
+    alertQueue: db.collection<AlertQueueDoc>('alertQueue'),
   };
   const session = txStore.getStore();
   return session ? (Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, withSession(v, session)])) as typeof cols) : cols;

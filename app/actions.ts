@@ -1,7 +1,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
+import { after } from 'next/server';
+import { flushQueuedAlerts } from '@/lib/alerts';
+import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { ZodError } from 'zod';
 import { SESSION_COOKIE, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
@@ -53,15 +55,25 @@ export async function bulkCreateTasksAction(inputs: TaskInput[]): Promise<Result
   return run(() => tasks.bulkCreateTasks(inputs, 'me'));
 }
 
+async function flushAlerts() {
+  const h = await headers();
+  const host = h.get('x-forwarded-host') ?? h.get('host');
+  const base = (process.env.APP_URL || (host ? `${h.get('x-forwarded-proto') ?? 'https'}://${host}` : '')).replace(/\/+$/, '');
+  after(() => flushQueuedAlerts(base));
+}
+
 export async function updateTaskAction(id: string, patch: TaskPatch, note?: string): Promise<Result<Task>> {
+  await flushAlerts();
   return run(() => tasks.updateTask(id, patch, 'me', { note }));
 }
 
 export async function logProgressAction(id: string, progress: number, note?: string, status?: Status): Promise<Result<Task>> {
+  await flushAlerts();
   return run(() => tasks.logProgress(id, progress, note, 'me', status));
 }
 
 export async function completeTaskAction(id: string, note?: string): Promise<Result<Task>> {
+  await flushAlerts();
   return run(() => tasks.completeTask(id, note, 'me'));
 }
 

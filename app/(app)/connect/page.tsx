@@ -4,6 +4,7 @@ import { INSTRUCTIONS, TOOLS, type ToolName } from '@/lib/mcp/docs';
 import { cn } from '@/lib/utils';
 import { urlTokenAllowed } from '@/lib/auth';
 import { DiscordSection } from './discord-section';
+import { AlertsSection } from './alerts-section';
 
 export const metadata = { title: 'Connect Claude · Work OS' };
 
@@ -138,6 +139,8 @@ export default async function ConnectPage() {
       </Step>
 
       <DiscordSection base={base} />
+
+      <AlertsSection base={base} />
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-foreground">What Claude can do</h2>

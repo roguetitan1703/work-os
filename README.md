@@ -55,6 +55,10 @@ Notion-style pages (BlockNote editor: `/` menu, toggles, callouts, colours, tabl
 
 Images and files go to a **private** Vercel Blob store and are served only to a logged-in session via `/api/notes/file`. Setup: Vercel → Storage → Create → Blob (private) → connect to this project (adds `BLOB_READ_WRITE_TOKEN`) → redeploy.
 
+## Alerts (Discord DMs)
+
+The bot DMs Om when work slips: due tomorrow (18:00, P1/P2), due today (09:00), overdue (morning after, then every 2 days), stalled (In Progress, no activity for 2 workdays), P1 never started (24h), unblocked (as soon as the last dependency closes). Quiet hours 23:00–08:00 IST; one batched DM per check; each alert sent once (`alertLog`). `/api/cron/alerts` is called every 15 minutes by cron-job.org with `Authorization: Bearer <CRON_SECRET>`; `?dry=1` previews. Unblocked alerts are queued inside the closing write's transaction and also flushed right after MCP, Discord and app writes. Status and setup are on `/connect`.
+
 ## Discord (server "Delpat")
 
 No hosted bot, no gateway, nothing stored. Claude reads Discord on demand through MCP tools that call Discord's REST API with the bot token; commands arrive on `/api/discord/interactions` (signature-verified) and only the owner can use them. The bot never posts; its only output is ephemeral replies.
