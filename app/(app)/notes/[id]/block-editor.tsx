@@ -17,6 +17,11 @@ export type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
 
 const AUTOSAVE_MS = 1000;
 
+// Images and files are switched off for now (no Blob store connected). Flip to true once
+// BLOB_READ_WRITE_TOKEN is set; the upload/file routes are already in place.
+const UPLOADS_ENABLED = false;
+const MEDIA_ITEMS = new Set(['Image', 'Video', 'Audio', 'File']);
+
 /** Upload to the private Blob store; the editor gets an app URL that streams it to logged-in users. */
 async function uploadFile(file: File): Promise<string> {
   const safe = file.name.replace(/[^\w.\-]+/g, '_').slice(-80) || 'file';
@@ -43,14 +48,18 @@ export function BlockEditor({
   const editor = useCreateBlockNote({
     schema: noteSchema,
     initialContent: initialBlocks.length ? initialBlocks : undefined,
-    uploadFile: async (file: File) => {
-      try {
-        return await uploadFile(file);
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : 'Upload failed');
-        throw e;
-      }
-    },
+    ...(UPLOADS_ENABLED
+      ? {
+          uploadFile: async (file: File) => {
+            try {
+              return await uploadFile(file);
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : 'Upload failed');
+              throw e;
+            }
+          },
+        }
+      : {}),
   });
 
   // ── Autosave ──
@@ -160,7 +169,7 @@ export function BlockEditor({
         },
       };
       // Put Sub-page at the end of the "Basic blocks" group (a group must be contiguous).
-      const items = getDefaultReactSlashMenuItems(editor);
+      const items = getDefaultReactSlashMenuItems(editor).filter(i => UPLOADS_ENABLED || !MEDIA_ITEMS.has(i.title));
       let at = items.length;
       for (let i = items.length - 1; i >= 0; i--) {
         if (items[i].group === subPage.group) {
