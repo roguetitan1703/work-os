@@ -1,6 +1,6 @@
 import 'server-only';
-import { ServerBlockNoteEditor } from '@blocknote/server-util';
-import { noteSchema, type NoteBlock, type NotePartialBlock } from './notes-schema';
+import type { ServerBlockNoteEditor } from '@blocknote/server-util';
+import type { NoteBlock, NotePartialBlock, NoteSchema } from './notes-schema';
 
 // Server-side conversion between note blocks (source of truth) and markdown (what Claude reads
 // and writes). Links Claude writes to /tasks/<ref> or /projects/<id> become mentions.
@@ -8,11 +8,30 @@ import { noteSchema, type NoteBlock, type NotePartialBlock } from './notes-schem
 type AnyBlock = NoteBlock | NotePartialBlock;
 type Inline = { type: string; text?: string; href?: string; content?: Inline[]; props?: Record<string, unknown>; styles?: Record<string, unknown> };
 
-const g = globalThis as unknown as { __workosNoteEditor?: unknown };
+// Loaded lazily: BlockNote (and its jsdom) only load when a note is actually converted, so
+// a problem there can never take down unrelated routes such as the MCP endpoint.
+type Editor = ServerBlockNoteEditor<NoteSchema['blockSchema'], NoteSchema['inlineContentSchema'], NoteSchema['styleSchema']>;
+const g = globalThis as unknown as { __workosNoteEditor?: Promise<Editor> };
 
-function editor() {
-  g.__workosNoteEditor ??= ServerBlockNoteEditor.create({ schema: noteSchema });
-  return g.__workosNoteEditor as ServerBlockNoteEditor<typeof noteSchema.blockSchema, typeof noteSchema.inlineContentSchema, typeof noteSchema.styleSchema>;
+function editor(): Promise<Editor> {
+  g.__workosNoteEditor ??= (async () => {
+    const [{ ServerBlockNoteEditor }, { noteSchema }] = await Promise.all([import('@blocknote/server-util'), import('./notes-schema')]);
+    return ServerBlockNoteEditor.create({ schema: noteSchema }) as unknown as Editor;
+  })().catch(err => {
+    g.__workosNoteEditor = undefined;
+    throw err;
+  });
+  return g.__workosNoteEditor;
+}
+
+/** For the health check: converts a tiny document and reports any error. */
+export async function converterCheck(): Promise<string> {
+  try {
+    const b = await markdownToBlocks('# ok');
+    return b.length === 1 ? 'ok' : `unexpected: ${b.length} blocks`;
+  } catch (e) {
+    return e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 500) : String(e);
+  }
 }
 
 const MENTION_HREF = /^(?:https?:\/\/[^/]+)?\/(tasks|projects)\/([^/?#\s]+)\/?$/;
@@ -40,12 +59,12 @@ function linkToMentions<T>(blocks: T[]): T[] {
 
 export async function markdownToBlocks(md: string): Promise<NoteBlock[]> {
   if (!md.trim()) return [];
-  return linkToMentions(await editor().tryParseMarkdownToBlocks(md)) as NoteBlock[];
+  return linkToMentions(await (await editor()).tryParseMarkdownToBlocks(md)) as NoteBlock[];
 }
 
 export async function blocksToMarkdown(blocks: AnyBlock[]): Promise<string> {
   if (!blocks.length) return '';
-  return (await editor().blocksToMarkdownLossy(blocks as NotePartialBlock[])).trim();
+  return (await (await editor()).blocksToMarkdownLossy(blocks as NotePartialBlock[])).trim();
 }
 
 /** Top-level blocks with their ids and markdown (children are included in their parent's markdown). */

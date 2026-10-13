@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { bearerToken, checkToken, uiAuthConfigured } from '@/lib/auth';
 import { collections, mongoEnvNames } from '@/lib/db';
 import { APP_TZ, todayStr } from '@/lib/dates';
+import { converterCheck } from '@/lib/notes-convert';
 
 // Connects to MongoDB (creating collections/indexes on first run) and reports what is configured.
 // Authorization: Bearer <MCP_TOKEN>
@@ -31,7 +32,8 @@ export async function GET(req: Request) {
       c.ritualLogs.countDocuments(),
       c.counters.findOne({ _id: 'task' }),
     ]);
-    return NextResponse.json({ ok: true, today: todayStr(), env, counts: { tasks, activity, projects, reviews, ritualLogs, lastRef: counter?.seq ?? 0 } });
+    const notesConverter = await converterCheck();
+    return NextResponse.json({ ok: true, today: todayStr(), env, notesConverter, blobStorage: !!process.env.BLOB_READ_WRITE_TOKEN, counts: { tasks, activity, projects, reviews, ritualLogs, lastRef: counter?.seq ?? 0 } });
   } catch (err) {
     return NextResponse.json({ ok: false, env, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
