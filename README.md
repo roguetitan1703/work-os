@@ -1,5 +1,7 @@
 # Work OS
 
+**Full handover (features, options, code map): [docs/HANDOVER.md](docs/HANDOVER.md)**
+
 Personal task system: Today view, board, projects, per-task history, and an MCP endpoint so Claude (claude.ai chat and a morning brief) can read and update tasks.
 
 Next.js 16 on Vercel, data in MongoDB Atlas.
