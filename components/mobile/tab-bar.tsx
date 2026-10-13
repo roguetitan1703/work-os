@@ -39,6 +39,7 @@ export function TabBar() {
               <Link
                 key={t.href}
                 href={t.href}
+                prefetch
                 className={cn(
                   'flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors active:scale-95',
                   t.match.some(m => path.startsWith(m)) ? 'text-foreground' : 'text-muted-foreground',

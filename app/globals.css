@@ -175,3 +175,16 @@
   .wo-editor .bn-editor { padding-inline: 0.75rem; }
   html, body { overscroll-behavior-y: none; -webkit-tap-highlight-color: transparent; }
 }
+
+/* Touch feedback: every tappable thing visibly reacts the moment a finger lands on it
+   (phones have no hover). Elements with their own active: styles keep theirs too. */
+@media (hover: none) {
+  a, button, [role="button"], summary, label:has(input), select {
+    transition: opacity 120ms ease, transform 120ms ease, background-color 120ms ease;
+    touch-action: manipulation; /* no 300ms double-tap-zoom delay */
+  }
+  a:active, button:active:not(:disabled), [role="button"]:active, summary:active, label:has(input):active {
+    opacity: 0.55;
+    transition-duration: 0ms;
+  }
+}
