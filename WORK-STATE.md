@@ -8,8 +8,7 @@
 2. Global `~/.claude/CLAUDE.md`: replace "This repo's project is named in its CLAUDE.md" with "find it with get_project (git remote, branch, path)" — waiting on Om's yes.
 
 ## Later
-- Claude Code on this PC: `claude mcp add --scope user … work-os` with a key from Connect → Claude Code — waits on Om creating the key.
-- Om's devices: add passkeys and turn on the authenticator app in Settings → Security — waits on Om.
+- work-os MCP is added with Local scope (only this folder); re-add with `--scope user` so every repo gets it — waits on Om.
 - Per-session attribution header (`X-Work-OS-Session` from `CLAUDE_CODE_SESSION_ID`): check whether user-scope MCP config expands env vars — waits on the MCP being added.
 - Discord interactions endpoint URL (slash commands) — waits on Om.
 - cutroom has no Work OS project yet — create one when Om first works on it from Claude Code.

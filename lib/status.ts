@@ -21,15 +21,21 @@ const ago = (iso: string | null) => {
 };
 
 export async function systemStatus(): Promise<Check[]> {
-  const [db, discord, alerts, seen, push, notes] = await Promise.all([
-    timed(async () => {
-      const d = await getDb();
-      const t = Date.now();
-      await d.command({ ping: 1 });
-      const ms = Date.now() - t;
-      const tasks = await d.collection('tasks').countDocuments();
-      return { ms, tasks };
-    }).catch((e: Error) => e),
+  // Time the database on its own, before the other checks start: the notes-converter check loads a
+  // heavy module that blocks the event loop, which used to inflate the ping. The first ping can also
+  // include opening the connection, so the second one is the round trip we show.
+  const db = await timed(async () => {
+    const d = await getDb();
+    let t = Date.now();
+    await d.command({ ping: 1 });
+    const first = Date.now() - t;
+    t = Date.now();
+    await d.command({ ping: 1 });
+    const ms = Date.now() - t;
+    const tasks = await d.collection('tasks').countDocuments();
+    return { ms, first, tasks };
+  }).catch((e: Error) => e);
+  const [discord, alerts, seen, push, notes] = await Promise.all([
     timed(async () => (discordConfig() ? guildContext() : null)).catch((e: Error) => e),
     lastRunStatus().catch(() => null),
     lastSeen().catch(() => ({ mcp: null, discord: null })),
@@ -42,7 +48,7 @@ export async function systemStatus(): Promise<Check[]> {
   checks.push(
     db instanceof Error
       ? { name: 'Database', level: 'error', summary: 'Not reachable', detail: db.message }
-      : { name: 'Database', level: db.ms > 150 ? 'warn' : 'ok', summary: `MongoDB Atlas · ${db.ms} ms`, detail: `${db.tasks} tasks` },
+      : { name: 'Database', level: db.ms > 150 ? 'warn' : 'ok', summary: `MongoDB Atlas · ${db.ms} ms`, detail: `${db.tasks} tasks${db.first > db.ms + 50 ? ` · first query ${db.first} ms (new connection)` : ``}` },
   );
 
   const region = process.env.VERCEL_REGION ?? 'local';
