@@ -16,6 +16,13 @@ export const INSTRUCTIONS = `Work OS is Om's personal task system (solo founder 
 - For the morning brief, call daily_summary once; it already contains overdue, due today, in progress, blocked, completions and changes since the previous workday.
 - Discord (server "Delpat", read-only): discord_needs_attention is the one call for "what needs me on Discord". It lists items Om flagged for later by tagging the bot (with the message he was replying to), mentions of him/his roles/@everyone, replies to him, and new activity in threads he is in, each marked handled if he posted after it. The bot cannot post, so never claim to have replied on Discord. Use discord_message_to_task to turn a message into a task (it won't duplicate one already tracked).`;
 
+/** Added to INSTRUCTIONS for Claude Code sessions (API keys from /connect), not for the claude.ai connector. */
+export const CLAUDE_CODE_INSTRUCTIONS = `You are connected as Claude Code (a session on Om's PC). Your writes are recorded as "Claude Code".
+- Start here: call get_project with your git remote (git remote get-url origin), your folder relative to the repo root (git rev-parse --show-prefix) and branch. If it says unmatched, ask Om which project this is and save it with update_project code, or create the project with add_project (code included) when it is new work.
+- You can create and edit projects, tasks and notes, and move tasks and notes to trash (restorable). Permanent deletion and admin are not available.
+- Limits per key: 300 tool calls per hour; 10 items moved to trash per 10 minutes. An apply_changes that trashes more than 10 items or changes more than 50 tasks must be run with dry_run: true first; the dry run returns a confirm token (valid 10 minutes) to pass as confirm with exactly the same ops.
+- When you change the title, priority, due date or project of a task you did not create, or trash it, Om gets an inbox notice. Say why in the note.`;
+
 export type ToolName =
   | 'list_tasks'
   | 'get_task'
@@ -100,21 +107,21 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   apply_changes: {
     title: 'Apply changes (batch)',
     description:
-      'Many changes in ONE atomic call: all apply or none do. ops (max 100) run in order: create_task, update_task, log_progress, complete_task, add_comment, edit_comment, delete_comment, update_checklist, archive_task, delete_task, restore_task, write_note, delete_note, add_project, update_project. A create_task can set as:"$name" and later ops may use "$name" as the task (also in depends_on). delete_task needs the task title as a safety check and moves the task to a 30-day trash. dry_run:true runs everything then rolls back, so you can check the result first.',
+      'Many changes in ONE atomic call: all apply or none do. ops (max 100) run in order: create_task, update_task, log_progress, complete_task, add_comment, edit_comment, delete_comment, update_checklist, archive_task, delete_task, restore_task, write_note, delete_note, add_project, update_project. A create_task can set as:"$name" and later ops may use "$name" as the task (also in depends_on). delete_task needs the task title as a safety check and moves the task to a 30-day trash. dry_run:true runs everything then rolls back, so you can check the result first. Claude Code keys: a call that moves more than 10 items to trash or changes more than 50 tasks is refused unless it was dry-run first; the dry run returns a confirm token (10 minutes) to pass as confirm with exactly the same ops.',
     writes: true,
     example: 'Set up the Terrah handover: 6 tasks with dependencies and a comment on #31',
   },
   get_project: {
     title: 'Get project (nested)',
     description:
-      'One call for a project’s full picture: stats and recent activity; depth "tasks" adds its open tasks (include_closed for all); depth "full" adds each task’s checklist, what it waits on, and recent history entries with their ids.',
+      'One call for a project’s full picture: stats, code locations and recent activity; depth "tasks" adds its open tasks (include_closed for all); depth "full" adds each task’s checklist, what it waits on, and recent history entries with their ids. Start here from a repo: instead of project, pass your git remote, path relative to the repo root (subdir) and branch (or an absolute path); the most specific code location wins (remote+subdir+branch, then remote+subdir or remote+branch, then remote, then longest path). If nothing matches it returns unmatched with candidate projects: ask Om which project, then call update_project with code.',
     writes: false,
     example: 'Give me the full state of the Grant Leads project',
   },
   delete_task: {
     title: 'Delete task',
     description:
-      'Move a task (with its history) to the trash for 30 days. Requires the task’s title as confirmation, so a wrong ref can’t delete the wrong task. Use for tasks added by mistake; for real work that stopped, set status Dropped instead.',
+      'Move a task (with its history) to the trash for 30 days. Requires the task’s title as confirmation, so a wrong ref can’t delete the wrong task. Use for tasks added by mistake; for real work that stopped, set status Dropped instead. Claude Code keys: at most 10 per 10 minutes.',
     writes: true,
     example: 'Delete #88, I added it twice',
   },
@@ -169,13 +176,14 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   add_project: {
     title: 'Add project',
-    description: 'Create a project. If one with the same name exists it is returned instead.',
+    description: 'Create a project, optionally with code locations (code: [{remote, subdir?, branch?} or {path}]). If one with the same name exists it is returned instead.',
     writes: true,
     example: 'Create a project for Acme, client is Jane',
   },
   update_project: {
     title: 'Update project',
-    description: 'Rename a project or change its client, description or status (active, paused, done, archived).',
+    description:
+      'Rename a project or change its client, description, status (active, paused, done, archived) or code locations. code: [{remote: "owner/name" or any git URL, subdir?, branch?} or {path}] replaces the list, so include the existing ones you want to keep.',
     writes: true,
     example: 'Pause the Swiggy project',
   },

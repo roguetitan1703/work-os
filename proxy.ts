@@ -3,12 +3,16 @@ import { SESSION_COOKIE, bearerToken, checkToken, uiAuthConfigured, uiAuthDisabl
 
 // Guards every page, server action and API route except /login, /api/mcp
 // and /api/discord/interactions (which check their own key / Discord signature). API routes also accept the API key: `Authorization: Bearer <MCP_TOKEN>` or `X-API-Key`.
+// Claude Code keys (wos_…, lib/api-keys.ts) are deliberately NOT accepted here: checkToken() is MCP_TOKEN only,
+// so those keys open /api/mcp and nothing else.
 //
 // /login is allowed by exact path only (not /login*). Password, 2FA and passkey
 // sign-in are server actions on that page (app/login/actions.ts), so they POST
-// to /login and need no other unauthenticated endpoint.
+// to /login and need no other unauthenticated endpoint. /login/reset (exact path) is the
+// password-reset page; its action checks the emailed token itself (lib/password-reset.ts).
+// Session cookies are also checked against the session generation in Mongo (lib/auth.ts).
 export async function proxy(req: NextRequest) {
-  if (req.nextUrl.pathname === '/login') return NextResponse.next();
+  if (req.nextUrl.pathname === '/login' || req.nextUrl.pathname === '/login/reset') return NextResponse.next();
   if (uiAuthDisabled()) return NextResponse.next();
 
   const isApi = req.nextUrl.pathname.startsWith('/api/');

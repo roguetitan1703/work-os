@@ -1,6 +1,6 @@
 import 'server-only';
 import webpush from 'web-push';
-import { collections, type AlertKind } from './db';
+import { collections, type AlertKind, type NotifyKind } from './db';
 
 // Where alerts go: in-app inbox (always), phone push (Web Push) and Discord DM, each
 // switchable in Settings, plus per-alert-type switches. Also tracks "last seen" times
@@ -15,14 +15,20 @@ export const ALERT_KINDS: { kind: AlertKind; label: string; hint: string }[] = [
   { kind: 'stalled', label: 'Stalled', hint: 'In Progress, untouched 2 workdays' },
 ];
 
+/** Every switch under Settings → Notifications: the alert types plus inbox-only notices. */
+export const NOTIFY_KINDS: { kind: NotifyKind; label: string; hint: string }[] = [
+  ...ALERT_KINDS,
+  { kind: 'claude_code_changes', label: 'Claude Code changes', hint: 'Claude Code changed or deleted a task it did not create (inbox)' },
+];
+
 export type NotifySettings = {
   channels: { push: boolean; discord: boolean };
-  kinds: Record<AlertKind, boolean>;
+  kinds: Record<NotifyKind, boolean>;
 };
 
 const DEFAULTS: NotifySettings = {
   channels: { push: true, discord: true },
-  kinds: { unblocked: true, overdue: true, due_today: true, due_tomorrow: true, never_started: true, stalled: true },
+  kinds: { unblocked: true, overdue: true, due_today: true, due_tomorrow: true, never_started: true, stalled: true, claude_code_changes: true },
 };
 
 export async function getNotifySettings(): Promise<NotifySettings> {
@@ -37,9 +43,9 @@ export async function setNotifySettings(next: NotifySettings): Promise<void> {
 
 // ── In-app inbox ────────────────────────────────────────────────────────────
 
-export type InboxItem = { id: string; kind: AlertKind | 'test'; title: string; body: string; url: string; createdAt: string; read: boolean };
+export type InboxItem = { id: string; kind: NotifyKind | 'test' | 'security'; title: string; body: string; url: string; createdAt: string; read: boolean };
 
-export async function addToInbox(items: { kind: AlertKind | 'test'; title: string; body: string; url: string }[]): Promise<void> {
+export async function addToInbox(items: { kind: NotifyKind | 'test' | 'security'; title: string; body: string; url: string }[]): Promise<void> {
   if (!items.length) return;
   const now = new Date();
   await (await collections()).notifications.insertMany(

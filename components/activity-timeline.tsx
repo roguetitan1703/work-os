@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Bot, CheckCircle2, MessageSquare, Pencil, Plus, RotateCcw, TrendingUp, ArrowRightLeft, ListChecks, Archive } from 'lucide-react';
+import { Bot, SquareTerminal, CheckCircle2, MessageSquare, Pencil, Plus, RotateCcw, TrendingUp, ArrowRightLeft, ListChecks, Archive } from 'lucide-react';
 import { describeActivity, ACTOR_LABEL } from '@/lib/activity-text';
 import { ACTOR_STYLE, fmtDateTime } from '@/lib/format';
 import type { Activity, ActivityType } from '@/lib/types';
@@ -23,6 +23,7 @@ export function ActorBadge({ actor }: { actor: string }) {
   return (
     <span className={cn('inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-medium', ACTOR_STYLE[actor])}>
       {actor === 'claude' && <Bot className="w-2.5 h-2.5" />}
+      {actor === 'claude-code' && <SquareTerminal className="w-2.5 h-2.5" />}
       {ACTOR_LABEL[actor] ?? actor}
     </span>
   );
@@ -60,6 +61,11 @@ export function ActivityTimeline({
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground flex-wrap">
               <ActorBadge actor={a.actor} />
               <time dateTime={a.at}>{fmtDateTime(a.at)}</time>
+              {(a.session || a.repo) && (
+                <span className="font-mono text-[10px] text-muted-foreground/70 truncate max-w-[200px]" title={[a.repo && `repo ${a.repo}`, a.session && `session ${a.session}`].filter(Boolean).join(' · ')}>
+                  {[a.repo, a.session?.slice(0, 8)].filter(Boolean).join(' · ')}
+                </span>
+              )}
               {showTask && (
                 <Link href={`/tasks/${a.taskRef}`} className="text-foreground hover:underline truncate max-w-[320px]">
                   #{a.taskRef} {a.taskTitle}

@@ -64,7 +64,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
               {projectName}
             </Link>
           )}
-          <span suppressHydrationWarning>· created {fmtAgo(task.createdAt)} by {task.createdBy === 'claude' ? 'Claude' : task.createdBy === 'me' ? 'you' : 'system'}</span>
+          <span suppressHydrationWarning>· created {fmtAgo(task.createdAt)} by {task.createdBy === 'claude' ? 'Claude' : task.createdBy === 'claude-code' ? 'Claude Code' : task.createdBy === 'me' ? 'you' : 'system'}</span>
           {task.archived && <span className="px-1.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300">archived</span>}
         </div>
         <input

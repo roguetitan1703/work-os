@@ -181,7 +181,7 @@ export async function authLockout(ip: string): Promise<{ locked: boolean; minute
   return { locked: false, minutes: 0 };
 }
 
-export async function recordAuthFailure(kind: 'password' | 'totp', ip: string): Promise<void> {
+export async function recordAuthFailure(kind: 'password' | 'totp' | 'reset', ip: string): Promise<void> {
   const { authFailures } = await collections();
   await authFailures.insertOne({ _id: randomUUID(), kind, ip, at: new Date() });
 }

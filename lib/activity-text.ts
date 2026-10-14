@@ -63,4 +63,4 @@ export function describeActivity(a: Pick<Activity, 'type' | 'changes' | 'note'>)
   return head || a.type;
 }
 
-export const ACTOR_LABEL: Record<string, string> = { me: 'You', discord: 'You · Discord', claude: 'Claude', system: 'System' };
+export const ACTOR_LABEL: Record<string, string> = { me: 'You', discord: 'You · Discord', claude: 'Claude', 'claude-code': 'Claude Code', system: 'System' };

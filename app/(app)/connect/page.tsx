@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { urlTokenAllowed } from '@/lib/auth';
 import { DiscordSection } from './discord-section';
 import { AlertsSection } from './alerts-section';
+import { ClaudeCodeKeys } from './claude-code-keys';
 import { SubHeader } from '@/components/mobile/sub-header';
 
 export const metadata = { title: 'Connect Claude · Work OS' };
@@ -140,6 +141,8 @@ export default async function ConnectPage() {
         <p className="text-sm text-muted-foreground">Add this to the prompt of your weekday 8am brief, alongside Calendar, Gmail and Vercel.</p>
         <CopyBox text={BRIEF_PROMPT} multiline />
       </Step>
+
+      <ClaudeCodeKeys url={url} />
 
       <DiscordSection base={base} />
 

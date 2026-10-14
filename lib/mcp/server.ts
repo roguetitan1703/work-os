@@ -8,17 +8,16 @@ import { applyChanges, MAX_OPS, type BatchOp } from '../data/batch';
 import { getProjectTree } from '../data/tree';
 import * as notesData from '../data/notes';
 import { InputError, NotFoundError } from '../data/errors';
-import { INSTRUCTIONS, TOOLS, type ToolName } from './docs';
+import { CLAUDE_CODE_INSTRUCTIONS, INSTRUCTIONS, TOOLS, type ToolName } from './docs';
+import { beforeTool, checkBatch, notifyChanges, PolicyError, watchTasks, type Caller, type WatchTarget } from './policy';
 import * as discord from '../discord/read';
 import { BlockedChannelError, DiscordError } from '../discord/client';
 import { describeActivity } from '../activity-text';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
 import { ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, type Task, type TaskPatch } from '../types';
 
-const ACTOR = 'claude' as const;
-
-
-type Ctx = { baseUrl: string };
+/** caller: who is calling (MCP_TOKEN → actor "claude"; a Claude Code key → actor "claude-code"). */
+type Ctx = { baseUrl: string; caller?: Caller };
 
 function ok(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 1) }] };
@@ -163,11 +162,42 @@ const fieldShape = {
   recurrence: RecurrenceSchema.nullable().optional().describe('Repeat after completion: {freq: daily|weekdays|weekly|monthly, interval}'),
 };
 
+const codeShape = z
+  .array(
+    z.object({
+      remote: z.string().optional().describe('Git remote, any form (https, git@, owner/name); stored as lowercase owner/name'),
+      path: z.string().optional().describe('Absolute folder path, for code that is not in a git remote'),
+      subdir: z.string().optional().describe('Folder inside the repo (relative to its root) that belongs to this project'),
+      branch: z.string().optional().describe('Branch that belongs to this project, e.g. a worktree branch'),
+    }),
+  )
+  .max(20)
+  .nullable()
+  .optional()
+  .describe("Where the project's code lives. Replaces the whole list; [] or null clears it");
+
 export function createMcpServer(ctx: Ctx): McpServer {
-  const server = new McpServer({ name: 'work-os', version: '1.0.0' }, { instructions: INSTRUCTIONS });
+  const caller: Caller = ctx.caller ?? { actor: 'claude' };
+  const ACTOR = caller.actor;
+  const instructions = ACTOR === 'claude-code' ? `${INSTRUCTIONS}\n${CLAUDE_CODE_INSTRUCTIONS}` : INSTRUCTIONS;
+  const server = new McpServer({ name: 'work-os', version: '1.0.0' }, { instructions });
   // Title/description come from docs.ts so the /connect page shows exactly what Claude sees.
-  const tool = ((name: ToolName, config: object, cb: unknown) =>
-    server.registerTool(name, { ...config, title: TOOLS[name].title, description: TOOLS[name].description }, cb as never)) as unknown as typeof server.registerTool;
+  // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
+  const tool = ((name: ToolName, config: object, cb: (...a: unknown[]) => unknown) =>
+    server.registerTool(
+      name,
+      { ...config, title: TOOLS[name].title, description: TOOLS[name].description },
+      (async (...a: unknown[]) => {
+        try {
+          await beforeTool(caller, name);
+        } catch (err) {
+          if (err instanceof PolicyError) return fail(err.message);
+          console.error('[mcp policy]', err);
+          return fail('Internal error');
+        }
+        return cb(...a);
+      }) as never,
+    )) as unknown as typeof server.registerTool;
 
   tool(
     'list_tasks',
@@ -258,7 +288,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const { task, note, ...fields } = a;
+      const watch = await watchTasks(caller, [{ key: task, args: fields }]);
       const t = await tasks.updateTask(task, toPatch(fields), ACTOR, { note });
+      await notifyChanges(watch);
       return { updated: await brief(t, ctx) };
     }),
   );
@@ -356,6 +388,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         client: z.string().optional(),
         description: z.string().optional(),
         status: ProjectStatusSchema.optional(),
+        code: codeShape,
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
@@ -371,6 +404,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         client: z.string().optional(),
         description: z.string().optional(),
         status: ProjectStatusSchema.optional(),
+        code: codeShape,
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
@@ -398,7 +432,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     {
       inputSchema: {
         since: z.string().optional().describe('Default 24h. yesterday | 48h | 7d | YYYY-MM-DD | ISO datetime'),
-        actor: z.enum(['me', 'discord', 'claude', 'system']).optional().describe('me = Om in the app, discord = Om via Discord commands'),
+        actor: z.enum(['me', 'discord', 'claude', 'claude-code', 'system']).optional().describe('me = Om in the app, discord = Om via Discord commands, claude = claude.ai, claude-code = Claude Code sessions'),
         project: z.string().optional(),
         limit: z.number().int().min(1).max(300).optional().describe('Default 100'),
       },
@@ -449,8 +483,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
       archived: z.boolean().optional(),
     }),
     z.object({ op: z.literal('delete_note'), note_id: z.string(), title: z.string() }),
-    z.object({ op: z.literal('add_project'), name: z.string().min(1), client: z.string().optional(), description: z.string().optional() }),
-    z.object({ op: z.literal('update_project'), project: z.string(), name: z.string().optional(), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional() }),
+    z.object({ op: z.literal('add_project'), name: z.string().min(1), client: z.string().optional(), description: z.string().optional(), code: codeShape }),
+    z.object({ op: z.literal('update_project'), project: z.string(), name: z.string().optional(), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional(), code: codeShape }),
   ]);
 
   function toBatchOp(o: z.infer<typeof OpSchema>): BatchOp {
@@ -471,14 +505,36 @@ export function createMcpServer(ctx: Ctx): McpServer {
       inputSchema: {
         ops: z.array(OpSchema).min(1).max(MAX_OPS),
         dry_run: z.boolean().optional().describe('Run everything, then roll back and report what would happen'),
+        confirm: z.string().max(200).optional().describe('Claude Code keys: the confirm token from a dry run of exactly these ops (needed for big changes)'),
       },
       annotations: { destructiveHint: true, idempotentHint: false },
     },
     handler(async a => {
-      const r = await applyChanges(a.ops.map(toBatchOp), ACTOR, { dryRun: a.dry_run });
+      const gate = await checkBatch(caller, a.ops, { dryRun: a.dry_run, confirm: a.confirm });
+      const watch = a.dry_run
+        ? null
+        : await watchTasks(
+            caller,
+            a.ops.flatMap((o): WatchTarget[] => (o.op === 'update_task' ? [{ key: o.task, args: o }] : o.op === 'delete_task' ? [{ key: o.task, trash: true }] : [])),
+          );
+      let r: Awaited<ReturnType<typeof applyChanges>>;
+      try {
+        r = await applyChanges(a.ops.map(toBatchOp), ACTOR, { dryRun: a.dry_run });
+      } catch (err) {
+        await gate.release(); // nothing was saved: give back the reserved trash count / confirm token
+        throw err;
+      }
+      if (!r.dryRun) await notifyChanges(watch);
       return {
         ...r,
-        ...(r.dryRun ? { note: 'Dry run: nothing was saved. Call again without dry_run to apply.' } : {}),
+        ...(r.dryRun
+          ? {
+              note: gate.confirm
+                ? 'Dry run: nothing was saved. To apply, call again with the same ops, without dry_run, and confirm set to the token below (valid 10 minutes).'
+                : 'Dry run: nothing was saved. Call again without dry_run to apply.',
+              ...(gate.confirm ? { confirm: gate.confirm } : {}),
+            }
+          : {}),
         results: r.results.map(x => ({ ...x, ...(x.ref ? { url: `${ctx.baseUrl}/tasks/${x.ref}` } : {}) })),
       };
     }),
@@ -488,7 +544,11 @@ export function createMcpServer(ctx: Ctx): McpServer {
     'get_project',
     {
       inputSchema: {
-        project: z.string().describe('Project name or id'),
+        project: z.string().optional().describe('Project name or id. Omit it and pass remote (+ subdir, branch) or path to find the project for a repo'),
+        remote: z.string().optional().describe('Git remote of the repo you are in (any form, e.g. the output of git remote get-url origin)'),
+        subdir: z.string().optional().describe('Your working folder relative to the repo root (git rev-parse --show-prefix)'),
+        branch: z.string().optional().describe('Current git branch'),
+        path: z.string().optional().describe('Absolute path of your working folder'),
         depth: z.enum(['project', 'tasks', 'full']).optional().describe('Default tasks'),
         include_closed: z.boolean().optional().describe('Also Done/Dropped tasks'),
         activity_per_task: z.number().int().min(1).max(30).optional().describe('depth full: history entries per task (default 5)'),
@@ -496,13 +556,29 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { readOnlyHint: true },
     },
     handler(async a => {
-      const t = await getProjectTree(a.project, { depth: a.depth, includeClosed: a.include_closed, activityPerTask: a.activity_per_task });
+      let projectKey = a.project?.trim();
+      let matchedBy: { how: string; location: unknown } | undefined;
+      if (!projectKey) {
+        if (!a.remote && !a.path) throw new InputError('Give project (name or id), or remote (+ subdir, branch) or path to find it from your repo');
+        const m = await projects.findProjectByCode({ remote: a.remote, path: a.path, subdir: a.subdir, branch: a.branch });
+        if (!m.matched) {
+          return {
+            unmatched: true,
+            candidates: m.candidates,
+            hint: 'No project has this repo as a code location. Ask Om which project this is, then call update_project with code: [{ remote, subdir?, branch? }] (or path) so it resolves next time.',
+          };
+        }
+        projectKey = m.project.id;
+        matchedBy = { how: m.how, location: m.location };
+      }
+      const t = await getProjectTree(projectKey, { depth: a.depth, includeClosed: a.include_closed, activityPerTask: a.activity_per_task });
       const names = await projects.projectNameMap();
       const idx = await notesData.noteIndex({ projectIds: [t.project.id], taskIds: t.tasks?.map(x => x.id) });
       const nref = (n: notesData.NoteRef) => ({ id: n.id, title: n.title, firstLine: n.firstLine, chars: n.chars, updatedAt: n.updatedAt });
       const act = (x: { id: string; at: string; actor: string; type: string; taskRef: number }, text: string) => ({ id: x.id, at: x.at, by: x.actor, type: x.type, ref: x.taskRef, text });
       return {
-        project: { id: t.project.id, name: t.project.name, client: t.project.client || undefined, status: t.project.status, description: t.project.description || undefined, url: `${ctx.baseUrl}/projects/${t.project.id}`, ...t.project.stats },
+        project: { id: t.project.id, name: t.project.name, client: t.project.client || undefined, status: t.project.status, description: t.project.description || undefined, code: t.project.code, url: `${ctx.baseUrl}/projects/${t.project.id}`, ...t.project.stats },
+        ...(matchedBy ? { matchedBy } : {}),
         notes: (idx.byProject.get(t.project.id) ?? []).map(nref),
         recentActivity: t.recentActivity.map(x => act(x, describeActivity(x))),
         ...(t.tasks
@@ -539,7 +615,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: true },
     },
     handler(async a => {
+      const watch = await watchTasks(caller, [{ key: a.task, trash: true }]);
       const r = await tasks.trashTask(a.task, ACTOR, { reason: a.reason, expectTitle: a.title });
+      await notifyChanges(watch);
       return { deleted: `#${r.ref} ${r.title}`, restorable: `for ${tasks.TRASH_DAYS} days with restore_task` };
     }),
   );
@@ -718,6 +796,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const r = await discord.messageToTask(
         { link: a.message_link, channel: a.channel, messageId: a.message_id },
         { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note },
+        ACTOR,
       );
       return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: r.message };
     }),

@@ -1,7 +1,9 @@
-// Single-user auth. Uses Web Crypto only so it runs in proxy.ts as well as in
-// route handlers and server actions.
+// Single-user auth, used by proxy.ts (Node.js runtime), route handlers and
+// server actions. Signing uses Web Crypto; the stored password hash and the
+// session generation live in Mongo (lib/password.ts, loaded lazily).
 //
-//   APP_PASSWORD    password for the web UI
+//   APP_PASSWORD    password for the web UI until a reset or change stores a
+//                   hash (then it is ignored; it stays the fallback if the hash is removed)
 //   SESSION_SECRET  HMAC key for the session cookie (long random string)
 //   MCP_TOKEN       API key for the MCP endpoint and the JSON API (sent as a header)
 //
@@ -50,18 +52,41 @@ export async function safeEqual(a: string, b: string): Promise<boolean> {
   return diff === 0;
 }
 
-export async function createSessionValue(): Promise<string> {
+// Session cookie: `v2.<gen>.<exp>.<sig>`. `gen` is the session generation in
+// Mongo (lib/password.ts); a password reset or change bumps it, which signs out
+// every existing session. Old `v1.<exp>.<sig>` cookies stay valid only while
+// the generation is still 0 (no password change yet).
+
+/** Pass `gen` when it was just set (e.g. right after a password change). */
+export async function createSessionValue(gen?: number): Promise<string> {
+  const g = gen ?? (await (await import('./password')).currentSessionGen(true));
   const exp = Date.now() + SESSION_DAYS * 86_400_000;
-  const sig = await hmac(process.env.SESSION_SECRET!, `v1.${exp}`);
-  return `v1.${exp}.${sig}`;
+  const sig = await hmac(process.env.SESSION_SECRET!, `v2.${g}.${exp}`);
+  return `v2.${g}.${exp}.${sig}`;
 }
 
 export async function verifySessionValue(value: string | undefined): Promise<boolean> {
   const secret = process.env.SESSION_SECRET;
   if (!value || !secret) return false;
-  const [v, exp, sig] = value.split('.');
-  if (v !== 'v1' || !exp || !sig || !/^\d+$/.test(exp) || Number(exp) < Date.now()) return false;
-  return safeEqual(sig, await hmac(secret, `v1.${exp}`));
+  const parts = value.split('.');
+  let gen: number;
+  if (parts[0] === 'v2' && parts.length === 4) {
+    const [, g, exp, sig] = parts;
+    if (!/^\d{1,9}$/.test(g) || !/^\d+$/.test(exp) || Number(exp) < Date.now()) return false;
+    if (!(await safeEqual(sig, await hmac(secret, `v2.${g}.${exp}`)))) return false;
+    gen = Number(g);
+  } else if (parts[0] === 'v1' && parts.length === 3) {
+    const [, exp, sig] = parts;
+    if (!/^\d+$/.test(exp) || Number(exp) < Date.now()) return false;
+    if (!(await safeEqual(sig, await hmac(secret, `v1.${exp}`)))) return false;
+    gen = 0;
+  } else return false;
+  try {
+    return gen === (await (await import('./password')).currentSessionGen());
+  } catch (e) {
+    console.error('session generation check failed', e); // fail closed
+    return false;
+  }
 }
 
 /** An error whose message is safe to show the user. Anything else gets a generic message. */
@@ -101,7 +126,10 @@ export function pending2faCookieOptions() {
   return { httpOnly: true, secure: !isDev(), sameSite: 'strict' as const, path: '/login', maxAge: PENDING_2FA_MINUTES * 60 };
 }
 
+/** The stored scrypt hash when one exists (after a reset or change), else APP_PASSWORD. */
 export async function checkPassword(input: string): Promise<boolean> {
+  const stored = await (await import('./password')).checkStoredPassword(input);
+  if (stored !== null) return stored;
   const pw = process.env.APP_PASSWORD;
   if (!pw) return false;
   return safeEqual(input, pw);

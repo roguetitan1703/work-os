@@ -15,6 +15,7 @@ const TONE: Record<string, string> = {
   due_tomorrow: 'bg-sky-400',
   never_started: 'bg-orange-500',
   stalled: 'bg-amber-500',
+  claude_code_changes: 'bg-violet-500',
   test: 'bg-muted-foreground',
 };
 

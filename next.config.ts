@@ -5,6 +5,10 @@ const nextConfig: NextConfig = {
   // Server-side note conversion (blocks <-> markdown) runs BlockNote in plain Node; bundling it
   // into the server-component layer breaks its React context usage.
   serverExternalPackages: ["@blocknote/server-util", "@blocknote/core", "@blocknote/react", "jsdom"],
+  // The reset token is in the URL: never leak it as a Referer (the page also sets a <meta name=referrer>).
+  async headers() {
+    return [{ source: '/login/reset', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] }];
+  },
   experimental: {
     // Client router cache: revisiting a page within 30s (60s for prefetched tabs) needs no
     // request. Our own writes revalidate immediately; Claude's show up within a minute.

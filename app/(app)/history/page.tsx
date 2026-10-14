@@ -102,7 +102,7 @@ async function Completed({ weeks }: { weeks: number }) {
 }
 
 async function ActivityFeed({ actor }: { actor?: string }) {
-  const a = actor === 'me' || actor === 'discord' || actor === 'claude' || actor === 'system' ? actor : undefined;
+  const a = actor === 'me' || actor === 'discord' || actor === 'claude' || actor === 'claude-code' || actor === 'system' ? actor : undefined;
   const since = startOfDay(addDays(todayStr(), -14));
   const items = await listActivity({ since, actor: a, limit: 400 });
   const byDay = new Map<string, typeof items>();
@@ -113,7 +113,7 @@ async function ActivityFeed({ actor }: { actor?: string }) {
   return (
     <div className="space-y-5">
       <div className="flex gap-2 text-sm md:text-xs overflow-x-auto md:overflow-visible -mx-4 px-4 md:mx-0 md:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {[undefined, 'me', 'discord', 'claude'].map(x => (
+        {[undefined, 'me', 'discord', 'claude', 'claude-code'].map(x => (
           <Link
             key={x ?? 'all'}
             href={`/history?tab=activity${x ? `&actor=${x}` : ''}`}
@@ -123,7 +123,7 @@ async function ActivityFeed({ actor }: { actor?: string }) {
               a === x ? 'bg-foreground text-background border-foreground md:bg-muted md:text-foreground md:border-border' : 'border-border text-muted-foreground bg-card md:bg-transparent',
             )}
           >
-            {x === 'me' ? 'By me (app)' : x === 'discord' ? 'By me (Discord)' : x === 'claude' ? 'By Claude' : 'Everyone'}
+            {x === 'me' ? 'By me (app)' : x === 'discord' ? 'By me (Discord)' : x === 'claude' ? 'By Claude' : x === 'claude-code' ? 'By Claude Code' : 'Everyone'}
           </Link>
         ))}
         <span className="hidden md:inline text-muted-foreground self-center">Last 14 days</span>

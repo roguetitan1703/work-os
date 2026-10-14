@@ -1,14 +1,17 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
-import { Check, Copy, KeyRound, Pencil, Plus, ShieldCheck, ShieldOff, Trash2, X } from 'lucide-react';
+import { Check, Copy, KeyRound, LockKeyhole, Mail, Pencil, Plus, ShieldCheck, ShieldOff, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser';
 import type { PasskeyInfo } from '@/lib/passkeys';
 import type { TotpState } from '@/lib/totp';
 import { Row } from './device-settings';
 import {
+  changePasswordAction,
   getSecurityStateAction,
+  sendTestEmailAction,
+  type EmailState,
   passkeyRegisterAction,
   passkeyRegisterOptionsAction,
   removePasskeyAction,
@@ -61,6 +64,7 @@ const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 
 export function SecuritySettings() {
   const [passkeys, setPasskeys] = useState<PasskeyInfo[] | null>(null);
   const [totp, setTotp] = useState<TotpState | null>(null);
+  const [extra, setExtra] = useState<{ storedPassword: boolean; email: EmailState } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -70,6 +74,7 @@ export function SecuritySettings() {
       if (r.ok) {
         setPasskeys(r.data.passkeys);
         setTotp(r.data.totp);
+        setExtra({ storedPassword: r.data.storedPassword, email: r.data.email });
       } else setLoadError(r.error);
     });
     return () => {
@@ -78,12 +83,14 @@ export function SecuritySettings() {
   }, []);
 
   if (loadError) return <Row icon={<ShieldOff className="w-5 h-5 text-red-500" />} title="Security" sub={loadError} />;
-  if (!passkeys || !totp) return <Row icon={<KeyRound className="w-5 h-5" />} title="Passkeys" sub="Checking…" />;
+  if (!passkeys || !totp || !extra) return <Row icon={<KeyRound className="w-5 h-5" />} title="Passkeys" sub="Checking…" />;
 
   return (
     <>
       <Passkeys list={passkeys} onChange={setPasskeys} />
       <Totp state={totp} onChange={setTotp} />
+      <Password totpOn={totp.enabled} stored={extra.storedPassword} onChanged={() => setExtra({ ...extra, storedPassword: true })} />
+      <Email state={extra.email} />
     </>
   );
 }
@@ -374,5 +381,108 @@ function Totp({ state, onChange }: { state: TotpState; onChange: (s: TotpState) 
         </div>
       )}
     </>
+  );
+}
+
+// ── Password ────────────────────────────────────────────────────────────────
+
+function Password({ totpOn, stored, onChanged }: { totpOn: boolean; stored: boolean; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState({ current: '', password: '', again: '', code: '' });
+  const [pending, start] = useTransition();
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
+  const close = () => {
+    setF({ current: '', password: '', again: '', code: '' });
+    setOpen(false);
+  };
+
+  const save = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (f.password.length < 10) return void toast.error('Use at least 10 characters.');
+    if (f.password !== f.again) return void toast.error('The two new passwords do not match.');
+    start(async () => {
+      const r = await changePasswordAction(f);
+      if (!r.ok) return void toast.error(r.error);
+      close();
+      onChanged();
+      toast.success('Password changed. Other devices were signed out.');
+    });
+  };
+
+  return (
+    <>
+      <Row
+        icon={<LockKeyhole className="w-5 h-5 text-amber-600" />}
+        title="Password"
+        sub={stored ? 'Set here or by a reset link.' : 'Still the APP_PASSWORD from the server settings.'}
+        action={
+          !open ? (
+            <button type="button" className={btnOutline} onClick={() => setOpen(true)}>
+              Change
+            </button>
+          ) : undefined
+        }
+      />
+      {open && (
+        <form className="px-4 py-4 space-y-3" onSubmit={save}>
+          <input type="text" name="username" value="work-os" autoComplete="username" readOnly hidden />
+          <input className={field} type="password" value={f.current} onChange={set('current')} placeholder="Current password" autoComplete="current-password" required autoFocus aria-label="Current password" />
+          <input className={field} type="password" value={f.password} onChange={set('password')} placeholder="New password (10+ characters)" autoComplete="new-password" required minLength={10} maxLength={256} aria-label="New password" />
+          <input className={field} type="password" value={f.again} onChange={set('again')} placeholder="New password again" autoComplete="new-password" required minLength={10} maxLength={256} aria-label="New password again" />
+          {totpOn && (
+            <input
+              className={`${field} tracking-widest`}
+              value={f.code}
+              onChange={set('code')}
+              placeholder="Authenticator code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              required
+              maxLength={20}
+              aria-label="Authenticator code or recovery code"
+            />
+          )}
+          <p className="text-[13px] text-muted-foreground">Every other signed-in device will be signed out. You will get an email.</p>
+          <div className="flex gap-2">
+            <button type="button" className={`${btnOutline} flex-1`} onClick={close}>
+              Cancel
+            </button>
+            <button type="submit" className={`${btnPrimary} flex-1`} disabled={pending}>
+              Change password
+            </button>
+          </div>
+        </form>
+      )}
+    </>
+  );
+}
+
+// ── Email ───────────────────────────────────────────────────────────────────
+
+function Email({ state }: { state: EmailState }) {
+  const [pending, start] = useTransition();
+  const send = () =>
+    start(async () => {
+      const r = await sendTestEmailAction();
+      if (!r.ok) return void toast.error(r.error);
+      toast.success(`Test email sent to ${r.data}`);
+    });
+  return (
+    <Row
+      icon={<Mail className={`w-5 h-5 ${state.configured ? 'text-blue-600' : 'text-muted-foreground'}`} />}
+      title="Email"
+      sub={
+        state.configured
+          ? `Reset links and password-change notices go to ${state.to}.`
+          : `Off: set ${state.missing.join(', ')} on the server. Password reset by email needs it.`
+      }
+      action={
+        state.configured ? (
+          <button type="button" className={btnOutline} onClick={send} disabled={pending}>
+            {pending ? 'Sending…' : 'Send test email'}
+          </button>
+        ) : undefined
+      }
+    />
   );
 }

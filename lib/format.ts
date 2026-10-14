@@ -71,6 +71,7 @@ export const PRIORITY_TEXT: Record<Priority, string> = {
 export const ACTOR_STYLE: Record<string, string> = {
   me: 'bg-muted text-foreground',
   claude: 'bg-orange-500/15 text-orange-700 dark:text-orange-300',
+  'claude-code': 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
   system: 'bg-muted text-muted-foreground',
   discord: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300',
 };

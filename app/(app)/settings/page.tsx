@@ -6,7 +6,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { logoutAction } from '@/app/actions';
 import { uiAuthDisabled } from '@/lib/auth';
 import { discordConfig } from '@/lib/discord/client';
-import { ALERT_KINDS, getNotifySettings, pushDeviceCount, vapidPublicKey } from '@/lib/notify';
+import { NOTIFY_KINDS, getNotifySettings, pushDeviceCount, vapidPublicKey } from '@/lib/notify';
 import { systemStatus, type Level } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import { InstallCard, NotifyPrefs, PushCard, Row } from './device-settings';
@@ -27,7 +27,7 @@ export default async function SettingsPage() {
       </Group>
 
       <Group title="Notifications" note="Quiet hours 23:00–08:00 IST: nothing is sent; it waits for the morning.">
-        <NotifyPrefs initial={prefs} kinds={ALERT_KINDS} discordReady={!!discordConfig()} />
+        <NotifyPrefs initial={prefs} kinds={NOTIFY_KINDS} discordReady={!!discordConfig()} />
       </Group>
 
       <Group title="Security" note="Passkeys sign you in without a password. The authenticator app adds a code step to password sign-in.">

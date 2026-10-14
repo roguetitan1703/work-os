@@ -1,7 +1,7 @@
 import 'server-only';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { MongoClient, type ClientSession, type Db, type Collection } from 'mongodb';
-import type { TaskSource, Activity, Actor, ActivityType, FieldChange, ProjectStatus, Mode, Priority, Status, ChecklistItem, Link, Recurrence, WeeklyReview, FiverrRitualLog } from './types';
+import type { CodeLocation, TaskSource, Activity, Actor, ActivityType, FieldChange, ProjectStatus, Mode, Priority, Status, ChecklistItem, Link, Recurrence, WeeklyReview, FiverrRitualLog } from './types';
 
 // ── Document shapes as stored in MongoDB ────────────────────────────────────
 
@@ -45,6 +45,9 @@ export type ActivityDoc = {
   type: ActivityType;
   changes?: Record<string, FieldChange>;
   note?: string;
+  /** Claude Code session / repo headers (lib/request-context.ts). */
+  session?: string;
+  repo?: string;
 };
 
 export type ProjectDoc = {
@@ -54,6 +57,8 @@ export type ProjectDoc = {
   client: string;
   description: string;
   status: ProjectStatus;
+  /** Where its code lives: git remotes (owner/name, optional subdir/branch) or folder paths. */
+  code?: CodeLocation[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -86,8 +91,12 @@ export type AlertLogDoc = { _id: string; kind: AlertKind; taskId?: string; sentA
 /** Event alerts waiting for the next send (queued inside the write's transaction). */
 export type AlertQueueDoc = { _id: string; kind: 'unblocked'; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null };
 
+/** Inbox-only notices that are not scheduled alerts. */
+export type NoticeKind = 'claude_code_changes';
+/** Everything with an on/off switch in Settings → Notifications. */
+export type NotifyKind = AlertKind | NoticeKind;
 /** In-app inbox: every alert delivered (plus test notifications). */
-export type NotificationDoc = { _id: string; kind: AlertKind | 'test'; title: string; body: string; url: string; createdAt: Date; readAt: Date | null };
+export type NotificationDoc = { _id: string; kind: NotifyKind | 'test' | 'security'; title: string; body: string; url: string; createdAt: Date; readAt: Date | null };
 /** Web Push subscriptions, keyed by endpoint (one per device/browser). */
 export type PushSubDoc = { _id: string; keys: { p256dh: string; auth: string }; device: string; createdAt: Date; updatedAt: Date };
 
@@ -116,6 +125,11 @@ export type SettingsDoc = {
   totp?: { secret: string; enabledAt: Date; recoveryHashes: string[]; lastStep: number } | null;
   /** _id 'security': secret shown during setup, until the first code confirms it. */
   totpPending?: { secret: string; createdAt: Date } | null;
+  /** _id 'security': scrypt hash of the password set by a reset or change (lib/password.ts). Absent = APP_PASSWORD. */
+  passwordHash?: string | null;
+  passwordChangedAt?: Date;
+  /** _id 'security': session generation; bumping it signs out every session (lib/auth.ts). */
+  sessionGen?: number;
 };
 
 /** A registered passkey (WebAuthn credential). _id = credential id (base64url). */
@@ -128,10 +142,28 @@ export type PasskeyDoc = {
   createdAt: Date;
   lastUsedAt: Date | null;
 };
+/** A Claude Code API key. Only the SHA-256 of the key is stored; the key itself is shown once. */
+export type ApiKeyDoc = {
+  _id: string;
+  name: string;
+  role: 'claude-code';
+  hash: string; // hex SHA-256 of the full key
+  prefix: string; // first 8 chars, for display
+  createdAt: Date;
+  lastUsedAt: Date | null;
+  revokedAt: Date | null;
+};
+/** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
+export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash'; at: Date; n?: number };
+
 /** Outstanding WebAuthn challenge. Deleted when used (single-use); TTL index removes stale ones. */
 export type AuthChallengeDoc = { _id: string; kind: 'register' | 'login'; expiresAt: Date; ip?: string };
 /** One failed password / 2FA check. TTL index keeps only the last 15 minutes. */
-export type AuthFailureDoc = { _id: string; kind: 'password' | 'totp'; at: Date; ip?: string };
+export type AuthFailureDoc = { _id: string; kind: 'password' | 'totp' | 'reset'; at: Date; ip?: string };
+/** Outstanding password-reset link. _id = SHA-256 of the token; TTL index removes it at expiresAt. */
+export type PasswordResetDoc = { _id: string; createdAt: Date; expiresAt: Date; ip?: string };
+/** One email sent (for the hourly limits in lib/mail.ts). TTL index keeps 2 hours. */
+export type MailLogDoc = { _id: string; kind: 'reset' | 'changed' | 'test'; at: Date };
 
 // ── Connection (cached across hot reloads and warm serverless invocations) ──
 
@@ -203,7 +235,11 @@ async function ensureIndexes(db: Db): Promise<void> {
     ]),
     db.collection('trash').createIndexes([{ key: { deletedAt: -1 }, name: 'deletedAt' }, { key: { ref: 1 }, name: 'ref' }]),
     db.collection('authChallenges').createIndexes([{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }, { key: { ip: 1, kind: 1 }, name: 'ip_kind' }]),
+    db.collection('apiKeys').createIndexes([{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]),
+    db.collection('policyEvents').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { keyId: 1, kind: 1, at: -1 }, name: 'key_kind_at' }]),
     db.collection('authFailures').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 15 * 60 }, { key: { ip: 1, at: -1 }, name: 'ip_at' }]),
+    db.collection('passwordResets').createIndexes([{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }]),
+    db.collection('mailLog').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { kind: 1, at: -1 }, name: 'kind_at' }]),
   ]);
 }
 
@@ -226,6 +262,10 @@ export async function collections() {
     passkeys: db.collection<PasskeyDoc>('passkeys'),
     authChallenges: db.collection<AuthChallengeDoc>('authChallenges'),
     authFailures: db.collection<AuthFailureDoc>('authFailures'),
+    passwordResets: db.collection<PasswordResetDoc>('passwordResets'),
+    mailLog: db.collection<MailLogDoc>('mailLog'),
+    apiKeys: db.collection<ApiKeyDoc>('apiKeys'),
+    policyEvents: db.collection<PolicyEventDoc>('policyEvents'),
   };
   const session = txStore.getStore();
   return session ? (Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, withSession(v, session)])) as typeof cols) : cols;
@@ -312,5 +352,7 @@ export function toActivity(d: ActivityDoc): Activity {
     type: d.type,
     ...(d.changes ? { changes: d.changes } : {}),
     ...(d.note ? { note: d.note } : {}),
+    ...(d.session ? { session: d.session } : {}),
+    ...(d.repo ? { repo: d.repo } : {}),
   };
 }

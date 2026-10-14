@@ -1,6 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { Filter } from 'mongodb';
+import { requestContext } from '../request-context';
 import { collections, nextSeq, toActivity, type ActivityDoc, type Collections, type TaskDoc, type TrashDoc } from '../db';
 import {
   CLOSED_STATUSES,
@@ -173,6 +174,9 @@ async function logActivity(
   };
   if (extra.changes && Object.keys(extra.changes).length) doc.changes = extra.changes;
   if (extra.note?.trim()) doc.note = extra.note.trim();
+  const rc = requestContext();
+  if (rc.session) doc.session = rc.session;
+  if (rc.repo) doc.repo = rc.repo;
   await c.activity.insertOne(doc);
   return doc;
 }
@@ -488,7 +492,7 @@ export async function purgeTrash(ref?: number): Promise<number> {
 async function ownedEntry(c: Collections, id: string, actor: Actor): Promise<ActivityDoc> {
   const a = await c.activity.findOne({ _id: id });
   if (!a) throw new NotFoundError(`History entry ${id} not found`);
-  if (actor === 'claude' && a.actor !== 'claude') throw new InputError('Claude can only edit or delete its own history entries.');
+  if ((actor === 'claude' || actor === 'claude-code') && a.actor !== actor) throw new InputError(`${actor === 'claude' ? 'Claude' : 'Claude Code'} can only edit or delete its own history entries.`);
   return a;
 }
 

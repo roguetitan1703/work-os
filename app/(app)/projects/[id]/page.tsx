@@ -12,6 +12,7 @@ import { NewNoteButton } from '@/components/new-note-button';
 import { fmtAgo } from '@/lib/format';
 import { SubHeader } from '@/components/mobile/sub-header';
 import { AddTaskButton } from './add-task-button';
+import { CodeLocations } from './code-locations';
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -87,6 +88,9 @@ export default async function ProjectPage({ params }: Props) {
               + {otherNotes} task or archived notes →
             </Link>
           )}
+          <div className="pt-3">
+            <CodeLocations projectId={project.id} initial={project.code ?? []} />
+          </div>
           <h2 className={`${H2} px-1 md:px-0 pt-3`}>Activity</h2>
           <ActivityTimeline items={activity} showTask />
         </aside>

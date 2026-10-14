@@ -17,7 +17,9 @@ import {
   verifyPending2faValue,
 } from '@/lib/auth';
 import { authenticationOptions, relyingParty, verifyAuthentication } from '@/lib/passkeys';
-import { authLockout, isTotpEnabled, recordAuthFailure, verifySecondFactor } from '@/lib/totp';
+import { PasswordRuleError } from '@/lib/password';
+import { completePasswordReset, requestPasswordReset, ResetLinkError } from '@/lib/password-reset';
+import { authLockout, CodeError, isTotpEnabled, recordAuthFailure, verifySecondFactor } from '@/lib/totp';
 
 // These actions run before sign-in (proxy.ts lets /login through). Each one
 // checks its own credential and is the only way in from this page.
@@ -108,4 +110,56 @@ export async function passkeyLoginAction(response: AuthenticationResponseJSON, n
     console.error('passkey sign-in failed', e);
     return { ok: false, error: 'Passkey sign-in failed. Try again or use your password.' };
   }
+}
+
+// ── Forgot password ─────────────────────────────────────────────────────────
+
+/** "Email me a reset link". Always ends on the same neutral message, whatever happened. */
+export async function requestResetAction(): Promise<void> {
+  if (uiAuthConfigured()) {
+    const h = await headers();
+    let origin: string | null = null;
+    try {
+      origin = relyingParty(h).origin; // same origin rules as passkeys
+    } catch (e) {
+      console.error('reset link origin:', e instanceof Error ? e.message : e);
+    }
+    if (origin) await requestPasswordReset(origin, clientIp(h));
+  }
+  await slow();
+  redirect('/login?step=forgot&sent=1');
+}
+
+/** Sets the new password from a reset link (app/login/reset/page.tsx). */
+export async function resetPasswordAction(formData: FormData): Promise<void> {
+  const token = String(formData.get('token') ?? '').slice(0, 100);
+  const back = (error: string) => `/login/reset?token=${encodeURIComponent(token)}&error=${error}`;
+  if (!uiAuthConfigured()) redirect('/login?error=config');
+  const ip = clientIp(await headers());
+  let error: string | null = null;
+  try {
+    await completePasswordReset({
+      token,
+      password: String(formData.get('password') ?? ''),
+      again: String(formData.get('again') ?? ''),
+      code: String(formData.get('code') ?? ''),
+      ip,
+    });
+  } catch (e) {
+    if (e instanceof ResetLinkError) error = 'link';
+    else if (e instanceof CodeError) error = 'code';
+    else if (e instanceof PasswordRuleError) error = e.reason;
+    else if (e instanceof SafeError) error = 'locked';
+    else {
+      console.error('password reset failed', e);
+      error = 'failed';
+    }
+  }
+  if (error) {
+    await slow();
+    redirect(back(error));
+  }
+  const jar = await cookies();
+  jar.delete(SESSION_COOKIE); // every session is now invalid anyway
+  redirect('/login?reset=done');
 }

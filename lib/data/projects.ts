@@ -9,6 +9,8 @@ import {
 } from '../types';
 import { todayStr, weekStart } from '../dates';
 import { InputError, NotFoundError } from './errors';
+import { cleanCodeLocations, codeCandidates, matchCodeLocation, type CodeQuery } from './code-locations';
+import type { CodeLocation } from '../types';
 
 export function slugify(name: string): string {
   return (
@@ -28,6 +30,7 @@ export function toProject(d: ProjectDoc): Project {
     client: d.client,
     description: d.description,
     status: d.status,
+    ...(d.code?.length ? { code: d.code } : {}),
     createdAt: d.createdAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),
   };
@@ -43,7 +46,7 @@ async function findProjectDoc(c: Collections, nameOrId: string): Promise<Project
 
 async function insertProject(
   c: Collections,
-  data: { name: string; client?: string; description?: string; status?: ProjectDoc['status'] },
+  data: { name: string; client?: string; description?: string; status?: ProjectDoc['status']; code?: CodeLocation[] | null },
 ): Promise<ProjectDoc> {
   const base = slugify(data.name);
   const now = new Date();
@@ -55,6 +58,7 @@ async function insertProject(
       client: data.client?.trim() ?? '',
       description: data.description ?? '',
       status: data.status ?? 'active',
+      ...(data.code?.length ? { code: cleanCodeLocations(data.code) } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -200,6 +204,25 @@ export async function updateProject(id: string, patch: Partial<ProjectInput>): P
   if (data.client !== undefined) set.client = data.client;
   if (data.description !== undefined) set.description = data.description;
   if (data.status !== undefined) set.status = data.status;
+  if (data.code !== undefined) set.code = cleanCodeLocations(data.code);
   await c.projects.updateOne({ _id: id }, { $set: set });
   return toProject({ ...cur, ...set });
+}
+
+export type ProjectByCode =
+  | { matched: true; project: Project; how: string; location: CodeLocation }
+  | { matched: false; candidates: { id: string; name: string; similarity: number }[] };
+
+/** The project whose code locations best match a git remote / subdir / branch / folder path. */
+export async function findProjectByCode(q: CodeQuery): Promise<ProjectByCode> {
+  const c = await collections();
+  const docs = await c.projects.find({}, { projection: { name: 1, code: 1, status: 1 } }).toArray();
+  const list = docs.map(d => ({ id: d._id, name: d.name, code: d.code }));
+  const m = matchCodeLocation(list, q);
+  if (m) {
+    const doc = await c.projects.findOne({ _id: m.project.id });
+    if (doc) return { matched: true, project: toProject(doc), how: m.how, location: m.location };
+  }
+  const live = list.filter((_, i) => docs[i].status === 'active' || docs[i].status === 'paused');
+  return { matched: false, candidates: codeCandidates(live.length ? live : list, q).map(x => ({ id: x.project.id, name: x.project.name, similarity: x.similarity })) };
 }

@@ -23,8 +23,9 @@ export type Status = z.infer<typeof StatusSchema>;
 export const CLOSED_STATUSES: Status[] = ['Done', 'Dropped'];
 export const OPEN_STATUSES: Status[] = ['Not Started', 'In Progress', 'Blocked'];
 
-/** Who made a change. `me` = the app UI, `discord` = me via Discord commands, `claude` = the MCP connector, `system` = migrations/automation. */
-export const ActorSchema = z.enum(['me', 'discord', 'claude', 'system']);
+/** Who made a change. `me` = the app UI, `discord` = me via Discord commands, `claude` = the claude.ai MCP connector (MCP_TOKEN),
+ * `claude-code` = a Claude Code session on Om's PC (an API key from /connect), `system` = migrations/automation. */
+export const ActorSchema = z.enum(['me', 'discord', 'claude', 'claude-code', 'system']);
 export type Actor = z.infer<typeof ActorSchema>;
 
 export const ChecklistItemSchema = z.object({
@@ -114,11 +115,24 @@ export type Activity = {
   type: ActivityType;
   changes?: Record<string, FieldChange>;
   note?: string;
+  /** Claude Code only: the X-Work-OS-Session / X-Work-OS-Repo headers of the request that made it. */
+  session?: string;
+  repo?: string;
 };
 
 export const PROJECT_STATUSES = ['active', 'paused', 'done', 'archived'] as const;
 export const ProjectStatusSchema = z.enum(PROJECT_STATUSES);
 export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
+
+/** Where a project's code lives (lib/data/code-locations.ts). remote = lowercase "owner/name". */
+export type CodeLocation = { remote?: string; path?: string; subdir?: string; branch?: string };
+
+export const CodeLocationInputSchema = z.object({
+  remote: z.string().trim().max(300).optional(),
+  path: z.string().trim().max(300).optional(),
+  subdir: z.string().trim().max(200).optional(),
+  branch: z.string().trim().max(200).optional(),
+});
 
 export type Project = {
   id: string; // slug
@@ -126,6 +140,7 @@ export type Project = {
   client: string;
   description: string;
   status: ProjectStatus;
+  code?: CodeLocation[];
   createdAt: string;
   updatedAt: string;
 };
@@ -188,6 +203,8 @@ export const ProjectInputSchema = z.object({
   client: z.string().trim().max(120).optional(),
   description: z.string().max(5000).optional(),
   status: ProjectStatusSchema.optional(),
+  /** Replaces the project's code locations; [] or null clears them. */
+  code: z.array(CodeLocationInputSchema).max(20).nullable().optional(),
 });
 export type ProjectInput = z.input<typeof ProjectInputSchema>;
 

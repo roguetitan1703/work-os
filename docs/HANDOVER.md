@@ -35,7 +35,7 @@ All configuration is in Vercel → Project → Settings → Environment Variable
 |---|---|---|
 | `MONGO_MONGODB_URI` (or `MONGODB_URI`) | Atlas connection string; the Vercel Atlas integration adds the `MONGO_` prefix and both names work | yes |
 | `MONGODB_DB` | database name (`workos`) | default `workos` |
-| `APP_PASSWORD` | password for the web app | yes |
+| `APP_PASSWORD` | password for the web app until it is reset or changed (then the stored hash is used instead; section 10) | yes |
 | `SESSION_SECRET` | signs the login cookie (long random string) | yes |
 | `MCP_TOKEN` | API key for Claude's connector and the admin endpoints | yes |
 | `APP_TZ`, `NEXT_PUBLIC_APP_TZ` | `Asia/Kolkata`: sets what "today" means | yes |
@@ -44,6 +44,8 @@ All configuration is in Vercel → Project → Settings → Environment Variable
 | `DISCORD_BLOCKED_CHANNELS` | extra channel ids never to read (comma-separated); normally managed on `/connect` instead | optional |
 | `CRON_SECRET` | protects the alert check endpoint | for alerts |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | keys for phone push (a `mailto:` address for the subject). **Must be added on Vercel**; copy the values from `.env.local`. Without them push is off and Settings → Status says so | for phone push |
+| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | SMTP for "Forgot password?" links, password-change emails and the Settings test email. `EMAIL_SECURE=true` = TLS from the start (port 465); otherwise STARTTLS is required. **Must be added on Vercel**; copy the values from `.env.local` | for password reset |
+| `OWNER_EMAIL` | the only address reset links are sent to; defaults to `EMAIL_FROM`. **Add on Vercel** | optional |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob (private) for images and files in notes | not used yet |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows putting the key in the URL (`/api/mcp/<key>`) instead of a header | leave unset |
 
@@ -54,7 +56,7 @@ All configuration is in Vercel → Project → Settings → Environment Variable
 ## 2. Tasks and projects
 
 ### What a task has
-A number (`#12`), title, description, project, mode (type of work), priority P1–P4, status (Not Started, In Progress, Blocked, Done, Dropped), tags, start and due dates, estimate, progress %, checklist, links, blocked reason, dependencies ("waits on #5"), a repeat schedule (daily, weekdays, weekly or monthly; the next one is created when it's completed) and archived. Every change is written to the task's **history**, which records who made it: **You**, **You · Discord**, **Claude** or **System**.
+A number (`#12`), title, description, project, mode (type of work), priority P1–P4, status (Not Started, In Progress, Blocked, Done, Dropped), tags, start and due dates, estimate, progress %, checklist, links, blocked reason, dependencies ("waits on #5"), a repeat schedule (daily, weekdays, weekly or monthly; the next one is created when it's completed) and archived. Every change is written to the task's **history**, which records who made it: **You**, **You · Discord**, **Claude**, **Claude Code** or **System**.
 
 ### Om
 - **Laptop:**
@@ -111,6 +113,13 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 - **Tool titles, descriptions and server instructions:** `lib/mcp/docs.ts`. This one file feeds both MCP and the `/connect` page, so edit descriptions there.
 - **Adding a tool:** add its name to `ToolName` and an entry in `TOOLS` (docs.ts), register it with `tool(...)` in server.ts, and add it to `ORDER` in `app/(app)/connect/page.tsx`.
 - **Smoke test:** `node scripts/test-mcp.mjs <url>/api/mcp <MCP_TOKEN> [--write]`.
+
+### Claude Code keys
+- **Om:** `/connect` → **Claude Code keys**: name a key, **Create**, copy it (shown once) or the ready `claude mcp add --transport http work-os <url> --header "Authorization: Bearer <key>"` command. The list shows prefix, created and last used; **Rotate** (old key dies, new one shown) and **Revoke**. Changes made with a key show as **Claude Code** in history (filter "By Claude Code"), with the `X-Work-OS-Repo` / `X-Work-OS-Session` headers shown small next to them if the session sends them.
+- **What a key can do:** everything the claude.ai connector can (projects, tasks, notes, trash, Discord reads; the channel blocklist still applies). **Only `/api/mcp` accepts keys**: `proxy.ts`, admin, import, cron and Discord registration use `checkToken()` (MCP_TOKEN only).
+- **Rules** (`lib/mcp/policy.ts`, a no-op for MCP_TOKEN): no permanent deletion/admin tools or ops; 300 tool calls per rolling hour per key; 10 trashes per 10 minutes; an `apply_changes` that trashes > 10 items or changes > 50 tasks needs a dry run first, whose `confirm` token (HMAC of the ops + 10-minute expiry, `SESSION_SECRET`) the real call must pass. When a key changes title/priority/due/project of, or trashes, a task it didn't create, Om gets one inbox notice per call (Settings → Notifications → "Claude Code changes", default on).
+- **Code:** `lib/api-keys.ts` (`wos_` + 32 random bytes base64url; only the SHA-256 is stored in `apiKeys`; `lastUsedAt` at most once a minute), `lib/mcp/policy.ts` (counters in `policyEvents`, TTL 2h), `lib/request-context.ts` (session/repo headers → `logActivity`), UI `app/(app)/connect/claude-code-keys.tsx` + `actions.ts`. No new env vars.
+- **Project code locations:** projects have `code: [{remote, subdir?, branch?} | {path}]` (project page → Code locations, or `add_project` / `update_project` / batch ops). Remotes are stored as lowercase `owner/name`, credentials stripped. `get_project` with `remote`/`subdir`/`branch`/`path` instead of a name picks the most specific match (remote+subdir+branch > remote+subdir or +branch > remote > longest path), else returns `unmatched` with candidates. Matcher: `lib/data/code-locations.ts` (pure functions).
 
 ---
 
@@ -379,7 +388,7 @@ Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings & sta
   - **Install app:** one tap on Android/Chrome; on iPhone it shows the steps (Share → Add to Home Screen). Reads "Installed" once you're in the installed app.
   - **Notifications on this device:** switch to turn phone push on or off for this phone only. On iPhone it asks you to install first.
 - **Notifications:** switches for the channels (In-app inbox is always on; Phone notifications; Discord DMs) and for each alert type (Unblocked, Overdue, Due today, Due tomorrow, P1 not started, Stalled), plus **Send test**. Details in section 7.
-- **Security:** passkeys and authenticator app (section 10).
+- **Security:** passkeys, authenticator app, change password, test email (section 10).
 - **Status:** a live list, each row a coloured dot (green ok, amber needs attention, red broken, grey off):
 
 | Row | What it checks |
@@ -409,24 +418,30 @@ Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings & sta
   - `/api/discord/interactions`: Discord signature
   - `/api/cron/alerts`: `CRON_SECRET`
   - the PWA files: public
-- **Admin endpoints** (`/api/admin/*`) accept the `MCP_TOKEN` header.
+- **Admin endpoints** (`/api/admin/*`) accept the `MCP_TOKEN` header. Claude Code keys (section 3) work on `/api/mcp` only.
 - **The repo is public.** Secrets live only in Vercel and in the gitignored `.env.local`. Before each push, a scan checks that no secret is being committed.
 - **Discord:** only Om's user ID, only in the Delpat server, sensitive channels blocked. The bot's permissions are View Channels and Read Message History only.
 
-### Passkeys and authenticator app
+### Passkeys, authenticator app, password reset
 
 **Om:** Settings → Security.
 - **Passkeys:** tap *Add passkey* on each device (name it first). The login page then offers *Sign in with passkey*, and the password field suggests passkeys. Passkey sign-in skips the code step. A passkey works only on the domain it was made on (production, or `localhost` in dev).
 - **Authenticator app (TOTP):** *Turn on* shows a QR code and key; confirm one code, then save the 10 recovery codes (shown once). From then on, password sign-in asks for a code (or a recovery code). Turning it off or making new recovery codes needs a current code.
-- **Lockout:** 10 wrong passwords/codes in 15 minutes from one IP locks password/code sign-in for that IP until the window passes (plus a 300-per-15-min global backstop). Passkeys are never locked.
+- **Lockout:** 10 wrong passwords/codes in 15 minutes from one IP locks password/code sign-in for that IP until the window passes (plus a 300-per-15-min global backstop). Reset-link requests and bad reset links count too. Passkeys are never locked.
+- **Forgot password:** login page → *Forgot password?* → *Email me a reset link*. The link goes to `OWNER_EMAIL` (else `EMAIL_FROM`), works once, for 15 minutes. A new request never cancels a live link, and no new email goes out within 2 minutes of the last one. The page always shows the same message. The reset page asks for the new password twice (10+ characters) and, if the authenticator app is on, a current code or a recovery code. Afterwards every device is signed out and you get an email and an inbox notice.
+- **Change password:** Settings → Security → Password → *Change* (current password, new one twice, code if TOTP is on). Other devices are signed out; this one stays in. *Send test email* on the Email row checks the SMTP settings.
 
 **Claude Code:**
 - `lib/passkeys.ts` (SimpleWebAuthn): user verification (biometric/PIN) is required. RP ID/origin in production come from `APP_URL`, else `https://$VERCEL_PROJECT_PRODUCTION_URL` (Vercel system var); passkeys fail with a clear error if both are missing. A `localhost` Host header (never `x-forwarded-host`) is used in dev, or in `next start` when neither is set. Challenges live in `authChallenges` for 5 minutes and are deleted when checked (single-use, TTL index); each IP holds at most 20 open sign-in challenges.
 - `lib/totp.ts` (otplib + qrcode): the secret sits in `settings` `_id: 'security'`, AES-256-GCM encrypted with a key derived from `SESSION_SECRET` (rotating it breaks TOTP: turn TOTP off first). Recovery codes are stored as HMACs. App codes can't be replayed (`lastStep`). Failures go to `authFailures` keyed by client IP (first `x-forwarded-for` entry), TTL 15 min.
-- `lib/auth.ts`: same session cookie for every method; `workos_2fa` is a 5-minute signed "password OK, needs code" cookie scoped to `/login`.
-- Sign-in actions are server actions in `app/login/actions.ts`, so they POST to `/login`. `proxy.ts` allows exactly `/login` (no other new public route).
+- `lib/auth.ts`: same session cookie for every method; `workos_2fa` is a 5-minute signed "password OK, needs code" cookie scoped to `/login`. The session cookie is `v2.<gen>.<exp>.<sig>`; `verifySessionValue` also requires `gen` to equal `settings` `{_id:'security'}` `sessionGen` (cached 5 s per server instance, so other instances notice a sign-out-all within 5 s; fails closed if Mongo is down). Old `v1` cookies are accepted only while `sessionGen` is 0.
+- `lib/password.ts`: `checkPassword` uses `passwordHash` in the security doc (scrypt N=2^15 r=8 p=1, 16-byte salt, params stored in the hash) when present; `APP_PASSWORD` only when no hash is stored. `setPassword` stores the hash and bumps `sessionGen` (signs out every session).
+- `lib/password-reset.ts`: 32 random bytes (base64url) per link; only the SHA-256 is stored in `passwordResets` (TTL index on `expiresAt`, 15 min). Each request deletes older tokens, records an `authFailures` entry (`kind: 'reset'`, per-IP limit) and takes a `mailLog` slot (3 reset emails/hour globally; test emails 5/hour). The token is claimed with `findOneAndDelete` after the password and TOTP checks. Link origin follows `relyingParty()` in `lib/passkeys.ts` (`APP_URL`, else `https://$VERCEL_PROJECT_PRODUCTION_URL`, localhost only in dev or when neither is set); if none fits, no email is sent.
+- `lib/mail.ts` (nodemailer, pinned): SMTP from `EMAIL_*`; mail only ever goes to `OWNER_EMAIL`/`EMAIL_FROM` (no "to" parameter). Missing vars fail with their names (never values).
+- Sign-in actions are server actions in `app/login/actions.ts`, so they POST to `/login`. `proxy.ts` allows exactly `/login` and `/login/reset` (the reset page, `app/login/reset/page.tsx`, `Referrer-Policy: no-referrer`); no other public route.
 - Settings UI: `app/(app)/settings/security-settings.tsx` + `security-actions.ts` (every action re-checks the session). Only `SafeError` messages (`lib/auth.ts`) reach the browser; other errors are logged and shown as a generic message.
 - **Locked out with TOTP and no passkey or recovery code:** in Mongo, set `settings` `{_id:'security'}` `totp` to `null`.
+- **Forgot the password and email is broken:** in Mongo, unset `settings` `{_id:'security'}` `passwordHash`; `APP_PASSWORD` works again.
 
 ---
 
