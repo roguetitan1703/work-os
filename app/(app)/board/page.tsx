@@ -10,6 +10,8 @@ type Props = { searchParams: Promise<{ project?: string; mode?: string; due?: st
 
 const DUE: DueFilter[] = ['overdue', 'today', 'today_or_overdue', 'this_week', 'next_7_days', 'no_date'];
 
+export const metadata = { title: 'Tasks · Work OS' };
+
 export default async function BoardPage({ searchParams }: Props) {
   const sp = await searchParams;
   const mode = ModeSchema.safeParse(sp.mode).success ? (sp.mode as Mode) : undefined;

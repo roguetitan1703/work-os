@@ -11,6 +11,8 @@ const DAY_LABELS: Record<Day, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', th
 
 type Props = { searchParams: Promise<{ day?: string }> };
 
+export const metadata = { title: 'Timetable · Work OS' };
+
 export default async function TimetablePage({ searchParams }: Props) {
   const sp = await searchParams;
   const dow = weekday(todayStr()); // 0 = Sun

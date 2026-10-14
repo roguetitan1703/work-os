@@ -118,7 +118,7 @@ export function ReviewPageClient({ initialReviews }: Props) {
       />
       <div className="hidden md:flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Weekly Review</h1>
+          <h1 className="text-2xl font-bold text-foreground">Weekly review</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{reviews.length} reviews logged</p>
         </div>
         <Button size="sm" className="gap-1.5" onClick={() => setNewOpen(true)}>

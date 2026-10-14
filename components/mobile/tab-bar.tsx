@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { CalendarCheck, FileText, LayoutList, Menu, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { QuickAddSheet } from './quick-add-sheet';
+import { BellButton } from './bell';
 
 const TABS = [
   { href: '/today', label: 'Today', icon: CalendarCheck, match: ['/today'] },
@@ -67,8 +68,8 @@ export function TabBar() {
   );
 }
 
-/** Sticky phone header: big title, optional subtitle and right-side actions. */
-export function MobileHeader({ title, subtitle, right }: { title: string; subtitle?: React.ReactNode; right?: React.ReactNode }) {
+/** Sticky phone header: big title, optional subtitle and right-side actions, then the notifications bell (bell={false} to hide). */
+export function MobileHeader({ title, subtitle, right, bell = true }: { title: string; subtitle?: React.ReactNode; right?: React.ReactNode; bell?: boolean }) {
   return (
     <header
       className="md:hidden sticky -top-3 z-30 -mx-4 -mt-3 px-4 pb-3 pt-3 bg-background/85 backdrop-blur-xl"
@@ -79,7 +80,12 @@ export function MobileHeader({ title, subtitle, right }: { title: string; subtit
           <h1 className="text-[28px] leading-tight font-bold tracking-tight text-foreground truncate">{title}</h1>
           {subtitle && <div className="text-sm text-muted-foreground mt-0.5">{subtitle}</div>}
         </div>
-        {right && <div className="flex items-center gap-1 shrink-0">{right}</div>}
+        {(right || bell) && (
+          <div className="flex items-center gap-1 shrink-0">
+            {right}
+            {bell && <BellButton />}
+          </div>
+        )}
       </div>
     </header>
   );

@@ -14,7 +14,6 @@ import { FiverrRitualCard } from '@/components/fiverr-ritual-card';
 import { cn } from '@/lib/utils';
 import { useApp } from '../app-context';
 import { MobileHeader } from './tab-bar';
-import { BellButton } from './bell';
 import { MSection, MTaskRow } from './m-task-row';
 
 const RANK: Record<string, number> = { P1: 0, P2: 1, P3: 2, P4: 3 };
@@ -95,7 +94,7 @@ export function MobileToday({
 
   return (
     <div>
-      <MobileHeader title="Today" subtitle={dayName} right={<BellButton />} />
+      <MobileHeader title="Today" subtitle={dayName} />
 
       <div className="grid grid-cols-3 gap-2">
         <Action onClick={() => setDayPlanOpen(true)} icon={<LayoutList className="w-4 h-4" />}>

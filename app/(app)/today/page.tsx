@@ -8,6 +8,8 @@ import { TodayClient } from './today-client';
 import { MobileToday } from '@/components/mobile/m-today';
 import { noteIndex } from '@/lib/data/notes';
 
+export const metadata = { title: 'Today · Work OS' };
+
 export default async function TodayPage() {
   const today = todayStr();
   const wd = weekday(today);

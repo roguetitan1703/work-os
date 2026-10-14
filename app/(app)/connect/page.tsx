@@ -12,7 +12,7 @@ import { baseUrl } from './base-url';
 import { overviewCards } from './overview-data';
 import { Section } from './ui';
 
-export const metadata = { title: 'Connect Claude · Work OS' };
+export const metadata = { title: 'Connect · Work OS' };
 
 type Props = { searchParams: Promise<{ tab?: string }> };
 

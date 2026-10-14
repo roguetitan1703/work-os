@@ -59,7 +59,7 @@ export function BoardClient({ tasks, projects, filters }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-2xl font-bold text-foreground">Board</h1>
+        <h1 className="text-2xl font-bold text-foreground">Tasks</h1>
         <div className="flex items-center gap-2 flex-wrap">
           <input
             value={q}

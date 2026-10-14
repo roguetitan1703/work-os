@@ -12,12 +12,14 @@ export function SubHeader({
   back = '/more',
   backLabel = 'More',
   right,
+  bell,
 }: {
   title: string;
   subtitle?: React.ReactNode;
   back?: string;
   backLabel?: string;
   right?: React.ReactNode;
+  bell?: boolean;
 }) {
   return (
     <div className="contents md:hidden">
@@ -28,7 +30,7 @@ export function SubHeader({
         </Link>
       </div>
       <div className="contents [&>header]:mt-[calc(-1*(env(safe-area-inset-top)+0.75rem))]!">
-        <MobileHeader title={title} subtitle={subtitle} right={right} />
+        <MobileHeader title={title} subtitle={subtitle} right={right} bell={bell} />
       </div>
     </div>
   );

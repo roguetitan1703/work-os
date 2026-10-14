@@ -1,15 +1,14 @@
+import Link from 'next/link';
+import { ChevronRight } from 'lucide-react';
 import { CopyBox } from '@/components/copy-box';
 import { ALERT_RULES, lastRunStatus } from '@/lib/alerts';
-import { discordConfig } from '@/lib/discord/client';
 import { fmtAgo } from '@/lib/format';
-import { NOTIFY_KINDS, getNotifySettings } from '@/lib/notify';
-import { NotifyPrefs } from '../settings/device-settings';
 import { Card, Disclosure, Section, StatusLine } from './ui';
 
 export async function AlertsSection({ base }: { base: string }) {
   const secret = process.env.CRON_SECRET;
   const ready = !!secret && secret.length >= 16;
-  const [s, prefs] = await Promise.all([lastRunStatus(), getNotifySettings()]);
+  const s = await lastRunStatus();
   const stale = s.stale;
   const r = ALERT_RULES;
 
@@ -35,11 +34,13 @@ export async function AlertsSection({ base }: { base: string }) {
         </Card>
       </Section>
 
-      <Section title="Switches">
-        <Card grouped>
-          <NotifyPrefs initial={prefs} kinds={NOTIFY_KINDS} discordReady={!!discordConfig()} />
-        </Card>
-        <p className="px-1 mt-1.5 text-xs text-muted-foreground">Same switches as Settings → Notifications. One batched message per check.</p>
+      <Section title="Preferences">
+        <Link href="/settings" className="flex items-center gap-3 px-4 h-14 rounded-2xl bg-card border border-border/70 active:bg-muted/60">
+          <span className="flex-1 text-[15px]">Choose which alerts you get and where</span>
+          <span className="text-sm text-muted-foreground">Settings</span>
+          <ChevronRight className="w-4 h-4 text-muted-foreground/40" />
+        </Link>
+        <p className="px-1 mt-1.5 text-xs text-muted-foreground">On/off per alert and channel live in Settings → Notifications. One batched message per check.</p>
       </Section>
 
       <Section title="Setup and rules">
@@ -52,7 +53,8 @@ export async function AlertsSection({ base }: { base: string }) {
         <li><b>Stalled</b>: In Progress with no activity for {r.stalledWorkdays} workdays</li>
         <li><b>Never started</b>: P1 still Not Started {r.neverStartedHours}h after creation</li>
         <li><b>Unblocked</b>: right away when the last task it waited on is done</li>
-      </ul>          </Disclosure>
+      </ul>
+          </Disclosure>
           <Disclosure title="Setup guide" hint="CRON_SECRET and the 15-minute job" open={!ready || !s.lastRunAt}>
       <ol className="list-decimal pl-5 space-y-3 text-sm text-foreground/90">
         <li>In Vercel add <code>CRON_SECRET</code> (any long random string) and redeploy.</li>
@@ -65,7 +67,8 @@ export async function AlertsSection({ base }: { base: string }) {
           <CopyBox text={`curl -H "Authorization: Bearer $CRON_SECRET" "${base}/api/cron/alerts?dry=1"`} className="mt-2" />
         </li>
         <li>If DMs fail with 403: in Discord, Delpat server → Privacy Settings → allow direct messages from server members.</li>
-      </ol>          </Disclosure>
+      </ol>
+          </Disclosure>
         </div>
       </Section>
     </div>
