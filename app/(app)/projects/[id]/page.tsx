@@ -14,21 +14,36 @@ import { SubHeader } from '@/components/mobile/sub-header';
 import { AddTaskButton } from './add-task-button';
 import { CodeLocations } from './code-locations';
 
-type Props = { params: Promise<{ id: string }> };
+import { projectItems } from '@/lib/data/claude-items';
+import { ClaudeItems } from './claude-items';
+
+type Props = { params: Promise<{ id: string }>; searchParams: Promise<{ claude?: string }> };
 
 const H2 = 'text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider';
 
-export default async function ProjectPage({ params }: Props) {
+export default async function ProjectPage({ params, searchParams }: Props) {
   const { id } = await params;
+  const { claude } = await searchParams;
   const project = await getProjectWithStats(decodeURIComponent(id));
   if (!project) notFound();
 
-  const [open, done, activity, notes] = await Promise.all([
+  const [open, done, activity, notes, work] = await Promise.all([
     listTasks({ project: project.id, open: true }),
     listTasks({ project: project.id, status: ['Done', 'Dropped'], sort: 'done', limit: 30 }),
     listActivity({ project: project.id, limit: 40 }),
     listNotes({ project: project.id, state: 'all' }),
+    projectItems(project.id, { doneLimit: 30 }),
   ]);
+  const claudeSection = work.items.length > 0 && (
+    <ClaudeItems
+      projectId={project.id}
+      items={work.items}
+      blockers={Object.fromEntries([...work.blockers].map(([k, b]) => [k, { ref: b.ref, title: b.title, state: b.state }]))}
+      waitingOnOm={work.waitingOnOm}
+      doneCount={work.doneCount}
+      openRef={Number(claude?.replace(/^C/i, '')) || undefined}
+    />
+  );
   const projectNotes = notes.notes.filter(n => !n.taskId && !n.archived);
   const otherNotes = notes.notes.length - projectNotes.length;
   const s = project.stats;
@@ -57,6 +72,7 @@ export default async function ProjectPage({ params }: Props) {
             <h2 className={`${H2} px-1 md:px-0`}>Recently finished</h2>
             <TaskList tasks={done} showProject={false} empty="Nothing finished yet." />
           </section>
+          {claudeSection}
         </div>
         <aside className="space-y-3">
           <div className="flex items-center justify-between">

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Archive, Bell, ChevronRight, Clock, EyeOff, FolderOpen, History, LifeBuoy, Plug, Repeat2, Settings } from 'lucide-react';
 import { listProjects } from '@/lib/data/projects';
+import { waitingCounts } from '@/lib/data/claude-items';
 import { MODES, modeToSlug } from '@/lib/modes';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 
@@ -8,6 +9,7 @@ export const metadata = { title: 'More · Work OS' };
 
 /** Phone "More" tab: projects and everything that isn't a main tab. */
 export default async function MorePage() {
+  const waiting = await waitingCounts();
   const projects = (await listProjects()).filter(p => p.stats.open > 0 || p.status === 'active').slice(0, 30);
   return (
     <div className="max-w-xl mx-auto">
@@ -16,7 +18,7 @@ export default async function MorePage() {
 
       <Group title="Projects">
         {projects.map(p => (
-          <Item key={p.id} href={`/projects/${p.id}`} icon={<FolderOpen className="w-5 h-5 text-blue-500" />} label={p.name} value={p.stats.overdue ? `${p.stats.open} · ${p.stats.overdue} late` : String(p.stats.open)} tone={p.stats.overdue ? 'text-red-600 dark:text-red-400' : undefined} />
+          <Item key={p.id} href={`/projects/${p.id}`} icon={<FolderOpen className="w-5 h-5 text-blue-500" />} label={<>{p.name}{waiting.get(p.id) && <span className="ml-2 text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300">{waiting.get(p.id)} for you</span>}</>} value={p.stats.overdue ? `${p.stats.open} · ${p.stats.overdue} late` : String(p.stats.open)} tone={p.stats.overdue ? 'text-red-600 dark:text-red-400' : undefined} />
         ))}
         <Item href="/projects?all=1" icon={<Archive className="w-5 h-5 text-muted-foreground" />} label="All projects" />
       </Group>
@@ -53,7 +55,7 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-function Item({ href, icon, label, value, tone }: { href: string; icon: React.ReactNode; label: string; value?: string; tone?: string }) {
+function Item({ href, icon, label, value, tone }: { href: string; icon: React.ReactNode; label: React.ReactNode; value?: string; tone?: string }) {
   return (
     <Link href={href} className="flex items-center gap-3 px-4 h-14 active:bg-muted/60">
       {icon}

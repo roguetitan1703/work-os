@@ -4,6 +4,7 @@ import { listProjects } from '@/lib/data/projects';
 import { fmtAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { SubHeader, MEmpty } from '@/components/mobile/sub-header';
+import { waitingCounts } from '@/lib/data/claude-items';
 import { NewProjectButton } from './new-project';
 
 type Props = { searchParams: Promise<{ all?: string }> };
@@ -12,7 +13,7 @@ export const metadata = { title: 'Projects · Work OS' };
 
 export default async function ProjectsPage({ searchParams }: Props) {
   const { all } = await searchParams;
-  const projects = await listProjects({ includeInactive: all === '1' });
+  const [projects, waiting] = await Promise.all([listProjects({ includeInactive: all === '1' }), waitingCounts()]);
 
   return (
     <div className="space-y-5 max-w-6xl">
@@ -62,7 +63,10 @@ export default async function ProjectsPage({ searchParams }: Props) {
           >
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <div className="font-semibold text-[16px] md:text-base text-foreground truncate">{p.name}</div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="font-semibold text-[16px] md:text-base text-foreground truncate">{p.name}</span>
+                  {waiting.get(p.id) && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 shrink-0">{waiting.get(p.id)} for you</span>}
+                </div>
                 {p.client && <div className="text-sm md:text-xs text-muted-foreground truncate">{p.client}</div>}
               </div>
               {p.status !== 'active' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{p.status}</span>}
