@@ -19,6 +19,7 @@ export function TabNav({ active }: { active: TabId }) {
             key={t.id}
             href={t.id === 'overview' ? '/connect' : `/connect?tab=${t.id}`}
             scroll={false}
+            prefetch
             aria-current={t.id === active ? 'page' : undefined}
             data-tab={t.id}
             className={cn(
