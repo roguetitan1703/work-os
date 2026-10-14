@@ -301,7 +301,8 @@ export async function updateTask(key: string | number, patch: TaskPatch, actor: 
   let status: Status = data.status ?? cur.status;
   const reason = data.blockedReason?.trim();
   if (data.status === undefined && reason && isOpen(cur.status) && cur.status !== 'Blocked') status = 'Blocked';
-  if (data.status === undefined && data.progress !== undefined && data.progress > 0 && cur.status === 'Not Started') {
+  // A blocked reason wins over "progress means started".
+  if (data.status === undefined && status === cur.status && data.progress !== undefined && data.progress > 0 && cur.status === 'Not Started') {
     status = 'In Progress';
   }
   if (reason !== undefined) apply('blockedReason', reason);

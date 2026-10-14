@@ -417,16 +417,17 @@ export async function omUpdate(key: string | number, f: OmPatch): Promise<Claude
   return toItem(await update(c, d, set, ctx, said.join('; ')));
 }
 
-/** Move an item up/down within its project's order, or to the top. */
-export async function moveItem(key: string | number, dir: 'up' | 'down' | 'top'): Promise<void> {
+/** Move an item `steps` places up/down within its project's open order (one transaction), or to the top. */
+export async function moveItem(key: string | number, dir: 'up' | 'down' | 'top', steps = 1): Promise<void> {
   await inTransaction(async () => {
     const c = await collections();
     const d = await findDoc(c, key);
     const list = await c.claudeItems.find({ projectId: d.projectId, state: { $in: ['queued', 'active', 'blocked'] } }).sort({ order: 1 }).toArray();
     const i = list.findIndex(x => x._id === d._id);
     if (i < 0) return;
-    const j = dir === 'top' ? 0 : dir === 'up' ? i - 1 : i + 1;
-    if (j < 0 || j >= list.length || j === i) return;
+    const n = Math.min(Math.max(Math.trunc(steps) || 1, 1), list.length);
+    const j = dir === 'top' ? 0 : Math.min(Math.max(dir === 'up' ? i - n : i + n, 0), list.length - 1);
+    if (j === i) return;
     const [m] = list.splice(i, 1);
     list.splice(j, 0, m);
     await c.claudeItems.bulkWrite(list.map((x, n) => ({ updateOne: { filter: { _id: x._id }, update: { $set: { order: n + 1 } } } })));

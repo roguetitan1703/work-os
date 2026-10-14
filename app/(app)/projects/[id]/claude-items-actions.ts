@@ -43,6 +43,6 @@ export async function updateClaudeItemAction(projectId: string, key: string, pat
 export async function moveClaudeItemAction(projectId: string, key: string, dir: 'up' | 'down' | 'top', hops = 1): Promise<Result> {
   return run(projectId, async () => {
     await ownItem(projectId, key);
-    for (let n = 0; n < (dir === 'top' ? 1 : Math.min(Math.max(hops, 1), 50)); n++) await moveItem(key, dir);
+    await moveItem(key, dir, Math.min(Math.max(hops, 1), 50));
   });
 }
