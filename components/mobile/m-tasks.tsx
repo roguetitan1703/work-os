@@ -147,25 +147,26 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters }: { tasks: 
         ))}
       </div>
 
-      {nFilters > 0 && (
-        <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {filters.project && (
-            <Chip on onClick={() => setFilter('project', '')}>
-              {projName(filters.project)} <X className="inline w-3.5 h-3.5 -mr-1" />
-            </Chip>
-          )}
-          {filters.mode && (
-            <Chip on onClick={() => setFilter('mode', '')}>
-              {filters.mode} <X className="inline w-3.5 h-3.5 -mr-1" />
-            </Chip>
-          )}
-          {filters.due && (
-            <Chip on onClick={() => setFilter('due', '')}>
-              {dueLabel} <X className="inline w-3.5 h-3.5 -mr-1" />
-            </Chip>
-          )}
-        </div>
-      )}
+      {/* Active project/due filters first, then every mode as a one-tap filter. */}
+      <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {filters.project && (
+          <Chip on onClick={() => setFilter('project', '')}>
+            {projName(filters.project)} <X className="inline w-3.5 h-3.5 -mr-1" />
+          </Chip>
+        )}
+        {filters.due && (
+          <Chip on onClick={() => setFilter('due', '')}>
+            {dueLabel} <X className="inline w-3.5 h-3.5 -mr-1" />
+          </Chip>
+        )}
+        {MODES.map(m => (
+          <Chip key={m.name} on={filters.mode === m.name} onClick={() => setFilter('mode', filters.mode === m.name ? '' : m.name)}>
+            <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ backgroundColor: m.hex }} />
+            {m.name}
+            {filters.mode === m.name && <X className="inline w-3.5 h-3.5 ml-1 -mr-1" />}
+          </Chip>
+        ))}
+      </div>
 
       {list.length === 0 ? (
         <p className="mt-12 text-center text-sm text-muted-foreground">{q || nFilters ? 'No tasks match.' : seg === 'done' ? 'Nothing finished this week yet.' : 'Nothing here.'}</p>

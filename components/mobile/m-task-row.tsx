@@ -9,6 +9,7 @@ import { completeTaskAction, updateTaskAction } from '@/app/actions';
 import { fmtDue } from '@/lib/format';
 import type { Priority, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { getBlockColor } from '@/lib/modes';
 import { useApp } from '../app-context';
 import { TaskActionSheet } from './m-task-actions';
 
@@ -108,6 +109,12 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
           <div className="mt-1 flex items-center gap-x-2 gap-y-0.5 flex-wrap text-[13px] text-muted-foreground">
             {task.due && <span className={cn(overdue && 'text-red-600 dark:text-red-400 font-medium')}>{fmtDue(task.due, today)}</span>}
             {project && <span className="truncate max-w-[45vw]">{project}</span>}
+            {task.mode && (
+              <span className="inline-flex items-center gap-1 min-w-0">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: getBlockColor(task.mode).hex }} />
+                <span className="truncate max-w-[38vw]">{task.mode}</span>
+              </span>
+            )}
             {task.status === 'In Progress' && <span className="text-blue-600 dark:text-blue-400">{task.progress}%</span>}
             {task.status === 'Blocked' && <span className="text-red-600 dark:text-red-400 truncate max-w-[60vw]">Blocked{task.blockedReason ? `: ${task.blockedReason}` : ''}</span>}
             {task.checklist.length > 0 && (
