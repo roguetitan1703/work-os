@@ -8,6 +8,7 @@
 2. Live checks on prod: speed (first tap after 5 min idle), Connect tabs, Claude items screen, notices.
 3. Import pms-89's 29 items to prod (import-items.mjs, MCP_TOKEN) and move examples/anaspure + wt/ana* from Brahmasuite to AKAR; tell pms-89 the tool names.
 4. Propose the Claude items session rule for ~/.claude/CLAUDE.md to Om (exact text; his yes first).
+5. Session launcher (Om's note "Claude Code session launcher", project Work OS): reuse code locations for project↔repo, a "worker" key type (jobs read + status write only) instead of separate device tokens, sessions shown with Claude items, a Connect tab. Work OS side first, then Windows worker, then Mac. Security review before merge.
 
 ## Later
 - Item 8 (AKAR debt step 3) is "blocked by step 0" but pms-89 says it is active in wt/debt-3 — waits on pms-89/Om choosing one.
