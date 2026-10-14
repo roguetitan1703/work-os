@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
-import { Check, Copy, KeyRound, Plus, RefreshCw, SquareTerminal, Trash2 } from 'lucide-react';
+import { Check, Copy, KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ApiKeyInfo } from '@/lib/api-keys';
 import { BottomSheet } from '@/components/mobile/sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { fmtAgo } from '@/lib/format';
+import { Disclosure } from './ui';
 import { createApiKeyAction, listApiKeysAction, revokeApiKeyAction, rotateApiKeyAction } from './actions';
 
 const field =
@@ -79,18 +80,7 @@ export function ClaudeCodeKeys({ url }: { url: string }) {
 
   return (
     <section className="space-y-3">
-      <div>
-        <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-          <SquareTerminal className="w-5 h-5 text-violet-600 dark:text-violet-400" /> Claude Code keys
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Separate keys for Claude Code sessions on your PC. They only open the MCP endpoint (not admin or the rest of the API), and everything they change is marked{' '}
-          <span className="px-1 rounded bg-violet-500/15 text-violet-700 dark:text-violet-300 text-xs font-medium">Claude Code</span>. Limits: 300 calls an hour, 10
-          deletions per 10 minutes, big batches need a dry run first, and you get a notification when one changes or deletes your tasks.
-        </p>
-      </div>
-
-      <div className="rounded-2xl md:rounded-lg border border-border/70 md:border-border divide-y divide-border/60 md:divide-border bg-card overflow-hidden">
+      <div className="rounded-2xl border border-border/70 divide-y divide-border/60 bg-card overflow-hidden">
         {error ? (
           <p className="px-4 py-3 text-sm text-red-600 dark:text-red-400">{error}</p>
         ) : !keys ? (
@@ -132,6 +122,14 @@ export function ClaudeCodeKeys({ url }: { url: string }) {
           </button>
         </div>
       </div>
+
+      <Disclosure title="Limits and safety" hint="What a Claude Code key can do">
+        <p>
+          Separate keys for Claude Code sessions on your PC. They only open the MCP endpoint (not admin or the rest of the API), and everything they change is marked{' '}
+          <span className="px-1 rounded bg-violet-500/15 text-violet-700 dark:text-violet-300 text-xs font-medium">Claude Code</span>. Limits: 300 calls an hour, 10
+          deletions per 10 minutes, big batches need a dry run first, and you get a notification when one changes or deletes your tasks.
+        </p>
+      </Disclosure>
 
       {fresh && !phone && (
         <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-4">
@@ -184,7 +182,7 @@ function NewKey({ fresh, url, onDone }: { fresh: { key: string; name: string }; 
       },
       () => toast.error('Could not copy'),
     );
-  const cmd = `claude mcp add --transport http work-os ${url} --header "Authorization: Bearer ${fresh.key}"`;
+  const cmd = `claude mcp add --scope user --transport http work-os ${url} --header "Authorization: Bearer ${fresh.key}"`;
   return (
     <div className="space-y-3">
       <p className="text-[13px] text-foreground">

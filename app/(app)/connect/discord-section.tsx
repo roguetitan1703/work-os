@@ -1,6 +1,6 @@
 import { CopyBox } from '@/components/copy-box';
 import { discordConfig, guildContext, CONTENT_INTENT_WARNING } from '@/lib/discord/client';
-import { cn } from '@/lib/utils';
+import { Card, Disclosure, Section, StatusLine } from './ui';
 import { BlockedChannels } from './blocked-channels';
 
 // View Channel (1<<10) + Read Message History (1<<16). Nothing else: the bot never posts.
@@ -35,44 +35,42 @@ export async function DiscordSection({ base }: { base: string }) {
   const set = Object.fromEntries(ENV.map(k => [k, !!process.env[k]]));
 
   return (
-    <section className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold text-foreground">Discord</h2>
-        <p className="text-sm text-muted-foreground">
-          Claude reads the Delpat server on demand (nothing is stored), and you can push messages into Work OS with a right-click or slash commands. The
-          bot never posts or reacts; its only output is replies only you can see.
-        </p>
-      </div>
+    <div className="space-y-5">
+      <Section title="Status">
+        <Card>
+          {s.ok ? (
+            <StatusLine level={s.contentIntent ? 'ok' : 'warn'} title={`Connected · ${s.readable} channels and ${s.threads} active threads readable`}>
+              <p>You are {s.ownerName}. {s.blockedCount ? `${s.blockedCount} channels blocked as sensitive.` : 'No channels blocked as sensitive yet.'}</p>
+              {!s.contentIntent && <p className="text-red-600 dark:text-red-400">{CONTENT_INTENT_WARNING}</p>}
+              {s.noAccess.length > 0 && <p>Bot can&apos;t read: {s.noAccess.join(', ')}</p>}
+            </StatusLine>
+          ) : (
+            <StatusLine level={'error' in s ? 'error' : 'off'} title={'error' in s ? `Problem: ${s.error}` : 'Not set up'}>
+              <p>
+                {ENV.map(k => (
+                  <span key={k} className="mr-3 inline-block">
+                    {set[k] ? '✓' : '✗'} <code>{k}</code>
+                  </span>
+                ))}
+              </p>
+            </StatusLine>
+          )}
+        </Card>
+      </Section>
 
-      <div
-        className={cn(
-          'rounded-lg border px-4 py-3 text-sm',
-          s.ok ? 'border-green-500/30 bg-green-500/5' : 'border-amber-500/30 bg-amber-500/5',
-        )}
-      >
-        {s.ok ? (
-          <div className="space-y-1">
-            <div className="font-medium text-green-700 dark:text-green-300">
-              Connected · {s.readable} channels and {s.threads} active threads readable · you are {s.ownerName}
-            </div>
-            {!s.contentIntent && <div className="text-red-600 dark:text-red-400">{CONTENT_INTENT_WARNING}</div>}
-            {s.noAccess.length > 0 && <div className="text-muted-foreground">Bot can&apos;t read: {s.noAccess.join(', ')}</div>}
-            <div className="text-muted-foreground">{s.blockedCount ? `${s.blockedCount} channels blocked as sensitive.` : 'No channels blocked as sensitive yet.'}</div>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            <div className="font-medium text-amber-700 dark:text-amber-300">{'error' in s ? `Discord error: ${s.error}` : 'Not configured yet'}</div>
-            <div className="text-xs text-muted-foreground">
-              {ENV.map(k => (
-                <span key={k} className="mr-3">
-                  {set[k] ? '✓' : '✗'} <code>{k}</code>
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      {s.ok && (
+        <Section title="Sensitive channels: never read">
+          <p className="px-1 mb-2 text-[13px] text-muted-foreground">
+            Tick channels that hold passwords, credentials or anything Claude shouldn&apos;t see. They&apos;re dropped before any read: not listed, not scanned, and links or
+            right-clicks into them are refused. For a hard guarantee, also deny the bot&apos;s role <b>View Channel</b> in each of them (Edit Channel → Permissions).
+          </p>
+          <BlockedChannels layout={s.layout} />
+        </Section>
+      )}
 
+      <Section title="Setup and use">
+        <div className="space-y-3">
+          <Disclosure title="Setup and registration" hint="Developer Portal, invite, env vars, commands" open={!s.ok}>
       <ol className="list-decimal pl-5 space-y-3 text-sm text-foreground/90">
         <li>
           <b>Developer Portal → your app → Bot</b>: under <i>Privileged Gateway Intents</i> turn on <b>Message Content Intent</b> (otherwise message text
@@ -101,38 +99,30 @@ export async function DiscordSection({ base }: { base: string }) {
           <CopyBox text={`curl -X POST ${base}/api/admin/discord/register -H "Authorization: Bearer $MCP_TOKEN"`} className="mt-2" />
         </li>
       </ol>
-
-      {s.ok && (
-        <div className="space-y-2">
-          <h3 className="text-sm font-semibold text-foreground">Sensitive channels: never read</h3>
-          <p className="text-sm text-muted-foreground">
-            Tick channels that hold passwords, credentials or anything Claude shouldn&apos;t see. They&apos;re dropped before any read: not listed, not
-            scanned, and links or right-clicks into them are refused. For a hard guarantee, also deny the bot&apos;s role <b>View Channel</b> in each
-            of them (Edit Channel → Permissions); then Discord itself won&apos;t hand the bot those messages.
-          </p>
-          <BlockedChannels layout={s.layout} />
+          </Disclosure>
+          <Disclosure title="Commands" hint="Right-click, slash commands, tagging the bot">
+            <div className="-mx-4 -my-4 divide-y divide-border/60 text-sm">
+              {[
+                ['Right-click a message → Apps → Add to Work OS', 'Creates a task from the message (or says it’s already tracked), with buttons to set priority/due.'],
+                ['/task title [priority] [due] [project] [mode]', 'Adds a task. Due accepts today, tomorrow, fri, +3d, 2026-10-20.'],
+                ['/today', 'Overdue, due today, in progress and open P1s.'],
+                ['/done ref [note]', 'Completes a task (ref autocompletes from open tasks).'],
+                ['/progress ref percent [note]', 'Logs progress.'],
+                ['Tag the bot in any message', 'Nothing happens on Discord. Claude lists it as “flagged for later” (with the message you replied to) in discord_needs_attention and the brief.'],
+              ].map(([cmd, what]) => (
+                <div key={cmd} className="px-4 py-2.5">
+                  <code className="text-xs font-semibold text-foreground break-words">{cmd}</code>
+                  <p className="text-xs text-muted-foreground mt-0.5">{what}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground pt-4">
+              Only your user ID can use the commands; anyone else gets “Not available”. Writes from Discord show in task history as <b>You · Discord</b>. Personal DMs and group
+              DMs are out of reach for bots and are not read.
+            </p>
+          </Disclosure>
         </div>
-      )}
-
-      <div className="rounded-lg border border-border divide-y divide-border text-sm">
-        {[
-          ['Right-click a message → Apps → Add to Work OS', 'Creates a task from the message (or says it’s already tracked), with buttons to set priority/due.'],
-          ['/task title [priority] [due] [project] [mode]', 'Adds a task. Due accepts today, tomorrow, fri, +3d, 2026-10-20.'],
-          ['/today', 'Overdue, due today, in progress and open P1s.'],
-          ['/done ref [note]', 'Completes a task (ref autocompletes from open tasks).'],
-          ['/progress ref percent [note]', 'Logs progress.'],
-          ['Tag the bot in any message', 'Nothing happens on Discord. Claude lists it as “flagged for later” (with the message you replied to) in discord_needs_attention and the brief.'],
-        ].map(([cmd, what]) => (
-          <div key={cmd} className="px-4 py-2.5">
-            <code className="text-xs font-semibold text-foreground">{cmd}</code>
-            <p className="text-xs text-muted-foreground mt-0.5">{what}</p>
-          </div>
-        ))}
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Only your user ID can use the commands; anyone else gets “Not available”. Writes from Discord show in task history as <b>You · Discord</b>. Personal
-        DMs and group DMs are out of reach for bots and are not read.
-      </p>
-    </section>
+      </Section>
+    </div>
   );
 }
