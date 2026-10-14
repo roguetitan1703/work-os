@@ -43,7 +43,7 @@ All bodies are JSON. Errors: `{ "error": "…" }` with 400 / 401 / 413 / 429.
   `folderId` when one exists). `[A-Za-z0-9_-]{4,40}`.
 - `name`: a label Om recognises, relative to the allowed root, `/`-separated, ≤ 120 chars. Not an
   absolute path.
-- `remote`: credentials stripped, lowercase `host/owner/name` without `.git`, ≤ 200. Omit when none.
+- `remote`: credentials stripped, lowercase `owner/name` without host or `.git` (same form as project code locations), ≤ 200. Omit when none.
 - `branch`: ≤ 120. Omit for non-git folders.
 - At most 3000 folders. Folders not in the latest scan are marked missing (never deleted).
 
