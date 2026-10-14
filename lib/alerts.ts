@@ -67,9 +67,11 @@ export async function queueUnblocked(c: Collections, closed: Pick<TaskDoc, '_id'
 
 // ── What is due now ─────────────────────────────────────────────────────────
 
-export async function computeAlerts(now: Date = new Date()): Promise<{ items: AlertItem[]; quiet: boolean }> {
+/** onlyQueued: just the queued "unblocked" alerts (sent right after a write), not the scheduled checks. */
+export async function computeAlerts(now: Date = new Date(), opts: { onlyQueued?: boolean } = {}): Promise<{ items: AlertItem[]; quiet: boolean }> {
   const c = await collections();
   if (isQuietHour(now)) return { items: [], quiet: true };
+  if (opts.onlyQueued) return { items: await queuedUnblocked(c), quiet: false };
   const today = dateInTz(now);
   const hour = hourInTz(now);
   const items: AlertItem[] = [];
@@ -115,7 +117,12 @@ export async function computeAlerts(now: Date = new Date()): Promise<{ items: Al
     const key = `never_started:${t._id}`;
     if (!was(key)) items.push({ key, kind: 'never_started', ref: t.ref, title: t.title });
   }
-  // unblocked (queued)
+  items.push(...(await queuedUnblocked(c)));
+  return { items, quiet: false };
+}
+
+async function queuedUnblocked(c: Collections): Promise<AlertItem[]> {
+  const items: AlertItem[] = [];
   const queued = await c.alertQueue.find({ sentAt: null }).toArray();
   if (queued.length) {
     const ids = [...new Set(queued.flatMap(q => [q.taskId, q.byTaskId]))];
@@ -124,10 +131,10 @@ export async function computeAlerts(now: Date = new Date()): Promise<{ items: Al
       const t = byId.get(q.taskId);
       const by = byId.get(q.byTaskId);
       if (!t || CLOSED_STATUSES.includes(t.status)) continue; // gone or already done: drop silently on send
-      items.push({ key: q._id, kind: 'unblocked', ref: t.ref, title: t.title, detail: by ? `#${by.ref} ${by.title} is done` : undefined });
+      items.push({ key: q._id, kind: 'unblocked', ref: t.ref, title: t.title, detail: by ? `#${by.ref} ${by.title} is done` : 'the task it waited on was deleted' });
     }
   }
-  return { items, quiet: false };
+  return items;
 }
 
 // ── Message ─────────────────────────────────────────────────────────────────
@@ -198,8 +205,8 @@ const KIND_TITLE: Record<AlertKind, string> = {
   stalled: 'Stalled',
 };
 
-export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?: Date }): Promise<RunResult> {
-  const { items: due, quiet } = await computeAlerts(opts.now);
+export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?: Date; onlyQueued?: boolean }): Promise<RunResult> {
+  const { items: due, quiet } = await computeAlerts(opts.now, { onlyQueued: opts.onlyQueued });
   const settings = await getNotifySettings();
   const items = due.filter(i => settings.kinds[i.kind] !== false);
   const messages = formatAlerts(items, opts.baseUrl);
@@ -252,15 +259,15 @@ export async function pruneAlertLog(): Promise<void> {
 }
 
 /**
- * After a write: if it queued an "unblocked" alert, send now instead of waiting for the next
- * scheduled run. Never throws; does nothing during quiet hours or when Discord isn't set up.
+ * After a write: if it queued an "unblocked" alert, send just that now instead of waiting for the
+ * next scheduled run (the due/overdue digests keep their times). Never throws; does nothing during quiet hours or when Discord isn't set up.
  */
 export async function flushQueuedAlerts(baseUrl: string): Promise<void> {
   try {
     if (isQuietHour()) return;
     const c = await collections();
     if (!(await c.alertQueue.countDocuments({ sentAt: null }))) return;
-    const r = await runAlerts({ baseUrl });
+    const r = await runAlerts({ baseUrl, onlyQueued: true });
     if (r.error) console.error('[alerts]', r.error);
   } catch (e) {
     console.error('[alerts] flush failed:', e instanceof Error ? e.message : e);

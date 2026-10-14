@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Bot, SquareTerminal, CheckCircle2, MessageSquare, Pencil, Plus, RotateCcw, TrendingUp, ArrowRightLeft, ListChecks, Archive } from 'lucide-react';
+import { Bot, SquareTerminal, CheckCircle2, MessageSquare, Pencil, Plus, RotateCcw, TrendingUp, ArrowRightLeft, ListChecks, Archive, Trash2, ArchiveRestore } from 'lucide-react';
 import { describeActivity, ACTOR_LABEL } from '@/lib/activity-text';
 import { ACTOR_STYLE, fmtDateTime } from '@/lib/format';
 import type { Activity, ActivityType } from '@/lib/types';
@@ -17,6 +17,8 @@ const ICONS: Record<ActivityType, React.ComponentType<{ className?: string }>> =
   checklist: ListChecks,
   archived: Archive,
   unarchived: Archive,
+  trashed: Trash2,
+  restored: ArchiveRestore,
 };
 
 export function ActorBadge({ actor }: { actor: string }) {

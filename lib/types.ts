@@ -100,6 +100,8 @@ export const ACTIVITY_TYPES = [
   'checklist',
   'archived',
   'unarchived',
+  'trashed',
+  'restored',
 ] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 
@@ -118,6 +120,45 @@ export type Activity = {
   /** Claude Code only: the X-Work-OS-Session / X-Work-OS-Repo headers of the request that made it. */
   session?: string;
   repo?: string;
+};
+
+// ── Claude items: Claude Code's own work list per project (never in Om's task views) ──
+
+export const CLAUDE_ITEM_KINDS = ['feature', 'bug', 'debt', 'idea'] as const;
+export type ClaudeItemKind = (typeof CLAUDE_ITEM_KINDS)[number];
+/** dropped: Om only (Claude never removes items). */
+export const CLAUDE_ITEM_STATES = ['queued', 'active', 'blocked', 'done', 'dropped'] as const;
+export type ClaudeItemState = (typeof CLAUDE_ITEM_STATES)[number];
+
+export type ClaudeItemPart = { id: string; text: string; done: boolean };
+export type ClaudeItemLog = { at: string; actor: Actor; session?: string; text: string };
+
+export type ClaudeItem = {
+  id: string;
+  ref: number; // shown as C12
+  projectId: string;
+  title: string;
+  kind: ClaudeItemKind;
+  state: ClaudeItemState;
+  /** Om's pick: a session takes the top queued item with next on. */
+  next: boolean;
+  order: number;
+  /** What and why, written so a session with no chat history understands it. */
+  why: string;
+  doneWhen: string;
+  note: string;
+  /** Small things grouped under one item. */
+  parts: ClaudeItemPart[];
+  blockedBy: string | null; // another item's id
+  /** Non-empty: blocked on a decision or action from Om (the text says what). */
+  waitingOnOm: string;
+  gitRef: string; // branch or commit when done
+  claimedBy: { session: string; at: string } | null;
+  createdBy: Actor;
+  createdAt: string;
+  updatedAt: string;
+  doneAt: string | null;
+  log: ClaudeItemLog[];
 };
 
 export const PROJECT_STATUSES = ['active', 'paused', 'done', 'archived'] as const;

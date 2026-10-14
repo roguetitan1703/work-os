@@ -18,7 +18,7 @@ type Key = string | number;
 export type BatchOp =
   | ({ op: 'create_task'; as?: string; note?: string } & TaskInput)
   | ({ op: 'update_task'; task: Key; note?: string } & TaskPatch)
-  | { op: 'log_progress'; task: Key; progress: number; note?: string; status?: TaskPatch['status'] }
+  | { op: 'log_progress'; task: Key; progress: number; note?: string; status?: TaskPatch['status']; blockedReason?: string }
   | { op: 'complete_task'; task: Key; note?: string }
   | { op: 'add_comment'; task: Key; text: string }
   | { op: 'edit_comment'; comment_id: string; text: string }
@@ -29,7 +29,7 @@ export type BatchOp =
   | { op: 'restore_task'; task: Key }
   | ({ op: 'write_note'; note_id?: string; task?: Key; project?: string; parent_id?: string; block_ops?: notes.BlockOp[] } & Omit<notes.NoteWrite, 'noteId' | 'task' | 'project' | 'parentId' | 'blockOps' | 'blocks'>)
   | { op: 'delete_note'; note_id: string; title: string }
-  | { op: 'add_project'; name: string; client?: string; description?: string; code?: CodeLocation[] | null }
+  | { op: 'add_project'; name: string; client?: string; description?: string; status?: 'active' | 'paused' | 'done' | 'archived'; code?: CodeLocation[] | null }
   | { op: 'update_project'; project: string; name?: string; client?: string; description?: string; status?: 'active' | 'paused' | 'done' | 'archived'; code?: CodeLocation[] | null };
 
 export type OpResult = { i: number; op: BatchOp['op']; ok: true; ref?: number; title?: string; detail?: string };
@@ -92,7 +92,7 @@ export async function applyChanges(ops: BatchOp[], actor: Actor, opts: { dryRun?
             break;
           }
           case 'log_progress': {
-            const t = await tasks.updateTask(key(o.task), { progress: o.progress, ...(o.status ? { status: o.status } : {}) }, actor, { note: o.note, kind: 'progress' });
+            const t = await tasks.logProgress(key(o.task), o.progress, o.note, actor, o.status, o.blockedReason);
             done(i, o.op, t, `${t.progress}%`);
             break;
           }
@@ -140,7 +140,7 @@ export async function applyChanges(ops: BatchOp[], actor: Actor, opts: { dryRun?
             break;
           }
           case 'add_project': {
-            const r = await projects.createProject({ name: o.name, client: o.client, description: o.description, code: o.code });
+            const r = await projects.createProject({ name: o.name, client: o.client, description: o.description, status: o.status, code: o.code });
             done(i, o.op, undefined, `${r.project.name}${r.created ? '' : ' (already existed)'}`);
             break;
           }

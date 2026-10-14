@@ -44,6 +44,12 @@ export function describeActivity(a: Pick<Activity, 'type' | 'changes' | 'note'>)
     case 'unarchived':
       parts.push('restored from archive');
       break;
+    case 'trashed':
+      parts.push('moved to trash');
+      break;
+    case 'restored':
+      parts.push('restored from trash');
+      break;
     case 'comment':
       break;
     case 'checklist':

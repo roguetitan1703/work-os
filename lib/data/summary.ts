@@ -111,10 +111,11 @@ export async function dailySummary(opts: { since?: Date; baseUrl?: string } = {}
   const since = opts.since ?? previousWorkdayStart(today);
   const names = await projectNameMap(c);
 
-  const [openDocs, doneDocs, doneWeekCount, activity] = await Promise.all([
+  // Done counts include archived tasks (the work was done); open lists exclude them.
+  const [openDocs, doneDocs, doneThisWeek, activity] = await Promise.all([
     c.tasks.find({ archived: false, status: { $in: OPEN_STATUSES } }).toArray(),
     c.tasks.find({ status: 'Done', doneAt: { $gte: since } }).sort({ doneAt: -1 }).toArray(),
-    c.tasks.countDocuments({ status: 'Done', doneOn: { $gte: ws } }),
+    c.tasks.find({ status: 'Done', doneOn: { $gte: ws } }, { projection: { projectId: 1 } }).toArray(),
     listActivity({ since, limit: 300 }),
   ]);
   const open = sortTasks(openDocs.map(toTask));
@@ -151,7 +152,6 @@ export async function dailySummary(opts: { since?: Date; baseUrl?: string } = {}
     bump(t.projectId, 'open');
     if (isOverdue(t, today)) bump(t.projectId, 'overdue');
   }
-  const doneThisWeek = await c.tasks.find({ status: 'Done', doneOn: { $gte: ws } }, { projection: { projectId: 1 } }).toArray();
   for (const d of doneThisWeek) bump(d.projectId, 'doneThisWeek');
 
   return {
@@ -164,7 +164,7 @@ export async function dailySummary(opts: { since?: Date; baseUrl?: string } = {}
       inProgress: inProgress.length,
       blocked: blocked.length,
       completedSince: doneDocs.length,
-      completedThisWeek: doneWeekCount,
+      completedThisWeek: doneThisWeek.length,
       openTotal: open.length,
       p1Open: open.filter(t => t.priority === 'P1').length,
     },

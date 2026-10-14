@@ -16,7 +16,7 @@ import type { Actor, Task } from '../types';
 //   - at most 10 trash calls (delete_task / delete_note, single or in a batch) per 10 minutes, unless confirmed
 //   - apply_changes that trashes > 10 items or changes > 50 tasks must be dry-run first; the dry run
 //     returns a confirm token (HMAC of the op list + expiry, 10 min, SESSION_SECRET) that the real call passes
-//   - an inbox notice when it changes title/priority/due/project of, or trashes, a task it did not create
+//   - an inbox notice when it changes title/priority/due/project/status/archived of, or trashes, a task it did not create
 
 export type Caller = { actor: Actor; keyId?: string; keyName?: string };
 
@@ -46,12 +46,38 @@ const TRASH_OPS = new Set(['delete_task', 'delete_note']);
 /** Ops that change an existing task (create_task and comments don't count toward the 50). */
 const TASK_CHANGE_OPS = new Set(['update_task', 'log_progress', 'complete_task', 'update_checklist', 'archive_task', 'delete_task', 'restore_task']);
 /** Fields whose change by Claude Code on someone else's task tells Om. */
-const WATCHED: { arg: string; field: 'title' | 'priority' | 'due' | 'projectId'; label: string }[] = [
+type WatchedField = 'title' | 'priority' | 'due' | 'projectId' | 'status' | 'archived';
+const WATCHED: { arg: string; field: WatchedField; label: string }[] = [
   { arg: 'title', field: 'title', label: 'title' },
   { arg: 'priority', field: 'priority', label: 'priority' },
   { arg: 'due', field: 'due', label: 'due' },
   { arg: 'project', field: 'projectId', label: 'project' },
+  { arg: 'status', field: 'status', label: 'status' },
+  { arg: 'archived', field: 'archived', label: 'archived' },
 ];
+
+/**
+ * What each task-changing tool/op can change, beyond the args it names: log_progress and a
+ * blocked_reason can move the status, complete_task always does, archive_task flips archived.
+ * Every tool or op that changes an existing task must be listed here (checked by watchTargets).
+ */
+export function watchTarget(op: string, a: Record<string, unknown>): WatchTarget | null {
+  const key = a.task as string | number;
+  switch (op) {
+    case 'update_task':
+      return { key, args: a, also: a.blocked_reason !== undefined || a.blockedReason !== undefined || a.progress !== undefined ? ['status'] : [] };
+    case 'log_progress':
+      return { key, args: a, also: ['status'] };
+    case 'complete_task':
+      return { key, also: ['status'] };
+    case 'archive_task':
+      return { key, also: ['archived'] };
+    case 'delete_task':
+      return { key, trash: true };
+    default:
+      return null; // comments, checklist ticks and restores don't change what Om relies on
+  }
+}
 
 async function countSince(keyId: string, kind: 'call' | 'trash', since: Date): Promise<number> {
   const c = await collections();
@@ -214,11 +240,11 @@ export async function checkBatch(caller: Caller, ops: Op[], opts: { dryRun?: boo
 
 // ── Notify Om when Claude Code changes his tasks ────────────────────────────
 
-type Snap = Pick<Task, 'id' | 'ref' | 'title' | 'priority' | 'due' | 'projectId' | 'createdBy'>;
+type Snap = Pick<Task, 'id' | 'ref' | 'title' | 'priority' | 'due' | 'projectId' | 'status' | 'archived' | 'createdBy'>;
 export type Watch = { caller: Caller; before: Map<string, Snap>; trashed: Set<string>; fields: Map<string, Set<string>> };
 
-/** Things to watch in one call: task keys with the watched fields they set, and keys being trashed. */
-export type WatchTarget = { key: string | number; args?: Record<string, unknown>; trash?: boolean };
+/** Things to watch in one call: task keys with the watched fields they set (args) or may change (also), and keys being trashed. */
+export type WatchTarget = { key: string | number; args?: Record<string, unknown>; also?: string[]; trash?: boolean };
 
 /** Snapshots the tasks a Claude Code call is about to change (before the change). No-op for other callers. */
 export async function watchTasks(caller: Caller, targets: WatchTarget[]): Promise<Watch | null> {
@@ -226,7 +252,7 @@ export async function watchTasks(caller: Caller, targets: WatchTarget[]): Promis
   const w: Watch = { caller, before: new Map(), trashed: new Set(), fields: new Map() };
   for (const t of targets) {
     if (typeof t.key === 'string' && t.key.startsWith('$')) continue; // created in this batch
-    const fields = WATCHED.filter(f => t.args && t.args[f.arg] !== undefined).map(f => f.label);
+    const fields = WATCHED.filter(f => (t.args && t.args[f.arg] !== undefined) || t.also?.includes(f.label)).map(f => f.label);
     if (!t.trash && !fields.length) continue;
     const task = await tasks.getTask(t.key).catch(() => null);
     if (!task || task.createdBy === 'claude-code') continue;
@@ -240,6 +266,8 @@ export async function watchTasks(caller: Caller, targets: WatchTarget[]): Promis
 }
 
 const show = (v: unknown) => (v == null || v === '' ? 'none' : String(v));
+const diffText = (label: string, from: unknown, to: unknown) =>
+  label === 'archived' ? (to ? 'archived' : 'unarchived') : `${label} ${show(from)} → ${show(to)}`;
 
 /** After a successful call: one inbox notice listing what changed. Best effort; never fails the call. */
 export async function notifyChanges(w: Watch | null): Promise<void> {
@@ -260,7 +288,7 @@ export async function notifyChanges(w: Watch | null): Promise<void> {
       const diffs: string[] = [];
       for (const f of WATCHED) {
         if (!w.fields.get(id)?.has(f.label)) continue;
-        if (show(b[f.field]) !== show(now[f.field])) diffs.push(`${f.label} ${show(b[f.field])} → ${show(now[f.field])}`);
+        if (show(b[f.field]) !== show(now[f.field])) diffs.push(diffText(f.label, b[f.field], now[f.field]));
       }
       if (diffs.length) {
         lines.push(`#${now.ref} ${b.title}: ${diffs.join(', ')}`);

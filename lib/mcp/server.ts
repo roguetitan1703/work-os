@@ -9,7 +9,7 @@ import { getProjectTree } from '../data/tree';
 import * as notesData from '../data/notes';
 import { InputError, NotFoundError } from '../data/errors';
 import { CLAUDE_CODE_INSTRUCTIONS, INSTRUCTIONS, TOOLS, type ToolName } from './docs';
-import { beforeTool, checkBatch, notifyChanges, PolicyError, watchTasks, type Caller, type WatchTarget } from './policy';
+import { beforeTool, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
 import * as discord from '../discord/read';
 import { BlockedChannelError, DiscordError } from '../discord/client';
 import { describeActivity } from '../activity-text';
@@ -288,7 +288,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const { task, note, ...fields } = a;
-      const watch = await watchTasks(caller, [{ key: task, args: fields }]);
+      const watch = await watchTasks(caller, [watchTarget('update_task', a)!]);
       const t = await tasks.updateTask(task, toPatch(fields), ACTOR, { note });
       await notifyChanges(watch);
       return { updated: await brief(t, ctx) };
@@ -308,10 +308,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false },
     },
     handler(async a => {
-      const patch: TaskPatch = { progress: a.progress };
-      if (a.status) patch.status = a.status;
-      if (a.blocked_reason !== undefined) patch.blockedReason = a.blocked_reason;
-      const t = await tasks.updateTask(a.task, patch, ACTOR, { note: a.note, kind: 'progress' });
+      const watch = await watchTasks(caller, [watchTarget('log_progress', a)!]);
+      const t = await tasks.logProgress(a.task, a.progress, a.note, ACTOR, a.status, a.blocked_reason);
+      await notifyChanges(watch);
       return { updated: await brief(t, ctx) };
     }),
   );
@@ -323,7 +322,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     handler(async a => {
+      const watch = await watchTasks(caller, [watchTarget('complete_task', a)!]);
       const t = await tasks.completeTask(a.task, a.note, ACTOR);
+      await notifyChanges(watch);
       const next = t.nextRef ? await tasks.getTask(t.nextRef) : null;
       return { completed: await brief(t, ctx), ...(next ? { nextOccurrence: await brief(next, ctx) } : {}) };
     }),
@@ -456,9 +457,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
   const OpSchema = z.discriminatedUnion('op', [
     z.object({ op: z.literal('create_task'), as: z.string().optional().describe('"$name" to refer to this task in later ops'), title: z.string().min(1), ...fieldShape, status: StatusSchema.optional(), note: z.string().optional() }),
     z.object({ op: z.literal('update_task'), task: key, title: z.string().min(1).optional(), ...fieldShape, status: StatusSchema.optional(), note: z.string().optional() }),
-    z.object({ op: z.literal('log_progress'), task: key, progress: z.number().int().min(0).max(100), note: z.string().optional(), status: StatusSchema.optional() }),
+    z.object({ op: z.literal('log_progress'), task: key, progress: z.number().int().min(0).max(100), note: z.string().optional(), status: StatusSchema.optional(), blocked_reason: z.string().optional() }),
     z.object({ op: z.literal('complete_task'), task: key, note: z.string().optional() }),
-    z.object({ op: z.literal('add_comment'), task: key, text: z.string().min(1) }),
+    z.object({ op: z.literal('add_comment'), task: key, note: z.string().min(1).optional().describe('Same field name as the add_comment tool'), text: z.string().min(1).optional().describe('Older name for note') }),
     z.object({ op: z.literal('edit_comment'), comment_id: z.string().describe('History entry id from get_task'), text: z.string() }),
     z.object({ op: z.literal('delete_comment'), comment_id: z.string() }),
     z.object({ op: z.literal('update_checklist'), task: key, add: z.array(z.string()).optional(), check: z.array(item).optional(), uncheck: z.array(item).optional(), remove: z.array(item).optional() }),
@@ -483,7 +484,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       archived: z.boolean().optional(),
     }),
     z.object({ op: z.literal('delete_note'), note_id: z.string(), title: z.string() }),
-    z.object({ op: z.literal('add_project'), name: z.string().min(1), client: z.string().optional(), description: z.string().optional(), code: codeShape }),
+    z.object({ op: z.literal('add_project'), name: z.string().min(1), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional(), code: codeShape }),
     z.object({ op: z.literal('update_project'), project: z.string(), name: z.string().optional(), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional(), code: codeShape }),
   ]);
 
@@ -495,6 +496,15 @@ export function createMcpServer(ctx: Ctx): McpServer {
     if (o.op === 'update_task') {
       const { op, task, note, ...fields } = o;
       return { op, task, note, ...toPatch(fields) } as BatchOp;
+    }
+    if (o.op === 'add_comment') {
+      const text = o.note ?? o.text;
+      if (!text) throw new InputError('add_comment needs note');
+      return { op: 'add_comment', task: o.task, text };
+    }
+    if (o.op === 'log_progress') {
+      const { blocked_reason, ...rest } = o;
+      return { ...rest, ...(blocked_reason !== undefined ? { blockedReason: blocked_reason } : {}) };
     }
     return o as BatchOp;
   }
@@ -515,7 +525,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ? null
         : await watchTasks(
             caller,
-            a.ops.flatMap((o): WatchTarget[] => (o.op === 'update_task' ? [{ key: o.task, args: o }] : o.op === 'delete_task' ? [{ key: o.task, trash: true }] : [])),
+            a.ops.flatMap((o): WatchTarget[] => {
+              const w = watchTarget(o.op, o as Record<string, unknown>);
+              return w ? [w] : [];
+            }),
           );
       let r: Awaited<ReturnType<typeof applyChanges>>;
       try {
@@ -615,7 +628,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: true },
     },
     handler(async a => {
-      const watch = await watchTasks(caller, [{ key: a.task, trash: true }]);
+      const watch = await watchTasks(caller, [watchTarget('delete_task', a)!]);
       const r = await tasks.trashTask(a.task, ACTOR, { reason: a.reason, expectTitle: a.title });
       await notifyChanges(watch);
       return { deleted: `#${r.ref} ${r.title}`, restorable: `for ${tasks.TRASH_DAYS} days with restore_task` };

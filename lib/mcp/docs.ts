@@ -10,7 +10,9 @@ export const INSTRUCTIONS = `Work OS is Om's personal task system (solo founder 
 - Statuses: Not Started, In Progress, Blocked, Done, Dropped. Priorities: P1 (must ship today) … P4 (backlog).
 - Modes (type of work): ${ModeSchema.options.join(', ')}.
 - Every write you make is recorded in the task's history as done by Claude. Include a short "note" saying why, especially for status and progress changes.
-- Use log_progress (not update_task) to report progress; use complete_task to finish a task. To abandon a task set status Dropped; to remove a task added by mistake use delete_task (it goes to a 30-day trash; restore_task brings it back).
+- Use log_progress (not update_task) to report progress; use complete_task to finish a task; use add_comment for a remark that changes nothing. update_task is for the other fields.
+- Ending a task, pick one: Dropped (status) = real work that stopped, stays visible in history; archive (apply_changes archive_task) = finished or old work hidden from lists but kept; delete_task = added by mistake, goes to a 30-day trash (restore_task brings it back).
+- Which read: daily_summary = Om's morning brief (what's on him today and what changed); list_tasks = filtered task lists; get_project = one project in depth; recent_activity = the change feed alone (e.g. what Claude Code did, actor claude-code).
 - Notes are pages (markdown) for anything longer than a line or two: problem statements, handovers, drafts, client terms, idea lists. Keep task descriptions short and put the real content in a note. A task has at most one note; projects can have many. Reads (get_task, get_project, list_projects) show each note's id, title and first line: always update an existing note by note_id (or by task for a task's note) before creating a new one, and prefer append or edits over rewriting.
 - Several changes at once (a handover, a cleanup, re-planning): use apply_changes, one atomic call; run it with dry_run first when it deletes or touches many tasks. For a full picture of a project use get_project (depth full) instead of many get_task calls.
 - For the morning brief, call daily_summary once; it already contains overdue, due today, in progress, blocked, completions and changes since the previous workday.
@@ -21,7 +23,7 @@ export const CLAUDE_CODE_INSTRUCTIONS = `You are connected as Claude Code (a ses
 - Start here: call get_project with your git remote (git remote get-url origin), your folder relative to the repo root (git rev-parse --show-prefix) and branch. If it says unmatched, ask Om which project this is and save it with update_project code, or create the project with add_project (code included) when it is new work.
 - You can create and edit projects, tasks and notes, and move tasks and notes to trash (restorable). Permanent deletion and admin are not available.
 - Limits per key: 300 tool calls per hour; 10 items moved to trash per 10 minutes. An apply_changes that trashes more than 10 items or changes more than 50 tasks must be run with dry_run: true first; the dry run returns a confirm token (valid 10 minutes) to pass as confirm with exactly the same ops.
-- When you change the title, priority, due date or project of a task you did not create, or trash it, Om gets an inbox notice. Say why in the note.`;
+- When you change the title, priority, due date, project or status of a task you did not create, archive it or trash it, Om gets an inbox notice. Say why in the note.`;
 
 export type ToolName =
   | 'list_tasks'
@@ -81,7 +83,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   update_task: {
     title: 'Update task',
     description:
-      'Change fields on a task (title, description, project, mode, priority, status, tags, dates, estimate, links, blocked reason, dependencies, recurrence). Only fields you pass change. Changes are diffed into the history with your note.',
+      'Change fields on a task (title, description, project, mode, priority, tags, dates, estimate, links, blocked reason, dependencies, recurrence). Only fields you pass change. Changes are diffed into the history with your note. For progress use log_progress, to finish use complete_task; status here is for Dropped or reopening.',
     writes: true,
     example: 'Move #31 to next Tuesday and make it P2',
   },
@@ -217,7 +219,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   recent_activity: {
     title: 'Recent activity',
-    description: 'History feed across all tasks (status changes, progress, edits, notes, completions), newest first.',
+    description: 'The change feed on its own across all tasks (created, status, progress, edits, comments, completions, archive, trash and restore), newest first, filterable by who made it (e.g. actor claude-code) and project. For Om’s day use daily_summary instead.',
     writes: false,
     example: 'What did I get done this week?',
   },

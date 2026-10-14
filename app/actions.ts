@@ -94,6 +94,7 @@ export async function checklistAction(id: string, ops: tasks.ChecklistOps): Prom
 // /board and project pages.
 
 export async function deleteTaskAction(ref: number | string, reason?: string): Promise<Result<{ ref: number; title: string }>> {
+  await flushAlerts();
   return run(() => tasks.trashTask(ref, 'me', { reason }));
 }
 

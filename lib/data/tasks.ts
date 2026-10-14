@@ -375,8 +375,9 @@ export async function logProgress(
   note: string | undefined,
   actor: Actor,
   status?: Status,
+  blockedReason?: string,
 ): Promise<Task> {
-  return updateTask(key, { progress, ...(status ? { status } : {}) }, actor, { note, kind: 'progress' });
+  return updateTask(key, { progress, ...(status ? { status } : {}), ...(blockedReason !== undefined ? { blockedReason } : {}) }, actor, { note, kind: 'progress' });
 }
 
 export async function completeTask(key: string | number, note: string | undefined, actor: Actor): Promise<Task> {
@@ -443,6 +444,10 @@ export async function trashTask(
   await c.trash.replaceOne({ _id: cur._id }, doc, { upsert: true });
   await c.tasks.deleteOne({ _id: cur._id });
   await c.activity.deleteMany({ taskId: cur._id });
+  // One line stays in the feed so "who deleted what" shows in History and recent_activity.
+  await logActivity(c, cur, actor, 'trashed', { note: opts.reason });
+  // Tasks that waited only on this one can start now.
+  if (isOpen(cur.status)) await queueUnblocked(c, cur);
   return { ref: cur.ref, title: cur.title };
 }
 
@@ -456,7 +461,7 @@ export async function restoreTask(key: string | number, actor: Actor): Promise<T
   if (t.activity.length) await c.activity.insertMany(t.activity);
   if (t.noteIds?.length) await c.notes.updateMany({ _id: { $in: t.noteIds } }, { $set: { deletedAt: null }, $unset: { deletedBy: '' } });
   await c.trash.deleteOne({ _id: t._id });
-  await logActivity(c, t.task, actor, 'edit', { note: 'Restored from trash' });
+  await logActivity(c, t.task, actor, 'restored');
   return toTask(t.task);
 }
 
@@ -718,7 +723,8 @@ export async function listTasks(f: TaskFilter = {}): Promise<Task[]> {
       q.due = today;
       break;
     case 'today_or_overdue':
-      and.push({ due: { $ne: null, $lte: today } });
+      // Past-due only counts while open; a Done task from last week isn't overdue.
+      and.push({ $or: [{ due: today }, { due: { $ne: null, $lt: today }, status: { $in: OPEN_STATUSES } }] });
       break;
     case 'this_week': {
       const ws = weekStart(today);
