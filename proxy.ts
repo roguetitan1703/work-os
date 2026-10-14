@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { SESSION_COOKIE, bearerToken, checkToken, uiAuthConfigured, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
 
-// Guards every page, server action and API route except /login, /api/mcp
-// and /api/discord/interactions (which check their own key / Discord signature). API routes also accept the API key: `Authorization: Bearer <MCP_TOKEN>` or `X-API-Key`.
+// Guards every page, server action and API route except /login, /api/mcp, /api/worker
+// and /api/discord/interactions (which check their own key / device key / Discord signature). API routes also accept the API key: `Authorization: Bearer <MCP_TOKEN>` or `X-API-Key`.
 // Claude Code keys (wos_…, lib/api-keys.ts) are deliberately NOT accepted here: checkToken() is MCP_TOKEN only,
 // so those keys open /api/mcp and nothing else.
 //
@@ -38,5 +38,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/mcp|api/discord/interactions|api/cron|manifest.webmanifest|icons/|sw.js|offline.html|\\.well-known|robots.txt).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/mcp|api/discord/interactions|api/cron|api/worker|manifest.webmanifest|icons/|sw.js|offline.html|\\.well-known|robots.txt).*)'],
 };

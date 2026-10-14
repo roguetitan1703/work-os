@@ -4,6 +4,7 @@ export const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'chat', label: 'Claude chat' },
   { id: 'code', label: 'Claude Code' },
+  { id: 'devices', label: 'Devices' },
   { id: 'discord', label: 'Discord' },
   { id: 'alerts', label: 'Alerts' },
   { id: 'reference', label: 'Reference' },
