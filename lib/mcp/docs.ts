@@ -23,7 +23,8 @@ export const CLAUDE_CODE_INSTRUCTIONS = `You are connected as Claude Code (a ses
 - Start here: call get_project with your git remote (git remote get-url origin), your folder relative to the repo root (git rev-parse --show-prefix) and branch. If it says unmatched, ask Om which project this is and save it with update_project code, or create the project with add_project (code included) when it is new work.
 - You can create and edit projects, tasks and notes, and move tasks and notes to trash (restorable). Permanent deletion and admin are not available.
 - Limits per key: 300 tool calls per hour; 10 items moved to trash per 10 minutes. An apply_changes that trashes more than 10 items or changes more than 50 tasks must be run with dry_run: true first; the dry run returns a confirm token (valid 10 minutes) to pass as confirm with exactly the same ops.
-- When you change the title, priority, due date, project or status of a task you did not create, archive it or trash it, Om gets an inbox notice. Say why in the note.`;
+- When you change the title, priority, due date, project or status of a task you did not create, archive it or trash it, Om gets an inbox notice. Say why in the note.
+- Your work list is Claude items, not tasks: get_project shows them (claudeItems.takeNext is the one to take when nothing is active for you). Call update_claude_items once at start (start), when blocked (block) and when merged (done, with the commit). File what you discover as an item (small: true for small things) and don't chase it. Tasks are Om’s: create one only when he asks.`;
 
 export type ToolName =
   | 'list_tasks'
@@ -48,6 +49,7 @@ export type ToolName =
   | 'update_project'
   | 'daily_summary'
   | 'recent_activity'
+  | 'update_claude_items'
   | 'discord_needs_attention'
   | 'discord_list_channels'
   | 'discord_read_messages'
@@ -216,6 +218,13 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
       'Create a Work OS task from a Discord message (by jump link, or channel + message id): title drafted from the message unless you pass one, description with the excerpt, author, channel and link; project/mode guessed from the channel. Returns the existing task instead if that message is already tracked.',
     writes: true,
     example: 'Make a task from that message in #client-terrah, due Friday',
+  },
+  update_claude_items: {
+    title: 'Update Claude items',
+    description:
+      'Claude Code’s own work list per project (refs like C12), separate from Om’s tasks: never in his to-do, no priority or due date. get_project returns them (claudeItems: takeNext, open items in order, recently done). One call per checkpoint with ops: add (discovered work: kind idea, bug, feature or debt; small: true for under ~30 minutes so it joins the "Small fixes and checks" item), start (claims it for your session; refused while another session holds it), block (blocked_by another item, or waiting_on_om = what Om must decide; he is notified), done (ref = branch or commit), note (a decision worth keeping), release (back to the queue), edit, parts. An item belongs to the project whose code it changes. Items must read clearly to a session with no chat history: the title names the thing, why says what and where, done_when says how to tell it is finished. Vague or near-duplicate items are refused, at most 10 new items per project per day, and items are never deleted.',
+    writes: true,
+    example: 'Start C9 on wt/debt-4t; file the flaky picker test as a bug',
   },
   recent_activity: {
     title: 'Recent activity',

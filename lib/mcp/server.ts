@@ -7,6 +7,7 @@ import { briefTask, dailySummary } from '../data/summary';
 import { applyChanges, MAX_OPS, type BatchOp } from '../data/batch';
 import { getProjectTree } from '../data/tree';
 import * as notesData from '../data/notes';
+import * as items from '../data/claude-items';
 import { InputError, NotFoundError } from '../data/errors';
 import { CLAUDE_CODE_INSTRUCTIONS, INSTRUCTIONS, TOOLS, type ToolName } from './docs';
 import { beforeTool, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
@@ -14,7 +15,7 @@ import * as discord from '../discord/read';
 import { BlockedChannelError, DiscordError } from '../discord/client';
 import { describeActivity } from '../activity-text';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
-import { ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, type Task, type TaskPatch } from '../types';
+import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
 
 /** caller: who is calling (MCP_TOKEN → actor "claude"; a Claude Code key → actor "claude-code"). */
 type Ctx = { baseUrl: string; caller?: Caller };
@@ -97,6 +98,26 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     doneAt: t.doneAt,
     doneBy: t.doneBy,
     activity: d.activity.map(a => ({ id: a.id, at: a.at, by: a.actor, type: a.type, text: describeActivity(a) })),
+  };
+}
+
+/** A Claude item as MCP output: everything a new session needs, nothing it doesn't. */
+function itemOut(i: ClaudeItem, blockers?: items.ProjectItems['blockers']) {
+  const b = i.blockedBy ? blockers?.get(i.blockedBy) : undefined;
+  return {
+    ref: items.itemRef(i.ref),
+    title: i.title,
+    kind: i.kind,
+    state: i.state,
+    ...(i.next ? { next: true } : {}),
+    why: i.why,
+    ...(i.doneWhen ? { doneWhen: i.doneWhen } : {}),
+    ...(i.note ? { note: i.note.slice(-1500) } : {}),
+    ...(i.parts.length ? { parts: i.parts.map((p, n) => ({ n: n + 1, text: p.text, done: p.done })) } : {}),
+    ...(i.blockedBy ? { blockedBy: b ? `${items.itemRef(b.ref)} ${b.title} (${b.state})` : i.blockedBy } : {}),
+    ...(i.waitingOnOm ? { waitingOnOm: i.waitingOnOm } : {}),
+    ...(i.claimedBy ? { activeIn: `${i.claimedBy.session} since ${i.claimedBy.at}` } : {}),
+    ...(i.gitRef ? { landedIn: i.gitRef } : {}),
   };
 }
 
@@ -593,6 +614,17 @@ export function createMcpServer(ctx: Ctx): McpServer {
         project: { id: t.project.id, name: t.project.name, client: t.project.client || undefined, status: t.project.status, description: t.project.description || undefined, code: t.project.code, url: `${ctx.baseUrl}/projects/${t.project.id}`, ...t.project.stats },
         ...(matchedBy ? { matchedBy } : {}),
         notes: (idx.byProject.get(t.project.id) ?? []).map(nref),
+        claudeItems: await (async () => {
+          const ci = await items.projectItems(t.project.id);
+          const open = ci.items.filter(i => i.state === 'queued' || i.state === 'active' || i.state === 'blocked');
+          return {
+            takeNext: ci.pickNext ? `${items.itemRef(ci.pickNext.ref)} ${ci.pickNext.title}` : null,
+            waitingOnOm: ci.waitingOnOm,
+            open: open.map(i => itemOut(i, ci.blockers)),
+            recentlyDone: ci.items.filter(i => i.state === 'done').map(i => `${items.itemRef(i.ref)} ${i.title}${i.gitRef ? ` (${i.gitRef})` : ''}`),
+            doneTotal: ci.doneCount,
+          };
+        })(),
         recentActivity: t.recentActivity.map(x => act(x, describeActivity(x))),
         ...(t.tasks
           ? {
@@ -614,6 +646,69 @@ export function createMcpServer(ctx: Ctx): McpServer {
           : {}),
         ...(t.closedOmitted ? { closedOmitted: t.closedOmitted } : {}),
       };
+    }),
+  );
+
+  const itemKey = z.union([z.number().int(), z.string()]).describe('Item ref: "C12" or 12');
+  const ItemOpSchema = z.discriminatedUnion('op', [
+    z.object({
+      op: z.literal('add'),
+      project: z.string().describe("The project whose code this changes (not necessarily your folder's project)"),
+      title: z.string().describe('15-140 chars, names the thing itself, e.g. "Bulk bar shows locked records as editable"'),
+      kind: z.enum(CLAUDE_ITEM_KINDS),
+      why: z.string().describe('What is wrong or wanted and where (file, screen, module); readable by a session with no chat history'),
+      done_when: z.string().optional().describe('How to tell it is finished (required except for ideas)'),
+      small: z.boolean().optional().describe('Under ~30 minutes: added as a part of the project\u2019s "Small fixes and checks" item instead of a new item'),
+      next: z.boolean().optional().describe('Only when Om asked for it next'),
+      blocked_by: itemKey.optional(),
+      waiting_on_om: z.string().optional().describe('What Om must decide or do; he gets an inbox notice'),
+      note: z.string().optional(),
+      start: z.boolean().optional().describe('Add it already active in this session'),
+    }),
+    z.object({ op: z.literal('start'), item: itemKey, take_over: z.boolean().optional().describe('Only if the session holding it has ended') }),
+    z.object({ op: z.literal('block'), item: itemKey, blocked_by: itemKey.optional(), waiting_on_om: z.string().optional(), reason: z.string().optional() }),
+    z.object({ op: z.literal('done'), item: itemKey, ref: z.string().optional().describe('Branch or commit where it landed (required for Claude Code, except ideas)'), note: z.string().optional() }),
+    z.object({ op: z.literal('note'), item: itemKey, text: z.string().min(1).describe('Decision or context worth keeping; dated automatically') }),
+    z.object({ op: z.literal('release'), item: itemKey, reason: z.string().optional().describe('Why it goes back to the queue unfinished') }),
+    z.object({ op: z.literal('edit'), item: itemKey, title: z.string().optional(), why: z.string().optional(), done_when: z.string().optional(), kind: z.enum(CLAUDE_ITEM_KINDS).optional() }),
+    z.object({
+      op: z.literal('parts'),
+      item: itemKey,
+      add: z.array(z.string()).optional(),
+      check: z.array(z.union([z.number().int(), z.string()])).optional().describe('Part numbers (1-based) or ids'),
+      uncheck: z.array(z.union([z.number().int(), z.string()])).optional(),
+    }),
+  ]);
+
+  function toItemOp(o: z.infer<typeof ItemOpSchema>): items.ItemOp {
+    switch (o.op) {
+      case 'add':
+        return { op: 'add', project: o.project, title: o.title, kind: o.kind, why: o.why, doneWhen: o.done_when, small: o.small, next: o.next, blockedBy: o.blocked_by, waitingOnOm: o.waiting_on_om, note: o.note, ...(o.start ? { state: 'active' as const } : {}) };
+      case 'start':
+        return { op: 'start', item: o.item, takeOver: o.take_over };
+      case 'block':
+        return { op: 'block', item: o.item, blockedBy: o.blocked_by, waitingOnOm: o.waiting_on_om, reason: o.reason };
+      case 'done':
+        return { op: 'done', item: o.item, gitRef: o.ref, note: o.note };
+      case 'edit':
+        return { op: 'edit', item: o.item, title: o.title, why: o.why, doneWhen: o.done_when, kind: o.kind };
+      default:
+        return o;
+    }
+  }
+
+  tool(
+    'update_claude_items',
+    {
+      inputSchema: {
+        session: z.string().max(64).optional().describe('Your branch or worktree name (e.g. "wt/debt-3"): who holds an item you start'),
+        ops: z.array(ItemOpSchema).min(1).max(30),
+      },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    handler(async a => {
+      const results = await items.applyItemOps(a.ops.map(toItemOp), { actor: ACTOR, keyId: caller.keyId, session: a.session?.trim() || undefined });
+      return { results };
     }),
   );
 
