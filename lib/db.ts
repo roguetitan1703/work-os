@@ -66,6 +66,16 @@ export type ProjectDoc = {
 export type ReviewDoc = Omit<WeeklyReview, 'id'> & { _id: string };
 export type RitualDoc = Omit<FiverrRitualLog, 'id'> & { _id: string };
 export type CounterDoc = { _id: string; seq: number };
+export type ClaudeItemDoc = Omit<import('./types').ClaudeItem, 'id' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {
+  _id: string;
+  createdAt: Date;
+  updatedAt: Date;
+  doneAt: Date | null;
+  claimedBy: { session: string; at: Date } | null;
+  log: { at: Date; actor: Actor; session?: string; text: string }[];
+  /** Claude Code key that created it (for the per-day cap). */
+  keyId?: string;
+};
 export type NoteDoc = {
   _id: string;
   title: string;
@@ -92,7 +102,7 @@ export type AlertLogDoc = { _id: string; kind: AlertKind; taskId?: string; sentA
 export type AlertQueueDoc = { _id: string; kind: 'unblocked'; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null };
 
 /** Inbox-only notices that are not scheduled alerts. */
-export type NoticeKind = 'claude_code_changes';
+export type NoticeKind = 'claude_code_changes' | 'claude_waiting';
 /** Everything with an on/off switch in Settings → Notifications. */
 export type NotifyKind = AlertKind | NoticeKind;
 /** In-app inbox: every alert delivered (plus test notifications). */
@@ -235,6 +245,11 @@ async function ensureIndexes(db: Db): Promise<void> {
     ]),
     db.collection('trash').createIndexes([{ key: { deletedAt: -1 }, name: 'deletedAt' }, { key: { ref: 1 }, name: 'ref' }]),
     db.collection('authChallenges').createIndexes([{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }, { key: { ip: 1, kind: 1 }, name: 'ip_kind' }]),
+    db.collection('claudeItems').createIndexes([
+      { key: { ref: 1 }, unique: true, name: 'ref_unique' },
+      { key: { projectId: 1, state: 1, order: 1 }, name: 'project_state_order' },
+      { key: { blockedBy: 1 }, name: 'blockedBy' },
+    ]),
     db.collection('apiKeys').createIndexes([{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]),
     db.collection('policyEvents').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { keyId: 1, kind: 1, at: -1 }, name: 'key_kind_at' }]),
     db.collection('authFailures').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 15 * 60 }, { key: { ip: 1, at: -1 }, name: 'ip_at' }]),
@@ -266,6 +281,7 @@ export async function collections() {
     mailLog: db.collection<MailLogDoc>('mailLog'),
     apiKeys: db.collection<ApiKeyDoc>('apiKeys'),
     policyEvents: db.collection<PolicyEventDoc>('policyEvents'),
+    claudeItems: db.collection<ClaudeItemDoc>('claudeItems'),
   };
   const session = txStore.getStore();
   return session ? (Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, withSession(v, session)])) as typeof cols) : cols;
