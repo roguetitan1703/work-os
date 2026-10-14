@@ -5,6 +5,7 @@
 // lowercase "owner/name", credentials never kept) optionally narrowed by a subdir and/or
 // branch, or an absolute folder path. The most specific match wins:
 //   remote + subdir + branch  >  remote + subdir | remote + branch  >  remote  >  longest path prefix
+// A branch ending in * matches by prefix (wt/ana* covers wt/anasignin).
 
 import { InputError } from './errors';
 
@@ -117,7 +118,8 @@ function scoreLocation(loc: CodeLocation, q: { remote: string | null; path: stri
     const sub = normalizeSubdir(loc.subdir);
     const br = normalizeBranch(loc.branch);
     const subOk = !sub || (!!q.subdir && within(q.subdir, sub));
-    const brOk = !br || br === q.branch;
+    // A trailing * matches a branch prefix, e.g. `wt/ana*` covers wt/anasignin.
+    const brOk = !br || (br.endsWith('*') ? q.branch.startsWith(br.slice(0, -1)) : br === q.branch);
     if (subOk && brOk) {
       // Tiers: 100 remote, 120 remote+subdir or +branch, 140 all three. Deeper subdirs win ties.
       const score = 100 + (sub ? 20 : 0) + (br ? 20 : 0) + (sub ? Math.min(sub.split('/').length, 9) / 10 : 0);
