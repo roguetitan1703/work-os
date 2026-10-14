@@ -215,6 +215,7 @@ export async function unlinkFolder(projectId: string, key: string): Promise<void
 
 async function addJob(deviceId: string, job: { kind: 'start' | 'resume' | 'stop'; sessionId: string; folderId?: string; projectId?: string; prompt?: string }): Promise<void> {
   const c = await collections();
+  if (!(await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { _id: 1 } }))) throw new InputError('That device was revoked; add it again under Connect → Devices');
   const open = await c.workerJobs.countDocuments({ deviceId, doneAt: null });
   if (open >= 10) throw new InputError('That device has 10 jobs waiting; is its worker running?');
   await c.workerJobs.insertOne({ _id: `j_${randomUUID()}`, deviceId, ...job, createdAt: new Date(), takenAt: null, doneAt: null });
@@ -231,7 +232,12 @@ export async function startSession(projectId: string, key: string, prompt?: stri
   const c = await collections();
   const now = new Date();
   await c.workerSessions.insertOne({ _id: sessionId, deviceId: f.deviceId, folderId: f.folderId, projectId, state: 'starting', startedAt: now, updatedAt: now });
-  await addJob(f.deviceId, { kind: 'start', sessionId, folderId: f.folderId, projectId, ...(text ? { prompt: text } : {}) });
+  try {
+    await addJob(f.deviceId, { kind: 'start', sessionId, folderId: f.folderId, projectId, ...(text ? { prompt: text } : {}) });
+  } catch (err) {
+    await c.workerSessions.deleteOne({ _id: sessionId }); // no orphan "starting" row when the job is refused
+    throw err;
+  }
   return sessionId;
 }
 
@@ -239,8 +245,8 @@ export async function resumeSession(projectId: string, sessionId: string): Promi
   const c = await collections();
   const s = await c.workerSessions.findOne({ _id: sessionId, projectId });
   if (!s) throw new NotFoundError('Session not found');
-  await c.workerSessions.updateOne({ _id: sessionId }, { $set: { state: 'starting', updatedAt: new Date() }, $unset: { error: '' } });
   await addJob(s.deviceId, { kind: 'resume', sessionId, folderId: s.folderId, projectId });
+  await c.workerSessions.updateOne({ _id: sessionId }, { $set: { state: 'starting', updatedAt: new Date() }, $unset: { error: '' } });
 }
 
 export async function stopSession(projectId: string, sessionId: string): Promise<void> {

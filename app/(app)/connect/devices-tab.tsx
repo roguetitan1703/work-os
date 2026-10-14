@@ -120,8 +120,7 @@ export function DevicesTab({ url }: { url: string }) {
       <Disclosure title="What a device can do" hint="Limits and safety">
         <p>
           A device key (<code>wkr_…</code>) only opens the worker endpoints: report folder names, read Start / Resume / Stop jobs for that device, report session status. It can&apos;t read or change tasks,
-          notes or projects. The worker only starts <code>claude</code> in folders you linked, in normal permission mode; you give instructions from the Claude app. Revoke here, or set{' '}
-          <code>enabled: false</code> in the worker&apos;s config, to stop it.
+          notes or projects. The worker only starts <code>claude</code> in folders you linked, in normal permission mode; you give instructions from the Claude app. Revoke here, or set <code>enabled: false</code>{' '}in the worker&apos;s config, to stop it.
         </p>
       </Disclosure>
 

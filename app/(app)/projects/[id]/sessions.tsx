@@ -6,6 +6,8 @@ import { FolderGit2, Link2, Play, Plus, RotateCcw, Square, Unlink } from 'lucide
 import { toast } from 'sonner';
 import type { FolderView, SessionView } from '@/lib/data/launcher';
 import { BottomSheet } from '@/components/mobile/sheet';
+import { usePhone } from '@/components/mobile/use-phone';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { fmtAgo } from '@/lib/format';
 import { linkFolderAction, resumeSessionAction, searchFoldersAction, startSessionAction, stopSessionAction, unlinkFolderAction } from './launcher-actions';
 
@@ -24,6 +26,20 @@ const STATE: Record<SessionView['state'], { label: string; tone: string }> = {
   failed: { label: 'failed', tone: 'text-red-600 dark:text-red-400' },
   unknown: { label: 'no news from its computer', tone: 'text-amber-600 dark:text-amber-400' },
 };
+
+/** Bottom sheet on phones, centred dialog on desktop (BottomSheet alone is md:hidden). */
+function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const phone = usePhone();
+  if (phone) return <BottomSheet title={title} onClose={onClose}>{children}</BottomSheet>;
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent className="sm:max-w-md max-h-[85dvh] overflow-y-auto block">
+        <DialogTitle>{title}</DialogTitle>
+        <div className="pt-3">{children}</div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 const label = (f: FolderView) => `${f.name}${f.branch ? ` (${f.branch})` : ''}`;
 
@@ -125,7 +141,9 @@ export function ProjectSessions({
                 </div>
                 <div className="text-[13px] md:text-xs truncate" suppressHydrationWarning>
                   <span className={STATE[s.state].tone}>{STATE[s.state].label}</span>
-                  <span className="text-muted-foreground"> · started {fmtAgo(s.startedAt)}</span>
+                  <span className="text-muted-foreground" suppressHydrationWarning>
+                    {' '}· started {fmtAgo(s.startedAt)}
+                  </span>
                   {s.error && <span className="text-muted-foreground"> · {s.error}</span>}
                 </div>
               </div>
@@ -170,7 +188,7 @@ function StartSheet({ projectName, folders, pending, onClose, onStart }: { proje
   const [prompt, setPrompt] = useState('');
   const f = folders.find(x => x.key === pick) ?? folders[0];
   return (
-    <BottomSheet title={`Start ${projectName}`} onClose={onClose}>
+    <Sheet title={`Start ${projectName}`} onClose={onClose}>
       <div className="space-y-4 pt-1 pb-2">
         {folders.length > 1 && (
           <div className="space-y-1.5" role="radiogroup" aria-label="Folder">
@@ -205,7 +223,7 @@ function StartSheet({ projectName, folders, pending, onClose, onStart }: { proje
           <Play className="w-4 h-4" /> Start
         </button>
       </div>
-    </BottomSheet>
+    </Sheet>
   );
 }
 
@@ -223,7 +241,7 @@ function AddFolderSheet({ projectId, devices, onClose }: { projectId: string; de
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => void (device && search()), []);
   return (
-    <BottomSheet title="Add a folder" onClose={onClose}>
+    <Sheet title="Add a folder" onClose={onClose}>
       <div className="space-y-3 pt-1 pb-2">
         {devices.length > 1 && (
           <select
@@ -283,6 +301,6 @@ function AddFolderSheet({ projectId, devices, onClose }: { projectId: string; de
           )}
         </div>
       </div>
-    </BottomSheet>
+    </Sheet>
   );
 }

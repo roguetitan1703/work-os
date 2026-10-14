@@ -19,3 +19,4 @@
 - Desktop/phone parity re-check of quick add, import and day plan (phone versions are smaller) — waits on a free slot.
 - Project edits by Claude Code don't notify Om (only task changes do) — waits on Om saying whether he wants that.
 - test-batch.mjs expects a "Delpat" project the seed doesn't create — waits on next test cleanup.
+- docs/launcher.md says folder `remote` is `host/owner/name`, but the server stores owner/name (normalizeRemote, matches project code locations); fix the doc wording or keep the host: waits on Om/launcher review.
