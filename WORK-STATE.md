@@ -8,7 +8,8 @@
 2. Live checks on prod: speed (first tap after 5 min idle), Connect tabs, Claude items screen, notices.
 3. Import pms-89's 29 items to prod (import-items.mjs, MCP_TOKEN) and move examples/anaspure + wt/ana* from Brahmasuite to AKAR; tell pms-89 the tool names.
 4. Propose the Claude items session rule for ~/.claude/CLAUDE.md to Om (exact text; his yes first).
-5. Session launcher (Om's note "Claude Code session launcher", project Work OS): reuse code locations for project↔repo, a "worker" key type (jobs read + status write only) instead of separate device tokens, sessions shown with Claude items, a Connect tab. Work OS side first, then Windows worker, then Mac. Security review before merge.
+5. Session launcher (agreed with Om 2026-10-15; his note "Claude Code session launcher"): device keys (jobs read + status write only) on Connect; worker scans allowed roots and reports folder name + id + remote/branch, never paths; Work OS suggests links by remote; Om links folders to projects by name; the worker writes `.workos.json` {project, folderId} into linked folders (git: added to .git/info/exclude, never committed), also right before the first Start; Start PMS → pick a folder when more than one → worker opens claude there with the project → Remote Control; resume on death, stop job; sessions shown per project with Claude items. Resolution order for any session: `.workos.json` → git remote/subdir/branch → ask Om. Drops stored absolute paths from code locations. Security review before merge.
+6. Very last (Om, 2026-10-15): move the repo up so git sits at the project root ("work mode os" → Om renames it "work os"); keep .scratch-mongo out of the repo (gitignore or move it).
 
 ## Later
 - Item 8 (AKAR debt step 3) is "blocked by step 0" but pms-89 says it is active in wt/debt-3 — waits on pms-89/Om choosing one.
