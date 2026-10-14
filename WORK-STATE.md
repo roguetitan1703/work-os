@@ -1,21 +1,19 @@
 # Work state
 
 ## Now
-- "Fix all" from the 2026-10-15 sanity check (Om's go). Order below; each step built, tested, committed.
+- "Fix all" from the 2026-10-15 sanity check: built and tested locally, waiting on the security review, then deploy + import.
 
 ## Next
-1. Speed: keep main pages + Connect tabs prefetched while the app is open (preloader; 2/4 checks passed, refresh before expiry still missing).
-2. Claude Code oversight: notify on status/archive/restore/progress changes to Om's tasks; trash releases dependants and leaves a history line.
-3. Alerts: per-kind channel choice honoured everywhere; queued "unblocked" flush sends only those, not the daily digest; one "untouched 7 days" rule; prune the inbox in the cron; security/test kinds listed.
-4. MCP tools made consistent: batch ops share the single-tool schemas, one logProgress path, clearer descriptions (summary vs activity vs list), archive tool.
-5. Claude items: separate list per project, claim on start, quality rules (clear on its own, min size, group small ones), read in get_project, one write tool, phone + desktop screens, "waiting on you" in the bell. Security review before merge.
-6. Move examples/anaspure + wt/ana* from Brahmasuite to AKAR; import pms-89's 29 items (with its corrections); send pms-89 the tool names.
-7. Screens: Settings = preferences/security, Connect = status/Claude/Discord/alerts; one "History & trash" row; one name per page; rename Hidden work → Untouched; bell on phone headers + unread count on desktop.
-8. Delete leftovers: /api/tasks/uncompleted, unused UI components, legacy import code.
+1. Security review result → fix anything critical/high → deploy.
+2. Live checks on prod: speed (first tap after 5 min idle), Connect tabs, Claude items screen, notices.
+3. Import pms-89's 29 items to prod (import-items.mjs, MCP_TOKEN) and move examples/anaspure + wt/ana* from Brahmasuite to AKAR; tell pms-89 the tool names.
+4. Propose the Claude items session rule for ~/.claude/CLAUDE.md to Om (exact text; his yes first).
 
 ## Later
+- Item 8 (AKAR debt step 3) is "blocked by step 0" but pms-89 says it is active in wt/debt-3 — waits on pms-89/Om choosing one.
 - Per-session attribution header (`X-Work-OS-Session` from `CLAUDE_CODE_SESSION_ID`) — waits on checking env expansion in user-scope MCP headers.
 - Discord interactions endpoint URL (slash commands) — waits on Om.
 - cutroom has no Work OS project yet — create one when Om first works on it from Claude Code.
-- Global `~/.claude/CLAUDE.md` session rule for Claude items (replaces the WORK-STATE line) — waits on Claude items being live, then Om's yes on the exact text.
-- Desktop/phone parity re-check of quick add, import and day plan (phone versions are smaller) — waits on step 7.
+- Desktop/phone parity re-check of quick add, import and day plan (phone versions are smaller) — waits on a free slot.
+- Project edits by Claude Code don't notify Om (only task changes do) — waits on Om saying whether he wants that.
+- test-batch.mjs expects a "Delpat" project the seed doesn't create — waits on next test cleanup.
