@@ -1,15 +1,12 @@
 import Link from 'next/link';
-import { Suspense } from 'react';
-import { ChevronRight, LogOut, Plug } from 'lucide-react';
+import { Activity, ChevronRight, LogOut, Plug } from 'lucide-react';
 import { SubHeader } from '@/components/mobile/sub-header';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { logoutAction } from '@/app/actions';
 import { uiAuthDisabled } from '@/lib/auth';
 import { discordConfig } from '@/lib/discord/client';
 import { NOTIFY_KINDS, getNotifySettings, pushDeviceCount, vapidPublicKey } from '@/lib/notify';
-import { systemStatus, type Level } from '@/lib/status';
-import { cn } from '@/lib/utils';
-import { InstallCard, NotifyPrefs, PushCard, Row } from './device-settings';
+import { InstallCard, NotifyPrefs, PushCard } from './device-settings';
 import { SecuritySettings } from './security-settings';
 
 export const metadata = { title: 'Settings · Work OS' };
@@ -34,17 +31,17 @@ export default async function SettingsPage() {
         <SecuritySettings />
       </Group>
 
-      <Group title="Status">
-        <Suspense fallback={<div className="px-4 py-4 text-sm text-muted-foreground">Checking services…</div>}>
-          <StatusRows />
-        </Suspense>
-      </Group>
-
       <Group title="App">
         <div className="flex items-center justify-between px-4 h-14">
           <span className="text-[15px]">Appearance</span>
           <ThemeToggle />
         </div>
+        <Link href="/connect" className="flex items-center gap-3 px-4 h-14 active:bg-muted/60">
+          <Activity className="w-5 h-5 text-green-600" />
+          <span className="flex-1 text-[15px]">System status</span>
+          <span className="text-sm text-muted-foreground">Connect</span>
+          <ChevronRight className="w-4 h-4 text-muted-foreground/40" />
+        </Link>
         <Link href="/connect" className="flex items-center gap-3 px-4 h-14 active:bg-muted/60">
           <Plug className="w-5 h-5 text-orange-500" />
           <span className="flex-1 text-[15px]">Claude, Discord &amp; alerts setup</span>
@@ -59,29 +56,6 @@ export default async function SettingsPage() {
         )}
       </Group>
     </div>
-  );
-}
-
-const DOT: Record<Level, string> = { ok: 'bg-green-500', warn: 'bg-amber-500', error: 'bg-red-500', off: 'bg-muted-foreground/40' };
-
-async function StatusRows() {
-  const checks = await systemStatus();
-  return (
-    <>
-      {checks.map(c => (
-        <Row
-          key={c.name}
-          icon={<span className={cn('w-2.5 h-2.5 rounded-full shrink-0', DOT[c.level])} aria-label={c.level} />}
-          title={c.name}
-          sub={
-            <>
-              <span className="text-foreground/80">{c.summary}</span>
-              {c.detail && <span className="block">{c.detail}</span>}
-            </>
-          }
-        />
-      ))}
-    </>
   );
 }
 

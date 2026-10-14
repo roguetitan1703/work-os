@@ -7,7 +7,7 @@ import type { Stats } from '@/lib/data/summary';
 import { ThemeToggle } from './theme-toggle';
 import { QuickAddLauncher } from './quick-add';
 
-export function Sidebar({ stats, hiddenCount }: { stats: Stats; hiddenCount: number }) {
+export function Sidebar({ stats, hiddenCount, unread = 0 }: { stats: Stats; hiddenCount: number; unread?: number }) {
   return (
     <aside className="hidden md:flex w-56 shrink-0 h-screen sticky top-0 border-r bg-white dark:bg-black flex-col overflow-y-auto">
       <div className="p-4 border-b border-border">
@@ -22,10 +22,10 @@ export function Sidebar({ stats, hiddenCount }: { stats: Stats; hiddenCount: num
         <NavItem href="/today" count={stats.overdue + stats.dueToday || undefined} countTone={stats.overdue ? 'red' : undefined}>
           Today
         </NavItem>
-        <NavItem href="/board">Board</NavItem>
+        <NavItem href="/board">Tasks</NavItem>
         <NavItem href="/projects">Projects</NavItem>
         <NavItem href="/notes">Notes</NavItem>
-        <NavItem href="/history">History</NavItem>
+        <NavItem href="/history">History &amp; trash</NavItem>
 
         <div className="pt-3 pb-1">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2">Modes</span>
@@ -43,14 +43,16 @@ export function Sidebar({ stats, hiddenCount }: { stats: Stats; hiddenCount: num
 
         <div className="pt-3" />
         <NavItem href="/hidden" count={hiddenCount || undefined} countTone="amber">
-          Hidden Work
+          Untouched
         </NavItem>
-        <NavItem href="/review">Weekly Review</NavItem>
+        <NavItem href="/review">Weekly review</NavItem>
         <NavItem href="/timetable">Timetable</NavItem>
         <NavItem href="/recovery">Recovery</NavItem>
-        <NavItem href="/notifications">Notifications</NavItem>
-        <NavItem href="/settings">Settings &amp; status</NavItem>
-        <NavItem href="/connect">Connect Claude</NavItem>
+        <NavItem href="/notifications" count={unread || undefined} countTone="red">
+          Notifications
+        </NavItem>
+        <NavItem href="/settings">Settings</NavItem>
+        <NavItem href="/connect">Connect</NavItem>
       </nav>
 
       <div className="p-3 border-t border-border flex items-center justify-between">

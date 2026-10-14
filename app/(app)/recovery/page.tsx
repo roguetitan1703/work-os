@@ -1,12 +1,14 @@
 import { MODES } from '@/lib/modes';
 import { SubHeader } from '@/components/mobile/sub-header';
 
+export const metadata = { title: 'Recovery · Work OS' };
+
 export default function RecoveryPage() {
   return (
     <div className="space-y-8 max-w-2xl">
       <SubHeader title="Recovery" subtitle="What to do when the day breaks." />
       <div className="hidden md:block">
-        <h1 className="text-2xl font-bold text-foreground">Recovery Playbook</h1>
+        <h1 className="text-2xl font-bold text-foreground">Recovery</h1>
         <p className="text-sm text-muted-foreground mt-0.5">What to do when the day breaks.</p>
       </div>
 

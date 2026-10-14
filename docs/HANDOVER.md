@@ -89,7 +89,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 - **Connecting:** claude.ai → Settings → Connectors → Add custom connector:
   - URL: `https://work-os-puce-delta.vercel.app/api/mcp`
   - Authentication: no sign-in. Request header: `Authorization: Bearer <MCP_TOKEN>`.
-- **The `/connect` page** ("Connect Claude" in the sidebar, or More → Settings on the phone) has:
+- **The `/connect` page** ("Connect" in the sidebar and More) has:
   - the URL and header with copy buttons (the key is hidden until you click reveal)
   - instructions to paste into a Claude Project or your preferences
   - a **morning brief** prompt covering Work OS and Discord
@@ -116,7 +116,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 
 ### Claude Code keys
 - **Om:** `/connect` → **Claude Code keys**: name a key, **Create**, copy it (shown once) or the ready `claude mcp add --transport http work-os <url> --header "Authorization: Bearer <key>"` command. The list shows prefix, created and last used; **Rotate** (old key dies, new one shown) and **Revoke**. Changes made with a key show as **Claude Code** in history (filter "By Claude Code"), with the `X-Work-OS-Repo` / `X-Work-OS-Session` headers shown small next to them if the session sends them.
-- **What a key can do:** everything the claude.ai connector can (projects, tasks, notes, trash, Discord reads; the channel blocklist still applies). **Only `/api/mcp` accepts keys**: `proxy.ts`, admin, import, cron and Discord registration use `checkToken()` (MCP_TOKEN only).
+- **What a key can do:** everything the claude.ai connector can (projects, tasks, notes, trash, Discord reads; the channel blocklist still applies). **Only `/api/mcp` accepts keys**: `proxy.ts`, admin, cron and Discord registration use `checkToken()` (MCP_TOKEN only).
 - **Rules** (`lib/mcp/policy.ts`, a no-op for MCP_TOKEN): no permanent deletion/admin tools or ops; 300 tool calls per rolling hour per key; 10 trashes per 10 minutes; an `apply_changes` that trashes > 10 items or changes > 50 tasks needs a dry run first, whose `confirm` token (HMAC of the ops + 10-minute expiry, `SESSION_SECRET`) the real call must pass. When a key changes title/priority/due/project of, or trashes, a task it didn't create, Om gets one inbox notice per call (Settings → Notifications → "Claude Code changes", default on).
 - **Code:** `lib/api-keys.ts` (`wos_` + 32 random bytes base64url; only the SHA-256 is stored in `apiKeys`; `lastUsedAt` at most once a minute), `lib/mcp/policy.ts` (counters in `policyEvents`, TTL 2h), `lib/request-context.ts` (session/repo headers → `logActivity`), UI `app/(app)/connect/claude-code-keys.tsx` + `actions.ts`. No new env vars.
 - **Project code locations:** projects have `code: [{remote, subdir?, branch?} | {path}]` (project page → Code locations, or `add_project` / `update_project` / batch ops). Remotes are stored as lowercase `owner/name`, credentials stripped. `get_project` with `remote`/`subdir`/`branch`/`path` instead of a name picks the most specific match (remote+subdir+branch > remote+subdir or +branch > remote > longest path), else returns `unmatched` with candidates. A branch ending in `*` matches by prefix (`wt/ana*`). Matcher: `lib/data/code-locations.ts` (pure functions).
@@ -343,8 +343,8 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
     - Each comment in history has a **⋯** that opens Edit / Delete (any comment).
   - **Today extras:** the bell with its unread badge, a **Day Plan** button (the day's schedule as a sheet, tick tasks off) and **Import** (paste a markdown table or JSON of tasks).
   - **Notes:** the same editor, sized for the phone. The list has live search and swipeable chips (Active / Archived / All, projects); **New note** opens a sheet (title, project).
-  - **Projects, History, Archive, Hidden work, Recovery, Weekly review, Timetable, Modes:** each has a phone layout with a back button to More, task rows like the Tasks tab, and no horizontal scrolling at 360–412px.
-  - **More:** projects with open and late counts, plus History, Hidden work, Weekly review, Timetable, Recovery, Trash, Settings, Notifications, Connect.
+  - **Projects, History & trash, Untouched, Recovery, Weekly review, Timetable, Modes:** each has a phone layout with a back button to More, task rows like the Tasks tab, and no horizontal scrolling at 360–412px.
+  - **More:** projects with open and late counts, plus History & trash, Untouched, Weekly review, Timetable, Recovery, Notifications, Settings, Connect.
   - **Pull to refresh:** pull down at the top of any screen to reload its data (an installed app has no browser refresh). It's ignored while a sheet is open.
 - **Offline:** shows a "You're offline" screen.
 
@@ -383,13 +383,13 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 ## 9. Settings
 
 ### Om
-Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings & status") has five groups:
+Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings") has four groups:
 - **This device:**
   - **Install app:** one tap on Android/Chrome; on iPhone it shows the steps (Share → Add to Home Screen). Reads "Installed" once you're in the installed app.
   - **Notifications on this device:** switch to turn phone push on or off for this phone only. On iPhone it asks you to install first.
 - **Notifications:** switches for the channels (In-app inbox is always on; Phone notifications; Discord DMs) and for each alert type (Unblocked, Overdue, Due today, Due tomorrow, P1 not started, Stalled), plus **Send test**. Details in section 7.
 - **Security:** passkeys, authenticator app, change password, test email (section 10).
-- **Status:** a live list, each row a coloured dot (green ok, amber needs attention, red broken, grey off):
+- **Status (on Connect):** a live list, each row a coloured dot (green ok, amber needs attention, red broken, grey off):
 
 | Row | What it checks |
 |---|---|
@@ -401,7 +401,9 @@ Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings & sta
 | Phone notifications | VAPID keys set and how many devices are subscribed |
 | Notes converter | the markdown ↔ blocks converter loads and works |
 
-- **App:** Appearance (light / dark), a link to `/connect` (Claude, Discord and alerts setup), Sign out.
+- **App:** Appearance (light / dark), links to `/connect` (System status; Claude, Discord and alerts setup), Sign out.
+
+The live status list (below) now lives on `/connect`, with Settings linking to it.
 
 ### Claude Code
 - **Page:** `app/(app)/settings/page.tsx`; the device card, push and notification switches are client components in `device-settings.tsx`; server actions in `settings/actions.ts` (subscribe, unsubscribe, save switches, send test).
@@ -478,7 +480,7 @@ Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings & sta
   - `node scripts/test-mcp.mjs …`
 - **Commits:** no co-author or "Generated with" lines (Om's preference).
 - **Testing locally:**
-  - **MongoDB:** transactions need a replica set: `mongod --replSet rs0 --port 28020 --dbpath <dir>`, then `replSetInitiate`. Load data with `node scripts/migrate-from-json.mjs http://localhost:<port> <MCP_TOKEN>`.
+  - **MongoDB:** transactions need a replica set: `mongod --replSet rs0 --port 28020 --dbpath <dir>`, then `replSetInitiate`.
   - **Discord:** set `DISCORD_API_BASE` to a fake Discord.
   - **Alerts:** `/api/cron/alerts?dry=1&at=<ISO>` works outside production.
   - **Phone:** Playwright with a 390×844 touch viewport.

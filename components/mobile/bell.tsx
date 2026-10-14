@@ -11,7 +11,7 @@ export function BellButton() {
     <Link
       href="/notifications"
       aria-label={unread ? `${unread} new notifications` : 'Notifications'}
-      className="relative w-10 h-10 flex items-center justify-center rounded-full active:bg-muted"
+      className="relative w-11 h-11 flex items-center justify-center rounded-full active:bg-muted"
     >
       <Bell className="w-[22px] h-[22px]" />
       {unread > 0 && (

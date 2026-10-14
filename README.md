@@ -84,17 +84,11 @@ Setup, invite URL, env vars and live status are on the app's `/connect` page. En
 curl -X POST https://<your-app>.vercel.app/api/admin/discord/register -H "Authorization: Bearer <MCP_TOKEN>"
 ```
 
-## Migrating the old `data/tasks.json`
-
-The deployed app does the import itself, so no database credentials are needed locally:
+## Health check
 
 ```bash
 curl -H "Authorization: Bearer <MCP_TOKEN>" https://<your-app>.vercel.app/api/admin/health   # connects, creates indexes, shows counts
-node scripts/migrate-from-json.mjs https://<your-app>.vercel.app <MCP_TOKEN> --dry-run
-node scripts/migrate-from-json.mjs https://<your-app>.vercel.app <MCP_TOKEN>
 ```
-
-Safe to re-run: tasks already in the DB are never overwritten and refs are kept. It verifies every task, review and ritual log against the source afterwards.
 
 ## Quick capture
 

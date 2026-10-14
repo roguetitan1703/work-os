@@ -4,7 +4,7 @@ import { collections, type ApiKeyDoc } from './db';
 import { SafeError } from './auth';
 
 // Claude Code API keys: a second kind of credential, accepted ONLY by the MCP endpoint
-// (app/api/mcp). proxy.ts and the admin/import/cron routes use checkToken() (MCP_TOKEN only)
+// (app/api/mcp). proxy.ts and the admin/cron routes use checkToken() (MCP_TOKEN only)
 // and never look at these. Only the SHA-256 of a key is stored; the key is shown once.
 //
 // Format: "wos_" + 32 random bytes, base64url (47 chars).

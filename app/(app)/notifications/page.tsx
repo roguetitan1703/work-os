@@ -28,6 +28,7 @@ export default async function NotificationsPage() {
         back="/today"
         backLabel="Today"
         title="Notifications"
+        bell={false}
         subtitle={unread ? `${unread} new` : 'All caught up'}
         right={
           <Link href="/settings" aria-label="Notification settings" className="w-10 h-10 flex items-center justify-center rounded-full active:bg-muted">

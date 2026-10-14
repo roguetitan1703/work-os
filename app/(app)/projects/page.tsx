@@ -8,6 +8,8 @@ import { NewProjectButton } from './new-project';
 
 type Props = { searchParams: Promise<{ all?: string }> };
 
+export const metadata = { title: 'Projects · Work OS' };
+
 export default async function ProjectsPage({ searchParams }: Props) {
   const { all } = await searchParams;
   const projects = await listProjects({ includeInactive: all === '1' });

@@ -1,23 +1,26 @@
 import { differenceInDays, parseISO } from 'date-fns';
+import { UNTOUCHED_DAYS, isUntouched } from '@/lib/untouched';
 import { EyeOff } from 'lucide-react';
 import { listTasks } from '@/lib/data/tasks';
 import { TaskRow } from '@/components/task-row';
 import { MTaskRow } from '@/components/mobile/m-task-row';
 import { SubHeader, MEmpty } from '@/components/mobile/sub-header';
 
+export const metadata = { title: 'Untouched · Work OS' };
+
 export default async function HiddenPage() {
-  const today = new Date();
+  const now = new Date();
   const stale = (await listTasks({ open: true, sort: 'updated' }))
-    .map(t => ({ t, days: differenceInDays(today, parseISO(t.updatedAt)) }))
-    .filter(x => x.days > 7)
+    .map(t => ({ t, days: differenceInDays(now, parseISO(t.updatedAt)) }))
+    .filter(x => isUntouched(x.t.updatedAt, now.getTime()))
     .sort((a, b) => b.days - a.days);
 
   return (
     <div className="space-y-5 md:space-y-6 max-w-5xl">
-      <SubHeader title="Hidden work" subtitle={stale.length ? `${stale.length} untouched for over 7 days` : 'Open tasks untouched for over 7 days'} />
+      <SubHeader title="Untouched" subtitle={stale.length ? `${stale.length} untouched for over ${UNTOUCHED_DAYS} days` : `Open tasks untouched for over ${UNTOUCHED_DAYS} days`} />
       <div className="hidden md:block">
-        <h1 className="text-2xl font-bold text-foreground">Hidden Work</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Open tasks not touched in more than 7 days</p>
+        <h1 className="text-2xl font-bold text-foreground">Untouched</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Open tasks not touched in more than {UNTOUCHED_DAYS} days</p>
       </div>
 
       <div className="rounded-2xl md:rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 md:py-2.5 text-sm text-amber-800 dark:text-amber-300">
@@ -27,9 +30,9 @@ export default async function HiddenPage() {
       {stale.length === 0 ? (
         <>
           <div className="md:hidden">
-            <MEmpty icon={<EyeOff className="w-5 h-5" />} title="Nothing hidden" hint="All open tasks were touched in the last 7 days." />
+            <MEmpty icon={<EyeOff className="w-5 h-5" />} title="Nothing untouched" hint={`All open tasks were touched in the last ${UNTOUCHED_DAYS} days.`} />
           </div>
-          <div className="hidden md:block text-sm text-muted-foreground py-12 text-center">Nothing hidden — all open tasks touched within the last 7 days.</div>
+          <div className="hidden md:block text-sm text-muted-foreground py-12 text-center">Nothing untouched — all open tasks touched within the last {UNTOUCHED_DAYS} days.</div>
         </>
       ) : (
         <>

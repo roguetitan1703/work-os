@@ -15,6 +15,8 @@ import { Trash2 } from 'lucide-react';
 type Tab = 'completed' | 'activity' | 'archived' | 'trash';
 type Props = { searchParams: Promise<{ tab?: string; actor?: string; weeks?: string }> };
 
+export const metadata = { title: 'History & trash · Work OS' };
+
 export default async function HistoryPage({ searchParams }: Props) {
   const sp = await searchParams;
   const tab: Tab = sp.tab === 'activity' || sp.tab === 'archived' || sp.tab === 'trash' ? sp.tab : 'completed';
@@ -22,9 +24,9 @@ export default async function HistoryPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-5 max-w-5xl">
-      <SubHeader title="History" subtitle="How work actually moved." />
+      <SubHeader title="History & trash" subtitle="How work actually moved." />
       <div className="hidden md:block">
-        <h1 className="text-2xl font-bold text-foreground">History</h1>
+        <h1 className="text-2xl font-bold text-foreground">History &amp; trash</h1>
         <p className="text-sm text-muted-foreground mt-0.5">How work actually moved.</p>
       </div>
       <div className="grid grid-cols-4 md:flex gap-1 bg-muted rounded-xl md:rounded-lg p-1 md:w-fit">
