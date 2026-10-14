@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Archive, Bell, ChevronRight, Clock, EyeOff, FolderOpen, History, LifeBuoy, Plug, Repeat2, Settings, Trash2 } from 'lucide-react';
 import { listProjects } from '@/lib/data/projects';
+import { MODES, modeToSlug } from '@/lib/modes';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 
 export const metadata = { title: 'More · Work OS' };
@@ -20,8 +21,15 @@ export default async function MorePage() {
         <Item href="/projects?all=1" icon={<Archive className="w-5 h-5 text-muted-foreground" />} label="All projects" />
       </Group>
 
+      <Group title="Modes">
+        {MODES.map(m => (
+          <Item key={m.name} href={`/modes/${modeToSlug(m.name)}`} icon={<span className="w-5 h-5 flex items-center justify-center"><span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: m.hex }} /></span>} label={m.name} />
+        ))}
+      </Group>
+
       <Group title="Work">
         <Item href="/history" icon={<History className="w-5 h-5 text-green-600" />} label="History" />
+        <Item href="/archive" icon={<Archive className="w-5 h-5 text-slate-500" />} label="Archive" />
         <Item href="/hidden" icon={<EyeOff className="w-5 h-5 text-amber-500" />} label="Hidden work" />
         <Item href="/review" icon={<Repeat2 className="w-5 h-5 text-purple-500" />} label="Weekly review" />
         <Item href="/timetable" icon={<Clock className="w-5 h-5 text-sky-500" />} label="Timetable" />

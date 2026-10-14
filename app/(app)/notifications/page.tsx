@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Bell, ChevronRight, Settings } from 'lucide-react';
 import { listInbox } from '@/lib/notify';
 import { fmtAgo } from '@/lib/format';
-import { MobileHeader } from '@/components/mobile/tab-bar';
+import { SubHeader } from '@/components/mobile/sub-header';
 import { cn } from '@/lib/utils';
 import { MarkRead } from './mark-read';
 
@@ -23,7 +23,9 @@ export default async function NotificationsPage() {
   const unread = items.filter(i => !i.read).length;
   return (
     <div className="max-w-xl mx-auto">
-      <MobileHeader
+      <SubHeader
+        back="/today"
+        backLabel="Today"
         title="Notifications"
         subtitle={unread ? `${unread} new` : 'All caught up'}
         right={

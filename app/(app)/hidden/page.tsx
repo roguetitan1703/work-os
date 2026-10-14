@@ -1,7 +1,9 @@
 import { differenceInDays, parseISO } from 'date-fns';
+import { EyeOff } from 'lucide-react';
 import { listTasks } from '@/lib/data/tasks';
 import { TaskRow } from '@/components/task-row';
 import { MTaskRow } from '@/components/mobile/m-task-row';
+import { SubHeader, MEmpty } from '@/components/mobile/sub-header';
 
 export default async function HiddenPage() {
   const today = new Date();
@@ -11,18 +13,24 @@ export default async function HiddenPage() {
     .sort((a, b) => b.days - a.days);
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <div>
+    <div className="space-y-5 md:space-y-6 max-w-5xl">
+      <SubHeader title="Hidden work" subtitle={stale.length ? `${stale.length} untouched for over 7 days` : 'Open tasks untouched for over 7 days'} />
+      <div className="hidden md:block">
         <h1 className="text-2xl font-bold text-foreground">Hidden Work</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Open tasks not touched in more than 7 days</p>
       </div>
 
-      <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-2.5 text-sm text-amber-800 dark:text-amber-300">
+      <div className="rounded-2xl md:rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 md:py-2.5 text-sm text-amber-800 dark:text-amber-300">
         Review every Sunday. Either re-prioritize, schedule, or drop.
       </div>
 
       {stale.length === 0 ? (
-        <div className="text-sm text-muted-foreground py-12 text-center">Nothing hidden — all open tasks touched within the last 7 days.</div>
+        <>
+          <div className="md:hidden">
+            <MEmpty icon={<EyeOff className="w-5 h-5" />} title="Nothing hidden" hint="All open tasks were touched in the last 7 days." />
+          </div>
+          <div className="hidden md:block text-sm text-muted-foreground py-12 text-center">Nothing hidden — all open tasks touched within the last 7 days.</div>
+        </>
       ) : (
         <>
         <div className="md:hidden rounded-2xl bg-card border border-border/70 divide-y divide-border/60 overflow-hidden">

@@ -5,6 +5,9 @@
 //   SESSION_SECRET  HMAC key for the session cookie (long random string)
 //   MCP_TOKEN       API key for the MCP endpoint and the JSON API (sent as a header)
 //
+// Passkeys (lib/passkeys.ts) and the TOTP second factor (lib/totp.ts) build on
+// the same session cookie.
+//
 // In development, leaving APP_PASSWORD unset disables UI auth. In production,
 // missing secrets fail closed.
 
@@ -59,6 +62,43 @@ export async function verifySessionValue(value: string | undefined): Promise<boo
   const [v, exp, sig] = value.split('.');
   if (v !== 'v1' || !exp || !sig || !/^\d+$/.test(exp) || Number(exp) < Date.now()) return false;
   return safeEqual(sig, await hmac(secret, `v1.${exp}`));
+}
+
+/** An error whose message is safe to show the user. Anything else gets a generic message. */
+export class SafeError extends Error {}
+
+/** Client IP for rate limits: first x-forwarded-for entry (set by Vercel), else x-real-ip. */
+export function clientIp(h: Headers): string {
+  const xff = h.get('x-forwarded-for')?.split(',')[0]?.trim();
+  return (xff || h.get('x-real-ip')?.trim() || 'unknown').slice(0, 64);
+}
+
+/** Options for the session cookie (password, 2FA and passkey sign-in all set the same cookie). */
+export function sessionCookieOptions() {
+  return { httpOnly: true, secure: !isDev(), sameSite: 'lax' as const, path: '/', maxAge: SESSION_DAYS * 86_400 };
+}
+
+// "Password OK, needs 2FA": a short-lived signed cookie set after the password
+// check when TOTP is on. It is not a session; proxy.ts ignores it.
+export const PENDING_2FA_COOKIE = 'workos_2fa';
+export const PENDING_2FA_MINUTES = 5;
+
+export async function createPending2faValue(): Promise<string> {
+  const exp = Date.now() + PENDING_2FA_MINUTES * 60_000;
+  const sig = await hmac(process.env.SESSION_SECRET!, `2fa.p1.${exp}`);
+  return `p1.${exp}.${sig}`;
+}
+
+export async function verifyPending2faValue(value: string | undefined): Promise<boolean> {
+  const secret = process.env.SESSION_SECRET;
+  if (!value || !secret) return false;
+  const [v, exp, sig] = value.split('.');
+  if (v !== 'p1' || !exp || !sig || !/^\d+$/.test(exp) || Number(exp) < Date.now()) return false;
+  return safeEqual(sig, await hmac(secret, `2fa.p1.${exp}`));
+}
+
+export function pending2faCookieOptions() {
+  return { httpOnly: true, secure: !isDev(), sameSite: 'strict' as const, path: '/login', maxAge: PENDING_2FA_MINUTES * 60 };
 }
 
 export async function checkPassword(input: string): Promise<boolean> {

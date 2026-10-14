@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { FileText, FolderOpen, ListTodo } from 'lucide-react';
+import { ChevronRight, FileText, FolderOpen, ListTodo } from 'lucide-react';
 import { listNotes } from '@/lib/data/notes';
 import { listProjectsBasic } from '@/lib/data/projects';
 import { fmtAgo } from '@/lib/format';
@@ -35,10 +35,12 @@ export default async function NotesPage({ searchParams }: Props) {
     return s ? `/notes?${s}` : '/notes';
   };
   const activeProjects = projects.filter(p => p.status === 'active' || p.status === 'paused');
+  // The New note sheet can file under any project (active first), so it still works when none are active.
+  const sheetProjects = [...activeProjects, ...projects.filter(p => !activeProjects.includes(p))].map(p => ({ id: p.id, name: p.name }));
 
   return (
     <div className="space-y-4 md:space-y-5 max-w-4xl">
-      <MobileHeader title="Notes" subtitle={`${total} ${state === 'archived' ? 'archived' : 'notes'}`} right={<NewNoteSheetButton projects={activeProjects.map(p => ({ id: p.id, name: p.name }))} defaultProject={sp.project} />} />
+      <MobileHeader title="Notes" subtitle={`${total} ${state === 'archived' ? 'archived' : 'notes'}`} right={<NewNoteSheetButton projects={sheetProjects} defaultProject={sp.project} />} />
       <Suspense>
         <MobileNoteFilters projects={activeProjects.map(p => ({ id: p.id, name: p.name }))} />
       </Suspense>
@@ -84,7 +86,29 @@ export default async function NotesPage({ searchParams }: Props) {
           {sp.q || sp.project ? 'No notes match.' : state === 'archived' ? 'No archived notes.' : 'No notes yet. Create one from a task or project, or with New note.'}
         </div>
       ) : (
-        <ul className="rounded-lg border border-border divide-y divide-border bg-card">
+        <>
+        <ul className="md:hidden -mx-4 divide-y divide-border/60 border-y border-border/60 bg-card">
+          {notes.map(n => (
+            <li key={n.id}>
+              <Link href={`/notes/${n.id}`} className="flex items-center gap-3 px-4 py-3 min-h-16 active:bg-muted/60">
+                <FileText className="w-5 h-5 text-muted-foreground shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[16px] font-medium text-foreground truncate">{n.title}</span>
+                    {n.archived && <span className="text-[10px] px-1.5 py-px rounded bg-muted text-muted-foreground shrink-0">{n.archivedBecause}</span>}
+                  </div>
+                  {n.firstLine && <p className="text-sm text-muted-foreground truncate">{n.firstLine}</p>}
+                  <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                    <span className="truncate">{n.taskRef ? `#${n.taskRef} ${n.taskTitle ?? ''}` : (n.projectName ?? '')}</span>
+                    <span className="ml-auto shrink-0">{fmtAgo(n.updatedAt)}</span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground/50 shrink-0" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <ul className="hidden md:block rounded-lg border border-border divide-y divide-border bg-card">
           {notes.map(n => (
             <li key={n.id}>
               <Link href={`/notes/${n.id}`} className="flex items-start gap-3 px-4 py-3 hover:bg-muted/50">
@@ -116,6 +140,7 @@ export default async function NotesPage({ searchParams }: Props) {
             </li>
           ))}
         </ul>
+        </>
       )}
     </div>
   );

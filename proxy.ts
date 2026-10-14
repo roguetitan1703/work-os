@@ -3,7 +3,12 @@ import { SESSION_COOKIE, bearerToken, checkToken, uiAuthConfigured, uiAuthDisabl
 
 // Guards every page, server action and API route except /login, /api/mcp
 // and /api/discord/interactions (which check their own key / Discord signature). API routes also accept the API key: `Authorization: Bearer <MCP_TOKEN>` or `X-API-Key`.
+//
+// /login is allowed by exact path only (not /login*). Password, 2FA and passkey
+// sign-in are server actions on that page (app/login/actions.ts), so they POST
+// to /login and need no other unauthenticated endpoint.
 export async function proxy(req: NextRequest) {
+  if (req.nextUrl.pathname === '/login') return NextResponse.next();
   if (uiAuthDisabled()) return NextResponse.next();
 
   const isApi = req.nextUrl.pathname.startsWith('/api/');
@@ -29,5 +34,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|login|api/mcp|api/discord/interactions|api/cron|manifest.webmanifest|icons/|sw.js|offline.html|\\.well-known|robots.txt).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/mcp|api/discord/interactions|api/cron|manifest.webmanifest|icons/|sw.js|offline.html|\\.well-known|robots.txt).*)'],
 };

@@ -51,7 +51,7 @@ export function NoteEditor({ note, blocks, focusTitle }: { note: NoteProps; bloc
 
   return (
     <div className="space-y-2">
-      <div className="flex items-start gap-3">
+      <div className="flex flex-wrap md:flex-nowrap items-start gap-x-3 gap-y-1">
         <input
           value={title}
           onChange={e => setTitle(e.target.value)}
@@ -63,16 +63,16 @@ export function NoteEditor({ note, blocks, focusTitle }: { note: NoteProps; bloc
               (document.querySelector('.wo-editor [contenteditable=true]') as HTMLElement | null)?.focus();
             }
           }}
-          className="flex-1 min-w-0 bg-transparent text-[28px] md:text-4xl font-bold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/40"
+          className="basis-full md:basis-0 flex-1 min-w-0 bg-transparent text-[28px] md:text-4xl font-bold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/40"
         />
-        <div className="flex items-center gap-1 pt-3 shrink-0">
+        <div className="flex items-center gap-1 md:pt-3 shrink-0 w-full md:w-auto justify-end">
           <SaveBadge state={state} />
           {!note.isTaskNote && !note.parentId && (
-            <button onClick={toggleArchive} title={note.ownArchived ? 'Unarchive' : 'Archive'} className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
+            <button onClick={toggleArchive} title={note.ownArchived ? 'Unarchive' : 'Archive'} className="h-11 w-11 md:h-8 md:w-8 inline-flex items-center justify-center rounded-xl md:rounded-md text-muted-foreground hover:bg-muted active:bg-muted">
               {note.ownArchived ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
             </button>
           )}
-          <button onClick={remove} title="Delete" className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-red-600">
+          <button onClick={remove} title="Delete" className="h-11 w-11 md:h-8 md:w-8 inline-flex items-center justify-center rounded-xl md:rounded-md text-muted-foreground hover:bg-muted hover:text-red-600 active:bg-muted">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -84,7 +84,7 @@ export function NoteEditor({ note, blocks, focusTitle }: { note: NoteProps; bloc
 
 function SaveBadge({ state }: { state: SaveState }) {
   return (
-    <span className={cn('mr-1 inline-flex items-center gap-1 text-xs', state === 'error' ? 'text-red-600' : 'text-muted-foreground')}>
+    <span className={cn('mr-auto md:mr-1 inline-flex items-center gap-1 text-sm md:text-xs', state === 'error' ? 'text-red-600' : 'text-muted-foreground')}>
       {state === 'saving' && <Loader2 className="w-3 h-3 animate-spin" />}
       {state === 'saved' && <Check className="w-3 h-3" />}
       {state === 'saving' ? 'Saving' : state === 'dirty' ? 'Editing' : state === 'error' ? 'Not saved' : 'Saved'}

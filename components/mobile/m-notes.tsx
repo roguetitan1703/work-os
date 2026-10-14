@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState, useTransition } from 'react';
+import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowUp, FilePlus, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { createNoteAction } from '@/app/(app)/notes/actions';
 import { cn } from '@/lib/utils';
+import { BottomSheet } from './sheet';
 
 type P = { id: string; name: string };
 
@@ -21,7 +23,8 @@ export function MobileNoteFilters({ projects }: { projects: P[] }) {
   const project = sp.get('project') ?? '';
 
   const go = (patch: Record<string, string>) => {
-    const u = new URLSearchParams(sp.toString());
+    // Read the live URL: a debounced search can fire after a chip tap, and a stale `sp` would undo it.
+    const u = new URLSearchParams(window.location.search);
     for (const [k, v] of Object.entries(patch)) {
       if (!v || (k === 'state' && v === 'active') || (k === 'kind' && v === 'all')) u.delete(k);
       else u.set(k, v);
@@ -94,7 +97,7 @@ export function NewNoteSheetButton({ projects, defaultProject }: { projects: P[]
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button onClick={() => setOpen(true)} aria-label="New note" className="h-10 px-3 rounded-full bg-foreground text-background text-sm font-semibold flex items-center gap-1.5">
+      <button onClick={() => setOpen(true)} aria-label="New note" type="button" className="h-11 min-w-11 px-4 rounded-full bg-foreground text-background text-sm font-semibold flex items-center justify-center gap-1.5 touch-manipulation active:opacity-80">
         <FilePlus className="w-4 h-4" /> New
       </button>
       {open && <NewNoteSheet projects={projects} defaultProject={defaultProject} onClose={() => setOpen(false)} />}
@@ -110,12 +113,8 @@ function NewNoteSheet({ projects, defaultProject, onClose }: { projects: P[]; de
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => input.current?.focus(), 50);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      clearTimeout(t);
-      document.body.style.overflow = '';
-    };
+    const t = setTimeout(() => input.current?.focus(), 80);
+    return () => clearTimeout(t);
   }, []);
 
   const create = () =>
@@ -128,42 +127,43 @@ function NewNoteSheet({ projects, defaultProject, onClose }: { projects: P[]; de
     });
 
   return (
-    <div className="md:hidden fixed inset-0 z-50" data-sheet>
-      <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/40 animate-in fade-in duration-150" />
-      <div className="absolute inset-x-0 bottom-0 rounded-t-3xl bg-background shadow-2xl animate-in slide-in-from-bottom duration-200" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.75rem)' }}>
-        <div className="mx-auto mt-2.5 mb-1 h-1.5 w-10 rounded-full bg-muted-foreground/25" />
-        <div className="flex items-center justify-between px-4 pt-1">
-          <span className="text-sm font-semibold text-muted-foreground">New note</span>
-          <button onClick={onClose} className="w-9 h-9 -mr-2 flex items-center justify-center rounded-full text-muted-foreground active:bg-muted" aria-label="Close">
-            <X className="w-5 h-5" />
-          </button>
+    <BottomSheet title="New note" onClose={onClose}>
+      <input
+        ref={input}
+        value={title}
+        onChange={e => setTitle(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && create()}
+        placeholder="Title"
+        enterKeyHint="go"
+        className="w-full bg-transparent text-xl text-foreground outline-none placeholder:text-muted-foreground/50 py-2"
+      />
+      {projects.length === 0 ? (
+        <div className="mt-3 rounded-2xl border border-border bg-muted/50 p-4 text-sm text-muted-foreground">
+          A note has to live inside a project or a task, and there are no projects yet.{' '}
+          <Link href="/projects" onClick={onClose} className="font-medium text-foreground underline">
+            Create a project
+          </Link>{' '}
+          first, or open a task and tap &ldquo;Add a note&rdquo;.
         </div>
-        <div className="px-4">
-          <input
-            ref={input}
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && create()}
-            placeholder="Title"
-            enterKeyHint="go"
-            className="w-full bg-transparent text-xl text-foreground outline-none placeholder:text-muted-foreground/50 py-2"
-          />
-        </div>
-        <div className="mt-2 px-4 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Project</div>
-        <div className="flex flex-wrap gap-2 px-4 max-h-40 overflow-y-auto">
-          {projects.map(p => (
-            <Chip key={p.id} on={project === p.id} onClick={() => setProject(p.id)}>
-              {p.name}
-            </Chip>
-          ))}
-        </div>
-        <div className="px-4 pt-3">
-          <button onClick={create} disabled={pending || !project} className="w-full h-12 rounded-2xl bg-foreground text-background text-base font-semibold flex items-center justify-center gap-2 disabled:opacity-40">
-            <ArrowUp className="w-5 h-5" /> Create note
-          </button>
-        </div>
+      ) : (
+        <>
+          <div className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Project</div>
+          <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
+            {projects.map(p => (
+              <Chip key={p.id} on={project === p.id} onClick={() => setProject(p.id)}>
+                {p.name}
+              </Chip>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">Notes are filed under a project. For a task&apos;s note, open the task.</p>
+        </>
+      )}
+      <div className="pt-3">
+        <button type="button" onClick={create} disabled={pending || !project} className="w-full h-12 rounded-2xl bg-foreground text-background text-base font-semibold flex items-center justify-center gap-2 disabled:opacity-40">
+          <ArrowUp className="w-5 h-5" /> {pending ? 'Creating…' : 'Create note'}
+        </button>
       </div>
-    </div>
+    </BottomSheet>
   );
 }
 
@@ -173,7 +173,7 @@ function Chip({ on, onClick, children }: { on?: boolean; onClick: () => void; ch
       type="button"
       onClick={onClick}
       className={cn(
-        'shrink-0 h-9 px-3.5 rounded-full border text-sm font-medium whitespace-nowrap',
+        'shrink-0 h-11 px-4 rounded-full border text-sm font-medium whitespace-nowrap',
         on ? 'bg-foreground text-background border-foreground' : 'border-border text-foreground bg-background',
       )}
     >

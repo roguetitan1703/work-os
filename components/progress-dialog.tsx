@@ -47,15 +47,15 @@ export function ProgressDialog({ task, open, onClose }: { task: Task; open: bool
               step={5}
               value={progress}
               onChange={e => setProgress(Number(e.target.value))}
-              className="w-full accent-blue-500"
+              className="w-full accent-blue-500 max-md:h-8"
             />
-            <div className="flex gap-1">
+            <div className="flex gap-1 max-md:gap-1.5">
               {[0, 25, 50, 75, 90].map(v => (
                 <button
                   key={v}
                   type="button"
                   onClick={() => setProgress(v)}
-                  className="text-[11px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted"
+                  className="text-[11px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted max-md:flex-1 max-md:min-h-11 max-md:text-sm max-md:font-medium max-md:text-foreground"
                 >
                   {v}%
                 </button>
@@ -72,7 +72,7 @@ export function ProgressDialog({ task, open, onClose }: { task: Task; open: bool
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(e);
             }}
           />
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground max-md:min-h-11 max-md:text-sm">
             <input type="checkbox" checked={blocked} onChange={e => setBlocked(e.target.checked)} />
             Mark blocked (note explains why)
           </label>

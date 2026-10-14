@@ -112,7 +112,26 @@ export type SettingsDoc = {
   /** _id 'alerts': last scheduled run */
   lastRunAt?: Date;
   lastResult?: string;
+  /** _id 'security': authenticator-app second factor. `secret` is AES-GCM encrypted (lib/totp.ts). */
+  totp?: { secret: string; enabledAt: Date; recoveryHashes: string[]; lastStep: number } | null;
+  /** _id 'security': secret shown during setup, until the first code confirms it. */
+  totpPending?: { secret: string; createdAt: Date } | null;
 };
+
+/** A registered passkey (WebAuthn credential). _id = credential id (base64url). */
+export type PasskeyDoc = {
+  _id: string;
+  publicKey: string; // base64url COSE key
+  counter: number;
+  transports: string[];
+  deviceName: string;
+  createdAt: Date;
+  lastUsedAt: Date | null;
+};
+/** Outstanding WebAuthn challenge. Deleted when used (single-use); TTL index removes stale ones. */
+export type AuthChallengeDoc = { _id: string; kind: 'register' | 'login'; expiresAt: Date; ip?: string };
+/** One failed password / 2FA check. TTL index keeps only the last 15 minutes. */
+export type AuthFailureDoc = { _id: string; kind: 'password' | 'totp'; at: Date; ip?: string };
 
 // ── Connection (cached across hot reloads and warm serverless invocations) ──
 
@@ -183,6 +202,8 @@ async function ensureIndexes(db: Db): Promise<void> {
       { key: { parentId: 1 }, name: 'parent', sparse: true },
     ]),
     db.collection('trash').createIndexes([{ key: { deletedAt: -1 }, name: 'deletedAt' }, { key: { ref: 1 }, name: 'ref' }]),
+    db.collection('authChallenges').createIndexes([{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }, { key: { ip: 1, kind: 1 }, name: 'ip_kind' }]),
+    db.collection('authFailures').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 15 * 60 }, { key: { ip: 1, at: -1 }, name: 'ip_at' }]),
   ]);
 }
 
@@ -202,6 +223,9 @@ export async function collections() {
     alertQueue: db.collection<AlertQueueDoc>('alertQueue'),
     notifications: db.collection<NotificationDoc>('notifications'),
     pushSubs: db.collection<PushSubDoc>('pushSubs'),
+    passkeys: db.collection<PasskeyDoc>('passkeys'),
+    authChallenges: db.collection<AuthChallengeDoc>('authChallenges'),
+    authFailures: db.collection<AuthFailureDoc>('authFailures'),
   };
   const session = txStore.getStore();
   return session ? (Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, withSession(v, session)])) as typeof cols) : cols;

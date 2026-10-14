@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { urlTokenAllowed } from '@/lib/auth';
 import { DiscordSection } from './discord-section';
 import { AlertsSection } from './alerts-section';
+import { SubHeader } from '@/components/mobile/sub-header';
 
 export const metadata = { title: 'Connect Claude · Work OS' };
 
@@ -74,8 +75,10 @@ export default async function ConnectPage() {
   const urlFallback = urlTokenAllowed();
 
   return (
-    <div className="max-w-3xl space-y-8 min-w-0">
-      <div>
+    <div className="max-w-3xl space-y-6 md:space-y-8 min-w-0">
+      <SubHeader title="Connect" subtitle="Claude and Discord" />
+      <p className="md:hidden text-sm text-muted-foreground -mt-2 px-1">Let Claude on claude.ai read and update your tasks. Everything it changes is marked Claude in the task history.</p>
+      <div className="hidden md:block">
         <h1 className="text-2xl font-bold text-foreground">Connect Claude</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
           Let Claude on claude.ai (chat and the morning brief) read and update your tasks. Everything Claude changes shows up in each task&apos;s history
@@ -144,7 +147,7 @@ export default async function ConnectPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-foreground">What Claude can do</h2>
-        <div className="rounded-lg border border-border divide-y divide-border">
+        <div className="rounded-2xl md:rounded-lg border border-border/70 md:border-border divide-y divide-border/60 md:divide-border overflow-hidden bg-card">
           {ORDER.map(name => {
             const t = TOOLS[name];
             return (

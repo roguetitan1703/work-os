@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import { toast } from 'sonner';
-import { Plus } from 'lucide-react';
+import { ArrowUp, Plus } from 'lucide-react';
 import { createTaskAction } from '@/app/actions';
 import { parseQuickAdd } from '@/lib/quick-parse';
 import { resolveDate } from '@/lib/dates';
@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useApp } from './app-context';
 import { TaskForm } from './task-form';
+import { usePhone } from './mobile/use-phone';
 
 const HELP = '@project  !1–!4  #tag  due:fri  start:mon  ~45m  mode:code';
 
@@ -31,6 +32,7 @@ export function QuickAddBar({
   const [text, setText] = useState('');
   const [pending, start] = useTransition();
   const [formOpen, setFormOpen] = useState(false);
+  const phone = usePhone();
   const parsed = useMemo(() => parseQuickAdd(text, projects), [text, projects]);
   const due = parsed.due ? resolveDate(parsed.due, today) : null;
 
@@ -78,9 +80,19 @@ export function QuickAddBar({
           }}
           disabled={pending}
           autoFocus={autoFocus}
-          placeholder="Add a task…  (Enter to save, Shift+Enter for details)"
-          className="flex-1 h-10 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          placeholder={phone ? "Add a task…" : "Add a task…  (Enter to save, Shift+Enter for details)"}
+          enterKeyHint="done"
+          className="flex-1 min-w-0 h-12 md:h-10 bg-transparent text-[16px] md:text-sm outline-none placeholder:text-muted-foreground"
         />
+        <button
+          type="button"
+          onClick={create}
+          disabled={pending || !parsed.title}
+          aria-label="Add task"
+          className="md:hidden -mr-2 w-11 h-11 shrink-0 rounded-full flex items-center justify-center bg-foreground text-background disabled:opacity-30 active:scale-95 transition-transform"
+        >
+          <ArrowUp className="w-5 h-5" />
+        </button>
       </div>
       {text && (
         <div className="flex items-center gap-1.5 px-3 pb-2 flex-wrap text-[11px]">

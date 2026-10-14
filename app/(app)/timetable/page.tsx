@@ -1,18 +1,77 @@
+import Link from 'next/link';
 import { SCHEDULE } from '@/lib/schedule';
 import { getBlockColor } from '@/lib/modes';
+import { todayStr, weekday } from '@/lib/dates';
+import { cn } from '@/lib/utils';
+import { SubHeader } from '@/components/mobile/sub-header';
 
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri'] as const;
-const DAY_LABELS = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri' };
+type Day = (typeof DAYS)[number];
+const DAY_LABELS: Record<Day, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri' };
 
-export default function TimetablePage() {
+type Props = { searchParams: Promise<{ day?: string }> };
+
+export default async function TimetablePage({ searchParams }: Props) {
+  const sp = await searchParams;
+  const dow = weekday(todayStr()); // 0 = Sun
+  const todayKey: Day | null = dow >= 1 && dow <= 5 ? DAYS[dow - 1] : null;
+  const day: Day = (DAYS as readonly string[]).includes(sp.day ?? '') ? (sp.day as Day) : (todayKey ?? 'mon');
+
   return (
     <div className="space-y-6">
-      <div>
+      <SubHeader title="Timetable" subtitle="Saturday and Sunday are flex days" />
+      <div className="hidden md:block">
         <h1 className="text-2xl font-bold text-foreground">Timetable</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Mon–Fri schedule. Saturday and Sunday are flex days.</p>
       </div>
 
-      <div className="border rounded overflow-auto">
+      {/* Phone: one day at a time */}
+      <div className="md:hidden space-y-4">
+        <div className="grid grid-cols-5 gap-1 rounded-xl bg-muted p-1">
+          {DAYS.map(d => (
+            <Link
+              key={d}
+              href={`/timetable?day=${d}`}
+              replace
+              scroll={false}
+              className={cn(
+                'h-11 flex flex-col items-center justify-center rounded-lg text-sm font-medium leading-none',
+                day === d ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground',
+              )}
+            >
+              {DAY_LABELS[d]}
+              {todayKey === d && <span className="mt-1 w-1 h-1 rounded-full bg-blue-500" />}
+            </Link>
+          ))}
+        </div>
+        <div className="rounded-2xl bg-card border border-border/70 divide-y divide-border/60 overflow-hidden">
+          {SCHEDULE.map((blk, i) => {
+            const modeName = blk.modes[day];
+            const color = getBlockColor(modeName);
+            return (
+              <div key={i} className="flex gap-3 px-4 py-3">
+                <div className="w-[3.75rem] shrink-0 pt-0.5">
+                  <div className="font-mono text-[13px] text-foreground tabular-nums">{blk.start}</div>
+                  <div className="font-mono text-[12px] text-muted-foreground tabular-nums">{blk.end}</div>
+                </div>
+                <div className="w-1 shrink-0 rounded-full" style={{ backgroundColor: color.hex }} />
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-[16px] font-medium text-foreground">{blk.block}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{blk.duration}</span>
+                  </div>
+                  <span className="inline-block px-2 py-0.5 rounded text-xs font-medium" style={{ backgroundColor: color.hex + '25', color: color.hex }}>
+                    {modeName}
+                  </span>
+                  {blk.notes && <p className="text-sm text-muted-foreground">{blk.notes}</p>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="hidden md:block border rounded overflow-auto">
         <table className="w-full text-sm min-w-[900px]">
           <thead className="bg-muted text-xs text-muted-foreground uppercase sticky top-0">
             <tr>

@@ -52,6 +52,7 @@ export function TodayClient({ dayName, isNaturallyWeekend, weekday, schedule, op
 
   useEffect(() => {
     try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- read localStorage after hydration
       setFlexOverride(localStorage.getItem(FLEX_KEY) === "true");
     } catch {}
     setNow(new Date());

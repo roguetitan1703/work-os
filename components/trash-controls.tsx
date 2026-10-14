@@ -48,7 +48,7 @@ export function DeleteTaskButton({ taskRef, title }: { taskRef: number; title: s
 
   return (
     <>
-      <Button size="sm" variant="ghost" className="gap-1.5 h-8 text-muted-foreground hover:text-red-600 dark:hover:text-red-400" onClick={() => setOpen(true)}>
+      <Button size="sm" variant="ghost" className="gap-1.5 h-8 max-md:h-11 max-md:px-4 max-md:text-sm text-muted-foreground hover:text-red-600 dark:hover:text-red-400" onClick={() => setOpen(true)}>
         <Trash2 className="w-3.5 h-3.5" /> Delete
       </Button>
       <Dialog open={open} onOpenChange={v => !pending && setOpen(v)}>
@@ -64,10 +64,10 @@ export function DeleteTaskButton({ taskRef, title }: { taskRef: number; title: s
             </DialogHeader>
             <Input value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason (optional)" autoFocus />
             <DialogFooter className="sm:justify-end">
-              <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)} disabled={pending}>
+              <Button type="button" variant="outline" size="sm" className="max-md:h-11" onClick={() => setOpen(false)} disabled={pending}>
                 Cancel
               </Button>
-              <Button type="submit" variant="destructive" size="sm" className="gap-1.5" disabled={pending}>
+              <Button type="submit" variant="destructive" size="sm" className="gap-1.5 max-md:h-11" disabled={pending}>
                 <Trash2 className="w-3.5 h-3.5" /> Move to trash
               </Button>
             </DialogFooter>
@@ -81,7 +81,7 @@ export function DeleteTaskButton({ taskRef, title }: { taskRef: number; title: s
 export function RestoreTrashButton({ taskRef, open: openAfter = false, size = 'xs' }: { taskRef: number; open?: boolean; size?: 'xs' | 'sm' }) {
   const { restore, pending } = useRestoreTask();
   return (
-    <Button size={size} variant="outline" className="gap-1" disabled={pending} onClick={() => restore(taskRef, { open: openAfter })}>
+    <Button size={size} variant="outline" className="gap-1 max-md:h-11 max-md:flex-1 max-md:px-4 max-md:text-sm" disabled={pending} onClick={() => restore(taskRef, { open: openAfter })}>
       <RotateCcw className="w-3 h-3" /> Restore
     </Button>
   );
@@ -104,7 +104,7 @@ export function PurgeTrashButton({ taskRef, title }: { taskRef: number; title: s
 
   return (
     <>
-      <Button size="xs" variant="ghost" className="text-muted-foreground hover:text-red-600 dark:hover:text-red-400" onClick={() => setOpen(true)}>
+      <Button size="xs" variant="ghost" className="max-md:h-11 max-md:flex-1 max-md:px-4 max-md:text-sm text-muted-foreground hover:text-red-600 dark:hover:text-red-400" onClick={() => setOpen(true)}>
         Delete forever
       </Button>
       <Dialog open={open} onOpenChange={v => !pending && setOpen(v)}>
@@ -118,10 +118,10 @@ export function PurgeTrashButton({ taskRef, title }: { taskRef: number; title: s
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="sm:justify-end">
-            <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)} disabled={pending}>
+            <Button type="button" variant="outline" size="sm" className="max-md:h-11" onClick={() => setOpen(false)} disabled={pending}>
               Cancel
             </Button>
-            <Button variant="destructive" size="sm" onClick={purge} disabled={pending}>
+            <Button variant="destructive" size="sm" className="max-md:h-11" onClick={purge} disabled={pending}>
               Delete forever
             </Button>
           </DialogFooter>

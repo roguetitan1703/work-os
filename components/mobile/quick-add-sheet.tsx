@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { ArrowUp, X } from 'lucide-react';
 import { createTaskAction } from '@/app/actions';
@@ -91,7 +92,8 @@ export function QuickAddSheet({ open, onClose, defaultProject }: { open: boolean
   }
 
   if (!open) return null;
-  return (
+  // Portalled to <body>: inside <main> (z-10) the tab bar (z-40) would cover the buttons.
+  return createPortal(
     <div className="md:hidden fixed inset-0 z-50" data-sheet>
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/40 animate-in fade-in duration-150" />
       <div
@@ -165,7 +167,8 @@ export function QuickAddSheet({ open, onClose, defaultProject }: { open: boolean
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

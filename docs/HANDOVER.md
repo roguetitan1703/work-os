@@ -18,11 +18,12 @@ Each section below covers one feature in three parts: **Om** (what you can do in
 4. [Batch changes, full project view, trash](#4-batch-changes-full-project-view-trash)
 5. [Notes (Notion-style pages)](#5-notes-notion-style-pages)
 6. [Discord: reading, commands, blocked channels](#6-discord)
-7. [Alerts (Discord DMs)](#7-alerts-discord-dms)
+7. [Alerts and notifications](#7-alerts-and-notifications)
 8. [Phone app (PWA)](#8-phone-app-pwa)
-9. [Login and security](#9-login-and-security)
-10. [Still to do / known limits](#10-still-to-do--known-limits)
-11. [Working on the code (Claude Code)](#11-working-on-the-code-claude-code)
+9. [Settings](#9-settings)
+10. [Login and security](#10-login-and-security)
+11. [Still to do / known limits](#11-still-to-do--known-limits)
+12. [Working on the code (Claude Code)](#12-working-on-the-code-claude-code)
 
 ---
 
@@ -42,6 +43,7 @@ All configuration is in Vercel → Project → Settings → Environment Variable
 | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `DISCORD_OWNER_ID` | Discord bot and the Delpat server | for Discord |
 | `DISCORD_BLOCKED_CHANNELS` | extra channel ids never to read (comma-separated); normally managed on `/connect` instead | optional |
 | `CRON_SECRET` | protects the alert check endpoint | for alerts |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | keys for phone push (a `mailto:` address for the subject). **Must be added on Vercel**; copy the values from `.env.local`. Without them push is off and Settings → Status says so | for phone push |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob (private) for images and files in notes | not used yet |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows putting the key in the URL (`/api/mcp/<key>`) instead of a header | leave unset |
 
@@ -257,7 +259,7 @@ There's no bot server running all the time and no messages are stored.
 
 ---
 
-## 7. Alerts (Discord DMs)
+## 7. Alerts and notifications
 
 ### Om
 | Alert | When |
@@ -269,12 +271,18 @@ There's no bot server running all the time and no messages are stored.
 | Never started | P1 still Not Started 24 hours after creation |
 | Unblocked | Right away, when the last task it waited on is closed |
 
+- **Where an alert goes:** three channels. Each alert type and each channel has a switch in Settings (section 9).
+  - **In-app inbox:** always on. Bell with an unread badge on the phone's Today header (the laptop sidebar has a Notifications link, no badge); the **Notifications** screen (`/notifications`, also More → Notifications) lists them newest first, and opening it marks all read. Kept 60 days.
+  - **Phone push:** a real notification on every device that turned it on in Settings. Tapping it opens the task (or the inbox when several arrived together). **iPhone needs the app added to the Home Screen and iOS 16.4 or later**; it won't offer push in a normal Safari tab.
+  - **Discord DM:** as before.
+  - **Send test** (Settings → Notifications) sends one through every enabled channel and shows what reached where.
 - **Rules:** quiet hours 23:00–08:00 IST (anything due then waits until morning), one combined DM per check, and each alert sent only once.
-- **Status:** `/connect` → Alerts shows when the last check ran and what it did.
+- **Status:** Settings → Status (and `/connect` → Alerts) shows when the last check ran and what it did.
 - **Setup still to do:**
   1. Add `CRON_SECRET` in Vercel; the value is in `work-os/.env.local`.
   2. On cron-job.org, create a job every 15 minutes on `https://work-os-puce-delta.vercel.app/api/cron/alerts` with the header `Authorization: Bearer <CRON_SECRET>`.
-  3. If DMs fail with a 403: Discord → Delpat server → Privacy Settings → allow direct messages.
+  3. For phone push, add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` in Vercel and redeploy, then turn on "Notifications on this device" in Settings on each phone.
+  4. If DMs fail with a 403: Discord → Delpat server → Privacy Settings → allow direct messages.
 
 ### Claude
 Nothing to call; alerts run on their own. Claude's own changes trigger them like anyone's: when Claude completes a blocking task, the unblocked alert goes out.
@@ -289,6 +297,12 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
   - `?dry=1` previews without sending.
   - `?at=<ISO>` simulates a different time; it is ignored in production.
 - **Discord:** DMs are sent by the same bot, which opens a DM channel with the owner.
+- **Delivery:** `lib/notify.ts`. `runAlerts` (alerts.ts) drops alert types switched off, then writes the inbox, sends push, then DMs; a failing channel doesn't block the others.
+  - **Settings storage:** `settings` doc `_id: 'notify'` (`channels.push`, `channels.discord`, `kinds.*`; everything defaults on). Alert types and their labels: `ALERT_KINDS`.
+  - **Collections:** `notifications` (inbox) and `pushSubs` (one per device, keyed by push endpoint; dead ones are deleted when the push service answers 404/410). Both in `lib/db.ts`.
+  - **Push:** the `web-push` package; VAPID keys from env. `public/sw.js` handles `push` and `notificationclick`. Push needs a production build (the service worker is production only).
+  - **Last seen:** `markSeen('mcp' | 'discord')` is called from the MCP and Discord routes; the status panel reads it.
+  - **UI:** `app/(app)/notifications/`, `components/mobile/bell.tsx` (unread count comes from `useApp()` in `components/app-context.tsx`).
 
 ---
 
@@ -306,22 +320,42 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
     - A big text field.
     - One-tap chips for due date (Today, Tomorrow, Friday, Next week), priority and project.
     - "Add task", or "Add & open" to go straight to it.
-  - **Tasks:** search, Open / Due soon / Waiting / Done tabs, project chips, and open tasks grouped by priority.
-  - **Task screen:**
+  - **Tasks:**
+    - Search, Open / Due soon / Waiting / Done tabs, project chips, and open tasks grouped by priority.
+    - **Filters** button opens a sheet for project, mode and due. Filters and search live in the URL (`/board?project=…&q=…`), so back works and a filtered view can be bookmarked.
+    - Every task row has a **⋯** that opens an **actions sheet**: status, priority, due (Today / Tomorrow / In a week / pick), mode, and a link to the full task.
+  - **Task screen** (full screen):
     - One-tap status and priority.
-    - Due chips plus the phone's own date picker.
+    - Due chips plus the phone's own date picker, start date, estimate, tags.
     - Progress, and the phone's own pickers for project and mode.
+    - Blocked reason, links and "waits on" each open a small sheet.
     - Note card, checklist, description, linked tasks, comments, history.
-    - A sticky **Mark done** button. The ⋯ menu has Drop, Reopen, Archive and Delete.
-  - **Notes:** the same editor, sized for the phone.
-  - **More:** projects with open and late counts, plus History, Hidden work, Weekly review, Timetable, Recovery, Trash, Connect, Appearance, Sign out.
+    - A sticky **Mark done** button. The ⋯ menu has Drop, Reopen, Archive and Delete (Delete asks for a reason sheet; it goes to the trash).
+    - Each comment in history has a **⋯** that opens Edit / Delete (any comment).
+  - **Today extras:** the bell with its unread badge, a **Day Plan** button (the day's schedule as a sheet, tick tasks off) and **Import** (paste a markdown table or JSON of tasks).
+  - **Notes:** the same editor, sized for the phone. The list has live search and swipeable chips (Active / Archived / All, projects); **New note** opens a sheet (title, project).
+  - **Projects, History, Archive, Hidden work, Recovery, Weekly review, Timetable, Modes:** each has a phone layout with a back button to More, task rows like the Tasks tab, and no horizontal scrolling at 360–412px.
+  - **More:** projects with open and late counts, plus History, Hidden work, Weekly review, Timetable, Recovery, Trash, Settings, Notifications, Connect.
+  - **Pull to refresh:** pull down at the top of any screen to reload its data (an installed app has no browser refresh). It's ignored while a sheet is open.
 - **Offline:** shows a "You're offline" screen.
 
 ### Claude Code
 - **Phone components:** `components/mobile/`
-  - `tab-bar.tsx`: tab bar and `MobileHeader`
+  - `tab-bar.tsx`: tab bar and `MobileHeader`; the More tab stays highlighted on its sub-screens (`match` list)
   - `quick-add-sheet.tsx`
-  - `m-today.tsx`, `m-tasks.tsx`, `m-task-row.tsx`, `m-task-detail.tsx`
+  - screens: `m-today.tsx`, `m-tasks.tsx`, `m-task-row.tsx`, `m-task-actions.tsx` (⋯ sheet), `m-task-detail.tsx`, `m-notes.tsx`, `m-day-plan.tsx`, `m-import.tsx`
+  - **Shared pieces:**
+    - `sheet.tsx` → `BottomSheet`: partial-height sheet for menus, pickers, confirmations
+    - `full-sheet.tsx` → `FullSheet`: full-height sheet with a pinned footer, for long forms
+    - `sub-header.tsx` → `SubHeader`: 44px back button and big title for screens reached from More (`back` / `backLabel` for other parents)
+    - `use-phone.ts` → `usePhone()`: true below 768px, false during SSR; use it only when JS must branch (otherwise use CSS)
+    - `bell.tsx` → `BellButton`; `pull-to-refresh.tsx` → `PullToRefresh`, mounted once in `app/(app)/layout.tsx` on `#app-main`
+- **Conventions for new phone work:**
+  - Phone UI goes inside `md:hidden`, desktop inside `hidden md:block`. Never change the desktop view when adding a phone one.
+  - Every tap target is at least 44px (`h-11 w-11` / `min-h-11`).
+  - Every sheet or overlay carries the `data-sheet` attribute (the shared sheets already do), or pull to refresh will fire while you scroll it. Portal sheets to `<body>`: sticky/blurred parents trap `fixed`.
+  - Prefer the shared components above over new ad-hoc ones. Filter and tab state that should survive back/refresh belongs in the URL.
+  - Check at 360, 390 and 412px, light and dark, for horizontal overflow.
 - **How pages switch:** a page renders the phone view inside `md:hidden` and the desktop view inside `hidden md:block`. See `today/page.tsx`, `board/page.tsx` and `tasks/[id]/page.tsx`.
 - **More tab:** `app/(app)/more/page.tsx`.
 - **PWA files:**
@@ -337,7 +371,37 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 
 ---
 
-## 9. Login and security
+## 9. Settings
+
+### Om
+Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings & status") has five groups:
+- **This device:**
+  - **Install app:** one tap on Android/Chrome; on iPhone it shows the steps (Share → Add to Home Screen). Reads "Installed" once you're in the installed app.
+  - **Notifications on this device:** switch to turn phone push on or off for this phone only. On iPhone it asks you to install first.
+- **Notifications:** switches for the channels (In-app inbox is always on; Phone notifications; Discord DMs) and for each alert type (Unblocked, Overdue, Due today, Due tomorrow, P1 not started, Stalled), plus **Send test**. Details in section 7.
+- **Security:** passkeys and authenticator app (section 10).
+- **Status:** a live list, each row a coloured dot (green ok, amber needs attention, red broken, grey off):
+
+| Row | What it checks |
+|---|---|
+| Database | pings MongoDB; amber if slower than 150 ms; shows the task count |
+| Server | Vercel region and commit; amber if not Mumbai (`bom1`) |
+| Claude connector | `MCP_TOKEN` set; when the connector was last used (amber until first use) |
+| Discord bot | token works, channels readable, Message Content Intent on, blocked-channel count, last command; grey if not configured |
+| Scheduled alerts | `CRON_SECRET` set and the cron job's last run (amber if never or stale) |
+| Phone notifications | VAPID keys set and how many devices are subscribed |
+| Notes converter | the markdown ↔ blocks converter loads and works |
+
+- **App:** Appearance (light / dark), a link to `/connect` (Claude, Discord and alerts setup), Sign out.
+
+### Claude Code
+- **Page:** `app/(app)/settings/page.tsx`; the device card, push and notification switches are client components in `device-settings.tsx`; server actions in `settings/actions.ts` (subscribe, unsubscribe, save switches, send test).
+- **Status:** `lib/status.ts` → `systemStatus()`, run on every page view inside `Suspense`; each probe has a time limit so a dead service can't hang the page. To add a row, push a `Check` (`name`, `level`, `summary`, `detail`) there.
+- **Install and push detection:** in `device-settings.tsx` (iOS, standalone, push support).
+
+---
+
+## 10. Login and security
 
 - **Web app:** password login with a signed 60-day cookie. `proxy.ts` protects every page and API.
 - **Routes that check their own credentials instead:**
@@ -349,19 +413,36 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 - **The repo is public.** Secrets live only in Vercel and in the gitignored `.env.local`. Before each push, a scan checks that no secret is being committed.
 - **Discord:** only Om's user ID, only in the Delpat server, sensitive channels blocked. The bot's permissions are View Channels and Read Message History only.
 
+### Passkeys and authenticator app
+
+**Om:** Settings → Security.
+- **Passkeys:** tap *Add passkey* on each device (name it first). The login page then offers *Sign in with passkey*, and the password field suggests passkeys. Passkey sign-in skips the code step. A passkey works only on the domain it was made on (production, or `localhost` in dev).
+- **Authenticator app (TOTP):** *Turn on* shows a QR code and key; confirm one code, then save the 10 recovery codes (shown once). From then on, password sign-in asks for a code (or a recovery code). Turning it off or making new recovery codes needs a current code.
+- **Lockout:** 10 wrong passwords/codes in 15 minutes from one IP locks password/code sign-in for that IP until the window passes (plus a 300-per-15-min global backstop). Passkeys are never locked.
+
+**Claude Code:**
+- `lib/passkeys.ts` (SimpleWebAuthn): user verification (biometric/PIN) is required. RP ID/origin in production come from `APP_URL`, else `https://$VERCEL_PROJECT_PRODUCTION_URL` (Vercel system var); passkeys fail with a clear error if both are missing. A `localhost` Host header (never `x-forwarded-host`) is used in dev, or in `next start` when neither is set. Challenges live in `authChallenges` for 5 minutes and are deleted when checked (single-use, TTL index); each IP holds at most 20 open sign-in challenges.
+- `lib/totp.ts` (otplib + qrcode): the secret sits in `settings` `_id: 'security'`, AES-256-GCM encrypted with a key derived from `SESSION_SECRET` (rotating it breaks TOTP: turn TOTP off first). Recovery codes are stored as HMACs. App codes can't be replayed (`lastStep`). Failures go to `authFailures` keyed by client IP (first `x-forwarded-for` entry), TTL 15 min.
+- `lib/auth.ts`: same session cookie for every method; `workos_2fa` is a 5-minute signed "password OK, needs code" cookie scoped to `/login`.
+- Sign-in actions are server actions in `app/login/actions.ts`, so they POST to `/login`. `proxy.ts` allows exactly `/login` (no other new public route).
+- Settings UI: `app/(app)/settings/security-settings.tsx` + `security-actions.ts` (every action re-checks the session). Only `SafeError` messages (`lib/auth.ts`) reach the browser; other errors are logged and shown as a generic message.
+- **Locked out with TOTP and no passkey or recovery code:** in Mongo, set `settings` `{_id:'security'}` `totp` to `null`.
+
 ---
 
-## 10. Still to do / known limits
+## 11. Still to do / known limits
 
 **For Om:**
 1. **PC:** move the Windows pagefile from C: to D: and restart. C: keeps filling up because of it.
 2. **Alerts:** add `CRON_SECRET` in Vercel and create the cron-job.org job (section 7).
+   - Also add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in Vercel for phone push.
 3. **Discord:**
    - Tick sensitive channels on `/connect`.
    - Change the dev@ and tools@ passwords, which were posted in #our-own-system-automation.
    - If `/today` says "did not respond", set the Interactions Endpoint URL in the Discord Developer Portal to `https://work-os-puce-delta.vercel.app/api/discord/interactions`.
 4. **Claude:** paste the updated morning-brief prompt from `/connect` into the 8am brief.
-5. **Phone:** install it and report anything that feels off. It was tested in an emulated iPhone, not on a real device.
+5. **Deploy:** notifications, inbox, Settings and the phone screens above are committed or in the working tree but **not deployed yet**; an interaction pass (New note sheet) was still to finish before pushing.
+6. **Phone:** install it and report anything that feels off. It was tested in an emulated iPhone, not on a real device.
 
 **Known limits:**
 - **Simultaneous edits:** if Claude edits a note you have open, your last few seconds of typing are lost when the page reloads (you're warned first).
@@ -370,7 +451,7 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 
 ---
 
-## 11. Working on the code (Claude Code)
+## 12. Working on the code (Claude Code)
 
 - **Read first:** `AGENTS.md`. This Next.js (16.2) has breaking changes; docs are in `node_modules/next/dist/docs/`.
 - **Checks before pushing:**

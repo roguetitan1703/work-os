@@ -4,17 +4,18 @@ import Link from 'next/link';
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Archive, ArrowLeft, Check, ChevronRight, FileText, MoreHorizontal, Plus, Send, Trash2, TrendingUp } from 'lucide-react';
+import { Archive, ArrowLeft, Check, ChevronRight, ExternalLink, FileText, MoreHorizontal, Plus, Send, Trash2, TrendingUp, X } from 'lucide-react';
 import { addCommentAction, checklistAction, completeTaskAction, deleteTaskAction, restoreTaskAction, setArchivedAction, updateTaskAction } from '@/app/actions';
 import { createNoteAction } from '@/app/(app)/notes/actions';
 import { addDays } from '@/lib/dates';
 import { fmtDue } from '@/lib/format';
 import { MODES } from '@/lib/modes';
-import type { Activity, Priority, Status, Task, TaskPatch } from '@/lib/types';
+import type { Activity, Priority, Recurrence, Status, Task, TaskPatch } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ActivityTimeline } from '../activity-timeline';
 import { ProgressDialog } from '../progress-dialog';
 import { useApp } from '../app-context';
+import { BottomSheet } from './sheet';
 
 const STATUSES: { s: Status; tone: string }[] = [
   { s: 'Not Started', tone: 'bg-foreground text-background' },
@@ -29,7 +30,7 @@ const PRIOS: { p: Priority; tone: string }[] = [
 ];
 
 type NoteRef = { id: string; title: string; firstLine: string } | null;
-type Dep = { ref: number; title: string; status: Status };
+type Dep = { id: string; ref: number; title: string; status: Status };
 
 /** Full-screen task view for phones: one-tap status/priority, native pickers, sticky Done. */
 export function MobileTaskDetail({
@@ -54,6 +55,8 @@ export function MobileTaskDetail({
   const [newItem, setNewItem] = useState('');
   const [menu, setMenu] = useState(false);
   const [progressOpen, setProgressOpen] = useState(false);
+  const [sheet, setSheet] = useState<null | 'estimate' | 'tags' | 'blocked' | 'link' | 'dep' | 'delete'>(null);
+  const [delReason, setDelReason] = useState('');
   const dateRef = useRef<HTMLInputElement>(null);
   const closed = task.status === 'Done' || task.status === 'Dropped';
   const overdue = !!task.due && task.due < today && !closed;
@@ -108,19 +111,7 @@ export function MobileTaskDetail({
             <MenuItem onClick={() => (setMenu(false), run(() => setArchivedAction(task.id, !task.archived), task.archived ? 'Unarchived' : 'Archived'))}>
               <Archive className="w-4 h-4" /> {task.archived ? 'Unarchive' : 'Archive'}
             </MenuItem>
-            <MenuItem
-              danger
-              onClick={() => {
-                setMenu(false);
-                if (!confirm(`Move #${task.ref} to the trash? You can restore it for 30 days.`)) return;
-                start(async () => {
-                  const r = await deleteTaskAction(task.ref);
-                  if (!r.ok) return void toast.error(r.error);
-                  toast(`Moved #${task.ref} to trash`, { action: { label: 'Undo', onClick: () => void restoreTaskAction(task.ref).then(() => router.push(`/tasks/${task.ref}`)) } });
-                  router.push('/today');
-                });
-              }}
-            >
+            <MenuItem danger onClick={() => (setMenu(false), setDelReason(''), setSheet('delete'))}>
               <Trash2 className="w-4 h-4" /> Delete
             </MenuItem>
           </div>
@@ -160,7 +151,11 @@ export function MobileTaskDetail({
               </button>
             ))}
           </div>
-          {task.status === 'Blocked' && task.blockedReason && <p className="mt-2 text-sm text-red-600 dark:text-red-400">Blocked: {task.blockedReason}</p>}
+          {task.status === 'Blocked' && (
+            <button onClick={() => setSheet('blocked')} className="mt-2 w-full min-h-11 px-4 py-2 rounded-xl border border-red-500/30 bg-red-500/5 text-left text-sm text-red-600 dark:text-red-400 active:bg-red-500/10">
+              {task.blockedReason ? `Blocked: ${task.blockedReason}` : 'Add the reason it is blocked'}
+            </button>
+          )}
         </Field>
       )}
 
@@ -248,6 +243,34 @@ export function MobileTaskDetail({
             </option>
           ))}
         </SelectRow>
+        <label className="relative flex items-center gap-3 px-4 h-12 active:bg-muted/60">
+          <span className="text-[16px] text-foreground w-20">Start</span>
+          <span className={cn('flex-1 text-right text-[16px]', task.start ? 'text-foreground' : 'text-muted-foreground')}>{task.start ? fmtDue(task.start, today) : 'None'}</span>
+          <ChevronRight className="w-4 h-4 text-muted-foreground/50" />
+          <input type="date" value={task.start ?? ''} onChange={e => patch({ start: e.target.value || null })} aria-label="Start date" className="absolute inset-0 w-full h-full opacity-0" />
+        </label>
+        <button onClick={() => setSheet('estimate')} className="w-full flex items-center gap-3 px-4 h-12 text-left active:bg-muted/60">
+          <span className="text-[16px] text-foreground w-20">Estimate</span>
+          <span className={cn('flex-1 text-right text-[16px]', task.estimateMins != null ? 'text-foreground' : 'text-muted-foreground')}>{task.estimateMins != null ? fmtMins(task.estimateMins) : 'None'}</span>
+          <ChevronRight className="w-4 h-4 text-muted-foreground/50" />
+        </button>
+        <SelectRow label="Repeats" value={recIdx(task.recurrence)} onChange={v => patch({ recurrence: RECURRENCE_OPTIONS[Number(v)]?.value ?? task.recurrence })}>
+          {RECURRENCE_OPTIONS.map((o, i) => (
+            <option key={i} value={String(i)}>
+              {o.label}
+            </option>
+          ))}
+          {recIdx(task.recurrence) === 'custom' && task.recurrence && <option value="custom">{`Every ${task.recurrence.interval} ${task.recurrence.freq}`}</option>}
+        </SelectRow>
+        <button onClick={() => setSheet('tags')} className="w-full flex items-center gap-3 px-4 min-h-12 py-2 text-left active:bg-muted/60">
+          <span className="text-[16px] text-foreground w-20 shrink-0">Tags</span>
+          <span className="flex-1 flex flex-wrap justify-end gap-1.5">
+            {task.tags.length ? task.tags.map(t => (
+              <span key={t} className="px-2 py-0.5 rounded-full bg-muted text-[13px] text-foreground">{t}</span>
+            )) : <span className="text-[16px] text-muted-foreground">None</span>}
+          </span>
+          <ChevronRight className="w-4 h-4 text-muted-foreground/50 shrink-0" />
+        </button>
       </div>
 
       {/* Note */}
@@ -272,16 +295,20 @@ export function MobileTaskDetail({
       <Field label={`Checklist${task.checklist.length ? ` · ${task.checklist.filter(i => i.done).length}/${task.checklist.length}` : ''}`}>
         <div className="rounded-2xl border border-border/70 bg-card divide-y divide-border/60 overflow-hidden">
           {task.checklist.map((it, i) => (
-            <button
-              key={it.id}
-              onClick={() => run(() => checklistAction(task.id, it.done ? { uncheck: [i + 1] } : { check: [i + 1] }))}
-              className="w-full flex items-center gap-3 px-4 min-h-12 py-2 text-left active:bg-muted/60"
-            >
-              <span className={cn('w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center shrink-0', it.done ? 'bg-green-500 border-green-500' : 'border-muted-foreground/40')}>
-                {it.done && <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />}
-              </span>
-              <span className={cn('text-[16px]', it.done && 'line-through text-muted-foreground')}>{it.text}</span>
-            </button>
+            <div key={it.id} className="flex items-center active:bg-muted/60">
+              <button
+                onClick={() => run(() => checklistAction(task.id, it.done ? { uncheck: [i + 1] } : { check: [i + 1] }))}
+                className="flex-1 min-w-0 flex items-center gap-3 pl-4 min-h-12 py-2 text-left"
+              >
+                <span className={cn('w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center shrink-0', it.done ? 'bg-green-500 border-green-500' : 'border-muted-foreground/40')}>
+                  {it.done && <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />}
+                </span>
+                <span className={cn('text-[16px]', it.done && 'line-through text-muted-foreground')}>{it.text}</span>
+              </button>
+              <button onClick={() => run(() => checklistAction(task.id, { remove: [it.id] }))} aria-label={`Delete ${it.text}`} className="w-11 h-11 shrink-0 flex items-center justify-center text-muted-foreground active:text-red-500">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
           ))}
           <form
             onSubmit={e => {
@@ -310,18 +337,40 @@ export function MobileTaskDetail({
         />
       </Field>
 
-      {(dependencies.length > 0 || dependents.length > 0) && (
-        <Field label="Linked">
-          <div className="rounded-2xl border border-border/70 bg-card divide-y divide-border/60 overflow-hidden">
-            {dependencies.map(d => (
-              <DepRow key={`w${d.ref}`} d={d} label="Waits on" />
-            ))}
-            {dependents.map(d => (
-              <DepRow key={`b${d.ref}`} d={d} label="Blocks" />
-            ))}
-          </div>
-        </Field>
-      )}
+      {/* Links */}
+      <Field label="Links">
+        <div className="rounded-2xl border border-border/70 bg-card divide-y divide-border/60 overflow-hidden">
+          {task.links.map((l, i) => (
+            <div key={i} className="flex items-center">
+              <a href={l.url} target="_blank" rel="noreferrer" className="flex-1 min-w-0 flex items-center gap-3 pl-4 h-12 active:bg-muted/60">
+                <ExternalLink className="w-4 h-4 text-muted-foreground shrink-0" />
+                <span className="truncate text-[16px] text-blue-600 dark:text-blue-400">{l.label || l.url}</span>
+              </a>
+              <button onClick={() => patch({ links: task.links.filter((_, j) => j !== i) }, 'Link removed')} aria-label="Remove link" className="w-11 h-11 shrink-0 flex items-center justify-center text-muted-foreground active:text-red-500">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+          <button onClick={() => setSheet('link')} className="w-full flex items-center gap-3 px-4 h-12 text-muted-foreground active:bg-muted/60">
+            <Plus className="w-5 h-5" /> <span className="text-[16px]">Add link</span>
+          </button>
+        </div>
+      </Field>
+
+      {/* Dependencies */}
+      <Field label="Dependencies">
+        <div className="rounded-2xl border border-border/70 bg-card divide-y divide-border/60 overflow-hidden">
+          {dependencies.map(d => (
+            <DepRow key={`w${d.ref}`} d={d} label="Waits on" onRemove={() => patch({ dependsOn: task.dependsOn.filter(x => x !== d.id) }, 'Dependency removed')} />
+          ))}
+          {dependents.map(d => (
+            <DepRow key={`b${d.ref}`} d={d} label="Blocks" />
+          ))}
+          <button onClick={() => setSheet('dep')} className="w-full flex items-center gap-3 px-4 h-12 text-muted-foreground active:bg-muted/60">
+            <Plus className="w-5 h-5" /> <span className="text-[16px]">Waits on another task</span>
+          </button>
+        </div>
+      </Field>
 
       {/* Comment + history */}
       <Field label="Comment">
@@ -363,6 +412,117 @@ export function MobileTaskDetail({
         </div>
       )}
 
+      {sheet === 'estimate' && (
+        <TextSheet
+          title="Estimate"
+          label="Minutes"
+          initial={task.estimateMins != null ? String(task.estimateMins) : ''}
+          inputMode="numeric"
+          placeholder="e.g. 45"
+          presets={['15', '30', '60', '120']}
+          clearable={task.estimateMins != null}
+          onClose={() => setSheet(null)}
+          onSave={v => {
+            const n = v ? parseInt(v, 10) : null;
+            if (n !== null && (!Number.isFinite(n) || n < 0)) return void toast.error('Enter minutes as a number');
+            setSheet(null);
+            patch({ estimateMins: n }, 'Estimate saved');
+          }}
+        />
+      )}
+      {sheet === 'tags' && (
+        <TextSheet
+          title="Tags"
+          label="Comma separated"
+          initial={task.tags.join(', ')}
+          placeholder="design, client, urgent"
+          clearable={task.tags.length > 0}
+          onClose={() => setSheet(null)}
+          onSave={v => {
+            setSheet(null);
+            patch({ tags: v.split(',').map(t => t.trim()).filter(Boolean) }, 'Tags saved');
+          }}
+        />
+      )}
+      {sheet === 'blocked' && (
+        <TextSheet
+          title="Blocked because"
+          label="Reason"
+          initial={task.blockedReason}
+          placeholder="Waiting on client feedback, missing access…"
+          onClose={() => setSheet(null)}
+          onSave={v => {
+            setSheet(null);
+            patch({ blockedReason: v }, 'Reason saved');
+          }}
+        />
+      )}
+      {sheet === 'link' && (
+        <TextSheet
+          title="Add link"
+          label="URL"
+          initial=""
+          inputMode="url"
+          placeholder="Paste a URL"
+          required
+          onClose={() => setSheet(null)}
+          onSave={v => {
+            setSheet(null);
+            patch({ links: [...task.links, v] }, 'Link added');
+          }}
+        />
+      )}
+      {sheet === 'dep' && (
+        <TextSheet
+          title="Waits on"
+          label="Task number"
+          initial=""
+          inputMode="numeric"
+          placeholder="e.g. 42"
+          required
+          onClose={() => setSheet(null)}
+          onSave={v => {
+            setSheet(null);
+            patch({ dependsOn: [...task.dependsOn, v.replace(/^#/, '')] }, 'Dependency added');
+          }}
+        />
+      )}
+      {sheet === 'delete' && (
+        <BottomSheet title={`Delete #${task.ref}?`} onClose={() => setSheet(null)}>
+          <div className="space-y-3 pt-1">
+            <p className="text-sm text-muted-foreground">It moves to the trash and can be restored for 30 days.</p>
+            <input
+              value={delReason}
+              onChange={e => setDelReason(e.target.value)}
+              placeholder="Reason (optional)"
+              enterKeyHint="done"
+              className="w-full h-12 rounded-xl border border-border bg-card px-4 text-[16px] outline-none"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setSheet(null)} className="h-12 rounded-2xl border border-border text-[16px] font-medium active:bg-muted">
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  setSheet(null);
+                  start(async () => {
+                    const r = await deleteTaskAction(task.ref, delReason.trim() || undefined);
+                    if (!r.ok) return void toast.error(r.error);
+                    toast(`Moved #${task.ref} to trash`, { action: { label: 'Undo', onClick: () => void restoreTaskAction(task.ref).then(() => router.push(`/tasks/${task.ref}`)) } });
+                    router.push('/today');
+                  });
+                }}
+                className="h-12 rounded-2xl bg-red-600 text-white text-[16px] font-semibold disabled:opacity-50"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </BottomSheet>
+      )}
+
       {progressOpen && <ProgressDialog task={task} open={progressOpen} onClose={() => setProgressOpen(false)} />}
     </div>
   );
@@ -389,16 +549,113 @@ function SelectRow({ label, value, onChange, children }: { label: string; value:
   );
 }
 
-function DepRow({ d, label }: { d: Dep; label: string }) {
+function DepRow({ d, label, onRemove }: { d: Dep; label: string; onRemove?: () => void }) {
   const done = d.status === 'Done' || d.status === 'Dropped';
   return (
-    <Link href={`/tasks/${d.ref}`} className="flex items-center gap-3 px-4 h-12 active:bg-muted/60">
-      <span className="text-[12px] text-muted-foreground w-16">{label}</span>
-      <span className={cn('flex-1 truncate text-[15px]', done && 'line-through text-muted-foreground')}>
-        #{d.ref} {d.title}
-      </span>
-      <ChevronRight className="w-4 h-4 text-muted-foreground/50" />
-    </Link>
+    <div className="flex items-center">
+      <Link href={`/tasks/${d.ref}`} className="flex-1 min-w-0 flex items-center gap-3 pl-4 h-12 active:bg-muted/60">
+        <span className="text-[12px] text-muted-foreground w-16 shrink-0">{label}</span>
+        <span className={cn('flex-1 truncate text-[15px]', done && 'line-through text-muted-foreground')}>
+          #{d.ref} {d.title}
+        </span>
+      </Link>
+      {onRemove ? (
+        <button onClick={onRemove} aria-label={`Remove dependency #${d.ref}`} className="w-11 h-11 shrink-0 flex items-center justify-center text-muted-foreground active:text-red-500">
+          <X className="w-4 h-4" />
+        </button>
+      ) : (
+        <ChevronRight className="w-4 h-4 mr-4 text-muted-foreground/50" />
+      )}
+    </div>
+  );
+}
+
+const RECURRENCE_OPTIONS: { label: string; value: Recurrence | null }[] = [
+  { label: 'Never', value: null },
+  { label: 'Daily', value: { freq: 'daily', interval: 1 } },
+  { label: 'Weekdays', value: { freq: 'weekdays', interval: 1 } },
+  { label: 'Weekly', value: { freq: 'weekly', interval: 1 } },
+  { label: 'Every 2 weeks', value: { freq: 'weekly', interval: 2 } },
+  { label: 'Monthly', value: { freq: 'monthly', interval: 1 } },
+];
+function recIdx(r: Recurrence | null): string {
+  const i = RECURRENCE_OPTIONS.findIndex(o => JSON.stringify(o.value) === JSON.stringify(r));
+  return i === -1 ? 'custom' : String(i);
+}
+function fmtMins(m: number): string {
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
+}
+
+/** One full-width input in a bottom sheet (estimate, tags, reason, link, dependency). */
+function TextSheet({
+  title,
+  label,
+  initial,
+  placeholder,
+  inputMode,
+  presets,
+  required,
+  clearable,
+  onSave,
+  onClose,
+}: {
+  title: string;
+  label: string;
+  initial: string;
+  placeholder?: string;
+  inputMode?: 'numeric' | 'url' | 'text';
+  presets?: string[];
+  required?: boolean;
+  clearable?: boolean;
+  onSave: (v: string) => void;
+  onClose: () => void;
+}) {
+  const [v, setV] = useState(initial);
+  const save = () => {
+    const t = v.trim();
+    if (required && !t) return;
+    onSave(t);
+  };
+  return (
+    <BottomSheet title={title} onClose={onClose}>
+      <div className="space-y-3 pt-1">
+        <label className="block">
+          <span className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+          <input
+            autoFocus
+            value={v}
+            onChange={e => setV(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && save()}
+            inputMode={inputMode}
+            placeholder={placeholder}
+            enterKeyHint="done"
+            autoCapitalize="none"
+            className="mt-1 w-full h-12 rounded-xl border border-border bg-card px-4 text-[16px] outline-none"
+          />
+        </label>
+        {presets && (
+          <div className="flex gap-2">
+            {presets.map(p => (
+              <button key={p} type="button" onClick={() => setV(p)} className="flex-1 h-11 rounded-full border border-border text-[15px] active:bg-muted">
+                {fmtMins(Number(p))}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2">
+          {clearable && (
+            <button type="button" onClick={() => onSave('')} className="h-12 px-5 rounded-2xl border border-border text-[16px] text-muted-foreground active:bg-muted">
+              Clear
+            </button>
+          )}
+          <button type="button" onClick={save} disabled={required && !v.trim()} className="flex-1 h-12 rounded-2xl bg-foreground text-background text-[16px] font-semibold disabled:opacity-40">
+            Save
+          </button>
+        </div>
+      </div>
+    </BottomSheet>
   );
 }
 

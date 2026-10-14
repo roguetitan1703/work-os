@@ -27,7 +27,7 @@ export default async function TaskPage({ params }: Props) {
   const { task, project, activity, dependencies, dependents } = detail;
   const note = (await noteIndex({ taskIds: [task.id] })).byTask.get(task.id);
 
-  const dep = (t: { ref: number; title: string; status: typeof task.status }) => ({ ref: t.ref, title: t.title, status: t.status });
+  const dep = (t: { id: string; ref: number; title: string; status: typeof task.status }) => ({ id: t.id, ref: t.ref, title: t.title, status: t.status });
   return (
     <>
     <div className="md:hidden">

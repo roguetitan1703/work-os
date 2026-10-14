@@ -1,15 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Check, ChevronRight, FileText, ListChecks, Repeat } from 'lucide-react';
+import { Check, FileText, MoreHorizontal, ListChecks, Repeat } from 'lucide-react';
 import { completeTaskAction, updateTaskAction } from '@/app/actions';
 import { fmtDue } from '@/lib/format';
 import type { Priority, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useApp } from '../app-context';
+import { TaskActionSheet } from './m-task-actions';
 
 const PRIO_RING: Record<Priority, string> = {
   P1: 'border-red-500',
@@ -29,6 +30,13 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
   const project = showProject ? projectName(task.projectId) : null;
   const checklistDone = task.checklist.filter(i => i.done).length;
   const prevStatus = task.status;
+  const [sheet, setSheet] = useState(false);
+  const press = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressed = useRef(false);
+  const cancelPress = () => {
+    if (press.current) clearTimeout(press.current);
+    press.current = null;
+  };
 
   function toggle() {
     if (closed) return;
@@ -57,7 +65,7 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
   }
 
   return (
-    <div className={cn('flex items-stretch gap-1 transition-opacity duration-500', done && 'opacity-50')}>
+    <div className={cn('flex items-stretch min-h-[56px] transition-opacity duration-500', done && 'opacity-50')}>
       <button
         onClick={toggle}
         aria-label={closed ? task.status : `Complete ${task.title}`}
@@ -72,7 +80,29 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
           {done && <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />}
         </span>
       </button>
-      <Link href={`/tasks/${task.ref}`} className="flex-1 min-w-0 flex items-center gap-2 py-3 pr-3 active:bg-muted/60 rounded-r-xl">
+      <Link
+        href={`/tasks/${task.ref}`}
+        onTouchStart={() => {
+          longPressed.current = false;
+          cancelPress();
+          press.current = setTimeout(() => {
+            longPressed.current = true;
+            navigator.vibrate?.(15);
+            setSheet(true);
+          }, 450);
+        }}
+        onTouchMove={cancelPress}
+        onTouchEnd={cancelPress}
+        onTouchCancel={cancelPress}
+        onContextMenu={e => e.preventDefault()}
+        onClick={e => {
+          if (longPressed.current) {
+            e.preventDefault();
+            longPressed.current = false;
+          }
+        }}
+        className="flex-1 min-w-0 flex items-center gap-2 py-3 pr-1 active:bg-muted/60 select-none [-webkit-touch-callout:none]"
+      >
         <div className="flex-1 min-w-0">
           <div className={cn('text-[16px] leading-snug text-foreground', done && 'line-through text-muted-foreground')}>{task.title}</div>
           <div className="mt-1 flex items-center gap-x-2 gap-y-0.5 flex-wrap text-[13px] text-muted-foreground">
@@ -91,8 +121,15 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
             {hint}
           </div>
         </div>
-        <ChevronRight className="w-4 h-4 text-muted-foreground/40 shrink-0" />
       </Link>
+      <button
+        onClick={() => setSheet(true)}
+        aria-label={`Actions for ${task.title}`}
+        className="w-11 shrink-0 flex items-center justify-center text-muted-foreground active:bg-muted/60"
+      >
+        <MoreHorizontal className="w-5 h-5" />
+      </button>
+      <TaskActionSheet task={task} open={sheet} onClose={() => setSheet(false)} />
     </div>
   );
 }

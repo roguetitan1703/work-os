@@ -20,7 +20,16 @@ export default async function TodayPage() {
   return (
     <>
       <div className="md:hidden">
-        <MobileToday dayName={dayName} tasks={open} waiting={waitingRefs} noteTaskIds={[...notes.byTask.keys()]} />
+        <MobileToday
+          dayName={dayName}
+          tasks={open}
+          waiting={waitingRefs}
+          noteTaskIds={[...notes.byTask.keys()]}
+          isNaturallyWeekend={wd === 0 || wd === 6}
+          weekday={keys[wd]}
+          schedule={SCHEDULE}
+          todayRitualLog={ritual}
+        />
       </div>
       <div className="hidden md:block">
     <TodayClient

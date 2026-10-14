@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { ChevronRight, LogOut, Plug } from 'lucide-react';
-import { MobileHeader } from '@/components/mobile/tab-bar';
+import { SubHeader } from '@/components/mobile/sub-header';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { logoutAction } from '@/app/actions';
 import { uiAuthDisabled } from '@/lib/auth';
@@ -10,6 +10,7 @@ import { ALERT_KINDS, getNotifySettings, pushDeviceCount, vapidPublicKey } from 
 import { systemStatus, type Level } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import { InstallCard, NotifyPrefs, PushCard, Row } from './device-settings';
+import { SecuritySettings } from './security-settings';
 
 export const metadata = { title: 'Settings · Work OS' };
 
@@ -17,7 +18,7 @@ export default async function SettingsPage() {
   const [prefs, devices] = await Promise.all([getNotifySettings(), pushDeviceCount()]);
   return (
     <div className="max-w-xl mx-auto pb-6">
-      <MobileHeader title="Settings" />
+      <SubHeader title="Settings" />
       <h1 className="hidden md:block text-2xl font-bold mb-2">Settings</h1>
 
       <Group title="This device">
@@ -27,6 +28,10 @@ export default async function SettingsPage() {
 
       <Group title="Notifications" note="Quiet hours 23:00–08:00 IST: nothing is sent; it waits for the morning.">
         <NotifyPrefs initial={prefs} kinds={ALERT_KINDS} discordReady={!!discordConfig()} />
+      </Group>
+
+      <Group title="Security" note="Passkeys sign you in without a password. The authenticator app adds a code step to password sign-in.">
+        <SecuritySettings />
       </Group>
 
       <Group title="Status">

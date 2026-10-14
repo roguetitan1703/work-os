@@ -26,7 +26,7 @@ export default async function BoardPage({ searchParams }: Props) {
   return (
     <>
       <div className="md:hidden">
-        <MobileTasks tasks={all} projects={active} noteTaskIds={[...notes.byTask.keys()]} />
+        <MobileTasks tasks={all} projects={active} noteTaskIds={[...notes.byTask.keys()]} filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', q: sp.q ?? '' }} />
       </div>
       <div className="hidden md:block">
     <BoardClient

@@ -9,6 +9,8 @@ import { addDays, dateInTz, startOfDay, todayStr, weekStart } from '@/lib/dates'
 import { ActivityTimeline } from '@/components/activity-timeline';
 import { TaskList } from '@/components/task-row';
 import { cn } from '@/lib/utils';
+import { SubHeader, MEmpty } from '@/components/mobile/sub-header';
+import { Trash2 } from 'lucide-react';
 
 type Tab = 'completed' | 'activity' | 'archived' | 'trash';
 type Props = { searchParams: Promise<{ tab?: string; actor?: string; weeks?: string }> };
@@ -20,17 +22,19 @@ export default async function HistoryPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-5 max-w-5xl">
-      <div>
+      <SubHeader title="History" subtitle="How work actually moved." />
+      <div className="hidden md:block">
         <h1 className="text-2xl font-bold text-foreground">History</h1>
         <p className="text-sm text-muted-foreground mt-0.5">How work actually moved.</p>
       </div>
-      <div className="flex gap-1 bg-muted rounded-lg p-1 w-fit">
+      <div className="grid grid-cols-4 md:flex gap-1 bg-muted rounded-xl md:rounded-lg p-1 md:w-fit">
         {(['completed', 'activity', 'archived', 'trash'] as Tab[]).map(t => (
           <Link
             key={t}
             href={`/history?tab=${t}`}
+            replace
             className={cn(
-              'px-3 py-1 rounded text-sm font-medium capitalize transition-colors',
+              'h-11 md:h-auto flex items-center justify-center md:px-3 md:py-1 rounded-lg md:rounded text-[13px] md:text-sm font-medium capitalize transition-colors',
               tab === t ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -61,8 +65,8 @@ async function Completed({ weeks }: { weeks: number }) {
   return (
     <div className="space-y-6">
       {/* weekly throughput */}
-      <div className="rounded-lg border border-border bg-card p-4">
-        <div className="text-xs text-muted-foreground mb-3">Completed per week</div>
+      <div className="rounded-2xl md:rounded-lg border border-border/70 md:border-border bg-card p-4">
+        <div className="text-sm md:text-xs text-muted-foreground mb-3">Completed per week</div>
         <div className="flex items-end gap-2 h-24">
           {[...allWeeks].reverse().map(w => {
             const n = groups.get(w)?.length ?? 0;
@@ -86,7 +90,11 @@ async function Completed({ weeks }: { weeks: number }) {
             <TaskList tasks={groups.get(w)!} />
           </section>
         ))}
-      <Link href={`/history?tab=completed&weeks=${weeks + 8}`} className="text-xs underline text-muted-foreground">
+      {!done.length && <MEmpty title="Nothing completed yet" hint="Finished tasks show up here, grouped by week." />}
+      <Link
+        href={`/history?tab=completed&weeks=${weeks + 8}`}
+        className="flex md:inline h-12 md:h-auto items-center justify-center rounded-2xl md:rounded-none border border-border/70 md:border-0 bg-card md:bg-transparent text-sm md:text-xs md:underline text-muted-foreground active:bg-muted/60"
+      >
         Show older
       </Link>
     </div>
@@ -104,25 +112,30 @@ async function ActivityFeed({ actor }: { actor?: string }) {
   }
   return (
     <div className="space-y-5">
-      <div className="flex gap-2 text-xs">
+      <div className="flex gap-2 text-sm md:text-xs overflow-x-auto md:overflow-visible -mx-4 px-4 md:mx-0 md:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {[undefined, 'me', 'discord', 'claude'].map(x => (
           <Link
             key={x ?? 'all'}
             href={`/history?tab=activity${x ? `&actor=${x}` : ''}`}
-            className={cn('px-2 py-1 rounded border border-border', a === x ? 'bg-muted text-foreground' : 'text-muted-foreground')}
+            replace
+            className={cn(
+              'shrink-0 whitespace-nowrap h-11 md:h-auto px-4 md:px-2 md:py-1 inline-flex items-center rounded-full md:rounded border',
+              a === x ? 'bg-foreground text-background border-foreground md:bg-muted md:text-foreground md:border-border' : 'border-border text-muted-foreground bg-card md:bg-transparent',
+            )}
           >
             {x === 'me' ? 'By me (app)' : x === 'discord' ? 'By me (Discord)' : x === 'claude' ? 'By Claude' : 'Everyone'}
           </Link>
         ))}
-        <span className="text-muted-foreground self-center">Last 14 days</span>
+        <span className="hidden md:inline text-muted-foreground self-center">Last 14 days</span>
       </div>
+      <p className="md:hidden -mt-2 px-1 text-xs text-muted-foreground">Last 14 days</p>
       {[...byDay].map(([d, list]) => (
         <section key={d} className="space-y-2">
           <h2 className="text-sm font-semibold text-muted-foreground">{format(parseISO(d), 'EEEE, MMM d')}</h2>
           <ActivityTimeline items={list} showTask />
         </section>
       ))}
-      {!items.length && <p className="text-sm text-muted-foreground">No activity.</p>}
+      {!items.length && <MEmpty title="No activity" hint="Nothing changed in the last 14 days." />}
     </div>
   );
 }
@@ -131,7 +144,7 @@ async function Archived() {
   const tasks = await listTasks({ archived: 'only', sort: 'updated' });
   return (
     <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">Archived tasks are hidden everywhere else. Open one and press Restore to bring it back.</p>
+      <p className="text-sm md:text-xs text-muted-foreground px-1 md:px-0">Archived tasks are hidden everywhere else. Open one and press Restore to bring it back.</p>
       <TaskList tasks={tasks} empty="Nothing archived." />
     </div>
   );
@@ -141,20 +154,20 @@ async function Trash() {
   const [items, names] = await Promise.all([listTrash(), projectNameMap()]);
   return (
     <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">
+      <p className="text-sm md:text-xs text-muted-foreground px-1 md:px-0">
         {`Deleted tasks stay here for ${TRASH_DAYS} days with their history, then they're gone for good.`}
       </p>
       {items.length ? (
-        <ul className="divide-y divide-border rounded-lg border border-border bg-card">
+        <ul className="divide-y divide-border/60 md:divide-border rounded-2xl md:rounded-lg border border-border/70 md:border-border bg-card overflow-hidden">
           {items.map(t => {
             const project = t.projectId ? names.get(t.projectId) : null;
             return (
-              <li key={t.ref} className="flex items-start gap-3 px-3 py-2.5">
+              <li key={t.ref} className="flex flex-col md:flex-row items-stretch md:items-start gap-3 px-4 md:px-3 py-3 md:py-2.5">
                 <div className="min-w-0 flex-1 space-y-0.5">
-                  <div className="text-sm text-foreground truncate">
+                  <div className="text-[16px] md:text-sm text-foreground md:truncate">
                     <span className="font-mono text-muted-foreground">#{t.ref}</span> {t.title}
                   </div>
-                  <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-muted-foreground">
+                  <div className="flex items-center gap-1.5 flex-wrap text-xs md:text-[11px] text-muted-foreground">
                     {project && <span className="text-foreground/80">{project}</span>}
                     {project && <span>·</span>}
                     <span title={fmtDateTime(t.deletedAt)}>
@@ -165,7 +178,7 @@ async function Trash() {
                   </div>
                   {t.reason && <p className="text-xs text-muted-foreground italic">&ldquo;{t.reason}&rdquo;</p>}
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-2 md:gap-1 md:shrink-0">
                   <RestoreTrashButton taskRef={t.ref} />
                   <PurgeTrashButton taskRef={t.ref} title={t.title} />
                 </div>
@@ -174,7 +187,7 @@ async function Trash() {
           })}
         </ul>
       ) : (
-        <p className="text-sm text-muted-foreground py-2">{`Trash is empty. Deleted tasks show up here for ${TRASH_DAYS} days.`}</p>
+        <MEmpty icon={<Trash2 className="w-5 h-5" />} title="Trash is empty" hint={`Deleted tasks show up here for ${TRASH_DAYS} days.`} />
       )}
     </div>
   );
