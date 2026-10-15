@@ -9,6 +9,8 @@ import { scanRoots, publicFolder } from './scan.mjs';
 import { install, uninstall } from './install.mjs';
 import { runSetup } from './setup.mjs';
 import { collectActivity } from './activity.mjs';
+import { addFolder, removeFolder } from './folders.mjs';
+import { readRawConfig, writeConfig } from './setup.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (m) => console.log(`${new Date().toISOString()} ${m}`);
@@ -16,9 +18,14 @@ const log = (m) => console.log(`${new Date().toISOString()} ${m}`);
 async function run() {
   const state = loadState();
   const api = makeApi(loadConfig, getToken);
-  const claudePath = resolveClaude(loadConfig().roots);
-  if (!claudePath) log('warning: claude not found outside the allowed roots; start/resume jobs will fail');
-  const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher: (a) => launch({ ...a, claudePath }), listProcesses, killPid, log, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true }) });
+  let claudePath = resolveClaude(loadConfig().roots);
+  if (!claudePath) log('warning: claude not found outside the allowed roots; will look again at the next start');
+  // Not found at startup (e.g. PATH not ready at logon): look again on each start/resume until found.
+  const launcher = (a) => {
+    if (!claudePath) claudePath = resolveClaude(loadConfig().roots);
+    return launch({ ...a, claudePath });
+  };
+  const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true }) });
   let delay = 10;
   let failing = 0;
   log(`work-os-worker ${VERSION} started`);
@@ -55,7 +62,7 @@ function status() {
 async function scanAndSend() {
   const cfg = loadConfig();
   const state = loadState();
-  const found = scanRoots({ roots: cfg.roots, maxDepth: cfg.maxDepth, knownIds: state.ids });
+  const found = scanRoots({ roots: cfg.roots, maxDepth: cfg.maxDepth, knownIds: state.ids, extraFolders: cfg.folders });
   checkBaseUrl(cfg.baseUrl);
   const api = makeApi(loadConfig, getToken);
   await api.postFolders(found.map(publicFolder));
@@ -83,14 +90,29 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       console.log('(read-only, nothing sent)');
     }
     else if (cmd === 'setup') await runSetup({ argv: process.argv.slice(3), deps: { getToken, setToken, readSecret: readSecretFromStdin, scanAndReport: scanAndSend, install } });
+    else if (cmd === 'add-folder' || cmd === 'remove-folder') {
+      const dir = process.argv[3];
+      if (!dir) throw new Error(`usage: node worker.mjs ${cmd} "<folder path>"`);
+      const cfg = loadConfig();
+      if (cmd === 'add-folder') {
+        const r = addFolder(readRawConfig(), dir, cfg);
+        writeConfig(r.config);
+        console.log(r.added ? `added ${r.real}` : `already added: ${r.real}`);
+      } else {
+        const r = removeFolder(readRawConfig(), dir);
+        writeConfig(r.config);
+        console.log(r.removed ? `removed ${dir}` : `was not in the list: ${dir}`);
+      }
+      console.log(`sent ${await scanAndSend()} folders; link it to a project in Work OS`);
+    }
     else if (cmd === 'scan') {
       if (process.argv.includes('--dry')) {
         const cfg = loadConfig();
-        const found = scanRoots({ roots: cfg.roots, maxDepth: cfg.maxDepth, knownIds: loadState().ids });
+        const found = scanRoots({ roots: cfg.roots, maxDepth: cfg.maxDepth, knownIds: loadState().ids, extraFolders: cfg.folders });
         console.log(JSON.stringify(found.map(publicFolder), null, 2));
         console.log(`${found.length} folders (dry run, nothing sent)`);
       } else console.log(`sent ${await scanAndSend()} folders`);
-    } else { console.error('usage: node worker.mjs [run|setup|set-token|install|uninstall|status|scan [--dry]|activity]'); process.exit(2); }
+    } else { console.error('usage: node worker.mjs [run|setup|set-token|install|uninstall|status|scan [--dry]|activity|add-folder <path>|remove-folder <path>]'); process.exit(2); }
   } catch (e) { console.error(String(e.message || e)); process.exit(1); }
   if (cmd !== 'run') process.exit(0);
 }

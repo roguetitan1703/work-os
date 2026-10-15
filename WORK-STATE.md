@@ -4,8 +4,8 @@
 - Deploying 2026-10-15: Today rebuilt, Claude page with named sessions, project page as an overview, Settings with Connect merged in (/connect and /recovery redirect). Om must reinstall his worker for session names and counts.
 
 ## Next
-1. Om: `node worker/worker.mjs install` (worker sends session names + counts); live check of Today, /claude, a project page and Settings.
-2. Next UI slices: Review hub, grammar pass (names, Back, confirms), global search.
+1. Om: `node worker/worker.mjs install` again (claude lookup retry, add-folder), then `add-folder` for Terra and link it; live check of Today, /claude, a project page and Settings.
+2. Builder B: Review hub, then global search. Then grammar pass (names, Back, confirms).
 3. Om: on the live site, Settings → This device → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
 5. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
@@ -48,3 +48,4 @@
 - Old e2e suites launcher-ui and claude-ui target the retired /connect and old Claude layout; adapted copy lives in scratchpad final/t/claude-new.mjs — waits on moving test suites into the repo.
 - Tab prefetch added to Claude, project and Settings tabs; not yet measured with a slow server — waits on the next full test run.
 - Connections sends MCP_TOKEN with the page (owner-only, behind sign-in, same as before); could fetch on reveal instead — waits on a security pass.
+- Worker without a log file: a failed start only shows in state.json doneJobs (how "claude not found" was found) — waits on Om wanting a log file.

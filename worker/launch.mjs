@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, execFile, execFileSync } from 'node:child_process';
@@ -29,13 +31,21 @@ export function windowsWtArgs(folder, title, claudePath, cargs, nodePath = proce
   return ['-w', 'new', '-d', folder, '--title', title, nodePath, wrapper, claudePath, ...cargs].map(wtEsc);
 }
 
-// Absolute path of claude, resolved once at startup, never from inside an allowed root
-// (a planted claude.exe / claude.cmd in a repo must not be runnable).
-export function resolveClaude(roots, which = defaultWhich) {
+// Absolute path of claude, never from inside an allowed root (a planted claude.exe / claude.cmd in a
+// repo must not be runnable). PATH first, then the standard install locations, because a worker started
+// at logon can see an incomplete PATH.
+export function resolveClaude(roots, which = defaultWhich, known = knownClaudePaths, exists = fs.existsSync) {
   for (const p of which()) {
     if (path.isAbsolute(p) && !insideRoot(p, roots)) return p;
   }
+  for (const p of known()) {
+    if (path.isAbsolute(p) && !insideRoot(p, roots) && exists(p)) return p;
+  }
   return null;
+}
+export function knownClaudePaths(platform = process.platform, home = os.homedir()) {
+  if (platform === 'win32') return [path.join(home, '.local', 'bin', 'claude.exe')];
+  return [path.join(home, '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'];
 }
 function defaultWhich() {
   try {

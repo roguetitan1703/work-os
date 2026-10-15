@@ -16,7 +16,7 @@ export function trustKey(dir) {
   return p;
 }
 
-function canon(k) {
+export function canon(k) {
   let p = String(k).split(path.win32.sep).join('/');
   if (/^[A-Za-z]:/.test(p)) p = p[0].toLowerCase() + p.slice(1);
   return p.length > 1 ? p.replace(/\/+$/, '') : p;

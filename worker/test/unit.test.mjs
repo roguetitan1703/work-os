@@ -117,7 +117,10 @@ test('resolveClaude avoids roots; matchesSession is exact', () => {
     const inRoot = path.join(root, 'claude.exe'); const good = path.join(bin, 'claude.exe');
     fs.writeFileSync(inRoot, ''); fs.writeFileSync(good, '');
     assert.equal(resolveClaude([root], () => [inRoot, 'claude', good]), good);
-    assert.equal(resolveClaude([root], () => [inRoot]), null);
+    assert.equal(resolveClaude([root], () => [inRoot], () => []), null);
+    // PATH empty (worker started before PATH was ready): fall back to an existing standard location outside roots
+    assert.equal(resolveClaude([root], () => [], () => [path.join(bin, 'missing.exe'), good]), good);
+    assert.equal(resolveClaude([root], () => [], () => [inRoot]), null);
     assert.ok(matchesSession('claude --session-id ' + SID, SID));
     assert.ok(matchesSession('claude --resume ' + SID + ' --name x', SID));
     assert.ok(!matchesSession('vim notes-' + SID + '.txt', SID));
@@ -172,4 +175,29 @@ test('setup: mergeConfig keeps existing fields and overrides answers', async () 
   assert.deepEqual(await verifyKey('https://a.example', 'k', fake(401)), { ok: false, status: 401 });
   assert.equal(seen[0][0], 'https://a.example/api/worker/jobs');
   assert.equal(seen[0][1], 'Bearer k');
+});
+
+test('scan + add-folder: a hand-added folder counts without git; its children still scan', async () => {
+  const { scanRoots } = await import('../scan.mjs');
+  const { addFolder, removeFolder } = await import('../folders.mjs');
+  const d = tmp();
+  try {
+    const terra = path.join(d, 'Terra');
+    fs.mkdirSync(path.join(terra, 'site'), { recursive: true });
+    fs.writeFileSync(path.join(terra, 'site', 'package.json'), '{}');
+    fs.mkdirSync(path.join(terra, 'notes'));
+    const names = (extraFolders) => scanRoots({ roots: [d], extraFolders }).map((f) => f.name).sort();
+    assert.deepEqual(names([]), ['Terra/site']);
+    const r = addFolder({ roots: [d] }, terra, { roots: [d], maxDepth: 6 });
+    assert.ok(r.added);
+    assert.deepEqual(names(r.config.folders), ['Terra', 'Terra/site']);
+    assert.ok(!addFolder(r.config, terra, { roots: [d], maxDepth: 6 }).added, 'no duplicate');
+    // a hand-added folder inside a repo/project still counts (the user asked for it)
+    assert.deepEqual(names(addFolder({}, path.join(terra, 'site'), { roots: [d], maxDepth: 6 }).config.folders), ['Terra/site']);
+    assert.throws(() => addFolder({}, path.join(d, 'nope'), { roots: [d], maxDepth: 6 }), /not found/);
+    assert.throws(() => addFolder({}, os.tmpdir(), { roots: [d], maxDepth: 6 }), /not inside your roots/);
+    assert.throws(() => addFolder({}, path.join(terra, 'notes'), { roots: [d], maxDepth: 1 }), /maxDepth/);
+    const rm1 = removeFolder(r.config, terra);
+    assert.ok(rm1.removed); assert.deepEqual(rm1.config.folders, []);
+  } finally { rm(d); }
 });
