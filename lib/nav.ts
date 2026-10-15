@@ -12,7 +12,7 @@ export function placeOf(path: string): Place | null {
   if (under(path, '/notes')) return 'notes';
   if (under(path, '/claude')) return 'claude';
   if (under(path, '/notifications')) return 'inbox';
-  if (['/history', '/review', '/hidden', '/archive'].some(b => under(path, b))) return 'review';
+  if (['/review'].some(b => under(path, b))) return 'review';
   if (under(path, '/timetable')) return 'schedule';
   if (['/settings', '/connect', '/recovery'].some(b => under(path, b))) return 'settings';
   if (under(path, '/menu')) return 'menu';

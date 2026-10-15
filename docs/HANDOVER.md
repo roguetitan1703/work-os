@@ -64,7 +64,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1â
   - **Board:** columns by status, with filters.
   - **Projects:** progress per client.
   - **Task page:** edit everything inline, log progress, checklist, comments, history.
-  - **History:** Completed, Activity (filter by you, Discord or Claude), Archived, Trash.
+  - **Review** (`/review?view=done|activity|weekly|stale|archive|trash`, sidebar and phone Menu): Done, Activity (filter by you, Discord or Claude), Weekly review, Stale (untouched 14+ days), Archive (Restore on each row, with Undo), Trash (Restore, Delete forever). `/history`, `/hidden` and `/archive` redirect here.
 - **Quick add:** press **N** anywhere. You can type it all in one line:
   - `Send invoice @"Grant Leads" !1 #billing due:fri ~20m mode:admin`
   - That reads as: `@project`, `!1`â€“`!4` for priority, `#tag`, `due:`, `start:`, `~20m` for the estimate, `mode:`.

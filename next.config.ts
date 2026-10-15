@@ -16,6 +16,13 @@ const nextConfig: NextConfig = {
       { source: '/connect', has: [{ type: 'query', key: 'tab', value: '(?<card>chat|discord)' }], destination: '/settings?section=connections&open=:card', permanent: false },
       { source: '/connect', has: [{ type: 'query', key: 'tab', value: 'reference' }], destination: '/settings?section=connections&open=chat', permanent: false },
       { source: '/connect', destination: '/settings?section=connections', permanent: false },
+      // History, Untouched and Archive merged into Review (one page, the segment is ?view=).
+      { source: '/history', has: [{ type: 'query', key: 'tab', value: 'activity' }], destination: '/review?view=activity', permanent: false },
+      { source: '/history', has: [{ type: 'query', key: 'tab', value: 'archived' }], destination: '/review?view=archive', permanent: false },
+      { source: '/history', has: [{ type: 'query', key: 'tab', value: 'trash' }], destination: '/review?view=trash', permanent: false },
+      { source: '/history', destination: '/review?view=done', permanent: false },
+      { source: '/hidden', destination: '/review?view=stale', permanent: false },
+      { source: '/archive', destination: '/review?view=archive', permanent: false },
       { source: '/recovery', destination: '/settings?section=help', permanent: false },
     ];
   },

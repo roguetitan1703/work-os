@@ -313,7 +313,7 @@ export async function notifyChanges(w: Watch | null): Promise<void> {
         kind: 'claude_code_changes',
         title: lines.length === 1 ? `${who} changed #${firstRef}` : `${who} changed ${lines.length} of your tasks`,
         body: lines.slice(0, 20).join('\n') + (lines.length > 20 ? `\n…and ${lines.length - 20} more` : ''),
-        url: lines.length === 1 ? `/tasks/${firstRef}` : '/history?tab=activity&actor=claude-code',
+        url: lines.length === 1 ? `/tasks/${firstRef}` : '/review?view=activity&actor=claude-code',
       },
     ]);
   } catch (e) {

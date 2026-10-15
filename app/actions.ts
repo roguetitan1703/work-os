@@ -90,7 +90,7 @@ export async function checklistAction(id: string, ops: tasks.ChecklistOps): Prom
 }
 
 // ── Trash (delete / restore) and comment edits ─────────────────────────────
-// run() revalidates the whole layout, which covers the task page, /history, /today,
+// run() revalidates the whole layout, which covers the task page, /review, /today,
 // /tasks and project pages.
 
 export async function deleteTaskAction(ref: number | string, reason?: string): Promise<Result<{ ref: number; title: string }>> {

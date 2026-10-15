@@ -88,7 +88,7 @@ function TrashedTask({ item }: { item: TrashItem }) {
       </p>
       <div className="flex items-center gap-2 pt-1">
         <RestoreTrashButton taskRef={item.ref} size="sm" />
-        <Link href="/history?tab=trash" className="text-xs text-muted-foreground hover:text-foreground underline">
+        <Link href="/review?view=trash" className="text-xs text-muted-foreground hover:text-foreground underline">
           Open trash
         </Link>
       </div>

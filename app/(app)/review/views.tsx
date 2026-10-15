@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { format, parseISO } from 'date-fns';
+import { differenceInDays, parseISO, format } from 'date-fns';
+import { EyeOff, Trash2 } from 'lucide-react';
 import { listActivity, listTasks, listTrash, TRASH_DAYS } from '@/lib/data/tasks';
 import { projectNameMap } from '@/lib/data/projects';
 import { ACTOR_LABEL } from '@/lib/activity-text';
@@ -7,39 +8,14 @@ import { fmtAgo, fmtDate, fmtDateTime } from '@/lib/format';
 import { PurgeTrashButton, RestoreTrashButton } from '@/components/trash-controls';
 import { addDays, dateInTz, startOfDay, todayStr, weekStart } from '@/lib/dates';
 import { ActivityTimeline } from '@/components/activity-timeline';
-import { TaskList } from '@/components/task-row';
+import { TaskList, TaskRow } from '@/components/task-row';
+import { MTaskRow } from '@/components/mobile/m-task-row';
+import { UNTOUCHED_DAYS, isUntouched } from '@/lib/untouched';
 import { cn } from '@/lib/utils';
-import { SubHeader, MEmpty } from '@/components/mobile/sub-header';
-import { Trash2 } from 'lucide-react';
-import { ReviewNav } from '@/components/review-nav';
+import { MEmpty } from '@/components/mobile/sub-header';
+import { UnarchiveButton } from './unarchive-button';
 
-type Tab = 'completed' | 'activity' | 'archived' | 'trash';
-type Props = { searchParams: Promise<{ tab?: string; actor?: string; weeks?: string }> };
-
-export const metadata = { title: 'Review · Work OS' };
-
-export default async function HistoryPage({ searchParams }: Props) {
-  const sp = await searchParams;
-  const tab: Tab = sp.tab === 'activity' || sp.tab === 'archived' || sp.tab === 'trash' ? sp.tab : 'completed';
-  const weeks = Math.min(52, Math.max(1, Number(sp.weeks) || 8));
-
-  return (
-    <div className="space-y-5 max-w-5xl">
-      <SubHeader title="Review" subtitle="How work actually moved." />
-      <div className="hidden md:block">
-        <h1 className="text-2xl font-bold text-foreground">Review</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">How work actually moved.</p>
-      </div>
-      <ReviewNav active={tab} />
-      {tab === 'completed' && <Completed weeks={weeks} />}
-      {tab === 'activity' && <ActivityFeed actor={sp.actor} />}
-      {tab === 'archived' && <Archived />}
-      {tab === 'trash' && <Trash />}
-    </div>
-  );
-}
-
-async function Completed({ weeks }: { weeks: number }) {
+export async function Completed({ weeks }: { weeks: number }) {
   const today = todayStr();
   const from = addDays(weekStart(today), -7 * (weeks - 1));
   const done = await listTasks({ status: ['Done'], doneFrom: from, sort: 'done', archived: 'include' });
@@ -81,7 +57,7 @@ async function Completed({ weeks }: { weeks: number }) {
         ))}
       {!done.length && <MEmpty title="Nothing completed yet" hint="Finished tasks show up here, grouped by week." />}
       <Link
-        href={`/history?tab=completed&weeks=${weeks + 8}`}
+        href={`/review?view=done&weeks=${weeks + 8}`}
         className="flex md:inline h-12 md:h-auto items-center justify-center rounded-2xl md:rounded-none border border-border/70 md:border-0 bg-card md:bg-transparent text-sm md:text-xs md:underline text-muted-foreground active:bg-muted/60"
       >
         Show older
@@ -90,7 +66,7 @@ async function Completed({ weeks }: { weeks: number }) {
   );
 }
 
-async function ActivityFeed({ actor }: { actor?: string }) {
+export async function Activity({ actor }: { actor?: string }) {
   const a = actor === 'me' || actor === 'discord' || actor === 'claude' || actor === 'claude-code' || actor === 'system' ? actor : undefined;
   const since = startOfDay(addDays(todayStr(), -14));
   const items = await listActivity({ since, actor: a, limit: 400 });
@@ -105,7 +81,7 @@ async function ActivityFeed({ actor }: { actor?: string }) {
         {[undefined, 'me', 'discord', 'claude', 'claude-code'].map(x => (
           <Link
             key={x ?? 'all'}
-            href={`/history?tab=activity${x ? `&actor=${x}` : ''}`}
+            href={`/review?view=activity${x ? `&actor=${x}` : ''}`}
             replace
             className={cn(
               'shrink-0 whitespace-nowrap h-11 md:h-auto px-4 md:px-2 md:py-1 inline-flex items-center rounded-full md:rounded border',
@@ -129,17 +105,7 @@ async function ActivityFeed({ actor }: { actor?: string }) {
   );
 }
 
-async function Archived() {
-  const tasks = await listTasks({ archived: 'only', sort: 'updated' });
-  return (
-    <div className="space-y-2">
-      <p className="text-sm md:text-xs text-muted-foreground px-1 md:px-0">Archived tasks are hidden everywhere else. Open one and press Restore to bring it back.</p>
-      <TaskList tasks={tasks} empty="Nothing archived." />
-    </div>
-  );
-}
-
-async function Trash() {
+export async function Trash() {
   const [items, names] = await Promise.all([listTrash(), projectNameMap()]);
   return (
     <div className="space-y-2">
@@ -177,6 +143,83 @@ async function Trash() {
         </ul>
       ) : (
         <MEmpty icon={<Trash2 className="w-5 h-5" />} title="Trash is empty" hint={`Deleted tasks show up here for ${TRASH_DAYS} days.`} />
+      )}
+    </div>
+  );
+}
+export async function Archived() {
+  const [tasks, names] = await Promise.all([listTasks({ archived: 'only', sort: 'updated' }), projectNameMap()]);
+  return (
+    <div className="space-y-2">
+      <p className="text-sm md:text-xs text-muted-foreground px-1 md:px-0">Archived tasks are hidden everywhere else. Restore one to bring it back.</p>
+      {tasks.length ? (
+        <ul className="divide-y divide-border/60 md:divide-border rounded-2xl md:rounded-lg border border-border/70 md:border-border bg-card overflow-hidden">
+          {tasks.map(t => (
+            <li key={t.id} data-archived-row className="flex items-center gap-2 px-4 md:px-3 min-h-14 md:min-h-0 py-1 md:py-1.5">
+              <Link href={`/tasks/${t.ref}`} className="min-w-0 flex-1 py-2 block">
+                <div className="text-[16px] md:text-sm text-foreground truncate">
+                  <span className="font-mono text-muted-foreground">#{t.ref}</span> {t.title}
+                </div>
+                <div className="text-xs md:text-[11px] text-muted-foreground truncate">
+                  {[t.status, t.projectId ? names.get(t.projectId) : null, `archived ${fmtAgo(t.updatedAt)}`].filter(Boolean).join(' · ')}
+                </div>
+              </Link>
+              <UnarchiveButton id={t.id} taskRef={t.ref} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <MEmpty title="Nothing archived" hint="Archived tasks show up here." />
+      )}
+    </div>
+  );
+}
+
+export async function Stale() {
+  const now = new Date();
+  const stale = (await listTasks({ open: true, sort: 'updated' }))
+    .map(t => ({ t, days: differenceInDays(now, parseISO(t.updatedAt)) }))
+    .filter(x => isUntouched(x.t.updatedAt, now.getTime()))
+    .sort((a, b) => b.days - a.days);
+
+  return (
+    <div className="space-y-5 md:space-y-6">
+      <div className="rounded-2xl md:rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 md:py-2.5 text-sm text-amber-800 dark:text-amber-300">
+        Review every Sunday. Either re-prioritize, schedule, or drop.
+      </div>
+
+      {stale.length === 0 ? (
+        <>
+          <div className="md:hidden">
+            <MEmpty icon={<EyeOff className="w-5 h-5" />} title="Nothing untouched" hint={`All open tasks were touched in the last ${UNTOUCHED_DAYS} days.`} />
+          </div>
+          <div className="hidden md:block text-sm text-muted-foreground py-12 text-center">Nothing untouched — all open tasks touched within the last {UNTOUCHED_DAYS} days.</div>
+        </>
+      ) : (
+        <>
+        <div className="md:hidden rounded-2xl bg-card border border-border/70 divide-y divide-border/60 overflow-hidden">
+          {stale.map(({ t, days }) => (
+            <MTaskRow
+              key={t.id}
+              task={t}
+              hint={<span className={days > 30 ? 'text-red-600 dark:text-red-400' : days > 14 ? 'text-amber-600 dark:text-amber-400' : ''}>untouched {days}d</span>}
+            />
+          ))}
+        </div>
+        <div className="hidden md:block space-y-0.5">
+          {stale.map(({ t, days }) => (
+            <TaskRow
+              key={t.id}
+              task={t}
+              hint={
+                <span className={days > 30 ? 'text-red-600 dark:text-red-400' : days > 14 ? 'text-amber-600 dark:text-amber-400' : ''}>
+                  untouched {days}d
+                </span>
+              }
+            />
+          ))}
+        </div>
+        </>
       )}
     </div>
   );

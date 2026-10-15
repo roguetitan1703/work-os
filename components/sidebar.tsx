@@ -54,7 +54,7 @@ export function Sidebar({ showSignOut = true }: { showSignOut?: boolean }) {
         </Group>
         <Group>
           <NavItem href="/notifications" on={place === 'inbox'} count={unread} tone="red">Inbox</NavItem>
-          <NavItem href="/history" on={place === 'review'}>Review</NavItem>
+          <NavItem href="/review" on={place === 'review'}>Review</NavItem>
           <NavItem href="/timetable" on={place === 'schedule'}>Schedule</NavItem>
           <Modes />
         </Group>
