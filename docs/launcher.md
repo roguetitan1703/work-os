@@ -106,7 +106,7 @@ start there):
 
 - Windows: Windows Terminal, new window in the folder, running `node worker/run-claude.mjs <claude> <args>`. The wrapper
   runs `claude` (no shell, stdio inherited) and exits 0 when it ends, so the tab closes after Stop or a normal exit.
-- Arguments: `--session-id <sessionId>` (start) or `--resume <sessionId>` (resume), always `--permission-mode manual`,
+- Arguments: `--session-id <sessionId>` (start) or `--resume <sessionId>` (resume), no `--permission-mode` (the user's own Claude default applies),
   `--name <projectName>`, `--remote-control=<projectName>` (one token; the name is optional in claude, so it is attached with
   `=` and can never swallow the next argument), and the prompt as the last argument only when given. Every launched session
   shows up in the Claude app through Remote Control.

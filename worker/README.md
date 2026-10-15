@@ -19,7 +19,7 @@ Same steps; config lives in `~/Library/Application Support/work-os-worker/config
 
 ## Risk
 
-Anyone who controls Work OS (the server, its database or your account) can start sessions here and type prompts into them. Only linked folders can be launched. Do not use bypassPermissions or auto mode in folders you link. Set `"allowPrompts": false` in config.json to ignore prompts sent from Work OS. Windows needs Windows Terminal (wt.exe); there is no cmd.exe fallback.
+Anyone who controls Work OS (the server, its database or your account) can start sessions here and type prompts into them. Only linked folders can be launched. Sessions use your own Claude default permission mode; if that is auto or bypassPermissions, a prompt from Work OS runs without asking, so only link folders you are comfortable with. Set `"allowPrompts": false` in config.json to ignore prompts sent from Work OS. Windows needs Windows Terminal (wt.exe); there is no cmd.exe fallback.
 
 ## Remote Control
 

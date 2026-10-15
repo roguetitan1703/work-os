@@ -7,11 +7,11 @@ import { macScript, asEscape } from './quote.mjs';
 
 const execFileP = promisify(execFile);
 
-// claude args: --session-id|--resume <id>, --permission-mode manual, --name <projectName>,
+// claude args: --session-id|--resume <id>, --name <projectName>,
 // --remote-control=<name> (one token, so the optional name can never swallow the next argument), optional prompt last.
 export function claudeArgs({ kind, sessionId, projectName, prompt }) {
-  // Always normal (manual) mode, whatever the user's default is: Work OS can type into this session.
-  const a = [kind === 'resume' ? '--resume' : '--session-id', sessionId, '--permission-mode', 'manual'];
+  // No --permission-mode: the user's own Claude default applies (Om's choice).
+  const a = [kind === 'resume' ? '--resume' : '--session-id', sessionId];
   const name = String(projectName || 'claude').replace(/\s+/g, ' ').slice(0, 120);
   if (projectName) a.push('--name', name);
   a.push('--remote-control=' + name);
