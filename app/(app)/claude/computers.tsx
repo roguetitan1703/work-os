@@ -8,7 +8,7 @@ import { BottomSheet } from '@/components/mobile/sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { fmtAgo } from '@/lib/format';
 import { ConfirmSheet } from '@/components/responsive-sheet';
-import { Disclosure, Section } from '../connect/ui';
+import { Disclosure, Section } from '../settings/ui';
 import { createDeviceAction, listDevicesAction, revokeDeviceAction } from './setup-actions';
 
 const field =

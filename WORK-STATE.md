@@ -14,8 +14,6 @@
 - Nav shell must link `/claude` (badge from `needsYouCount()`), `?start=1` from the + sheet and sidebar — waits on the nav branch merging with ui-claude.
 - Project Claude card header summary can truncate ("1 queu…") on 390px when 3 parts show — waits on Om noticing.
 - Setup does not yet list a computer's reported folders with link state (proposal §2.2) — waits on Om wanting it.
-- Connect overview's Claude Code card now links to Claude › Setup; drop the card when Connect merges into Settings (slice 7).
-- `/connect?tab=code|devices` redirect happens client-side after the page shell streams (loading.tsx), not as an HTTP 307 — waits on moving the redirect into next.config if it matters.
 - Worker has no log file (stdout of the hidden run is lost), so jobs can only be traced from state.json — waits on Om wanting a log file (add to the install).
 - A Remove-all-finished button for sessions — waits on Om finding one-by-one Remove tedious.
 - AKAR C8 (debt step 3) is blocked by C7 in Work OS, but pms-89 said it is active in wt/debt-3 — waits on Om choosing one.
@@ -32,11 +30,9 @@
 - The repo moved to the project root on 2026-10-15; an empty `work-os` folder may remain (locked by an editor) — delete it when Om renames the folder to "work os" (.scratch-mongo start.sh/rebuild.sh hold the full path).
 - Sessions shows Start only after a folder is linked; could always show Start and open the folder picker first — waits on Om's yes.
 - Lint errors left: current-block-bar.tsx:18 (setState in effect), timetable/today/route.ts no-explicit-any ×3 — waits on next UI touch.
-- Theme toggle's first click goes system → light, so nothing visibly changes — waits on the Settings merge slice.
 - After merging ui-nav: swap lib/data/nav-counts.ts claudeWaitingCount for needsYouCount(); point the Start Claude buttons at the real modal (they only add ?start=1); /claude lights its tab once the page exists — waits on the /claude branch merge.
-- Settings sections are not separate routes yet, so "settings section Back goes to Settings" has nothing to apply to; Connections back goes to Menu — waits on the Settings merge slice.
 - Old route names kept (/history, /hidden, /review, /timetable, /notifications); only nav labels follow the glossary — waits on a route rename slice.
-- /modes/<bad-slug> returns 200 (not-found streams after loading.tsx), same as the /connect client redirect — waits on moving redirects into next.config.
+- /modes/<bad-slug> returns 200 (not-found streams after loading.tsx) — waits on a not-found check before the shell streams.
 - Activity counts: a subagent silent for >2 min drops out of the count; terminal and macOS session shapes only tested on stubs — waits on Om's real use.
 - Scratch suites in .scratch-mongo/scratchpad assume the old Connect code tab, a short seed2 fixture and a 'Notif' bell label — waits on next test cleanup.
 - Today: Schedule button still opens the day plan dialog/sheet, not /timetable; "Full schedule" links to /timetable — waits on merging Schedule into one page.
@@ -44,3 +40,7 @@
 - Desktop TaskRow done now has Undo (shared by every desktop list); recurring tasks undo only the finished one, same as phone — waits on Om noticing.
 - Claude page named sessions (branch ui-claude2): needs Om to restart his worker for the session list; VS Code/terminal sessions without a session id in their arguments are matched to the newest unclaimed transcript (best effort) — waits on Om's real use.
 - Claude Queue tab rows are unchanged (not made denser) — waits on Om's feedback after the Sessions redesign.
+- Settings merge (branch ui-settings): /connect and /recovery are 307s in next.config but keep the old `?tab=` in the URL (Next passes the query through) — harmless, waits on Om noticing.
+- Alerts table: channels are global, not per alert, so each alert row has one switch and the Push/Discord cells show whether it is delivered now; per-alert-per-channel choice needs a settings schema change — waits on Om wanting it.
+- Connections cards fetch Discord status on every open of the section (network call, up to 5 s); cache it if Settings feels slow — waits on Om noticing.
+- docs/HANDOVER.md still describes /connect in places (Connect page, Settings layout); update when the slice merges.

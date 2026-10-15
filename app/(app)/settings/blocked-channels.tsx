@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from 'react';
 import { Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { saveBlockedChannels } from './actions';
+import { saveBlockedChannels } from './blocked-actions';
 
 type Row = { id: string; name: string; type: string; parentId: string | null; blocked: boolean };
 

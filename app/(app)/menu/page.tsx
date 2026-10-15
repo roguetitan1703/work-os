@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ChevronRight, LifeBuoy, Plug } from 'lucide-react';
+import { ChevronRight, LifeBuoy } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { REVIEW_LINKS } from '@/components/review-nav';
 import { MODE_LINKS } from '@/lib/nav';
@@ -45,8 +45,8 @@ export default async function MenuPage() {
 
       <Group title="Settings">
         <Row href="/settings" label="Settings" dot={<span role="img" aria-label={DOT_TEXT[status]} title={DOT_TEXT[status]} className={`w-2.5 h-2.5 rounded-full ${DOT[status]}`} />} />
-        <Row href="/connect" icon={<Plug className="w-5 h-5 text-orange-500" />} label="Connections" />
-        <Row href="/recovery" icon={<LifeBuoy className="w-5 h-5 text-pink-500" />} label="Help and recovery" />
+
+        <Row href="/settings?section=help" icon={<LifeBuoy className="w-5 h-5 text-pink-500" />} label="Help and recovery" />
       </Group>
     </div>
   );

@@ -5,9 +5,8 @@ import { lastRunStatus } from '@/lib/alerts';
 import { lastSeen } from '@/lib/notify';
 import { fmtAgo } from '@/lib/format';
 import type { Level } from './ui';
-import type { TabId } from './data';
 
-export type Card = { tab: Exclude<TabId, 'overview' | 'reference'> | 'code'; title: string; level: Level; status: string; facts: string[] };
+export type Card = { tab: 'chat' | 'discord' | 'alerts' | 'code'; title: string; level: Level; status: string; facts: string[] };
 
 function timed<T>(p: Promise<T>, ms = 5000): Promise<T> {
   return Promise.race([p, new Promise<T>((_, no) => setTimeout(() => no(new Error('timed out')), ms))]);

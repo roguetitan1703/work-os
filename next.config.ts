@@ -10,6 +10,13 @@ const nextConfig: NextConfig = {
     return [
       { source: '/more', destination: '/menu', permanent: false },
       { source: '/board', destination: '/tasks', permanent: false },
+      // Connect merged into Settings (the old tabs map to a section; keys and computers moved to Claude > Setup).
+      { source: '/connect', has: [{ type: 'query', key: 'tab', value: 'code|devices' }], destination: '/claude?tab=setup', permanent: false },
+      { source: '/connect', has: [{ type: 'query', key: 'tab', value: 'alerts' }], destination: '/settings?section=alerts', permanent: false },
+      { source: '/connect', has: [{ type: 'query', key: 'tab', value: '(?<card>chat|discord)' }], destination: '/settings?section=connections&open=:card', permanent: false },
+      { source: '/connect', has: [{ type: 'query', key: 'tab', value: 'reference' }], destination: '/settings?section=connections&open=chat', permanent: false },
+      { source: '/connect', destination: '/settings?section=connections', permanent: false },
+      { source: '/recovery', destination: '/settings?section=help', permanent: false },
     ];
   },
   // The reset token is in the URL: never leak it as a Referer (the page also sets a <meta name=referrer>).

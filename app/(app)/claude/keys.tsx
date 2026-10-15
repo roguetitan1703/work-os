@@ -8,7 +8,7 @@ import { BottomSheet } from '@/components/mobile/sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { fmtAgo } from '@/lib/format';
 import { ConfirmSheet } from '@/components/responsive-sheet';
-import { Disclosure } from '../connect/ui';
+import { Disclosure } from '../settings/ui';
 import { createApiKeyAction, listApiKeysAction, revokeApiKeyAction, rotateApiKeyAction } from './setup-actions';
 
 const field =

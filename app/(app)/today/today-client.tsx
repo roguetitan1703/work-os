@@ -254,7 +254,7 @@ function NowLine({ m, row }: { m: Model; row: (t: Task) => React.ReactNode }) {
     return (
       <div className={plain}>
         Flex day · no fixed schedule ·{" "}
-        <Link href="/recovery" className="underline ml-1 inline-flex items-center min-h-11">
+        <Link href="/settings?section=help" className="underline ml-1 inline-flex items-center min-h-11">
           Recovery
         </Link>
       </div>
@@ -300,7 +300,7 @@ function NowNext({ m, row }: { m: Model; row: (t: Task) => React.ReactNode }) {
       </div>
       {m.isFlexDay ? (
         <p className="px-3 py-3 text-xs text-muted-foreground">
-          Flex day, no fixed schedule. <Link href="/recovery" className="underline">Recovery playbook</Link>
+          Flex day, no fixed schedule. <Link href="/settings?section=help" className="underline">Recovery playbook</Link>
         </p>
       ) : (
         <>

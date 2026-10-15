@@ -1,5 +1,3 @@
-import Link from 'next/link';
-import { ChevronRight } from 'lucide-react';
 import { CopyBox } from '@/components/copy-box';
 import { ALERT_RULES, lastRunStatus } from '@/lib/alerts';
 import { fmtAgo } from '@/lib/format';
@@ -14,7 +12,7 @@ export async function AlertsSection({ base }: { base: string }) {
 
   return (
     <div className="space-y-5">
-      <Section title="Last run">
+      <Section title="Scheduled checks">
         <Card>
           {!ready ? (
             <StatusLine level="off" title="Not set up">
@@ -32,15 +30,6 @@ export async function AlertsSection({ base }: { base: string }) {
             <StatusLine level="warn" title="Ready · no scheduled check has run yet" />
           )}
         </Card>
-      </Section>
-
-      <Section title="Preferences">
-        <Link href="/settings" className="flex items-center gap-3 px-4 h-14 rounded-2xl bg-card border border-border/70 active:bg-muted/60">
-          <span className="flex-1 text-[15px]">Choose which alerts you get and where</span>
-          <span className="text-sm text-muted-foreground">Settings</span>
-          <ChevronRight className="w-4 h-4 text-muted-foreground/40" />
-        </Link>
-        <p className="px-1 mt-1.5 text-xs text-muted-foreground">On/off per alert and channel live in Settings → Notifications. One batched message per check.</p>
       </Section>
 
       <Section title="Setup and rules">

@@ -1,16 +1,5 @@
 import type { ToolName } from '@/lib/mcp/docs';
 
-export const TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'chat', label: 'Claude chat' },
-  { id: 'discord', label: 'Discord' },
-  { id: 'alerts', label: 'Alerts' },
-  { id: 'reference', label: 'Reference' },
-] as const;
-export type TabId = (typeof TABS)[number]['id'];
-export const tabFrom = (v: string | undefined): TabId => (TABS.find(t => t.id === v)?.id ?? 'overview');
-
-
 export const PROJECT_INSTRUCTIONS = `I track all my work in Work OS (connected as a tool). Treat it as the source of truth for what I'm working on.
 
 - When I mention a task, look it up there (refer to tasks by #number).

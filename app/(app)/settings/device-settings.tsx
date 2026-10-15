@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import { Bell, BellOff, Download, Share, Smartphone } from 'lucide-react';
+import { useSyncExternalStore } from 'react';
+import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { saveNotifySettingsAction, subscribePushAction, testNotificationAction, unsubscribePushAction } from './actions';
@@ -186,8 +188,22 @@ export function PushCard({ vapidKey, devices }: { vapidKey: string | null; devic
   );
 }
 
-/** Channels and alert types. */
-export function NotifyPrefs({ initial, kinds, discordReady }: { initial: NotifySettings; kinds: { kind: string; label: string; hint: string }[]; discordReady: boolean }) {
+const INBOX_ONLY = new Set(['claude_code_changes', 'claude_waiting']);
+
+/** Alerts as one labelled table: each alert kind (switch) by where it is delivered. Channel switches sit in the first row. */
+export function AlertsTable({
+  initial,
+  kinds,
+  discordReady,
+  pushReady,
+  devices,
+}: {
+  initial: NotifySettings;
+  kinds: { kind: string; label: string; hint: string }[];
+  discordReady: boolean;
+  pushReady: boolean;
+  devices: number;
+}) {
   const [s, setS] = useState(initial);
   const [, start] = useTransition();
   const save = (next: NotifySettings) => {
@@ -197,23 +213,75 @@ export function NotifyPrefs({ initial, kinds, discordReady }: { initial: NotifyS
       if (!r.ok) toast.error(r.error);
     });
   };
+  const pushOn = s.channels.push && pushReady;
+  const discordOn = s.channels.discord && discordReady;
+  const mark = (on: boolean, label: string) => (
+    <span role="img" aria-label={`${label}: ${on ? 'delivered' : 'not delivered'}`} className={cn('text-base font-semibold', on ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground/50')}>
+      {on ? '✓' : '–'}
+    </span>
+  );
   return (
     <>
-      <Row title="In-app inbox" sub="Always on: the bell on Today and the Notifications screen." action={<Switch label="In-app inbox" on disabled onChange={() => {}} />} />
-      <Row title="Phone notifications" sub="Push to every device that turned them on." action={<Switch label="Phone notifications" on={s.channels.push} onChange={v => save({ ...s, channels: { ...s.channels, push: v } })} />} />
-      <Row
-        title="Discord DMs"
-        sub={discordReady ? 'From the Work OS bot.' : 'Discord bot not configured.'}
-        action={<Switch label="Discord DMs" on={s.channels.discord} disabled={!discordReady} onChange={v => save({ ...s, channels: { ...s.channels, discord: v } })} />}
-      />
-      {kinds.map(k => (
-        <Row
-          key={k.kind}
-          title={k.label}
-          sub={k.hint}
-          action={<Switch label={k.label} on={s.kinds[k.kind as keyof NotifySettings['kinds']]} onChange={v => save({ ...s, kinds: { ...s.kinds, [k.kind]: v } })} />}
-        />
-      ))}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse" aria-label="Alerts by channel">
+          <thead>
+            <tr className="text-[13px] text-muted-foreground">
+              <th scope="col" className="pl-4 pr-2 py-2 font-medium">Alert</th>
+              <th scope="col" className="w-14 px-1 py-2 text-center font-medium">In-app</th>
+              <th scope="col" className="w-14 px-1 py-2 text-center font-medium">Push</th>
+              <th scope="col" className="w-16 pr-3 pl-1 py-2 text-center font-medium">Discord</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/60 border-t border-border/60">
+            <tr>
+              <th scope="row" className="pl-4 pr-2 py-2 text-[15px] font-medium">
+                Send to
+                <span className="block text-[13px] font-normal text-muted-foreground leading-snug">Channel on or off</span>
+              </th>
+              <td className="px-1 text-center">
+                <div className="flex justify-center"><Switch label="In-app inbox" on disabled onChange={() => {}} /></div>
+              </td>
+              <td className="px-1 text-center">
+                <div className="flex justify-center"><Switch label="Phone notifications (push)" on={s.channels.push} onChange={v => save({ ...s, channels: { ...s.channels, push: v } })} /></div>
+              </td>
+              <td className="pr-3 pl-1 text-center">
+                <div className="flex justify-center"><Switch label="Discord DMs" on={s.channels.discord} disabled={!discordReady} onChange={v => save({ ...s, channels: { ...s.channels, discord: v } })} /></div>
+              </td>
+            </tr>
+            {kinds.map(k => {
+              const on = s.kinds[k.kind as keyof NotifySettings['kinds']];
+              const inboxOnly = INBOX_ONLY.has(k.kind);
+              return (
+                <tr key={k.kind}>
+                  <th scope="row" className="pl-4 pr-2 py-2 font-normal">
+                    <div className="flex items-center gap-3">
+                      <Switch label={k.label} on={on} onChange={v => save({ ...s, kinds: { ...s.kinds, [k.kind]: v } })} />
+                      <div className="min-w-0">
+                        <div className="text-[15px] text-foreground">{k.label}</div>
+                        <div className="text-[13px] text-muted-foreground leading-snug">{k.hint}</div>
+                      </div>
+                    </div>
+                  </th>
+                  <td className="px-1 text-center">{mark(on, `${k.label} in-app`)}</td>
+                  <td className="px-1 text-center">{mark(on && !inboxOnly && pushOn, `${k.label} push`)}</td>
+                  <td className="pr-3 pl-1 text-center">{mark(on && !inboxOnly && discordOn, `${k.label} Discord`)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <ul className="px-4 py-3 text-[13px] text-muted-foreground space-y-1 leading-snug">
+        <li><b>In-app:</b> always on. The Inbox is where every alert lands.</li>
+        <li>
+          <b>Push:</b>{' '}
+          {!pushReady ? 'not set up on the server (VAPID keys missing).' : !s.channels.push ? 'switched off above.' : devices === 0 ? 'on, but no device has turned it on yet (This device).' : `on, ${devices} device${devices === 1 ? '' : 's'} receiving.`}
+        </li>
+        <li>
+          <b>Discord:</b> {!discordReady ? 'the Discord bot is not set up (Connections).' : s.channels.discord ? 'on, sent as a direct message from the bot.' : 'switched off above.'}
+        </li>
+        <li>Claude Code changes and Claude needs you are inbox-only.</li>
+      </ul>
     </>
   );
 }
@@ -231,7 +299,31 @@ export function Row({ icon, title, sub, action }: { icon?: React.ReactNode; titl
   );
 }
 
-function Switch({ label, on, disabled, onChange }: { label: string; on: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
+const noop = () => () => {};
+
+/** Light / Dark / Auto as three buttons: the choice is visible and the first click always changes something. */
+export function ThemeChoice() {
+  const { theme, setTheme } = useTheme();
+  const mounted = useSyncExternalStore(noop, () => true, () => false);
+  const cur = mounted ? theme ?? 'system' : null;
+  return (
+    <div role="radiogroup" aria-label="Theme" className="inline-flex rounded-full bg-muted/70 p-1 gap-1">
+      {([['light', 'Light'], ['dark', 'Dark'], ['system', 'Auto']] as const).map(([v, label]) => (
+        <button
+          key={v}
+          role="radio"
+          aria-checked={cur === v}
+          onClick={() => setTheme(v)}
+          className={cn('h-9 min-w-14 px-3 rounded-full text-sm font-medium', cur === v ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground')}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Switch({ label, on, disabled, onChange }: { label: string; on: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
       role="switch"

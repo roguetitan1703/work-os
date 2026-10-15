@@ -1,5 +1,5 @@
 import { CopyBox } from '@/components/copy-box';
-import { Disclosure, Field, Section, code } from '../connect/ui';
+import { Disclosure, Field, Section, code } from '../settings/ui';
 import { Computers } from './computers';
 import { ClaudeCodeKeys } from './keys';
 

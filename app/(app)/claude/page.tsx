@@ -3,7 +3,7 @@ import { Play } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { claudeOverview } from '@/lib/data/claude-overview';
 import { cn } from '@/lib/utils';
-import { baseUrl } from '../connect/base-url';
+import { baseUrl } from '../settings/base-url';
 import { AutoRefresh } from './auto-refresh';
 import { NowTab } from './now-tab';
 import { QueueTab } from './queue-tab';
