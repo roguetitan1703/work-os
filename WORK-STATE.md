@@ -6,10 +6,9 @@
 ## Next
 1. Merge ui-claude then ui-nav; full suites; deploy.
 2. Slice 3: project page as an overview. Slice 4: Today rebuilt. Then Settings merge, Review hub, grammar pass, global search.
-
-1. Om: on the live site, Settings → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
-2. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
-3. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
+3. Om: on the live site, Settings → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
+4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
+5. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
 
 ## Later
 - Worker has no log file (stdout of the hidden run is lost), so jobs can only be traced from state.json — waits on Om wanting a log file (add to the install).
