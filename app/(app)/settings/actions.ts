@@ -1,7 +1,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { z } from 'zod';
 import {
+  NOTIFY_KINDS,
   addToInbox,
   getNotifySettings,
   markAllRead,
@@ -38,9 +40,14 @@ export async function unsubscribePushAction(endpoint: string): Promise<R> {
   }
 }
 
+const NotifyIn = z.object({
+  channels: z.object({ push: z.boolean(), discord: z.boolean() }),
+  kinds: z.object(Object.fromEntries(NOTIFY_KINDS.map(k => [k.kind, z.boolean()]))),
+});
+
 export async function saveNotifySettingsAction(next: NotifySettings): Promise<R> {
   try {
-    await setNotifySettings(next);
+    await setNotifySettings(NotifyIn.parse(next) as NotifySettings);
     return { ok: true };
   } catch (e) {
     return fail(e);
