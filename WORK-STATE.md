@@ -19,7 +19,6 @@
 - Project edits by Claude Code don't notify Om (only task changes do) — waits on Om saying whether he wants that.
 - test-batch.mjs expects a "Delpat" project the seed doesn't create — waits on next test cleanup.
 - claude-items.tsx:51 lint error (setState in effect) — waits on next UI touch.
-- Launcher permission mode: worker forces `--permission-mode manual`; Om wants auto by default — waits on Om choosing "his own default decides" (no flag) vs forced manual.
 - Launcher Resume opens a new window each time instead of reusing one — waits on real use by Om.
 - First Start in a new folder sits at claude's "trust this folder" prompt until answered in the terminal — waits on real use by Om.
 - Worker logged one "fetch failed" during the real test (no effect) — waits on seeing it again.
