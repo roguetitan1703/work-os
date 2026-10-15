@@ -1,10 +1,10 @@
 # Work state
 
 ## Now
-- Building the approved UX proposal (docs/ux-audit/proposal.md): branch ui-claude (/claude area: Now, Queue, Setup with keys and computers; Start Claude modal) and branch ui-nav (bottom bar Today·Projects·+·Claude·Tasks, Menu replaces More, sidebar, modes as a Tasks filter, back rules). Om's answers 2026-10-15: tapping a project opens a modal (no instant start); yes to modes filter, Claude › Setup, Today without tiles.
+- UX proposal slices 1, 2, 5, 6, 8 merged on master (Claude area + Start Claude modal from ui-claude; nav shell from ui-nav). Now: reconcile the two (Claude badge, Start links), run all suites on the merged result, deploy.
 
 ## Next
-1. Merge ui-claude then ui-nav; full suites; deploy.
+1. Full suites on the merged master; deploy.
 2. Slice 3: project page as an overview. Slice 4: Today rebuilt. Then Settings merge, Review hub, grammar pass, global search.
 3. Om: on the live site, Settings → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
@@ -33,3 +33,6 @@
 - Sessions shows Start only after a folder is linked; could always show Start and open the folder picker first — waits on Om's yes.
 - Lint errors left: current-block-bar.tsx:18 (setState in effect), timetable/today/route.ts no-explicit-any ×3 — waits on next UI touch.
 - Theme toggle's first click goes system → light, so nothing visibly changes — waits on the Settings merge slice.
+- After merging ui-nav: swap lib/data/nav-counts.ts claudeWaitingCount for needsYouCount(); point the Start Claude buttons at the real modal (they only add ?start=1); /claude lights its tab once the page exists — waits on the /claude branch merge.
+- Settings sections are not separate routes yet, so "settings section Back goes to Settings" has nothing to apply to; Connections back goes to Menu — waits on the Settings merge slice.
+- Old route names kept (/history, /hidden, /review, /timetable, /notifications); only nav labels follow the glossary — waits on a route rename slice.

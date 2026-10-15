@@ -3,7 +3,9 @@ import { FolderOpen } from 'lucide-react';
 import { listProjects } from '@/lib/data/projects';
 import { fmtAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { SubHeader, MEmpty } from '@/components/mobile/sub-header';
+import { MEmpty } from '@/components/mobile/sub-header';
+import { MobileHeader } from '@/components/mobile/tab-bar';
+import { HubSegment } from '@/components/mobile/hub-segment';
 import { waitingCounts } from '@/lib/data/claude-items';
 import { NewProjectButton } from './new-project';
 
@@ -17,7 +19,8 @@ export default async function ProjectsPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-5 max-w-6xl">
-      <SubHeader title="Projects" subtitle={`${projects.length} ${all === '1' ? 'total' : 'active or paused'}`} right={<NewProjectButton />} />
+      <MobileHeader title="Projects" subtitle={`${projects.length} ${all === '1' ? 'total' : 'active or paused'}`} right={<NewProjectButton />} />
+      <HubSegment active="projects" />
       <div className="md:hidden flex gap-2">
         {[
           { href: '/projects', label: 'Active', on: all !== '1' },

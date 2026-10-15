@@ -5,6 +5,7 @@ import { listTasks } from '@/lib/data/tasks';
 import { TaskRow } from '@/components/task-row';
 import { MTaskRow } from '@/components/mobile/m-task-row';
 import { SubHeader, MEmpty } from '@/components/mobile/sub-header';
+import { ReviewNav } from '@/components/review-nav';
 
 export const metadata = { title: 'Untouched · Work OS' };
 
@@ -22,6 +23,8 @@ export default async function HiddenPage() {
         <h1 className="text-2xl font-bold text-foreground">Untouched</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Open tasks not touched in more than {UNTOUCHED_DAYS} days</p>
       </div>
+
+      <ReviewNav active="stale" />
 
       <div className="rounded-2xl md:rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 md:py-2.5 text-sm text-amber-800 dark:text-amber-300">
         Review every Sunday. Either re-prioritize, schedule, or drop.

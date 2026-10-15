@@ -14,7 +14,7 @@ import { useApp } from './app-context';
 import { TaskForm } from './task-form';
 import { usePhone } from './mobile/use-phone';
 
-const HELP = '@project  !1–!4  #tag  due:fri  start:mon  ~45m  mode:code';
+export const HELP = '@project  !1–!4  #tag  due:fri  start:mon  ~45m  mode:code';
 
 /** Single-line capture. Enter creates; Shift+Enter opens the full form prefilled. */
 export function QuickAddBar({

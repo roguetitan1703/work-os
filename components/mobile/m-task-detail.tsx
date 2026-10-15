@@ -1,5 +1,6 @@
 'use client';
 
+import { BackLink } from '@/components/back-link';
 import Link from 'next/link';
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
@@ -94,9 +95,9 @@ export function MobileTaskDetail({
       {/* Top bar */}
       <div className="sticky -top-3 z-30 -mx-4 -mt-3 px-2 bg-background/85 backdrop-blur-xl" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="h-14 flex items-center justify-between">
-          <button onClick={() => (history.length > 1 ? router.back() : router.push('/today'))} className="h-11 px-2 flex items-center gap-1 text-[16px] text-foreground active:opacity-60">
+          <BackLink href="/tasks" aria-label="Back" className="h-11 px-2 flex items-center gap-1 text-[16px] text-foreground active:opacity-60">
             <ArrowLeft className="w-5 h-5" /> Back
-          </button>
+          </BackLink>
           <span className="font-mono text-sm text-muted-foreground">#{task.ref}</span>
           <button onClick={() => setMenu(m => !m)} className="w-11 h-11 flex items-center justify-center rounded-full active:bg-muted" aria-label="More actions">
             <MoreHorizontal className="w-5 h-5" />

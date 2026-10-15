@@ -11,11 +11,12 @@ import { TaskList } from '@/components/task-row';
 import { cn } from '@/lib/utils';
 import { SubHeader, MEmpty } from '@/components/mobile/sub-header';
 import { Trash2 } from 'lucide-react';
+import { ReviewNav } from '@/components/review-nav';
 
 type Tab = 'completed' | 'activity' | 'archived' | 'trash';
 type Props = { searchParams: Promise<{ tab?: string; actor?: string; weeks?: string }> };
 
-export const metadata = { title: 'History & trash · Work OS' };
+export const metadata = { title: 'Review · Work OS' };
 
 export default async function HistoryPage({ searchParams }: Props) {
   const sp = await searchParams;
@@ -24,26 +25,12 @@ export default async function HistoryPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-5 max-w-5xl">
-      <SubHeader title="History & trash" subtitle="How work actually moved." />
+      <SubHeader title="Review" subtitle="How work actually moved." />
       <div className="hidden md:block">
-        <h1 className="text-2xl font-bold text-foreground">History &amp; trash</h1>
+        <h1 className="text-2xl font-bold text-foreground">Review</h1>
         <p className="text-sm text-muted-foreground mt-0.5">How work actually moved.</p>
       </div>
-      <div className="grid grid-cols-4 md:flex gap-1 bg-muted rounded-xl md:rounded-lg p-1 md:w-fit">
-        {(['completed', 'activity', 'archived', 'trash'] as Tab[]).map(t => (
-          <Link
-            key={t}
-            href={`/history?tab=${t}`}
-            replace
-            className={cn(
-              'h-11 md:h-auto flex items-center justify-center md:px-3 md:py-1 rounded-lg md:rounded text-[13px] md:text-sm font-medium capitalize transition-colors',
-              tab === t ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {t}
-          </Link>
-        ))}
-      </div>
+      <ReviewNav active={tab} />
       {tab === 'completed' && <Completed weeks={weeks} />}
       {tab === 'activity' && <ActivityFeed actor={sp.actor} />}
       {tab === 'archived' && <Archived />}

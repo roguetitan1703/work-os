@@ -5,6 +5,13 @@ const nextConfig: NextConfig = {
   // Server-side note conversion (blocks <-> markdown) runs BlockNote in plain Node; bundling it
   // into the server-component layer breaks its React context usage.
   serverExternalPackages: ["@blocknote/server-util", "@blocknote/core", "@blocknote/react", "jsdom"],
+  // Old places: More became Menu, Board became Tasks (the query string is carried over).
+  async redirects() {
+    return [
+      { source: '/more', destination: '/menu', permanent: false },
+      { source: '/board', destination: '/tasks', permanent: false },
+    ];
+  },
   // The reset token is in the URL: never leak it as a Referer (the page also sets a <meta name=referrer>).
   async headers() {
     return [{ source: '/login/reset', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] }];

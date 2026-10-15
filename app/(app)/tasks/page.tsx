@@ -6,7 +6,7 @@ import { BoardClient } from './board-client';
 import { MobileTasks } from '@/components/mobile/m-tasks';
 import { noteIndex } from '@/lib/data/notes';
 
-type Props = { searchParams: Promise<{ project?: string; mode?: string; due?: string; q?: string }> };
+type Props = { searchParams: Promise<{ project?: string; mode?: string; due?: string; q?: string; search?: string }> };
 
 const DUE: DueFilter[] = ['overdue', 'today', 'today_or_overdue', 'this_week', 'next_7_days', 'no_date'];
 
@@ -28,10 +28,10 @@ export default async function BoardPage({ searchParams }: Props) {
   return (
     <>
       <div className="md:hidden">
-        <MobileTasks tasks={all} projects={active} noteTaskIds={[...notes.byTask.keys()]} filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', q: sp.q ?? '' }} />
+        <MobileTasks focusSearch={sp.search === '1'} tasks={all} projects={active} noteTaskIds={[...notes.byTask.keys()]} filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', q: sp.q ?? '' }} />
       </div>
       <div className="hidden md:block">
-    <BoardClient
+    <BoardClient focusSearch={sp.search === '1'}
       tasks={[...open, ...doneThisWeek]}
       projects={projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => ({ id: p.id, name: p.name }))}
       filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', q: sp.q ?? '' }}

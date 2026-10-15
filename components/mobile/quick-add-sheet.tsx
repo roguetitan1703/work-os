@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import { ArrowUp, X } from 'lucide-react';
+import { ArrowUp, Play, X } from 'lucide-react';
+import { HELP } from '../quick-add';
+import { startClaudeUrl } from '@/lib/nav';
 import { createTaskAction } from '@/app/actions';
 import { parseQuickAdd } from '@/lib/quick-parse';
 import { addDays, resolveDate, weekday } from '@/lib/dates';
@@ -126,6 +128,24 @@ export function QuickAddSheet({ open, onClose, defaultProject }: { open: boolean
             className="w-full resize-none bg-transparent text-xl leading-snug text-foreground outline-none placeholder:text-muted-foreground/50 py-2"
           />
         </div>
+
+        <p className="px-4 -mt-1 text-[11px] text-muted-foreground/70 truncate">{HELP}</p>
+
+        {!parsed.title.trim() && (
+          <div className="px-4 pt-2">
+            <button
+              type="button"
+              data-start-claude
+              onClick={() => {
+                onClose();
+                router.push(startClaudeUrl());
+              }}
+              className="w-full h-11 rounded-xl border border-border flex items-center gap-2 px-3 text-[15px] font-medium text-foreground active:bg-muted"
+            >
+              <Play className="w-4 h-4" /> Start Claude
+            </button>
+          </div>
+        )}
 
         <Chips label="Due">
           {DUE_CHIPS.map(c => (

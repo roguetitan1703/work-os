@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { ListChecks } from 'lucide-react';
 import { updateTaskAction } from '@/app/actions';
@@ -27,9 +27,14 @@ type Props = {
   tasks: Task[];
   projects: { id: string; name: string }[];
   filters: { project: string; mode: string; due: string; q: string };
+  focusSearch?: boolean;
 };
 
-export function BoardClient({ tasks, projects, filters }: Props) {
+export function BoardClient({ tasks, projects, filters, focusSearch = false }: Props) {
+  const searchBox = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (focusSearch) searchBox.current?.focus();
+  }, [focusSearch]);
   const router = useRouter();
   const params = useSearchParams();
   const [pending, start] = useTransition();
@@ -41,7 +46,7 @@ export function BoardClient({ tasks, projects, filters }: Props) {
     const next = new URLSearchParams(params.toString());
     if (value) next.set(key, value);
     else next.delete(key);
-    router.push(`/board${next.size ? '?' + next : ''}`);
+    router.push(`/tasks${next.size ? '?' + next : ''}`);
   }
 
   function move(id: string, status: Status) {
@@ -62,6 +67,8 @@ export function BoardClient({ tasks, projects, filters }: Props) {
         <h1 className="text-2xl font-bold text-foreground">Tasks</h1>
         <div className="flex items-center gap-2 flex-wrap">
           <input
+            ref={searchBox}
+            data-task-search
             value={q}
             onChange={e => setQ(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && setFilter('q', q)}

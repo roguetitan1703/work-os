@@ -189,7 +189,7 @@ export function MobileToday({
             {other.map(t => row(t))}
           </MSection>
           {rest > 0 && (
-            <Link href="/board" className="mt-4 flex min-h-11 items-center justify-center text-sm text-muted-foreground active:opacity-60">
+            <Link href="/tasks" className="mt-4 flex min-h-11 items-center justify-center text-sm text-muted-foreground active:opacity-60">
               {rest} more open in Tasks →
             </Link>
           )}

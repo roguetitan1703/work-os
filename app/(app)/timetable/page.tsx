@@ -11,9 +11,9 @@ const DAY_LABELS: Record<Day, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', th
 
 type Props = { searchParams: Promise<{ day?: string }> };
 
-export const metadata = { title: 'Timetable · Work OS' };
+export const metadata = { title: 'Schedule · Work OS' };
 
-export default async function TimetablePage({ searchParams }: Props) {
+export default async function SchedulePage({ searchParams }: Props) {
   const sp = await searchParams;
   const dow = weekday(todayStr()); // 0 = Sun
   const todayKey: Day | null = dow >= 1 && dow <= 5 ? DAYS[dow - 1] : null;
@@ -21,9 +21,9 @@ export default async function TimetablePage({ searchParams }: Props) {
 
   return (
     <div className="space-y-6">
-      <SubHeader title="Timetable" subtitle="Saturday and Sunday are flex days" />
+      <SubHeader title="Schedule" subtitle="Saturday and Sunday are flex days" />
       <div className="hidden md:block">
-        <h1 className="text-2xl font-bold text-foreground">Timetable</h1>
+        <h1 className="text-2xl font-bold text-foreground">Schedule</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Mon–Fri schedule. Saturday and Sunday are flex days.</p>
       </div>
 

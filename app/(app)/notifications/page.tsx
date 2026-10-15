@@ -6,7 +6,7 @@ import { SubHeader } from '@/components/mobile/sub-header';
 import { cn } from '@/lib/utils';
 import { MarkRead } from './mark-read';
 
-export const metadata = { title: 'Notifications · Work OS' };
+export const metadata = { title: 'Inbox · Work OS' };
 
 const TONE: Record<string, string> = {
   overdue: 'bg-red-500',
@@ -27,7 +27,7 @@ export default async function NotificationsPage() {
       <SubHeader
         back="/today"
         backLabel="Today"
-        title="Notifications"
+        title="Inbox"
         bell={false}
         subtitle={unread ? `${unread} new` : 'All caught up'}
         right={
@@ -37,7 +37,7 @@ export default async function NotificationsPage() {
         }
       />
       <div className="hidden md:flex items-center justify-between mb-3">
-        <h1 className="text-2xl font-bold">Notifications</h1>
+        <h1 className="text-2xl font-bold">Inbox</h1>
         <Link href="/settings" className="text-sm text-muted-foreground hover:text-foreground">
           Settings
         </Link>
