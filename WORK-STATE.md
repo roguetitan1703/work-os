@@ -1,10 +1,12 @@
 # Work state
 
 ## Now
-- UX audit done (docs/ux-audit: crawl-a, crawl-b, analysis, proposal). Waiting on Om's yes to the proposal and its 5 questions; then build slice 1 (Claude area).
-- Nothing in progress. Sessions list made clear (labelled buttons, Remove, closed in grey, waiting text) on 2026-10-15; waits on Om retesting live. Launcher live and tested by Om on his PC (Start, Remote Control, Stop) on 2026-10-15.
+- Building the approved UX proposal (docs/ux-audit/proposal.md): branch ui-claude (/claude area: Now, Queue, Setup with keys and computers; Start Claude modal) and branch ui-nav (bottom bar Today·Projects·+·Claude·Tasks, Menu replaces More, sidebar, modes as a Tasks filter, back rules). Om's answers 2026-10-15: tapping a project opens a modal (no instant start); yes to modes filter, Claude › Setup, Today without tiles.
 
 ## Next
+1. Merge ui-claude then ui-nav; full suites; deploy.
+2. Slice 3: project page as an overview. Slice 4: Today rebuilt. Then Settings merge, Review hub, grammar pass, global search.
+
 1. Om: on the live site, Settings → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 2. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
 3. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
