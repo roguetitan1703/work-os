@@ -18,7 +18,7 @@ export type ClaudeOverview = { needsYou: NeedsYouItem[]; running: OverviewSessio
 /** How many open Claude items wait on Om (for a nav badge). One indexed count. */
 export async function needsYouCount(): Promise<number> {
   const c = await collections();
-  return c.claudeItems.countDocuments({ state: { $in: [...OPEN] }, waitingOnOm: { $ne: '' } });
+  return c.claudeItems.countDocuments({ state: { $in: [...OPEN] }, waitingOnOm: { $type: 'string', $ne: '' } });
 }
 
 export async function claudeOverview(): Promise<ClaudeOverview> {

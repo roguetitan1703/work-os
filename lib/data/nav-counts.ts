@@ -1,15 +1,8 @@
 import 'server-only';
-import { collections } from '@/lib/db';
 import { lastRunStatus } from '@/lib/alerts';
 
-/** Claude items waiting on Om (same rule as waitingCounts, summed). Minimal on purpose: the nav badge only. */
-export async function claudeWaitingCount(): Promise<number> {
-  const c = await collections();
-  const r = await c.claudeItems
-    .aggregate<{ n: number }>([{ $match: { state: { $in: ['queued', 'active', 'blocked'] }, waitingOnOm: { $nin: ['', null] } } }, { $count: 'n' }])
-    .toArray();
-  return r[0]?.n ?? 0;
-}
+/** Claude items waiting on Om, for the nav badge (one rule, shared with the Claude page). */
+export { needsYouCount as claudeWaitingCount } from './claude-overview';
 
 export type StatusLevel = 'ok' | 'warn' | 'error';
 
