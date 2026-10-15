@@ -6,14 +6,15 @@ import { execFileSync } from 'node:child_process';
 
 const TASK = 'work-os-worker';
 const LABEL = 'in.delpat.work-os-worker';
-const workerPath = () => path.join(path.dirname(fileURLToPath(import.meta.url)), 'worker.mjs');
+// Autostart runs the supervisor, which runs `worker.mjs run` and restarts it when the code changes.
+const workerPath = () => path.join(path.dirname(fileURLToPath(import.meta.url)), 'supervisor.mjs');
 const plistPath = () => path.join(os.homedir(), 'Library', 'LaunchAgents', LABEL + '.plist');
 const xml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 export function install() {
   if (process.platform === 'win32') {
     // conhost --headless: no console window stays open at logon. Started now too, not only at the next logon.
-    const tr = `conhost.exe --headless "${process.execPath}" "${workerPath()}" run`;
+    const tr = `conhost.exe --headless "${process.execPath}" "${workerPath()}"`;
     execFileSync('schtasks', ['/Create', '/TN', TASK, '/SC', 'ONLOGON', '/TR', tr, '/RL', 'LIMITED', '/F'], { stdio: 'inherit' });
     try { execFileSync('schtasks', ['/End', '/TN', TASK], { stdio: 'ignore' }); } catch {}
     execFileSync('schtasks', ['/Run', '/TN', TASK], { stdio: 'inherit' });
@@ -22,7 +23,7 @@ export function install() {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>${LABEL}</string>
-<key>ProgramArguments</key><array><string>${xml(process.execPath)}</string><string>${xml(workerPath())}</string><string>run</string></array>
+<key>ProgramArguments</key><array><string>${xml(process.execPath)}</string><string>${xml(workerPath())}</string></array>
 <key>RunAtLoad</key><true/>
 <key>KeepAlive</key><true/>
 </dict></plist>

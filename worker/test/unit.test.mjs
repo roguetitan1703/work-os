@@ -197,3 +197,28 @@ test('scan: parent folders of found folders are offered too', async () => {
     assert.ok(again.every((f) => ids[f.path] === f.id));
   } finally { rm(d); }
 });
+
+test('supervisor: restarts only after the code is stable and parses', async () => {
+  const { createWatch, STABLE_MS, syntaxOk } = await import('../supervisor.mjs');
+  let t = 0, sig = 'a', good = true;
+  const w = createWatch({ running: 'a', now: () => t, read: () => sig, ok: () => good });
+  assert.equal(w.tick(), false, 'unchanged');
+  sig = 'b'; t = 1000;
+  assert.equal(w.tick(), false, 'just changed');
+  t += STABLE_MS - 1; assert.equal(w.tick(), false, 'not stable yet');
+  sig = 'c'; t += 10; assert.equal(w.tick(), false, 'changed again resets the clock');
+  t += STABLE_MS; good = false;
+  assert.equal(w.tick(), 'bad', 'does not parse');
+  assert.equal(w.tick(), false, 'a rejected version is not retried');
+  sig = 'd'; t += 1; w.tick(); t += STABLE_MS; good = true;
+  assert.equal(w.tick(), true, 'stable and parses');
+  w.started('d'); t += STABLE_MS;
+  assert.equal(w.tick(), false, 'running the new code');
+  const d = tmp();
+  try {
+    fs.writeFileSync(path.join(d, 'a.mjs'), 'export const x = 1;\n');
+    assert.ok(syntaxOk(d));
+    fs.writeFileSync(path.join(d, 'b.mjs'), 'export const = ;\n');
+    assert.ok(!syntaxOk(d));
+  } finally { rm(d); }
+});

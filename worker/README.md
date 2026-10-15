@@ -49,6 +49,8 @@ Kill switch: `"enabled": false` in config (picked up within 30 s) or revoke the 
 
 ## Notes
 
+- Autostart runs `supervisor.mjs`, which runs `worker.mjs run` and restarts it when any worker `.mjs` file changes (after 15 s without further changes, and only if every file parses). Updating the worker never needs a reinstall. Output goes to `worker.log` next to the config (rotated at 1 MB).
+
 - State (path to folder id, tracked sessions) is in `state.json` next to the config.
 - Prompts starting with `-` get a leading space so `claude` never reads them as a flag.
 - Sessions run through `run-claude.mjs` (a tiny wrapper that exits 0 when claude ends), so Stop also closes the Windows Terminal tab.

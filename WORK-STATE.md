@@ -4,7 +4,7 @@
 - Deploying 2026-10-15: Today rebuilt, Claude page with named sessions, project page as an overview, Settings with Connect merged in (/connect and /recovery redirect). Om must reinstall his worker for session names and counts.
 
 ## Next
-1. Om: `node worker/worker.mjs install` again (claude lookup retry, parent folders offered), then link the terrah folder from the project; live check of Today, /claude, a project page, Settings, Review and search.
+1. Om: `node worker/worker.mjs install` one last time (supervisor: worker restarts itself on code changes, log file; claude lookup retry; parent folders offered), then link the terrah folder from the project; live check of Today, /claude, a project page, Settings, Review and search.
 2. Grammar pass (names, Back rule, confirms, phone Back closes sheets).
 3. Om: on the live site, Settings → This device → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
@@ -14,7 +14,6 @@
 - Nav shell must link `/claude` (badge from `needsYouCount()`), `?start=1` from the + sheet and sidebar — waits on the nav branch merging with ui-claude.
 - Project Claude card header summary can truncate ("1 queu…") on 390px when 3 parts show — waits on Om noticing.
 - Setup does not yet list a computer's reported folders with link state (proposal §2.2) — waits on Om wanting it.
-- Worker has no log file (stdout of the hidden run is lost), so jobs can only be traced from state.json — waits on Om wanting a log file (add to the install).
 - A Remove-all-finished button for sessions — waits on Om finding one-by-one Remove tedious.
 - AKAR C8 (debt step 3) is blocked by C7 in Work OS, but pms-89 said it is active in wt/debt-3 — waits on Om choosing one.
 - Per-session attribution header (`X-Work-OS-Session` from `CLAUDE_CODE_SESSION_ID`) — waits on checking env expansion in user-scope MCP headers.
@@ -49,5 +48,4 @@
 - Old e2e suites launcher-ui and claude-ui target the retired /connect and old Claude layout; adapted copy lives in scratchpad final/t/claude-new.mjs — waits on moving test suites into the repo.
 - Tab prefetch added to Claude, project and Settings tabs; not yet measured with a slow server — waits on the next full test run.
 - Connections sends MCP_TOKEN with the page (owner-only, behind sign-in, same as before); could fetch on reveal instead — waits on a security pass.
-- Worker without a log file: a failed start only shows in state.json doneJobs (how "claude not found" was found) — waits on Om wanting a log file.
 - Global search (ui-settings): matches title/#ref/C-ref/note text as substrings (no ranking or fuzzy match, 6 per group, 80 chars); task descriptions and comments are not searched; phone Back does not close the search sheet (it leaves the page) — waits on Om's use.
