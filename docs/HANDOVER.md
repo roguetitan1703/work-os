@@ -302,6 +302,7 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
   - `alertQueue`: unblocked alerts waiting to be sent.
 - **Queueing:** `queueUnblocked()` is called from `updateTask` **inside** the same transaction as the write, so a batch that rolls back never queues an alert.
 - **Sending soon after a write:** `flushQueuedAlerts()` runs via `after()` in the MCP route, the Discord interactions route and the app's server actions.
+- **Exactly once, even when runs overlap:** a run claims each alert before delivering it (queue entry: `sentAt: null` → now, conditional update; scheduled alert: insert into `alertLog`, duplicate key = another run has it). Several flushes after a batch plus the cron can no longer send the same alert twice. A claimed alert stays sent even if a channel then fails.
 - **Endpoint:** `app/api/cron/alerts/route.ts`. Without the `CRON_SECRET` header it returns 401 (503 if the secret isn't set at all).
   - `?dry=1` previews without sending.
   - `?at=<ISO>` simulates a different time; it is ignored in production.
