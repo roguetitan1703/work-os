@@ -8,7 +8,8 @@ const execFileP = promisify(execFile);
 
 // claude args: --session-id|--resume <id>, --name <projectName>, optional prompt last.
 export function claudeArgs({ kind, sessionId, projectName, prompt }) {
-  const a = [kind === 'resume' ? '--resume' : '--session-id', sessionId];
+  // Always normal (manual) mode, whatever the user's default is: Work OS can type into this session.
+  const a = [kind === 'resume' ? '--resume' : '--session-id', sessionId, '--permission-mode', 'manual'];
   if (projectName) a.push('--name', String(projectName).slice(0, 120));
   if (prompt) a.push(prompt.startsWith('-') ? ' ' + prompt : prompt); // never let a prompt read as a flag
   return a;

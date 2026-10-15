@@ -105,7 +105,7 @@ start there):
 ## Launching
 
 - Windows: Windows Terminal, new window in the folder, running `claude` with
-  `--session-id <sessionId>` (start) or `--resume <sessionId>` (resume), and the prompt as the
+  `--session-id <sessionId>` (start) or `--resume <sessionId>` (resume), always with `--permission-mode manual`, and the prompt as the
   last argument only when given.
 - macOS: Terminal.app via `osascript`, same arguments, every value single-quoted.
 - Liveness: a process whose command line contains the session id.

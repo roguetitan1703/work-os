@@ -42,6 +42,7 @@ test('windows launch args', () => {
   assert.ok(a.includes('a\\; b'));
   assert.ok(!a.some((x) => /dangerously|bare/.test(x)));
   assert.equal(claudeArgs({ kind: 'resume', sessionId: SID })[0], '--resume');
+  assert.deepEqual(claudeArgs({ kind: 'resume', sessionId: SID }).slice(2, 4), ['--permission-mode', 'manual']);
   assert.ok(claudeArgs({ kind: 'start', sessionId: SID, prompt: '--bare' }).at(-1).startsWith(' '));
 });
 
