@@ -14,8 +14,10 @@ const PER_MINUTE = 60;
 async function overLimit(deviceId: string): Promise<boolean> {
   const c = await collections();
   const since = new Date(Date.now() - 60_000);
+  const recent = await c.policyEvents.countDocuments({ keyId: deviceId, kind: 'worker', at: { $gte: since } });
+  if (recent >= PER_MINUTE) return true; // already over: do not add more rows
   await c.policyEvents.insertOne({ _id: `w_${deviceId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, keyId: deviceId, kind: 'worker', at: new Date() });
-  return (await c.policyEvents.countDocuments({ keyId: deviceId, kind: 'worker', at: { $gte: since } })) > PER_MINUTE;
+  return false;
 }
 
 export function workerRoute(fn: (device: VerifiedDevice, body: unknown) => Promise<unknown>, opts: { body?: boolean } = {}) {

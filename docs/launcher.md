@@ -111,3 +111,9 @@ start there):
 - Liveness: a process whose command line contains the session id.
 - Stop: end that process tree.
 - The folder must resolve (realpath) inside an allowed root; otherwise the job fails.
+- Windows requires Windows Terminal (`wt.exe`). The cmd.exe fallback was removed; without wt.exe the job fails with "Install Windows Terminal (wt.exe)".
+- The worker launches an absolute `claude` path resolved once at startup (outside any allowed root), only in folders that are currently linked, and only acts on sessions it started (exact `--session-id`/`--resume <id>` match). Recently handled job ids are remembered so a re-offered job is not launched twice. Config `allowPrompts: false` makes the worker ignore job prompts.
+
+## Risk
+
+Anyone who controls Work OS (the server, its database or Om's account) can start Claude sessions on linked folders and type prompts into them. Do not use bypassPermissions or auto mode in folders you link, and keep `allowPrompts` off if you do not need prompts from Work OS.
