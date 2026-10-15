@@ -43,7 +43,9 @@ Every session the worker launches starts with `--remote-control=<project name>`,
 
 `run` (default), `setup`, `set-token`, `install`, `uninstall`, `status`, `scan [--dry]`, `activity [--titles]`, `add-folder <path>`, `remove-folder <path>`.
 
-The scan offers git repos and folders with a project file (package.json, pyproject.toml, …). To offer any other folder inside your roots (e.g. a client folder that holds several repos), run `node worker/worker.mjs add-folder "D:\Work\Clients\Terra"`: it checks the folder exists, saves it under `"folders"` in the config and rescans; then link it in Work OS. Kill switch: `"enabled": false` in config (picked up within 30 s) or revoke the key.
+The scan offers git repos and folders with a project file (package.json, pyproject.toml, …). To offer any other folder inside your roots (e.g. a client folder that holds several repos), run `node worker/worker.mjs add-folder "D:\Work\Clients\Terra"`: it checks the folder exists, saves it under `"folders"` in the config and rescans; then link it in Work OS.
+
+Kill switch: `"enabled": false` in config (picked up within 30 s) or revoke the key.
 
 ## Notes
 
