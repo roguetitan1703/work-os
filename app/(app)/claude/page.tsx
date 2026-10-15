@@ -52,6 +52,7 @@ export default async function ClaudePage({ searchParams }: Props) {
             key={t.id}
             href={`/claude?tab=${t.id}`}
             replace
+            prefetch
             scroll={false}
             aria-current={t.id === tab ? 'page' : undefined}
             data-tab={t.id}

@@ -1,12 +1,12 @@
 # Work state
 
 ## Now
-- Deployed 2026-10-15: Claude area (/claude Now·Queue·Setup), Start Claude modal, new nav shell (phone bar, Menu, sidebar, shortcuts, Back), Claude activity counts (sessions + subagents per computer). Om must reinstall his worker for the counts.
+- Deploying 2026-10-15: Today rebuilt, Claude page with named sessions, project page as an overview, Settings with Connect merged in (/connect and /recovery redirect). Om must reinstall his worker for session names and counts.
 
 ## Next
-1. Om: `node worker/worker.mjs install` (worker picks up trust + activity counts); live check of /claude and the new nav.
-2. Next UI slices: Settings merge (Connect into Settings), Review hub, grammar pass (names, Back, confirms), global search.
-3. Om: on the live site, Settings → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
+1. Om: `node worker/worker.mjs install` (worker sends session names + counts); live check of Today, /claude, a project page and Settings.
+2. Next UI slices: Review hub, grammar pass (names, Back, confirms), global search.
+3. Om: on the live site, Settings → This device → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
 5. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
 
@@ -44,3 +44,7 @@
 - Alerts table: channels are global, not per alert, so each alert row has one switch and the Push/Discord cells show whether it is delivered now; per-alert-per-channel choice needs a settings schema change — waits on Om wanting it.
 - Connections cards fetch Discord status on every open of the section (network call, up to 5 s); cache it if Settings feels slow — waits on Om noticing.
 - docs/HANDOVER.md still describes /connect in places (Connect page, Settings layout); update when the slice merges.
+- Project page has no <h1> (name is an input/span) — small a11y gap; add a visually hidden h1 — waits on the grammar pass.
+- Old e2e suites launcher-ui and claude-ui target the retired /connect and old Claude layout; adapted copy lives in scratchpad final/t/claude-new.mjs — waits on moving test suites into the repo.
+- Tab prefetch added to Claude, project and Settings tabs; not yet measured with a slow server — waits on the next full test run.
+- Connections sends MCP_TOKEN with the page (owner-only, behind sign-in, same as before); could fetch on reveal instead — waits on a security pass.
