@@ -104,12 +104,15 @@ start there):
 
 ## Launching
 
-- Windows: Windows Terminal, new window in the folder, running `claude` with
-  `--session-id <sessionId>` (start) or `--resume <sessionId>` (resume), always with `--permission-mode manual`, and the prompt as the
-  last argument only when given.
-- macOS: Terminal.app via `osascript`, same arguments, every value single-quoted.
-- Liveness: a process whose command line contains the session id.
-- Stop: end that process tree.
+- Windows: Windows Terminal, new window in the folder, running `node worker/run-claude.mjs <claude> <args>`. The wrapper
+  runs `claude` (no shell, stdio inherited) and exits 0 when it ends, so the tab closes after Stop or a normal exit.
+- Arguments: `--session-id <sessionId>` (start) or `--resume <sessionId>` (resume), always `--permission-mode manual`,
+  `--name <projectName>`, `--remote-control=<projectName>` (one token; the name is optional in claude, so it is attached with
+  `=` and can never swallow the next argument), and the prompt as the last argument only when given. Every launched session
+  shows up in the Claude app through Remote Control.
+- macOS: Terminal.app via `osascript`, same arguments, every value single-quoted, followed by `; exit`.
+- Liveness: a `claude`/`claude.exe` process (image name) whose command line has `--session-id <id>` or `--resume <id>`. The wrapper is not counted.
+- Stop: end only that claude process tree; the wrapper then exits 0 and the tab closes.
 - The folder must resolve (realpath) inside an allowed root; otherwise the job fails.
 - Windows requires Windows Terminal (`wt.exe`). The cmd.exe fallback was removed; without wt.exe the job fails with "Install Windows Terminal (wt.exe)".
 - The worker launches an absolute `claude` path resolved once at startup (outside any allowed root), only in folders that are currently linked, and only acts on sessions it started (exact `--session-id`/`--resume <id>` match). Recently handled job ids are remembered so a re-offered job is not launched twice. Config `allowPrompts: false` makes the worker ignore job prompts.

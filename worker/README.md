@@ -21,9 +21,9 @@ Same steps; config lives in `~/Library/Application Support/work-os-worker/config
 
 Anyone who controls Work OS (the server, its database or your account) can start sessions here and type prompts into them. Only linked folders can be launched. Do not use bypassPermissions or auto mode in folders you link. Set `"allowPrompts": false` in config.json to ignore prompts sent from Work OS. Windows needs Windows Terminal (wt.exe); there is no cmd.exe fallback.
 
-## Remote Control (optional)
+## Remote Control
 
-Remote Control is optional and off by default here; enable it per session from inside Claude if you want it. Do not enable it globally for linked folders.
+Every session the worker launches starts with `--remote-control=<project name>`, so it appears in the Claude app and you can talk to it there. Work OS never carries the conversation.
 
 ## Commands
 
@@ -33,4 +33,5 @@ Remote Control is optional and off by default here; enable it per session from i
 
 - State (path to folder id, tracked sessions) is in `state.json` next to the config.
 - Prompts starting with `-` get a leading space so `claude` never reads them as a flag.
+- Sessions run through `run-claude.mjs` (a tiny wrapper that exits 0 when claude ends), so Stop also closes the Windows Terminal tab.
 - Tests: `node --test` in this folder (no real terminals, no real claude).

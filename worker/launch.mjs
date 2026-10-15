@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawn, execFile, execFileSync } from 'node:child_process';
 import { insideRoot } from './validate.mjs';
 import { promisify } from 'node:util';
@@ -6,11 +7,14 @@ import { macScript, asEscape } from './quote.mjs';
 
 const execFileP = promisify(execFile);
 
-// claude args: --session-id|--resume <id>, --name <projectName>, optional prompt last.
+// claude args: --session-id|--resume <id>, --permission-mode manual, --name <projectName>,
+// --remote-control=<name> (one token, so the optional name can never swallow the next argument), optional prompt last.
 export function claudeArgs({ kind, sessionId, projectName, prompt }) {
   // Always normal (manual) mode, whatever the user's default is: Work OS can type into this session.
   const a = [kind === 'resume' ? '--resume' : '--session-id', sessionId, '--permission-mode', 'manual'];
-  if (projectName) a.push('--name', String(projectName).slice(0, 120));
+  const name = String(projectName || 'claude').replace(/\s+/g, ' ').slice(0, 120);
+  if (projectName) a.push('--name', name);
+  a.push('--remote-control=' + name);
   if (prompt) a.push(prompt.startsWith('-') ? ' ' + prompt : prompt); // never let a prompt read as a flag
   return a;
 }
@@ -18,8 +22,11 @@ export function claudeArgs({ kind, sessionId, projectName, prompt }) {
 // wt.exe treats ';' as a command separator; escape it so a prompt cannot add wt commands.
 const wtEsc = (s) => String(s).replace(/;/g, '\\;');
 
-export function windowsWtArgs(folder, title, claudePath, cargs) {
-  return ['-w', 'new', '-d', folder, '--title', title, claudePath, ...cargs].map(wtEsc);
+// wt runs `node run-claude.mjs <claudePath> <args...>`: the wrapper runs claude (no shell) and exits 0
+// when it ends, so wt closes the tab (including after Stop kills claude).
+export const WRAPPER = fileURLToPath(new URL('./run-claude.mjs', import.meta.url));
+export function windowsWtArgs(folder, title, claudePath, cargs, nodePath = process.execPath, wrapper = WRAPPER) {
+  return ['-w', 'new', '-d', folder, '--title', title, nodePath, wrapper, claudePath, ...cargs].map(wtEsc);
 }
 
 // Absolute path of claude, resolved once at startup, never from inside an allowed root
@@ -43,6 +50,14 @@ export function matchesSession(cmd, sid) {
   return cmd.includes('--session-id ' + sid) || cmd.includes('--resume ' + sid);
 }
 
+// A claude process (image name claude / claude.exe) for this session; never the wrapper or any other node/shell process.
+export function matchesClaudeProcess(p, sid) {
+  const isClaude = (t) => /^claude(\.exe)?$/i.test(String(t).replace(/^"|"$/g, '').split(/[\/]/).pop());
+  // Windows gives the image name; elsewhere use the program (or, for `node <script>`, the script) in the command line.
+  const ok = p.name ? isClaude(p.name) : (p.cmd.match(/"[^"]*"|\S+/g) || []).slice(0, 2).some(isClaude);
+  return ok && matchesSession(p.cmd, sid);
+}
+
 function spawnDetached(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: false, shell: false, ...opts });
@@ -63,20 +78,20 @@ export async function launch({ kind, folder, sessionId, projectName, prompt, cla
       throw e;
     }
   } else if (process.platform === 'darwin') {
-    const cmd = macScript(folder, claudePath, cargs.map((c) => c.replace(/\r?\n/g, ' ')));
+    const cmd = macScript(folder, claudePath, cargs.map((c) => c.replace(/\r?\n/g, ' '))) + '; exit';
     await execFileP('osascript', ['-e', `tell application "Terminal" to do script "${asEscape(cmd)}"`]);
   } else throw new Error('unsupported platform');
 }
 
-// [{pid, cmd}] for node/claude processes (Windows) or everything (macOS).
+// [{pid, name?, cmd}] for claude.exe processes (Windows) or everything (macOS).
 export async function listProcesses() {
   if (process.platform === 'win32') {
-    const script = "@(Get-CimInstance Win32_Process -Filter \"Name='node.exe' OR Name='claude.exe'\" | Select-Object ProcessId,CommandLine) | ConvertTo-Json -Compress";
+    const script = "@(Get-CimInstance Win32_Process -Filter \"Name='claude.exe'\" | Select-Object ProcessId,Name,CommandLine) | ConvertTo-Json -Compress";
     const { stdout } = await execFileP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { maxBuffer: 16e6, timeout: 30000 });
     if (!stdout.trim()) return [];
     let j = JSON.parse(stdout);
     if (!Array.isArray(j)) j = [j];
-    return j.filter((p) => p && p.CommandLine && p.ProcessId !== process.pid).map((p) => ({ pid: p.ProcessId, cmd: p.CommandLine }));
+    return j.filter((p) => p && p.CommandLine && p.ProcessId !== process.pid).map((p) => ({ pid: p.ProcessId, name: p.Name, cmd: p.CommandLine }));
   }
   const { stdout } = await execFileP('ps', ['-axo', 'pid,command'], { maxBuffer: 16e6, timeout: 30000 });
   return stdout.split('\n').slice(1).map((l) => l.match(/^\s*(\d+)\s+(.*)$/)).filter(Boolean)

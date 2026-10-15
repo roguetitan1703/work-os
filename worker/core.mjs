@@ -1,6 +1,6 @@
 import { scanRoots, publicFolder } from './scan.mjs';
 import { validateJob, insideRoot } from './validate.mjs';
-import { matchesSession } from './launch.mjs';
+import { matchesClaudeProcess } from './launch.mjs';
 import { writeMarker, removeMarker } from './markers.mjs';
 
 export const VERSION = '0.1.0';
@@ -67,7 +67,7 @@ export function createCore(deps) {
       if (job.kind === 'stop') {
         const s = state.sessions[job.sessionId];
         if (!s) return { id, ok: false, error: 'unknown session' };
-        const procs = (await listProcesses()).filter((p) => matchesSession(p.cmd, job.sessionId));
+        const procs = (await listProcesses()).filter((p) => matchesClaudeProcess(p, job.sessionId));
         s.state = 'stopped';
         if (!procs.length) return { id, ok: false, error: 'session not running' };
         for (const p of procs) { try { await killPid(p.pid); } catch {} }
@@ -93,7 +93,7 @@ export function createCore(deps) {
     const procs = await listProcesses();
     for (const sid of ids) {
       const s = state.sessions[sid];
-      const alive = procs.some((p) => matchesSession(p.cmd, sid));
+      const alive = procs.some((p) => matchesClaudeProcess(p, sid));
       if (!alive && now() - s.startedAt > GRACE_MS) s.state = 'dead';
     }
   }
