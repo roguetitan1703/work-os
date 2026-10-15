@@ -142,3 +142,34 @@ test('marker symlink is refused', () => {
     assert.ok(fs.existsSync(target));
   } finally { rm(d); }
 });
+
+test('setup: mergeConfig keeps existing fields and overrides answers', async () => {
+  const { mergeConfig, parseSetupArgs, verifyKey, writeConfig, readRawConfig } = await import('../setup.mjs');
+  const merged = mergeConfig({ baseUrl: 'https://old', deviceName: 'old', roots: ['x'], allowPrompts: false, extra: 1 }, { baseUrl: 'https://new', deviceName: 'Om-PC', roots: ['D:\Work'] });
+  assert.deepEqual(merged, { enabled: true, scanEveryMinutes: 15, maxDepth: 6, baseUrl: 'https://new', deviceName: 'Om-PC', roots: ['D:\Work'], allowPrompts: false, extra: 1 });
+  assert.equal(mergeConfig({}, { baseUrl: 'u', deviceName: 'n', roots: [] }).allowPrompts, undefined);
+  assert.equal(mergeConfig(null, { baseUrl: 'u', deviceName: 'n', roots: [] }).baseUrl, 'u');
+  assert.deepEqual(parseSetupArgs(['--server', 'https://a', '--name', 'n', '--root', 'a', '--root', 'b']), { roots: ['a', 'b'], server: 'https://a', name: 'n' });
+
+  const dir = tmp();
+  const prev = process.env.WORK_OS_WORKER_DIR;
+  process.env.WORK_OS_WORKER_DIR = dir;
+  try {
+    writeConfig(mergeConfig(readRawConfig(), { baseUrl: 'https://a', deviceName: 'n', roots: ['r'] }));
+    writeConfig(mergeConfig({ ...readRawConfig(), allowPrompts: false }, { baseUrl: 'https://b', deviceName: 'n', roots: ['r'] }));
+    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
+    assert.equal(onDisk.baseUrl, 'https://b');
+    assert.equal(onDisk.allowPrompts, false);
+    assert.ok(!('token' in onDisk));
+  } finally {
+    if (prev === undefined) delete process.env.WORK_OS_WORKER_DIR; else process.env.WORK_OS_WORKER_DIR = prev;
+    rm(dir);
+  }
+
+  const seen = [];
+  const fake = (code) => async (url, o) => { seen.push([url, o.headers.Authorization]); return { status: code }; };
+  assert.deepEqual(await verifyKey('https://a.example', 'k', fake(200)), { ok: true, status: 200 });
+  assert.deepEqual(await verifyKey('https://a.example', 'k', fake(401)), { ok: false, status: 401 });
+  assert.equal(seen[0][0], 'https://a.example/api/worker/jobs');
+  assert.equal(seen[0][1], 'Bearer k');
+});

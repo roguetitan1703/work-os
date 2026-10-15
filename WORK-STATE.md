@@ -4,7 +4,7 @@
 - Waiting on Om: set up the launcher on his PC and try the first real Start.
 
 ## Next
-1. Om: Connect → Devices → add his PC; `node worker/worker.mjs set-token`, set server + roots in the worker config, `node worker/worker.mjs install`; link a folder, Start.
+1. Om: Connect → Devices → add his PC; run `node worker/worker.mjs setup` and paste the key; link a folder, Start. (setup built, not yet run against his real config)
 2. Om: on the live site, Settings → send test email (Gmail SMTP via ops.delpat, reset links to OWNER_EMAIL).
 3. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
 4. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.

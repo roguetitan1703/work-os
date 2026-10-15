@@ -7,6 +7,7 @@ import { createCore, VERSION } from './core.mjs';
 import { launch, listProcesses, killPid, resolveClaude } from './launch.mjs';
 import { scanRoots, publicFolder } from './scan.mjs';
 import { install, uninstall } from './install.mjs';
+import { runSetup } from './setup.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (m) => console.log(`${new Date().toISOString()} ${m}`);
@@ -50,6 +51,20 @@ function status() {
   for (const [id, v] of s) console.log(`  ${id}  ${v.state}  ${v.folderId}`);
 }
 
+async function scanAndSend() {
+  const cfg = loadConfig();
+  const state = loadState();
+  const found = scanRoots({ roots: cfg.roots, maxDepth: cfg.maxDepth, knownIds: state.ids });
+  checkBaseUrl(cfg.baseUrl);
+  const api = makeApi(loadConfig, getToken);
+  await api.postFolders(found.map(publicFolder));
+  state.ids = {}; state.folders = {};
+  for (const f of found) { state.ids[f.path] = f.id; state.folders[f.id] = f.path; }
+  state.lastScan = Date.now();
+  saveState(state);
+  return found.length;
+}
+
 const cmd = process.argv[2] || 'run';
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
@@ -58,24 +73,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     else if (cmd === 'install') { install(); console.log('autostart installed'); }
     else if (cmd === 'uninstall') { uninstall(); console.log('autostart removed'); }
     else if (cmd === 'status') status();
+    else if (cmd === 'setup') await runSetup({ argv: process.argv.slice(3), deps: { getToken, setToken, readSecret: readSecretFromStdin, scanAndReport: scanAndSend, install } });
     else if (cmd === 'scan') {
-      const cfg = loadConfig();
-      const state = loadState();
-      const found = scanRoots({ roots: cfg.roots, maxDepth: cfg.maxDepth, knownIds: state.ids });
       if (process.argv.includes('--dry')) {
+        const cfg = loadConfig();
+        const found = scanRoots({ roots: cfg.roots, maxDepth: cfg.maxDepth, knownIds: loadState().ids });
         console.log(JSON.stringify(found.map(publicFolder), null, 2));
         console.log(`${found.length} folders (dry run, nothing sent)`);
-      } else {
-        checkBaseUrl(cfg.baseUrl);
-        const api = makeApi(loadConfig, getToken);
-        await api.postFolders(found.map(publicFolder));
-        state.ids = {}; state.folders = {};
-        for (const f of found) { state.ids[f.path] = f.id; state.folders[f.id] = f.path; }
-        state.lastScan = Date.now();
-        saveState(state);
-        console.log(`sent ${found.length} folders`);
-      }
-    } else { console.error('usage: node worker.mjs [run|set-token|install|uninstall|status|scan [--dry]]'); process.exit(2); }
+      } else console.log(`sent ${await scanAndSend()} folders`);
+    } else { console.error('usage: node worker.mjs [run|setup|set-token|install|uninstall|status|scan [--dry]]'); process.exit(2); }
   } catch (e) { console.error(String(e.message || e)); process.exit(1); }
   if (cmd !== 'run') process.exit(0);
 }

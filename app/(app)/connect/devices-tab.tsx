@@ -20,7 +20,7 @@ const iconBtn = 'w-11 h-11 rounded-full flex items-center justify-center text-mu
 const online = (d: DeviceInfo) => !!d.lastSeenAt && Date.now() - Date.parse(d.lastSeenAt) < 2 * 60_000;
 
 /** Connect → Devices: machines running the session-launcher worker (docs/launcher.md). */
-export function DevicesTab({ url }: { url: string }) {
+export function DevicesTab() {
   const phone = usePhone();
   const [devices, setDevices] = useState<DeviceInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -126,13 +126,13 @@ export function DevicesTab({ url }: { url: string }) {
 
       {fresh && !phone && (
         <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-4">
-          <NewDevice fresh={fresh} url={url} onDone={() => setFresh(null)} />
+          <NewDevice fresh={fresh} onDone={() => setFresh(null)} />
         </div>
       )}
       {fresh && phone && (
         <BottomSheet title={`Key for "${fresh.name}"`} onClose={() => setFresh(null)}>
           <div className="pt-1 pb-2">
-            <NewDevice fresh={fresh} url={url} onDone={() => setFresh(null)} />
+            <NewDevice fresh={fresh} onDone={() => setFresh(null)} />
           </div>
         </BottomSheet>
       )}
@@ -155,8 +155,19 @@ export function DevicesTab({ url }: { url: string }) {
   );
 }
 
-function NewDevice({ fresh, url, onDone }: { fresh: { key: string; name: string }; url: string; onDone: () => void }) {
+const SETUP_CMD = 'node worker/worker.mjs setup';
+
+function NewDevice({ fresh, onDone }: { fresh: { key: string; name: string }; onDone: () => void }) {
   const [copied, setCopied] = useState(false);
+  const [copiedCmd, setCopiedCmd] = useState(false);
+  const copyCmd = () =>
+    navigator.clipboard?.writeText(SETUP_CMD).then(
+      () => {
+        setCopiedCmd(true);
+        setTimeout(() => setCopiedCmd(false), 1500);
+      },
+      () => toast.error('Could not copy'),
+    );
   const copy = () =>
     navigator.clipboard?.writeText(fresh.key).then(
       () => {
@@ -176,15 +187,14 @@ function NewDevice({ fresh, url, onDone }: { fresh: { key: string; name: string 
           {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
         </button>
       </div>
-      <ol className="list-decimal pl-5 text-[13px] text-muted-foreground space-y-1">
-        <li>
-          On that computer, from the work-os repo: <code>node worker/worker.mjs set-token</code> and paste the key.
-        </li>
-        <li>
-          Set the server to <code className="break-all">{url}</code> and your project folders as roots in the worker config, then <code>node worker/worker.mjs install</code>.
-        </li>
-        <li>Its folders appear on each project&apos;s page under Sessions, ready to link.</li>
-      </ol>
+      <p className="text-[13px] text-muted-foreground">On that computer, from the work-os repo, run:</p>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 min-w-0 break-all rounded-lg bg-muted px-3 py-2 text-[13px] font-mono">{SETUP_CMD}</code>
+        <button type="button" className={iconBtn} onClick={copyCmd} aria-label="Copy command">
+          {copiedCmd ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+        </button>
+      </div>
+      <p className="text-[13px] text-muted-foreground">Paste the key when asked.</p>
       <button type="button" className={`${btnPrimary} w-full`} onClick={onDone}>
         I saved it
       </button>

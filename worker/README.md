@@ -2,7 +2,20 @@
 
 Small Node program (Node 20+, no npm dependencies) that lets Work OS start, resume and stop Claude Code sessions on this machine. Contract and security rules: `docs/launcher.md`. Outbound only; paths never leave the machine.
 
-## Windows
+## Setup
+
+1. Install Node 20+ (Windows also needs Windows Terminal; wt.exe). Create a device key in Work OS (Connect, Devices), then from the work-os repo run:
+   ```
+   node worker/worker.mjs setup
+   ```
+   It asks only for what is missing (server, device name, folder to scan, then the key, hidden), checks the key with one real call (a refused key stops it with "key refused"), stores the key with DPAPI or the Keychain (never in config.json), writes config.json, scans and reports folders, and installs autostart. Optional flags: `--server URL --name NAME --root DIR` (repeat `--root`). Safe to rerun; existing settings such as `allowPrompts` are kept.
+2. Open a project in Work OS, Sessions, and link a folder.
+
+## Manual setup
+
+Only if you do not want `setup`.
+
+### Windows
 
 1. Install Node 20+ and Windows Terminal (required; wt.exe).
 2. Create `%APPDATA%\work-os-worker\config.json`:
@@ -13,7 +26,8 @@ Small Node program (Node 20+, no npm dependencies) that lets Work OS start, resu
 4. Check what will be reported: `node worker.mjs scan --dry`.
 5. Run once to try: `node worker.mjs run`. Autostart at logon: `node worker.mjs install` (remove with `uninstall`).
 
-## macOS
+
+### macOS
 
 Same steps; config lives in `~/Library/Application Support/work-os-worker/config.json`, the key goes into the Keychain (service `work-os-worker`), sessions open in Terminal.app (allow Terminal automation when macOS asks), `install` adds a LaunchAgent.
 
@@ -27,7 +41,7 @@ Every session the worker launches starts with `--remote-control=<project name>`,
 
 ## Commands
 
-`run` (default), `set-token`, `install`, `uninstall`, `status`, `scan [--dry]`. Kill switch: `"enabled": false` in config (picked up within 30 s) or revoke the key.
+`run` (default), `setup`, `set-token`, `install`, `uninstall`, `status`, `scan [--dry]`. Kill switch: `"enabled": false` in config (picked up within 30 s) or revoke the key.
 
 ## Notes
 
