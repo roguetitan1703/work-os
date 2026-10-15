@@ -12,8 +12,11 @@ const xml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 export function install() {
   if (process.platform === 'win32') {
-    const tr = `"${process.execPath}" "${workerPath()}" run`;
+    // conhost --headless: no console window stays open at logon. Started now too, not only at the next logon.
+    const tr = `conhost.exe --headless "${process.execPath}" "${workerPath()}" run`;
     execFileSync('schtasks', ['/Create', '/TN', TASK, '/SC', 'ONLOGON', '/TR', tr, '/RL', 'LIMITED', '/F'], { stdio: 'inherit' });
+    try { execFileSync('schtasks', ['/End', '/TN', TASK], { stdio: 'ignore' }); } catch {}
+    execFileSync('schtasks', ['/Run', '/TN', TASK], { stdio: 'inherit' });
   } else if (process.platform === 'darwin') {
     const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
