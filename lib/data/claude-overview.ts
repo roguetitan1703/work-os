@@ -5,20 +5,65 @@ import type { ClaudeItem } from '../types';
 import { deviceMap, derivedState, WAITING_MS, type SessionView } from './launcher';
 
 // The Claude area (/claude) reads everything Claude-related across projects in one go: what
-// waits on Om, live sessions, finished sessions and the open queue. Read-only; the writes go
-// through the existing item and launcher actions. Call it only from signed-in pages/actions.
+// waits on Om, every Claude Code session on his computers (named, from the worker's list), and the
+// open queue. Read-only; the writes go through the existing item and launcher actions. Call it only
+// from signed-in pages/actions.
 
 const OPEN = ['queued', 'active', 'blocked'] as const;
 
-export type OverviewSession = SessionView & { projectId: string; projectName: string };
+/** Written in the last 2 minutes (or subagents working): "working". Open but quiet for 15 minutes: "idle". */
+export const WORKING_MS = 2 * 60_000;
+export const IDLE_MS = 15 * 60_000;
+/** A computer's session list older than this is dropped (the computer is off or the worker stopped). */
+const LIST_DROP_MS = 6 * 3600_000;
+
 export type NeedsYouItem = { id: string; ref: number; projectId: string; projectName: string; title: string; question: string; updatedAt: string };
 export type QueueGroup = { projectId: string; projectName: string; items: ClaudeItem[]; blockers: Record<string, { ref: number; title: string; state: string }> };
 /** Counts a computer last reported (numbers only). `fresh` is false after ACTIVITY_STALE_MS without news: then show "no news", not the old numbers. */
 export type ComputerActivity = { deviceId: string; name: string; fresh: boolean; sessions: number; sessionsWorkOs: number; sessionsOther: number; subagents: number; at: string };
 export type ActivityTotal = { sessions: number; sessionsWorkOs: number; sessionsOther: number; subagents: number; /** Computers with fresh numbers. */ reporting: number };
-export type ClaudeOverview = { needsYou: NeedsYouItem[]; running: OverviewSession[]; recent: OverviewSession[]; queue: QueueGroup[]; hasComputers: boolean; activity: { computers: ComputerActivity[]; total: ActivityTotal } };
+
+export type SessionRowState = 'working' | 'open' | 'idle' | 'starting' | 'closed' | 'stopped' | 'failed' | 'unknown';
+/** One Claude Code session on one computer. Work OS can act only on the ones it started (`workOsId` set). */
+export type SessionRow = {
+  key: string;
+  title: string;
+  folder: string;
+  projectId: string | null;
+  projectName: string | null;
+  deviceId: string;
+  deviceName: string;
+  state: SessionRowState;
+  /** Still running (or starting), as far as the computer knows. */
+  live: boolean;
+  subagents: number;
+  lastActiveAt: string | null;
+  workOs: boolean;
+  /** Id for Stop/Resume/Remove: only for sessions Work OS started. */
+  workOsId?: string;
+  /** Project the session is controlled under (Work OS ones). */
+  controlProjectId?: string;
+  waiting?: boolean;
+  error?: string;
+  canStop: boolean;
+  canResume: boolean;
+  canRemove: boolean;
+};
+export type ComputerSummary = { deviceId: string; name: string; fresh: boolean; sessions: number; working: number; subagents: number };
+export type SessionSummary = { computers: ComputerSummary[]; sessions: number; working: number; subagents: number; reporting: number };
+
+export type ClaudeOverview = {
+  needsYou: NeedsYouItem[];
+  sessions: SessionRow[];
+  summary: SessionSummary;
+  queue: QueueGroup[];
+  hasComputers: boolean;
+  activity: { computers: ComputerActivity[]; total: ActivityTotal };
+};
 
 export const ACTIVITY_STALE_MS = 3 * 60_000;
+
+const lastSeg = (p: string) => p.split(/[\\/]+/).filter(Boolean).pop() ?? p;
 
 /** Latest reported counts per computer plus a total over the computers that are not stale. Read-only. */
 export async function activityOverview(): Promise<ClaudeOverview['activity']> {
@@ -44,41 +89,155 @@ export async function needsYouCount(): Promise<number> {
   return c.claudeItems.countDocuments({ state: { $in: [...OPEN] }, waitingOnOm: { $type: 'string', $ne: '' } });
 }
 
+function liveState(running: boolean, lastMs: number, subagents: number, nowMs: number): SessionRowState {
+  if (!running) return 'closed';
+  if (subagents > 0 || nowMs - lastMs <= WORKING_MS) return 'working';
+  return nowMs - lastMs > IDLE_MS ? 'idle' : 'open';
+}
+
 export async function claudeOverview(): Promise<ClaudeOverview> {
   const c = await collections();
-  const [devices, items, live, ended, projects, activity] = await Promise.all([
+  const nowMs = Date.now();
+  const [devices, items, live, ended, projects, activity, reporting] = await Promise.all([
     deviceMap(),
     c.claudeItems.find({ state: { $in: [...OPEN] } }).sort({ order: 1 }).toArray(),
     c.workerSessions.find({ state: { $in: ['starting', 'running'] }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(50).toArray(),
     c.workerSessions.find({ state: { $in: ['dead', 'stopped', 'failed'] }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(15).toArray(),
     c.projects.find({}, { projection: { name: 1 } }).toArray(),
     activityOverview(),
+    c.devices.find({ revokedAt: null, claudeSessions: { $exists: true } }, { projection: { name: 1, claudeSessions: 1 } }).toArray(),
   ]);
   const names = new Map(projects.map(p => [p._id, p.name]));
   const pname = (id: string) => names.get(id) ?? id;
 
-  // Sessions: folder name and "still linked to this project" come from the folder docs.
-  const sessions = [...live, ...ended].filter(s => !!s.projectId);
-  const folders = sessions.length
-    ? await c.workerFolders.find({ _id: { $in: [...new Set(sessions.map(s => `${s.deviceId}:${s.folderId}`))] } }).toArray()
-    : [];
-  const folderOf = new Map(folders.map(f => [f._id, f]));
-  const view = (s: (typeof sessions)[number]): OverviewSession => {
+  // Work OS-started sessions by id (any visibility, so a removed one does not come back through the worker's list).
+  const reportedIds = reporting.flatMap(d => (d.claudeSessions?.items ?? []).map(i => i.sessionId));
+  const known = reportedIds.length ? await c.workerSessions.find({ _id: { $in: reportedIds } }).toArray() : [];
+  const wsById = new Map([...known, ...live, ...ended].map(s => [s._id, s]));
+
+  // Folders: name and "still linked" for Work OS sessions; linked folders by (computer, name) to find a reported session's project.
+  const wsAll = [...live, ...ended].filter(s => !!s.projectId);
+  const folderIds = [...new Set(wsAll.map(s => `${s.deviceId}:${s.folderId}`))];
+  const deviceIds = [...devices.keys()];
+  const [folderDocs, linkedFolders] = await Promise.all([
+    folderIds.length ? c.workerFolders.find({ _id: { $in: folderIds } }).toArray() : Promise.resolve([]),
+    deviceIds.length ? c.workerFolders.find({ deviceId: { $in: deviceIds }, projectId: { $ne: null }, missing: false }, { projection: { deviceId: 1, name: 1, projectId: 1 } }).toArray() : Promise.resolve([]),
+  ]);
+  const folderOf = new Map(folderDocs.map(f => [f._id, f]));
+  const projByFolder = new Map<string, Set<string>>();
+  for (const f of linkedFolders) {
+    const k = `${f.deviceId}:${lastSeg(f.name)}`;
+    (projByFolder.get(k) ?? projByFolder.set(k, new Set()).get(k)!).add(f.projectId!);
+  }
+  const projectFor = (deviceId: string, folder: string) => {
+    const s = projByFolder.get(`${deviceId}:${folder}`);
+    return s && s.size === 1 ? [...s][0] : null;
+  };
+
+  const rows: SessionRow[] = [];
+  const seen = new Set<string>();
+
+  // 1. What each computer's worker reports: every Claude Code session, named.
+  for (const d of reporting) {
+    const list = d.claudeSessions;
+    const dev = devices.get(d._id);
+    if (!list || !dev || nowMs - list.at.getTime() > LIST_DROP_MS) continue;
+    const stale = nowMs - list.at.getTime() > ACTIVITY_STALE_MS;
+    for (const it of list.items) {
+      const doc = wsById.get(it.sessionId);
+      if (doc && doc.deviceId === d._id && doc.hidden) continue;
+      const own = doc && doc.deviceId === d._id ? doc : undefined;
+      seen.add(`${d._id}:${it.sessionId}`);
+      const lastMs = it.lastActiveAt.getTime();
+      let state: SessionRowState = liveState(it.running, lastMs, it.subagentsActive, nowMs);
+      if (own && !it.running && (own.state === 'starting' || own.state === 'stopped' || own.state === 'failed')) state = own.state === 'starting' ? 'starting' : own.state;
+      if (stale && state !== 'closed' && state !== 'stopped' && state !== 'failed') state = 'unknown';
+      const projectId = own?.projectId ?? projectFor(d._id, it.folder);
+      const f = own ? folderOf.get(`${own.deviceId}:${own.folderId}`) : undefined;
+      const linked = !!own && !!f && f.projectId === own.projectId;
+      const isLive = state === 'working' || state === 'open' || state === 'idle' || state === 'starting';
+      rows.push({
+        key: `${d._id}:${it.sessionId}`,
+        title: it.title,
+        folder: it.folder,
+        projectId,
+        projectName: projectId ? pname(projectId) : null,
+        deviceId: d._id,
+        deviceName: dev.name,
+        state,
+        live: isLive,
+        subagents: stale ? 0 : it.subagentsActive,
+        lastActiveAt: it.lastActiveAt.toISOString(),
+        workOs: it.startedByWorkOs || !!own,
+        ...(own && own.projectId ? { workOsId: own._id, controlProjectId: own.projectId } : {}),
+        ...(own && own.state === 'starting' && nowMs - own.updatedAt.getTime() > WAITING_MS ? { waiting: true } : {}),
+        ...(own?.error ? { error: own.error } : {}),
+        canStop: !!own?.projectId && (isLive || state === 'unknown'),
+        canResume: !!own?.projectId && linked && !isLive && state !== 'unknown',
+        canRemove: !!own?.projectId && !isLive,
+      });
+    }
+  }
+
+  // 2. Work OS sessions the worker's list does not show (ended ones, a worker without the list, a computer that is off).
+  for (const s of wsAll) {
+    if (seen.has(`${s.deviceId}:${s._id}`)) continue;
+    const dev = devices.get(s.deviceId);
     const f = folderOf.get(`${s.deviceId}:${s.folderId}`);
-    return {
-      id: s._id,
+    const st: SessionView['state'] = derivedState(s);
+    const state: SessionRowState = st === 'running' ? 'open' : st === 'dead' ? 'closed' : st;
+    const folder = f ? lastSeg(f.name) : s.folderId;
+    const isLive = st === 'running' || st === 'starting';
+    const linked = !!f && f.projectId === s.projectId;
+    rows.push({
+      key: `${s.deviceId}:${s._id}`,
+      title: folder,
+      folder,
       projectId: s.projectId!,
       projectName: pname(s.projectId!),
-      linked: !!f && f.projectId === s.projectId,
-      waiting: s.state === 'starting' && Date.now() - s.updatedAt.getTime() > WAITING_MS,
-      deviceName: devices.get(s.deviceId)?.name ?? 'revoked computer',
-      folderName: f?.name ?? s.folderId,
-      state: derivedState(s),
-      startedAt: s.startedAt.toISOString(),
-      updatedAt: s.updatedAt.toISOString(),
+      deviceId: s.deviceId,
+      deviceName: dev?.name ?? 'revoked computer',
+      state,
+      live: isLive,
+      subagents: 0,
+      lastActiveAt: s.updatedAt.toISOString(),
+      workOs: true,
+      workOsId: s._id,
+      controlProjectId: s.projectId!,
+      ...(st === 'starting' && nowMs - s.updatedAt.getTime() > WAITING_MS ? { waiting: true } : {}),
       ...(s.error ? { error: s.error } : {}),
-    };
-  };
+      canStop: isLive || st === 'unknown',
+      canResume: linked && !isLive,
+      canRemove: !isLive,
+    });
+  }
+  rows.sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''));
+
+  // Summary per computer: live rows when the computer sent a list, else the counts it reported.
+  const hasList = new Set(reporting.filter(d => d.claudeSessions && nowMs - d.claudeSessions.at.getTime() <= LIST_DROP_MS).map(d => d._id));
+  const actBy = new Map(activity.computers.map(a => [a.deviceId, a]));
+  const comps: ComputerSummary[] = [];
+  for (const [id, dev] of [...devices].sort((a, b) => a[1].name.localeCompare(b[1].name))) {
+    const mine = rows.filter(r => r.deviceId === id);
+    const act = actBy.get(id);
+    if (!mine.length && !act && !hasList.has(id)) continue;
+    const fresh = act ? act.fresh : false;
+    const liveRows = mine.filter(r => r.live);
+    const useRows = hasList.has(id) || liveRows.length > 0;
+    comps.push({
+      deviceId: id,
+      name: dev.name,
+      fresh,
+      sessions: useRows ? liveRows.length : act?.sessions ?? 0,
+      working: liveRows.filter(r => r.state === 'working').length,
+      subagents: useRows ? liveRows.reduce((n, r) => n + r.subagents, 0) : act?.subagents ?? 0,
+    });
+  }
+  const summary: SessionSummary = { computers: comps, sessions: 0, working: 0, subagents: 0, reporting: 0 };
+  for (const x of comps) {
+    if (!x.fresh) continue;
+    summary.sessions += x.sessions; summary.working += x.working; summary.subagents += x.subagents; summary.reporting++;
+  }
 
   const needsYou = items
     .filter(d => d.waitingOnOm)
@@ -99,8 +258,8 @@ export async function claudeOverview(): Promise<ClaudeOverview> {
 
   return {
     needsYou,
-    running: live.filter(s => !!s.projectId).map(view),
-    recent: ended.filter(s => !!s.projectId).map(view),
+    sessions: rows,
+    summary,
     queue: [...byProject.values()].sort((a, b) => a.projectName.localeCompare(b.projectName)),
     hasComputers: devices.size > 0,
     activity,

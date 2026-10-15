@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { collections, type DeviceActivity, type WorkerFolderDoc, type WorkerSessionDoc } from '../db';
+import { collections, type DeviceActivity, type ReportedClaudeSession, type WorkerFolderDoc, type WorkerSessionDoc } from '../db';
 import { InputError, NotFoundError } from './errors';
 import { normalizeRemote } from './code-locations';
 
@@ -120,11 +120,41 @@ export function cleanActivity(raw: unknown): Omit<DeviceActivity, 'at'> {
   return out;
 }
 
+/** Named session list a worker reports (Om approved sending folder names and titles, 2026-10-15). Strict: anything off is a 400. */
+export const MAX_SESSION_LIST = 50;
+const ANY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function cleanClaudeSessions(raw: unknown): ReportedClaudeSession[] {
+  if (!Array.isArray(raw)) throw new InputError('claudeSessions must be an array');
+  if (raw.length > MAX_SESSION_LIST) throw new InputError(`at most ${MAX_SESSION_LIST} sessions`);
+  const seen = new Set<string>();
+  return raw.map((x, n) => {
+    if (!x || typeof x !== 'object' || Array.isArray(x)) throw new InputError(`claudeSessions[${n}] must be an object`);
+    const o = x as Record<string, unknown>;
+    if (typeof o.sessionId !== 'string' || !ANY_UUID.test(o.sessionId)) throw new InputError(`claudeSessions[${n}].sessionId must be a UUID`);
+    const sessionId = o.sessionId.toLowerCase();
+    if (seen.has(sessionId)) throw new InputError(`claudeSessions[${n}] repeats a session id`);
+    seen.add(sessionId);
+    if (typeof o.folder !== 'string' || !o.folder.trim() || o.folder.length > 80) throw new InputError(`claudeSessions[${n}].folder must be a name of 1 to 80 characters`);
+    // A folder NAME, never a path: no separators, drive letters or ~.
+    if (/[\\/]|^[a-z]:|^~|^\.\.?$|[\u0000-\u001f]/i.test(o.folder)) throw new InputError(`claudeSessions[${n}].folder looks like a path; send the folder name only`);
+    if (typeof o.title !== 'string' || o.title.length > 500) throw new InputError(`claudeSessions[${n}].title must be a string`);
+    const title = o.title.replace(/[\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || o.folder.trim();
+    const at = o.lastActiveAt;
+    if (typeof at !== 'number' || !Number.isFinite(at) || at < 0 || at > Date.now() + 86_400_000) throw new InputError(`claudeSessions[${n}].lastActiveAt must be a time in ms`);
+    const sub = o.subagentsActive;
+    if (typeof sub !== 'number' || !Number.isInteger(sub) || sub < 0) throw new InputError(`claudeSessions[${n}].subagentsActive must be a whole number, 0 or more`);
+    if (typeof o.startedByWorkOs !== 'boolean' || typeof o.running !== 'boolean') throw new InputError(`claudeSessions[${n}] flags must be true or false`);
+    return { sessionId, folder: o.folder.trim(), title, lastActiveAt: new Date(Math.round(at)), subagentsActive: Math.min(sub, 99), startedByWorkOs: o.startedByWorkOs, running: o.running };
+  });
+}
+
 export async function reportStatus(deviceId: string, body: unknown): Promise<void> {
-  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown };
+  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown };
   const activity = b.activity === undefined ? null : cleanActivity(b.activity); // validate before any write
+  const claudeSessions = b.claudeSessions === undefined ? null : cleanClaudeSessions(b.claudeSessions);
   const c = await collections();
   const now = new Date();
+  if (claudeSessions) await c.devices.updateOne({ _id: deviceId }, { $set: { claudeSessions: { at: now, items: claudeSessions } } });
   if (activity) await c.devices.updateOne({ _id: deviceId }, { $set: { activity: { ...activity, at: now } } });
   if (b.worker && typeof b.worker === 'object') {
     const version = String(b.worker.version ?? '').slice(0, 20);

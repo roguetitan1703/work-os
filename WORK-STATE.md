@@ -39,3 +39,5 @@
 - /modes/<bad-slug> returns 200 (not-found streams after loading.tsx), same as the /connect client redirect — waits on moving redirects into next.config.
 - Activity counts: a subagent silent for >2 min drops out of the count; terminal and macOS session shapes only tested on stubs — waits on Om's real use.
 - Scratch suites in .scratch-mongo/scratchpad assume the old Connect code tab, a short seed2 fixture and a 'Notif' bell label — waits on next test cleanup.
+- Claude page named sessions (branch ui-claude2): needs Om to restart his worker for the session list; VS Code/terminal sessions without a session id in their arguments are matched to the newest unclaimed transcript (best effort) — waits on Om's real use.
+- Claude Queue tab rows are unchanged (not made denser) — waits on Om's feedback after the Sessions redesign.
