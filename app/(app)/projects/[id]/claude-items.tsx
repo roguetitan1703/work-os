@@ -83,7 +83,7 @@ export function ClaudeItems({ projectId, items, blockers, waitingOnOm, doneCount
   return (
     <section className="space-y-3" id="claude-work">
       <div className="flex items-center gap-2 flex-wrap">
-        <h2 className="text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 md:px-0">Claude&apos;s work list</h2>
+        <h2 className="text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 md:px-0">Queue</h2>
         <span className="text-xs text-muted-foreground">
           {open.length} open · {doneCount} done
         </span>
