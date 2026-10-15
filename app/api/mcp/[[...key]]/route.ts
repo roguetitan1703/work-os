@@ -11,7 +11,7 @@ import { repoHeader, runWithRequestContext, sessionHeader, type RequestContext }
 // MCP endpoint (Streamable HTTP, stateless). Two kinds of credential, sent in a header:
 //   Authorization: Bearer <key>   or   X-API-Key: <key>        → POST /api/mcp
 //   - MCP_TOKEN: the claude.ai connector, actor "claude"
-//   - a Claude Code key (wos_…, created on /connect): actor "claude-code", with the rules in
+//   - a Claude Code key (wos_…, created in Claude › Setup): actor "claude-code", with the rules in
 //     lib/mcp/policy.ts. These keys are accepted HERE ONLY: proxy.ts and every other route use
 //     checkToken() (MCP_TOKEN only). Optional headers X-Work-OS-Session / X-Work-OS-Repo are
 //     stored on the history entries the request writes.

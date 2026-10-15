@@ -1,5 +1,5 @@
 // Single source for what Claude is told about Work OS: used by the MCP server
-// (server instructions + tool descriptions) and by the /connect page.
+// (server instructions + tool descriptions) and by Settings › Connections.
 
 import { ModeSchema } from '../types';
 import { APP_TZ } from '../dates';
@@ -18,7 +18,7 @@ export const INSTRUCTIONS = `Work OS is Om's personal task system (solo founder 
 - For the morning brief, call daily_summary once; it already contains overdue, due today, in progress, blocked, completions and changes since the previous workday.
 - Discord (server "Delpat", read-only): discord_needs_attention is the one call for "what needs me on Discord". It lists items Om flagged for later by tagging the bot (with the message he was replying to), mentions of him/his roles/@everyone, replies to him, and new activity in threads he is in, each marked handled if he posted after it. The bot cannot post, so never claim to have replied on Discord. Use discord_message_to_task to turn a message into a task (it won't duplicate one already tracked).`;
 
-/** Added to INSTRUCTIONS for Claude Code sessions (API keys from /connect), not for the claude.ai connector. */
+/** Added to INSTRUCTIONS for Claude Code sessions (API keys from Claude › Setup), not for the claude.ai connector. */
 export const CLAUDE_CODE_INSTRUCTIONS = `You are connected as Claude Code (a session on Om's PC). Your writes are recorded as "Claude Code".
 - Start here: call get_project with your git remote (git remote get-url origin), your folder relative to the repo root (git rev-parse --show-prefix) and branch. If it says unmatched, ask Om which project this is and save it with update_project code, or create the project with add_project (code included) when it is new work.
 - You can create and edit projects, tasks and notes, and move tasks and notes to trash (restorable). Permanent deletion and admin are not available.

@@ -334,7 +334,7 @@ async function loadContext(): Promise<GuildContext> {
 }
 
 // ── Blocked channels (sensitive: passwords etc.) ────────────────────────────
-// Stored in Mongo (settings._id = 'discord'), editable on /connect; DISCORD_BLOCKED_CHANNELS
+// Stored in Mongo (settings._id = 'discord'), editable in Settings › Connections; DISCORD_BLOCKED_CHANNELS
 // (comma-separated ids) adds more from env. Blocked channels never reach any tool or command.
 
 async function blockedIds(): Promise<Set<string>> {
