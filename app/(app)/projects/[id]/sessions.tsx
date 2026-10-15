@@ -2,13 +2,13 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
-import { FolderGit2, Link2, Play, Plus, RotateCcw, Square, Trash2, Unlink } from 'lucide-react';
+import { FolderGit2, Link2, Plus, RotateCcw, Square, Trash2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
 import type { FolderView, SessionView } from '@/lib/data/launcher';
 import { ResponsiveSheet as Sheet } from '@/components/responsive-sheet';
 import { stateText } from '@/lib/session-state';
 import { fmtAgo } from '@/lib/format';
-import { linkFolderAction, removeSessionAction, resumeSessionAction, searchFoldersAction, startSessionAction, stopSessionAction, unlinkFolderAction } from './launcher-actions';
+import { linkFolderAction, removeSessionAction, resumeSessionAction, searchFoldersAction, stopSessionAction, unlinkFolderAction } from './launcher-actions';
 
 const H2 = 'text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider';
 const card = 'rounded-2xl md:rounded-lg border border-border/70 md:border-border bg-card overflow-hidden';
@@ -22,21 +22,18 @@ const label = (f: FolderView) => `${f.name}${f.branch ? ` (${f.branch})` : ''}`;
 /** Project page: folders linked on each computer, Start / Resume / Stop (docs/launcher.md). */
 export function ProjectSessions({
   projectId,
-  projectName,
   folders,
   suggestions,
   sessions,
   devices,
 }: {
   projectId: string;
-  projectName: string;
   folders: FolderView[];
   suggestions: FolderView[];
   sessions: SessionView[];
   devices: { id: string; name: string }[];
 }) {
   const [pending, start] = useTransition();
-  const [starting, setStarting] = useState<FolderView[] | null>(null);
   const [adding, setAdding] = useState(false);
 
   const act = (fn: () => Promise<{ ok: boolean; error?: string }>, done?: string) =>
@@ -49,12 +46,7 @@ export function ProjectSessions({
     return (
     <section className="space-y-2" data-section="sessions">
       <div className="flex items-center justify-between">
-        <h2 className={`${H2} px-1 md:px-0`}>Sessions</h2>
-        {devices.length > 0 && (
-          <Link href={`?start=${encodeURIComponent(projectId)}`} scroll={false} className={`${btn} bg-foreground text-background`} data-start-claude>
-            <Play className="w-4 h-4" /> Start Claude
-          </Link>
-        )}
+        <h2 className={`${H2} px-1 md:px-0`}>Sessions and folders</h2>
       </div>
 
       {!devices.length ? (
@@ -77,11 +69,6 @@ export function ProjectSessions({
                   {f.missing ? ' · not found in its last scan' : f.online ? '' : ' · offline'}
                 </div>
               </div>
-              {!f.missing && (
-                <button type="button" className={iconBtn} disabled={pending} onClick={() => setStarting([f])} aria-label={`Start in ${f.name}`} title="Start here">
-                  <Play className="w-4 h-4" /> Start
-                </button>
-              )}
               <button type="button" className={iconBtn} disabled={pending} onClick={() => act(() => unlinkFolderAction(projectId, f.key), `Unlinked ${f.name}`)} aria-label={`Unlink ${f.name}`} title="Unlink">
                 <Unlink className="w-4 h-4" /> Unlink
               </button>
@@ -149,68 +136,8 @@ export function ProjectSessions({
         </div>
       )}
 
-      {starting && (
-        <StartSheet
-          projectName={projectName}
-          folders={starting}
-          pending={pending}
-          onClose={() => setStarting(null)}
-          onStart={(f, prompt) =>
-            start(async () => {
-              const r = await startSessionAction(projectId, f.key, prompt);
-              if (!r.ok) return void toast.error(r.error);
-              setStarting(null);
-              toast(`Starting ${projectName} on ${f.deviceName}. It appears in the Claude app in a few seconds.`);
-            })
-          }
-        />
-      )}
       {adding && <AddFolderSheet projectId={projectId} devices={devices} onClose={() => setAdding(false)} />}
     </section>
-  );
-}
-
-function StartSheet({ projectName, folders, pending, onClose, onStart }: { projectName: string; folders: FolderView[]; pending: boolean; onClose: () => void; onStart: (f: FolderView, prompt: string) => void }) {
-  const [pick, setPick] = useState(folders[0]?.key);
-  const [prompt, setPrompt] = useState('');
-  const f = folders.find(x => x.key === pick) ?? folders[0];
-  return (
-    <Sheet title={`Start ${projectName}`} onClose={onClose}>
-      <div className="space-y-4 pt-1 pb-2">
-        {folders.length > 1 && (
-          <div className="space-y-1.5" role="radiogroup" aria-label="Folder">
-            {folders.map(x => (
-              <label key={x.key} className="flex items-center gap-3 min-h-12 px-3 rounded-xl border border-border has-[:checked]:border-foreground cursor-pointer">
-                <input type="radio" name="folder" checked={pick === x.key} onChange={() => setPick(x.key)} className="w-4 h-4" />
-                <span className="flex-1 min-w-0">
-                  <span className="block text-[15px] truncate">{label(x)}</span>
-                  <span className="block text-[13px] text-muted-foreground">{x.deviceName}{x.online ? '' : ' · offline'}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        )}
-        {folders.length === 1 && (
-          <p className="text-[15px]">
-            {label(f)} <span className="text-muted-foreground">on {f.deviceName}</span>
-          </p>
-        )}
-        <div className="space-y-1">
-          <textarea
-            className={`${field} h-24 py-2 resize-none`}
-            value={prompt}
-            maxLength={4000}
-            onChange={e => setPrompt(e.target.value)}
-            placeholder="First message (optional). Usually leave empty and type in the Claude app."
-            aria-label="First message"
-          />
-          <p className="text-[12px] text-muted-foreground">Opens Claude Code in that folder, in normal permission mode, connected to the Claude app.</p>
-        </div>
-        <button type="button" className={`${btn} w-full bg-foreground text-background`} disabled={pending || !f} onClick={() => f && onStart(f, prompt)}>
-          <Play className="w-4 h-4" /> Start
-        </button>
-      </div>
-    </Sheet>
   );
 }
 

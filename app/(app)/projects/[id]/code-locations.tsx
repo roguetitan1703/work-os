@@ -44,7 +44,7 @@ export function CodeLocations({ projectId, initial }: { projectId: string; initi
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <h2 className="text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 md:px-0">Code locations</h2>
+        <h2 className="text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 md:px-0">Repos</h2>
         {!draft && (
           <button type="button" onClick={() => setDraft(EMPTY)} className="h-11 md:h-7 px-3 md:px-2 inline-flex items-center gap-1 text-sm md:text-xs text-muted-foreground hover:text-foreground rounded-xl md:rounded-md active:bg-muted">
             <Plus className="w-4 h-4 md:w-3.5 md:h-3.5" /> Add

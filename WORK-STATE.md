@@ -5,14 +5,15 @@
 
 ## Next
 1. Om: `node worker/worker.mjs install` (worker picks up trust + activity counts); live check of /claude and the new nav.
-2. Slice 3: project page as an overview. Slice 4: Today rebuilt. Then Settings merge, Review hub, grammar pass, global search.
+2. Slice 3 (project overview) is on branch ui-project, tested, not merged: review and merge. Slice 4: Today rebuilt. Then Settings merge, Review hub, grammar pass, global search.
 3. Om: on the live site, Settings → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
 5. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
 
 ## Later
 - Nav shell must link `/claude` (badge from `needsYouCount()`), `?start=1` from the + sheet and sidebar — waits on the nav branch merging with ui-claude.
-- Project page still has its own per-folder Start sheet and Add a folder sheet (kept on purpose) — waits on the project overview slice.
+- Desktop task rows have no Undo after done (phone rows do) — waits on Om wanting it.
+- Project Claude card header summary can truncate ("1 queu…") on 390px when 3 parts show — waits on Om noticing.
 - Setup does not yet list a computer's reported folders with link state (proposal §2.2) — waits on Om wanting it.
 - Connect overview's Claude Code card now links to Claude › Setup; drop the card when Connect merges into Settings (slice 7).
 - `/connect?tab=code|devices` redirect happens client-side after the page shell streams (loading.tsx), not as an HTTP 307 — waits on moving the redirect into next.config if it matters.
