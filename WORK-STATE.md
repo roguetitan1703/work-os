@@ -19,3 +19,7 @@
 - Desktop/phone parity re-check of quick add, import and day plan (phone versions are smaller) — waits on a free slot.
 - Project edits by Claude Code don't notify Om (only task changes do) — waits on Om saying whether he wants that.
 - test-batch.mjs expects a "Delpat" project the seed doesn't create — waits on next test cleanup.
+- Launcher Stop kills claude, so its Windows Terminal tab stays open showing "process exited"; a clean exit would close it — waits on real use by Om.
+- Launcher Resume opens a new window each time instead of reusing one — waits on real use by Om.
+- Resume of a session with real work in it not yet tried on a real machine — waits on Om's first real use.
+- claude-items.tsx:51 lint error (setState in effect) — waits on next UI touch.
