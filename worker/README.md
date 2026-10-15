@@ -4,7 +4,7 @@ Small Node program (Node 20+, no npm dependencies) that lets Work OS start, resu
 
 ## Windows
 
-1. Install Node 20+ and Windows Terminal (optional; falls back to cmd.exe).
+1. Install Node 20+ and Windows Terminal (required; wt.exe).
 2. Create `%APPDATA%\work-os-worker\config.json`:
    ```json
    { "baseUrl": "https://your-work-os.example", "deviceName": "my-pc", "roots": ["D:\\Work"], "enabled": true, "scanEveryMinutes": 15, "maxDepth": 6 }
