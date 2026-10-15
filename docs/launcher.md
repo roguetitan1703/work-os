@@ -46,7 +46,7 @@ All bodies are JSON. Errors: `{ "error": "…" }` with 400 / 401 / 413 / 429.
 - `remote`: credentials stripped, lowercase `owner/name` without host or `.git` (same form as project code locations), ≤ 200. Omit when none.
 - `branch`: ≤ 120. Omit for non-git folders.
 - At most 3000 folders. Folders not in the latest scan are marked missing (never deleted).
-- Which folders: git repos, folders with a project file, and folders added by hand (`worker add-folder <path>`, stored in the config's `folders`, must be inside a root). Paths never leave the machine; only the name relative to the root is sent.
+- Which folders: git repos, folders with a project file, and every parent folder between a root and those (so a client folder holding several repos can be linked). Paths never leave the machine; only the name relative to the root is sent.
 
 Response: `{ "ok": true, "known": 112, "missing": 1 }`
 

@@ -11,14 +11,13 @@ export function configDir() {
 export const configPath = () => path.join(configDir(), 'config.json');
 export const statePath = () => path.join(configDir(), 'state.json');
 
-const DEFAULTS = { baseUrl: '', deviceName: os.hostname(), roots: [], enabled: true, allowPrompts: true, scanEveryMinutes: 15, maxDepth: 6, folders: [] };
+const DEFAULTS = { baseUrl: '', deviceName: os.hostname(), roots: [], enabled: true, allowPrompts: true, scanEveryMinutes: 15, maxDepth: 6 };
 
 export function loadConfig() {
   let c = {};
   try { c = JSON.parse(fs.readFileSync(configPath(), 'utf8')); } catch {}
   const cfg = { ...DEFAULTS, ...c };
   cfg.roots = Array.isArray(cfg.roots) ? cfg.roots.filter((r) => typeof r === 'string' && r) : [];
-  cfg.folders = Array.isArray(cfg.folders) ? cfg.folders.filter((r) => typeof r === 'string' && r) : [];
   return cfg;
 }
 

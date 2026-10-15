@@ -23,7 +23,7 @@ export function createCore(deps) {
 
   function scan() {
     const cfg = getConfig();
-    const found = scanRoots({ roots: cfg.roots, maxDepth: cfg.maxDepth, knownIds: state.ids, extraFolders: cfg.folders });
+    const found = scanRoots({ roots: cfg.roots, maxDepth: cfg.maxDepth, knownIds: state.ids });
     return found;
   }
 

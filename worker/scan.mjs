@@ -4,7 +4,6 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { normalizeRemote } from './remote.mjs';
 import { readMarker, WRITER } from './markers.mjs';
-import { canon } from './trust.mjs';
 
 const SKIP = new Set(['node_modules', '.next', 'dist', 'build', '.venv', 'venv', '__pycache__', '.git']);
 const PROJECT_FILES = ['package.json', 'pyproject.toml', 'requirements.txt', 'go.mod', 'Cargo.toml', 'composer.json', 'pubspec.yaml', 'manage.py'];
@@ -19,10 +18,9 @@ function git(dir, args) {
 export function newId() { return 'f_' + crypto.randomBytes(9).toString('base64url').slice(0, 12); }
 
 // knownIds: absolute path -> folderId (local state). Returns folders including a local-only `path`.
-// extraFolders: folders the user added by hand (config "folders", `worker add-folder`); they count even
-// without git or a project file, e.g. a client folder that holds several repos.
-export function scanRoots({ roots, maxDepth = 6, knownIds = {}, extraFolders = [] }) {
-  const extra = new Set(extraFolders.map((f) => { try { return canon(fs.realpathSync(f)); } catch { return null; } }).filter(Boolean));
+// Also reports every parent folder between a root and a found folder (e.g. a client folder that holds
+// several repos), so any of them can be picked in Work OS and Claude started there.
+export function scanRoots({ roots, maxDepth = 6, knownIds = {} }) {
   const out = [];
   const usedIds = new Set();
   const multi = roots.length > 1;
@@ -53,11 +51,10 @@ export function scanRoots({ roots, maxDepth = 6, knownIds = {}, extraFolders = [
       const names = new Set(entries.map((e) => e.name));
       const isGit = names.has('.git');
       const hasProj = PROJECT_FILES.some((f) => names.has(f)) || entries.some((e) => e.isFile() && e.name.endsWith('.csproj'));
-      const counted = isGit || (!gitOnly && hasProj) || extra.has(canon(dir));
+      const counted = isGit || (!gitOnly && hasProj);
       if (counted) out.push(describe(dir, isGit));
-      // below a repo or project, only nested git repos count; a hand-added folder (a parent of several
-      // projects) keeps its children as they were
-      const childGitOnly = gitOnly || isGit || hasProj;
+      // below a counted folder, only nested git repos count
+      const childGitOnly = gitOnly || counted;
       if (depth < maxDepth) {
         for (const e of entries) {
           if (!e.isDirectory() || SKIP.has(e.name)) continue; // symlinks are not followed
@@ -65,7 +62,22 @@ export function scanRoots({ roots, maxDepth = 6, knownIds = {}, extraFolders = [
         }
       }
     };
+    const before = out.length;
     walk(rootReal, 0, false);
+    // Parents of what was found, below the root.
+    const have = new Set(out.slice(before).map((f) => f.path));
+    const parents = new Set();
+    for (const f of out.slice(before)) {
+      // Climb to the root; folders inside another found folder (a repo's subfolders) are not offered, nor the root itself.
+      const chain = [];
+      let inside = false;
+      for (let p = path.dirname(f.path); p !== rootReal && p.startsWith(rootReal + path.sep); p = path.dirname(p)) {
+        if (have.has(p)) { inside = true; break; }
+        chain.push(p);
+      }
+      if (!inside) for (const p of chain) parents.add(p);
+    }
+    for (const p of [...parents].sort()) out.push(describe(p, false));
   }
   return out.slice(0, 3000);
 }

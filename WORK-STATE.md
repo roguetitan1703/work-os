@@ -4,7 +4,7 @@
 - Deploying 2026-10-15: Today rebuilt, Claude page with named sessions, project page as an overview, Settings with Connect merged in (/connect and /recovery redirect). Om must reinstall his worker for session names and counts.
 
 ## Next
-1. Om: `node worker/worker.mjs install` again (claude lookup retry, add-folder), then `add-folder` for Terra and link it; live check of Today, /claude, a project page and Settings.
+1. Om: `node worker/worker.mjs install` again (claude lookup retry, parent folders offered), then link the terrah folder from the project; live check of Today, /claude, a project page and Settings.
 2. Builder B: Review hub, then global search. Then grammar pass (names, Back, confirms).
 3. Om: on the live site, Settings → This device → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
