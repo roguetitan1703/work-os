@@ -8,6 +8,7 @@ const PLACES: Record<string, string> = { '1': '/today', '2': '/tasks', '3': '/pr
 
 export const SHORTCUTS: [string, string][] = [
   ['N', 'New task'],
+  ['S', 'Start Claude'],
   ['1', 'Today'],
   ['2', 'Tasks'],
   ['3', 'Projects'],

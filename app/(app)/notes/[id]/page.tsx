@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, ChevronRight, FileText, FolderOpen, ListTodo } from 'lucide-react';
+import { ArrowLeft, FolderOpen, ListTodo } from 'lucide-react';
 import { getNote, getNoteWithBlocks } from '@/lib/data/notes';
 import { fmtAgo } from '@/lib/format';
 import { ACTOR_LABEL } from '@/lib/activity-text';
@@ -36,13 +36,6 @@ export default async function NotePage({ params, searchParams }: Props) {
         <BackLink href={parent.href} className="hidden md:flex items-center gap-1 hover:text-foreground">
           <ArrowLeft className="w-3 h-3" /> {parent.label}
         </BackLink>
-        {note.parentId && (
-          <Link href={`/notes/${note.parentId}`} className="hidden md:flex items-center gap-1 hover:text-foreground">
-            <FileText className="w-3 h-3" />
-            {note.parentTitle ?? 'Parent'}
-            <ChevronRight className="w-3 h-3" />
-          </Link>
-        )}
         {note.taskRef && (
           <Link href={`/tasks/${note.taskRef}`} className="flex items-center gap-1 min-h-9 md:min-h-0 hover:text-foreground">
             <ListTodo className="w-3 h-3" />#{note.taskRef} {note.taskTitle}
