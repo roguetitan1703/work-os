@@ -34,16 +34,20 @@ const PRIO_LABEL: Record<Priority, string> = { P1: 'P1 · must ship', P2: 'P2', 
 
 /**
  * Phone task list. Project / mode / due / q live in the URL (same keys as the desktop board, so
- * /board?due=overdue works); segments and the search box filter instantly on the device.
+ * /tasks?due=overdue works); segments and the search box filter instantly on the device.
  * Every row has a status / priority / due / mode sheet (long-press or the ... button).
  */
-export function MobileTasks({ tasks, projects, noteTaskIds, filters }: { tasks: Task[]; projects: Proj[]; noteTaskIds: string[]; filters: Filters }) {
+export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch = false }: { tasks: Task[]; projects: Proj[]; noteTaskIds: string[]; filters: Filters; focusSearch?: boolean }) {
   const { today } = useApp();
   const router = useRouter();
   const notes = useMemo(() => new Set(noteTaskIds), [noteTaskIds]);
   const [seg, setSeg] = useState<Seg>('open');
   const [sheet, setSheet] = useState(false);
   const [q, setQ] = useState(filters.q);
+  const searchBox = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (focusSearch) searchBox.current?.focus();
+  }, [focusSearch]);
   const qTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const project = filters.project || null;
 
@@ -54,7 +58,7 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters }: { tasks: 
     const next = new URLSearchParams(window.location.search);
     if (value) next.set(key, value);
     else next.delete(key);
-    const url = `/board${next.size ? '?' + next : ''}`;
+    const url = `/tasks${next.size ? '?' + next : ''}`;
     if (replace) router.replace(url, { scroll: false });
     else router.push(url, { scroll: false });
   }
@@ -62,7 +66,7 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters }: { tasks: 
   function clearFilters() {
     const next = new URLSearchParams(window.location.search);
     ['project', 'mode', 'due'].forEach(k => next.delete(k));
-    router.push(`/board${next.size ? '?' + next : ''}`, { scroll: false });
+    router.push(`/tasks${next.size ? '?' + next : ''}`, { scroll: false });
   }
 
   function onSearch(v: string) {
@@ -104,6 +108,8 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters }: { tasks: 
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
+            ref={searchBox}
+            data-task-search
             value={q}
             onChange={e => onSearch(e.target.value)}
             placeholder="Search tasks or #ref"

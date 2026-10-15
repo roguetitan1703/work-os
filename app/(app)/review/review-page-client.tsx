@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { Plus, ChevronDown, ChevronRight, Repeat2 } from 'lucide-react';
 import { SubHeader, MEmpty } from '@/components/mobile/sub-header';
+import { ReviewNav } from '@/components/review-nav';
 import { FullSheet } from '@/components/mobile/full-sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 
@@ -126,6 +127,8 @@ export function ReviewPageClient({ initialReviews }: Props) {
           New review
         </Button>
       </div>
+
+      <ReviewNav active="weekly" />
 
       {reviews.length === 0 && (
         <>

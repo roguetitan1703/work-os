@@ -7,6 +7,7 @@ import { ACTOR_LABEL } from '@/lib/activity-text';
 import { cn } from '@/lib/utils';
 import { NewNoteButton } from '@/components/new-note-button';
 import { MobileHeader } from '@/components/mobile/tab-bar';
+import { HubSegment } from '@/components/mobile/hub-segment';
 import { MobileNoteFilters, NewNoteSheetButton } from '@/components/mobile/m-notes';
 import { Suspense } from 'react';
 
@@ -41,6 +42,7 @@ export default async function NotesPage({ searchParams }: Props) {
   return (
     <div className="space-y-4 md:space-y-5 max-w-4xl">
       <MobileHeader title="Notes" subtitle={`${total} ${state === 'archived' ? 'archived' : 'notes'}`} right={<NewNoteSheetButton projects={sheetProjects} defaultProject={sp.project} />} />
+      <HubSegment active="notes" />
       <Suspense>
         <MobileNoteFilters projects={activeProjects.map(p => ({ id: p.id, name: p.name }))} />
       </Suspense>

@@ -6,7 +6,8 @@ import { TaskList } from '@/components/task-row';
 import { QuickAddBar } from '@/components/quick-add';
 import { ProjectHeader } from './project-header';
 import Link from 'next/link';
-import { ChevronRight, FileText } from 'lucide-react';
+import { ArrowLeft, ChevronRight, FileText } from 'lucide-react';
+import { BackLink } from '@/components/back-link';
 import { listNotes } from '@/lib/data/notes';
 import { NewNoteButton } from '@/components/new-note-button';
 import { fmtAgo } from '@/lib/format';
@@ -56,6 +57,9 @@ export default async function ProjectPage({ params, searchParams }: Props) {
       <SubHeader title={project.name} subtitle={project.client || undefined} back="/projects" backLabel="Projects" right={<AddTaskButton project={project.name} />} />
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,_1.7fr)_minmax(0,_1fr)] gap-6 items-start">
         <div className="space-y-5">
+          <BackLink href="/projects" className="hidden md:inline-flex items-center gap-1 -mb-3 text-xs text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="w-3 h-3" /> Projects
+          </BackLink>
           <ProjectHeader project={project} />
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">

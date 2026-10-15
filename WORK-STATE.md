@@ -2,6 +2,7 @@
 
 ## Now
 - UX audit done (docs/ux-audit: crawl-a, crawl-b, analysis, proposal). Waiting on Om's yes to the proposal and its 5 questions; then build slice 1 (Claude area).
+- Navigation shell built on branch ui-nav (phone bar, + sheet, Menu, Projects|Notes, modes as Tasks filter, sidebar, shortcuts, Back rules); waits on Om merging and reconciling with the /claude branch.
 - Nothing in progress. Sessions list made clear (labelled buttons, Remove, closed in grey, waiting text) on 2026-10-15; waits on Om retesting live. Launcher live and tested by Om on his PC (Start, Remote Control, Stop) on 2026-10-15.
 
 ## Next
@@ -27,3 +28,6 @@
 - Sessions shows Start only after a folder is linked; could always show Start and open the folder picker first — waits on Om's yes.
 - Lint errors left: current-block-bar.tsx:18 (setState in effect), timetable/today/route.ts no-explicit-any ×3 — waits on next UI touch.
 - Theme toggle's first click goes system → light, so nothing visibly changes — waits on the Settings merge slice.
+- After merging ui-nav: swap lib/data/nav-counts.ts claudeWaitingCount for needsYouCount(); point the Start Claude buttons at the real modal (they only add ?start=1); /claude lights its tab once the page exists — waits on the /claude branch merge.
+- Settings sections are not separate routes yet, so "settings section Back goes to Settings" has nothing to apply to; Connections back goes to Menu — waits on the Settings merge slice.
+- Old route names kept (/history, /hidden, /review, /timetable, /notifications); only nav labels follow the glossary — waits on a route rename slice.

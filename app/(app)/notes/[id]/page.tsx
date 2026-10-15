@@ -6,6 +6,7 @@ import { fmtAgo } from '@/lib/format';
 import { ACTOR_LABEL } from '@/lib/activity-text';
 import { NoteEditor } from './note-editor';
 import { MobileBack } from '@/components/mobile/sub-header';
+import { BackLink } from '@/components/back-link';
 
 type Props = { params: Promise<{ id: string }>; searchParams: Promise<{ new?: string; edit?: string }> };
 
@@ -19,14 +20,22 @@ export default async function NotePage({ params, searchParams }: Props) {
   const r = await getNoteWithBlocks(id);
   if (!r) notFound();
   const { note, blocks } = r;
+  // Back rule: where you came from, else the note's project (a task note: its task; a sub-page: its parent).
+  const parent = note.parentId
+    ? { href: `/notes/${note.parentId}`, label: note.parentTitle ?? 'Parent' }
+    : note.projectId
+      ? { href: `/projects/${note.projectId}`, label: note.projectName ?? 'Project' }
+      : note.taskRef
+        ? { href: `/tasks/${note.taskRef}`, label: `#${note.taskRef}` }
+        : { href: '/notes', label: 'Notes' };
 
   return (
     <div className="max-w-3xl mx-auto space-y-3 md:space-y-4 pb-24">
-      <MobileBack href={note.parentId ? `/notes/${note.parentId}` : "/notes"} label={note.parentId ? (note.parentTitle ?? "Parent") : "Notes"} />
+      <MobileBack href={parent.href} label={parent.label} />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] md:text-xs text-muted-foreground">
-        <Link href="/notes" className="hidden md:flex items-center gap-1 hover:text-foreground">
-          <ArrowLeft className="w-3 h-3" /> Notes
-        </Link>
+        <BackLink href={parent.href} className="hidden md:flex items-center gap-1 hover:text-foreground">
+          <ArrowLeft className="w-3 h-3" /> {parent.label}
+        </BackLink>
         {note.parentId && (
           <Link href={`/notes/${note.parentId}`} className="hidden md:flex items-center gap-1 hover:text-foreground">
             <FileText className="w-3 h-3" />
