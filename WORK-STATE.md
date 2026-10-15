@@ -18,7 +18,9 @@
 - Desktop/phone parity re-check of quick add, import and day plan (phone versions are smaller) — waits on a free slot.
 - Project edits by Claude Code don't notify Om (only task changes do) — waits on Om saying whether he wants that.
 - test-batch.mjs expects a "Delpat" project the seed doesn't create — waits on next test cleanup.
-- claude-items.tsx:51 lint error (setState in effect) — waits on next UI touch.
+- Lint errors: claude-items.tsx:51 and current-block-bar.tsx:18 (setState in effect), timetable/today/route.ts no-explicit-any ×3 — waits on next UI touch.
+- A Connect tab tapped within ~1 s of the previous tab switch isn't preloaded yet (waits on the server) — waits on Om noticing it in use.
+- Test suites need the throwaway mongod as a single-node replica set (transactions) — waits on next test cleanup (document in .scratch-mongo).
 - Launcher Resume opens a new window each time instead of reusing one — waits on real use by Om.
 - First Start in a new folder sits at claude's "trust this folder" prompt until answered in the terminal — waits on real use by Om.
 - Worker logged one "fetch failed" during the real test (no effect) — waits on seeing it again.
