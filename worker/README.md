@@ -17,9 +17,13 @@ Small Node program (Node 20+, no npm dependencies) that lets Work OS start, resu
 
 Same steps; config lives in `~/Library/Application Support/work-os-worker/config.json`, the key goes into the Keychain (service `work-os-worker`), sessions open in Terminal.app (allow Terminal automation when macOS asks), `install` adds a LaunchAgent.
 
-## Remote Control
+## Risk
 
-So you can talk to started sessions from the Claude app, turn on Remote Control for all sessions: set `"remoteControlAtStartup": true` in `~/.claude/settings.json`.
+Anyone who controls Work OS (the server, its database or your account) can start sessions here and type prompts into them. Only linked folders can be launched. Do not use bypassPermissions or auto mode in folders you link. Set `"allowPrompts": false` in config.json to ignore prompts sent from Work OS. Windows needs Windows Terminal (wt.exe); there is no cmd.exe fallback.
+
+## Remote Control (optional)
+
+Remote Control is optional and off by default here; enable it per session from inside Claude if you want it. Do not enable it globally for linked folders.
 
 ## Commands
 

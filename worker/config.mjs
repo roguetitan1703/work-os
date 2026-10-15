@@ -11,7 +11,7 @@ export function configDir() {
 export const configPath = () => path.join(configDir(), 'config.json');
 export const statePath = () => path.join(configDir(), 'state.json');
 
-const DEFAULTS = { baseUrl: '', deviceName: os.hostname(), roots: [], enabled: true, scanEveryMinutes: 15, maxDepth: 6 };
+const DEFAULTS = { baseUrl: '', deviceName: os.hostname(), roots: [], enabled: true, allowPrompts: true, scanEveryMinutes: 15, maxDepth: 6 };
 
 export function loadConfig() {
   let c = {};
@@ -32,7 +32,7 @@ export function checkBaseUrl(u) {
 export function loadState() {
   let s = {};
   try { s = JSON.parse(fs.readFileSync(statePath(), 'utf8')); } catch {}
-  return { ids: {}, folders: {}, sessions: {}, markers: {}, lastPoll: null, lastScan: null, ...s };
+  return { ids: {}, folders: {}, sessions: {}, markers: {}, doneJobs: [], lastPoll: null, lastScan: null, ...s };
 }
 export function saveState(state) {
   fs.mkdirSync(configDir(), { recursive: true });

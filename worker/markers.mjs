@@ -5,6 +5,10 @@ import { execFileSync } from 'node:child_process';
 export const MARKER = '.workos.json';
 export const WRITER = 'work-os-worker';
 
+function isSymlink(p) {
+  try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; }
+}
+
 export function readMarker(dir) {
   try {
     const m = JSON.parse(fs.readFileSync(path.join(dir, MARKER), 'utf8'));
@@ -34,6 +38,7 @@ export function addExclude(dir) {
 
 // Writes only if no marker exists or the existing one is ours. Returns 'written' | 'same' | 'foreign'.
 export function writeMarker(dir, { projectId, projectName, folderId }) {
+  if (isSymlink(path.join(dir, MARKER))) return 'foreign';
   const existing = readMarker(dir);
   if (fs.existsSync(path.join(dir, MARKER)) && (!existing || existing.writtenBy !== WRITER)) return 'foreign';
   const data = { v: 1, project: projectId, projectName, folderId, writtenBy: WRITER };
@@ -44,6 +49,7 @@ export function writeMarker(dir, { projectId, projectName, folderId }) {
 }
 
 export function removeMarker(dir) {
+  if (isSymlink(path.join(dir, MARKER))) return false;
   const existing = readMarker(dir);
   if (!existing || existing.writtenBy !== WRITER) return false;
   try { fs.unlinkSync(path.join(dir, MARKER)); return true; } catch { return false; }

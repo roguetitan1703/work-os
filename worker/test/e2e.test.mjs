@@ -107,6 +107,35 @@ test('end to end against fake server', async () => {
     assert.equal(stopRes.ok, true);
     assert.equal(server.statuses.at(-1).sessions[0].state, 'stopped');
     void killed;
+
+    // unlinked scanned folder may not be launched
+    const plainId = server.folders.find((f) => f.name === 'plainapp').id;
+    const SID2 = '99999999-2222-4333-8444-555555555555';
+    server.jobs = [{ id: 'j_unl', kind: 'start', folderId: plainId, sessionId: SID2 }];
+    server.statuses.length = 0;
+    const n = launches.length;
+    await core.pollOnce();
+    assert.equal(launches.length, n);
+    assert.equal(server.statuses.flatMap((s) => s.jobs).find((r) => r.id === 'j_unl').error, 'folder not linked to a project');
+
+    // stop of an untracked session is refused
+    server.jobs = [{ id: 'j_unk', kind: 'stop', sessionId: SID2 }];
+    server.statuses.length = 0;
+    await core.pollOnce();
+    assert.equal(server.statuses.flatMap((s) => s.jobs).find((r) => r.id === 'j_unk').error, 'unknown session');
+
+    // re-offered job is not launched twice
+    server.jobs = [{ id: 'j_1', kind: 'start', folderId: idBefore, projectId: 'pms', projectName: 'PMS', sessionId: SID, prompt: 'hello' }];
+    server.statuses.length = 0;
+    await core.pollOnce();
+    assert.equal(launches.length, n);
+    assert.equal(server.statuses.flatMap((s) => s.jobs).find((r) => r.id === 'j_1').ok, true);
+
+    // allowPrompts: false drops the prompt
+    config.allowPrompts = false;
+    server.jobs = [{ id: 'j_np', kind: 'start', folderId: idBefore, projectId: 'pms', projectName: 'PMS', sessionId: SID2, prompt: 'secret ask' }];
+    await core.pollOnce();
+    assert.equal(launches.at(-1).prompt, undefined);
   } finally {
     await server.close();
     fs.rmSync(tmp, { recursive: true, force: true });

@@ -6,6 +6,6 @@ export function shQuote(s) {
 export function asEscape(s) {
   return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
-export function macScript(folder, args) {
-  return `cd ${shQuote(folder)} && claude ${args.map(shQuote).join(' ')}`;
+export function macScript(folder, claudePath, args) {
+  return `cd ${shQuote(folder)} && ${shQuote(claudePath)} ${args.map(shQuote).join(' ')}`;
 }

@@ -4,7 +4,7 @@ import { loadConfig, loadState, saveState, configPath, checkBaseUrl } from './co
 import { getToken, setToken, readSecretFromStdin } from './secret.mjs';
 import { makeApi } from './api.mjs';
 import { createCore, VERSION } from './core.mjs';
-import { launch, listProcesses, killPid } from './launch.mjs';
+import { launch, listProcesses, killPid, resolveClaude } from './launch.mjs';
 import { scanRoots, publicFolder } from './scan.mjs';
 import { install, uninstall } from './install.mjs';
 
@@ -14,7 +14,9 @@ const log = (m) => console.log(`${new Date().toISOString()} ${m}`);
 async function run() {
   const state = loadState();
   const api = makeApi(loadConfig, getToken);
-  const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher: launch, listProcesses, killPid, log });
+  const claudePath = resolveClaude(loadConfig().roots);
+  if (!claudePath) log('warning: claude not found outside the allowed roots; start/resume jobs will fail');
+  const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher: (a) => launch({ ...a, claudePath }), listProcesses, killPid, log });
   let delay = 10;
   let failing = 0;
   log(`work-os-worker ${VERSION} started`);

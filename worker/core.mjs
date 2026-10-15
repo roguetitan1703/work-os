@@ -1,5 +1,6 @@
 import { scanRoots, publicFolder } from './scan.mjs';
 import { validateJob, insideRoot } from './validate.mjs';
+import { matchesSession } from './launch.mjs';
 import { writeMarker, removeMarker } from './markers.mjs';
 
 export const VERSION = '0.1.0';
@@ -10,6 +11,7 @@ export function createCore(deps) {
   const { getConfig, state, save, api, launcher, listProcesses, killPid } = deps;
   const now = deps.now || (() => Date.now());
   const log = deps.log || (() => {});
+  state.doneJobs = Array.isArray(state.doneJobs) ? state.doneJobs : [];
   let links = [];
   let pendingResults = [];
   let lastStatus = 0;
@@ -63,19 +65,21 @@ export function createCore(deps) {
     if (!v.ok) return { id, ok: false, error: v.error };
     try {
       if (job.kind === 'stop') {
-        const procs = (await listProcesses()).filter((p) => p.cmd.includes(job.sessionId));
         const s = state.sessions[job.sessionId];
-        if (s) s.state = 'stopped';
+        if (!s) return { id, ok: false, error: 'unknown session' };
+        const procs = (await listProcesses()).filter((p) => matchesSession(p.cmd, job.sessionId));
+        s.state = 'stopped';
         if (!procs.length) return { id, ok: false, error: 'session not running' };
         for (const p of procs) { try { await killPid(p.pid); } catch {} }
         return { id, ok: true };
       }
       const link = links.find((l) => l.folderId === job.folderId);
+      if (!link || !link.projectId) return { id, ok: false, error: 'folder not linked to a project' };
       const projectId = job.projectId || (link && link.projectId);
       const projectName = job.projectName || (link && link.projectName);
       if (projectId && projectName) writeMarker(v.dir, { projectId, projectName, folderId: job.folderId });
       if (projectId && projectName) state.markers[job.folderId] = true;
-      await launcher({ kind: job.kind, folder: v.dir, sessionId: job.sessionId, projectName: projectName || undefined, prompt: job.kind === 'start' ? job.prompt || undefined : undefined });
+      await launcher({ kind: job.kind, folder: v.dir, sessionId: job.sessionId, projectName: projectName || undefined, prompt: job.kind === 'start' && getConfig().allowPrompts !== false ? job.prompt || undefined : undefined });
       state.sessions[job.sessionId] = { folderId: job.folderId, state: 'running', startedAt: now() };
       return { id, ok: true };
     } catch (e) {
@@ -89,7 +93,7 @@ export function createCore(deps) {
     const procs = await listProcesses();
     for (const sid of ids) {
       const s = state.sessions[sid];
-      const alive = procs.some((p) => p.cmd.includes(sid));
+      const alive = procs.some((p) => matchesSession(p.cmd, sid));
       if (!alive && now() - s.startedAt > GRACE_MS) s.state = 'dead';
     }
   }
@@ -113,7 +117,15 @@ export function createCore(deps) {
     applyLinks(res && res.links);
     const jobs = Array.isArray(res && res.jobs) ? res.jobs : [];
     for (const job of jobs) {
-      pendingResults.push(await handleJob(job));
+      const prior = job && state.doneJobs.find((d) => d.id === job.id);
+      if (prior) { pendingResults.push({ id: prior.id, ok: prior.ok, ...(prior.error ? { error: prior.error } : {}) }); await sendStatus(); continue; }
+      const r = await handleJob(job);
+      pendingResults.push(r);
+      if (job && typeof job.id === 'string') {
+        state.doneJobs.push({ id: r.id, ok: r.ok, ...(r.error ? { error: r.error } : {}) });
+        state.doneJobs = state.doneJobs.slice(-200);
+      }
+      save();
       await sendStatus();
     }
     if (now() - lastStatus >= 55000) await sendStatus();

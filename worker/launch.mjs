@@ -1,4 +1,6 @@
-import { spawn, execFile } from 'node:child_process';
+import path from 'node:path';
+import { spawn, execFile, execFileSync } from 'node:child_process';
+import { insideRoot } from './validate.mjs';
 import { promisify } from 'node:util';
 import { macScript, asEscape } from './quote.mjs';
 
@@ -15,16 +17,29 @@ export function claudeArgs({ kind, sessionId, projectName, prompt }) {
 // wt.exe treats ';' as a command separator; escape it so a prompt cannot add wt commands.
 const wtEsc = (s) => String(s).replace(/;/g, '\\;');
 
-export function windowsWtArgs(folder, title, cargs) {
-  return ['-w', 'new', '-d', folder, '--title', title, 'claude', ...cargs].map(wtEsc);
+export function windowsWtArgs(folder, title, claudePath, cargs) {
+  return ['-w', 'new', '-d', folder, '--title', title, claudePath, ...cargs].map(wtEsc);
 }
 
-// cmd.exe fallback: reject characters that cmd would interpret even inside quotes.
-export function windowsCmdLine(folder, cargs) {
-  const bad = /["%^!\r\n`]/;
-  for (const v of [folder, ...cargs]) if (bad.test(v)) throw new Error('value has characters unsafe for the cmd.exe fallback');
-  const q = (v) => `"${v}"`;
-  return `/c start "" /D ${q(folder)} claude ${cargs.map(q).join(' ')}`;
+// Absolute path of claude, resolved once at startup, never from inside an allowed root
+// (a planted claude.exe / claude.cmd in a repo must not be runnable).
+export function resolveClaude(roots, which = defaultWhich) {
+  for (const p of which()) {
+    if (path.isAbsolute(p) && !insideRoot(p, roots)) return p;
+  }
+  return null;
+}
+function defaultWhich() {
+  try {
+    const cmd = process.platform === 'win32' ? ['where', ['claude']] : ['which', ['-a', 'claude']];
+    return execFileSync(cmd[0], cmd[1], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000 })
+      .split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  } catch { return []; }
+}
+
+// Exact command-line match for a session this worker launched.
+export function matchesSession(cmd, sid) {
+  return cmd.includes('--session-id ' + sid) || cmd.includes('--resume ' + sid);
 }
 
 function spawnDetached(cmd, args, opts = {}) {
@@ -35,18 +50,19 @@ function spawnDetached(cmd, args, opts = {}) {
   });
 }
 
-export async function launch({ kind, folder, sessionId, projectName, prompt }) {
+export async function launch({ kind, folder, sessionId, projectName, prompt, claudePath }) {
+  if (!claudePath) throw new Error('claude not found on PATH outside the allowed roots');
   const cargs = claudeArgs({ kind, sessionId, projectName, prompt });
   const title = projectName || 'claude';
   if (process.platform === 'win32') {
     try {
-      await spawnDetached('wt.exe', windowsWtArgs(folder, title, cargs));
+      await spawnDetached('wt.exe', windowsWtArgs(folder, title, claudePath, cargs));
     } catch (e) {
-      if (e && e.code !== 'ENOENT') throw e;
-      await spawnDetached('cmd.exe', [windowsCmdLine(folder, cargs)], { windowsVerbatimArguments: true });
+      if (e && e.code === 'ENOENT') throw new Error('Install Windows Terminal (wt.exe)');
+      throw e;
     }
   } else if (process.platform === 'darwin') {
-    const cmd = macScript(folder, cargs.map((c) => c.replace(/\r?\n/g, ' ')));
+    const cmd = macScript(folder, claudePath, cargs.map((c) => c.replace(/\r?\n/g, ' ')));
     await execFileP('osascript', ['-e', `tell application "Terminal" to do script "${asEscape(cmd)}"`]);
   } else throw new Error('unsupported platform');
 }

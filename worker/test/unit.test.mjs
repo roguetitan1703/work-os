@@ -8,7 +8,7 @@ import { normalizeRemote } from '../remote.mjs';
 import { shQuote, macScript, asEscape } from '../quote.mjs';
 import { validateJob } from '../validate.mjs';
 import { writeMarker, removeMarker, addExclude, excludePath, MARKER } from '../markers.mjs';
-import { windowsWtArgs, windowsCmdLine, claudeArgs } from '../launch.mjs';
+import { windowsWtArgs, claudeArgs, resolveClaude, matchesSession } from '../launch.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'wos-w-'));
 const rm = (d) => fs.rmSync(d, { recursive: true, force: true });
@@ -31,20 +31,18 @@ test('shQuote and macScript', () => {
   assert.equal(shQuote('a b'), `'a b'`);
   assert.equal(shQuote('$HOME `id` $(x)'), `'$HOME \`id\` $(x)'`);
   assert.equal(shQuote(''), `''`);
-  const s = macScript("/Users/o/my 'proj'", ['--session-id', SID, 'say "hi"; rm -rf ~']);
-  assert.equal(s, `cd '/Users/o/my '\\''proj'\\''' && claude '--session-id' '${SID}' 'say "hi"; rm -rf ~'`);
+  const s = macScript("/Users/o/my 'proj'", '/usr/local/bin/claude', ['--session-id', SID, 'say "hi"; rm -rf ~']);
+  assert.equal(s, `cd '/Users/o/my '\\''proj'\\''' && '/usr/local/bin/claude' '--session-id' '${SID}' 'say "hi"; rm -rf ~'`);
   assert.equal(asEscape('a"b\\c'), 'a\\"b\\\\c');
 });
 
 test('windows launch args', () => {
-  const a = windowsWtArgs('C:\\p', 'PMS', claudeArgs({ kind: 'start', sessionId: SID, projectName: 'PMS', prompt: 'a; b' }));
-  assert.deepEqual(a.slice(0, 6), ['-w', 'new', '-d', 'C:\\p', '--title', 'PMS']);
+  const a = windowsWtArgs('C:\\p', 'PMS', 'C:\\bin\\claude.exe', claudeArgs({ kind: 'start', sessionId: SID, projectName: 'PMS', prompt: 'a; b' }));
+  assert.deepEqual(a.slice(0, 7), ['-w', 'new', '-d', 'C:\\p', '--title', 'PMS', 'C:\\bin\\claude.exe']);
   assert.ok(a.includes('a\\; b'));
   assert.ok(!a.some((x) => /dangerously|bare/.test(x)));
   assert.equal(claudeArgs({ kind: 'resume', sessionId: SID })[0], '--resume');
   assert.ok(claudeArgs({ kind: 'start', sessionId: SID, prompt: '--bare' }).at(-1).startsWith(' '));
-  assert.throws(() => windowsCmdLine('C:\\p', ['x', '50%']));
-  assert.match(windowsCmdLine('C:\\p', ['--session-id', SID]), /^\/c start "" \/D "C:\\p" claude/);
 });
 
 test('job validation', () => {
@@ -101,5 +99,33 @@ test('markers: write, remove only own, exclude idempotent', () => {
     assert.equal(JSON.parse(fs.readFileSync(path.join(d, MARKER), 'utf8')).writtenBy, 'someone');
     fs.writeFileSync(path.join(d, MARKER), 'not json');
     assert.equal(removeMarker(d), false);
+  } finally { rm(d); }
+});
+
+test('resolveClaude avoids roots; matchesSession is exact', () => {
+  const d = tmp();
+  try {
+    const root = path.join(d, 'root'); const bin = path.join(d, 'bin');
+    fs.mkdirSync(root); fs.mkdirSync(bin);
+    const inRoot = path.join(root, 'claude.exe'); const good = path.join(bin, 'claude.exe');
+    fs.writeFileSync(inRoot, ''); fs.writeFileSync(good, '');
+    assert.equal(resolveClaude([root], () => [inRoot, 'claude', good]), good);
+    assert.equal(resolveClaude([root], () => [inRoot]), null);
+    assert.ok(matchesSession('claude --session-id ' + SID, SID));
+    assert.ok(matchesSession('claude --resume ' + SID + ' --name x', SID));
+    assert.ok(!matchesSession('vim notes-' + SID + '.txt', SID));
+  } finally { rm(d); }
+});
+
+test('marker symlink is refused', () => {
+  const d = tmp();
+  try {
+    const target = path.join(d, 'target.txt'); fs.writeFileSync(target, 'keep');
+    const dir = path.join(d, 'f'); fs.mkdirSync(dir);
+    try { fs.symlinkSync(target, path.join(dir, MARKER), 'file'); } catch { return; } // no symlink privilege
+    assert.equal(writeMarker(dir, { projectId: 'p', projectName: 'P', folderId: 'f_abc123' }), 'foreign');
+    assert.equal(fs.readFileSync(target, 'utf8'), 'keep');
+    assert.equal(removeMarker(dir), false);
+    assert.ok(fs.existsSync(target));
   } finally { rm(d); }
 });
