@@ -1,10 +1,10 @@
 # Work state
 
 ## Now
-- UX proposal slices 1, 2, 5, 6, 8 merged on master (Claude area + Start Claude modal from ui-claude; nav shell from ui-nav). Now: reconcile the two (Claude badge, Start links), run all suites on the merged result, deploy.
+- Deployed 2026-10-15: Claude area (/claude Now·Queue·Setup), Start Claude modal, new nav shell (phone bar, Menu, sidebar, shortcuts, Back), Claude activity counts (sessions + subagents per computer). Om must reinstall his worker for the counts.
 
 ## Next
-1. Full suites on the merged master; deploy.
+1. Om: `node worker/worker.mjs install` (worker picks up trust + activity counts); live check of /claude and the new nav.
 2. Slice 3: project page as an overview. Slice 4: Today rebuilt. Then Settings merge, Review hub, grammar pass, global search.
 3. Om: on the live site, Settings → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
@@ -36,3 +36,6 @@
 - After merging ui-nav: swap lib/data/nav-counts.ts claudeWaitingCount for needsYouCount(); point the Start Claude buttons at the real modal (they only add ?start=1); /claude lights its tab once the page exists — waits on the /claude branch merge.
 - Settings sections are not separate routes yet, so "settings section Back goes to Settings" has nothing to apply to; Connections back goes to Menu — waits on the Settings merge slice.
 - Old route names kept (/history, /hidden, /review, /timetable, /notifications); only nav labels follow the glossary — waits on a route rename slice.
+- /modes/<bad-slug> returns 200 (not-found streams after loading.tsx), same as the /connect client redirect — waits on moving redirects into next.config.
+- Activity counts: a subagent silent for >2 min drops out of the count; terminal and macOS session shapes only tested on stubs — waits on Om's real use.
+- Scratch suites in .scratch-mongo/scratchpad assume the old Connect code tab, a short seed2 fixture and a 'Notif' bell label — waits on next test cleanup.
