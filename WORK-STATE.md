@@ -1,6 +1,7 @@
 # Work state
 
 ## Now
+- UX audit done (docs/ux-audit: crawl-a, crawl-b, analysis, proposal). Waiting on Om's yes to the proposal and its 5 questions; then build slice 1 (Claude area).
 - Nothing in progress. Sessions list made clear (labelled buttons, Remove, closed in grey, waiting text) on 2026-10-15; waits on Om retesting live. Launcher live and tested by Om on his PC (Start, Remote Control, Stop) on 2026-10-15.
 
 ## Next
@@ -18,10 +19,11 @@
 - Desktop/phone parity re-check of quick add, import and day plan (phone versions are smaller) — waits on a free slot.
 - Project edits by Claude Code don't notify Om (only task changes do) — waits on Om saying whether he wants that.
 - test-batch.mjs expects a "Delpat" project the seed doesn't create — waits on next test cleanup.
-- Lint errors: claude-items.tsx:51 and current-block-bar.tsx:18 (setState in effect), timetable/today/route.ts no-explicit-any ×3 — waits on next UI touch.
 - A Connect tab tapped within ~1 s of the previous tab switch isn't preloaded yet (waits on the server) — waits on Om noticing it in use.
 - Test suites need the throwaway mongod as a single-node replica set (transactions) — waits on next test cleanup (document in .scratch-mongo).
 - Launcher Resume opens a new window each time instead of reusing one — waits on real use by Om.
 - Worker logged one "fetch failed" during the real test (no effect) — waits on seeing it again.
 - The repo moved to the project root on 2026-10-15; an empty `work-os` folder may remain (locked by an editor) — delete it when Om renames the folder to "work os" (.scratch-mongo start.sh/rebuild.sh hold the full path).
 - Sessions shows Start only after a folder is linked; could always show Start and open the folder picker first — waits on Om's yes.
+- Lint errors left: current-block-bar.tsx:18 (setState in effect), timetable/today/route.ts no-explicit-any ×3 — waits on next UI touch.
+- Theme toggle's first click goes system → light, so nothing visibly changes — waits on the Settings merge slice.
