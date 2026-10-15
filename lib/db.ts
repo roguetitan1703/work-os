@@ -165,8 +165,15 @@ export type ApiKeyDoc = {
   lastUsedAt: Date | null;
   revokedAt: Date | null;
 };
+// ── Session launcher (docs/launcher.md) ──
+/** A machine running the worker. Only the SHA-256 of its key (wkr_…) is stored. */
+export type DeviceDoc = { _id: string; name: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; worker?: { version: string; os: string } };
+/** A folder a worker reported. _id = deviceId:folderId. Never a path. */
+export type WorkerFolderDoc = { _id: string; deviceId: string; folderId: string; name: string; git: boolean; remote?: string; branch?: string; projectId: string | null; linkedAt: Date | null; seenAt: Date; missing: boolean };
+export type WorkerJobDoc = { _id: string; deviceId: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; sessionId: string; prompt?: string; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
+export type WorkerSessionDoc = { _id: string; deviceId: string; folderId: string; projectId: string | null; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string };
 /** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
-export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash'; at: Date; n?: number };
+export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker'; at: Date; n?: number };
 
 /** Outstanding WebAuthn challenge. Deleted when used (single-use); TTL index removes stale ones. */
 export type AuthChallengeDoc = { _id: string; kind: 'register' | 'login'; expiresAt: Date; ip?: string };
@@ -252,6 +259,10 @@ async function ensureIndexes(db: Db): Promise<void> {
       { key: { projectId: 1, state: 1, order: 1 }, name: 'project_state_order' },
       { key: { blockedBy: 1 }, name: 'blockedBy' },
     ]),
+    db.collection('devices').createIndexes([{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]),
+    db.collection('workerFolders').createIndexes([{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }]),
+    db.collection('workerJobs').createIndexes([{ key: { deviceId: 1, doneAt: 1, createdAt: 1 }, name: 'device_pending' }, { key: { createdAt: 1 }, name: 'created_ttl', expireAfterSeconds: 30 * 86_400 }]),
+    db.collection('workerSessions').createIndexes([{ key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' }, { key: { deviceId: 1, state: 1 }, name: 'device_state' }]),
     db.collection('apiKeys').createIndexes([{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]),
     db.collection('policyEvents').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { keyId: 1, kind: 1, at: -1 }, name: 'key_kind_at' }]),
     db.collection('authFailures').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 15 * 60 }, { key: { ip: 1, at: -1 }, name: 'ip_at' }]),
@@ -284,6 +295,10 @@ export async function collections() {
     apiKeys: db.collection<ApiKeyDoc>('apiKeys'),
     policyEvents: db.collection<PolicyEventDoc>('policyEvents'),
     claudeItems: db.collection<ClaudeItemDoc>('claudeItems'),
+    devices: db.collection<DeviceDoc>('devices'),
+    workerFolders: db.collection<WorkerFolderDoc>('workerFolders'),
+    workerJobs: db.collection<WorkerJobDoc>('workerJobs'),
+    workerSessions: db.collection<WorkerSessionDoc>('workerSessions'),
   };
   const session = txStore.getStore();
   return session ? (Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, withSession(v, session)])) as typeof cols) : cols;

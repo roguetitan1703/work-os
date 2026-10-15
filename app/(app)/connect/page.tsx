@@ -4,6 +4,7 @@ import { DiscordSection } from './discord-section';
 import { AlertsSection } from './alerts-section';
 import { ChatTab } from './chat-tab';
 import { CodeTab } from './code-tab';
+import { DevicesTab } from './devices-tab';
 import { Overview } from './overview';
 import { ReferenceTab } from './reference-tab';
 import { TabNav } from './tab-nav';
@@ -44,6 +45,7 @@ export default async function ConnectPage({ searchParams }: Props) {
       )}
       {tab === 'chat' && status && <ChatTab url={url} ready={status.mcpReady} seen={status.mcpSeen} />}
       {tab === 'code' && <CodeTab url={url} />}
+      {tab === 'devices' && <DevicesTab url={base} />}
       {tab === 'discord' && <DiscordSection base={base} />}
       {tab === 'alerts' && <AlertsSection base={base} />}
       {tab === 'reference' && (

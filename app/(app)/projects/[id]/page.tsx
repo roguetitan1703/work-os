@@ -16,6 +16,8 @@ import { CodeLocations } from './code-locations';
 
 import { projectItems } from '@/lib/data/claude-items';
 import { ClaudeItems } from './claude-items';
+import { projectLauncher } from '@/lib/data/launcher';
+import { ProjectSessions } from './sessions';
 
 type Props = { params: Promise<{ id: string }>; searchParams: Promise<{ claude?: string }> };
 
@@ -27,12 +29,13 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const project = await getProjectWithStats(decodeURIComponent(id));
   if (!project) notFound();
 
-  const [open, done, activity, notes, work] = await Promise.all([
+  const [open, done, activity, notes, work, launcher] = await Promise.all([
     listTasks({ project: project.id, open: true }),
     listTasks({ project: project.id, status: ['Done', 'Dropped'], sort: 'done', limit: 30 }),
     listActivity({ project: project.id, limit: 40 }),
     listNotes({ project: project.id, state: 'all' }),
     projectItems(project.id, { doneLimit: 30 }),
+    projectLauncher(project.id),
   ]);
   const claudeSection = work.items.length > 0 && (
     <ClaudeItems
@@ -73,6 +76,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
             <TaskList tasks={done} showProject={false} empty="Nothing finished yet." />
           </section>
           {claudeSection}
+          <ProjectSessions projectId={project.id} projectName={project.name} {...launcher} />
         </div>
         <aside className="space-y-3">
           <div className="flex items-center justify-between">

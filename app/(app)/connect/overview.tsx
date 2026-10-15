@@ -1,10 +1,10 @@
 import Link from 'next/link';
-import { Bell, Bot, ChevronRight, MessageSquare, SquareTerminal } from 'lucide-react';
+import { Bell, Bot, ChevronRight, Laptop, MessageSquare, SquareTerminal } from 'lucide-react';
 import type { Card as C } from './overview-data';
 import { Dot } from './ui';
 import { cn } from '@/lib/utils';
 
-const ICON = { chat: MessageSquare, code: SquareTerminal, discord: Bot, alerts: Bell } as const;
+const ICON = { chat: MessageSquare, code: SquareTerminal, discord: Bot, alerts: Bell, devices: Laptop } as const;
 
 /** One tappable card per integration: 2x2 on desktop, a stacked list of 64px+ rows on phone. */
 export function Overview({ cards }: { cards: C[] }) {

@@ -43,7 +43,7 @@ All bodies are JSON. Errors: `{ "error": "…" }` with 400 / 401 / 413 / 429.
   `folderId` when one exists). `[A-Za-z0-9_-]{4,40}`.
 - `name`: a label Om recognises, relative to the allowed root, `/`-separated, ≤ 120 chars. Not an
   absolute path.
-- `remote`: credentials stripped, lowercase `host/owner/name` without `.git`, ≤ 200. Omit when none.
+- `remote`: credentials stripped, lowercase `owner/name` without host or `.git` (same form as project code locations), ≤ 200. Omit when none.
 - `branch`: ≤ 120. Omit for non-git folders.
 - At most 3000 folders. Folders not in the latest scan are marked missing (never deleted).
 
@@ -104,10 +104,19 @@ start there):
 
 ## Launching
 
-- Windows: Windows Terminal, new window in the folder, running `claude` with
-  `--session-id <sessionId>` (start) or `--resume <sessionId>` (resume), and the prompt as the
-  last argument only when given.
-- macOS: Terminal.app via `osascript`, same arguments, every value single-quoted.
-- Liveness: a process whose command line contains the session id.
-- Stop: end that process tree.
+- Windows: Windows Terminal, new window in the folder, running `node worker/run-claude.mjs <claude> <args>`. The wrapper
+  runs `claude` (no shell, stdio inherited) and exits 0 when it ends, so the tab closes after Stop or a normal exit.
+- Arguments: `--session-id <sessionId>` (start) or `--resume <sessionId>` (resume), always `--permission-mode manual`,
+  `--name <projectName>`, `--remote-control=<projectName>` (one token; the name is optional in claude, so it is attached with
+  `=` and can never swallow the next argument), and the prompt as the last argument only when given. Every launched session
+  shows up in the Claude app through Remote Control.
+- macOS: Terminal.app via `osascript`, same arguments, every value single-quoted, followed by `; exit`.
+- Liveness: a `claude`/`claude.exe` process (image name) whose command line has `--session-id <id>` or `--resume <id>`. The wrapper is not counted.
+- Stop: end only that claude process tree; the wrapper then exits 0 and the tab closes.
 - The folder must resolve (realpath) inside an allowed root; otherwise the job fails.
+- Windows requires Windows Terminal (`wt.exe`). The cmd.exe fallback was removed; without wt.exe the job fails with "Install Windows Terminal (wt.exe)".
+- The worker launches an absolute `claude` path resolved once at startup (outside any allowed root), only in folders that are currently linked, and only acts on sessions it started (exact `--session-id`/`--resume <id>` match). Recently handled job ids are remembered so a re-offered job is not launched twice. Config `allowPrompts: false` makes the worker ignore job prompts.
+
+## Risk
+
+Anyone who controls Work OS (the server, its database or Om's account) can start Claude sessions on linked folders and type prompts into them. Do not use bypassPermissions or auto mode in folders you link, and keep `allowPrompts` off if you do not need prompts from Work OS.

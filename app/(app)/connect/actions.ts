@@ -5,6 +5,7 @@ import { cookies } from 'next/headers';
 import { setBlockedIds } from '@/lib/discord/client';
 import { SESSION_COOKIE, SafeError, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
 import { createApiKey, listApiKeys, revokeApiKey, rotateApiKey, type ApiKeyInfo } from '@/lib/api-keys';
+import { createDevice, listDevices, revokeDevice, type DeviceInfo } from '@/lib/devices';
 
 export async function saveBlockedChannels(ids: string[]): Promise<void> {
   await setBlockedIds(ids);
@@ -51,5 +52,25 @@ export async function revokeApiKeyAction(id: string): Promise<R<ApiKeyInfo[]>> {
   return run(async () => {
     await revokeApiKey(String(id));
     return listApiKeys();
+  });
+}
+
+// ── Devices (session launcher) ──────────────────────────────────────────────
+
+export async function listDevicesAction(): Promise<R<DeviceInfo[]>> {
+  return run(listDevices);
+}
+
+export async function createDeviceAction(name: string): Promise<R<{ key: string; devices: DeviceInfo[] }>> {
+  return run(async () => {
+    const { key } = await createDevice(String(name ?? ''));
+    return { key, devices: await listDevices() };
+  });
+}
+
+export async function revokeDeviceAction(id: string): Promise<R<DeviceInfo[]>> {
+  return run(async () => {
+    await revokeDevice(String(id));
+    return listDevices();
   });
 }
