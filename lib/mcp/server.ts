@@ -654,27 +654,27 @@ export function createMcpServer(ctx: Ctx): McpServer {
     z.object({
       op: z.literal('add'),
       project: z.string().describe("The project whose code this changes (not necessarily your folder's project)"),
-      title: z.string().describe('15-140 chars, names the thing itself, e.g. "Bulk bar shows locked records as editable"'),
+      title: z.string().max(140).describe('15-140 chars, names the thing itself, e.g. "Bulk bar shows locked records as editable"'),
       kind: z.enum(CLAUDE_ITEM_KINDS),
-      why: z.string().describe('What is wrong or wanted and where (file, screen, module); readable by a session with no chat history'),
-      done_when: z.string().optional().describe('How to tell it is finished (required except for ideas)'),
+      why: z.string().max(2000).describe('What is wrong or wanted and where (file, screen, module); readable by a session with no chat history'),
+      done_when: z.string().max(1000).optional().describe('How to tell it is finished (required except for ideas)'),
       small: z.boolean().optional().describe('Under ~30 minutes: added as a part of the project\u2019s "Small fixes and checks" item instead of a new item'),
-      next: z.boolean().optional().describe('Only when Om asked for it next'),
+      next: z.boolean().optional().describe('Om\u2019s call: refused for Claude Code keys (Om marks next in the app)'),
       blocked_by: itemKey.optional(),
-      waiting_on_om: z.string().optional().describe('What Om must decide or do; he gets an inbox notice'),
-      note: z.string().optional(),
+      waiting_on_om: z.string().max(1000).optional().describe('What Om must decide or do; he gets an inbox notice'),
+      note: z.string().max(1000).optional(),
       start: z.boolean().optional().describe('Add it already active in this session'),
     }),
     z.object({ op: z.literal('start'), item: itemKey, take_over: z.boolean().optional().describe('Only if the session holding it has ended') }),
-    z.object({ op: z.literal('block'), item: itemKey, blocked_by: itemKey.optional(), waiting_on_om: z.string().optional(), reason: z.string().optional() }),
-    z.object({ op: z.literal('done'), item: itemKey, ref: z.string().optional().describe('Branch or commit where it landed (required for Claude Code, except ideas)'), note: z.string().optional() }),
-    z.object({ op: z.literal('note'), item: itemKey, text: z.string().min(1).describe('Decision or context worth keeping; dated automatically') }),
+    z.object({ op: z.literal('block'), item: itemKey, blocked_by: itemKey.optional(), waiting_on_om: z.string().max(1000).optional(), reason: z.string().max(1000).optional() }),
+    z.object({ op: z.literal('done'), item: itemKey, ref: z.string().max(120).optional().describe('Branch or commit where it landed (required for Claude Code, except ideas)'), note: z.string().optional() }),
+    z.object({ op: z.literal('note'), item: itemKey, text: z.string().min(1).max(1000).describe('Decision or context worth keeping; dated automatically') }),
     z.object({ op: z.literal('release'), item: itemKey, reason: z.string().optional().describe('Why it goes back to the queue unfinished') }),
     z.object({ op: z.literal('edit'), item: itemKey, title: z.string().optional(), why: z.string().optional(), done_when: z.string().optional(), kind: z.enum(CLAUDE_ITEM_KINDS).optional() }),
     z.object({
       op: z.literal('parts'),
       item: itemKey,
-      add: z.array(z.string()).optional(),
+      add: z.array(z.string().max(300)).max(20).optional(),
       check: z.array(z.union([z.number().int(), z.string()])).optional().describe('Part numbers (1-based) or ids'),
       uncheck: z.array(z.union([z.number().int(), z.string()])).optional(),
     }),
@@ -733,7 +733,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
   tool(
     'restore_task',
     { inputSchema: { task: taskKey }, annotations: { destructiveHint: false } },
-    handler(async a => ({ restored: await brief(await tasks.restoreTask(a.task, ACTOR), ctx) })),
+    handler(async a => {
+      const watch = await watchTasks(caller, [watchTarget('restore_task', a)!]);
+      const t = await tasks.restoreTask(a.task, ACTOR);
+      await notifyChanges(watch);
+      return { restored: await brief(t, ctx) };
+    }),
   );
 
   tool(

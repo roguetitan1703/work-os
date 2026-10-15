@@ -74,6 +74,8 @@ export function watchTarget(op: string, a: Record<string, unknown>): WatchTarget
       return { key, also: ['archived'] };
     case 'delete_task':
       return { key, trash: true };
+    case 'restore_task':
+      return { key, restore: true };
     default:
       return null; // comments, checklist ticks and restores don't change what Om relies on
   }
@@ -241,17 +243,26 @@ export async function checkBatch(caller: Caller, ops: Op[], opts: { dryRun?: boo
 // ── Notify Om when Claude Code changes his tasks ────────────────────────────
 
 type Snap = Pick<Task, 'id' | 'ref' | 'title' | 'priority' | 'due' | 'projectId' | 'status' | 'archived' | 'createdBy'>;
-export type Watch = { caller: Caller; before: Map<string, Snap>; trashed: Set<string>; fields: Map<string, Set<string>> };
+export type Watch = { caller: Caller; before: Map<string, Snap>; trashed: Set<string>; restored: Set<string>; fields: Map<string, Set<string>> };
 
 /** Things to watch in one call: task keys with the watched fields they set (args) or may change (also), and keys being trashed. */
-export type WatchTarget = { key: string | number; args?: Record<string, unknown>; also?: string[]; trash?: boolean };
+export type WatchTarget = { key: string | number; args?: Record<string, unknown>; also?: string[]; trash?: boolean; restore?: boolean };
 
 /** Snapshots the tasks a Claude Code call is about to change (before the change). No-op for other callers. */
 export async function watchTasks(caller: Caller, targets: WatchTarget[]): Promise<Watch | null> {
   if (!isCode(caller)) return null;
-  const w: Watch = { caller, before: new Map(), trashed: new Set(), fields: new Map() };
+  const w: Watch = { caller, before: new Map(), trashed: new Set(), restored: new Set(), fields: new Map() };
   for (const t of targets) {
     if (typeof t.key === 'string' && t.key.startsWith('$')) continue; // created in this batch
+    if (t.restore) {
+      const m = String(t.key).match(/^#?(\d+)$/);
+      const tr = await (await collections()).trash.findOne(m ? { ref: Number(m[1]) } : { _id: String(t.key) }, { sort: { deletedAt: -1 }, projection: { task: 1 } });
+      if (tr && tr.task.createdBy !== 'claude-code') {
+        w.before.set(tr.task._id, { id: tr.task._id, ref: tr.task.ref, title: tr.task.title, priority: tr.task.priority, due: tr.task.due, projectId: tr.task.projectId, status: tr.task.status, archived: tr.task.archived, createdBy: tr.task.createdBy });
+        w.restored.add(tr.task._id);
+      }
+      continue;
+    }
     const fields = WATCHED.filter(f => (t.args && t.args[f.arg] !== undefined) || t.also?.includes(f.label)).map(f => f.label);
     if (!t.trash && !fields.length) continue;
     const task = await tasks.getTask(t.key).catch(() => null);
@@ -278,8 +289,8 @@ export async function notifyChanges(w: Watch | null): Promise<void> {
     const lines: string[] = [];
     let firstRef: number | null = null;
     for (const [id, b] of w.before) {
-      if (w.trashed.has(id)) {
-        lines.push(`#${b.ref} ${b.title}: moved to trash`);
+      if (w.trashed.has(id) || w.restored.has(id)) {
+        lines.push(`#${b.ref} ${b.title}: ${w.trashed.has(id) ? 'moved to trash' : 'restored from trash'}`);
         firstRef ??= b.ref;
         continue;
       }

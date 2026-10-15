@@ -206,12 +206,19 @@ const KIND_TITLE: Record<AlertKind, string> = {
 };
 
 export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?: Date; onlyQueued?: boolean }): Promise<RunResult> {
+  // Queued alerts as of now (read first: one queued during this run waits for the next run).
+  const queuedIds = (await (await collections()).alertQueue.find({ sentAt: null }, { projection: { _id: 1 } }).toArray()).map(q => q._id);
   const { items: due, quiet } = await computeAlerts(opts.now, { onlyQueued: opts.onlyQueued });
   const settings = await getNotifySettings();
   const items = due.filter(i => settings.kinds[i.kind] !== false);
   const messages = formatAlerts(items, opts.baseUrl);
   const res: RunResult = { quiet, dryRun: !!opts.dryRun, sent: 0, messages, items };
-  if (opts.dryRun || !due.length) return res;
+  if (opts.dryRun || quiet) return res;
+  if (!due.length) {
+    // Queued alerts whose task closed meanwhile: mark them so later flushes stop re-reading them.
+    if (queuedIds.length) await (await collections()).alertQueue.updateMany({ _id: { $in: queuedIds } }, { $set: { sentAt: new Date() } });
+    return res;
+  }
 
   // Deliver: inbox always; push and Discord if enabled. A failing channel doesn't block the others.
   const errors: string[] = [];
@@ -246,7 +253,8 @@ export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?:
       logged.map(i => ({ updateOne: { filter: { _id: i.key }, update: { $set: { kind: i.kind, taskId: taskIds.get(i.ref), sentAt: now } }, upsert: true } })),
     );
   }
-  await c.alertQueue.updateMany({ sentAt: null }, { $set: { sentAt: now } });
+  // Only what this run read: an alert queued meanwhile waits for the next run.
+  if (queuedIds.length) await c.alertQueue.updateMany({ _id: { $in: queuedIds } }, { $set: { sentAt: now } });
   return { ...res, ...(errors.length ? { error: errors.join('; ') } : {}) };
 }
 

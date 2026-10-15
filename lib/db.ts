@@ -75,6 +75,8 @@ export type ClaudeItemDoc = Omit<import('./types').ClaudeItem, 'id' | 'createdAt
   log: { at: Date; actor: Actor; session?: string; text: string }[];
   /** Claude Code key that created it (for the per-day cap). */
   keyId?: string;
+  /** The project's "Small fixes and checks" item (not counted toward the cap; title/kind fixed). */
+  group?: true;
 };
 export type NoteDoc = {
   _id: string;

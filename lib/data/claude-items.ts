@@ -24,11 +24,32 @@ export const DAILY_CAP = 10;
 export const CLAIM_HOURS = 12;
 const LOG_KEEP = 40;
 const SMALL_GROUP_TITLE = 'Small fixes and checks';
+/** Size limits (characters / counts) so no item can grow without bound. */
+export const LIMITS = { title: 140, why: 2000, doneWhen: 1000, note: 1000, waiting: 1000, reason: 1000, part: 300, gitRef: 120, parts: 50, session: 64 } as const;
+
+function within(field: keyof typeof LIMITS, v: string | undefined): string | undefined {
+  if (v !== undefined && v.length > LIMITS[field]) throw new InputError(`${field} is too long (max ${LIMITS[field]} characters)`);
+  return v;
+}
+
+/** A claim by another session that is still fresh (Om is never stopped by it). */
+function heldByOther(d: ClaudeItemDoc, ctx: ItemCtx): string | null {
+  if (ctx.actor === 'me' || d.state !== 'active' || !d.claimedBy) return null;
+  if (d.claimedBy.at.getTime() < Date.now() - CLAIM_HOURS * 3_600_000) return null;
+  return d.claimedBy.session === sessionOf(ctx) ? null : d.claimedBy.session;
+}
+function assertMine(d: ClaudeItemDoc, ctx: ItemCtx): void {
+  const other = heldByOther(d, ctx);
+  if (other) throw new InputError(`${itemRef(d.ref)} is active in session ${other}. Pass session (your branch or worktree) if it is yours; otherwise leave it to that session.`);
+}
+function assertNotWaiting(d: ClaudeItemDoc, ctx: ItemCtx): void {
+  if (ctx.actor !== 'me' && d.waitingOnOm) throw new InputError(`${itemRef(d.ref)} is waiting on Om (${d.waitingOnOm}); only Om can answer that, in the app.`);
+}
 
 export const itemRef = (ref: number) => `C${ref}`;
 
 function toItem(d: ClaudeItemDoc): ClaudeItem {
-  const { _id, keyId: _k, ...rest } = d;
+  const { _id, keyId: _k, group: _g, ...rest } = d;
   return {
     ...rest,
     id: _id,
@@ -49,6 +70,9 @@ const realWords = (s: string) => words(s).filter(w => /[a-z]{3,}/i.test(w));
 
 /** Throws InputError explaining exactly what to fix. */
 export function checkClarity(i: { title: string; why: string; doneWhen?: string; kind: ClaudeItemKind; small?: boolean }): void {
+  within('title', i.title.trim());
+  within('why', i.why);
+  within('doneWhen', i.doneWhen);
   const problems: string[] = [];
   const title = i.title.trim();
   if (title.length < 15 || title.length > 140) problems.push('title must be 15–140 characters');
@@ -176,19 +200,25 @@ export type AddResult = { item: ClaudeItem; grouped?: true };
 export async function addItem(input: AddInput, ctx: ItemCtx): Promise<AddResult> {
   if (!CLAUDE_ITEM_KINDS.includes(input.kind)) throw new InputError(`kind must be one of ${CLAUDE_ITEM_KINDS.join(', ')}`);
   checkClarity({ title: input.title, why: input.why, doneWhen: input.doneWhen, kind: input.kind, small: input.small });
+  within('note', input.note);
+  within('waiting', input.waitingOnOm);
+  if (input.title.trim().toLowerCase() === SMALL_GROUP_TITLE.toLowerCase()) throw new InputError(`"${SMALL_GROUP_TITLE}" is reserved: add small things with small: true`);
+  if (input.next && ctx.actor === 'claude-code') throw new InputError('next is Om\u2019s call: leave it off (he marks items next in the app)');
   const c = await collections();
   const p = await resolveProject(c, input.project, { create: false });
   if (!p) throw new NotFoundError(`Project "${input.project}" not found (create it with add_project first)`);
   const title = input.title.trim();
 
   const open = await c.claudeItems.find({ projectId: p._id, state: { $in: ['queued', 'active', 'blocked'] } }).toArray();
-  const twin = open.find(o => o.title !== SMALL_GROUP_TITLE && similar(o.title, title) >= 0.6);
+  const twin = open.find(o => !o.group && similar(o.title, title) >= 0.6);
   if (twin) throw new InputError(`Looks like ${itemRef(twin.ref)} "${twin.title}" already covers this. Add to it instead (op note, or part for a small extra), or make the title say how it differs.`);
 
   if (input.small) {
     const text = `${title}: ${input.why.trim()}`;
-    let group = open.find(o => o.title === SMALL_GROUP_TITLE);
+    within('part', text);
+    let group = open.find(o => o.group);
     if (group?.parts.some(x => similar(x.text, text) >= 0.6)) throw new InputError(`${itemRef(group.ref)} already lists this.`);
+    if (group && group.parts.filter(x => !x.done).length >= LIMITS.parts) throw new InputError(`${itemRef(group.ref)} already has ${LIMITS.parts} open small fixes: do some before adding more`);
     if (!group) {
       group = await insert(c, {
         projectId: p._id,
@@ -198,6 +228,7 @@ export async function addItem(input: AddInput, ctx: ItemCtx): Promise<AddResult>
         doneWhen: 'Every part is checked off.',
         state: 'queued',
         next: false,
+        group: true,
       }, ctx, 'created to group small fixes');
     }
     const part = { id: randomUUID().slice(0, 8), text, done: false };
@@ -210,7 +241,7 @@ export async function addItem(input: AddInput, ctx: ItemCtx): Promise<AddResult>
   }
 
   if (ctx.actor === 'claude-code') {
-    const n = await c.claudeItems.countDocuments({ projectId: p._id, createdBy: 'claude-code', createdAt: { $gte: new Date(Date.now() - 86_400_000) }, title: { $ne: SMALL_GROUP_TITLE } });
+    const n = await c.claudeItems.countDocuments({ projectId: p._id, createdBy: 'claude-code', createdAt: { $gte: new Date(Date.now() - 86_400_000) }, group: { $ne: true } });
     if (n >= DAILY_CAP) throw new InputError(`Claude Code already added ${n} items to ${p.name} in the last 24 hours (max ${DAILY_CAP}). Group related work into one item with parts, or add small things with small: true.`);
   }
   const blockedBy = await blockerId(c, input.blockedBy);
@@ -260,7 +291,7 @@ async function insert(c: Collections, f: Partial<ClaudeItemDoc> & Pick<ClaudeIte
 
 /** Start (claim) an item. Refuses if another session holds a fresh claim, unless takeOver. */
 export async function startItem(key: string | number, ctx: ItemCtx, opts: { takeOver?: boolean } = {}): Promise<ClaudeItem> {
-  const session = sessionOf(ctx);
+  const session = within('session', sessionOf(ctx));
   if (!session) throw new InputError('Say which session is starting it: pass session (your branch or worktree name, e.g. "wt/debt-3")');
   const c = await collections();
   const d = await findDoc(c, key);
@@ -294,8 +325,14 @@ export async function blockItem(key: string | number, f: { blockedBy?: string | 
   const c = await collections();
   const d = await findDoc(c, key);
   if (d.state === 'done' || d.state === 'dropped') throw new InputError(`${itemRef(d.ref)} is ${d.state}`);
+  assertMine(d, ctx);
+  within('waiting', f.waitingOnOm);
+  within('reason', f.reason);
+  if (ctx.actor !== 'me' && d.waitingOnOm && f.waitingOnOm !== undefined && !f.waitingOnOm.trim().startsWith(d.waitingOnOm)) {
+    throw new InputError(`${itemRef(d.ref)} is waiting on Om (${d.waitingOnOm}); only Om can clear or change that. Add to it with note.`);
+  }
   const blockedBy = f.blockedBy !== undefined ? await blockerId(c, f.blockedBy, d._id) : d.blockedBy;
-  const waiting = f.waitingOnOm?.trim() ?? d.waitingOnOm;
+  const waiting = f.waitingOnOm?.trim() || d.waitingOnOm;
   if (!blockedBy && !waiting && !f.reason?.trim()) throw new InputError('Say what it is blocked on: blocked_by (an item), waiting_on_om (what Om must decide or do), or reason');
   const what = [blockedBy && blockedBy !== d.blockedBy ? `blocked by ${itemRef((await findDoc(c, blockedBy)).ref)}` : '', waiting && waiting !== d.waitingOnOm ? `waiting on Om: ${waiting}` : '', f.reason?.trim() ?? ''].filter(Boolean).join('; ');
   const r = await update(c, d, { state: 'blocked', blockedBy, waitingOnOm: waiting, claimedBy: null }, ctx, what || 'blocked');
@@ -308,7 +345,10 @@ export async function doneItem(key: string | number, f: { gitRef?: string; note?
   const d = await findDoc(c, key);
   if (d.state === 'done') return toItem(d);
   if (d.state === 'dropped') throw new InputError(`${itemRef(d.ref)} was dropped by Om`);
-  const gitRef = f.gitRef?.trim() ?? '';
+  assertNotWaiting(d, ctx);
+  assertMine(d, ctx);
+  within('note', f.note);
+  const gitRef = within('gitRef', f.gitRef?.trim()) ?? '';
   if (ctx.actor === 'claude-code' && d.kind !== 'idea' && !gitRef) throw new InputError('Give ref: the branch or commit where it landed (e.g. "master@1a2b3c4")');
   const r = await update(
     c,
@@ -330,6 +370,7 @@ function appendNote(cur: string, add: string): string {
 
 export async function noteItem(key: string | number, text: string, ctx: ItemCtx): Promise<ClaudeItem> {
   if (!text.trim()) throw new InputError('Note is empty');
+  within('note', text);
   const c = await collections();
   const d = await findDoc(c, key);
   return toItem(await update(c, d, { note: appendNote(d.note, text) }, ctx, 'note added'));
@@ -340,6 +381,8 @@ export async function releaseItem(key: string | number, ctx: ItemCtx, reason?: s
   const c = await collections();
   const d = await findDoc(c, key);
   if (d.state !== 'active') throw new InputError(`${itemRef(d.ref)} is not active`);
+  assertMine(d, ctx);
+  within('reason', reason);
   return toItem(await update(c, d, { state: 'queued', claimedBy: null, ...(reason?.trim() ? { note: appendNote(d.note, reason) } : {}) }, ctx, 'released back to the queue'));
 }
 
@@ -349,7 +392,12 @@ export async function editItem(key: string | number, f: EditInput, ctx: ItemCtx)
   const c = await collections();
   const d = await findDoc(c, key);
   const next = { title: f.title?.trim() ?? d.title, why: f.why?.trim() ?? d.why, doneWhen: f.doneWhen?.trim() ?? d.doneWhen, kind: f.kind ?? d.kind };
-  if (ctx.actor !== 'me' && d.title !== SMALL_GROUP_TITLE) checkClarity(next);
+  if (ctx.actor !== 'me') {
+    if (d.group && (next.title !== d.title || next.kind !== d.kind)) throw new InputError(`${itemRef(d.ref)} groups small fixes; its title and kind stay. Edit its parts instead.`);
+    if (!d.group && next.title.toLowerCase() === SMALL_GROUP_TITLE.toLowerCase()) throw new InputError(`"${SMALL_GROUP_TITLE}" is reserved`);
+    if (d.next && next.kind === 'idea') throw new InputError(`${itemRef(d.ref)} is marked next by Om; it can't become an idea`);
+    if (!d.group) checkClarity(next);
+  }
   const changed = (Object.keys(next) as (keyof typeof next)[]).filter(k => next[k] !== d[k]);
   if (!changed.length) return toItem(d);
   return toItem(await update(c, d, { ...next, ...(next.kind === 'idea' ? { next: false } : {}) }, ctx, `edited ${changed.join(', ')}`));
@@ -358,8 +406,11 @@ export async function editItem(key: string | number, f: EditInput, ctx: ItemCtx)
 export async function partsItem(key: string | number, f: { add?: string[]; check?: (string | number)[]; uncheck?: (string | number)[] }, ctx: ItemCtx): Promise<ClaudeItem> {
   const c = await collections();
   const d = await findDoc(c, key);
+  assertMine(d, ctx);
   const parts = [...d.parts];
+  if (parts.length + (f.add?.length ?? 0) > LIMITS.parts) throw new InputError(`${itemRef(d.ref)} can have at most ${LIMITS.parts} parts`);
   for (const t of f.add ?? []) {
+    within('part', t);
     if (t.trim().length < 15) throw new InputError(`Part "${t}" is too short: say what and where`);
     if (VAGUE.test(t)) throw new InputError(`Part "${t}" refers to something only this chat knows`);
     parts.push({ id: randomUUID().slice(0, 8), text: t.trim(), done: false });

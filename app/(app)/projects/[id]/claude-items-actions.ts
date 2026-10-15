@@ -2,9 +2,10 @@
 
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
-import { ZodError } from 'zod';
+import { z, ZodError } from 'zod';
 import { SESSION_COOKIE, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
-import { getItem, moveItem, omUpdate, type OmPatch } from '@/lib/data/claude-items';
+import { getItem, LIMITS, moveItem, omUpdate, type OmPatch } from '@/lib/data/claude-items';
+import { CLAUDE_ITEM_KINDS, CLAUDE_ITEM_STATES } from '@/lib/types';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -32,10 +33,23 @@ async function ownItem(projectId: string, key: string) {
   if (!item || item.projectId !== projectId) throw new NotFoundError('Claude item not found');
 }
 
+const PatchSchema = z
+  .object({
+    state: z.enum(CLAUDE_ITEM_STATES).optional(),
+    next: z.boolean().optional(),
+    waitingOnOm: z.string().max(LIMITS.waiting).optional(),
+    kind: z.enum(CLAUDE_ITEM_KINDS).optional(),
+    title: z.string().min(1).max(LIMITS.title).optional(),
+    why: z.string().max(LIMITS.why).optional(),
+    doneWhen: z.string().max(LIMITS.doneWhen).optional(),
+    note: z.string().max(LIMITS.note).optional(),
+  })
+  .strict();
+
 export async function updateClaudeItemAction(projectId: string, key: string, patch: OmPatch): Promise<Result> {
   return run(projectId, async () => {
     await ownItem(projectId, key);
-    await omUpdate(key, patch);
+    await omUpdate(key, PatchSchema.parse(patch));
   });
 }
 
@@ -43,6 +57,6 @@ export async function updateClaudeItemAction(projectId: string, key: string, pat
 export async function moveClaudeItemAction(projectId: string, key: string, dir: 'up' | 'down' | 'top', hops = 1): Promise<Result> {
   return run(projectId, async () => {
     await ownItem(projectId, key);
-    await moveItem(key, dir, Math.min(Math.max(hops, 1), 50));
+    await moveItem(key, z.enum(['up', 'down', 'top']).parse(dir), z.number().int().min(1).max(50).catch(1).parse(hops));
   });
 }
