@@ -170,7 +170,7 @@ export function PushCard({ vapidKey, devices }: { vapidKey: string | null; devic
         sub={sub}
         action={
           env.pushSupported && env.permission !== 'denied' ? (
-            <Switch on={subscribed} disabled={pending} onChange={v => (v ? enable() : disable())} />
+            <Switch label="Notifications on this device" on={subscribed} disabled={pending} onChange={v => (v ? enable() : disable())} />
           ) : undefined
         }
       />
@@ -199,19 +199,19 @@ export function NotifyPrefs({ initial, kinds, discordReady }: { initial: NotifyS
   };
   return (
     <>
-      <Row title="In-app inbox" sub="Always on: the bell on Today and the Notifications screen." action={<Switch on disabled onChange={() => {}} />} />
-      <Row title="Phone notifications" sub="Push to every device that turned them on." action={<Switch on={s.channels.push} onChange={v => save({ ...s, channels: { ...s.channels, push: v } })} />} />
+      <Row title="In-app inbox" sub="Always on: the bell on Today and the Notifications screen." action={<Switch label="In-app inbox" on disabled onChange={() => {}} />} />
+      <Row title="Phone notifications" sub="Push to every device that turned them on." action={<Switch label="Phone notifications" on={s.channels.push} onChange={v => save({ ...s, channels: { ...s.channels, push: v } })} />} />
       <Row
         title="Discord DMs"
         sub={discordReady ? 'From the Work OS bot.' : 'Discord bot not configured.'}
-        action={<Switch on={s.channels.discord} disabled={!discordReady} onChange={v => save({ ...s, channels: { ...s.channels, discord: v } })} />}
+        action={<Switch label="Discord DMs" on={s.channels.discord} disabled={!discordReady} onChange={v => save({ ...s, channels: { ...s.channels, discord: v } })} />}
       />
       {kinds.map(k => (
         <Row
           key={k.kind}
           title={k.label}
           sub={k.hint}
-          action={<Switch on={s.kinds[k.kind as keyof NotifySettings['kinds']]} onChange={v => save({ ...s, kinds: { ...s.kinds, [k.kind]: v } })} />}
+          action={<Switch label={k.label} on={s.kinds[k.kind as keyof NotifySettings['kinds']]} onChange={v => save({ ...s, kinds: { ...s.kinds, [k.kind]: v } })} />}
         />
       ))}
     </>
@@ -231,10 +231,11 @@ export function Row({ icon, title, sub, action }: { icon?: React.ReactNode; titl
   );
 }
 
-function Switch({ on, disabled, onChange }: { on: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
+function Switch({ label, on, disabled, onChange }: { label: string; on: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
       role="switch"
+      aria-label={label}
       aria-checked={on}
       disabled={disabled}
       onClick={() => onChange(!on)}

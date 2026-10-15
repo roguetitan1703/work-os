@@ -9,7 +9,7 @@ import { QuickAddLauncher } from './quick-add';
 
 export function Sidebar({ stats, hiddenCount, unread = 0 }: { stats: Stats; hiddenCount: number; unread?: number }) {
   return (
-    <aside className="hidden md:flex w-56 shrink-0 h-screen sticky top-0 border-r bg-white dark:bg-black flex-col overflow-y-auto">
+    <aside className="hidden md:flex w-56 shrink-0 h-[calc(100dvh-2.5rem)] sticky top-0 border-r bg-white dark:bg-black flex-col overflow-hidden">
       <div className="p-4 border-b border-border">
         <span className="font-bold text-sm tracking-tight text-foreground">Work OS</span>
       </div>
@@ -18,7 +18,7 @@ export function Sidebar({ stats, hiddenCount, unread = 0 }: { stats: Stats; hidd
         <QuickAddLauncher />
       </div>
 
-      <nav className="flex-1 p-3 space-y-0.5 text-sm">
+      <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-0.5 text-sm">
         <NavItem href="/today" count={stats.overdue + stats.dueToday || undefined} countTone={stats.overdue ? 'red' : undefined}>
           Today
         </NavItem>
@@ -55,7 +55,7 @@ export function Sidebar({ stats, hiddenCount, unread = 0 }: { stats: Stats; hidd
         <NavItem href="/connect">Connect</NavItem>
       </nav>
 
-      <div className="p-3 border-t border-border flex items-center justify-between">
+      <div className="p-3 border-t border-border flex items-center justify-between shrink-0">
         <ThemeToggle />
         {!uiAuthDisabled() && (
           <form action={logoutAction}>

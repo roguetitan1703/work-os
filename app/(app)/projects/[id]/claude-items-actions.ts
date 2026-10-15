@@ -5,21 +5,22 @@ import { cookies } from 'next/headers';
 import { z, ZodError } from 'zod';
 import { SESSION_COOKIE, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
 import { getItem, LIMITS, moveItem, omUpdate, type OmPatch } from '@/lib/data/claude-items';
-import { CLAUDE_ITEM_KINDS, CLAUDE_ITEM_STATES } from '@/lib/types';
+import { CLAUDE_ITEM_KINDS, CLAUDE_ITEM_STATES, type ClaudeItem } from '@/lib/types';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 
-type Result = { ok: true } | { ok: false; error: string };
+// item: the item as saved, so the open sheet can show it even if the page refresh arrives late.
+type Result = { ok: true; item?: ClaudeItem } | { ok: false; error: string };
 
 // Same shape as run() in app/actions.ts, but revalidates just the project page.
-async function run(projectId: string, fn: () => Promise<unknown>): Promise<Result> {
+async function run(projectId: string, fn: () => Promise<ClaudeItem | null | void>): Promise<Result> {
   try {
     if (!uiAuthDisabled()) {
       const value = (await cookies()).get(SESSION_COOKIE)?.value;
       if (!(await verifySessionValue(value))) throw new Error('Not signed in');
     }
-    await fn();
-    revalidatePath(`/projects/${projectId}`);
-    return { ok: true };
+    const item = await fn();
+    revalidatePath('/', 'layout');
+    return { ok: true, item: item ?? undefined };
   } catch (err) {
     if (err instanceof ZodError) return { ok: false, error: err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') };
     if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
@@ -49,7 +50,7 @@ const PatchSchema = z
 export async function updateClaudeItemAction(projectId: string, key: string, patch: OmPatch): Promise<Result> {
   return run(projectId, async () => {
     await ownItem(projectId, key);
-    await omUpdate(key, PatchSchema.parse(patch));
+    return omUpdate(key, PatchSchema.parse(patch));
   });
 }
 
@@ -58,5 +59,6 @@ export async function moveClaudeItemAction(projectId: string, key: string, dir: 
   return run(projectId, async () => {
     await ownItem(projectId, key);
     await moveItem(key, z.enum(['up', 'down', 'top']).parse(dir), z.number().int().min(1).max(50).catch(1).parse(hops));
+    return getItem(key);
   });
 }

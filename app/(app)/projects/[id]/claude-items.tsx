@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useSyncExternalStore, useTransition } from 'react';
+import { useState, useSyncExternalStore } from 'react';
+import { useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronsUp, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { BottomSheet } from '@/components/mobile/sheet';
@@ -48,7 +49,12 @@ export function ClaudeItems({ projectId, items, blockers, waitingOnOm, doneCount
   const [sel, setSel] = useState<number | null>(openRef ?? null);
   const [showDone, setShowDone] = useState(false);
   const desktop = useDesktop();
-  useEffect(() => setSel(openRef ?? null), [openRef]);
+  // A new ?claude= link opens that item (adjusting state during render, not in an effect).
+  const [seenRef, setSeenRef] = useState(openRef);
+  if (seenRef !== openRef) {
+    setSeenRef(openRef);
+    setSel(openRef ?? null);
+  }
 
   const open = items.filter(i => i.state !== 'done' && i.state !== 'dropped');
   const finished = items.filter(i => i.state === 'done' || i.state === 'dropped');
@@ -61,7 +67,11 @@ export function ClaudeItems({ projectId, items, blockers, waitingOnOm, doneCount
   const nextUp = queued.filter(i => i.next);
   const plain = queued.filter(i => !i.next);
 
-  const selected = sel === null ? null : items.find(i => i.ref === sel) ?? null;
+  // The page refresh after an action can arrive late (or not at all), so the sheet also keeps the item as the action returned it
+  // and shows whichever copy is newer.
+  const [saved, setSaved] = useState<Record<string, ClaudeItem>>({});
+  const fromPage = sel === null ? null : items.find(i => i.ref === sel) ?? null;
+  const selected = fromPage && saved[fromPage.id] && saved[fromPage.id].updatedAt > fromPage.updatedAt ? saved[fromPage.id] : fromPage;
   const close = () => setSel(null);
   // Same on server and first client render: portals and dialogs only after mount.
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
@@ -77,6 +87,7 @@ export function ClaudeItems({ projectId, items, blockers, waitingOnOm, doneCount
     <Detail
       projectId={projectId}
       item={selected}
+      onSaved={it => setSaved(m => ({ ...m, [it.id]: it }))}
       blocker={selected.blockedBy ? blockers[selected.blockedBy] : undefined}
       up={hopsTo(-1)}
       down={hopsTo(1)}
@@ -187,17 +198,27 @@ function Row({ item: i, blocker, onOpen }: { item: ClaudeItem; blocker?: Blocker
   );
 }
 
-function Detail({ projectId, item: i, blocker, up, down, first }: { projectId: string; item: ClaudeItem; blocker?: Blocker; up: number; down: number; first: boolean }) {
-  const [pending, start] = useTransition();
+function Detail({ projectId, item: i, onSaved, blocker, up, down, first }: { projectId: string; item: ClaudeItem; onSaved: (item: ClaudeItem) => void; blocker?: Blocker; up: number; down: number; first: boolean }) {
+  // Plain flag, not useTransition: the transition stayed pending after the action's revalidation, which left every control disabled.
+  const [pending, setPending] = useState(false);
+  const router = useRouter();
   const [note, setNote] = useState('');
   const isOpen = i.state !== 'done' && i.state !== 'dropped';
 
-  const go = (fn: () => Promise<{ ok: true } | { ok: false; error: string }>, after?: () => void) =>
-    start(async () => {
+  const go = async (fn: () => Promise<{ ok: true; item?: ClaudeItem } | { ok: false; error: string }>, after?: () => void) => {
+    setPending(true);
+    try {
       const r = await fn();
       if (!r.ok) return void toast.error(r.error);
+      if (r.item) onSaved(r.item);
+      router.refresh();
       after?.();
-    });
+    } catch {
+      toast.error('Something went wrong');
+    } finally {
+      setPending(false);
+    }
+  };
   const patch = (p: Parameters<typeof updateClaudeItemAction>[2], after?: () => void) => go(() => updateClaudeItemAction(projectId, i.id, p), after);
   const move = (d: 'up' | 'down' | 'top') => go(() => moveClaudeItemAction(projectId, i.id, d, d === 'up' ? up : down));
 
