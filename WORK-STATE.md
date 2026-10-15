@@ -1,13 +1,12 @@
 # Work state
 
 ## Now
-- Waiting on Om: set up the launcher on his PC and try the first real Start.
+- Nothing in progress. Launcher live and tested by Om on his PC (Start, Remote Control, Stop) on 2026-10-15.
 
 ## Next
-1. Om: Connect → Devices → add his PC; run `node worker/worker.mjs setup` and paste the key; link a folder, Start. (setup built, not yet run against his real config)
-2. Om: on the live site, Settings → send test email (Gmail SMTP via ops.delpat, reset links to OWNER_EMAIL).
-3. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
-4. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
+1. Om: on the live site, Settings → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
+2. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
+3. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
 
 ## Later
 - AKAR C8 (debt step 3) is blocked by C7 in Work OS, but pms-89 said it is active in wt/debt-3 — waits on Om choosing one.
@@ -21,6 +20,7 @@
 - A Connect tab tapped within ~1 s of the previous tab switch isn't preloaded yet (waits on the server) — waits on Om noticing it in use.
 - Test suites need the throwaway mongod as a single-node replica set (transactions) — waits on next test cleanup (document in .scratch-mongo).
 - Launcher Resume opens a new window each time instead of reusing one — waits on real use by Om.
-- First Start in a new folder sits at claude's "trust this folder" prompt until answered in the terminal — waits on real use by Om.
 - Worker logged one "fetch failed" during the real test (no effect) — waits on seeing it again.
 - The repo moved to the project root on 2026-10-15; an empty `work-os` folder may remain (locked by an editor) — delete it when Om renames the folder to "work os" (.scratch-mongo start.sh/rebuild.sh hold the full path).
+- Claude's "trust this folder" prompt shows on the first terminal start in a folder (VS Code sessions don't record trust); auto-trusting linked folders was blocked by the safety check — Om pre-trusts folders by opening claude once in each; waits on Om allowing it explicitly.
+- Sessions shows Start only after a folder is linked; could always show Start and open the folder picker first — waits on Om's yes.
