@@ -22,5 +22,4 @@
 - Launcher Resume opens a new window each time instead of reusing one — waits on real use by Om.
 - Worker logged one "fetch failed" during the real test (no effect) — waits on seeing it again.
 - The repo moved to the project root on 2026-10-15; an empty `work-os` folder may remain (locked by an editor) — delete it when Om renames the folder to "work os" (.scratch-mongo start.sh/rebuild.sh hold the full path).
-- Claude's "trust this folder" prompt shows on the first terminal start in a folder (VS Code sessions don't record trust); auto-trusting linked folders was blocked by the safety check — Om pre-trusts folders by opening claude once in each; waits on Om allowing it explicitly.
 - Sessions shows Start only after a folder is linked; could always show Start and open the folder picker first — waits on Om's yes.
