@@ -9,22 +9,60 @@ import { ConfirmSheet } from '@/components/responsive-sheet';
 import { fmtAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { sessionCan, stateText } from '@/lib/session-state';
-import type { NeedsYouItem, OverviewSession } from '@/lib/data/claude-overview';
+import type { ClaudeOverview, NeedsYouItem, OverviewSession } from '@/lib/data/claude-overview';
 import { removeSessionAction, resumeSessionAction, stopSessionAction, unhideSessionAction } from '../projects/[id]/launcher-actions';
 import { updateClaudeItemAction } from '../projects/[id]/claude-items-actions';
 import { btnOutline, card, field, ghost, H2 } from './ui';
 
-type Props = { needsYou: NeedsYouItem[]; running: OverviewSession[]; recent: OverviewSession[]; hasComputers: boolean };
+type Props = { needsYou: NeedsYouItem[]; running: OverviewSession[]; recent: OverviewSession[]; hasComputers: boolean; activity: ClaudeOverview['activity'] };
 
-export function NowTab({ needsYou, running, recent, hasComputers }: Props) {
+export function NowTab({ needsYou, running, recent, hasComputers, activity }: Props) {
   return (
-    <div className="space-y-5 md:space-y-0 md:grid md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] md:gap-6 md:items-start">
-      <NeedsYou items={needsYou} />
-      <div className="space-y-5">
-        <Running sessions={running} hasComputers={hasComputers} />
-        <Recent sessions={recent} />
+    <div className="space-y-4">
+      <Activity activity={activity} />
+      <div className="space-y-5 md:space-y-0 md:grid md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] md:gap-6 md:items-start">
+        <NeedsYou items={needsYou} />
+        <div className="space-y-5">
+          <Running sessions={running} hasComputers={hasComputers} />
+          <Recent sessions={recent} />
+        </div>
       </div>
     </div>
+  );
+}
+
+// ── Activity (counts reported by each computer's worker; read-only) ─────────
+
+const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+const countsText = (c: { sessions: number; subagents: number }) => `${plural(c.sessions, 'Claude Code session')} · ${plural(c.subagents, 'subagent')} working`;
+
+function Activity({ activity }: { activity: ClaudeOverview['activity'] }) {
+  const { computers, total } = activity;
+  if (!computers.length) return null;
+  const many = computers.length > 1;
+  return (
+    <section className="px-1 md:px-0 space-y-0.5" data-section="activity" aria-label="Claude activity on your computers">
+      <p className="text-[15px] md:text-sm text-foreground" data-activity-total>
+        {total.reporting === 0 ? (
+          <span className="text-muted-foreground">{many ? 'No news from your computers.' : `No news from ${computers[0].name}.`}</span>
+        ) : (
+          <>
+            <span className="text-muted-foreground">On {many ? 'your computers' : 'your computer'}: </span>
+            <span className="font-medium">{countsText(total)}</span>
+            {total.sessionsWorkOs > 0 && <span className="text-muted-foreground"> ({total.sessionsWorkOs} started from Work OS)</span>}
+          </>
+        )}
+      </p>
+      {many && (
+        <ul className="text-[13px] md:text-xs text-muted-foreground">
+          {computers.map(c => (
+            <li key={c.deviceId} data-activity-computer={c.name}>
+              {c.fresh ? `${c.name}: ${plural(c.sessions, 'session')} · ${plural(c.subagents, 'subagent')}` : `No news from ${c.name}`}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

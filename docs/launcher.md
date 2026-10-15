@@ -87,6 +87,19 @@ Response: `{ "ok": true, "known": 112, "missing": 1 }`
 
 Response: `{ "ok": true }`
 
+## Activity counts
+
+How many Claude Code sessions and subagents are running on each computer, for the line at the top of Claude › Now. Read-only: the worker controls nothing from this, and it reports **counts only**.
+
+- Sent as `activity` in every status report (about every 55 s):
+  `"activity": { "sessions": 5, "sessionsWorkOs": 1, "sessionsOther": 4, "sessionsActive": 4, "subagents": 3, "at": 1792054228304 }`
+  Whole numbers only; the server rejects anything else (400) and caps values at 999. It stores the latest per device and stamps its own receive time (the worker's `at` is ignored).
+- Sessions: `claude` / `claude.exe` processes on the machine, not only Work OS ones (VS Code extension, terminal). One per session: `claude mcp`, `update`, `--version` style helpers are skipped, a claude process whose parent is another claude process is that session's child, and a repeated `--session-id`/`--resume` id counts once. `sessionsWorkOs` = those matching a session this worker started; the rest are `sessionsOther`. Process command lines are looked at on the machine and never sent.
+- Subagents: files `~/.claude/projects/<project>/<session>/subagents/agent-*.jsonl` modified in the last 2 minutes. **mtimes only**: transcript files are never opened or read, and no path or name is sent. `sessionsActive` = top-level `<project>/<session>.jsonl` modified in the last 2 minutes (a cross-check of `sessions`). A `subagents` folder untouched for a day is skipped; at most 20000 stats per cycle. Root override for tests: env `WORK_OS_CLAUDE_PROJECTS`.
+- A subagent counts as "working" while its file was written in the last 2 minutes, so a subagent that is thinking silently for longer drops out, and one that just finished stays for up to 2 minutes.
+- Om's side: `claudeOverview().activity` gives each computer and a total over the computers that reported within 3 minutes; a computer silent longer shows "No news from <computer>" instead of old numbers.
+- Try it without sending anything: `node worker/worker.mjs activity`.
+
 ## Claude area and Start flow (Om's side)
 
 - `/claude` (tabs Now, Queue, Setup via `?tab=`) lists sessions and waiting items across projects (`lib/data/claude-overview.ts`), with Stop behind a confirm and Remove with Undo.

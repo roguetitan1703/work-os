@@ -13,7 +13,30 @@ const OPEN = ['queued', 'active', 'blocked'] as const;
 export type OverviewSession = SessionView & { projectId: string; projectName: string };
 export type NeedsYouItem = { id: string; ref: number; projectId: string; projectName: string; title: string; question: string; updatedAt: string };
 export type QueueGroup = { projectId: string; projectName: string; items: ClaudeItem[]; blockers: Record<string, { ref: number; title: string; state: string }> };
-export type ClaudeOverview = { needsYou: NeedsYouItem[]; running: OverviewSession[]; recent: OverviewSession[]; queue: QueueGroup[]; hasComputers: boolean };
+/** Counts a computer last reported (numbers only). `fresh` is false after ACTIVITY_STALE_MS without news: then show "no news", not the old numbers. */
+export type ComputerActivity = { deviceId: string; name: string; fresh: boolean; sessions: number; sessionsWorkOs: number; sessionsOther: number; subagents: number; at: string };
+export type ActivityTotal = { sessions: number; sessionsWorkOs: number; sessionsOther: number; subagents: number; /** Computers with fresh numbers. */ reporting: number };
+export type ClaudeOverview = { needsYou: NeedsYouItem[]; running: OverviewSession[]; recent: OverviewSession[]; queue: QueueGroup[]; hasComputers: boolean; activity: { computers: ComputerActivity[]; total: ActivityTotal } };
+
+export const ACTIVITY_STALE_MS = 3 * 60_000;
+
+/** Latest reported counts per computer plus a total over the computers that are not stale. Read-only. */
+export async function activityOverview(): Promise<ClaudeOverview['activity']> {
+  const c = await collections();
+  const ds = await c.devices.find({ revokedAt: null, activity: { $exists: true } }, { projection: { name: 1, activity: 1 } }).sort({ name: 1 }).toArray();
+  const nowMs = Date.now();
+  const computers: ComputerActivity[] = ds.flatMap(d => {
+    const a = d.activity;
+    if (!a) return [];
+    return [{ deviceId: d._id, name: d.name, fresh: nowMs - a.at.getTime() <= ACTIVITY_STALE_MS, sessions: a.sessions, sessionsWorkOs: a.sessionsWorkOs, sessionsOther: a.sessionsOther, subagents: a.subagents, at: a.at.toISOString() }];
+  });
+  const total: ActivityTotal = { sessions: 0, sessionsWorkOs: 0, sessionsOther: 0, subagents: 0, reporting: 0 };
+  for (const x of computers) {
+    if (!x.fresh) continue;
+    total.sessions += x.sessions; total.sessionsWorkOs += x.sessionsWorkOs; total.sessionsOther += x.sessionsOther; total.subagents += x.subagents; total.reporting++;
+  }
+  return { computers, total };
+}
 
 /** How many open Claude items wait on Om (for a nav badge). One indexed count. */
 export async function needsYouCount(): Promise<number> {
@@ -23,12 +46,13 @@ export async function needsYouCount(): Promise<number> {
 
 export async function claudeOverview(): Promise<ClaudeOverview> {
   const c = await collections();
-  const [devices, items, live, ended, projects] = await Promise.all([
+  const [devices, items, live, ended, projects, activity] = await Promise.all([
     deviceMap(),
     c.claudeItems.find({ state: { $in: [...OPEN] } }).sort({ order: 1 }).toArray(),
     c.workerSessions.find({ state: { $in: ['starting', 'running'] }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(50).toArray(),
     c.workerSessions.find({ state: { $in: ['dead', 'stopped', 'failed'] }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(15).toArray(),
     c.projects.find({}, { projection: { name: 1 } }).toArray(),
+    activityOverview(),
   ]);
   const names = new Map(projects.map(p => [p._id, p.name]));
   const pname = (id: string) => names.get(id) ?? id;
@@ -79,6 +103,7 @@ export async function claudeOverview(): Promise<ClaudeOverview> {
     recent: ended.filter(s => !!s.projectId).map(view),
     queue: [...byProject.values()].sort((a, b) => a.projectName.localeCompare(b.projectName)),
     hasComputers: devices.size > 0,
+    activity,
   };
 }
 

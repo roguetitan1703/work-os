@@ -86,16 +86,16 @@ export async function launch({ kind, folder, sessionId, projectName, prompt, cla
 // [{pid, name?, cmd}] for claude.exe processes (Windows) or everything (macOS).
 export async function listProcesses() {
   if (process.platform === 'win32') {
-    const script = "@(Get-CimInstance Win32_Process -Filter \"Name='claude.exe'\" | Select-Object ProcessId,Name,CommandLine) | ConvertTo-Json -Compress";
+    const script = "@(Get-CimInstance Win32_Process -Filter \"Name='claude.exe'\" | Select-Object ProcessId,ParentProcessId,Name,CommandLine) | ConvertTo-Json -Compress";
     const { stdout } = await execFileP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { maxBuffer: 16e6, timeout: 30000 });
     if (!stdout.trim()) return [];
     let j = JSON.parse(stdout);
     if (!Array.isArray(j)) j = [j];
-    return j.filter((p) => p && p.CommandLine && p.ProcessId !== process.pid).map((p) => ({ pid: p.ProcessId, name: p.Name, cmd: p.CommandLine }));
+    return j.filter((p) => p && p.CommandLine && p.ProcessId !== process.pid).map((p) => ({ pid: p.ProcessId, ppid: p.ParentProcessId, name: p.Name, cmd: p.CommandLine }));
   }
-  const { stdout } = await execFileP('ps', ['-axo', 'pid,command'], { maxBuffer: 16e6, timeout: 30000 });
-  return stdout.split('\n').slice(1).map((l) => l.match(/^\s*(\d+)\s+(.*)$/)).filter(Boolean)
-    .map((m) => ({ pid: Number(m[1]), cmd: m[2] }))
+  const { stdout } = await execFileP('ps', ['-axo', 'pid,ppid,command'], { maxBuffer: 16e6, timeout: 30000 });
+  return stdout.split('\n').slice(1).map((l) => l.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/)).filter(Boolean)
+    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), cmd: m[3] }))
     .filter((p) => p.pid !== process.pid && !/\bosascript\b/.test(p.cmd));
 }
 
