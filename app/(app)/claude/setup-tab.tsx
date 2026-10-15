@@ -1,17 +1,17 @@
 import { CopyBox } from '@/components/copy-box';
-import { ClaudeCodeKeys } from './claude-code-keys';
-import { Disclosure, Field, Section, code } from './ui';
+import { Disclosure, Field, Section, code } from '../connect/ui';
+import { Computers } from './computers';
+import { ClaudeCodeKeys } from './keys';
 
-/** Claude Code: keys manager first, "Connect this PC" guide collapsed. */
-export function CodeTab({ url }: { url: string }) {
+/** Claude › Setup: computers that run sessions, and keys that let Claude Code use Work OS. */
+export function SetupTab({ url }: { url: string }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 md:max-w-3xl">
+      <Computers />
       <Section title="Keys">
-        <ClaudeCodeKeys url={url} />
-      </Section>
-
-      <Section title="Setup">
         <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">Keys let Claude Code on a computer read and update Work OS.</p>
+          <ClaudeCodeKeys url={url} />
           <Disclosure title="Connect this PC" hint="Run once in a terminal">
             <Field label="Create a key above, then run (replace <key> with it)">
               <CopyBox text={`claude mcp add --scope user --transport http work-os ${url} --header "Authorization: Bearer <key>"`} multiline />

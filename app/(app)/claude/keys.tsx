@@ -7,21 +7,21 @@ import type { ApiKeyInfo } from '@/lib/api-keys';
 import { BottomSheet } from '@/components/mobile/sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { fmtAgo } from '@/lib/format';
-import { Disclosure } from './ui';
-import { createApiKeyAction, listApiKeysAction, revokeApiKeyAction, rotateApiKeyAction } from './actions';
+import { ConfirmSheet } from '@/components/responsive-sheet';
+import { Disclosure } from '../connect/ui';
+import { createApiKeyAction, listApiKeysAction, revokeApiKeyAction, rotateApiKeyAction } from './setup-actions';
 
 const field =
   'w-full min-w-0 h-11 rounded-xl border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
 const btn = 'h-11 px-4 rounded-full text-sm font-semibold shrink-0 disabled:opacity-50 inline-flex items-center justify-center gap-1.5';
 const btnPrimary = `${btn} bg-foreground text-background`;
-const btnOutline = `${btn} border border-border text-foreground font-medium`;
 const iconBtn = 'w-11 h-11 rounded-full flex items-center justify-center text-muted-foreground active:bg-muted/60 hover:bg-muted/40 shrink-0 disabled:opacity-50';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
 type Pending = { kind: 'revoke' | 'rotate'; key: ApiKeyInfo } | null;
 
-/** Settings → Connect → "Claude Code keys": create (shown once), list, rotate, revoke. */
+/** Claude › Setup › Keys: create (shown once), list, rotate, revoke. */
 export function ClaudeCodeKeys({ url }: { url: string }) {
   const phone = usePhone();
   const [keys, setKeys] = useState<ApiKeyInfo[] | null>(null);
@@ -69,14 +69,7 @@ export function ClaudeCodeKeys({ url }: { url: string }) {
       setConfirm(null);
     });
 
-  const ask = (p: NonNullable<Pending>) => {
-    if (phone) return setConfirm(p);
-    const msg =
-      p.kind === 'revoke'
-        ? `Revoke "${p.key.name}"? Claude Code sessions using it stop working at once.`
-        : `Rotate "${p.key.name}"? The old key stops working at once and a new one is shown.`;
-    if (window.confirm(msg)) act(p);
-  };
+  const ask = (p: NonNullable<Pending>) => setConfirm(p);
 
   return (
     <section className="space-y-3">
@@ -145,28 +138,19 @@ export function ClaudeCodeKeys({ url }: { url: string }) {
       )}
 
       {confirm && (
-        <BottomSheet title={confirm.kind === 'revoke' ? 'Revoke key' : 'Rotate key'} onClose={() => setConfirm(null)}>
-          <div className="space-y-4 pt-1 pb-2">
-            <p className="text-[15px] text-foreground">
-              {confirm.kind === 'revoke'
-                ? `Revoke "${confirm.key.name}"? Claude Code sessions using it stop working at once.`
-                : `Rotate "${confirm.key.name}"? The old key stops working at once and a new one is shown.`}
-            </p>
-            <div className="flex gap-2">
-              <button type="button" className={`${btnOutline} flex-1`} onClick={() => setConfirm(null)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className={`${btn} flex-1 ${confirm.kind === 'revoke' ? 'bg-red-600 text-white' : 'bg-foreground text-background'}`}
-                onClick={() => act(confirm)}
-                disabled={pending}
-              >
-                {confirm.kind === 'revoke' ? 'Revoke' : 'Rotate'}
-              </button>
-            </div>
-          </div>
-        </BottomSheet>
+        <ConfirmSheet
+          title={confirm.kind === 'revoke' ? 'Revoke key' : 'Rotate key'}
+          message={
+            confirm.kind === 'revoke'
+              ? `Revoke "${confirm.key.name}"? Claude Code sessions using it stop working at once.`
+              : `Rotate "${confirm.key.name}"? The old key stops working at once and a new one is shown.`
+          }
+          verb={confirm.kind === 'revoke' ? 'Revoke' : 'Rotate'}
+          danger={confirm.kind === 'revoke'}
+          pending={pending}
+          onConfirm={() => act(confirm)}
+          onClose={() => setConfirm(null)}
+        />
       )}
     </section>
   );

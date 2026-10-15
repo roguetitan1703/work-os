@@ -14,7 +14,7 @@ panel; the worker is a small Node program on each machine.
    task, note, Discord or Claude.
 4. Normal permission mode. Never `--dangerously-skip-permissions`, never `--bare`.
 5. Status only: session id, folder, state. No transcripts, logs or code.
-6. Outbound only. One device key per machine (`wkr_…`), revocable on Connect → Devices.
+6. Outbound only. One device key per machine (`wkr_…`), revocable on Claude › Setup › Computers (`/claude?tab=setup`; `/connect?tab=devices` redirects there).
 7. Kill switch: `enabled: false` in the worker config, or revoke the key.
 
 ## Auth
@@ -86,6 +86,11 @@ Response: `{ "ok": true, "known": 112, "missing": 1 }`
 - `error` ≤ 300 chars.
 
 Response: `{ "ok": true }`
+
+## Claude area and Start flow (Om's side)
+
+- `/claude` (tabs Now, Queue, Setup via `?tab=`) lists sessions and waiting items across projects (`lib/data/claude-overview.ts`), with Stop behind a confirm and Remove with Undo.
+- Start Claude is one component (`components/start-claude.tsx`, mounted in the app layout): `?start=1` picks a project, `?start=<projectId>` opens the confirm modal (computer, folder, first message). With no linked folder it offers "Link and start" for a same-repo suggestion, or a folder search that links and starts.
 
 ## Sessions list (Om's side)
 

@@ -48,7 +48,7 @@ function assertNotWaiting(d: ClaudeItemDoc, ctx: ItemCtx): void {
 
 export const itemRef = (ref: number) => `C${ref}`;
 
-function toItem(d: ClaudeItemDoc): ClaudeItem {
+export function toItem(d: ClaudeItemDoc): ClaudeItem {
   const { _id, keyId: _k, group: _g, ...rest } = d;
   return {
     ...rest,

@@ -5,7 +5,8 @@ import { cookies } from 'next/headers';
 import { z, ZodError } from 'zod';
 import { SESSION_COOKIE, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
 import { InputError, NotFoundError } from '@/lib/data/errors';
-import { linkFolder, removeSession, resumeSession, searchFolders, startSession, stopSession, unlinkFolder, type FolderView } from '@/lib/data/launcher';
+import { linkFolder, projectLauncher, removeSession, resumeSession, searchFolders, startSession, stopSession, unhideSession, unlinkFolder, type FolderView } from '@/lib/data/launcher';
+import { startProjects, type StartProject } from '@/lib/data/claude-overview';
 
 type R<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -68,5 +69,35 @@ export async function removeSessionAction(projectId: string, sessionId: string):
   return run(projectId, async () => {
     await removeSession(Id.parse(projectId), Uuid.parse(sessionId));
     return null;
+  });
+}
+
+export async function unhideSessionAction(projectId: string, sessionId: string): Promise<R<null>> {
+  return run(projectId, async () => {
+    await unhideSession(Id.parse(projectId), Uuid.parse(sessionId));
+    return null;
+  });
+}
+
+// ── Start Claude flow (components/start-claude.tsx) ─────────────────────────
+
+export async function startProjectsAction(): Promise<R<StartProject[]>> {
+  return run(null, () => startProjects());
+}
+
+/** Linked folders, same-repo suggestions and computers for one project. */
+export async function startOptionsAction(projectId: string): Promise<R<{ folders: FolderView[]; suggestions: FolderView[]; devices: { id: string; name: string }[] }>> {
+  return run(null, async () => {
+    const { folders, suggestions, devices } = await projectLauncher(Id.parse(projectId));
+    return { folders: folders.filter(f => !f.missing), suggestions, devices };
+  });
+}
+
+/** "Link and start": link the folder to the project, then start a session in it. */
+export async function linkAndStartAction(projectId: string, key: string, prompt: string): Promise<R<string>> {
+  return run(projectId, async () => {
+    const text = z.string().max(4000).parse(prompt ?? '');
+    await linkFolder(Id.parse(projectId), Id.parse(key));
+    return startSession(Id.parse(projectId), Id.parse(key), text);
   });
 }
