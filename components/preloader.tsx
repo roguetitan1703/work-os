@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 
 // The pages people jump between. Kept warm so the first tap after sitting on a page is instant.
-const ROUTES = ['/today', '/tasks', '/notes', '/menu', '/projects', '/notifications', '/settings', '/history'];
+const ROUTES = ['/today', '/tasks', '/notes', '/menu', '/projects', '/notifications', '/settings', '/review'];
 // Prefetched pages live 5 minutes (staleTimes.static). Asking for a page that is still cached costs
 // nothing, so check often: an expired page is fetched again within CHECK_MS (a tap in that short gap waits on the server).
 // (Not router.refresh(): pages fetched after a refresh were measured to expire within a minute.)

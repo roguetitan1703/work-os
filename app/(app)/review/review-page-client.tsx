@@ -16,8 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Plus, ChevronDown, ChevronRight, Repeat2 } from 'lucide-react';
-import { SubHeader, MEmpty } from '@/components/mobile/sub-header';
-import { ReviewNav } from '@/components/review-nav';
+import { MEmpty } from '@/components/mobile/sub-header';
 import { FullSheet } from '@/components/mobile/full-sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 
@@ -108,27 +107,13 @@ export function ReviewPageClient({ initialReviews }: Props) {
 
   return (
     <div className="space-y-5 md:space-y-6">
-      <SubHeader
-        title="Weekly review"
-        subtitle={`${reviews.length} reviews logged`}
-        right={
-          <button onClick={() => setNewOpen(true)} aria-label="New review" className="w-11 h-11 rounded-full bg-foreground text-background flex items-center justify-center active:scale-95 transition-transform">
-            <Plus className="w-5 h-5" strokeWidth={2.4} />
-          </button>
-        }
-      />
-      <div className="hidden md:flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Weekly review</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{reviews.length} reviews logged</p>
-        </div>
-        <Button size="sm" className="gap-1.5" onClick={() => setNewOpen(true)}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm md:text-xs text-muted-foreground">{reviews.length} reviews logged</p>
+        <Button size="sm" className="gap-1.5 max-md:h-11 max-md:px-4 max-md:text-sm" onClick={() => setNewOpen(true)}>
           <Plus className="w-3.5 h-3.5" />
           New review
         </Button>
       </div>
-
-      <ReviewNav active="weekly" />
 
       {reviews.length === 0 && (
         <>

@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { useApp } from './app-context';
 import { ThemeToggle } from './theme-toggle';
 import { QuickAddLauncher } from './quick-add';
+import { openSearch } from './global-search';
 
 const STATUS_DOT = { ok: 'bg-green-500', warn: 'bg-amber-500', error: 'bg-red-500' } as const;
 const STATUS_TEXT = { ok: 'All systems OK', warn: 'Needs a look', error: 'Problem' } as const;
@@ -35,7 +36,7 @@ export function Sidebar({ showSignOut = true }: { showSignOut?: boolean }) {
           Start Claude
         </button>
         <button
-          onClick={() => router.push('/tasks?search=1')}
+          onClick={openSearch}
           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors"
         >
           <Search className="w-3.5 h-3.5" />
@@ -54,7 +55,7 @@ export function Sidebar({ showSignOut = true }: { showSignOut?: boolean }) {
         </Group>
         <Group>
           <NavItem href="/notifications" on={place === 'inbox'} count={unread} tone="red">Inbox</NavItem>
-          <NavItem href="/history" on={place === 'review'}>Review</NavItem>
+          <NavItem href="/review" on={place === 'review'}>Review</NavItem>
           <NavItem href="/timetable" on={place === 'schedule'}>Schedule</NavItem>
           <Modes />
         </Group>

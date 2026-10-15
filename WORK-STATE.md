@@ -4,8 +4,8 @@
 - Deploying 2026-10-15: Today rebuilt, Claude page with named sessions, project page as an overview, Settings with Connect merged in (/connect and /recovery redirect). Om must reinstall his worker for session names and counts.
 
 ## Next
-1. Om: `node worker/worker.mjs install` again (claude lookup retry, parent folders offered), then link the terrah folder from the project; live check of Today, /claude, a project page and Settings.
-2. Builder B: Review hub, then global search. Then grammar pass (names, Back, confirms).
+1. Om: `node worker/worker.mjs install` again (claude lookup retry, parent folders offered), then link the terrah folder from the project; live check of Today, /claude, a project page, Settings, Review and search.
+2. Grammar pass (names, Back rule, confirms, phone Back closes sheets).
 3. Om: on the live site, Settings → This device → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
 5. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
@@ -31,7 +31,8 @@
 - Sessions shows Start only after a folder is linked; could always show Start and open the folder picker first — waits on Om's yes.
 - Lint errors left: current-block-bar.tsx:18 (setState in effect), timetable/today/route.ts no-explicit-any ×3 — waits on next UI touch.
 - After merging ui-nav: swap lib/data/nav-counts.ts claudeWaitingCount for needsYouCount(); point the Start Claude buttons at the real modal (they only add ?start=1); /claude lights its tab once the page exists — waits on the /claude branch merge.
-- Old route names kept (/history, /hidden, /review, /timetable, /notifications); only nav labels follow the glossary — waits on a route rename slice.
+- Old route names kept (/timetable, /notifications); only nav labels follow the glossary — waits on a route rename slice.
+- Review hub (ui-settings): /history, /hidden and /archive are 307s to /review?view=; they keep the old ?tab= in the URL (harmless). A bookmark of the old /review (Weekly review) now opens Done — waits on Om noticing. Trash Restore has no Undo (a restore can't be undone without re-deleting) — waits on Om wanting it.
 - /modes/<bad-slug> returns 200 (not-found streams after loading.tsx) — waits on a not-found check before the shell streams.
 - Activity counts: a subagent silent for >2 min drops out of the count; terminal and macOS session shapes only tested on stubs — waits on Om's real use.
 - Scratch suites in .scratch-mongo/scratchpad assume the old Connect code tab, a short seed2 fixture and a 'Notif' bell label — waits on next test cleanup.
@@ -49,3 +50,4 @@
 - Tab prefetch added to Claude, project and Settings tabs; not yet measured with a slow server — waits on the next full test run.
 - Connections sends MCP_TOKEN with the page (owner-only, behind sign-in, same as before); could fetch on reveal instead — waits on a security pass.
 - Worker without a log file: a failed start only shows in state.json doneJobs (how "claude not found" was found) — waits on Om wanting a log file.
+- Global search (ui-settings): matches title/#ref/C-ref/note text as substrings (no ranking or fuzzy match, 6 per group, 80 chars); task descriptions and comments are not searched; phone Back does not close the search sheet (it leaves the page) — waits on Om's use.

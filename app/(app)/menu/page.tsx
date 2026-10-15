@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { ChevronRight, LifeBuoy } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/tab-bar';
-import { REVIEW_LINKS } from '@/components/review-nav';
 import { MODE_LINKS } from '@/lib/nav';
 import { systemStatusLevel } from '@/lib/data/nav-counts';
 
@@ -19,13 +18,7 @@ export default async function MenuPage() {
       <h1 className="hidden md:block text-2xl font-bold mb-4">Menu</h1>
 
       <Group title="Review">
-        <div className="flex flex-wrap gap-2 px-4 py-3">
-          {REVIEW_LINKS.map(l => (
-            <Chip key={l.key} href={l.href}>
-              {l.label}
-            </Chip>
-          ))}
-        </div>
+        <Row href="/review" label="Done · Activity · Weekly · Stale · Archive · Trash" />
       </Group>
 
       <Group title="Schedule">
