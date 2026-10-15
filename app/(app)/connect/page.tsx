@@ -1,10 +1,9 @@
+import { redirect } from 'next/navigation';
 import { INSTRUCTIONS, TOOLS } from '@/lib/mcp/docs';
 import { SubHeader } from '@/components/mobile/sub-header';
 import { DiscordSection } from './discord-section';
 import { AlertsSection } from './alerts-section';
 import { ChatTab } from './chat-tab';
-import { CodeTab } from './code-tab';
-import { DevicesTab } from './devices-tab';
 import { Overview } from './overview';
 import { ReferenceTab } from './reference-tab';
 import { TabNav } from './tab-nav';
@@ -18,7 +17,10 @@ export const metadata = { title: 'Connect · Work OS' };
 type Props = { searchParams: Promise<{ tab?: string }> };
 
 export default async function ConnectPage({ searchParams }: Props) {
-  const tab = tabFrom((await searchParams).tab);
+  const rawTab = (await searchParams).tab;
+  // Keys and computers moved to Claude › Setup.
+  if (rawTab === 'code' || rawTab === 'devices') redirect('/claude?tab=setup');
+  const tab = tabFrom(rawTab);
   const base = await baseUrl();
   const url = `${base}/api/mcp`;
   const token = process.env.MCP_TOKEN;
@@ -44,8 +46,6 @@ export default async function ConnectPage({ searchParams }: Props) {
         </Section>
       )}
       {tab === 'chat' && status && <ChatTab url={url} ready={status.mcpReady} seen={status.mcpSeen} />}
-      {tab === 'code' && <CodeTab url={url} />}
-      {tab === 'devices' && <DevicesTab />}
       {tab === 'discord' && <DiscordSection base={base} />}
       {tab === 'alerts' && <AlertsSection base={base} />}
       {tab === 'reference' && (

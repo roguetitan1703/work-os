@@ -4,6 +4,7 @@ import { PageTint } from '@/components/page-tint';
 import { TabBar } from '@/components/mobile/tab-bar';
 import { PullToRefresh } from '@/components/mobile/pull-to-refresh';
 import { Preloader } from '@/components/preloader';
+import { StartClaude } from '@/components/start-claude';
 import { unreadCount } from '@/lib/notify';
 import { AppContextProvider } from '@/components/app-context';
 import { listProjectsBasic } from '@/lib/data/projects';
@@ -37,6 +38,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <CurrentBlockBar />
       <TabBar />
       <PullToRefresh targetId="app-main" />
+      <StartClaude />
       <Preloader />
     </AppContextProvider>
   );

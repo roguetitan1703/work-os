@@ -7,20 +7,20 @@ import type { DeviceInfo } from '@/lib/devices';
 import { BottomSheet } from '@/components/mobile/sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { fmtAgo } from '@/lib/format';
-import { Disclosure, Section } from './ui';
-import { createDeviceAction, listDevicesAction, revokeDeviceAction } from './actions';
+import { ConfirmSheet } from '@/components/responsive-sheet';
+import { Disclosure, Section } from '../connect/ui';
+import { createDeviceAction, listDevicesAction, revokeDeviceAction } from './setup-actions';
 
 const field =
   'w-full min-w-0 h-11 rounded-xl border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
 const btn = 'h-11 px-4 rounded-full text-sm font-semibold shrink-0 disabled:opacity-50 inline-flex items-center justify-center gap-1.5';
 const btnPrimary = `${btn} bg-foreground text-background`;
-const btnOutline = `${btn} border border-border text-foreground font-medium`;
 const iconBtn = 'w-11 h-11 rounded-full flex items-center justify-center text-muted-foreground active:bg-muted/60 hover:bg-muted/40 shrink-0 disabled:opacity-50';
 
 const online = (d: DeviceInfo) => !!d.lastSeenAt && Date.now() - Date.parse(d.lastSeenAt) < 2 * 60_000;
 
-/** Connect → Devices: machines running the session-launcher worker (docs/launcher.md). */
-export function DevicesTab() {
+/** Claude › Setup › Computers: machines running the session-launcher worker (docs/launcher.md). */
+export function Computers() {
   const phone = usePhone();
   const [devices, setDevices] = useState<DeviceInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export function DevicesTab() {
   const create = () =>
     start(async () => {
       const n = name.trim();
-      if (!n) return void toast.error('Name the device, e.g. Om-PC');
+      if (!n) return void toast.error('Name the computer, e.g. Om-PC');
       const r = await createDeviceAction(n);
       if (!r.ok) return void toast.error(r.error);
       setDevices(r.data.devices);
@@ -61,14 +61,11 @@ export function DevicesTab() {
       toast(`Revoked "${d.name}"`);
     });
 
-  const ask = (d: DeviceInfo) => {
-    if (phone) return setConfirm(d);
-    if (window.confirm(`Revoke "${d.name}"? Its worker stops at once; links and history stay.`)) revoke(d);
-  };
+  const ask = (d: DeviceInfo) => setConfirm(d);
 
   return (
     <div className="space-y-4">
-      <Section title="Devices">
+      <Section title="Computers">
         <p className="text-sm text-muted-foreground mb-3">
           Computers that can open Claude Code sessions for you. Each runs a small worker that checks Work OS for Start / Resume / Stop and reports which folders it has (names only, never paths).
         </p>
@@ -78,7 +75,7 @@ export function DevicesTab() {
           ) : !devices ? (
             <p className="px-4 py-3 text-sm text-muted-foreground">Loading…</p>
           ) : devices.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-muted-foreground">No devices yet.</p>
+            <p className="px-4 py-3 text-sm text-muted-foreground">No computers yet.</p>
           ) : (
             devices.map(d => (
               <div key={d.id} className="flex items-center gap-2 pl-4 pr-2 py-2 min-h-14" data-device={d.name}>
@@ -106,8 +103,8 @@ export function DevicesTab() {
               maxLength={40}
               onChange={e => setName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !pending && create()}
-              placeholder="Device name, e.g. Om-PC"
-              aria-label="Name for the new device"
+              placeholder="Computer name, e.g. Om-PC"
+              aria-label="Name for the new computer"
               enterKeyHint="done"
             />
             <button type="button" className={btnPrimary} onClick={create} disabled={pending}>
@@ -117,9 +114,9 @@ export function DevicesTab() {
         </div>
       </Section>
 
-      <Disclosure title="What a device can do" hint="Limits and safety">
+      <Disclosure title="What a computer can do" hint="Limits and safety">
         <p>
-          A device key (<code>wkr_…</code>) only opens the worker endpoints: report folder names, read Start / Resume / Stop jobs for that device, report session status. It can&apos;t read or change tasks,
+          A computer key (<code>wkr_…</code>) only opens the worker endpoints: report folder names, read Start / Resume / Stop jobs for that device, report session status. It can&apos;t read or change tasks,
           notes or projects. The worker only starts <code>claude</code> in folders you linked, in normal permission mode; you give instructions from the Claude app. Revoke here, or set <code>enabled: false</code>{' '}in the worker&apos;s config, to stop it.
         </p>
       </Disclosure>
@@ -137,19 +134,15 @@ export function DevicesTab() {
         </BottomSheet>
       )}
       {confirm && (
-        <BottomSheet title="Revoke device" onClose={() => setConfirm(null)}>
-          <div className="space-y-4 pt-1 pb-2">
-            <p className="text-[15px] text-foreground">Revoke &quot;{confirm.name}&quot;? Its worker stops at once; links and history stay.</p>
-            <div className="flex gap-2">
-              <button type="button" className={`${btnOutline} flex-1`} onClick={() => setConfirm(null)}>
-                Cancel
-              </button>
-              <button type="button" className={`${btn} flex-1 bg-red-600 text-white`} onClick={() => revoke(confirm)} disabled={pending}>
-                Revoke
-              </button>
-            </div>
-          </div>
-        </BottomSheet>
+        <ConfirmSheet
+          title="Revoke computer"
+          message={<>Revoke &quot;{confirm.name}&quot;? Its worker stops at once; links and history stay.</>}
+          verb="Revoke"
+          danger
+          pending={pending}
+          onConfirm={() => revoke(confirm)}
+          onClose={() => setConfirm(null)}
+        />
       )}
     </div>
   );
@@ -179,7 +172,7 @@ function NewDevice({ fresh, onDone }: { fresh: { key: string; name: string }; on
   return (
     <div className="space-y-3">
       <p className="text-[13px] text-foreground">
-        <strong>Copy this key now.</strong> It is not shown again; if you lose it, revoke the device and add it again.
+        <strong>Copy this key now.</strong> It is not shown again; if you lose it, revoke the computer and add it again.
       </p>
       <div className="flex items-center gap-2">
         <code className="flex-1 min-w-0 break-all rounded-lg bg-muted px-3 py-2 text-[13px] font-mono">{fresh.key}</code>

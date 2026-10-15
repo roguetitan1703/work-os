@@ -40,7 +40,7 @@ function useDesktop() {
   );
 }
 
-function Chip({ kind }: { kind: string }) {
+export function Chip({ kind }: { kind: string }) {
   return <span className={cn('text-[11px] px-1.5 py-0.5 rounded font-medium shrink-0', KIND_STYLE[kind])}>{kind}</span>;
 }
 
@@ -48,7 +48,6 @@ function Chip({ kind }: { kind: string }) {
 export function ClaudeItems({ projectId, items, blockers, waitingOnOm, doneCount, openRef }: Props) {
   const [sel, setSel] = useState<number | null>(openRef ?? null);
   const [showDone, setShowDone] = useState(false);
-  const desktop = useDesktop();
   // A new ?claude= link opens that item (adjusting state during render, not in an effect).
   const [seenRef, setSeenRef] = useState(openRef);
   if (seenRef !== openRef) {
@@ -66,34 +65,6 @@ export function ClaudeItems({ projectId, items, blockers, waitingOnOm, doneCount
   const queued = rest.filter(i => i.state === 'queued' && i.kind !== 'idea');
   const nextUp = queued.filter(i => i.next);
   const plain = queued.filter(i => !i.next);
-
-  // The page refresh after an action can arrive late (or not at all), so the sheet also keeps the item as the action returned it
-  // and shows whichever copy is newer.
-  const [saved, setSaved] = useState<Record<string, ClaudeItem>>({});
-  const fromPage = sel === null ? null : items.find(i => i.ref === sel) ?? null;
-  const selected = fromPage && saved[fromPage.id] && saved[fromPage.id].updatedAt > fromPage.updatedAt ? saved[fromPage.id] : fromPage;
-  const close = () => setSel(null);
-  // Same on server and first client render: portals and dialogs only after mount.
-  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
-  const groupOf = (i: ClaudeItem) => (i.waitingOnOm ? 'w' : i.state === 'active' ? 'a' : i.kind === 'idea' ? 'i' : i.state === 'blocked' ? 'b' : i.next ? 'n' : 'q');
-  // Places to the nearest item in the same group, up (-1) or down (+1), in the project order; 0 when none.
-  const hopsTo = (dir: -1 | 1) => {
-    if (!selected) return 0;
-    const at = open.findIndex(i => i.id === selected.id);
-    for (let j = at + dir; j >= 0 && j < open.length; j += dir) if (groupOf(open[j]) === groupOf(selected)) return Math.abs(j - at);
-    return 0;
-  };
-  const detail = selected && (
-    <Detail
-      projectId={projectId}
-      item={selected}
-      onSaved={it => setSaved(m => ({ ...m, [it.id]: it }))}
-      blocker={selected.blockedBy ? blockers[selected.blockedBy] : undefined}
-      up={hopsTo(-1)}
-      down={hopsTo(1)}
-      first={open[0]?.id === selected.id}
-    />
-  );
 
   const group = (title: string, list: ClaudeItem[], tone?: string) =>
     list.length > 0 && (
@@ -141,22 +112,55 @@ export function ClaudeItems({ projectId, items, blockers, waitingOnOm, doneCount
           )}
         </div>
       )}
-      {selected && mounted &&
-        (desktop ? (
-          <Dialog open onOpenChange={o => !o && close()}>
-            <DialogContent className="sm:max-w-xl max-h-[85dvh] overflow-y-auto block">
-              <DialogTitle className="sr-only">
-                {ref(selected.ref)} {selected.title}
-              </DialogTitle>
-              {detail}
-            </DialogContent>
-          </Dialog>
-        ) : (
-          <BottomSheet title={ref(selected.ref)} onClose={close}>
-            {detail}
-          </BottomSheet>
-        ))}
+      <ItemSheet projectId={projectId} items={items} blockers={blockers} sel={sel} onClose={() => setSel(null)} />
     </section>
+  );
+}
+
+/** The item sheet (dialog on desktop, bottom sheet on phone) for the item with ref `sel`. Shared by the project page and /claude Queue. */
+export function ItemSheet({ projectId, items, blockers, sel, onClose }: { projectId: string; items: ClaudeItem[]; blockers: Record<string, Blocker>; sel: number | null; onClose: () => void }) {
+  const desktop = useDesktop();
+  const open = items.filter(i => i.state !== 'done' && i.state !== 'dropped');
+  // The page refresh after an action can arrive late (or not at all), so the sheet also keeps the item as the action returned it
+  // and shows whichever copy is newer.
+  const [saved, setSaved] = useState<Record<string, ClaudeItem>>({});
+  const fromPage = sel === null ? null : items.find(i => i.ref === sel) ?? null;
+  const selected = fromPage && saved[fromPage.id] && saved[fromPage.id].updatedAt > fromPage.updatedAt ? saved[fromPage.id] : fromPage;
+  // Same on server and first client render: portals and dialogs only after mount.
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
+  const groupOf = (i: ClaudeItem) => (i.waitingOnOm ? 'w' : i.state === 'active' ? 'a' : i.kind === 'idea' ? 'i' : i.state === 'blocked' ? 'b' : i.next ? 'n' : 'q');
+  // Places to the nearest item in the same group, up (-1) or down (+1), in the project order; 0 when none.
+  const hopsTo = (dir: -1 | 1) => {
+    if (!selected) return 0;
+    const at = open.findIndex(i => i.id === selected.id);
+    for (let j = at + dir; j >= 0 && j < open.length; j += dir) if (groupOf(open[j]) === groupOf(selected)) return Math.abs(j - at);
+    return 0;
+  };
+  if (!selected || !mounted) return null;
+  const detail = (
+    <Detail
+      projectId={projectId}
+      item={selected}
+      onSaved={it => setSaved(m => ({ ...m, [it.id]: it }))}
+      blocker={selected.blockedBy ? blockers[selected.blockedBy] : undefined}
+      up={hopsTo(-1)}
+      down={hopsTo(1)}
+      first={open[0]?.id === selected.id}
+    />
+  );
+  return desktop ? (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent className="sm:max-w-xl max-h-[85dvh] overflow-y-auto block">
+        <DialogTitle className="sr-only">
+          {ref(selected.ref)} {selected.title}
+        </DialogTitle>
+        {detail}
+      </DialogContent>
+    </Dialog>
+  ) : (
+    <BottomSheet title={ref(selected.ref)} onClose={onClose}>
+      {detail}
+    </BottomSheet>
   );
 }
 

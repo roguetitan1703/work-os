@@ -141,12 +141,12 @@ export async function reportStatus(deviceId: string, body: unknown): Promise<voi
 
 // ── Om's side ───────────────────────────────────────────────────────────────
 
-export type FolderView = { key: string; deviceId: string; deviceName: string; folderId: string; name: string; remote?: string; branch?: string; missing: boolean; online: boolean };
+export type FolderView = { key: string; /** Project it is linked to, if any. */ projectId: string | null; deviceId: string; deviceName: string; folderId: string; name: string; remote?: string; branch?: string; missing: boolean; online: boolean };
 export type SessionView = { id: string; deviceName: string; folderName: string; state: WorkerSessionDoc['state'] | 'unknown'; startedAt: string; updatedAt: string; error?: string; /** Folder is still linked to this project. Resume only makes sense then. */ linked: boolean; /** Still "starting" after WAITING_MS: probably sitting at a prompt in the terminal. */ waiting: boolean };
 
 const ONLINE_MS = 2 * 60_000;
 
-async function deviceMap() {
+export async function deviceMap() {
   const c = await collections();
   const ds = await c.devices.find({ revokedAt: null }).toArray();
   return new Map(ds.map(d => [d._id, { name: d.name, online: !!d.lastSeenAt && Date.now() - d.lastSeenAt.getTime() < ONLINE_MS }]));
@@ -155,10 +155,10 @@ async function deviceMap() {
 function folderView(f: WorkerFolderDoc, devices: Awaited<ReturnType<typeof deviceMap>>): FolderView | null {
   const d = devices.get(f.deviceId);
   if (!d) return null;
-  return { key: f._id, deviceId: f.deviceId, deviceName: d.name, folderId: f.folderId, name: f.name, ...(f.remote ? { remote: f.remote } : {}), ...(f.branch ? { branch: f.branch } : {}), missing: f.missing, online: d.online };
+  return { key: f._id, projectId: f.projectId ?? null, deviceId: f.deviceId, deviceName: d.name, folderId: f.folderId, name: f.name, ...(f.remote ? { remote: f.remote } : {}), ...(f.branch ? { branch: f.branch } : {}), missing: f.missing, online: d.online };
 }
 
-const derivedState = (s: WorkerSessionDoc): SessionView['state'] => ((s.state === 'running' || s.state === 'starting') && Date.now() - s.updatedAt.getTime() > STALE_SESSION_MS ? 'unknown' : s.state);
+export const derivedState = (s: WorkerSessionDoc): SessionView['state'] => ((s.state === 'running' || s.state === 'starting') && Date.now() - s.updatedAt.getTime() > STALE_SESSION_MS ? 'unknown' : s.state);
 
 /** Linked folders, suggested folders (same git remote as one of the project's code locations), and recent sessions. */
 export async function projectLauncher(projectId: string): Promise<{ folders: FolderView[]; suggestions: FolderView[]; sessions: SessionView[]; devices: { id: string; name: string }[] }> {
@@ -227,7 +227,7 @@ export async function unlinkFolder(projectId: string, key: string): Promise<void
 
 async function addJob(deviceId: string, job: { kind: 'start' | 'resume' | 'stop'; sessionId: string; folderId?: string; projectId?: string; prompt?: string }): Promise<void> {
   const c = await collections();
-  if (!(await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { _id: 1 } }))) throw new InputError('That device was revoked; add it again under Connect → Devices');
+  if (!(await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { _id: 1 } }))) throw new InputError('That device was revoked; add it again under Claude › Setup');
   const open = await c.workerJobs.countDocuments({ deviceId, doneAt: null });
   if (open >= 10) throw new InputError('That device has 10 jobs waiting; is its worker running?');
   await c.workerJobs.insertOne({ _id: `j_${randomUUID()}`, deviceId, ...job, createdAt: new Date(), takenAt: null, doneAt: null });
@@ -277,4 +277,11 @@ export async function removeSession(projectId: string, sessionId: string): Promi
   const st = derivedState(s);
   if (st === 'starting' || st === 'running') throw new InputError('Stop it first, then remove it');
   await c.workerSessions.updateOne({ _id: sessionId, projectId }, { $set: { hidden: true } });
+}
+
+/** Undo for removeSession: show the session in the list again. */
+export async function unhideSession(projectId: string, sessionId: string): Promise<void> {
+  const c = await collections();
+  const r = await c.workerSessions.updateOne({ _id: sessionId, projectId }, { $unset: { hidden: '' } });
+  if (!r.matchedCount) throw new NotFoundError('Session not found');
 }

@@ -5,9 +5,8 @@ import Link from 'next/link';
 import { FolderGit2, Link2, Play, Plus, RotateCcw, Square, Trash2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
 import type { FolderView, SessionView } from '@/lib/data/launcher';
-import { BottomSheet } from '@/components/mobile/sheet';
-import { usePhone } from '@/components/mobile/use-phone';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { ResponsiveSheet as Sheet } from '@/components/responsive-sheet';
+import { stateText } from '@/lib/session-state';
 import { fmtAgo } from '@/lib/format';
 import { linkFolderAction, removeSessionAction, resumeSessionAction, searchFoldersAction, startSessionAction, stopSessionAction, unlinkFolderAction } from './launcher-actions';
 
@@ -17,36 +16,6 @@ const iconBtn = 'h-11 md:h-8 px-3 rounded-full inline-flex items-center justify-
 const btn = 'h-11 md:h-9 px-4 rounded-full text-sm font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-50';
 const field =
   'w-full min-w-0 h-11 rounded-xl border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring';
-
-const STATE: Record<SessionView['state'], { label: string; tone: string }> = {
-  starting: { label: 'starting', tone: 'text-sky-600 dark:text-sky-400' },
-  running: { label: 'open', tone: 'text-green-600 dark:text-green-400' },
-  dead: { label: 'closed', tone: 'text-muted-foreground' },
-  stopped: { label: 'stopped', tone: 'text-muted-foreground' },
-  failed: { label: 'failed', tone: 'text-red-600 dark:text-red-400' },
-  unknown: { label: 'no news from its computer', tone: 'text-amber-600 dark:text-amber-400' },
-};
-
-function stateText(s: SessionView): { label: string; tone: string } {
-  if (!s.linked && s.state !== 'running' && s.state !== 'starting') return { label: 'ended · folder unlinked', tone: 'text-muted-foreground' };
-  if (s.state === 'starting' && s.waiting) return { label: `Waiting: check the terminal on ${s.deviceName}`, tone: 'text-amber-600 dark:text-amber-400' };
-  if (s.state === 'running') return { label: `open on ${s.deviceName}`, tone: STATE.running.tone };
-  return STATE[s.state];
-}
-
-/** Bottom sheet on phones, centred dialog on desktop (BottomSheet alone is md:hidden). */
-function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  const phone = usePhone();
-  if (phone) return <BottomSheet title={title} onClose={onClose}>{children}</BottomSheet>;
-  return (
-    <Dialog open onOpenChange={o => !o && onClose()}>
-      <DialogContent className="sm:max-w-md max-h-[85dvh] overflow-y-auto block">
-        <DialogTitle>{title}</DialogTitle>
-        <div className="pt-3">{children}</div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 const label = (f: FolderView) => `${f.name}${f.branch ? ` (${f.branch})` : ''}`;
 
@@ -77,24 +46,22 @@ export function ProjectSessions({
       if (done) toast(done);
     });
 
-  const startable = folders.filter(f => !f.missing);
-
-  return (
+    return (
     <section className="space-y-2" data-section="sessions">
       <div className="flex items-center justify-between">
         <h2 className={`${H2} px-1 md:px-0`}>Sessions</h2>
-        {startable.length > 0 && (
-          <button type="button" className={`${btn} bg-foreground text-background`} disabled={pending} onClick={() => setStarting(startable)}>
-            <Play className="w-4 h-4" /> Start
-          </button>
+        {devices.length > 0 && (
+          <Link href={`?start=${encodeURIComponent(projectId)}`} scroll={false} className={`${btn} bg-foreground text-background`} data-start-claude>
+            <Play className="w-4 h-4" /> Start Claude
+          </Link>
         )}
       </div>
 
       {!devices.length ? (
         <p className="text-sm text-muted-foreground px-1 md:px-0">
           Add a computer under{' '}
-          <Link href="/connect?tab=devices" className="underline">
-            Connect → Devices
+          <Link href="/claude?tab=setup" className="underline">
+            Claude › Setup
           </Link>{' '}
           to start Claude Code sessions from here.
         </p>

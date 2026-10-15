@@ -1,6 +1,7 @@
 # Work state
 
 ## Now
+- Branch `ui-claude` (worktree wos-claude): Claude area `/claude` (Now, Queue, Setup) and the Start Claude flow are built and tested; awaits Om's merge. Not merged to master yet.
 - UX audit done (docs/ux-audit: crawl-a, crawl-b, analysis, proposal). Waiting on Om's yes to the proposal and its 5 questions; then build slice 1 (Claude area).
 - Nothing in progress. Sessions list made clear (labelled buttons, Remove, closed in grey, waiting text) on 2026-10-15; waits on Om retesting live. Launcher live and tested by Om on his PC (Start, Remote Control, Stop) on 2026-10-15.
 
@@ -10,6 +11,11 @@
 3. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
 
 ## Later
+- Nav shell must link `/claude` (badge from `needsYouCount()`), `?start=1` from the + sheet and sidebar — waits on the nav branch merging with ui-claude.
+- Project page still has its own per-folder Start sheet and Add a folder sheet (kept on purpose) — waits on the project overview slice.
+- Setup does not yet list a computer's reported folders with link state (proposal §2.2) — waits on Om wanting it.
+- Connect overview's Claude Code card now links to Claude › Setup; drop the card when Connect merges into Settings (slice 7).
+- `/connect?tab=code|devices` redirect happens client-side after the page shell streams (loading.tsx), not as an HTTP 307 — waits on moving the redirect into next.config if it matters.
 - Worker has no log file (stdout of the hidden run is lost), so jobs can only be traced from state.json — waits on Om wanting a log file (add to the install).
 - A Remove-all-finished button for sessions — waits on Om finding one-by-one Remove tedious.
 - AKAR C8 (debt step 3) is blocked by C7 in Work OS, but pms-89 said it is active in wt/debt-3 — waits on Om choosing one.

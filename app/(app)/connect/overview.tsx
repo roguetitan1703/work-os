@@ -15,7 +15,7 @@ export function Overview({ cards }: { cards: C[] }) {
         return (
           <Link
             key={c.tab}
-            href={`/connect?tab=${c.tab}`}
+            href={c.tab === 'code' ? '/claude?tab=setup' : `/connect?tab=${c.tab}`}
             data-card={c.tab}
             className={cn(
               'flex items-center gap-3 px-4 py-3 min-h-16 min-w-0 active:bg-muted/60',
