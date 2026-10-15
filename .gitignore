@@ -44,3 +44,12 @@ next-env.d.ts
 # local data (never commit)
 /data/*.json
 /data/*.bak
+
+# Local-only folders at the project root (never committed: test data, backups, editor settings)
+/.scratch-mongo/
+/backups/
+/.vscode/
+/.claude/settings.local.json
+/work-os/
+/DESIGN_CONTEXT.md
+/work_modes_os_spec.md
