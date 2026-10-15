@@ -9,6 +9,7 @@ import { makeApi } from '../api.mjs';
 import { createCore } from '../core.mjs';
 import { MARKER, excludePath } from '../markers.mjs';
 
+process.env.WORK_OS_CLAUDE_JSON = path.join(os.tmpdir(), 'wos-test-claude-' + process.pid + '.json');
 const SID = '11111111-2222-4333-8444-555555555555';
 
 test('end to end against fake server', async () => {

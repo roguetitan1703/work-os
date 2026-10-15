@@ -117,6 +117,17 @@ start there):
 - Windows requires Windows Terminal (`wt.exe`). The cmd.exe fallback was removed; without wt.exe the job fails with "Install Windows Terminal (wt.exe)".
 - The worker launches an absolute `claude` path resolved once at startup (outside any allowed root), only in folders that are currently linked, and only acts on sessions it started (exact `--session-id`/`--resume <id>` match). Recently handled job ids are remembered so a re-offered job is not launched twice. Config `allowPrompts: false` makes the worker ignore job prompts.
 
+## Folder trust
+
+Linking = trusting (Om's decision, 2026-10-15). Claude's interactive "trust this folder" prompt appears before Remote
+Control connects, so it cannot be answered from the phone. The worker therefore sets
+`projects["<path>"].hasTrustDialogAccepted = true` in `~/.claude.json` (override the file with env `WORK_OS_CLAUDE_JSON`):
+- when it sees a folder linked (where it writes `.workos.json`), and again right before every start/resume launch;
+- only that one project entry; other keys and projects are never touched; a missing entry is created as `{ hasTrustDialogAccepted: true }`;
+- keys use Claude's format (forward slashes, uppercase drive letter); an existing entry that differs only in slash style or drive-letter case is updated instead of duplicated;
+- never untrusts, including on unlink;
+- safe write: re-read right before writing, temp file in the same directory, rename; unparseable JSON is skipped and logged, never overwritten; 2-space JSON; no write at all if the flag is already true.
+
 ## Risk
 
-Anyone who controls Work OS (the server, its database or Om's account) can start Claude sessions on linked folders and type prompts into them. Do not use bypassPermissions or auto mode in folders you link, and keep `allowPrompts` off if you do not need prompts from Work OS.
+Anyone who controls Work OS (the server, its database or Om's account) can start Claude sessions on linked folders and type prompts into them. Do not use bypassPermissions or auto mode in folders you link, and keep `allowPrompts` off if you do not need prompts from Work OS. Linking a folder also marks it trusted in Claude Code (see Folder trust).

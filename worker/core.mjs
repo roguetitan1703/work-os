@@ -2,6 +2,7 @@ import { scanRoots, publicFolder } from './scan.mjs';
 import { validateJob, insideRoot } from './validate.mjs';
 import { matchesClaudeProcess } from './launch.mjs';
 import { writeMarker, removeMarker } from './markers.mjs';
+import { trustFolder } from './trust.mjs';
 
 export const VERSION = '0.1.0';
 const GRACE_MS = 45000; // a just-launched session may not show in the process list yet
@@ -48,6 +49,7 @@ export function createCore(deps) {
       try {
         const r = writeMarker(dir, { projectId: l.projectId, projectName: l.projectName, folderId: l.folderId });
         if (r !== 'foreign') state.markers[l.folderId] = true;
+        trustFolder(dir, log);
       } catch (e) { log('marker write failed: ' + errMsg(e)); }
     }
     for (const id of Object.keys(state.markers)) {
@@ -79,6 +81,7 @@ export function createCore(deps) {
       const projectName = job.projectName || (link && link.projectName);
       if (projectId && projectName) writeMarker(v.dir, { projectId, projectName, folderId: job.folderId });
       if (projectId && projectName) state.markers[job.folderId] = true;
+      trustFolder(v.dir, log);
       await launcher({ kind: job.kind, folder: v.dir, sessionId: job.sessionId, projectName: projectName || undefined, prompt: job.kind === 'start' && getConfig().allowPrompts !== false ? job.prompt || undefined : undefined });
       state.sessions[job.sessionId] = { folderId: job.folderId, state: 'running', startedAt: now() };
       return { id, ok: true };
