@@ -5,7 +5,7 @@
 
 ## Next
 1. Om: `node worker/worker.mjs install` (worker sends session names + counts); live check of Today, /claude, a project page and Settings.
-2. Next UI slices: grammar pass (names, Back, confirms), global search (in progress on ui-settings).
+2. Next UI slices: grammar pass (names, Back, confirms), (global search and Review hub done on ui-settings, waiting to merge).
 3. Om: on the live site, Settings → This device → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
 5. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
@@ -49,3 +49,4 @@
 - Old e2e suites launcher-ui and claude-ui target the retired /connect and old Claude layout; adapted copy lives in scratchpad final/t/claude-new.mjs — waits on moving test suites into the repo.
 - Tab prefetch added to Claude, project and Settings tabs; not yet measured with a slow server — waits on the next full test run.
 - Connections sends MCP_TOKEN with the page (owner-only, behind sign-in, same as before); could fetch on reveal instead — waits on a security pass.
+- Global search (ui-settings): matches title/#ref/C-ref/note text as substrings (no ranking or fuzzy match, 6 per group, 80 chars); task descriptions and comments are not searched; phone Back does not close the search sheet (it leaves the page) — waits on Om's use.

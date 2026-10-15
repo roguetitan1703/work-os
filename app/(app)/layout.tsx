@@ -14,6 +14,7 @@ import { todayStr } from '@/lib/dates';
 import { uiAuthDisabled } from '@/lib/auth';
 import { NavTracker } from '@/components/nav-tracker';
 import { GlobalShortcuts } from '@/components/shortcuts';
+import { GlobalSearch } from '@/components/global-search';
 
 // Every page reads live data (the MCP connector writes too), so never prerender.
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <PageTint />
       <NavTracker />
       <GlobalShortcuts />
+      <GlobalSearch />
       <Sidebar showSignOut={!uiAuthDisabled()} />
       <main id="app-main" className="flex-1 min-w-0 overflow-y-auto overscroll-contain relative z-10 pb-[calc(env(safe-area-inset-bottom)+6rem)] md:pb-12">
         <div className="px-4 pt-3 md:p-6">{children}</div>

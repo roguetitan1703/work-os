@@ -126,6 +126,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 ## 4. Batch changes, full project view, trash
 
 ### Om
+- **Search:** the search icon in phone headers, the sidebar Search button, `/` and `Ctrl+K` (desktop) open one search over tasks (title, `#12`), projects (name, client), notes (title, text) and Claude items (title, `C12`), 6 per group (`lib/data/search.ts`, server action `app/(app)/search-action.ts`, `components/global-search.tsx`). Up/Down/Enter on desktop. The Tasks page keeps its own filter box.
 - **Delete a task:** task page → Delete; on the phone, task → ⋯ → Delete. It goes to the **trash for 30 days**, together with its history and note, and the confirmation has **Undo**.
 - **Trash:** History → **Trash** (on the phone, More → Trash) lets you Restore or Delete forever. Opening a deleted task's link shows "This task is in the trash" with a Restore button.
 - **Comments:** hover a comment in a task's history to Edit or Delete it. You can do this on any comment.

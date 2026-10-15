@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { openSearch } from '@/components/global-search';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 const PLACES: Record<string, string> = { '1': '/today', '2': '/tasks', '3': '/projects', '4': '/notes', '5': '/claude' };
@@ -14,7 +15,8 @@ export const SHORTCUTS: [string, string][] = [
   ['3', 'Projects'],
   ['4', 'Notes'],
   ['5', 'Claude'],
-  ['/', 'Search tasks'],
+  ['/', 'Search'],
+  ['Ctrl+K', 'Search (also while typing)'],
   ['?', 'This help'],
   ['Shift+Enter', 'Full form (in quick add)'],
   ['Ctrl+Enter', 'Add comment (in a comment)'],
@@ -27,8 +29,14 @@ export function GlobalShortcuts() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+      if (e.defaultPrevented) return;
       if (!window.matchMedia('(min-width: 768px)').matches) return;
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (!document.querySelector('[data-global-search]')) openSearch();
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       if (document.querySelector('[role="dialog"]')) return;
@@ -40,9 +48,7 @@ export function GlobalShortcuts() {
         router.push(PLACES[e.key]);
       } else if (e.key === '/') {
         e.preventDefault();
-        const box = Array.from(document.querySelectorAll<HTMLInputElement>('[data-task-search]')).find(el => el.offsetParent !== null);
-        if (box) box.focus();
-        else router.push('/tasks?search=1');
+        openSearch();
       } else if (e.key === '?') {
         e.preventDefault();
         setHelp(true);

@@ -9,6 +9,7 @@ import { phoneTabOf } from '@/lib/nav';
 import { useApp } from '../app-context';
 import { QuickAddSheet } from './quick-add-sheet';
 import { BellButton } from './bell';
+import { openSearch } from '../global-search';
 
 type TabKey = 'today' | 'projects' | 'claude' | 'tasks';
 const TABS: ({ key: TabKey; href: string; label: string; icon: typeof Menu } | null)[] = [
@@ -126,9 +127,9 @@ export function MobileHeader({
           <div className="flex items-center shrink-0">
             {right}
             {nav && (
-              <Link href="/tasks?search=1" aria-label="Search tasks" className="w-11 h-11 flex items-center justify-center rounded-full active:bg-muted">
+              <button type="button" onClick={openSearch} aria-label="Search" className="w-11 h-11 flex items-center justify-center rounded-full active:bg-muted">
                 <Search className="w-[22px] h-[22px]" />
-              </Link>
+              </button>
             )}
             {bell && <BellButton />}
             {nav && path !== '/menu' && (
