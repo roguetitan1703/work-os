@@ -5,7 +5,8 @@
 
 ## Next
 1. Om: `node worker/worker.mjs install` one last time (supervisor: worker restarts itself on code changes, log file; claude lookup retry; parent folders offered), then link the terrah folder from the project; live check of Today, /claude, a project page, Settings, Review and search.
-2. Grammar pass (names, Back rule, confirms, phone Back closes sheets).
+2. Task dispatcher (docs/dispatcher.md): Fable review, then build — Claude starts sessions on tasks Om marks, max 2.
+3. Grammar pass (names, Back rule, confirms, phone Back closes sheets).
 3. Om: on the live site, Settings → This device → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
 5. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
