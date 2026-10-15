@@ -66,7 +66,7 @@ export default async function ClaudePage({ searchParams }: Props) {
       </nav>
 
       {tab !== 'setup' && <AutoRefresh />}
-      {tab === 'now' && data && <NowTab needsYou={data.needsYou} running={data.running} recent={data.recent} hasComputers={data.hasComputers} />}
+      {tab === 'now' && data && <NowTab needsYou={data.needsYou} running={data.running} recent={data.recent} hasComputers={data.hasComputers} activity={data.activity} />}
       {tab === 'queue' && data && <QueueTab groups={data.queue} />}
       {tab === 'setup' && <SetupTab url={url} />}
     </div>

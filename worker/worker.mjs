@@ -8,6 +8,7 @@ import { launch, listProcesses, killPid, resolveClaude } from './launch.mjs';
 import { scanRoots, publicFolder } from './scan.mjs';
 import { install, uninstall } from './install.mjs';
 import { runSetup } from './setup.mjs';
+import { collectActivity } from './activity.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (m) => console.log(`${new Date().toISOString()} ${m}`);
@@ -17,7 +18,7 @@ async function run() {
   const api = makeApi(loadConfig, getToken);
   const claudePath = resolveClaude(loadConfig().roots);
   if (!claudePath) log('warning: claude not found outside the allowed roots; start/resume jobs will fail');
-  const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher: (a) => launch({ ...a, claudePath }), listProcesses, killPid, log });
+  const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher: (a) => launch({ ...a, claudePath }), listProcesses, killPid, log, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids }) });
   let delay = 10;
   let failing = 0;
   log(`work-os-worker ${VERSION} started`);
@@ -73,6 +74,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     else if (cmd === 'install') { install(); console.log('autostart installed'); }
     else if (cmd === 'uninstall') { uninstall(); console.log('autostart removed'); }
     else if (cmd === 'status') status();
+    else if (cmd === 'activity') { console.log(JSON.stringify(await collectActivity({ listProcesses }), null, 2)); console.log('(read-only, nothing sent)'); }
     else if (cmd === 'setup') await runSetup({ argv: process.argv.slice(3), deps: { getToken, setToken, readSecret: readSecretFromStdin, scanAndReport: scanAndSend, install } });
     else if (cmd === 'scan') {
       if (process.argv.includes('--dry')) {
@@ -81,7 +83,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         console.log(JSON.stringify(found.map(publicFolder), null, 2));
         console.log(`${found.length} folders (dry run, nothing sent)`);
       } else console.log(`sent ${await scanAndSend()} folders`);
-    } else { console.error('usage: node worker.mjs [run|setup|set-token|install|uninstall|status|scan [--dry]]'); process.exit(2); }
+    } else { console.error('usage: node worker.mjs [run|setup|set-token|install|uninstall|status|scan [--dry]|activity]'); process.exit(2); }
   } catch (e) { console.error(String(e.message || e)); process.exit(1); }
   if (cmd !== 'run') process.exit(0);
 }

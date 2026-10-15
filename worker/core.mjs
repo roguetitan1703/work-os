@@ -111,6 +111,13 @@ export function createCore(deps) {
     try { await refreshSessions(); } catch (e) { log('liveness failed: ' + errMsg(e)); }
     const sessions = Object.entries(state.sessions).map(([sessionId, s]) => ({ sessionId, folderId: s.folderId, state: s.state }));
     const body = { worker: { version: VERSION, os: process.platform }, jobs: pendingResults, sessions };
+    // Counts only (docs/launcher.md "Activity counts"); a failed count never blocks the heartbeat.
+    if (deps.activity) {
+      try {
+        const ids = Object.keys(state.sessions).filter((k) => state.sessions[k].state === 'running');
+        body.activity = await deps.activity(ids);
+      } catch (e) { log('activity count failed: ' + errMsg(e)); }
+    }
     await api.postStatus(body);
     pendingResults = [];
     lastStatus = now();

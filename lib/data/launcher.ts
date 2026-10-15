@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { collections, type WorkerFolderDoc, type WorkerSessionDoc } from '../db';
+import { collections, type DeviceActivity, type WorkerFolderDoc, type WorkerSessionDoc } from '../db';
 import { InputError, NotFoundError } from './errors';
 import { normalizeRemote } from './code-locations';
 
@@ -104,10 +104,28 @@ export async function pollJobs(deviceId: string): Promise<JobsResponse> {
   };
 }
 
+/** Counts a worker reports each cycle. Small non-negative integers only; anything else is rejected, big values are capped. */
+export const ACTIVITY_CAP = 999;
+const ACTIVITY_KEYS = ['sessions', 'sessionsWorkOs', 'sessionsOther', 'sessionsActive', 'subagents'] as const;
+export function cleanActivity(raw: unknown): Omit<DeviceActivity, 'at'> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new InputError('activity must be an object');
+  const o = raw as Record<string, unknown>;
+  const out = {} as Record<(typeof ACTIVITY_KEYS)[number], number>;
+  for (const k of ACTIVITY_KEYS) {
+    const v = o[k];
+    if (v === undefined && k !== 'sessions' && k !== 'subagents') { out[k] = 0; continue; }
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) throw new InputError(`activity.${k} must be a whole number, 0 or more`);
+    out[k] = Math.min(v, ACTIVITY_CAP);
+  }
+  return out;
+}
+
 export async function reportStatus(deviceId: string, body: unknown): Promise<void> {
-  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown }; jobs?: unknown; sessions?: unknown };
+  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown };
+  const activity = b.activity === undefined ? null : cleanActivity(b.activity); // validate before any write
   const c = await collections();
   const now = new Date();
+  if (activity) await c.devices.updateOne({ _id: deviceId }, { $set: { activity: { ...activity, at: now } } });
   if (b.worker && typeof b.worker === 'object') {
     const version = String(b.worker.version ?? '').slice(0, 20);
     const os = String(b.worker.os ?? '').slice(0, 20);

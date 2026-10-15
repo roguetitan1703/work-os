@@ -167,7 +167,8 @@ export type ApiKeyDoc = {
 };
 // ── Session launcher (docs/launcher.md) ──
 /** A machine running the worker. Only the SHA-256 of its key (wkr_…) is stored. */
-export type DeviceDoc = { _id: string; name: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; worker?: { version: string; os: string } };
+export type DeviceDoc = { _id: string; name: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; worker?: { version: string; os: string }; /** Latest counts from the worker (numbers only). `at` is the server's receive time. */ activity?: DeviceActivity };
+export type DeviceActivity = { sessions: number; sessionsWorkOs: number; sessionsOther: number; sessionsActive: number; subagents: number; at: Date };
 /** A folder a worker reported. _id = deviceId:folderId. Never a path. */
 export type WorkerFolderDoc = { _id: string; deviceId: string; folderId: string; name: string; git: boolean; remote?: string; branch?: string; projectId: string | null; linkedAt: Date | null; seenAt: Date; missing: boolean };
 export type WorkerJobDoc = { _id: string; deviceId: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; sessionId: string; prompt?: string; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
