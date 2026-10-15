@@ -1,273 +1,347 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Task, FiverrRitualLog } from "@/lib/types";
-import { ScheduleBlock, getCurrentBlock } from "@/lib/schedule";
-import { getBlockColor } from "@/lib/modes";
-import { RITUAL_MODE_MAP } from "@/lib/ritual-mode-map";
+import { useState } from "react";
+import Link from "next/link";
+import { CalendarDays, ChevronDown, ChevronRight, ClipboardPaste, Flame, LayoutList, Zap } from "lucide-react";
+import type { FiverrRitualLog, Mode, Task } from "@/lib/types";
+import type { ScheduleBlock } from "@/lib/schedule";
 import { PasteImportDialog } from "@/components/paste-import";
 import { DayPlanDialog } from "@/components/day-plan-dialog";
+import { MobileImport } from "@/components/mobile/m-import";
+import { MobileDayPlan } from "@/components/mobile/m-day-plan";
+import { MobileHeader } from "@/components/mobile/tab-bar";
+import { MTaskRow } from "@/components/mobile/m-task-row";
 import { Button } from "@/components/ui/button";
-import { ClipboardPaste, CalendarDays, Zap, LayoutList, ChevronDown, ChevronRight } from "lucide-react";
 import { FiverrRitualCard } from "@/components/fiverr-ritual-card";
-import { TaskList, TaskRow } from "@/components/task-row";
+import { TaskRow } from "@/components/task-row";
 import { QuickAddBar } from "@/components/quick-add";
-import { StatsStrip } from "@/components/stats-strip";
-import { useApp } from "@/components/app-context";
-import { fmtMins } from "@/lib/format";
-import type { Stats } from "@/lib/data/summary";
-import type { Mode } from "@/lib/types";
-
-const FLEX_KEY = "workos-flex-override";
-
-function getWeekday(date: Date): "mon" | "tue" | "wed" | "thu" | "fri" | null {
-  const keys = [null, "mon", "tue", "wed", "thu", "fri", null] as const;
-  return keys[date.getDay()] ?? null;
-}
-
-const PRIORITY_COLOR: Record<string, string> = {
-  P1: "text-red-500",
-  P2: "text-orange-500",
-  P3: "text-yellow-500",
-  P4: "text-muted-foreground",
-};
+import { cn } from "@/lib/utils";
+import { ClaudeCard, type ClaudeCardData } from "./claude-card";
+import { useTodayModel, type Wd } from "./today-model";
 
 type Props = {
   dayName: string;
   isNaturallyWeekend: boolean;
-  weekday: "mon" | "tue" | "wed" | "thu" | "fri" | null;
+  weekday: Wd | null;
   schedule: ScheduleBlock[];
   openTasks: Task[];
   waiting: Record<string, string[]>;
-  stats: Stats;
+  noteTaskIds: string[];
+  claude: ClaudeCardData | null;
   todayRitualLog: FiverrRitualLog | null;
 };
 
-export function TodayClient({ dayName, isNaturallyWeekend, weekday, schedule, openTasks, waiting, stats, todayRitualLog }: Props) {
-  const { today } = useApp();
-  const [flexOverride, setFlexOverride] = useState(false);
+type Model = ReturnType<typeof useTodayModel>;
+type Variant = "phone" | "desk";
+
+const SHOW = 5;
+const SHOW_PHONE = 3;
+const ALSO_MAX = 15;
+
+/** Phone and desktop render the same sections in the same order; only the layout and row type differ. */
+export function TodayClient(props: Props) {
+  return (
+    <>
+      <div className="md:hidden" data-variant="phone">
+        <TodayView variant="phone" {...props} />
+      </div>
+      <div className="hidden md:block" data-variant="desk">
+        <TodayView variant="desk" {...props} />
+      </div>
+    </>
+  );
+}
+
+function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, waiting, noteTaskIds, claude, todayRitualLog }: Props & { variant: Variant }) {
+  const m = useTodayModel({ tasks: openTasks, waiting, isNaturallyWeekend, weekday });
+  const phone = variant === "phone";
   const [importOpen, setImportOpen] = useState(false);
-  const [dayPlanOpen, setDayPlanOpen] = useState(false);
-  const [now, setNow] = useState<Date | null>(null);
+  const [planOpen, setPlanOpen] = useState(false);
+  const notes = new Set(noteTaskIds);
 
-  useEffect(() => {
-    try {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- read localStorage after hydration
-      setFlexOverride(localStorage.getItem(FLEX_KEY) === "true");
-    } catch {}
-    setNow(new Date());
-    const id = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(id);
-  }, []);
+  const row = (t: Task, hint?: React.ReactNode) =>
+    phone ? <MTaskRow key={t.id} task={t} hasNote={notes.has(t.id)} hint={hint} /> : <TaskRow key={t.id} task={t} hint={hint} />;
+  const waitHint = (t: Task) => (waiting[t.id] ? <span>{phone ? "waits" : "waiting"} on {waiting[t.id].join(", ")}</span> : undefined);
 
-  function toggleFlex() {
-    const next = !flexOverride;
-    setFlexOverride(next);
-    try {
-      localStorage.setItem(FLEX_KEY, String(next));
-    } catch {}
+  const attention = m.overdue.length + m.dueToday.length + m.inProgress.length + m.blocked.length;
+  const sections = (
+    <div className={phone ? "" : "space-y-4"}>
+      <TaskSection phone={phone} title="Overdue" tone="text-red-600 dark:text-red-400" tasks={m.overdue} render={t => row(t)} empty="Nothing overdue." />
+      <TaskSection phone={phone} title="Due today" tasks={m.dueToday} render={t => row(t)} />
+      <TaskSection phone={phone} title="In progress" tone="text-blue-600 dark:text-blue-400" tasks={m.inProgress} render={t => row(t)} />
+      <TaskSection phone={phone} title="Blocked" tone="text-red-600 dark:text-red-400" tasks={m.blocked} render={t => row(t, waitHint(t))} />
+      {attention === 0 && openTasks.length > 0 && <p className={cn("text-muted-foreground", phone ? "mt-5 px-1 text-[15px]" : "text-sm")}>Nothing else needs attention today.</p>}
+      {openTasks.length === 0 && <p className={cn("text-muted-foreground", phone ? "mt-5 px-1 text-[15px]" : "text-sm")}>No open tasks. {phone ? "Tap + to add one." : "Press N to add one."}</p>}
+      <div className={cn("space-y-2", phone ? "mt-5" : "pt-1")}>
+        <Fold phone={phone} title="Up next" count={m.upNext.length}>
+          <RowList phone={phone}>{m.upNext.map(t => row(t))}</RowList>
+        </Fold>
+        <Fold phone={phone} title={attention || m.upNext.length ? "Also open" : "Open"} count={m.alsoOpen.length}>
+          <RowList phone={phone}>{m.alsoOpen.slice(0, ALSO_MAX).map(t => row(t))}</RowList>
+          {m.alsoOpen.length > ALSO_MAX && (
+            <Link href="/tasks" className="flex min-h-11 items-center justify-center text-sm text-muted-foreground">
+              {m.alsoOpen.length - ALSO_MAX} more open in Tasks ›
+            </Link>
+          )}
+        </Fold>
+        <Fold phone={phone} title="Routine" icon={<Flame className="w-4 h-4 text-yellow-400" />} hint={todayRitualLog ? `Fiverr ${todayRitualLog.bidsPlaced} bids` : "Fiverr not logged"}>
+          <div className="p-2 [&_input]:text-[16px] [&_input]:min-h-11 md:[&_input]:min-h-0 md:[&_input]:text-sm [&_textarea]:text-[16px] md:[&_textarea]:text-sm [&_button]:min-h-11 md:[&_button]:min-h-0">
+            <FiverrRitualCard todayLog={todayRitualLog} />
+          </div>
+        </Fold>
+      </div>
+    </div>
+  );
+
+  const buttons = (
+    <>
+      <HeaderBtn phone={phone} onClick={() => setPlanOpen(true)} icon={<LayoutList className="w-4 h-4" />}>
+        Schedule
+      </HeaderBtn>
+      <HeaderBtn phone={phone} onClick={() => setImportOpen(true)} icon={<ClipboardPaste className="w-4 h-4" />}>
+        Import
+      </HeaderBtn>
+      <HeaderBtn
+        phone={phone}
+        onClick={m.toggleFlex}
+        on={m.isFlexDay}
+        icon={<CalendarDays className="w-4 h-4" />}
+        label={m.isFlexDay ? "Flex day: switch to work day" : "Work day: switch to flex day"}
+      >
+        {m.isFlexDay ? "Flex day" : "Work day"}
+      </HeaderBtn>
+    </>
+  );
+
+  const dialogs = phone ? (
+    <>
+      <MobileImport open={importOpen} onClose={() => setImportOpen(false)} />
+      <MobileDayPlan open={planOpen} onClose={() => setPlanOpen(false)} allTasks={openTasks} weekday={m.effectiveWeekday} />
+    </>
+  ) : (
+    <>
+      <PasteImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
+      <DayPlanDialog open={planOpen} onClose={() => setPlanOpen(false)} allTasks={openTasks} weekday={m.effectiveWeekday} />
+    </>
+  );
+
+  if (phone) {
+    return (
+      <div>
+        <MobileHeader title="Today" subtitle={dayName} />
+        <div className="grid grid-cols-3 gap-2">{buttons}</div>
+        <div className="mt-3 space-y-3">
+          <NowLine m={m} row={row} />
+          <ClaudeCard data={claude} />
+        </div>
+        {sections}
+        {dialogs}
+      </div>
+    );
   }
-
-  const isFlexDay = isNaturallyWeekend ? !flexOverride : flexOverride;
-  const effectiveWeekday: "mon" | "tue" | "wed" | "thu" | "fri" = weekday ?? "mon";
-
-  const liveWeekday = now ? (getWeekday(now) ?? (isNaturallyWeekend && !isFlexDay ? "mon" : null)) : null;
-  const liveBlock = now && !isFlexDay ? getCurrentBlock(now, true) : null;
-  const currentBlockName = liveBlock?.block ?? null;
-
-  const rawBlockMode = liveBlock && liveWeekday ? liveBlock.modes[liveWeekday] : null;
-  const nowMode: string | null = rawBlockMode
-    ? (rawBlockMode in RITUAL_MODE_MAP ? RITUAL_MODE_MAP[rawBlockMode] || null : rawBlockMode)
-    : null;
-
-  const accentColor = rawBlockMode ? getBlockColor(rawBlockMode) : null;
-  const nowTasks = nowMode ? openTasks.filter(t => t.mode === nowMode) : [];
-
-  // Focus sections. Each task appears in the first section it qualifies for.
-  const seen = new Set<string>();
-  const take = (pred: (t: Task) => boolean) =>
-    openTasks.filter(t => !seen.has(t.id) && pred(t)).map(t => (seen.add(t.id), t));
-  const overdue = take(t => !!t.due && t.due < today).sort((a, b) => a.due!.localeCompare(b.due!));
-  const dueToday = take(t => t.due === today);
-  const inProgress = take(t => t.status === "In Progress");
-  const blocked = take(t => t.status === "Blocked" || !!waiting[t.id]);
-  const rest = openTasks.filter(t => !seen.has(t.id));
-  const byPriority = (p: string) => rest.filter(t => t.priority === p);
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Today</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{dayName}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={toggleFlex}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
-              isFlexDay
-                ? "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20"
-                : "bg-background border-border text-muted-foreground hover:bg-muted"
-            }`}
-            title={isFlexDay ? "Flex day — click to show schedule" : "Work day — click to switch to flex"}
-          >
-            <CalendarDays className="w-3.5 h-3.5" />
-            {isFlexDay ? "Flex day" : "Work day"}
-          </button>
-          <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => setDayPlanOpen(true)}>
-            <LayoutList className="w-3.5 h-3.5" />
-            Day Plan
-          </Button>
-          <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => setImportOpen(true)}>
-            <ClipboardPaste className="w-3.5 h-3.5" />
-            Import
-          </Button>
+        <div className="flex items-center gap-2">{buttons}</div>
+      </div>
+      <QuickAddBar defaults={{ mode: (m.nowMode as Mode | null) ?? undefined }} />
+      <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5 items-start">
+        <div className="min-w-0">{sections}</div>
+        <div className="space-y-4 min-w-0">
+          <ClaudeCard data={claude} />
+          <NowNext m={m} row={row} />
         </div>
       </div>
-
-      <StatsStrip stats={stats} />
-      <QuickAddBar defaults={{ mode: (nowMode as Mode | null) ?? undefined }} />
-
-      <div className="grid grid-cols-[minmax(0,_1fr)_minmax(0,_2.2fr)] gap-5 items-start">
-        {/* LEFT: compact schedule strip */}
-        <div className="space-y-1">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Schedule</p>
-          {isFlexDay ? (
-            <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-3 text-xs text-blue-600 dark:text-blue-400">
-              Flex day — no fixed schedule.{" "}
-              <a href="/recovery" className="underline font-medium">Recovery tab</a> for playbook.
-              {isNaturallyWeekend && <span className="ml-1 opacity-70">(Toggle above for weekday view.)</span>}
-            </div>
-          ) : (
-            schedule.map((blk, i) => {
-              const modeName = blk.modes[effectiveWeekday];
-              const color = getBlockColor(modeName);
-              const isActive = currentBlockName === blk.block;
-              return (
-                <div
-                  key={i}
-                  className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all duration-500 ${isActive ? "ring-1" : "hover:bg-muted/50"}`}
-                  style={isActive ? { backgroundColor: color.hex + "18", outline: `1.5px solid ${color.hex}50` } : {}}
-                >
-                  <span className="font-mono text-xs text-muted-foreground w-20 shrink-0 tabular-nums">
-                    {blk.start}–{blk.end}
-                  </span>
-                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: color.hex }} />
-                  <span className="text-xs font-medium text-foreground truncate flex-1">
-                    {modeName}
-                    {isActive && <span className="ml-1.5 text-[10px] font-bold" style={{ color: color.hex }}>NOW</span>}
-                  </span>
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {/* RIGHT */}
-        <div className="space-y-4">
-          {!isFlexDay && accentColor && liveBlock ? (
-            <section
-              className="rounded-xl border-2 p-4 transition-all duration-700"
-              style={{ borderColor: accentColor.hex, backgroundColor: accentColor.hex + "14" }}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Zap className="w-3.5 h-3.5 shrink-0" style={{ color: accentColor.hex }} />
-                  <span className="font-bold text-xs" style={{ color: accentColor.hex }}>
-                    NOW — {liveBlock.block}
-                  </span>
-                  <span
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium"
-                    style={{ backgroundColor: accentColor.hex + "25", color: accentColor.hex }}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: accentColor.hex }} />
-                    {rawBlockMode}
-                    {nowMode && nowMode !== rawBlockMode && <span className="opacity-70"> → {nowMode}</span>}
-                  </span>
-                </div>
-                <span className="text-xs font-mono text-muted-foreground">{liveBlock.start}–{liveBlock.end}</span>
-              </div>
-              <p className="text-xs text-muted-foreground mb-3 leading-relaxed">{liveBlock.notes}</p>
-              {!nowMode ? (
-                <div className="text-xs text-muted-foreground text-center py-2 italic">{rawBlockMode} block — no tasks tracked here.</div>
-              ) : nowTasks.length === 0 ? (
-                <div
-                  className="text-xs py-3 text-center rounded-lg border border-dashed"
-                  style={{ borderColor: accentColor.hex + "50", color: accentColor.hex + "99" }}
-                >
-                  No active tasks in {nowMode}.
-                </div>
-              ) : (
-                <TaskList tasks={nowTasks} showMode={false} />
-              )}
-            </section>
-          ) : !isFlexDay ? (
-            <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">
-              No active block right now.
-            </div>
-          ) : null}
-
-          <FocusSection title="Overdue" tone="text-red-600 dark:text-red-400" tasks={overdue} />
-          <FocusSection title="Due today" tasks={dueToday} />
-          <FocusSection title="In progress" tone="text-blue-600 dark:text-blue-400" tasks={inProgress} />
-          <FocusSection title="Blocked / waiting" tone="text-red-600 dark:text-red-400" tasks={blocked} waiting={waiting} />
-
-          <FiverrRitualCard todayLog={todayRitualLog} />
-
-          <div className="space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Everything else open</p>
-            <PriorityStack label="P1" tasks={byPriority("P1")} defaultOpen />
-            <PriorityStack label="P2" tasks={byPriority("P2")} defaultOpen={byPriority("P1").length === 0} />
-            <PriorityStack label="P3" tasks={byPriority("P3")} />
-            <PriorityStack label="P4" tasks={byPriority("P4")} />
-          </div>
-        </div>
-      </div>
-
-      <PasteImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
-      <DayPlanDialog open={dayPlanOpen} onClose={() => setDayPlanOpen(false)} allTasks={openTasks} weekday={effectiveWeekday} />
+      {dialogs}
     </div>
   );
 }
 
-function FocusSection({ title, tasks, tone, waiting }: { title: string; tasks: Task[]; tone?: string; waiting?: Record<string, string[]> }) {
-  if (!tasks.length) return null;
+// ── pieces ──────────────────────────────────────────────────────────────────
+
+function HeaderBtn({ phone, onClick, icon, children, on, label }: { phone: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode; on?: boolean; label?: string }) {
+  if (!phone) {
+    return (
+      <Button variant="outline" size="sm" className={cn("gap-1.5 text-xs", on && "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400")} onClick={onClick} aria-label={label}>
+        {icon}
+        {children}
+      </Button>
+    );
+  }
   return (
-    <section className="rounded-lg border border-border bg-card">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-        <span className={`text-xs font-semibold ${tone ?? "text-foreground"}`}>{title}</span>
-        <span className="text-xs text-muted-foreground">{tasks.length}</span>
-      </div>
-      <div className="p-1">
-        {tasks.map(t => (
-          <TaskRow key={t.id} task={t} hint={waiting?.[t.id] ? <span>waiting on {waiting[t.id].join(", ")}</span> : undefined} />
-        ))}
+    <button
+      onClick={onClick}
+      aria-label={label}
+      className={cn(
+        "min-w-0 h-11 px-2 rounded-full border text-[14px] font-medium flex items-center justify-center gap-1.5 whitespace-nowrap active:scale-95 transition-transform",
+        on ? "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400" : "border-border bg-background text-foreground",
+      )}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function RowList({ phone, children }: { phone: boolean; children: React.ReactNode }) {
+  return <div className={cn(phone ? "divide-y divide-border/60" : "p-1")}>{children}</div>;
+}
+
+/** A titled task group: count in the heading, first few rows, "Show N more". Hidden when empty (unless `empty` is given). */
+function TaskSection({ phone, title, tone, tasks, render, empty }: { phone: boolean; title: string; tone?: string; tasks: Task[]; render: (t: Task) => React.ReactNode; empty?: string }) {
+  const [all, setAll] = useState(false);
+  if (!tasks.length && !empty) return null;
+  const limit = phone ? SHOW_PHONE : SHOW;
+  const list = all ? tasks : tasks.slice(0, limit);
+  const hidden = tasks.length - list.length;
+  const more = cn("w-full flex items-center justify-center font-medium text-muted-foreground border-t border-border/60 hover:bg-muted/40 active:bg-muted/60", phone ? "min-h-11 text-[14px]" : "min-h-9 text-xs");
+  return (
+    <section className={phone ? "mt-4" : ""} data-section={title.toLowerCase().replace(/\s+/g, "-")}>
+      <h2 className={cn("font-semibold uppercase tracking-wider", phone ? "px-1 mb-1.5 text-[13px]" : "mb-1.5 text-xs", tone ?? "text-muted-foreground")}>
+        {title}
+        <span className="ml-1.5 font-normal text-muted-foreground">{tasks.length}</span>
+      </h2>
+      <div className={cn("overflow-hidden bg-card border", phone ? "rounded-2xl border-border/70" : "rounded-lg border-border")}>
+        {tasks.length === 0 ? (
+          <p className={cn("text-muted-foreground", phone ? "px-4 py-3 text-[15px]" : "px-3 py-2 text-sm")}>{empty}</p>
+        ) : (
+          <RowList phone={phone}>{list.map(render)}</RowList>
+        )}
+        {hidden > 0 && (
+          <button onClick={() => setAll(true)} className={more}>
+            Show {hidden} more
+          </button>
+        )}
+        {all && tasks.length > limit && (
+          <button onClick={() => setAll(false)} className={more}>
+            Show fewer
+          </button>
+        )}
       </div>
     </section>
   );
 }
 
-function PriorityStack({ label, tasks, defaultOpen = false }: { label: string; tasks: Task[]; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
-  if (tasks.length === 0) return null;
-  const totalMins = tasks.reduce((s, t) => s + (t.estimateMins ?? 0), 0);
-
+/** Collapsed group; the body is only rendered when open. Nothing renders if it has a count of 0. */
+function Fold({ phone, title, count, icon, hint, children }: { phone: boolean; title: string; count?: number; icon?: React.ReactNode; hint?: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  if (count === 0) return null;
+  const Chev = open ? ChevronDown : ChevronRight;
   return (
-    <div className="rounded-lg border border-border bg-card">
-      <button className="w-full flex items-center gap-2 px-3 py-2 text-left" onClick={() => setOpen(o => !o)}>
-        {open ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
-        <span className={`font-bold text-xs font-mono ${PRIORITY_COLOR[label]}`}>{label}</span>
-        <span className="text-xs text-muted-foreground">
-          {tasks.length} task{tasks.length !== 1 ? "s" : ""}
+    <section className={cn("overflow-hidden border bg-card", phone ? "rounded-2xl border-border/70" : "rounded-lg border-border")} data-fold={title.toLowerCase().replace(/\s+/g, "-")}>
+      <button onClick={() => setOpen(o => !o)} aria-expanded={open} className={cn("w-full flex items-center gap-2 px-4 text-left active:bg-muted/50 hover:bg-muted/30", phone ? "min-h-[48px]" : "min-h-10 px-3")}>
+        <Chev className="w-4 h-4 shrink-0 text-muted-foreground" />
+        {icon}
+        <span className={cn("font-semibold uppercase tracking-wider text-muted-foreground", phone ? "text-[13px]" : "text-xs")}>{title}</span>
+        {count !== undefined && <span className="text-xs text-muted-foreground">{count}</span>}
+        {hint && <span className="ml-auto text-xs text-muted-foreground">{hint}</span>}
+      </button>
+      {open && <div className="border-t border-border/60">{children}</div>}
+    </section>
+  );
+}
+
+/** Phone: the current block as one line; tap to see its tasks (only those not already listed below). */
+function NowLine({ m, row }: { m: Model; row: (t: Task) => React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const plain = "rounded-2xl border border-border/70 bg-card px-4 min-h-[52px] flex items-center text-[15px] text-muted-foreground";
+  if (m.isFlexDay)
+    return (
+      <div className={plain}>
+        Flex day · no fixed schedule ·{" "}
+        <Link href="/recovery" className="underline ml-1 inline-flex items-center min-h-11">
+          Recovery
+        </Link>
+      </div>
+    );
+  if (!m.liveBlock || !m.hex) return <div className={plain}>No active block right now</div>;
+  const extra = m.nowTasks.length;
+  return (
+    <div className="rounded-2xl border overflow-hidden" style={{ borderColor: m.hex + "70", backgroundColor: m.hex + "10" }} data-section="now">
+      <button onClick={() => setOpen(o => !o)} aria-expanded={open} className="w-full min-h-[52px] flex items-center gap-2 px-4 text-left active:bg-muted/50">
+        <Zap className="w-4 h-4 shrink-0" style={{ color: m.hex }} />
+        <span className="min-w-0 flex-1 truncate text-[15px]">
+          <span className="font-bold" style={{ color: m.hex }}>NOW</span> <span className="text-foreground">{m.liveBlock.block}</span> <span className="text-muted-foreground">· {m.rawBlockMode}</span>
         </span>
-        <span className="text-xs text-muted-foreground ml-auto">{fmtMins(totalMins)}</span>
+        <span className="text-xs text-muted-foreground shrink-0">{extra ? `${extra} to do` : ""}</span>
+        <ChevronDown className={cn("w-4 h-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="border-t border-border p-1">
-          <TaskList tasks={tasks} />
+        <div className="border-t border-border/60 bg-card">
+          <p className="px-4 py-2 text-[13px] text-muted-foreground">{m.liveBlock.start}–{m.liveBlock.end} · {m.liveBlock.notes}</p>
+          {!m.nowMode ? (
+            <p className="px-4 pb-3 text-[15px] text-muted-foreground">{m.rawBlockMode} block, no tasks tracked here.</p>
+          ) : extra === 0 ? (
+            <p className="px-4 pb-3 text-[15px] text-muted-foreground">Nothing more in {m.nowMode} (the rest is listed below).</p>
+          ) : (
+            <div className="divide-y divide-border/60 border-t border-border/60">{m.nowTasks.map(t => row(t))}</div>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+/** Desktop right column: the current block (tap for its tasks) plus the next 3, and a link to the full schedule. */
+function NowNext({ m, row }: { m: Model; row: (t: Task) => React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="rounded-lg border border-border bg-card overflow-hidden" data-section="now-next">
+      <div className="flex items-center justify-between px-3 min-h-10 border-b border-border/60">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Now &amp; next</h2>
+        <Link href="/timetable" className="text-xs text-muted-foreground hover:text-foreground">
+          Full schedule ›
+        </Link>
+      </div>
+      {m.isFlexDay ? (
+        <p className="px-3 py-3 text-xs text-muted-foreground">
+          Flex day, no fixed schedule. <Link href="/recovery" className="underline">Recovery playbook</Link>
+        </p>
+      ) : (
+        <>
+          {m.liveBlock && m.hex ? (
+            <div style={{ backgroundColor: m.hex + "14" }} data-section="now">
+              <button onClick={() => setOpen(o => !o)} aria-expanded={open} className="w-full flex items-center gap-2 px-3 min-h-10 text-left hover:bg-muted/30">
+                <Zap className="w-3.5 h-3.5 shrink-0" style={{ color: m.hex }} />
+                <span className="flex-1 min-w-0 truncate text-sm">
+                  <span className="font-bold text-xs" style={{ color: m.hex }}>NOW</span> {m.liveBlock.block} <span className="text-muted-foreground">· {m.rawBlockMode}</span>
+                </span>
+                <span className="font-mono text-xs text-muted-foreground">{m.liveBlock.start}–{m.liveBlock.end}</span>
+                <ChevronDown className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform", open && "rotate-180")} />
+              </button>
+              {open && (
+                <div className="border-t border-border/60 bg-card p-1">
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">{m.liveBlock.notes}</p>
+                  {!m.nowMode ? (
+                    <p className="px-2 pb-2 text-xs text-muted-foreground italic">{m.rawBlockMode} block, no tasks tracked here.</p>
+                  ) : m.nowTasks.length === 0 ? (
+                    <p className="px-2 pb-2 text-xs text-muted-foreground">Nothing more in {m.nowMode} (the rest is listed on the left).</p>
+                  ) : (
+                    m.nowTasks.map(t => row(t))
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="px-3 py-2.5 text-xs text-muted-foreground">No active block right now.</p>
+          )}
+          <ul className="divide-y divide-border/60 border-t border-border/60">
+            {m.nextBlocks.map(n => (
+              <li key={n.block.start} className="flex items-center gap-2 px-3 min-h-9" data-next-block>
+                <span className="font-mono text-xs text-muted-foreground w-11 tabular-nums">{n.block.start}</span>
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: n.hex }} />
+                <span className="text-xs text-foreground truncate flex-1">{n.mode}</span>
+                <span className="text-xs text-muted-foreground truncate max-w-[40%]">{n.block.block}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
   );
 }

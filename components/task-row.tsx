@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { CheckCircle2, Circle, GitBranch, ListChecks, Repeat, TrendingUp } from 'lucide-react';
 import { completeTaskAction, updateTaskAction } from '@/app/actions';
@@ -24,6 +25,8 @@ type Props = {
 
 export function TaskRow({ task, showProject = true, showMode = true, hint }: Props) {
   const { today, projectName } = useApp();
+  const router = useRouter();
+  const prevStatus = task.status;
   const [pending, start] = useTransition();
   const [progressOpen, setProgressOpen] = useState(false);
   const closed = task.status === 'Done' || task.status === 'Dropped';
@@ -43,8 +46,17 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
   function complete() {
     start(async () => {
       const res = await completeTaskAction(task.id);
-      if (res.ok) toast.success(`#${task.ref} done${res.data.nextRef ? ` · next is #${res.data.nextRef}` : ''}`);
-      else toast.error(res.error);
+      if (!res.ok) return void toast.error(res.error);
+      toast.success(`#${task.ref} done${res.data.nextRef ? ` · next is #${res.data.nextRef}` : ''}`, {
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            const u = await updateTaskAction(task.id, { status: prevStatus });
+            if (u.ok) router.refresh();
+            else toast.error(u.error);
+          },
+        },
+      });
     });
   }
 

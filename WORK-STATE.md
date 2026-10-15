@@ -5,7 +5,7 @@
 
 ## Next
 1. Om: `node worker/worker.mjs install` (worker picks up trust + activity counts); live check of /claude and the new nav.
-2. Slice 3: project page as an overview. Slice 4: Today rebuilt. Then Settings merge, Review hub, grammar pass, global search.
+2. Slice 3: project page as an overview. Slice 4 (Today rebuilt) is on branch ui-today, awaiting merge. Then Settings merge, Review hub, grammar pass, global search.
 3. Om: on the live site, Settings → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
 5. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
@@ -39,3 +39,6 @@
 - /modes/<bad-slug> returns 200 (not-found streams after loading.tsx), same as the /connect client redirect — waits on moving redirects into next.config.
 - Activity counts: a subagent silent for >2 min drops out of the count; terminal and macOS session shapes only tested on stubs — waits on Om's real use.
 - Scratch suites in .scratch-mongo/scratchpad assume the old Connect code tab, a short seed2 fixture and a 'Notif' bell label — waits on next test cleanup.
+- Today: Schedule button still opens the day plan dialog/sheet, not /timetable; "Full schedule" links to /timetable — waits on merging Schedule into one page.
+- Today phone, worst case (3 waiting + 7 overdue): Due today shows its title but the meta line is under the tab bar; "Show 4 more" caps Overdue at 3 on phone — waits on Om's first-use feedback.
+- Desktop TaskRow done now has Undo (shared by every desktop list); recurring tasks undo only the finished one, same as phone — waits on Om noticing.
