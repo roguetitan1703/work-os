@@ -29,7 +29,7 @@ export const ALERT_RULES = {
 } as const;
 
 
-export type AlertItem = { key: string; kind: AlertKind; ref: number; title: string; detail?: string; resend?: boolean };
+export type AlertItem = { key: string; kind: AlertKind; ref: number; title: string; detail?: string; resend?: boolean; taskId?: string; prevSentAt?: Date };
 
 
 export function hourInTz(d: Date = new Date(), tz = APP_TZ): number {
@@ -68,10 +68,10 @@ export async function queueUnblocked(c: Collections, closed: Pick<TaskDoc, '_id'
 // ── What is due now ─────────────────────────────────────────────────────────
 
 /** onlyQueued: just the queued "unblocked" alerts (sent right after a write), not the scheduled checks. */
-export async function computeAlerts(now: Date = new Date(), opts: { onlyQueued?: boolean } = {}): Promise<{ items: AlertItem[]; quiet: boolean }> {
+export async function computeAlerts(now: Date = new Date(), opts: { onlyQueued?: boolean; queuedIds?: string[] } = {}): Promise<{ items: AlertItem[]; quiet: boolean }> {
   const c = await collections();
   if (isQuietHour(now)) return { items: [], quiet: true };
-  if (opts.onlyQueued) return { items: await queuedUnblocked(c), quiet: false };
+  if (opts.onlyQueued) return { items: await queuedUnblocked(c, opts.queuedIds), quiet: false };
   const today = dateInTz(now);
   const hour = hourInTz(now);
   const items: AlertItem[] = [];
@@ -83,14 +83,14 @@ export async function computeAlerts(now: Date = new Date(), opts: { onlyQueued?:
   if (hour >= ALERT_RULES.dueTodayHour) {
     for (const t of open.filter(t => t.due === today)) {
       const key = `due_today:${t._id}:${today}`;
-      if (!was(key)) items.push({ key, kind: 'due_today', ref: t.ref, title: t.title, detail: t.priority });
+      if (!was(key)) items.push({ key, kind: 'due_today', taskId: t._id, ref: t.ref, title: t.title, detail: t.priority });
     }
   }
   // due_tomorrow (P1/P2)
   if (hour >= ALERT_RULES.dueTomorrowHour) {
     for (const t of open.filter(t => t.due === addDays(today, 1) && (t.priority === 'P1' || t.priority === 'P2'))) {
       const key = `due_tomorrow:${t._id}:${t.due}`;
-      if (!was(key)) items.push({ key, kind: 'due_tomorrow', ref: t.ref, title: t.title, detail: t.priority });
+      if (!was(key)) items.push({ key, kind: 'due_tomorrow', taskId: t._id, ref: t.ref, title: t.title, detail: t.priority });
     }
   }
   // overdue: from the morning after, then every N days
@@ -100,7 +100,7 @@ export async function computeAlerts(now: Date = new Date(), opts: { onlyQueued?:
       const last = sent.get(key);
       const days = Math.round((Date.parse(today) - Date.parse(t.due!)) / 86_400_000);
       if (!last || now.getTime() - last.sentAt.getTime() >= ALERT_RULES.overdueEveryDays * 86_400_000 - 30 * 60_000) {
-        items.push({ key, kind: 'overdue', ref: t.ref, title: t.title, detail: `${days} day${days === 1 ? '' : 's'} late`, resend: !!last });
+        items.push({ key, kind: 'overdue', taskId: t._id, prevSentAt: last?.sentAt, ref: t.ref, title: t.title, detail: `${days} day${days === 1 ? '' : 's'} late`, resend: !!last });
       }
     }
   }
@@ -109,24 +109,25 @@ export async function computeAlerts(now: Date = new Date(), opts: { onlyQueued?:
     const lastDay = dateInTz(t.updatedAt);
     if (workdaysBetween(lastDay, today) < ALERT_RULES.stalledWorkdays) continue;
     const key = `stalled:${t._id}:${t.updatedAt.toISOString()}`;
-    if (!was(key)) items.push({ key, kind: 'stalled', ref: t.ref, title: t.title, detail: `no activity since ${lastDay}, ${t.progress}%` });
+    if (!was(key)) items.push({ key, kind: 'stalled', taskId: t._id, ref: t.ref, title: t.title, detail: `no activity since ${lastDay}, ${t.progress}%` });
   }
   // never_started: P1 Not Started for 24h
   for (const t of open.filter(t => t.priority === 'P1' && t.status === 'Not Started')) {
     if (now.getTime() - t.createdAt.getTime() < ALERT_RULES.neverStartedHours * 3_600_000) continue;
     const key = `never_started:${t._id}`;
-    if (!was(key)) items.push({ key, kind: 'never_started', ref: t.ref, title: t.title });
+    if (!was(key)) items.push({ key, kind: 'never_started', taskId: t._id, ref: t.ref, title: t.title });
   }
-  items.push(...(await queuedUnblocked(c)));
+  items.push(...(await queuedUnblocked(c, opts.queuedIds)));
   return { items, quiet: false };
 }
 
-async function queuedUnblocked(c: Collections): Promise<AlertItem[]> {
+/** ids: only these queue entries (the ones this run claimed); omitted = everything still unsent (dry run). */
+async function queuedUnblocked(c: Collections, ids?: string[]): Promise<AlertItem[]> {
   const items: AlertItem[] = [];
-  const queued = await c.alertQueue.find({ sentAt: null }).toArray();
+  const queued = await c.alertQueue.find(ids ? { _id: { $in: ids } } : { sentAt: null }).toArray();
   if (queued.length) {
-    const ids = [...new Set(queued.flatMap(q => [q.taskId, q.byTaskId]))];
-    const byId = new Map((await c.tasks.find({ _id: { $in: ids } }, { projection: { ref: 1, title: 1, status: 1 } }).toArray()).map(t => [t._id, t]));
+    const taskIds = [...new Set(queued.flatMap(q => [q.taskId, q.byTaskId]))];
+    const byId = new Map((await c.tasks.find({ _id: { $in: taskIds } }, { projection: { ref: 1, title: 1, status: 1 } }).toArray()).map(t => [t._id, t]));
     for (const q of queued) {
       const t = byId.get(q.taskId);
       const by = byId.get(q.byTaskId);
@@ -206,19 +207,49 @@ const KIND_TITLE: Record<AlertKind, string> = {
 };
 
 export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?: Date; onlyQueued?: boolean }): Promise<RunResult> {
-  // Queued alerts as of now (read first: one queued during this run waits for the next run).
-  const queuedIds = (await (await collections()).alertQueue.find({ sentAt: null }, { projection: { _id: 1 } }).toArray()).map(q => q._id);
-  const { items: due, quiet } = await computeAlerts(opts.now, { onlyQueued: opts.onlyQueued });
+  const c0 = await collections();
+  const live = !opts.dryRun && !isQuietHour(opts.now ?? new Date());
+  // Claim queued alerts atomically before delivering: a conditional update per entry (sentAt null -> now) that only one
+  // overlapping run can win, so each queued alert is delivered exactly once. Alerts queued meanwhile wait for the next run.
+  let claimedIds: string[] | undefined;
+  if (live) {
+    const unsent = (await c0.alertQueue.find({ sentAt: null }, { projection: { _id: 1 } }).toArray()).map(q => q._id);
+    const claimedAt = new Date();
+    claimedIds = [];
+    for (const id of unsent) {
+      const r = await c0.alertQueue.updateOne({ _id: id, sentAt: null }, { $set: { sentAt: claimedAt } });
+      if (r.modifiedCount === 1) claimedIds.push(id);
+    }
+  }
+  const { items: computed, quiet } = await computeAlerts(opts.now, { onlyQueued: opts.onlyQueued, queuedIds: claimedIds });
+  // Belt and braces: one item per key within a run.
+  let due = [...new Map(computed.map(i => [i.key, i])).values()];
+  if (live) {
+    // Scheduled alerts: claim each in alertLog (insert, or conditional re-stamp for an overdue resend) so overlapping runs can't repeat them.
+    const won: AlertItem[] = [];
+    const stamp = new Date();
+    for (const i of due) {
+      if (i.kind === 'unblocked') { won.push(i); continue; }
+      try {
+        if (i.prevSentAt) {
+          const r = await c0.alertLog.updateOne({ _id: i.key, sentAt: i.prevSentAt }, { $set: { sentAt: stamp } });
+          if (r.modifiedCount === 1) won.push(i);
+        } else {
+          await c0.alertLog.insertOne({ _id: i.key, kind: i.kind, taskId: i.taskId, sentAt: stamp });
+          won.push(i);
+        }
+      } catch (e) {
+        if (!(e && typeof e === 'object' && (e as { code?: number }).code === 11000)) throw e; // duplicate key: another run has it
+      }
+    }
+    due = won;
+  }
   const settings = await getNotifySettings();
   const items = due.filter(i => settings.kinds[i.kind] !== false);
   const messages = formatAlerts(items, opts.baseUrl);
   const res: RunResult = { quiet, dryRun: !!opts.dryRun, sent: 0, messages, items };
   if (opts.dryRun || quiet) return res;
-  if (!due.length) {
-    // Queued alerts whose task closed meanwhile: mark them so later flushes stop re-reading them.
-    if (queuedIds.length) await (await collections()).alertQueue.updateMany({ _id: { $in: queuedIds } }, { $set: { sentAt: new Date() } });
-    return res;
-  }
+  if (!due.length) return res; // claimed queue entries whose task closed meanwhile stay marked, so later flushes skip them
 
   // Deliver: inbox always; push and Discord if enabled. A failing channel doesn't block the others.
   const errors: string[] = [];
@@ -243,18 +274,7 @@ export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?:
     }
   }
 
-  // Record everything that was due (including switched-off kinds) so nothing piles up.
-  const c = await collections();
-  const now = new Date();
-  const logged = due.filter(i => i.kind !== 'unblocked');
-  if (logged.length) {
-    const taskIds = new Map((await c.tasks.find({ ref: { $in: logged.map(i => i.ref) } }, { projection: { ref: 1 } }).toArray()).map(t => [t.ref, t._id]));
-    await c.alertLog.bulkWrite(
-      logged.map(i => ({ updateOne: { filter: { _id: i.key }, update: { $set: { kind: i.kind, taskId: taskIds.get(i.ref), sentAt: now } }, upsert: true } })),
-    );
-  }
-  // Only what this run read: an alert queued meanwhile waits for the next run.
-  if (queuedIds.length) await c.alertQueue.updateMany({ _id: { $in: queuedIds } }, { $set: { sentAt: now } });
+  // Queue entries and alertLog rows were claimed (marked) before delivery, so there is nothing left to record.
   return { ...res, ...(errors.length ? { error: errors.join('; ') } : {}) };
 }
 
