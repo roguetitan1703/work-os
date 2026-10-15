@@ -167,7 +167,8 @@ export type ApiKeyDoc = {
 };
 // ── Session launcher (docs/launcher.md) ──
 /** A machine running the worker. Only the SHA-256 of its key (wkr_…) is stored. */
-export type DeviceDoc = { _id: string; name: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; worker?: { version: string; os: string }; /** Latest counts from the worker (numbers only). `at` is the server's receive time. */ activity?: DeviceActivity };
+export type DeviceDoc = { _id: string; name: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; worker?: { version: string; os: string }; /** Latest counts from the worker (numbers only). `at` is the server's receive time. */ activity?: DeviceActivity; /** Latest named session list from the worker (docs/launcher.md Activity counts). */ claudeSessions?: { at: Date; items: ReportedClaudeSession[] } };
+export type ReportedClaudeSession = { sessionId: string; folder: string; title: string; lastActiveAt: Date; subagentsActive: number; startedByWorkOs: boolean; running: boolean };
 export type DeviceActivity = { sessions: number; sessionsWorkOs: number; sessionsOther: number; sessionsActive: number; subagents: number; at: Date };
 /** A folder a worker reported. _id = deviceId:folderId. Never a path. */
 export type WorkerFolderDoc = { _id: string; deviceId: string; folderId: string; name: string; git: boolean; remote?: string; branch?: string; projectId: string | null; linkedAt: Date | null; seenAt: Date; missing: boolean };

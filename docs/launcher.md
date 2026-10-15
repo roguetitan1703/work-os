@@ -13,7 +13,7 @@ panel; the worker is a small Node program on each machine.
 3. A job's optional `prompt` is only ever text Om typed at Start. Work OS never fills it from a
    task, note, Discord or Claude.
 4. Normal permission mode. Never `--dangerously-skip-permissions`, never `--bare`.
-5. Status only: session id, folder, state. No transcripts, logs or code.
+5. Status only: session id, folder, state; plus, for the Claude page, folder names and session titles (see "Activity counts", Om's decision 2026-10-15). No transcript text, logs, code or full paths.
 6. Outbound only. One device key per machine (`wkr_…`), revocable on Claude › Setup › Computers (`/claude?tab=setup`; `/connect?tab=devices` redirects there).
 7. Kill switch: `enabled: false` in the worker config, or revoke the key.
 
@@ -89,7 +89,7 @@ Response: `{ "ok": true }`
 
 ## Activity counts
 
-How many Claude Code sessions and subagents are running on each computer, for the line at the top of Claude › Now. Read-only: the worker controls nothing from this, and it reports **counts only**.
+How many Claude Code sessions and subagents are running on each computer, and which ones (named), for Claude › Now. Read-only: the worker controls nothing from this. The counts are numbers only; the session list also carries folder names and session titles (see "Named session list").
 
 - Sent as `activity` in every status report (about every 55 s):
   `"activity": { "sessions": 5, "sessionsWorkOs": 1, "sessionsOther": 4, "sessionsActive": 4, "subagents": 3, "at": 1792054228304 }`
@@ -100,9 +100,27 @@ How many Claude Code sessions and subagents are running on each computer, for th
 - Om's side: `claudeOverview().activity` gives each computer and a total over the computers that reported within 3 minutes; a computer silent longer shows "No news from <computer>" instead of old numbers.
 - Try it without sending anything: `node worker/worker.mjs activity`.
 
+### Named session list
+
+Om's decision, 2026-10-15 ("Yes, send names"): for ALL Claude Code sessions on a computer (VS Code, terminal, Work OS-started) the worker also sends a list so the Claude page can show what is running. Sent as `claudeSessions` in every status report, next to `activity`:
+
+```json
+"claudeSessions": [
+  { "sessionId": "8c1d…uuid", "folder": "pms", "title": "Fix the invoice export", "lastActiveAt": 1792054228304, "subagentsActive": 2, "startedByWorkOs": false, "running": true }
+]
+```
+
+- **Only these seven fields.** `folder` is the folder NAME (last path segment of the session's cwd), never a path. `title` is at most 80 characters. No message text, no full paths, no file contents.
+- **Which sessions:** a session with a running `claude` process, or a transcript modified in the last 10 minutes; newest first, at most 50. A process whose arguments carry `--session-id`/`--resume` is tied to that session. A process with no id (plain terminal, VS Code) cannot be tied by id, so each one is matched to the most recently written transcript not already claimed (within a day): best effort, so `running` for those can be wrong when several are open.
+- **Title:** read from the title records Claude Code writes into `~/.claude/projects/<proj>/<sessionId>.jsonl`: `custom-title` (`customTitle`, a name Om gave) beats `ai-title` (`aiTitle`, generated), then `agent-name`, then `summary`; the last record of the best kind wins. Only lines of those types are parsed (the last 512 KB of the file, then the first 128 KB if nothing was found); other lines are skipped without parsing, and `cwd` is cut down to its last segment immediately. No title: the `--name` argument of the process, else the folder name.
+- `subagentsActive`: subagent files of that session modified in the last 2 minutes (mtimes only). `startedByWorkOs`: the session id is one this worker started. `running`: process alive.
+- **Server:** `cleanClaudeSessions` (lib/data/launcher.ts) validates strictly and answers 400 for a non-array, more than 50 entries, a bad or repeated UUID, a folder over 80 chars or that looks like a path (separators, drive letter, `~`, `..`), a title over 500 chars (80 to 500 is trimmed to 80), a bad time, count or flag. Nothing is written when any entry is bad. The latest list per computer replaces the previous one (`devices.claudeSessions`); a list older than 6 hours is ignored.
+- **Om's side:** `claudeOverview().sessions` merges the list with the Work OS session records. Stop, Resume and Remove appear only on sessions Work OS started; the others are read-only. States: working (written in the last 2 minutes or subagents working), open, idle (open but quiet 15 minutes), closed, plus starting / stopped / failed / no news from the Work OS records.
+- Try it without sending anything: `node worker/worker.mjs activity` prints the counts and a summary; add `--titles` to print the list on your own console.
+
 ## Claude area and Start flow (Om's side)
 
-- `/claude` (tabs Now, Queue, Setup via `?tab=`) lists sessions and waiting items across projects (`lib/data/claude-overview.ts`), with Stop behind a confirm and Remove with Undo.
+- `/claude` (tabs Now, Queue, Setup via `?tab=`): Now has a summary line, a compact Needs you list (3 shown, tap to reply) and the named Sessions list grouped by computer (`lib/data/claude-overview.ts`), with Stop behind a confirm and Remove with Undo.
 - Start Claude is one component (`components/start-claude.tsx`, mounted in the app layout): `?start=1` picks a project, `?start=<projectId>` opens the confirm modal (computer, folder, first message). With no linked folder it offers "Link and start" for a same-repo suggestion, or a folder search that links and starts.
 
 ## Sessions list (Om's side)

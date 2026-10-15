@@ -18,7 +18,7 @@ async function run() {
   const api = makeApi(loadConfig, getToken);
   const claudePath = resolveClaude(loadConfig().roots);
   if (!claudePath) log('warning: claude not found outside the allowed roots; start/resume jobs will fail');
-  const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher: (a) => launch({ ...a, claudePath }), listProcesses, killPid, log, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids }) });
+  const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher: (a) => launch({ ...a, claudePath }), listProcesses, killPid, log, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true }) });
   let delay = 10;
   let failing = 0;
   log(`work-os-worker ${VERSION} started`);
@@ -74,7 +74,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     else if (cmd === 'install') { install(); console.log('autostart installed'); }
     else if (cmd === 'uninstall') { uninstall(); console.log('autostart removed'); }
     else if (cmd === 'status') status();
-    else if (cmd === 'activity') { console.log(JSON.stringify(await collectActivity({ listProcesses }), null, 2)); console.log('(read-only, nothing sent)'); }
+    else if (cmd === 'activity') {
+      const r = await collectActivity({ listProcesses, withSessions: true });
+      console.log(JSON.stringify(r.counts, null, 2));
+      console.log(`listed sessions: ${r.list.length}, running: ${r.list.filter((s) => s.running).length}, with a real title: ${r.list.filter((s) => s.title !== s.folder).length}, subagents working: ${r.list.reduce((n, s) => n + s.subagentsActive, 0)}`);
+      if (process.argv.includes('--titles')) console.log(JSON.stringify(r.list, null, 2));
+      else console.log('(add --titles to print the list on your own console)');
+      console.log('(read-only, nothing sent)');
+    }
     else if (cmd === 'setup') await runSetup({ argv: process.argv.slice(3), deps: { getToken, setToken, readSecret: readSecretFromStdin, scanAndReport: scanAndSend, install } });
     else if (cmd === 'scan') {
       if (process.argv.includes('--dry')) {

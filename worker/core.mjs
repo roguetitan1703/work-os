@@ -115,7 +115,8 @@ export function createCore(deps) {
     if (deps.activity) {
       try {
         const ids = Object.keys(state.sessions).filter((k) => state.sessions[k].state === 'running');
-        body.activity = await deps.activity(ids);
+        const a = await deps.activity(ids);
+        if (a && a.list) { body.activity = a.counts; body.claudeSessions = a.list; } else body.activity = a;
       } catch (e) { log('activity count failed: ' + errMsg(e)); }
     }
     await api.postStatus(body);

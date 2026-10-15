@@ -18,7 +18,7 @@ export default async function TodayPage() {
   const waitingRefs = Object.fromEntries([...waiting].map(([id, deps]) => [id, deps.map(d => `#${d.ref}`)]));
   const dayName = format(new Date(today + 'T12:00:00Z'), 'EEEE, MMMM d');
   const keys = [null, 'mon', 'tue', 'wed', 'thu', 'fri', null] as const;
-  const claude: ClaudeCardData | null = overview ? { needsYou: overview.needsYou, running: overview.running.length, activity: overview.activity } : null;
+  const claude: ClaudeCardData | null = overview ? { needsYou: overview.needsYou, running: overview.sessions.filter(r => r.state === 'working' || r.state === 'open' || r.state === 'idle' || r.state === 'starting').length, activity: overview.activity } : null;
 
   return (
     <TodayClient

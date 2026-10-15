@@ -42,3 +42,5 @@
 - Today: Schedule button still opens the day plan dialog/sheet, not /timetable; "Full schedule" links to /timetable — waits on merging Schedule into one page.
 - Today phone, worst case (3 waiting + 7 overdue): Due today shows its title but the meta line is under the tab bar; "Show 4 more" caps Overdue at 3 on phone — waits on Om's first-use feedback.
 - Desktop TaskRow done now has Undo (shared by every desktop list); recurring tasks undo only the finished one, same as phone — waits on Om noticing.
+- Claude page named sessions (branch ui-claude2): needs Om to restart his worker for the session list; VS Code/terminal sessions without a session id in their arguments are matched to the newest unclaimed transcript (best effort) — waits on Om's real use.
+- Claude Queue tab rows are unchanged (not made denser) — waits on Om's feedback after the Sessions redesign.
