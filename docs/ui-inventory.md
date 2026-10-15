@@ -334,3 +334,13 @@ Legend: V view, C create, E edit, D delete. "Surfaces" = distinct screens/sheets
 - Weekly review dialog is not a sheet on phone while 12 other create/edit flows are.
 - Modes page tabs (Active/All/Done) are state-only, so Back resets them.
 - 5 native `confirm()` prompts break the app's own sheet pattern.
+
+## Om's notes (2026-10-15)
+
+- Measure by what Om does, not by screen count: what are his starting options, and how many steps does each common job take?
+- Starting a Claude Code session today: find the project → scroll past every task row → Sessions at the bottom → link/add folder → Start. The most frequent Claude action is buried.
+- The project page is just task rows; Sessions, Claude items and notes sit below or aside. The interface is not weighted by use: some places are good, others bad.
+- Directions to weigh in the rethink:
+  - a global "Start Claude" (Today or +), listing projects with linked folders, 2 taps;
+  - the project page as an overview (open tasks summary, Claude items to take, live sessions, notes), each opening in full;
+  - one Claude Code area: keys, devices, all sessions, items waiting on Om.
