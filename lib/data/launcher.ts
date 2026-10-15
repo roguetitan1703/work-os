@@ -16,6 +16,8 @@ const FOLDER_ID = /^[A-Za-z0-9_-]{4,40}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 /** A session not heard of for this long is shown as unknown (worker offline). */
 export const STALE_SESSION_MS = 3 * 60_000;
+/** A session still "starting" after this long is shown as waiting for Om at the terminal. */
+export const WAITING_MS = 60_000;
 
 // ── Worker side ─────────────────────────────────────────────────────────────
 
@@ -119,6 +121,9 @@ export async function reportStatus(deviceId: string, body: unknown): Promise<voi
     const error = ok ? undefined : String(o.error ?? 'failed').slice(0, 300);
     const job = await c.workerJobs.findOneAndUpdate({ _id: o.id, deviceId, doneAt: null }, { $set: { doneAt: now, ok, ...(error ? { error } : {}) } }, { returnDocument: 'after' });
     if (job && !ok && job.kind !== 'stop') await c.workerSessions.updateOne({ _id: job.sessionId, deviceId }, { $set: { state: 'failed', error, updatedAt: now } });
+    // Stop on a session the worker doesn't know or that isn't running: nothing is left to stop, so don't leave it "running" forever.
+    if (job && !ok && job.kind === 'stop' && (error === 'unknown session' || error === 'session not running'))
+      await c.workerSessions.updateOne({ _id: job.sessionId, deviceId, state: { $in: ['starting', 'running'] } }, { $set: { state: 'stopped', updatedAt: now }, $unset: { error: '' } });
   }
   if (b.sessions !== undefined && !Array.isArray(b.sessions)) throw new InputError('sessions must be an array');
   for (const s of ((b.sessions as unknown[]) ?? []).slice(0, 100)) {
@@ -127,14 +132,17 @@ export async function reportStatus(deviceId: string, body: unknown): Promise<voi
     const state = o.state === 'running' || o.state === 'dead' || o.state === 'stopped' ? o.state : null;
     if (!state) continue;
     // Only sessions Work OS created for this device can be updated: a worker can't invent sessions.
-    await c.workerSessions.updateOne({ _id: o.sessionId, deviceId }, { $set: { state, updatedAt: now }, $unset: { error: '' } });
+    // Only live sessions move on a report, so a late or repeated report never revives a stopped, closed
+    // or failed session ("running" after "closed"). Resume sets "starting" first, which allows running again.
+    const from = state === 'stopped' ? ['starting', 'running', 'dead'] : ['starting', 'running'];
+    await c.workerSessions.updateOne({ _id: o.sessionId, deviceId, state: { $in: from as WorkerSessionDoc['state'][] } }, { $set: { state, updatedAt: now }, $unset: { error: '' } });
   }
 }
 
 // ── Om's side ───────────────────────────────────────────────────────────────
 
 export type FolderView = { key: string; deviceId: string; deviceName: string; folderId: string; name: string; remote?: string; branch?: string; missing: boolean; online: boolean };
-export type SessionView = { id: string; deviceName: string; folderName: string; state: WorkerSessionDoc['state'] | 'unknown'; startedAt: string; updatedAt: string; error?: string };
+export type SessionView = { id: string; deviceName: string; folderName: string; state: WorkerSessionDoc['state'] | 'unknown'; startedAt: string; updatedAt: string; error?: string; /** Folder is still linked to this project. Resume only makes sense then. */ linked: boolean; /** Still "starting" after WAITING_MS: probably sitting at a prompt in the terminal. */ waiting: boolean };
 
 const ONLINE_MS = 2 * 60_000;
 
@@ -150,6 +158,8 @@ function folderView(f: WorkerFolderDoc, devices: Awaited<ReturnType<typeof devic
   return { key: f._id, deviceId: f.deviceId, deviceName: d.name, folderId: f.folderId, name: f.name, ...(f.remote ? { remote: f.remote } : {}), ...(f.branch ? { branch: f.branch } : {}), missing: f.missing, online: d.online };
 }
 
+const derivedState = (s: WorkerSessionDoc): SessionView['state'] => ((s.state === 'running' || s.state === 'starting') && Date.now() - s.updatedAt.getTime() > STALE_SESSION_MS ? 'unknown' : s.state);
+
 /** Linked folders, suggested folders (same git remote as one of the project's code locations), and recent sessions. */
 export async function projectLauncher(projectId: string): Promise<{ folders: FolderView[]; suggestions: FolderView[]; sessions: SessionView[]; devices: { id: string; name: string }[] }> {
   const c = await collections();
@@ -162,7 +172,7 @@ export async function projectLauncher(projectId: string): Promise<{ folders: Fol
     remotes.length
       ? c.workerFolders.find({ projectId: null, missing: false, deviceId: { $in: [...devices.keys()] }, remote: { $in: remotes } }).limit(20).toArray()
       : Promise.resolve([]),
-    c.workerSessions.find({ projectId }).sort({ updatedAt: -1 }).limit(10).toArray(),
+    c.workerSessions.find({ projectId, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(10).toArray(),
   ]);
   const names = new Map(linked.map(f => [`${f.deviceId}:${f.folderId}`, f.name]));
   return {
@@ -171,9 +181,11 @@ export async function projectLauncher(projectId: string): Promise<{ folders: Fol
     suggestions: sugg.map(f => folderView(f, devices)).filter((x): x is FolderView => !!x),
     sessions: sessions.map(s => ({
       id: s._id,
+      linked: names.has(`${s.deviceId}:${s.folderId}`),
+      waiting: s.state === 'starting' && Date.now() - s.updatedAt.getTime() > WAITING_MS,
       deviceName: devices.get(s.deviceId)?.name ?? 'revoked device',
       folderName: names.get(`${s.deviceId}:${s.folderId}`) ?? s.folderId,
-      state: (s.state === 'running' || s.state === 'starting') && Date.now() - s.updatedAt.getTime() > STALE_SESSION_MS ? 'unknown' : s.state,
+      state: derivedState(s),
       startedAt: s.startedAt.toISOString(),
       updatedAt: s.updatedAt.toISOString(),
       ...(s.error ? { error: s.error } : {}),
@@ -245,6 +257,7 @@ export async function resumeSession(projectId: string, sessionId: string): Promi
   const c = await collections();
   const s = await c.workerSessions.findOne({ _id: sessionId, projectId });
   if (!s) throw new NotFoundError('Session not found');
+  if (!(await c.workerFolders.findOne({ deviceId: s.deviceId, folderId: s.folderId, projectId }, { projection: { _id: 1 } }))) throw new InputError('That folder is no longer linked to this project; link it again first');
   await addJob(s.deviceId, { kind: 'resume', sessionId, folderId: s.folderId, projectId });
   await c.workerSessions.updateOne({ _id: sessionId }, { $set: { state: 'starting', updatedAt: new Date() }, $unset: { error: '' } });
 }
@@ -254,4 +267,14 @@ export async function stopSession(projectId: string, sessionId: string): Promise
   const s = await c.workerSessions.findOne({ _id: sessionId, projectId });
   if (!s) throw new NotFoundError('Session not found');
   await addJob(s.deviceId, { kind: 'stop', sessionId });
+}
+
+/** Hide a finished session from the list. The doc stays (history); only stopped, failed, dead or silent ones. */
+export async function removeSession(projectId: string, sessionId: string): Promise<void> {
+  const c = await collections();
+  const s = await c.workerSessions.findOne({ _id: sessionId, projectId });
+  if (!s) throw new NotFoundError('Session not found');
+  const st = derivedState(s);
+  if (st === 'starting' || st === 'running') throw new InputError('Stop it first, then remove it');
+  await c.workerSessions.updateOne({ _id: sessionId, projectId }, { $set: { hidden: true } });
 }

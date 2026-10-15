@@ -5,7 +5,7 @@ import { cookies } from 'next/headers';
 import { z, ZodError } from 'zod';
 import { SESSION_COOKIE, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
 import { InputError, NotFoundError } from '@/lib/data/errors';
-import { linkFolder, resumeSession, searchFolders, startSession, stopSession, unlinkFolder, type FolderView } from '@/lib/data/launcher';
+import { linkFolder, removeSession, resumeSession, searchFolders, startSession, stopSession, unlinkFolder, type FolderView } from '@/lib/data/launcher';
 
 type R<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -60,6 +60,13 @@ export async function resumeSessionAction(projectId: string, sessionId: string):
 export async function stopSessionAction(projectId: string, sessionId: string): Promise<R<null>> {
   return run(projectId, async () => {
     await stopSession(Id.parse(projectId), Uuid.parse(sessionId));
+    return null;
+  });
+}
+
+export async function removeSessionAction(projectId: string, sessionId: string): Promise<R<null>> {
+  return run(projectId, async () => {
+    await removeSession(Id.parse(projectId), Uuid.parse(sessionId));
     return null;
   });
 }

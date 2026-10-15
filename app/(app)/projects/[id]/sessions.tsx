@@ -2,30 +2,37 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
-import { FolderGit2, Link2, Play, Plus, RotateCcw, Square, Unlink } from 'lucide-react';
+import { FolderGit2, Link2, Play, Plus, RotateCcw, Square, Trash2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
 import type { FolderView, SessionView } from '@/lib/data/launcher';
 import { BottomSheet } from '@/components/mobile/sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { fmtAgo } from '@/lib/format';
-import { linkFolderAction, resumeSessionAction, searchFoldersAction, startSessionAction, stopSessionAction, unlinkFolderAction } from './launcher-actions';
+import { linkFolderAction, removeSessionAction, resumeSessionAction, searchFoldersAction, startSessionAction, stopSessionAction, unlinkFolderAction } from './launcher-actions';
 
 const H2 = 'text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider';
 const card = 'rounded-2xl md:rounded-lg border border-border/70 md:border-border bg-card overflow-hidden';
-const iconBtn = 'w-11 h-11 md:w-8 md:h-8 rounded-full flex items-center justify-center text-muted-foreground active:bg-muted/60 hover:bg-muted/40 shrink-0 disabled:opacity-50';
+const iconBtn = 'h-11 md:h-8 px-3 rounded-full inline-flex items-center justify-center gap-1 text-[13px] font-medium text-muted-foreground active:bg-muted/60 hover:bg-muted/40 shrink-0 disabled:opacity-50';
 const btn = 'h-11 md:h-9 px-4 rounded-full text-sm font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-50';
 const field =
   'w-full min-w-0 h-11 rounded-xl border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring';
 
 const STATE: Record<SessionView['state'], { label: string; tone: string }> = {
   starting: { label: 'starting', tone: 'text-sky-600 dark:text-sky-400' },
-  running: { label: 'running', tone: 'text-green-600 dark:text-green-400' },
-  dead: { label: 'stopped unexpectedly', tone: 'text-red-600 dark:text-red-400' },
+  running: { label: 'open', tone: 'text-green-600 dark:text-green-400' },
+  dead: { label: 'closed', tone: 'text-muted-foreground' },
   stopped: { label: 'stopped', tone: 'text-muted-foreground' },
   failed: { label: 'failed', tone: 'text-red-600 dark:text-red-400' },
   unknown: { label: 'no news from its computer', tone: 'text-amber-600 dark:text-amber-400' },
 };
+
+function stateText(s: SessionView): { label: string; tone: string } {
+  if (!s.linked && s.state !== 'running' && s.state !== 'starting') return { label: 'ended · folder unlinked', tone: 'text-muted-foreground' };
+  if (s.state === 'starting' && s.waiting) return { label: `Waiting: check the terminal on ${s.deviceName}`, tone: 'text-amber-600 dark:text-amber-400' };
+  if (s.state === 'running') return { label: `open on ${s.deviceName}`, tone: STATE.running.tone };
+  return STATE[s.state];
+}
 
 /** Bottom sheet on phones, centred dialog on desktop (BottomSheet alone is md:hidden). */
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -105,11 +112,11 @@ export function ProjectSessions({
               </div>
               {!f.missing && (
                 <button type="button" className={iconBtn} disabled={pending} onClick={() => setStarting([f])} aria-label={`Start in ${f.name}`} title="Start here">
-                  <Play className="w-4 h-4" />
+                  <Play className="w-4 h-4" /> Start
                 </button>
               )}
               <button type="button" className={iconBtn} disabled={pending} onClick={() => act(() => unlinkFolderAction(projectId, f.key), `Unlinked ${f.name}`)} aria-label={`Unlink ${f.name}`} title="Unlink">
-                <Unlink className="w-4 h-4" />
+                <Unlink className="w-4 h-4" /> Unlink
               </button>
             </div>
           ))}
@@ -133,32 +140,45 @@ export function ProjectSessions({
 
       {sessions.length > 0 && (
         <div className={`${card} divide-y divide-border/60`}>
-          {sessions.map(s => (
-            <div key={s.id} className="flex items-center gap-2 pl-4 md:pl-3 pr-1 py-1.5 min-h-14 md:min-h-11" data-session={s.id}>
-              <div className="flex-1 min-w-0">
+          {sessions.map(s => {
+            const st = stateText(s);
+            const live = s.state === 'running' || s.state === 'starting';
+            const ended = s.state === 'dead' || s.state === 'stopped' || s.state === 'failed';
+            const canResume = s.linked && (ended || s.state === 'unknown');
+            const canStop = live || s.state === 'unknown';
+            const canRemove = ended || s.state === 'unknown';
+            return (
+            <div key={s.id} className="flex flex-wrap items-center gap-1 pl-4 md:pl-3 pr-1 py-1.5 min-h-14 md:min-h-11" data-session={s.id}>
+              <div className="flex-1 basis-40 min-w-0">
                 <div className="text-[15px] md:text-sm text-foreground truncate">
                   {s.folderName} <span className="text-muted-foreground">· {s.deviceName}</span>
                 </div>
-                <div className="text-[13px] md:text-xs truncate" suppressHydrationWarning>
-                  <span className={STATE[s.state].tone}>{STATE[s.state].label}</span>
+                <div className="text-[13px] md:text-xs" suppressHydrationWarning>
+                  <span className={st.tone}>{st.label}</span>
                   <span className="text-muted-foreground" suppressHydrationWarning>
                     {' '}· started {fmtAgo(s.startedAt)}
                   </span>
                   {s.error && <span className="text-muted-foreground"> · {s.error}</span>}
                 </div>
               </div>
-              {(s.state === 'dead' || s.state === 'stopped' || s.state === 'failed' || s.state === 'unknown') && (
-                <button type="button" className={iconBtn} disabled={pending} onClick={() => act(() => resumeSessionAction(projectId, s.id), 'Resuming…')} aria-label="Resume" title="Resume">
-                  <RotateCcw className="w-4 h-4" />
+              {canResume && (
+                <button type="button" className={iconBtn} disabled={pending} onClick={() => act(() => resumeSessionAction(projectId, s.id), 'Resuming…')} aria-label="Resume" title="Resume this session in its terminal">
+                  <RotateCcw className="w-4 h-4" /> Resume
                 </button>
               )}
-              {(s.state === 'running' || s.state === 'starting' || s.state === 'unknown') && (
+              {canStop && (
                 <button type="button" className={iconBtn} disabled={pending} onClick={() => act(() => stopSessionAction(projectId, s.id), 'Stopping…')} aria-label="Stop" title="Stop">
-                  <Square className="w-4 h-4" />
+                  <Square className="w-4 h-4" /> Stop
+                </button>
+              )}
+              {canRemove && (
+                <button type="button" className={iconBtn} disabled={pending} onClick={() => act(() => removeSessionAction(projectId, s.id), 'Removed from the list')} aria-label="Remove" title="Remove from this list (history is kept)">
+                  <Trash2 className="w-4 h-4" /> Remove
                 </button>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

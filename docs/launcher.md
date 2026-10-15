@@ -87,6 +87,16 @@ Response: `{ "ok": true, "known": 112, "missing": 1 }`
 
 Response: `{ "ok": true }`
 
+## Sessions list (Om's side)
+
+- Buttons are labelled words: Start, Unlink (folders); Resume, Stop, Remove (sessions).
+- `dead` (claude gone, no Stop job) reads "closed" in grey: the worker cannot tell Om closing the terminal from a crash. Red is only for `failed` (a launch error, with the reason). The worker needs claude to be missing on checks at least 20 s apart (after the 45 s launch grace) before reporting `dead`. Status reports only move live sessions (starting/running): a late report never revives a stopped, closed or failed one (Resume sets starting first).
+- `running` reads "open on <device>": the worker only knows the claude process is alive, not that it is working (it may be sitting at a prompt).
+- `starting` for more than 60 s (since the last update) reads "Waiting: check the terminal on <device>". After 3 minutes without news, a live session shows as "no news from its computer".
+- A session whose folder is no longer linked to the project shows as "ended · folder unlinked": no Resume (the server refuses it too), Remove only. If it is still starting or running it keeps Stop, so a live process is never unreachable.
+- Remove (stopped, failed, dead, or silent sessions only; refused for starting/running) sets `hidden: true` on the session doc. The doc is never deleted; the list just skips hidden sessions. The session must belong to the project.
+- A stop job the worker answers with `unknown session` or `session not running` marks the session `stopped` on the server (nothing is left to stop), instead of leaving it running until it goes silent.
+
 ## Marker file: `.workos.json`
 
 Written by the worker into a linked folder (when the link appears, and right before the first

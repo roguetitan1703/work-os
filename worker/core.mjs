@@ -5,6 +5,7 @@ import { writeMarker, removeMarker } from './markers.mjs';
 import { trustFolder } from './trust.mjs';
 
 export const VERSION = '0.1.0';
+const MISS_MS = 20000; // claude must be missing this long before the session counts as closed
 const GRACE_MS = 45000; // a just-launched session may not show in the process list yet
 
 // deps: { getConfig, state, save, api, launcher, listProcesses, killPid, now?, log? }
@@ -97,7 +98,12 @@ export function createCore(deps) {
     for (const sid of ids) {
       const s = state.sessions[sid];
       const alive = procs.some((p) => matchesClaudeProcess(p, sid));
-      if (!alive && now() - s.startedAt > GRACE_MS) s.state = 'dead';
+      if (alive) { delete s.missingSince; continue; }
+      if (now() - s.startedAt <= GRACE_MS) continue;
+      // One empty process listing (slow or failed query) must not close a live session: it has to be
+      // missing on checks at least MISS_MS apart.
+      if (!s.missingSince) s.missingSince = now();
+      else if (now() - s.missingSince >= MISS_MS) s.state = 'dead';
     }
   }
 

@@ -1,7 +1,7 @@
 # Work state
 
 ## Now
-- Nothing in progress. Launcher live and tested by Om on his PC (Start, Remote Control, Stop) on 2026-10-15.
+- Nothing in progress. Sessions list made clear (labelled buttons, Remove, closed in grey, waiting text) on 2026-10-15; waits on Om retesting live. Launcher live and tested by Om on his PC (Start, Remote Control, Stop) on 2026-10-15.
 
 ## Next
 1. Om: on the live site, Settings → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
@@ -9,6 +9,8 @@
 3. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
 
 ## Later
+- Worker has no log file (stdout of the hidden run is lost), so jobs can only be traced from state.json — waits on Om wanting a log file (add to the install).
+- A Remove-all-finished button for sessions — waits on Om finding one-by-one Remove tedious.
 - AKAR C8 (debt step 3) is blocked by C7 in Work OS, but pms-89 said it is active in wt/debt-3 — waits on Om choosing one.
 - Per-session attribution header (`X-Work-OS-Session` from `CLAUDE_CODE_SESSION_ID`) — waits on checking env expansion in user-scope MCP headers.
 - Discord interactions endpoint URL (slash commands) — waits on Om.
