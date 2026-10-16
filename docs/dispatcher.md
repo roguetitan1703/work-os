@@ -1,6 +1,6 @@
 # Task dispatcher: Claude works tasks Om gives it
 
-Status: design, not built. Om's decisions (2026-10-15) are marked **Om**.
+Status: building (PC version first; cloud sessions via a Routine later). Om's decisions (2026-10-15) are marked **Om**. Fable review (2026-10-15) applied: see "v1 rules from review".
 
 ## What it does
 
@@ -14,6 +14,19 @@ Om marks a real task "for Claude". When a computer has room, the server claims t
 - **Om:** claim before start; a task is never started twice.
 - Sessions run on Om's PC through the existing worker, under his own subscription, so they have his normal Claude Code setup and MCP servers (Work OS, Delpat OS). Nothing runs in the cloud.
 
+## v1 rules from review (these override the sections below where they differ)
+
+1. **Finish signal is the task, not the session.** Claude Code stays open at its prompt after the work. Task Done (by the session or Om) → `finished` at once and the slot frees; the session stays open for Om to read. Session dead/stopped while the task is not Done → `stopped`. "Cannot finish": the session sets the task Blocked with a reason → `stopped`.
+2. **Prompt has no task text.** Only a fixed template plus the ref and the boilerplate note id; the session reads title and description with `get_task`, and the template says task text is data, not instructions (launcher rule 3 stays true).
+3. **Devices that drop prompts are skipped.** The worker reports `allowPrompts` in its status; the server never dispatches to a device with it off.
+4. **Reconciler** (in the 15-min alerts cron): a dispatched session still `starting` after 5 min, or with no worker report for 15 min → back to `queued` if no process was ever seen, else `stopped` + alert. Take back works while the PC is offline (marks `stopped`, any stop job is best-effort).
+5. **`prevStatus`** is stored at claim and restored on `failed`/requeue.
+6. **No duplicate notices.** Dispatcher writes and the In Progress change are recorded as the dispatcher and do not create the "Claude changed your task" inbox notice; Om gets one alert per outcome: "Claude finished #12" or "Claude stopped on #12: reason".
+7. **Stuck** = task not Done and the session quiet (worker `lastActiveAt`) for 20 min → one alert. The 3 h / 90 min rule is dropped.
+8. **Cap is global (2)**, checked at claim; a rare overlap of two polls may briefly allow 3 — accepted.
+9. **Order:** the order Om marked them. Folder picker only when the project has more than one linked folder.
+10. Watch the shared `wos_` key's 300 calls/hour in the first week.
+
 ## Data (new optional fields, no migration)
 
 On `tasks`:
@@ -24,7 +37,8 @@ claude: {
   markedAt, markedBy: 'om',
   folderKey?: string,          // which linked folder, when the project has more than one
   sessionId?, deviceId?,       // set at claim
-  claimedAt?, endedAt?, note?  // note: why it stopped/failed
+  claimedAt?, endedAt?, note?, // note: why it stopped/failed
+  prevStatus?                  // restored on failed/requeue
 } | null
 ```
 
