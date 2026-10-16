@@ -160,6 +160,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
 
   return (
     <div className="max-w-6xl space-y-3 min-w-0">
+      <h1 className="sr-only">{project.name}</h1>
       <ProjectTop project={project} tab={tab} />
 
       <nav aria-label="Project sections" className="grid grid-cols-5 gap-0.5 md:inline-flex md:gap-1 rounded-2xl bg-muted/60 p-1 md:max-w-full">
