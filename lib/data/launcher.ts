@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { collections, type DeviceActivity, type ReportedClaudeSession, type WorkerFolderDoc, type WorkerSessionDoc } from '../db';
+import { collections, type DeviceActivity, type ReportedClaudeSession, type WorkerFolderDoc, type WorkerJobDoc, type WorkerSessionDoc } from '../db';
 import { InputError, NotFoundError } from './errors';
 import { normalizeRemote } from './code-locations';
 
@@ -81,12 +81,14 @@ export async function pollJobs(deviceId: string): Promise<JobsResponse> {
   const c = await collections();
   const now = new Date();
   const linked = await c.workerFolders.find({ deviceId, projectId: { $ne: null } }, { projection: { folderId: 1, projectId: 1 } }).toArray();
-  const pending = await c.workerJobs
-    .find({ deviceId, doneAt: null, $or: [{ takenAt: null }, { takenAt: { $lt: new Date(now.getTime() - RETAKE_MS) } }] })
-    .sort({ createdAt: 1 })
-    .limit(20)
-    .toArray();
-  if (pending.length) await c.workerJobs.updateMany({ _id: { $in: pending.map(j => j._id) } }, { $set: { takenAt: now } });
+  // Hand each job out once: the takenAt stamp is a conditional update per job, so two simultaneous polls never both get it.
+  const open = { deviceId, doneAt: null, $or: [{ takenAt: null }, { takenAt: { $lt: new Date(now.getTime() - RETAKE_MS) } }] };
+  const candidates = await c.workerJobs.find(open).sort({ createdAt: 1 }).limit(20).toArray();
+  const pending: WorkerJobDoc[] = [];
+  for (const j of candidates) {
+    const got = await c.workerJobs.findOneAndUpdate({ _id: j._id, ...open }, { $set: { takenAt: now } }, { returnDocument: 'after' });
+    if (got) pending.push(got);
+  }
   const pids = [...new Set([...linked.map(l => l.projectId!), ...pending.map(j => j.projectId).filter((x): x is string => !!x)])];
   const names = new Map((await c.projects.find({ _id: { $in: pids } }, { projection: { name: 1 } }).toArray()).map(p => [p._id, p.name]));
   return {

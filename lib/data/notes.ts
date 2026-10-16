@@ -305,6 +305,13 @@ function newId() {
   return randomUUID().replace(/-/g, '').slice(0, 10);
 }
 
+/** The dispatcher's boilerplate note is read by every session it starts, so only Om may change, move or delete it (or add a sub-page to it). */
+async function guardBoilerplate(c: Collections, actor: Actor, ids: (string | null | undefined)[]): Promise<void> {
+  if (actor === 'me') return;
+  const s = await c.settings.findOne({ _id: 'dispatcher' }, { projection: { boilerplateNoteId: 1 } });
+  if (s?.boilerplateNoteId && ids.includes(s.boilerplateNoteId)) throw new InputError("This note is the dispatcher's boilerplate; only Om can change it");
+}
+
 export async function writeNote(w: NoteWrite, actor: Actor): Promise<{ note: Note; created: boolean }> {
   const c = await collections();
   const now = new Date();
@@ -327,6 +334,7 @@ export async function writeNote(w: NoteWrite, actor: Actor): Promise<{ note: Not
     throw new InputError('Give note_id to update a note, task for a task’s note, parent_id for a sub-page, or project to create a project note.');
   }
 
+  await guardBoilerplate(c, actor, [cur?._id, cur?.parentId, parent?._id]);
   if (cur) {
     if (w.expectUpdatedAt && cur.updatedAt.toISOString() !== w.expectUpdatedAt) throw new NoteConflictError();
     const next = await applyContent(await noteBlocks(cur), w);
@@ -423,6 +431,7 @@ export async function deleteNote(id: string, actor: Actor, opts: { expectTitle?:
   if (opts.expectTitle !== undefined && cur.title.toLowerCase().trim() !== opts.expectTitle.toLowerCase().trim()) {
     throw new InputError(`Note ${id} is "${cur.title}", not "${opts.expectTitle}". Nothing deleted.`);
   }
+  await guardBoilerplate(c, actor, [cur._id, cur.parentId]);
   const kids = await descendants(c, id);
   const at = new Date();
   await c.notes.updateMany({ _id: { $in: [id, ...kids] } }, { $set: { deletedAt: at, deletedBy: actor } });
@@ -440,6 +449,7 @@ export async function restoreNote(id: string, actor: Actor): Promise<Note> {
   const c = await collections();
   const cur = await c.notes.findOne({ _id: id, deletedAt: { $ne: null } });
   if (!cur) throw new NotFoundError(`Note ${id} is not deleted`);
+  await guardBoilerplate(c, actor, [cur._id, cur.parentId]);
   if (cur.taskId && (await c.notes.findOne({ taskId: cur.taskId, ...live }))) throw new InputError('That task has a newer note; restore refused.');
   // Bring back sub-pages deleted in the same action.
   const same = await c.notes.find({ deletedAt: cur.deletedAt }, { projection: { _id: 1 } }).toArray();

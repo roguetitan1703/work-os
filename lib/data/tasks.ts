@@ -479,12 +479,15 @@ export async function restoreTask(key: string | number, actor: Actor): Promise<T
   const t = await c.trash.findOne('ref' in f ? { ref: f.ref as number } : { _id: f._id as string }, { sort: { deletedAt: -1 } });
   if (!t) throw new NotFoundError(`Task ${typeof key === 'number' ? '#' + key : key} is not in the trash`);
   if (await c.tasks.findOne({ ref: t.ref }, { projection: { _id: 1 } })) throw new InputError(`#${t.ref} already exists`);
-  await c.tasks.insertOne(t.task);
+  // Older trash docs may still carry a claude mark: a restored task is never queued for Claude.
+  const { claude: _claude, ...restored } = t.task;
+  void _claude;
+  await c.tasks.insertOne(restored);
   if (t.activity.length) await c.activity.insertMany(t.activity);
   if (t.noteIds?.length) await c.notes.updateMany({ _id: { $in: t.noteIds } }, { $set: { deletedAt: null }, $unset: { deletedBy: '' } });
   await c.trash.deleteOne({ _id: t._id });
   await logActivity(c, t.task, actor, 'restored');
-  return toTask(t.task);
+  return toTask(restored);
 }
 
 export type TrashItem = { ref: number; title: string; status: Status; projectId: string | null; deletedAt: string; deletedBy: Actor; reason: string; purgeOn: string };

@@ -70,7 +70,7 @@ export function DispatcherSetup({ initial, notes, maxCap }: { initial: Dispatche
               </option>
             ))}
           </select>
-          <span className="block text-[13px] md:text-xs text-muted-foreground">Your Claude Code boilerplate. The session reads it through the Work OS connection, so it always gets the current version.</span>
+          <span className="block text-[13px] md:text-xs text-muted-foreground">Your Claude Code boilerplate. The session reads it through the Work OS connection, so it always gets the current version. Claude can read this note; only you can edit it.</span>
         </label>
       </div>
     </Section>

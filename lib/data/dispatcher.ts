@@ -99,12 +99,23 @@ async function logTask(c: Collections, t: Pick<TaskDoc, '_id' | 'ref' | 'title'>
   });
 }
 
+/** Alert text can contain words written by Claude (a blocked reason): drop mentions and markdown links before it reaches Discord or push. */
+export function plainAlertText(s: string): string {
+  return s
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/<[@#][!&]?\w+>/g, '')
+    .replace(/@(everyone|here)/gi, '$1')
+    .replace(/@(?=\w)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** One alert per outcome. The queue id is per claim, and the state change that led here is conditional, so it is queued once. */
 async function queueOutcome(c: Collections, t: TaskDoc, kind: 'claude_finished' | 'claude_stopped', detail: string): Promise<void> {
-  const claimedAt = t.claude?.claimedAt?.getTime() ?? 0;
+  const claimedAt = t.claude?.claimedAt?.getTime() ?? t.claude?.markedAt.getTime() ?? 0;
   await c.alertQueue.updateOne(
     { _id: `claude:${t._id}:${claimedAt}` },
-    { $setOnInsert: { kind, taskId: t._id, byTaskId: t._id, createdAt: new Date(), sentAt: null, detail: detail.slice(0, 300) } },
+    { $setOnInsert: { kind, taskId: t._id, byTaskId: t._id, createdAt: new Date(), sentAt: null, detail: plainAlertText(detail).slice(0, 300) } },
     { upsert: true },
   );
 }
@@ -117,13 +128,15 @@ type End = { to: 'finished' | 'stopped' | 'failed'; note?: string };
 async function endRun(c: Collections, t: TaskDoc, end: End): Promise<boolean> {
   const now = new Date();
   const restore = end.to === 'failed' && t.claude?.prevStatus && t.status === 'In Progress' && t.claude.prevStatus !== 'In Progress';
-  const r = await c.tasks.findOneAndUpdate(
-    { _id: t._id, 'claude.state': 'running', 'claude.sessionId': t.claude?.sessionId },
-    { $set: { 'claude.state': end.to, 'claude.endedAt': now, ...(end.note ? { 'claude.note': end.note.slice(0, 300) } : {}), ...(restore ? { status: t.claude!.prevStatus!, updatedAt: now } : {}) } },
-    { returnDocument: 'after' },
-  );
+  const claim = { _id: t._id, 'claude.state': 'running' as const, 'claude.sessionId': t.claude?.sessionId };
+  const ended = { 'claude.state': end.to, 'claude.endedAt': now, ...(end.note ? { 'claude.note': end.note.slice(0, 300) } : {}) };
+  // The status is restored only if it is still In Progress: one Om changed meanwhile is kept.
+  let restored = false;
+  let r = restore ? await c.tasks.findOneAndUpdate({ ...claim, status: 'In Progress' }, { $set: { ...ended, status: t.claude!.prevStatus!, updatedAt: now } }, { returnDocument: 'after' }) : null;
+  if (r) restored = true;
+  else r = await c.tasks.findOneAndUpdate(claim, { $set: ended }, { returnDocument: 'after' });
   if (!r) return false;
-  if (restore) await logTask(c, r, 'claude-code', 'status', { changes: { status: { from: 'In Progress', to: t.claude!.prevStatus } }, note: `Dispatcher: ${end.note ?? 'could not start'}; status restored` });
+  if (restored) await logTask(c, r, 'claude-code', 'status', { changes: { status: { from: 'In Progress', to: t.claude!.prevStatus } }, note: `Dispatcher: ${end.note ?? 'could not start'}; status restored` });
   if (end.to === 'finished') await queueOutcome(c, t, 'claude_finished', end.note ?? '');
   else await queueOutcome(c, t, 'claude_stopped', end.note ?? (end.to === 'failed' ? 'could not start' : 'session ended'));
   return true;
@@ -159,6 +172,17 @@ export async function settleDispatched(c?: Collections): Promise<number> {
     const session = t.claude?.sessionId ? await col.workerSessions.findOne({ _id: t.claude.sessionId }) : null;
     const o = outcomeOf(t, session);
     if (o && (await endRun(col, t, o))) n++;
+  }
+  // A queued task whose chosen folder is no longer linked to its project (unlinked, or the project changed) would wait forever.
+  const picked = await col.tasks.find({ 'claude.state': 'queued', 'claude.folderKey': { $exists: true } }).toArray();
+  for (const t of picked) {
+    const key = t.claude!.folderKey!;
+    if (t.projectId && (await col.workerFolders.findOne({ _id: key, projectId: t.projectId }, { projection: { _id: 1 } }))) continue;
+    const r = await col.tasks.updateOne({ _id: t._id, 'claude.state': 'queued', 'claude.folderKey': key }, { $set: { 'claude.state': 'stopped', 'claude.endedAt': new Date(), 'claude.note': 'folder no longer linked' } });
+    if (r.modifiedCount) {
+      await queueOutcome(col, t, 'claude_stopped', 'folder no longer linked');
+      n++;
+    }
   }
   // A task that was closed while still queued is no longer waiting for anyone.
   await col.tasks.updateMany({ 'claude.state': 'queued', $or: [{ status: { $in: ['Done', 'Dropped'] } }, { archived: true }] }, { $set: { claude: null } });
@@ -206,8 +230,11 @@ export async function dispatchFor(deviceId: string): Promise<{ ref: number } | n
     try {
       await createStartJob(f, claimed.projectId!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId });
     } catch (err) {
-      console.error('[dispatcher] start job failed, rolled back', err instanceof Error ? err.message : err);
-      await requeue(c, claimed, false);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[dispatcher] start job failed, rolled back', msg);
+      // Counts toward MAX_ATTEMPTS, so a persistent failure ends as failed instead of retrying on every poll.
+      if ((claimed.claude?.attempts ?? 0) + 1 >= MAX_ATTEMPTS) await endRun(c, claimed, { to: 'failed', note: `could not start: ${msg}`.slice(0, 300) });
+      else await requeue(c, claimed, true);
       return null;
     }
     // Recorded as the dispatcher, no inbox notice (that notice comes only from MCP writes).
@@ -223,11 +250,12 @@ async function requeue(c: Collections, t: TaskDoc, countAttempt: boolean): Promi
   const m = t.claude;
   if (!m || m.state !== 'running') return;
   const now = new Date();
-  const restore = m.prevStatus && t.status === 'In Progress' ? m.prevStatus : t.status;
-  await c.tasks.updateOne(
-    { _id: t._id, 'claude.state': 'running', 'claude.sessionId': m.sessionId },
-    { $set: { 'claude.state': 'queued', status: restore, updatedAt: now, ...(countAttempt ? { 'claude.attempts': (m.attempts ?? 0) + 1 } : {}) }, $unset: { 'claude.claimedAt': '', 'claude.deviceId': '', 'claude.sessionId': '', 'claude.prevStatus': '' } },
-  );
+  const claim = { _id: t._id, 'claude.state': 'running' as const, 'claude.sessionId': m.sessionId };
+  const back = { 'claude.state': 'queued', updatedAt: now, ...(countAttempt ? { 'claude.attempts': (m.attempts ?? 0) + 1 } : {}) };
+  const unset = { 'claude.claimedAt': '', 'claude.deviceId': '', 'claude.sessionId': '', 'claude.prevStatus': '' } as const;
+  // Restore prevStatus only while the task is still In Progress (a status Om changed meanwhile is kept).
+  const r = m.prevStatus ? await c.tasks.updateOne({ ...claim, status: 'In Progress' }, { $set: { ...back, status: m.prevStatus }, $unset: unset }) : null;
+  if (!r?.modifiedCount) await c.tasks.updateOne(claim, { $set: back, $unset: unset });
 }
 
 // ── Reconciler (runs in the alerts cron, every 15 minutes) ──────────────────

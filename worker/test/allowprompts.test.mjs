@@ -24,3 +24,16 @@ test('status reports allowPrompts: false when the config turns prompts off', asy
   await m.core.sendStatus();
   assert.equal(m.reports.at(-1).worker.allowPrompts, false);
 });
+
+test('a start job for a session this worker already runs is not launched again', async () => {
+  const SID = '11111111-2222-4333-8444-555555555555';
+  const launches = [];
+  const core = createCore({
+    getConfig: () => ({ roots: [] }), state: { ids: {}, folders: {}, sessions: { [SID]: { folderId: 'f_x', state: 'running', startedAt: 1 } }, markers: {} }, save: () => {},
+    api: { postStatus: async () => {} },
+    launcher: async (a) => void launches.push(a), listProcesses: async () => [], killPid: async () => {},
+  });
+  const r = await core.handleJob({ id: 'j_1', kind: 'start', folderId: 'f_x', sessionId: SID });
+  assert.deepEqual(r, { id: 'j_1', ok: true });
+  assert.equal(launches.length, 0);
+});

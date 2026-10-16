@@ -64,6 +64,8 @@ export function createCore(deps) {
 
   async function handleJob(job) {
     const id = job && typeof job.id === 'string' ? job.id : 'unknown';
+    // Already started (a re-offered job): never open a second window for the same session.
+    if (job && job.kind === 'start' && typeof job.sessionId === 'string' && state.sessions[job.sessionId] && state.sessions[job.sessionId].folderId === job.folderId) return { id, ok: true };
     const v = validateJob(job, { folders: state.folders, roots: roots() });
     if (!v.ok) return { id, ok: false, error: v.error };
     try {

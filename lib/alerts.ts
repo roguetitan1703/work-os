@@ -5,7 +5,7 @@ import { APP_TZ, addDays, dateInTz, weekday } from './dates';
 import { CLOSED_STATUSES, OPEN_STATUSES } from './types';
 import { api, discordConfig, DiscordError } from './discord/client';
 import { addToInbox, getNotifySettings, pushConfigured, sendPush } from './notify';
-import { stuckClaims } from './data/dispatcher';
+import { plainAlertText, stuckClaims } from './data/dispatcher';
 
 // Nudges sent to Om as Discord DMs from the existing bot. Runs every 15 minutes
 // (/api/cron/alerts, triggered by an external scheduler) and right after writes that
@@ -143,6 +143,7 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
       const t = byId.get(q.taskId);
       if (q.kind === 'claude_finished' || q.kind === 'claude_stopped') {
         if (!t) continue;
+        q.detail = plainAlertText(q.detail ?? '');
         items.push(
           q.kind === 'claude_finished'
             ? { key: q._id, kind: q.kind, ref: t.ref, title: t.title, detail: q.detail || undefined, headline: `Claude finished #${t.ref}` }
