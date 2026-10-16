@@ -2,7 +2,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { Filter } from 'mongodb';
 import { requestContext } from '../request-context';
-import { collections, nextSeq, toActivity, type ActivityDoc, type Collections, type TaskDoc, type TrashDoc } from '../db';
+import { collections, nextSeq, toActivity, type ActivityDoc, type ClaudeMark, type Collections, type TaskDoc, type TrashDoc } from '../db';
 import {
   CLOSED_STATUSES,
   OPEN_STATUSES,
@@ -20,6 +20,7 @@ import {
   type Recurrence,
   type Status,
   type Task,
+  type TaskClaude,
   type TaskInput,
   type TaskPatch,
   type TaskSource,
@@ -28,6 +29,7 @@ import { addDays, addMonths, resolveDate, todayStr, weekday, weekStart } from '.
 import { resolveProject, toProject } from './projects';
 import { InputError, NotFoundError } from './errors';
 import { queueUnblocked } from '../alerts';
+import { onTaskChanged } from './dispatcher';
 
 // ── Conversions & helpers ───────────────────────────────────────────────────
 
@@ -60,6 +62,20 @@ export function toTask(d: TaskDoc): Task {
     doneOn: d.doneOn,
     doneBy: d.doneBy,
     ...(d.source ? { source: d.source } : {}),
+    ...(d.claude ? { claude: toTaskClaude(d.claude) } : {}),
+  };
+}
+
+function toTaskClaude(m: ClaudeMark): TaskClaude {
+  return {
+    state: m.state,
+    markedAt: m.markedAt.toISOString(),
+    ...(m.folderKey ? { folderKey: m.folderKey } : {}),
+    ...(m.sessionId ? { sessionId: m.sessionId } : {}),
+    ...(m.deviceId ? { deviceId: m.deviceId } : {}),
+    ...(m.claimedAt ? { claimedAt: m.claimedAt.toISOString() } : {}),
+    ...(m.endedAt ? { endedAt: m.endedAt.toISOString() } : {}),
+    ...(m.note ? { note: m.note } : {}),
   };
 }
 
@@ -358,6 +374,8 @@ export async function updateTask(key: string | number, patch: TaskPatch, actor: 
   }
 
   if (statusChanged && CLOSED_STATUSES.includes(status) && isOpen(cur.status)) await queueUnblocked(c, next);
+  // A task Om gave to Claude: Done or Blocked ends the dispatcher's run (docs/dispatcher.md).
+  if (statusChanged && next.claude?.state === 'running') await onTaskChanged(c, next);
   if (statusChanged && status === 'Done' && next.recurrence && !next.nextRef) {
     next.nextRef = await spawnNextOccurrence(c, next, actor);
   }
@@ -430,11 +448,14 @@ export async function trashTask(
   }
   const activity = await c.activity.find({ taskId: cur._id }).toArray();
   const notes = await c.notes.find({ taskId: cur._id, deletedAt: null }, { projection: { _id: 1 } }).toArray();
+  // A restored task must not come back queued for Claude: Om marks again if he wants it.
+  const { claude: _claude, ...plain } = cur;
+  void _claude;
   const doc: TrashDoc = {
     _id: cur._id,
     ref: cur.ref,
     title: cur.title,
-    task: cur,
+    task: plain,
     activity,
     deletedAt: new Date(),
     deletedBy: actor,

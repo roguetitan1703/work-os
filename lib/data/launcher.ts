@@ -149,7 +149,7 @@ export function cleanClaudeSessions(raw: unknown): ReportedClaudeSession[] {
 }
 
 export async function reportStatus(deviceId: string, body: unknown): Promise<void> {
-  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown };
+  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; allowPrompts?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown };
   const activity = b.activity === undefined ? null : cleanActivity(b.activity); // validate before any write
   const claudeSessions = b.claudeSessions === undefined ? null : cleanClaudeSessions(b.claudeSessions);
   const c = await collections();
@@ -159,7 +159,8 @@ export async function reportStatus(deviceId: string, body: unknown): Promise<voi
   if (b.worker && typeof b.worker === 'object') {
     const version = String(b.worker.version ?? '').slice(0, 20);
     const os = String(b.worker.os ?? '').slice(0, 20);
-    await c.devices.updateOne({ _id: deviceId }, { $set: { worker: { version, os }, lastSeenAt: now } });
+    // allowPrompts: whether this worker passes a first message on to Claude. The dispatcher only sends tasks to workers that say true.
+    await c.devices.updateOne({ _id: deviceId }, { $set: { worker: { version, os, allowPrompts: b.worker.allowPrompts === true }, lastSeenAt: now } });
   }
   if (b.jobs !== undefined && !Array.isArray(b.jobs)) throw new InputError('jobs must be an array');
   for (const r of ((b.jobs as unknown[]) ?? []).slice(0, 50)) {
@@ -286,12 +287,19 @@ export async function startSession(projectId: string, key: string, prompt?: stri
   const f = await folderDoc(key);
   if (f.projectId !== projectId) throw new InputError('That folder is not linked to this project');
   if (f.missing) throw new InputError(`"${f.name}" was not found in the device's last scan`);
-  const text = prompt?.trim() ?? '';
+  return createStartJob(f, projectId, prompt?.trim() ?? '');
+}
+
+/**
+ * The session row and the start job. Also used by the dispatcher (docs/dispatcher.md), which passes `dispatched`
+ * (the fixed template is the prompt, never task text) and a session id it already recorded on the task.
+ */
+export async function createStartJob(f: WorkerFolderDoc, projectId: string, text: string, dispatched?: { taskId: string; sessionId: string }): Promise<string> {
   if (text.length > MAX_PROMPT) throw new InputError(`First message is too long (max ${MAX_PROMPT} characters)`);
-  const sessionId = randomUUID();
+  const sessionId = dispatched?.sessionId ?? randomUUID();
   const c = await collections();
   const now = new Date();
-  await c.workerSessions.insertOne({ _id: sessionId, deviceId: f.deviceId, folderId: f.folderId, projectId, state: 'starting', startedAt: now, updatedAt: now });
+  await c.workerSessions.insertOne({ _id: sessionId, deviceId: f.deviceId, folderId: f.folderId, projectId, state: 'starting', startedAt: now, updatedAt: now, ...(dispatched ? { dispatched: true, taskId: dispatched.taskId } : {}) });
   try {
     await addJob(f.deviceId, { kind: 'start', sessionId, folderId: f.folderId, projectId, ...(text ? { prompt: text } : {}) });
   } catch (err) {

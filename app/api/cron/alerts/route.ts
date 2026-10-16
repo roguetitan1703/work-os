@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { pruneAlertLog, runAlerts } from '@/lib/alerts';
 import { collections } from '@/lib/db';
+import { reconcileDispatched } from '@/lib/data/dispatcher';
 import { pruneInbox } from '@/lib/notify';
 
 // Alert check, called every 15 minutes by an external scheduler (cron-job.org).
@@ -30,7 +31,10 @@ async function handle(req: Request) {
   const baseUrl = (process.env.APP_URL || url.origin).replace(/\/+$/, '');
   // ?at=<ISO> simulates another time; ignored in production.
   const at = process.env.NODE_ENV !== 'production' && url.searchParams.get('at') ? new Date(url.searchParams.get('at')!) : undefined;
-  const r = await runAlerts({ dryRun: url.searchParams.get('dry') === '1', baseUrl, now: at });
+  const dry = url.searchParams.get('dry') === '1';
+  // Task dispatcher: requeue a claim that never started, stop one whose computer went silent (docs/dispatcher.md). Their alerts go out in the run below.
+  if (!dry) await reconcileDispatched(at).catch(e => console.error('[dispatcher] reconcile failed', e instanceof Error ? e.message : e));
+  const r = await runAlerts({ dryRun: dry, baseUrl, now: at });
   if (!r.dryRun && new Date().getUTCHours() === 3 && new Date().getUTCMinutes() < 15) await Promise.all([pruneAlertLog(), pruneInbox()]);
   if (!r.dryRun && !at) {
     const summary = r.error ? `error: ${r.error}` : r.quiet ? 'quiet hours' : r.items.length ? `sent ${r.items.length} alerts` : 'nothing due';

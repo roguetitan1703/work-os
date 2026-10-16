@@ -5,6 +5,7 @@ import { APP_TZ, addDays, dateInTz, weekday } from './dates';
 import { CLOSED_STATUSES, OPEN_STATUSES } from './types';
 import { api, discordConfig, DiscordError } from './discord/client';
 import { addToInbox, getNotifySettings, pushConfigured, sendPush } from './notify';
+import { stuckClaims } from './data/dispatcher';
 
 // Nudges sent to Om as Discord DMs from the existing bot. Runs every 15 minutes
 // (/api/cron/alerts, triggered by an external scheduler) and right after writes that
@@ -16,6 +17,7 @@ import { addToInbox, getNotifySettings, pushConfigured, sendPush } from './notif
 //   stalled        In Progress, no activity for 2 workdays
 //   never_started  P1 still Not Started 24h after creation
 //   unblocked      as soon as the last task it waited on is closed
+//   claude_*       the task dispatcher (docs/dispatcher.md): finished / stopped (sent at once) and "may be stuck" (scheduled)
 //   quiet hours    23:00–08:00 (held until morning)
 
 export const ALERT_RULES = {
@@ -29,7 +31,11 @@ export const ALERT_RULES = {
 } as const;
 
 
-export type AlertItem = { key: string; kind: AlertKind; ref: number; title: string; detail?: string; resend?: boolean; taskId?: string; prevSentAt?: Date };
+export type AlertItem = { key: string; kind: AlertKind; ref: number; title: string; detail?: string; resend?: boolean; taskId?: string; prevSentAt?: Date; /** Inbox and push title, when the default "Kind: #ref title" does not fit. */ headline?: string };
+
+const CLAUDE_OUTCOMES = ['claude_finished', 'claude_stopped'] as const;
+/** Event alerts that live in alertQueue and are claimed there (not in alertLog). */
+const FROM_QUEUE = new Set<AlertKind>(['unblocked', ...CLAUDE_OUTCOMES]);
 
 
 export function hourInTz(d: Date = new Date(), tz = APP_TZ): number {
@@ -71,7 +77,7 @@ export async function queueUnblocked(c: Collections, closed: Pick<TaskDoc, '_id'
 export async function computeAlerts(now: Date = new Date(), opts: { onlyQueued?: boolean; queuedIds?: string[] } = {}): Promise<{ items: AlertItem[]; quiet: boolean }> {
   const c = await collections();
   if (isQuietHour(now)) return { items: [], quiet: true };
-  if (opts.onlyQueued) return { items: await queuedUnblocked(c, opts.queuedIds), quiet: false };
+  if (opts.onlyQueued) return { items: await queuedItems(c, opts.queuedIds), quiet: false };
   const today = dateInTz(now);
   const hour = hourInTz(now);
   const items: AlertItem[] = [];
@@ -117,12 +123,17 @@ export async function computeAlerts(now: Date = new Date(), opts: { onlyQueued?:
     const key = `never_started:${t._id}`;
     if (!was(key)) items.push({ key, kind: 'never_started', taskId: t._id, ref: t.ref, title: t.title });
   }
-  items.push(...(await queuedUnblocked(c, opts.queuedIds)));
+  // claude_stuck: a task Claude is working on, session quiet for 20 minutes (once per claim)
+  for (const { t, quietMins } of await stuckClaims(c, now)) {
+    const key = `claude_stuck:${t._id}:${t.claude!.claimedAt!.getTime()}`;
+    if (!(await c.alertLog.findOne({ _id: key }, { projection: { _id: 1 } }))) items.push({ key, kind: 'claude_stuck', taskId: t._id, ref: t.ref, title: t.title, detail: `quiet for ${quietMins} min`, headline: `Claude may be stuck on #${t.ref}` });
+  }
+  items.push(...(await queuedItems(c, opts.queuedIds)));
   return { items, quiet: false };
 }
 
 /** ids: only these queue entries (the ones this run claimed); omitted = everything still unsent (dry run). */
-async function queuedUnblocked(c: Collections, ids?: string[]): Promise<AlertItem[]> {
+async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]> {
   const items: AlertItem[] = [];
   const queued = await c.alertQueue.find(ids ? { _id: { $in: ids } } : { sentAt: null }).toArray();
   if (queued.length) {
@@ -130,6 +141,15 @@ async function queuedUnblocked(c: Collections, ids?: string[]): Promise<AlertIte
     const byId = new Map((await c.tasks.find({ _id: { $in: taskIds } }, { projection: { ref: 1, title: 1, status: 1 } }).toArray()).map(t => [t._id, t]));
     for (const q of queued) {
       const t = byId.get(q.taskId);
+      if (q.kind === 'claude_finished' || q.kind === 'claude_stopped') {
+        if (!t) continue;
+        items.push(
+          q.kind === 'claude_finished'
+            ? { key: q._id, kind: q.kind, ref: t.ref, title: t.title, detail: q.detail || undefined, headline: `Claude finished #${t.ref}` }
+            : { key: q._id, kind: q.kind, ref: t.ref, title: t.title, detail: q.detail || undefined, headline: `Claude stopped on #${t.ref}${q.detail ? `: ${q.detail}` : ''}` },
+        );
+        continue;
+      }
       const by = byId.get(q.byTaskId);
       if (!t || CLOSED_STATUSES.includes(t.status)) continue; // gone or already done: drop silently on send
       items.push({ key: q._id, kind: 'unblocked', ref: t.ref, title: t.title, detail: by ? `#${by.ref} ${by.title} is done` : 'the task it waited on was deleted' });
@@ -147,6 +167,9 @@ const SECTIONS: { kind: AlertKind; head: string }[] = [
   { kind: 'never_started', head: '⏳ **P1 not started yet** (24h+)' },
   { kind: 'stalled', head: '🧊 **Stalled**, In Progress but untouched' },
   { kind: 'due_tomorrow', head: '🗓️ **Due tomorrow**' },
+  { kind: 'claude_finished', head: '✅ **Claude finished**' },
+  { kind: 'claude_stopped', head: '🛑 **Claude stopped**' },
+  { kind: 'claude_stuck', head: '🐢 **Claude may be stuck**' },
 ];
 
 export function formatAlerts(items: AlertItem[], baseUrl: string): string[] {
@@ -204,6 +227,9 @@ const KIND_TITLE: Record<AlertKind, string> = {
   due_tomorrow: 'Due tomorrow',
   never_started: 'P1 not started',
   stalled: 'Stalled',
+  claude_finished: 'Claude finished',
+  claude_stopped: 'Claude stopped',
+  claude_stuck: 'Claude may be stuck',
 };
 
 export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?: Date; onlyQueued?: boolean }): Promise<RunResult> {
@@ -229,7 +255,7 @@ export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?:
     const won: AlertItem[] = [];
     const stamp = new Date();
     for (const i of due) {
-      if (i.kind === 'unblocked') { won.push(i); continue; }
+      if (FROM_QUEUE.has(i.kind)) { won.push(i); continue; }
       try {
         if (i.prevSentAt) {
           const r = await c0.alertLog.updateOne({ _id: i.key, sentAt: i.prevSentAt }, { $set: { sentAt: stamp } });
@@ -254,12 +280,12 @@ export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?:
   // Deliver: inbox always; push and Discord if enabled. A failing channel doesn't block the others.
   const errors: string[] = [];
   if (items.length) {
-    await addToInbox(items.map(i => ({ kind: i.kind, title: `${KIND_TITLE[i.kind]}: #${i.ref} ${i.title}`, body: i.detail ?? '', url: `/tasks/${i.ref}` })));
+    await addToInbox(items.map(i => ({ kind: i.kind, title: i.headline ?? `${KIND_TITLE[i.kind]}: #${i.ref} ${i.title}`, body: i.headline ? i.title : (i.detail ?? ''), url: `/tasks/${i.ref}` })));
     if (settings.channels.push && pushConfigured()) {
       const one = items.length === 1 ? items[0] : null;
       const r = await sendPush(
         one
-          ? { title: `${KIND_TITLE[one.kind]} · #${one.ref}`, body: one.title + (one.detail ? ` (${one.detail})` : ''), url: `/tasks/${one.ref}`, tag: one.key }
+          ? { title: one.headline ?? `${KIND_TITLE[one.kind]} · #${one.ref}`, body: one.title + (one.detail && !one.headline ? ` (${one.detail})` : ''), url: `/tasks/${one.ref}`, tag: one.key }
           : { title: `Work OS · ${items.length} alerts`, body: items.slice(0, 4).map(i => `${KIND_TITLE[i.kind]}: ${i.title}`).join('\n'), url: '/notifications', tag: 'alerts' },
       );
       if (r.error) errors.push(`push: ${r.error}`);
