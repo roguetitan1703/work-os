@@ -66,7 +66,8 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
   const attention = m.overdue.length + m.dueToday.length + m.inProgress.length + m.blocked.length;
   const sections = (
     <div className={phone ? "" : "space-y-4"}>
-      <TaskSection phone={phone} title="Overdue" tone="text-red-600 dark:text-red-400" tasks={m.overdue} render={t => row(t)} empty="Nothing overdue." />
+      {/* Phone: 2 overdue rows when something is due today, so its first row fits the first screen. */}
+      <TaskSection phone={phone} title="Overdue" tone="text-red-600 dark:text-red-400" tasks={m.overdue} render={t => row(t)} empty="Nothing overdue." phoneLimit={m.dueToday.length ? 2 : SHOW_PHONE} />
       <TaskSection phone={phone} title="Due today" tasks={m.dueToday} render={t => row(t)} />
       <TaskSection phone={phone} title="In progress" tone="text-blue-600 dark:text-blue-400" tasks={m.inProgress} render={t => row(t)} />
       <TaskSection phone={phone} title="Blocked" tone="text-red-600 dark:text-red-400" tasks={m.blocked} render={t => row(t, waitHint(t))} />
@@ -193,10 +194,10 @@ function RowList({ phone, children }: { phone: boolean; children: React.ReactNod
 }
 
 /** A titled task group: count in the heading, first few rows, "Show N more". Hidden when empty (unless `empty` is given). */
-function TaskSection({ phone, title, tone, tasks, render, empty }: { phone: boolean; title: string; tone?: string; tasks: Task[]; render: (t: Task) => React.ReactNode; empty?: string }) {
+function TaskSection({ phone, title, tone, tasks, render, empty, phoneLimit = SHOW_PHONE }: { phone: boolean; title: string; tone?: string; tasks: Task[]; render: (t: Task) => React.ReactNode; empty?: string; phoneLimit?: number }) {
   const [all, setAll] = useState(false);
   if (!tasks.length && !empty) return null;
-  const limit = phone ? SHOW_PHONE : SHOW;
+  const limit = phone ? phoneLimit : SHOW;
   const list = all ? tasks : tasks.slice(0, limit);
   const hidden = tasks.length - list.length;
   const more = cn("w-full flex items-center justify-center font-medium text-muted-foreground border-t border-border/60 hover:bg-muted/40 active:bg-muted/60", phone ? "min-h-11 text-[14px]" : "min-h-9 text-xs");

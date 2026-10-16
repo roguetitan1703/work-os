@@ -75,8 +75,9 @@ for (const kind of ['phone', 'desk']) {
   check(`${kind}: no Day plan label`, (await V.getByText('Day plan', { exact: true }).count()) === 0);
 
   // Show more
-  check(`${kind}: Overdue shows first rows (3 phone / 5 desk)`, (await V.locator('[data-section=overdue] a[href^="/tasks/"]').count()) === (phone ? 3 : 5));
-  await tap(V.getByRole('button', { name: phone ? 'Show 4 more' : 'Show 2 more' }), phone);
+  // phone shows 2 overdue rows when something is due today, so Due today's first row fits the first screen
+  check(`${kind}: Overdue shows first rows (2 phone / 5 desk)`, (await V.locator('[data-section=overdue] a[href^="/tasks/"]').count()) === (phone ? 2 : 5));
+  await tap(V.getByRole('button', { name: phone ? 'Show 5 more' : 'Show 2 more' }), phone);
   check(`${kind}: Show more reveals all 7`, (await V.locator('[data-section=overdue] a[href^="/tasks/"]').count()) === 7);
 
   // Claude card

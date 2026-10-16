@@ -1,7 +1,7 @@
 # Work state
 
 ## Now
-- Task dispatcher v1 deployed 2026-10-16 (reviewed, review fixes in, UI suite 4/4). Waits on Om trying one small task.
+- Sprint closed 2026-10-16: launcher, UX redesign (Today, Claude area, project overview, nav shell, Settings merge, Review hub, global search), dispatcher v1, worker supervisor, fewer worker calls. Full e2e: 15 suites, 740 checks pass (`bash tests/e2e/run.sh`). Waits on Om's live checks below.
 
 ## Next
 1. Om: `node worker/worker.mjs install` one last time (supervisor, allowPrompts report, claude lookup retry, parent folders); link the terrah folder; in Claude › Setup pick the boilerplate note, turn the dispatcher on, Give to Claude on one small task.
@@ -53,3 +53,5 @@
 - Connections sends MCP_TOKEN with the page (owner-only, behind sign-in, same as before); could fetch on reveal instead — waits on a security pass.
 - Global search (ui-settings): matches title/#ref/C-ref/note text as substrings (no ranking or fuzzy match, 6 per group, 80 chars); task descriptions and comments are not searched — waits on Om's use.
 - Vercel usage: worker polls cut ~3x on 2026-10-16 (30 s idle / 10 s busy, status every 110 s, dispatcher work skipped when off). os-delpat used more than work-os that week — waits on Om looking at os-delpat's usage.
+- claude-page "[390] Next marks the item next" timed out once in three full runs (passed the other two) — waits on it failing again.
+- No e2e check of the project overview tabs' content (only tab speed and the Claude item sheet) — waits on the next project-page change.
