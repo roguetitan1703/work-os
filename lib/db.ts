@@ -33,6 +33,27 @@ export type TaskDoc = {
   doneOn: string | null;
   doneBy: Actor | null;
   source?: TaskSource;
+  /** Dispatcher (docs/dispatcher.md). Set only by the UI actions and the dispatcher itself, never by a task write from MCP or Discord. */
+  claude?: ClaudeMark | null;
+};
+
+/** A task Om gave to Claude. */
+export type ClaudeMark = {
+  state: 'queued' | 'running' | 'finished' | 'stopped' | 'failed';
+  markedAt: Date;
+  markedBy: 'om';
+  /** Which linked folder, when the project has more than one (a workerFolders _id). */
+  folderKey?: string;
+  sessionId?: string;
+  deviceId?: string;
+  claimedAt?: Date;
+  endedAt?: Date;
+  /** Why it stopped or failed. */
+  note?: string;
+  /** Status to restore on failed / requeue. */
+  prevStatus?: Status;
+  /** Times the reconciler rolled a claim back (3 is the limit). */
+  attempts?: number;
 };
 
 export type ActivityDoc = {
@@ -97,11 +118,13 @@ export type NoteDoc = {
   deletedBy?: Actor;
 };
 
-export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked';
+export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'claude_finished' | 'claude_stopped' | 'claude_stuck';
+/** Kinds sent from the alertQueue (event alerts) rather than found by the scheduled check. */
+export type QueuedAlertKind = 'unblocked' | 'claude_finished' | 'claude_stopped';
 /** One row per alert sent (key encodes task + occasion), so each is sent once. */
 export type AlertLogDoc = { _id: string; kind: AlertKind; taskId?: string; sentAt: Date };
 /** Event alerts waiting for the next send (queued inside the write's transaction). */
-export type AlertQueueDoc = { _id: string; kind: 'unblocked'; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null };
+export type AlertQueueDoc = { _id: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason. */ detail?: string };
 
 /** Inbox-only notices that are not scheduled alerts. */
 export type NoticeKind = 'claude_code_changes' | 'claude_waiting';
@@ -142,6 +165,10 @@ export type SettingsDoc = {
   passwordChangedAt?: Date;
   /** _id 'security': session generation; bumping it signs out every session (lib/auth.ts). */
   sessionGen?: number;
+  /** _id 'dispatcher': Om's switch and limits for the task dispatcher (docs/dispatcher.md). */
+  enabled?: boolean;
+  maxConcurrent?: number;
+  boilerplateNoteId?: string;
 };
 
 /** A registered passkey (WebAuthn credential). _id = credential id (base64url). */
@@ -167,13 +194,13 @@ export type ApiKeyDoc = {
 };
 // ── Session launcher (docs/launcher.md) ──
 /** A machine running the worker. Only the SHA-256 of its key (wkr_…) is stored. */
-export type DeviceDoc = { _id: string; name: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; worker?: { version: string; os: string }; /** Latest counts from the worker (numbers only). `at` is the server's receive time. */ activity?: DeviceActivity; /** Latest named session list from the worker (docs/launcher.md Activity counts). */ claudeSessions?: { at: Date; items: ReportedClaudeSession[] } };
+export type DeviceDoc = { _id: string; name: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; worker?: { version: string; os: string; /** The worker passes a first message to Claude (config allowPrompts). The dispatcher needs it. */ allowPrompts?: boolean }; /** Latest counts from the worker (numbers only). `at` is the server's receive time. */ activity?: DeviceActivity; /** Latest named session list from the worker (docs/launcher.md Activity counts). */ claudeSessions?: { at: Date; items: ReportedClaudeSession[] } };
 export type ReportedClaudeSession = { sessionId: string; folder: string; title: string; lastActiveAt: Date; subagentsActive: number; startedByWorkOs: boolean; running: boolean };
 export type DeviceActivity = { sessions: number; sessionsWorkOs: number; sessionsOther: number; sessionsActive: number; subagents: number; at: Date };
 /** A folder a worker reported. _id = deviceId:folderId. Never a path. */
 export type WorkerFolderDoc = { _id: string; deviceId: string; folderId: string; name: string; git: boolean; remote?: string; branch?: string; projectId: string | null; linkedAt: Date | null; seenAt: Date; missing: boolean };
 export type WorkerJobDoc = { _id: string; deviceId: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; sessionId: string; prompt?: string; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
-export type WorkerSessionDoc = { _id: string; deviceId: string; folderId: string; projectId: string | null; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Om removed it from the list; the doc is kept. */ hidden?: boolean };
+export type WorkerSessionDoc = { _id: string; deviceId: string; folderId: string; projectId: string | null; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Om removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string };
 /** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
 export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker'; at: Date; n?: number };
 
@@ -238,6 +265,7 @@ async function ensureIndexes(db: Db): Promise<void> {
       { key: { projectId: 1 }, name: 'project' },
       { key: { doneAt: -1 }, name: 'doneAt' },
       { key: { 'source.messageId': 1 }, name: 'source_message', sparse: true },
+      { key: { 'claude.state': 1, 'claude.markedAt': 1 }, name: 'claude_state', sparse: true },
     ]),
     db.collection('activity').createIndexes([
       { key: { taskId: 1, at: -1 }, name: 'task_at' },

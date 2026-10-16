@@ -77,6 +77,21 @@ export type Task = {
   doneBy: Actor | null;
   /** Where the task came from, when created from an external message. */
   source?: TaskSource;
+  /** Given to Claude (docs/dispatcher.md). Read-only here: only Om's UI actions and the dispatcher write it. */
+  claude?: TaskClaude;
+};
+
+export const CLAUDE_TASK_STATES = ['queued', 'running', 'finished', 'stopped', 'failed'] as const;
+export type ClaudeTaskState = (typeof CLAUDE_TASK_STATES)[number];
+export type TaskClaude = {
+  state: ClaudeTaskState;
+  markedAt: string;
+  folderKey?: string;
+  sessionId?: string;
+  deviceId?: string;
+  claimedAt?: string;
+  endedAt?: string;
+  note?: string;
 };
 
 export type TaskSource = {

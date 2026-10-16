@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Play } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { claudeOverview } from '@/lib/data/claude-overview';
+import { claudeTasks } from '@/lib/data/dispatcher';
 import { cn } from '@/lib/utils';
 import { baseUrl } from '../settings/base-url';
 import { AutoRefresh } from './auto-refresh';
@@ -23,7 +24,7 @@ type Props = { searchParams: Promise<{ tab?: string }> };
 export default async function ClaudePage({ searchParams }: Props) {
   const raw = (await searchParams).tab;
   const tab: TabId = TABS.find(t => t.id === raw)?.id ?? 'now';
-  const data = tab === 'setup' ? null : await claudeOverview();
+  const [data, tasks] = tab === 'setup' ? [null, null] : await Promise.all([claudeOverview(), tab === 'now' ? claudeTasks() : Promise.resolve(null)]);
   const url = tab === 'setup' ? `${await baseUrl()}/api/mcp` : '';
   const startBtn = (
     <Link
@@ -67,7 +68,7 @@ export default async function ClaudePage({ searchParams }: Props) {
       </nav>
 
       {tab !== 'setup' && <AutoRefresh />}
-      {tab === 'now' && data && <NowTab needsYou={data.needsYou} sessions={data.sessions} summary={data.summary} hasComputers={data.hasComputers} />}
+      {tab === 'now' && data && tasks && <NowTab claudeTasks={tasks} needsYou={data.needsYou} sessions={data.sessions} summary={data.summary} hasComputers={data.hasComputers} />}
       {tab === 'queue' && data && <QueueTab groups={data.queue} />}
       {tab === 'setup' && <SetupTab url={url} />}
     </div>

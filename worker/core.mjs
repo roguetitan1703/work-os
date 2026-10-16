@@ -110,7 +110,8 @@ export function createCore(deps) {
   async function sendStatus() {
     try { await refreshSessions(); } catch (e) { log('liveness failed: ' + errMsg(e)); }
     const sessions = Object.entries(state.sessions).map(([sessionId, s]) => ({ sessionId, folderId: s.folderId, state: s.state }));
-    const body = { worker: { version: VERSION, os: process.platform }, jobs: pendingResults, sessions };
+    // allowPrompts: tells the server whether a first message reaches Claude here. The task dispatcher only sends tasks to a worker that says true.
+    const body = { worker: { version: VERSION, os: process.platform, allowPrompts: getConfig().allowPrompts !== false }, jobs: pendingResults, sessions };
     // Counts only (docs/launcher.md "Activity counts"); a failed count never blocks the heartbeat.
     if (deps.activity) {
       try {

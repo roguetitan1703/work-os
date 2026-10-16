@@ -13,6 +13,7 @@ import { getBlockColor, MODES } from '@/lib/modes';
 import { fmtDue, PRIORITY_TEXT } from '@/lib/format';
 import type { Status, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { ClaudeBadge } from '@/components/give-to-claude';
 
 const COLUMNS: { status: Status; label: string; tone: string }[] = [
   { status: 'Not Started', label: 'To do', tone: 'bg-muted-foreground/40' },
@@ -173,6 +174,7 @@ function Card({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
         <span className="font-mono">#{task.ref}</span>
         {task.projectId && <span className="truncate max-w-[110px]">{projectName(task.projectId)}</span>}
         {task.due && <span className={overdue ? 'text-red-600 dark:text-red-400 font-medium' : ''}>{fmtDue(task.due, today)}</span>}
+        <ClaudeBadge task={task} />
         {task.checklist.length > 0 && (
           <span className="inline-flex items-center gap-0.5">
             <ListChecks className="w-3 h-3" />

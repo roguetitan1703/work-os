@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { getBlockColor } from '@/lib/modes';
 import { useApp } from '../app-context';
 import { TaskActionSheet } from './m-task-actions';
+import { ClaudeBadge, ClaudeMarkSheet } from '../give-to-claude';
 
 const PRIO_RING: Record<Priority, string> = {
   P1: 'border-red-500',
@@ -32,6 +33,7 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
   const checklistDone = task.checklist.filter(i => i.done).length;
   const prevStatus = task.status;
   const [sheet, setSheet] = useState(false);
+  const [claudeOpen, setClaudeOpen] = useState(false);
   const press = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
   const cancelPress = () => {
@@ -123,6 +125,7 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
                 {checklistDone}/{task.checklist.length}
               </span>
             )}
+            <ClaudeBadge task={task} />
             {task.recurrence && <Repeat className="w-3.5 h-3.5" />}
             {hasNote && <FileText className="w-3.5 h-3.5" />}
             {hint}
@@ -136,7 +139,8 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
       >
         <MoreHorizontal className="w-5 h-5" />
       </button>
-      <TaskActionSheet task={task} open={sheet} onClose={() => setSheet(false)} />
+      <TaskActionSheet task={task} open={sheet} onClose={() => setSheet(false)} onClaude={() => (setSheet(false), setClaudeOpen(true))} />
+      {claudeOpen && <ClaudeMarkSheet task={task} onClose={() => setClaudeOpen(false)} />}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { BackLink } from '@/components/back-link';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
-import { ArrowLeft, Archive, ArchiveRestore, CheckCircle2, ExternalLink, Plus, Trash2, TrendingUp, X } from 'lucide-react';
+import { ArrowLeft, Archive, ArchiveRestore, Bot, CheckCircle2, ExternalLink, Plus, Trash2, TrendingUp, X } from 'lucide-react';
 import {
   addCommentAction,
   checklistAction,
@@ -18,6 +18,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { PrioritySelect, StatusSelect } from '@/components/inline-selects';
 import { ProgressDialog } from '@/components/progress-dialog';
 import { DeleteTaskButton } from '@/components/trash-controls';
+import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, claudeMenuLabel } from '@/components/give-to-claude';
 import { useApp } from '@/components/app-context';
 import { MODES } from '@/lib/modes';
 import { fmtAgo, fmtDue } from '@/lib/format';
@@ -33,6 +34,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
   const { projects, today } = useApp();
   const [pending, start] = useTransition();
   const [progressOpen, setProgressOpen] = useState(false);
+  const [claudeOpen, setClaudeOpen] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
   const [comment, setComment] = useState('');
@@ -70,7 +72,9 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
           )}
           <span suppressHydrationWarning>· created {fmtAgo(task.createdAt)} by {task.createdBy === 'claude' ? 'Claude' : task.createdBy === 'claude-code' ? 'Claude Code' : task.createdBy === 'me' ? 'you' : 'system'}</span>
           {task.archived && <span className="px-1.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300">archived</span>}
+          <ClaudeBadge task={task} />
         </div>
+        <ClaudeOutcome task={task} />
         <input
           value={title}
           onChange={e => setTitle(e.target.value)}
@@ -95,6 +99,11 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
             <CheckCircle2 className="w-3.5 h-3.5" /> Complete
           </Button>
         )}
+        {!closed && !task.archived && (
+          <Button size="sm" variant="outline" className="gap-1.5 h-8" data-claude-menu onClick={() => setClaudeOpen(true)}>
+            <Bot className="w-3.5 h-3.5" /> {claudeMenuLabel(task)}
+          </Button>
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -107,6 +116,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
         <DeleteTaskButton taskRef={task.ref} title={task.title} />
       </div>
 
+      {claudeOpen && <ClaudeMarkSheet task={task} onClose={() => setClaudeOpen(false)} />}
       {task.status === 'Blocked' && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 space-y-1">
           <label className="text-xs font-medium text-red-600 dark:text-red-400">Blocked because…</label>

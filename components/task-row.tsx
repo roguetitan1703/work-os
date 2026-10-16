@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { CheckCircle2, Circle, GitBranch, ListChecks, Repeat, TrendingUp } from 'lucide-react';
+import { Bot, CheckCircle2, Circle, GitBranch, ListChecks, Repeat, TrendingUp } from 'lucide-react';
 import { completeTaskAction, updateTaskAction } from '@/app/actions';
 import { getBlockColor } from '@/lib/modes';
 import { fmtDue, fmtMins } from '@/lib/format';
@@ -14,6 +14,7 @@ import { useApp } from './app-context';
 import { PrioritySelect, StatusSelect } from './inline-selects';
 import { ProgressDialog } from './progress-dialog';
 import { MTaskRow } from './mobile/m-task-row';
+import { ClaudeBadge, ClaudeMarkSheet, claudeMenuLabel } from './give-to-claude';
 
 type Props = {
   task: Task;
@@ -29,6 +30,7 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
   const prevStatus = task.status;
   const [pending, start] = useTransition();
   const [progressOpen, setProgressOpen] = useState(false);
+  const [claudeOpen, setClaudeOpen] = useState(false);
   const closed = task.status === 'Done' || task.status === 'Dropped';
   const overdue = !!task.due && task.due < today && !closed;
   const project = showProject ? projectName(task.projectId) : null;
@@ -81,6 +83,7 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
           >
             {task.title}
           </Link>
+          <ClaudeBadge task={task} />
           {task.recurrence && <Repeat className="w-3 h-3 text-muted-foreground shrink-0" aria-label="Recurring" />}
           {task.dependsOn.length > 0 && <GitBranch className="w-3 h-3 text-muted-foreground shrink-0" aria-label="Has dependencies" />}
         </div>
@@ -120,6 +123,11 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
             <TrendingUp className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100" />
           </button>
         )}
+        {!closed && (
+          <button onClick={() => setClaudeOpen(true)} data-claude-menu className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-muted" title={claudeMenuLabel(task)} aria-label={`${claudeMenuLabel(task)}: #${task.ref}`}>
+            <Bot className="w-3.5 h-3.5" />
+          </button>
+        )}
         {task.estimateMins ? <span className="text-[11px] font-mono text-muted-foreground w-10 text-right">{fmtMins(task.estimateMins)}</span> : <span className="w-10" />}
         <span className={cn('text-xs w-16 text-right', overdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground')}>
           {fmtDue(task.due, today)}
@@ -129,6 +137,7 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
       </div>
 
       {progressOpen && <ProgressDialog task={task} open={progressOpen} onClose={() => setProgressOpen(false)} />}
+      {claudeOpen && <ClaudeMarkSheet task={task} onClose={() => setClaudeOpen(false)} />}
     </div>
   );
 }

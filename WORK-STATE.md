@@ -1,17 +1,23 @@
 # Work state
 
 ## Now
+- Task dispatcher v1 built on ui-settings (2026-10-16): tests green on a throwaway DB; waits on the auth/permissions review and merge, then Om restarts his worker, picks the boilerplate note in Claude › Setup and gives one task.
 - Deploying 2026-10-15: Today rebuilt, Claude page with named sessions, project page as an overview, Settings with Connect merged in (/connect and /recovery redirect). Om must reinstall his worker for session names and counts.
 
 ## Next
 1. Om: `node worker/worker.mjs install` one last time (supervisor: worker restarts itself on code changes, log file; claude lookup retry; parent folders offered), then link the terrah folder from the project; live check of Today, /claude, a project page, Settings, Review and search.
-2. Task dispatcher (docs/dispatcher.md): Fable review, then build — Claude starts sessions on tasks Om marks, max 2.
+2. Task dispatcher (docs/dispatcher.md, "As built"): review subagent (auth, permissions), merge, deploy; then Om restarts the worker (it must report allowPrompts), turns it on in Claude › Setup and tries one small task.
 3. Grammar pass (names, Back rule, confirms, phone Back closes sheets).
 3. Om: on the live site, Settings → This device → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
 5. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
 
 ## Later
+- Dispatcher: the jobs hand-out (find, then mark taken) is not atomic, so two simultaneous polls of one computer could both receive the same job; the worker de-duplicates by job id — waits on a conditional hand-out.
+- Dispatcher: desktop board cards (/tasks) show the Claude badge but have no Give to Claude button (rows on project, Today and Review have it) — waits on Om asking.
+- Dispatcher: the stuck alert goes out once per claim, not again if the session wakes and goes quiet again — waits on Om wanting repeats.
+- Dispatcher: Take back on a running task while the PC is off marks it stopped but the session keeps running until the worker next polls a stop job (it is best-effort) — waits on real use.
+- Dispatcher: throwaway-DB suite lives in the scratchpad (dispatch-test.mjs, ui-test.cjs), not in the repo — waits on moving test suites into the repo.
 - Nav shell must link `/claude` (badge from `needsYouCount()`), `?start=1` from the + sheet and sidebar — waits on the nav branch merging with ui-claude.
 - Project Claude card header summary can truncate ("1 queu…") on 390px when 3 parts show — waits on Om noticing.
 - Setup does not yet list a computer's reported folders with link state (proposal §2.2) — waits on Om wanting it.
