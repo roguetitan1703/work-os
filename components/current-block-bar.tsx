@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { getCurrentBlock } from "@/lib/schedule";
 import { getBlockColor } from "@/lib/modes";
 import { useTheme } from "next-themes";
@@ -10,15 +10,22 @@ function getWeekday(date: Date): "mon" | "tue" | "wed" | "thu" | "fri" | null {
   return keys[date.getDay()] ?? null;
 }
 
-export function CurrentBlockBar() {
-  const [now, setNow] = useState<Date | null>(null);
-  const { theme } = useTheme();
+// Ticks once a minute; null on the server and first render so markup matches hydration.
+function subscribeMinute(cb: () => void) {
+  const id = setInterval(cb, 60_000);
+  return () => clearInterval(id);
+}
+// Snapshot must be stable between ticks, so cache the Date per minute.
+let cached: { minute: number; date: Date } | null = null;
+function getNow(): Date {
+  const minute = Math.floor(Date.now() / 60_000);
+  if (!cached || cached.minute !== minute) cached = { minute, date: new Date() };
+  return cached.date;
+}
 
-  useEffect(() => {
-    setNow(new Date());
-    const id = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(id);
-  }, []);
+export function CurrentBlockBar() {
+  const now = useSyncExternalStore(subscribeMinute, getNow, () => null);
+  const { theme } = useTheme();
 
   if (!now) {
     return (

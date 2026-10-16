@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { SCHEDULE, getCurrentBlock, getModeForDay } from "@/lib/schedule";
 
-function weekdayKey(d: Date) {
+type Weekday = "mon" | "tue" | "wed" | "thu" | "fri";
+
+function weekdayKey(d: Date): Weekday {
   const map = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
   const k = map[d.getDay()];
-  if (["mon", "tue", "wed", "thu", "fri"].includes(k)) return k as any;
-  return "mon" as any; // fallback for weekends
+  if (k === "sun" || k === "sat") return "mon"; // fallback for weekends
+  return k;
 }
 
 export async function GET() {
@@ -14,7 +16,7 @@ export async function GET() {
 
   const scheduleToday = SCHEDULE.map((blk) => ({
     ...blk,
-    mode: getModeForDay(blk as any, wk),
+    mode: getModeForDay(blk, wk),
   }));
 
   const currentBlock = getCurrentBlock(now);
