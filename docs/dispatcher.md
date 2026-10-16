@@ -1,6 +1,6 @@
 # Task dispatcher: Claude works tasks Om gives it
 
-Status: building (PC version first; cloud sessions via a Routine later). Om's decisions (2026-10-15) are marked **Om**. Fable review (2026-10-15) applied: see "v1 rules from review".
+Status: built (PC version; cloud sessions via a Routine later). See "As built" at the end for where it differs. Om's decisions (2026-10-15) are marked **Om**. Fable review (2026-10-15) applied: see "v1 rules from review".
 
 ## What it does
 
@@ -101,3 +101,21 @@ The boilerplate is read through the Work OS MCP rather than pasted in, because i
 
 - Whether queued tasks start in task order (priority, due) or in the order Om marked them. Proposed: P1 first, then due date, then marked time.
 - Whether a finished session should open a PR/branch by itself (left to the boilerplate and the task text for now).
+
+## As built (v1, differs from the text above where noted)
+
+Status: built on branch ui-settings, tested against a throwaway database (not yet used on the live site). Code: `lib/data/dispatcher.ts` (all logic), `app/(app)/claude/dispatcher-actions.ts` (the only writers of `claude`, behind the session cookie), `components/give-to-claude.tsx` (sheet, badge), `app/(app)/claude/claude-tasks.tsx` and `dispatcher-setup.tsx`; hooks in `app/api/worker/jobs` and `status`, `lib/data/tasks.ts` (`onTaskChanged`), the alerts cron (`reconcileDispatched`) and `lib/alerts.ts`.
+
+- **Cap counts running claims** (tasks with `claude.state = running`), not open sessions: a task that is Done frees its slot at once while its session stays open for Om. Setup offers 1 to 4 (default 2).
+- **One claim per poll** (every 10 s). A loser of the conditional claim stops instead of taking the next task, so two polls never claim the same task and one poll never overshoots the cap; polls from different computers at the same instant may still overlap by one (accepted, rule 8).
+- **Setup:** Claude › Setup › Tasks for Claude. Turning it on needs a boilerplate note picked (the dispatcher is off by default, and a task is never started without Om having chosen the note). Without a note at claim time the prompt uses a "normal rules" line.
+- **Prompt** (fixed template, about 700 characters, never task text; `buildPrompt`): ref and note id only. It tells the session to `get_task`, `log_progress`, `complete_task`, or set a `blockedReason` and stop.
+- **Marking:** refuses Done/Dropped/archived, Blocked, no project ("Add this task to a project first"), no linked folder ("Link a folder first"). A folder picker appears only when the project has more than one linked folder. Re-marking after finished/stopped/failed queues it again. Marking and take back are logged in the task history as Om ("edit", `claude` field).
+- **Take back:** queued or ended: clears `claude`. Running: the sheet says "Stop session and take back"; it sends a best-effort stop job and marks the claim `stopped` ("taken back by you") even if the computer is off. The Claude page's Stop on a running row does the same.
+- **Where `claude` can and cannot change:** `updateTask`, `createTask` and every batch/MCP/Discord write ignore any `claude` field (the schemas drop it); trashing a task strips it so a restored task is never queued; tested with MCP `update_task`, `apply_changes` (update and create) and `log_progress`.
+- **Outcomes** (`endRun`, one conditional update each, so one alert each): task Done → finished; task Blocked/Dropped/archived → stopped (reason shown); worker reports the session dead or stopped → stopped; start job failed → failed, status restored to `prevStatus`. Alerts "Claude finished #12" / "Claude stopped on #12: reason" are queued in `alertQueue` (`claude_finished`, `claude_stopped`; failed uses `claude_stopped`) and sent by the normal pipeline (claim-before-send, quiet hours hold them, flushed right after the event). The stuck alert is `claude_stuck`, scheduled, once per claim. All three have switches in Settings › Alerts. No inbox "Claude Code changed your task" notice comes from the dispatcher (the claim writes the task through the data layer, not the MCP path); history shows "Claude Code" with a "Dispatcher: …" note.
+- **Reconciler** (alerts cron, every 15 min, before the alert run): a claim still `starting` after 5 min has its job cancelled and is requeued with status restored; the third rollback ends it as failed ("is the worker running?"); a running claim whose computer has not reported for 15 min is stopped with an alert. Take back works offline.
+- **Stuck** = running claim, session running per the worker's list, quiet 20 min (`lastActiveAt`), no subagents working.
+- **Workers must report `allowPrompts`** (`worker/core.mjs` now sends it in every status): a worker that does not (older version) or reports false is never given a task. Om needs to restart his worker once.
+- **UI:** "Claude's tasks" on Claude › Now (Working n of cap, Queued in order with position, Recently finished or stopped for 7 days); small Claude badge on task rows (phone and desktop rows, board cards, task page); the desktop row gets a hover Claude button (there was no row "…" menu on desktop); the phone row action sheet, the phone task "…" menu and the desktop task page have Give to Claude / Take back.
+- Not built: the open question on ordering (order Om marked is used), a PR/branch by the session itself, cloud sessions.

@@ -315,6 +315,12 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
   - **Last seen:** `markSeen('mcp' | 'discord')` is called from the MCP and Discord routes; the status panel reads it.
   - **UI:** `app/(app)/notifications/`, `components/mobile/bell.tsx` (unread count comes from `useApp()` in `components/app-context.tsx`).
 
+### Tasks for Claude (dispatcher)
+
+**Om:** on a task (page, row menu) choose **Give to Claude**; if the project has several linked folders you pick one. Claude › Setup › Tasks for Claude has the on/off switch (off by default), how many sessions at once (default 2) and the note every session reads first. When a computer has room, its worker starts a Claude Code session on the oldest task you gave; the **Claude's tasks** section on Claude › Now shows working, queued and recently finished or stopped. You get one alert when it finishes ("Claude finished #12") or stops ("Claude stopped on #12: reason") and one if it goes quiet 20 minutes ("may be stuck"). **Take back** works any time (a running one stops its session). Only you can give or take back; Claude, Discord and batch changes cannot.
+
+**Claude Code:** design, rules and what differs from the plan are in `docs/dispatcher.md` ("As built"). All logic is `lib/data/dispatcher.ts`; `claude` on a task is written only by `app/(app)/claude/dispatcher-actions.ts` (session cookie) and the dispatcher; `updateTask`/`createTask` never touch it. The claim runs in `GET /api/worker/jobs` (`dispatchFor`), outcomes are settled on worker status, task changes and the alerts cron (`reconcileDispatched`). Test with a throwaway mongod replica set and a fake device key (never the real database).
+
 ---
 
 ## 8. Phone app (PWA)
