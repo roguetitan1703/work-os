@@ -352,7 +352,7 @@ function SessionLine({ s, busy, onStop, onRemove, onResume }: { s: SessionRow; b
           {` · ${s.folder}`}
           {s.projectName && ` · ${s.projectName}`}
           {` · ${s.deviceName}`}
-          {` · ${agoShort(s.lastActiveAt)}`}
+          <span suppressHydrationWarning>{` · ${agoShort(s.lastActiveAt)}`}</span>
           {s.error && ` · ${s.error}`}
         </div>
       </div>
@@ -373,7 +373,7 @@ function SessionLine({ s, busy, onStop, onRemove, onResume }: { s: SessionRow; b
         {subs && <span className="text-muted-foreground"> · {subs}</span>}
       </div>
       <div className="hidden md:block text-xs text-muted-foreground" data-col="ago" suppressHydrationWarning>
-        {agoShort(s.lastActiveAt)}
+        <span suppressHydrationWarning>{agoShort(s.lastActiveAt)}</span>
       </div>
       <div className="flex items-center justify-end col-start-3 row-start-1 md:col-start-auto md:row-start-auto min-w-0">
         {s.canStop && (

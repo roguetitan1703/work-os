@@ -1,12 +1,12 @@
 'use client';
 
+import { Ago } from '@/components/ago';
 import { useEffect, useState, useTransition } from 'react';
 import { Check, Copy, KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ApiKeyInfo } from '@/lib/api-keys';
 import { BottomSheet } from '@/components/mobile/sheet';
 import { usePhone } from '@/components/mobile/use-phone';
-import { fmtAgo } from '@/lib/format';
 import { ConfirmSheet } from '@/components/responsive-sheet';
 import { Disclosure } from '../settings/ui';
 import { createApiKeyAction, listApiKeysAction, revokeApiKeyAction, rotateApiKeyAction } from './setup-actions';
@@ -87,7 +87,7 @@ export function ClaudeCodeKeys({ url }: { url: string }) {
               <div className="flex-1 min-w-0">
                 <div className="text-[15px] md:text-sm text-foreground truncate">{k.name}</div>
                 <div className="text-[13px] md:text-xs text-muted-foreground leading-snug truncate" suppressHydrationWarning>
-                  <code className="font-mono">{k.prefix}…</code> · created {day(k.createdAt)} · {k.lastUsedAt ? `used ${fmtAgo(k.lastUsedAt)}` : 'never used'}
+                  <code className="font-mono">{k.prefix}…</code> · created {day(k.createdAt)} · {k.lastUsedAt ? <Ago iso={k.lastUsedAt} prefix="used " /> : 'never used'}
                 </div>
               </div>
               <button type="button" className={iconBtn} onClick={() => ask({ kind: 'rotate', key: k })} disabled={pending} aria-label={`Rotate ${k.name}`} title="Rotate">

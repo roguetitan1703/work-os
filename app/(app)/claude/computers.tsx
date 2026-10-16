@@ -1,12 +1,12 @@
 'use client';
 
+import { Ago } from '@/components/ago';
 import { useEffect, useState, useTransition } from 'react';
 import { Check, Copy, Laptop, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { DeviceInfo } from '@/lib/devices';
 import { BottomSheet } from '@/components/mobile/sheet';
 import { usePhone } from '@/components/mobile/use-phone';
-import { fmtAgo } from '@/lib/format';
 import { ConfirmSheet } from '@/components/responsive-sheet';
 import { Disclosure, Section } from '../settings/ui';
 import { createDeviceAction, listDevicesAction, revokeDeviceAction } from './setup-actions';
@@ -86,7 +86,7 @@ export function Computers() {
                     <span className={`w-2 h-2 rounded-full shrink-0 ${online(d) ? 'bg-green-500' : 'bg-muted-foreground/40'}`} aria-label={online(d) ? 'online' : 'offline'} />
                   </div>
                   <div className="text-[13px] md:text-xs text-muted-foreground truncate" suppressHydrationWarning>
-                    <code className="font-mono">{d.prefix}…</code> · {d.lastSeenAt ? `seen ${fmtAgo(d.lastSeenAt)}` : 'worker not connected yet'}
+                    <code className="font-mono">{d.prefix}…</code> · {d.lastSeenAt ? <Ago iso={d.lastSeenAt} prefix="seen " /> : 'worker not connected yet'}
                     {d.os ? ` · ${d.os === 'win32' ? 'Windows' : d.os === 'darwin' ? 'macOS' : d.os}` : ''}
                   </div>
                 </div>

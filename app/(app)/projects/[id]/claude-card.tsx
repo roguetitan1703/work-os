@@ -1,12 +1,12 @@
 'use client';
 
+import { Ago } from '@/components/ago';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronRight, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmSheet } from '@/components/responsive-sheet';
-import { fmtAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { sessionCan, stateText } from '@/lib/session-state';
 import type { SessionView } from '@/lib/data/launcher';
@@ -90,7 +90,7 @@ export function ClaudeCard({ projectId, tabHref, waiting, running, next, queued,
               <div className="flex-1 min-w-0 text-[15px] md:text-sm truncate" suppressHydrationWarning>
                 <span className="font-medium">{s.folderName}</span>
                 <span className="text-muted-foreground">
-                  {' '}· {s.deviceName} · <span className={st.tone}>{st.label}</span> · {fmtAgo(s.startedAt)}
+                  {' '}· {s.deviceName} · <span className={st.tone}>{st.label}</span> · <Ago iso={s.startedAt} />
                 </span>
               </div>
               {sessionCan(s).stop && (

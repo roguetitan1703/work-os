@@ -120,7 +120,9 @@ function Line({ r, busy, onAct }: { r: ClaudeTaskRow; busy: boolean; onAct: () =
         </Link>
         <div className="text-[13px] md:text-xs text-muted-foreground truncate" suppressHydrationWarning>
           <span className={st.tone}>{meta[0]}</span>
-          {meta.slice(1).map(m => ` · ${m}`)}
+          {meta.slice(1).map((m, i) => (
+            <span key={i} suppressHydrationWarning>{` · ${m}`}</span>
+          ))}
         </div>
       </div>
       <div className="flex items-center justify-end min-w-0">

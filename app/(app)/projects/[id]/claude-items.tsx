@@ -1,5 +1,6 @@
 'use client';
 
+import { Ago } from '@/components/ago';
 import { useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronsUp, ChevronRight } from 'lucide-react';
@@ -7,7 +8,6 @@ import { toast } from 'sonner';
 import { BottomSheet } from '@/components/mobile/sheet';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { ACTOR_LABEL } from '@/lib/activity-text';
-import { fmtAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { CLAUDE_ITEM_KINDS, CLAUDE_ITEM_STATES, type ClaudeItem } from '@/lib/types';
 import { moveClaudeItemAction, updateClaudeItemAction } from './claude-items-actions';
@@ -331,7 +331,7 @@ function Detail({ projectId, item: i, onSaved, blocker, up, down, first }: { pro
             {[...i.log].reverse().map((l, n) => (
               <li key={n} className="text-xs">
                 <span className="text-muted-foreground">
-                  {fmtAgo(l.at)} · {ACTOR_LABEL[l.actor] ?? l.actor}
+                  <Ago iso={l.at} /> · {ACTOR_LABEL[l.actor] ?? l.actor}
                   {l.session ? ` · ${l.session}` : ''}
                 </span>
                 <div className="text-sm whitespace-pre-wrap">{l.text}</div>

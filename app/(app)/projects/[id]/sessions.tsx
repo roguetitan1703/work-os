@@ -1,5 +1,6 @@
 'use client';
 
+import { Ago } from '@/components/ago';
 import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { FolderGit2, Link2, Plus, RotateCcw, Square, Trash2, Unlink } from 'lucide-react';
@@ -7,7 +8,6 @@ import { toast } from 'sonner';
 import type { FolderView, SessionView } from '@/lib/data/launcher';
 import { ResponsiveSheet as Sheet } from '@/components/responsive-sheet';
 import { stateText } from '@/lib/session-state';
-import { fmtAgo } from '@/lib/format';
 import { linkFolderAction, removeSessionAction, resumeSessionAction, searchFoldersAction, stopSessionAction, unlinkFolderAction } from './launcher-actions';
 
 const H2 = 'text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider';
@@ -110,7 +110,7 @@ export function ProjectSessions({
                 <div className="text-[13px] md:text-xs" suppressHydrationWarning>
                   <span className={st.tone}>{st.label}</span>
                   <span className="text-muted-foreground" suppressHydrationWarning>
-                    {' '}· started {fmtAgo(s.startedAt)}
+                    {' '}· <Ago iso={s.startedAt} prefix="started " />
                   </span>
                   {s.error && <span className="text-muted-foreground"> · {s.error}</span>}
                 </div>
