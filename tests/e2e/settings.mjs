@@ -1,0 +1,86 @@
+// Settings: redirects from /connect and /recovery, theme, status strip, alerts table, security, connections, help, phone Back at 390 and 1280. Seed profile: none.
+import { launch, B, PW, SP, db, mc, runAssertSuite, assert, check } from './lib.mjs';
+await runAssertSuite('settings', async () => {
+  const b = await launch();
+  // real HTTP redirects, no browser
+  for (const [from, to] of [['/connect', '/settings?section=connections'], ['/connect?tab=alerts', '/settings?section=alerts'], ['/connect?tab=discord', '/settings?section=connections&open=discord'], ['/connect?tab=code', '/claude?tab=setup'], ['/recovery', '/settings?section=help']]) {
+    const r = await fetch(B + from, { redirect: 'manual' });
+    console.log(from, r.status, r.headers.get('location'));
+    assert.ok([307, 308].includes(r.status));
+    assert.ok(to.split('?')[1].split('&').every(kv => r.headers.get('location').includes(kv)), 'loc');
+  }
+  for (const [label, vp, touch] of [['phone', { width: 390, height: 844 }, true], ['desktop', { width: 1280, height: 800 }, false]]) {
+    const ctx = await b.newContext({ viewport: vp, hasTouch: touch, isMobile: touch, colorScheme: 'light' });
+    const p = await ctx.newPage();
+    const errs = []; p.on('pageerror', e => errs.push(e.message));
+    await p.goto(B + '/login');
+    await p.fill('input[type=password]', PW);
+    await p.click('button[type=submit]');
+    await p.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 15000 });
+    await p.goto(B + '/settings'); await p.waitForSelector('[role=status]');
+    const strip = await p.locator('[role=status]').innerText();
+    console.log(label, 'strip:', strip.replace(/\n/g, ' | '));
+    // theme first click: choose Auto first so it is "system"
+    await p.getByRole('radio', { name: 'Auto' }).click();
+    await p.waitForTimeout(200);
+    const before = await p.evaluate(() => document.documentElement.classList.contains('dark'));
+    await p.getByRole('radio', { name: 'Dark' }).click();
+    await p.waitForTimeout(200);
+    assert.ok(await p.evaluate(() => document.documentElement.classList.contains('dark')), 'dark after one click');
+    await p.getByRole('radio', { name: 'Light' }).click();
+    assert.ok(!(await p.evaluate(() => document.documentElement.classList.contains('dark'))));
+    console.log(label, 'theme ok (was dark:', before, ')');
+    if (label === 'desktop') {
+      // sidebar toggle first click from system
+      await p.evaluate(() => localStorage.removeItem('theme')); await p.reload(); await p.waitForSelector('[role=status]');
+      const was = await p.evaluate(() => document.documentElement.classList.contains('dark'));
+      await p.locator('aside button:has(.sr-only)').first().click(); await p.waitForTimeout(200);
+      const now = await p.evaluate(() => document.documentElement.classList.contains('dark'));
+      assert.notStrictEqual(was, now, 'sidebar toggle changes on first click'); console.log('sidebar toggle first click ok', was, '->', now);
+      await p.getByRole('radio', { name: 'Light' }).click();
+    }
+    await p.screenshot({ path: `${SP}/${label}-root.png`, fullPage: true });
+    assert.ok(!(await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)), 'overflow root');
+    // alerts
+    if (label === 'phone') {
+      await p.locator('[data-row=alerts]').click(); await p.waitForURL(/section=alerts/);
+    } else {
+      await p.locator('[data-section=alerts]').click(); await p.waitForURL(/section=alerts/);
+    }
+    await p.waitForSelector('table[aria-label="Alerts by channel"]');
+    const sw = p.getByRole('switch', { name: 'Overdue', exact: true });
+    const was = await sw.getAttribute('aria-checked');
+    await sw.click(); await p.waitForTimeout(600);
+    await p.reload(); await p.waitForSelector('table');
+    const now = await p.getByRole('switch', { name: 'Overdue', exact: true }).getAttribute('aria-checked');
+    assert.notStrictEqual(was, now, 'alert toggle persisted'); console.log(label, 'alerts toggle persisted', was, '->', now);
+    await p.getByRole('switch', { name: 'Overdue', exact: true }).click(); await p.waitForTimeout(400);
+    await p.screenshot({ path: `${SP}/${label}-alerts.png`, fullPage: true });
+    assert.ok(!(await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)), 'overflow alerts');
+    // target size
+    const small = await p.evaluate(() => [...document.querySelectorAll('table button')].filter(e => e.getBoundingClientRect().height < 31).length); assert.equal(small, 0);
+    if (label === 'phone') {
+      await p.locator('[data-back]').first().click(); await p.waitForURL(u => u.pathname === '/settings' && !u.search);
+      console.log('back to settings ok');
+      await p.locator('[data-row=security]').click(); await p.waitForURL(/section=security/);
+    } else { await p.locator('[data-section=security]').click(); await p.waitForURL(/section=security/); }
+    await p.getByText('Passkeys', { exact: false }).first().waitFor();
+    await p.screenshot({ path: `${SP}/${label}-security.png`, fullPage: true });
+    console.log(label, 'security reachable:', (await p.locator('main, body').first().innerText()).includes('Authenticator'));
+    // connections
+    await p.goto(B + '/connect?tab=chat'); await p.waitForURL(/section=connections/);
+    await p.waitForSelector('[data-connections]');
+    assert.ok(await p.locator('[data-connection=chat]').evaluate(e => e.open), 'chat open');
+    console.log(label, 'redirected to', p.url());
+    await p.screenshot({ path: `${SP}/${label}-connections.png`, fullPage: true });
+    await p.goto(B + '/settings?section=help'); await p.waitForSelector('[data-help]');
+    assert.equal(await p.locator('[data-help] details[open]').count(), 0);
+    await p.goto(B + '/menu');
+    assert.equal(await p.locator('a[href="/connect"]').count(), 0);
+    assert.ok(!(await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)), 'overflow menu');
+    console.log(label, 'errors:', errs);
+    await ctx.close();
+  }
+  await b.close();
+  console.log('ALL OK');
+});
