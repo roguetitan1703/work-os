@@ -26,6 +26,8 @@ Only if you do not want `setup`.
 4. Check what will be reported: `node worker.mjs scan --dry`.
 5. Run once to try: `node worker.mjs run`. Autostart at logon: `node worker.mjs install` (remove with `uninstall`).
 
+Optional, for a second worker beside your own (e.g. a demo copy of Work OS): set `WORK_OS_WORKER_DIR` to its own config folder, and in its config.json `"mcpConfig": "<absolute path to an MCP config file>"` (sessions it starts get `--strict-mcp-config --mcp-config <file>`, so they only see the MCP servers in that file) and `"sessionsInRootsOnly": true` (only sessions in folders under its roots are listed and counted; nothing about other sessions on the PC is sent; a folder next to a root whose name starts with the root's name, e.g. `D:\demo-old` for root `D:\demo`, also passes, so give the root a distinctive name). Both are off by default.
+
 
 ### macOS
 

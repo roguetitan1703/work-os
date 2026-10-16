@@ -146,3 +146,24 @@ test('collectActivity withSessions, and the status body carries claudeSessions',
     assert.equal(posted[0].activity.sessionsActive, 1);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('sessionsInRootsOnly: only sessions under the roots are listed and counted; other processes are ignored', async () => {
+  const { root, now, put } = tree();
+  try {
+    put('D--work-os-demo-site', uuid(1), 5_000, [msg('D:/work-os-demo/site'), rec({ type: 'ai-title', aiTitle: 'Demo work' })]);
+    put('D--work-os-demo', uuid(2), 5_000, [msg('D:/work-os-demo'), rec({ type: 'ai-title', aiTitle: 'Demo root' })]);
+    put('D--work-os-demo2-x', uuid(3), 5_000, [msg('D:/work-os-demo2/x'), rec({ type: 'ai-title', aiTitle: 'Not demo' })]);
+    put('D--Work-Delpat-real', uuid(4), 5_000, [msg('D:/Work/Delpat/real'), rec({ type: 'ai-title', aiTitle: 'Real client work' })]);
+    const procs = [claudeProc(10, uuid(1)), claudeProc(11, uuid(4)), { pid: 12, ppid: 1, name: 'claude.exe', cmd: '"C:/bin/claude.exe"' }];
+    const r = await collectActivity({ listProcesses: async () => procs, workOsIds: [uuid(1)], root, now, withSessions: true, onlyRoots: ['D:\\work-os-demo\\'] });
+    assert.deepEqual(r.list.map((s) => s.title).sort(), ['Demo root', 'Demo work']);
+    assert.ok(!JSON.stringify(r).includes('Real client work'));
+    assert.equal(r.list.find((s) => s.sessionId === uuid(1)).running, true);
+    assert.equal(r.list.find((s) => s.sessionId === uuid(2)).running, false, 'a process without a session id is not matched');
+    assert.equal(r.counts.sessions, 1);
+    assert.equal(r.counts.sessionsWorkOs, 1);
+    assert.equal(r.counts.sessionsOther, 0);
+    const all = await collectActivity({ listProcesses: async () => procs, root, now, withSessions: true });
+    assert.equal(all.list.length, 4, 'off by default');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

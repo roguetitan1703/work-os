@@ -102,8 +102,28 @@ export function scanTranscripts(root = defaultProjectsRoot(), nowMs = Date.now()
   return out;
 }
 
-export async function collectActivity({ listProcesses, workOsIds = [], root, now = Date.now(), withSessions = false }) {
+// Claude Code keeps a folder's transcripts in ~/.claude/projects/<folder path, every non-alphanumeric as '-'>.
+export const projectDirName = (folder) => String(folder).replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+// onlyRoots (config sessionsInRootsOnly, e.g. a demo worker): a project dir is kept only when its folder is a root or inside one.
+// The dir name has no path separators, so a sibling whose name starts with the root's (D:\demo-old for root D:\demo) also
+// passes: give such a root a distinctive name.
+export function rootsFilter(roots) {
+  if (!roots) return null;
+  const pre = roots.map((r) => projectDirName(String(r).replace(/[\\/]+$/, '')));
+  return (name) => { const n = name.toLowerCase(); return pre.some((r) => n === r || n.startsWith(r + '-')); };
+}
+
+export async function collectActivity({ listProcesses, workOsIds = [], root, now = Date.now(), withSessions = false, onlyRoots = null }) {
   const procs = await listProcesses();
+  const keep = rootsFilter(onlyRoots);
+  if (keep) {
+    // Only sessions under the roots: counts come from the filtered list, so nothing about other sessions is sent.
+    const list = listSessions({ procs, workOsIds, root, now, keep });
+    const run = list.filter((s) => s.running);
+    const sessionsWorkOs = run.filter((s) => s.startedByWorkOs).length;
+    const counts = { sessions: run.length, sessionsWorkOs, sessionsOther: run.length - sessionsWorkOs, sessionsActive: list.filter((s) => now - s.lastActiveAt <= ACTIVE_MS).length, subagents: list.reduce((n, s) => n + s.subagentsActive, 0), at: now };
+    return withSessions ? { counts, list } : counts;
+  }
   const s = countSessions(procs, workOsIds);
   const t = scanTranscripts(root, now);
   const counts = { ...s, sessionsActive: t.sessionsActive, subagents: t.subagents, at: now };
@@ -196,14 +216,16 @@ export function sessionProcs(procs) {
 // A process without a session id in its arguments (a plain terminal or VS Code session) cannot be tied to a
 // transcript by id, so each one is matched to the most recently written transcript not already tied to a process
 // (best effort, within a day).
-export function listSessions({ procs, workOsIds = [], root = defaultProjectsRoot(), now = Date.now() }) {
-  const { byId, unmapped } = sessionProcs(procs);
+// keep (optional): project dir name filter; with it, processes without a session id are not matched (they could be anyone's).
+export function listSessions({ procs, workOsIds = [], root = defaultProjectsRoot(), now = Date.now(), keep = null }) {
+  const { byId, unmapped: allUnmapped } = sessionProcs(procs);
+  const unmapped = keep ? 0 : allUnmapped;
   const files = [];
   let projects;
   try { projects = fs.readdirSync(root, { withFileTypes: true }); } catch { return []; }
   let stats = 0;
   for (const proj of projects) {
-    if (!proj.isDirectory()) continue;
+    if (!proj.isDirectory() || (keep && !keep(proj.name))) continue;
     const pdir = path.join(root, proj.name);
     let entries;
     try { entries = fs.readdirSync(pdir, { withFileTypes: true }); } catch { continue; }

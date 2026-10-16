@@ -222,3 +222,12 @@ test('supervisor: restarts only after the code is stable and parses', async () =
     assert.ok(!syntaxOk(d));
   } finally { rm(d); }
 });
+
+test('claudeArgs: mcpConfig adds strict MCP flags; none by default; session match still works', () => {
+  const sid = '00000000-0000-4000-8000-000000000001';
+  const a = claudeArgs({ kind: 'start', sessionId: sid, projectName: 'Demo', prompt: 'hi', mcpConfig: 'D:/demo/mcp.json' });
+  assert.deepEqual(a.slice(0, 5), ['--session-id', sid, '--strict-mcp-config', '--mcp-config', 'D:/demo/mcp.json']);
+  assert.equal(a[a.length - 1], 'hi');
+  assert.ok(!claudeArgs({ kind: 'start', sessionId: sid }).includes('--strict-mcp-config'));
+  assert.ok(matchesSession(a.join(' '), sid));
+});

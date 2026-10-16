@@ -11,9 +11,11 @@ const execFileP = promisify(execFile);
 
 // claude args: --session-id|--resume <id>, --name <projectName>,
 // --remote-control=<name> (one token, so the optional name can never swallow the next argument), optional prompt last.
-export function claudeArgs({ kind, sessionId, projectName, prompt }) {
+// mcpConfig (config.json, optional): only the MCP servers in that file, e.g. a demo copy of Work OS.
+export function claudeArgs({ kind, sessionId, projectName, prompt, mcpConfig }) {
   // No --permission-mode: the user's own Claude default applies (Om's choice).
   const a = [kind === 'resume' ? '--resume' : '--session-id', sessionId];
+  if (mcpConfig) a.push('--strict-mcp-config', '--mcp-config', mcpConfig);
   const name = String(projectName || 'claude').replace(/\s+/g, ' ').slice(0, 120);
   if (projectName) a.push('--name', name);
   a.push('--remote-control=' + name);
@@ -76,9 +78,10 @@ function spawnDetached(cmd, args, opts = {}) {
   });
 }
 
-export async function launch({ kind, folder, sessionId, projectName, prompt, claudePath }) {
+export async function launch({ kind, folder, sessionId, projectName, prompt, claudePath, mcpConfig }) {
   if (!claudePath) throw new Error('claude not found on PATH outside the allowed roots');
-  const cargs = claudeArgs({ kind, sessionId, projectName, prompt });
+  if (mcpConfig && !(path.isAbsolute(mcpConfig) && fs.existsSync(mcpConfig))) throw new Error('mcpConfig must be an existing absolute path');
+  const cargs = claudeArgs({ kind, sessionId, projectName, prompt, mcpConfig });
   const title = projectName || 'claude';
   if (process.platform === 'win32') {
     try {

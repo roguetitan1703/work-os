@@ -21,9 +21,10 @@ async function run() {
   // Not found at startup (e.g. PATH not ready at logon): look again on each start/resume until found.
   const launcher = (a) => {
     if (!claudePath) claudePath = resolveClaude(loadConfig().roots);
-    return launch({ ...a, claudePath });
+    return launch({ ...a, claudePath, mcpConfig: loadConfig().mcpConfig || null });
   };
-  const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true }) });
+  const onlyRoots = () => { const c = loadConfig(); return c.sessionsInRootsOnly ? c.roots : null; };
+  const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots() }) });
   let delay = 10;
   let failing = 0;
   log(`work-os-worker ${VERSION} started`);
@@ -80,7 +81,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     else if (cmd === 'uninstall') { uninstall(); console.log('autostart removed'); }
     else if (cmd === 'status') status();
     else if (cmd === 'activity') {
-      const r = await collectActivity({ listProcesses, withSessions: true });
+      const c = loadConfig();
+      const r = await collectActivity({ listProcesses, withSessions: true, onlyRoots: c.sessionsInRootsOnly ? c.roots : null });
       console.log(JSON.stringify(r.counts, null, 2));
       console.log(`listed sessions: ${r.list.length}, running: ${r.list.filter((s) => s.running).length}, with a real title: ${r.list.filter((s) => s.title !== s.folder).length}, subagents working: ${r.list.reduce((n, s) => n + s.subagentsActive, 0)}`);
       if (process.argv.includes('--titles')) console.log(JSON.stringify(r.list, null, 2));
