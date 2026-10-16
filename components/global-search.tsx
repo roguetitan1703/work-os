@@ -30,17 +30,55 @@ export function GlobalSearch() {
     window.addEventListener(OPEN_SEARCH_EVENT, on);
     return () => window.removeEventListener(OPEN_SEARCH_EVENT, on);
   }, []);
-  const close = useCallback(() => setOpen(false), []);
+  const router = useRouter();
+  const pushed = useRef(false);
+  const pending = useRef<string | null>(null);
+
+  // Phone: the sheet owns one history entry, so the Back gesture closes it instead of leaving the page.
+  useEffect(() => {
+    if (!open || !phone) return;
+    window.history.pushState({ ...window.history.state, wosSearch: 1 }, '');
+    pushed.current = true;
+    const onPop = () => {
+      pushed.current = false;
+      setOpen(false);
+      if (pending.current) router.push(pending.current);
+      pending.current = null;
+    };
+    window.addEventListener('popstate', onPop);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      if (pushed.current) {
+        pushed.current = false;
+        window.history.back();
+      }
+    };
+  }, [open, phone, router]);
+
+  /** Close the search; with an href, go there afterwards (after the sheet's history entry is popped). */
+  const close = useCallback(
+    (href?: string) => {
+      if (pushed.current) {
+        pending.current = href ?? null;
+        window.history.back(); // popstate handler closes and navigates
+        return;
+      }
+      setOpen(false);
+      if (href) router.push(href);
+    },
+    [router],
+  );
+  const dismiss = useCallback(() => close(), [close]);
   if (!open) return null;
   if (phone) {
     return (
-      <FullSheet title="Search" onClose={close}>
+      <FullSheet title="Search" onClose={dismiss}>
         <Panel onDone={close} phone />
       </FullSheet>
     );
   }
   return (
-    <Dialog open onOpenChange={v => !v && close()}>
+    <Dialog open onOpenChange={v => !v && dismiss()}>
       <DialogContent className="max-w-xl p-0 gap-0 overflow-hidden" showCloseButton={false} data-global-search>
         <DialogTitle className="sr-only">Search</DialogTitle>
         <Panel onDone={close} phone={false} />
@@ -49,8 +87,7 @@ export function GlobalSearch() {
   );
 }
 
-function Panel({ onDone, phone }: { onDone: () => void; phone: boolean }) {
-  const router = useRouter();
+function Panel({ onDone, phone }: { onDone: (href?: string) => void; phone: boolean }) {
   const [q, setQ] = useState('');
   const [res, setRes] = useState<SearchResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -82,8 +119,7 @@ function Panel({ onDone, phone }: { onDone: () => void; phone: boolean }) {
   const flat = useMemo<SearchHit[]>(() => (shown ? GROUPS.flatMap(g => shown[g.key]) : []), [shown]);
 
   function go(h: SearchHit) {
-    onDone();
-    router.push(h.href);
+    onDone(h.href);
   }
   function onKey(e: React.KeyboardEvent) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {

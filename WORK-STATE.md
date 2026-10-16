@@ -29,7 +29,6 @@
 - Worker logged one "fetch failed" during the real test (no effect) — waits on seeing it again.
 - The repo moved to the project root on 2026-10-15; an empty `work-os` folder may remain (locked by an editor) — delete it when Om renames the folder to "work os" (.scratch-mongo start.sh/rebuild.sh hold the full path).
 - Sessions shows Start only after a folder is linked; could always show Start and open the folder picker first — waits on Om's yes.
-- Lint errors left: current-block-bar.tsx:18 (setState in effect), timetable/today/route.ts no-explicit-any ×3 — waits on next UI touch.
 - After merging ui-nav: swap lib/data/nav-counts.ts claudeWaitingCount for needsYouCount(); point the Start Claude buttons at the real modal (they only add ?start=1); /claude lights its tab once the page exists — waits on the /claude branch merge.
 - Old route names kept (/timetable, /notifications); only nav labels follow the glossary — waits on a route rename slice.
 - Review hub (ui-settings): /history, /hidden and /archive are 307s to /review?view=; they keep the old ?tab= in the URL (harmless). A bookmark of the old /review (Weekly review) now opens Done — waits on Om noticing. Trash Restore has no Undo (a restore can't be undone without re-deleting) — waits on Om wanting it.
@@ -45,8 +44,7 @@
 - Alerts table: channels are global, not per alert, so each alert row has one switch and the Push/Discord cells show whether it is delivered now; per-alert-per-channel choice needs a settings schema change — waits on Om wanting it.
 - Connections cards fetch Discord status on every open of the section (network call, up to 5 s); cache it if Settings feels slow — waits on Om noticing.
 - docs/HANDOVER.md still describes /connect in places (Connect page, Settings layout); update when the slice merges.
-- Project page has no <h1> (name is an input/span) — small a11y gap; add a visually hidden h1 — waits on the grammar pass.
 - Old e2e suites launcher-ui and claude-ui target the retired /connect and old Claude layout; adapted copy lives in scratchpad final/t/claude-new.mjs — waits on moving test suites into the repo.
 - Tab prefetch added to Claude, project and Settings tabs; not yet measured with a slow server — waits on the next full test run.
 - Connections sends MCP_TOKEN with the page (owner-only, behind sign-in, same as before); could fetch on reveal instead — waits on a security pass.
-- Global search (ui-settings): matches title/#ref/C-ref/note text as substrings (no ranking or fuzzy match, 6 per group, 80 chars); task descriptions and comments are not searched; phone Back does not close the search sheet (it leaves the page) — waits on Om's use.
+- Global search (ui-settings): matches title/#ref/C-ref/note text as substrings (no ranking or fuzzy match, 6 per group, 80 chars); task descriptions and comments are not searched — waits on Om's use.
