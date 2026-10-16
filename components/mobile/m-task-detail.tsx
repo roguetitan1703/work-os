@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Archive, ArrowLeft, Check, ChevronRight, ExternalLink, FileText, MoreHorizontal, Plus, Send, Trash2, TrendingUp, X } from 'lucide-react';
+import { Archive, ArrowLeft, Bot, Check, ChevronRight, ExternalLink, FileText, MoreHorizontal, Plus, Send, Trash2, TrendingUp, X } from 'lucide-react';
 import { addCommentAction, checklistAction, completeTaskAction, deleteTaskAction, restoreTaskAction, setArchivedAction, updateTaskAction } from '@/app/actions';
 import { createNoteAction } from '@/app/(app)/notes/actions';
 import { addDays } from '@/lib/dates';
@@ -17,6 +17,7 @@ import { ActivityTimeline } from '../activity-timeline';
 import { ProgressDialog } from '../progress-dialog';
 import { useApp } from '../app-context';
 import { BottomSheet } from './sheet';
+import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, claudeMenuLabel } from '../give-to-claude';
 
 const STATUSES: { s: Status; tone: string }[] = [
   { s: 'Not Started', tone: 'bg-foreground text-background' },
@@ -55,6 +56,7 @@ export function MobileTaskDetail({
   const [comment, setComment] = useState('');
   const [newItem, setNewItem] = useState('');
   const [menu, setMenu] = useState(false);
+  const [claudeOpen, setClaudeOpen] = useState(false);
   const [progressOpen, setProgressOpen] = useState(false);
   const [sheet, setSheet] = useState<null | 'estimate' | 'tags' | 'blocked' | 'link' | 'dep' | 'delete'>(null);
   const [delReason, setDelReason] = useState('');
@@ -109,6 +111,11 @@ export function MobileTaskDetail({
               <MenuItem onClick={() => (setMenu(false), patch({ status: 'Dropped' }, 'Dropped'))}>Drop task</MenuItem>
             )}
             {closed && <MenuItem onClick={() => (setMenu(false), patch({ status: 'Not Started' }, 'Reopened'))}>Reopen</MenuItem>}
+            {!closed && !task.archived && (
+              <MenuItem onClick={() => (setMenu(false), setClaudeOpen(true))}>
+                <Bot className="w-4 h-4" /> {claudeMenuLabel(task)}
+              </MenuItem>
+            )}
             <MenuItem onClick={() => (setMenu(false), run(() => setArchivedAction(task.id, !task.archived), task.archived ? 'Unarchived' : 'Archived'))}>
               <Archive className="w-4 h-4" /> {task.archived ? 'Unarchive' : 'Archive'}
             </MenuItem>
@@ -135,7 +142,10 @@ export function MobileTaskDetail({
         )}
         {closed && <span>{task.status}</span>}
         {task.archived && <span className="text-amber-600">Archived</span>}
+        <ClaudeBadge task={task} />
       </div>
+      <ClaudeOutcome task={task} className="mt-1" />
+      {claudeOpen && <ClaudeMarkSheet task={task} onClose={() => setClaudeOpen(false)} />}
 
       {/* Status */}
       {!closed && (

@@ -5,7 +5,8 @@ import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import { ExternalLink, X } from 'lucide-react';
+import { Bot, ExternalLink, X } from 'lucide-react';
+import { claudeMenuLabel } from '../give-to-claude';
 import { updateTaskAction } from '@/app/actions';
 import { addDays } from '@/lib/dates';
 import { fmtDue } from '@/lib/format';
@@ -29,7 +30,7 @@ const PRIO_OPTS: { p: Priority; on: string }[] = [
 ];
 
 /** Phone quick-edit sheet for one task: status, priority, due, mode. Reuses updateTaskAction. */
-export function TaskActionSheet({ task, open, onClose }: { task: Task; open: boolean; onClose: () => void }) {
+export function TaskActionSheet({ task, open, onClose, onClaude }: { task: Task; open: boolean; onClose: () => void; onClaude?: () => void }) {
   const { today } = useApp();
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -153,7 +154,12 @@ export function TaskActionSheet({ task, open, onClose }: { task: Task; open: boo
           ))}
         </Group>
 
-        <div className="px-4 pt-4">
+        <div className="px-4 pt-4 space-y-2">
+          {onClaude && task.status !== 'Done' && task.status !== 'Dropped' && (
+            <button type="button" onClick={onClaude} data-claude-menu className="w-full h-12 rounded-2xl border border-border flex items-center justify-center gap-2 text-[15px] font-medium text-foreground active:bg-muted">
+              <Bot className="w-4 h-4" /> {claudeMenuLabel(task)}
+            </button>
+          )}
           <Link href={`/tasks/${task.ref}`} className="h-12 rounded-2xl border border-border flex items-center justify-center gap-2 text-[15px] font-medium text-foreground active:bg-muted">
             <ExternalLink className="w-4 h-4" /> Open task
           </Link>

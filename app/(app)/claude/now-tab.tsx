@@ -10,11 +10,13 @@ import { cn } from '@/lib/utils';
 import type { NeedsYouItem, SessionRow, SessionRowState, SessionSummary } from '@/lib/data/claude-overview';
 import { removeSessionAction, resumeSessionAction, stopSessionAction, unhideSessionAction } from '../projects/[id]/launcher-actions';
 import { updateClaudeItemAction } from '../projects/[id]/claude-items-actions';
+import type { ClaudeTasks } from '@/lib/data/dispatcher';
+import { ClaudeTasksSection } from './claude-tasks';
 import { btnOutline, card, field, ghost, H2 } from './ui';
 
-type Props = { needsYou: NeedsYouItem[]; sessions: SessionRow[]; summary: SessionSummary; hasComputers: boolean };
+type Props = { needsYou: NeedsYouItem[]; sessions: SessionRow[]; summary: SessionSummary; hasComputers: boolean; claudeTasks: ClaudeTasks };
 
-export function NowTab({ needsYou, sessions, summary, hasComputers }: Props) {
+export function NowTab({ needsYou, sessions, summary, hasComputers, claudeTasks }: Props) {
   // Hide an answered row at once; it stays hidden until the server copy changes (a late refresh must not bring it back).
   const [answered, setAnswered] = useState<Record<string, string>>({});
   const shown = needsYou.filter(i => answered[i.id] !== i.updatedAt);
@@ -22,6 +24,7 @@ export function NowTab({ needsYou, sessions, summary, hasComputers }: Props) {
     <div className="space-y-4">
       <Summary summary={summary} needs={shown.length} hasComputers={hasComputers} />
       {shown.length > 0 && <NeedsYou items={shown} onAnswered={i => setAnswered(a => ({ ...a, [i.id]: i.updatedAt }))} />}
+      <ClaudeTasksSection data={claudeTasks} />
       <Sessions sessions={sessions} hasComputers={hasComputers} />
     </div>
   );
