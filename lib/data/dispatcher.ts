@@ -196,11 +196,17 @@ export async function settleDispatched(c?: Collections): Promise<number> {
  * computer reports allowPrompts, fewer than maxConcurrent claims are running, and a queued task's folder is linked here.
  * Returns the claimed task ref, if any.
  */
-export async function dispatchFor(deviceId: string): Promise<{ ref: number } | null> {
+/** null when the dispatcher is off (the poll then does nothing else); otherwise the claimed ref, if any. */
+export async function dispatchFor(deviceId: string): Promise<{ ref: number | null } | null> {
   const c = await collections();
-  await settleDispatched(c); // a task finished since the last poll frees its slot now
+  // Off: nothing else on this poll (the worker polls all day; the status route and the cron still settle).
   const set = await getDispatcherSettings(c);
   if (!set.enabled) return null;
+  return { ref: await claimFor(c, deviceId, set) };
+}
+
+async function claimFor(c: Collections, deviceId: string, set: DispatcherSettings): Promise<number | null> {
+  await settleDispatched(c); // a task finished since the last poll frees its slot now
   const dev = await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { worker: 1 } });
   if (dev?.worker?.allowPrompts !== true) return null;
   if ((await c.tasks.countDocuments({ 'claude.state': 'running' })) >= set.maxConcurrent) return null;
@@ -240,7 +246,7 @@ export async function dispatchFor(deviceId: string): Promise<{ ref: number } | n
     // Recorded as the dispatcher, no inbox notice (that notice comes only from MCP writes).
     if (t.status !== 'In Progress') await logTask(c, claimed, 'claude-code', 'status', { changes: { status: { from: t.status, to: 'In Progress' } }, note: `Dispatcher: started Claude on this task (${f.name})` });
     else await logTask(c, claimed, 'claude-code', 'comment', { note: `Dispatcher: started Claude on this task (${f.name})` });
-    return { ref: claimed.ref };
+    return claimed.ref;
   }
   return null;
 }

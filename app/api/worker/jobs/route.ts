@@ -13,11 +13,12 @@ export const dynamic = 'force-dynamic';
 
 export const GET = workerRoute(async d => {
   try {
-    await dispatchFor(d.id);
+    // Dispatcher off: the poll does nothing else (the worker polls all day; each poll is a function call).
+    if (!(await dispatchFor(d.id))) return pollJobs(d.id);
     const h = await headers();
     const host = h.get('x-forwarded-host') ?? h.get('host');
     const base = (process.env.APP_URL || (host ? `${h.get('x-forwarded-proto') ?? 'https'}://${host}` : '')).replace(/\/+$/, '');
-    after(() => flushQueuedAlerts(base)); // a finished or stopped task queued an alert
+    after(() => flushQueuedAlerts(base)); // a finished, stopped or failed task may have queued an alert
   } catch (e) {
     console.error('[dispatcher]', e instanceof Error ? e.message : e);
   }

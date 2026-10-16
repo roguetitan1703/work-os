@@ -61,7 +61,7 @@ export type ClaudeOverview = {
   activity: { computers: ComputerActivity[]; total: ActivityTotal };
 };
 
-export const ACTIVITY_STALE_MS = 3 * 60_000;
+export const ACTIVITY_STALE_MS = 5 * 60_000; // the worker reports about every 2 min
 
 const lastSeg = (p: string) => p.split(/[\\/]+/).filter(Boolean).pop() ?? p;
 

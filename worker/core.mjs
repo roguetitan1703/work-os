@@ -9,6 +9,9 @@ const MISS_MS = 20000; // claude must be missing this long before the session co
 const GRACE_MS = 45000; // a just-launched session may not show in the process list yet
 
 // deps: { getConfig, state, save, api, launcher, listProcesses, killPid, now?, log? }
+// Status (heartbeat, session list, counts) at most this often between jobs: each one is a server function call.
+export const STATUS_EVERY_MS = 110_000;
+
 export function createCore(deps) {
   const { getConfig, state, save, api, launcher, listProcesses, killPid } = deps;
   const now = deps.now || (() => Date.now());
@@ -148,7 +151,7 @@ export function createCore(deps) {
       save();
       await sendStatus();
     }
-    if (now() - lastStatus >= 55000) await sendStatus();
+    if (now() - lastStatus >= STATUS_EVERY_MS) await sendStatus();
     save();
     const ps = Number(res && res.pollSeconds);
     return { pollSeconds: Number.isFinite(ps) ? Math.min(60, Math.max(3, ps)) : 10 };

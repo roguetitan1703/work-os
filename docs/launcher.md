@@ -50,12 +50,12 @@ All bodies are JSON. Errors: `{ "error": "…" }` with 400 / 401 / 413 / 429.
 
 Response: `{ "ok": true, "known": 112, "missing": 1 }`
 
-### GET /api/worker/jobs: what to do now (poll every `pollSeconds`)
+
 
 ```json
 {
   "enabled": true,
-  "pollSeconds": 10,
+  "pollSeconds": 30,
   "links": [{ "folderId": "f_3k9…", "projectId": "pms", "projectName": "PMS" }],
   "jobs": [
     { "id": "j_1", "kind": "start", "folderId": "f_3k9…", "projectId": "pms", "projectName": "PMS", "sessionId": "8c1d…uuid", "prompt": "optional, typed by Om" },

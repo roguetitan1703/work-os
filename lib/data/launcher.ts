@@ -8,7 +8,8 @@ import { normalizeRemote } from './code-locations';
 // paths), poll for jobs, and report sessions. Om links folders to projects and starts, resumes
 // or stops sessions; each of those is a job for one device.
 
-export const POLL_SECONDS = 10;
+export const POLL_SECONDS = 10; // while something is starting or a job is open
+export const IDLE_POLL_SECONDS = 30; // otherwise: the worker polls all day, and every poll is a function call
 const RETAKE_MS = 10 * 60_000;
 const MAX_FOLDERS = 3000;
 const MAX_PROMPT = 4000;
@@ -91,9 +92,13 @@ export async function pollJobs(deviceId: string): Promise<JobsResponse> {
   }
   const pids = [...new Set([...linked.map(l => l.projectId!), ...pending.map(j => j.projectId).filter((x): x is string => !!x)])];
   const names = new Map((await c.projects.find({ _id: { $in: pids } }, { projection: { name: 1 } }).toArray()).map(p => [p._id, p.name]));
+  const busy =
+    pending.length > 0 ||
+    (await c.workerJobs.countDocuments({ deviceId, doneAt: null }, { limit: 1 })) > 0 ||
+    (await c.workerSessions.countDocuments({ deviceId, state: 'starting' }, { limit: 1 })) > 0;
   return {
     enabled: true,
-    pollSeconds: POLL_SECONDS,
+    pollSeconds: busy ? POLL_SECONDS : IDLE_POLL_SECONDS,
     links: linked.filter(l => names.has(l.projectId!)).map(l => ({ folderId: l.folderId, projectId: l.projectId!, projectName: names.get(l.projectId!)! })),
     jobs: pending.map(j => ({
       id: j._id,
