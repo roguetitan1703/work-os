@@ -1,13 +1,11 @@
 # Work state
 
 ## Now
-- Task dispatcher v1 built on ui-settings (2026-10-16): tests green on a throwaway DB; waits on the auth/permissions review and merge, then Om restarts his worker, picks the boilerplate note in Claude › Setup and gives one task.
-- Deploying 2026-10-15: Today rebuilt, Claude page with named sessions, project page as an overview, Settings with Connect merged in (/connect and /recovery redirect). Om must reinstall his worker for session names and counts.
+- Task dispatcher v1 deployed 2026-10-16 (reviewed, review fixes in, UI suite 4/4). Waits on Om trying one small task.
 
 ## Next
-1. Om: `node worker/worker.mjs install` one last time (supervisor: worker restarts itself on code changes, log file; claude lookup retry; parent folders offered), then link the terrah folder from the project; live check of Today, /claude, a project page, Settings, Review and search.
-2. Task dispatcher (docs/dispatcher.md, "As built"): review subagent (auth, permissions), merge, deploy; then Om restarts the worker (it must report allowPrompts), turns it on in Claude › Setup and tries one small task.
-3. Grammar pass (names, Back rule, confirms, phone Back closes sheets).
+1. Om: `node worker/worker.mjs install` one last time (supervisor, allowPrompts report, claude lookup retry, parent folders); link the terrah folder; in Claude › Setup pick the boilerplate note, turn the dispatcher on, Give to Claude on one small task.
+2. Grammar pass (names, Back rule, confirms, other sheets close on phone Back).
 3. Om: on the live site, Settings → This device → send test email (Gmail via ops.delpat, reset links to OWNER_EMAIL).
 4. Om's yes on the ~/.claude/CLAUDE.md text (Claude items + `.workos.json`), then apply it.
 5. Om's answers on AKAR items C20, C22, C23 (waiting on Om) and the C7/C8 conflict below.
