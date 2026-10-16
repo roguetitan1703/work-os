@@ -41,7 +41,7 @@ All configuration is in Vercel → Project → Settings → Environment Variable
 | `APP_TZ`, `NEXT_PUBLIC_APP_TZ` | `Asia/Kolkata`: sets what "today" means | yes |
 | `APP_URL` | public base URL, used in links sent to Claude and Discord | recommended |
 | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `DISCORD_OWNER_ID` | Discord bot and the Delpat server | for Discord |
-| `DISCORD_BLOCKED_CHANNELS` | extra channel ids never to read (comma-separated); normally managed on `/connect` instead | optional |
+| `DISCORD_BLOCKED_CHANNELS` | extra channel ids never to read (comma-separated); normally managed in Settings › Connections › Discord instead | optional |
 | `CRON_SECRET` | protects the alert check endpoint | for alerts |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | keys for phone push (a `mailto:` address for the subject). **Must be added on Vercel**; copy the values from `.env.local`. Without them push is off and Settings → Status says so | for phone push |
 | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | SMTP for "Forgot password?" links, password-change emails and the Settings test email. `EMAIL_SECURE=true` = TLS from the start (port 465); otherwise STARTTLS is required. **Must be added on Vercel**; copy the values from `.env.local` | for password reset |
@@ -89,13 +89,13 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 - **Connecting:** claude.ai → Settings → Connectors → Add custom connector:
   - URL: `https://work-os-puce-delta.vercel.app/api/mcp`
   - Authentication: no sign-in. Request header: `Authorization: Bearer <MCP_TOKEN>`.
-- **The `/connect` page** ("Connect" in the sidebar and More) has:
+- **Settings › Connections** (`/settings?section=connections`; the old `/connect` redirects there) has:
   - the URL and header with copy buttons (the key is hidden until you click reveal)
   - instructions to paste into a Claude Project or your preferences
   - a **morning brief** prompt covering Work OS and Discord
   - every tool with a description and an example question
   - Discord setup with live status
-  - alert status
+  - (alert settings and status live in Settings › Alerts)
 - **To change the key:** update `MCP_TOKEN` in Vercel, redeploy, then update the header in claude.ai.
 
 ### Claude
@@ -110,7 +110,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 ### Claude Code
 - **Endpoint:** `app/api/mcp/[[...key]]/route.ts`. Stateless Streamable HTTP. The key goes in a header (`Authorization: Bearer` or `X-API-Key`).
 - **Tool handlers:** `lib/mcp/server.ts`.
-- **Tool titles, descriptions and server instructions:** `lib/mcp/docs.ts`. This one file feeds both MCP and the `/connect` page, so edit descriptions there.
+- **Tool titles, descriptions and server instructions:** `lib/mcp/docs.ts`. This one file feeds both MCP and Settings › Connections, so edit descriptions there.
 - **Adding a tool:** add its name to `ToolName` and an entry in `TOOLS` (docs.ts), register it with `tool(...)` in server.ts, and add it to `ORDER` in `app/(app)/connect/page.tsx`.
 - **Smoke test:** `node scripts/test-mcp.mjs <url>/api/mcp <MCP_TOKEN> [--write]`.
 
@@ -234,7 +234,7 @@ There's no bot server running all the time and no messages are stored.
   - `/progress ref percent [note]`: the task number autocompletes from open tasks.
 - **Tag the bot in any message:** nothing happens on Discord. Claude lists it as **"flagged for later"**, with the message you were replying to.
 - **Who can use them:** only your Discord user ID. Anyone else gets "Not available".
-- **Sensitive channels:** `/connect` → Discord → "Sensitive channels: never read". Tick channels or whole categories, then Save. They're never listed or scanned, and links or right-clicks into them are refused.
+- **Sensitive channels:** Settings › Connections → Discord → "Sensitive channels: never read". Tick channels or whole categories, then Save. They're never listed or scanned, and links or right-clicks into them are refused.
   - For a hard guarantee, also deny the bot's role **View Channel** in those channels in Discord.
 
 ### Claude
@@ -287,7 +287,7 @@ There's no bot server running all the time and no messages are stored.
   - **Discord DM:** as before.
   - **Send test** (Settings → Notifications) sends one through every enabled channel and shows what reached where.
 - **Rules:** quiet hours 23:00–08:00 IST (anything due then waits until morning), one combined DM per check, and each alert sent only once.
-- **Status:** Settings → Status (and `/connect` → Alerts) shows when the last check ran and what it did.
+- **Status:** Settings › Alerts (and the status strip at the top of Settings) shows when the last check ran and what it did.
 - **Setup still to do:**
   1. Add `CRON_SECRET` in Vercel; the value is in `work-os/.env.local`.
   2. On cron-job.org, create a job every 15 minutes on `https://work-os-puce-delta.vercel.app/api/cron/alerts` with the header `Authorization: Bearer <CRON_SECRET>`.
@@ -409,9 +409,9 @@ Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings") has
 | Phone notifications | VAPID keys set and how many devices are subscribed |
 | Notes converter | the markdown ↔ blocks converter loads and works |
 
-- **App:** Appearance (light / dark), links to `/connect` (System status; Claude, Discord and alerts setup), Sign out.
+- **App:** one Settings page with sections This device (push, theme, test, sign out), Alerts, Security, Connections (Claude chat, Discord; Claude Code keys and computers are in Claude › Setup) and Help; status strip on top.
 
-The live status list (below) now lives on `/connect`, with Settings linking to it.
+The live status list (below) is the status strip at the top of Settings.
 
 ### Claude Code
 - **Page:** `app/(app)/settings/page.tsx`; the device card, push and notification switches are client components in `device-settings.tsx`; server actions in `settings/actions.ts` (subscribe, unsubscribe, save switches, send test).
@@ -462,10 +462,10 @@ The live status list (below) now lives on `/connect`, with Settings linking to i
 2. **Alerts:** add `CRON_SECRET` in Vercel and create the cron-job.org job (section 7).
    - Also add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in Vercel for phone push.
 3. **Discord:**
-   - Tick sensitive channels on `/connect`.
+   - Tick sensitive channels in Settings › Connections › Discord.
    - Change the dev@ and tools@ passwords, which were posted in #our-own-system-automation.
    - If `/today` says "did not respond", set the Interactions Endpoint URL in the Discord Developer Portal to `https://work-os-puce-delta.vercel.app/api/discord/interactions`.
-4. **Claude:** paste the updated morning-brief prompt from `/connect` into the 8am brief.
+4. **Claude:** paste the updated morning-brief prompt from Settings › Connections into the 8am brief.
 5. **Deploy:** notifications, inbox, Settings and the phone screens above are committed or in the working tree but **not deployed yet**; an interaction pass (New note sheet) was still to finish before pushing.
 6. **Phone:** install it and report anything that feels off. It was tested in an emulated iPhone, not on a real device.
 
