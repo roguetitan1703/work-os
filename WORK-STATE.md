@@ -1,7 +1,7 @@
 # Work state
 
 ## Now
-- Sprint closed 2026-10-16: launcher, UX redesign (Today, Claude area, project overview, nav shell, Settings merge, Review hub, global search), dispatcher v1, worker supervisor, fewer worker calls. Full e2e: 15 suites, 740 checks pass (`bash tests/e2e/run.sh`). Waits on Om's live checks below.
+- Sprint closed 2026-10-16: launcher, UX redesign (Today, Claude area, project overview, nav shell, Settings merge, Review hub, global search), dispatcher v1, worker supervisor, fewer worker calls. Full e2e: 15 suites, 740 checks pass (`bash tests/e2e/run.sh`). Waits on Om's live checks below. Open work is filed as Claude items C46–C52 on Work OS (#121 and #122 closed).
 
 ## Next
 1. Om: `node worker/worker.mjs install` one last time (supervisor, allowPrompts report, claude lookup retry, parent folders); link the terrah folder; in Claude › Setup pick the boilerplate note, turn the dispatcher on, Give to Claude on one small task.
