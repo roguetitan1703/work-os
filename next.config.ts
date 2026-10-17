@@ -37,6 +37,8 @@ const nextConfig: NextConfig = {
     staleTimes: { dynamic: 30, static: 300 },
     // Touching/hovering any other link (a project, a mode) fetches the whole page, not just the skeleton.
     dynamicOnHover: true,
+    // Fewer build workers on a busy PC (the local demo copy); unset everywhere else.
+    ...(Number(process.env.NEXT_BUILD_CPUS) > 0 ? { cpus: Number(process.env.NEXT_BUILD_CPUS) } : {}),
   },
 };
 
