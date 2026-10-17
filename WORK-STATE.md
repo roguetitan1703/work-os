@@ -1,6 +1,7 @@
 # Work state
 
 ## Now
+- 2026-10-17: demo copy for the cutroom Work OS film (brief and kit in cutroom films/demos/work-os; demo lives in D:\work-os-demo, own DB, ports 27291/3291, own worker with the new mcpConfig and sessionsInRootsOnly options). Filming the Give to Claude shot is also the first real dispatcher run (C46).
 - Sprint closed 2026-10-16: launcher, UX redesign (Today, Claude area, project overview, nav shell, Settings merge, Review hub, global search), dispatcher v1, worker supervisor, fewer worker calls. Full e2e: 15 suites, 740 checks pass (`bash tests/e2e/run.sh`). Waits on Om's live checks below. Open work is filed as Claude items C46–C52 on Work OS (#121 and #122 closed).
 
 ## Next
