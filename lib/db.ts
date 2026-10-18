@@ -212,6 +212,8 @@ export type AuthFailureDoc = { _id: string; kind: 'password' | 'totp' | 'reset';
 export type PasswordResetDoc = { _id: string; createdAt: Date; expiresAt: Date; ip?: string };
 /** One email sent (for the hourly limits in lib/mail.ts). TTL index keeps 2 hours. */
 export type MailLogDoc = { _id: string; kind: 'reset' | 'changed' | 'test'; at: Date };
+/** Request log (lib/usage.ts, docs/usage-log.md): one doc per UTC hour, _id 'YYYY-MM-DDTHH'; `counts` keys are 'kind|caller|route'. TTL index keeps 35 days. */
+export type RequestStatsDoc = { _id: string; at: Date; total: number; counts: Record<string, number> };
 
 // ── Connection (cached across hot reloads and warm serverless invocations) ──
 
@@ -298,6 +300,7 @@ async function ensureIndexes(db: Db): Promise<void> {
     db.collection('authFailures').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 15 * 60 }, { key: { ip: 1, at: -1 }, name: 'ip_at' }]),
     db.collection('passwordResets').createIndexes([{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }]),
     db.collection('mailLog').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { kind: 1, at: -1 }, name: 'kind_at' }]),
+    db.collection('requestStats').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 35 * 86_400 }]),
   ]);
 }
 
@@ -322,6 +325,7 @@ export async function collections() {
     authFailures: db.collection<AuthFailureDoc>('authFailures'),
     passwordResets: db.collection<PasswordResetDoc>('passwordResets'),
     mailLog: db.collection<MailLogDoc>('mailLog'),
+    requestStats: db.collection<RequestStatsDoc>('requestStats'),
     apiKeys: db.collection<ApiKeyDoc>('apiKeys'),
     policyEvents: db.collection<PolicyEventDoc>('policyEvents'),
     claudeItems: db.collection<ClaudeItemDoc>('claudeItems'),

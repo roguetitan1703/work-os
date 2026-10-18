@@ -34,6 +34,7 @@ dispatcher-backend|dispatcher-backend.mjs|none|plain
 dispatcher-backend-2|dispatcher-backend-2.mjs|base|plain
 dispatcher-ui|dispatcher-ui.mjs|none|plain
 launcher-backend|launcher-backend.mjs|none|plain
+usage|usage.mjs|none|plain
 alerts-once|alerts-once.mjs|none|discord
 ${E2E_EXTRA:-}
 "

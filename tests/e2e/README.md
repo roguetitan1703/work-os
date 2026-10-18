@@ -51,6 +51,7 @@ Needs: Windows with MongoDB 8.2 at `C:\Program Files\MongoDB\Server\8.2\bin\mong
 | `dispatcher-backend-2` | none | Boilerplate note protected from MCP, restore strips `claude`, stale folder, alert text without mentions or links, repeated job failure ends as failed, status Om changed is kept, atomic job hand-out |
 | `dispatcher-ui` | none | Give to Claude / Take back sheet (one folder, picker for two, refusals), row menus, badges, Claude's tasks section on `/claude`, dispatcher Setup switch (needs a note), alerts table lists the Claude kinds, at 1280 and 390 |
 | `launcher-backend` | none | Worker API: key checks, folder validation and path rejection, remote clean-up, job isolation between devices, job hand-out and retry, status handling, rate limit |
+| `usage` | none | Request log: auth unchanged on /api/mcp, /api/worker, /api/cron, /api/discord/interactions (still bypass the session check) and on guarded paths; counts per kind, caller and route; nothing raw stored; static files not counted; Settings › Usage at 390 and 1280 |
 | `alerts-once` | none | Unblocked and Overdue alerts reach the inbox and Discord exactly once under concurrent flushes and cron runs (uses a small fake Discord API on port 4401; `run.sh` restarts the app with `DISCORD_API_BASE` pointing at it for this suite only) |
 
 ## Not covered here
