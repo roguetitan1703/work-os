@@ -2,9 +2,13 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { idleFor } from '@/components/idle';
 
-/** Re-reads the server data when the tab regains focus and every ~10 s while it is visible. */
-export function AutoRefresh({ every = 10_000 }: { every?: number }) {
+// A page left open but untouched stops refreshing (each refresh is a billed request); any input resumes it.
+const IDLE_MS = 5 * 60_000;
+
+/** Re-reads the server data when the tab regains focus and every ~30 s while it is visible and in use. */
+export function AutoRefresh({ every = 30_000 }: { every?: number }) {
   const router = useRouter();
   useEffect(() => {
     let last = Date.now();
@@ -13,7 +17,8 @@ export function AutoRefresh({ every = 10_000 }: { every?: number }) {
       last = Date.now();
       router.refresh();
     };
-    const t = setInterval(go, every);
+    const tick = () => { if (idleFor() < IDLE_MS) go(); };
+    const t = setInterval(tick, every);
     document.addEventListener('visibilitychange', go);
     window.addEventListener('focus', go);
     return () => {
