@@ -1,6 +1,7 @@
 # Work state
 
 ## Now
+- 2026-10-18: request usage: fewer background requests (f7fa8d4) and our own request log, Settings › Usage (6496c32, b49b348), because Vercel Hobby hit 100% of CDN requests.
 - 2026-10-17: demo copy for the cutroom Work OS film is ready (brief, RUN.md and kit in cutroom films/demos/work-os; demo in D:\work-os-demo, own DB, ports 27291/3291, own worker with the new mcpConfig and sessionsInRootsOnly options). First full dispatcher run on the demo copy: #12 claimed, worked and finished in about 30 s, "Claude finished" alert arrived (C46 still wants one real task on the live site).
 - Sprint closed 2026-10-16: launcher, UX redesign (Today, Claude area, project overview, nav shell, Settings merge, Review hub, global search), dispatcher v1, worker supervisor, fewer worker calls. Full e2e: 15 suites, 740 checks pass (`bash tests/e2e/run.sh`). Waits on Om's live checks below. Open work is filed as Claude items C46–C52 on Work OS (#121 and #122 closed).
 
@@ -14,6 +15,8 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- e2e `today` fails on Sundays (waits for a schedule block that is not active) and `claude-page` is flaky (queue Up/Down refresh timing, ~3 of 4 runs fail) — both also on master; waits on a test-fix slot.
+- Usage log cannot tell prefetches from page data (Next 16 hides the prefetch headers from the proxy; skipProxyUrlNormalize would change what the auth check sees) — waits on Om needing that split.
 - Dispatched sessions (wt tab, prompt as first argument) leave no transcript in ~/.claude/projects, so the Sessions list shows the folder name, no title, no subagents, and the stuck alert has no lastActiveAt — waits on finding where that Claude Code version writes them.
 - A dispatched session waits forever at a permission question (seen on the demo: a phone check, a git commit with a $(…) message); only the 20-min stuck alert says so — waits on Om choosing a permission mode for dispatched sessions.
 - Finishing a task given to Claude also sends "Claude Code changed #12" next to "Claude finished #12" (complete_task on a task Claude did not create) — waits on Om saying whether to drop it for dispatched tasks.
