@@ -409,7 +409,8 @@ Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings") has
 | Phone notifications | VAPID keys set and how many devices are subscribed |
 | Notes converter | the markdown ↔ blocks converter loads and works |
 
-- **App:** one Settings page with sections This device (push, theme, test, sign out), Alerts, Security, Connections (Claude chat, Discord; Claude Code keys and computers are in Claude › Setup) and Help; status strip on top.
+- **App:** one Settings page with sections This device (push, theme, test, sign out), Alerts, Security, Connections (Claude chat, Discord; Claude Code keys and computers are in Claude › Setup), Usage and Help; status strip on top.
+- **Usage:** our own request log, since Vercel Hobby shows no per-route breakdown: requests in the last 24 h and 7 days, per hour, per day, and the top routes by kind (page load, page data, action, API) and caller (browser, worker, Claude, cron, Discord, no sign-in). Static files are not counted; Vercel's limit counts them too. How it works: `docs/usage-log.md` (`proxy.ts` → `lib/usage.ts` → `requestStats`, 35 days).
 
 The live status list (below) is the status strip at the top of Settings.
 
@@ -417,12 +418,14 @@ The live status list (below) is the status strip at the top of Settings.
 - **Page:** `app/(app)/settings/page.tsx`; the device card, push and notification switches are client components in `device-settings.tsx`; server actions in `settings/actions.ts` (subscribe, unsubscribe, save switches, send test).
 - **Status:** `lib/status.ts` → `systemStatus()`, run on every page view inside `Suspense`; each probe has a time limit so a dead service can't hang the page. To add a row, push a `Check` (`name`, `level`, `summary`, `detail`) there.
 - **Install and push detection:** in `device-settings.tsx` (iOS, standalone, push support).
+- **Usage:** `usage-section.tsx` reads `lib/data/usage.ts`; counting happens in `proxy.ts` (see `docs/usage-log.md`). New routes go in the route table in `lib/usage.ts`, or they count as `(other)`.
 
 ---
 
 ## 10. Login and security
 
 - **Web app:** password login with a signed 60-day cookie. `proxy.ts` protects every page and API.
+- **Proxy matcher:** the proxy also runs on the self-checking routes below (to count them for Settings › Usage) but lets them through before any session check, by the same path prefixes the matcher used to skip (`docs/usage-log.md`).
 - **Routes that check their own credentials instead:**
   - `/api/mcp`: `MCP_TOKEN` header
   - `/api/discord/interactions`: Discord signature

@@ -14,6 +14,7 @@ import { AlertsTable, InstallCard, PushCard, Row, ThemeChoice } from './device-s
 import { Help } from './help';
 import { SecuritySettings } from './security-settings';
 import { StatusStrip } from './status-strip';
+import { UsageSection } from './usage-section';
 
 export const metadata = { title: 'Settings · Work OS' };
 
@@ -22,12 +23,13 @@ const SECTIONS = [
   { id: 'alerts', label: 'Alerts' },
   { id: 'security', label: 'Security' },
   { id: 'connections', label: 'Connections' },
+  { id: 'usage', label: 'Usage' },
   { id: 'help', label: 'Help and recovery' },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]['id'];
 const sectionFrom = (v: string | undefined): SectionId | null => SECTIONS.find(s => s.id === v)?.id ?? null;
 
-type Props = { searchParams: Promise<{ section?: string; open?: string }> };
+type Props = { searchParams: Promise<{ section?: string; open?: string; range?: string }> };
 
 /**
  * One Settings. The section lives in `?section=`. Phone (<768px): no section shows the overview (status, This device, a row per
@@ -48,6 +50,7 @@ export default async function SettingsPage({ searchParams }: Props) {
       </Group>
     ),
     connections: () => <Connections open={sp.open} />,
+    usage: () => <UsageSection range={sp.range} />,
     help: () => <Help />,
   };
 
@@ -131,6 +134,7 @@ async function PhoneRows() {
     { id: 'alerts', label: 'Alerts', hint: `${on} of ${NOTIFY_KINDS.length} on` },
     { id: 'security', label: 'Security', hint: passkeys ? `Passkeys ${passkeys.length}` : '' },
     { id: 'connections', label: 'Connections', hint: `Chat ${token && token.length >= 24 ? '✓' : '✗'} · Discord ${discordConfig() ? '✓' : '✗'}` },
+    { id: 'usage', label: 'Usage', hint: 'Requests' },
     { id: 'help', label: 'Help and recovery', hint: '' },
   ];
   return (
