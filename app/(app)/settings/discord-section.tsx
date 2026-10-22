@@ -1,6 +1,6 @@
 import { CopyBox } from '@/components/copy-box';
 import type { Caller } from '@/lib/caller';
-import { discordConfig, guildContext, orgGuildId, CONTENT_INTENT_WARNING } from '@/lib/discord/client';
+import { discordConfig, guildContext, orgGuildId, pickerLayout, CONTENT_INTENT_WARNING } from '@/lib/discord/client';
 import { isOperator } from '@/lib/operator';
 import { getProfile } from '@/lib/profile';
 import { Card, Disclosure, Section, StatusLine } from './ui';
@@ -30,7 +30,7 @@ async function status(caller: Caller) {
       ownerName: ctx.ownerName,
       inServer: ctx.ownerRoleIds.length > 0 || ctx.ownerAdmin || ctx.visible.size > 0,
       // Only what this person's Discord account can see (blocking applies to the whole organization).
-      layout: ctx.layout.filter(r => ctx.visible.has(r.id)),
+      layout: pickerLayout(ctx),
       blockedCount: ctx.blocked.size,
     };
   } catch (e) {

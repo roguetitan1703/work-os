@@ -17,7 +17,9 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 ## Later
 - Phase 3: no editor for an organization's modes (the default eight, or what migrate-phase3 seeds); colours for non-mode block names, which mode fills a block, review questions and help sections have no editor either (data only) — waits on Om wanting to change them in the app.
 - Phase 3: one routine per person; the timetable editor has no per-block colour — waits on someone needing a second routine.
-- Phase 3: a person's settings documents are per user (`profile:<userId>`, `schedule:<userId>`, as in phase 2), so someone in two organizations has one timezone, schedule and Discord link, tied to the organization they last saved in — waits on phase 4 or a second organization in real use.
+- Personal settings docs are keyed `<area>:<userId>` (lib/scope.ts setUserSetting, from phase 2), so a write in another organization moves profile, schedule, dispatcher and the Discord link to that organization (phase 3 security review). Fix: key them `<area>:<orgId>:<userId>`, or refuse a write across organizations — waits on phase 4 or a second organization in real use.
+- Clearing a cache clears it on one server instance only: another instance stays stale for 60–90 s after an unlink, a member removal or a new block (phase 3 security review) — waits on phase 5 (one server, or push).
+- When a modes editor ships, mode names and descriptions go into the MCP instructions: a prompt-injection path from any admin to every member's Claude (phase 3 security review) — waits on the modes editor; quote or limit them then.
 - Phase 3: Discord private threads are shown only to a server administrator (membership needs a call per thread) — waits on someone missing one.
 - Phase 3: only the operator sets an organization's Discord server and registers its commands (again after the modes change) — waits on organizations managing their own bot.
 - Phase 3: the MCP argument `waiting_on_om` keeps its name (renaming breaks connected clients) — waits on a tool-version bump.

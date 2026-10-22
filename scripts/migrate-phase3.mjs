@@ -88,23 +88,21 @@ try {
   };
 
   // ── The owner's week ──
+  // Only the parts not there yet: a schedule saved in the app has every part (an empty list or no routine is a choice).
   const sched = await settings.findOne({ _id: `schedule:${owner}` });
-  if (!sched?.schedule?.blocks?.length && !sched?.schedule?.routine) {
+  const cur = sched?.schedule && typeof sched.schedule === 'object' ? sched.schedule : {};
+  const legacy = { blocks: LEGACY_BLOCKS, colors: LEGACY_COLORS, taskModes: LEGACY_TASK_MODES, routine: LEGACY_ROUTINE, review: LEGACY_REVIEW, help: LEGACY_HELP };
+  const missing = Object.keys(legacy).filter(k => cur[k] === undefined);
+  if (missing.length) {
     await upsert(`schedule:${owner}`, {
       area: 'schedule',
       orgId,
       userId: owner,
-      schedule: {
-        blocks: LEGACY_BLOCKS,
-        colors: LEGACY_COLORS,
-        taskModes: LEGACY_TASK_MODES,
-        routine: LEGACY_ROUTINE,
-        review: LEGACY_REVIEW,
-        help: LEGACY_HELP,
-      },
+      // dotted paths cannot go into a schedule that is not an object: replace that one whole
+      ...(sched?.schedule && typeof sched.schedule === 'object' ? Object.fromEntries(missing.map(k => [`schedule.${k}`, legacy[k]])) : { schedule: legacy }),
       updatedAt: new Date(),
     });
-    did(`schedule: ${LEGACY_BLOCKS.length} timetable blocks, the routine, ${LEGACY_REVIEW.length} review questions, ${LEGACY_HELP.length} help sections`);
+    did(`schedule: ${missing.join(', ')}`);
   }
 
   // ── The organization's modes ──
@@ -145,12 +143,17 @@ try {
     .collection('reviews')
     .find({ $or: REVIEW_KEYS.map(k => ({ [k]: { $exists: true } })) })
     .toArray();
+  let reviewsMoved = 0;
   for (const r of legacyReviews) {
     const answers = { ...(r.answers ?? {}) };
-    for (const k of REVIEW_KEYS) if ((typeof r[k] === 'string' || typeof r[k] === 'number') && answers[k] === undefined) answers[k] = r[k];
-    if (APPLY) await db.collection('reviews').updateOne({ _id: r._id }, { $set: { answers }, $unset: Object.fromEntries(REVIEW_KEYS.map(k => [k, ''])) });
+    // Only fields actually copied are removed; one whose answer is already set stays where it is.
+    const copied = REVIEW_KEYS.filter(k => (typeof r[k] === 'string' || typeof r[k] === 'number') && answers[k] === undefined);
+    if (!copied.length) continue;
+    for (const k of copied) answers[k] = r[k];
+    reviewsMoved++;
+    if (APPLY) await db.collection('reviews').updateOne({ _id: r._id }, { $set: { answers }, $unset: Object.fromEntries(copied.map(k => [k, ''])) });
   }
-  did('weekly reviews: fields → answers', legacyReviews.length);
+  did('weekly reviews: fields → answers', reviewsMoved);
 
   // ── Routine logs: bidsPlaced → count ──
   const logs = await db.collection('ritualLogs').find({ bidsPlaced: { $exists: true } }).toArray();

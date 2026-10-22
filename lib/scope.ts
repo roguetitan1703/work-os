@@ -247,6 +247,17 @@ export async function setOrgSetting(orgId: string, area: OrgArea, set: Record<st
   await (await settingsCol()).updateOne({ _id: `${area}:${orgId}` }, { $set: { ...set, area, orgId } as Partial<SettingsDoc> }, { upsert: true });
 }
 
+/**
+ * Atomically take one person's setting that matches and apply `set` to it (e.g. use up a one-time code): of two
+ * concurrent calls only one gets the user id. null if none matches.
+ */
+export async function takeUserSetting(orgId: string, area: UserArea, match: Document, set: Record<string, unknown>): Promise<string | null> {
+  if (typeof orgId !== 'string' || !orgId) throw new ScopeError('takeUserSetting needs an organization');
+  if ('orgId' in set || 'userId' in set || 'area' in set) throw new ScopeError('settings: owner fields are set by the door');
+  const d = await (await settingsCol()).findOneAndUpdate({ ...match, area, orgId }, { $set: set as Partial<SettingsDoc> }, { projection: { userId: 1 } });
+  return d?.userId ?? null;
+}
+
 /** People in an organization whose setting matches (e.g. whose dispatcher reads one of these notes). */
 export async function usersWithSetting(orgId: string, area: UserArea, match: Document): Promise<string[]> {
   if (typeof orgId !== 'string' || !orgId) throw new ScopeError('usersWithSetting needs an organization');

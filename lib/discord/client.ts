@@ -307,13 +307,15 @@ async function loadContext(link: DiscordLink): Promise<GuildContext> {
   const everyone = roleMap.get(guildId);
   const byId = new Map(channels.map(c => [c.id, c]));
 
-  // What the person can view: computed like the bot's permissions, from their own roles. No account (not linked, or
-  // not in the server) sees nothing.
+  // What the person can read: computed like the bot's permissions, from their own roles (View Channel and Read Message
+  // History; a category needs only View). No account (not linked, or not in the server) sees nothing.
   const ownerAdmin = !!owner && !!link.discordId && (guild.owner_id === link.discordId || computePerms({ id: '', type: 0 }, everyone, roleMap, owner.roles, link.discordId) === ~0n);
   const personCanView = (permSource: RawChannel): boolean => {
     if (!owner || !link.discordId) return false;
     if (ownerAdmin) return true;
-    return (computePerms(permSource, everyone, roleMap, owner.roles, link.discordId) & PERM.VIEW_CHANNEL) !== 0n;
+    const perms = computePerms(permSource, everyone, roleMap, owner.roles, link.discordId);
+    const need = permSource.type === 4 ? PERM.VIEW_CHANNEL : PERM.VIEW_CHANNEL | PERM.READ_MESSAGE_HISTORY;
+    return (perms & need) === need;
   };
   const visible = new Set<string>();
   for (const c of channels) if (personCanView(c)) visible.add(c.id);
@@ -399,6 +401,21 @@ async function blockedIds(orgId: string): Promise<Set<string>> {
   const fromEnv = (process.env.DISCORD_BLOCKED_CHANNELS ?? '').split(/[\s,]+/).filter(s => SNOWFLAKE.test(s));
   const doc = await getOrgSetting(orgId, 'discord');
   return new Set([...fromEnv, ...(doc?.blockedIds ?? [])]);
+}
+
+/** The channels and categories a person is shown in the blocked-channel picker (only what they can see). */
+export const pickerLayout = (ctx: GuildContext) => ctx.layout.filter(r => ctx.visible.has(r.id));
+
+/**
+ * Save the blocked list as one person picked it. They only see (and submit) the channels their Discord account can
+ * see, so everything else stays as it was: new = what they ticked among their picker ∪ (old − their picker). Threads
+ * and channels hidden from them are never dropped.
+ */
+export async function saveBlockedAs(link: DiscordLink, ids: string[]): Promise<void> {
+  const ctx = await guildContext(link, { fresh: true });
+  const shown = new Set(pickerLayout(ctx).map(r => r.id));
+  const old: string[] = (await getOrgSetting(link.orgId, 'discord'))?.blockedIds ?? [];
+  await setBlockedIds(link.orgId, [...ids.filter(id => shown.has(id)), ...old.filter(id => !shown.has(id))]);
 }
 
 export async function setBlockedIds(orgId: string, ids: string[]): Promise<void> {

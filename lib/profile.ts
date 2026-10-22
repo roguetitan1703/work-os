@@ -2,7 +2,7 @@ import 'server-only';
 import { createHash, randomInt } from 'node:crypto';
 import { DEFAULT_TZ, isTimeZone } from './dates';
 import { InputError } from './data/errors';
-import { getUserSetting, orgWithSetting, setUserSetting, usersWithSetting, type Scope } from './scope';
+import { getUserSetting, orgWithSetting, setUserSetting, takeUserSetting, usersWithSetting, type Scope } from './scope';
 import { isMember } from './people';
 import { orgGuildId, type DiscordLink } from './discord/client';
 import './request-context';
@@ -86,7 +86,8 @@ export async function finishDiscordLink(guildId: string, discordId: string, code
   if (!/^\d{15,22}$/.test(discordId) || !/^[A-Za-z0-9]{6,12}$/.test(code.trim())) return null;
   const orgId = await orgWithSetting('discord', { guildId });
   if (!orgId) return null;
-  const [userId] = await usersWithSetting(orgId, 'profile', { 'discordLink.hash': hashCode(code), 'discordLink.expiresAt': { $gt: new Date() } });
+  // Used up in the same step it is found, so two /link calls with one code cannot both succeed.
+  const userId = await takeUserSetting(orgId, 'profile', { 'discordLink.hash': hashCode(code), 'discordLink.expiresAt': { $gt: new Date() } }, { discordLink: null });
   if (!userId || !(await isMember(orgId, userId))) return null;
   const s = { userId, orgId };
   for (const other of await usersWithSetting(orgId, 'profile', { discordId })) {
