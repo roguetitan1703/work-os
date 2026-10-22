@@ -466,8 +466,8 @@ try {
     r = await act(member, 'dispatcherSettingsAction', { boilerplateNoteId: 'n-auth' });
     check("boilerplate: a member cannot pick the owner's (shared) note", refused(r, 'your own notes'), r.text.slice(0, 160));
     await db.collection('settings').updateOne({ _id: `dispatcher:${invitee}` }, { $set: { enabled: true, maxConcurrent: 3, boilerplateNoteId: 'n-auth' } }, { upsert: true });
-    r = await act(member, 'dispatcherSetupAction');
-    check("boilerplate: a setting pointing at someone else's note counts as off", r.text.includes('"enabled":false') && r.text.includes('"boilerplateNoteId":""'), r.text.slice(0, 200));
+    r = await act(member, 'markOptionsAction', String(tref));
+    check("boilerplate: a setting pointing at someone else's note counts as off", r.text.includes('"dispatcherOn":false'), r.text.slice(0, 200));
     for (const [u, n] of [[ME.userId, 'n-auth'], [invitee, 'n-auth-member']]) await db.collection('settings').updateOne({ _id: `dispatcher:${u}` }, { $set: { enabled: true, maxConcurrent: 3, boilerplateNoteId: n } }, { upsert: true });
     await api(own.key, 'GET', '/api/worker/jobs');
     check("private: the owner's computer does not claim the member's task", (await db.collection('tasks').findOne({ ref: tref }))?.claude?.state === 'queued');
@@ -480,7 +480,7 @@ try {
 
     // Someone else changes what Claude reads: the run is taken back, its session stopped, the giver told; the edit stays.
     const run = await db.collection('tasks').findOne({ ref: tref });
-    await db.collection('workerSessions').insertOne({ _id: run.claude.sessionId, deviceId: mdev, folderId: 'fM', projectId: pid, state: 'running', startedAt: new Date(), updatedAt: new Date(), ownerId: invitee, orgId: ME.orgId });
+    check("take back: the claim made the session on the member's computer", !!(await db.collection('workerSessions').findOne({ _id: run.claude.sessionId, deviceId: mdev })));
     const stops = () => db.collection('workerJobs').countDocuments({ deviceId: mdev, kind: 'stop' });
     const stops0 = await stops();
     await call('update_task', { task: tref, title: 'auth private dispatch, edited by the owner' });

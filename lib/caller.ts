@@ -57,6 +57,19 @@ async function roleIn(userId: string, orgId: string): Promise<Role | null> {
   return role;
 }
 
+// The key owner's email and name (operator checks, lib/operator.ts), kept as briefly as roles.
+const people = new Map<string, { email: string; name: string; at: number }>();
+async function personOf(userId: string): Promise<{ email: string; name: string }> {
+  const hit = people.get(userId);
+  if (hit && Date.now() - hit.at < ROLE_TTL_MS) return hit;
+  const db = await getDb();
+  const u = await db.collection('user').findOne({ _id: idIn(userId) }, { projection: { email: 1, name: 1 } });
+  const p = { email: String(u?.email ?? ''), name: String(u?.name ?? ''), at: Date.now() };
+  if (people.size > 5000) people.clear();
+  people.set(userId, p);
+  return p;
+}
+
 /** Forget cached roles (after a role change or a member removal in this process). */
 export function forgetRoles(): void {
   roles.clear();
@@ -110,7 +123,8 @@ export async function verifyKey(token: string | null | undefined, agents: Agent[
   // The key's owner must still be a member of the key's organization.
   const role = await roleIn(userId, orgId);
   if (!role) return null;
-  return { userId, orgId, role, email: '', name: '', via: 'key', key: { id: String(r.key.id), name: r.key.name ?? '', agent } };
+  const { email, name } = await personOf(userId);
+  return { userId, orgId, role, email, name, via: 'key', key: { id: String(r.key.id), name: r.key.name ?? '', agent } };
 }
 
 /** Route handlers other than /api/mcp: the session cookie, else a Claude chat key header (not a Claude Code key). */

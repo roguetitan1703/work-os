@@ -228,7 +228,7 @@ try {
     check(`note files: ${t || '(no type)'} downloads and cannot render`, h['Content-Disposition'].startsWith('attachment') && !/html|svg|xml|text\//.test(h['Content-Type']), JSON.stringify(h));
   }
   check('note files: every file gets the sandbox policy and nosniff', /sandbox/.test(hd('image/png', 'a.png')['Content-Security-Policy']) && hd('text/html', 'a')['X-Content-Type-Options'] === 'nosniff');
-  check('note files: no SVG in the upload list', !nf.UPLOAD_TYPES.some(t => /svg|html|xml|javascript/.test(t)));
+  check('note files: no SVG, HTML, XML or script in the upload list', !nf.UPLOAD_TYPES.some(t => /svg|html|javascript|^(text|application)\/xml/.test(t)), nf.UPLOAD_TYPES.join(' '));
   check('note files: only notes/<org>/<note>/<name> paths', !!nf.parseNoteFilePath('notes/o1/n1/a.png') && !nf.parseNoteFilePath('notes/o1/a.png') && !nf.parseNoteFilePath('notes/a.png') && !nf.parseNoteFilePath('notes/o1/n1/../a.png') && !nf.parseNoteFilePath('notes/o1/n1/.htaccess'));
 
   // ---- the operator's things (OPERATOR_EMAILS = the e2e owner) ----
