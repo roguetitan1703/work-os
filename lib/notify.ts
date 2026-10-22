@@ -137,7 +137,14 @@ export async function sendPush(msg: { title: string; body: string; url: string; 
 
 // ── Status: last seen ───────────────────────────────────────────────────────
 
+// "Last seen" is shown to the minute at most: one write per kind per minute per process is plenty.
+const SEEN_EVERY_MS = 60_000;
+const seenAt: Record<'mcp' | 'discord', number> = { mcp: 0, discord: 0 };
+
 export async function markSeen(what: 'mcp' | 'discord'): Promise<void> {
+  const now = Date.now();
+  if (now - seenAt[what] < SEEN_EVERY_MS) return;
+  seenAt[what] = now;
   try {
     await (await collections()).settings.updateOne({ _id: 'status' }, { $set: { [what === 'mcp' ? 'lastMcpAt' : 'lastDiscordAt']: new Date() } as never }, { upsert: true });
   } catch {

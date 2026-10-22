@@ -1,7 +1,7 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { bearerToken, checkToken, urlTokenAllowed } from '@/lib/auth';
 import { after } from 'next/server';
-import { createMcpServer } from '@/lib/mcp/server';
+import { acquireMcpServer } from '@/lib/mcp/pool';
 import type { Caller } from '@/lib/mcp/policy';
 import { flushQueuedAlerts } from '@/lib/alerts';
 import { markSeen } from '@/lib/notify';
@@ -43,7 +43,7 @@ async function handle(req: Request, ctx: Ctx): Promise<Response> {
     return Response.json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized' }, id: null }, { status: 401 });
   }
   const base = baseUrl(req);
-  const server = createMcpServer({ baseUrl: base, caller });
+  const { server, release } = acquireMcpServer(base, caller);
   after(() => Promise.all([flushQueuedAlerts(base), caller.actor === 'claude' ? markSeen('mcp') : undefined]));
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -55,8 +55,8 @@ async function handle(req: Request, ctx: Ctx): Promise<Response> {
   try {
     return await runWithRequestContext(rc, () => transport.handleRequest(req));
   } finally {
-    // JSON responses are fully materialised, so the per-request server can go.
-    void server.close();
+    // JSON responses are fully materialised: close the transport and keep the server for the next call.
+    void release();
   }
 }
 
