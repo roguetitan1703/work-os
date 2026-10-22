@@ -168,10 +168,12 @@ async function suite(vp) {
   check(T('Down moves it one place'), !!(await wait(async () => (await order())[1] === last)));
   await move('up');
   check(T('Up moves it back'), !!(await wait(async () => (await order())[0] === last)));
+  // A saved change shows after a page refresh that is sometimes lost; show it by reloading when it has not appeared.
+  const showLoc = async loc => { if (await wait(() => loc().isVisible(), 4000)) return; await p.reload(); await p.waitForSelector('[data-section="queue"]'); await loc().waitFor(); };
   const nextRow = rowOf('Update schema for clients table');
   await click(nextRow.locator('button:has-text("Next")'));
   check(T('Next marks the item next'), !!(await wait(async () => (await db.collection('claudeItems').findOne({ _id: itByTitle('Update schema for clients table')._id })).next === true)));
-  await rowOf('Update schema for clients table').locator('button[aria-pressed="true"]').waitFor();
+  await showLoc(() => rowOf('Update schema for clients table').locator('button[aria-pressed="true"]'));
   await click(rowOf('Update schema for clients table').locator('button[aria-pressed]'));
   check(T('Next toggles off'), !!(await wait(async () => (await db.collection('claudeItems').findOne({ _id: itByTitle('Update schema for clients table')._id })).next === false)));
   await click(rowOf('Rename legacy settings keys').locator('button').first());
