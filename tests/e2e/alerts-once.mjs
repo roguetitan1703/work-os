@@ -1,7 +1,10 @@
 // Each queued/scheduled alert delivered exactly once under concurrent flushes + cron.
 // Needs the app started with DISCORD_API_BASE pointing at the stub below (run.sh does that for this suite). Seed profile: none.
 import http from 'node:http';
-import { call, check, db, cron, finish } from './lib.mjs';
+import { call, check, db, cron, finish, ME, setOrgGuild, setProfile } from './lib.mjs';
+// The owner's own Discord account gets the DMs (phase 3: linked per person); no quiet hours, so any hour works.
+await setOrgGuild(ME.orgId, '333333333333333333');
+await setProfile(ME, { discordId: '111111111111111111', quietStart: 0, quietEnd: 0 });
 const dms = [];
 const stub = http.createServer((q, s) => { let b = ''; q.on('data', d => b += d); q.on('end', () => {
   s.setHeader('content-type', 'application/json');

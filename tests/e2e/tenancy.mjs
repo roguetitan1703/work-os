@@ -2,8 +2,9 @@
 // another (C). B sees A's shared work but none of A's private things; C sees nothing of the first organization through
 // MCP (every read tool), pages, search, the notes file routes or the worker and admin APIs; numbers restart per
 // organization; inbox notices and alerts go only to their recipient, by the recipient's own settings. Also runs the
-// static one-door check (tests/scope-check.mjs). Seed profile: none (this suite makes its own people and data).
-import { B, CRON, EMAIL, ME, MCP, PW, check, finish, launch, login, makeUser, mkKey, rawDb, sha } from './lib.mjs';
+// static one-door check (tests/scope-check.mjs). Phase 3: each person's own schedule and timezone, and dispatcher caps
+// that count only their own claims. Seed profile: none (this suite makes its own people and data).
+import { B, CRON, EMAIL, ME, MCP, PW, check, db, finish, launch, login, makeUser, mkKey, rawDb, setProfile, setSchedule, sha } from './lib.mjs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { scopeViolations } from '../scope-check.mjs';
 
@@ -43,6 +44,12 @@ try {
   const kB = await mkKey({ agent: 'claude', userId: Bu.userId, orgId: Bu.orgId, name: 'bea chat' });
   const kBcode = await mkKey({ agent: 'claude-code', userId: Bu.userId, orgId: Bu.orgId, name: 'bea code' });
   const kC = await mkKey({ agent: 'claude', userId: Cu.userId, orgId: Cu.orgId, name: 'cy chat' });
+  // Phase 3: the owner has the old week in Asia/Kolkata (lib.mjs makeIdentity); Bea has one all-day block of her own,
+  // in New York; Cy has nothing (a new person: no schedule bar, no routine). Set before any request caches them.
+  const BEA_TZ = 'America/New_York';
+  await setProfile(Bu, { timezone: BEA_TZ });
+  const allDay = { mon: 'Growth', tue: 'Growth', wed: 'Growth', thu: 'Growth', fri: 'Growth' };
+  await setSchedule(Bu, { blocks: [{ start: '00:00', end: '23:59', block: 'Bea focus', modes: allDay, notes: '' }], colors: {}, taskModes: {}, routine: null, help: [] });
 
   // ---- A's work: shared (Zephyr) and private (Hidden) ----
   await must(kA, 'add_project', { name: 'Zephyr Shared' });
@@ -234,8 +241,66 @@ try {
   // ---- the operator's things (OPERATOR_EMAILS = the e2e owner) ----
   const tB = await fetch(B + '/api/timetable/today', { headers: { authorization: `Bearer ${kB}` } }).then(r => r.json());
   const tA = await fetch(B + '/api/timetable/today', { headers: { authorization: `Bearer ${kA}` } }).then(r => r.json());
-  check('schedule: a teammate gets an empty schedule (it is the operator\'s week)', Array.isArray(tB.schedule) && tB.schedule.length === 0 && tB.currentBlock === null, JSON.stringify(tB).slice(0, 120));
-  check('schedule: the operator gets theirs', Array.isArray(tA.schedule) && tA.schedule.length > 0);
+  const tC = await fetch(B + '/api/timetable/today', { headers: { authorization: `Bearer ${kC}` } }).then(r => r.json());
+  const weekdayIn = tz => !/Sat|Sun/.test(new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(new Date()));
+  check('schedule: the owner gets their own week, in their timezone', tA.schedule?.length === 17 && tA.timezone === 'Asia/Kolkata', `${tA.schedule?.length} ${tA.timezone}`);
+  check('schedule: a teammate gets their own, in their timezone', tB.schedule?.length === 1 && tB.schedule[0].block === 'Bea focus' && tB.timezone === BEA_TZ, JSON.stringify(tB).slice(0, 160));
+  check('schedule: the teammate\'s current block is theirs (weekdays in their zone)', !weekdayIn(BEA_TZ) || tB.currentBlock === 'Bea focus', `${tB.currentBlock}`);
+  check('schedule: a new person has none', Array.isArray(tC.schedule) && tC.schedule.length === 0 && tC.currentBlock === null, JSON.stringify(tC).slice(0, 120));
+  // what "today" means follows each person's timezone
+  const dayIn = tz => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const dueA = (await must(kA, 'add_task', { title: 'Zephyr due today for owner', project: 'Zephyr Shared', due: 'today' })).created;
+  const dueB = (await must(kB, 'add_task', { title: 'Zephyr due today for Bea', project: 'Zephyr Shared', due: 'today' })).created;
+  const [dA, dB] = await Promise.all([dueA, dueB].map(t => rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t.ref })));
+  check('timezone: "today" is the owner\'s date in Asia/Kolkata and Bea\'s in New York', dA?.due === dayIn('Asia/Kolkata') && dB?.due === dayIn(BEA_TZ), `${dA?.due} ${dB?.due}`);
+
+  // ---- dispatcher: each person's switch, rules note and cap; the cap counts only their own claims ----
+  {
+    const now = Date.now();
+    const pid = 'tn-dispatch';
+    await rawDb.collection('projects').insertOne({ _id: pid, name: 'Tenancy Dispatch', nameLower: 'tenancy dispatch', client: '', description: '', status: 'active', orgId: A.orgId, ownerId: A.userId, visibility: 'org', createdAt: new Date(), updatedAt: new Date() });
+    const dev = async (who, name) => {
+      const key = 'wkr_' + randomBytes(32).toString('base64url');
+      const _id = randomUUID();
+      await rawDb.collection('devices').insertOne({ _id, name, ownerId: who.userId, orgId: who.orgId, hash: sha(key), prefix: key.slice(0, 8), createdAt: new Date(), lastSeenAt: null, revokedAt: null });
+      await rawDb.collection('workerFolders').insertOne({ _id: `${_id}:f1`, deviceId: _id, folderId: 'f1', name: 'dispatch', git: false, projectId: pid, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: who.orgId, ownerId: who.userId });
+      return { id: _id, key };
+    };
+    const call = (d, method, path, body) => fetch(B + path, { method, headers: { authorization: `Bearer ${d.key}`, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).then(async r => ({ status: r.status, body: await r.json().catch(() => null) }));
+    const ready = d => call(d, 'POST', '/api/worker/status', { worker: { version: '0.1.0', os: 'win32', allowPrompts: true }, jobs: [], sessions: [] });
+    const poll = d => call(d, 'GET', '/api/worker/jobs');
+    const devA = await dev(A, 'Owner PC'), devB = await dev(Bu, 'Bea PC');
+    for (const [who, id] of [[A, 'tn-rules-a'], [Bu, 'tn-rules-b']]) {
+      await db.collection('notes').insertOne({ _id: id, title: 'Rules', blocks: [], body: 'x', parentId: null, taskId: null, projectId: null, archived: false, createdBy: 'me', createdAt: new Date(), updatedBy: 'me', updatedAt: new Date(), deletedAt: null, orgId: who.orgId, ownerId: who.userId, visibility: 'private' });
+    }
+    await rawDb.collection('settings').insertMany([
+      { _id: `dispatcher:${A.userId}`, area: 'dispatcher', orgId: A.orgId, userId: A.userId, enabled: true, maxConcurrent: 1, boilerplateNoteId: 'tn-rules-a' },
+      { _id: `dispatcher:${Bu.userId}`, area: 'dispatcher', orgId: A.orgId, userId: Bu.userId, enabled: true, maxConcurrent: 2, boilerplateNoteId: 'tn-rules-b' },
+    ]);
+    const base = { description: '', mode: null, projectId: pid, priority: 'P2', status: 'Not Started', tags: [], due: null, start: null, estimateMins: null, progress: 0, checklist: [], links: [], blockedReason: '', dependsOn: [], recurrence: null, nextRef: null, archived: false, createdBy: 'me', createdAt: new Date(now - 864e5), updatedAt: new Date(now - 36e5), doneAt: null, doneOn: null, doneBy: null, orgId: A.orgId, visibility: 'org', assigneeId: null };
+    const mark = (who, n, o = {}) => ({ state: 'queued', markedAt: new Date(now - (100 - n) * 60_000), markedBy: 'user', markedByUserId: who.userId, markedByOrgId: who.orgId, ...o });
+    await rawDb.collection('tasks').insertMany([
+      { ...base, _id: 'tn-d1', ref: 901, title: 'Owner running one', ownerId: A.userId, status: 'In Progress', claude: mark(A, 1, { state: 'running', claimedAt: new Date(), deviceId: devA.id, sessionId: randomUUID(), prevStatus: 'Not Started' }) },
+      { ...base, _id: 'tn-d2', ref: 902, title: 'Owner queued two', ownerId: A.userId, claude: mark(A, 2) },
+      { ...base, _id: 'tn-d3', ref: 903, title: 'Bea queued one', ownerId: Bu.userId, claude: mark(Bu, 3) },
+      { ...base, _id: 'tn-d4', ref: 904, title: 'Bea queued two', ownerId: Bu.userId, claude: mark(Bu, 4) },
+      { ...base, _id: 'tn-d5', ref: 905, title: 'Bea queued three', ownerId: Bu.userId, claude: mark(Bu, 5) },
+    ]);
+    const st = async id => (await rawDb.collection('tasks').findOne({ _id: id }))?.claude?.state;
+    await ready(devA); await ready(devB);
+    const pa = await poll(devA);
+    check('dispatcher: the owner at their cap of 1 gets nothing more', pa.status === 200 && pa.body.jobs.length === 0 && (await st('tn-d2')) === 'queued', JSON.stringify(pa.body).slice(0, 160));
+    await poll(devB); await poll(devB); await poll(devB);
+    const bStates = await Promise.all(['tn-d3', 'tn-d4', 'tn-d5'].map(st));
+    check('dispatcher: Bea\'s cap of 2 does not count the owner\'s running claim', bStates.filter(s => s === 'running').length === 2 && bStates[2] === 'queued', bStates.join(','));
+    check('dispatcher: Bea\'s computer never claims the owner\'s task', (await st('tn-d2')) === 'queued');
+    await rawDb.collection('settings').updateOne({ _id: `dispatcher:${Bu.userId}` }, { $set: { enabled: false } });
+    await rawDb.collection('settings').updateOne({ _id: `dispatcher:${A.userId}` }, { $set: { maxConcurrent: 2 } });
+    await poll(devA);
+    check('dispatcher: the owner\'s switch and cap are their own (Bea\'s off switch does not stop the owner)', (await st('tn-d2')) === 'running');
+    await poll(devB);
+    check('dispatcher: Bea\'s switch off stops only Bea\'s claims', (await st('tn-d5')) === 'queued');
+  }
   const hB = await fetch(B + '/api/admin/health', { headers: { authorization: `Bearer ${kB}` } });
   check('admin/health: a member -> 403', hB.status === 403, hB.status);
 
@@ -303,7 +368,7 @@ try {
     const use = await text(p, '/settings?section=usage');
     check('B settings: Usage is the operator\'s only', !/Last 24 h/.test(use.text) && (await p.locator('[data-usage], [data-section=usage], [data-row=usage]').count()) === 0, use.text.slice(0, 120));
     const sched = await text(p, '/timetable');
-    check('B schedule page: empty for a teammate', /No schedule yet/.test(sched.text), sched.text.slice(0, 120));
+    check('B schedule page: Bea\'s own week', /Bea focus/.test(sched.text) && !/Morning Anchor/.test(sched.text), sched.text.slice(0, 120));
   });
 
   await session(EMAIL, async p => {
@@ -315,6 +380,9 @@ try {
     check('notes file: one\'s own private note\'s file passes the checks', (await filePath(p, `notes/${A.orgId}/${vMemo.id}/x.png`)) === 503);
     const use = await text(p, '/settings?section=usage');
     check('A settings: the operator sees Usage', /Last 24 h/.test(use.text));
+    const aToday = await text(p, '/today');
+    const aBar = await p.locator('[data-block-bar]').count();
+    check('A today: the schedule bar and the routine', aBar === 1 && /Fiverr Ritual/.test(aToday.text), `bar ${aBar} routine ${/Fiverr Ritual/.test(aToday.text)}`);
   });
 
   const FIRST = /Hidden|Zephyr shared task|Zephyr memo|Zephyr waits|Bea/; // C has its own "Zephyr Shared" project (names check above)
@@ -339,6 +407,10 @@ try {
     check('C notes file: older paths are not served', (await filePath(p, 'notes/legacy.png')) === 404);
     check('C notes upload: into the first organization\'s note is refused', (await upload(p, `notes/${A.orgId}/${zMemo.id}/x.png`)) === 400);
     check('C notes upload: an old-style path (no organization) is refused', (await upload(p, 'notes/x.png')) === 400);
+    const cToday = await text(p, '/today');
+    check('C today: a new person has no schedule bar and no routine', (await p.locator('[data-block-bar]').count()) === 0 && !/not logged|Fiverr/.test(cToday.text));
+    const sched = await text(p, '/timetable');
+    check('C schedule page: offers to set one up', /No schedule yet/.test(sched.text) && /Set up your schedule/.test(sched.text), sched.text.slice(0, 120));
   });
   await b.close();
 } catch (e) {

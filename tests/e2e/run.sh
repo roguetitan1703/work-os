@@ -39,6 +39,7 @@ usage|usage.mjs|none|plain
 auth|auth.mjs|none|plain
 tenancy|tenancy.mjs|none|plain
 alerts-once|alerts-once.mjs|none|discord
+discord-link|discord-link.mjs|none|discord
 ${E2E_EXTRA:-}
 "
 
@@ -103,16 +104,19 @@ export AUTH_RATE_LIMIT=off
 # Mail is written as JSON files here instead of being sent (lib/mail.ts); the auth suite reads reset links from it.
 export MAIL_CAPTURE_DIR="$TMP/mail" E2E_STATE="$TMP/state.json"
 export CRON_SECRET=testcron-e2e-0123456789abcdef
-# The e2e owner runs the deployment (lib/operator.ts): health, Discord registration, Usage, the schedule.
+# The e2e owner runs the deployment (lib/operator.ts): health, Discord registration and servers, Usage.
 export OPERATOR_EMAILS=e2e-owner@example.test
-export APP_TZ=Asia/Kolkata NEXT_PUBLIC_APP_TZ=Asia/Kolkata
+export APP_TZ=Asia/Kolkata
 export APP_URL="http://localhost:$APORT" E2E_BASE="http://localhost:$APORT"
 export E2E_MONGO_PORT=$MPORT E2E_DISCORD_PORT=$DPORT
 export E2E_SHOTS="${E2E_SHOTS:-$TMP/shots}"
-export DISCORD_BOT_TOKEN= DISCORD_GUILD_ID= DISCORD_OWNER_ID= DISCORD_PUBLIC_KEY= DISCORD_APPLICATION_ID= DISCORD_API_BASE=
+export DISCORD_BOT_TOKEN= DISCORD_PUBLIC_KEY= DISCORD_APPLICATION_ID= DISCORD_API_BASE=
 export VAPID_PUBLIC_KEY= VAPID_PRIVATE_KEY= VAPID_SUBJECT=
 export EMAIL_HOST= EMAIL_PORT= EMAIL_SECURE= EMAIL_USER= EMAIL_PASSWORD= EMAIL_FROM= EMAIL_FROM_NAME= OWNER_EMAIL=
 mkdir -p "$MAIL_CAPTURE_DIR"
+# A throwaway Ed25519 key pair: the discord suites sign interactions with it, the app checks them with the public half.
+read -r E2E_DISCORD_PUB E2E_DISCORD_PRIV < <(node -e "const k=require('crypto').generateKeyPairSync('ed25519');console.log(k.publicKey.export({format:'der',type:'spki'}).subarray(12).toString('hex'),k.privateKey.export({format:'der',type:'pkcs8'}).toString('base64'))")
+export E2E_DISCORD_PRIV
 
 # ---- throwaway mongod, single-node replica set ----
 echo "starting mongod on $MPORT (dbpath $DBPATH)"
@@ -135,10 +139,10 @@ fi
 
 start_server() {
   if [ "$1" = discord ]; then
-    export DISCORD_BOT_TOKEN=test-bot-token DISCORD_OWNER_ID=111111111111111111 DISCORD_APPLICATION_ID=222222222222222222 DISCORD_GUILD_ID=333333333333333333
-    export DISCORD_PUBLIC_KEY=0000000000000000000000000000000000000000000000000000000000000000 DISCORD_API_BASE="http://127.0.0.1:$DPORT"
+    export DISCORD_BOT_TOKEN=test-bot-token DISCORD_APPLICATION_ID=222222222222222222
+    export DISCORD_PUBLIC_KEY="$E2E_DISCORD_PUB" DISCORD_API_BASE="http://127.0.0.1:$DPORT"
   else
-    export DISCORD_BOT_TOKEN= DISCORD_OWNER_ID= DISCORD_APPLICATION_ID= DISCORD_GUILD_ID= DISCORD_PUBLIC_KEY= DISCORD_API_BASE=
+    export DISCORD_BOT_TOKEN= DISCORD_APPLICATION_ID= DISCORD_PUBLIC_KEY= DISCORD_API_BASE=
   fi
   (cd "$ROOT" && exec npx next start -p $APORT) >"$TMP/server.log" 2>&1 &
   SERVER_PID=$!
