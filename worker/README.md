@@ -41,6 +41,10 @@ Anyone who controls Work OS (the server, its database or your account) can start
 
 Every session the worker launches starts with `--remote-control=<project name>`, so it appears in the Claude app and you can talk to it there. Work OS never carries the conversation.
 
+## Push
+
+The worker keeps one stream open to Work OS (`GET /api/worker/stream`, `push.mjs`). Work OS uses it to say "poll now" when a session is started, resumed or stopped, a folder is linked, or a task is given to Claude, so jobs start within a second. While the stream is up the worker polls only every 5 minutes and sends its status only when something changed (every 2 minutes while a session it started runs); while it is down it polls as before (30 s, 10 s when busy). The log says `push connected` / `push disconnected`. An older Work OS without the stream: the worker tries again every 30 minutes and keeps polling meanwhile. The main loop is `loop.mjs`.
+
 ## Commands
 
 `run` (default), `setup`, `set-token`, `install`, `uninstall`, `status`, `scan [--dry]`, `activity [--titles]`.

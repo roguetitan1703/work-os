@@ -34,9 +34,40 @@ Besides database work, each MCP call used to build the whole MCP server (about 6
 ## Not done
 
 - /today still reads every open task with its full document (the page sends them to the browser). Cutting it needs a smaller task shape for the client.
-- `/today` and `/claude` still run `claudeOverview` (about 12 reads of sessions, devices and folders). Phase 5 (push instead of polling) replaces the polling behind it.
-- Dispatcher settings are read on every poll (tests and the UI write them directly, so no cache). Device key check is one read per poll; caching it would delay revocation.
+- `/today` and `/claude` still run `claudeOverview` (about 12 reads of sessions, devices and folders). Since push (below), `/claude` runs it only when something it shows changed, not every 30 s.
+- Dispatcher settings are read on every poll (tests and the UI write them directly, so no cache). Device key check is one read per poll; caching it would delay revocation. With push a worker polls every 5 minutes instead of every 30 s.
 - Session check, sign-in and `lib/usage.ts` belong to phase 1 and were not touched.
+
+## Push (phase 5): requests per hour, before and after
+
+Measured 2026-10-22 on the same build: before = the push stream blocked, so the page and worker fall back to the
+polling they did until now.
+
+| Idle client, one hour | Before (polling) | After (push) |
+|---|---|---|
+| Claude page, open and in use (input every 30 s) | 724 page fetches | 36 page fetches (all from the preloader, not the Claude page) + 2 stream connects |
+| Claude page, open and untouched | 72 page fetches | 6 page fetches (preloader, first 10 minutes) + 2 stream connects |
+| Worker, PC on, no session started from Work OS | 150 (120 job polls, 30 status) | 16 (12 job polls, 2 status, 2 stream connects) |
+
+How:
+- **Claude page.** `tests/e2e/push.mjs`, last section. Playwright runs a simulated hour (`page.clock`) on `/claude`
+  and counts the page's requests, once with `/api/stream` blocked and once with it open. "Page fetches" are RSC requests.
+  Before, each 30-second refresh also fetched again every link that was prefetched (about 6 requests per refresh;
+  see WORK-STATE Later on revalidation).
+- **Stream connects.** One stream connects when the page opens, then once per 30 minutes (`STREAM_TTL_MS`), so 2 an
+  hour. This is not visible inside the simulated hour, because the server's timer runs in real time.
+- **Worker.** `worker/test/loop.test.mjs` runs the real loop and core against a counting fake API on a simulated
+  clock, with push down and with push up.
+
+A change still costs one page fetch for each open Claude page that can see it, and the job a worker is woken for
+costs one poll. The time from Stop on the page to the job reaching the worker was about 0.3 to 0.4 s in the suite.
+
+The preloader still warms Today, Tasks and Projects every 5 minutes while a tab is in use (36 an hour). It now makes
+up all of an in-use Claude page's requests. It could warm only after a hint instead (WORK-STATE Later).
+
+Server side, a write costs nothing extra while nobody in its organization has a page open. When someone else does,
+it costs one small read (docs/multi-user.md "As built: phase 5 push"). Worker heartbeats now write a computer's
+report in one operation instead of three.
 
 ## Measuring again
 

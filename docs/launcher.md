@@ -88,6 +88,17 @@ Response: `{ "ok": true, "known": 112, "missing": 1 }`
 
 Response: `{ "ok": true }`
 
+### GET /api/worker/stream: push (phase 5)
+
+A Server-Sent Events stream with the same device-key check as the routes above (`worker/push.mjs`). Events:
+`hello` on open, `jobs` when there is something to fetch (a start, resume or stop job for this computer, a folder
+linked or unlinked, a task given to Claude, the dispatcher turned on, a claim that ended), `bye` when the server
+closes it (`ttl` after 30 minutes: reconnect at once; `closed`: the owner was removed or the computer revoked). No job
+data travels on it: on `jobs` the worker polls `GET /api/worker/jobs` at once. While it is up the worker polls only
+every 5 minutes, and sends status every 2 minutes only while a session it started runs or job results wait; otherwise
+only when what it reports changed (at least every 30 minutes). The server treats a connected computer as online and
+its last report as current. Details: docs/multi-user.md "As built: phase 5 push".
+
 ## Activity counts
 
 How many Claude Code sessions and subagents are running on each computer, and which ones (named), for Claude › Now. Read-only: the worker controls nothing from this. The counts are numbers only; the session list also carries folder names and session titles (see "Named session list").

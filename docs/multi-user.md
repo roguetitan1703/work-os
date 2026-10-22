@@ -232,6 +232,73 @@ Tests: `tests/e2e/team.mjs` (new). It covers:
 - removing a member (keys, computer, sessions, claims, assignments, private data kept), and removing a second owner;
 - the pickers and the Assigned views on desktop and phone.
 
+## As built: phase 5 push (2026-10-22, the code part)
+
+Open pages and workers are told when something changed instead of asking every 30 s. Server setup it needs: docs/hosting.md §12 "Push" and deploy/nginx/work-os.conf. The page stream is `/api/stream`, not `/api/live` (that is the liveness route outside the proxy).
+
+**Server-Sent Events, not WebSockets.** Every message goes one way (server to client); writes still go through server actions and the worker's HTTP routes. SSE is a plain GET that a Next 16 route handler can stream (`ReadableStream`), so it runs under `next start` and `next dev` as they are: no custom server, no `server.mjs`, nothing outside Next's router. The browser's `EventSource` sends the session cookie by itself. The worker reads the stream with `fetch` (Node 20+, no new dependency). A WebSocket would need a custom server for the upgrade, and Next's docs advise against one.
+
+**Two streams.**
+- `GET /api/stream` (pages). The proxy's session check runs first. The route then checks the session and the membership in its organization again (`callerFromHeaders`). Events: `hello`, `hint {t, s?}`, `bye {r}`, a ping comment every 25 s.
+- `GET /api/worker/stream` (workers). It makes the same check as every worker route (`workerDevice` in lib/worker-route.ts): a `wkr_` key that is not revoked, an owner who is still a member, and the rate limit. Events: `hello`, `jobs`, `bye`.
+- Each stream lives at most 30 minutes (`STREAM_TTL_MS`). The server then sends `bye {r:'ttl'}` and the client reconnects at once, so the session, membership and key are checked again at least every 30 minutes.
+- Removing a member closes their page and worker streams at once (`closeFor` in `releaseAccess`), and revoking a computer closes its stream (`closeDevice`). A reconnect is then refused.
+- The hub is `lib/live.ts`, in memory, on `globalThis`. That works because there is one server process. More than one instance would need a shared bus (Redis, or change streams) (WORK-STATE Later).
+
+**Fan-out happens in the write path, not in change streams.** Every write already passes through the door (`lib/scope.ts`), which knows who is writing and the visibility rules. `pushed()` wraps each write on a collection that has a topic:
+- tasks, activity and trash are `tasks`; projects are `projects`; notes are `notes`;
+- Claude items, computers, folders, jobs and sessions are `claude`;
+- the inbox is `inbox`; weekly reviews and routine logs are `review`.
+
+Once the write has committed (`afterCommit` in lib/db.ts; a rollback or a dry run sends nothing), the people who can read what it touched get a hint. Who that is follows the scope rules:
+- a shared document placed `org` reaches everyone in the organization; a private one reaches its owner;
+- a personal document reaches its owner or recipient;
+- both the before and the after placement count. So when a shared project is made private, the teammates who lose it hear about it too.
+
+What this costs per write:
+- nothing, and no extra read, while nobody in the organization has a page open;
+- no read when only the writer has one open (they can see everything their write touched);
+- otherwise one small `$group` read through the door's filter, before the write.
+
+We chose this over change streams for three reasons:
+- the audience is computed from the same rules and the same caller as the write, before and after;
+- deletes and visibility changes need no pre-images, which change streams would need set up on Atlas;
+- it needs no change-stream support from the Atlas tier, and opens no extra connection.
+
+The cost: writes that bypass the door (raw `// scope-ok` lines, Better Auth's collections, settings) send nothing unless they say so. Those that matter call `wake`/`hint` themselves.
+
+**Hints say nothing.** A hint is `{t: 'tasks'}`, plus `s: 1` when the change was the person's own (so a tab that is in the middle of its own write skips it). It carries no title, id or name, so a leaked event says only that something of yours changed.
+
+**Pages.**
+- `components/live.ts` opens one stream per tab, and only while something on the page listens (today only the Claude page's `AutoRefresh`).
+- It closes the stream when the tab has been out of view for a minute. Hints that come while the tab is hidden wait until it is visible again.
+- It reconnects with backoff (1 s, doubling to 60 s, with jitter). After a gap it sends listeners one `*` hint, since something may have changed meanwhile.
+- `AutoRefresh` refreshes on a `claude` or `tasks` hint through the existing path (`router.refresh()`, skipped or delayed while a `write()` lands). It re-renders until the new page is on screen, the same workaround `write()` uses.
+- It polls every 30 s, and refreshes on focus, only while the stream is down (the old behaviour).
+- Other pages never polled and are unchanged; they could listen with one line (WORK-STATE Later).
+
+**Worker** (worker/push.mjs, worker/loop.mjs).
+- The stream's `jobs` event makes the worker poll `/api/worker/jobs` at once. The job itself still comes from that route, so claims, hand-out and validation stay in one place.
+- A wake comes from: a start, resume or stop job; a folder linked or unlinked; a task given to Claude; the dispatcher turned on; a running claim that ended (a slot is free).
+- With the stream up, the poll is a 5-minute fallback (10 s while a job or a starting session is open, as before).
+- With the stream up, status goes out every 2 minutes only while a Work OS session runs or job results wait. Otherwise it goes only when what it reports changed, and at least every 30 minutes.
+- On the server, a connected computer counts as online, and its last report counts as current (`connectedDevice`).
+- A status report hints the person's Claude page only when what the page shows changed: counts, sessions, working/open/idle, a job result, a session state. Folder rescans hint only for new or vanished folders.
+- The stream reconnects with backoff, waits 5 minutes after the key is refused, and waits 30 minutes when the server has no push route (an older deployment). It drops a connection that has been silent for 70 s.
+
+**Tests.** `tests/e2e/push.mjs`:
+- who may connect, to each stream;
+- a teammate and the writer get a hint for shared work; the hint is marked as the writer's own for the writer;
+- for a private task, nobody else in the organization gets anything, and another organization gets nothing at all;
+- hints carry only a topic;
+- a project made private reaches the teammate who loses it;
+- an open Claude page shows a teammate's new item without a reload;
+- the real worker client gets a stop job pushed (about 0.3 to 0.4 s from the click);
+- removing a member closes their page and worker streams, and a reconnect is refused;
+- the request counts (docs/cpu.md).
+
+The worker's own tests cover the stream client, change-only status and a simulated hour of the loop.
+
 ## Audit summary (2026-10-19)
 
 - All 26 collections have no owner or organization field; numbers, project names and Claude item numbers are globally unique.

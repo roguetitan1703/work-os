@@ -337,4 +337,45 @@ A real restore is the same without `--nsFrom`/`--nsTo` (so into `workos`), with 
 
 ## 12. Push
 
-(Builder B: the WebSocket push for the worker and open pages, and anything nginx or systemd needs for it.)
+Pages and workers hold one long-lived HTTP response each: Server-Sent Events, not WebSockets (docs/multi-user.md
+"As built: phase 5 push"). So there is **no custom server and no `Upgrade` to forward** (the site's upgrade map is not needed for push): `next start` serves the two
+streams from ordinary route handlers.
+
+| Stream | Path | Who |
+|---|---|---|
+| Pages | `GET /api/stream` | session cookie (the proxy checks it like any page) |
+| Workers | `GET /api/worker/stream` | `Authorization: Bearer wkr_…` |
+
+What nginx must do for those two paths:
+
+- **No buffering.** The responses send `X-Accel-Buffering: no`, which nginx honours by itself; setting
+  `proxy_buffering off;` on the two locations as well does no harm. Without it, events sit in nginx's buffer and
+  arrive minutes late.
+- **Long read timeout.** A stream stays open up to 30 minutes; the server sends a comment line every 25 s.
+  `proxy_read_timeout` must be above 25 s (nginx default 60 s is enough; 120 s gives room). `proxy_send_timeout` the
+  same.
+- **HTTP/1.1 to the app, keep-alive.** `proxy_http_version 1.1;` and `proxy_set_header Connection "";` (no
+  `Connection: close` to the upstream).
+- **No gzip of the stream in nginx.** `text/event-stream` should not be in `gzip_types` (Next compresses and flushes
+  per event itself).
+- **HTTP/2 to browsers** (`listen 443 ssl http2;` or `http2 on;`). Over HTTP/1.1 a browser allows about 6 connections
+  per site, and every open Work OS tab holds one stream (a tab out of view drops it after a minute). With HTTP/2 they
+  share one connection.
+- **One app instance** (deploy/systemd/work-os.service runs one `next start`; no cluster mode). The hub that routes hints to streams lives in the
+  process; a second instance would not hear the first one's writes (and the in-memory role, member and rate caches
+  have the same limit).
+- Forward the usual `Host`, `X-Forwarded-For`, `X-Forwarded-Proto` as for every route.
+
+The block is in `deploy/nginx/work-os.conf` (`location ~ ^/api/(stream|worker/stream)$`). The site's `location /`
+already has buffering off and a 300 s timeout, so the streams would work without it; the block makes it explicit and
+turns gzip off. `/api/live` stays the plain liveness route (no session, outside the proxy). The streams are not
+under it: they go through the proxy's session check like every other API route, and each route checks the session
+or device key again itself.
+
+Check after the deploy: `curl -N -H "Authorization: Bearer <wkr_ key>" https://work.delpat.in/api/worker/stream`
+prints `event: hello` at once and `: ping` every 25 s. `/api/admin/health` (operator) shows `push: { pages, workers }`,
+the streams open now.
+
+Restarting the app drops every stream; pages and workers reconnect within seconds (backoff starts at 1 s), and a page
+refreshes once after the gap.
+
