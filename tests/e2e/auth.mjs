@@ -457,11 +457,11 @@ try {
     const mkey = 'wkr_' + randomBytes(32).toString('base64url');
     const mdev = randomUUID();
     await db.collection('devices').insertOne({ _id: mdev, name: 'member-pc', ownerId: invitee, orgId: ME.orgId, hash: sha(mkey), prefix: mkey.slice(0, 8), createdAt: new Date(), lastSeenAt: new Date(), revokedAt: null, worker: { version: '0.1.0', os: 'win32', allowPrompts: true } });
-    await db.collection('workerFolders').insertOne(folder(mdev, 'fM', 'member-folder', pid));
+    await db.collection('workerFolders').insertOne({ ...folder(mdev, 'fM', 'member-folder', pid), ownerId: invitee, orgId: ME.orgId });
     r = await act(member, 'giveToClaudeAction', String(tref));
     const marked = await db.collection('tasks').findOne({ ref: tref });
     check('private: Give to Claude records who gave it', r.text.includes('"ok":true') && marked?.claude?.markedByUserId === invitee, r.text.slice(0, 160));
-    await db.collection('settings').updateOne({ _id: 'dispatcher' }, { $set: { enabled: true, maxConcurrent: 3, boilerplateNoteId: 'n-auth' } }, { upsert: true });
+    for (const u of [ME.userId, invitee]) await db.collection('settings').updateOne({ _id: `dispatcher:${u}` }, { $set: { enabled: true, maxConcurrent: 3, boilerplateNoteId: 'n-auth' } }, { upsert: true });
     await api(own.key, 'GET', '/api/worker/jobs');
     check("private: the owner's computer does not claim the member's task", (await db.collection('tasks').findOne({ ref: tref }))?.claude?.state === 'queued');
     await api(mkey, 'GET', '/api/worker/jobs');
@@ -470,7 +470,7 @@ try {
     const owner = (await signIn(EMAIL, PW)).j.header();
     r = await act(owner, 'takeBackFromClaudeAction', String(tref), true);
     check("private: the owner cannot take back (stop) the member's Claude task", refused(r, 'Task not found') && (await db.collection('tasks').findOne({ ref: tref }))?.claude?.state === 'running', r.text.slice(0, 160));
-    await db.collection('settings').updateOne({ _id: 'dispatcher' }, { $set: { enabled: false } });
+    for (const u of [ME.userId, invitee]) await db.collection('settings').updateOne({ _id: `dispatcher:${u}` }, { $set: { enabled: false } });
   }
 
   // ======== 7d. per-account limit on failed sign-in steps ========

@@ -55,11 +55,13 @@ try {
   const p1 = (await must(kA, 'add_task', { title: 'Hidden loose task', due: '2026-01-05' })).created;
   const pv = (await must(kA, 'add_task', { title: 'Hidden vault task', project: 'Hidden Vault' })).created;
   const pv2 = (await must(kA, 'add_task', { title: 'Hidden vault trash me', project: 'Hidden Vault' })).created;
+  // add_task answers with the ref only; the id-based checks below need the task ids.
+  for (const t of [s1, p1, pv, pv2]) t.id = (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t.ref }))._id;
   await must(kA, 'add_comment', { task: p1.ref, note: 'Hidden comment text' });
   const pNote = (await must(kA, 'write_note', { task: p1.ref, body: 'Hidden note body' })).created;
   const vMemo = (await must(kA, 'write_note', { project: 'Hidden Vault', title: 'Hidden memo', body: 'Hidden memo body' })).created;
   const zMemo = (await must(kA, 'write_note', { project: 'Zephyr Shared', title: 'Zephyr memo', body: 'Zephyr memo body' })).created;
-  await must(kA, 'update_claude_items', { ops: [{ op: 'add', project: 'Hidden Vault', kind: 'task', title: 'Hidden vault item for the tenancy check', why, done_when: 'The tenancy suite passes.' }] });
+  await must(kA, 'update_claude_items', { ops: [{ op: 'add', project: 'Hidden Vault', kind: 'feature', title: 'Hidden vault item for the tenancy check', why, done_when: 'The tenancy suite passes.' }] });
   await must(kA, 'delete_task', { task: pv2.ref, title: 'Hidden vault trash me' });
   const p1Detail = await must(kA, 'get_task', { task: p1.ref });
   check('A: a task with no project is private', p1Detail.visibility === 'private', p1Detail.visibility);
@@ -71,7 +73,7 @@ try {
   const c1 = (await must(kC, 'add_task', { title: 'Quokka task by Cy' })).created;
   check('refs: a second organization starts at #1', c1.ref === 1, String(c1.ref));
   await must(kC, 'add_project', { name: 'Quokka Project' });
-  const ci = await must(kC, 'update_claude_items', { ops: [{ op: 'add', project: 'Quokka Project', kind: 'task', title: 'Quokka item numbering check for tenancy', why, done_when: 'The tenancy suite passes.' }] });
+  const ci = await must(kC, 'update_claude_items', { ops: [{ op: 'add', project: 'Quokka Project', kind: 'feature', title: 'Quokka item numbering check for tenancy', why, done_when: 'The tenancy suite passes.' }] });
   check('refs: Claude items start at C1 in a second organization', ci.results?.[0]?.ref === 'C1', JSON.stringify(ci.results));
   const cZephyr = await as(kC, 'add_project', { name: 'Zephyr Shared' });
   check('names: another organization may use the same project name', !cZephyr.isError, cZephyr.text);
@@ -91,8 +93,10 @@ try {
     return out;
   };
   const bReads = await readAll(kB);
-  const bText = bReads.map(r => r.text).join('\n');
-  check('B (same org): no private content in any MCP read', !/Hidden/.test(bText), bReads.filter(r => /Hidden/.test(r.text)).map(r => r.n).join(', '));
+  // A refusal may repeat the name that was asked for ('Project "Hidden Vault" not found'); that is not a leak.
+  const echoFree = r => r.text.replaceAll('Project "Hidden Vault" not found', '');
+  const bText = bReads.map(echoFree).join('\n');
+  check('B (same org): no private content in any MCP read', !/Hidden/.test(bText), bReads.filter(r => /Hidden/.test(echoFree(r))).map(r => r.n).join(', '));
   check('B: sees the shared task', /Zephyr shared task one/.test(bReads[0].text));
   check('B: sees the shared project note', /Zephyr memo/.test(bReads.find(r => r.n === 'read_note' && r.a.note_id === zMemo.id).text));
   check('B: A\'s private task by ref is not found', bReads.find(r => r.n === 'get_task' && r.a.task === p1.ref).isError);
@@ -105,8 +109,8 @@ try {
 
   // ---- C: nothing of the first organization ----
   const cReads = await readAll(kC);
-  const cText = cReads.map(r => r.text).join('\n');
-  check('C (other org): nothing of the first organization in any MCP read', !/Hidden|Zephyr shared|Zephyr memo|Bea/.test(cText), cReads.filter(r => /Hidden|Zephyr shared|Zephyr memo|Bea/.test(r.text)).map(r => `${r.n} ${JSON.stringify(r.a)}`).join(', '));
+  const cText = cReads.map(echoFree).join('\n');
+  check('C (other org): nothing of the first organization in any MCP read', !/Hidden|Zephyr shared|Zephyr memo|Bea/.test(cText), cReads.filter(r => /Hidden|Zephyr shared|Zephyr memo|Bea/.test(echoFree(r))).map(r => `${r.n} ${JSON.stringify(r.a)}`).join(', '));
   check('C: #1 is C\'s own task', /Quokka task by Cy/.test(cReads.find(r => r.n === 'get_task' && r.a.task === p1.ref)?.text ?? '') || p1.ref !== 1);
   for (const [n, a] of [['update_task', { task: s1.id, title: 'C was here' }], ['add_comment', { task: s1.id, note: 'C was here' }], ['complete_task', { task: s1.id }], ['delete_task', { task: s1.id, title: 'Zephyr shared task one' }], ['write_note', { note_id: zMemo.id, append: 'C was here' }], ['apply_changes', { ops: [{ op: 'update_task', task: s1.id, priority: 'P1' }] }]]) {
     const r = await as(kC, n, a);
@@ -120,14 +124,14 @@ try {
   // ---- inbox notices go to their recipient, by the recipient's own settings ----
   await rawDb.collection('settings').insertOne({ _id: `notify:${A.userId}`, area: 'notify', orgId: A.orgId, userId: A.userId, notify: { kinds: { claude_waiting: false } } });
   await must(kA, 'update_claude_items', { ops: [
-    { op: 'add', project: 'Zephyr Shared', kind: 'task', title: 'Zephyr question for Bea in the tenancy run', why, done_when: 'Bea answers.', waiting_on_om: 'Bea: pick a colour', waiting_on: 'bea@example.test' },
-    { op: 'add', project: 'Zephyr Shared', kind: 'task', title: 'Zephyr question for the owner in this run', why, done_when: 'The owner answers.', waiting_on_om: 'Owner: pick a size' },
+    { op: 'add', project: 'Zephyr Shared', kind: 'feature', title: 'Zephyr question for Bea in the tenancy run', why, done_when: 'Bea has answered the question.', waiting_on_om: 'Bea: pick a colour', waiting_on: 'bea@example.test' },
+    { op: 'add', project: 'Zephyr Shared', kind: 'feature', title: 'Zephyr question for the owner in this run', why, done_when: 'The owner has answered the question.', waiting_on_om: 'Owner: pick a size' },
   ] });
   const waitB = await rawDb.collection('notifications').countDocuments({ userId: Bu.userId, kind: 'claude_waiting' });
   const waitA = await rawDb.collection('notifications').countDocuments({ userId: A.userId, kind: 'claude_waiting' });
   check('inbox: the item waiting on B tells B', waitB === 1, String(waitB));
   check('inbox: A turned "Claude needs you" off, so A gets none (A\'s own settings)', waitA === 0, String(waitA));
-  const bad = await as(kA, 'update_claude_items', { ops: [{ op: 'add', project: 'Zephyr Shared', kind: 'task', title: 'Zephyr question for an outsider in this run', why, done_when: 'Nobody.', waiting_on_om: 'x', waiting_on: 'cy@example.test' }] });
+  const bad = await as(kA, 'update_claude_items', { ops: [{ op: 'add', project: 'Zephyr Shared', kind: 'feature', title: 'Zephyr question for an outsider in this run', why, done_when: 'Nobody can answer this one.', waiting_on_om: 'x', waiting_on: 'cy@example.test' }] });
   check('waiting_on: someone outside the organization is refused', bad.isError, bad.text);
   // B's Claude Code changes A's shared task: A (its recipient) is told, B is not
   await must(kBcode, 'update_task', { task: s1.ref, priority: 'P1' });
@@ -137,6 +141,7 @@ try {
 
   // ---- alerts: queued for the recipient only ----
   const dep = (await must(kA, 'add_task', { title: 'Zephyr waits on Bea', project: 'Zephyr Shared', depends_on: [sB.ref] })).created;
+  dep.id = (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: dep.ref }))._id;
   await must(kB, 'complete_task', { task: sB.ref });
   await new Promise(r => setTimeout(r, 2500));
   const q = await rawDb.collection('alertQueue').find({ taskId: dep.id }).toArray();
@@ -184,6 +189,12 @@ try {
     await p.waitForTimeout(500);
     return { status: r?.status() ?? 0, text: await p.locator('body').innerText() };
   };
+  // A not-found page under the app's loading boundary streams with status 200; its body says so.
+  const gone = r => (r.status === 404 || /could not be found/i.test(r.text));
+  const missing = async (p, path, secret) => {
+    const r = await text(p, path);
+    return { ok: gone(r) && !secret.test(r.text), why: `${r.status} ${r.text.slice(0, 120).replace(/\s+/g, ' ')}` };
+  };
   const search = async (p, q) => {
     await p.goto(B + '/today');
     await p.waitForTimeout(600);
@@ -203,13 +214,16 @@ try {
   await session('bea@example.test', async p => {
     const tasks = await text(p, '/tasks');
     check('B pages: /tasks shows the shared task, not A\'s private ones', /Zephyr shared task one/.test(tasks.text) && !/Hidden/.test(tasks.text));
-    check('B pages: A\'s private task page is not found', (await text(p, `/tasks/${p1.ref}`)).status === 404);
+    let m = await missing(p, `/tasks/${p1.ref}`, /Hidden/);
+    check('B pages: A\'s private task page is not found', m.ok, m.why);
     for (const path of ['/notes', '/projects', '/today', '/review?view=activity', '/review?view=trash', '/review?view=done', '/notifications', `/projects/${zephyr.id}`, `/projects/${zephyr.id}?tab=claude`]) {
       const r = await text(p, path);
       check(`B pages: ${path} shows nothing private of A`, r.status === 200 && !/Hidden/.test(r.text), `${r.status} ${(r.text.match(/.{0,40}Hidden.{0,40}/) ?? [''])[0]}`);
     }
-    check('B pages: A\'s private project is not found', (await text(p, `/projects/${vault.id}`)).status === 404);
-    check('B pages: A\'s private note is not found', (await text(p, `/notes/${vMemo.id}`)).status === 404);
+    m = await missing(p, `/projects/${vault.id}`, /Hidden/);
+    check('B pages: A\'s private project is not found', m.ok, m.why);
+    m = await missing(p, `/notes/${vMemo.id}`, /Hidden/);
+    check('B pages: A\'s private note is not found', m.ok, m.why);
     const inbox = await text(p, '/notifications');
     check('B inbox: B\'s notice, not A\'s', /Claude needs you/.test(inbox.text) && !/changed #/.test(inbox.text) && !/Owner: pick a size/.test(inbox.text));
     const dev = await text(p, '/settings?section=device');
@@ -228,17 +242,23 @@ try {
     check('notes upload: own organization\'s folder passes the path check', (await upload(p, `notes/${A.orgId}/x.png`)) === 503);
   });
 
+  const FIRST = /Hidden|Zephyr shared task|Zephyr memo|Zephyr waits|Bea/; // C has its own "Zephyr Shared" project (names check above)
   await session('cy@example.test', async p => {
     for (const path of ['/tasks', '/notes', '/projects', '/today', '/review?view=activity', '/review?view=trash', '/notifications', '/claude']) {
       const r = await text(p, path);
-      check(`C pages: ${path} shows nothing of the first organization`, r.status === 200 && !/Hidden|Zephyr|Bea/.test(r.text), `${r.status} ${(r.text.match(/.{0,40}(Hidden|Zephyr|Bea).{0,40}/) ?? [''])[0]}`);
+      check(`C pages: ${path} shows nothing of the first organization`, r.status === 200 && !FIRST.test(r.text), `${r.status} ${(r.text.match(/.{0,40}(Hidden|Zephyr shared task|Zephyr memo|Zephyr waits|Bea).{0,40}/) ?? [''])[0]}`);
     }
-    for (const path of [`/projects/${zephyr.id}`, `/projects/${vault.id}`, `/notes/${zMemo.id}`, `/tasks/${s1.id}`]) check(`C pages: ${path} is not found`, (await text(p, path)).status === 404);
+    for (const path of [`/projects/${zephyr.id}`, `/projects/${vault.id}`, `/notes/${zMemo.id}`, `/tasks/${s1.id}`]) {
+      const m = await missing(p, path, FIRST);
+      check(`C pages: ${path} is not found`, m.ok, m.why);
+    }
     const t1 = await text(p, '/tasks/1');
-    check('C pages: /tasks/1 is C\'s own task', /Quokka task by Cy/.test(t1.text) && !/Zephyr|Hidden/.test(t1.text));
+    // the title is an input on the task page
+    t1.text += ' ' + (await p.locator('input, textarea').evaluateAll(es => es.map(e => e.value).join(' ')));
+    check('C pages: /tasks/1 is C\'s own task', /Quokka task by Cy/.test(t1.text) && !FIRST.test(t1.text), t1.text.slice(0, 160).replace(/\s+/g, ' '));
     for (const q of ['Zephyr', 'Hidden']) {
       const r = await search(p, q);
-      check(`C search: "${q}" finds nothing`, r.n === 0 || !/Zephyr|Hidden/.test(r.t), r.t);
+      check(`C search: "${q}" finds nothing of the first organization`, r.n === 0 || !FIRST.test(r.t), r.t);
     }
     check('C notes file: the first organization\'s files are not served', (await filePath(p, `notes/${A.orgId}/secret.png`)) === 404);
     check('C notes file: files from before organizations are the first organization\'s only', (await filePath(p, 'notes/legacy.png')) === 404);
