@@ -15,6 +15,7 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- Claude page: after Move/Next/Remove in the queue or sessions list, the list sometimes stays stale (old order, disabled buttons, removed row still shown) until a reload, though the database is right; e2e now reloads to get past it. Suspect the 10 s auto-refresh racing the action's router.refresh (queue-tab.tsx does not await it and clears busy at once) — waits on a builder B slot.
 - Phase 2 review leftovers: a teammate editing a sub-page of a task's note (or deleting/restoring the note) does not take the task back from Claude (only the root note has taskId; walk up to the root); a queued-to-running race can miss a take-back; moving a project org→private onto a name you already use privately gives a 500 (unhandled E11000); restoreTask deletes the trash doc before inserting — waits on a builder A slot after phase 3.
 - Operator by email: an admin who invites an address in OPERATOR_EMAILS that has no account yet makes that invitee an operator (invites set emailVerified) — create operator accounts before inviting anyone (deploy step above).
 - Take back on a legacy running Claude task (no marker) lets anyone mark it stopped; the session keeps running — goes away after the migration (no legacy marks) .
