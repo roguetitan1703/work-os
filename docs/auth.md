@@ -53,7 +53,7 @@ every member sees everything. Phase 2 does that.
 | `lib/caller.ts` | `getCaller()` → `{userId, orgId, role, email, name, via, key?}`; `requireCaller(...roles)`, `withCaller`, `asCaller`, `callerFromRequest`, `verifyKey` |
 | `lib/members.ts` | members list, invite, cancel, view and accept invitations |
 | `lib/api-keys.ts`, `lib/devices.ts` | Claude keys on the apiKey plugin (`metadata: {agent, orgId}`); worker devices with `ownerId`/`orgId` |
-| `app/api/auth/[...all]/route.ts` | Better Auth over HTTP, **allowlist only**: sign-in, sign-out, session, reset, change password, sessions, two-factor, passkeys, organization reads, set-active, cancel-invitation. Sign-up, API keys, organization create and invite are 404: server code calls `auth.api.*` directly |
+| `app/api/auth/[...all]/route.ts` | Better Auth over HTTP, **allowlist only**: sign-in, sign-out, session, reset, change password, sessions, two-factor, passkeys, organization reads, set-active. Sign-up, API keys, organization create, invite and cancel-invitation are 404: server code calls `auth.api.*` directly |
 | `proxy.ts` | session via Better Auth's cookie cache; a Claude chat key passes on API routes |
 | `scripts/migrate-auth.mjs`, `scripts/lib/auth-admin.mjs` | the migration; a script-side Better Auth for creating users, organizations and keys (also used by the e2e seed) |
 
@@ -62,9 +62,12 @@ every member sees everything. Phase 2 does that.
   and history records the actor as an object with its user (`{kind:'agent', agent:'claude', userId}`; see
   docs/multi-user.md "As built").
 - **Proxy cost:** the signed `workos.session_data` cookie (compact, 120 s) is checked without a database read. When
-  it is stale the proxy calls `getSession` once and forwards the refreshed cookies. So a revoked session or removed
-  member can keep opening pages for up to 2 minutes; server actions and `getCaller()` read the session from the
-  database. `/api/worker`, `/api/mcp`, `/api/cron`, `/api/discord/interactions` and `/api/auth` check their own
+  it is stale the proxy calls `getSession` once and forwards the refreshed cookies. So a revoked or signed-out session
+  can keep opening pages (and GET routes) for up to 2 minutes; a removed member cannot (their role is read on every
+  request, and removal clears the role cache). Server actions and POST routes read the session from the database
+  (`callerFromHeaders`; until the leak audit they used the cookie cache too, so a cookie copied before sign-out could
+  still write for 2 minutes).
+  `/api/worker`, `/api/mcp`, `/api/cron`, `/api/discord/interactions` and `/api/auth` check their own
   credentials. Public pages: `/login`, `/login/reset`, `/accept-invitation/<id>`.
 - **Keys:** `wos_` + 48 characters, hashed by the plugin; `verifyKey` also requires the owner to still be a member of
   the key's organization (roles cached 60 s per instance). The plugin's own HTTP endpoints are not served. The URL

@@ -91,10 +91,14 @@ async function firstOrg(userId: string): Promise<string | null> {
   return m ? String(m.organizationId) : null;
 }
 
-/** The signed-in caller for these request headers (session cookie, cookie cache first), or null. */
-export async function callerFromHeaders(h: Headers): Promise<Caller | null> {
+/**
+ * The signed-in caller for these request headers, or null. Page renders and other reads trust Better Auth's signed
+ * cookie cache (up to COOKIE_CACHE_SECONDS old); a server action (`next-action` header) or `fresh` reads the session
+ * from the database, so a session that signed out or was revoked can no longer change anything (docs/auth.md).
+ */
+export async function callerFromHeaders(h: Headers, fresh = h.has('next-action')): Promise<Caller | null> {
   const auth = await getAuth();
-  const s = await auth.api.getSession({ headers: h }).catch(() => null);
+  const s = await auth.api.getSession({ headers: h, ...(fresh ? { query: { disableCookieCache: true } } : {}) }).catch(() => null);
   if (!s?.user) return null;
   const userId = String(s.user.id);
   const orgId = (s.session as { activeOrganizationId?: string | null }).activeOrganizationId || (await firstOrg(userId));
@@ -148,7 +152,7 @@ export async function verifyKey(token: string | null | undefined, agents: Agent[
 
 /** Route handlers other than /api/mcp: the session cookie, else a Claude chat key header (not a Claude Code key). */
 export async function callerFromRequest(req: Request): Promise<Caller | null> {
-  return (await callerFromHeaders(req.headers)) ?? (await verifyKey(bearerToken(req), ['claude']));
+  return (await callerFromHeaders(req.headers, req.method !== 'GET' && req.method !== 'HEAD')) ?? (await verifyKey(bearerToken(req), ['claude']));
 }
 
 /** Runs fn with the caller's user id (history entries record it) and timezone ("today") in the request context. */

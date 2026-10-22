@@ -301,6 +301,43 @@ The cost: writes that bypass the door (raw `// scope-ok` lines, Better Auth's co
 
 The worker's own tests cover the stream client, change-only status and a simulated hour of the loop.
 
+## Leak audit (2026-10-23)
+
+`tests/e2e/leak-audit.mjs` (in `tests/e2e/run.sh`, stub Discord, about a minute) calls every way into the app as several people and fails on anything one of them should not see or change.
+
+**What it covers.** `tests/e2e/entry-points.mjs` reads every entry point from the code, not a hand list: route handlers and their methods, the Better Auth endpoints the auth route serves, server actions (`'use server'` exports and inline ones), pages, MCP tools, and Discord commands, autocompletes and buttons (181 today; `node tests/e2e/entry-points.mjs` lists them). The suite fails on an entry point with no audit entry, and on an action in the build that is not an enumerated export. For each entry point it checks:
+- **reads:** unique marker strings (canaries) are planted in every private and other-organization document (titles, descriptions, notes, comments, Claude items, schedules, reviews, inbox, push devices, computers, folders, prompts, keys, Discord messages, invitation tokens). Every answer (body, Discord reply, alert DM, push event) is scanned; a canary its reader may not see is a leak;
+- **writes:** every collection, Better Auth's included, is read before and after each person's calls, and every change is checked against who may write that document;
+- **existence:** every aimed call runs again with a made-up id, number or name of the same shape, and "not yours" must answer like "does not exist";
+- **refusals are real:** the owner makes the same calls on their own things (controls), and they must work; no aimed call may be refused by a server error; for each kind of entry point some refusals must read as the access check ("not found", a sign-in redirect, 401/403/404);
+- **keys where they don't belong:** worker keys on MCP, chat and Claude Code keys on worker routes and pages, keys on server actions, a removed member's keys and computer, the cron secret in a URL, Better Auth endpoints that are not served, and a cookie copied before sign-out on a server action.
+
+**Personas.**
+- **A** owns the first organization: the controls.
+- **T** is a member there, aimed at A's private things.
+- **X** owns a second organization (with its own Discord server), aimed at the first organization's shared work. X's task and Claude item numbers start at 50000, so a number X sends is never X's own.
+- **R** was a member, removed through Settings › Members; the removal's clean-up is then undone (session, keys, computer back), so only the missing membership keeps R out.
+- **N** has no credentials.
+
+**Adding an entry point.** A new route, action, page, MCP tool or Discord command fails the suite with "unaudited entry point: …" until it has an entry in `AUDIT()` at the end of the suite: `add('<id>', probe, …)`.
+- Use the helpers: `M`/`Mc` for MCP, `act` for actions, `pg` for pages, `route`, `worker`, `authEp`, `disc`.
+- Aim it with `aim([...target keys])` when it takes an id, number or name of someone else's document. The targets are in `TARGET`, `FAKE` and `OWN`; add a key there if it needs a new kind of document, and plant a canary in that document.
+- Give it an `ok` that tells "it worked" from a refusal (an empty list is a refusal).
+- Check that the owner's control passes. Use `stage: 1` or `2` if the call destroys its target, and give it its own target if another control destroys the same one.
+- Run with `LEAK_AUDIT_LIST=1` to print every refusal, and check that they read as the access check, not as a validation error.
+- The probe options are listed above `AUDIT()`.
+
+**Accepted differences** (marked `existenceOk`, or by design):
+- `/api/auth/passkey/delete-passkey` and `update-passkey`: Better Auth answers 401 for someone else's passkey and 404 for none. Passkey ids are random and never shown to anyone else.
+- Task and Claude item numbers are per organization, so a new number tells a member how many there are (by design).
+- R still has an account: their own `get-session`, `list-sessions`, passkey list and options, and organization list answer (the organization list is empty).
+- A name nobody can see, given as a task's project (add, move, import), makes the caller a project of that name. This happens alike for a real and a made-up name (by design). The suite removes these after each call.
+- Sign-in with a wrong password and password reset answer the same for a known and an unknown email (checked, no exception).
+
+**Found and fixed** by the first run:
+- Server actions and POST routes read the session through Better Auth's cookie cache. So a copy of a cookie kept after sign-out (or a revoked session) could still write for up to 2 minutes. They now read the session from the database (`callerFromHeaders` in lib/caller.ts). Pages and GET routes still use the cache (docs/auth.md).
+- Cancelling another organization's invitation answered "Member not found" (Better Auth) instead of "Invitation not found". So an owner of one organization could tell that an invitation id of another was real. `cancelInvitation` now checks first that the invitation is in the caller's organization. `/api/auth/organization/cancel-invitation` is no longer served: nothing used it, and Settings › Members uses the server action.
+
 ## Audit summary (2026-10-19)
 
 - All 26 collections have no owner or organization field; numbers, project names and Claude item numbers are globally unique.

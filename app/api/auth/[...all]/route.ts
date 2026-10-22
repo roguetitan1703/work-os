@@ -45,7 +45,6 @@ const ALLOWED = new Set([
   '/organization/list-members',
   '/organization/get-active-member',
   '/organization/get-active-member-role',
-  '/organization/cancel-invitation',
 ]);
 
 function allowed(pathname: string): boolean {

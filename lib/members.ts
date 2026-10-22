@@ -192,6 +192,12 @@ async function releaseAccess(orgId: string, userId: string): Promise<{ computers
 
 export async function cancelInvitation(c: Caller, id: string): Promise<void> {
   if (c.role !== 'owner' && c.role !== 'admin') throw new SafeError('Only an owner or admin can cancel an invitation.');
+  // Another organization's invitation answers like one that does not exist (Better Auth would say "Member not found",
+  // telling the caller the id is real).
+  const db = await getDb();
+  if (!(await db.collection('invitation').findOne({ _id: idIn(String(id ?? '')), organizationId: idIn(c.orgId) }, { projection: { _id: 1 } }))) {
+    throw new SafeError('Invitation not found');
+  }
   const auth = await getAuth();
   try {
     await auth.api.cancelInvitation({ headers: await headers(), body: { invitationId: String(id) } });
