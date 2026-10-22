@@ -77,6 +77,14 @@ try {
   check('refs: Claude items start at C1 in a second organization', ci.results?.[0]?.ref === 'C1', JSON.stringify(ci.results));
   const cZephyr = await as(kC, 'add_project', { name: 'Zephyr Shared' });
   check('names: another organization may use the same project name', !cZephyr.isError, cZephyr.text);
+  check('ids: new project ids are the name plus a random tail', /^hidden-vault-[0-9a-f]{8}$/.test(vault.id) && /^zephyr-shared-[0-9a-f]{8}$/.test(zephyr.id), `${vault.id} ${zephyr.id}`);
+  const cz = await rawDb.collection('projects').findOne({ orgId: Cu.orgId, nameLower: 'zephyr shared' });
+  check('ids: the same name in another organization gets an unrelated id (no -2)', !!cz && cz._id !== zephyr.id && /^zephyr-shared-[0-9a-f]{8}$/.test(cz._id), cz?._id);
+
+  // ---- apply_changes keeps the visibility it was asked for ----
+  await must(kA, 'apply_changes', { ops: [{ op: 'add_project', name: 'Hidden batch project', visibility: 'private' }] });
+  const bpDoc = await rawDb.collection('projects').findOne({ orgId: A.orgId, nameLower: 'hidden batch project' });
+  check('apply_changes: add_project with visibility private is private', bpDoc?.visibility === 'private' && bpDoc.ownerId === A.userId, JSON.stringify(bpDoc && bpDoc.visibility));
 
   // ---- B: shared yes, private no (every read tool) ----
   const readAll = async key => {
@@ -106,6 +114,15 @@ try {
   check('B: cannot write to A\'s private note', bNote.isError, bNote.text);
   const bProj = await as(kB, 'add_task', { title: 'Into the vault', project: 'Hidden Vault' });
   check('B: cannot add to A\'s private project (and does not create a clash)', bProj.isError || bProj.json?.created?.ref !== undefined, bProj.text);
+  const into = await rawDb.collection('tasks').findOne({ orgId: A.orgId, title: 'Into the vault' });
+  check('names: B\'s task did not go into A\'s private project', !into || into.projectId !== vault.id, into?.projectId);
+  check('names: nothing tells B that someone has a private project of that name', !/private to someone|already exists/i.test(bProj.text), bProj.text.slice(0, 160));
+  // B made their own "Hidden Vault": remove it so the later checks look for A's private things only.
+  if (into) {
+    await rawDb.collection('tasks').deleteOne({ _id: into._id });
+    await rawDb.collection('activity').deleteMany({ taskId: into._id });
+    if (into.projectId && into.projectId !== vault.id) await rawDb.collection('projects').deleteOne({ _id: into.projectId });
+  }
 
   // ---- C: nothing of the first organization ----
   const cReads = await readAll(kC);
@@ -173,8 +190,54 @@ try {
   await rawDb.collection('devices').insertOne({ _id: randomUUID(), name: 'Old-PC', hash: sha(ownerless), prefix: ownerless.slice(0, 8), createdAt: new Date(), lastSeenAt: null, revokedAt: null });
   const old = await fetch(B + '/api/worker/jobs', { headers: { authorization: `Bearer ${ownerless}` } });
   check('worker: a computer with no owner is refused', old.status === 401, String(old.status));
-  const health = await fetch(B + '/api/admin/health', { headers: { authorization: `Bearer ${kC}` } }).then(r => r.json());
-  check('admin/health: C\'s counts are C\'s organization only', health.counts?.tasks === 1 && health.counts?.projects === 2, JSON.stringify(health.counts));
+  const hC = await fetch(B + '/api/admin/health', { headers: { authorization: `Bearer ${kC}` } });
+  check('admin/health: another organization\'s owner is not the operator -> 403', hC.status === 403, hC.status);
+  const reg = await fetch(B + '/api/admin/discord/register', { headers: { authorization: `Bearer ${kC}` } });
+  check('admin/discord/register: another organization\'s owner -> 403', reg.status === 403, reg.status);
+  const health = await fetch(B + '/api/admin/health', { headers: { authorization: `Bearer ${kA}` } }).then(r => r.json());
+  const aTasks = await rawDb.collection('tasks').countDocuments({ orgId: A.orgId, $or: [{ visibility: 'org' }, { ownerId: A.userId }] });
+  check('admin/health: the operator\'s counts are of their own view', health.counts?.tasks === aTasks, `${health.counts?.tasks} vs ${aTasks}`);
+
+  // ---- restore follows the project as it is now ----
+  await must(kA, 'add_project', { name: 'Restore Room' });
+  const rr = (await must(kB, 'add_task', { title: 'Restore room task by Bea', project: 'Restore Room' })).created;
+  await must(kB, 'delete_task', { task: rr.ref, title: 'Restore room task by Bea' });
+  await must(kA, 'update_project', { project: 'Restore Room', visibility: 'private' });
+  const rB = await as(kB, 'restore_task', { task: rr.ref });
+  check('restore: a task whose project went private is not found for the teammate', rB.isError && /not in the trash|not found/i.test(rB.text), rB.text.slice(0, 160));
+  const rA = await as(kA, 'restore_task', { task: rr.ref });
+  const rrDoc = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: rr.ref });
+  check('restore: the private project\'s owner gets it back private to them', !rA.isError && rrDoc?.visibility === 'private' && rrDoc.ownerId === A.userId, `${rA.text.slice(0, 100)} ${rrDoc?.visibility}`);
+  const rrAct = await rawDb.collection('activity').find({ taskId: rrDoc?._id }).toArray();
+  check('restore: its history follows (the trashed line included)', rrAct.length >= 3 && rrAct.every(a => a.visibility === 'private' && a.ownerId === A.userId), JSON.stringify(rrAct.map(a => [a.type, a.visibility])));
+  await must(kA, 'add_project', { name: 'Restore Den', visibility: 'private' });
+  const rd = (await must(kA, 'add_task', { title: 'Restore den task', project: 'Restore Den' })).created;
+  await must(kA, 'delete_task', { task: rd.ref, title: 'Restore den task' });
+  await must(kA, 'update_project', { project: 'Restore Den', visibility: 'org' });
+  const rB2 = await as(kB, 'restore_task', { task: rd.ref });
+  const rdDoc = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: rd.ref });
+  check('restore: a task whose project became shared comes back shared (a teammate may restore it)', !rB2.isError && rdDoc?.visibility === 'org' && rdDoc.ownerId === A.userId, `${rB2.text.slice(0, 120)} ${rdDoc?.visibility}`);
+  check('restore: ...and the teammate sees what they restored', !(await as(kB, 'get_task', { task: rd.ref })).isError);
+
+  // ---- note files: what is shown inline (lib/note-files.ts, imported as is) ----
+  const nf = await import('../../lib/note-files.ts');
+  const hd = (t, n) => nf.noteFileHeaders(t, n);
+  check('note files: png shows inline', hd('image/png', 'a.png')['Content-Disposition'].startsWith('inline') && hd('image/png', 'a.png')['Content-Type'] === 'image/png');
+  for (const [t, n] of [['image/svg+xml', 'a.svg'], ['text/html', 'a.html'], ['text/html; charset=utf-8', 'x.png'], ['application/xhtml+xml', 'a.xhtml'], ['', 'a'], ['text/plain', 'a.txt']]) {
+    const h = hd(t, n);
+    check(`note files: ${t || '(no type)'} downloads and cannot render`, h['Content-Disposition'].startsWith('attachment') && !/html|svg|xml|text\//.test(h['Content-Type']), JSON.stringify(h));
+  }
+  check('note files: every file gets the sandbox policy and nosniff', /sandbox/.test(hd('image/png', 'a.png')['Content-Security-Policy']) && hd('text/html', 'a')['X-Content-Type-Options'] === 'nosniff');
+  check('note files: no SVG in the upload list', !nf.UPLOAD_TYPES.some(t => /svg|html|xml|javascript/.test(t)));
+  check('note files: only notes/<org>/<note>/<name> paths', !!nf.parseNoteFilePath('notes/o1/n1/a.png') && !nf.parseNoteFilePath('notes/o1/a.png') && !nf.parseNoteFilePath('notes/a.png') && !nf.parseNoteFilePath('notes/o1/n1/../a.png') && !nf.parseNoteFilePath('notes/o1/n1/.htaccess'));
+
+  // ---- the operator's things (OPERATOR_EMAILS = the e2e owner) ----
+  const tB = await fetch(B + '/api/timetable/today', { headers: { authorization: `Bearer ${kB}` } }).then(r => r.json());
+  const tA = await fetch(B + '/api/timetable/today', { headers: { authorization: `Bearer ${kA}` } }).then(r => r.json());
+  check('schedule: a teammate gets an empty schedule (it is the operator\'s week)', Array.isArray(tB.schedule) && tB.schedule.length === 0 && tB.currentBlock === null, JSON.stringify(tB).slice(0, 120));
+  check('schedule: the operator gets theirs', Array.isArray(tA.schedule) && tA.schedule.length > 0);
+  const hB = await fetch(B + '/api/admin/health', { headers: { authorization: `Bearer ${kB}` } });
+  check('admin/health: a member -> 403', hB.status === 403, hB.status);
 
   // ---- pages, search and note files (browser) ----
   const b = await launch();
@@ -232,6 +295,15 @@ try {
     check('B search: nothing private of A', sh.n === 0 || !/Hidden/.test(sh.t), sh.t);
     const sz = await search(p, 'Zephyr');
     check('B search: finds shared work', sz.n > 0 && /Zephyr/.test(sz.t), sz.t);
+    check('B notes upload: into A\'s private note is refused', (await upload(p, `notes/${A.orgId}/${vMemo.id}/x.png`)) === 400);
+    check('B notes upload: into a shared note passes the checks', (await upload(p, `notes/${A.orgId}/${zMemo.id}/x.png`)) === 503);
+    check('B notes file: A\'s private note\'s file is not served', (await filePath(p, `notes/${A.orgId}/${vMemo.id}/x.png`)) === 404);
+    check('B notes file: a shared note\'s file passes the checks', (await filePath(p, `notes/${A.orgId}/${zMemo.id}/x.png`)) === 503);
+    check('B notes file: a path without a note is not served', (await filePath(p, `notes/${A.orgId}/x.png`)) === 404);
+    const use = await text(p, '/settings?section=usage');
+    check('B settings: Usage is the operator\'s only', !/Last 24 h/.test(use.text) && (await p.locator('[data-usage], [data-section=usage], [data-row=usage]').count()) === 0, use.text.slice(0, 120));
+    const sched = await text(p, '/timetable');
+    check('B schedule page: empty for a teammate', /No schedule yet/.test(sched.text), sched.text.slice(0, 120));
   });
 
   await session(EMAIL, async p => {
@@ -239,7 +311,10 @@ try {
     check('A settings: push devices are A\'s own (2)', /2 devices receiving push/.test(dev.text), (dev.text.match(/\d+ devices? receiving push/) ?? ['none'])[0]);
     const inbox = await text(p, '/notifications');
     check('A inbox: A\'s notices, not B\'s', /changed #/.test(inbox.text) && !/Bea: pick a colour/.test(inbox.text));
-    check('notes upload: own organization\'s folder passes the path check', (await upload(p, `notes/${A.orgId}/x.png`)) === 503);
+    check('notes upload: into one\'s own note passes the checks', (await upload(p, `notes/${A.orgId}/${vMemo.id}/x.png`)) === 503);
+    check('notes file: one\'s own private note\'s file passes the checks', (await filePath(p, `notes/${A.orgId}/${vMemo.id}/x.png`)) === 503);
+    const use = await text(p, '/settings?section=usage');
+    check('A settings: the operator sees Usage', /Last 24 h/.test(use.text));
   });
 
   const FIRST = /Hidden|Zephyr shared task|Zephyr memo|Zephyr waits|Bea/; // C has its own "Zephyr Shared" project (names check above)
@@ -260,9 +335,9 @@ try {
       const r = await search(p, q);
       check(`C search: "${q}" finds nothing of the first organization`, r.n === 0 || !FIRST.test(r.t), r.t);
     }
-    check('C notes file: the first organization\'s files are not served', (await filePath(p, `notes/${A.orgId}/secret.png`)) === 404);
-    check('C notes file: files from before organizations are the first organization\'s only', (await filePath(p, 'notes/legacy.png')) === 404);
-    check('C notes upload: into the first organization\'s folder is refused', (await upload(p, `notes/${A.orgId}/x.png`)) === 400);
+    check('C notes file: the first organization\'s files are not served', (await filePath(p, `notes/${A.orgId}/${zMemo.id}/x.png`)) === 404);
+    check('C notes file: older paths are not served', (await filePath(p, 'notes/legacy.png')) === 404);
+    check('C notes upload: into the first organization\'s note is refused', (await upload(p, `notes/${A.orgId}/${zMemo.id}/x.png`)) === 400);
     check('C notes upload: an old-style path (no organization) is refused', (await upload(p, 'notes/x.png')) === 400);
   });
   await b.close();

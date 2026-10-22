@@ -46,7 +46,7 @@ Each phase ships with its e2e suites passing and a security review before merge 
 
 ## As built: phase 2, ownership (2026-10-22)
 
-**Fields.** Shared collections (projects, tasks, activity, notes, claudeItems, trash) carry `orgId`, `ownerId`, `visibility`. Tasks also have `assigneeId` (null until phase 4 adds assigning). Children copy their placement: a task, note, Claude item, history entry or trash entry lives where its project lives. With no project it is private to its owner. In a private project it is private to the project's owner. Personal collections carry `orgId` plus `ownerId` (reviews, ritualLogs, devices, workerFolders/Jobs/Sessions) or the recipient `userId` (notifications, pushSubs, alertLog, alertQueue). Counters are `task:<orgId>` and `claudeItems:<orgId>`. Indexes: `(orgId, ref)` unique on tasks and claudeItems, `(orgId, name)` unique on projects, `(ownerId, date)` unique on ritualLogs.
+**Fields.** Shared collections (projects, tasks, activity, notes, claudeItems, trash) carry `orgId`, `ownerId`, `visibility`. Tasks also have `assigneeId` (null until phase 4 adds assigning). Children copy their placement: a task, note, Claude item, history entry or trash entry lives where its project lives. With no project it is private to its owner. In a private project it is private to the project's owner. Personal collections carry `orgId` plus `ownerId` (reviews, ritualLogs, devices, workerFolders/Jobs/Sessions) or the recipient `userId` (notifications, pushSubs, alertLog, alertQueue). Counters are `task:<orgId>` and `claudeItems:<orgId>`. Indexes: `(orgId, ref)` unique on tasks and claudeItems; on projects, `(orgId, name)` unique among shared ones and `(orgId, ownerId, name)` unique among private ones; `(ownerId, date)` unique on ritualLogs.
 
 **One door.** `lib/scope.ts`. Every data function takes the caller's scope `{ userId, orgId }` first. `scoped(s)` returns the collections behind a proxy that:
 - adds the rule to every filter: shared = `orgId` and (`visibility: 'org'` or `ownerId` = caller); own = `orgId` and `ownerId`/`userId` = caller; counters = `orgId`;
@@ -54,21 +54,23 @@ Each phase ships with its e2e suites passing and a security review before merge 
 - refuses updates that touch `orgId`, plus `$unionWith`, `$graphLookup`, `$out`, `$merge` and `$facet`;
 - scopes the sub-pipeline of a `$lookup`.
 
-`orgWide(orgId)` drops the visibility rule. It is used only by system work: unblocked fan-out, the alert flush and project-name uniqueness. Settings are read only through `getUserSetting`/`setUserSetting` (`<area>:<userId>` for notify, dispatcher, alerts, status) and `getOrgSetting`/`setOrgSetting` (`discord:<orgId>`).
+`orgWide(orgId)` drops the visibility rule. It is used only by system work: unblocked fan-out, the alert flush and restoring a task to where its project is now. Settings are read only through `getUserSetting`/`setUserSetting` (`<area>:<userId>` for notify, dispatcher, alerts, status) and `getOrgSetting`/`setOrgSetting` (`discord:<orgId>`).
 
-The check: `tests/scope-check.mjs` runs as `prebuild` and in the tenancy suite. It fails if lib/data, lib/mcp, lib/alerts, lib/notify, lib/discord, lib/status or app/ reach `collections()`, `getDb()` or `.collection()` on a line without `// scope-ok: <reason>`. The marked exceptions are:
+The check: `tests/scope-check.mjs` runs as `prebuild` and in the tenancy suite. It fails if anything in lib/ (except db.ts and scope.ts) or app/ reaches `collections()`, `getDb()` or `.collection()` on a line without `// scope-ok: <reason>`. Files that read only Better Auth's own collections (people, auth-server, auth-limits, caller, fresh, members) are allowed whole. The marked exceptions are:
 - request counters;
 - policy events per API key;
 - the old-alert and inbox prune;
 - push endpoint takeover;
 - Better Auth tables;
-- the one-off authMigration notice.
+- the one-off authMigration notice;
+- computers (every query filters by the caller or the key's hash) and the mail log.
 
 **Moving and sharing.**
 - Moving a task to another project re-places it. Only its owner may take a shared task private.
-- A project's visibility is changed by its owner only. The change cascades to its tasks, history, notes, Claude items and trash.
-- New project ids are slugs, checked across all organizations.
-- Names are unique per organization.
+- A project's visibility is changed by its owner only. The change cascades to its tasks, history, notes, Claude items and trash (a trashed task's history and note too).
+- Restoring a task from the trash recomputes where it lives from its project as it is now (and moves its history and note with it). Someone who could not see the result gets "not in the trash".
+- New project ids are the name's slug plus a random tail (`zephyr-shared-3f9a1c2e`): ids are global, so a bare slug, or a `-2` suffix, would tell one organization what another has named its projects. Existing ids stay.
+- **Project names** are unique among the projects a person can see. A refusal says only "You already have a project with that name", and only for a project you can see. So two people can each have a private project with the same name, and a teammate can make a shared project with the name of your private one (you then see both; a lookup by name picks your private one). Making a project shared is refused if a shared project already has that name. We chose this over one name per organization because a refusal for a name you cannot see tells you that someone has a private project of that name.
 
 **Who did it.** Actors are objects (`lib/actors.ts`). The app sets `{kind:'user', userId}`. MCP keys set `{kind:'agent', agent, userId: key owner}`. Discord sets `{kind:'discord', userId}`. Migrations set `{kind:'system'}`. Old string actors are still read (`asActor`). "Only Om" rules now mean "only a person":
 - marking next;
@@ -99,7 +101,9 @@ Comment edits: an agent may edit only entries of the same agent for the same use
 **Workers and files.**
 - A computer acts as its owner. Computers with no owner are refused (401).
 - The dispatcher's switch, cap and claims are per person.
-- Note files are stored under `notes/<orgId>/`. The upload and file routes refuse other organizations' paths. Files from before (`notes/<name>`) belong to the first organization.
+- Note files are stored under `notes/<orgId>/<noteId>/<name>` and belong to that note: the upload route needs a live note the caller can see, and the file route serves a file only to people who can see its note (a private note's files are its owner's). Other path shapes are not served (uploads were switched off before this layout). Only png, jpeg, gif and webp are shown inline; every other type downloads with a type that cannot render as a page, and every file is sent with `Content-Security-Policy: default-src 'none'; sandbox` and `nosniff`. Uploads accept a fixed list of types (no SVG or HTML). Rules: `lib/note-files.ts`.
+
+**The operator.** `OPERATOR_EMAILS` (comma list, `lib/operator.ts`) names who runs the deployment. Only they get `/api/admin/health`, `/api/admin/discord/register` and Settings › Usage (the request log of the whole deployment). An organization's owner or admin is not an operator unless listed. Until phase 3 gives each person a schedule, the built-in schedule (`/timetable`, `/api/timetable/today`) is the operator's: everyone else gets an empty one.
 
 **Migration.** Run `scripts/migrate-ownership.mjs --db <name>`. It is a dry run that prints counts only; `--apply` writes. `--copy-to <new db>` copies the database first and migrates the copy, never writing to the source. It is idempotent. It does the following:
 - assigns everything to the first organization and its owner;
@@ -109,7 +113,8 @@ Comment edits: an agent may edit only entries of the same agent for the same use
 - turns `waitingOnOm` into `waitingText`/`waitingOn`;
 - rebuilds `task:`/`claudeItems:` counters from the highest ref;
 - moves settings to `<area>:<userId>` / `discord:<orgId>`;
-- stamps `orgId` on the authMigration notice.
+- stamps `orgId` on the authMigration notice;
+- gives tasks already given to Claude `claude.markedByUserId`/`markedByOrgId` (Om, the first organization).
 
 Order on deploy: deploy the code, then run the migration at once. Until it runs, old documents are invisible because they have no `orgId`.
 

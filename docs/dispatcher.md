@@ -47,9 +47,11 @@ Settings `dispatcher`: `{ enabled: boolean, maxConcurrent: 2, boilerplateNoteId:
 ## Marking (Om only)
 
 - The task page and the row "…" menu get **Give to Claude** / **Take back from Claude**.
-- This is a UI action (session cookie) only. MCP tools (Claude chat, Claude Code) and Discord **cannot** mark a task: a task's text becomes a prompt that runs on Om's PC, so only Om may choose what runs.
+- This is a UI action (session cookie) only. MCP tools (Claude chat, Claude Code) and Discord **cannot** mark a task: a task's text becomes a prompt that runs on the giver's PC, so only that person chooses what runs.
+- Since phase 2 the task text is no longer only the giver's: anyone who can see a task (a teammate in a shared project) may give it to Claude, and a teammate can edit a task someone else gave. Rule: if anyone but the giver (or the giver's own Claude) changes what Claude reads while the task is queued or running (the title, the description, new checklist text, a comment or a comment edit, the task's note), the claim is **taken back**: a running session gets a stop job, the mark ends as `stopped` ("taken back: changed by <name>"), and the giver gets one inbox notice "#12 changed by <name>, taken back from Claude". The edit itself goes through. Changes that add no text (status, priority, due, ticking or removing a checklist item) leave it alone. Code: `takeBackOnEdit` in `lib/data/dispatcher.ts`, called from `lib/data/tasks.ts` and `lib/data/notes.ts`.
+- The boilerplate note must be the giver's own note (a shared note could be changed by a teammate). The picker lists only their notes, the setting refuses others, and a setting that points at someone else's note counts as off.
 - Marking needs the project to have a linked folder. If there is more than one, Om picks one (same picker as Start Claude).
-- Editing the title or description of a queued task keeps it queued; the prompt is built at claim time.
+- The giver editing the title or description of a queued task keeps it queued; the prompt is built at claim time. Someone else's edit takes it back (above).
 - Take back: queued → null. Running → it asks to Stop the session first.
 
 ## Claim and start (server, on the worker's jobs poll)

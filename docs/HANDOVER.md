@@ -213,7 +213,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1â
 - **Turning uploads back on:**
   1. Create a **private** Vercel Blob store and connect it to the project (this adds `BLOB_READ_WRITE_TOKEN`).
   2. Set `UPLOADS_ENABLED = true` in `block-editor.tsx`.
-  3. Nothing else is needed: the routes `app/api/notes/upload` and `app/api/notes/file` already exist. Files are served only to a logged-in session.
+  3. Nothing else is needed: the routes `app/api/notes/upload` and `app/api/notes/file` already exist. Files are stored per note (`notes/<orgId>/<noteId>/<name>`) and served only to people who can see that note; only common image types show inline (`lib/note-files.ts`, docs/multi-user.md).
 
 ---
 

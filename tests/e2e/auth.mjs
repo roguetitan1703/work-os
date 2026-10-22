@@ -8,7 +8,7 @@ import path from 'node:path';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { ObjectId } from 'mongodb';
-import { B, EMAIL, PW, ME, db, admin, makeUser, mkDevice, call, api, sha, check, finish, launch, login, fillLogin } from './lib.mjs';
+import { B, EMAIL, PW, ME, db, rawDb, admin, makeUser, mkDevice, mkKey, mcpAs, call, api, sha, check, finish, launch, login, fillLogin } from './lib.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MAIL = process.env.MAIL_CAPTURE_DIR;
@@ -461,7 +461,14 @@ try {
     r = await act(member, 'giveToClaudeAction', String(tref));
     const marked = await db.collection('tasks').findOne({ ref: tref });
     check('private: Give to Claude records who gave it', r.text.includes('"ok":true') && marked?.claude?.markedByUserId === invitee, r.text.slice(0, 160));
-    for (const u of [ME.userId, invitee]) await db.collection('settings').updateOne({ _id: `dispatcher:${u}` }, { $set: { enabled: true, maxConcurrent: 3, boilerplateNoteId: 'n-auth' } }, { upsert: true });
+    // Each person's dispatcher reads a note of their own first.
+    await db.collection('notes').insertOne({ _id: 'n-auth-member', title: 'Member rules', blocks: [], body: 'x', parentId: null, taskId: null, projectId: null, archived: false, createdBy: { kind: 'user', userId: invitee }, createdAt: new Date(), updatedBy: { kind: 'user', userId: invitee }, updatedAt: new Date(), deletedAt: null, ownerId: invitee, visibility: 'private' });
+    r = await act(member, 'dispatcherSettingsAction', { boilerplateNoteId: 'n-auth' });
+    check("boilerplate: a member cannot pick the owner's (shared) note", refused(r, 'your own notes'), r.text.slice(0, 160));
+    await db.collection('settings').updateOne({ _id: `dispatcher:${invitee}` }, { $set: { enabled: true, maxConcurrent: 3, boilerplateNoteId: 'n-auth' } }, { upsert: true });
+    r = await act(member, 'dispatcherSetupAction');
+    check("boilerplate: a setting pointing at someone else's note counts as off", r.text.includes('"enabled":false') && r.text.includes('"boilerplateNoteId":""'), r.text.slice(0, 200));
+    for (const [u, n] of [[ME.userId, 'n-auth'], [invitee, 'n-auth-member']]) await db.collection('settings').updateOne({ _id: `dispatcher:${u}` }, { $set: { enabled: true, maxConcurrent: 3, boilerplateNoteId: n } }, { upsert: true });
     await api(own.key, 'GET', '/api/worker/jobs');
     check("private: the owner's computer does not claim the member's task", (await db.collection('tasks').findOne({ ref: tref }))?.claude?.state === 'queued');
     await api(mkey, 'GET', '/api/worker/jobs');
@@ -470,6 +477,31 @@ try {
     const owner = (await signIn(EMAIL, PW)).j.header();
     r = await act(owner, 'takeBackFromClaudeAction', String(tref), true);
     check("private: the owner cannot take back (stop) the member's Claude task", refused(r, 'Task not found') && (await db.collection('tasks').findOne({ ref: tref }))?.claude?.state === 'running', r.text.slice(0, 160));
+
+    // Someone else changes what Claude reads: the run is taken back, its session stopped, the giver told; the edit stays.
+    const run = await db.collection('tasks').findOne({ ref: tref });
+    await db.collection('workerSessions').insertOne({ _id: run.claude.sessionId, deviceId: mdev, folderId: 'fM', projectId: pid, state: 'running', startedAt: new Date(), updatedAt: new Date(), ownerId: invitee, orgId: ME.orgId });
+    const stops = () => db.collection('workerJobs').countDocuments({ deviceId: mdev, kind: 'stop' });
+    const stops0 = await stops();
+    await call('update_task', { task: tref, title: 'auth private dispatch, edited by the owner' });
+    const back = await db.collection('tasks').findOne({ ref: tref });
+    check("take back: the owner's title edit ends the member's Claude run", back?.claude?.state === 'stopped' && /changed by/.test(back.claude.note ?? '') && back.title === 'auth private dispatch, edited by the owner', JSON.stringify(back?.claude));
+    check("take back: ...and stops the session on the member's computer", (await stops()) === stops0 + 1);
+    const told = async () => (await rawDb.collection('notifications').find({ userId: invitee, kind: 'claude_stopped' }).toArray()).filter(n => n.title.startsWith(`#${tref} changed by `) && n.title.endsWith(', taken back from Claude'));
+    check('take back: the member gets one notice', (await told()).length === 1, JSON.stringify((await told()).map(n => n.title)));
+    const mkeyChat = await mkKey({ agent: 'claude', userId: invitee, orgId: ME.orgId, name: 'auth member chat' });
+    r = await act(member, 'giveToClaudeAction', String(tref));
+    check('take back: the member can give it to Claude again', r.text.includes('"ok":true'), r.text.slice(0, 160));
+    const own1 = await mcpAs(mkeyChat, 'add_comment', { task: tref, note: 'member note to their own Claude' });
+    check("take back: the giver's own (Claude's) comment leaves it queued", !own1.isError && (await db.collection('tasks').findOne({ ref: tref }))?.claude?.state === 'queued', own1.text.slice(0, 160));
+    await call('add_comment', { task: tref, note: 'owner comment' });
+    check("take back: someone else's comment takes a queued task back", (await db.collection('tasks').findOne({ ref: tref }))?.claude?.state === 'stopped');
+    check('take back: ...with a second notice', (await told()).length === 2);
+    r = await act(member, 'giveToClaudeAction', String(tref));
+    await call('update_task', { task: tref, priority: 'P1' });
+    check('take back: a priority change is not task text (stays queued)', (await db.collection('tasks').findOne({ ref: tref }))?.claude?.state === 'queued');
+    await call('update_checklist', { task: tref, add: ['owner step'] });
+    check('take back: new checklist text takes it back', (await db.collection('tasks').findOne({ ref: tref }))?.claude?.state === 'stopped');
     for (const u of [ME.userId, invitee]) await db.collection('settings').updateOne({ _id: `dispatcher:${u}` }, { $set: { enabled: false } });
   }
 

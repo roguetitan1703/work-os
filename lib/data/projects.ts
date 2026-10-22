@@ -336,7 +336,8 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
  */
 async function setProjectVisibility(c: Collections, p: ProjectDoc, visibility: Visibility): Promise<void> {
   const owned = visibility === 'private' ? { ownerId: p.ownerId, visibility } : { visibility };
-  const taskIds = await c.tasks.distinct('_id', { projectId: p._id });
+  // Trashed tasks too: their history (the "trashed" line) and notes stay in place while the task is in the trash.
+  const taskIds = [...(await c.tasks.distinct('_id', { projectId: p._id })), ...(await c.trash.distinct('_id', { 'task.projectId': p._id }))];
   if (taskIds.length) {
     await c.tasks.updateMany({ _id: { $in: taskIds } }, { $set: owned });
     await c.activity.updateMany({ taskId: { $in: taskIds } }, { $set: owned });

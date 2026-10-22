@@ -193,6 +193,17 @@ export async function mcpRaw(name, args = {}) {
   const b = JSON.parse(line ? line.slice(5) : t);
   return { isError: !!b.result?.isError || !!b.error, text: b.result?.content?.[0]?.text ?? JSON.stringify(b.error ?? b) };
 }
+/** An MCP tool call with another key: { isError, text, json }. */
+export async function mcpAs(key, name, args = {}) {
+  const r = await fetch(B + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${key}` }, body: JSON.stringify({ jsonrpc: '2.0', id: ++rid, method: 'tools/call', params: { name, arguments: args } }) });
+  const t = await r.text();
+  const line = t.split('\n').find(l => l.startsWith('data:'));
+  const b = JSON.parse(line ? line.slice(5) : t);
+  const text = b.result?.content?.[0]?.text ?? JSON.stringify(b.error ?? b);
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* error text */ }
+  return { isError: !!b.result?.isError || !!b.error, text, json };
+}
 // parsed result; an error comes back as { ERROR } (call) or the raw text (mcp)
 export async function call(name, args = {}) { const r = await mcpRaw(name, args); if (r.isError) return { ERROR: r.text }; try { return JSON.parse(r.text); } catch { return r.text; } }
 export async function mcp(name, args = {}) { const r = await mcpRaw(name, args); try { return JSON.parse(r.text); } catch { return r.text; } }
