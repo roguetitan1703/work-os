@@ -33,8 +33,11 @@ Besides database work, each MCP call used to build the whole MCP server (about 6
 
 ## Not done
 
-- /today still reads every open task with its full document (the page sends them to the browser). Cutting it needs a smaller task shape for the client.
-- `/today` and `/claude` still run `claudeOverview` (about 12 reads of sessions, devices and folders). Since push (below), `/claude` runs it only when something it shows changed, not every 30 s.
+- /today and /tasks still send every open task to the browser. The list shape drops description, links and source
+  (Multi-user, below), but each task is still about 1.9 KB uncompressed.
+- `/today` and `/claude` still run `claudeOverview` (about 12 reads of sessions, devices and folders). Since push
+  (below), `/claude` runs it only when something it shows changed, not every 30 s. Today's card reads only the
+  items waiting on you.
 - Dispatcher settings are read on every poll (tests and the UI write them directly, so no cache). Device key check is one read per poll; caching it would delay revocation. With push a worker polls every 5 minutes instead of every 30 s.
 - Session check, sign-in and `lib/usage.ts` belong to phase 1 and were not touched.
 
@@ -69,6 +72,123 @@ Server side, a write costs nothing extra while nobody in its organization has a 
 it costs one small read (docs/multi-user.md "As built: phase 5 push"). Worker heartbeats now write a computer's
 report in one operation instead of three.
 
+## Multi-user: a team of 20 on a t3.small
+
+Measured 2026-10-23 with the load simulation (tests/load/README.md). It seeds one organization: 20 people, 50
+projects, 2,000 tasks (688 open), 300 notes and 150 Claude items. It then runs an 8-hour working day compressed into
+20 minutes against `next start` with the heap capped at 1024 MB, as on the box.
+
+The load:
+- 2 real Chromium tabs and 18 scripted browsers that send what a real tab sends. The tabs were not all real because
+  the dev PC is short of RAM.
+- 20 workers on push streams; 3 people use the dispatcher.
+- Every person's Claude calls MCP.
+- About 15 things an hour per person (open, edit, complete, look around), an hour for lunch, and a third of people
+  keeping the Claude page open.
+
+Before = master at aeab2b4. After = this branch.
+
+The before server was saturated (event-loop p99 211 ms), so it got through 21% fewer things in the same time. The
+"per thing" rows compare like with like; the per-user-hour figures are the simulation's own.
+
+| Whole day, server process | Before | After |
+|---|---|---|
+| Things done / writes / MCP calls | 1,374 / 393 / 890 | 1,749 / 517 / 958 |
+| CPU seconds (dev PC) | 1,144 | 428 |
+| CPU per thing done | 0.83 s | 0.24 s (3.4x less) |
+| Requests (all kinds) | 94,031 | 13,848 |
+| Requests per thing done | 68 | 7.9 |
+| Per user-hour: CPU / requests / KB sent | 7.1 s / 588 / 1,329 | 2.6 s / 87 / 896 |
+| Per user-hour: DB operations / documents examined | 752 / 59,275 | 534 / 48,061 |
+| Collection scans (no index) in the day | about 30,000 | 0 |
+| Memory: RSS peak / heap peak | 449 / 243 MB | 356 / 216 MB |
+| Event loop p99 / max | 211 / 1,794 ms | 30 / 258 ms |
+| Everyone away, 20 tabs and 20 workers connected | 15 CPU s an hour | 19 CPU s an hour |
+
+One real tab through a short session (`tests/load/patterns.mjs`), requests per step:
+
+| Step | Before | After |
+|---|---|---|
+| Load /today | 51 | 5 |
+| Nav Tasks | 60 | 0 (the preloader already has it) |
+| Complete a task | 48 | 1 |
+| Claude page open, a teammate edits any task | 13 | 0 |
+| A whole 8-hour day with the Claude page open (the simulation's real tab) | about 5,700 | 24 |
+
+### What was fixed, by measured cost
+
+1. **Prefetching links in view.**
+   - What it cost: every link to a page that is not built ahead made two prefetch requests. Today and the Claude page
+     have 20 to 30 such links. Every action revalidates, which drops the router's prefetch cache, so every write
+     re-sent all of them. These requests were about 80% of all requests and most of the CPU.
+   - The fix: links prefetch on hover, focus or touch (`components/intent-link.tsx`, imported in place of
+     `next/link`). The preloader still warms Today, Tasks and Projects.
+   - What it costs now: a link's first tap waits for one round trip when nothing hovered it first (phones).
+2. **Claude-page refresh fan-out.** An open Claude page listened to `tasks` hints, so any teammate's task edit
+   refreshed every open Claude page. It now listens to `claude` only. A task write that touches the `claude` mark (a
+   task given to Claude) also sends `claude` (`lib/scope.ts`). Hints received by Claude pages fell from 1,696 to 38
+   in the day.
+3. **Missing indexes.** The sign-in session check (`session.token`), API keys, members, devices and projects by
+   organization, and tasks' `dependsOn` (every task page and MCP `get_task` read 2,300 documents; now 305).
+4. **Smaller list payloads.** Today and Tasks read tasks without description, links and source (`forList`). Today's
+   Claude card reads only the items waiting on you (`claudeOverview(…, { card: true })`). /today data is 383 KB
+   (21 KB gzipped) instead of 456 KB.
+5. **No `router.refresh()` after actions that already revalidate** (the action's response carries the new page):
+   Today's Claude card, Give to Claude, task row undo, mobile task actions and detail, comments, and the project's
+   Claude card.
+
+`pushed()` itself was not a cost: a write with 20 viewers costs one small read and 20 in-memory writes.
+
+### t3.small projection
+
+A t3.small earns 24 CPU credits an hour, which is 0.4 vCPU or 1,440 CPU seconds an hour. It can bank up to 576
+credits and burst to 2 vCPUs. Assuming a t3 vCPU is 1.5x slower than the dev PC:
+
+| | Before | After |
+|---|---|---|
+| Busy hour, 20 people | about 300 CPU s (0.08 vCPU) | 107 CPU s (0.03 vCPU) |
+| A working day (8 busy hours, then idle) | about 2,860 CPU s, 8% of the daily baseline | 1,305 CPU s, 4% of the daily baseline |
+| People who fit within the baseline | about 300 | about 1,000 |
+
+20 people fit with a wide margin; CPU will not be the limit. The real ceiling is lower than the last row:
+- one Node process uses one core;
+- the busy hours come together;
+- the database is Atlas, whose own tier has its own limits.
+
+As a rough guide, about 250 people active at the same time would use the whole 0.4 vCPU baseline, before banked
+credits. Memory: 356 MB RSS at peak, against 2 GB on the box (a 1,024 MB heap cap, nginx and the OS), so there is room.
+
+**When to size up.** Move to a t3.medium (or set the instance to unlimited credits) when either of these happens:
+- the CPU credit balance (CloudWatch `CPUCreditBalance`) goes down from one working week to the next instead of
+  refilling overnight;
+- the app's memory stays above 1.2 GB.
+
+Look first at what changed: a new page or link pattern that costs much more shows up in the budgets suite before it
+shows up on the box.
+
+**What to watch.**
+- Settings › Usage: requests per user-hour should stay near 90 for browsers. Page data ("rsc") is the largest kind;
+  a jump in it usually means links prefetching again or a refresh loop. Each worker makes about 14 an hour.
+- /api/admin/health `push`: the open streams. About one per open tab plus one per worker. 10 per person and 2 per
+  computer are the caps.
+- `journalctl -u work-os`: event-loop stalls show as slow requests. The service's memory shows in `systemctl status
+  work-os`.
+
+### Budgets
+
+`tests/load/budgets.json` keeps every one of these numbers about 25% above what was measured:
+- per request kind: KB, database operations, documents examined, and 0 collection scans;
+- requests per step of the real session;
+- requests in an idle hour: Claude page untouched 8, Claude page in use 45, Today page in use 32, worker 18;
+- per user-hour for a minute of the whole team.
+
+The `budgets` suite in `tests/e2e/run.sh` checks them in about 4 minutes and fails with
+`budget <where> <metric>: <actual> <= <budget>`.
+
 ## Measuring again
 
 `E2E_EXTRA='cpu|cpu-probe.mjs|base|plain' SKIP_BUILD=1 bash tests/e2e/run.sh cpu` (after a build) prints a `COUNT` line per request type in the suite log (`E2E_LOGS=<dir>` keeps it).
+
+The team of 20: `LOAD_OUT=<dir> bash tests/load/run.sh` (about 25 minutes with the build; report.txt has every
+number above). Replay the old behaviour with `LOAD_PREFETCH=viewport LOAD_CLAUDE_TOPICS=claude,tasks`, but that
+replays only the client; the server fixes stay in.
