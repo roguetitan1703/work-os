@@ -50,7 +50,12 @@ export function connectPush({ getCfg, getToken, onWake, onUp = () => {}, log = (
           const ev = /^event: ?(.*)$/m.exec(block)?.[1]?.trim();
           if (ev === 'hello') { attempt = 0; setUp(true); }
           else if (ev === 'jobs') onWake();
-          else if (ev === 'bye') return /"ttl"/.test(block) ? { wait: 0 } : { why: 'push closed by the server' };
+          else if (ev === 'bye') {
+            if (/"ttl"/.test(block)) return { wait: 0 };
+            // Another copy of this worker holds the computer's streams: stay on the poll a while.
+            if (/"limit"/.test(block)) return { why: 'push closed: too many streams for this computer', wait: MAX_BACKOFF_MS };
+            return { why: 'push closed by the server' };
+          }
         }
         if (buf.length > 65_536) buf = '';
       }

@@ -18,6 +18,8 @@ Environment=NEXT_TELEMETRY_DISABLED=1
 # Heap cap: about half the instance's memory (t3.small: 1024, t3.medium: 2048).
 Environment=NODE_OPTIONS=--max-old-space-size=1024
 ExecStart=/usr/bin/node /srv/work-os/current/node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3000
+# Every push stream holds a socket (docs/hosting.md "Push"); the default soft limit of 1024 is too close.
+LimitNOFILE=16384
 Restart=always
 RestartSec=5
 # Next finishes in-flight requests and after() work (alert flushes) on SIGTERM; give it time.

@@ -9,6 +9,10 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 //   wake(orgId, userId, deviceId?) "poll now" to that person's workers (or one computer of theirs).
 //   closeFor / closeDevice         a removed member's streams, a revoked computer's streams.
 //
+// Limits: a person holds at most PAGE_CAP page streams and a computer WORKER_CAP worker streams; a new one past that
+// closes the oldest (bye 'limit'). A person or computer just closed cannot register for CLOSED_HOLD_MS, so a stream
+// that passed its check just before the removal and registers just after it is refused.
+//
 // Events carry no data: a topic name (tasks, projects, notes, claude, inbox, review) and whether the change was the
 // person's own. Pages fetch the page again through the normal, checked path; workers poll /api/worker/jobs.
 // One process holds every stream (one EC2 server): with more than one instance this needs a shared bus.
@@ -24,21 +28,47 @@ type Conn = {
   userId: string;
   deviceId?: string;
   send: (event: string, data: unknown) => void;
-  close: () => void;
+  close: (reason?: 'closed' | 'limit') => void;
   /** Hints waiting for the next flush: topic -> every write was this person's own. */
   pending?: Map<Topic, boolean>;
   timer?: ReturnType<typeof setTimeout>;
 };
 
-type Hub = { conns: Map<number, Conn>; next: number };
+type Hub = { conns: Map<number, Conn>; next: number; closed: Map<string, number> };
 // On globalThis: route handlers, actions and pages can each load their own copy of this module in one process.
 const g = globalThis as unknown as { __workosLive?: Hub };
-const hub: Hub = (g.__workosLive ??= { conns: new Map(), next: 1 });
+const hub: Hub = (g.__workosLive ??= { conns: new Map(), next: 1, closed: new Map() });
+hub.closed ??= new Map();
+
+export const PAGE_CAP = 10;
+export const WORKER_CAP = 2;
+const CLOSED_HOLD_MS = 30_000;
+
+const memberKey = (orgId: string, userId: string) => `u:${orgId}:${userId}`;
+const deviceKey = (deviceId: string) => `d:${deviceId}`;
+
+function hold(key: string): void {
+  const now = Date.now();
+  for (const [k, at] of hub.closed) if (now - at > CLOSED_HOLD_MS) hub.closed.delete(k);
+  hub.closed.set(key, now);
+}
+const held = (key: string): boolean => {
+  const at = hub.closed.get(key);
+  return at !== undefined && Date.now() - at <= CLOSED_HOLD_MS;
+};
 
 /** Hints that arrive close together go out as one (a batch of 50 writes is one refresh). */
 const COALESCE_MS = 250;
 
-export function register(c: Omit<Conn, 'id'>): () => void {
+/** Adds a stream; null when its person or computer was closed moments ago (the caller ends it with bye 'closed'). */
+export function register(c: Omit<Conn, 'id'>): (() => void) | null {
+  if (held(memberKey(c.orgId, c.userId)) || (c.deviceId && held(deviceKey(c.deviceId)))) return null;
+  // Past the cap the oldest go (Map order is open order). Pages count per person across organizations.
+  const same = [...hub.conns.values()].filter(x =>
+    c.kind === 'page' ? x.kind === 'page' && x.userId === c.userId : x.kind === 'worker' && x.deviceId === c.deviceId,
+  );
+  const cap = c.kind === 'page' ? PAGE_CAP : WORKER_CAP;
+  for (const old of same.slice(0, Math.max(0, same.length - cap + 1))) old.close('limit');
   const conn: Conn = { ...c, id: hub.next++ };
   hub.conns.set(conn.id, conn);
   return () => {
@@ -81,6 +111,7 @@ export function wake(orgId: string, userId: string, deviceId?: string): void {
 
 /** Close every stream of a person in an organization (removed member): pages and workers. */
 export function closeFor(orgId: string, userId: string): number {
+  hold(memberKey(orgId, userId));
   let n = 0;
   for (const c of [...hub.conns.values()]) {
     if (c.orgId !== orgId || c.userId !== userId) continue;
@@ -92,6 +123,7 @@ export function closeFor(orgId: string, userId: string): number {
 
 /** Close a computer's streams (revoked). */
 export function closeDevice(deviceId: string): void {
+  hold(deviceKey(deviceId));
   for (const c of [...hub.conns.values()]) if (c.kind === 'worker' && c.deviceId === deviceId) c.close();
 }
 

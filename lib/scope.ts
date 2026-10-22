@@ -299,8 +299,13 @@ function pushed(name: ScopedName, m: Mode, target: object, prop: string, base: (
         // One read: the distinct placements of the documents this write is about to touch (through the door's filter).
         const col = target as { aggregate: (p: Document[]) => { toArray: () => Promise<Document[]> } };
         const key = rule.kind === 'own' ? `$${rule.field}` : { $cond: [{ $eq: ['$visibility', 'org'] }, EVERYONE, '$ownerId'] };
-        const rows = await col.aggregate([{ $match: and(scopeFilter(name, m), filter) }, { $group: { _id: key } }, { $limit: 500 }]).toArray();
-        for (const r of rows) if (typeof r._id === 'string') who.add(r._id);
+        // A hint must never fail the write: if this read fails, only the writer is told (never everyone).
+        try {
+          const rows = await col.aggregate([{ $match: and(scopeFilter(name, m), filter) }, { $group: { _id: key } }, { $limit: 500 }]).toArray();
+          for (const r of rows) if (typeof r._id === 'string') who.add(r._id);
+        } catch {
+          if (m.userId !== null) who.add(m.userId);
+        }
       }
     }
     for (const d of placedAfter(prop, a)) {

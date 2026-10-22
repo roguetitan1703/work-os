@@ -17,6 +17,7 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- Push: signing out elsewhere or revoking one session does not close that session's open streams; they keep getting topic-only hints for up to 30 minutes (the stream lifetime) — waits on session-revoke hooks (Better Auth) to call the hub.
 - Phase 5: the nginx site, systemd units, deploy.sh, backup.sh and cron-alerts.sh are only syntax-checked (no Linux on the dev PC) — waits on the first run on the server; fix in the repo.
 - Phase 5: Settings status "Server" row and /api/admin/health read Vercel's variables, so on EC2 they say "development · local" and VERCEL_ENV null — waits on the move (show the release commit from REVISION instead).
 - Phase 5: HANDOVER still describes Vercel (live URL, "pushing to master deploys", cron-job.org, Vercel env), and so do Settings › Alerts (setup guide: "add CRON_SECRET in Vercel", cron-job.org) and the status row hint — waits on the move; then point them at the server timer and docs/hosting.md.

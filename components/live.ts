@@ -62,7 +62,13 @@ function open() {
     }
   });
   // 'ttl': the server ends every stream after a while so the check runs again; come straight back.
-  s.addEventListener('bye', e => drop((e as MessageEvent<string>).data.includes('"ttl"') ? 0 : undefined));
+  // 'limit': this person has too many streams open and this tab's was the oldest; stay off (listeners poll) until the
+  // tab comes back into view, so tabs do not take turns pushing each other off.
+  s.addEventListener('bye', e => {
+    const d = (e as MessageEvent<string>).data;
+    if (d.includes('"limit"')) return close();
+    drop(d.includes('"ttl"') ? 0 : undefined);
+  });
   s.onerror = () => drop();
 }
 

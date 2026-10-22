@@ -366,6 +366,29 @@ What nginx must do for those two paths:
   have the same limit).
 - Forward the usual `Host`, `X-Forwarded-For`, `X-Forwarded-Proto` as for every route.
 
+- **Connection limits.** Every open stream holds two connections in nginx (browser and app) for up to 30 minutes.
+  Debian's default `worker_connections 768` runs out at a few hundred streams. Set it explicitly in
+  `/etc/nginx/nginx.conf` and raise nginx's file limit to match:
+
+  ```nginx
+  worker_rlimit_nofile 16384;          # top level
+  events { worker_connections 4096; }  # per worker process
+  ```
+
+  ```bash
+  sudo systemctl edit nginx            # add the two lines below, save
+  #   [Service]
+  #   LimitNOFILE=16384
+  sudo nginx -t && sudo systemctl restart nginx
+  ```
+
+  The app's unit (`deploy/systemd/work-os.service`) already sets `LimitNOFILE=16384`.
+- **Per-address limits.** The stream block allows 20 open streams per address (`limit_conn`) and 30 new ones a
+  minute with a burst of 20 (`limit_req`); past that nginx answers 429 and the client retries with backoff. Raise
+  the 20 if a whole office reaches the site from one address. The app caps them as well: 10 page streams per person
+  and 2 worker streams per computer; a new one past that closes the oldest (`bye` `limit`). A tab whose stream was
+  closed that way falls back to its slow poll until it comes back into view.
+
 The block is in `deploy/nginx/work-os.conf` (`location ~ ^/api/(stream|worker/stream)$`). The site's `location /`
 already has buffering off and a 300 s timeout, so the streams would work without it; the block makes it explicit and
 turns gzip off. `/api/live` stays the plain liveness route (no session, outside the proxy). The streams are not

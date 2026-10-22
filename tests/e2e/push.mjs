@@ -209,6 +209,27 @@ try {
   check('removal: the server said why (bye)', sB.events.some(e => e.ev === 'bye' && e.data?.r === 'closed'));
   check('removal: Bea cannot connect again', (await status('/api/stream', { cookie: cB })) === 401 && (await status('/api/worker/stream', { authorization: `Bearer ${dB.key}` })) === 401);
   check('removal: other people\'s streams stay open', !sA.ended && !sO.ended);
+
+  // ── stream caps (lib/live.ts): 10 page streams per person, 2 worker streams per computer; the oldest goes ──
+  const more = [];
+  for (let i = 0; i < 10; i++) {
+    const x = track(sse('/api/stream', { cookie: cO }));
+    more.push(x);
+    await x.hello();
+  }
+  check('cap: an 11th page stream closes the first one', !!(await until(() => sO.ended, 8000)));
+  check('cap: the first one was told why (bye limit)', sO.events.some(e => e.ev === 'bye' && e.data?.r === 'limit'), JSON.stringify(sO.events.slice(-2)));
+  check('cap: the ten newer ones stay open', more.every(x => !x.ended && x.events.some(e => e.ev === 'hello')));
+  check('cap: other people\'s streams are untouched', !sA.ended);
+  for (const x of more) x.close();
+  const ws = [];
+  for (let i = 0; i < 3; i++) {
+    const x = track(sse('/api/worker/stream', { authorization: `Bearer ${dA.key}` }));
+    ws.push(x);
+    await x.hello();
+  }
+  check('cap: a third worker stream for one computer closes the oldest', !!(await until(() => ws[0].ended, 8000)) && ws[0].events.some(e => e.ev === 'bye' && e.data?.r === 'limit') && !ws[1].ended && !ws[2].ended);
+  for (const x of ws) x.close();
   await ctxA.close();
 
   // ── requests of an idle Claude page in an hour (docs/cpu.md) ──

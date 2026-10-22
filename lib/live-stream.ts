@@ -6,7 +6,8 @@ import { register } from './live';
 //   hello  {ttl}     on open (the client resets its backoff)
 //   hint   {t, s?}   pages: refresh topic t (s: 1 when the change was the person's own)
 //   jobs   {}        workers: poll /api/worker/jobs now
-//   bye    {r}       the server closes it: 'ttl' (reconnect at once, the check runs again), 'closed' (removed or revoked)
+//   bye    {r}       the server closes it: 'ttl' (reconnect at once, the check runs again), 'closed' (removed or revoked),
+//                    'limit' (too many streams for this person or computer: this was the oldest; do not reconnect at once)
 // A comment line every 25 s keeps proxies from timing it out. A stream lives at most STREAM_TTL_MS, so every
 // connection is checked again (session, membership, device key) at least that often.
 
@@ -25,7 +26,7 @@ export function liveResponse(req: Request, who: StreamOwner): Response {
   let ttl: ReturnType<typeof setTimeout> | undefined;
   let done = false;
 
-  const finish = (bye?: 'ttl' | 'closed') => {
+  const finish = (bye?: 'ttl' | 'closed' | 'limit') => {
     if (done) return;
     done = true;
     clearInterval(ping);
@@ -51,7 +52,10 @@ export function liveResponse(req: Request, who: StreamOwner): Response {
   const stream = new ReadableStream<Uint8Array>({
     start(c) {
       ctrl = c;
-      unregister = register({ ...who, send: (event, data) => write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`), close: () => finish('closed') });
+      const off = register({ ...who, send: (event, data) => write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`), close: r => finish(r ?? 'closed') });
+      // Closed moments ago (removed, revoked) while this request was being checked: refuse it.
+      if (!off) return finish('closed');
+      unregister = off;
       write(`retry: 5000\nevent: hello\ndata: {"ttl":${STREAM_TTL_MS}}\n\n`);
       ping = setInterval(() => write(': ping\n\n'), PING_MS);
       ttl = setTimeout(() => finish('ttl'), STREAM_TTL_MS);
