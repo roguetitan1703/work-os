@@ -70,7 +70,8 @@ export default async function ClaudePage({ searchParams }: Props) {
         ))}
       </nav>
 
-      {tab !== 'setup' && <AutoRefresh />}
+      {/* eslint-disable-next-line react-hooks/purity -- a server render runs once per request; the stamp marks it */}
+      {tab !== 'setup' && <AutoRefresh stamp={Date.now()} />}
       {tab === 'now' && data && tasks && <NowTab claudeTasks={tasks} needsYou={data.needsYou} sessions={data.sessions} summary={data.summary} hasComputers={data.hasComputers} />}
       {tab === 'queue' && data && <QueueTab groups={data.queue} />}
       {tab === 'setup' && <SetupTab url={url} />}

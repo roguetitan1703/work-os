@@ -2,7 +2,6 @@
 
 import { Ago } from '@/components/ago';
 import { useState, useSyncExternalStore } from 'react';
-import { useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronsUp, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { BottomSheet } from '@/components/mobile/sheet';
@@ -10,6 +9,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { ActorName, PersonName } from '@/components/actor-badge';
 import { cn } from '@/lib/utils';
 import { CLAUDE_ITEM_KINDS, CLAUDE_ITEM_STATES, type ClaudeItem } from '@/lib/types';
+import { write } from '../../claude/auto-refresh';
 import { moveClaudeItemAction, updateClaudeItemAction } from './claude-items-actions';
 
 export type Blocker = { ref: number; title: string; state: string };
@@ -205,17 +205,15 @@ function Row({ item: i, blocker, onOpen }: { item: ClaudeItem; blocker?: Blocker
 function Detail({ projectId, item: i, onSaved, blocker, up, down, first }: { projectId: string; item: ClaudeItem; onSaved: (item: ClaudeItem) => void; blocker?: Blocker; up: number; down: number; first: boolean }) {
   // Plain flag, not useTransition: the transition stayed pending after the action's revalidation, which left every control disabled.
   const [pending, setPending] = useState(false);
-  const router = useRouter();
   const [note, setNote] = useState('');
   const isOpen = i.state !== 'done' && i.state !== 'dropped';
 
   const go = async (fn: () => Promise<{ ok: true; item?: ClaudeItem } | { ok: false; error: string }>, after?: () => void) => {
     setPending(true);
     try {
-      const r = await fn();
+      const r = await write(fn);
       if (!r.ok) return void toast.error(r.error);
       if (r.item) onSaved(r.item);
-      router.refresh();
       after?.();
     } catch {
       toast.error('Something went wrong');

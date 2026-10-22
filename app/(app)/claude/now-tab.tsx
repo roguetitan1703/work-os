@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronRight, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmSheet } from '@/components/responsive-sheet';
@@ -11,6 +10,7 @@ import type { NeedsYouItem, SessionRow, SessionRowState, SessionSummary } from '
 import { removeSessionAction, resumeSessionAction, stopSessionAction, unhideSessionAction } from '../projects/[id]/launcher-actions';
 import { updateClaudeItemAction } from '../projects/[id]/claude-items-actions';
 import type { ClaudeTasks } from '@/lib/data/dispatcher';
+import { write } from './auto-refresh';
 import { ClaudeTasksSection } from './claude-tasks';
 import { btnOutline, card, field, ghost, H2 } from './ui';
 
@@ -107,7 +107,6 @@ function NeedsYou({ items, onAnswered }: { items: NeedsYouItem[]; onAnswered: (i
 }
 
 function NeedsYouRow({ item: i, expanded, onToggle, onAnswered }: { item: NeedsYouItem; expanded: boolean; onToggle: () => void; onAnswered: () => void }) {
-  const router = useRouter();
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
   const text = reply.trim();
@@ -116,12 +115,11 @@ function NeedsYouRow({ item: i, expanded, onToggle, onAnswered }: { item: NeedsY
   const go = async (patch: { note?: string; waitingText?: string }, done: string, after: () => void) => {
     setBusy(true);
     try {
-      const r = await updateClaudeItemAction(i.projectId, i.id, patch);
+      const r = await write(() => updateClaudeItemAction(i.projectId, i.id, patch));
       if (!r.ok) return void toast.error(r.error);
       toast(done);
       setReply('');
       after();
-      router.refresh();
     } catch {
       toast.error('Something went wrong');
     } finally {
@@ -185,7 +183,6 @@ const STATE: Record<SessionRowState, { label: string; dot: string; tone: string 
 const stateOf = (s: SessionRow) => (s.waiting ? { label: 'waiting at terminal', dot: 'bg-amber-500', tone: 'text-amber-600 dark:text-amber-400' } : STATE[s.state]);
 
 function Sessions({ sessions, hasComputers }: { sessions: SessionRow[]; hasComputers: boolean }) {
-  const router = useRouter();
   const [onlyWos, setOnlyWos] = useState(false);
   const [stopping, setStopping] = useState<SessionRow | null>(null);
   const [gone, setGone] = useState<Set<string>>(new Set());
@@ -194,10 +191,9 @@ function Sessions({ sessions, hasComputers }: { sessions: SessionRow[]; hasCompu
   const call = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>, done?: () => void) => {
     setBusy(key);
     try {
-      const r = await fn();
+      const r = await write(fn);
       if (!r.ok) return void toast.error(r.error ?? 'Failed');
       done?.();
-      router.refresh();
     } catch {
       toast.error('Something went wrong');
     } finally {
@@ -224,14 +220,13 @@ function Sessions({ sessions, hasComputers }: { sessions: SessionRow[]; hasCompu
           action: {
             label: 'Undo',
             onClick: () => {
-              unhideSessionAction(s.controlProjectId!, s.workOsId!).then(r => {
+              write(() => unhideSessionAction(s.controlProjectId!, s.workOsId!)).then(r => {
                 if (!r.ok) return void toast.error(r.error);
                 setGone(g => {
                   const n = new Set(g);
                   n.delete(s.key);
                   return n;
                 });
-                router.refresh();
               });
             },
           },
