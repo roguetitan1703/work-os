@@ -6,7 +6,6 @@
 // Writes the team (ids and throwaway keys) to team.json beside E2E_STATE, for sim.mjs and the budgets suite.
 // Usage: node seed.mjs [--users 20] [--tasks 2000]
 import fs from 'node:fs';
-import path from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { rawDb, mc, makeIdentity, makeUser, mkKey, giveLegacyWeek, setProfile, sha, EMAIL, PW } from '../e2e/lib.mjs';
 

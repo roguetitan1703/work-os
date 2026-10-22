@@ -32,7 +32,6 @@ const team = loadTeam();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let seed = 7;
 const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
-const pick = a => a[Math.floor(rnd() * a.length)];
 const expo = mean => -Math.log(1 - rnd()) * mean;
 
 // ── per-route cost, one at a time (before the day, so nothing else runs) ──
@@ -42,7 +41,6 @@ const probe = PROBE ? await runProbe({ team, person: team.people[4], reps: 3 }) 
 let R0 = 0;
 let T0 = 0;
 const clock = () => T0 + (Date.now() - R0) * SPEED;
-const simWait = simMs => sleep(Math.max(1, simMs / SPEED));
 const DAY_MS = HOURS * 3600_000;
 
 // Client-side request log: per tag and kind: n, bytes, errors.
@@ -139,7 +137,6 @@ const failed = results.filter(r => r.status === 'rejected');
 if (failed.length) console.log(`${failed.length} clients failed: ${failed.slice(0, 3).map(f => f.reason?.message).join(' | ')}`);
 const browsers = results.slice(0, scripted.length).map(r => r.value).filter(Boolean);
 const dayStats = await meter();
-const dayEnd = new Date();
 const status1 = await serverStatus();
 const byRoute = await profileByRoute(prof0);
 const scans = await collscans(prof0);

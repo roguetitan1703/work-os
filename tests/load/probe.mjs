@@ -10,7 +10,7 @@ import { meter, profilerOn } from './measure.mjs';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /** The request kinds measured, for a person (team.json entry) whose visible task/project/note ids are given. */
-function kinds(b, person, ids, team) {
+function kinds(b, person, ids) {
   const open = [...ids.openTasks];
   const nextOpen = () => open.shift();
   const doc = { accept: 'text/html', 'sec-fetch-dest': 'document', 'sec-fetch-mode': 'navigate' };
@@ -68,7 +68,7 @@ export async function runProbe({ team, person, reps = 10, only = null, log = con
   await profilerOn(200);
   const cookie = await cookieFor(person.email, team.password);
   const b = new Browser({ cookie, ids: idsFor(team, person), tag: 'probe' });
-  const list = kinds(b, person, idsFor(team, person), team).filter(([name]) => !only || only.includes(name));
+  const list = kinds(b, person, idsFor(team, person)).filter(([name]) => !only || only.includes(name));
   // Warm every kind once (first renders compile and fill caches), then measure.
   for (const [, fn] of list) { await fn(); await sleep(50); }
   await sleep(1500);

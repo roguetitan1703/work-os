@@ -132,7 +132,6 @@ export function ClaudeCard({ projectId, tabHref, waiting, running, next, queued,
 }
 
 function WaitingRow({ projectId, item: i, expanded, onToggle, onAnswered }: { projectId: string; item: WaitingItem; expanded: boolean; onToggle: () => void; onAnswered: () => void }) {
-  const router = useRouter();
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
   const text = reply.trim();

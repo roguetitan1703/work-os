@@ -90,7 +90,7 @@ async function send(rec, tag, kind, url, init) {
     if (init.stream) return r;
     bytes = (await r.arrayBuffer()).byteLength;
     return r;
-  } catch (e) {
+  } catch {
     status = -1;
     return null;
   } finally {

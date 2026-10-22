@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- a CommonJS preload (node --require), loaded before the app */
 // Server-side meter for the load simulation (tests/load/README.md). Loaded into the app's `next start` process with
 // NODE_OPTIONS=--require, never into the app itself. It measures, for the one process that serves HTTP:
 //   - CPU seconds (process.cpuUsage), memory (rss / heap sampled every second: peak and average), event-loop delay
@@ -140,7 +141,7 @@ http.Server.prototype.emit = function (event, req, res) {
   const w = res.write;
   const e = res.end;
   let stream = null;
-  res.write = function (chunk, enc, cb) {
+  res.write = function (chunk, enc) {
     if (chunk) bytes += typeof chunk === 'string' ? Buffer.byteLength(chunk, typeof enc === 'string' ? enc : 'utf8') : chunk.length;
     if (!stream && route.startsWith('stream ') && String(res.getHeader('content-type') || '').includes('event-stream')) {
       stream = route.slice(7);
@@ -149,7 +150,7 @@ http.Server.prototype.emit = function (event, req, res) {
     }
     return w.apply(this, arguments);
   };
-  res.end = function (chunk, enc, cb) {
+  res.end = function (chunk, enc) {
     if (chunk && typeof chunk !== 'function') bytes += typeof chunk === 'string' ? Buffer.byteLength(chunk, typeof enc === 'string' ? enc : 'utf8') : chunk.length;
     return e.apply(this, arguments);
   };
