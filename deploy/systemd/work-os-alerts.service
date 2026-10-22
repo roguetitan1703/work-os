@@ -1,0 +1,16 @@
+# The alert check (was cron-job.org against Vercel): POST /api/cron/alerts with the CRON_SECRET header.
+# Started by work-os-alerts.timer every 15 minutes. Last runs: journalctl -u work-os-alerts
+[Unit]
+Description=Work OS alert check
+After=work-os.service
+
+[Service]
+Type=oneshot
+User=workos
+Group=workos
+EnvironmentFile=/etc/work-os/env
+ExecStart=/srv/work-os/current/deploy/cron-alerts.sh
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes

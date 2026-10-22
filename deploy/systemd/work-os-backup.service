@@ -1,0 +1,17 @@
+# Nightly mongodump of the Atlas database to /var/backups/work-os and S3 (deploy/backup.sh, docs/hosting.md "Backups").
+[Unit]
+Description=Work OS database backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=workos
+Group=workos
+EnvironmentFile=/etc/work-os/env
+ExecStart=/srv/work-os/current/deploy/backup.sh
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/backups/work-os

@@ -5,6 +5,7 @@ Work OS is Om's task system: tasks, projects, Notion-style notes, Discord and al
 - Live app: https://work-os-puce-delta.vercel.app
 - Code: https://github.com/roguetitan1703/work-os (public; no secrets in it)
 - Hosting: Vercel (Node 22). Database: MongoDB Atlas. Pushing to `master` deploys.
+- Moving to EC2 at work.delpat.in (phase 5): runbook, deploy files and the one-time cut-over in `docs/hosting.md`.
 
 Each section below covers one feature in three parts: **Om** (what you can do in the app or on Discord), **Claude** (what Claude on claude.ai can do through the connector) and **Claude Code** (where the code lives and what to watch out for when changing it).
 

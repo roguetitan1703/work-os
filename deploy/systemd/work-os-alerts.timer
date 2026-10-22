@@ -1,0 +1,12 @@
+# Every 15 minutes, as the old cron-job.org job did. Enable: sudo systemctl enable --now work-os-alerts.timer
+[Unit]
+Description=Work OS alert check every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+AccuracySec=30s
+# A missed run (server down) is not made up: the next quarter-hour catches up on everything due.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

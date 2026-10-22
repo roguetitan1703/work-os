@@ -107,7 +107,9 @@ export async function proxy(req: NextRequest, event: NextFetchEvent) {
 }
 
 // Static files (_next/static, _next/image, icons, manifest, sw.js, offline.html, robots.txt, .well-known) never reach
-// the proxy and are not counted. The self-authenticating API routes are matched (for the count) and let through in guard().
+// the proxy and are not counted. Neither does the liveness route /api/live (that exact path: nginx, systemd and the
+// deploy script poll it; app/api/live/route.ts). The self-authenticating API routes are matched (for the count) and let
+// through in guard().
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|sw.js|offline.html|\\.well-known|robots.txt).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|sw.js|offline.html|\\.well-known|robots.txt|api/live$).*)'],
 };

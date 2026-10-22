@@ -563,6 +563,16 @@ try {
         }
         continue;
       }
+      if (u === '/api/live') {
+        // Liveness (nginx, systemd, deploy script): public, and says nothing but "ok".
+        const r = await fetch(B + u, { redirect: 'manual' });
+        const body = await r.text();
+        check('api GET /api/live: public -> 200 "ok", nothing else', r.status === 200 && body === 'ok' && !r.headers.get('set-cookie'), `${r.status} ${body.slice(0, 40)}`);
+        const look = await fetch(B + '/api/livex', { redirect: 'manual' });
+        check('api /api/livex (lookalike): proxy still guards it -> 401', look.status === 401, look.status);
+        apis++;
+        continue;
+      }
       const src = fs.readFileSync(f, 'utf8');
       const methods = new Set([...src.matchAll(/export\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE)\b|export\s+const\s+(GET|POST|PUT|PATCH|DELETE)\b|\bas\s+(GET|POST|PUT|PATCH|DELETE)\b/g)].map(m => m[1] || m[2] || m[3]));
       for (const method of methods) {

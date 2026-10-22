@@ -2,6 +2,7 @@
 
 ## Now
 - 2026-10-22: multi-user Work OS, own sign-in first (Om); Delpat OS integration later. Plan: docs/multi-user.md. Phases 0 (CPU), 1 (sign-in, docs/auth.md) and 2 (ownership, re-reviewed safe) merged to master. Phase 3 (per-user settings: schedule, routine, modes and review as data; timezone and quiet hours per person; Discord linked per person; "Om" out of code) merged (security review fixes in). Phase 4 (team: members and roles, removal, assignees, Assigned to me, the invitation-link switch; plus the phase 2 review leftovers) merged (security review fixes in). Phase 5 (EC2 at work.delpat.in, with Akash) waits on Om: server access and his go for the migrations. On deploy (phase 5, with Om's go): set OPERATOR_EMAILS, create the operator accounts first, then migrate-auth, migrate-ownership (--copy-to rehearsal first) and migrate-phase3, register the Discord commands again, remove DISCORD_GUILD_ID and DISCORD_OWNER_ID.
+- 2026-10-22: phase 5 deploy kit built on builder-a (docs/hosting.md, deploy/, scripts/cutover.sh; cut-over rehearsed on a throwaway database, 25/25 checks), waiting on review and merge, then on Akash's server and Om's go.
 - 2026-10-19: Vercel paused Om's account (Fluid Active CPU); Work OS moves to Delpat's AWS server (work.delpat.in). Audit summary in docs/multi-user.md.
 
 ## Next
@@ -15,6 +16,10 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- Phase 5: the nginx site, systemd units, deploy.sh, backup.sh and cron-alerts.sh are only syntax-checked (no Linux on the dev PC) — waits on the first run on the server; fix in the repo.
+- Phase 5: Settings status "Server" row and /api/admin/health read Vercel's variables, so on EC2 they say "development · local" and VERCEL_ENV null — waits on the move (show the release commit from REVISION instead).
+- Phase 5: HANDOVER still describes Vercel (live URL, "pushing to master deploys", cron-job.org, Vercel env) — waits on the move; then point it at docs/hosting.md.
+- Phase 5: the alerts cron's 03:00 UTC prune runs only if a run lands in 03:00–03:15 UTC; the timer runs at :00, so it does, but a missed run skips that day's prune — waits on it mattering.
 - Stale page after a write, outside the Claude page: Next 16.2.4 (React 19.3 canary) sometimes leaves a server action's new page waiting until another React update. The Claude page works around it (write() in claude/auto-refresh.tsx); other pages still call router.refresh() after revalidating actions (task rows, task detail, trash, quick add, day plan) and can show the old data until the next tap — waits on someone seeing it there, or on a Next upgrade (16.4 is out; then check whether write()'s re-render is still needed).
 - Every revalidating action drops the whole client prefetch cache, and each visible link is prefetched again (about 15 small requests after one Move on the Claude page, seen in the stale-list probe) — waits on docs/cpu.md work (fewer prefetching links, or revalidating less).
 - Phase 3: no editor for an organization's modes (the default eight, or what migrate-phase3 seeds); colours for non-mode block names, which mode fills a block, review questions and help sections have no editor either (data only) — waits on Om wanting to change them in the app.
