@@ -40,6 +40,7 @@ auth|auth.mjs|none|plain
 tenancy|tenancy.mjs|none|plain
 team|team.mjs|none|plain
 push|push.mjs|none|plain
+budgets|budgets.mjs|none|plain
 alerts-once|alerts-once.mjs|none|discord
 discord-link|discord-link.mjs|none|discord
 leak-audit|leak-audit.mjs|none|discord
@@ -66,8 +67,12 @@ kill_port() {
 }
 stop_server() {
   if [ "$STARTED_APP" = 1 ]; then
+    # $! is a Git Bash pid: taskkill needs the Windows one (a raw $! can name an unrelated process and its tree).
+    # Kill it by that pid while it still runs (so the pid cannot have been reused), then whatever holds the port.
+    local wp
+    wp=$(cat "/proc/$SERVER_PID/winpid" 2>/dev/null)
+    [ -n "$wp" ] && taskkill //PID "$wp" //F //T >/dev/null 2>&1
     kill_port "$APORT"
-    [ -n "$SERVER_PID" ] && taskkill //PID "$SERVER_PID" //F //T >/dev/null 2>&1
     SERVER_PID=""
     STARTED_APP=0
   fi
@@ -78,7 +83,7 @@ cleanup() {
   if [ "$STARTED_MONGO" = 1 ]; then kill_port "$MPORT"; sleep 1; fi
   if [ "$MOVED" = 1 ] && [ -e "$ENVBAK" ]; then mv "$ENVBAK" "$ENVFILE"; fi
   if [ -n "${E2E_LOGS:-}" ] && [ -e "$TMP/server.log" ]; then cp "$TMP/server.log" "$LOGS/server.log"; fi
-  rm -rf "$TMP/db" "$TMP/shots" "$TMP/mongod.log" "$TMP/server.log" "$TMP/build.log" "$TMP/mail" "$TMP/state.json"
+  rm -rf "$TMP/db" "$TMP/shots" "$TMP/mongod.log" "$TMP/server.log" "$TMP/build.log" "$TMP/mail" "$TMP/state.json" "$TMP/team.json"
   if [ -z "${E2E_LOGS:-}" ]; then rm -rf "$LOGS"; fi
   rmdir "$TMP" 2>/dev/null
 }

@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { getCaller } from '@/lib/caller';
 import { collections } from '@/lib/db';
 import { DismissNotice } from './dismiss-notice';

@@ -41,7 +41,7 @@ export function toTask(d: TaskDoc): Task {
     id: d._id,
     ref: d.ref,
     title: d.title,
-    description: d.description,
+    description: d.description ?? '',
     mode: d.mode,
     projectId: d.projectId,
     priority: d.priority,
@@ -52,7 +52,7 @@ export function toTask(d: TaskDoc): Task {
     estimateMins: d.estimateMins,
     progress: d.progress,
     checklist: d.checklist,
-    links: d.links,
+    links: d.links ?? [],
     blockedReason: d.blockedReason,
     dependsOn: d.dependsOn,
     recurrence: d.recurrence,
@@ -832,7 +832,14 @@ export type TaskFilter = {
   assignee?: string;
   limit?: number;
   sort?: TaskSort;
+  /**
+   * For task lists sent to the browser (Today, Tasks): without description, links and source, which no row shows (they
+   * come back empty). Today sends every open task the person can see, so they were most of its page (docs/cpu.md).
+   */
+  forList?: boolean;
 };
+
+const LIST_OMIT = { description: 0, links: 0, source: 0 } as const;
 
 const PRIORITY_RANK: Record<Priority, number> = { P1: 0, P2: 1, P3: 2, P4: 3 };
 const STATUS_RANK: Record<Status, number> = { 'In Progress': 0, Blocked: 1, 'Not Started': 2, Done: 3, Dropped: 4 };
@@ -926,7 +933,7 @@ export async function listTasks(s: Scope, f: TaskFilter = {}): Promise<Task[]> {
   }
   if (and.length) q.$and = and;
 
-  const docs = await c.tasks.find(q).toArray();
+  const docs = await c.tasks.find(q, f.forList ? { projection: LIST_OMIT } : {}).toArray();
   const sorted = sortTasks(docs.map(toTask), f.sort ?? 'priority');
   return f.limit ? sorted.slice(0, f.limit) : sorted;
 }

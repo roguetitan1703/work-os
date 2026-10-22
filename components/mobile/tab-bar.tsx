@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { CalendarCheck, FolderOpen, LayoutList, Menu, Plus, Search, Sparkles } from 'lucide-react';

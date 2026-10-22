@@ -2,7 +2,7 @@
 
 import { Ago } from '@/components/ago';
 import { useEffect, useState, useTransition } from 'react';
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { FolderGit2, Link2, Plus, RotateCcw, Square, Trash2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
 import type { FolderView, SessionView } from '@/lib/data/launcher';

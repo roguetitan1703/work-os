@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { FolderOpen } from 'lucide-react';
 import { listProjects } from '@/lib/data/projects';
 import { fmtAgo } from '@/lib/format';

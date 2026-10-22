@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, FolderOpen, ListTodo } from 'lucide-react';
 import { getNote, getNoteWithBlocks } from '@/lib/data/notes';

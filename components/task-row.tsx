@@ -1,8 +1,7 @@
 'use client';
 
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Bot, CheckCircle2, Circle, GitBranch, ListChecks, Repeat, TrendingUp } from 'lucide-react';
 import { completeTaskAction, updateTaskAction } from '@/app/actions';
@@ -26,7 +25,6 @@ type Props = {
 export function TaskRow({ task, showProject = true, showMode = true, hint }: Props) {
   const { today, projectName } = useApp();
   const { modes, color } = useModes();
-  const router = useRouter();
   const prevStatus = task.status;
   const [pending, start] = useTransition();
   const [progressOpen, setProgressOpen] = useState(false);
@@ -54,8 +52,7 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
           label: 'Undo',
           onClick: async () => {
             const u = await updateTaskAction(task.id, { status: prevStatus });
-            if (u.ok) router.refresh();
-            else toast.error(u.error);
+            if (!u.ok) toast.error(u.error);
           },
         },
       });

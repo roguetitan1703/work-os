@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { redirect } from 'next/navigation';
 import { getCaller } from '@/lib/caller';
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { ChevronRight, FileText } from 'lucide-react';
 import { getProjectWithStats } from '@/lib/data/projects';
 import { listActivity, listTasks } from '@/lib/data/tasks';

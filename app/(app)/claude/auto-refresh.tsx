@@ -50,7 +50,9 @@ export async function write<T>(fn: () => Promise<T>): Promise<T> {
  * push stream is down, when the tab regains focus and every ~30 s while it is visible and in use.
  * stamp: changes with every server render of the page (tells when a write's new page is on screen).
  */
-export function AutoRefresh({ every = 30_000, stamp, topics = ['claude', 'tasks'] }: { every?: number; stamp: number; topics?: string[] }) {
+// 'claude' covers Claude items, computers, sessions and tasks given to Claude (lib/scope.ts sends it for a task write
+// that touches the mark); other task edits do not refresh this page.
+export function AutoRefresh({ every = 30_000, stamp, topics = ['claude'] }: { every?: number; stamp: number; topics?: string[] }) {
   const router = useRouter();
   const [pokes, bump] = useReducer((n: number) => n + 1, 0);
   const topicKey = topics.join(',');

@@ -279,6 +279,8 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { doneAt: -1 }, name: 'doneAt' },
       { key: { 'source.messageId': 1 }, name: 'source_message', sparse: true },
       { key: { 'claude.state': 1, 'claude.markedAt': 1 }, name: 'claude_state', sparse: true },
+      // "Who waits on this task" (the task page, get_task, unblocked alerts): without it every task page read the whole organization.
+      { key: { dependsOn: 1 }, name: 'depends_on' },
     ]],
     ['activity', [
       { key: { taskId: 1, at: -1 }, name: 'task_at' },
@@ -288,6 +290,8 @@ const INDEXES: [string, IndexDescription[]][] = [
       // Names: one per organization among shared projects, one per owner among private ones (docs/multi-user.md).
       { key: { orgId: 1, nameLower: 1 }, unique: true, name: 'org_shared_name_unique', partialFilterExpression: { visibility: 'org' } },
       { key: { orgId: 1, ownerId: 1, nameLower: 1 }, unique: true, name: 'owner_private_name_unique', partialFilterExpression: { visibility: 'private' } },
+      // The door's filter (orgId + visibility or owner) on every project read; the partial indexes above cannot serve it.
+      { key: { orgId: 1 }, name: 'org' },
     ]],
     ['ritualLogs', [{ key: { orgId: 1, ownerId: 1, date: 1 }, unique: true, name: 'owner_date_unique' }]],
     ['alertLog', [{ key: { taskId: 1 }, name: 'task' }, { key: { sentAt: 1 }, name: 'sentAt' }]],
@@ -307,7 +311,7 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { projectId: 1, state: 1, order: 1 }, name: 'project_state_order' },
       { key: { blockedBy: 1 }, name: 'blockedBy' },
     ]],
-    ['devices', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]],
+    ['devices', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }, { key: { orgId: 1, ownerId: 1 }, name: 'org_owner' }]],
     ['workerFolders', [{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }]],
     ['workerJobs', [{ key: { deviceId: 1, doneAt: 1, createdAt: 1 }, name: 'device_pending' }, { key: { createdAt: 1 }, name: 'created_ttl', expireAfterSeconds: 30 * 86_400 }]],
     ['workerSessions', [{ key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' }, { key: { deviceId: 1, state: 1 }, name: 'device_state' }]],
@@ -315,6 +319,14 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['mailLog', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { kind: 1, at: -1 }, name: 'kind_at' }, { key: { kind: 1, to: 1, at: -1 }, name: 'kind_to_at' }]],
     ['requestStats', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 35 * 86_400 }]],
     ['authLimits', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 3600 }, { key: { key: 1, at: -1 }, name: 'key_at' }]],
+    // Better Auth's collections (lib/auth-server.ts): its MongoDB adapter creates no indexes. A session is read by its
+    // token whenever the cookie cache runs out (every 2 minutes per person), a member on every role check, an API key on
+    // every MCP call.
+    ['session', [{ key: { token: 1 }, name: 'token' }, { key: { userId: 1 }, name: 'user' }]],
+    ['member', [{ key: { organizationId: 1, userId: 1 }, name: 'org_user' }, { key: { userId: 1, createdAt: 1 }, name: 'user_created' }]],
+    ['apikey', [{ key: { key: 1 }, name: 'key' }, { key: { referenceId: 1 }, name: 'reference' }]],
+    ['user', [{ key: { email: 1 }, name: 'email' }]],
+    ['account', [{ key: { userId: 1 }, name: 'user' }]],
     ['settings', [
       // One Work OS person per Discord account in an organization, and one organization per Discord server.
       { key: { area: 1, orgId: 1, discordId: 1 }, unique: true, name: 'discord_link_unique', partialFilterExpression: { discordId: { $type: 'string' } } },

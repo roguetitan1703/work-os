@@ -2,7 +2,7 @@
 
 import { Ago } from '@/components/ago';
 import { useState } from 'react';
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronRight, Square } from 'lucide-react';
 import { toast } from 'sonner';
@@ -132,7 +132,6 @@ export function ClaudeCard({ projectId, tabHref, waiting, running, next, queued,
 }
 
 function WaitingRow({ projectId, item: i, expanded, onToggle, onAnswered }: { projectId: string; item: WaitingItem; expanded: boolean; onToggle: () => void; onAnswered: () => void }) {
-  const router = useRouter();
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
   const text = reply.trim();
@@ -145,7 +144,6 @@ function WaitingRow({ projectId, item: i, expanded, onToggle, onAnswered }: { pr
       toast(done);
       setReply('');
       after?.();
-      router.refresh();
     } catch {
       toast.error('Something went wrong');
     } finally {

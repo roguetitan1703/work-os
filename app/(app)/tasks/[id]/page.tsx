@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { getTaskDetail, listTrash, type TrashItem } from '@/lib/data/tasks';
 import { requireScope } from '@/lib/caller';
 import { ActorName } from '@/components/actor-badge';

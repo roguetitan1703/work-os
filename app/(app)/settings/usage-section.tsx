@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { usageReport, type UsageRange } from '@/lib/data/usage';
 import { USAGE_CALLERS, USAGE_KINDS } from '@/lib/usage';
 import { cn } from '@/lib/utils';

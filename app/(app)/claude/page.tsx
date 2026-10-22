@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { redirect } from 'next/navigation';
 import { getCaller } from '@/lib/caller';
 import { Play } from 'lucide-react';

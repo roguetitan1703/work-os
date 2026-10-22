@@ -272,6 +272,41 @@ function placedAfter(prop: string, a: unknown[]): Document[] {
   }
 }
 
+/**
+ * Does a task write touch what the Claude page shows (a task given to Claude: the `claude` mark)? Then its readers get
+ * a 'claude' hint as well as 'tasks'. Other task edits do not refresh open Claude pages (docs/cpu.md "Multi-user":
+ * every teammate's edit used to refresh every open Claude page). A delete may remove a marked task, so it counts.
+ */
+function touchesClaudeMark(prop: string, a: unknown[]): boolean {
+  const inDoc = (d: unknown) => !!d && typeof d === 'object' && (d as Document).claude != null;
+  const inUpdate = (u: unknown): boolean =>
+    Array.isArray(u)
+      ? u.some(inUpdate) // an update pipeline: each stage
+      : !!u && typeof u === 'object' && Object.values(u as Document).some(v => !!v && typeof v === 'object' && Object.keys(v as Document).some(k => k === 'claude' || k.startsWith('claude.')));
+  switch (prop) {
+    case 'insertOne':
+      return inDoc(a[0]);
+    case 'insertMany':
+      return (a[0] as unknown[]).some(inDoc);
+    case 'replaceOne':
+    case 'findOneAndReplace':
+      return true; // the old document may have had a mark
+    case 'updateOne':
+    case 'updateMany':
+    case 'findOneAndUpdate':
+      return inUpdate(a[1]);
+    case 'bulkWrite':
+      return (a[0] as Document[]).some(o => {
+        const [kind, body] = Object.entries(o)[0] as [string, Document];
+        if (kind === 'insertOne') return inDoc(body.document);
+        if (kind === 'updateOne' || kind === 'updateMany') return inUpdate(body.update);
+        return true;
+      });
+    default:
+      return true; // deletes
+  }
+}
+
 /** Did the write change anything (no hint for an update that matched nothing)? */
 function changed(res: unknown): boolean {
   if (res === null || res === undefined) return false;
@@ -312,11 +347,16 @@ function pushed(name: ScopedName, m: Mode, target: object, prop: string, base: (
       const r = readerOf(name, d) ?? (rule.kind !== 'org' ? m.userId : null);
       if (r) who.add(r);
     }
+    // Worked out before the write: once it has committed, nothing here may throw.
+    const alsoClaude = name === 'tasks' && touchesClaudeMark(prop, a);
     const res = await run(...a);
     if (who.size && changed(res)) {
       const audience = who.has(EVERYONE) ? EVERYONE : who;
       const writer = requestContext().userId ?? m.userId;
-      afterCommit(() => hint(m.orgId, audience, topic, writer));
+      afterCommit(() => {
+        hint(m.orgId, audience, topic, writer);
+        if (alsoClaude) hint(m.orgId, audience, 'claude', writer);
+      });
     }
     return res;
   };

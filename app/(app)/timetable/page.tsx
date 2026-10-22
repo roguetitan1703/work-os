@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { Pencil } from 'lucide-react';
 import { colorOf } from '@/lib/modes';
 import { WEEKDAYS, WEEKDAY_LABELS, durationLabel, weekdayKey, type Wd } from '@/lib/schedule';
