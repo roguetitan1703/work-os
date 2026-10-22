@@ -16,7 +16,7 @@
   "prefetch-tree /tasks/[id]": { "kb": 2, "ops": 3, "docsExamined": 3, "collscans": 0 },
   "prefetch /notes/[id]": { "kb": 4, "ops": 6, "docsExamined": 5, "collscans": 0 },
   "action complete (Today)": { "kb": 510, "ops": 30, "docsExamined": 775, "collscans": 0 },
-  "action update (Tasks)": { "kb": 577, "ops": 16, "docsExamined": 2328, "collscans": 0 },
+  "action update (Tasks)": { "kb": 577, "ops": 24, "docsExamined": 2328, "collscans": 0 },
   "stream /api/stream (connect)": { "kb": 1, "ops": 3, "docsExamined": 3, "collscans": 0 },
   "api /api/worker/jobs": { "kb": 1, "ops": 10, "docsExamined": 12, "collscans": 0 },
   "api /api/worker/status": { "kb": 1, "ops": 8, "docsExamined": 5, "collscans": 0 },

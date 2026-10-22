@@ -19,6 +19,7 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- A save (server action) reads the session from the database twice: once for the action and again for the page it re-renders in the same request (both carry the action header), about 6 database operations per save; the Tasks update budget was raised from 16 to 24 for it — waits on a per-request memo of the fresh session.
 - e2e: alerts-once, dispatcher-backend and dispatcher-backend-2 fail when run between about 23:00 and 09:00 IST (the test owner's default quiet hours, and due/overdue alerts only go out after the morning hour); seen in the leak-audit run at 01:50 IST — waits on someone running the suites at night again (give those owners no quiet hours and a fixed clock).
 - Leak audit: two MCP writes to the same task at the same moment fail with MongoDB's "Write conflict during plan execution … Please retry" text instead of being retried (seen when the owner's calls ran side by side) — waits on it happening in real use.
 - Leak audit: `dispatcherSetupAction` (app/(app)/claude/dispatcher-actions.ts) is a server action nothing imports, so it is not in the build — waits on someone touching that file (delete it or use it).

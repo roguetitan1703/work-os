@@ -20,13 +20,14 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createPrivateKey, randomBytes, randomUUID, sign } from 'node:crypto';
 import { ObjectId } from 'mongodb';
 import { B, CRON, EMAIL, ME, MCP, PW, check, finish, makeUser, mkKey, rawDb, setOrgGuild, setProfile, setSchedule, sha } from './lib.mjs';
 import { entryPoints, unlistedBuilt } from './entry-points.mjs';
 
 const T0 = Date.now();
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', '..');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const hex = n => randomBytes(n).toString('hex');
 const oid = () => new ObjectId().toHexString();
