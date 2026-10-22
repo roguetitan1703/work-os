@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, ChevronsUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -10,21 +9,21 @@ import type { QueueGroup } from '@/lib/data/claude-overview';
 import type { ClaudeItem } from '@/lib/types';
 import { Chip, ItemSheet } from '../projects/[id]/claude-items';
 import { moveClaudeItemAction, updateClaudeItemAction } from '../projects/[id]/claude-items-actions';
+import { write } from './auto-refresh';
 import { card, H2 } from './ui';
 
 const ctl = 'h-11 md:h-8 min-w-11 md:min-w-8 px-3 md:px-2 rounded-full md:rounded-md inline-flex items-center justify-center gap-1 text-[13px] font-medium border border-border text-foreground active:bg-muted hover:bg-muted/50 disabled:opacity-40 shrink-0';
 
 export function QueueTab({ groups }: { groups: QueueGroup[] }) {
-  const router = useRouter();
   const [sel, setSel] = useState<{ projectId: string; ref: number } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const run = async (id: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setBusy(id);
     try {
-      const r = await fn();
+      const r = await write(fn);
+      // No router.refresh() here: the action revalidates, so its response already carries the new page (see write()).
       if (!r.ok) return void toast.error(r.error ?? 'Failed');
-      router.refresh();
     } catch {
       toast.error('Something went wrong');
     } finally {

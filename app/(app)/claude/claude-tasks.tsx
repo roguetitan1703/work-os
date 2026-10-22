@@ -2,12 +2,12 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { Square, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmSheet } from '@/components/responsive-sheet';
 import { cn } from '@/lib/utils';
 import type { ClaudeTaskRow, ClaudeTasks } from '@/lib/data/dispatcher';
+import { write } from './auto-refresh';
 import { takeBackFromClaudeAction } from './dispatcher-actions';
 import { agoShort } from './now-tab';
 import { card, ghost, H2 } from './ui';
@@ -24,7 +24,6 @@ const STATE: Record<ClaudeTaskRow['state'], { label: string; dot: string; tone: 
 };
 
 export function ClaudeTasksSection({ data }: { data: ClaudeTasks }) {
-  const router = useRouter();
   const [confirm, setConfirm] = useState<{ row: ClaudeTaskRow; stop: boolean } | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const { settings, running, queued, recent } = data;
@@ -33,11 +32,10 @@ export function ClaudeTasksSection({ data }: { data: ClaudeTasks }) {
   const go = async (row: ClaudeTaskRow, stop: boolean) => {
     setBusy(row.ref);
     try {
-      const r = await takeBackFromClaudeAction(String(row.ref), stop);
+      const r = await write(() => takeBackFromClaudeAction(String(row.ref), stop));
       if (!r.ok) return void toast.error(r.error);
       toast(stop ? `Stopping Claude on #${row.ref}` : `#${row.ref} taken back`);
       setConfirm(null);
-      router.refresh();
     } catch {
       toast.error('Something went wrong');
     } finally {

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import type { DispatcherSettings, NotePick } from '@/lib/data/dispatcher';
 import { cn } from '@/lib/utils';
@@ -13,7 +12,6 @@ import { field } from './ui';
 // note every session reads first (docs/dispatcher.md).
 
 export function DispatcherSetup({ initial, notes, maxCap }: { initial: DispatcherSettings; notes: NotePick[]; maxCap: number }) {
-  const router = useRouter();
   const [s, setS] = useState(initial);
   const [busy, setBusy] = useState(false);
 
@@ -28,7 +26,6 @@ export function DispatcherSetup({ initial, notes, maxCap }: { initial: Dispatche
         return void toast.error(r.error);
       }
       setS(r.data);
-      router.refresh();
     } catch {
       setS(prev);
       toast.error('Something went wrong');

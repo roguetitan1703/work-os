@@ -132,10 +132,7 @@ async function suite(vp) {
     await click(rmBtn);
     const gone = () => wait(async () => (await p.locator('[data-session-row]').count()) === before - 1, 5000);
     const undo = await toast(/Removed from the list/);
-    // the list refresh after Remove is sometimes lost (the row stays until the next load); a reload shows what was saved
-    let hid = await gone();
-    if (!hid) { await p.reload(); await p.waitForSelector('[data-section]').catch(() => {}); hid = await gone(); }
-    check(T('Remove hides the row'), !!hid);
+    check(T('Remove hides the row'), !!(await gone()));
     check(T('Remove offers Undo'), undo);
   }
   const fl = p.locator('button[aria-pressed]:has-text("Started from Work OS")');
@@ -157,23 +154,21 @@ async function suite(vp) {
   await h44(rowOf(last).locator('button[aria-label^="Move"]').first(), 'Top');
   await click(rowOf(last).locator('button:has-text("Top")'));
   check(T('Top moves an item to the top'), !!(await wait(async () => (await order())[0] === last)));
-  // After a move the row's buttons stay stale (disabled) until the page refresh lands, and the refresh is sometimes lost; wait for the button, else reload to show the saved order.
+  // The row's buttons follow the saved order once the page refresh after the previous move lands.
   const move = async dir => {
     const btn = () => rowOf(last).locator(`button[aria-label$="${dir}"]`);
-    await p.waitForSelector(`[data-queue-item="${refOf(last)}"]`);
-    if (!(await btn().isEnabled({ timeout: 100 }).catch(() => false)) && !(await wait(() => btn().isEnabled(), 4000))) { await p.reload(); await p.waitForSelector('[data-section="queue"]'); }
+    check(T(`${dir} button enabled after the previous change`), !!(await wait(() => btn().isEnabled(), 5000)));
     await click(btn());
   };
   await move('down');
   check(T('Down moves it one place'), !!(await wait(async () => (await order())[1] === last)));
   await move('up');
   check(T('Up moves it back'), !!(await wait(async () => (await order())[0] === last)));
-  // A saved change shows after a page refresh that is sometimes lost; show it by reloading when it has not appeared.
-  const showLoc = async loc => { if (await wait(() => loc().isVisible(), 4000)) return; await p.reload(); await p.waitForSelector('[data-section="queue"]'); await loc().waitFor(); };
+  const showLoc = async (loc, what) => check(T(what), !!(await wait(() => loc().isVisible(), 5000)));
   const nextRow = rowOf('Update schema for clients table');
   await click(nextRow.locator('button:has-text("Next")'));
   check(T('Next marks the item next'), !!(await wait(async () => (await db.collection('claudeItems').findOne({ _id: itByTitle('Update schema for clients table')._id })).next === true)));
-  await showLoc(() => rowOf('Update schema for clients table').locator('button[aria-pressed="true"]'));
+  await showLoc(() => rowOf('Update schema for clients table').locator('button[aria-pressed="true"]'), 'Next shows as on');
   await click(rowOf('Update schema for clients table').locator('button[aria-pressed]'));
   check(T('Next toggles off'), !!(await wait(async () => (await db.collection('claudeItems').findOne({ _id: itByTitle('Update schema for clients table')._id })).next === false)));
   await click(rowOf('Rename legacy settings keys').locator('button').first());
