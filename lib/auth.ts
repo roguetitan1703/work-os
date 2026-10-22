@@ -1,156 +1,58 @@
-// Single-user auth, used by proxy.ts (Node.js runtime), route handlers and
-// server actions. Signing uses Web Crypto; the stored password hash and the
-// session generation live in Mongo (lib/password.ts, loaded lazily).
+// Small auth helpers with no database and no Better Auth import, so proxy.ts and client-safe code can use them.
+// Sign-in itself is Better Auth (lib/auth-server.ts); who is calling is lib/caller.ts. docs/auth.md has the whole picture.
 //
-//   APP_PASSWORD    password for the web UI until a reset or change stores a
-//                   hash (then it is ignored; it stays the fallback if the hash is removed)
-//   SESSION_SECRET  HMAC key for the session cookie (long random string)
-//   MCP_TOKEN       API key for the MCP endpoint and the JSON API (sent as a header)
-//
-// Passkeys (lib/passkeys.ts) and the TOTP second factor (lib/totp.ts) build on
-// the same session cookie.
-//
-// In development, leaving APP_PASSWORD unset disables UI auth. In production,
-// missing secrets fail closed.
-
-export const SESSION_COOKIE = 'workos_session';
-export const SESSION_DAYS = 60;
-
-const enc = new TextEncoder();
+//   BETTER_AUTH_SECRET  signs session cookies, the cookie cache and the MCP confirm tokens; encrypts TOTP secrets.
+//                       At least 32 characters. SESSION_SECRET is read when it is not set (the old name).
+//   APP_URL             the site's public address: Better Auth's base URL, passkey origin, links in emails.
 
 export function isDev(): boolean {
   return process.env.NODE_ENV !== 'production';
 }
 
-export function uiAuthConfigured(): boolean {
-  return !!process.env.APP_PASSWORD && !!process.env.SESSION_SECRET;
+export const MIN_SECRET = 32;
+
+/** The auth secret, or null when it is missing or too short (callers fail closed). */
+export function authSecret(): string | null {
+  const s = process.env.BETTER_AUTH_SECRET || process.env.SESSION_SECRET || '';
+  return s.length >= MIN_SECRET ? s : null;
 }
 
-/** true when UI auth is intentionally off (local dev without APP_PASSWORD). */
-export function uiAuthDisabled(): boolean {
-  return isDev() && !process.env.APP_PASSWORD;
+/** The site's public base URL without a trailing slash. Production needs APP_URL (or Vercel's production URL). */
+export function appBaseUrl(): string | null {
+  const u = process.env.APP_URL?.trim() || process.env.BETTER_AUTH_URL?.trim();
+  if (u) return u.replace(/\/+$/, '');
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  return isDev() ? 'http://localhost:3000' : null;
 }
 
-function toHex(buf: ArrayBuffer): string {
-  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+/** Secure (`__Secure-`) cookies when the site is served over https. proxy.ts and Better Auth must agree on this. */
+export function secureCookies(): boolean {
+  return (appBaseUrl() ?? '').startsWith('https://');
 }
 
-async function hmac(secret: string, msg: string): Promise<string> {
-  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  return toHex(await crypto.subtle.sign('HMAC', key, enc.encode(msg)));
-}
-
-async function sha256(s: string): Promise<string> {
-  return toHex(await crypto.subtle.digest('SHA-256', enc.encode(s)));
-}
-
-/** Constant-time comparison (hashes first so lengths never leak). */
-export async function safeEqual(a: string, b: string): Promise<boolean> {
-  const [x, y] = await Promise.all([sha256(a), sha256(b)]);
-  let diff = 0;
-  for (let i = 0; i < x.length; i++) diff |= x.charCodeAt(i) ^ y.charCodeAt(i);
-  return diff === 0;
-}
-
-// Session cookie: `v2.<gen>.<exp>.<sig>`. `gen` is the session generation in
-// Mongo (lib/password.ts); a password reset or change bumps it, which signs out
-// every existing session. Old `v1.<exp>.<sig>` cookies stay valid only while
-// the generation is still 0 (no password change yet).
-
-/** Pass `gen` when it was just set (e.g. right after a password change). */
-export async function createSessionValue(gen?: number): Promise<string> {
-  const g = gen ?? (await (await import('./password')).currentSessionGen(true));
-  const exp = Date.now() + SESSION_DAYS * 86_400_000;
-  const sig = await hmac(process.env.SESSION_SECRET!, `v2.${g}.${exp}`);
-  return `v2.${g}.${exp}.${sig}`;
-}
-
-export async function verifySessionValue(value: string | undefined): Promise<boolean> {
-  const secret = process.env.SESSION_SECRET;
-  if (!value || !secret) return false;
-  const parts = value.split('.');
-  let gen: number;
-  if (parts[0] === 'v2' && parts.length === 4) {
-    const [, g, exp, sig] = parts;
-    if (!/^\d{1,9}$/.test(g) || !/^\d+$/.test(exp) || Number(exp) < Date.now()) return false;
-    if (!(await safeEqual(sig, await hmac(secret, `v2.${g}.${exp}`)))) return false;
-    gen = Number(g);
-  } else if (parts[0] === 'v1' && parts.length === 3) {
-    const [, exp, sig] = parts;
-    if (!/^\d+$/.test(exp) || Number(exp) < Date.now()) return false;
-    if (!(await safeEqual(sig, await hmac(secret, `v1.${exp}`)))) return false;
-    gen = 0;
-  } else return false;
-  try {
-    return gen === (await (await import('./password')).currentSessionGen());
-  } catch (e) {
-    console.error('session generation check failed', e); // fail closed
-    return false;
-  }
-}
+/** Better Auth cookie names start with this (`workos.session_token`, `workos.session_data`, …). */
+export const COOKIE_PREFIX = 'workos';
+/** How long a signed session copy in a cookie is trusted without reading the database (proxy.ts, getCaller). */
+export const COOKIE_CACHE_SECONDS = 120;
 
 /** An error whose message is safe to show the user. Anything else gets a generic message. */
 export class SafeError extends Error {}
 
-/** Client IP for rate limits: first x-forwarded-for entry (set by Vercel), else x-real-ip. */
+/** Client IP for rate limits: first x-forwarded-for entry, else x-real-ip. */
 export function clientIp(h: Headers): string {
   const xff = h.get('x-forwarded-for')?.split(',')[0]?.trim();
   return (xff || h.get('x-real-ip')?.trim() || 'unknown').slice(0, 64);
 }
 
-/** Options for the session cookie (password, 2FA and passkey sign-in all set the same cookie). */
-export function sessionCookieOptions() {
-  return { httpOnly: true, secure: !isDev(), sameSite: 'lax' as const, path: '/', maxAge: SESSION_DAYS * 86_400 };
-}
-
-// "Password OK, needs 2FA": a short-lived signed cookie set after the password
-// check when TOTP is on. It is not a session; proxy.ts ignores it.
-export const PENDING_2FA_COOKIE = 'workos_2fa';
-export const PENDING_2FA_MINUTES = 5;
-
-export async function createPending2faValue(): Promise<string> {
-  const exp = Date.now() + PENDING_2FA_MINUTES * 60_000;
-  const sig = await hmac(process.env.SESSION_SECRET!, `2fa.p1.${exp}`);
-  return `p1.${exp}.${sig}`;
-}
-
-export async function verifyPending2faValue(value: string | undefined): Promise<boolean> {
-  const secret = process.env.SESSION_SECRET;
-  if (!value || !secret) return false;
-  const [v, exp, sig] = value.split('.');
-  if (v !== 'p1' || !exp || !sig || !/^\d+$/.test(exp) || Number(exp) < Date.now()) return false;
-  return safeEqual(sig, await hmac(secret, `2fa.p1.${exp}`));
-}
-
-export function pending2faCookieOptions() {
-  return { httpOnly: true, secure: !isDev(), sameSite: 'strict' as const, path: '/login', maxAge: PENDING_2FA_MINUTES * 60 };
-}
-
-/** The stored scrypt hash when one exists (after a reset or change), else APP_PASSWORD. */
-export async function checkPassword(input: string): Promise<boolean> {
-  const stored = await (await import('./password')).checkStoredPassword(input);
-  if (stored !== null) return stored;
-  const pw = process.env.APP_PASSWORD;
-  if (!pw) return false;
-  return safeEqual(input, pw);
-}
-
-/** Valid MCP/API token? Accepts the raw token (from URL path, query, or header). */
-export async function checkToken(token: string | null | undefined): Promise<boolean> {
-  const expected = process.env.MCP_TOKEN;
-  if (!expected || expected.length < 24 || !token) return false;
-  return safeEqual(token, expected);
-}
-
 /** API key from `Authorization: Bearer <key>` or `X-API-Key: <key>`. */
-export function bearerToken(req: Request): string | null {
+export function bearerToken(req: Request | { headers: Headers }): string | null {
   const h = req.headers.get('authorization');
   const m = h?.match(/^Bearer\s+(.+)$/i);
   if (m) return m[1].trim();
   return req.headers.get('x-api-key')?.trim() || null;
 }
 
-/** Token-in-URL (/api/mcp/<key>) is off unless MCP_ALLOW_URL_TOKEN=1, for clients that can't send headers. */
+/** Key-in-URL (/api/mcp/<key>) is off unless MCP_ALLOW_URL_TOKEN=1, for clients that can't send headers. */
 export function urlTokenAllowed(): boolean {
   return process.env.MCP_ALLOW_URL_TOKEN === '1' || process.env.MCP_ALLOW_URL_TOKEN === 'true';
 }

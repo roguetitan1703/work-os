@@ -1,24 +1,26 @@
 import { NextResponse } from 'next/server';
-import { bearerToken, checkToken, uiAuthConfigured } from '@/lib/auth';
+import { authSecret } from '@/lib/auth';
+import { callerFromRequest } from '@/lib/caller';
 import { collections, mongoEnvNames } from '@/lib/db';
 import { APP_TZ, todayStr } from '@/lib/dates';
 import { converterCheck } from '@/lib/notes-convert';
 
 // Connects to MongoDB (creating collections/indexes on first run) and reports what is configured.
-// Authorization: Bearer <MCP_TOKEN>
+// An owner or admin: signed in, or an API key of theirs (Authorization: Bearer wos_…).
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
-  if (!(await checkToken(bearerToken(req)))) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const caller = await callerFromRequest(req);
+  if (!caller) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  if (caller.role !== 'owner' && caller.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   const env = {
     MONGODB_URI: !!process.env.MONGODB_URI,
     mongoVarsSeen: mongoEnvNames(),
     VERCEL_ENV: process.env.VERCEL_ENV ?? null,
     MONGODB_DB: process.env.MONGODB_DB || 'workos (default)',
-    APP_PASSWORD_and_SESSION_SECRET: uiAuthConfigured(),
-    MCP_TOKEN: true,
+    BETTER_AUTH_SECRET: !!authSecret(),
     APP_TZ,
     APP_URL: process.env.APP_URL || null,
   };

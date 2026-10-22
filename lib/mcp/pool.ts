@@ -5,7 +5,7 @@ import type { Caller } from './policy';
 
 // Building the MCP server registers ~60 tools and their schemas: real CPU on every call. The SDK allows
 // one transport per server at a time (and a stateless transport serves one request), so concurrent calls
-// need their own server. Idle ones wait here, one list per caller identity and base URL, and are
+// need their own server. Idle ones wait here, one list per caller identity (user, organization, key) and base URL, and are
 // reconnected to a fresh transport for the next call. Nothing request-specific lives in the server: the
 // request context (session, repo) is read through AsyncLocalStorage when a tool runs.
 
@@ -16,8 +16,10 @@ const IDLE_TTL_MS = 10 * 60_000;
 type Idle = { server: McpServer; at: number };
 const pool = new Map<string, Idle[]>();
 
+// Every key belongs to a user in an organization (docs/auth.md): a server is never shared across users,
+// organizations or keys, so nothing one caller's server holds can reach another's request.
 function keyOf(baseUrl: string, caller: Caller): string {
-  return JSON.stringify([baseUrl, caller.actor, caller.actor === 'claude-code' ? caller.keyId : null, caller.actor === 'claude-code' ? caller.keyName : null]);
+  return JSON.stringify([baseUrl, caller.actor, caller.userId, caller.orgId, caller.keyId, caller.keyName]);
 }
 
 /** An idle server for this caller, or a new one. Give it back with release() once its transport is closed. */

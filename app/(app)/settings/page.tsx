@@ -2,9 +2,13 @@ import Link from 'next/link';
 import { ChevronRight, LogOut } from 'lucide-react';
 import { SubHeader } from '@/components/mobile/sub-header';
 import { logoutAction } from '@/app/actions';
-import { uiAuthDisabled } from '@/lib/auth';
+import { headers } from 'next/headers';
+import { getAuth, idIn } from '@/lib/auth-server';
+import { requireCaller } from '@/lib/caller';
+import { getDb } from '@/lib/db';
+import { listMembers } from '@/lib/members';
+import { mailConfigured, missingMailEnv } from '@/lib/mail';
 import { discordConfig } from '@/lib/discord/client';
-import { listPasskeys } from '@/lib/passkeys';
 import { NOTIFY_KINDS, getNotifySettings, pushConfigured, pushDeviceCount, vapidPublicKey } from '@/lib/notify';
 import { cn } from '@/lib/utils';
 import { AlertsSection } from './alerts-section';
@@ -12,6 +16,8 @@ import { baseUrl } from './base-url';
 import { Connections } from './connections';
 import { AlertsTable, InstallCard, PushCard, Row, ThemeChoice } from './device-settings';
 import { Help } from './help';
+import { MembersSection } from './members-section';
+import { MigrationNotice } from './migration-notice';
 import { SecuritySettings } from './security-settings';
 import { StatusStrip } from './status-strip';
 import { UsageSection } from './usage-section';
@@ -22,6 +28,7 @@ const SECTIONS = [
   { id: 'device', label: 'This device' },
   { id: 'alerts', label: 'Alerts' },
   { id: 'security', label: 'Security' },
+  { id: 'members', label: 'Members' },
   { id: 'connections', label: 'Connections' },
   { id: 'usage', label: 'Usage' },
   { id: 'help', label: 'Help and recovery' },
@@ -44,11 +51,8 @@ export default async function SettingsPage({ searchParams }: Props) {
   const body: Record<SectionId, () => React.ReactNode> = {
     device: () => <DeviceSection />,
     alerts: () => <AlertsPanel />,
-    security: () => (
-      <Group title="Security" note="Passkeys sign you in without a password. The authenticator app adds a code step to password sign-in." first>
-        <SecuritySettings />
-      </Group>
-    ),
+    security: () => <SecurityPanel />,
+    members: () => <MembersPanel />,
     connections: () => <Connections open={sp.open} />,
     usage: () => <UsageSection range={sp.range} />,
     help: () => <Help />,
@@ -62,6 +66,7 @@ export default async function SettingsPage({ searchParams }: Props) {
       <div className={cn(sec && 'hidden md:block')}>
         <StatusStrip />
       </div>
+      <MigrationNotice />
 
       <div className="md:grid md:grid-cols-[11rem_minmax(0,1fr)] md:gap-8 md:mt-5">
         <nav aria-label="Settings sections" className="hidden md:block">
@@ -101,13 +106,11 @@ async function DeviceSection() {
       <InstallCard />
       <PushCard vapidKey={vapidPublicKey()} devices={devices} />
       <Row title="Theme" sub="Light, dark, or follow the device." action={<ThemeChoice />} />
-      {!uiAuthDisabled() && (
-        <form action={logoutAction}>
-          <button type="submit" className="w-full flex items-center gap-3 px-4 h-14 text-[15px] text-red-600 dark:text-red-400 active:bg-muted/60">
-            <LogOut className="w-5 h-5" /> Sign out
-          </button>
-        </form>
-      )}
+      <form action={logoutAction}>
+        <button type="submit" className="w-full flex items-center gap-3 px-4 h-14 text-[15px] text-red-600 dark:text-red-400 active:bg-muted/60">
+          <LogOut className="w-5 h-5" /> Sign out
+        </button>
+      </form>
     </Group>
   );
 }
@@ -124,15 +127,33 @@ async function AlertsPanel() {
   );
 }
 
+async function SecurityPanel() {
+  const caller = await requireCaller();
+  const session = await (await getAuth()).api.getSession({ headers: await headers() }).catch(() => null);
+  const twoFactor = !!(session?.user as { twoFactorEnabled?: boolean | null } | undefined)?.twoFactorEnabled;
+  return (
+    <Group title="Security" note="Passkeys sign you in without a password. The authenticator app adds a code step to password sign-in." first>
+      <SecuritySettings email={caller.email} twoFactor={twoFactor} mail={{ configured: mailConfigured(), missing: missingMailEnv(), to: caller.email }} />
+    </Group>
+  );
+}
+
+async function MembersPanel() {
+  const caller = await requireCaller();
+  const { members, invitations } = await listMembers(caller);
+  return <MembersSection members={members} invitations={invitations} canInvite={caller.role === 'owner' || caller.role === 'admin'} isOwner={caller.role === 'owner'} />;
+}
+
 /** Phone overview rows, one per section after This device. */
 async function PhoneRows() {
-  const [prefs, passkeys] = await Promise.all([getNotifySettings(), listPasskeys().catch(() => null)]);
-  const token = process.env.MCP_TOKEN;
+  const caller = await requireCaller();
+  const [prefs, memberCount] = await Promise.all([getNotifySettings(), getDb().then(db => db.collection('member').countDocuments({ organizationId: idIn(caller.orgId) })).catch(() => null)]);
   const on = NOTIFY_KINDS.filter(k => prefs.kinds[k.kind]).length;
   const rows = [
     { id: 'alerts', label: 'Alerts', hint: `${on} of ${NOTIFY_KINDS.length} on` },
-    { id: 'security', label: 'Security', hint: passkeys ? `Passkeys ${passkeys.length}` : '' },
-    { id: 'connections', label: 'Connections', hint: `Chat ${token && token.length >= 24 ? '✓' : '✗'} · Discord ${discordConfig() ? '✓' : '✗'}` },
+    { id: 'security', label: 'Security', hint: caller.email },
+    { id: 'members', label: 'Members', hint: memberCount ? `${memberCount}` : '' },
+    { id: 'connections', label: 'Connections', hint: `Discord ${discordConfig() ? '✓' : '✗'}` },
     { id: 'usage', label: 'Usage', hint: 'Requests' },
     { id: 'help', label: 'Help and recovery', hint: '' },
   ];

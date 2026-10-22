@@ -61,9 +61,7 @@ export async function systemStatus(): Promise<Check[]> {
   });
 
   checks.push(
-    !process.env.MCP_TOKEN
-      ? { name: 'Claude connector', level: 'error', summary: 'MCP_TOKEN not set' }
-      : { name: 'Claude connector', level: seen.mcp ? 'ok' : 'warn', summary: seen.mcp ? `Last used ${ago(seen.mcp)}` : 'Ready, not used yet', detail: 'claude.ai → Settings → Connectors' },
+    { name: 'Claude connector', level: seen.mcp ? 'ok' : 'warn', summary: seen.mcp ? `Last used ${ago(seen.mcp)}` : 'Not used yet', detail: 'A Claude chat key from Settings › Connections, on claude.ai → Settings → Connectors' },
   );
 
   if (!discordConfig()) checks.push({ name: 'Discord bot', level: 'off', summary: 'Not configured' });

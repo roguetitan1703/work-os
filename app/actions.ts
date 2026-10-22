@@ -3,10 +3,12 @@
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { flushQueuedAlerts } from '@/lib/alerts';
-import { cookies, headers } from 'next/headers';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { ZodError } from 'zod';
-import { SESSION_COOKIE, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
+import { SafeError } from '@/lib/auth';
+import { getAuth } from '@/lib/auth-server';
+import { requireCaller, withCaller } from '@/lib/caller';
 import * as tasks from '@/lib/data/tasks';
 import * as projects from '@/lib/data/projects';
 import * as reviews from '@/lib/data/reviews';
@@ -25,23 +27,18 @@ import type {
 
 export type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 
-async function requireUser(): Promise<void> {
-  if (uiAuthDisabled()) return;
-  const value = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!(await verifySessionValue(value))) throw new Error('Not signed in');
-}
-
+/** Every action here: a signed-in caller (lib/caller.ts), whose user id goes on the history entries it writes. */
 async function run<T>(fn: () => Promise<T>): Promise<Result<T>> {
   try {
-    await requireUser();
-    const data = await fn();
+    const caller = await requireCaller();
+    const data = await withCaller(caller, fn);
     revalidatePath('/', 'layout');
     return { ok: true, data };
   } catch (err) {
     if (err instanceof ZodError) return { ok: false, error: err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') };
     if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
     console.error(err);
-    return { ok: false, error: err instanceof Error && err.message === 'Not signed in' ? err.message : 'Something went wrong' };
+    return { ok: false, error: err instanceof SafeError ? err.message : 'Something went wrong' };
   }
 }
 
@@ -131,21 +128,18 @@ export async function updateProjectAction(id: string, patch: Partial<ProjectInpu
 // ── Weekly review + Fiverr ritual ───────────────────────────────────────────
 
 export async function createReview(input: Omit<WeeklyReview, 'id'>): Promise<WeeklyReview> {
-  await requireUser();
-  const r = await reviews.createReview(input);
+  const r = await withCaller(await requireCaller(), () => reviews.createReview(input));
   revalidatePath('/review');
   return r;
 }
 
 export async function updateReview(id: string, patch: Partial<WeeklyReview>): Promise<void> {
-  await requireUser();
-  await reviews.updateReview(id, patch);
+  await withCaller(await requireCaller(), () => reviews.updateReview(id, patch));
   revalidatePath('/review');
 }
 
 export async function logFiverrRitual(input: { bidsPlaced: number; notes?: string }): Promise<FiverrRitualLog> {
-  await requireUser();
-  const log = await reviews.logFiverrRitual(input);
+  const log = await withCaller(await requireCaller(), () => reviews.logFiverrRitual(input));
   revalidatePath('/', 'layout');
   return log;
 }
@@ -153,6 +147,7 @@ export async function logFiverrRitual(input: { bidsPlaced: number; notes?: strin
 // ── Session ─────────────────────────────────────────────────────────────────
 
 export async function logoutAction(): Promise<void> {
-  (await cookies()).delete(SESSION_COOKIE);
+  // Ends this session in the database and clears its cookies (nextCookies plugin).
+  await (await getAuth()).api.signOut({ headers: await headers() }).catch(() => {});
   redirect('/login');
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { SCHEDULE, getCurrentBlock, getModeForDay } from "@/lib/schedule";
+import { callerFromRequest } from "@/lib/caller";
 
 type Weekday = "mon" | "tue" | "wed" | "thu" | "fri";
 
@@ -10,7 +11,8 @@ function weekdayKey(d: Date): Weekday {
   return k;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!(await callerFromRequest(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const now = new Date();
   const wk = weekdayKey(now);
 

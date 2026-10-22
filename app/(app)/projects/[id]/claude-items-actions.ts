@@ -1,9 +1,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
 import { z, ZodError } from 'zod';
-import { SESSION_COOKIE, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
+import { SafeError } from '@/lib/auth';
+import { requireCaller, withCaller } from '@/lib/caller';
 import { getItem, LIMITS, moveItem, omUpdate, type OmPatch } from '@/lib/data/claude-items';
 import { CLAUDE_ITEM_KINDS, CLAUDE_ITEM_STATES, type ClaudeItem } from '@/lib/types';
 import { InputError, NotFoundError } from '@/lib/data/errors';
@@ -14,18 +14,15 @@ type Result = { ok: true; item?: ClaudeItem } | { ok: false; error: string };
 // Same shape as run() in app/actions.ts, but revalidates just the project page.
 async function run(projectId: string, fn: () => Promise<ClaudeItem | null | void>): Promise<Result> {
   try {
-    if (!uiAuthDisabled()) {
-      const value = (await cookies()).get(SESSION_COOKIE)?.value;
-      if (!(await verifySessionValue(value))) throw new Error('Not signed in');
-    }
-    const item = await fn();
+    const caller = await requireCaller();
+    const item = await withCaller(caller, fn);
     revalidatePath('/', 'layout');
     return { ok: true, item: item ?? undefined };
   } catch (err) {
     if (err instanceof ZodError) return { ok: false, error: err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') };
     if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
     console.error(err);
-    return { ok: false, error: err instanceof Error && err.message === 'Not signed in' ? err.message : 'Something went wrong' };
+    return { ok: false, error: err instanceof SafeError ? err.message : 'Something went wrong' };
   }
 }
 

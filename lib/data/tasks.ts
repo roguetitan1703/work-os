@@ -193,6 +193,7 @@ async function logActivity(
   const rc = requestContext();
   if (rc.session) doc.session = rc.session;
   if (rc.repo) doc.repo = rc.repo;
+  if (rc.userId) doc.actorUserId = rc.userId;
   await c.activity.insertOne(doc);
   return doc;
 }

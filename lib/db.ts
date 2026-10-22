@@ -69,6 +69,8 @@ export type ActivityDoc = {
   note?: string;
   /** Claude Code session / repo headers (lib/request-context.ts). */
   session?: string;
+  /** The signed-in user (or the API key's owner) behind `actor` (lib/request-context.ts); for the phase 2 actor model. */
+  actorUserId?: string;
   repo?: string;
 };
 
@@ -157,45 +159,19 @@ export type SettingsDoc = {
   /** _id 'alerts': last scheduled run */
   lastRunAt?: Date;
   lastResult?: string;
-  /** _id 'security': authenticator-app second factor. `secret` is AES-GCM encrypted (lib/totp.ts). */
-  totp?: { secret: string; enabledAt: Date; recoveryHashes: string[]; lastStep: number } | null;
-  /** _id 'security': secret shown during setup, until the first code confirms it. */
-  totpPending?: { secret: string; createdAt: Date } | null;
-  /** _id 'security': scrypt hash of the password set by a reset or change (lib/password.ts). Absent = APP_PASSWORD. */
-  passwordHash?: string | null;
-  passwordChangedAt?: Date;
-  /** _id 'security': session generation; bumping it signs out every session (lib/auth.ts). */
-  sessionGen?: number;
+  /** _id 'authMigration' (scripts/migrate-auth.mjs): keys and computers from before sign-in by user, to re-create once. */
+  oldKeys?: { name: string; prefix: string }[];
+  oldDevices?: { name: string; prefix: string }[];
+  dismissedAt?: Date | null;
   /** _id 'dispatcher': Om's switch and limits for the task dispatcher (docs/dispatcher.md). */
   enabled?: boolean;
   maxConcurrent?: number;
   boilerplateNoteId?: string;
 };
 
-/** A registered passkey (WebAuthn credential). _id = credential id (base64url). */
-export type PasskeyDoc = {
-  _id: string;
-  publicKey: string; // base64url COSE key
-  counter: number;
-  transports: string[];
-  deviceName: string;
-  createdAt: Date;
-  lastUsedAt: Date | null;
-};
-/** A Claude Code API key. Only the SHA-256 of the key is stored; the key itself is shown once. */
-export type ApiKeyDoc = {
-  _id: string;
-  name: string;
-  role: 'claude-code';
-  hash: string; // hex SHA-256 of the full key
-  prefix: string; // first 8 chars, for display
-  createdAt: Date;
-  lastUsedAt: Date | null;
-  revokedAt: Date | null;
-};
 // ── Session launcher (docs/launcher.md) ──
 /** A machine running the worker. Only the SHA-256 of its key (wkr_…) is stored. */
-export type DeviceDoc = { _id: string; name: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; worker?: { version: string; os: string; /** The worker passes a first message to Claude (config allowPrompts). The dispatcher needs it. */ allowPrompts?: boolean }; /** Latest counts from the worker (numbers only). `at` is the server's receive time. */ activity?: DeviceActivity; /** Latest named session list from the worker (docs/launcher.md Activity counts). */ claudeSessions?: { at: Date; items: ReportedClaudeSession[] } };
+export type DeviceDoc = { _id: string; name: string; /** The signed-in user who created it, and their organization (docs/auth.md). Missing on devices from before. */ ownerId?: string; orgId?: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; worker?: { version: string; os: string; /** The worker passes a first message to Claude (config allowPrompts). The dispatcher needs it. */ allowPrompts?: boolean }; /** Latest counts from the worker (numbers only). `at` is the server's receive time. */ activity?: DeviceActivity; /** Latest named session list from the worker (docs/launcher.md Activity counts). */ claudeSessions?: { at: Date; items: ReportedClaudeSession[] } };
 export type ReportedClaudeSession = { sessionId: string; folder: string; title: string; lastActiveAt: Date; subagentsActive: number; startedByWorkOs: boolean; running: boolean };
 export type DeviceActivity = { sessions: number; sessionsWorkOs: number; sessionsOther: number; sessionsActive: number; subagents: number; at: Date };
 /** A folder a worker reported. _id = deviceId:folderId. Never a path. */
@@ -205,14 +181,8 @@ export type WorkerSessionDoc = { _id: string; deviceId: string; folderId: string
 /** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
 export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker'; at: Date; n?: number };
 
-/** Outstanding WebAuthn challenge. Deleted when used (single-use); TTL index removes stale ones. */
-export type AuthChallengeDoc = { _id: string; kind: 'register' | 'login'; expiresAt: Date; ip?: string };
-/** One failed password / 2FA check. TTL index keeps only the last 15 minutes. */
-export type AuthFailureDoc = { _id: string; kind: 'password' | 'totp' | 'reset'; at: Date; ip?: string };
-/** Outstanding password-reset link. _id = SHA-256 of the token; TTL index removes it at expiresAt. */
-export type PasswordResetDoc = { _id: string; createdAt: Date; expiresAt: Date; ip?: string };
 /** One email sent (for the hourly limits in lib/mail.ts). TTL index keeps 2 hours. */
-export type MailLogDoc = { _id: string; kind: 'reset' | 'changed' | 'test'; at: Date };
+export type MailLogDoc = { _id: string; kind: 'reset' | 'changed' | 'test' | 'invite'; at: Date; /** Hash of the recipient, for the per-address limit. */ to?: string };
 /** Request log (lib/usage.ts, docs/usage-log.md): one doc per UTC hour, _id 'YYYY-MM-DDTHH'; `counts` keys are 'kind|caller|route'. TTL index keeps 35 days. */
 export type RequestStatsDoc = { _id: string; at: Date; total: number; counts: Record<string, number> };
 
@@ -235,7 +205,7 @@ function mongoUri(): string | undefined {
   return key ? process.env[key] : undefined;
 }
 
-function getClient(): Promise<MongoClient> {
+export function getClient(): Promise<MongoClient> {
   const uri = mongoUri();
   if (!uri) throw new Error('MONGODB_URI is not set');
   if (!cache.client) {
@@ -286,7 +256,6 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { parentId: 1 }, name: 'parent', sparse: true },
     ]],
     ['trash', [{ key: { deletedAt: -1 }, name: 'deletedAt' }, { key: { ref: 1 }, name: 'ref' }]],
-    ['authChallenges', [{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }, { key: { ip: 1, kind: 1 }, name: 'ip_kind' }]],
     ['claudeItems', [
       { key: { ref: 1 }, unique: true, name: 'ref_unique' },
       { key: { projectId: 1, state: 1, order: 1 }, name: 'project_state_order' },
@@ -296,11 +265,8 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['workerFolders', [{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }]],
     ['workerJobs', [{ key: { deviceId: 1, doneAt: 1, createdAt: 1 }, name: 'device_pending' }, { key: { createdAt: 1 }, name: 'created_ttl', expireAfterSeconds: 30 * 86_400 }]],
     ['workerSessions', [{ key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' }, { key: { deviceId: 1, state: 1 }, name: 'device_state' }]],
-    ['apiKeys', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]],
     ['policyEvents', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { keyId: 1, kind: 1, at: -1 }, name: 'key_kind_at' }]],
-    ['authFailures', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 15 * 60 }, { key: { ip: 1, at: -1 }, name: 'ip_at' }]],
-    ['passwordResets', [{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }]],
-    ['mailLog', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { kind: 1, at: -1 }, name: 'kind_at' }]],
+    ['mailLog', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { kind: 1, at: -1 }, name: 'kind_at' }, { key: { kind: 1, to: 1, at: -1 }, name: 'kind_to_at' }]],
     ['requestStats', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 35 * 86_400 }]],
   ];
 
@@ -332,13 +298,8 @@ export async function collections() {
     alertQueue: db.collection<AlertQueueDoc>('alertQueue'),
     notifications: db.collection<NotificationDoc>('notifications'),
     pushSubs: db.collection<PushSubDoc>('pushSubs'),
-    passkeys: db.collection<PasskeyDoc>('passkeys'),
-    authChallenges: db.collection<AuthChallengeDoc>('authChallenges'),
-    authFailures: db.collection<AuthFailureDoc>('authFailures'),
-    passwordResets: db.collection<PasswordResetDoc>('passwordResets'),
     mailLog: db.collection<MailLogDoc>('mailLog'),
     requestStats: db.collection<RequestStatsDoc>('requestStats'),
-    apiKeys: db.collection<ApiKeyDoc>('apiKeys'),
     policyEvents: db.collection<PolicyEventDoc>('policyEvents'),
     claudeItems: db.collection<ClaudeItemDoc>('claudeItems'),
     devices: db.collection<DeviceDoc>('devices'),

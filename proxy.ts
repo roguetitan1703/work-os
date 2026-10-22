@@ -1,49 +1,82 @@
 import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server';
-import { SESSION_COOKIE, bearerToken, checkToken, uiAuthConfigured, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
+import { getCookieCache } from 'better-auth/cookies';
+import { COOKIE_PREFIX, authSecret, bearerToken, secureCookies } from '@/lib/auth';
 import { recordRequest, requestCaller, requestKind, routePattern } from '@/lib/usage';
 
-// Guards every page, server action and API route except /login, /api/mcp, /api/worker, /api/cron
-// and /api/discord/interactions (which check their own key / device key / cron secret / Discord signature).
-// API routes also accept the API key: `Authorization: Bearer <MCP_TOKEN>` or `X-API-Key`.
-// Claude Code keys (wos_…, lib/api-keys.ts) are deliberately NOT accepted here: checkToken() is MCP_TOKEN only,
-// so those keys open /api/mcp and nothing else.
+// Guards every page, server action and API route (docs/auth.md). Sign-in is Better Auth (lib/auth-server.ts).
 //
-// /login is allowed by exact path only (not /login*). Password, 2FA and passkey
-// sign-in are server actions on that page (app/login/actions.ts), so they POST
-// to /login and need no other unauthenticated endpoint. /login/reset (exact path) is the
-// password-reset page; its action checks the emailed token itself (lib/password-reset.ts).
-// Session cookies are also checked against the session generation in Mongo (lib/auth.ts).
+// Cheap on purpose: a signed-in browser carries a signed copy of its session (Better Auth's cookie cache,
+// COOKIE_CACHE_SECONDS); while it is fresh the proxy checks only its signature, with no database read. When it has
+// run out, the session is read once (auth.api.getSession) and the refreshed copy goes back to the browser. Pages,
+// actions and routes then ask lib/caller.ts who is calling; this check is the first gate, not the only one.
+//
+// Public: /login, /login/reset (exact paths), /accept-invitation/<id> and Better Auth's endpoints under /api/auth
+// (app/api/auth/[...all]/route.ts serves only an allowlist of them, each checking its own session).
+// /api/mcp, /api/worker, /api/cron and /api/discord/interactions check their own credentials (API key, device key,
+// cron secret, Discord signature): the proxy lets them through untouched, as before.
+// Other /api routes also accept a Work OS API key (`Authorization: Bearer wos_…` or `X-API-Key`), verified here and
+// again by the route.
 //
 // Every request that reaches the proxy is also counted for Settings › Usage (lib/usage.ts, docs/usage-log.md),
 // after the response (event.waitUntil); counting never changes or delays the answer.
 
-// Paths that skip the session check and check their own credentials. Until the request log, the matcher excluded
-// them (`(?!…api/mcp|api/discord/interactions|api/cron|api/worker…)`); the proxy now runs on them only to count
-// them, and this is the same prefix test the matcher made, so they behave exactly as before.
-const SELF_AUTH_PREFIXES = ['/api/mcp', '/api/discord/interactions', '/api/cron', '/api/worker'];
-const selfAuth = (pathname: string) => SELF_AUTH_PREFIXES.some(p => pathname.startsWith(p));
+// Paths that skip the session check and check their own credentials (same prefix test the old matcher made).
+const SELF_AUTH_PREFIXES = ['/api/mcp', '/api/discord/interactions', '/api/cron', '/api/worker', '/api/auth'];
+const selfAuth = (pathname: string) => SELF_AUTH_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'));
+const isPublicPage = (p: string) => p === '/login' || p === '/login/reset' || /^\/accept-invitation\/[A-Za-z0-9_-]{1,64}$/.test(p);
+
+const sessionCookieName = () => `${secureCookies() ? '__Secure-' : ''}${COOKIE_PREFIX}.session_token`;
 
 type Guarded = { res: NextResponse; session: boolean; token: boolean };
 const deny = (res: NextResponse): Guarded => ({ res, session: false, token: false });
 const pass = (session: boolean, token = false): Guarded => ({ res: NextResponse.next(), session, token });
 
+/** Session read from the database (cookie cache missing or stale). Returns the response carrying the refreshed cookies. */
+async function fullSessionCheck(req: NextRequest): Promise<NextResponse | null> {
+  try {
+    const { getAuth } = await import('@/lib/auth-server');
+    const auth = await getAuth();
+    const r = await auth.api.getSession({ headers: req.headers, returnHeaders: true });
+    if (!r.response?.session) return null;
+    const { splitSetCookieHeader, parseSetCookieHeader } = await import('better-auth/cookies');
+    const raw = r.headers.get('set-cookie');
+    if (!raw) return NextResponse.next();
+    // The page behind this request reads the refreshed copy too, so it needs no second database read.
+    for (const [name, c] of parseSetCookieHeader(raw)) {
+      if (c['max-age'] === 0 || !c.value) req.cookies.delete(name);
+      else req.cookies.set(name, c.value);
+    }
+    const res = NextResponse.next({ request: { headers: req.headers } });
+    for (const one of splitSetCookieHeader(raw)) res.headers.append('set-cookie', one);
+    return res;
+  } catch (e) {
+    console.error('session check failed', e); // fail closed
+    return null;
+  }
+}
+
 async function guard(req: NextRequest): Promise<Guarded> {
   const path = req.nextUrl.pathname;
   if (selfAuth(path)) return pass(false);
-  if (path === '/login' || path === '/login/reset') return pass(!!req.cookies.get(SESSION_COOKIE)?.value);
-  if (uiAuthDisabled()) return pass(true);
+  if (isPublicPage(path)) return pass(!!req.cookies.get(sessionCookieName())?.value);
 
   const isApi = path.startsWith('/api/');
+  const secret = authSecret();
+  if (!secret) return deny(new NextResponse('Auth is not configured: set BETTER_AUTH_SECRET (32+ characters) and APP_URL.', { status: 503 }));
 
-  if (!uiAuthConfigured()) {
-    if (isApi && (await checkToken(bearerToken(req)))) return pass(false, true);
-    return deny(new NextResponse('Auth is not configured: set APP_PASSWORD and SESSION_SECRET.', { status: 503 }));
+  if (req.cookies.get(sessionCookieName())?.value) {
+    const cached = await getCookieCache(req, { cookiePrefix: COOKIE_PREFIX, isSecure: secureCookies(), secret }).catch(() => null);
+    if (cached?.session && cached.user) return pass(true);
+    const res = await fullSessionCheck(req);
+    if (res) return { res, session: true, token: false };
   }
 
-  if (await verifySessionValue(req.cookies.get(SESSION_COOKIE)?.value)) return pass(true);
-
   if (isApi) {
-    if (await checkToken(bearerToken(req))) return pass(false, true);
+    const token = bearerToken(req);
+    if (token) {
+      const { verifyKey } = await import('@/lib/caller');
+      if (await verifyKey(token).catch(() => null)) return pass(false, true);
+    }
     return deny(NextResponse.json({ error: 'unauthorized' }, { status: 401 }));
   }
 

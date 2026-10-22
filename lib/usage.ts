@@ -33,6 +33,8 @@ const ROUTE_LIST: [string, string][] = [
   ['/timetable', '/timetable'],
   ['/login', '/login'],
   ['/login/reset', '/login/reset'],
+  [`/accept-invitation/${S}`, '/accept-invitation/[id]'],
+  ['/api/auth/.+', '/api/auth/[...all]'],
   ['/api/mcp', '/api/mcp'],
   [`/api/mcp/${S}`, '/api/mcp/[key]'],
   ['/api/worker/jobs', '/api/worker/jobs'],
@@ -79,7 +81,7 @@ function hasKey(h: Headers): boolean {
 /**
  * caller. The self-authenticating endpoints are named after who they are for, when the request carries a credential
  * (it is not verified here; the route does that). Everything else: browser when the session cookie checked out
- * (`session`), mcp for the API key (MCP_TOKEN), else anonymous.
+ * (`session`), mcp for a Work OS API key (`token`, checked by the proxy), else anonymous.
  */
 export function requestCaller(pathname: string, h: Headers, url: URL, auth: { session: boolean; token: boolean }): UsageCaller {
   if (pathname.startsWith('/api/mcp')) return hasKey(h) || pathname.startsWith('/api/mcp/') ? 'mcp' : 'anonymous';

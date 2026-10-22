@@ -3,9 +3,10 @@ import { NextResponse } from 'next/server';
 import { bearerToken } from './auth';
 import { verifyDeviceKey, type VerifiedDevice } from './devices';
 import { InputError, NotFoundError } from './data/errors';
+import { runWithRequestContext } from './request-context';
 
-// Shared wrapper for /api/worker/* (docs/launcher.md): device keys only (wkr_…; MCP_TOKEN and
-// Claude Code keys are refused), body size cap, per-device rate limit, JSON errors.
+// Shared wrapper for /api/worker/* (docs/launcher.md): device keys only (wkr_…; Work OS API keys
+// are refused), body size cap, per-device rate limit, JSON errors.
 
 const MAX_BODY = 1_000_000;
 const PER_MINUTE = 60;
@@ -42,7 +43,8 @@ export function workerRoute(fn: (device: VerifiedDevice, body: unknown) => Promi
           return NextResponse.json({ error: 'body must be JSON' }, { status: 400 });
         }
       }
-      return NextResponse.json(await fn(device, body));
+      // Writes the worker causes record the device's owner (actorUserId), like a signed-in user's.
+      return NextResponse.json(await runWithRequestContext({ userId: device.ownerId }, () => fn(device, body)));
     } catch (err) {
       if (err instanceof InputError || err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 400 });
       console.error('[worker]', err);

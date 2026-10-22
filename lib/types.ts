@@ -23,7 +23,7 @@ export type Status = z.infer<typeof StatusSchema>;
 export const CLOSED_STATUSES: Status[] = ['Done', 'Dropped'];
 export const OPEN_STATUSES: Status[] = ['Not Started', 'In Progress', 'Blocked'];
 
-/** Who made a change. `me` = the app UI, `discord` = me via Discord commands, `claude` = the claude.ai MCP connector (MCP_TOKEN),
+/** Who made a change. `me` = the app UI, `discord` = me via Discord commands, `claude` = the claude.ai MCP connector (a Claude chat key),
  * `claude-code` = a Claude Code session on Om's PC (an API key from /connect), `system` = migrations/automation. */
 export const ActorSchema = z.enum(['me', 'discord', 'claude', 'claude-code', 'system']);
 export type Actor = z.infer<typeof ActorSchema>;

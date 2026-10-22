@@ -97,6 +97,7 @@ async function logTask(c: Collections, t: Pick<TaskDoc, '_id' | 'ref' | 'title'>
     ...(extra.changes ? { changes: extra.changes } : {}),
     ...(extra.note ? { note: extra.note } : {}),
     ...(rc.session ? { session: rc.session } : {}),
+    ...(rc.userId ? { actorUserId: rc.userId } : {}),
   });
 }
 

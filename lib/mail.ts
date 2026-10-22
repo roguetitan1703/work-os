@@ -1,30 +1,31 @@
 import 'server-only';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import nodemailer from 'nodemailer';
 import { SafeError } from './auth';
 import { collections, type MailLogDoc } from './db';
 
-// Outgoing email (SMTP via nodemailer). Mail only ever goes to the owner:
-// OWNER_EMAIL, else EMAIL_FROM. There is deliberately no "to" parameter.
+// Outgoing email (SMTP via nodemailer): password reset links, password-changed notices, invitations and the
+// Settings test email. Each goes to the address of the person it is about (`to`), never to anyone else.
 //
 //   EMAIL_HOST, EMAIL_PORT, EMAIL_SECURE (true = TLS from the start, e.g. port 465)
 //   EMAIL_USER, EMAIL_PASSWORD   SMTP login
 //   EMAIL_FROM, EMAIL_FROM_NAME  sender address and display name
-//   OWNER_EMAIL                  the only recipient (defaults to EMAIL_FROM)
+//   MAIL_CAPTURE_DIR             tests only: write each mail as a JSON file in this folder instead of sending it
 
 const REQUIRED = ['EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_FROM'] as const;
 
+const captureDir = () => process.env.MAIL_CAPTURE_DIR?.trim() || null;
+
 /** Names (never values) of the email env vars that are missing. */
 export function missingMailEnv(): string[] {
+  if (captureDir()) return [];
   return REQUIRED.filter(k => !process.env[k]?.trim());
 }
 
 export function mailConfigured(): boolean {
   return missingMailEnv().length === 0;
-}
-
-export function ownerEmail(): string | null {
-  return process.env.OWNER_EMAIL?.trim() || process.env.EMAIL_FROM?.trim() || null;
 }
 
 function transport() {
@@ -45,10 +46,19 @@ function transport() {
   });
 }
 
-/** Sends a plain-text email to the owner. Throws SafeError if email is not configured. */
-export async function sendOwnerMail(msg: { subject: string; text: string }): Promise<void> {
+const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}$/;
+
+/** Sends a plain-text email to `to`. Throws SafeError if email is not configured. */
+export async function sendMail(msg: { to: string; subject: string; text: string }): Promise<void> {
+  const to = msg.to.trim();
+  if (!EMAIL.test(to)) throw new SafeError('That is not an email address.');
+  const dir = captureDir();
+  if (dir) {
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, `${Date.now()}-${randomUUID()}.json`), JSON.stringify({ to, subject: msg.subject, text: msg.text, at: new Date().toISOString() }));
+    return;
+  }
   const t = transport();
-  const to = ownerEmail()!;
   const from = process.env.EMAIL_FROM!.trim();
   const name = process.env.EMAIL_FROM_NAME?.trim() || 'Work OS';
   try {
@@ -60,18 +70,25 @@ export async function sendOwnerMail(msg: { subject: string; text: string }): Pro
 
 // ── Hourly limits ───────────────────────────────────────────────────────────
 
-const HOURLY_LIMIT: Record<MailLogDoc['kind'], number> = { reset: 3, test: 5, changed: 10 };
+/** Per recipient and kind, per hour. */
+const HOURLY_LIMIT: Record<MailLogDoc['kind'], number> = { reset: 3, test: 5, changed: 10, invite: 10 };
+/** Across all recipients, per hour: a backstop against using the site to send mail. */
+const HOURLY_TOTAL = 60;
+
+const hashTo = (to: string) => createHash('sha256').update(to.trim().toLowerCase()).digest('hex').slice(0, 32);
 
 /**
- * Records one send of `kind` and says whether it is within the hourly limit.
- * Insert-then-count, so concurrent callers can't both slip under the limit.
+ * Records one send of `kind` to `to` and says whether it is within the hourly limits.
+ * Insert-then-count, so concurrent callers can't both slip under the limit. Only a hash of the address is kept.
  */
-export async function takeMailSlot(kind: MailLogDoc['kind']): Promise<boolean> {
+export async function takeMailSlot(kind: MailLogDoc['kind'], to: string): Promise<boolean> {
   const { mailLog } = await collections();
   const at = new Date();
-  await mailLog.insertOne({ _id: randomUUID(), kind, at });
-  const n = await mailLog.countDocuments({ kind, at: { $gt: new Date(at.getTime() - 3_600_000) } });
-  return n <= HOURLY_LIMIT[kind];
+  const toHash = hashTo(to);
+  await mailLog.insertOne({ _id: randomUUID(), kind, at, to: toHash });
+  const since = new Date(at.getTime() - 3_600_000);
+  const [mine, all] = await Promise.all([mailLog.countDocuments({ kind, to: toHash, at: { $gt: since } }), mailLog.countDocuments({ at: { $gt: since } })]);
+  return mine <= HOURLY_LIMIT[kind] && all <= HOURLY_TOTAL;
 }
 
 /** Short reason for a failed send, without server responses that could echo config. */

@@ -1,95 +1,79 @@
 import 'server-only';
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { collections, type ApiKeyDoc } from './db';
 import { SafeError } from './auth';
+import { getAuth } from './auth-server';
+import type { Agent, Caller } from './caller';
 
-// Claude Code API keys: a second kind of credential, accepted ONLY by the MCP endpoint
-// (app/api/mcp). proxy.ts and the admin/cron routes use checkToken() (MCP_TOKEN only)
-// and never look at these. Only the SHA-256 of a key is stored; the key is shown once.
-//
-// Format: "wos_" + 32 random bytes, base64url (47 chars).
+// Work OS API keys (docs/auth.md), stored by Better Auth's API key plugin (`apikey` collection; only a hash is kept,
+// the key is shown once). Each key belongs to the user who made it, carries the organization it acts in and which
+// agent it is for, in its metadata:
+//   agent 'claude'       the claude.ai connector: what the old MCP_TOKEN was (no Claude Code rules)
+//   agent 'claude-code'  a Claude Code session: what the old wos_ keys were (lib/mcp/policy.ts rules)
+// /api/mcp accepts both (app/api/mcp/[[...key]]/route.ts); other API routes accept them through lib/caller.ts.
+// Keys are created only here; Better Auth's /api-key/* HTTP endpoints are not served.
 
-export const KEY_PREFIX = 'wos_';
-const LAST_USED_EVERY_MS = 60_000;
+export const MAX_KEYS_PER_USER = 20;
 
-export type ApiKeyInfo = { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null };
-export type VerifiedKey = { id: string; name: string; role: 'claude-code' };
+export type ApiKeyInfo = { id: string; name: string; prefix: string; agent: Agent; createdAt: string; lastUsedAt: string | null };
 
-const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
+type Row = { id: string; name?: string | null; start?: string | null; referenceId: string; metadata?: unknown; createdAt: Date | string; lastRequest?: Date | string | null };
 
-function newKey(): string {
-  return KEY_PREFIX + randomBytes(32).toString('base64url');
+function meta(m: unknown): { agent?: unknown; orgId?: unknown } {
+  if (typeof m === 'string') {
+    try {
+      return JSON.parse(m) ?? {};
+    } catch {
+      return {};
+    }
+  }
+  return (m as object | null) ?? {};
+}
+
+const iso = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : null);
+
+function toInfo(r: Row): ApiKeyInfo {
+  const m = meta(r.metadata);
+  return { id: String(r.id), name: r.name ?? '', prefix: r.start ?? '', agent: m.agent === 'claude' ? 'claude' : 'claude-code', createdAt: iso(r.createdAt)!, lastUsedAt: iso(r.lastRequest) };
+}
+
+async function rowsOf(userId: string): Promise<Row[]> {
+  const ctx = await (await getAuth()).$context;
+  return (await ctx.adapter.findMany<Row>({ model: 'apikey', where: [{ field: 'referenceId', value: userId }], sortBy: { field: 'createdAt', direction: 'desc' } })) ?? [];
+}
+
+/** The caller's own keys in their organization, newest first (all agents, or one). */
+export async function listApiKeys(c: Caller, agent?: Agent): Promise<ApiKeyInfo[]> {
+  return (await rowsOf(c.userId)).filter(r => meta(r.metadata).orgId === c.orgId).map(toInfo).filter(k => !agent || k.agent === agent);
 }
 
 function cleanName(name: string): string {
-  const n = name.trim().replace(/\s+/g, ' ').slice(0, 60);
+  const n = String(name ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
   if (!n) throw new SafeError('Give the key a name.');
   return n;
 }
 
-function toInfo(d: ApiKeyDoc): ApiKeyInfo {
-  return { id: d._id, name: d.name, prefix: d.prefix, createdAt: d.createdAt.toISOString(), lastUsedAt: d.lastUsedAt?.toISOString() ?? null };
+/** Creates a key for the caller and returns it in full. This is the only time the plaintext exists. */
+export async function createApiKey(c: Caller, name: string, agent: Agent): Promise<{ key: string; info: ApiKeyInfo }> {
+  if (c.via !== 'session') throw new SafeError('Keys are made by a signed-in person.');
+  const n = cleanName(name);
+  if ((await rowsOf(c.userId)).length >= MAX_KEYS_PER_USER) throw new SafeError(`At most ${MAX_KEYS_PER_USER} keys. Revoke one first.`);
+  const auth = await getAuth();
+  const k = await auth.api.createApiKey({ body: { name: n, userId: c.userId, metadata: { agent, orgId: c.orgId } } });
+  return { key: k.key, info: toInfo({ ...k, referenceId: k.referenceId, metadata: k.metadata }) };
 }
 
-/** Active (unrevoked) keys, newest first. */
-export async function listApiKeys(): Promise<ApiKeyInfo[]> {
-  const docs = await (await collections()).apiKeys.find({ revokedAt: null }).sort({ createdAt: -1 }).toArray();
-  return docs.map(toInfo);
+/** Revokes (deletes) one of the caller's keys. */
+export async function revokeApiKey(c: Caller, id: string): Promise<void> {
+  const row = (await rowsOf(c.userId)).find(r => String(r.id) === String(id));
+  if (!row) throw new SafeError('That key is already revoked or does not exist.');
+  const ctx = await (await getAuth()).$context;
+  await ctx.adapter.delete({ model: 'apikey', where: [{ field: 'id', value: row.id }] });
 }
 
-/** Creates a key and returns it in full. This is the only time the plaintext exists. */
-export async function createApiKey(name: string): Promise<{ key: string; info: ApiKeyInfo }> {
-  const c = await collections();
-  if ((await c.apiKeys.countDocuments({ revokedAt: null })) >= 20) throw new SafeError('At most 20 active keys. Revoke one first.');
-  const key = newKey();
-  const doc: ApiKeyDoc = {
-    _id: randomUUID(),
-    name: cleanName(name),
-    role: 'claude-code',
-    hash: sha256(key),
-    prefix: key.slice(0, 8),
-    createdAt: new Date(),
-    lastUsedAt: null,
-    revokedAt: null,
-  };
-  await c.apiKeys.insertOne(doc);
-  return { key, info: toInfo(doc) };
-}
-
-export async function revokeApiKey(id: string): Promise<void> {
-  const r = await (await collections()).apiKeys.updateOne({ _id: id, revokedAt: null }, { $set: { revokedAt: new Date() } });
-  if (!r.matchedCount) throw new SafeError('That key is already revoked or does not exist.');
-}
-
-/** Revokes the key and issues a new one with the same name. */
-export async function rotateApiKey(id: string): Promise<{ key: string; info: ApiKeyInfo }> {
-  const c = await collections();
-  const cur = await c.apiKeys.findOne({ _id: id, revokedAt: null });
-  if (!cur) throw new SafeError('That key is already revoked or does not exist.');
-  await revokeApiKey(id);
-  return createApiKey(cur.name);
-}
-
-/**
- * The key record for a presented key, or null. Looks up by hash, then compares the stored
- * hash in constant time. lastUsedAt is written at most once a minute per key.
- */
-export async function verifyApiKey(token: string | null | undefined): Promise<VerifiedKey | null> {
-  if (!token || !token.startsWith(KEY_PREFIX) || token.length < 40 || token.length > 80) return null;
-  const hash = sha256(token);
-  const c = await collections();
-  const doc = await c.apiKeys.findOne({ hash });
-  if (!doc) return null;
-  const a = Buffer.from(doc.hash, 'hex');
-  const b = Buffer.from(hash, 'hex');
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  if (doc.revokedAt) return null;
-  const now = Date.now();
-  if (!doc.lastUsedAt || now - doc.lastUsedAt.getTime() > LAST_USED_EVERY_MS) {
-    const cutoff = new Date(now - LAST_USED_EVERY_MS);
-    c.apiKeys
-      .updateOne({ _id: doc._id, $or: [{ lastUsedAt: null }, { lastUsedAt: { $lt: cutoff } }] }, { $set: { lastUsedAt: new Date(now) } })
-      .catch(() => {});
-  }
-  return { id: doc._id, name: doc.name, role: doc.role };
+/** Revokes the key and issues a new one with the same name and agent. */
+export async function rotateApiKey(c: Caller, id: string): Promise<{ key: string; info: ApiKeyInfo }> {
+  const row = (await rowsOf(c.userId)).find(r => String(r.id) === String(id));
+  if (!row) throw new SafeError('That key is already revoked or does not exist.');
+  const info = toInfo(row);
+  await revokeApiKey(c, id);
+  return createApiKey(c, info.name, info.agent);
 }

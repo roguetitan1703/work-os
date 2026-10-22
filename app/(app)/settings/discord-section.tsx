@@ -96,7 +96,7 @@ export async function DiscordSection({ base }: { base: string }) {
         </li>
         <li>
           <b>Register the commands</b> (guild-scoped to Delpat, so they appear instantly). Run once, and again whenever commands change:
-          <CopyBox text={`curl -X POST ${base}/api/admin/discord/register -H "Authorization: Bearer $MCP_TOKEN"`} className="mt-2" />
+          <CopyBox text={`curl -X POST ${base}/api/admin/discord/register -H "Authorization: Bearer <your key>"`} className="mt-2" />
         </li>
       </ol>
           </Disclosure>

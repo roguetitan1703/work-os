@@ -17,7 +17,7 @@ export function ReferenceTab({ groups, instructions, token, url }: { groups: Too
   const shown = groups
     .map(g => ({ ...g, tools: g.tools.filter(t => !needle || `${t.name} ${t.description} ${t.example}`.toLowerCase().includes(needle)) }))
     .filter(g => g.tools.length > 0);
-  const key = token ?? '<MCP_TOKEN>';
+  const key = token ?? '<your key>';
 
   return (
     <div className="space-y-5">
@@ -89,7 +89,7 @@ export function ReferenceTab({ groups, instructions, token, url }: { groups: Too
             />
           </Field>
           <p className="text-xs text-muted-foreground">
-            Both use <code className={code}>MCP_TOKEN</code>.
+            Both use one of your keys (Claude chat or Claude Code).
           </p>
         </Disclosure>
       </div>

@@ -3,24 +3,15 @@
 import { useEffect, useState, useTransition } from 'react';
 import { Check, Copy, KeyRound, LockKeyhole, Mail, Pencil, Plus, ShieldCheck, ShieldOff, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser';
-import type { PasskeyInfo } from '@/lib/passkeys';
-import type { TotpState } from '@/lib/totp';
+import QRCode from 'qrcode';
+import { authClient, authError } from '@/lib/auth-client';
 import { Row } from './device-settings';
-import {
-  changePasswordAction,
-  getSecurityStateAction,
-  sendTestEmailAction,
-  type EmailState,
-  passkeyRegisterAction,
-  passkeyRegisterOptionsAction,
-  removePasskeyAction,
-  renamePasskeyAction,
-  totpBeginAction,
-  totpConfirmAction,
-  totpDisableAction,
-  totpRegenerateCodesAction,
-} from './security-actions';
+import { sendTestEmailAction } from './security-actions';
+
+// Settings › Security (docs/auth.md): passkeys, authenticator app with backup codes, password, test email.
+// Everything except the test email is a Better Auth call from the browser (lib/auth-client.ts), which checks the session.
+
+export type EmailState = { configured: boolean; missing: string[]; to: string };
 
 const field =
   'w-full min-w-0 h-11 rounded-xl border border-input bg-background dark:bg-input/30 px-3 text-base text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
@@ -59,83 +50,64 @@ function deviceFromUA(ua: string): string {
   return browser ? `${os} · ${browser}` : os;
 }
 
-const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+const day = (iso: string | Date) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
-export function SecuritySettings() {
-  const [passkeys, setPasskeys] = useState<PasskeyInfo[] | null>(null);
-  const [totp, setTotp] = useState<TotpState | null>(null);
-  const [extra, setExtra] = useState<{ storedPassword: boolean; email: EmailState } | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+type PasskeyRow = { id: string; name?: string | null; createdAt: string | Date };
 
-  useEffect(() => {
-    let alive = true;
-    getSecurityStateAction().then(r => {
-      if (!alive) return;
-      if (r.ok) {
-        setPasskeys(r.data.passkeys);
-        setTotp(r.data.totp);
-        setExtra({ storedPassword: r.data.storedPassword, email: r.data.email });
-      } else setLoadError(r.error);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  if (loadError) return <Row icon={<ShieldOff className="w-5 h-5 text-red-500" />} title="Security" sub={loadError} />;
-  if (!passkeys || !totp || !extra) return <Row icon={<KeyRound className="w-5 h-5" />} title="Passkeys" sub="Checking…" />;
-
+export function SecuritySettings({ email, twoFactor, mail }: { email: string; twoFactor: boolean; mail: EmailState }) {
+  const [totpOn, setTotpOn] = useState(twoFactor);
   return (
     <>
-      <Passkeys list={passkeys} onChange={setPasskeys} />
-      <Totp state={totp} onChange={setTotp} />
-      <Password totpOn={totp.enabled} stored={extra.storedPassword} onChanged={() => setExtra({ ...extra, storedPassword: true })} />
-      <Email state={extra.email} />
+      <Passkeys />
+      <Totp enabled={totpOn} onChange={setTotpOn} />
+      <Password email={email} />
+      <Email state={mail} />
     </>
   );
 }
 
 // ── Passkeys ────────────────────────────────────────────────────────────────
 
-function Passkeys({ list, onChange }: { list: PasskeyInfo[]; onChange: (l: PasskeyInfo[]) => void }) {
+function Passkeys() {
+  const [list, setList] = useState<PasskeyRow[] | null>(null);
   const [supported, setSupported] = useState(true);
   const [name, setName] = useState('');
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
   const [pending, start] = useTransition();
 
+  const load = async () => {
+    const r = await authClient.passkey.listUserPasskeys();
+    if (r.error) toast.error(authError(r.error));
+    else setList((r.data ?? []) as PasskeyRow[]);
+  };
+
   useEffect(() => {
     const t = setTimeout(() => {
-      setSupported(browserSupportsWebAuthn());
+      setSupported(typeof window !== 'undefined' && !!window.PublicKeyCredential);
       setName(deviceFromUA(navigator.userAgent));
+      void load();
     }, 0);
     return () => clearTimeout(t);
   }, []);
 
   const add = () =>
     start(async () => {
-      const opts = await passkeyRegisterOptionsAction();
-      if (!opts.ok) return void toast.error(opts.error);
-      let response;
-      try {
-        response = await startRegistration({ optionsJSON: opts.data });
-      } catch (e) {
-        const n = e instanceof Error ? e.name : '';
-        if (n === 'InvalidStateError') toast.error('This device already has a passkey for Work OS.');
-        else if (n !== 'NotAllowedError' && n !== 'AbortError') toast.error(e instanceof Error ? e.message : 'Could not create a passkey.');
+      const r = await authClient.passkey.addPasskey({ name: name.trim().slice(0, 60) || 'Passkey' });
+      if (r?.error) {
+        const m = r.error.message ?? '';
+        if (!/cancel|abort|not allowed/i.test(m)) toast.error(authError(r.error, 'Could not create a passkey.'));
         return;
       }
-      const r = await passkeyRegisterAction(response, name);
-      if (!r.ok) return void toast.error(r.error);
-      onChange(r.data);
+      await load();
       toast.success('Passkey added. You can now sign in with it.');
     });
 
-  const remove = (p: PasskeyInfo) => {
-    if (!window.confirm(`Remove the passkey "${p.deviceName}"? It will no longer sign you in.`)) return;
+  const remove = (p: PasskeyRow) => {
+    if (!window.confirm(`Remove the passkey "${p.name ?? 'Passkey'}"? It will no longer sign you in.`)) return;
     start(async () => {
-      const r = await removePasskeyAction(p.id);
-      if (!r.ok) return void toast.error(r.error);
-      onChange(r.data);
+      const r = await authClient.passkey.deletePasskey({ id: p.id });
+      if (r.error) return void toast.error(authError(r.error));
+      await load();
       toast('Passkey removed');
     });
   };
@@ -144,21 +116,17 @@ function Passkeys({ list, onChange }: { list: PasskeyInfo[]; onChange: (l: Passk
     if (!editing) return;
     const e = editing;
     start(async () => {
-      const r = await renamePasskeyAction(e.id, e.name);
-      if (!r.ok) return void toast.error(r.error);
-      onChange(r.data);
+      const r = await authClient.passkey.updatePasskey({ id: e.id, name: e.name.trim().slice(0, 60) || 'Passkey' });
+      if (r.error) return void toast.error(authError(r.error));
+      await load();
       setEditing(null);
     });
   };
 
   return (
     <>
-      <Row
-        icon={<KeyRound className="w-5 h-5 text-blue-600" />}
-        title="Passkeys"
-        sub="Sign in with Face ID, fingerprint or your device PIN. No password or code needed."
-      />
-      {list.map(p =>
+      <Row icon={<KeyRound className="w-5 h-5 text-blue-600" />} title="Passkeys" sub={list ? 'Sign in with Face ID, fingerprint or your device PIN. No password or code needed.' : 'Checking…'} />
+      {(list ?? []).map(p =>
         editing?.id === p.id ? (
           <div key={p.id} className="flex items-center gap-2 px-4 py-2 min-h-14">
             <input
@@ -180,15 +148,13 @@ function Passkeys({ list, onChange }: { list: PasskeyInfo[]; onChange: (l: Passk
         ) : (
           <div key={p.id} className="flex items-center gap-2 pl-4 pr-2 py-3 min-h-14">
             <div className="flex-1 min-w-0 pl-8">
-              <div className="text-[15px] text-foreground truncate">{p.deviceName}</div>
-              <div className="text-[13px] text-muted-foreground leading-snug">
-                Added {day(p.createdAt)} · {p.lastUsedAt ? `last used ${day(p.lastUsedAt)}` : 'not used yet'}
-              </div>
+              <div className="text-[15px] text-foreground truncate">{p.name || 'Passkey'}</div>
+              <div className="text-[13px] text-muted-foreground leading-snug">Added {day(p.createdAt)}</div>
             </div>
-            <button type="button" className={iconBtn} onClick={() => setEditing({ id: p.id, name: p.deviceName })} disabled={pending} aria-label={`Rename ${p.deviceName}`}>
+            <button type="button" className={iconBtn} onClick={() => setEditing({ id: p.id, name: p.name ?? '' })} disabled={pending} aria-label={`Rename ${p.name ?? 'passkey'}`}>
               <Pencil className="w-4 h-4" />
             </button>
-            <button type="button" className={iconBtn} onClick={() => remove(p)} disabled={pending} aria-label={`Remove ${p.deviceName}`}>
+            <button type="button" className={iconBtn} onClick={() => remove(p)} disabled={pending} aria-label={`Remove ${p.name ?? 'passkey'}`}>
               <Trash2 className="w-4 h-4 text-red-600 dark:text-red-400" />
             </button>
           </div>
@@ -210,49 +176,50 @@ function Passkeys({ list, onChange }: { list: PasskeyInfo[]; onChange: (l: Passk
 
 // ── Authenticator app ───────────────────────────────────────────────────────
 
-type Mode = { kind: 'idle' } | { kind: 'setup'; secret: string; qr: string } | { kind: 'disable' } | { kind: 'regen' } | { kind: 'codes'; codes: string[] };
+type Then = 'enable' | 'disable' | 'regen';
+type Mode = { kind: 'idle' } | { kind: 'password'; then: Then } | { kind: 'setup'; secret: string; qr: string; codes: string[] } | { kind: 'codes'; codes: string[] };
 
-function Totp({ state, onChange }: { state: TotpState; onChange: (s: TotpState) => void }) {
+function Totp({ enabled, onChange }: { enabled: boolean; onChange: (on: boolean) => void }) {
   const [mode, setMode] = useState<Mode>({ kind: 'idle' });
   const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
   const [pending, start] = useTransition();
 
   const go = (m: Mode) => {
     setCode('');
+    setPassword('');
     setMode(m);
   };
 
-  const begin = () =>
+  const withPassword = (then: Then) =>
     start(async () => {
-      const r = await totpBeginAction();
-      if (!r.ok) return void toast.error(r.error);
-      go({ kind: 'setup', secret: r.data.secret, qr: r.data.qr });
+      if (then === 'enable') {
+        const r = await authClient.twoFactor.enable({ password });
+        if (r.error || !r.data || !('totpURI' in r.data)) return void toast.error(authError(r.error, 'Wrong password.'));
+        const uri = r.data.totpURI;
+        const secret = new URL(uri).searchParams.get('secret') ?? '';
+        const qr = await QRCode.toDataURL(uri, { margin: 1, width: 200 });
+        go({ kind: 'setup', secret, qr, codes: r.data.backupCodes });
+      } else if (then === 'disable') {
+        const r = await authClient.twoFactor.disable({ password });
+        if (r.error) return void toast.error(authError(r.error, 'Wrong password.'));
+        onChange(false);
+        go({ kind: 'idle' });
+        toast('Authenticator app off');
+      } else {
+        const r = await authClient.twoFactor.generateBackupCodes({ password });
+        if (r.error || !r.data) return void toast.error(authError(r.error, 'Wrong password.'));
+        go({ kind: 'codes', codes: r.data.backupCodes });
+      }
     });
 
-  const confirm = () =>
+  const confirm = (codes: string[]) =>
     start(async () => {
-      const r = await totpConfirmAction(code);
-      if (!r.ok) return void toast.error(r.error);
-      onChange({ enabled: true, recoveryLeft: r.data.length, enabledAt: new Date().toISOString() });
-      go({ kind: 'codes', codes: r.data });
+      const r = await authClient.twoFactor.verifyTotp({ code: code.trim() });
+      if (r.error) return void toast.error(authError(r.error, 'Wrong code.'));
+      onChange(true);
+      go({ kind: 'codes', codes });
       toast.success('Authenticator app on');
-    });
-
-  const disable = () =>
-    start(async () => {
-      const r = await totpDisableAction(code);
-      if (!r.ok) return void toast.error(r.error);
-      onChange({ enabled: false, recoveryLeft: 0, enabledAt: null });
-      go({ kind: 'idle' });
-      toast('Authenticator app off');
-    });
-
-  const regen = () =>
-    start(async () => {
-      const r = await totpRegenerateCodesAction(code);
-      if (!r.ok) return void toast.error(r.error);
-      onChange({ ...state, recoveryLeft: r.data.length });
-      go({ kind: 'codes', codes: r.data });
     });
 
   const copy = (text: string) =>
@@ -261,39 +228,20 @@ function Totp({ state, onChange }: { state: TotpState; onChange: (s: TotpState) 
       () => toast.error('Could not copy'),
     );
 
-  const codeInput = (onEnter: () => void, label: string) => (
-    <input
-      className={`${field} tracking-widest`}
-      value={code}
-      onChange={e => setCode(e.target.value)}
-      onKeyDown={e => e.key === 'Enter' && code && onEnter()}
-      inputMode="numeric"
-      autoComplete="one-time-code"
-      placeholder="123456"
-      maxLength={20}
-      autoFocus
-      aria-label={label}
-    />
-  );
-
   return (
     <>
       <Row
-        icon={state.enabled ? <ShieldCheck className="w-5 h-5 text-green-600" /> : <ShieldOff className="w-5 h-5 text-muted-foreground" />}
+        icon={enabled ? <ShieldCheck className="w-5 h-5 text-green-600" /> : <ShieldOff className="w-5 h-5 text-muted-foreground" />}
         title="Authenticator app"
-        sub={
-          state.enabled
-            ? `On. Password sign-in also asks for a code. ${state.recoveryLeft} recovery code${state.recoveryLeft === 1 ? '' : 's'} left.`
-            : 'Off. Turn on to ask for a 6-digit code after your password. Passkeys skip it.'
-        }
+        sub={enabled ? 'On. Password sign-in also asks for a code (or a backup code).' : 'Off. Turn on to ask for a 6-digit code after your password. Passkeys skip it.'}
         action={
           mode.kind === 'idle' ? (
-            state.enabled ? (
-              <button type="button" className={btnOutline} onClick={() => go({ kind: 'disable' })}>
+            enabled ? (
+              <button type="button" className={btnOutline} onClick={() => go({ kind: 'password', then: 'disable' })}>
                 Turn off
               </button>
             ) : (
-              <button type="button" className={btnPrimary} onClick={begin} disabled={pending}>
+              <button type="button" className={btnPrimary} onClick={() => go({ kind: 'password', then: 'enable' })} disabled={pending}>
                 Turn on
               </button>
             )
@@ -301,57 +249,71 @@ function Totp({ state, onChange }: { state: TotpState; onChange: (s: TotpState) 
         }
       />
 
-      {mode.kind === 'idle' && state.enabled && (
+      {mode.kind === 'idle' && enabled && (
         <div className="flex items-center justify-between gap-3 px-4 py-2 min-h-14">
-          <span className="text-sm text-muted-foreground">Lost or used up your recovery codes?</span>
-          <button type="button" className={btnOutline} onClick={() => go({ kind: 'regen' })}>
+          <span className="text-sm text-muted-foreground">Lost or used up your backup codes?</span>
+          <button type="button" className={btnOutline} onClick={() => go({ kind: 'password', then: 'regen' })}>
             New codes
           </button>
         </div>
       )}
 
+      {mode.kind === 'password' && (
+        <form
+          className="px-4 py-4 space-y-3"
+          onSubmit={e => {
+            e.preventDefault();
+            if (password) withPassword(mode.then);
+          }}
+        >
+          <p className="text-[13px] text-muted-foreground">
+            {mode.then === 'enable'
+              ? 'Enter your password to set up the authenticator app.'
+              : mode.then === 'disable'
+                ? 'Enter your password to turn the authenticator app off.'
+                : 'Enter your password. Your old backup codes stop working.'}
+          </p>
+          <div className="flex items-center gap-2">
+            <input className={field} type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" autoFocus aria-label="Your password" placeholder="Password" />
+            <button type="submit" className={mode.then === 'disable' ? `${btn} bg-red-600 text-white` : btnPrimary} disabled={pending || !password}>
+              {mode.then === 'disable' ? 'Turn off' : 'Continue'}
+            </button>
+          </div>
+          <button type="button" className={`${btnOutline} w-full`} onClick={() => go({ kind: 'idle' })}>
+            Cancel
+          </button>
+        </form>
+      )}
+
       {mode.kind === 'setup' && (
         <div className="px-4 py-4 space-y-3">
-          <p className="text-[13px] text-muted-foreground">
-            1. In Google Authenticator, 1Password, Authy or similar, scan this code or enter the key by hand.
-          </p>
+          <p className="text-[13px] text-muted-foreground">1. In Google Authenticator, 1Password, Authy or similar, scan this code or enter the key by hand.</p>
           {/* eslint-disable-next-line @next/next/no-img-element -- data: URL QR code */}
           <img src={mode.qr} alt="QR code for your authenticator app" width={200} height={200} className="mx-auto rounded-xl bg-white p-2" />
           <div className="flex items-center gap-2">
-            <code className="flex-1 min-w-0 break-all rounded-lg bg-muted px-3 py-2 text-[13px] font-mono">{mode.secret}</code>
+            <code className="flex-1 min-w-0 break-all rounded-lg bg-muted px-3 py-2 text-[13px] font-mono" data-totp-secret>
+              {mode.secret}
+            </code>
             <button type="button" className={iconBtn} onClick={() => copy(mode.secret)} aria-label="Copy key">
               <Copy className="w-4 h-4" />
             </button>
           </div>
           <p className="text-[13px] text-muted-foreground">2. Enter the 6-digit code it shows.</p>
           <div className="flex items-center gap-2">
-            {codeInput(confirm, 'Code from your authenticator app')}
-            <button type="button" className={btnPrimary} onClick={confirm} disabled={pending || !code}>
+            <input
+              className={`${field} tracking-widest`}
+              value={code}
+              onChange={e => setCode(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && code && confirm(mode.codes)}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="123456"
+              maxLength={20}
+              autoFocus
+              aria-label="Code from your authenticator app"
+            />
+            <button type="button" className={btnPrimary} onClick={() => confirm(mode.codes)} disabled={pending || !code}>
               Confirm
-            </button>
-          </div>
-          <button type="button" className={`${btnOutline} w-full`} onClick={() => go({ kind: 'idle' })}>
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {(mode.kind === 'disable' || mode.kind === 'regen') && (
-        <div className="px-4 py-4 space-y-3">
-          <p className="text-[13px] text-muted-foreground">
-            {mode.kind === 'disable'
-              ? 'Enter a current code from your authenticator app (or a recovery code) to turn it off.'
-              : 'Enter a current code from your authenticator app. Your old recovery codes stop working.'}
-          </p>
-          <div className="flex items-center gap-2">
-            {codeInput(mode.kind === 'disable' ? disable : regen, 'Authenticator code')}
-            <button
-              type="button"
-              className={mode.kind === 'disable' ? `${btn} bg-red-600 text-white` : btnPrimary}
-              onClick={mode.kind === 'disable' ? disable : regen}
-              disabled={pending || !code}
-            >
-              {mode.kind === 'disable' ? 'Turn off' : 'Create'}
             </button>
           </div>
           <button type="button" className={`${btnOutline} w-full`} onClick={() => go({ kind: 'idle' })}>
@@ -363,9 +325,9 @@ function Totp({ state, onChange }: { state: TotpState; onChange: (s: TotpState) 
       {mode.kind === 'codes' && (
         <div className="px-4 py-4 space-y-3">
           <p className="text-[13px] text-foreground">
-            <strong>Save these recovery codes now.</strong> Each one works once, instead of an app code. They are not shown again.
+            <strong>Save these backup codes now.</strong> Each one works once, instead of an app code. They are not shown again.
           </p>
-          <ol className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-xl bg-muted px-4 py-3 font-mono text-[15px]">
+          <ol className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-xl bg-muted px-4 py-3 font-mono text-[15px]" data-backup-codes>
             {mode.codes.map(c => (
               <li key={c}>{c}</li>
             ))}
@@ -386,13 +348,13 @@ function Totp({ state, onChange }: { state: TotpState; onChange: (s: TotpState) 
 
 // ── Password ────────────────────────────────────────────────────────────────
 
-function Password({ totpOn, stored, onChanged }: { totpOn: boolean; stored: boolean; onChanged: () => void }) {
+function Password({ email }: { email: string }) {
   const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ current: '', password: '', again: '', code: '' });
+  const [f, setF] = useState({ current: '', password: '', again: '' });
   const [pending, start] = useTransition();
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const close = () => {
-    setF({ current: '', password: '', again: '', code: '' });
+    setF({ current: '', password: '', again: '' });
     setOpen(false);
   };
 
@@ -401,10 +363,9 @@ function Password({ totpOn, stored, onChanged }: { totpOn: boolean; stored: bool
     if (f.password.length < 10) return void toast.error('Use at least 10 characters.');
     if (f.password !== f.again) return void toast.error('The two new passwords do not match.');
     start(async () => {
-      const r = await changePasswordAction(f);
-      if (!r.ok) return void toast.error(r.error);
+      const r = await authClient.changePassword({ currentPassword: f.current, newPassword: f.password, revokeOtherSessions: true });
+      if (r.error) return void toast.error(authError(r.error, 'Wrong password.'));
       close();
-      onChanged();
       toast.success('Password changed. Other devices were signed out.');
     });
   };
@@ -414,7 +375,7 @@ function Password({ totpOn, stored, onChanged }: { totpOn: boolean; stored: bool
       <Row
         icon={<LockKeyhole className="w-5 h-5 text-amber-600" />}
         title="Password"
-        sub={stored ? 'Set here or by a reset link.' : 'Still the APP_PASSWORD from the server settings.'}
+        sub={`For ${email}. Forgot it? Sign out and use "Forgot password?".`}
         action={
           !open ? (
             <button type="button" className={btnOutline} onClick={() => setOpen(true)}>
@@ -425,24 +386,11 @@ function Password({ totpOn, stored, onChanged }: { totpOn: boolean; stored: bool
       />
       {open && (
         <form className="px-4 py-4 space-y-3" onSubmit={save}>
-          <input type="text" name="username" value="work-os" autoComplete="username" readOnly hidden />
+          <input type="text" name="username" value={email} autoComplete="username" readOnly hidden />
           <input className={field} type="password" value={f.current} onChange={set('current')} placeholder="Current password" autoComplete="current-password" required autoFocus aria-label="Current password" />
           <input className={field} type="password" value={f.password} onChange={set('password')} placeholder="New password (10+ characters)" autoComplete="new-password" required minLength={10} maxLength={256} aria-label="New password" />
           <input className={field} type="password" value={f.again} onChange={set('again')} placeholder="New password again" autoComplete="new-password" required minLength={10} maxLength={256} aria-label="New password again" />
-          {totpOn && (
-            <input
-              className={`${field} tracking-widest`}
-              value={f.code}
-              onChange={set('code')}
-              placeholder="Authenticator code"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              required
-              maxLength={20}
-              aria-label="Authenticator code or recovery code"
-            />
-          )}
-          <p className="text-[13px] text-muted-foreground">Every other signed-in device will be signed out. You will get an email.</p>
+          <p className="text-[13px] text-muted-foreground">Every other signed-in device will be signed out.</p>
           <div className="flex gap-2">
             <button type="button" className={`${btnOutline} flex-1`} onClick={close}>
               Cancel
@@ -471,11 +419,7 @@ function Email({ state }: { state: EmailState }) {
     <Row
       icon={<Mail className={`w-5 h-5 ${state.configured ? 'text-blue-600' : 'text-muted-foreground'}`} />}
       title="Email"
-      sub={
-        state.configured
-          ? `Reset links and password-change notices go to ${state.to}.`
-          : `Off: set ${state.missing.join(', ')} on the server. Password reset by email needs it.`
-      }
+      sub={state.configured ? `Reset links and notices go to ${state.to}.` : `Off: set ${state.missing.join(', ')} on the server. Password reset by email needs it.`}
       action={
         state.configured ? (
           <button type="button" className={btnOutline} onClick={send} disabled={pending}>

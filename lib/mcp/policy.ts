@@ -1,6 +1,7 @@
 import 'server-only';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { collections, type PolicyEventDoc } from '../db';
+import { authSecret } from '../auth';
 import { InputError } from '../data/errors';
 import * as tasks from '../data/tasks';
 import { addToInbox, getNotifySettings } from '../notify';
@@ -9,16 +10,17 @@ import type { Actor, Task } from '../types';
 // Server-side rules for MCP callers. One place, called by every tool (lib/mcp/server.ts wraps
 // each registered tool with beforeTool) and by apply_changes for its ops (checkBatch).
 //
-// The claude.ai connector (actor "claude", MCP_TOKEN) is unaffected: every check returns at once.
+// The claude.ai connector (actor "claude", a Claude chat key) is unaffected: every check returns at once.
 // Claude Code keys (actor "claude-code") get:
 //   - no permanent deletion and no admin operations (BLOCKED; trash stays restorable)
 //   - at most 300 tool calls per rolling hour per key (policyEvents, Mongo)
 //   - at most 10 trash calls (delete_task / delete_note, single or in a batch) per 10 minutes, unless confirmed
 //   - apply_changes that trashes > 10 items or changes > 50 tasks must be dry-run first; the dry run
-//     returns a confirm token (HMAC of the op list + expiry, 10 min, SESSION_SECRET) that the real call passes
+//     returns a confirm token (HMAC of the op list + expiry, 10 min, the auth secret) that the real call passes
 //   - an inbox notice when it changes title/priority/due/project/status/archived of, or trashes, a task it did not create
 
-export type Caller = { actor: Actor; keyId?: string; keyName?: string };
+/** keyId: the API key; userId/orgId: its owner and organization (lib/caller.ts). */
+export type Caller = { actor: Actor; keyId?: string; keyName?: string; userId?: string; orgId?: string };
 
 export const LIMITS = {
   callsPerHour: 300,
@@ -157,7 +159,7 @@ function opsDigest(ops: unknown[]): string {
 }
 
 function sign(keyId: string, exp: number, digest: string): string | null {
-  const secret = process.env.SESSION_SECRET;
+  const secret = authSecret();
   if (!secret) return null;
   return createHmac('sha256', secret).update(`wos-confirm.v1.${keyId}.${exp}.${digest}`).digest('hex');
 }

@@ -11,7 +11,8 @@ import { listProjectsNav } from '@/lib/data/projects';
 import { overdueCount } from '@/lib/data/summary';
 import { claudeWaitingCount, systemStatusLevel } from '@/lib/data/nav-counts';
 import { todayStr } from '@/lib/dates';
-import { uiAuthDisabled } from '@/lib/auth';
+import { redirect } from 'next/navigation';
+import { getCaller } from '@/lib/caller';
 import { NavTracker } from '@/components/nav-tracker';
 import { GlobalShortcuts } from '@/components/shortcuts';
 import { GlobalSearch } from '@/components/global-search';
@@ -20,6 +21,8 @@ import { GlobalSearch } from '@/components/global-search';
 export const dynamic = 'force-dynamic';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  // proxy.ts checked the session cookie; this also needs a membership (an account in no organization sees nothing).
+  if (!(await getCaller())) redirect('/login');
   const [projects, overdue, unread, claudeWaiting, status] = await Promise.all([
     listProjectsNav(),
     overdueCount(),
@@ -38,7 +41,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <NavTracker />
       <GlobalShortcuts />
       <GlobalSearch />
-      <Sidebar showSignOut={!uiAuthDisabled()} />
+      <Sidebar showSignOut />
       <main id="app-main" className="flex-1 min-w-0 overflow-y-auto overscroll-contain relative z-10 pb-[calc(env(safe-area-inset-bottom)+6rem)] md:pb-12">
         <div className="px-4 pt-3 md:p-6">{children}</div>
       </main>

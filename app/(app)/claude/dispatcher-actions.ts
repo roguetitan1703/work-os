@@ -1,26 +1,26 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
 import { z, ZodError } from 'zod';
-import { SESSION_COOKIE, uiAuthDisabled, verifySessionValue } from '@/lib/auth';
+import { SafeError } from '@/lib/auth';
+import { requireCaller, withCaller } from '@/lib/caller';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 import { getDispatcherSettings, giveToClaude, listNotePicks, markOptions, setDispatcherSettings, takeBackFromClaude, type DispatcherSettings, type MarkOptions, type NotePick } from '@/lib/data/dispatcher';
 
 // Task dispatcher actions (docs/dispatcher.md). These are the ONLY way to mark or unmark a task for
-// Claude: they check Om's session cookie, and nothing reachable from MCP, Discord or apply_changes calls them.
+// Claude: they require a signed-in person (lib/caller.ts), and nothing reachable from MCP, Discord or apply_changes calls them.
 
 type R<T> = { ok: true; data: T } | { ok: false; error: string };
 
 async function run<T>(fn: () => Promise<T>, revalidate = true): Promise<R<T>> {
   try {
-    if (!uiAuthDisabled() && !(await verifySessionValue((await cookies()).get(SESSION_COOKIE)?.value))) throw new InputError('Not signed in');
-    const data = await fn();
+    const caller = await requireCaller();
+    const data = await withCaller(caller, fn);
     if (revalidate) revalidatePath('/', 'layout');
     return { ok: true, data };
   } catch (err) {
     if (err instanceof ZodError) return { ok: false, error: err.issues.map(i => i.message).join('; ') };
-    if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
+    if (err instanceof InputError || err instanceof NotFoundError || err instanceof SafeError) return { ok: false, error: err.message };
     console.error('[dispatcher action]', err);
     return { ok: false, error: 'Something went wrong' };
   }

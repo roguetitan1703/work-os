@@ -1,11 +1,13 @@
 import 'server-only';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-// Per-request facts that the data layer needs without plumbing them through every call:
-// the Claude Code session and repo headers, stamped on activity entries by logActivity().
-// Set by the MCP route for API-key requests only; empty everywhere else.
+// Per-request facts that the data layer needs without plumbing them through every call, stamped on activity
+// entries by logActivity():
+//   userId          the signed-in user, or the API key's owner (lib/caller.ts); set by every server action wrapper
+//                   and the MCP route. Stored as `actorUserId` next to `actor` until phase 2's actor model.
+//   session, repo   the Claude Code session and repo headers (MCP route, Claude Code keys only).
 
-export type RequestContext = { session?: string; repo?: string };
+export type RequestContext = { userId?: string; session?: string; repo?: string };
 
 const store = new AsyncLocalStorage<RequestContext>();
 

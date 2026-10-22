@@ -1,5 +1,6 @@
 import 'server-only';
 import { listApiKeys } from '@/lib/api-keys';
+import type { Caller } from '@/lib/caller';
 import { discordConfig, guildContext } from '@/lib/discord/client';
 import { lastRunStatus } from '@/lib/alerts';
 import { lastSeen } from '@/lib/notify';
@@ -15,18 +16,19 @@ const sameDay = (iso: string) => new Date(iso).toDateString() === new Date().toD
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 /** Status cards from the same helpers Settings → Status uses (lastSeen, lastRunStatus, key list, guild context). */
-export async function overviewCards(): Promise<{ cards: Card[]; mcpReady: boolean; mcpSeen: string | null }> {
-  const [keys, seen, alerts, discord] = await Promise.all([
-    listApiKeys().catch(() => null),
+export async function overviewCards(caller: Caller): Promise<{ cards: Card[]; mcpReady: boolean; mcpSeen: string | null }> {
+  const [all, seen, alerts, discord] = await Promise.all([
+    listApiKeys(caller).catch(() => null),
     lastSeen().catch(() => ({ mcp: null, discord: null })),
     lastRunStatus().catch(() => null),
     discordConfig() ? timed(guildContext()).catch((e: Error) => e) : Promise.resolve(null),
   ]);
 
-  const token = process.env.MCP_TOKEN;
-  const mcpReady = !!token && token.length >= 24;
+  const keys = all?.filter(k => k.agent === 'claude-code') ?? null;
+  const chatKeys = all?.filter(k => k.agent === 'claude') ?? [];
+  const mcpReady = chatKeys.length > 0;
   const chat: Card = !mcpReady
-    ? { tab: 'chat', title: 'Claude chat', level: 'error', status: 'Problem: MCP_TOKEN not set', facts: ['The connector refuses every request until it is set'] }
+    ? { tab: 'chat', title: 'Claude chat', level: 'off', status: 'Not set up · no key yet', facts: ['Create a key below, then add the connector on claude.ai'] }
     : seen.mcp
       ? { tab: 'chat', title: 'Claude chat', level: 'ok', status: `Connected · last used ${fmtAgo(seen.mcp)}`, facts: ['claude.ai custom connector'] }
       : { tab: 'chat', title: 'Claude chat', level: 'warn', status: 'Not set up · never used', facts: ['Key is ready; add the connector on claude.ai'] };

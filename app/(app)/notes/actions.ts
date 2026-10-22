@@ -4,6 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { deleteNote, NoteConflictError, restoreNote, writeNote } from '@/lib/data/notes';
 import { listTasks } from '@/lib/data/tasks';
 import { listProjectsBasic } from '@/lib/data/projects';
+import { asCaller } from '@/lib/caller';
+
+// Every action requires a signed-in caller (lib/caller.ts); proxy.ts is only the first gate.
 
 const ACTOR = 'me' as const;
 
@@ -19,7 +22,7 @@ const msg = (e: unknown, fallback: string) => (e instanceof Error ? e.message : 
 
 export async function createNoteAction(input: { task?: number; project?: string; title?: string }): Promise<{ id: string } | { error: string }> {
   try {
-    const { note } = await writeNote({ task: input.task, project: input.project, title: input.title || 'Untitled' }, ACTOR);
+    const { note } = await asCaller(() => writeNote({ task: input.task, project: input.project, title: input.title || 'Untitled' }, ACTOR));
     refresh(note);
     return { id: note.id };
   } catch (e) {
@@ -29,7 +32,7 @@ export async function createNoteAction(input: { task?: number; project?: string;
 
 export async function createSubPageAction(parentId: string, title = 'Untitled'): Promise<{ id: string; title: string } | { error: string }> {
   try {
-    const { note } = await writeNote({ parentId, title, linkInParent: false }, ACTOR);
+    const { note } = await asCaller(() => writeNote({ parentId, title, linkInParent: false }, ACTOR));
     refresh(note);
     return { id: note.id, title: note.title };
   } catch (e) {
@@ -42,7 +45,7 @@ export async function saveNoteAction(
   patch: { title?: string; blocks?: unknown[]; archived?: boolean; expectUpdatedAt?: string },
 ): Promise<{ ok: true; updatedAt: string } | { error: string; conflict?: true }> {
   try {
-    const { note } = await writeNote({ noteId: id, ...patch }, ACTOR);
+    const { note } = await asCaller(() => writeNote({ noteId: id, ...patch }, ACTOR));
     if (patch.title !== undefined || patch.archived !== undefined) refresh(note);
     return { ok: true, updatedAt: note.updatedAt };
   } catch (e) {
@@ -53,7 +56,7 @@ export async function saveNoteAction(
 
 export async function deleteNoteAction(id: string): Promise<{ ok: true; parentId: string | null } | { error: string }> {
   try {
-    await deleteNote(id, ACTOR);
+    await asCaller(() => deleteNote(id, ACTOR));
     revalidatePath('/notes');
     return { ok: true, parentId: null };
   } catch (e) {
@@ -63,7 +66,7 @@ export async function deleteNoteAction(id: string): Promise<{ ok: true; parentId
 
 export async function restoreNoteAction(id: string): Promise<{ ok: true } | { error: string }> {
   try {
-    refresh(await restoreNote(id, ACTOR));
+    refresh(await asCaller(() => restoreNote(id, ACTOR)));
     return { ok: true };
   } catch (e) {
     return { error: msg(e, 'Could not restore') };
@@ -74,6 +77,10 @@ export type MentionItem = { kind: 'task' | 'project'; target: string; label: str
 
 /** For the @ menu: open tasks (by ref or title) and active projects. */
 export async function searchMentionsAction(query: string): Promise<MentionItem[]> {
+  return asCaller(() => searchMentions(query));
+}
+
+async function searchMentions(query: string): Promise<MentionItem[]> {
   const q = query.trim().replace(/^#/, '').toLowerCase();
   const [tasks, projects] = await Promise.all([listTasks({ open: true, limit: 400 }), listProjectsBasic()]);
   const t = tasks

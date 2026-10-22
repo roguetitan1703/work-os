@@ -5,6 +5,7 @@ import { useEffect, useState, useTransition } from 'react';
 import { Check, Copy, KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ApiKeyInfo } from '@/lib/api-keys';
+import type { Agent } from '@/lib/caller';
 import { BottomSheet } from '@/components/mobile/sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { ConfirmSheet } from '@/components/responsive-sheet';
@@ -21,8 +22,12 @@ const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 
 
 type Pending = { kind: 'revoke' | 'rotate'; key: ApiKeyInfo } | null;
 
-/** Claude › Setup › Keys: create (shown once), list, rotate, revoke. */
-export function ClaudeCodeKeys({ url }: { url: string }) {
+/**
+ * Your own Work OS API keys for one agent: create (shown once), list, rotate, revoke.
+ * Claude › Setup › Keys (Claude Code) and Settings › Connections › Claude chat (agent "claude", the claude.ai connector).
+ * urlKey: the /api/mcp/<key> form is switched on (MCP_ALLOW_URL_TOKEN), so the Claude chat key can go in the URL.
+ */
+export function ClaudeCodeKeys({ url, agent = 'claude-code', urlKey = false }: { url: string; agent?: Agent; urlKey?: boolean }) {
   const phone = usePhone();
   const [keys, setKeys] = useState<ApiKeyInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +38,7 @@ export function ClaudeCodeKeys({ url }: { url: string }) {
 
   useEffect(() => {
     let alive = true;
-    listApiKeysAction().then(r => {
+    listApiKeysAction(agent).then(r => {
       if (!alive) return;
       if (r.ok) setKeys(r.data);
       else setError(r.error);
@@ -41,12 +46,12 @@ export function ClaudeCodeKeys({ url }: { url: string }) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [agent]);
 
   const create = () =>
     start(async () => {
-      const n = name.trim() || 'Claude Code';
-      const r = await createApiKeyAction(n);
+      const n = name.trim() || (agent === 'claude' ? 'claude.ai' : 'Claude Code');
+      const r = await createApiKeyAction(n, agent);
       if (!r.ok) return void toast.error(r.error);
       setKeys(r.data.keys);
       setFresh({ key: r.data.key, name: n });
@@ -56,7 +61,7 @@ export function ClaudeCodeKeys({ url }: { url: string }) {
   const act = (p: NonNullable<Pending>) =>
     start(async () => {
       if (p.kind === 'revoke') {
-        const r = await revokeApiKeyAction(p.key.id);
+        const r = await revokeApiKeyAction(p.key.id, agent);
         if (!r.ok) return void toast.error(r.error);
         setKeys(r.data);
         toast(`Revoked "${p.key.name}"`);
@@ -106,7 +111,7 @@ export function ClaudeCodeKeys({ url }: { url: string }) {
             maxLength={60}
             onChange={e => setName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !pending && create()}
-            placeholder="Name, e.g. Laptop · work-os"
+            placeholder={agent === 'claude' ? 'Name, e.g. claude.ai' : 'Name, e.g. Laptop · work-os'}
             aria-label="Name for the new key"
             enterKeyHint="done"
           />
@@ -116,6 +121,15 @@ export function ClaudeCodeKeys({ url }: { url: string }) {
         </div>
       </div>
 
+      {agent === 'claude' ? (
+        <Disclosure title="What this key can do" hint="The claude.ai connector">
+          <p>
+            One key per Claude chat connector. It opens the MCP endpoint as you: everything it changes is marked{' '}
+            <span className="px-1 rounded bg-orange-500/15 text-orange-700 dark:text-orange-300 text-xs font-medium">Claude</span> and recorded as yours. Revoking it
+            disconnects that connector at once.
+          </p>
+        </Disclosure>
+      ) : (
       <Disclosure title="Limits and safety" hint="What a Claude Code key can do">
         <p>
           Separate keys for Claude Code sessions on your PC. They only open the MCP endpoint (not admin or the rest of the API), and everything they change is marked{' '}
@@ -123,16 +137,17 @@ export function ClaudeCodeKeys({ url }: { url: string }) {
           deletions per 10 minutes, big batches need a dry run first, and you get a notification when one changes or deletes your tasks.
         </p>
       </Disclosure>
+      )}
 
       {fresh && !phone && (
         <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-4">
-          <NewKey fresh={fresh} url={url} onDone={() => setFresh(null)} />
+          <NewKey fresh={fresh} url={url} agent={agent} urlKey={urlKey} onDone={() => setFresh(null)} />
         </div>
       )}
       {fresh && phone && (
         <BottomSheet title={`Key for "${fresh.name}"`} onClose={() => setFresh(null)}>
           <div className="pt-1 pb-2">
-            <NewKey fresh={fresh} url={url} onDone={() => setFresh(null)} />
+            <NewKey fresh={fresh} url={url} agent={agent} urlKey={urlKey} onDone={() => setFresh(null)} />
           </div>
         </BottomSheet>
       )}
@@ -142,7 +157,7 @@ export function ClaudeCodeKeys({ url }: { url: string }) {
           title={confirm.kind === 'revoke' ? 'Revoke key' : 'Rotate key'}
           message={
             confirm.kind === 'revoke'
-              ? `Revoke "${confirm.key.name}"? Claude Code sessions using it stop working at once.`
+              ? `Revoke "${confirm.key.name}"? ${agent === 'claude' ? 'The connector using it' : 'Claude Code sessions using it'} stop working at once.`
               : `Rotate "${confirm.key.name}"? The old key stops working at once and a new one is shown.`
           }
           verb={confirm.kind === 'revoke' ? 'Revoke' : 'Rotate'}
@@ -156,7 +171,7 @@ export function ClaudeCodeKeys({ url }: { url: string }) {
   );
 }
 
-function NewKey({ fresh, url, onDone }: { fresh: { key: string; name: string }; url: string; onDone: () => void }) {
+function NewKey({ fresh, url, agent, urlKey, onDone }: { fresh: { key: string; name: string }; url: string; agent: Agent; urlKey: boolean; onDone: () => void }) {
   const [copied, setCopied] = useState<string | null>(null);
   const copy = (what: string, text: string) =>
     navigator.clipboard?.writeText(text).then(
@@ -166,7 +181,12 @@ function NewKey({ fresh, url, onDone }: { fresh: { key: string; name: string }; 
       },
       () => toast.error('Could not copy'),
     );
-  const cmd = `claude mcp add --scope user --transport http work-os ${url} --header "Authorization: Bearer ${fresh.key}"`;
+  const cmd =
+    agent === 'claude'
+      ? urlKey
+        ? `${url}/${fresh.key}`
+        : `Authorization: Bearer ${fresh.key}`
+      : `claude mcp add --scope user --transport http work-os ${url} --header "Authorization: Bearer ${fresh.key}"`;
   return (
     <div className="space-y-3">
       <p className="text-[13px] text-foreground">
@@ -178,17 +198,25 @@ function NewKey({ fresh, url, onDone }: { fresh: { key: string; name: string }; 
           {copied === 'key' ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
         </button>
       </div>
-      <p className="text-[13px] text-muted-foreground">Add it to Claude Code (run in a terminal):</p>
+      <p className="text-[13px] text-muted-foreground">
+        {agent === 'claude'
+          ? urlKey
+            ? 'claude.ai › Settings › Connectors › Add custom connector, with this URL:'
+            : `claude.ai › Settings › Connectors › Add custom connector: URL ${url}, and this request header:`
+          : 'Add it to Claude Code (run in a terminal):'}
+      </p>
       <div className="flex items-center gap-2">
         <code className="flex-1 min-w-0 break-all rounded-lg bg-muted px-3 py-2 text-[12px] font-mono">{cmd}</code>
         <button type="button" className={iconBtn} onClick={() => copy('cmd', cmd)} aria-label="Copy command">
           {copied === 'cmd' ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
         </button>
       </div>
+      {agent === 'claude-code' && (
       <p className="text-[13px] text-muted-foreground">
         Optional headers <code>X-Work-OS-Session</code> (letters, digits, dashes, up to 64) and <code>X-Work-OS-Repo</code> (e.g. owner/name) are shown next to each change in
         history.
       </p>
+      )}
       <button type="button" className={`${btnPrimary} w-full`} onClick={onDone}>
         I saved it
       </button>

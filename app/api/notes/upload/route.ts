@@ -1,14 +1,16 @@
 import { NextResponse } from 'next/server';
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
+import { callerFromRequest } from '@/lib/caller';
 
 // Issues short-lived tokens so the browser uploads note images/files straight to Vercel Blob
-// (private store; no 4.5 MB function body limit). Behind the app's login via proxy.ts.
+// (private store; no 4.5 MB function body limit). Behind the app's sign-in (proxy.ts, and checked again here).
 
 export const runtime = 'nodejs';
 
 const MAX_BYTES = 50 * 1024 * 1024;
 
 export async function POST(req: Request) {
+  if (!(await callerFromRequest(req))) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json({ error: 'File uploads are not set up: connect a Vercel Blob store to this project.' }, { status: 503 });
   }

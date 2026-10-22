@@ -3,11 +3,10 @@ import { fmtAgo } from '@/lib/format';
 import { urlTokenAllowed } from '@/lib/auth';
 import { BRIEF_PROMPT, PROJECT_INSTRUCTIONS } from './data';
 import { Card, Disclosure, Field, Section, StatusLine, code } from './ui';
+import { ClaudeCodeKeys } from '../claude/keys';
 
 /** Claude chat: status and the two values to paste first; setup guide and prompts collapsed (open only when not connected). */
 export function ChatTab({ url, ready, seen }: { url: string; ready: boolean; seen: string | null }) {
-  const token = process.env.MCP_TOKEN;
-  const key = token ?? '<MCP_TOKEN>';
   const connected = ready && !!seen;
   const urlFallback = urlTokenAllowed();
 
@@ -16,14 +15,12 @@ export function ChatTab({ url, ready, seen }: { url: string; ready: boolean; see
       <Section title="Status">
         <Card>
           {!ready ? (
-            <StatusLine level="error" title="Problem: MCP_TOKEN is not set">
-              <p>
-                Not set (or shorter than 24 characters) on the server, so the connector refuses every request. Set it in Vercel → Settings → Environment Variables and redeploy.
-              </p>
+            <StatusLine level="off" title="Not set up · no key yet">
+              <p>Create a Claude chat key below, then add the connector on claude.ai.</p>
             </StatusLine>
           ) : seen ? (
             <StatusLine level="ok" title={`Connected · last used ${fmtAgo(seen)}`}>
-              <p suppressHydrationWarning>Everything Claude changes is marked Claude in each task&apos;s history.</p>
+              <p suppressHydrationWarning>Everything Claude changes is marked Claude in each task&apos;s history, and recorded as yours.</p>
             </StatusLine>
           ) : (
             <StatusLine level="warn" title="Not set up yet · never used">
@@ -33,22 +30,12 @@ export function ChatTab({ url, ready, seen }: { url: string; ready: boolean; see
         </Card>
       </Section>
 
-      <Section title="Connector details">
-        <Card className="p-4 space-y-3">
-          <Field label="Server URL">
-            <CopyBox text={url} />
-          </Field>
-          <Field label="Header name">
-            <CopyBox text="Authorization" />
-          </Field>
-          <Field label="Header value">
-            <CopyBox text={`Bearer ${key}`} secret={token} />
-          </Field>
-          <p className="text-xs text-muted-foreground">
-            <b>Rotating the key:</b> the key is <code className={code}>MCP_TOKEN</code> in Vercel. Change it there, redeploy, then update the header value in the claude.ai connector.{' '}
-            <code className={code}>X-API-Key: {'<key>'}</code> works too.
-          </p>
-        </Card>
+      <Section title="Your Claude chat keys">
+        <ClaudeCodeKeys url={url} agent="claude" urlKey={urlFallback} />
+        <p className="px-1 text-xs text-muted-foreground">
+          Server URL <code className={code}>{url}</code>; header <code className={code}>Authorization: Bearer {'<key>'}</code> (or <code className={code}>X-API-Key</code>). Each key
+          is yours: what it changes is recorded as you. Rotate or revoke it here.
+        </p>
       </Section>
 
       <Section title="Setup">
@@ -58,7 +45,7 @@ export function ChatTab({ url, ready, seen }: { url: string; ready: boolean; see
               <li>
                 On claude.ai open <b>Settings → Connectors</b> and click <b>Add custom connector</b>. Name it <b>Work OS</b>.
               </li>
-              <li>Server URL: the one above.</li>
+              <li>Server URL: the one above. Create a key above first.</li>
               <li>
                 Authentication: choose <b>no sign-in</b> (no OAuth). Under <b>Request headers</b> add the header name and value above.
               </li>
@@ -69,8 +56,8 @@ export function ChatTab({ url, ready, seen }: { url: string; ready: boolean; see
             <details className="text-xs text-muted-foreground">
               <summary className="cursor-pointer min-h-11 flex items-center">My connector dialog has no Request headers field</summary>
               <p className="pb-2">
-                Older layouts only offer OAuth. As a stopgap, set <code className={code}>MCP_ALLOW_URL_TOKEN=1</code> in Vercel and use <code className={code}>{url}/{'<key>'}</code> as
-                the URL (the key then lives in the URL, so treat the URL as a password). Currently: <b>{urlFallback ? 'enabled' : 'disabled'}</b>.
+                Older layouts only offer OAuth. As a stopgap, set <code className={code}>MCP_ALLOW_URL_TOKEN=1</code> on the server and use <code className={code}>{url}/{'<key>'}</code> as
+                the URL with a Claude chat key (the key then lives in the URL, so treat the URL as a password). Currently: <b>{urlFallback ? 'enabled' : 'disabled'}</b>.
               </p>
             </details>
           </Disclosure>

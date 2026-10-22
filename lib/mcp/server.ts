@@ -17,7 +17,7 @@ import { describeActivity } from '../activity-text';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
 import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
 
-/** caller: who is calling (MCP_TOKEN → actor "claude"; a Claude Code key → actor "claude-code"). */
+/** caller: who is calling (a Claude chat key → actor "claude"; a Claude Code key → actor "claude-code"; lib/api-keys.ts). */
 type Ctx = { baseUrl: string; caller?: Caller };
 
 function ok(data: unknown) {
