@@ -1,7 +1,7 @@
 # Work state
 
 ## Now
-- 2026-10-22: phase 2 (ownership) built on branch builder-a: one scoped door (lib/scope.ts), orgId/ownerId/visibility, actor objects, per-org numbers, per-person settings/inbox/push/alerts, tenancy e2e suite, scripts/migrate-ownership.mjs (docs/multi-user.md "As built"). Waits on a review subagent before merge; then deploy and run the migration at once (--copy-to rehearsal first).
+- 2026-10-22: phase 2 (ownership) built on branch builder-a: one scoped door (lib/scope.ts), orgId/ownerId/visibility, actor objects, per-org numbers, per-person settings/inbox/push/alerts, tenancy e2e suite, scripts/migrate-ownership.mjs (docs/multi-user.md "As built"). Security review fixes done (batch visibility, per-note files, take-back on teammate edits, restore placement, own boilerplate, operator gate, random project ids, names per visibility, marker migration, wider scope check). Waits on the merge; then set OPERATOR_EMAILS, deploy, and run the migration at once (--copy-to rehearsal first).
 - 2026-10-22: multi-user Work OS, own sign-in first (Om); Delpat OS integration later. Plan: docs/multi-user.md. Phase 0 (CPU) merged to master (numbers in docs/cpu.md); phase 1 (Better Auth sign-in) built on branch builder-a, rebased on phase 0 (docs/auth.md), waits on a review subagent before merge, then `scripts/migrate-auth.mjs` on the real database.
 - 2026-10-19: Vercel paused Om's account (Fluid Active CPU); Work OS moves to Delpat's AWS server (work.delpat.in). Audit summary in docs/multi-user.md.
 
@@ -26,8 +26,8 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Auth phase 1: invitation link is shown to the inviter; an admin could claim the invitee's account — waits on Om deciding whether admins are less trusted than owners.
 - alertLog keys are per task (not per recipient): when phase 4 lets a task change assignee, the new recipient misses alerts already logged for that task — waits on phase 4 assignees.
 - Tasks have assigneeId but nothing sets it yet (no UI or MCP arg), so every alert goes to the owner — waits on phase 4.
-- Note files: any member of the organization with a file's URL can open it, even from a private note (paths are random, per organization) — waits on Om wanting per-note file access.
-- Project names are unique per organization, so creating a name a teammate already uses privately says it exists — waits on Om minding that.
+- Two visible projects can share a name (your private one and a teammate's later shared one); a lookup by name picks your private one — waits on Om finding it confusing.
+- OPERATOR_EMAILS must be set on the server, or nobody gets health, Usage or the schedule — set it with the deploy.
 - Old documents are invisible between deploying phase 2 and running scripts/migrate-ownership.mjs (no orgId) — run the migration right after the deploy.
 - e2e `settings` sometimes times out opening Settings › Alerts (waitForURL section=alerts) in the full run (2 of 4 full runs on builder-a), never alone (3 of 3) — waits on a test-fix slot.
 - e2e `today` fails on Sundays (waits for a schedule block that is not active) and `claude-page` is flaky (queue Up/Down refresh timing, ~3 of 4 runs fail) — both also on master; waits on a test-fix slot.
