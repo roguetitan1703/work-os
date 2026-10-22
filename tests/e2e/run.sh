@@ -4,6 +4,7 @@
 #   tests/e2e/run.sh today search    only these
 # Environment (all optional):
 #   SKIP_BUILD=1       reuse the existing .next build
+#   E2E_MPORT, E2E_APORT, E2E_DPORT   ports (default 27281, 3281, 4401); each builder uses its own
 #   MONGOD=<path>      mongod binary (default: C:\Program Files\MongoDB\Server\8.2\bin\mongod.exe)
 #   PLAYWRIGHT_CORE=<folder of playwright-core>   CHROME_EXE=<chrome.exe>
 #   E2E_LOGS=<dir>     keep each suite's log there (default: temp dir, deleted at the end)
@@ -14,9 +15,9 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 MONGOD="${MONGOD:-/c/Program Files/MongoDB/Server/8.2/bin/mongod.exe}"
-MPORT=27281
-APORT=3281
-DPORT=4401
+MPORT=${E2E_MPORT:-27281}
+APORT=${E2E_APORT:-3281}
+DPORT=${E2E_DPORT:-4401}
 
 # name | file | seed profile | server mode
 SUITES="
