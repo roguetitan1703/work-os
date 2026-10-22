@@ -119,12 +119,17 @@ async function ownerCount(orgId: string): Promise<number> {
   return db.collection('member').countDocuments({ organizationId: idIn(orgId), role: 'owner' });
 }
 
-/** Who may change or remove this member: owners anyone; admins only admins and members (never an owner). */
-function assertManages(c: Caller, target: MemberDoc, next?: Role): void {
+/**
+ * Who may change or remove this member: owners anyone; admins only admins and members (never an owner). The caller's own
+ * role is read fresh from the database, not the cached one (a demotion a moment ago must count).
+ */
+async function assertManages(c: Caller, target: MemberDoc, next?: Role): Promise<void> {
   if (c.via !== 'session') throw new SafeError('Only a signed-in person can change members.');
-  if (c.role !== 'owner' && c.role !== 'admin') throw new SafeError('Only an owner or admin can change members.');
-  if (c.role !== 'owner' && asRole(target.role) === 'owner') throw new SafeError('Only an owner can change or remove an owner.');
-  if (next === 'owner' && c.role !== 'owner') throw new SafeError('Only an owner can make someone an owner.');
+  const mine = await memberOf(c.orgId, c.userId);
+  const role = mine ? asRole(mine.role) : null;
+  if (role !== 'owner' && role !== 'admin') throw new SafeError('Only an owner or admin can change members.');
+  if (role !== 'owner' && asRole(target.role) === 'owner') throw new SafeError('Only an owner can change or remove an owner.');
+  if (next === 'owner' && role !== 'owner') throw new SafeError('Only an owner can make someone an owner.');
 }
 
 const LAST_OWNER = 'An organization needs an owner. Make someone else an owner first.';
@@ -138,7 +143,7 @@ export async function changeRole(c: Caller, userId: string, roleIn: string): Pro
   if (!role) throw new SafeError('Pick owner, admin or member.');
   const m = await memberOf(c.orgId, String(userId ?? ''));
   if (!m) throw new SafeError('That person is not a member of this organization.');
-  assertManages(c, m, role);
+  await assertManages(c, m, role);
   const was = asRole(m.role);
   if (was === role) return;
   const db = await getDb();
@@ -160,7 +165,7 @@ export async function removeMember(c: Caller, userId: string): Promise<{ compute
   const m = await memberOf(c.orgId, String(userId ?? ''));
   if (!m) throw new SafeError('That person is not a member of this organization.');
   if (String(m.userId) === c.userId) throw new SafeError('You cannot remove yourself. Ask another owner or admin.');
-  assertManages(c, m);
+  await assertManages(c, m);
   // An owner is first made a member through the same guarded step, so the last owner can never be removed.
   if (asRole(m.role) === 'owner') await changeRole(c, String(m.userId), 'member');
   const db = await getDb();
@@ -168,13 +173,15 @@ export async function removeMember(c: Caller, userId: string): Promise<{ compute
   return releaseAccess(c.orgId, String(m.userId));
 }
 
-/** Everything that let userId act in orgId stops: sessions there, keys for it, computers, claims; caches cleared. */
+/** Everything that let userId act in orgId stops: sessions there, invitations they sent, keys, computers, claims, queued alerts; caches cleared. */
 async function releaseAccess(orgId: string, userId: string): Promise<{ computers: number; keys: number; claims: number; unassigned: number }> {
   forgetRoles();
   forgetMembers(orgId);
   const db = await getDb();
   // Sessions whose active organization is this one (their sessions in other organizations stay).
   await db.collection('session').deleteMany({ userId: idIn(userId), activeOrganizationId: idIn(orgId) });
+  // Invitations they sent and that are still open die with their access (they may hold the links).
+  await db.collection('invitation').updateMany({ organizationId: idIn(orgId), inviterId: idIn(userId), status: 'pending' }, { $set: { status: 'canceled' } });
   const keys = await revokeKeysIn(userId, orgId);
   const rest = await releaseMember(orgId, userId);
   return { keys, ...rest };

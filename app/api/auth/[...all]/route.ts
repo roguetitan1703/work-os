@@ -43,7 +43,6 @@ const ALLOWED = new Set([
   '/organization/set-active',
   '/organization/get-full-organization',
   '/organization/list-members',
-  '/organization/list-invitations',
   '/organization/get-active-member',
   '/organization/get-active-member-role',
   '/organization/cancel-invitation',
@@ -87,6 +86,31 @@ async function accountKeyFor(path: string, req: Request, body: string): Promise<
   return user ? accountKey('2fa', user) : null;
 }
 
+type FullOrg = { members?: { userId?: unknown; role?: unknown }[]; invitations?: Record<string, unknown>[] } | null;
+
+/**
+ * get-full-organization lists the organization's invitations: only owners and admins see them, and nobody sees an
+ * invitation's tokenHash (lib/members.ts). Plain members get the organization and its members without invitations.
+ */
+async function trimFullOrganization(res: Response, h: Headers): Promise<Response> {
+  if (!res.ok) return res;
+  let org: FullOrg;
+  try {
+    org = (await res.clone().json()) as FullOrg;
+  } catch {
+    return res;
+  }
+  if (!org || !Array.isArray(org.invitations)) return res;
+  const session = await (await getAuth()).api.getSession({ headers: h }).catch(() => null);
+  const me = org.members?.find(m => session && String(m.userId) === String(session.user.id));
+  const manages = me?.role === 'owner' || me?.role === 'admin';
+  org.invitations = manages ? org.invitations.map(({ tokenHash: _drop, ...rest }) => rest) : [];
+  const out = new Headers(res.headers);
+  out.delete('content-length');
+  out.delete('content-encoding');
+  return new Response(JSON.stringify(org), { status: res.status, headers: out });
+}
+
 async function handle(req: Request): Promise<Response> {
   const url = new URL(req.url);
   if (!allowed(url.pathname)) return new Response('Not Found', { status: 404 });
@@ -114,7 +138,7 @@ async function handle(req: Request): Promise<Response> {
     if (res.ok) await clearAccountFailures(key).catch(() => {});
     else if (res.status === 400 || res.status === 401 || res.status === 403) await recordAccountFailure(key).catch(() => {});
   }
-  return res;
+  return path === '/organization/get-full-organization' ? trimFullOrganization(res, req.headers) : res;
 }
 
 export { handle as GET, handle as POST };

@@ -9,6 +9,7 @@ import { api, discordConfig, DiscordError } from './discord/client';
 import { addToInbox, getNotifySettings, pushConfigured, sendPush } from './notify';
 import { plainAlertText, stuckClaims } from './data/dispatcher';
 import { recipientFilter, recipientOf } from './data/tasks';
+import { isMember } from './people';
 
 // Nudges for each person about the tasks whose alerts go to them (recipientOf: the assignee of a shared task, else
 // its owner), to their inbox, their phones and (if they linked Discord) a Discord DM, by their own settings, in their
@@ -356,6 +357,7 @@ export async function flushQueuedAlerts(s: Scope, baseUrl: string): Promise<void
     const c = await orgWide(s.orgId);
     const recipients = (await c.alertQueue.distinct('userId', { sentAt: null })) as string[];
     for (const userId of recipients) {
+      if (!(await isMember(s.orgId, userId))) continue; // removed from the organization: nothing goes to them
       const r = await runAlerts(forUser(s, userId), { baseUrl, onlyQueued: true });
       if (r.error) console.error('[alerts]', r.error);
     }

@@ -23,7 +23,7 @@ export async function memberNames(orgId: string): Promise<Record<string, string>
   const db = await getDb();
   const members = await db.collection('member').find({ organizationId: idIn(orgId) }, { projection: { userId: 1 } }).toArray();
   const users = await db.collection('user').find({ _id: { $in: members.map(m => m.userId) } }, { projection: { name: 1, email: 1 } }).toArray();
-  const map: Record<string, string> = {};
+  const map: Record<string, string> = {}; // a plain object (pages pass it to the client): look keys up with Object.hasOwn
   for (const u of users) map[String(u._id)] = String(u.name || u.email || 'Someone');
   if (names.size > 200) names.clear();
   names.set(orgId, { at: Date.now(), map });
@@ -32,7 +32,7 @@ export async function memberNames(orgId: string): Promise<Record<string, string>
 
 /** Is userId a member of orgId (any role)? */
 export async function isMember(orgId: string, userId: string): Promise<boolean> {
-  return userId in (await memberNames(orgId));
+  return Object.hasOwn(await memberNames(orgId), userId);
 }
 
 /** Every (user, organization) membership: the alerts cron runs once per person with their own settings. */
@@ -49,14 +49,14 @@ export async function allMemberships(): Promise<Scope[]> {
 export async function findMember(orgId: string, idOrEmail: string): Promise<string | null> {
   const v = idOrEmail.trim();
   if (!v) return null;
-  if (v in (await memberNames(orgId))) return v;
+  if (Object.hasOwn(await memberNames(orgId), v)) return v;
   const db = await getDb();
   let userId = v;
   if (v.includes('@')) {
     const u = await db.collection('user').findOne({ email: v.toLowerCase() }, { projection: { _id: 1 } });
     if (!u) return null;
     userId = String(u._id);
-    if (userId in (await memberNames(orgId))) return userId;
+    if (Object.hasOwn(await memberNames(orgId), userId)) return userId;
   } else if (!/^[A-Za-z0-9_-]{1,64}$/.test(v)) return null;
   if (!(await db.collection('member').findOne({ organizationId: idIn(orgId), userId: idIn(userId) }, { projection: { _id: 1 } }))) return null;
   forgetMembers(orgId);

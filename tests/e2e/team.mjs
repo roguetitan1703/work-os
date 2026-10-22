@@ -70,6 +70,10 @@ try {
   check('assign: "me" is the caller', (await task(A.orgId, t2.ref))?.assigneeId === Bu.userId);
   const outsider = await as(kA, 'update_task', { task: t1.ref, assignee: 'cy@example.test' });
   check('assign: someone outside the organization is refused', outsider.isError && /not a member/.test(outsider.text), outsider.text);
+  for (const name of ['constructor', 'toString', '__proto__']) {
+    const odd = await as(kA, 'update_task', { task: t1.ref, assignee: name });
+    check(`assign: "${name}" is not a member (no inherited keys)`, odd.isError && /not a member/.test(odd.text), odd.text);
+  }
   const re = await as(kA, 'update_task', { task: t1.ref, assignee: null });
   check('assign: null clears it', !re.isError && (await task(A.orgId, t1.ref))?.assigneeId === null, re.text);
   const hist = (await must(kA, 'get_task', { task: t1.ref })).activity.map(a => a.text).join(' | ');
@@ -194,6 +198,27 @@ try {
   check('roles: an admin gets no role control on an owner', (await pt.locator(`[data-role-select="${ownerEmail}"]`).count()) === 0 && (await pt.locator(`button[aria-label="Remove ${ownerEmail}"]`).count()) === 0);
   check('roles: an admin cannot invite an owner', (await pt.locator('select[aria-label="Role"] option[value="owner"]').count()) === 0);
   check('roles: an admin manages members', (await pt.locator('[data-role-select="bea@example.test"]').count()) === 1);
+  // Tess is demoted behind the role cache (as by another server): her open page must not still manage members
+  await rawDb.collection('member').updateOne({ userId: idIn(T.userId), organizationId: idIn(A.orgId) }, { $set: { role: 'member' } });
+  await pt.selectOption('[data-role-select="bea@example.test"]', 'admin');
+  await sleep(2000);
+  check('roles: a demotion counts at once (fresh role, not the cached one)', (await roleOf(Bu.userId, A.orgId)) === 'member');
+  await rawDb.collection('member').updateOne({ userId: idIn(T.userId), organizationId: idIn(A.orgId) }, { $set: { role: 'admin' } });
+
+  // Better Auth's organization reads: invitations only for owners and admins, never their tokenHash
+  const fullOrg = async pg => { const r = await pg.request.get(B + '/api/auth/organization/get-full-organization'); return { status: r.status(), json: await r.json().catch(() => null) }; };
+  const ownerView = await fullOrg(pa);
+  const invs = ownerView.json?.invitations ?? [];
+  check('get-full-organization: the owner sees the invitations', ownerView.status === 200 && invs.length >= 1, JSON.stringify(ownerView.json)?.slice(0, 200));
+  check('get-full-organization: no tokenHash in any invitation', invs.every(i => !('tokenHash' in i)) && !JSON.stringify(ownerView.json).includes('tokenHash'));
+  const ctxBe = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const pbe = await ctxBe.newPage();
+  await login(pbe, { email: 'bea@example.test', password: PW });
+  const memberView = await fullOrg(pbe);
+  check('get-full-organization: a plain member sees no invitations', memberView.status === 200 && Array.isArray(memberView.json?.invitations) && memberView.json.invitations.length === 0 && !JSON.stringify(memberView.json).includes('tokenHash'), JSON.stringify(memberView.json)?.slice(0, 200));
+  const li = await pbe.request.get(B + '/api/auth/organization/list-invitations');
+  check('list-invitations is not served', li.status() === 404, String(li.status()));
+  await ctxBe.close();
 
   // the last owner can't step down
   await pa.reload();
@@ -226,6 +251,11 @@ try {
   const rAssigned = (await must(kA, 'add_task', { title: 'Assigned to Rex', project: 'Team Shared', assignee: 'rex@example.test' })).created;
   const rPriv = (await must(kR, 'add_task', { title: 'Rex private thing' })).created;
   const rPrivBefore = await task(A.orgId, rPriv.ref);
+  // an invitation Rex sent (as if he had been an admin) and an alert waiting for him
+  const tessInv = await rawDb.collection('invitation').findOne({ email: tess });
+  const rexInvId = new ObjectId();
+  await rawDb.collection('invitation').insertOne({ ...tessInv, _id: rexInvId, email: 'rex-alt@example.test', status: 'pending', inviterId: tessInv.inviterId instanceof ObjectId ? new ObjectId(R.userId) : R.userId, expiresAt: new Date(Date.now() + 864e5), tokenHash: sha('x'.repeat(40)) });
+  await rawDb.collection('alertQueue').insertOne({ _id: `assigned:test:${R.userId}:1`, orgId: A.orgId, userId: R.userId, kind: 'assigned', taskId: 'none', byTaskId: 'none', createdAt: new Date(), sentAt: null, detail: 'test' });
   const poll = () => fetch(B + '/api/worker/jobs', { headers: { authorization: `Bearer ${devKey}` } }).then(r => r.status);
   check('before: Rex\'s keys and computer work', (await mcpStatus(kR)) === 200 && (await mcpStatus(kRcode)) === 200 && (await poll()) === 200);
   const ctxR = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -254,6 +284,10 @@ try {
   check('remove: his private task is kept untouched', !!rPrivAfter && rPrivAfter.ownerId === R.userId && rPrivAfter.visibility === 'private' && rPrivAfter.updatedAt.getTime() === rPrivBefore.updatedAt.getTime());
   const aSees = await as(kA, 'get_task', { task: rPriv.ref });
   check('remove: nobody else can reach his private task', aSees.isError, aSees.text.slice(0, 120));
+  check('remove: invitations he sent are cancelled', (await rawDb.collection('invitation').findOne({ _id: rexInvId }))?.status === 'canceled');
+  check('remove: alerts waiting for him are dropped', (await rawDb.collection('alertQueue').countDocuments({ userId: R.userId, sentAt: null })) === 0);
+  // one queued after the removal (a race) is never sent: a flush skips anyone who is not a member (section 7 flushes)
+  await rawDb.collection('alertQueue').insertOne({ _id: `assigned:test:${R.userId}:2`, orgId: A.orgId, userId: R.userId, kind: 'assigned', taskId: (await task(A.orgId, rAssigned.ref))._id, byTaskId: 'none', createdAt: new Date(), sentAt: null, detail: 'test' });
   check('remove: the shared task he made stays in the organization', !(await as(kA, 'get_task', { task: rTask.ref })).isError);
 
   // removing an owner who is not the last one
@@ -273,6 +307,8 @@ try {
   await pa.waitForSelector('[data-assignee-picker]', { timeout: 15000 });
   await pa.selectOption('[data-assignee-picker]', Bu.userId);
   check('picker (desktop): assigns from the task page', !!(await until(async () => (await task(A.orgId, t8.ref))?.assigneeId === Bu.userId)));
+  check('picker: the assignee is told at once (the flush ran)', !!(await until(() => rawDb.collection('notifications').findOne({ userId: Bu.userId, kind: 'assigned', title: { $regex: `#${t8.ref} ` } }))));
+  check('flush: nothing goes to a removed member', (await rawDb.collection('alertQueue').findOne({ _id: `assigned:test:${R.userId}:2` }))?.sentAt === null);
   await pa.goto(`${B}/tasks/${p1.ref}`);
   await pa.waitForSelector('text=Private: only you', { timeout: 15000 }).catch(() => {});
   check('picker (desktop): a private task offers no picker', (await pa.locator('[data-assignee-picker]').count()) === 0 && (await pa.locator('text=Private: only you').count()) > 0);

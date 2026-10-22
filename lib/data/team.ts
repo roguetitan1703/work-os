@@ -8,7 +8,7 @@ import { orgWide, scoped, forUser } from '../scope';
 
 /**
  * After userId left orgId: their computers there are revoked (pending jobs cancelled), tasks they gave to Claude stop
- * (queued and running claims end as "stopped"), and shared tasks assigned to them go back to their owners' alerts.
+ * (queued and running claims end as "stopped"), unsent alerts to them are dropped, and shared tasks assigned to them go back to their owners' alerts.
  * Returns counts for the caller's message.
  */
 export async function releaseMember(orgId: string, userId: string): Promise<{ computers: number; claims: number; unassigned: number }> {
@@ -19,6 +19,8 @@ export async function releaseMember(orgId: string, userId: string): Promise<{ co
     await theirs.devices.updateMany({ _id: { $in: devices.map(d => d._id) } }, { $set: { revokedAt: now } });
     await theirs.workerJobs.updateMany({ deviceId: { $in: devices.map(d => d._id) }, doneAt: null }, { $set: { doneAt: now, ok: false, error: 'member removed' } });
   }
+  // Alerts queued for them and not sent yet (an assignment, a finished Claude task) are dropped.
+  await theirs.alertQueue.deleteMany({ sentAt: null });
   // System work over the whole organization: their claims may sit on shared tasks, and assignments are on others' tasks.
   const org = await orgWide(orgId);
   const claims = await org.tasks.updateMany(

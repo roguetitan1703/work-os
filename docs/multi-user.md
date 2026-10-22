@@ -172,6 +172,12 @@ Who may do what:
 - their computers there are revoked and pending jobs cancelled. The worker routes also refuse a computer whose owner is no longer a member;
 - tasks they gave to Claude end as "stopped";
 - shared tasks assigned to them are unassigned, so alerts go back to each task's owner.
+- invitations they sent that are still pending are cancelled (they may hold the links);
+- alerts queued for them and not yet sent are dropped, and sending queued alerts skips anyone who is no longer a member.
+
+Changing roles or removing reads the caller's own role fresh from the database, not the cached one. Better Auth's
+`get-full-organization` shows invitations only to owners and admins and never their `tokenHash`; `list-invitations` is
+not served (nothing used it).
 
 The role and member-name caches now live on `globalThis` and are cleared in the process that made the change; other server instances catch up within a minute (phase 5 has one server).
 
