@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { liveCounts } from '@/lib/live';
 import { authSecret } from '@/lib/auth';
 import { callerFromRequest } from '@/lib/caller';
 import { isOperator } from '@/lib/operator';
@@ -40,7 +41,7 @@ export async function GET(req: Request) {
     ]);
     const notesConverter = await converterCheck();
     const runtime = process.version;
-    return NextResponse.json({ ok: true, today: todayStr(), env, runtime, notesConverter, blobStorage: !!process.env.BLOB_READ_WRITE_TOKEN, counts: { tasks, activity, projects, reviews, ritualLogs, lastRef: counter?.seq ?? 0 } });
+    return NextResponse.json({ ok: true, today: todayStr(), env, runtime, notesConverter, blobStorage: !!process.env.BLOB_READ_WRITE_TOKEN, push: liveCounts(), counts: { tasks, activity, projects, reviews, ritualLogs, lastRef: counter?.seq ?? 0 } });
   } catch (err) {
     return NextResponse.json({ ok: false, env, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }

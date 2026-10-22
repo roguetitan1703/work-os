@@ -57,23 +57,29 @@ export async function reportFolders(s: Scope, deviceId: string, body: unknown): 
   const folders = list.map(cleanFolder);
   const c = await scoped(s);
   const now = new Date();
-  if (folders.length) {
-    await c.workerFolders.bulkWrite(
-      folders.map(f => ({
-        updateOne: {
-          filter: { _id: `${deviceId}:${f.id}` },
-          update: {
-            $set: { deviceId, folderId: f.id, name: f.name, git: !!f.git, seenAt: now, missing: false, ...(f.remote ? { remote: f.remote } : {}), ...(f.branch ? { branch: f.branch } : {}) },
-            $unset: { ...(f.remote ? {} : { remote: '' }), ...(f.branch ? {} : { branch: '' }) },
-            $setOnInsert: { projectId: null, linkedAt: null },
+  // A rescan (every 15 minutes) rewrites every row's seenAt: quiet, with a hint only for new or vanished folders.
+  return quietly(async () => {
+    let added = 0;
+    if (folders.length) {
+      const r = await c.workerFolders.bulkWrite(
+        folders.map(f => ({
+          updateOne: {
+            filter: { _id: `${deviceId}:${f.id}` },
+            update: {
+              $set: { deviceId, folderId: f.id, name: f.name, git: !!f.git, seenAt: now, missing: false, ...(f.remote ? { remote: f.remote } : {}), ...(f.branch ? { branch: f.branch } : {}) },
+              $unset: { ...(f.remote ? {} : { remote: '' }), ...(f.branch ? {} : { branch: '' }) },
+              $setOnInsert: { projectId: null, linkedAt: null },
+            },
+            upsert: true,
           },
-          upsert: true,
-        },
-      })),
-    );
-  }
-  const gone = await c.workerFolders.updateMany({ deviceId, seenAt: { $lt: now }, missing: false }, { $set: { missing: true } });
-  return { known: folders.length, missing: gone.modifiedCount };
+        })),
+      );
+      added = r.upsertedCount;
+    }
+    const gone = await c.workerFolders.updateMany({ deviceId, seenAt: { $lt: now }, missing: false }, { $set: { missing: true } });
+    if (added || gone.modifiedCount) afterCommit(() => hint(s.orgId, new Set([s.userId]), 'claude'));
+    return { known: folders.length, missing: gone.modifiedCount };
+  });
 }
 
 export type JobsResponse = {
