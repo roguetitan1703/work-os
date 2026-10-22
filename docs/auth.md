@@ -67,8 +67,23 @@ every member sees everything. Phase 2 does that.
   is in `invitation.tokenHash`; accepting swaps `pending` → `accepted` atomically before the account is made.
 - **Reset tokens** are stored hashed (`verification.storeIdentifier`, hashed for `reset-password:`). Mail: `lib/mail.ts`
   `sendMail({to, …})`, per-recipient and global hourly slots in `mailLog`.
-- **Rate limits:** Better Auth's, in the database, tighter for sign-in, two-factor, reset and change-password.
-  `AUTH_RATE_LIMIT=off` turns them off (the e2e runner only).
+- **Rate limits per IP:** Better Auth's, in the database, tighter for sign-in, two-factor, reset and
+  change-password. `AUTH_RATE_LIMIT=off` turns them off (the e2e runner only). Better Auth reads the client
+  address only from `x-workos-client-ip`, which `app/api/auth/[...all]/route.ts` sets (after deleting any copy the
+  client sent) from `clientIp()` in `lib/auth.ts`. That trusts forwarded headers **only with `TRUST_PROXY=1`**: then
+  `X-Real-IP`, else the right-most `X-Forwarded-For` entry (the one our proxy added). Without it every client shares
+  one bucket per endpoint (Next route handlers don't see the socket address). Set `TRUST_PROXY=1` on Vercel and on
+  the server behind our nginx, which must set `proxy_set_header X-Real-IP $remote_addr;`.
+- **Rate limits per account** (`lib/auth-limits.ts`, collection `authLimits`): 10 failed passwords, authenticator
+  codes or backup codes for one account in 15 minutes lock that step for the account (429) until the window passes;
+  a success clears the count. Accounts are stored as hashes. Passkey sign-in is not limited. Re-entering the
+  password (below) has the same limit. Not affected by `AUTH_RATE_LIMIT`.
+- **Fresh session** (`lib/fresh.ts`): adding a passkey, creating or rotating an API key and adding a computer need a
+  sign-in or a password re-entry in the last 10 minutes. Otherwise the action answers "Enter your password again to
+  continue." (passkeys: 403 `FRESH_SESSION_REQUIRED`) and the page asks for the password (`components/reauth.tsx`),
+  which stores `reauthAt` on the session, then retries.
+- **Computers are per person:** each user sees, counts (max 10) and revokes only their own (`ownerId` + `orgId`).
+  Computers from before the migration have no owner and are invisible.
 - **Locked out of the authenticator app** (no passkey, no backup code): in Mongo delete the user's `twoFactor` doc
   and set `user.twoFactorEnabled` to false. Password reset still needs working email.
 
@@ -81,6 +96,7 @@ every member sees everything. Phase 2 does that.
 | `EMAIL_*` | SMTP for reset, invitation and test mail |
 | `OWNER_EMAIL`, `OWNER_NAME` | the migration script only |
 | `AUTH_RATE_LIMIT` | `off` only in tests |
+| `TRUST_PROXY` | `1` when a proxy we control (Vercel, our nginx) sets `X-Real-IP` / `X-Forwarded-For`; without it, per-IP limits use one shared bucket |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows `/api/mcp/<Claude chat key>` |
 | `MAIL_CAPTURE_DIR` | tests: write mail as JSON files instead of sending |
 

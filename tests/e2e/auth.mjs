@@ -8,12 +8,13 @@ import path from 'node:path';
 import { createHmac } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { ObjectId } from 'mongodb';
-import { B, EMAIL, PW, ME, db, admin, makeUser, check, finish, launch, login, fillLogin } from './lib.mjs';
+import { B, EMAIL, PW, ME, db, admin, makeUser, mkDevice, check, finish, launch, login, fillLogin } from './lib.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MAIL = process.env.MAIL_CAPTURE_DIR;
 const idIn = id => ({ $in: [new ObjectId(id), String(id)] });
 const wait = ms => new Promise(r => setTimeout(r, ms));
+const INVITEE = 'e2e-invitee@example.test';
 
 // ---- tiny cookie jar over fetch ----
 function jar(init = {}) {
@@ -326,6 +327,86 @@ try {
     const fake = 'wos_' + 'A'.repeat(48);
     r = await mcpWith(fake, 'list_projects', {});
     check('key: made-up key -> 401', r.status === 401, r.status);
+  }
+
+  // ======== 7b. computers belong to their user ========
+  {
+    const ownerDevs = [];
+    for (let i = 1; i <= 10; i++) ownerDevs.push(await mkDevice(`owner-pc-${i}`));
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const p = await ctx.newPage();
+    await login(p, { email: INVITEE, next: '/claude?tab=setup' });
+    await p.waitForSelector('input[aria-label="Name for the new computer"]', { timeout: 15000 });
+    await p.waitForTimeout(500);
+    check('devices: a member does not see the owner\'s computers', (await p.locator('[data-device^="owner-pc-"]').count()) === 0);
+    await p.fill('input[aria-label="Name for the new computer"]', 'owner-pc-1');
+    await p.locator('button:has-text("Add")').last().click();
+    const made = await p.locator('code.bg-muted', { hasText: /^wkr_/ }).first().waitFor({ timeout: 10000 }).then(() => true, () => false);
+    const mine = await db.collection('devices').findOne({ name: 'owner-pc-1', ownerId: invitee, revokedAt: null });
+    check('devices: the owner\'s 10 computers and names do not count against the member', made && !!mine && mine.orgId === ME.orgId);
+    await p.locator('button:has-text("I saved it")').click().catch(() => {});
+
+    // A forged revoke: the member's own Revoke, with the owner's device id swapped into the action's arguments.
+    const target = ownerDevs[1].id;
+    await db.collection('workerJobs').insertOne({ _id: 'auth-e2e-job', deviceId: target, kind: 'stop', doneAt: null, createdAt: new Date() });
+    await p.route('**/claude**', async route => {
+      const r = route.request();
+      if (r.method() === 'POST' && r.headers()['next-action'] && (r.postData() ?? '').includes(mine._id)) return route.continue({ postData: r.postData().split(mine._id).join(target) });
+      return route.continue();
+    });
+    await p.locator(`button[aria-label="Revoke owner-pc-1"]`).click();
+    await p.locator('button[data-confirm]').click();
+    await p.waitForTimeout(1500);
+    await p.unroute('**/claude**');
+    check('devices: a member cannot revoke the owner\'s computer', (await db.collection('devices').findOne({ _id: target }))?.revokedAt === null);
+    check("devices: ...and the owner's pending job stays", (await db.collection('workerJobs').findOne({ _id: 'auth-e2e-job' }))?.doneAt === null);
+
+    // ======== 7c. new credentials need a fresh sign-in ========
+    // The refused revoke leaves its confirm dialog open: start from a fresh page.
+    await p.reload();
+    await p.waitForSelector('input[aria-label="Name for the new computer"]', { timeout: 15000 });
+    const old = new Date(Date.now() - 20 * 60_000);
+    await db.collection('session').updateMany({ userId: idIn(invitee) }, { $set: { createdAt: old }, $unset: { reauthAt: '' } });
+    await p.fill('input[aria-label="Name for the new computer"]', 'stale-pc');
+    await p.locator('button:has-text("Add")').last().click();
+    const dlg = p.locator('[data-reauth]');
+    check('fresh: adding a computer 20 min after sign-in asks for the password', await dlg.waitFor({ timeout: 10000 }).then(() => true, () => false));
+    await dlg.locator('input[name=password]').fill('wrong-password-000');
+    await dlg.locator('button[type=submit]').click();
+    check('fresh: wrong password -> message, nothing made', (await dlg.locator('[role=alert]').textContent({ timeout: 8000 }).catch(() => ''))?.includes('Wrong password') && !(await db.collection('devices').findOne({ name: 'stale-pc' })));
+    await dlg.locator('input[name=password]').fill(PW);
+    await dlg.locator('button[type=submit]').click();
+    const made2 = await p.locator('code.bg-muted', { hasText: /^wkr_/ }).first().waitFor({ timeout: 10000 }).then(() => true, () => false);
+    check('fresh: right password -> the computer is made', made2 && !!(await db.collection('devices').findOne({ name: 'stale-pc', ownerId: invitee })));
+
+    const cj = jar(Object.fromEntries((await ctx.cookies()).filter(c => c.name === 'workos.session_token').map(c => [c.name, c.value])));
+    await db.collection('session').updateMany({ userId: idIn(invitee) }, { $set: { createdAt: old }, $unset: { reauthAt: '' } });
+    const pk = await authApi(cj, '/passkey/generate-register-options');
+    check('fresh: passkey registration with a stale session -> 403', pk.status === 403 && pk.json?.code === 'FRESH_SESSION_REQUIRED', `${pk.status} ${pk.text.slice(0, 80)}`);
+    await db.collection('session').updateMany({ userId: idIn(invitee) }, { $set: { reauthAt: new Date() } });
+    const pk2 = await authApi(cj, '/passkey/generate-register-options');
+    check('fresh: ...and allowed right after the password', pk2.status === 200, `${pk2.status} ${pk2.text.slice(0, 80)}`);
+    await ctx.close();
+  }
+
+  // ======== 7d. per-account limit on failed sign-in steps ========
+  {
+    const email = 'e2e-lock@example.test';
+    await makeUser({ email, name: 'Lock Me', orgName: 'Lock Org' });
+    for (let i = 0; i < 10; i++) await signIn(email, 'wrong-password-' + i);
+    const locked = await signIn(email, PW);
+    check('limit: 10 wrong passwords lock the account, even for the right one (429)', locked.status === 429, locked.status);
+    check('limit: another account is not affected', (await signIn(EMAIL, PW)).status === 200);
+    check('limit: stored as a hash, not the address', !(await db.collection('authLimits').findOne({ key: { $regex: 'e2e-lock' } })));
+
+    const tfa = 'e2e-2fa@example.test';
+    for (let i = 0; i < 10; i++) {
+      const s = await signIn(tfa, PW);
+      await authApi(s.j, '/two-factor/verify-totp', { code: '000000' });
+    }
+    const s = await signIn(tfa, PW);
+    const v = await authApi(s.j, '/two-factor/verify-totp', { code: '123456' });
+    check('limit: 10 wrong codes lock the code step for that account (429)', v.status === 429, `${v.status} ${v.text.slice(0, 80)}`);
   }
 
   // ======== 8. every page and API route without a session or key ========
