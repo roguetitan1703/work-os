@@ -1,5 +1,5 @@
 // Review hub: redirects from old pages, six views, trash/archive/stale/weekly, unarchive + undo, nav entries at 390 and 1280. Seed profile: base.
-import { launch, B, PW, SP, db, mc, runAssertSuite, assert, check } from './lib.mjs';
+import { launch, B, PW, SP, db, mc, runAssertSuite, assert, check, fillLogin } from './lib.mjs';
 await runAssertSuite('review', async () => {
   const b = await launch();
   for (const [from, to] of [['/history', 'view=done'], ['/history?tab=activity&actor=claude', 'view=activity'], ['/history?tab=archived', 'view=archive'], ['/history?tab=trash', 'view=trash'], ['/hidden', 'view=stale'], ['/archive', 'view=archive']]) {
@@ -9,7 +9,7 @@ await runAssertSuite('review', async () => {
   for (const [label, vp, touch] of [['phone', { width: 390, height: 844 }, true], ['desktop', { width: 1280, height: 800 }, false]]) {
     const ctx = await b.newContext({ viewport: vp, hasTouch: touch, isMobile: touch });
     const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
-    await p.goto(B + '/login'); await p.fill('input[type=password]', PW); await p.click('button[type=submit]');
+    await p.goto(B + '/login'); await fillLogin(p); await p.click('button[type=submit]');
     await p.waitForURL(u => !u.pathname.startsWith('/login'));
     for (const v of ['done', 'activity', 'weekly', 'stale', 'archive', 'trash']) {
       await p.goto(B + '/review?view=' + v); await p.waitForSelector('nav[aria-label=Review]');

@@ -1,5 +1,5 @@
 // Today page at 390 and 1280: first screen, Claude card, show more, done+undo, folds, empty states. Seed profile: today.
-import { launch, check, B, PW, SP, db, finish, overflow, okO } from './lib.mjs';
+import { launch, check, B, PW, SP, db, finish, overflow, okO, fillLogin } from './lib.mjs';
 
 const OUT = SP;
 const b = await launch();
@@ -18,7 +18,7 @@ async function open(kind) {
   p.on('console', m => m.type() === 'error' && !/Failed to load resource/i.test(m.text()) && errs.push(m.text().slice(0, 200)));
   await p.clock.setFixedTime(T);
   await p.goto(B + '/login?next=/today');
-  await p.fill('input[name=password]', PW);
+  await fillLogin(p);
   await p.locator('button[type=submit]').click();
   await p.waitForURL(u => u.pathname === '/today', { timeout: 20000 });
   await p.locator(`[data-variant=${phone ? 'phone' : 'desk'}] [data-section="claude-card"]`).waitFor();

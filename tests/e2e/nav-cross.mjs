@@ -1,5 +1,5 @@
 // Start Claude modal from every entry point (+ sheet, sidebar, key S), Back/Escape behaviour, redirects, no h-scroll at 390 and 1280. Seed profile: nav.
-import { launch, check, B, PW, finish, overflow, okO, call } from './lib.mjs';
+import { launch, check, B, PW, finish, overflow, okO, call, fillLogin } from './lib.mjs';
 const b = await launch();
 const path = p => new URL(p.url()).pathname + new URL(p.url()).search;
 const errsAll = [];
@@ -8,7 +8,7 @@ async function mk(w, h, mobile) {
   const p = await ctx.newPage();
   p.on('pageerror', e => errsAll.push(`${w}: PAGEERR ${e.message}`));
   p.on('console', m => m.type() === 'error' && !/Failed to load resource/i.test(m.text()) && errsAll.push(`${w}: ${m.text().slice(0, 160)}`));
-  await p.goto(B + '/login?next=/today'); await p.fill('input[name=password]', PW);
+  await p.goto(B + '/login?next=/today'); await fillLogin(p);
   await p.locator('button[type=submit]').click(); await p.waitForURL(u => u.pathname === '/today');
   return p;
 }

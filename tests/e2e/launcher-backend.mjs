@@ -6,7 +6,7 @@ const wos = await mkWos();
 const rev = await mkDevice('dev-revoked'); await db.collection('devices').updateOne({ _id: rev.id }, { $set: { revokedAt: new Date() } });
 
 // auth
-for (const [label, key] of [['no key', null], ['wos_ key', wos], ['MCP_TOKEN', MCP], ['revoked wkr_', rev.key], ['garbage wkr_', 'wkr_' + 'a'.repeat(43)], ['wkr_ too short', 'wkr_abc']]) {
+for (const [label, key] of [['no key', null], ['wos_ key', wos], ['Claude chat key', MCP], ['revoked wkr_', rev.key], ['garbage wkr_', 'wkr_' + 'a'.repeat(43)], ['wkr_ too short', 'wkr_abc']]) {
   for (const [m, p, b] of [['GET', '/api/worker/jobs'], ['POST', '/api/worker/folders', { folders: [] }], ['POST', '/api/worker/status', {}]]) {
     const r = await api(key, m, p, b);
     check(`refuse ${label} on ${m} ${p}`, r.status === 401, r.status);

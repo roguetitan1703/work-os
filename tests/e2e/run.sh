@@ -36,6 +36,7 @@ dispatcher-backend-2|dispatcher-backend-2.mjs|base|plain
 dispatcher-ui|dispatcher-ui.mjs|none|plain
 launcher-backend|launcher-backend.mjs|none|plain
 usage|usage.mjs|none|plain
+auth|auth.mjs|none|plain
 alerts-once|alerts-once.mjs|none|discord
 ${E2E_EXTRA:-}
 "
@@ -71,7 +72,7 @@ cleanup() {
   stop_server
   if [ "$STARTED_MONGO" = 1 ]; then kill_port "$MPORT"; sleep 1; fi
   if [ "$MOVED" = 1 ] && [ -e "$ENVBAK" ]; then mv "$ENVBAK" "$ENVFILE"; fi
-  rm -rf "$TMP/db" "$TMP/shots" "$TMP/mongod.log" "$TMP/server.log" "$TMP/build.log"
+  rm -rf "$TMP/db" "$TMP/shots" "$TMP/mongod.log" "$TMP/server.log" "$TMP/build.log" "$TMP/mail" "$TMP/state.json"
   if [ -z "${E2E_LOGS:-}" ]; then rm -rf "$LOGS"; fi
   rmdir "$TMP" 2>/dev/null
 }
@@ -93,9 +94,12 @@ if [ -e "$ENVFILE" ]; then mv "$ENVFILE" "$ENVBAK" && MOVED=1; fi
 # ---- one shared environment for the app and every suite ----
 export MONGODB_URI="mongodb://127.0.0.1:$MPORT/?replicaSet=rs0&directConnection=true"
 export MONGODB_DB=workos_e2e
-export APP_PASSWORD=testpass-e2e-123
-export SESSION_SECRET=test-secret-e2e-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-export MCP_TOKEN=test-mcp-token-e2e-0123456789abcdef
+export BETTER_AUTH_SECRET=test-secret-e2e-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+export APP_PASSWORD= SESSION_SECRET= MCP_TOKEN= MCP_ALLOW_URL_TOKEN=
+# Better Auth's sign-in rate limit counts every suite's sign-ins from 127.0.0.1; the auth suite checks limits itself.
+export AUTH_RATE_LIMIT=off
+# Mail is written as JSON files here instead of being sent (lib/mail.ts); the auth suite reads reset links from it.
+export MAIL_CAPTURE_DIR="$TMP/mail" E2E_STATE="$TMP/state.json"
 export CRON_SECRET=testcron-e2e-0123456789abcdef
 export APP_TZ=Asia/Kolkata NEXT_PUBLIC_APP_TZ=Asia/Kolkata
 export APP_URL="http://localhost:$APORT" E2E_BASE="http://localhost:$APORT"
@@ -104,6 +108,7 @@ export E2E_SHOTS="${E2E_SHOTS:-$TMP/shots}"
 export DISCORD_BOT_TOKEN= DISCORD_GUILD_ID= DISCORD_OWNER_ID= DISCORD_PUBLIC_KEY= DISCORD_APPLICATION_ID= DISCORD_API_BASE=
 export VAPID_PUBLIC_KEY= VAPID_PRIVATE_KEY= VAPID_SUBJECT=
 export EMAIL_HOST= EMAIL_PORT= EMAIL_SECURE= EMAIL_USER= EMAIL_PASSWORD= EMAIL_FROM= EMAIL_FROM_NAME= OWNER_EMAIL=
+mkdir -p "$MAIL_CAPTURE_DIR"
 
 # ---- throwaway mongod, single-node replica set ----
 echo "starting mongod on $MPORT (dbpath $DBPATH)"

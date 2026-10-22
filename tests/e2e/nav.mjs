@@ -1,8 +1,8 @@
 // Navigation: phone bar, header, menu, + sheet, Back rules; desktop sidebar, shortcuts, Back. Seed profile: nav.
-import { launch, check, B, PW, finish, overflow, okO } from './lib.mjs';
+import { launch, check, B, PW, finish, overflow, okO, fillLogin } from './lib.mjs';
 const b = await launch();
 async function login(p) {
-  await p.goto(B + '/login?next=/today'); await p.fill('input[name=password]', PW);
+  await p.goto(B + '/login?next=/today'); await fillLogin(p);
   await p.locator('button[type=submit]').click(); await p.waitForURL(u => u.pathname === '/today', { timeout: 20000 });
 }
 const path = p => new URL(p.url()).pathname + new URL(p.url()).search;

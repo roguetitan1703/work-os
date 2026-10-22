@@ -1,7 +1,7 @@
 // Request log (docs/usage-log.md): proxy auth unchanged on every path (self-authenticating APIs still bypass the
 // session check, guarded ones still guarded), known requests counted with the right kind/caller/route, no ids,
 // query strings or keys stored, static files not counted, and Settings › Usage at 390 and 1280. Seed profile: none.
-import { B, MCP, CRON, SP, db, state, check, finish, launch, login, mkDevice, mkWos, overflow, okO } from './lib.mjs';
+import { B, MCP, CRON, SP, db, state, check, finish, launch, login, mkDevice, mkWos, overflow, okO, sessionCookies } from './lib.mjs';
 
 const proxy401 = '{"error":"unauthorized"}';
 const req = (p, o = {}) => fetch(B + p, { redirect: 'manual', ...o }).then(async r => ({ status: r.status, text: await r.text(), loc: r.headers.get('location') }));
@@ -35,7 +35,7 @@ let base = await counts();
 let r = await req('/api/mcp', { method: 'POST', headers: mcpHdr, body: mcpBody });
 check('mcp: no key -> 401 from the route (JSON-RPC body, not the proxy)', r.status === 401 && r.text.includes('jsonrpc'), `${r.status} ${r.text.slice(0, 80)}`);
 r = await req('/api/mcp', { method: 'POST', headers: { ...mcpHdr, ...bearer(MCP) }, body: mcpBody });
-check('mcp: MCP_TOKEN -> 200', r.status === 200, r.status);
+check('mcp: Claude chat key -> 200', r.status === 200, r.status);
 r = await req('/api/mcp', { method: 'POST', headers: { ...mcpHdr, ...bearer(wos) }, body: mcpBody });
 check('mcp: wos_ key -> 200 (the proxy would refuse it: still bypassed)', r.status === 200, r.status);
 r = await req('/api/mcp', { method: 'POST', headers: { ...mcpHdr, ...bearer(dev.key) }, body: mcpBody });
@@ -46,7 +46,7 @@ check('worker: no key -> 401', r.status === 401, r.status);
 r = await req('/api/worker/jobs', { headers: bearer(dev.key) });
 check('worker: wkr_ key -> 200 (the proxy would refuse it: still bypassed)', r.status === 200, r.status);
 r = await req('/api/worker/jobs', { headers: bearer(MCP) });
-check('worker: MCP_TOKEN -> 401 (the route decides, not the proxy)', r.status === 401, r.status);
+check('worker: Claude chat key -> 401 (the route decides, not the proxy)', r.status === 401, r.status);
 
 r = await req('/api/cron/alerts?dry=1');
 check('cron: no secret -> 401', r.status === 401, r.status);
@@ -55,7 +55,7 @@ check('cron: CRON_SECRET header -> 200 (the proxy would refuse it: still bypasse
 r = await req(`/api/cron/alerts?dry=1&key=${CRON}`);
 check('cron: ?key= -> 200', r.status === 200, r.status);
 r = await req('/api/cron/alerts?dry=1', { headers: bearer(MCP) });
-check('cron: MCP_TOKEN -> 401 (the route decides, not the proxy)', r.status === 401, r.status);
+check('cron: Claude chat key -> 401 (the route decides, not the proxy)', r.status === 401, r.status);
 
 r = await req('/api/discord/interactions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"type":1}' });
 check('discord: unsigned -> refused by the route, not the proxy', r.status >= 400 && r.text !== proxy401, `${r.status} ${r.text.slice(0, 60)}`);
@@ -69,14 +69,14 @@ check('lookalike /api/cronx -> 404 (same prefix rule as the old matcher)', r.sta
 r = await req('/api/admin/health');
 check('admin: no key -> proxy 401', r.status === 401 && r.text === proxy401, `${r.status} ${r.text.slice(0, 60)}`);
 r = await req('/api/admin/health', { headers: bearer(MCP) });
-check('admin: MCP_TOKEN -> 200', r.status === 200, r.status);
+check('admin: Claude chat key of an owner -> 200', r.status === 200, r.status);
 r = await req('/api/admin/health', { headers: bearer(wos) });
-check('admin: wos_ key -> 401', r.status === 401, r.status);
+check('admin: Claude Code key -> 401 (opens /api/mcp only)', r.status === 401, r.status);
 r = await req('/api/timetable/today', { headers: bearer(dev.key) });
 check('other api: wkr_ key -> 401', r.status === 401, r.status);
 r = await req('/today', { headers: { accept: 'text/html' } });
 check('/today without a session -> redirect to /login?next=/today', [302, 307].includes(r.status) && /\/login\?next=%2Ftoday$/.test(r.loc ?? ''), `${r.status} ${r.loc}`);
-r = await req('/today', { headers: { accept: 'text/html', cookie: 'workos_session=v2.0.9999999999999.bad' } });
+r = await req('/today', { headers: { accept: 'text/html', cookie: 'workos.session_token=forged.token; workos.session_data=eyJmb3JnZWQiOnRydWV9' } });
 check('/today with a forged cookie -> redirect', [302, 307].includes(r.status), r.status);
 r = await req('/login', { headers: { accept: 'text/html' } });
 check('/login open', r.status === 200, r.status);
@@ -102,9 +102,9 @@ const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
 const p = await ctx.newPage();
 const errs = []; p.on('pageerror', e => errs.push(e.message));
 await login(p, { next: '/settings' });
-const cookie = (await ctx.cookies()).filter(c => c.name === 'workos_session').map(c => `${c.name}=${c.value}`).join('; ');
+const cookie = (await sessionCookies(ctx)).map(c => `${c.name}=${c.value}`).join('; ');
 check('signed in', !!cookie);
-base = await expectCounts(base, { 'page|anonymous|/login': 1, 'action|anonymous|/login': 1 }, 'login');
+base = await expectCounts(base, { 'page|anonymous|/login': 1, 'api|anonymous|/api/auth/[...all]': 1 }, 'login');
 
 await p.goto(B + '/today'); await p.waitForLoadState('networkidle').catch(() => {});
 base = await expectCounts(base, { 'page|browser|/today': 1 }, 'page load');
@@ -146,7 +146,7 @@ check('TTL index keeps 35 days', ix?.expireAfterSeconds === 35 * 86400, JSON.str
 const total = Object.values(await counts()).reduce((a, n) => a + n, 0);
 for (const [label, vp, touch] of [['desktop', { width: 1280, height: 800 }, false], ['phone', { width: 390, height: 844 }, true]]) {
   const c2 = await b.newContext({ viewport: vp, hasTouch: touch, isMobile: touch });
-  await c2.addCookies((await ctx.cookies()).filter(c => c.name === 'workos_session'));
+  await c2.addCookies(await sessionCookies(ctx));
   const q = await c2.newPage(); q.on('pageerror', e => errs.push(e.message));
   // the entry (phone: a row on the overview; desktop: the sub-nav), then the section itself
   await q.goto(B + '/settings');

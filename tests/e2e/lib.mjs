@@ -16,15 +16,55 @@ if (!/^mongodb:\/\/(127\.0\.0\.1|localhost)[:/]/.test(URI) || /mongodb\.net|srv/
 if (!/^workos_e2e/.test(DBNAME)) throw new Error('MONGODB_DB must start with workos_e2e');
 
 export const B = process.env.E2E_BASE || 'http://localhost:3281';
-export const PW = need('APP_PASSWORD');
-export const MCP = need('MCP_TOKEN');
 export const CRON = need('CRON_SECRET');
+const SECRET = need('BETTER_AUTH_SECRET');
 export const SP = process.env.E2E_SHOTS || path.join(os.tmpdir(), 'wos-e2e-shots');
 fs.mkdirSync(SP, { recursive: true });
 
 export const mc = new MongoClient(URI);
 await mc.connect();
 export const db = mc.db(DBNAME);
+
+// ---- who the suites are (docs/auth.md): one owner, their organization and a Claude chat key, made by seed.mjs on
+// every emptied database (makeIdentity) and kept in a small state file so the suite process can read the key ----
+export const EMAIL = 'e2e-owner@example.test';
+export const PW = 'testpass-e2e-123';
+const STATE = process.env.E2E_STATE || path.join(os.tmpdir(), `wos-e2e-state-${DBNAME}.json`);
+/** The Claude chat key (agent "claude"): what MCP_TOKEN was. */
+export let MCP = null;
+/** { userId, orgId } of the owner. */
+export let ME = null;
+try { const st = JSON.parse(fs.readFileSync(STATE, 'utf8')); MCP = st.claudeKey; ME = { userId: st.userId, orgId: st.orgId }; } catch { /* seed.mjs writes it */ }
+let adminP = null;
+/** Better Auth admin (scripts/lib/auth-admin.mjs) on the test database. */
+export async function admin() {
+  adminP ??= import('../../scripts/lib/auth-admin.mjs').then(m => m.authAdmin({ db, client: mc, secret: SECRET, baseURL: B }));
+  return adminP;
+}
+/** Owner, organization, membership and a Claude chat key on an emptied database; written to the state file. */
+export async function makeIdentity() {
+  const a = await admin();
+  const userId = await a.createUser({ email: EMAIL, name: 'E2E Owner', password: PW });
+  const orgId = await a.createOrg({ name: 'E2E Org', slug: 'e2e' });
+  await a.addMember({ userId, orgId, role: 'owner' });
+  const { key } = await a.createKey({ userId, orgId, agent: 'claude', name: 'e2e chat' });
+  fs.writeFileSync(STATE, JSON.stringify({ userId, orgId, claudeKey: key }));
+  MCP = key; ME = { userId, orgId };
+  return ME;
+}
+/** Another user (optionally in a new organization of their own, or in orgId with role). Returns { userId, orgId }. */
+export async function makeUser({ email, name = 'Someone', password = PW, orgId = null, role = 'member', orgName = null }) {
+  const a = await admin();
+  const userId = await a.createUser({ email, name, password });
+  let org = orgId;
+  if (!org) org = await a.createOrg({ name: orgName ?? `${name} Org`, slug: `o-${Math.random().toString(36).slice(2, 10)}` });
+  await a.addMember({ userId, orgId: org, role: orgId ? role : 'owner' });
+  return { userId, orgId: org };
+}
+/** A Work OS API key for a user (default: the owner); agent 'claude' or 'claude-code'. Returns the key. */
+export async function mkKey({ agent = 'claude-code', userId = ME.userId, orgId = ME.orgId, name = 'e2e' } = {}) {
+  return (await (await admin()).createKey({ userId, orgId, agent, name })).key;
+}
 
 // ---- playwright ----
 const req = createRequire(import.meta.url);
@@ -79,25 +119,32 @@ export const sha = s => createHash('sha256').update(s).digest('hex');
 export async function mkDevice(name) {
   const key = 'wkr_' + randomBytes(32).toString('base64url');
   const _id = randomUUID();
-  await db.collection('devices').insertOne({ _id, name, hash: sha(key), prefix: key.slice(0, 8), createdAt: new Date(), lastSeenAt: null, revokedAt: null });
+  await db.collection('devices').insertOne({ _id, name, ...(ME ? { ownerId: ME.userId, orgId: ME.orgId } : {}), hash: sha(key), prefix: key.slice(0, 8), createdAt: new Date(), lastSeenAt: null, revokedAt: null });
   return { id: _id, key };
 }
+/** A Claude Code key of the owner (what the old wos_ keys were). */
 export async function mkWos() {
-  const K = 'wos_' + randomBytes(32).toString('base64url');
-  await db.collection('apiKeys').insertOne({ _id: randomUUID(), name: 'e2e', role: 'claude-code', hash: sha(K), prefix: K.slice(0, 8), createdAt: new Date(), lastUsedAt: null, revokedAt: null });
-  return K;
+  return mkKey({ agent: 'claude-code' });
 }
 export const cron = (extra = '') => fetch(`${B}/api/cron/alerts?key=${CRON}${extra}`).then(r => r.json());
 
 // ---- browser helpers ----
 export const settle = (p, ms = 600) => p.waitForTimeout(ms);
-export async function login(p, { phone = false, next = '/today' } = {}) {
+/** Fills the sign-in form once the page is ready (its button is disabled until then). */
+export async function fillLogin(p, { email = EMAIL, password = PW } = {}) {
+  await p.waitForSelector('form button[type=submit]:not([disabled])', { timeout: 20000 });
+  await p.fill('input[name=email]', email);
+  await p.fill('input[name=password]', password);
+}
+export async function login(p, { phone = false, next = '/today', email = EMAIL, password = PW } = {}) {
   await p.goto(B + '/login?next=' + next);
-  await p.fill('input[name=password]', PW);
+  await fillLogin(p, { email, password });
   const btn = p.locator('button[type=submit]');
   await (phone ? btn.tap() : btn.click());
   await p.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 20000 });
 }
+/** The session cookies of a browser context (Better Auth: workos.session_token, workos.session_data). */
+export const sessionCookies = async ctx => (await ctx.cookies()).filter(c => c.name.startsWith('workos.'));
 export const overflow = p => p.evaluate(() => {
   const w = window.innerWidth;
   const bad = [...document.querySelectorAll('body *')].filter(el => {

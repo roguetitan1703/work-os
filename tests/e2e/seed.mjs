@@ -6,7 +6,8 @@
 //   today  Alpha Client with 7 overdue / 3 due today / in progress / blocked tasks, 3 waiting Claude items,
 //          a device with 2 running sessions (Today page)
 // Suites that need something else seed themselves; they start from the same emptied database.
-import { db, mc, call } from './lib.mjs';
+// Every profile first creates the signed-in owner, their organization and a Claude chat key (makeIdentity in lib.mjs).
+import { db, mc, call, makeIdentity } from './lib.mjs';
 
 export async function wipe() {
   for (const { name } of await db.listCollections({}, { nameOnly: true }).toArray()) await db.collection(name).deleteMany({});
@@ -101,6 +102,7 @@ const profile = process.argv[2] || 'none';
 const profiles = { none: async () => {}, base: seedBase, nav: seedNav, today: seedToday };
 if (!profiles[profile]) { console.error('unknown seed profile ' + profile); process.exit(2); }
 await wipe();
+await makeIdentity(); // every suite: the owner, their organization and a Claude chat key (lib.mjs)
 await profiles[profile]();
 console.log(`seeded ${profile}`);
 await mc.close();

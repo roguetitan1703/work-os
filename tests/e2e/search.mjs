@@ -1,5 +1,5 @@
 // Global search: auth, results, literal regex chars, #ref, project hits, keyboard (desktop), phone sheet and Back at 390 and 1280. Seed profile: base.
-import { launch, B, PW, SP, db, mc, runAssertSuite, assert, check } from './lib.mjs';
+import { launch, B, PW, SP, db, mc, runAssertSuite, assert, check, fillLogin } from './lib.mjs';
 await runAssertSuite('search', async () => {
   const b = await launch();
   // unauthenticated: page and action POST are blocked
@@ -9,7 +9,7 @@ await runAssertSuite('search', async () => {
   for (const [label, vp, touch] of [['phone', { width: 390, height: 844 }, true], ['desktop', { width: 1280, height: 800 }, false]]) {
     const ctx = await b.newContext({ viewport: vp, hasTouch: touch, isMobile: touch });
     const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
-    await p.goto(B + '/login'); await p.fill('input[type=password]', PW); await p.click('button[type=submit]');
+    await p.goto(B + '/login'); await fillLogin(p); await p.click('button[type=submit]');
     await p.waitForURL(u => !u.pathname.startsWith('/login'));
     await p.goto(B + '/today'); await p.waitForTimeout(800);
     const input = () => p.locator('input[aria-controls=global-search-results]');

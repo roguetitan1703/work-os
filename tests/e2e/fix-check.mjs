@@ -1,5 +1,5 @@
 // Sidebar footer, theme toggle, Day plan dialog/sheet, named switches, Claude item sheet (note/state/Next) at 1280 and 390.
-import { launch, check, B, PW, call, finish } from './lib.mjs';
+import { launch, check, B, PW, call, finish, fillLogin } from './lib.mjs';
 const PN = 'Fix ' + Date.now();
 const pr = await call('add_project', { name: PN });
 const pid = pr.project.id;
@@ -11,7 +11,7 @@ for (const vp of [{ w: 1280, h: 800 }, { w: 390, h: 844 }]) {
   const phone = vp.w < 500, T = s => `[${vp.w}] ${s}`;
   const ctx = await browser.newContext(phone ? { viewport: { width: vp.w, height: vp.h }, isMobile: true, hasTouch: true } : { viewport: { width: vp.w, height: vp.h } });
   const p = await ctx.newPage(); const click = l => phone ? l.tap() : l.click();
-  await p.goto(B + '/login?next=/today'); await p.fill('input[name=password]', PW); await click(p.locator('button[type=submit]'));
+  await p.goto(B + '/login?next=/today'); await fillLogin(p); await click(p.locator('button[type=submit]'));
   await p.waitForURL(u => u.pathname === '/today', { timeout: 20000 });
   // sidebar
   if (!phone) {

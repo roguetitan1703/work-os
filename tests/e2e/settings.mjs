@@ -1,5 +1,5 @@
 // Settings: redirects from /connect and /recovery, theme, status strip, alerts table, security, connections, help, phone Back at 390 and 1280. Seed profile: none.
-import { launch, B, PW, SP, db, mc, runAssertSuite, assert, check } from './lib.mjs';
+import { launch, B, PW, SP, db, mc, runAssertSuite, assert, check, fillLogin } from './lib.mjs';
 await runAssertSuite('settings', async () => {
   const b = await launch();
   // real HTTP redirects, no browser
@@ -14,7 +14,7 @@ await runAssertSuite('settings', async () => {
     const p = await ctx.newPage();
     const errs = []; p.on('pageerror', e => errs.push(e.message));
     await p.goto(B + '/login');
-    await p.fill('input[type=password]', PW);
+    await fillLogin(p);
     await p.click('button[type=submit]');
     await p.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 15000 });
     await p.goto(B + '/settings'); await p.waitForSelector('[role=status]');

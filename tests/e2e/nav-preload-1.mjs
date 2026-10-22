@@ -1,6 +1,6 @@
 // First-tap speed after idling on a page: does a tap need a server round trip?
 // WAIT=<seconds> idle on Today before tapping (default 70, i.e. past the old 60s prefetch life).
-import { launch, check, B, PW, finish } from './lib.mjs';
+import { launch, check, B, PW, finish, fillLogin } from './lib.mjs';
 const WAIT = Number(process.env.E2E_WAIT ?? 65);
 const b = await launch();
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
@@ -8,7 +8,7 @@ const p = await ctx.newPage();
 const rsc = []; // RSC fetches: [time, url, isPrefetch]
 p.on('request', r => { const h = r.headers(); if (h['rsc'] === '1') rsc.push([Date.now(), r.url().replace(B, ''), !!h['next-router-prefetch'] || !!h['next-router-segment-prefetch']]); });
 if (process.env.CLOCK) await p.clock.install();
-await p.goto(B + '/login?next=/today'); await p.fill('input[name=password]', PW); await p.locator('button:text-is("Sign in")').click();
+await p.goto(B + '/login?next=/today'); await fillLogin(p); await p.locator('button:text-is("Sign in")').click();
 await p.waitForURL(u => u.pathname === '/today'); await p.waitForLoadState('networkidle').catch(() => {});
 console.log(`idle ${WAIT}s on Today…`);
 const t0 = Date.now(); if (process.env.CLOCK) { await p.clock.runFor(WAIT * 1000); await p.waitForTimeout(3000); } else await p.waitForTimeout(WAIT * 1000);

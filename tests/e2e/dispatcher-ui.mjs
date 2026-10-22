@@ -1,6 +1,6 @@
 // Dispatcher UI: Give to Claude / Take back sheet, folder picker, refusals, row menus, Claude's tasks section, Setup switch, alerts table kinds at 1280 and 390. Seeds itself. Seed profile: none.
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { launch, B, PW, SP, db, mc, runAssertSuite, assert, check } from './lib.mjs';
+import { launch, B, PW, SP, db, mc, runAssertSuite, assert, check, fillLogin } from './lib.mjs';
 const sha = s => createHash('sha256').update(s).digest('hex');
 
 await runAssertSuite('dispatcher-ui', async () => {
@@ -44,7 +44,7 @@ await runAssertSuite('dispatcher-ui', async () => {
     const errs = [];
     p.on('pageerror', e => errs.push(p.url() + ' ' + e.message.slice(0, 400)));
     await p.goto(B + '/login');
-    await p.fill('input[type=password]', PW);
+    await fillLogin(p);
     await p.click('button[type=submit]');
     await p.waitForURL(u => !u.pathname.startsWith('/login'));
     const phone = label === 'phone';
@@ -160,7 +160,7 @@ await runAssertSuite('dispatcher-ui', async () => {
   // settings alerts table lists the new kinds
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
   const p = await ctx.newPage();
-  await p.goto(B + '/login'); await p.fill('input[type=password]', PW); await p.click('button[type=submit]'); await p.waitForURL(u => !u.pathname.startsWith('/login'));
+  await p.goto(B + '/login'); await fillLogin(p); await p.click('button[type=submit]'); await p.waitForURL(u => !u.pathname.startsWith('/login'));
   await p.goto(B + '/settings?section=alerts'); await p.waitForTimeout(800);
   const txt = await p.locator('main').innerText();
   assert.ok(/Claude finished/.test(txt) && /Claude stopped/.test(txt) && /may be stuck/.test(txt), 'alerts table shows claude kinds: ' + txt.slice(0, 300));

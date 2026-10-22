@@ -1,7 +1,7 @@
 // UI checks for the Claude area (/claude: Now, Queue, Setup) and the Start Claude flow.
 // Seeds itself (device/folder/session docs inserted directly; no worker). Seed profile: none.
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
-import { check, db, mcp, B, PW, SP, launch, finish } from './lib.mjs';
+import { check, db, mcp, B, PW, SP, launch, finish, fillLogin } from './lib.mjs';
 
 const browser = await launch();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -71,7 +71,7 @@ async function suite(vp) {
   const jobs = f => db.collection('workerJobs').find(f).toArray();
 
   await p.goto(B + '/login?next=/claude');
-  await p.fill('input[name=password]', PW);
+  await fillLogin(p);
   await click(p.locator('button[type=submit]'));
   await p.waitForURL(u => u.pathname === '/claude', { timeout: 20000 });
   await p.waitForSelector('[data-section="needs-you"]');
