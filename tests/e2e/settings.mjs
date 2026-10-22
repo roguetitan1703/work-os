@@ -41,6 +41,9 @@ await runAssertSuite('settings', async () => {
     }
     await p.screenshot({ path: `${SP}/${label}-root.png`, fullPage: true });
     assert.ok(!(await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)), 'overflow root');
+    // A toggle saves through a server action; a navigation started while it is in flight waits behind it
+    // (30 s timeouts under load), so every click waits for the action's response before moving on.
+    const toggle = async sw => { const done = p.waitForResponse(r => r.request().method() === 'POST' && r.url().startsWith(B + '/settings'), { timeout: 20000 }); await sw.click(); await done; };
     // alerts
     if (label === 'phone') {
       await p.locator('[data-row=alerts]').click(); await p.waitForURL(/section=alerts/);
@@ -50,11 +53,11 @@ await runAssertSuite('settings', async () => {
     await p.waitForSelector('table[aria-label="Alerts by channel"]');
     const sw = p.getByRole('switch', { name: 'Overdue', exact: true });
     const was = await sw.getAttribute('aria-checked');
-    await sw.click(); await p.waitForTimeout(600);
+    await toggle(sw);
     await p.reload(); await p.waitForSelector('table');
     const now = await p.getByRole('switch', { name: 'Overdue', exact: true }).getAttribute('aria-checked');
     assert.notStrictEqual(was, now, 'alert toggle persisted'); console.log(label, 'alerts toggle persisted', was, '->', now);
-    await p.getByRole('switch', { name: 'Overdue', exact: true }).click(); await p.waitForTimeout(400);
+    await toggle(p.getByRole('switch', { name: 'Overdue', exact: true }));
     await p.screenshot({ path: `${SP}/${label}-alerts.png`, fullPage: true });
     assert.ok(!(await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)), 'overflow alerts');
     // target size
