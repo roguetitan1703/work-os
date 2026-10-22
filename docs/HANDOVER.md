@@ -97,7 +97,11 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 - **To change the key:** make a new Claude chat key in Settings › Connections, update the header in claude.ai, revoke the old one.
 
 ### Claude
-- **Every write is attributed to Claude** in history.
+- **Every write is attributed to Claude** in history. It records the key's owner: a teammate's key shows as "Claude · <name>".
+- **The connector acts for the key's owner in their organization.** It sees shared work plus that person's private things, nothing else. MCP field changes from phase 2 are listed in `docs/multi-user.md` ("As built: phase 2"):
+  - `waitingOnOm` became `waitingText` + `waitingOn`, and the `waiting_on` arg was added;
+  - `visibility` was added;
+  - `by` holds names for other people.
 - **The connector tells Claude how to behave:**
   - Refer to tasks as `#12`.
   - Add a short note to writes.
@@ -116,7 +120,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 - **Om:** `/claude?tab=setup` → **Keys** (Claude area; `/connect?tab=code` redirects there): name a key, **Create**, copy it (shown once) or the ready `claude mcp add --transport http work-os <url> --header "Authorization: Bearer <key>"` command. The list shows prefix, created and last used; **Rotate** (old key dies, new one shown) and **Revoke**. Changes made with a key show as **Claude Code** in history (filter "By Claude Code"), with the `X-Work-OS-Repo` / `X-Work-OS-Session` headers shown small next to them if the session sends them.
 - **What a key can do:** everything the claude.ai connector can (projects, tasks, notes, trash, Discord reads; the channel blocklist still applies). **Claude Code keys work on `/api/mcp` only**; Claude chat keys also on the other API routes (admin needs an owner or admin). Keys are Better Auth API keys owned by a user in an organization (`docs/auth.md`).
 - **Rules** (`lib/mcp/policy.ts`, a no-op for Claude chat keys): no permanent deletion/admin tools or ops; 300 tool calls per rolling hour per key; 10 trashes per 10 minutes; an `apply_changes` that trashes > 10 items or changes > 50 tasks needs a dry run first, whose `confirm` token (HMAC of the ops + 10-minute expiry, `BETTER_AUTH_SECRET`) the real call must pass. When a key changes title/priority/due/project of, or trashes, a task it didn't create, Om gets one inbox notice per call (Settings → Notifications → "Claude Code changes", default on).
-- **Code:** `lib/api-keys.ts` (Better Auth apiKey plugin, `wos_` + 48 characters, hashed; `metadata: {agent, orgId}`), `lib/caller.ts` `verifyKey`, `lib/mcp/policy.ts` (counters in `policyEvents`, TTL 2h), `lib/request-context.ts` (user, session/repo headers → `logActivity`, `actorUserId`), UI `app/(app)/claude/keys.tsx` + `setup-actions.ts`.
+- **Code:** `lib/api-keys.ts` (Better Auth apiKey plugin, `wos_` + 48 characters, hashed; `metadata: {agent, orgId}`), `lib/caller.ts` `verifyKey`, `lib/mcp/policy.ts` (counters in `policyEvents`, TTL 2h; `Caller` = `{agent, keyId, keyName, userId, orgId}`, `callerScope`), `lib/request-context.ts` (session/repo headers → `logActivity`), UI `app/(app)/claude/keys.tsx` + `setup-actions.ts`.
 - **Project code locations:** projects have `code: [{remote, subdir?, branch?} | {path}]` (project page → Code locations, or `add_project` / `update_project` / batch ops). Remotes are stored as lowercase `owner/name`, credentials stripped. `get_project` with `remote`/`subdir`/`branch`/`path` instead of a name picks the most specific match (remote+subdir+branch > remote+subdir or +branch > remote > longest path), else returns `unmatched` with candidates. A branch ending in `*` matches by prefix (`wt/ana*`). Matcher: `lib/data/code-locations.ts` (pure functions).
 
 ---
@@ -293,7 +297,12 @@ There's no bot server running all the time and no messages are stored.
   4. If DMs fail with a 403: Discord → Delpat server → Privacy Settings → allow direct messages.
 
 ### Claude
-Nothing to call; alerts run on their own. Claude's own changes trigger them like anyone's: when Claude completes a blocking task, the unblocked alert goes out.
+Nothing to call; alerts run on their own. Claude's own changes trigger them like anyone's: when Claude completes a blocking task, the unblocked alert goes out (to the waiting task's owner, or its assignee).
+
+**Per person (phase 2):**
+- Every alert has a recipient: the assignee of a shared task, else its owner (`recipientOf` in lib/data/tasks.ts).
+- The cron runs once per member, each with their own settings (`notify:<userId>`), inbox and push devices.
+- The Discord DM goes only to the Discord-linked person.
 
 ### Claude Code
 - **Logic:** `lib/alerts.ts`. The thresholds are in `ALERT_RULES`.
@@ -464,6 +473,11 @@ Full details: **`docs/auth.md`** (sign-in, roles, invitations, keys, the one-tim
 ## 12. Working on the code (Claude Code)
 
 - **Read first:** `AGENTS.md`. This Next.js (16.2) has breaking changes; docs are in `node_modules/next/dist/docs/`.
+- **Data access (phase 2, `docs/multi-user.md` "As built"):** every data function takes the caller's scope `{ userId, orgId }` first. Every query goes through `scoped(scope)` in `lib/scope.ts`.
+  - Pages use `requireScope()` (lib/caller.ts); actions use `asCaller(c => …)` or `run((s, me) => …)`.
+  - `tests/scope-check.mjs` (runs as `prebuild`) fails on raw `collections()` / `getDb()` / `.collection()` in lib/data, lib/mcp, lib/alerts, lib/notify, lib/discord, lib/status and app/, unless the line says `// scope-ok: <reason>`.
+  - Actors are objects (`lib/actors.ts`). Show them with `<ActorName>` / `<ActorBadge>` (components/actor-badge.tsx), never as raw strings.
+- **Migration from single-owner data:** `node scripts/migrate-ownership.mjs --db <name>` (dry run, counts only) → `--copy-to <scratch db>` to rehearse on a copy → `--apply`. Run it right after deploying phase 2.
 - **Checks before pushing:**
   - `npx tsc --noEmit -p .`
   - `npx eslint <touched files>`
@@ -472,7 +486,7 @@ Full details: **`docs/auth.md`** (sign-in, roles, invitations, keys, the one-tim
   - `/api/admin/health`, which should report `notesConverter: "ok"`
   - `node scripts/test-mcp.mjs …`
 - **Commits:** no co-author or "Generated with" lines (Om's preference).
-- **End-to-end tests:** `bash tests/e2e/run.sh [suite…]` (throwaway mongod, own ports via `E2E_MPORT`/`E2E_APORT`/`E2E_DPORT`). Each run makes a test owner, organization and Claude chat key (`tests/e2e/lib.mjs` `makeIdentity`); mail goes to JSON files (`MAIL_CAPTURE_DIR`). `auth.mjs` covers sign-in, 2FA, reset, invitations, keys and a no-credentials sweep of every route.
+- **End-to-end tests:** `bash tests/e2e/run.sh [suite…]` (throwaway mongod, own ports via `E2E_MPORT`/`E2E_APORT`/`E2E_DPORT`). Each run makes a test owner, organization and Claude chat key (`tests/e2e/lib.mjs` `makeIdentity`); mail goes to JSON files (`MAIL_CAPTURE_DIR`). `auth.mjs` covers sign-in, 2FA, reset, invitations, keys and a no-credentials sweep of every route. `tenancy.mjs` covers two people in one organization plus a second organization: private vs shared, every MCP read tool, pages, search, note files, worker and admin APIs, per-organization numbers and recipients. Fixtures inserted with `db` from lib.mjs get the test owner's organization and owner filled in (`rawDb` writes exactly what you give it).
 - **Testing locally:**
   - **MongoDB:** transactions need a replica set: `mongod --replSet rs0 --port 28020 --dbpath <dir>`, then `replSetInitiate`.
   - **Discord:** set `DISCORD_API_BASE` to a fake Discord.

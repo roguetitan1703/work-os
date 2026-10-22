@@ -23,7 +23,89 @@ fs.mkdirSync(SP, { recursive: true });
 
 export const mc = new MongoClient(URI);
 await mc.connect();
-export const db = mc.db(DBNAME);
+/** The test database without the fixture help below (the tenancy suite writes exact documents with it). */
+export const rawDb = mc.db(DBNAME);
+
+// ---- fixtures belong to the owner (docs/multi-user.md phase 2) ----
+// Suites insert fixtures directly. Every document needs an organization and an owner to be seen through the app's
+// scoped door, so `db` fills in what a fixture leaves out: the owner's organization, owner (or recipient), visibility
+// 'org', and the per-person / per-organization settings and counter ids ('dispatcher' → 'dispatcher:<owner id>',
+// 'task' → 'task:<org id>'). Fields a fixture sets itself (even to null) are kept.
+const SHARED = new Set(['projects', 'tasks', 'activity', 'notes', 'claudeItems', 'trash']);
+const OWNED = new Set(['reviews', 'ritualLogs', 'devices', 'workerFolders', 'workerJobs', 'workerSessions']);
+const RECIPIENT = new Set(['notifications', 'pushSubs', 'alertLog', 'alertQueue']);
+const USER_AREAS = new Set(['notify', 'dispatcher', 'alerts', 'status']);
+const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+function mapId(name, id) {
+  if (!ME || typeof id !== 'string') return id;
+  if (name === 'settings' && USER_AREAS.has(id)) return `${id}:${ME.userId}`;
+  if (name === 'settings' && id === 'discord') return `discord:${ME.orgId}`;
+  if (name === 'counters' && (id === 'task' || id === 'claudeItems')) return `${id}:${ME.orgId}`;
+  return id;
+}
+function stamp(name, d) {
+  if (!ME || !d || typeof d !== 'object') return d;
+  const x = { ...d };
+  if (has(x, '_id')) x._id = mapId(name, x._id);
+  const set = (k, v) => { if (!has(x, k)) x[k] = v; };
+  if (SHARED.has(name) || OWNED.has(name) || RECIPIENT.has(name)) set('orgId', ME.orgId);
+  if (SHARED.has(name)) { set('ownerId', ME.userId); set('visibility', 'org'); }
+  if (name === 'tasks') set('assigneeId', null);
+  if (OWNED.has(name)) set('ownerId', ME.userId);
+  if (RECIPIENT.has(name)) set('userId', ME.userId);
+  if (name === 'claudeItems' && has(x, 'waitingOnOm')) {
+    const t = x.waitingOnOm || '';
+    delete x.waitingOnOm;
+    set('waitingText', t);
+    set('waitingOn', t ? ME.userId : null);
+  }
+  if (name === 'trash' && x.task) x.task = stamp('tasks', x.task);
+  if (name === 'settings' && typeof x._id === 'string') {
+    const [area, who] = x._id.split(':');
+    if (who && USER_AREAS.has(area)) { set('area', area); set('orgId', ME.orgId); set('userId', who); }
+    if (who && area === 'discord') { set('area', area); set('orgId', who); }
+  }
+  if (name === 'counters' && typeof x._id === 'string' && x._id.includes(':')) set('orgId', ME.orgId);
+  return x;
+}
+function mapQ(name, q) {
+  if (!q || typeof q !== 'object' || !has(q, '_id')) return q;
+  return { ...q, _id: mapId(name, q._id) };
+}
+/** An upsert inserts with the owner's fields the update does not set itself. */
+function upsertStamp(name, q, u) {
+  if (!u || Array.isArray(u)) return u;
+  const want = stamp(name, { ...(typeof q?._id === 'string' ? { _id: q._id } : {}) });
+  const given = new Set([...Object.keys(u.$set ?? {}), ...Object.keys(u.$setOnInsert ?? {}), ...Object.keys(q ?? {})]);
+  const add = Object.fromEntries(Object.entries(want).filter(([k]) => k !== '_id' && !given.has(k)));
+  return Object.keys(add).length ? { ...u, $setOnInsert: { ...(u.$setOnInsert ?? {}), ...add } } : u;
+}
+function ownedCollection(name, col) {
+  return new Proxy(col, {
+    get(t, p) {
+      const v = t[p];
+      if (typeof v !== 'function') return v;
+      const f = v.bind(t);
+      switch (p) {
+        case 'insertOne': return (d, o) => f(stamp(name, d), o);
+        case 'insertMany': return (ds, o) => f(ds.map(d => stamp(name, d)), o);
+        case 'replaceOne': return (q, d, o) => f(mapQ(name, q), stamp(name, d), o);
+        case 'updateOne': case 'updateMany': case 'findOneAndUpdate':
+          return (q, u, o) => f(mapQ(name, q), o?.upsert ? upsertStamp(name, mapQ(name, q), u) : u, o);
+        case 'find': case 'findOne': case 'deleteOne': case 'deleteMany': case 'countDocuments': case 'findOneAndDelete':
+          return (q, ...a) => f(mapQ(name, q), ...a);
+        default: return f;
+      }
+    },
+  });
+}
+export const db = new Proxy(rawDb, {
+  get(t, p) {
+    if (p === 'collection') return (name, ...a) => ownedCollection(name, t.collection(name, ...a));
+    const v = t[p];
+    return typeof v === 'function' ? v.bind(t) : v;
+  },
+});
 
 // ---- who the suites are (docs/auth.md): one owner, their organization and a Claude chat key, made by seed.mjs on
 // every emptied database (makeIdentity) and kept in a small state file so the suite process can read the key ----
@@ -38,7 +120,7 @@ try { const st = JSON.parse(fs.readFileSync(STATE, 'utf8')); MCP = st.claudeKey;
 let adminP = null;
 /** Better Auth admin (scripts/lib/auth-admin.mjs) on the test database. */
 export async function admin() {
-  adminP ??= import('../../scripts/lib/auth-admin.mjs').then(m => m.authAdmin({ db, client: mc, secret: SECRET, baseURL: B }));
+  adminP ??= import('../../scripts/lib/auth-admin.mjs').then(m => m.authAdmin({ db: rawDb, client: mc, secret: SECRET, baseURL: B }));
   return adminP;
 }
 /** Owner, organization, membership and a Claude chat key on an emptied database; written to the state file. */

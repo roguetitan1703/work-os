@@ -137,7 +137,7 @@ function WaitingRow({ projectId, item: i, expanded, onToggle, onAnswered }: { pr
   const [busy, setBusy] = useState(false);
   const text = reply.trim();
 
-  const go = async (patch: { note?: string; waitingOnOm?: string }, done: string, after?: () => void) => {
+  const go = async (patch: { note?: string; waitingText?: string }, done: string, after?: () => void) => {
     setBusy(true);
     try {
       const r = await updateClaudeItemAction(projectId, i.id, patch);
@@ -178,7 +178,7 @@ function WaitingRow({ projectId, item: i, expanded, onToggle, onAnswered }: { pr
             <button type="button" className={btnOutline} disabled={busy || !text} onClick={() => go({ note: text }, 'Reply saved')}>
               Reply
             </button>
-            <button type="button" className={btnOutline} disabled={busy} onClick={() => go({ waitingOnOm: '', ...(text ? { note: text } : {}) }, 'Marked answered', onAnswered)}>
+            <button type="button" className={btnOutline} disabled={busy} onClick={() => go({ waitingText: '', ...(text ? { note: text } : {}) }, 'Marked answered', onAnswered)}>
               Answered
             </button>
           </div>

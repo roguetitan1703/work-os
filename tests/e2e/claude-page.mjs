@@ -90,15 +90,15 @@ async function suite(vp) {
   await reply.fill('Use the new logo.');
   await click(replyBtn);
   const afterReply = await wait(async () => { const d = await db.collection('claudeItems').findOne({ _id: itByTitle('Reorder invoice export columns')._id }); return d.note.includes('Use the new logo.') && d; });
-  check(T('Reply adds a note and keeps the item waiting'), afterReply && afterReply.waitingOnOm !== '');
+  check(T('Reply adds a note and keeps the item waiting'), afterReply && afterReply.waitingText !== '' && afterReply.waitingOn === ME.userId);
   check(T('input cleared after Reply'), !!(await wait(async () => (await reply.inputValue()) === '')));
   await reply.fill('Final: new logo, thanks.');
   await click(ansBtn);
-  const afterAns = await wait(async () => { const d = await db.collection('claudeItems').findOne({ _id: itByTitle('Reorder invoice export columns')._id }); return d.waitingOnOm === '' && d; });
+  const afterAns = await wait(async () => { const d = await db.collection('claudeItems').findOne({ _id: itByTitle('Reorder invoice export columns')._id }); return d.waitingText === '' && !d.waitingOn && d; });
   check(T('Answered with typed text saves the note and clears the flag'), afterAns && afterAns.note.includes('Final: new logo, thanks.'));
   check(T('answered row disappears'), await ny.locator('[data-needs-you]').waitFor({ state: 'detached', timeout: 5000 }).then(() => true, () => false));
   // put a question back for later checks
-  await db.collection('claudeItems').updateOne({ _id: itByTitle('Fix webhook retry backoff')._id }, { $set: { waitingOnOm: 'Retry 3 or 5 times?', updatedAt: new Date() } });
+  await db.collection('claudeItems').updateOne({ _id: itByTitle('Fix webhook retry backoff')._id }, { $set: { waitingText: 'Retry 3 or 5 times?', waitingOn: ME.userId, updatedAt: new Date() } });
 
   const run = p.locator('[data-section="running"]');
   // ── Sessions (new UI) ──

@@ -113,7 +113,7 @@ function NeedsYouRow({ item: i, expanded, onToggle, onAnswered }: { item: NeedsY
   const text = reply.trim();
 
   // Plain flag, not useTransition (a transition stayed pending after the revalidation and froze the controls).
-  const go = async (patch: { note?: string; waitingOnOm?: string }, done: string, after: () => void) => {
+  const go = async (patch: { note?: string; waitingText?: string }, done: string, after: () => void) => {
     setBusy(true);
     try {
       const r = await updateClaudeItemAction(i.projectId, i.id, patch);
@@ -160,7 +160,7 @@ function NeedsYouRow({ item: i, expanded, onToggle, onAnswered }: { item: NeedsY
             <button type="button" className={btnOutline} disabled={busy || !text} onClick={sendReply}>
               Reply
             </button>
-            <button type="button" className={btnOutline} disabled={busy} onClick={() => go({ waitingOnOm: '', ...(text ? { note: text } : {}) }, 'Marked answered', onAnswered)}>
+            <button type="button" className={btnOutline} disabled={busy} onClick={() => go({ waitingText: '', ...(text ? { note: text } : {}) }, 'Marked answered', onAnswered)}>
               Answered
             </button>
           </div>

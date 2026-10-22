@@ -89,7 +89,7 @@ function Row({ item: i, open, onToggle, onAnswered }: { item: NeedsYouItem; open
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
   const text = reply.trim();
-  const go = async (patch: { note?: string; waitingOnOm?: string }, done: string, after: () => void) => {
+  const go = async (patch: { note?: string; waitingText?: string }, done: string, after: () => void) => {
     setBusy(true);
     try {
       const r = await updateClaudeItemAction(i.projectId, i.id, patch);
@@ -133,7 +133,7 @@ function Row({ item: i, open, onToggle, onAnswered }: { item: NeedsYouItem; open
             <button type="button" className={btn} disabled={busy || !text} onClick={() => go({ note: text }, 'Reply saved', () => {})}>
               Reply
             </button>
-            <button type="button" className={btn} disabled={busy} onClick={() => go({ waitingOnOm: '', ...(text ? { note: text } : {}) }, 'Marked answered', onAnswered)}>
+            <button type="button" className={btn} disabled={busy} onClick={() => go({ waitingText: '', ...(text ? { note: text } : {}) }, 'Marked answered', onAnswered)}>
               Answered
             </button>
           </div>

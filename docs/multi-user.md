@@ -44,6 +44,75 @@ A project has `visibility: 'org' | 'private'`; a task or note follows its projec
 
 Each phase ships with its e2e suites passing and a security review before merge (phases 1, 2 and anything touching access).
 
+## As built: phase 2, ownership (2026-10-22)
+
+**Fields.** Shared collections (projects, tasks, activity, notes, claudeItems, trash) carry `orgId`, `ownerId`, `visibility`. Tasks also have `assigneeId` (null until phase 4 adds assigning). Children copy their placement: a task, note, Claude item, history entry or trash entry lives where its project lives. With no project it is private to its owner. In a private project it is private to the project's owner. Personal collections carry `orgId` plus `ownerId` (reviews, ritualLogs, devices, workerFolders/Jobs/Sessions) or the recipient `userId` (notifications, pushSubs, alertLog, alertQueue). Counters are `task:<orgId>` and `claudeItems:<orgId>`. Indexes: `(orgId, ref)` unique on tasks and claudeItems, `(orgId, name)` unique on projects, `(ownerId, date)` unique on ritualLogs.
+
+**One door.** `lib/scope.ts`. Every data function takes the caller's scope `{ userId, orgId }` first. `scoped(s)` returns the collections behind a proxy that:
+- adds the rule to every filter: shared = `orgId` and (`visibility: 'org'` or `ownerId` = caller); own = `orgId` and `ownerId`/`userId` = caller; counters = `orgId`;
+- stamps inserts and upserts with `orgId` (and the owner field);
+- refuses updates that touch `orgId`, plus `$unionWith`, `$graphLookup`, `$out`, `$merge` and `$facet`;
+- scopes the sub-pipeline of a `$lookup`.
+
+`orgWide(orgId)` drops the visibility rule. It is used only by system work: unblocked fan-out, the alert flush and project-name uniqueness. Settings are read only through `getUserSetting`/`setUserSetting` (`<area>:<userId>` for notify, dispatcher, alerts, status) and `getOrgSetting`/`setOrgSetting` (`discord:<orgId>`).
+
+The check: `tests/scope-check.mjs` runs as `prebuild` and in the tenancy suite. It fails if lib/data, lib/mcp, lib/alerts, lib/notify, lib/discord, lib/status or app/ reach `collections()`, `getDb()` or `.collection()` on a line without `// scope-ok: <reason>`. The marked exceptions are:
+- request counters;
+- policy events per API key;
+- the old-alert and inbox prune;
+- push endpoint takeover;
+- Better Auth tables;
+- the one-off authMigration notice.
+
+**Moving and sharing.**
+- Moving a task to another project re-places it. Only its owner may take a shared task private.
+- A project's visibility is changed by its owner only. The change cascades to its tasks, history, notes, Claude items and trash.
+- New project ids are slugs, checked across all organizations.
+- Names are unique per organization.
+
+**Who did it.** Actors are objects (`lib/actors.ts`). The app sets `{kind:'user', userId}`. MCP keys set `{kind:'agent', agent, userId: key owner}`. Discord sets `{kind:'discord', userId}`. Migrations set `{kind:'system'}`. Old string actors are still read (`asActor`). "Only Om" rules now mean "only a person":
+- marking next;
+- clearing a Claude item's waiting;
+- dispatcher marking;
+- the boilerplate note (only the person whose dispatcher reads it).
+
+Comment edits: an agent may edit only entries of the same agent for the same user. A person may edit their own entries and those of their agents.
+
+**Recipients.** `recipientOf(task)` = the assignee of a shared task, else the owner.
+- Alerts are computed per person (`recipientFilter`) with that person's settings.
+- The cron iterates every membership and writes `alerts:<userId>`.
+- Unblocked alerts are queued to the waiting task's recipient. Dispatcher outcomes go to the person who gave the task to Claude.
+- Push goes only to that person's subscriptions; a browser that turns push on takes its endpoint over from whoever had it.
+- The Discord DM goes only to the Discord-linked person.
+- Claude Code change notices go to each changed task's recipient.
+- "Claude needs you" goes to `waitingOn`.
+
+**MCP.** The server acts for the key's user in the key's organization. Tool names are unchanged. Renamed or new fields:
+- Claude items: output `waitingOnOm` became `waitingText` (what) plus `waitingOn` ('me' or the member's name). `get_project` → `claudeItems.waitingOnOm` (a count) became `waiting`.
+- `update_claude_items` add/block take `waiting_on` (a member id or email; default the key's owner) next to `waiting_on_om` (the text). Someone outside the organization is refused. A private item can wait only on its owner.
+- `add_project`/`update_project` and the apply_changes ops take `visibility`. `get_task`, `list_projects` and `get_project` return it.
+- `by`, `createdBy`, `doneBy` and `updatedBy` are strings as before ('me', 'claude', 'claude-code', 'discord', 'system') for the key's owner. For anyone else they hold the name, e.g. 'Ana' or 'claude-code for Ana'.
+- `recent_activity` `actor` filters the caller's own kinds ('me' = the caller in the app).
+
+**Discord.** Until phase 3 links each person's Discord id, the bot acts for the owner of the first organization (`discordScope()` in lib/people.ts). Commands and Discord-made tasks belong to that person, and if there is no organization they are refused. The four Discord MCP tools work only for keys of that person. The blocked-channel list is `discord:<orgId>`; it can be edited by owners and admins of that organization.
+
+**Workers and files.**
+- A computer acts as its owner. Computers with no owner are refused (401).
+- The dispatcher's switch, cap and claims are per person.
+- Note files are stored under `notes/<orgId>/`. The upload and file routes refuse other organizations' paths. Files from before (`notes/<name>`) belong to the first organization.
+
+**Migration.** Run `scripts/migrate-ownership.mjs --db <name>`. It is a dry run that prints counts only; `--apply` writes. `--copy-to <new db>` copies the database first and migrates the copy, never writing to the source. It is idempotent. It does the following:
+- assigns everything to the first organization and its owner;
+- makes projects `org`;
+- makes tasks and notes with no project private;
+- converts actors;
+- turns `waitingOnOm` into `waitingText`/`waitingOn`;
+- rebuilds `task:`/`claudeItems:` counters from the highest ref;
+- moves settings to `<area>:<userId>` / `discord:<orgId>`;
+- stamps `orgId` on the authMigration notice.
+
+Order on deploy: deploy the code, then run the migration at once. Until it runs, old documents are invisible because they have no `orgId`.
+
 ## Audit summary (2026-10-19)
 
 - All 26 collections have no owner or organization field; numbers, project names and Claude item numbers are globally unique.

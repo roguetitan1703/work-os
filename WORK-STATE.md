@@ -1,6 +1,7 @@
 # Work state
 
 ## Now
+- 2026-10-22: phase 2 (ownership) built on branch builder-a: one scoped door (lib/scope.ts), orgId/ownerId/visibility, actor objects, per-org numbers, per-person settings/inbox/push/alerts, tenancy e2e suite, scripts/migrate-ownership.mjs (docs/multi-user.md "As built"). Waits on a review subagent before merge; then deploy and run the migration at once (--copy-to rehearsal first).
 - 2026-10-22: multi-user Work OS, own sign-in first (Om); Delpat OS integration later. Plan: docs/multi-user.md. Phase 0 (CPU) merged to master (numbers in docs/cpu.md); phase 1 (Better Auth sign-in) built on branch builder-a, rebased on phase 0 (docs/auth.md), waits on a review subagent before merge, then `scripts/migrate-auth.mjs` on the real database.
 - 2026-10-19: Vercel paused Om's account (Fluid Active CPU); Work OS moves to Delpat's AWS server (work.delpat.in). Audit summary in docs/multi-user.md.
 
@@ -15,16 +16,19 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
-- Dispatcher cap (maxConcurrent) counts every user's running tasks, so one person's runs use up another's slots — phase 3 (per-user dispatcher settings).
 - Take back on a legacy running Claude task (no marker) lets anyone mark it stopped; the session keeps running — goes away after the migration (no legacy marks) .
 - CPU leftovers (docs/cpu.md): /today sends every open task in full; /today and /claude run claudeOverview (~12 reads); dispatcher settings and device key are read on every worker poll — wait on a smaller task shape for the client, and on phase 5 (push instead of polling).
 - Menu, Settings, Claude and their tabs wait for a server round trip on first tap now (only Today, Tasks, Projects are warmed) — waits on Om noticing it in use.
 - Auth phase 1: the migration revokes old worker computers instead of giving them to Om — waits on Om saying whether to keep them.
 - Auth phase 1: password reset no longer asks for the authenticator code (the old flow did) — waits on Om saying whether he wants it back.
-- Auth phase 1: Discord commands and alerts carry no Work OS user (no actorUserId) — waits on phase 2 linking Discord ids to users.
+- Discord acts for the owner of the first organization only (DISCORD_OWNER_ID); other members' Discord MCP tools are refused — waits on phase 3 linking each person's Discord id.
 - Auth phase 1: a revoked session or removed member can open pages for up to 2 min (cookie cache); actions and data reads check the database — waits on Om finding 2 min too long.
 - Auth phase 1: invitation link is shown to the inviter; an admin could claim the invitee's account — waits on Om deciding whether admins are less trusted than owners.
-- Auth phase 1: the dispatcher's "only Om" checks now mean any signed-in member — waits on phase 2 scoping.
+- alertLog keys are per task (not per recipient): when phase 4 lets a task change assignee, the new recipient misses alerts already logged for that task — waits on phase 4 assignees.
+- Tasks have assigneeId but nothing sets it yet (no UI or MCP arg), so every alert goes to the owner — waits on phase 4.
+- Note files: any member of the organization with a file's URL can open it, even from a private note (paths are random, per organization) — waits on Om wanting per-note file access.
+- Project names are unique per organization, so creating a name a teammate already uses privately says it exists — waits on Om minding that.
+- Old documents are invisible between deploying phase 2 and running scripts/migrate-ownership.mjs (no orgId) — run the migration right after the deploy.
 - e2e `settings` sometimes times out opening Settings › Alerts (waitForURL section=alerts) in the full run (2 of 4 full runs on builder-a), never alone (3 of 3) — waits on a test-fix slot.
 - e2e `today` fails on Sundays (waits for a schedule block that is not active) and `claude-page` is flaky (queue Up/Down refresh timing, ~3 of 4 runs fail) — both also on master; waits on a test-fix slot.
 - Usage log cannot tell prefetches from page data (Next 16 hides the prefetch headers from the proxy; skipProxyUrlNormalize would change what the auth check sees) — waits on Om needing that split.

@@ -52,8 +52,9 @@ every member sees everything. Phase 2 does that.
 | `scripts/migrate-auth.mjs`, `scripts/lib/auth-admin.mjs` | the migration; a script-side Better Auth for creating users, organizations and keys (also used by the e2e seed) |
 
 - **Every request knows who.** Server actions use `requireCaller()` + `withCaller()` (or `asCaller(fn)`), API routes
-  `callerFromRequest(req)`, MCP and worker routes their key. The caller's `userId` goes into the request context and
-  every history entry gets `actorUserId` next to `actor`.
+  `callerFromRequest(req)`, MCP and worker routes their key. Since phase 2 every data call takes the caller's scope
+  and history records the actor as an object with its user (`{kind:'agent', agent:'claude', userId}`; see
+  docs/multi-user.md "As built").
 - **Proxy cost:** the signed `workos.session_data` cookie (compact, 120 s) is checked without a database read. When
   it is stale the proxy calls `getSession` once and forwards the refreshed cookies. So a revoked session or removed
   member can keep opening pages for up to 2 minutes; server actions and `getCaller()` read the session from the
@@ -87,8 +88,8 @@ every member sees everything. Phase 2 does that.
   Claude folder picker show only your own computers (`DeviceScope` in `lib/data/launcher.ts`). Start, link, unlink,
   resume, stop, remove and take back answer "not found" for anyone else's folder, session or task. A task given to
   Claude records who gave it (`claude.markedByUserId`) and only that person's computers claim it. Max 10 computers
-  per person. Computers from before the migration have no owner and are invisible; the worker routes act for their
-  own device as before.
+  per person. Computers from before the migration have no owner: they are invisible, and since phase 2 the worker
+  routes refuse them (401); re-add the computer in Claude › Setup.
 - **Locked out of the authenticator app** (no passkey, no backup code): in Mongo delete the user's `twoFactor` doc
   and set `user.twoFactorEnabled` to false. Password reset still needs working email.
 

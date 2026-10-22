@@ -1,5 +1,5 @@
 // Today page at 390 and 1280: first screen, Claude card, show more, done+undo, folds, empty states. Seed profile: today.
-import { launch, check, B, PW, SP, db, finish, overflow, okO, fillLogin } from './lib.mjs';
+import { launch, check, B, PW, SP, db, finish, overflow, okO, fillLogin, ME } from './lib.mjs';
 
 const OUT = SP;
 const b = await launch();
@@ -32,7 +32,7 @@ async function reset() {
   await db.collection('devices').updateOne({ _id: 'dev1' }, { $set: { 'activity.at': new Date() } });
   const items = await db.collection('claudeItems').find({}).sort({ ref: 1 }).toArray();
   const qs = ['Which logo should the header use?', 'Pick option A or B please', 'Third question here'];
-  for (const [i, it] of items.entries()) await db.collection('claudeItems').updateOne({ _id: it._id }, { $set: { waitingOnOm: qs[i], updatedAt: new Date(Date.now() - (3 - i) * 60000) } });
+  for (const [i, it] of items.entries()) await db.collection('claudeItems').updateOne({ _id: it._id }, { $set: { waitingText: qs[i], waitingOn: ME.userId, updatedAt: new Date(Date.now() - (3 - i) * 60000) } });
 }
 for (const kind of ['phone', 'desk']) {
   await reset();
@@ -153,7 +153,7 @@ for (const kind of ['phone', 'desk']) {
 
 // Empty states: finish overdue tasks and clear waiting questions directly in the test DB
 await db.collection('tasks').updateMany({ title: /^Overdue task/ }, { $set: { status: 'Done' } });
-await db.collection('claudeItems').updateMany({}, { $set: { waitingOnOm: '' } });
+await db.collection('claudeItems').updateMany({}, { $set: { waitingText: '', waitingOn: null } });
 for (const kind of ['phone', 'desk']) {
   const { p, errs } = await open(kind);
   const V = p.locator(`[data-variant=${kind}]`);

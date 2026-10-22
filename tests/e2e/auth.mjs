@@ -307,14 +307,14 @@ try {
     const chat = await a.createKey({ userId: invitee, orgId: ME.orgId, agent: 'claude', name: 'invitee chat' });
     let r = await mcpWith(chat.key, 'add_task', { title: 'auth-e2e by invitee chat' });
     const act1 = await db.collection('activity').findOne({ taskTitle: 'auth-e2e by invitee chat' });
-    check('key: Claude chat key of user X -> history says X', r.status === 200 && act1?.actorUserId === invitee && act1?.actor === 'claude', `${r.status} ${JSON.stringify(act1)?.slice(0, 160)}`);
+    check('key: Claude chat key of user X -> history says X', r.status === 200 && act1?.actor?.kind === 'agent' && act1.actor.agent === 'claude' && act1.actor.userId === invitee, `${r.status} ${JSON.stringify(act1)?.slice(0, 160)}`);
 
     const code = await a.createKey({ userId: invitee, orgId: ME.orgId, agent: 'claude-code', name: 'invitee code' });
     r = await mcpWith(code.key, 'add_task', { title: 'auth-e2e by invitee code' }, { 'x-work-os-session': 'auth-e2e', 'x-work-os-repo': 'work-os' });
     const act2 = await db.collection('activity').findOne({ taskTitle: 'auth-e2e by invitee code' });
-    check('key: Claude Code key of user X -> history says X (claude-code)', r.status === 200 && act2?.actorUserId === invitee && act2?.actor === 'claude-code', `${r.status} ${JSON.stringify(act2)?.slice(0, 160)}`);
-    const own = await db.collection('activity').findOne({ actor: 'claude', actorUserId: ME.userId });
-    check('key: owner key entries are not recorded as X', !own || own.actorUserId !== invitee);
+    check('key: Claude Code key of user X -> history says X (claude-code)', r.status === 200 && act2?.actor?.kind === 'agent' && act2.actor.agent === 'claude-code' && act2.actor.userId === invitee, `${r.status} ${JSON.stringify(act2)?.slice(0, 160)}`);
+    const own = await db.collection('activity').findOne({ 'actor.kind': 'agent', 'actor.agent': 'claude', 'actor.userId': ME.userId });
+    check('key: owner key entries are not recorded as X', !own || own.actor.userId !== invitee);
 
     await db.collection('apikey').deleteOne({ _id: idIn(chat.id) });
     r = await mcpWith(chat.key, 'list_projects', {});
