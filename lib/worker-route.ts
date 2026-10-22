@@ -3,7 +3,6 @@ import { NextResponse } from 'next/server';
 import { bearerToken } from './auth';
 import { verifyDeviceKey, type VerifiedDevice } from './devices';
 import { InputError, NotFoundError } from './data/errors';
-import { collections } from './db';
 
 // Shared wrapper for /api/worker/* (docs/launcher.md): device keys only (wkr_…; MCP_TOKEN and
 // Claude Code keys are refused), body size cap, per-device rate limit, JSON errors.
@@ -11,12 +10,19 @@ import { collections } from './db';
 const MAX_BODY = 1_000_000;
 const PER_MINUTE = 60;
 
-async function overLimit(deviceId: string): Promise<boolean> {
-  const c = await collections();
-  const since = new Date(Date.now() - 60_000);
-  const recent = await c.policyEvents.countDocuments({ keyId: deviceId, kind: 'worker', at: { $gte: since } });
-  if (recent >= PER_MINUTE) return true; // already over: do not add more rows
-  await c.policyEvents.insertOne({ _id: `w_${deviceId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, keyId: deviceId, kind: 'worker', at: new Date() });
+// Counted in memory per process (a poll must not cost two database operations just to be rate limited).
+const hits = new Map<string, number[]>();
+
+function overLimit(deviceId: string): boolean {
+  const now = Date.now();
+  const recent = (hits.get(deviceId) ?? []).filter(t => now - t < 60_000);
+  if (recent.length >= PER_MINUTE) {
+    hits.set(deviceId, recent); // already over: do not record more
+    return true;
+  }
+  recent.push(now);
+  hits.set(deviceId, recent);
+  if (hits.size > 500) for (const [k, v] of hits) if (!v.some(t => now - t < 60_000)) hits.delete(k);
   return false;
 }
 
@@ -25,7 +31,7 @@ export function workerRoute(fn: (device: VerifiedDevice, body: unknown) => Promi
     try {
       const device = await verifyDeviceKey(bearerToken(req));
       if (!device) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-      if (await overLimit(device.id)) return NextResponse.json({ error: 'too many requests' }, { status: 429 });
+      if (overLimit(device.id)) return NextResponse.json({ error: 'too many requests' }, { status: 429 });
       let body: unknown;
       if (opts.body) {
         const text = await req.text();

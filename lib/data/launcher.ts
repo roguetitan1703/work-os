@@ -81,25 +81,35 @@ export type JobsResponse = {
 export async function pollJobs(deviceId: string): Promise<JobsResponse> {
   const c = await collections();
   const now = new Date();
-  const linked = await c.workerFolders.find({ deviceId, projectId: { $ne: null } }, { projection: { folderId: 1, projectId: 1 } }).toArray();
+  // Idle poll = two reads plus one count: the linked folders with their project names (one query), this computer's
+  // unfinished jobs (one query), and, only when there are none, whether a session is still starting.
+  const [linkedRows, notDone] = await Promise.all([
+    c.workerFolders
+      .aggregate<{ folderId: string; projectId: string; p: { name: string }[] }>([
+        { $match: { deviceId, projectId: { $ne: null } } },
+        { $project: { folderId: 1, projectId: 1 } },
+        { $lookup: { from: 'projects', localField: 'projectId', foreignField: '_id', pipeline: [{ $project: { name: 1 } }], as: 'p' } },
+      ])
+      .toArray(),
+    c.workerJobs.find({ deviceId, doneAt: null }).sort({ createdAt: 1 }).limit(50).toArray(),
+  ]);
+  const names = new Map<string, string>();
+  const linked = linkedRows.filter(l => l.p[0]).map(l => (names.set(l.projectId, l.p[0].name), l));
   // Hand each job out once: the takenAt stamp is a conditional update per job, so two simultaneous polls never both get it.
-  const open = { deviceId, doneAt: null, $or: [{ takenAt: null }, { takenAt: { $lt: new Date(now.getTime() - RETAKE_MS) } }] };
-  const candidates = await c.workerJobs.find(open).sort({ createdAt: 1 }).limit(20).toArray();
+  const retakeBefore = new Date(now.getTime() - RETAKE_MS);
+  const open = { deviceId, doneAt: null, $or: [{ takenAt: null }, { takenAt: { $lt: retakeBefore } }] };
   const pending: WorkerJobDoc[] = [];
-  for (const j of candidates) {
+  for (const j of notDone.filter(j => !j.takenAt || j.takenAt < retakeBefore).slice(0, 20)) {
     const got = await c.workerJobs.findOneAndUpdate({ _id: j._id, ...open }, { $set: { takenAt: now } }, { returnDocument: 'after' });
     if (got) pending.push(got);
   }
-  const pids = [...new Set([...linked.map(l => l.projectId!), ...pending.map(j => j.projectId).filter((x): x is string => !!x)])];
-  const names = new Map((await c.projects.find({ _id: { $in: pids } }, { projection: { name: 1 } }).toArray()).map(p => [p._id, p.name]));
-  const busy =
-    pending.length > 0 ||
-    (await c.workerJobs.countDocuments({ deviceId, doneAt: null }, { limit: 1 })) > 0 ||
-    (await c.workerSessions.countDocuments({ deviceId, state: 'starting' }, { limit: 1 })) > 0;
+  const extra = [...new Set(pending.map(j => j.projectId).filter((x): x is string => !!x && !names.has(x)))];
+  if (extra.length) for (const p of await c.projects.find({ _id: { $in: extra } }, { projection: { name: 1 } }).toArray()) names.set(p._id, p.name);
+  const busy = pending.length > 0 || notDone.length > 0 || (await c.workerSessions.countDocuments({ deviceId, state: 'starting' }, { limit: 1 })) > 0;
   return {
     enabled: true,
     pollSeconds: busy ? POLL_SECONDS : IDLE_POLL_SECONDS,
-    links: linked.filter(l => names.has(l.projectId!)).map(l => ({ folderId: l.folderId, projectId: l.projectId!, projectName: names.get(l.projectId!)! })),
+    links: linked.map(l => ({ folderId: l.folderId, projectId: l.projectId, projectName: names.get(l.projectId)! })),
     jobs: pending.map(j => ({
       id: j._id,
       kind: j.kind,

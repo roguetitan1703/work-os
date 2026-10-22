@@ -198,16 +198,18 @@ export async function settleDispatched(c?: Collections): Promise<number> {
  * Returns the claimed task ref, if any.
  */
 /** null when the dispatcher is off (the poll then does nothing else); otherwise the claimed ref, if any. */
-export async function dispatchFor(deviceId: string): Promise<{ ref: number | null } | null> {
+export async function dispatchFor(deviceId: string): Promise<{ ref: number | null; active: boolean } | null> {
   const c = await collections();
   // Off: nothing else on this poll (the worker polls all day; the status route and the cron still settle).
   const set = await getDispatcherSettings(c);
   if (!set.enabled) return null;
-  return { ref: await claimFor(c, deviceId, set) };
+  // On but nothing queued or running (the usual case): one indexed read, no settling, no claiming.
+  if (!(await c.tasks.findOne({ 'claude.state': { $in: ['queued', 'running'] } }, { projection: { _id: 1 } }))) return { ref: null, active: false };
+  await settleDispatched(c); // a task finished since the last poll frees its slot now
+  return { ref: await claimFor(c, deviceId, set), active: true };
 }
 
 async function claimFor(c: Collections, deviceId: string, set: DispatcherSettings): Promise<number | null> {
-  await settleDispatched(c); // a task finished since the last poll frees its slot now
   const dev = await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { worker: 1 } });
   if (dev?.worker?.allowPrompts !== true) return null;
   if ((await c.tasks.countDocuments({ 'claude.state': 'running' })) >= set.maxConcurrent) return null;
