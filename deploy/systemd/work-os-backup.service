@@ -9,7 +9,8 @@ Type=oneshot
 User=workos
 Group=workos
 EnvironmentFile=/etc/work-os/env
-ExecStart=/srv/work-os/current/deploy/backup.sh
+# Root-owned copy of deploy/backup.sh (docs/hosting.md section 4), not the release's.
+ExecStart=/usr/local/sbin/work-os-backup
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict

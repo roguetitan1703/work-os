@@ -10,9 +10,17 @@ Atlas. Akash runs the server side with Om. This is the whole runbook, in order; 
 | `deploy/systemd/work-os-alerts.{service,timer}` | the alert check every 15 minutes (was cron-job.org) |
 | `deploy/systemd/work-os-backup.{service,timer}` | nightly `mongodump` to disk and S3 |
 | `deploy/env.template` | every variable the server needs, names only |
-| `deploy/deploy.sh` | fetch, `npm ci`, build, switch, restart, health check, automatic rollback |
-| `deploy/cron-alerts.sh`, `deploy/backup.sh`, `deploy/env.sh` | what the timers run; the env-file loader the scripts share |
-| `scripts/cutover.sh` | the one-time move to multi-user data (dry run by default) |
+| `deploy/deploy.sh` → `work-os-deploy` | fetch, `npm ci`, build, switch, restart, health check, automatic rollback |
+| `deploy/cron-alerts.sh` → `work-os-cron-alerts`, `deploy/backup.sh` → `work-os-backup` | what the timers run |
+| `deploy/env.sh` → `work-os-env.sh` | the env-file loader the scripts share |
+| `scripts/cutover.sh` → `work-os-cutover` | the one-time move to multi-user data (dry run by default) |
+
+**Who runs what.** Root runs only root-owned copies of these scripts in `/usr/local/sbin` (the names after →), never
+anything from a release: a release is written by the build user and by every npm package's install script.
+- `workos-build` fetches and builds. It cannot read `/etc/work-os/env`.
+- `workos` runs the app, the timers and the cut-over's node steps. It can write only the live release's `.next/cache`
+  and `/var/backups/work-os`.
+- Root restarts the app, moves the `current` symlink and edits the env file (cut-over step 6).
 
 **Tested so far:** the cut-over chain end to end on a throwaway database (below), and `/api/live`. **Not tested** (no
 Linux server or nginx on the dev PC): the nginx site, the systemd units, `deploy.sh`, `backup.sh` and `cron-alerts.sh`
@@ -25,7 +33,13 @@ were only syntax-checked. Expect small fixes on the first real run; fix them in 
   bills the burst).
 - 20 GiB gp3 disk (each release is about 700 MB with `node_modules`; four are kept; backups are small).
 - An **Elastic IP**, and DNS: `work.delpat.in A <Elastic IP>`.
-- An **instance role** allowed `s3:PutObject` (and `s3:GetObject` for restores) on the backup bucket prefix only.
+- An **instance role** allowed **only `s3:PutObject`** on the backup bucket prefix (`arn:aws:s3:::<bucket>/work-os/*`).
+  The server can add backups but not read, list or delete them, so a compromised server cannot read old dumps or
+  wipe them. Restores use separate credentials: a restore role or an admin's own keys, used by hand and not stored on
+  the box (section 11).
+- **IMDSv2 required, hop limit 1** (EC2 → Instance settings → Modify instance metadata options: "IMDSv2: Required",
+  "Metadata response hop limit: 1"): the role's credentials then need a session token request, and nothing behind a
+  further network hop (a container, a forwarded request) can fetch them.
 - **Security group:** inbound 443 and 80 from anywhere (80 only redirects and answers certbot), 22 from Delpat's
   office/VPN addresses only. Nothing else; the app's port 3000 listens on 127.0.0.1 and is never opened.
 - On the box, the same with ufw: `sudo ufw allow OpenSSH && sudo ufw allow 'Nginx Full' && sudo ufw enable`.
@@ -57,13 +71,25 @@ user that has `readWrite` on `workos` only.
 ## 4. User, folders, code, environment
 
 ```bash
-sudo adduser --system --group --home /srv/work-os workos
-sudo -u workos git clone https://github.com/roguetitan1703/work-os.git /srv/work-os/repo
-sudo -u workos mkdir -p /srv/work-os/releases
+# the app's user (no home, no shell) and the build user (its own home for the npm cache; not in group workos)
+sudo adduser --system --group --no-create-home --home /nonexistent workos
+sudo adduser --system --group --home /var/lib/workos-build workos-build
+sudo install -d -o root -g root -m 0755 /srv/work-os
+sudo install -d -o workos-build -g workos-build -m 0755 /srv/work-os/releases
+sudo -u workos-build git clone https://github.com/roguetitan1703/work-os.git /srv/work-os/repo
 sudo install -d -o workos -g workos -m 0700 /var/backups/work-os
 sudo install -d -m 0750 -g workos /etc/work-os
 sudo install -m 0640 -g workos /srv/work-os/repo/deploy/env.template /etc/work-os/env
 sudo nano /etc/work-os/env      # fill in; see Environment below
+
+# root-owned scripts: what root (and the timers) run. Re-run these lines after a change to deploy/ or
+# scripts/cutover.sh, having read the diff.
+D=/srv/work-os/repo/deploy
+sudo install -o root -g root -m 0755 $D/deploy.sh /usr/local/sbin/work-os-deploy
+sudo install -o root -g root -m 0755 $D/backup.sh /usr/local/sbin/work-os-backup
+sudo install -o root -g root -m 0755 $D/cron-alerts.sh /usr/local/sbin/work-os-cron-alerts
+sudo install -o root -g root -m 0644 $D/env.sh /usr/local/sbin/work-os-env.sh
+sudo install -o root -g root -m 0755 /srv/work-os/repo/scripts/cutover.sh /usr/local/sbin/work-os-cutover
 ```
 
 The repo is public and needs no credentials to clone.
@@ -86,7 +112,11 @@ What the site does, and why:
 - WebSocket upgrade headers (`Upgrade`, `Connection` via a `map`) on every path, for push.
 - `proxy_buffering off`: pages stream (Suspense) and MCP answers with server-sent events (Next's self-hosting guide).
 - `client_max_body_size 10m`: server actions and MCP calls are small; note files go straight to blob storage.
-- Requests to the bare IP or another name are dropped (444).
+- Requests to the bare IP or another name are dropped (444 on port 80; on 443 the TLS handshake is refused, so no
+  certificate is shown). `server_tokens off` hides the nginx version.
+- `/api/auth/`: at most 30 requests a minute per address (burst 20), on top of Better Auth's own limits.
+- `/api/cron/`: localhost only. The timer calls the app on 127.0.0.1:3000 directly; the route takes the secret only
+  as a header (`?key=` in the URL is no longer accepted: it would land in logs; cron-job.org sent the header).
 
 ## 6. The app (systemd)
 
@@ -98,12 +128,13 @@ second log and startup system for the same job. (`ecosystem.config.js` in the re
 sudo cp /srv/work-os/repo/deploy/systemd/work-os*.service /srv/work-os/repo/deploy/systemd/work-os*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable work-os                     # started by the first deploy
-sudo /srv/work-os/repo/deploy/deploy.sh           # build and start (section 7)
+sudo work-os-deploy                               # build and start (section 7)
 sudo systemctl enable --now work-os-alerts.timer work-os-backup.timer
 systemctl list-timers 'work-os*'
 ```
 
-The unit runs `next start -H 127.0.0.1 -p 3000` as `workos` from `/srv/work-os/current`, with `/etc/work-os/env`.
+The unit runs `next start -H 127.0.0.1 -p 3000` as `workos` from `/srv/work-os/current`, with `/etc/work-os/env`, in
+a read-only system where the only writable path is that release's `.next/cache`.
 On stop it sends SIGTERM and waits 30 s, so in-flight requests and `after()` work (alert flushes) finish. Set
 `NODE_OPTIONS=--max-old-space-size` in the unit to about half the instance's memory (1024 on t3.small).
 
@@ -112,14 +143,16 @@ Logs: `journalctl -u work-os -f`, `journalctl -u work-os-alerts`, `journalctl -u
 ## 7. Deploying
 
 ```bash
-sudo /srv/work-os/repo/deploy/deploy.sh            # origin/master
-sudo /srv/work-os/repo/deploy/deploy.sh <ref>      # a branch, tag or commit
+sudo work-os-deploy            # origin/master
+sudo work-os-deploy <ref>      # a branch, tag or commit
 ```
 
-It fetches, unpacks the commit into `/srv/work-os/releases/<commit>`, runs `npm ci` and `npm run build` there (with
+One deploy at a time (a lock). As `workos-build` it fetches, unpacks the commit into
+`/srv/work-os/releases/<commit>`, runs `npm ci` and `npm run build` there (with
 `NEXT_BUILD_CPUS=1` and a 1.5 GB heap; the old release keeps serving meanwhile), moves `current` to it, keeps the old
 one as `previous`, restarts the app and waits up to a minute for `/api/live` and `/login` to answer 200. If they don't,
-it switches back and restarts the old release by itself. It keeps the four newest releases. The build does not read
+it switches back and restarts the old release by itself (`previous` stays what it was), and says so. If the old
+release does not come up either, it prints `FAILED: the app is DOWN`. It keeps the four newest releases. The build does not read
 `/etc/work-os/env` (nothing there is needed at build time; checked: a build with no variables set serves normally).
 
 Pushing to `master` no longer deploys anything: deploys are this command.
@@ -130,8 +163,9 @@ use it; `proxy.ts` does not count it). `GET /api/admin/health` is the full repor
 
 ## 8. Rollback
 
-- **Code:** `sudo /srv/work-os/repo/deploy/deploy.sh --rollback` swaps `current` and `previous` and restarts (seconds,
-  no build). Any older release still in `releases/`: `sudo deploy.sh <its commit>` (already built, so no build).
+- **Code:** `sudo work-os-deploy --rollback` swaps `current` and `previous` and restarts (seconds, no build); if that
+  release does not come up it goes back and says so. Any older release still in `releases/`:
+  `sudo work-os-deploy <its commit>` (already built, so no build).
 - **Data:** code rollback does not undo a migration. Across the cut-over the only way back is restoring the backup
   taken just before it (section 11), with the old app; once people have used the new version, a restore loses their
   changes since. So: rehearse first, cut over at a quiet time, and check right after.
@@ -163,7 +197,7 @@ chat or tickets.
 | `APP_TZ` | timezone for people who have not chosen one | |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows `/api/mcp/<key>`; leave unset | |
 | `USAGE_LOG` | `off` stops the request log (Settings › Usage); leave unset | |
-| `BACKUP_DIR`, `BACKUP_KEEP_DAYS`, `BACKUP_S3_URI` | `deploy/backup.sh` | |
+| `BACKUP_DIR`, `BACKUP_KEEP_DAYS`, `BACKUP_S3_URI` | `work-os-backup` (`deploy/backup.sh`) | |
 | `OWNER_EMAIL`, `OWNER_NAME` | cut-over only: the first user (Om) | |
 | `DISCORD_GUILD_ID`, `DISCORD_OWNER_ID` | cut-over only: read once by `migrate-phase3`, then removed (step 6) | |
 
@@ -180,11 +214,13 @@ Not set on the server:
 
 ## 10. Cut-over (once, with Om)
 
-Atlas still holds single-user data from before phase 1. `scripts/cutover.sh` moves it, in the order from WORK-STATE:
+Atlas still holds single-user data from before phase 1. `work-os-cutover` (`scripts/cutover.sh`, installed root-owned
+in section 4) moves it, in the order from WORK-STATE. Root only stops and starts the app and edits the env file; the
+backup and every node step run as `workos`, from the live release (`/srv/work-os/current`, so deploy first).
 
 | Step | What | Script |
 |---|---|---|
-| 0 | variables present (names only printed); `mongodump` first; app stopped (`--service`) | `deploy/backup.sh --local-only` |
+| 0 | variables present (names only printed). With `--apply`, whatever `--from` says: `mongodump` first, and the app stopped (`--service`) until step 5 or the end | `work-os-backup --local-only` |
 | 1 | an account for every `OPERATOR_EMAILS` address, first: an invitation to an operator address that has no account would make whoever accepts it the operator | `scripts/create-operators.mjs` |
 | 2 | Om as the first user, organization Delpat, Om owner; old computers revoked | `scripts/migrate-auth.mjs` |
 | 3 | `orgId`/owner/visibility on everything: first `--copy-to <db>_cutover_<time>` (a rehearsal on a copy, run twice to prove there is nothing left), then `--apply` | `scripts/migrate-ownership.mjs` |
@@ -195,9 +231,8 @@ Atlas still holds single-user data from before phase 1. `scripts/cutover.sh` mov
 It is a dry run unless `--apply`, stops at the first error, and every step is idempotent (`--from N` to resume).
 
 ```bash
-cd /srv/work-os/current
-sudo scripts/cutover.sh --db workos --env-file /etc/work-os/env                           # dry run: read it
-sudo scripts/cutover.sh --db workos --env-file /etc/work-os/env --apply --service work-os  # do it
+sudo work-os-cutover --db workos --env-file /etc/work-os/env                           # dry run: read it
+sudo work-os-cutover --db workos --env-file /etc/work-os/env --apply --service work-os  # do it
 ```
 
 A dry run on a database from before step 2 can only say that steps 3 and 4 wait on it. For a full dry run, rehearse
@@ -253,10 +288,11 @@ The app under test needs `MAIL_CAPTURE_DIR` set, so the reset mail lands in a fo
 
 ## 11. Backups
 
-`work-os-backup.timer` runs `deploy/backup.sh` at 03:00 IST:
+`work-os-backup.timer` runs `work-os-backup` (`deploy/backup.sh`) as `workos` at 03:00 IST:
 - `mongodump` of `MONGODB_DB` to `/var/backups/work-os/workos-<UTC time>.archive.gz`. The connection string goes to
   mongodump in a 0600 temporary file, never on the command line.
-- Then `aws s3 cp` to `BACKUP_S3_URI` with server-side encryption, using the instance role.
+- Then `aws s3 cp` to `BACKUP_S3_URI` with server-side encryption, using the instance role (put only: the server
+  cannot read, list or delete what it uploaded).
 - On disk it keeps `BACKUP_KEEP_DAYS` (14) days. S3 keeps what its **lifecycle rule** says: set one on the bucket
   prefix, e.g. expire after 35 days. The script never deletes from S3.
 
@@ -268,17 +304,36 @@ Run one by hand: `sudo systemctl start work-os-backup && journalctl -u work-os-b
 **Restore drill** (once after setup, then every few months; never onto `workos` itself unless restoring for real):
 
 ```bash
-aws s3 cp s3://<bucket>/work-os/workos-<time>.archive.gz /tmp/drill.archive.gz      # or a local file
-# into a scratch database on Atlas (or a local mongod), renaming the namespace:
-mongorestore --uri "<Atlas URI>" --archive=/tmp/drill.archive.gz --gzip \
+# 1. The dump. The instance role cannot read S3: use a dump still on disk (/var/backups/work-os), or fetch one with
+#    restore credentials for this session only (an admin's keys or a restore role), never saved on the box.
+#    (A line starting with a space stays out of shell history: HISTCONTROL=ignorespace, Ubuntu's default.)
+ AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… AWS_SESSION_TOKEN=… \
+   aws s3 cp s3://<bucket>/work-os/workos-<time>.archive.gz /tmp/drill.archive.gz
+
+# 2. Restore into a scratch database, renaming the namespace. The connection string goes in a 0600 file, not argv.
+# 3. Check: the same counts as the live database (the URI reaches node through the environment).
+sudo bash <<'DRILL'
+. /usr/local/sbin/work-os-env.sh && load_env /etc/work-os/env
+umask 077; CFG=$(mktemp); trap 'rm -f "$CFG"' EXIT
+printf 'uri: "%s"\n' "$MONGODB_URI" >"$CFG"
+mongorestore --config="$CFG" --archive=/tmp/drill.archive.gz --gzip \
   --nsFrom 'workos.*' --nsTo 'workos_restore.*' --drop
-# check: the same collections and counts as the live database
-mongosh "<Atlas URI>" --eval 'for (const d of ["workos","workos_restore"]) print(d, db.getSiblingDB(d).tasks.countDocuments(), db.getSiblingDB(d).user.countDocuments())'
-# then drop workos_restore in Atlas and delete /tmp/drill.archive.gz
+cd /srv/work-os/current && runuser -u workos -- node -e '
+  const { MongoClient } = require("mongodb");
+  const c = new MongoClient(process.env.MONGODB_URI);
+  (async () => {
+    for (const d of ["workos", "workos_restore"]) {
+      const db = c.db(d);
+      console.log(d, "tasks", await db.collection("tasks").countDocuments(), "users", await db.collection("user").countDocuments());
+    }
+    await c.close();
+  })();'
+DRILL
+
+# 4. Drop workos_restore in Atlas (Data Explorer → workos_restore → Drop Database); delete /tmp/drill.archive.gz.
 ```
 
-(Type the URI at a prompt or read it from the env file; don't leave it in shell history.) A real restore is the same
-command with `--nsTo 'workos.*'`, with the app stopped first.
+A real restore is the same without `--nsFrom`/`--nsTo` (so into `workos`), with the app stopped first.
 
 ## 12. Push
 

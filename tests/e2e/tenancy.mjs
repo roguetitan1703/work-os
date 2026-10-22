@@ -176,7 +176,7 @@ try {
     check('alerts: delivered to A\'s inbox only', inA === 1 && inB === 0, `A ${inA} B ${inB}`);
   } else console.log('(quiet hours in Asia/Kolkata: delivery is held; checked the queue only)');
   // the cron runs per person: each gets a run record of their own
-  await fetch(`${B}/api/cron/alerts?key=${CRON}`).then(r => r.json());
+  await fetch(`${B}/api/cron/alerts`, { headers: { authorization: `Bearer ${CRON}` } }).then(r => r.json());
   const runs = await rawDb.collection('settings').find({ area: 'alerts' }).toArray();
   check('cron: one run per person (A, B and C)', [A.userId, Bu.userId, Cu.userId].every(u => runs.some(r => r._id === `alerts:${u}`)), runs.map(r => r._id).join(','));
   // push devices: each person's own (the same query sendPush uses)

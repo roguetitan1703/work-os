@@ -53,7 +53,7 @@ check('cron: no secret -> 401', r.status === 401, r.status);
 r = await req('/api/cron/alerts?dry=1', { headers: bearer(CRON) });
 check('cron: CRON_SECRET header -> 200 (the proxy would refuse it: still bypassed)', r.status === 200, r.status);
 r = await req(`/api/cron/alerts?dry=1&key=${CRON}`);
-check('cron: ?key= -> 200', r.status === 200, r.status);
+check('cron: ?key= in the URL is no longer accepted -> 401', r.status === 401, r.status);
 r = await req('/api/cron/alerts?dry=1', { headers: bearer(MCP) });
 check('cron: Claude chat key -> 401 (the route decides, not the proxy)', r.status === 401, r.status);
 
@@ -89,7 +89,7 @@ check('/login/x not open', [302, 307].includes(r.status), r.status);
 base = await expectCounts(base, {
   'api|anonymous|/api/mcp': 1, 'api|mcp|/api/mcp': 3,
   'api|anonymous|/api/worker/jobs': 1, 'api|worker|/api/worker/jobs': 2,
-  'api|anonymous|/api/cron/alerts': 1, 'api|cron|/api/cron/alerts': 3,
+  'api|anonymous|/api/cron/alerts': 2, 'api|cron|/api/cron/alerts': 2,
   'api|anonymous|/api/discord/interactions': 1, 'api|discord|/api/discord/interactions': 1,
   'api|anonymous|/api/admin/health': 1, 'api|mcp|/api/admin/health': 1,
   'api|anonymous|/api/(other)': 1,

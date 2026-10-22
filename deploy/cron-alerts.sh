@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The alert check, run by work-os-alerts.timer (replaces the cron-job.org job). Calls the app on localhost with
+# The alert check, installed as /usr/local/sbin/work-os-cron-alerts and run by work-os-alerts.timer (replaces the cron-job.org job). Calls the app on localhost with
 # CRON_SECRET in a header read from stdin, so the secret never appears in a process list or a log.
 set -euo pipefail
 : "${CRON_SECRET:?CRON_SECRET is not set in /etc/work-os/env}"

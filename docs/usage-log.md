@@ -38,7 +38,7 @@ Each request adds 1 to a key `kind|caller|route` in the bucket for its UTC hour.
 **caller** (`requestCaller`)
 - `/api/mcp*`: `mcp` when a key header is present (or the key is in the URL), else `anonymous`
 - `/api/worker*`: `worker` when a key header is present, else `anonymous`
-- `/api/cron*`: `cron` when a key header or `?key=` is present, else `anonymous`
+- `/api/cron*`: `cron` when a key header is present, else `anonymous`
 - `/api/discord/interactions`: `discord` when the Discord signature header is present, else `anonymous`
 - anything else: `browser` when the session cookie checked out (on `/login` and `/login/reset`: when one is present),
   `mcp` when `MCP_TOKEN` opened an API route, else `anonymous`

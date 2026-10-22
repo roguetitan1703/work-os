@@ -242,7 +242,7 @@ export async function mkDevice(name) {
 export async function mkWos() {
   return mkKey({ agent: 'claude-code' });
 }
-export const cron = (extra = '') => fetch(`${B}/api/cron/alerts?key=${CRON}${extra}`).then(r => r.json());
+export const cron = (extra = '') => fetch(`${B}/api/cron/alerts?run=1${extra}`, { headers: { authorization: `Bearer ${CRON}` } }).then(r => r.json());
 
 // ---- browser helpers ----
 export const settle = (p, ms = 600) => p.waitForTimeout(ms);

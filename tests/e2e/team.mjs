@@ -36,7 +36,7 @@ async function until(fn, ms = 15000) {
 }
 const idIn = id => ({ $in: ObjectId.isValid(id) && String(id).length === 24 ? [new ObjectId(id), String(id)] : [String(id)] });
 const mcpStatus = key => fetch(B + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${key}` }, body: JSON.stringify({ jsonrpc: '2.0', id: ++rid, method: 'tools/list' }) }).then(r => r.status);
-const cron = () => fetch(`${B}/api/cron/alerts?key=${CRON}`).then(r => r.json());
+const cron = () => fetch(`${B}/api/cron/alerts`, { headers: { authorization: `Bearer ${CRON}` } }).then(r => r.json());
 const roleOf = async (userId, orgId) => (await rawDb.collection('member').findOne({ userId: idIn(userId), organizationId: idIn(orgId) }))?.role ?? null;
 const task = async (orgId, ref) => rawDb.collection('tasks').findOne({ orgId, ref });
 // No quiet hours: alerts go out whatever time the suite runs.

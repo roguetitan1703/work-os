@@ -86,7 +86,7 @@ function hasKey(h: Headers): boolean {
 export function requestCaller(pathname: string, h: Headers, url: URL, auth: { session: boolean; token: boolean }): UsageCaller {
   if (pathname.startsWith('/api/mcp')) return hasKey(h) || pathname.startsWith('/api/mcp/') ? 'mcp' : 'anonymous';
   if (pathname.startsWith('/api/worker')) return hasKey(h) ? 'worker' : 'anonymous';
-  if (pathname.startsWith('/api/cron')) return hasKey(h) || url.searchParams.has('key') ? 'cron' : 'anonymous';
+  if (pathname.startsWith('/api/cron')) return hasKey(h) ? 'cron' : 'anonymous';
   if (pathname.startsWith('/api/discord/interactions')) return h.has('x-signature-ed25519') ? 'discord' : 'anonymous';
   if (auth.session) return 'browser';
   if (auth.token) return 'mcp';

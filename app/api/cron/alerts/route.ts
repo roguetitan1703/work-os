@@ -6,8 +6,8 @@ import { allMemberships } from '@/lib/people';
 import { timezoneOf } from '@/lib/profile';
 import { runWithRequestContext } from '@/lib/request-context';
 
-// Alert check, called every 15 minutes by an external scheduler (cron-job.org).
-//   GET/POST /api/cron/alerts   Authorization: Bearer <CRON_SECRET>   (or ?key=<CRON_SECRET>)
+// Alert check, called every 15 minutes by the server's work-os-alerts.timer (deploy/cron-alerts.sh; was cron-job.org).
+//   GET/POST /api/cron/alerts   Authorization: Bearer <CRON_SECRET>   (the header only: a secret in the URL ends up in logs)
 //   ?dry=1  → report what would be sent, send nothing
 // Runs once per person (every membership), each with their own tasks, settings and devices (docs/multi-user.md).
 // Excluded from proxy.ts; this secret is the only way in.
@@ -19,8 +19,7 @@ export const maxDuration = 30;
 function authorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret || secret.length < 16) return false;
-  const url = new URL(req.url);
-  const given = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? url.searchParams.get('key') ?? '';
+  const given = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? '';
   if (given.length !== secret.length) return false;
   let diff = 0;
   for (let i = 0; i < secret.length; i++) diff |= secret.charCodeAt(i) ^ given.charCodeAt(i);

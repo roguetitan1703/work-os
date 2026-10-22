@@ -2,7 +2,8 @@
 // Step 5 of the cut-over (docs/hosting.md): registers the Discord commands again in each organization's server, so
 // they gain /link and the organization's modes. It calls the running app's own route
 // (POST /api/admin/discord/register?org=<id>, operator only) with a temporary Claude chat key of an operator, and
-// deletes that key afterwards, so nobody has to sign in and make a key first.
+// deletes that key afterwards (it also expires by itself after a day, should this script die in between), so nobody
+// has to sign in and make a key first.
 //
 //   node scripts/discord-register.mjs --db <database>                         dry run: checks, says what it would do
 //   node scripts/discord-register.mjs --db <database> --apply                 registers
@@ -45,7 +46,7 @@ if (missing.length) die(`Discord is not configured here: ${missing.join(', ')} n
 const idIn = id => ({ $in: ObjectId.isValid(id) && String(id).length === 24 ? [new ObjectId(id), String(id)] : [String(id)] });
 
 // The app must be up (it does the registering).
-const live = await fetch(`${base}/api/live`).then(r => r.status, () => 0);
+const live = await fetch(`${base}/api/live`, { signal: AbortSignal.timeout(10000) }).then(r => r.status, () => 0);
 if (live !== 200) die(`The app does not answer at ${base}/api/live (${live || 'no connection'}): start it first.`);
 
 const client = new MongoClient(uri);
@@ -78,9 +79,9 @@ try {
       console.log(`  - ${org.name}: would register the commands in its server`);
       continue;
     }
-    const { key, id } = await admin.createKey({ userId: String(member.userId), orgId, agent: 'claude', name: 'cut-over: Discord commands (temporary)' });
+    const { key, id } = await admin.createKey({ userId: String(member.userId), orgId, agent: 'claude', name: 'cut-over: Discord commands (temporary)', expiresIn: 86400 });
     try {
-      const r = await fetch(`${base}/api/admin/discord/register?org=${encodeURIComponent(orgId)}`, { method: 'POST', headers: { authorization: `Bearer ${key}` } });
+      const r = await fetch(`${base}/api/admin/discord/register?org=${encodeURIComponent(orgId)}`, { method: 'POST', headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(30000) });
       const j = await r.json().catch(() => ({}));
       if (r.ok && j.ok) console.log(`  ✓ ${org.name}: registered ${(j.registered ?? []).map(c => c.name).join(', ')}`);
       else {

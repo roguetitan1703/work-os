@@ -1,4 +1,4 @@
-# Sourced by the deploy scripts: load_env <file> exports every KEY=value line of a systemd EnvironmentFile without
+# Sourced by the deploy scripts (installed as /usr/local/sbin/work-os-env.sh): load_env <file> exports every KEY=value line of a systemd EnvironmentFile without
 # running it through the shell (values may hold $, spaces or quotes). Surrounding single or double quotes are removed.
 # Never prints a value.
 load_env() {

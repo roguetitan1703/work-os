@@ -65,9 +65,9 @@ export function authAdmin({ db, client, secret, baseURL = 'http://localhost' }) 
       const ctx = await auth.$context;
       await ctx.adapter.create({ model: 'member', data: { organizationId: orgId, userId, role, createdAt: new Date() } });
     },
-    /** A Work OS API key for userId in orgId; agent 'claude' or 'claude-code'. Returns { key, id }. */
-    async createKey({ userId, orgId, agent, name }) {
-      const k = await auth.api.createApiKey({ body: { name, userId, metadata: { agent, orgId } } });
+    /** A Work OS API key for userId in orgId; agent 'claude' or 'claude-code'; expiresIn in seconds (optional). Returns { key, id }. */
+    async createKey({ userId, orgId, agent, name, expiresIn }) {
+      const k = await auth.api.createApiKey({ body: { name, userId, metadata: { agent, orgId }, ...(expiresIn ? { expiresIn } : {}) } });
       return { key: k.key, id: String(k.id) };
     },
   };

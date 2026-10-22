@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Nightly backup of the Work OS database (docs/hosting.md "Backups"): mongodump of MONGODB_DB to a gzip archive on
-# this server, then a copy to S3. Run by work-os-backup.timer; scripts/cutover.sh runs it with --local-only first.
+# this server, then a copy to S3. Installed as /usr/local/sbin/work-os-backup;
+# run by work-os-backup.timer (as workos), and by the cut-over with --local-only first.
 #
-#   deploy/backup.sh                 dump, copy to S3 (when BACKUP_S3_URI is set), delete local dumps past retention
-#   deploy/backup.sh --local-only    dump only
+#   work-os-backup                   dump, copy to S3 (when BACKUP_S3_URI is set), delete local dumps past retention
+#   work-os-backup --local-only      dump only
 #
 # Environment (from /etc/work-os/env under systemd):
 #   MONGODB_URI (or a MONGO_*_URI name)  the database server (secret; passed to mongodump in a 0600 file, never argv)

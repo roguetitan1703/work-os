@@ -24,12 +24,13 @@ RestartSec=5
 KillSignal=SIGTERM
 TimeoutStopSec=30
 
-# Hardening: the app writes only its own .next cache.
+# Hardening: the app writes only the live release's .next cache (owned by workos; the rest of the release belongs
+# to the build user, workos-build). "-": no error if a release has no cache folder yet.
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/srv/work-os/releases
+ReadWritePaths=-/srv/work-os/current/.next/cache
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
