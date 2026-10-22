@@ -169,7 +169,6 @@ export default async function ProjectPage({ params, searchParams }: Props) {
             key={t.id}
             href={tabHref(t.id)}
             replace
-            prefetch
             scroll={false}
             data-tab={t.id}
             aria-current={t.id === tab ? 'page' : undefined}

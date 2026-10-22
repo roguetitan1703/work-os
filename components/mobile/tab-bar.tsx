@@ -48,7 +48,6 @@ export function TabBar() {
               <Link
                 key={t.href}
                 href={t.href}
-                prefetch
                 replace
                 aria-current={lit === t.key ? 'page' : undefined}
                 onClick={e => {

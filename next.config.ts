@@ -32,11 +32,12 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     // Client router cache: revisiting a page within 30s needs no request; fully prefetched pages
-    // (tab bar, Connect tabs, components/preloader.tsx) stay usable for 5 minutes. Our own writes
+    // (components/preloader.tsx) stay usable for 5 minutes. Our own writes
     // revalidate immediately; Claude's show up on the next prefetch round or on returning to the app.
     staleTimes: { dynamic: 30, static: 300 },
-    // Touching/hovering any other link (a project, a mode) fetches the whole page, not just the skeleton.
-    dynamicOnHover: true,
+    // Hovering or touching a link must not render a whole page on the server: only the skeleton is
+    // prefetched (components/preloader.tsx warms the three main pages instead).
+    dynamicOnHover: false,
     // Fewer build workers on a busy PC (the local demo copy); unset everywhere else.
     ...(Number(process.env.NEXT_BUILD_CPUS) > 0 ? { cpus: Number(process.env.NEXT_BUILD_CPUS) } : {}),
   },

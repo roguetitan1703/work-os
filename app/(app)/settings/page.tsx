@@ -70,7 +70,6 @@ export default async function SettingsPage({ searchParams }: Props) {
               <li key={s.id}>
                 <Link
                   href={`/settings?section=${s.id}`}
-                  prefetch
                   scroll={false}
                   aria-current={s.id === active ? 'page' : undefined}
                   data-section={s.id}
@@ -141,7 +140,7 @@ async function PhoneRows() {
     <section className="mt-5 md:hidden">
       <div className="rounded-2xl bg-card border border-border/70 divide-y divide-border/60 overflow-hidden">
         {rows.map(r => (
-          <Link key={r.id} href={`/settings?section=${r.id}`} prefetch data-row={r.id} className="flex items-center gap-3 px-4 h-14 active:bg-muted/60">
+          <Link key={r.id} href={`/settings?section=${r.id}`} data-row={r.id} className="flex items-center gap-3 px-4 h-14 active:bg-muted/60">
             <span className="flex-1 min-w-0 truncate text-[16px] text-foreground">{r.label}</span>
             {r.hint && <span className="text-sm text-muted-foreground truncate">{r.hint}</span>}
             <ChevronRight className="w-4 h-4 text-muted-foreground/40 shrink-0" />

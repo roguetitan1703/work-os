@@ -4,8 +4,8 @@ import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { idleFor } from '@/components/idle';
 
-// The pages people jump between. Kept warm so the first tap after sitting on a page is instant.
-const ROUTES = ['/today', '/tasks', '/notes', '/menu', '/projects', '/notifications', '/settings', '/review'];
+// The three pages people jump between (every warmed page is a server render). Kept warm so the first tap after sitting on a page is instant.
+const ROUTES = ['/today', '/tasks', '/projects'];
 // Prefetched pages live 5 minutes (staleTimes.static), so they are fetched again at most this often.
 // Every fetch is a billed request: a refresh or one of our writes drops the cached copies, but they are not
 // fetched again until WARM_MS has passed (a tap in between waits on the server once).
