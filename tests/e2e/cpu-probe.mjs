@@ -1,7 +1,7 @@
 // Counts database operations per request type (docs/cpu.md). Not part of the default suites:
 //   E2E_EXTRA='cpu|cpu-probe.mjs|base|plain' SKIP_BUILD=1 bash tests/e2e/run.sh cpu
 // Turns the mongod profiler on for the throwaway database and counts what each request caused. Seed profile: base.
-import { B, PW, check, db, mkDevice, finish, launch, login } from './lib.mjs';
+import { B, MCP, check, db, mkDevice, finish, launch, login } from './lib.mjs';
 
 const dev = await mkDevice('probe-pc');
 // A realistic amount of data: 400 tasks (150 open, with descriptions and checklists), 150 notes of about 20 KB.
@@ -53,10 +53,10 @@ await db.collection('settings').updateOne({ _id: 'dispatcher' }, { $set: { enabl
 await poll();
 out.pollOn = await count('worker idle poll, dispatcher on, nothing queued', poll);
 await db.collection('settings').updateOne({ _id: 'dispatcher' }, { $set: { enabled: false } });
-const mcpCall = () => fetch(B + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${process.env.MCP_TOKEN}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_projects', arguments: {} } }) }).then(r => r.status);
+const mcpCall = () => fetch(B + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${MCP}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_projects', arguments: {} } }) }).then(r => r.status);
 await mcpCall();
 out.mcp = await count('MCP call (list_projects)', mcpCall);
-const mcpTasks = () => fetch(B + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${process.env.MCP_TOKEN}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'list_tasks', arguments: { limit: 5 } } }) }).then(r => r.status);
+const mcpTasks = () => fetch(B + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${MCP}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'list_tasks', arguments: { limit: 5 } } }) }).then(r => r.status);
 out.mcpTasks = await count('MCP call (list_tasks)', mcpTasks);
 
 check('pages rendered', Object.entries(out).filter(([k]) => ['today', 'claude', 'tasks', 'projects', 'notes'].includes(k)).every(([, v]) => v.res === 200));
