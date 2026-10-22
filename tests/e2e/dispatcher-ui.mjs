@@ -1,6 +1,6 @@
 // Dispatcher UI: Give to Claude / Take back sheet, folder picker, refusals, row menus, Claude's tasks section, Setup switch, alerts table kinds at 1280 and 390. Seeds itself. Seed profile: none.
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { launch, B, PW, SP, db, mc, runAssertSuite, assert, check, fillLogin } from './lib.mjs';
+import { launch, B, PW, SP, ME, db, mc, runAssertSuite, assert, check, fillLogin } from './lib.mjs';
 const sha = s => createHash('sha256').update(s).digest('hex');
 
 await runAssertSuite('dispatcher-ui', async () => {
@@ -13,7 +13,7 @@ await runAssertSuite('dispatcher-ui', async () => {
   ]);
   const key = 'wkr_' + randomBytes(32).toString('base64url');
   const dev = randomUUID();
-  await db.collection('devices').insertOne({ _id: dev, name: 'Om-PC', hash: sha(key), prefix: key.slice(0, 8), createdAt: now, lastSeenAt: now, revokedAt: null, worker: { version: '0.1.0', os: 'win32', allowPrompts: true } });
+  await db.collection('devices').insertOne({ _id: dev, name: 'Om-PC', ownerId: ME.userId, orgId: ME.orgId, hash: sha(key), prefix: key.slice(0, 8), createdAt: now, lastSeenAt: now, revokedAt: null, worker: { version: '0.1.0', os: 'win32', allowPrompts: true } });
   const fol = (id, name, projectId) => ({ _id: `${dev}:${id}`, deviceId: dev, folderId: id, name, git: true, branch: 'main', projectId, linkedAt: now, seenAt: now, missing: false });
   await db.collection('workerFolders').insertMany([fol('f_a1aa', 'akar-api', 'p1'), fol('f_a2aa', 'akar-web', 'p1'), fol('f_s1aa', 'delpat-site', 'p2')]);
   const base = { description: '', mode: null, priority: 'P2', status: 'Not Started', tags: [], due: null, start: null, estimateMins: null, progress: 0, checklist: [], links: [], blockedReason: '', dependsOn: [], recurrence: null, nextRef: null, archived: false, createdBy: 'me', createdAt: new Date(Date.now() - 864e5), updatedAt: new Date(Date.now() - 36e5), doneAt: null, doneOn: null, doneBy: null };

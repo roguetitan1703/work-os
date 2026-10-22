@@ -7,7 +7,7 @@
 //          a device with 2 running sessions (Today page)
 // Suites that need something else seed themselves; they start from the same emptied database.
 // Every profile first creates the signed-in owner, their organization and a Claude chat key (makeIdentity in lib.mjs).
-import { db, mc, call, makeIdentity } from './lib.mjs';
+import { db, mc, call, makeIdentity, ME } from './lib.mjs';
 
 export async function wipe() {
   for (const { name } of await db.listCollections({}, { nameOnly: true }).toArray()) await db.collection(name).deleteMany({});
@@ -93,7 +93,7 @@ async function seedToday() {
   }
   const proj = await db.collection('projects').findOne({ name: P });
   const now = new Date();
-  await db.collection('devices').insertOne({ _id: 'dev1', name: 'Om-PC', hash: 'h1', prefix: 'p1', createdAt: now, lastSeenAt: now, revokedAt: null, activity: { sessions: 2, sessionsWorkOs: 1, sessionsOther: 1, sessionsActive: 1, subagents: 3, at: now } });
+  await db.collection('devices').insertOne({ _id: 'dev1', name: 'Om-PC', ownerId: ME.userId, orgId: ME.orgId, hash: 'h1', prefix: 'p1', createdAt: now, lastSeenAt: now, revokedAt: null, activity: { sessions: 2, sessionsWorkOs: 1, sessionsOther: 1, sessionsActive: 1, subagents: 3, at: now } });
   await db.collection('workerFolders').insertOne({ _id: 'dev1:f1', deviceId: 'dev1', folderId: 'f1', name: 'alpha', git: true, projectId: proj._id, linkedAt: now, seenAt: now, missing: false });
   for (const id of ['s1', 's2']) await db.collection('workerSessions').insertOne({ _id: id, deviceId: 'dev1', folderId: 'f1', projectId: proj._id, state: 'running', startedAt: now, updatedAt: now });
 }

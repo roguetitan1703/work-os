@@ -1,7 +1,7 @@
 // UI checks for the Claude area (/claude: Now, Queue, Setup) and the Start Claude flow.
 // Seeds itself (device/folder/session docs inserted directly; no worker). Seed profile: none.
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
-import { check, db, mcp, B, PW, SP, launch, finish, fillLogin } from './lib.mjs';
+import { check, db, mcp, B, PW, SP, ME, launch, finish, fillLogin } from './lib.mjs';
 
 const browser = await launch();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -16,7 +16,7 @@ async function reset() {
 const mkDev = async (name, online = true) => {
   const _id = randomUUID();
   const key = 'wkr_' + randomBytes(32).toString('base64url');
-  await db.collection('devices').insertOne({ _id, name, hash: sha(key), prefix: key.slice(0, 8), createdAt: new Date(), lastSeenAt: online ? new Date() : null, revokedAt: null });
+  await db.collection('devices').insertOne({ _id, name, ownerId: ME.userId, orgId: ME.orgId, hash: sha(key), prefix: key.slice(0, 8), createdAt: new Date(), lastSeenAt: online ? new Date() : null, revokedAt: null });
   return _id;
 };
 const mkFolder = (deviceId, folderId, name, o = {}) => db.collection('workerFolders').insertOne({ _id: `${deviceId}:${folderId}`, deviceId, folderId, name, git: !!o.remote, ...(o.remote ? { remote: o.remote } : {}), ...(o.branch ? { branch: o.branch } : {}), projectId: o.projectId ?? null, linkedAt: o.projectId ? new Date() : null, seenAt: new Date(), missing: false });
