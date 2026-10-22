@@ -91,8 +91,12 @@ export async function requireCaller(...allowed: Role[]): Promise<Caller> {
   return c;
 }
 
-/** A Work OS API key (Authorization: Bearer / X-API-Key), checked by Better Auth; null when invalid, disabled or revoked. */
-export async function verifyKey(token: string | null | undefined): Promise<Caller | null> {
+/**
+ * A Work OS API key (Authorization: Bearer / X-API-Key), checked by Better Auth; null when invalid, disabled or revoked.
+ * agents: which kinds to accept (default both). Outside /api/mcp only Claude chat keys are accepted, as MCP_TOKEN was:
+ * Claude Code keys open the MCP endpoint and nothing else.
+ */
+export async function verifyKey(token: string | null | undefined, agents: Agent[] = ['claude', 'claude-code']): Promise<Caller | null> {
   if (!token || !token.startsWith(API_KEY_PREFIX) || token.length < 40 || token.length > 120) return null;
   const auth = await getAuth();
   const r = await auth.api.verifyApiKey({ body: { key: token } }).catch(() => null);
@@ -100,7 +104,7 @@ export async function verifyKey(token: string | null | undefined): Promise<Calle
   const meta = (r.key.metadata ?? {}) as { agent?: unknown; orgId?: unknown };
   const agent: Agent | null = meta.agent === 'claude' || meta.agent === 'claude-code' ? meta.agent : null;
   const orgId = typeof meta.orgId === 'string' ? meta.orgId : null;
-  if (!agent || !orgId) return null;
+  if (!agent || !orgId || !agents.includes(agent)) return null;
   const userId = String(r.key.referenceId);
   // The key's owner must still be a member of the key's organization.
   const role = await roleIn(userId, orgId);
@@ -108,9 +112,9 @@ export async function verifyKey(token: string | null | undefined): Promise<Calle
   return { userId, orgId, role, email: '', name: '', via: 'key', key: { id: String(r.key.id), name: r.key.name ?? '', agent } };
 }
 
-/** Route handlers: the session cookie, else an API key header. */
+/** Route handlers other than /api/mcp: the session cookie, else a Claude chat key header (not a Claude Code key). */
 export async function callerFromRequest(req: Request): Promise<Caller | null> {
-  return (await callerFromHeaders(req.headers)) ?? (await verifyKey(bearerToken(req)));
+  return (await callerFromHeaders(req.headers)) ?? (await verifyKey(bearerToken(req), ['claude']));
 }
 
 /** Runs fn with the caller's user id in the request context, so history entries record it (`actorUserId`). */

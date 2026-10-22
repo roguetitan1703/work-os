@@ -14,9 +14,9 @@ type Step = 'password' | 'code' | 'forgot' | 'sent';
 /** Email + password, then the authenticator code when it is on. Passkey button and passkey autofill. Forgot password. */
 export function SignInForm({ next, start, resetDone }: { next: string; start: 'password' | 'forgot'; resetDone: boolean }) {
   const [step, setStep] = useState<Step>(start);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [code, setCode] = useState('');
+  // Fields are read from the form on submit (not React state), so text typed before the page finished loading counts;
+  // the buttons stay disabled until then, so the form never posts the old-fashioned way (password in the URL).
+  const [ready, setReady] = useState(false);
   const [backup, setBackup] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -27,11 +27,12 @@ export function SignInForm({ next, start, resetDone }: { next: string; start: 'p
   const go = (s: Step) => {
     setStep(s);
     setError(null);
-    setCode('');
   };
+  const val = (e: React.FormEvent<HTMLFormElement>, k: string) => String(new FormData(e.currentTarget).get(k) ?? '');
 
   useEffect(() => {
     const t = setTimeout(async () => {
+      setReady(true);
       if (typeof window === 'undefined' || !window.PublicKeyCredential) return;
       setPasskeys(true);
       // Passkeys offered in the email field's autofill where the browser supports it.
@@ -45,25 +46,24 @@ export function SignInForm({ next, start, resetDone }: { next: string; start: 'p
     return () => clearTimeout(t);
   }, [next]);
 
-  async function signIn(e: React.FormEvent) {
+  async function signIn(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const email = val(e, 'email').trim();
+    const password = val(e, 'password');
     setBusy(true);
     setError(null);
-    const r = await authClient.signIn.email({ email: email.trim(), password });
+    const r = await authClient.signIn.email({ email, password });
     setBusy(false);
     if (r.error) return setError(r.error.status === 401 ? 'Wrong email or password.' : authError(r.error));
-    if ((r.data as { twoFactorRedirect?: boolean } | null)?.twoFactorRedirect) {
-      setPassword('');
-      return go('code');
-    }
+    if ((r.data as { twoFactorRedirect?: boolean } | null)?.twoFactorRedirect) return go('code');
     done();
   }
 
-  async function verify(e: React.FormEvent) {
+  async function verify(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const c = val(e, 'code').trim();
     setBusy(true);
     setError(null);
-    const c = code.trim();
     const r = backup ? await authClient.twoFactor.verifyBackupCode({ code: c }) : await authClient.twoFactor.verifyTotp({ code: c });
     setBusy(false);
     if (r.error) return setError(r.error.status === 401 ? 'Wrong code.' : authError(r.error, 'Wrong code.'));
@@ -80,11 +80,12 @@ export function SignInForm({ next, start, resetDone }: { next: string; start: 'p
     if (!/cancel|abort|not allowed/i.test(m)) setError('Passkey sign-in did not work on this device. Use your password.');
   }
 
-  async function forgot(e: React.FormEvent) {
+  async function forgot(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const email = val(e, 'email').trim();
     setBusy(true);
     setError(null);
-    const r = await authClient.requestPasswordReset({ email: email.trim(), redirectTo: '/login/reset' });
+    const r = await authClient.requestPasswordReset({ email, redirectTo: '/login/reset' });
     setBusy(false);
     if (r.error && r.error.status === 429) return setError(authError(r.error));
     setStep('sent');
@@ -102,14 +103,14 @@ export function SignInForm({ next, start, resetDone }: { next: string; start: 'p
             If there is an account for that address, a reset link is on its way. Check your inbox (and spam).
           </p>
         ) : (
-          <form onSubmit={forgot} className="space-y-3">
-            <input name="email" type="email" className={field} placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus autoComplete="email" aria-label="Email" />
+          <form method="post" action="/login" onSubmit={forgot} className="space-y-3">
+            <input name="email" type="email" className={field} placeholder="Email" required autoFocus autoComplete="email" aria-label="Email" />
             {error && (
               <p role="alert" className="text-sm text-red-600 dark:text-red-400">
                 {error}
               </p>
             )}
-            <button type="submit" className={primary} disabled={busy}>
+            <button type="submit" className={primary} disabled={busy || !ready}>
               Email me a reset link
             </button>
           </form>
@@ -127,15 +128,14 @@ export function SignInForm({ next, start, resetDone }: { next: string; start: 'p
           <h1 className="text-2xl font-bold text-foreground">Work OS</h1>
           <p className="text-[15px] text-muted-foreground mt-1">{backup ? 'Enter one of your backup codes.' : 'Enter the code from your authenticator app.'}</p>
         </div>
-        <form onSubmit={verify} className="space-y-3">
+        <form method="post" action="/login" onSubmit={verify} className="space-y-3">
           <input
             name="code"
             className={`${field} tracking-widest text-center text-lg`}
             placeholder={backup ? 'Backup code' : '123456'}
             inputMode={backup ? 'text' : 'numeric'}
             autoComplete="one-time-code"
-            value={code}
-            onChange={e => setCode(e.target.value)}
+            key={backup ? 'backup' : 'app'}
             autoFocus
             required
             maxLength={20}
@@ -146,7 +146,7 @@ export function SignInForm({ next, start, resetDone }: { next: string; start: 'p
               {error}
             </p>
           )}
-          <button type="submit" className={primary} disabled={busy}>
+          <button type="submit" className={primary} disabled={busy || !ready}>
             Verify
           </button>
         </form>
@@ -156,7 +156,6 @@ export function SignInForm({ next, start, resetDone }: { next: string; start: 'p
             className={textBtn}
             onClick={() => {
               setBackup(!backup);
-              setCode('');
               setError(null);
             }}
           >
@@ -175,9 +174,9 @@ export function SignInForm({ next, start, resetDone }: { next: string; start: 'p
         <h1 className="text-2xl font-bold text-foreground">Work OS</h1>
         <p className="text-[15px] text-muted-foreground mt-1">Sign in to continue.</p>
       </div>
-      <form onSubmit={signIn} className="space-y-3">
-        <input name="email" type="email" className={field} placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus autoComplete="username webauthn" aria-label="Email" />
-        <input name="password" type="password" className={field} placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="current-password webauthn" aria-label="Password" />
+      <form method="post" action="/login" onSubmit={signIn} className="space-y-3">
+        <input name="email" type="email" className={field} placeholder="Email" required autoFocus autoComplete="username webauthn" aria-label="Email" />
+        <input name="password" type="password" className={field} placeholder="Password" required autoComplete="current-password webauthn" aria-label="Password" />
         {error && (
           <p role="alert" className="text-sm text-red-600 dark:text-red-400">
             {error}
@@ -188,7 +187,7 @@ export function SignInForm({ next, start, resetDone }: { next: string; start: 'p
             Password changed. Sign in with your new password.
           </p>
         )}
-        <button type="submit" className={primary} disabled={busy}>
+        <button type="submit" className={primary} disabled={busy || !ready}>
           Sign in
         </button>
         <button type="button" className={textBtn} onClick={() => go('forgot')}>

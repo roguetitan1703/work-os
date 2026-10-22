@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { authClient, authError } from '@/lib/auth-client';
 
@@ -16,6 +16,11 @@ export function ResetForm({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [bad, setBad] = useState(!token);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setReady(true), 0);
+    return () => clearTimeout(t);
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -45,7 +50,7 @@ export function ResetForm({ token }: { token: string }) {
           Ask for a new link
         </Link>
       ) : (
-        <form onSubmit={submit} className="space-y-3">
+        <form method="post" action="/login/reset" onSubmit={submit} className="space-y-3">
           <input type="password" className={field} placeholder={`New password (${MIN}+ characters)`} value={password} onChange={e => setPassword(e.target.value)} autoFocus required minLength={MIN} maxLength={256} autoComplete="new-password" aria-label="New password" />
           <input type="password" className={field} placeholder="New password again" value={again} onChange={e => setAgain(e.target.value)} required minLength={MIN} maxLength={256} autoComplete="new-password" aria-label="New password again" />
           {error && (
@@ -53,7 +58,7 @@ export function ResetForm({ token }: { token: string }) {
               {error}
             </p>
           )}
-          <button type="submit" className={primary} disabled={busy}>
+          <button type="submit" className={primary} disabled={busy || !ready}>
             Set new password
           </button>
         </form>

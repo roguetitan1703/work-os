@@ -14,8 +14,8 @@ import { recordRequest, requestCaller, requestKind, routePattern } from '@/lib/u
 // (app/api/auth/[...all]/route.ts serves only an allowlist of them, each checking its own session).
 // /api/mcp, /api/worker, /api/cron and /api/discord/interactions check their own credentials (API key, device key,
 // cron secret, Discord signature): the proxy lets them through untouched, as before.
-// Other /api routes also accept a Work OS API key (`Authorization: Bearer wos_…` or `X-API-Key`), verified here and
-// again by the route.
+// Other /api routes also accept a Claude chat key (`Authorization: Bearer wos_…` or `X-API-Key`), verified here and
+// again by the route. Claude Code keys open /api/mcp only.
 //
 // Every request that reaches the proxy is also counted for Settings › Usage (lib/usage.ts, docs/usage-log.md),
 // after the response (event.waitUntil); counting never changes or delays the answer.
@@ -75,7 +75,7 @@ async function guard(req: NextRequest): Promise<Guarded> {
     const token = bearerToken(req);
     if (token) {
       const { verifyKey } = await import('@/lib/caller');
-      if (await verifyKey(token).catch(() => null)) return pass(false, true);
+      if (await verifyKey(token, ['claude']).catch(() => null)) return pass(false, true);
     }
     return deny(NextResponse.json({ error: 'unauthorized' }, { status: 401 }));
   }
