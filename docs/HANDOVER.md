@@ -35,21 +35,19 @@ All configuration is in Vercel → Project → Settings → Environment Variable
 |---|---|---|
 | `MONGO_MONGODB_URI` (or `MONGODB_URI`) | Atlas connection string; the Vercel Atlas integration adds the `MONGO_` prefix and both names work | yes |
 | `MONGODB_DB` | database name (`workos`) | default `workos` |
-| `APP_PASSWORD` | password for the web app until it is reset or changed (then the stored hash is used instead; section 10) | yes |
-| `SESSION_SECRET` | signs the login cookie (long random string) | yes |
-| `MCP_TOKEN` | API key for Claude's connector and the admin endpoints | yes |
+| `BETTER_AUTH_SECRET` | signs sign-in cookies and hashes tokens (32+ random characters; `SESSION_SECRET` is read if missing). Sign-in is by user: `docs/auth.md` | yes |
 | `APP_TZ`, `NEXT_PUBLIC_APP_TZ` | `Asia/Kolkata`: sets what "today" means | yes |
-| `APP_URL` | public base URL, used in links sent to Claude and Discord | recommended |
+| `APP_URL` | public base URL: sign-in cookies, passkeys, reset and invitation links, links sent to Claude and Discord | yes |
 | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `DISCORD_OWNER_ID` | Discord bot and the Delpat server | for Discord |
 | `DISCORD_BLOCKED_CHANNELS` | extra channel ids never to read (comma-separated); normally managed in Settings › Connections › Discord instead | optional |
 | `CRON_SECRET` | protects the alert check endpoint | for alerts |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | keys for phone push (a `mailto:` address for the subject). **Must be added on Vercel**; copy the values from `.env.local`. Without them push is off and Settings → Status says so | for phone push |
-| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | SMTP for "Forgot password?" links, password-change emails and the Settings test email. `EMAIL_SECURE=true` = TLS from the start (port 465); otherwise STARTTLS is required. **Must be added on Vercel**; copy the values from `.env.local` | for password reset |
-| `OWNER_EMAIL` | the only address reset links are sent to; defaults to `EMAIL_FROM`. **Add on Vercel** | optional |
+| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | SMTP for "Forgot password?" links, invitations, password-change emails and the Settings test email. `EMAIL_SECURE=true` = TLS from the start (port 465); otherwise STARTTLS is required. **Must be added on Vercel**; copy the values from `.env.local` | for password reset |
+| `OWNER_EMAIL`, `OWNER_NAME` | used only by `scripts/migrate-auth.mjs` (the first user) | for the migration |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob (private) for images and files in notes | not used yet |
-| `MCP_ALLOW_URL_TOKEN` | `1` allows putting the key in the URL (`/api/mcp/<key>`) instead of a header | leave unset |
+| `MCP_ALLOW_URL_TOKEN` | `1` allows putting a Claude chat key in the URL (`/api/mcp/<key>`) instead of a header | leave unset |
 
-**Health check:** `GET /api/admin/health` with `Authorization: Bearer <MCP_TOKEN>` returns database status, document counts, the Node version, and whether the note converter works.
+**Health check:** `GET /api/admin/health` with `Authorization: Bearer <Claude chat key of an owner or admin>` returns database status, document counts, the Node version, and whether the note converter works.
 
 ---
 
@@ -88,7 +86,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 ### Om
 - **Connecting:** claude.ai → Settings → Connectors → Add custom connector:
   - URL: `https://work-os-puce-delta.vercel.app/api/mcp`
-  - Authentication: no sign-in. Request header: `Authorization: Bearer <MCP_TOKEN>`.
+  - Authentication: no sign-in. Request header: `Authorization: Bearer <Claude chat key>` (Settings › Connections makes one; it belongs to you, and history records you).
 - **Settings › Connections** (`/settings?section=connections`; the old `/connect` redirects there) has:
   - the URL and header with copy buttons (the key is hidden until you click reveal)
   - instructions to paste into a Claude Project or your preferences
@@ -96,7 +94,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
   - every tool with a description and an example question
   - Discord setup with live status
   - (alert settings and status live in Settings › Alerts)
-- **To change the key:** update `MCP_TOKEN` in Vercel, redeploy, then update the header in claude.ai.
+- **To change the key:** make a new Claude chat key in Settings › Connections, update the header in claude.ai, revoke the old one.
 
 ### Claude
 - **Every write is attributed to Claude** in history.
@@ -112,13 +110,13 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 - **Tool handlers:** `lib/mcp/server.ts`.
 - **Tool titles, descriptions and server instructions:** `lib/mcp/docs.ts`. This one file feeds both MCP and Settings › Connections, so edit descriptions there.
 - **Adding a tool:** add its name to `ToolName` and an entry in `TOOLS` (docs.ts), register it with `tool(...)` in server.ts, and add it to `ORDER` in `app/(app)/connect/page.tsx`.
-- **Smoke test:** `node scripts/test-mcp.mjs <url>/api/mcp <MCP_TOKEN> [--write]`.
+- **Smoke test:** `node scripts/test-mcp.mjs <url>/api/mcp <Claude chat key> [--write]`.
 
 ### Claude Code keys
 - **Om:** `/claude?tab=setup` → **Keys** (Claude area; `/connect?tab=code` redirects there): name a key, **Create**, copy it (shown once) or the ready `claude mcp add --transport http work-os <url> --header "Authorization: Bearer <key>"` command. The list shows prefix, created and last used; **Rotate** (old key dies, new one shown) and **Revoke**. Changes made with a key show as **Claude Code** in history (filter "By Claude Code"), with the `X-Work-OS-Repo` / `X-Work-OS-Session` headers shown small next to them if the session sends them.
-- **What a key can do:** everything the claude.ai connector can (projects, tasks, notes, trash, Discord reads; the channel blocklist still applies). **Only `/api/mcp` accepts keys**: `proxy.ts`, admin, cron and Discord registration use `checkToken()` (MCP_TOKEN only).
-- **Rules** (`lib/mcp/policy.ts`, a no-op for MCP_TOKEN): no permanent deletion/admin tools or ops; 300 tool calls per rolling hour per key; 10 trashes per 10 minutes; an `apply_changes` that trashes > 10 items or changes > 50 tasks needs a dry run first, whose `confirm` token (HMAC of the ops + 10-minute expiry, `SESSION_SECRET`) the real call must pass. When a key changes title/priority/due/project of, or trashes, a task it didn't create, Om gets one inbox notice per call (Settings → Notifications → "Claude Code changes", default on).
-- **Code:** `lib/api-keys.ts` (`wos_` + 32 random bytes base64url; only the SHA-256 is stored in `apiKeys`; `lastUsedAt` at most once a minute), `lib/mcp/policy.ts` (counters in `policyEvents`, TTL 2h), `lib/request-context.ts` (session/repo headers → `logActivity`), UI `app/(app)/connect/claude-code-keys.tsx` + `actions.ts`. No new env vars.
+- **What a key can do:** everything the claude.ai connector can (projects, tasks, notes, trash, Discord reads; the channel blocklist still applies). **Claude Code keys work on `/api/mcp` only**; Claude chat keys also on the other API routes (admin needs an owner or admin). Keys are Better Auth API keys owned by a user in an organization (`docs/auth.md`).
+- **Rules** (`lib/mcp/policy.ts`, a no-op for Claude chat keys): no permanent deletion/admin tools or ops; 300 tool calls per rolling hour per key; 10 trashes per 10 minutes; an `apply_changes` that trashes > 10 items or changes > 50 tasks needs a dry run first, whose `confirm` token (HMAC of the ops + 10-minute expiry, `BETTER_AUTH_SECRET`) the real call must pass. When a key changes title/priority/due/project of, or trashes, a task it didn't create, Om gets one inbox notice per call (Settings → Notifications → "Claude Code changes", default on).
+- **Code:** `lib/api-keys.ts` (Better Auth apiKey plugin, `wos_` + 48 characters, hashed; `metadata: {agent, orgId}`), `lib/caller.ts` `verifyKey`, `lib/mcp/policy.ts` (counters in `policyEvents`, TTL 2h), `lib/request-context.ts` (user, session/repo headers → `logActivity`, `actorUserId`), UI `app/(app)/claude/keys.tsx` + `setup-actions.ts`.
 - **Project code locations:** projects have `code: [{remote, subdir?, branch?} | {path}]` (project page → Code locations, or `add_project` / `update_project` / batch ops). Remotes are stored as lowercase `owner/name`, credentials stripped. `get_project` with `remote`/`subdir`/`branch`/`path` instead of a name picks the most specific match (remote+subdir+branch > remote+subdir or +branch > remote > longest path), else returns `unmatched` with candidates. A branch ending in `*` matches by prefix (`wt/ana*`). Matcher: `lib/data/code-locations.ts` (pure functions).
 
 ---
@@ -263,7 +261,7 @@ There's no bot server running all the time and no messages are stored.
 - **Reads:** `lib/discord/read.ts`. Message → task: `lib/discord/to-task.ts`.
 - **Commands:** `lib/discord/commands.ts`.
 - **Interactions endpoint:** `app/api/discord/interactions/route.ts`. Ed25519 signature check, owner and server check, immediate deferred reply, the work runs in `after()`.
-- **Registering commands:** `POST /api/admin/discord/register` with the `MCP_TOKEN` header, scoped to the Delpat server. Re-run it whenever commands change.
+- **Registering commands:** `POST /api/admin/discord/register` with a Claude chat key of an owner or admin, scoped to the Delpat server. Re-run it whenever commands change.
 - **Blocklist storage:** `settings` collection, document `_id: 'discord'`.
 - **Testing:** set `DISCORD_API_BASE` to point at a fake Discord.
 
@@ -403,7 +401,7 @@ Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings") has
 |---|---|
 | Database | pings MongoDB; amber if slower than 150 ms; shows the task count |
 | Server | Vercel region and commit; amber if not Mumbai (`bom1`) |
-| Claude connector | `MCP_TOKEN` set; when the connector was last used (amber until first use) |
+| Claude connector | when a Claude chat key was last used on the connector (amber until first use) |
 | Discord bot | token works, channels readable, Message Content Intent on, blocked-channel count, last command; grey if not configured |
 | Scheduled alerts | `CRON_SECRET` set and the cron job's last run (amber if never or stale) |
 | Phone notifications | VAPID keys set and how many devices are subscribed |
@@ -424,37 +422,21 @@ The live status list (below) is the status strip at the top of Settings.
 
 ## 10. Login and security
 
-- **Web app:** password login with a signed 60-day cookie. `proxy.ts` protects every page and API.
-- **Proxy matcher:** the proxy also runs on the self-checking routes below (to count them for Settings › Usage) but lets them through before any session check, by the same path prefixes the matcher used to skip (`docs/usage-log.md`).
-- **Routes that check their own credentials instead:**
-  - `/api/mcp`: `MCP_TOKEN` header
-  - `/api/discord/interactions`: Discord signature
-  - `/api/cron/alerts`: `CRON_SECRET`
-  - the PWA files: public
-- **Admin endpoints** (`/api/admin/*`) accept the `MCP_TOKEN` header. Claude Code keys (section 3) work on `/api/mcp` only.
+Full details: **`docs/auth.md`** (sign-in, roles, invitations, keys, the one-time migration, environment).
+
+- **Web app:** sign-in by user (Better Auth): email + password, authenticator app with backup codes, passkeys,
+  "Forgot password?" to your own email. Sign-up is closed: people join through an invitation (Settings › Members).
+  Roles: owner, admin, member. Every request knows who (`getCaller()` in `lib/caller.ts`); history records `actorUserId`.
+- **`proxy.ts`** protects every page and API using Better Auth's signed cookie cache (no database read for most
+  requests; a revoked session can open pages for up to 2 minutes). Public: `/login`, `/login/reset`,
+  `/accept-invitation/<id>`, the PWA files.
+- **Routes that check their own credentials:** `/api/mcp` (Claude chat or Claude Code key), `/api/worker/*`
+  (`wkr_` device key), `/api/discord/interactions` (Discord signature), `/api/cron/alerts` (`CRON_SECRET`),
+  `/api/auth/*` (Better Auth, allowlisted endpoints only). The proxy still counts them for Settings › Usage
+  (`docs/usage-log.md`).
+- **Admin endpoints** (`/api/admin/*`): a signed-in owner or admin, or their Claude chat key.
 - **The repo is public.** Secrets live only in Vercel and in the gitignored `.env.local`. Before each push, a scan checks that no secret is being committed.
-- **Discord:** only Om's user ID, only in the Delpat server, sensitive channels blocked. The bot's permissions are View Channels and Read Message History only.
-
-### Passkeys, authenticator app, password reset
-
-**Om:** Settings → Security.
-- **Passkeys:** tap *Add passkey* on each device (name it first). The login page then offers *Sign in with passkey*, and the password field suggests passkeys. Passkey sign-in skips the code step. A passkey works only on the domain it was made on (production, or `localhost` in dev).
-- **Authenticator app (TOTP):** *Turn on* shows a QR code and key; confirm one code, then save the 10 recovery codes (shown once). From then on, password sign-in asks for a code (or a recovery code). Turning it off or making new recovery codes needs a current code.
-- **Lockout:** 10 wrong passwords/codes in 15 minutes from one IP locks password/code sign-in for that IP until the window passes (plus a 300-per-15-min global backstop). Reset-link requests and bad reset links count too. Passkeys are never locked.
-- **Forgot password:** login page → *Forgot password?* → *Email me a reset link*. The link goes to `OWNER_EMAIL` (else `EMAIL_FROM`), works once, for 15 minutes. A new request never cancels a live link, and no new email goes out within 2 minutes of the last one. The page always shows the same message. The reset page asks for the new password twice (10+ characters) and, if the authenticator app is on, a current code or a recovery code. Afterwards every device is signed out and you get an email and an inbox notice.
-- **Change password:** Settings → Security → Password → *Change* (current password, new one twice, code if TOTP is on). Other devices are signed out; this one stays in. *Send test email* on the Email row checks the SMTP settings.
-
-**Claude Code:**
-- `lib/passkeys.ts` (SimpleWebAuthn): user verification (biometric/PIN) is required. RP ID/origin in production come from `APP_URL`, else `https://$VERCEL_PROJECT_PRODUCTION_URL` (Vercel system var); passkeys fail with a clear error if both are missing. A `localhost` Host header (never `x-forwarded-host`) is used in dev, or in `next start` when neither is set. Challenges live in `authChallenges` for 5 minutes and are deleted when checked (single-use, TTL index); each IP holds at most 20 open sign-in challenges.
-- `lib/totp.ts` (otplib + qrcode): the secret sits in `settings` `_id: 'security'`, AES-256-GCM encrypted with a key derived from `SESSION_SECRET` (rotating it breaks TOTP: turn TOTP off first). Recovery codes are stored as HMACs. App codes can't be replayed (`lastStep`). Failures go to `authFailures` keyed by client IP (first `x-forwarded-for` entry), TTL 15 min.
-- `lib/auth.ts`: same session cookie for every method; `workos_2fa` is a 5-minute signed "password OK, needs code" cookie scoped to `/login`. The session cookie is `v2.<gen>.<exp>.<sig>`; `verifySessionValue` also requires `gen` to equal `settings` `{_id:'security'}` `sessionGen` (cached 5 s per server instance, so other instances notice a sign-out-all within 5 s; fails closed if Mongo is down). Old `v1` cookies are accepted only while `sessionGen` is 0.
-- `lib/password.ts`: `checkPassword` uses `passwordHash` in the security doc (scrypt N=2^15 r=8 p=1, 16-byte salt, params stored in the hash) when present; `APP_PASSWORD` only when no hash is stored. `setPassword` stores the hash and bumps `sessionGen` (signs out every session).
-- `lib/password-reset.ts`: 32 random bytes (base64url) per link; only the SHA-256 is stored in `passwordResets` (TTL index on `expiresAt`, 15 min). Each request deletes older tokens, records an `authFailures` entry (`kind: 'reset'`, per-IP limit) and takes a `mailLog` slot (3 reset emails/hour globally; test emails 5/hour). The token is claimed with `findOneAndDelete` after the password and TOTP checks. Link origin follows `relyingParty()` in `lib/passkeys.ts` (`APP_URL`, else `https://$VERCEL_PROJECT_PRODUCTION_URL`, localhost only in dev or when neither is set); if none fits, no email is sent.
-- `lib/mail.ts` (nodemailer, pinned): SMTP from `EMAIL_*`; mail only ever goes to `OWNER_EMAIL`/`EMAIL_FROM` (no "to" parameter). Missing vars fail with their names (never values).
-- Sign-in actions are server actions in `app/login/actions.ts`, so they POST to `/login`. `proxy.ts` allows exactly `/login` and `/login/reset` (the reset page, `app/login/reset/page.tsx`, `Referrer-Policy: no-referrer`); no other public route.
-- Settings UI: `app/(app)/settings/security-settings.tsx` + `security-actions.ts` (every action re-checks the session). Only `SafeError` messages (`lib/auth.ts`) reach the browser; other errors are logged and shown as a generic message.
-- **Locked out with TOTP and no passkey or recovery code:** in Mongo, set `settings` `{_id:'security'}` `totp` to `null`.
-- **Forgot the password and email is broken:** in Mongo, unset `settings` `{_id:'security'}` `passwordHash`; `APP_PASSWORD` works again.
+- **Discord:** only Om's user ID, only in the Delpat server, sensitive channels blocked. The bot's permissions are View Channels and Read Message History only. Discord commands are not tied to a Work OS user yet (no `actorUserId`).
 
 ---
 
@@ -490,6 +472,7 @@ The live status list (below) is the status strip at the top of Settings.
   - `/api/admin/health`, which should report `notesConverter: "ok"`
   - `node scripts/test-mcp.mjs …`
 - **Commits:** no co-author or "Generated with" lines (Om's preference).
+- **End-to-end tests:** `bash tests/e2e/run.sh [suite…]` (throwaway mongod, own ports via `E2E_MPORT`/`E2E_APORT`/`E2E_DPORT`). Each run makes a test owner, organization and Claude chat key (`tests/e2e/lib.mjs` `makeIdentity`); mail goes to JSON files (`MAIL_CAPTURE_DIR`). `auth.mjs` covers sign-in, 2FA, reset, invitations, keys and a no-credentials sweep of every route.
 - **Testing locally:**
   - **MongoDB:** transactions need a replica set: `mongod --replSet rs0 --port 28020 --dbpath <dir>`, then `replSetInitiate`.
   - **Discord:** set `DISCORD_API_BASE` to a fake Discord.

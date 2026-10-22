@@ -98,8 +98,8 @@ try {
     await p.goto(B + '/login?next=/today');
     await fillLogin(p, { password: 'wrong-password-123' });
     await p.click('button[type=submit]');
-    await p.waitForSelector('[role=alert]', { timeout: 10000 }).catch(() => {});
-    check('login page: wrong password -> message, stays on /login', (await p.locator('[role=alert]').textContent().catch(() => ''))?.includes('Wrong email or password') && new URL(p.url()).pathname === '/login');
+    await p.waitForSelector('form [role=alert]', { timeout: 10000 }).catch(() => {});
+    check('login page: wrong password -> message, stays on /login', (await p.locator('form [role=alert]').textContent().catch(() => ''))?.includes('Wrong email or password') && new URL(p.url()).pathname === '/login');
     check('login page: no password in the URL', !p.url().includes('wrong-password'));
     await fillLogin(p);
     await p.click('button[type=submit]');
