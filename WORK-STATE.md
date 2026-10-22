@@ -15,6 +15,8 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- Dispatcher cap (maxConcurrent) counts every user's running tasks, so one person's runs use up another's slots — phase 3 (per-user dispatcher settings).
+- Take back on a legacy running Claude task (no marker) lets anyone mark it stopped; the session keeps running — goes away after the migration (no legacy marks) .
 - CPU leftovers (docs/cpu.md): /today sends every open task in full; /today and /claude run claudeOverview (~12 reads); dispatcher settings and device key are read on every worker poll — wait on a smaller task shape for the client, and on phase 5 (push instead of polling).
 - Menu, Settings, Claude and their tabs wait for a server round trip on first tap now (only Today, Tasks, Projects are warmed) — waits on Om noticing it in use.
 - Auth phase 1: the migration revokes old worker computers instead of giving them to Om — waits on Om saying whether to keep them.
