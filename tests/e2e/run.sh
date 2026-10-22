@@ -7,7 +7,7 @@
 #   E2E_MPORT, E2E_APORT, E2E_DPORT   ports (default 27281, 3281, 4401); each builder uses its own
 #   MONGOD=<path>      mongod binary (default: C:\Program Files\MongoDB\Server\8.2\bin\mongod.exe)
 #   PLAYWRIGHT_CORE=<folder of playwright-core>   CHROME_EXE=<chrome.exe>
-#   E2E_LOGS=<dir>     keep each suite's log there (default: temp dir, deleted at the end)
+#   E2E_LOGS=<dir>     keep each suite's log there (default: temp dir, deleted at the end); the app server log too
 #   E2E_WAIT=<s>       idle time of the nav-preload suites (default 65)
 #   E2E_EXTRA='name|file|seed|plain'   one extra throwaway suite (a probe), run after the others
 # Never touches the real database: it starts its own mongod on 27281 and the app on 3281, and cleans both up.
@@ -73,6 +73,7 @@ cleanup() {
   stop_server
   if [ "$STARTED_MONGO" = 1 ]; then kill_port "$MPORT"; sleep 1; fi
   if [ "$MOVED" = 1 ] && [ -e "$ENVBAK" ]; then mv "$ENVBAK" "$ENVFILE"; fi
+  if [ -n "${E2E_LOGS:-}" ] && [ -e "$TMP/server.log" ]; then cp "$TMP/server.log" "$LOGS/server.log"; fi
   rm -rf "$TMP/db" "$TMP/shots" "$TMP/mongod.log" "$TMP/server.log" "$TMP/build.log" "$TMP/mail" "$TMP/state.json"
   if [ -z "${E2E_LOGS:-}" ]; then rm -rf "$LOGS"; fi
   rmdir "$TMP" 2>/dev/null
