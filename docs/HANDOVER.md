@@ -36,9 +36,9 @@ All configuration is in Vercel → Project → Settings → Environment Variable
 | `MONGO_MONGODB_URI` (or `MONGODB_URI`) | Atlas connection string; the Vercel Atlas integration adds the `MONGO_` prefix and both names work | yes |
 | `MONGODB_DB` | database name (`workos`) | default `workos` |
 | `BETTER_AUTH_SECRET` | signs sign-in cookies and hashes tokens (32+ random characters; `SESSION_SECRET` is read if missing). Sign-in is by user: `docs/auth.md` | yes |
-| `APP_TZ`, `NEXT_PUBLIC_APP_TZ` | `Asia/Kolkata`: sets what "today" means | yes |
+| `APP_TZ` | Default timezone for people who have not set their own (else UTC); each person sets theirs in Settings › Alerts | no |
 | `APP_URL` | public base URL: sign-in cookies, passkeys, reset and invitation links, links sent to Claude and Discord | yes |
-| `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `DISCORD_OWNER_ID` | Discord bot and the Delpat server | for Discord |
+| `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN` | The Discord bot (each organization's server and each person's account are set in the app: docs/multi-user.md phase 3) | for Discord |
 | `DISCORD_BLOCKED_CHANNELS` | extra channel ids never to read (comma-separated); normally managed in Settings › Connections › Discord instead | optional |
 | `CRON_SECRET` | protects the alert check endpoint | for alerts |
 | `OPERATOR_EMAILS` | who runs the deployment (comma list): health, Discord registration, Settings › Usage, the built-in schedule (`lib/operator.ts`) | yes (Om's email) |
@@ -487,7 +487,7 @@ Full details: **`docs/auth.md`** (sign-in, roles, invitations, keys, the one-tim
   - `/api/admin/health`, which should report `notesConverter: "ok"`
   - `node scripts/test-mcp.mjs …`
 - **Commits:** no co-author or "Generated with" lines (Om's preference).
-- **End-to-end tests:** `bash tests/e2e/run.sh [suite…]` (throwaway mongod, own ports via `E2E_MPORT`/`E2E_APORT`/`E2E_DPORT`). Each run makes a test owner, organization and Claude chat key (`tests/e2e/lib.mjs` `makeIdentity`); mail goes to JSON files (`MAIL_CAPTURE_DIR`). `auth.mjs` covers sign-in, 2FA, reset, invitations, keys and a no-credentials sweep of every route. `tenancy.mjs` covers two people in one organization plus a second organization: private vs shared, every MCP read tool, pages, search, note files, worker and admin APIs, per-organization numbers and recipients. Fixtures inserted with `db` from lib.mjs get the test owner's organization and owner filled in (`rawDb` writes exactly what you give it).
+- **End-to-end tests:** `bash tests/e2e/run.sh [suite…]` (throwaway mongod, own ports via `E2E_MPORT`/`E2E_APORT`/`E2E_DPORT`). Each run makes a test owner, organization and Claude chat key (`tests/e2e/lib.mjs` `makeIdentity`); mail goes to JSON files (`MAIL_CAPTURE_DIR`). `auth.mjs` covers sign-in, 2FA, reset, invitations, keys and a no-credentials sweep of every route. `tenancy.mjs` covers two people in one organization plus a second organization: private vs shared, every MCP read tool, pages, search, note files, worker and admin APIs, per-organization numbers and recipients, and (phase 3) each person's own schedule, timezone and dispatcher cap. `discord-link.mjs` signs Discord interactions with a throwaway key against a stub Discord: linking, commands acting as the linked person, per-person channel visibility and DMs. Fixtures inserted with `db` from lib.mjs get the test owner's organization and owner filled in (`rawDb` writes exactly what you give it).
 - **Testing locally:**
   - **MongoDB:** transactions need a replica set: `mongod --replSet rs0 --port 28020 --dbpath <dir>`, then `replSetInitiate`.
   - **Discord:** set `DISCORD_API_BASE` to a fake Discord.
@@ -498,5 +498,6 @@ Full details: **`docs/auth.md`** (sign-in, roles, invitations, keys, the one-tim
   - Alert rules: `ALERT_RULES` in `lib/alerts.ts`
   - Tool wording: `lib/mcp/docs.ts`
   - Quick-add syntax: `lib/quick-parse.ts`
-  - Modes and colours: `lib/modes.ts`
-  - Timezone: `APP_TZ`
+  - Modes: each organization's list (`modes:<orgId>`, `lib/org-modes.ts`); the default eight and colour helpers in `lib/modes.ts`
+  - Schedule, routine, review questions, help: each person's own (`/timetable?edit=1`, `lib/user-schedule.ts`; docs/multi-user.md phase 3)
+  - Timezone and quiet hours: each person's own (Settings › Alerts); `APP_TZ` is the default
