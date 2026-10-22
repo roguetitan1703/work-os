@@ -21,8 +21,10 @@ export async function browserSession({ browser, team, person, teammate, wait = 5
     const h = r.headers();
     log.push({ step, kind: kindOf(h, u), method: r.method(), path: u.pathname + u.search, page: pageOf(u.pathname), segment: h['next-router-segment-prefetch'] ?? null, action: h['next-action'] ?? null, tree: h['next-router-state-tree'] ?? null, nextUrl: h['next-url'] ?? null, body: r.method() === 'POST' ? r.postData()?.slice(0, 400) ?? null : null });
   });
+  const names = ['sign-in'];
   const at = async (name, fn, ms = wait) => {
     step = name;
+    names.push(name);
     await fn();
     await page.waitForTimeout(ms);
   };
@@ -46,7 +48,7 @@ export async function browserSession({ browser, team, person, teammate, wait = 5
   }, wait + 1000);
   await at('nav Notes', () => page.click('aside a[href="/notes"]'));
   await ctx.close();
-  const steps = {};
+  const steps = Object.fromEntries(names.map(n => [n, { total: 0 }])); // a step with no requests still shows
   for (const r of log) {
     const s = (steps[r.step] ??= { total: 0 });
     s[r.kind] = (s[r.kind] ?? 0) + 1;
