@@ -7,13 +7,13 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronsUp, ChevronRight } from 'lucid
 import { toast } from 'sonner';
 import { BottomSheet } from '@/components/mobile/sheet';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { ACTOR_LABEL } from '@/lib/activity-text';
+import { ActorName, PersonName } from '@/components/actor-badge';
 import { cn } from '@/lib/utils';
 import { CLAUDE_ITEM_KINDS, CLAUDE_ITEM_STATES, type ClaudeItem } from '@/lib/types';
 import { moveClaudeItemAction, updateClaudeItemAction } from './claude-items-actions';
 
 export type Blocker = { ref: number; title: string; state: string };
-type Props = { projectId: string; items: ClaudeItem[]; blockers: Record<string, Blocker>; waitingOnOm: number; doneCount: number; openRef?: number };
+type Props = { projectId: string; items: ClaudeItem[]; blockers: Record<string, Blocker>; waiting: number; doneCount: number; openRef?: number };
 
 const KIND_STYLE: Record<string, string> = {
   feature: 'bg-blue-500/10 text-blue-700 dark:text-blue-300',
@@ -45,7 +45,7 @@ export function Chip({ kind }: { kind: string }) {
 }
 
 /** Claude's own work list for a project (separate from Om's tasks). */
-export function ClaudeItems({ projectId, items, blockers, waitingOnOm, doneCount, openRef }: Props) {
+export function ClaudeItems({ projectId, items, blockers, waiting: waitingCount, doneCount, openRef }: Props) {
   const [sel, setSel] = useState<number | null>(openRef ?? null);
   const [showDone, setShowDone] = useState(false);
   // A new ?claude= link opens that item (adjusting state during render, not in an effect).
@@ -57,8 +57,8 @@ export function ClaudeItems({ projectId, items, blockers, waitingOnOm, doneCount
 
   const open = items.filter(i => i.state !== 'done' && i.state !== 'dropped');
   const finished = items.filter(i => i.state === 'done' || i.state === 'dropped');
-  const waiting = open.filter(i => i.waitingOnOm);
-  const rest = open.filter(i => !i.waitingOnOm);
+  const waiting = open.filter(i => i.waitingOn);
+  const rest = open.filter(i => !i.waitingOn);
   const active = rest.filter(i => i.state === 'active');
   const ideas = rest.filter(i => i.state !== 'active' && i.kind === 'idea');
   const blocked = rest.filter(i => i.state === 'blocked' && i.kind !== 'idea');
@@ -87,8 +87,8 @@ export function ClaudeItems({ projectId, items, blockers, waitingOnOm, doneCount
         <span className="text-xs text-muted-foreground">
           {open.length} open · {doneCount} done
         </span>
-        {waitingOnOm > 0 && (
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">{waitingOnOm} waiting on you</span>
+        {waitingCount > 0 && (
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">{waitingCount} waiting on a person</span>
         )}
       </div>
       {group('Waiting on you', waiting, 'text-amber-700 dark:text-amber-300')}
@@ -128,7 +128,7 @@ export function ItemSheet({ projectId, items, blockers, sel, onClose }: { projec
   const selected = fromPage && saved[fromPage.id] && saved[fromPage.id].updatedAt > fromPage.updatedAt ? saved[fromPage.id] : fromPage;
   // Same on server and first client render: portals and dialogs only after mount.
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
-  const groupOf = (i: ClaudeItem) => (i.waitingOnOm ? 'w' : i.state === 'active' ? 'a' : i.kind === 'idea' ? 'i' : i.state === 'blocked' ? 'b' : i.next ? 'n' : 'q');
+  const groupOf = (i: ClaudeItem) => (i.waitingOn ? 'w' : i.state === 'active' ? 'a' : i.kind === 'idea' ? 'i' : i.state === 'blocked' ? 'b' : i.next ? 'n' : 'q');
   // Places to the nearest item in the same group, up (-1) or down (+1), in the project order; 0 when none.
   const hopsTo = (dir: -1 | 1) => {
     if (!selected) return 0;
@@ -179,8 +179,8 @@ function Row({ item: i, blocker, onOpen }: { item: ClaudeItem; blocker?: Blocker
             {parts && <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground tabular-nums">parts {parts}</span>}
           </div>
           {i.state === 'active' && i.claimedBy && <div className="text-xs text-muted-foreground">in {i.claimedBy.session}</div>}
-          {i.waitingOnOm && <div className="text-xs text-amber-700 dark:text-amber-300 line-clamp-2">{i.waitingOnOm}</div>}
-          {i.state === 'blocked' && blocker && !i.waitingOnOm && (
+          {i.waitingOn && <div className="text-xs text-amber-700 dark:text-amber-300 line-clamp-2">{i.waitingText}</div>}
+          {i.state === 'blocked' && blocker && !i.waitingOn && (
             <div className="text-xs text-muted-foreground">
               waits on {ref(blocker.ref)} {blocker.title}
             </div>
@@ -244,11 +244,11 @@ function Detail({ projectId, item: i, onSaved, blocker, up, down, first }: { pro
         )}
       </div>
 
-      {i.waitingOnOm && (
+      {i.waitingOn && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
-          <div className="text-xs font-semibold text-amber-700 dark:text-amber-300">Claude is waiting on you</div>
-          <p className="text-sm whitespace-pre-wrap">{i.waitingOnOm}</p>
-          <button type="button" disabled={pending} onClick={() => patch({ waitingOnOm: '' })} className={btn}>
+          <div className="text-xs font-semibold text-amber-700 dark:text-amber-300">Claude is waiting on <PersonName userId={i.waitingOn} /></div>
+          <p className="text-sm whitespace-pre-wrap">{i.waitingText}</p>
+          <button type="button" disabled={pending} onClick={() => patch({ waitingText: '' })} className={btn}>
             Answered
           </button>
         </div>
@@ -331,7 +331,7 @@ function Detail({ projectId, item: i, onSaved, blocker, up, down, first }: { pro
             {[...i.log].reverse().map((l, n) => (
               <li key={n} className="text-xs">
                 <span className="text-muted-foreground">
-                  <Ago iso={l.at} /> · {ACTOR_LABEL[l.actor] ?? l.actor}
+                  <Ago iso={l.at} /> · <ActorName actor={l.actor} />
                   {l.session ? ` · ${l.session}` : ''}
                 </span>
                 <div className="text-sm whitespace-pre-wrap">{l.text}</div>

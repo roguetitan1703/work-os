@@ -8,9 +8,12 @@ import { fmtDate } from '../format';
 import { ModeSchema, PRIORITIES, type Mode, type Priority, type Task } from '../types';
 import { BlockedChannelError, DiscordError, assertNotBlocked, findChannel, guildContext, type ChannelInfo, type RawMessage } from './client';
 import { taskFromMessage } from './to-task';
+import type { Scope } from '../scope';
+import type { Actor } from '../actors';
 
 // Slash commands, the "Add to Work OS" message command and their component/modal follow-ups.
-// The route verifies the signature and owner, then calls handleInteraction(): it returns the
+// The route verifies the signature and owner, finds the Work OS user the bot is linked to (lib/people.ts
+// discordScope: everything here acts as them, actor kind 'discord'), then calls handleInteraction(): it returns the
 // immediate response (deferred, modal, or autocomplete choices) plus optional deferred work whose
 // result is written into the original response with editOriginal().
 
@@ -121,12 +124,14 @@ export function errorText(err: unknown): string {
   return 'Something went wrong. Check the server logs.';
 }
 
-type Ctx = { baseUrl: string };
+/** s: the Work OS user the bot acts for. */
+type Ctx = { baseUrl: string; s: Scope };
+const by = (c: Ctx): Actor => ({ kind: 'discord', userId: c.s.userId });
 const taskUrl = (c: Ctx, ref: number) => `${c.baseUrl}/tasks/${ref}`;
 
-async function projectName(t: Task): Promise<string | null> {
+async function projectName(c: Ctx, t: Task): Promise<string | null> {
   if (!t.projectId) return null;
-  return (await projectNameMap()).get(t.projectId) ?? null;
+  return (await projectNameMap(c.s)).get(t.projectId) ?? null;
 }
 
 // ── "Add to Work OS" message rendering + components ─────────────────────────
@@ -134,7 +139,7 @@ async function projectName(t: Task): Promise<string | null> {
 const ADDED_RE = /^Added \[#\d+\]\(<?[^)]*>?\): (.*) \([^()]*, P[1-4]\)(?: · .*)?$/;
 
 async function renderAdded(c: Ctx, t: Task): Promise<ReplyBody> {
-  const project = (await projectName(t)) ?? 'no project';
+  const project = (await projectName(c, t)) ?? 'no project';
   const due = t.due ? ` · due ${fmtDate(t.due)}` : '';
   const content = clip(`Added ${link(`#${t.ref}`, taskUrl(c, t.ref))}: ${t.title} (${project}, ${t.priority})${due}`, 2000);
   const ref = t.ref;
@@ -189,9 +194,10 @@ async function addFromMessage(i: Interaction, c: Ctx): Promise<ReplyBody> {
   await assertNotBlocked(ctx, target.channel_id);
   const channel: ChannelInfo | undefined = findChannel(ctx, target.channel_id);
   const { task, existing } = await taskFromMessage(
+    c.s,
     target,
     { guildId: i.guild_id!, channel, channelName: channel ? undefined : i.channel?.name },
-    'discord',
+    by(c),
   );
   if (existing) return { content: clip(`Already tracked as ${link(`#${task.ref}`, taskUrl(c, task.ref))}: ${task.title}`, 2000) };
   return renderAdded(c, task);
@@ -204,6 +210,7 @@ async function addTask(i: Interaction, c: Ctx): Promise<ReplyBody> {
   if (due === undefined) return { content: `Couldn't read the due date "${clip(dueRaw!, 40)}". Try today, tomorrow, fri, +3d or 2026-10-20.` };
   const mode = optStr(i, 'mode') as Mode | undefined;
   const t = await createTask(
+    c.s,
     {
       title,
       priority: (optStr(i, 'priority') as Priority | undefined) ?? 'P2',
@@ -211,21 +218,21 @@ async function addTask(i: Interaction, c: Ctx): Promise<ReplyBody> {
       project: optStr(i, 'project') ?? null,
       mode: mode ?? null,
     },
-    'discord',
+    by(c),
     { note: 'via Discord' },
   );
-  const project = await projectName(t);
+  const project = await projectName(c, t);
   const extra = [t.priority, t.due ? `due ${fmtDate(t.due)}` : '', project ?? ''].filter(Boolean).join(' · ');
   return { content: clip(`Added ${link(`#${t.ref}`, taskUrl(c, t.ref))}: ${t.title} (${extra})`, 2000) };
 }
 
 async function today(c: Ctx): Promise<ReplyBody> {
   const [overdue, dueToday, inProgress, p1, names] = await Promise.all([
-    listTasks({ due: 'overdue', sort: 'due' }),
-    listTasks({ due: 'today', open: true }),
-    listTasks({ status: ['In Progress'] }),
-    listTasks({ open: true, priority: ['P1'], sort: 'due' }),
-    projectNameMap(),
+    listTasks(c.s, { due: 'overdue', sort: 'due' }),
+    listTasks(c.s, { due: 'today', open: true }),
+    listTasks(c.s, { status: ['In Progress'] }),
+    listTasks(c.s, { open: true, priority: ['P1'], sort: 'due' }),
+    projectNameMap(c.s),
   ]);
   const seen = new Set<string>();
   const sections: [string, Task[]][] = [
@@ -261,14 +268,14 @@ async function today(c: Ctx): Promise<ReplyBody> {
 }
 
 async function done(i: Interaction, c: Ctx): Promise<ReplyBody> {
-  const t = await completeTask(optStr(i, 'ref') ?? '', optStr(i, 'note'), 'discord');
+  const t = await completeTask(c.s, optStr(i, 'ref') ?? '', optStr(i, 'note'), by(c));
   const next = t.nextRef ? ` · next is ${link(`#${t.nextRef}`, taskUrl(c, t.nextRef))}` : '';
   return { content: clip(`Done ${link(`#${t.ref}`, taskUrl(c, t.ref))}: ${t.title}${next}`, 2000) };
 }
 
 async function progress(i: Interaction, c: Ctx): Promise<ReplyBody> {
   const pct = Number(opt(i, 'percent'));
-  const t = await logProgress(optStr(i, 'ref') ?? '', pct, optStr(i, 'note'), 'discord');
+  const t = await logProgress(c.s, optStr(i, 'ref') ?? '', pct, optStr(i, 'note'), by(c));
   return { content: `${link(`#${t.ref}`, taskUrl(c, t.ref))} → ${t.progress}%` };
 }
 
@@ -276,13 +283,13 @@ async function progress(i: Interaction, c: Ctx): Promise<ReplyBody> {
 
 type Choice = { name: string; value: string };
 
-async function autocompleteChoices(i: Interaction): Promise<Choice[]> {
+async function autocompleteChoices(i: Interaction, c: Ctx): Promise<Choice[]> {
   const focused = i.data?.options?.find(o => o.focused);
   if (!focused) return [];
   const typed = String(focused.value ?? '').trim().toLowerCase();
 
   if (focused.name === 'project') {
-    const projects = (await listProjectsBasic()).filter(p => p.status === 'active' || p.status === 'paused');
+    const projects = (await listProjectsBasic(c.s)).filter(p => p.status === 'active' || p.status === 'paused');
     return projects
       .filter(p => !typed || p.name.toLowerCase().includes(typed))
       .slice(0, 25)
@@ -290,7 +297,7 @@ async function autocompleteChoices(i: Interaction): Promise<Choice[]> {
   }
 
   if (focused.name === 'ref') {
-    const [tasks, names] = await Promise.all([listTasks({ open: true, sort: 'updated' }), projectNameMap()]);
+    const [tasks, names] = await Promise.all([listTasks(c.s, { open: true, sort: 'updated' }), projectNameMap(c.s)]);
     const q = typed.replace(/^#/, '');
     const hits = q ? tasks.filter(t => String(t.ref).startsWith(q) || t.title.toLowerCase().includes(q)) : tasks;
     return hits.slice(0, 25).map(t => {
@@ -301,10 +308,10 @@ async function autocompleteChoices(i: Interaction): Promise<Choice[]> {
   return [];
 }
 
-async function autocomplete(i: Interaction): Promise<unknown> {
+async function autocomplete(i: Interaction, c: Ctx): Promise<unknown> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<Choice[]>(r => (timer = setTimeout(() => r([]), 2500)));
-  const choices = await Promise.race([autocompleteChoices(i).catch(() => [] as Choice[]), timeout]).finally(() => clearTimeout(timer));
+  const choices = await Promise.race([autocompleteChoices(i, c).catch(() => [] as Choice[]), timeout]).finally(() => clearTimeout(timer));
   return { type: 8, data: { choices } };
 }
 
@@ -316,19 +323,19 @@ async function component(i: Interaction, c: Ctx, id: string): Promise<ReplyBody>
   if (kind === 'pri') {
     const p = i.data?.values?.[0] as Priority | undefined;
     if (!p || !PRIORITIES.includes(p)) return { content: 'Unknown priority.' };
-    t = await updateTask(ref, { priority: p }, 'discord', { note: 'via Discord' });
+    t = await updateTask(c.s, ref, { priority: p }, by(c), { note: 'via Discord' });
   } else if (kind === 'due') {
     const today = todayStr();
     const due = arg === 'today' ? today : arg === 'tomorrow' ? addDays(today, 1) : null;
-    t = await updateTask(ref, { due }, 'discord', { note: 'via Discord' });
+    t = await updateTask(c.s, ref, { due }, by(c), { note: 'via Discord' });
   } else if (kind === 'editmodal') {
     const title = findModalValue(i.data?.components, 'title')?.trim();
     if (!title) {
-      const cur = await getTask(ref);
+      const cur = await getTask(c.s, ref);
       if (!cur) throw new NotFoundError(`Task #${ref} not found`);
       t = cur;
     } else {
-      t = await updateTask(ref, { title }, 'discord', { note: 'via Discord' });
+      t = await updateTask(c.s, ref, { title }, by(c), { note: 'via Discord' });
     }
   } else {
     return { content: 'Unknown action.' };
@@ -364,7 +371,7 @@ const DEFER_UPDATE = { type: 6 };
 export function handleInteraction(i: Interaction, c: Ctx): InteractionPlan | Promise<InteractionPlan> {
   switch (i.type) {
     case InteractionType.AUTOCOMPLETE:
-      return autocomplete(i).then(response => ({ response }));
+      return autocomplete(i, c).then(response => ({ response }));
 
     case InteractionType.COMMAND: {
       const name = i.data?.name;

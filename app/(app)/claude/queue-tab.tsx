@@ -82,9 +82,9 @@ function Row({ item: i, blocker, first, last, busy, onOpen, onNext, onMove }: { 
           <div className="text-[13px] md:text-xs text-muted-foreground">
             {i.state}
             {i.state === 'active' && i.claimedBy ? ` · in ${i.claimedBy.session}` : ''}
-            {i.state === 'blocked' && blocker && !i.waitingOnOm ? ` · waits on C${blocker.ref} ${blocker.title}` : ''}
+            {i.state === 'blocked' && blocker && !i.waitingOn ? ` · waits on C${blocker.ref} ${blocker.title}` : ''}
           </div>
-          {i.waitingOnOm && <div className="text-[13px] md:text-xs text-amber-700 dark:text-amber-300 line-clamp-2">{i.waitingOnOm}</div>}
+          {i.waitingOn && <div className="text-[13px] md:text-xs text-amber-700 dark:text-amber-300 line-clamp-2">{i.waitingText}</div>}
         </div>
       </button>
       <div className="flex items-center gap-2 px-4 md:px-3 pb-2 pl-[3.75rem] md:pl-[3.5rem]">

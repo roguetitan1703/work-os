@@ -4,10 +4,12 @@ import { listProjectsBasic } from '../data/projects';
 import { resolveDate, todayStr, addDays } from '../dates';
 import { matchMode } from '../quick-parse';
 import type { Actor, Mode, Priority, Task, TaskSource } from '../types';
+import type { Scope } from '../scope';
 import { authorName, excerpt, jumpLink, type ChannelInfo, type RawMessage } from './client';
 
 // Turns a Discord message into a Work OS task. Shared by the "Add to Work OS" message
-// command (actor: discord) and the discord_message_to_task MCP tool (actor: claude).
+// command (actor: discord) and the discord_message_to_task MCP tool (actor: claude). The task belongs to s: the
+// Discord-linked user (both callers refuse anyone else).
 
 export type MessageTaskOverrides = {
   title?: string;
@@ -76,8 +78,8 @@ function guessMode(channel: string): Mode | null {
   return matchMode(s.split(' ')[0]) ?? null;
 }
 
-async function guessProject(channel: ChannelInfo | undefined, text: string): Promise<string | null> {
-  const projects = (await listProjectsBasic()).filter(p => p.status === 'active' || p.status === 'paused');
+async function guessProject(s: Scope, channel: ChannelInfo | undefined, text: string): Promise<string | null> {
+  const projects = (await listProjectsBasic(s)).filter(p => p.status === 'active' || p.status === 'paused');
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
   const candidates = [channel?.name, channel?.isThread ? channel?.parentName : null, channel?.category].filter(Boolean) as string[];
   for (const c of candidates) {
@@ -96,12 +98,13 @@ async function guessProject(channel: ChannelInfo | undefined, text: string): Pro
 }
 
 export async function taskFromMessage(
+  s: Scope,
   m: RawMessage,
   ctx: { guildId: string; channel?: ChannelInfo; channelName?: string },
   actor: Actor,
   overrides: MessageTaskOverrides = {},
 ): Promise<MessageTaskResult> {
-  const existing = await findTaskBySourceMessage(m.id);
+  const existing = await findTaskBySourceMessage(s, m.id);
   if (existing) return { task: existing, existing: true };
 
   const text = plainText(m);
@@ -115,10 +118,11 @@ export async function taskFromMessage(
 
   const source: TaskSource = { kind: 'discord', guildId: ctx.guildId, channelId: m.channel_id, messageId: m.id, url, channelName, author };
   const task = await createTask(
+    s,
     {
       title: overrides.title?.trim() || draftTitle(text),
       description: `From Discord, ${author} in ${where} (${m.timestamp.slice(0, 10)}):\n\n${quote}${replyCtx}${files}\n\n${url}`,
-      project: overrides.project !== undefined ? overrides.project : await guessProject(ctx.channel, text),
+      project: overrides.project !== undefined ? overrides.project : await guessProject(s, ctx.channel, text),
       mode: overrides.mode !== undefined ? overrides.mode : guessMode(`${channelName} ${ctx.channel?.parentName ?? ''} ${ctx.channel?.category ?? ''}`),
       priority: overrides.priority ?? 'P2',
       due: overrides.due !== undefined ? overrides.due : explicitDue(text),

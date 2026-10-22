@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft, FolderOpen, ListTodo } from 'lucide-react';
 import { getNote, getNoteWithBlocks } from '@/lib/data/notes';
 import { fmtAgo } from '@/lib/format';
-import { ACTOR_LABEL } from '@/lib/activity-text';
+import { requireScope } from '@/lib/caller';
+import { ActorName } from '@/components/actor-badge';
 import { NoteEditor } from './note-editor';
 import { MobileBack } from '@/components/mobile/sub-header';
 import { BackLink } from '@/components/back-link';
@@ -11,13 +12,13 @@ import { BackLink } from '@/components/back-link';
 type Props = { params: Promise<{ id: string }>; searchParams: Promise<{ new?: string; edit?: string }> };
 
 export async function generateMetadata({ params }: Props) {
-  const n = await getNote((await params).id);
+  const n = await getNote(await requireScope(), (await params).id);
   return { title: n ? `${n.title} · Notes` : 'Note' };
 }
 
 export default async function NotePage({ params, searchParams }: Props) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
-  const r = await getNoteWithBlocks(id);
+  const r = await getNoteWithBlocks(await requireScope(), id);
   if (!r) notFound();
   const { note, blocks } = r;
   // Back rule: where you came from, else the note's project (a task note: its task; a sub-page: its parent).
@@ -48,7 +49,7 @@ export default async function NotePage({ params, searchParams }: Props) {
           </Link>
         )}
         <span suppressHydrationWarning>
-          Edited {fmtAgo(note.updatedAt)} by {ACTOR_LABEL[note.updatedBy] ?? note.updatedBy}
+          Edited {fmtAgo(note.updatedAt)} by <ActorName actor={note.updatedBy} />
         </span>
         {note.archived && <span className="px-1.5 py-px rounded bg-muted">Archived · {note.archivedBecause}</span>}
       </div>

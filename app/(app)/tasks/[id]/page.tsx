@@ -1,7 +1,8 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getTaskDetail, listTrash, type TrashItem } from '@/lib/data/tasks';
-import { ACTOR_LABEL } from '@/lib/activity-text';
+import { requireScope } from '@/lib/caller';
+import { ActorName } from '@/components/actor-badge';
 import { fmtAgo, fmtDate } from '@/lib/format';
 import { RestoreTrashButton } from '@/components/trash-controls';
 import { Trash2 } from 'lucide-react';
@@ -17,15 +18,16 @@ type Props = { params: Promise<{ id: string }> };
 export default async function TaskPage({ params }: Props) {
   const { id } = await params;
   const key = decodeURIComponent(id);
-  const detail = await getTaskDetail(key, { activityLimit: 200 });
+  const s = await requireScope();
+  const detail = await getTaskDetail(s, key, { activityLimit: 200 });
   if (!detail) {
     const m = key.trim().match(/^#?(\d{1,7})$/);
-    const trashed = m ? (await listTrash()).find(t => t.ref === Number(m[1])) : undefined;
+    const trashed = m ? (await listTrash(s)).find(t => t.ref === Number(m[1])) : undefined;
     if (!trashed) notFound();
     return <TrashedTask item={trashed} />;
   }
   const { task, project, activity, dependencies, dependents } = detail;
-  const note = (await noteIndex({ taskIds: [task.id] })).byTask.get(task.id);
+  const note = (await noteIndex(s, { taskIds: [task.id] })).byTask.get(task.id);
 
   const dep = (t: { id: string; ref: number; title: string; status: typeof task.status }) => ({ id: t.id, ref: t.ref, title: t.title, status: t.status });
   return (
@@ -83,7 +85,7 @@ function TrashedTask({ item }: { item: TrashItem }) {
         <span className="font-mono text-muted-foreground font-normal">#{item.ref}</span> {item.title}
       </h1>
       <p className="text-sm text-muted-foreground">
-        Deleted {fmtAgo(item.deletedAt)} by {ACTOR_LABEL[item.deletedBy] ?? item.deletedBy}
+        Deleted {fmtAgo(item.deletedAt)} by <ActorName actor={item.deletedBy} />
         {item.reason && <> &middot; &ldquo;{item.reason}&rdquo;</>}. It will be deleted for good on {fmtDate(item.purgeOn, 'MMM d, yyyy')}.
       </p>
       <div className="flex items-center gap-2 pt-1">

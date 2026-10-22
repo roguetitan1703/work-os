@@ -10,7 +10,8 @@ export const runtime = 'nodejs';
 const MAX_BYTES = 50 * 1024 * 1024;
 
 export async function POST(req: Request) {
-  if (!(await callerFromRequest(req))) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const caller = await callerFromRequest(req);
+  if (!caller) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json({ error: 'File uploads are not set up: connect a Vercel Blob store to this project.' }, { status: 503 });
   }
@@ -20,7 +21,8 @@ export async function POST(req: Request) {
       body,
       request: req,
       onBeforeGenerateToken: async pathname => {
-        if (!pathname.startsWith('notes/')) throw new Error('Invalid upload path');
+        // Each organization's files under its own folder; the file route serves only the caller's.
+        if (!pathname.startsWith(`notes/${caller.orgId}/`) || pathname.includes('..')) throw new Error('Invalid upload path');
         return { maximumSizeInBytes: MAX_BYTES, addRandomSuffix: true };
       },
     });

@@ -10,15 +10,26 @@ import * as notesData from '../data/notes';
 import * as items from '../data/claude-items';
 import { InputError, NotFoundError } from '../data/errors';
 import { CLAUDE_CODE_INSTRUCTIONS, INSTRUCTIONS, TOOLS, type ToolName } from './docs';
-import { beforeTool, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
+import { beforeTool, callerScope, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
+import { actorOut, agentActor } from '../actors';
+import { findMember, isDiscordUser, memberNames } from '../people';
 import * as discord from '../discord/read';
 import { BlockedChannelError, DiscordError } from '../discord/client';
 import { describeActivity } from '../activity-text';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
-import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
+import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, VisibilitySchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
 
-/** caller: who is calling (a Claude chat key → actor "claude"; a Claude Code key → actor "claude-code"; lib/api-keys.ts). */
-type Ctx = { baseUrl: string; caller?: Caller };
+/**
+ * caller: who is calling (a Claude chat key → agent "claude"; a Claude Code key → agent "claude-code"; lib/api-keys.ts).
+ * The server acts for the key's owner in the key's organization: every data call gets their scope.
+ */
+type Ctx = { baseUrl: string; caller: Caller };
+const sOf = (ctx: Ctx) => callerScope(ctx.caller);
+/** "by" fields: 'me' / 'claude' / 'claude-code' / … for the key's owner, a name for anyone else (lib/actors.ts actorOut). */
+async function byOf(ctx: Ctx): Promise<(a: unknown) => string> {
+  const people = await memberNames(ctx.caller.orgId);
+  return a => actorOut(a, ctx.caller.userId, people);
+}
 
 function ok(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 1) }] };
@@ -64,10 +75,11 @@ function parseSince(s: string | undefined): Date | undefined {
 }
 
 async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
-  const d = await tasks.getTaskDetail(key, { activityLimit });
+  const d = await tasks.getTaskDetail(sOf(ctx), key, { activityLimit });
   if (!d) throw new NotFoundError(`Task ${key} not found`);
   const t = d.task;
-  const note = (await notesData.noteIndex({ taskIds: [t.id] })).byTask.get(t.id) ?? null;
+  const note = (await notesData.noteIndex(sOf(ctx), { taskIds: [t.id] })).byTask.get(t.id) ?? null;
+  const by = await byOf(ctx);
   return {
     ref: t.ref,
     id: t.id,
@@ -93,16 +105,17 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     recurrence: t.recurrence,
     archived: t.archived,
     createdAt: t.createdAt,
-    createdBy: t.createdBy,
+    visibility: t.visibility,
+    createdBy: by(t.createdBy),
     updatedAt: t.updatedAt,
     doneAt: t.doneAt,
-    doneBy: t.doneBy,
-    activity: d.activity.map(a => ({ id: a.id, at: a.at, by: a.actor, type: a.type, text: describeActivity(a) })),
+    doneBy: t.doneBy ? by(t.doneBy) : null,
+    activity: d.activity.map(a => ({ id: a.id, at: a.at, by: by(a.actor), type: a.type, text: describeActivity(a) })),
   };
 }
 
 /** A Claude item as MCP output: everything a new session needs, nothing it doesn't. */
-function itemOut(i: ClaudeItem, blockers?: items.ProjectItems['blockers']) {
+function itemOut(i: ClaudeItem, blockers: items.ProjectItems['blockers'] | undefined, who: (userId: string) => string) {
   const b = i.blockedBy ? blockers?.get(i.blockedBy) : undefined;
   return {
     ref: items.itemRef(i.ref),
@@ -115,14 +128,14 @@ function itemOut(i: ClaudeItem, blockers?: items.ProjectItems['blockers']) {
     ...(i.note ? { note: i.note.slice(-1500) } : {}),
     ...(i.parts.length ? { parts: i.parts.map((p, n) => ({ n: n + 1, text: p.text, done: p.done })) } : {}),
     ...(i.blockedBy ? { blockedBy: b ? `${items.itemRef(b.ref)} ${b.title} (${b.state})` : i.blockedBy } : {}),
-    ...(i.waitingOnOm ? { waitingOnOm: i.waitingOnOm } : {}),
+    ...(i.waitingOn ? { waitingText: i.waitingText, waitingOn: who(i.waitingOn) } : {}),
     ...(i.claimedBy ? { activeIn: `${i.claimedBy.session} since ${i.claimedBy.at}` } : {}),
     ...(i.gitRef ? { landedIn: i.gitRef } : {}),
   };
 }
 
 async function brief(t: Task, ctx: Ctx) {
-  const names = await projects.projectNameMap();
+  const names = await projects.projectNameMap(sOf(ctx));
   return briefTask(t, names, { baseUrl: ctx.baseUrl });
 }
 
@@ -198,9 +211,19 @@ const codeShape = z
   .describe("Where the project's code lives. Replaces the whole list; [] or null clears it");
 
 export function createMcpServer(ctx: Ctx): McpServer {
-  const caller: Caller = ctx.caller ?? { actor: 'claude' };
-  const ACTOR = caller.actor;
-  const instructions = ACTOR === 'claude-code' ? `${INSTRUCTIONS}\n${CLAUDE_CODE_INSTRUCTIONS}` : INSTRUCTIONS;
+  const caller = ctx.caller;
+  const s = callerScope(caller);
+  const ACTOR = agentActor(caller.agent, caller.userId);
+  /** A member id as output: 'me' for the key's owner, else their name. */
+  const whoIs = async () => {
+    const people = await memberNames(s.orgId);
+    return (id: string) => (id === s.userId ? 'me' : people[id] || 'another member');
+  };
+  /** Discord is linked to one person (lib/people.ts discordScope): its tools are theirs only. */
+  const discordGate = async () => {
+    if (!(await isDiscordUser(s))) throw new InputError('Discord is linked to another person in Work OS; its tools are not available with your key.');
+  };
+  const instructions = caller.agent === 'claude-code' ? `${INSTRUCTIONS}\n${CLAUDE_CODE_INSTRUCTIONS}` : INSTRUCTIONS;
   const server = new McpServer({ name: 'work-os', version: '1.0.0' }, { instructions });
   // Title/description come from docs.ts so the /connect page shows exactly what Claude sees.
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
@@ -242,7 +265,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { readOnlyHint: true },
     },
     handler(async a => {
-      const all = await tasks.listTasks({
+      const all = await tasks.listTasks(s, {
         status: a.done_since ? ['Done'] : a.status,
         open: !a.status?.length && !a.include_closed && !a.done_since,
         project: a.project,
@@ -258,7 +281,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         sort: a.sort ?? (a.done_since ? 'done' : 'priority'),
       });
       const limit = a.limit ?? 50;
-      const names = await projects.projectNameMap();
+      const names = await projects.projectNameMap(s);
       return {
         today: todayStr(),
         total: all.length,
@@ -290,7 +313,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const { note, ...fields } = a;
-      const t = await tasks.createTask({ ...toPatch(fields), title: a.title }, ACTOR, { note });
+      const t = await tasks.createTask(s, { ...toPatch(fields), title: a.title }, ACTOR, { note });
       return { created: await brief(t, ctx) };
     }),
   );
@@ -310,7 +333,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const { task, note, ...fields } = a;
       const watch = await watchTasks(caller, [watchTarget('update_task', a)!]);
-      const t = await tasks.updateTask(task, toPatch(fields), ACTOR, { note });
+      const t = await tasks.updateTask(s, task, toPatch(fields), ACTOR, { note });
       await notifyChanges(watch);
       return { updated: await brief(t, ctx) };
     }),
@@ -330,7 +353,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const watch = await watchTasks(caller, [watchTarget('log_progress', a)!]);
-      const t = await tasks.logProgress(a.task, a.progress, a.note, ACTOR, a.status, a.blocked_reason);
+      const t = await tasks.logProgress(s, a.task, a.progress, a.note, ACTOR, a.status, a.blocked_reason);
       await notifyChanges(watch);
       return { updated: await brief(t, ctx) };
     }),
@@ -344,9 +367,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const watch = await watchTasks(caller, [watchTarget('complete_task', a)!]);
-      const t = await tasks.completeTask(a.task, a.note, ACTOR);
+      const t = await tasks.completeTask(s, a.task, a.note, ACTOR);
       await notifyChanges(watch);
-      const next = t.nextRef ? await tasks.getTask(t.nextRef) : null;
+      const next = t.nextRef ? await tasks.getTask(s, t.nextRef) : null;
       return { completed: await brief(t, ctx), ...(next ? { nextOccurrence: await brief(next, ctx) } : {}) };
     }),
   );
@@ -358,7 +381,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false },
     },
     handler(async a => {
-      const t = await tasks.addComment(a.task, a.note, ACTOR);
+      const t = await tasks.addComment(s, a.task, a.note, ACTOR);
       return { ok: true, task: `#${t.ref} ${t.title}` };
     }),
   );
@@ -376,7 +399,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false },
     },
     handler(async a => {
-      const t = await tasks.updateChecklist(a.task, { add: a.add, check: a.check, uncheck: a.uncheck, remove: a.remove }, ACTOR);
+      const t = await tasks.updateChecklist(s, a.task, { add: a.add, check: a.check, uncheck: a.uncheck, remove: a.remove }, ACTOR);
       return { ref: t.ref, checklist: t.checklist.map((i, n) => ({ n: n + 1, text: i.text, done: i.done })) };
     }),
   );
@@ -388,13 +411,14 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { readOnlyHint: true },
     },
     handler(async a => {
-      const list = await projects.listProjects({ includeInactive: a.include_inactive });
-      const idx = await notesData.noteIndex({ projectIds: list.map(p => p.id) });
+      const list = await projects.listProjects(s, { includeInactive: a.include_inactive });
+      const idx = await notesData.noteIndex(s, { projectIds: list.map(p => p.id) });
       return list.map(p => ({
         id: p.id,
         name: p.name,
         client: p.client || undefined,
         status: p.status,
+        visibility: p.visibility,
         ...p.stats,
         notes: idx.byProject.get(p.id)?.map(n => ({ id: n.id, title: n.title })),
         url: `${ctx.baseUrl}/projects/${p.id}`,
@@ -410,11 +434,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
         client: z.string().optional(),
         description: z.string().optional(),
         status: ProjectStatusSchema.optional(),
+        visibility: VisibilitySchema.optional().describe('org (default): everyone in the organization sees it; private: only you'),
         code: codeShape,
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
-    handler(async a => projects.createProject(a)),
+    handler(async a => projects.createProject(s, a)),
   );
 
   tool(
@@ -426,15 +451,16 @@ export function createMcpServer(ctx: Ctx): McpServer {
         client: z.string().optional(),
         description: z.string().optional(),
         status: ProjectStatusSchema.optional(),
+        visibility: VisibilitySchema.optional().describe("Only the project's owner can change it; its tasks, notes and Claude items follow"),
         code: codeShape,
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     handler(async a => {
       const { project, ...patch } = a;
-      const p = await projects.getProject(project);
+      const p = await projects.getProject(s, project);
       if (!p) throw new NotFoundError(`Project "${project}" not found`);
-      return projects.updateProject(p.id, patch);
+      return projects.updateProject(s, p.id, patch);
     }),
   );
 
@@ -446,7 +472,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       },
       annotations: { readOnlyHint: true },
     },
-    handler(async a => dailySummary({ since: parseSince(a.since), baseUrl: ctx.baseUrl })),
+    handler(async a => dailySummary(s, { since: parseSince(a.since), baseUrl: ctx.baseUrl })),
   );
 
   tool(
@@ -454,7 +480,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     {
       inputSchema: {
         since: z.string().optional().describe('Default 24h. yesterday | 48h | 7d | YYYY-MM-DD | ISO datetime'),
-        actor: z.enum(['me', 'discord', 'claude', 'claude-code', 'system']).optional().describe('me = Om in the app, discord = Om via Discord commands, claude = claude.ai, claude-code = Claude Code sessions'),
+        actor: z.enum(['me', 'discord', 'claude', 'claude-code', 'system']).optional().describe('me = you in the app, discord = via Discord commands, claude = claude.ai, claude-code = Claude Code sessions (yours)'),
         project: z.string().optional(),
         limit: z.number().int().min(1).max(300).optional().describe('Default 100'),
       },
@@ -462,11 +488,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const since = parseSince(a.since ?? '24h');
-      const list = await tasks.listActivity({ since, actor: a.actor, project: a.project, limit: a.limit ?? 100 });
+      const list = await tasks.listActivity(s, { since, actor: a.actor, project: a.project, limit: a.limit ?? 100 });
+      const by = await byOf(ctx);
       return {
         since: since?.toISOString(),
         count: list.length,
-        events: list.map(e => ({ at: e.at, by: e.actor, task: `#${e.taskRef} ${e.taskTitle}`, type: e.type, text: describeActivity(e) })),
+        events: list.map(e => ({ at: e.at, by: by(e.actor), task: `#${e.taskRef} ${e.taskTitle}`, type: e.type, text: describeActivity(e) })),
       };
     }),
   );
@@ -505,8 +532,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
       archived: z.boolean().optional(),
     }),
     z.object({ op: z.literal('delete_note'), note_id: z.string(), title: z.string() }),
-    z.object({ op: z.literal('add_project'), name: z.string().min(1), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional(), code: codeShape }),
-    z.object({ op: z.literal('update_project'), project: z.string(), name: z.string().optional(), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional(), code: codeShape }),
+    z.object({ op: z.literal('add_project'), name: z.string().min(1), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional(), visibility: VisibilitySchema.optional(), code: codeShape }),
+    z.object({ op: z.literal('update_project'), project: z.string(), name: z.string().optional(), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional(), visibility: VisibilitySchema.optional(), code: codeShape }),
   ]);
 
   function toBatchOp(o: z.infer<typeof OpSchema>): BatchOp {
@@ -553,7 +580,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
           );
       let r: Awaited<ReturnType<typeof applyChanges>>;
       try {
-        r = await applyChanges(a.ops.map(toBatchOp), ACTOR, { dryRun: a.dry_run });
+        r = await applyChanges(s, a.ops.map(toBatchOp), ACTOR, { dryRun: a.dry_run });
       } catch (err) {
         await gate.release(); // nothing was saved: give back the reserved trash count / confirm token
         throw err;
@@ -594,7 +621,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       let matchedBy: { how: string; location: unknown } | undefined;
       if (!projectKey) {
         if (!a.remote && !a.path) throw new InputError('Give project (name or id), or remote (+ subdir, branch) or path to find it from your repo');
-        const m = await projects.findProjectByCode({ remote: a.remote, path: a.path, subdir: a.subdir, branch: a.branch });
+        const m = await projects.findProjectByCode(s, { remote: a.remote, path: a.path, subdir: a.subdir, branch: a.branch });
         if (!m.matched) {
           return {
             unmatched: true,
@@ -605,22 +632,24 @@ export function createMcpServer(ctx: Ctx): McpServer {
         projectKey = m.project.id;
         matchedBy = { how: m.how, location: m.location };
       }
-      const t = await getProjectTree(projectKey, { depth: a.depth, includeClosed: a.include_closed, activityPerTask: a.activity_per_task });
-      const names = await projects.projectNameMap();
-      const idx = await notesData.noteIndex({ projectIds: [t.project.id], taskIds: t.tasks?.map(x => x.id) });
+      const t = await getProjectTree(s, projectKey, { depth: a.depth, includeClosed: a.include_closed, activityPerTask: a.activity_per_task });
+      const names = await projects.projectNameMap(s);
+      const idx = await notesData.noteIndex(s, { projectIds: [t.project.id], taskIds: t.tasks?.map(x => x.id) });
       const nref = (n: notesData.NoteRef) => ({ id: n.id, title: n.title, firstLine: n.firstLine, chars: n.chars, updatedAt: n.updatedAt });
-      const act = (x: { id: string; at: string; actor: string; type: string; taskRef: number }, text: string) => ({ id: x.id, at: x.at, by: x.actor, type: x.type, ref: x.taskRef, text });
+      const by = await byOf(ctx);
+      const who = await whoIs();
+      const act = (x: { id: string; at: string; actor: unknown; type: string; taskRef: number }, text: string) => ({ id: x.id, at: x.at, by: by(x.actor), type: x.type, ref: x.taskRef, text });
       return {
-        project: { id: t.project.id, name: t.project.name, client: t.project.client || undefined, status: t.project.status, description: t.project.description || undefined, code: t.project.code, url: `${ctx.baseUrl}/projects/${t.project.id}`, ...t.project.stats },
+        project: { id: t.project.id, name: t.project.name, client: t.project.client || undefined, status: t.project.status, visibility: t.project.visibility, description: t.project.description || undefined, code: t.project.code, url: `${ctx.baseUrl}/projects/${t.project.id}`, ...t.project.stats },
         ...(matchedBy ? { matchedBy } : {}),
         notes: (idx.byProject.get(t.project.id) ?? []).map(nref),
         claudeItems: await (async () => {
-          const ci = await items.projectItems(t.project.id);
+          const ci = await items.projectItems(s, t.project.id);
           const open = ci.items.filter(i => i.state === 'queued' || i.state === 'active' || i.state === 'blocked');
           return {
             takeNext: ci.pickNext ? `${items.itemRef(ci.pickNext.ref)} ${ci.pickNext.title}` : null,
-            waitingOnOm: ci.waitingOnOm,
-            open: open.map(i => itemOut(i, ci.blockers)),
+            waiting: ci.waiting,
+            open: open.map(i => itemOut(i, ci.blockers, who)),
             recentlyDone: ci.items.filter(i => i.state === 'done').map(i => `${items.itemRef(i.ref)} ${i.title}${i.gitRef ? ` (${i.gitRef})` : ''}`),
             doneTotal: ci.doneCount,
           };
@@ -659,14 +688,15 @@ export function createMcpServer(ctx: Ctx): McpServer {
       why: z.string().max(2000).describe('What is wrong or wanted and where (file, screen, module); readable by a session with no chat history'),
       done_when: z.string().max(1000).optional().describe('How to tell it is finished (required except for ideas)'),
       small: z.boolean().optional().describe('Under ~30 minutes: added as a part of the project\u2019s "Small fixes and checks" item instead of a new item'),
-      next: z.boolean().optional().describe('Om\u2019s call: refused for Claude Code keys (Om marks next in the app)'),
+      next: z.boolean().optional().describe('A person\u2019s call: refused for Claude Code keys (they mark next in the app)'),
       blocked_by: itemKey.optional(),
-      waiting_on_om: z.string().max(1000).optional().describe('What Om must decide or do; he gets an inbox notice'),
+      waiting_on_om: z.string().max(1000).optional().describe('What the person must decide or do; they get an inbox notice'),
+      waiting_on: z.string().max(200).optional().describe('Who it waits on: a member user id or email (default you, the key owner)'),
       note: z.string().max(1000).optional(),
       start: z.boolean().optional().describe('Add it already active in this session'),
     }),
     z.object({ op: z.literal('start'), item: itemKey, take_over: z.boolean().optional().describe('Only if the session holding it has ended') }),
-    z.object({ op: z.literal('block'), item: itemKey, blocked_by: itemKey.optional(), waiting_on_om: z.string().max(1000).optional(), reason: z.string().max(1000).optional() }),
+    z.object({ op: z.literal('block'), item: itemKey, blocked_by: itemKey.optional(), waiting_on_om: z.string().max(1000).optional(), waiting_on: z.string().max(200).optional(), reason: z.string().max(1000).optional() }),
     z.object({ op: z.literal('done'), item: itemKey, ref: z.string().max(120).optional().describe('Branch or commit where it landed (required for Claude Code, except ideas)'), note: z.string().optional() }),
     z.object({ op: z.literal('note'), item: itemKey, text: z.string().min(1).max(1000).describe('Decision or context worth keeping; dated automatically') }),
     z.object({ op: z.literal('release'), item: itemKey, reason: z.string().optional().describe('Why it goes back to the queue unfinished') }),
@@ -680,14 +710,22 @@ export function createMcpServer(ctx: Ctx): McpServer {
     }),
   ]);
 
-  function toItemOp(o: z.infer<typeof ItemOpSchema>): items.ItemOp {
+  /** waiting_on (a member id or email) → a user id in this organization. */
+  async function waitingOn(v: string | undefined): Promise<string | undefined> {
+    if (v === undefined) return undefined;
+    const id = await findMember(s.orgId, v);
+    if (!id) throw new InputError(`waiting_on: "${v}" is not a member of this organization`);
+    return id;
+  }
+
+  async function toItemOp(o: z.infer<typeof ItemOpSchema>): Promise<items.ItemOp> {
     switch (o.op) {
       case 'add':
-        return { op: 'add', project: o.project, title: o.title, kind: o.kind, why: o.why, doneWhen: o.done_when, small: o.small, next: o.next, blockedBy: o.blocked_by, waitingOnOm: o.waiting_on_om, note: o.note, ...(o.start ? { state: 'active' as const } : {}) };
+        return { op: 'add', project: o.project, title: o.title, kind: o.kind, why: o.why, doneWhen: o.done_when, small: o.small, next: o.next, blockedBy: o.blocked_by, waitingText: o.waiting_on_om, waitingOn: await waitingOn(o.waiting_on), note: o.note, ...(o.start ? { state: 'active' as const } : {}) };
       case 'start':
         return { op: 'start', item: o.item, takeOver: o.take_over };
       case 'block':
-        return { op: 'block', item: o.item, blockedBy: o.blocked_by, waitingOnOm: o.waiting_on_om, reason: o.reason };
+        return { op: 'block', item: o.item, blockedBy: o.blocked_by, waitingText: o.waiting_on_om, waitingOn: await waitingOn(o.waiting_on), reason: o.reason };
       case 'done':
         return { op: 'done', item: o.item, gitRef: o.ref, note: o.note };
       case 'edit':
@@ -707,7 +745,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false, idempotentHint: false },
     },
     handler(async a => {
-      const results = await items.applyItemOps(a.ops.map(toItemOp), { actor: ACTOR, keyId: caller.keyId, session: a.session?.trim() || undefined });
+      const ops: items.ItemOp[] = [];
+      for (const o of a.ops) ops.push(await toItemOp(o));
+      const results = await items.applyItemOps(s, ops, { actor: ACTOR, keyId: caller.keyId, session: a.session?.trim() || undefined });
       return { results };
     }),
   );
@@ -724,7 +764,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const watch = await watchTasks(caller, [watchTarget('delete_task', a)!]);
-      const r = await tasks.trashTask(a.task, ACTOR, { reason: a.reason, expectTitle: a.title });
+      const r = await tasks.trashTask(s, a.task, ACTOR, { reason: a.reason, expectTitle: a.title });
       await notifyChanges(watch);
       return { deleted: `#${r.ref} ${r.title}`, restorable: `for ${tasks.TRASH_DAYS} days with restore_task` };
     }),
@@ -735,7 +775,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     { inputSchema: { task: taskKey }, annotations: { destructiveHint: false } },
     handler(async a => {
       const watch = await watchTasks(caller, [watchTarget('restore_task', a)!]);
-      const t = await tasks.restoreTask(a.task, ACTOR);
+      const t = await tasks.restoreTask(s, a.task, ACTOR);
       await notifyChanges(watch);
       return { restored: await brief(t, ctx) };
     }),
@@ -745,15 +785,15 @@ export function createMcpServer(ctx: Ctx): McpServer {
     'list_trash',
     { inputSchema: {}, annotations: { readOnlyHint: true } },
     handler(async () => {
-      const list = await tasks.listTrash();
-      const names = await projects.projectNameMap();
+      const list = await tasks.listTrash(s);
+      const names = await projects.projectNameMap(s);
       return list.map(t => ({ ...t, project: t.projectId ? (names.get(t.projectId) ?? null) : null, projectId: undefined }));
     }),
   );
 
   // ── Notes ───────────────────────────────────────────────────────────────────
 
-  const noteOut = (n: notesData.Note, withBody: boolean) => ({
+  const noteOut = (n: notesData.Note, withBody: boolean, by: (a: unknown) => string) => ({
     id: n.id,
     title: n.title,
     url: `${ctx.baseUrl}/notes/${n.id}`,
@@ -762,7 +802,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     archived: n.archived || undefined,
     archivedBecause: n.archivedBecause,
     updatedAt: n.updatedAt,
-    updatedBy: n.updatedBy,
+    updatedBy: by(n.updatedBy),
     chars: n.chars,
     ...(n.subPages.length ? { subPages: n.subPages } : {}),
     ...(withBody ? {} : { firstLine: n.firstLine }),
@@ -793,10 +833,11 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const r = await notesData.writeNote(
+        s,
         { noteId: a.note_id, task: a.task, project: a.project, parentId: a.parent_id, title: a.title, body: a.body, append: a.append, blockOps: a.block_ops, edits: a.edits, archived: a.archived },
         ACTOR,
       );
-      return { [r.created ? 'created' : 'updated']: noteOut(r.note, false) };
+      return { [r.created ? 'created' : 'updated']: noteOut(r.note, false, await byOf(ctx)) };
     }),
   );
 
@@ -808,10 +849,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       if (!a.note_id && a.task === undefined) throw new InputError('Give note_id or task');
-      const id = a.note_id ?? (await notesData.getTaskNoteId(a.task!));
-      const r = id ? await notesData.getNoteWithBlocks(id, { outline: true }) : null;
+      const id = a.note_id ?? (await notesData.getTaskNoteId(s, a.task!));
+      const r = id ? await notesData.getNoteWithBlocks(s, id, { outline: true }) : null;
       if (!r) throw new NotFoundError(a.note_id ? `Note ${a.note_id} not found` : `Task ${a.task} has no note`);
-      return { ...noteOut(r.note, true), markdown: r.note.body, blocks: r.outline };
+      return { ...noteOut(r.note, true, await byOf(ctx)), markdown: r.note.body, blocks: r.outline };
     }),
   );
 
@@ -828,8 +869,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { readOnlyHint: true },
     },
     handler(async a => {
-      const r = await notesData.listNotes({ project: a.project, state: a.state, kind: a.kind, q: a.query, limit: a.limit ?? 50 });
-      return { total: r.total, notes: r.notes.map(n => noteOut(n, false)) };
+      const r = await notesData.listNotes(s, { project: a.project, state: a.state, kind: a.kind, q: a.query, limit: a.limit ?? 50 });
+      const by = await byOf(ctx);
+      return { total: r.total, notes: r.notes.map(n => noteOut(n, false, by)) };
     }),
   );
 
@@ -840,7 +882,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: true },
     },
     handler(async a => {
-      const r = await notesData.deleteNote(a.note_id, ACTOR, { expectTitle: a.title });
+      const r = await notesData.deleteNote(s, a.note_id, ACTOR, { expectTitle: a.title });
       return { deleted: r.title, restorable: `for ${notesData.NOTE_TRASH_DAYS} days` };
     }),
   );
@@ -856,7 +898,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    handler(async a => discord.needsAttention({ since: parseSince(a.since), maxChannels: a.max_channels })),
+    handler(async a => (await discordGate(), discord.needsAttention({ since: parseSince(a.since), maxChannels: a.max_channels }))),
   );
 
   tool(
@@ -868,7 +910,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    handler(async a => discord.listChannels({ activeSince: parseSince(a.active_since), includeThreads: a.include_threads })),
+    handler(async a => (await discordGate(), discord.listChannels({ activeSince: parseSince(a.active_since), includeThreads: a.include_threads }))),
   );
 
   tool(
@@ -884,9 +926,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    handler(async a =>
-      discord.readMessages({ channel: a.channel, since: parseSince(a.since), before: a.before, after: a.after, around: a.around, limit: a.limit }),
-    ),
+    handler(async a => {
+      await discordGate();
+      return discord.readMessages({ channel: a.channel, since: parseSince(a.since), before: a.before, after: a.after, around: a.around, limit: a.limit });
+    }),
   );
 
   tool(
@@ -906,7 +949,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handler(async a => {
+      await discordGate();
       const r = await discord.messageToTask(
+        s,
         { link: a.message_link, channel: a.channel, messageId: a.message_id },
         { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note },
         ACTOR,

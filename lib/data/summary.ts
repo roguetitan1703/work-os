@@ -1,6 +1,8 @@
 import 'server-only';
-import { collections } from '../db';
+import { scoped, type Scope } from '../scope';
 import { describeActivity } from '../activity-text';
+import { actorOut } from '../actors';
+import { memberNames } from '../people';
 import { OPEN_STATUSES, type Activity, type Task } from '../types';
 import { addDays, previousWorkdayStart, todayStr, weekStart, APP_TZ } from '../dates';
 import { isOverdue, listActivity, sortTasks, toTask, unmetDependencies } from './tasks';
@@ -20,13 +22,13 @@ export type Stats = {
 };
 
 /** Open tasks past due: one indexed count (the nav badge, on every page render). */
-export async function overdueCount(): Promise<number> {
-  const c = await collections();
+export async function overdueCount(s: Scope): Promise<number> {
+  const c = await scoped(s);
   return c.tasks.countDocuments({ archived: false, status: { $in: OPEN_STATUSES }, due: { $gt: '', $lt: todayStr() } });
 }
 
-export async function getStats(): Promise<Stats> {
-  const c = await collections();
+export async function getStats(s: Scope): Promise<Stats> {
+  const c = await scoped(s);
   const today = todayStr();
   const ws = weekStart(today);
   const lastWs = addDays(ws, -7);
@@ -132,22 +134,22 @@ export type DailySummary = {
   projects: { name: string; open: number; overdue: number; doneThisWeek: number }[];
 };
 
-export async function dailySummary(opts: { since?: Date; baseUrl?: string } = {}): Promise<DailySummary> {
-  const c = await collections();
+export async function dailySummary(s: Scope, opts: { since?: Date; baseUrl?: string } = {}): Promise<DailySummary> {
+  const c = await scoped(s);
   const today = todayStr();
   const ws = weekStart(today);
   const since = opts.since ?? previousWorkdayStart(today);
-  const names = await projectNameMap(c);
+  const [names, people] = await Promise.all([projectNameMap(s, c), memberNames(s.orgId)]);
 
   // Done counts include archived tasks (the work was done); open lists exclude them.
   const [openDocs, doneDocs, doneThisWeek, activity] = await Promise.all([
     c.tasks.find({ archived: false, status: { $in: OPEN_STATUSES } }).toArray(),
     c.tasks.find({ status: 'Done', doneAt: { $gte: since } }).sort({ doneAt: -1 }).toArray(),
     c.tasks.find({ status: 'Done', doneOn: { $gte: ws } }, { projection: { projectId: 1 } }).toArray(),
-    listActivity({ since, limit: 300 }),
+    listActivity(s, { since, limit: 300 }),
   ]);
   const open = sortTasks(openDocs.map(toTask));
-  const waiting = await unmetDependencies(open);
+  const waiting = await unmetDependencies(s, open);
   const bt = (t: Task) => {
     const b = briefTask(t, names, { baseUrl: opts.baseUrl, today });
     const w = waiting.get(t.id);
@@ -165,7 +167,7 @@ export async function dailySummary(opts: { since?: Date; baseUrl?: string } = {}
   const grouped = new Map<string, { ref: number; title: string; events: DailySummary['changedSince'][number]['events'] }>();
   for (const a of [...activity].reverse() as Activity[]) {
     const g = grouped.get(a.taskId) ?? { ref: a.taskRef, title: a.taskTitle, events: [] };
-    g.events.push({ at: a.at, actor: a.actor, type: a.type, text: describeActivity(a) });
+    g.events.push({ at: a.at, actor: actorOut(a.actor, s.userId, people), type: a.type, text: describeActivity(a) });
     grouped.set(a.taskId, g);
   }
 
@@ -203,7 +205,7 @@ export async function dailySummary(opts: { since?: Date; baseUrl?: string } = {}
     dueNext7Days: dueNext7.slice(0, 20).map(bt),
     completedSince: doneDocs.map(d => {
       const t = toTask(d);
-      return { ...briefTask(t, names, { baseUrl: opts.baseUrl, today }), doneAt: t.doneAt, doneBy: t.doneBy };
+      return { ...briefTask(t, names, { baseUrl: opts.baseUrl, today }), doneAt: t.doneAt, doneBy: t.doneBy ? actorOut(t.doneBy, s.userId, people) : null };
     }),
     changedSince: [...grouped.values()].slice(0, 60),
     projects: [...projects.values()].sort((a, b) => b.open - a.open),

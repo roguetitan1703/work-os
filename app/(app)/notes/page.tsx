@@ -3,7 +3,8 @@ import { ChevronRight, FileText, FolderOpen, ListTodo } from 'lucide-react';
 import { listNotes } from '@/lib/data/notes';
 import { listProjectsBasic } from '@/lib/data/projects';
 import { fmtAgo } from '@/lib/format';
-import { ACTOR_LABEL } from '@/lib/activity-text';
+import { requireScope } from '@/lib/caller';
+import { ActorName } from '@/components/actor-badge';
 import { cn } from '@/lib/utils';
 import { NewNoteButton } from '@/components/new-note-button';
 import { MobileHeader } from '@/components/mobile/tab-bar';
@@ -21,9 +22,10 @@ export default async function NotesPage({ searchParams }: Props) {
   const sp = await searchParams;
   const state: State = sp.state === 'archived' || sp.state === 'all' ? sp.state : 'active';
   const kind: Kind = sp.kind === 'task' || sp.kind === 'project' ? sp.kind : 'all';
+  const s = await requireScope();
   const [{ total, notes }, projects] = await Promise.all([
-    listNotes({ state, kind, project: sp.project || undefined, q: sp.q || undefined }),
-    listProjectsBasic(),
+    listNotes(s, { state, kind, project: sp.project || undefined, q: sp.q || undefined }),
+    listProjectsBasic(s),
   ]);
   const href = (p: Partial<Record<'state' | 'kind' | 'project' | 'q', string>>) => {
     const u = new URLSearchParams();
@@ -134,7 +136,7 @@ export default async function NotesPage({ searchParams }: Props) {
                       </span>
                     )}
                     <span className="ml-auto shrink-0">
-                      {fmtAgo(n.updatedAt)} · {ACTOR_LABEL[n.updatedBy] ?? n.updatedBy}
+                      {fmtAgo(n.updatedAt)} · <ActorName actor={n.updatedBy} />
                     </span>
                   </div>
                 </div>

@@ -1,5 +1,6 @@
 import 'server-only';
-import { collections, toActivity } from '../db';
+import { toActivity } from '../db';
+import { scoped, type Scope } from '../scope';
 import { OPEN_STATUSES, type Activity, type Task } from '../types';
 import { NotFoundError } from './errors';
 import { getProjectWithStats } from './projects';
@@ -21,13 +22,14 @@ export type ProjectTree = {
 };
 
 export async function getProjectTree(
+  s: Scope,
   nameOrId: string,
   opts: { depth?: TreeDepth; includeClosed?: boolean; activityPerTask?: number; recentActivity?: number } = {},
 ): Promise<ProjectTree> {
   const depth = opts.depth ?? 'tasks';
-  const project = await getProjectWithStats(nameOrId);
+  const project = await getProjectWithStats(s, nameOrId);
   if (!project) throw new NotFoundError(`Project "${nameOrId}" not found`);
-  const c = await collections();
+  const c = await scoped(s);
 
   const all = (await c.tasks.find({ projectId: project.id, archived: false }).toArray()).map(toTask);
   const ids = all.map(t => t.id);
@@ -38,7 +40,7 @@ export async function getProjectTree(
   if (depth === 'project') return tree;
 
   const shown = sortTasks(opts.includeClosed ? all : all.filter(t => OPEN_STATUSES.includes(t.status)), 'priority');
-  const waiting = await unmetDependencies(shown);
+  const waiting = await unmetDependencies(s, shown);
   let perTask = new Map<string, Activity[]>();
   if (depth === 'full' && shown.length) {
     const n = Math.min(Math.max(opts.activityPerTask ?? 5, 1), 30);

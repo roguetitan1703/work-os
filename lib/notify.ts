@@ -1,10 +1,12 @@
 import 'server-only';
 import webpush from 'web-push';
 import { collections, type AlertKind, type NotifyKind } from './db';
+import { getUserSetting, scoped, setUserSetting, type Scope } from './scope';
 
 // Where alerts go: in-app inbox (always), phone push (Web Push) and Discord DM, each
 // switchable in Settings, plus per-alert-type switches. Also tracks "last seen" times
-// for the status panel (Claude connector, Discord commands).
+// for the status panel (Claude connector, Discord commands). Everything here is per person: their settings
+// (notify:<userId>), their inbox, their push devices (docs/multi-user.md "Inbox, push, alerts").
 
 export const ALERT_KINDS: { kind: AlertKind; label: string; hint: string }[] = [
   { kind: 'unblocked', label: 'Unblocked', hint: 'The last task it waited on is done' },
@@ -35,43 +37,44 @@ const DEFAULTS: NotifySettings = {
   kinds: { unblocked: true, overdue: true, due_today: true, due_tomorrow: true, never_started: true, stalled: true, claude_finished: true, claude_stopped: true, claude_stuck: true, claude_code_changes: true, claude_waiting: true },
 };
 
-export async function getNotifySettings(): Promise<NotifySettings> {
-  const doc = await (await collections()).settings.findOne({ _id: 'notify' });
-  const saved = (doc as unknown as { notify?: Partial<NotifySettings> } | null)?.notify;
+export async function getNotifySettings(s: Scope): Promise<NotifySettings> {
+  const saved = (await getUserSetting(s, 'notify'))?.notify;
   return { channels: { ...DEFAULTS.channels, ...saved?.channels }, kinds: { ...DEFAULTS.kinds, ...saved?.kinds } };
 }
 
-export async function setNotifySettings(next: NotifySettings): Promise<void> {
-  await (await collections()).settings.updateOne({ _id: 'notify' }, { $set: { notify: next, updatedAt: new Date() } as never }, { upsert: true });
+export async function setNotifySettings(s: Scope, next: NotifySettings): Promise<void> {
+  await setUserSetting(s, 'notify', { notify: next, updatedAt: new Date() });
 }
 
 // ── In-app inbox ────────────────────────────────────────────────────────────
 
 export type InboxItem = { id: string; kind: NotifyKind | 'test' | 'security'; title: string; body: string; url: string; createdAt: string; read: boolean };
 
-export async function addToInbox(items: { kind: NotifyKind | 'test' | 'security'; title: string; body: string; url: string }[]): Promise<void> {
+/** s: the recipient. */
+export async function addToInbox(s: Scope, items: { kind: NotifyKind | 'test' | 'security'; title: string; body: string; url: string }[]): Promise<void> {
   if (!items.length) return;
   const now = new Date();
-  await (await collections()).notifications.insertMany(
-    items.map((i, n) => ({ _id: `${now.getTime()}-${n}-${Math.random().toString(36).slice(2, 7)}`, ...i, createdAt: now, readAt: null })),
+  await (await scoped(s)).notifications.insertMany(
+    items.map((i, n) => ({ _id: `${now.getTime()}-${n}-${Math.random().toString(36).slice(2, 7)}`, orgId: s.orgId, userId: s.userId, ...i, createdAt: now, readAt: null })),
   );
 }
 
-export async function listInbox(limit = 100): Promise<InboxItem[]> {
-  const docs = await (await collections()).notifications.find({}).sort({ createdAt: -1 }).limit(limit).toArray();
+export async function listInbox(s: Scope, limit = 100): Promise<InboxItem[]> {
+  const docs = await (await scoped(s)).notifications.find({}).sort({ createdAt: -1 }).limit(limit).toArray();
   return docs.map(d => ({ id: d._id, kind: d.kind, title: d.title, body: d.body, url: d.url, createdAt: d.createdAt.toISOString(), read: !!d.readAt }));
 }
 
-export async function unreadCount(): Promise<number> {
-  return (await collections()).notifications.countDocuments({ readAt: null });
+export async function unreadCount(s: Scope): Promise<number> {
+  return (await scoped(s)).notifications.countDocuments({ readAt: null });
 }
 
-export async function markAllRead(): Promise<void> {
-  await (await collections()).notifications.updateMany({ readAt: null }, { $set: { readAt: new Date() } });
+export async function markAllRead(s: Scope): Promise<void> {
+  await (await scoped(s)).notifications.updateMany({ readAt: null }, { $set: { readAt: new Date() } });
 }
 
+/** System clean-up for everyone (the alerts cron). */
 export async function pruneInbox(): Promise<void> {
-  await (await collections()).notifications.deleteMany({ createdAt: { $lt: new Date(Date.now() - 60 * 86_400_000) } });
+  await (await collections()).notifications.deleteMany({ createdAt: { $lt: new Date(Date.now() - 60 * 86_400_000) } }); // scope-ok: system clean-up of old rows in every organization
 }
 
 // ── Phone push (Web Push) ───────────────────────────────────────────────────
@@ -93,41 +96,47 @@ function ensureVapid() {
 
 export type PushSubJSON = { endpoint: string; keys: { p256dh: string; auth: string } };
 
-export async function savePushSubscription(sub: PushSubJSON, device: string): Promise<void> {
+/**
+ * This browser now pushes to the signed-in person only. The endpoint identifies the browser, so when someone else signs
+ * in on it and turns push on, the earlier person's subscription for it is removed (they would otherwise get this
+ * person's alerts, or this person theirs).
+ */
+export async function savePushSubscription(s: Scope, sub: PushSubJSON, device: string): Promise<void> {
   if (!sub?.endpoint || !sub.keys?.p256dh || !sub.keys?.auth) throw new Error('Invalid subscription');
-  await (await collections()).pushSubs.updateOne(
+  await (await collections()).pushSubs.deleteOne({ _id: sub.endpoint, $or: [{ userId: { $ne: s.userId } }, { orgId: { $ne: s.orgId } }] }); // scope-ok: takeover of this browser's endpoint from whoever used it before
+  await (await scoped(s)).pushSubs.updateOne(
     { _id: sub.endpoint },
     { $set: { keys: sub.keys, device: device.slice(0, 120), updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } },
     { upsert: true },
   );
 }
 
-export async function removePushSubscription(endpoint: string): Promise<void> {
-  await (await collections()).pushSubs.deleteOne({ _id: endpoint });
+export async function removePushSubscription(s: Scope, endpoint: string): Promise<void> {
+  await (await scoped(s)).pushSubs.deleteOne({ _id: endpoint });
 }
 
-export async function pushDeviceCount(): Promise<number> {
-  return (await collections()).pushSubs.countDocuments();
+export async function pushDeviceCount(s: Scope): Promise<number> {
+  return (await scoped(s)).pushSubs.countDocuments();
 }
 
-/** Send to every subscribed device; drops subscriptions the push service says are gone. Returns devices reached. */
-export async function sendPush(msg: { title: string; body: string; url: string; tag?: string }): Promise<{ sent: number; failed: number; error?: string }> {
+/** Send to the recipient's own devices; drops subscriptions the push service says are gone. Returns devices reached. */
+export async function sendPush(s: Scope, msg: { title: string; body: string; url: string; tag?: string }): Promise<{ sent: number; failed: number; error?: string }> {
   if (!pushConfigured()) return { sent: 0, failed: 0, error: 'Push keys not set' };
   ensureVapid();
-  const c = await collections();
+  const c = await scoped(s);
   const subs = await c.pushSubs.find({}).toArray();
   let sent = 0;
   let failed = 0;
   let error: string | undefined;
   await Promise.all(
-    subs.map(async s => {
+    subs.map(async d => {
       try {
-        await webpush.sendNotification({ endpoint: s._id, keys: s.keys }, JSON.stringify(msg), { TTL: 6 * 3600, urgency: 'high' });
+        await webpush.sendNotification({ endpoint: d._id, keys: d.keys }, JSON.stringify(msg), { TTL: 6 * 3600, urgency: 'high' });
         sent++;
       } catch (e) {
         failed++;
         const code = (e as { statusCode?: number }).statusCode;
-        if (code === 404 || code === 410) await c.pushSubs.deleteOne({ _id: s._id });
+        if (code === 404 || code === 410) await c.pushSubs.deleteOne({ _id: d._id });
         else error = e instanceof Error ? e.message : String(e);
       }
     }),
@@ -137,22 +146,24 @@ export async function sendPush(msg: { title: string; body: string; url: string; 
 
 // ── Status: last seen ───────────────────────────────────────────────────────
 
-// "Last seen" is shown to the minute at most: one write per kind per minute per process is plenty.
+// "Last seen" is shown to the minute at most: one write per kind per person per minute per process is plenty.
 const SEEN_EVERY_MS = 60_000;
-const seenAt: Record<'mcp' | 'discord', number> = { mcp: 0, discord: 0 };
+const seenAt = new Map<string, number>();
 
-export async function markSeen(what: 'mcp' | 'discord'): Promise<void> {
+export async function markSeen(s: Scope, what: 'mcp' | 'discord'): Promise<void> {
   const now = Date.now();
-  if (now - seenAt[what] < SEEN_EVERY_MS) return;
-  seenAt[what] = now;
+  const k = `${what}:${s.orgId}:${s.userId}`;
+  if (now - (seenAt.get(k) ?? 0) < SEEN_EVERY_MS) return;
+  if (seenAt.size > 1000) seenAt.clear();
+  seenAt.set(k, now);
   try {
-    await (await collections()).settings.updateOne({ _id: 'status' }, { $set: { [what === 'mcp' ? 'lastMcpAt' : 'lastDiscordAt']: new Date() } as never }, { upsert: true });
+    await setUserSetting(s, 'status', { [what === 'mcp' ? 'lastMcpAt' : 'lastDiscordAt']: new Date() });
   } catch {
     // status is best-effort
   }
 }
 
-export async function lastSeen(): Promise<{ mcp: string | null; discord: string | null }> {
-  const d = (await (await collections()).settings.findOne({ _id: 'status' })) as unknown as { lastMcpAt?: Date; lastDiscordAt?: Date } | null;
+export async function lastSeen(s: Scope): Promise<{ mcp: string | null; discord: string | null }> {
+  const d = await getUserSetting(s, 'status');
   return { mcp: d?.lastMcpAt?.toISOString() ?? null, discord: d?.lastDiscordAt?.toISOString() ?? null };
 }

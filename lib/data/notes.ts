@@ -1,12 +1,14 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { Filter } from 'mongodb';
-import { collections, type Collections, type NoteDoc } from '../db';
+import type { NoteDoc } from '../db';
+import { scoped, usersWithSetting, type Scope, type ScopedCollections as Collections } from '../scope';
+import { asActor, isPerson } from '../actors';
 import { CLOSED_STATUSES, type Actor } from '../types';
 import type { NoteBlock } from '../notes-schema';
 import { blockOutline, blocksToMarkdown, cloneBlocks, findBlock, markdownToBlocks, plainText } from '../notes-convert';
 import { InputError, NotFoundError } from './errors';
-import { resolveProject } from './projects';
+import { placeIn, resolveProject, type Placement } from './projects';
 
 // Notes are Notion-style pages (editor blocks) attached to a task or a project, optionally
 // nested as sub-pages. Blocks are the source of truth; `body` is derived markdown used for
@@ -62,7 +64,7 @@ export function noteRef(d: ListedNoteDoc): NoteRef {
     firstLine: firstLineOf(text),
     chars: d._chars ?? d.body.length,
     updatedAt: d.updatedAt.toISOString(),
-    updatedBy: d.updatedBy,
+    updatedBy: asActor(d.updatedBy),
   };
 }
 
@@ -134,29 +136,29 @@ async function hydrate(c: Collections, docs: ListedNoteDoc[]): Promise<Note[]> {
       archived: !!because,
       ...(because ? { archivedBecause: because } : {}),
       createdAt: d.createdAt.toISOString(),
-      createdBy: d.createdBy,
+      createdBy: asActor(d.createdBy),
     };
   });
 }
 
-async function taskIdFor(c: Collections, key: string | number): Promise<{ _id: string; ref: number; title: string; projectId: string | null }> {
+async function taskIdFor(c: Collections, key: string | number): Promise<{ _id: string; ref: number; title: string; projectId: string | null } & Placement> {
   const f = typeof key === 'number' ? { ref: key } : /^#?\d{1,7}$/.test(key.trim()) ? { ref: Number(key.trim().replace('#', '')) } : { _id: key.trim() };
-  const t = await c.tasks.findOne(f, { projection: { ref: 1, title: 1, projectId: 1 } });
+  const t = await c.tasks.findOne(f, { projection: { ref: 1, title: 1, projectId: 1, ownerId: 1, visibility: 1 } });
   if (!t) throw new NotFoundError(`Task ${key} not found`);
   return t;
 }
 
 // ── Reads ───────────────────────────────────────────────────────────────────
 
-export async function getNote(id: string): Promise<Note | null> {
-  const c = await collections();
+export async function getNote(s: Scope, id: string): Promise<Note | null> {
+  const c = await scoped(s);
   const d = await c.notes.findOne({ _id: id, ...live });
   return d ? (await hydrate(c, [d]))[0] : null;
 }
 
 /** Note plus its editor blocks (for the editor) and a per-block outline (for Claude). */
-export async function getNoteWithBlocks(id: string, opts: { outline?: boolean } = {}) {
-  const c = await collections();
+export async function getNoteWithBlocks(s: Scope, id: string, opts: { outline?: boolean } = {}) {
+  const c = await scoped(s);
   const d = await c.notes.findOne({ _id: id, ...live });
   if (!d) return null;
   const [note] = await hydrate(c, [d]);
@@ -164,8 +166,8 @@ export async function getNoteWithBlocks(id: string, opts: { outline?: boolean } 
   return { note, blocks, ...(opts.outline ? { outline: await blockOutline(blocks) } : {}) };
 }
 
-export async function getTaskNoteId(key: string | number): Promise<string | null> {
-  const c = await collections();
+export async function getTaskNoteId(s: Scope, key: string | number): Promise<string | null> {
+  const c = await scoped(s);
   const t = await taskIdFor(c, key);
   return (await c.notes.findOne({ taskId: t._id, ...live }, { projection: { _id: 1 } }))?._id ?? null;
 }
@@ -178,8 +180,8 @@ export type NoteFilter = {
   limit?: number;
 };
 
-export async function listNotes(f: NoteFilter = {}): Promise<{ total: number; notes: Note[] }> {
-  const c = await collections();
+export async function listNotes(s: Scope, f: NoteFilter = {}): Promise<{ total: number; notes: Note[] }> {
+  const c = await scoped(s);
   const q: Filter<NoteDoc> = { ...live };
   if (f.kind === 'task') q.taskId = { $ne: null };
   if (f.kind === 'project') q.taskId = null;
@@ -194,7 +196,7 @@ export async function listNotes(f: NoteFilter = {}): Promise<{ total: number; no
     .toArray()) as ListedNoteDoc[];
   let notes = await hydrate(c, docs);
   if (f.project) {
-    const p = await resolveProject(c, f.project, { create: false });
+    const p = await resolveProject(c, s, f.project, { create: false });
     notes = p ? notes.filter(n => n.projectId === p._id) : [];
   }
   const state = f.state ?? 'active';
@@ -203,8 +205,8 @@ export async function listNotes(f: NoteFilter = {}): Promise<{ total: number; no
 }
 
 /** Compact index of top-level notes per task id and per project id, for embedding in reads. */
-export async function noteIndex(opts: { taskIds?: string[]; projectIds?: string[] }): Promise<{ byTask: Map<string, NoteRef>; byProject: Map<string, NoteRef[]> }> {
-  const c = await collections();
+export async function noteIndex(s: Scope, opts: { taskIds?: string[]; projectIds?: string[] }): Promise<{ byTask: Map<string, NoteRef>; byProject: Map<string, NoteRef[]> }> {
+  const c = await scoped(s);
   const or: Filter<NoteDoc>[] = [];
   if (opts.taskIds?.length) or.push({ taskId: { $in: opts.taskIds } });
   if (opts.projectIds?.length) or.push({ projectId: { $in: opts.projectIds }, taskId: null, parentId: { $in: [null, undefined] } });
@@ -224,9 +226,9 @@ export async function noteIndex(opts: { taskIds?: string[]; projectIds?: string[
 }
 
 /** Which of these tasks have a live note (ids only; no content read). */
-export async function taskIdsWithNotes(taskIds: string[]): Promise<Set<string>> {
+export async function taskIdsWithNotes(s: Scope, taskIds: string[]): Promise<Set<string>> {
   if (!taskIds.length) return new Set();
-  const c = await collections();
+  const c = await scoped(s);
   const docs = await c.notes.find({ ...live, taskId: { $in: taskIds } }, { projection: { taskId: 1 } }).toArray();
   return new Set(docs.map(d => d.taskId!));
 }
@@ -330,19 +332,24 @@ function newId() {
   return randomUUID().replace(/-/g, '').slice(0, 10);
 }
 
-/** The dispatcher's boilerplate note is read by every session it starts, so only Om may change, move or delete it (or add a sub-page to it). */
-async function guardBoilerplate(c: Collections, actor: Actor, ids: (string | null | undefined)[]): Promise<void> {
-  if (actor === 'me') return;
-  const s = await c.settings.findOne({ _id: 'dispatcher' }, { projection: { boilerplateNoteId: 1 } });
-  if (s?.boilerplateNoteId && ids.includes(s.boilerplateNoteId)) throw new InputError("This note is the dispatcher's boilerplate; only Om can change it");
+/**
+ * A dispatcher's boilerplate note is read by every session it starts, so only the person whose dispatcher reads it may
+ * change, move or delete it (or add a sub-page to it), in the app: not their Claude, Discord or anyone else.
+ */
+async function guardBoilerplate(s: Scope, actor: Actor, ids: (string | null | undefined)[]): Promise<void> {
+  const list = ids.filter((x): x is string => !!x);
+  if (!list.length) return;
+  const owners = await usersWithSetting(s.orgId, 'dispatcher', { boilerplateNoteId: { $in: list } });
+  if (owners.some(u => !(isPerson(actor) && actor.userId === u))) throw new InputError("This note is a dispatcher's boilerplate; only the person who chose it can change it, in the app");
 }
 
-export async function writeNote(w: NoteWrite, actor: Actor): Promise<{ note: Note; created: boolean }> {
-  const c = await collections();
+export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{ note: Note; created: boolean }> {
+  const c = await scoped(s);
   const now = new Date();
 
   let cur: NoteDoc | null = null;
   let taskId: string | null = null;
+  let taskPlace: Placement | null = null;
   let parent: NoteDoc | null = null;
   if (w.noteId) {
     cur = await c.notes.findOne({ _id: w.noteId, ...live });
@@ -350,6 +357,7 @@ export async function writeNote(w: NoteWrite, actor: Actor): Promise<{ note: Not
   } else if (w.task !== undefined) {
     const t = await taskIdFor(c, w.task);
     taskId = t._id;
+    taskPlace = { ownerId: t.ownerId, visibility: t.visibility };
     cur = await c.notes.findOne({ taskId, ...live });
     if (!cur && !w.title) w.title = t.title;
   } else if (w.parentId) {
@@ -359,7 +367,7 @@ export async function writeNote(w: NoteWrite, actor: Actor): Promise<{ note: Not
     throw new InputError('Give note_id to update a note, task for a task’s note, parent_id for a sub-page, or project to create a project note.');
   }
 
-  await guardBoilerplate(c, actor, [cur?._id, cur?.parentId, parent?._id]);
+  await guardBoilerplate(s, actor, [cur?._id, cur?.parentId, parent?._id]);
   if (cur) {
     if (w.expectUpdatedAt && cur.updatedAt.toISOString() !== w.expectUpdatedAt) throw new NoteConflictError();
     const next = await applyContent(await noteBlocks(cur), w);
@@ -380,17 +388,25 @@ export async function writeNote(w: NoteWrite, actor: Actor): Promise<{ note: Not
   // Create
   if (w.edits?.length || w.blockOps?.length) throw new InputError('The note does not exist yet. Pass body instead.');
   let projectId: string | null = null;
+  // A note lives where what it is attached to lives: its task, its project, or the page it is inside.
+  let place: Placement;
   if (parent) {
     projectId = parent.projectId ?? (parent.taskId ? ((await c.tasks.findOne({ _id: parent.taskId }, { projection: { projectId: 1 } }))?.projectId ?? null) : null);
+    place = { ownerId: parent.ownerId, visibility: parent.visibility };
   } else if (!taskId) {
-    const p = await resolveProject(c, w.project!, { create: false });
+    const p = await resolveProject(c, s, w.project!, { create: false });
     if (!p) throw new NotFoundError(`Project "${w.project}" not found`);
     projectId = p._id;
+    place = placeIn(p, s.userId);
     if (!w.title?.trim()) throw new InputError('A new project note needs a title.');
+  } else {
+    place = taskPlace!;
   }
   const blocks = (await applyContent([], { blocks: w.blocks, body: w.body ?? w.append })) ?? [];
   const doc: NoteDoc = {
     _id: newId(),
+    orgId: s.orgId,
+    ...place,
     title: (w.title ?? 'Untitled').trim() || 'Untitled',
     blocks,
     body: await blocksToMarkdown(blocks),
@@ -449,14 +465,14 @@ async function descendants(c: Collections, id: string): Promise<string[]> {
   return out;
 }
 
-export async function deleteNote(id: string, actor: Actor, opts: { expectTitle?: string } = {}): Promise<{ title: string; subPages: number }> {
-  const c = await collections();
+export async function deleteNote(s: Scope, id: string, actor: Actor, opts: { expectTitle?: string } = {}): Promise<{ title: string; subPages: number }> {
+  const c = await scoped(s);
   const cur = await c.notes.findOne({ _id: id, ...live });
   if (!cur) throw new NotFoundError(`Note ${id} not found`);
   if (opts.expectTitle !== undefined && cur.title.toLowerCase().trim() !== opts.expectTitle.toLowerCase().trim()) {
     throw new InputError(`Note ${id} is "${cur.title}", not "${opts.expectTitle}". Nothing deleted.`);
   }
-  await guardBoilerplate(c, actor, [cur._id, cur.parentId]);
+  await guardBoilerplate(s, actor, [cur._id, cur.parentId]);
   const kids = await descendants(c, id);
   const at = new Date();
   await c.notes.updateMany({ _id: { $in: [id, ...kids] } }, { $set: { deletedAt: at, deletedBy: actor } });
@@ -470,11 +486,11 @@ export async function deleteNote(id: string, actor: Actor, opts: { expectTitle?:
   return { title: cur.title, subPages: kids.length };
 }
 
-export async function restoreNote(id: string, actor: Actor): Promise<Note> {
-  const c = await collections();
+export async function restoreNote(s: Scope, id: string, actor: Actor): Promise<Note> {
+  const c = await scoped(s);
   const cur = await c.notes.findOne({ _id: id, deletedAt: { $ne: null } });
   if (!cur) throw new NotFoundError(`Note ${id} is not deleted`);
-  await guardBoilerplate(c, actor, [cur._id, cur.parentId]);
+  await guardBoilerplate(s, actor, [cur._id, cur.parentId]);
   if (cur.taskId && (await c.notes.findOne({ taskId: cur.taskId, ...live }))) throw new InputError('That task has a newer note; restore refused.');
   // Bring back sub-pages deleted in the same action.
   const same = await c.notes.find({ deletedAt: cur.deletedAt }, { projection: { _id: 1 } }).toArray();
@@ -484,11 +500,11 @@ export async function restoreNote(id: string, actor: Actor): Promise<Note> {
     const p = await c.notes.findOne({ _id: cur.parentId, ...live });
     if (p) await addPageBlock(c, p, cur._id, cur.title, actor);
   }
-  return (await getNote(id))!;
+  return (await getNote(s, id))!;
 }
 
-export async function purgeDeletedNotes(): Promise<number> {
-  const c = await collections();
+export async function purgeDeletedNotes(s: Scope): Promise<number> {
+  const c = await scoped(s);
   const r = await c.notes.deleteMany({ deletedAt: { $ne: null, $lt: new Date(Date.now() - NOTE_TRASH_DAYS * 86_400_000) } });
   return r.deletedCount;
 }

@@ -1,11 +1,13 @@
 import 'server-only';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { collections, type PolicyEventDoc } from '../db';
+import { forUser, scoped, type Scope } from '../scope';
+import { asActor, type AgentName } from '../actors';
 import { authSecret } from '../auth';
 import { InputError } from '../data/errors';
 import * as tasks from '../data/tasks';
 import { addToInbox, getNotifySettings } from '../notify';
-import type { Actor, Task } from '../types';
+import type { Task } from '../types';
 
 // Server-side rules for MCP callers. One place, called by every tool (lib/mcp/server.ts wraps
 // each registered tool with beforeTool) and by apply_changes for its ops (checkBatch).
@@ -17,10 +19,15 @@ import type { Actor, Task } from '../types';
 //   - at most 10 trash calls (delete_task / delete_note, single or in a batch) per 10 minutes, unless confirmed
 //   - apply_changes that trashes > 10 items or changes > 50 tasks must be dry-run first; the dry run
 //     returns a confirm token (HMAC of the op list + expiry, 10 min, the auth secret) that the real call passes
-//   - an inbox notice when it changes title/priority/due/project/status/archived of, or trashes, a task it did not create
+//   - an inbox notice (to the task's recipient) when it changes title/priority/due/project/status/archived of, or
+//     trashes, a task it did not create
+// policyEvents is per key (keyId), not organization data: it is read and written raw here (scope-ok).
 
-/** keyId: the API key; userId/orgId: its owner and organization (lib/caller.ts). */
-export type Caller = { actor: Actor; keyId?: string; keyName?: string; userId?: string; orgId?: string };
+/** agent: the key's kind; keyId: the API key; userId/orgId: its owner and organization (lib/caller.ts). The MCP server acts for them. */
+export type Caller = { agent: AgentName; keyId?: string; keyName?: string; userId: string; orgId: string };
+
+/** The data scope a caller acts in. */
+export const callerScope = (c: Caller): Scope => ({ userId: c.userId, orgId: c.orgId });
 
 export const LIMITS = {
   callsPerHour: 300,
@@ -39,7 +46,13 @@ export class PolicyError extends InputError {
   }
 }
 
-const isCode = (c: Caller) => c.actor === 'claude-code';
+const isCode = (c: Caller) => c.agent === 'claude-code';
+
+/** Created by this person's Claude Code (older entries have no user: they were all Om's). */
+const byOwnCode = (c: Caller, createdBy: unknown) => {
+  const a = asActor(createdBy);
+  return a.kind === 'agent' && a.agent === 'claude-code' && (!a.userId || a.userId === c.userId);
+};
 
 /** Permanent deletion and admin operations, as tools or apply_changes ops. None exist on MCP today; listed so adding one can't silently open it to Claude Code. */
 const BLOCKED = new Set(['purge_trash', 'purge_task', 'empty_trash', 'delete_forever', 'purge_note', 'register_commands', 'import_tasks', 'admin']);
@@ -84,7 +97,7 @@ export function watchTarget(op: string, a: Record<string, unknown>): WatchTarget
 }
 
 async function countSince(keyId: string, kind: 'call' | 'trash', since: Date): Promise<number> {
-  const c = await collections();
+  const c = await collections(); // scope-ok: rate-limit events per API key
   const r = await c.policyEvents
     .aggregate<{ n: number }>([{ $match: { keyId, kind, at: { $gte: since } } }, { $group: { _id: null, n: { $sum: { $ifNull: ['$n', 1] } } } }])
     .toArray();
@@ -93,12 +106,12 @@ async function countSince(keyId: string, kind: 'call' | 'trash', since: Date): P
 
 async function record(keyId: string, kind: 'call' | 'trash', n = 1): Promise<string> {
   const _id = randomUUID();
-  await (await collections()).policyEvents.insertOne({ _id, keyId, kind, at: new Date(), ...(n !== 1 ? { n } : {}) });
+  await (await collections()).policyEvents.insertOne({ _id, keyId, kind, at: new Date(), ...(n !== 1 ? { n } : {}) }); // scope-ok: rate-limit events per API key
   return _id;
 }
 
 async function unrecord(id: string | undefined): Promise<void> {
-  if (id) await (await collections()).policyEvents.deleteOne({ _id: id }).catch(() => {});
+  if (id) await (await collections()).policyEvents.deleteOne({ _id: id }).catch(() => {}); // scope-ok: rate-limit events per API key
 }
 
 /**
@@ -187,7 +200,7 @@ async function burnConfirm(keyId: string, sig: string): Promise<string | null> {
   const _id = `confirm:${sig}`;
   try {
     // kind 'confirm' is never counted by countSince (it matches 'call' / 'trash' only).
-    await (await collections()).policyEvents.insertOne({ _id, keyId, kind: 'confirm', at: new Date() } as unknown as PolicyEventDoc);
+    await (await collections()).policyEvents.insertOne({ _id, keyId, kind: 'confirm', at: new Date() } as unknown as PolicyEventDoc); // scope-ok: confirm tokens per API key
     return _id;
   } catch (e) {
     if ((e as { code?: number }).code === 11000) return null;
@@ -242,9 +255,9 @@ export async function checkBatch(caller: Caller, ops: Op[], opts: { dryRun?: boo
   return { release: () => unrecord(trashId) };
 }
 
-// ── Notify Om when Claude Code changes his tasks ────────────────────────────
+// ── Tell a task's person when Claude Code changes it ────────────────────────
 
-type Snap = Pick<Task, 'id' | 'ref' | 'title' | 'priority' | 'due' | 'projectId' | 'status' | 'archived' | 'createdBy'>;
+type Snap = Pick<Task, 'id' | 'ref' | 'title' | 'priority' | 'due' | 'projectId' | 'status' | 'archived' | 'createdBy' | 'ownerId' | 'visibility' | 'assigneeId'>;
 export type Watch = { caller: Caller; before: Map<string, Snap>; trashed: Set<string>; restored: Set<string>; fields: Map<string, Set<string>> };
 
 /** Things to watch in one call: task keys with the watched fields they set (args) or may change (also), and keys being trashed. */
@@ -254,21 +267,23 @@ export type WatchTarget = { key: string | number; args?: Record<string, unknown>
 export async function watchTasks(caller: Caller, targets: WatchTarget[]): Promise<Watch | null> {
   if (!isCode(caller)) return null;
   const w: Watch = { caller, before: new Map(), trashed: new Set(), restored: new Set(), fields: new Map() };
+  const s = callerScope(caller);
   for (const t of targets) {
     if (typeof t.key === 'string' && t.key.startsWith('$')) continue; // created in this batch
     if (t.restore) {
       const m = String(t.key).match(/^#?(\d+)$/);
-      const tr = await (await collections()).trash.findOne(m ? { ref: Number(m[1]) } : { _id: String(t.key) }, { sort: { deletedAt: -1 }, projection: { task: 1 } });
-      if (tr && tr.task.createdBy !== 'claude-code') {
-        w.before.set(tr.task._id, { id: tr.task._id, ref: tr.task.ref, title: tr.task.title, priority: tr.task.priority, due: tr.task.due, projectId: tr.task.projectId, status: tr.task.status, archived: tr.task.archived, createdBy: tr.task.createdBy });
+      const tr = await (await scoped(s)).trash.findOne(m ? { ref: Number(m[1]) } : { _id: String(t.key) }, { sort: { deletedAt: -1 }, projection: { task: 1 } });
+      if (tr && !byOwnCode(caller, tr.task.createdBy)) {
+        const d = tr.task;
+        w.before.set(d._id, { id: d._id, ref: d.ref, title: d.title, priority: d.priority, due: d.due, projectId: d.projectId, status: d.status, archived: d.archived, createdBy: asActor(d.createdBy), ownerId: d.ownerId, visibility: d.visibility, assigneeId: d.assigneeId ?? null });
         w.restored.add(tr.task._id);
       }
       continue;
     }
     const fields = WATCHED.filter(f => (t.args && t.args[f.arg] !== undefined) || t.also?.includes(f.label)).map(f => f.label);
     if (!t.trash && !fields.length) continue;
-    const task = await tasks.getTask(t.key).catch(() => null);
-    if (!task || task.createdBy === 'claude-code') continue;
+    const task = await tasks.getTask(s, t.key).catch(() => null);
+    if (!task || byOwnCode(caller, task.createdBy)) continue;
     w.before.set(task.id, task);
     if (t.trash) w.trashed.add(task.id);
     const set = w.fields.get(task.id) ?? new Set<string>();
@@ -282,21 +297,31 @@ const show = (v: unknown) => (v == null || v === '' ? 'none' : String(v));
 const diffText = (label: string, from: unknown, to: unknown) =>
   label === 'archived' ? (to ? 'archived' : 'unarchived') : `${label} ${show(from)} → ${show(to)}`;
 
-/** After a successful call: one inbox notice listing what changed. Best effort; never fails the call. */
+/** After a successful call: one inbox notice per person (each task's recipient) listing what changed. Best effort; never fails the call. */
 export async function notifyChanges(w: Watch | null): Promise<void> {
   if (!w) return;
+  const byRecipient = new Map<string, Map<string, Snap>>();
+  for (const [id, b] of w.before) {
+    const r = tasks.recipientOf({ ownerId: b.ownerId, visibility: b.visibility, assigneeId: b.assigneeId });
+    byRecipient.set(r, (byRecipient.get(r) ?? new Map()).set(id, b));
+  }
+  for (const [userId, before] of byRecipient) await notifyOne(w, forUser(callerScope(w.caller), userId), before);
+}
+
+async function notifyOne(w: Watch, to: Scope, before: Map<string, Snap>): Promise<void> {
   try {
-    const settings = await getNotifySettings();
+    const settings = await getNotifySettings(to);
     if (settings.kinds.claude_code_changes === false) return;
+    const s = callerScope(w.caller);
     const lines: string[] = [];
     let firstRef: number | null = null;
-    for (const [id, b] of w.before) {
+    for (const [id, b] of before) {
       if (w.trashed.has(id) || w.restored.has(id)) {
         lines.push(`#${b.ref} ${b.title}: ${w.trashed.has(id) ? 'moved to trash' : 'restored from trash'}`);
         firstRef ??= b.ref;
         continue;
       }
-      const now = await tasks.getTask(id).catch(() => null);
+      const now = await tasks.getTask(s, id).catch(() => null);
       if (!now) continue;
       const diffs: string[] = [];
       for (const f of WATCHED) {
@@ -309,8 +334,9 @@ export async function notifyChanges(w: Watch | null): Promise<void> {
       }
     }
     if (!lines.length) return;
-    const who = w.caller.keyName ? `Claude Code (${w.caller.keyName})` : 'Claude Code';
-    await addToInbox([
+    const mine = to.userId === w.caller.userId;
+    const who = mine ? (w.caller.keyName ? `Claude Code (${w.caller.keyName})` : 'Claude Code') : "A teammate's Claude Code";
+    await addToInbox(to, [
       {
         kind: 'claude_code_changes',
         title: lines.length === 1 ? `${who} changed #${firstRef}` : `${who} changed ${lines.length} of your tasks`,

@@ -10,7 +10,8 @@ import { DismissNotice } from './dismiss-notice';
 export async function MigrationNotice() {
   const caller = await getCaller();
   if (!caller || (caller.role !== 'owner' && caller.role !== 'admin')) return null;
-  const doc = await (await collections()).settings.findOne({ _id: 'authMigration' }).catch(() => null);
+  // The notice belongs to the organization the old keys were Om's in (scripts/migrate-ownership.mjs stamps orgId).
+  const doc = await (await collections()).settings.findOne({ _id: 'authMigration', orgId: caller.orgId }).catch(() => null); // scope-ok: one-off migration notice, filtered by the caller's organization
   if (!doc || doc.dismissedAt) return null;
   const keys = doc.oldKeys ?? [];
   const devices = doc.oldDevices ?? [];

@@ -1,5 +1,6 @@
 import 'server-only';
-import { collections } from '../db';
+import { getOrgSetting, setOrgSetting } from '../scope';
+import { discordScope } from '../people';
 
 // Read-only Discord REST client used by the MCP tools and the interactions endpoint.
 // No gateway, no storage: everything is fetched on demand with the bot token.
@@ -334,18 +335,20 @@ async function loadContext(): Promise<GuildContext> {
 }
 
 // ── Blocked channels (sensitive: passwords etc.) ────────────────────────────
-// Stored in Mongo (settings._id = 'discord'), editable in Settings › Connections; DISCORD_BLOCKED_CHANNELS
-// (comma-separated ids) adds more from env. Blocked channels never reach any tool or command.
+// Stored per organization (settings._id = 'discord:<orgId>', the organization the bot is linked to: lib/people.ts),
+// editable in Settings › Connections by the linked person; DISCORD_BLOCKED_CHANNELS (comma-separated ids) adds more
+// from env. Blocked channels never reach any tool or command.
 
 async function blockedIds(): Promise<Set<string>> {
   const fromEnv = (process.env.DISCORD_BLOCKED_CHANNELS ?? '').split(/[\s,]+/).filter(s => /^\d{15,22}$/.test(s));
-  const doc = await (await collections()).settings.findOne({ _id: 'discord' });
+  const linked = await discordScope();
+  const doc = linked ? await getOrgSetting(linked.orgId, 'discord') : null;
   return new Set([...fromEnv, ...(doc?.blockedIds ?? [])]);
 }
 
-export async function setBlockedIds(ids: string[]): Promise<void> {
+export async function setBlockedIds(orgId: string, ids: string[]): Promise<void> {
   const clean = [...new Set(ids.filter(s => /^\d{15,22}$/.test(s)))];
-  await (await collections()).settings.updateOne({ _id: 'discord' }, { $set: { blockedIds: clean, updatedAt: new Date() } }, { upsert: true });
+  await setOrgSetting(orgId, 'discord', { blockedIds: clean, updatedAt: new Date() });
   cache.ctx = undefined;
 }
 

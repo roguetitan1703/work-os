@@ -1,5 +1,5 @@
 import 'server-only';
-import { collections } from '../db';
+import { scoped, type Scope } from '../scope';
 
 export type SearchHit = {
   kind: 'task' | 'project' | 'note' | 'claude';
@@ -28,11 +28,11 @@ function excerpt(body: string, re: RegExp): string {
  * Search tasks (title, #ref), projects (name, client), notes (title, text) and Claude items (title, C-ref).
  * The text is escaped, so it is always a plain substring match. At most PER_GROUP hits per group.
  */
-export async function searchAll(raw: string): Promise<SearchResult> {
+export async function searchAll(s: Scope, raw: string): Promise<SearchResult> {
   const q = raw.trim().slice(0, MAX_QUERY);
   const empty: SearchResult = { q, tasks: [], projects: [], notes: [], claude: [] };
   if (!q) return empty;
-  const c = await collections();
+  const c = await scoped(s);
   const re = new RegExp(escapeRegex(q.replace(/^#/, '')), 'i');
   const taskRef = /^#?(\d{1,9})$/.exec(q);
   const claudeRef = /^c(\d{1,9})$/i.exec(q) ?? (/^#?(\d{1,9})$/.exec(q));

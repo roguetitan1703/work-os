@@ -19,7 +19,7 @@ const pool = new Map<string, Idle[]>();
 // Every key belongs to a user in an organization (docs/auth.md): a server is never shared across users,
 // organizations or keys, so nothing one caller's server holds can reach another's request.
 function keyOf(baseUrl: string, caller: Caller): string {
-  return JSON.stringify([baseUrl, caller.actor, caller.userId, caller.orgId, caller.keyId, caller.keyName]);
+  return JSON.stringify([baseUrl, caller.agent, caller.userId, caller.orgId, caller.keyId, caller.keyName]);
 }
 
 /** An idle server for this caller, or a new one. Give it back with release() once its transport is closed. */

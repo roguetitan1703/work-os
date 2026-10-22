@@ -19,8 +19,8 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 export async function overviewCards(caller: Caller): Promise<{ cards: Card[]; mcpReady: boolean; mcpSeen: string | null }> {
   const [all, seen, alerts, discord] = await Promise.all([
     listApiKeys(caller).catch(() => null),
-    lastSeen().catch(() => ({ mcp: null, discord: null })),
-    lastRunStatus().catch(() => null),
+    lastSeen(caller).catch(() => ({ mcp: null, discord: null })),
+    lastRunStatus(caller).catch(() => null),
     discordConfig() ? timed(guildContext()).catch((e: Error) => e) : Promise.resolve(null),
   ]);
 

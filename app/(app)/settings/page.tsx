@@ -100,7 +100,7 @@ export default async function SettingsPage({ searchParams }: Props) {
 }
 
 async function DeviceSection() {
-  const devices = await pushDeviceCount().catch(() => 0);
+  const devices = await pushDeviceCount(await requireCaller()).catch(() => 0);
   return (
     <Group title="This device" first>
       <InstallCard />
@@ -116,7 +116,8 @@ async function DeviceSection() {
 }
 
 async function AlertsPanel() {
-  const [prefs, devices, base] = await Promise.all([getNotifySettings(), pushDeviceCount().catch(() => 0), baseUrl()]);
+  const caller = await requireCaller();
+  const [prefs, devices, base] = await Promise.all([getNotifySettings(caller), pushDeviceCount(caller).catch(() => 0), baseUrl()]);
   return (
     <div className="space-y-5">
       <Group title="Alerts" note="Quiet hours 23:00–08:00 IST: nothing is sent; it waits for the morning." first>
@@ -147,7 +148,7 @@ async function MembersPanel() {
 /** Phone overview rows, one per section after This device. */
 async function PhoneRows() {
   const caller = await requireCaller();
-  const [prefs, memberCount] = await Promise.all([getNotifySettings(), getDb().then(db => db.collection('member').countDocuments({ organizationId: idIn(caller.orgId) })).catch(() => null)]);
+  const [prefs, memberCount] = await Promise.all([getNotifySettings(caller), getDb().then(db => db.collection('member').countDocuments({ organizationId: idIn(caller.orgId) })).catch(() => null)]); // scope-ok: Better Auth members of the caller's organization
   const on = NOTIFY_KINDS.filter(k => prefs.kinds[k.kind]).length;
   const rows = [
     { id: 'alerts', label: 'Alerts', hint: `${on} of ${NOTIFY_KINDS.length} on` },

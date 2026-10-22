@@ -1,15 +1,19 @@
 import 'server-only';
-import { collections, type AlertKind, type Collections, type TaskDoc } from './db';
+import { collections, type AlertKind, type TaskDoc } from './db';
+import { forUser, getUserSetting, orgWide, scoped, setUserSetting, type Scope, type ScopedCollections as Collections } from './scope';
+import { isDiscordUser } from './people';
 export type { AlertKind };
 import { APP_TZ, addDays, dateInTz, weekday } from './dates';
 import { CLOSED_STATUSES, OPEN_STATUSES } from './types';
 import { api, discordConfig, DiscordError } from './discord/client';
 import { addToInbox, getNotifySettings, pushConfigured, sendPush } from './notify';
 import { plainAlertText, stuckClaims } from './data/dispatcher';
+import { recipientFilter, recipientOf } from './data/tasks';
 
-// Nudges sent to Om as Discord DMs from the existing bot. Runs every 15 minutes
-// (/api/cron/alerts, triggered by an external scheduler) and right after writes that
-// unblock a task. Every alert is logged by key so it is sent once (overdue: every 2 days).
+// Nudges for each person about the tasks whose alerts go to them (recipientOf: the assignee of a shared task, else
+// its owner), to their inbox, their phones and (for the Discord-linked person) a Discord DM, by their own settings.
+// The cron (/api/cron/alerts, every 15 minutes) runs once per person; writes that unblock a task or end a dispatched
+// one flush the queued alerts at once. Every alert is logged by key so it is sent once (overdue: every 2 days).
 //
 //   due_tomorrow   18:00 the day before, P1/P2
 //   due_today      09:00 digest of open tasks due today
@@ -56,16 +60,20 @@ function workdaysBetween(from: string, to: string): number {
 
 // ── Unblocked: queued by the data layer when a task closes ──────────────────
 
-/** Called after a task closes: queue an alert for each open task whose dependencies are now all closed. */
-export async function queueUnblocked(c: Collections, closed: Pick<TaskDoc, '_id'>): Promise<void> {
-  const waiting = await c.tasks.find({ dependsOn: closed._id, status: { $in: OPEN_STATUSES }, archived: false }, { projection: { dependsOn: 1 } }).toArray();
+/**
+ * Called after a task closes: queue an alert for each open task whose dependencies are now all closed, to that task's
+ * recipient. Whole organization: a teammate's task waiting on this one is unblocked even if the closer cannot see it.
+ */
+export async function queueUnblocked(s: Scope, closed: Pick<TaskDoc, '_id'>): Promise<void> {
+  const c = await orgWide(s.orgId);
+  const waiting = await c.tasks.find({ dependsOn: closed._id, status: { $in: OPEN_STATUSES }, archived: false }, { projection: { dependsOn: 1, ownerId: 1, visibility: 1, assigneeId: 1 } }).toArray();
   for (const t of waiting) {
     const others = t.dependsOn.filter(id => id !== closed._id);
     const stillOpen = others.length ? await c.tasks.countDocuments({ _id: { $in: others }, status: { $in: OPEN_STATUSES } }) : 0;
     if (stillOpen) continue;
     await c.alertQueue.updateOne(
       { _id: `unblocked:${t._id}:${closed._id}` },
-      { $setOnInsert: { kind: 'unblocked', taskId: t._id, byTaskId: closed._id, createdAt: new Date(), sentAt: null } },
+      { $setOnInsert: { userId: recipientOf(t), kind: 'unblocked', taskId: t._id, byTaskId: closed._id, createdAt: new Date(), sentAt: null } },
       { upsert: true },
     );
   }
@@ -74,15 +82,16 @@ export async function queueUnblocked(c: Collections, closed: Pick<TaskDoc, '_id'
 // ── What is due now ─────────────────────────────────────────────────────────
 
 /** onlyQueued: just the queued "unblocked" alerts (sent right after a write), not the scheduled checks. */
-export async function computeAlerts(now: Date = new Date(), opts: { onlyQueued?: boolean; queuedIds?: string[] } = {}): Promise<{ items: AlertItem[]; quiet: boolean }> {
-  const c = await collections();
+/** s: the recipient. Only tasks whose alerts go to them, and their own log and queue. */
+export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { onlyQueued?: boolean; queuedIds?: string[] } = {}): Promise<{ items: AlertItem[]; quiet: boolean }> {
+  const c = await scoped(s);
   if (isQuietHour(now)) return { items: [], quiet: true };
   if (opts.onlyQueued) return { items: await queuedItems(c, opts.queuedIds), quiet: false };
   const today = dateInTz(now);
   const hour = hourInTz(now);
   const items: AlertItem[] = [];
   const open = await c.tasks
-    .find({ status: { $in: OPEN_STATUSES }, archived: false }, { projection: { ref: 1, title: 1, status: 1, priority: 1, due: 1, progress: 1, createdAt: 1, updatedAt: 1 } })
+    .find({ status: { $in: OPEN_STATUSES }, archived: false, ...recipientFilter(s.userId) }, { projection: { ref: 1, title: 1, status: 1, priority: 1, due: 1, progress: 1, createdAt: 1, updatedAt: 1 } })
     .toArray();
   const sent = new Map((await c.alertLog.find({ taskId: { $in: open.map(t => t._id) } }).toArray()).map(l => [l._id, l]));
   const was = (key: string) => sent.has(key);
@@ -126,7 +135,7 @@ export async function computeAlerts(now: Date = new Date(), opts: { onlyQueued?:
     if (!was(key)) items.push({ key, kind: 'never_started', taskId: t._id, ref: t.ref, title: t.title });
   }
   // claude_stuck: a task Claude is working on, session quiet for 20 minutes (once per claim)
-  for (const { t, quietMins } of await stuckClaims(c, now)) {
+  for (const { t, quietMins } of await stuckClaims(s, now)) {
     const key = `claude_stuck:${t._id}:${t.claude!.claimedAt!.getTime()}`;
     if (!(await c.alertLog.findOne({ _id: key }, { projection: { _id: 1 } }))) items.push({ key, kind: 'claude_stuck', taskId: t._id, ref: t.ref, title: t.title, detail: `quiet for ${quietMins} min`, headline: `Claude may be stuck on #${t.ref}` });
   }
@@ -155,7 +164,8 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
       }
       const by = byId.get(q.byTaskId);
       if (!t || CLOSED_STATUSES.includes(t.status)) continue; // gone or already done: drop silently on send
-      items.push({ key: q._id, kind: 'unblocked', ref: t.ref, title: t.title, detail: by ? `#${by.ref} ${by.title} is done` : 'the task it waited on was deleted' });
+      // `by` may be a task the recipient cannot see (someone's private task): then say only that it is done.
+      items.push({ key: q._id, kind: 'unblocked', ref: t.ref, title: t.title, detail: by ? `#${by.ref} ${by.title} is done` : 'the task it waited on is done' });
     }
   }
   return items;
@@ -202,6 +212,7 @@ export function formatAlerts(items: AlertItem[], baseUrl: string): string[] {
 
 const g = globalThis as unknown as { __workosDm?: string };
 
+/** The DM goes to DISCORD_OWNER_ID: only the Discord-linked person's alerts use it (people.ts discordScope). */
 async function dmChannel(): Promise<string> {
   const cfg = discordConfig();
   if (!cfg) throw new Error('Discord is not configured');
@@ -235,8 +246,9 @@ const KIND_TITLE: Record<AlertKind, string> = {
   claude_stuck: 'Claude may be stuck',
 };
 
-export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?: Date; onlyQueued?: boolean }): Promise<RunResult> {
-  const c0 = await collections();
+/** One person's alerts (s: the recipient), with their own settings and devices. */
+export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: string; now?: Date; onlyQueued?: boolean }): Promise<RunResult> {
+  const c0 = await scoped(s);
   const live = !opts.dryRun && !isQuietHour(opts.now ?? new Date());
   // Claim queued alerts atomically before delivering: a conditional update per entry (sentAt null -> now) that only one
   // overlapping run can win, so each queued alert is delivered exactly once. Alerts queued meanwhile wait for the next run.
@@ -250,7 +262,7 @@ export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?:
       if (r.modifiedCount === 1) claimedIds.push(id);
     }
   }
-  const { items: computed, quiet } = await computeAlerts(opts.now, { onlyQueued: opts.onlyQueued, queuedIds: claimedIds });
+  const { items: computed, quiet } = await computeAlerts(s, opts.now, { onlyQueued: opts.onlyQueued, queuedIds: claimedIds });
   // Belt and braces: one item per key within a run.
   let due = [...new Map(computed.map(i => [i.key, i])).values()];
   if (live) {
@@ -264,7 +276,7 @@ export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?:
           const r = await c0.alertLog.updateOne({ _id: i.key, sentAt: i.prevSentAt }, { $set: { sentAt: stamp } });
           if (r.modifiedCount === 1) won.push(i);
         } else {
-          await c0.alertLog.insertOne({ _id: i.key, kind: i.kind, taskId: i.taskId, sentAt: stamp });
+          await c0.alertLog.insertOne({ _id: i.key, orgId: s.orgId, userId: s.userId, kind: i.kind, taskId: i.taskId, sentAt: stamp });
           won.push(i);
         }
       } catch (e) {
@@ -273,7 +285,7 @@ export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?:
     }
     due = won;
   }
-  const settings = await getNotifySettings();
+  const settings = await getNotifySettings(s);
   const items = due.filter(i => settings.kinds[i.kind] !== false);
   const messages = formatAlerts(items, opts.baseUrl);
   const res: RunResult = { quiet, dryRun: !!opts.dryRun, sent: 0, messages, items };
@@ -283,17 +295,18 @@ export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?:
   // Deliver: inbox always; push and Discord if enabled. A failing channel doesn't block the others.
   const errors: string[] = [];
   if (items.length) {
-    await addToInbox(items.map(i => ({ kind: i.kind, title: i.headline ?? `${KIND_TITLE[i.kind]}: #${i.ref} ${i.title}`, body: i.headline ? i.title : (i.detail ?? ''), url: `/tasks/${i.ref}` })));
+    await addToInbox(s, items.map(i => ({ kind: i.kind, title: i.headline ?? `${KIND_TITLE[i.kind]}: #${i.ref} ${i.title}`, body: i.headline ? i.title : (i.detail ?? ''), url: `/tasks/${i.ref}` })));
     if (settings.channels.push && pushConfigured()) {
       const one = items.length === 1 ? items[0] : null;
       const r = await sendPush(
+        s,
         one
           ? { title: one.headline ?? `${KIND_TITLE[one.kind]} · #${one.ref}`, body: one.title + (one.detail && !one.headline ? ` (${one.detail})` : ''), url: `/tasks/${one.ref}`, tag: one.key }
           : { title: `Work OS · ${items.length} alerts`, body: items.slice(0, 4).map(i => `${KIND_TITLE[i.kind]}: ${i.title}`).join('\n'), url: '/notifications', tag: 'alerts' },
       );
       if (r.error) errors.push(`push: ${r.error}`);
     }
-    if (settings.channels.discord && discordConfig()) {
+    if (settings.channels.discord && discordConfig() && (await isDiscordUser(s))) {
       try {
         for (const m of messages) await sendDm(m);
         res.sent = messages.length;
@@ -307,33 +320,42 @@ export async function runAlerts(opts: { dryRun?: boolean; baseUrl: string; now?:
   return { ...res, ...(errors.length ? { error: errors.join('; ') } : {}) };
 }
 
-/** Clear alert history older than 60 days. */
+/** Clear alert history older than 60 days (everyone's: the cron). */
 export async function pruneAlertLog(): Promise<void> {
-  const c = await collections();
+  const c = await collections(); // scope-ok: system clean-up of old rows in every organization
   const cutoff = new Date(Date.now() - 60 * 86_400_000);
   await c.alertLog.deleteMany({ sentAt: { $lt: cutoff } });
   await c.alertQueue.deleteMany({ sentAt: { $lt: cutoff } });
 }
 
 /**
- * After a write: if it queued an "unblocked" alert, send just that now instead of waiting for the
- * next scheduled run (the due/overdue digests keep their times). Never throws; does nothing during quiet hours or when Discord isn't set up.
+ * After a write: if it queued event alerts (unblocked, Claude finished or stopped), send just those now, each to its
+ * recipient, instead of waiting for the next scheduled run (the due/overdue digests keep their times). The write may
+ * have queued alerts for teammates, so this looks across the writer's organization. Never throws; does nothing during
+ * quiet hours.
  */
-export async function flushQueuedAlerts(baseUrl: string): Promise<void> {
+export async function flushQueuedAlerts(s: Scope, baseUrl: string): Promise<void> {
   try {
     if (isQuietHour()) return;
-    const c = await collections();
-    if (!(await c.alertQueue.countDocuments({ sentAt: null }))) return;
-    const r = await runAlerts({ baseUrl, onlyQueued: true });
-    if (r.error) console.error('[alerts]', r.error);
+    const c = await orgWide(s.orgId);
+    const recipients = (await c.alertQueue.distinct('userId', { sentAt: null })) as string[];
+    for (const userId of recipients) {
+      const r = await runAlerts(forUser(s, userId), { baseUrl, onlyQueued: true });
+      if (r.error) console.error('[alerts]', r.error);
+    }
   } catch (e) {
     console.error('[alerts] flush failed:', e instanceof Error ? e.message : e);
   }
 }
 
-/** For the Connect page: when the scheduled check last ran and whether it looks stopped. */
-export async function lastRunStatus(): Promise<{ lastRunAt: string | null; lastResult: string | null; stale: boolean }> {
-  const s = await (await collections()).settings.findOne({ _id: 'alerts' });
-  const at = s?.lastRunAt ?? null;
-  return { lastRunAt: at?.toISOString() ?? null, lastResult: s?.lastResult ?? null, stale: !at || Date.now() - at.getTime() > 40 * 60_000 };
+/** For the Connect page: when the scheduled check last ran for this person and whether it looks stopped. */
+export async function lastRunStatus(s: Scope): Promise<{ lastRunAt: string | null; lastResult: string | null; stale: boolean }> {
+  const d = await getUserSetting(s, 'alerts');
+  const at = d?.lastRunAt ?? null;
+  return { lastRunAt: at?.toISOString() ?? null, lastResult: d?.lastResult ?? null, stale: !at || Date.now() - at.getTime() > 40 * 60_000 };
+}
+
+/** The cron records each person's run. */
+export async function recordRun(s: Scope, result: string): Promise<void> {
+  await setUserSetting(s, 'alerts', { lastRunAt: new Date(), lastResult: result.slice(0, 300) });
 }

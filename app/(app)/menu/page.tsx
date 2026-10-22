@@ -3,6 +3,7 @@ import { ChevronRight, LifeBuoy } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { MODE_LINKS } from '@/lib/nav';
 import { systemStatusLevel } from '@/lib/data/nav-counts';
+import { requireScope } from '@/lib/caller';
 
 export const metadata = { title: 'Menu · Work OS' };
 
@@ -11,7 +12,7 @@ const DOT_TEXT = { ok: 'All systems OK', warn: 'Needs a look', error: 'Problem' 
 
 /** Phone Menu: the things that are not a tab. Replaces the old More page. */
 export default async function MenuPage() {
-  const status = await systemStatusLevel().catch(() => 'ok' as const);
+  const status = await systemStatusLevel(await requireScope()).catch(() => 'ok' as const);
   return (
     <div className="max-w-xl mx-auto">
       <MobileHeader title="Menu" />

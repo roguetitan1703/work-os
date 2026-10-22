@@ -8,6 +8,7 @@ import { MobileHeader } from '@/components/mobile/tab-bar';
 import { HubSegment } from '@/components/mobile/hub-segment';
 import { waitingCounts } from '@/lib/data/claude-items';
 import { NewProjectButton } from './new-project';
+import { requireScope } from '@/lib/caller';
 
 type Props = { searchParams: Promise<{ all?: string }> };
 
@@ -15,7 +16,8 @@ export const metadata = { title: 'Projects · Work OS' };
 
 export default async function ProjectsPage({ searchParams }: Props) {
   const { all } = await searchParams;
-  const [projects, waiting] = await Promise.all([listProjects({ includeInactive: all === '1' }), waitingCounts()]);
+  const s = await requireScope();
+  const [projects, waiting] = await Promise.all([listProjects(s, { includeInactive: all === '1' }), waitingCounts(s)]);
 
   return (
     <div className="space-y-5 max-w-6xl">

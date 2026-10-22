@@ -2,7 +2,9 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { Filter } from 'mongodb';
 import { requestContext } from '../request-context';
-import { collections, nextSeq, toActivity, type ActivityDoc, type ClaudeMark, type Collections, type TaskDoc, type TrashDoc } from '../db';
+import { nextSeq, toActivity, type ActivityDoc, type ClaudeMark, type TaskDoc, type TrashDoc } from '../db';
+import { scoped, type Scope, type ScopedCollections as Collections } from '../scope';
+import { asActor, isPerson, actorUserId, type ActorFilter } from '../actors';
 import {
   CLOSED_STATUSES,
   OPEN_STATUSES,
@@ -26,7 +28,7 @@ import {
   type TaskSource,
 } from '../types';
 import { addDays, addMonths, resolveDate, todayStr, weekday, weekStart } from '../dates';
-import { resolveProject, toProject } from './projects';
+import { placeIn, placeTasks, resolveProject, toProject, type Placement } from './projects';
 import { InputError, NotFoundError } from './errors';
 import { queueUnblocked } from '../alerts';
 import { onTaskChanged } from './dispatcher';
@@ -55,14 +57,17 @@ export function toTask(d: TaskDoc): Task {
     recurrence: d.recurrence,
     nextRef: d.nextRef,
     archived: d.archived,
-    createdBy: d.createdBy,
+    createdBy: asActor(d.createdBy),
     createdAt: d.createdAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),
     doneAt: d.doneAt ? d.doneAt.toISOString() : null,
     doneOn: d.doneOn,
-    doneBy: d.doneBy,
+    doneBy: d.doneBy ? asActor(d.doneBy) : null,
     ...(d.source ? { source: d.source } : {}),
     ...(d.claude ? { claude: toTaskClaude(d.claude) } : {}),
+    ownerId: d.ownerId,
+    visibility: d.visibility,
+    assigneeId: d.assigneeId ?? null,
   };
 }
 
@@ -85,6 +90,19 @@ export function isOpen(status: Status): boolean {
 
 export function isOverdue(t: Pick<Task, 'due' | 'status'>, today: string = todayStr()): boolean {
   return !!t.due && t.due < today && isOpen(t.status);
+}
+
+/**
+ * Who gets a task's alerts and notices (docs/multi-user.md "Inbox, push, alerts"): its assignee when set and the task
+ * is shared (a private task is seen only by its owner), else its owner.
+ */
+export function recipientOf(t: Pick<TaskDoc, 'ownerId' | 'visibility' | 'assigneeId'>): string {
+  return t.assigneeId && t.visibility === 'org' ? t.assigneeId : t.ownerId;
+}
+
+/** The query form of recipientOf: tasks whose alerts go to this person. */
+export function recipientFilter(userId: string): Filter<TaskDoc> {
+  return { $or: [{ assigneeId: userId, visibility: 'org' }, { ownerId: userId, $or: [{ assigneeId: null }, { assigneeId: { $exists: false } }, { visibility: 'private' }] }] };
 }
 
 /** Accepts a task id, a number, or "#12" / "12". */
@@ -174,13 +192,17 @@ function compactValue(field: string, v: unknown): unknown {
 
 async function logActivity(
   c: Collections,
-  task: Pick<TaskDoc, '_id' | 'ref' | 'title'>,
+  task: Pick<TaskDoc, '_id' | 'ref' | 'title' | 'orgId' | 'ownerId' | 'visibility'>,
   actor: Actor,
   type: ActivityType,
   extra: { changes?: Record<string, FieldChange>; note?: string; at?: Date } = {},
 ): Promise<ActivityDoc> {
+  // History entries are seen by whoever sees the task.
   const doc: ActivityDoc = {
     _id: randomUUID(),
+    orgId: task.orgId,
+    ownerId: task.ownerId,
+    visibility: task.visibility,
     taskId: task._id,
     taskRef: task.ref,
     taskTitle: task.title,
@@ -193,7 +215,6 @@ async function logActivity(
   const rc = requestContext();
   if (rc.session) doc.session = rc.session;
   if (rc.repo) doc.repo = rc.repo;
-  if (rc.userId) doc.actorUserId = rc.userId;
   await c.activity.insertOne(doc);
   return doc;
 }
@@ -201,38 +222,44 @@ async function logActivity(
 // ── Create ──────────────────────────────────────────────────────────────────
 
 export async function createTask(
+  s: Scope,
   input: TaskInput,
   actor: Actor,
   opts: { note?: string; source?: TaskSource } = {},
 ): Promise<Task> {
   const data = TaskInputSchema.parse(input);
-  const c = await collections();
-  return toTask(await insertTask(c, data, actor, opts.note, opts.source));
+  const c = await scoped(s);
+  return toTask(await insertTask(c, s, data, actor, { note: opts.note, source: opts.source }));
 }
 
 /** The task already created from this external message, if any. */
-export async function findTaskBySourceMessage(messageId: string): Promise<Task | null> {
-  const c = await collections();
+export async function findTaskBySourceMessage(s: Scope, messageId: string): Promise<Task | null> {
+  const c = await scoped(s);
   const d = await c.tasks.findOne({ 'source.messageId': messageId });
   return d ? toTask(d) : null;
 }
 
+/** Task numbers (#12) count per organization. */
+export const taskCounter = (s: Scope) => `task:${s.orgId}`;
+
 async function insertTask(
   c: Collections,
+  s: Scope,
   data: ReturnType<typeof TaskInputSchema.parse>,
   actor: Actor,
-  note?: string,
-  source?: TaskSource,
+  opts: { note?: string; source?: TaskSource; ownerId?: string } = {},
 ): Promise<TaskDoc> {
   const now = new Date();
   const today = todayStr();
-  const project = data.project ? await resolveProject(c, data.project, { create: true }) : null;
+  const project = data.project ? await resolveProject(c, s, data.project, { create: true }) : null;
   const status: Status = data.status ?? (data.blockedReason?.trim() ? 'Blocked' : 'Not Started');
   const done = status === 'Done';
   const id = randomUUID();
   const doc: TaskDoc = {
     _id: id,
-    ref: await nextSeq(c.counters, 'task'),
+    orgId: s.orgId,
+    ...placeIn(project, opts.ownerId ?? s.userId),
+    ref: await nextSeq(c.counters, taskCounter(s)),
     title: data.title,
     description: data.description ?? '',
     mode: data.mode ?? null,
@@ -257,16 +284,16 @@ async function insertTask(
     doneAt: done ? now : null,
     doneOn: done ? today : null,
     doneBy: done ? actor : null,
-    ...(source ? { source } : {}),
+    ...(opts.source ? { source: opts.source } : {}),
   };
   await c.tasks.insertOne(doc);
-  await logActivity(c, doc, actor, 'created', { note });
+  await logActivity(c, doc, actor, 'created', { note: opts.note });
   return doc;
 }
 
-export async function bulkCreateTasks(inputs: TaskInput[], actor: Actor): Promise<Task[]> {
+export async function bulkCreateTasks(s: Scope, inputs: TaskInput[], actor: Actor): Promise<Task[]> {
   const out: Task[] = [];
-  for (const i of inputs) out.push(await createTask(i, actor));
+  for (const i of inputs) out.push(await createTask(s, i, actor));
   return out;
 }
 
@@ -278,9 +305,9 @@ type UpdateOpts = {
   kind?: 'progress';
 };
 
-export async function updateTask(key: string | number, patch: TaskPatch, actor: Actor, opts: UpdateOpts = {}): Promise<Task> {
+export async function updateTask(s: Scope, key: string | number, patch: TaskPatch, actor: Actor, opts: UpdateOpts = {}): Promise<Task> {
   const data = TaskPatchSchema.parse(patch);
-  const c = await collections();
+  const c = await scoped(s);
   const cur = await findTaskDoc(c, key);
   const now = new Date();
   const set: Partial<TaskDoc> = {};
@@ -305,12 +332,19 @@ export async function updateTask(key: string | number, patch: TaskPatch, actor: 
   if (data.dependsOn !== undefined) apply('dependsOn', await resolveDependencies(c, data.dependsOn, cur._id));
   if (data.recurrence !== undefined) apply('recurrence', data.recurrence ?? null);
 
+  let moveTo: Placement | null = null;
   if (data.project !== undefined) {
-    const p = data.project ? await resolveProject(c, data.project, { create: true }) : null;
+    const p = data.project ? await resolveProject(c, s, data.project, { create: true }) : null;
     if ((p?._id ?? null) !== cur.projectId) {
       const old = cur.projectId ? await c.projects.findOne({ _id: cur.projectId }, { projection: { name: 1 } }) : null;
       set.projectId = p?._id ?? null;
       changes.project = { from: old?.name ?? cur.projectId, to: p?.name ?? null };
+      // The task follows its project. Taking a shared task out of the shared space is its owner's call.
+      const place = placeIn(p, cur.ownerId);
+      if (cur.visibility === 'org' && place.visibility === 'private' && cur.ownerId !== s.userId) {
+        throw new InputError(`Only the task's owner can take #${cur.ref} out of a shared project`);
+      }
+      if (place.ownerId !== cur.ownerId || place.visibility !== cur.visibility) moveTo = place;
     }
   }
 
@@ -357,7 +391,8 @@ export async function updateTask(key: string | number, patch: TaskPatch, actor: 
 
   set.updatedAt = now;
   await c.tasks.updateOne({ _id: cur._id }, { $set: set });
-  const next: TaskDoc = { ...cur, ...set };
+  if (moveTo) await placeTasks(c, [cur._id], moveTo);
+  const next: TaskDoc = { ...cur, ...set, ...(moveTo ?? {}) };
 
   // History: a status transition gets its own entry; other field changes are grouped.
   const statusKeys = ['status', 'blockedReason', 'progress'];
@@ -374,11 +409,11 @@ export async function updateTask(key: string | number, patch: TaskPatch, actor: 
     await logActivity(c, next, actor, type, { changes, note: opts.note });
   }
 
-  if (statusChanged && CLOSED_STATUSES.includes(status) && isOpen(cur.status)) await queueUnblocked(c, next);
-  // A task Om gave to Claude: Done or Blocked ends the dispatcher's run (docs/dispatcher.md).
-  if (statusChanged && next.claude?.state === 'running') await onTaskChanged(c, next);
+  if (statusChanged && CLOSED_STATUSES.includes(status) && isOpen(cur.status)) await queueUnblocked(s, next);
+  // A task someone gave to Claude: Done or Blocked ends the dispatcher's run (docs/dispatcher.md).
+  if (statusChanged && next.claude?.state === 'running') await onTaskChanged(c, s, next);
   if (statusChanged && status === 'Done' && next.recurrence && !next.nextRef) {
-    next.nextRef = await spawnNextOccurrence(c, next, actor);
+    next.nextRef = await spawnNextOccurrence(c, s, next, actor);
   }
   return toTask(next);
 }
@@ -390,6 +425,7 @@ async function progressBeforeCompletion(c: Collections, taskId: string): Promise
 }
 
 export async function logProgress(
+  s: Scope,
   key: string | number,
   progress: number,
   note: string | undefined,
@@ -397,16 +433,16 @@ export async function logProgress(
   status?: Status,
   blockedReason?: string,
 ): Promise<Task> {
-  return updateTask(key, { progress, ...(status ? { status } : {}), ...(blockedReason !== undefined ? { blockedReason } : {}) }, actor, { note, kind: 'progress' });
+  return updateTask(s, key, { progress, ...(status ? { status } : {}), ...(blockedReason !== undefined ? { blockedReason } : {}) }, actor, { note, kind: 'progress' });
 }
 
-export async function completeTask(key: string | number, note: string | undefined, actor: Actor): Promise<Task> {
-  return updateTask(key, { status: 'Done' }, actor, { note });
+export async function completeTask(s: Scope, key: string | number, note: string | undefined, actor: Actor): Promise<Task> {
+  return updateTask(s, key, { status: 'Done' }, actor, { note });
 }
 
-export async function addComment(key: string | number, note: string, actor: Actor): Promise<Task> {
+export async function addComment(s: Scope, key: string | number, note: string, actor: Actor): Promise<Task> {
   if (!note.trim()) throw new InputError('Note is empty');
-  const c = await collections();
+  const c = await scoped(s);
   const cur = await findTaskDoc(c, key);
   const now = new Date();
   await c.tasks.updateOne({ _id: cur._id }, { $set: { updatedAt: now } });
@@ -414,8 +450,8 @@ export async function addComment(key: string | number, note: string, actor: Acto
   return toTask({ ...cur, updatedAt: now });
 }
 
-export async function setArchived(key: string | number, archived: boolean, actor: Actor): Promise<Task> {
-  const c = await collections();
+export async function setArchived(s: Scope, key: string | number, archived: boolean, actor: Actor): Promise<Task> {
+  const c = await scoped(s);
   const cur = await findTaskDoc(c, key);
   if (cur.archived === archived) return toTask(cur);
   const now = new Date();
@@ -438,11 +474,12 @@ function titleMatches(actual: string, expected: string): boolean {
 }
 
 export async function trashTask(
+  s: Scope,
   key: string | number,
   actor: Actor,
   opts: { reason?: string; expectTitle?: string } = {},
 ): Promise<{ ref: number; title: string }> {
-  const c = await collections();
+  const c = await scoped(s);
   const cur = await findTaskDoc(c, key);
   if (opts.expectTitle !== undefined && !titleMatches(cur.title, opts.expectTitle)) {
     throw new InputError(`#${cur.ref} is "${cur.title}", not "${opts.expectTitle}". Nothing deleted.`);
@@ -454,6 +491,9 @@ export async function trashTask(
   void _claude;
   const doc: TrashDoc = {
     _id: cur._id,
+    orgId: cur.orgId,
+    ownerId: cur.ownerId,
+    visibility: cur.visibility,
     ref: cur.ref,
     title: cur.title,
     task: plain,
@@ -470,12 +510,12 @@ export async function trashTask(
   // One line stays in the feed so "who deleted what" shows in History and recent_activity.
   await logActivity(c, cur, actor, 'trashed', { note: opts.reason });
   // Tasks that waited only on this one can start now.
-  if (isOpen(cur.status)) await queueUnblocked(c, cur);
+  if (isOpen(cur.status)) await queueUnblocked(s, cur);
   return { ref: cur.ref, title: cur.title };
 }
 
-export async function restoreTask(key: string | number, actor: Actor): Promise<Task> {
-  const c = await collections();
+export async function restoreTask(s: Scope, key: string | number, actor: Actor): Promise<Task> {
+  const c = await scoped(s);
   const f = taskKeyFilter(key);
   const t = await c.trash.findOne('ref' in f ? { ref: f.ref as number } : { _id: f._id as string }, { sort: { deletedAt: -1 } });
   if (!t) throw new NotFoundError(`Task ${typeof key === 'number' ? '#' + key : key} is not in the trash`);
@@ -493,9 +533,9 @@ export async function restoreTask(key: string | number, actor: Actor): Promise<T
 
 export type TrashItem = { ref: number; title: string; status: Status; projectId: string | null; deletedAt: string; deletedBy: Actor; reason: string; purgeOn: string };
 
-export async function listTrash(): Promise<TrashItem[]> {
-  const c = await collections();
-  await purgeTrash();
+export async function listTrash(s: Scope): Promise<TrashItem[]> {
+  const c = await scoped(s);
+  await purgeTrash(s);
   const docs = await c.trash.find({}, { projection: { activity: 0 } }).sort({ deletedAt: -1 }).toArray();
   return docs.map(d => ({
     ref: d.ref,
@@ -503,32 +543,40 @@ export async function listTrash(): Promise<TrashItem[]> {
     status: d.task.status,
     projectId: d.task.projectId,
     deletedAt: d.deletedAt.toISOString(),
-    deletedBy: d.deletedBy,
+    deletedBy: asActor(d.deletedBy),
     reason: d.reason,
     purgeOn: new Date(d.deletedAt.getTime() + TRASH_DAYS * 86_400_000).toISOString().slice(0, 10),
   }));
 }
 
 /** Permanently remove trash older than 30 days (or one item now, by ref). */
-export async function purgeTrash(ref?: number): Promise<number> {
-  const c = await collections();
+export async function purgeTrash(s: Scope, ref?: number): Promise<number> {
+  const c = await scoped(s);
   const r = await c.trash.deleteMany(ref !== undefined ? { ref } : { deletedAt: { $lt: new Date(Date.now() - TRASH_DAYS * 86_400_000) } });
   return r.deletedCount;
 }
 
 // ── Comments: edit / delete ─────────────────────────────────────────────────
-// Claude may only touch its own entries; it can remove only comments (other entries
-// record what changed, so only their note text can be edited). Om can do either on any.
+// An agent may only touch its own entries (same agent, acting for the same person); a person may touch their own and
+// their agents' entries. Only comments can be removed (other entries record what changed, so only their note text can
+// be edited).
 
 async function ownedEntry(c: Collections, id: string, actor: Actor): Promise<ActivityDoc> {
   const a = await c.activity.findOne({ _id: id });
   if (!a) throw new NotFoundError(`History entry ${id} not found`);
-  if ((actor === 'claude' || actor === 'claude-code') && a.actor !== actor) throw new InputError(`${actor === 'claude' ? 'Claude' : 'Claude Code'} can only edit or delete its own history entries.`);
+  const by = asActor(a.actor);
+  if (actor.kind === 'agent') {
+    if (!(by.kind === 'agent' && by.agent === actor.agent && by.userId === actor.userId)) throw new InputError(`${actor.agent === 'claude' ? 'Claude' : 'Claude Code'} can only edit or delete its own history entries.`);
+  } else if (isPerson(actor)) {
+    if (actorUserId(by) !== actor.userId) throw new InputError('You can only edit or delete your own history entries (and your Claude\u2019s).');
+  } else {
+    throw new InputError('Only a person or their Claude can edit history entries.');
+  }
   return a;
 }
 
-export async function editComment(id: string, text: string, actor: Actor): Promise<Activity> {
-  const c = await collections();
+export async function editComment(s: Scope, id: string, text: string, actor: Actor): Promise<Activity> {
+  const c = await scoped(s);
   const a = await ownedEntry(c, id, actor);
   const note = text.trim();
   if (!note && a.type === 'comment') throw new InputError('Comment text is empty; delete it instead.');
@@ -536,8 +584,8 @@ export async function editComment(id: string, text: string, actor: Actor): Promi
   return toActivity({ ...a, note: note || undefined });
 }
 
-export async function deleteComment(id: string, actor: Actor): Promise<{ taskRef: number }> {
-  const c = await collections();
+export async function deleteComment(s: Scope, id: string, actor: Actor): Promise<{ taskRef: number }> {
+  const c = await scoped(s);
   const a = await ownedEntry(c, id, actor);
   if (a.type !== 'comment') throw new InputError(`That entry is a "${a.type}" record, not a comment; only its note can be edited.`);
   await c.activity.deleteOne({ _id: id });
@@ -565,8 +613,8 @@ function findItem(items: ChecklistItem[], key: string | number): ChecklistItem |
   );
 }
 
-export async function updateChecklist(key: string | number, ops: ChecklistOps, actor: Actor): Promise<Task> {
-  const c = await collections();
+export async function updateChecklist(s: Scope, key: string | number, ops: ChecklistOps, actor: Actor): Promise<Task> {
+  const c = await scoped(s);
   const cur = await findTaskDoc(c, key);
   const items = cur.checklist.map(i => ({ ...i }));
   const notes: string[] = [];
@@ -633,7 +681,7 @@ function advance(date: string, r: Recurrence): string {
   }
 }
 
-async function spawnNextOccurrence(c: Collections, done: TaskDoc, actor: Actor): Promise<number> {
+async function spawnNextOccurrence(c: Collections, s: Scope, done: TaskDoc, actor: Actor): Promise<number> {
   const today = todayStr();
   const r = done.recurrence!;
   let due = advance(done.due ?? today, r);
@@ -641,6 +689,7 @@ async function spawnNextOccurrence(c: Collections, done: TaskDoc, actor: Actor):
   const shift = done.due && done.start ? Math.round((Date.parse(done.due) - Date.parse(done.start)) / 86_400_000) : null;
   const next = await insertTask(
     c,
+    s,
     {
       title: done.title,
       description: done.description,
@@ -656,7 +705,8 @@ async function spawnNextOccurrence(c: Collections, done: TaskDoc, actor: Actor):
       recurrence: r,
     },
     actor,
-    `Next occurrence of #${done.ref}`,
+    // The next one belongs to whoever owned this one (a shared task completed by a teammate stays theirs).
+    { note: `Next occurrence of #${done.ref}`, ownerId: done.ownerId },
   );
   await c.tasks.updateOne({ _id: done._id }, { $set: { nextRef: next.ref } });
   return next.ref;
@@ -720,8 +770,8 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export async function listTasks(f: TaskFilter = {}): Promise<Task[]> {
-  const c = await collections();
+export async function listTasks(s: Scope, f: TaskFilter = {}): Promise<Task[]> {
+  const c = await scoped(s);
   const q: Filter<TaskDoc> = {};
   const and: Filter<TaskDoc>[] = [];
   const today = todayStr();
@@ -733,7 +783,7 @@ export async function listTasks(f: TaskFilter = {}): Promise<Task[]> {
   else if (f.open) q.status = { $in: OPEN_STATUSES };
 
   if (f.project) {
-    const p = await resolveProject(c, f.project, { create: false });
+    const p = await resolveProject(c, s, f.project, { create: false });
     if (!p) return [];
     q.projectId = p._id;
   }
@@ -783,8 +833,8 @@ export async function listTasks(f: TaskFilter = {}): Promise<Task[]> {
   return f.limit ? sorted.slice(0, f.limit) : sorted;
 }
 
-export async function getTask(key: string | number): Promise<Task | null> {
-  const c = await collections();
+export async function getTask(s: Scope, key: string | number): Promise<Task | null> {
+  const c = await scoped(s);
   const doc = await c.tasks.findOne(taskKeyFilter(key));
   return doc ? toTask(doc) : null;
 }
@@ -797,8 +847,8 @@ export type TaskDetail = {
   dependents: Task[];
 };
 
-export async function getTaskDetail(key: string | number, opts: { activityLimit?: number } = {}): Promise<TaskDetail | null> {
-  const c = await collections();
+export async function getTaskDetail(s: Scope, key: string | number, opts: { activityLimit?: number } = {}): Promise<TaskDetail | null> {
+  const c = await scoped(s);
   const doc = await c.tasks.findOne(taskKeyFilter(key));
   if (!doc) return null;
   const [project, activity, deps, dependents] = await Promise.all([
@@ -823,22 +873,36 @@ export async function getTaskDetail(key: string | number, opts: { activityLimit?
 export type ActivityFilter = {
   since?: Date;
   until?: Date;
-  actor?: Actor;
+  /** me = you in the app; discord, claude, claude-code (any person's), system. */
+  actor?: ActorFilter;
   taskId?: string;
   project?: string;
   types?: ActivityType[];
   limit?: number;
 };
 
-export async function listActivity(f: ActivityFilter = {}): Promise<Activity[]> {
-  const c = await collections();
+/** Mongo filter for "who did it". */
+export function actorQuery(s: Scope, a: ActorFilter): Filter<ActivityDoc> {
+  switch (a) {
+    case 'me':
+      return { 'actor.kind': 'user', 'actor.userId': s.userId } as Filter<ActivityDoc>;
+    case 'claude':
+    case 'claude-code':
+      return { 'actor.kind': 'agent', 'actor.agent': a } as Filter<ActivityDoc>;
+    default:
+      return { 'actor.kind': a } as Filter<ActivityDoc>;
+  }
+}
+
+export async function listActivity(s: Scope, f: ActivityFilter = {}): Promise<Activity[]> {
+  const c = await scoped(s);
   const q: Filter<ActivityDoc> = {};
   if (f.since || f.until) q.at = { ...(f.since ? { $gte: f.since } : {}), ...(f.until ? { $lt: f.until } : {}) };
-  if (f.actor) q.actor = f.actor;
+  if (f.actor) Object.assign(q, actorQuery(s, f.actor));
   if (f.types?.length) q.type = { $in: f.types };
   if (f.taskId) q.taskId = f.taskId;
   else if (f.project) {
-    const p = await resolveProject(c, f.project, { create: false });
+    const p = await resolveProject(c, s, f.project, { create: false });
     if (!p) return [];
     const ids = await c.tasks.distinct('_id', { projectId: p._id });
     q.taskId = { $in: ids };
@@ -852,11 +916,11 @@ export async function listActivity(f: ActivityFilter = {}): Promise<Activity[]> 
 }
 
 /** Open tasks whose dependencies are not all closed. */
-export async function unmetDependencies(tasks: Task[]): Promise<Map<string, Task[]>> {
+export async function unmetDependencies(s: Scope, tasks: Task[]): Promise<Map<string, Task[]>> {
   const depIds = [...new Set(tasks.flatMap(t => t.dependsOn))];
   const out = new Map<string, Task[]>();
   if (!depIds.length) return out;
-  const c = await collections();
+  const c = await scoped(s);
   const deps = new Map((await c.tasks.find({ _id: { $in: depIds } }).toArray()).map(d => [d._id, toTask(d)]));
   for (const t of tasks) {
     const open = t.dependsOn.map(id => deps.get(id)).filter((d): d is Task => !!d && isOpen(d.status));

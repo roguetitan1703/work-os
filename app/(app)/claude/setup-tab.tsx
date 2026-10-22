@@ -4,10 +4,12 @@ import { getDispatcherSettings, listNotePicks, MAX_CAP } from '@/lib/data/dispat
 import { Computers } from './computers';
 import { DispatcherSetup } from './dispatcher-setup';
 import { ClaudeCodeKeys } from './keys';
+import { requireScope } from '@/lib/caller';
 
 /** Claude › Setup: computers that run sessions, and keys that let Claude Code use Work OS. */
 export async function SetupTab({ url }: { url: string }) {
-  const [settings, notes] = await Promise.all([getDispatcherSettings(), listNotePicks()]);
+  const s = await requireScope();
+  const [settings, notes] = await Promise.all([getDispatcherSettings(s), listNotePicks(s)]);
   return (
     <div className="space-y-5 md:max-w-3xl">
       <Computers />

@@ -1,5 +1,5 @@
 import 'server-only';
-import { collections } from '../db';
+import { scoped, type Scope } from '../scope';
 import { toItem } from './claude-items';
 import type { ClaudeItem } from '../types';
 import { deviceMap, derivedState, ownedDeviceIds, WAITING_MS, type DeviceScope, type SessionView } from './launcher';
@@ -67,8 +67,8 @@ const lastSeg = (p: string) => p.split(/[\\/]+/).filter(Boolean).pop() ?? p;
 
 /** Latest reported counts per computer plus a total over the computers that are not stale. Read-only. */
 export async function activityOverview(scope: DeviceScope): Promise<ClaudeOverview['activity']> {
-  const c = await collections();
-  const ds = await c.devices.find({ revokedAt: null, ownerId: scope.userId, orgId: scope.orgId, activity: { $exists: true } }, { projection: { name: 1, activity: 1 } }).sort({ name: 1 }).toArray();
+  const c = await scoped(scope);
+  const ds = await c.devices.find({ revokedAt: null, activity: { $exists: true } }, { projection: { name: 1, activity: 1 } }).sort({ name: 1 }).toArray();
   const nowMs = Date.now();
   const computers: ComputerActivity[] = ds.flatMap(d => {
     const a = d.activity;
@@ -83,10 +83,10 @@ export async function activityOverview(scope: DeviceScope): Promise<ClaudeOvervi
   return { computers, total };
 }
 
-/** How many open Claude items wait on Om (for a nav badge). One indexed count. */
-export async function needsYouCount(): Promise<number> {
-  const c = await collections();
-  return c.claudeItems.countDocuments({ state: { $in: [...OPEN] }, waitingOnOm: { $type: 'string', $ne: '' } });
+/** How many open Claude items wait on the caller (for a nav badge). One indexed count. */
+export async function needsYouCount(s: Scope): Promise<number> {
+  const c = await scoped(s);
+  return c.claudeItems.countDocuments({ waitingOn: s.userId, state: { $in: [...OPEN] } });
 }
 
 function liveState(running: boolean, lastMs: number, subagents: number, nowMs: number): SessionRowState {
@@ -97,7 +97,7 @@ function liveState(running: boolean, lastMs: number, subagents: number, nowMs: n
 
 /** Sessions and computers are the signed-in person's own (scope); the open Claude items are shared. */
 export async function claudeOverview(scope: DeviceScope): Promise<ClaudeOverview> {
-  const c = await collections();
+  const c = await scoped(scope);
   const nowMs = Date.now();
   const mine = await ownedDeviceIds(scope);
   const [devices, items, live, ended, projects, activity, reporting] = await Promise.all([
@@ -107,7 +107,7 @@ export async function claudeOverview(scope: DeviceScope): Promise<ClaudeOverview
     c.workerSessions.find({ state: { $in: ['dead', 'stopped', 'failed'] }, deviceId: { $in: mine }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(15).toArray(),
     c.projects.find({}, { projection: { name: 1 } }).toArray(),
     activityOverview(scope),
-    c.devices.find({ revokedAt: null, ownerId: scope.userId, orgId: scope.orgId, claudeSessions: { $exists: true } }, { projection: { name: 1, claudeSessions: 1 } }).toArray(),
+    c.devices.find({ revokedAt: null, claudeSessions: { $exists: true } }, { projection: { name: 1, claudeSessions: 1 } }).toArray(),
   ]);
   const names = new Map(projects.map(p => [p._id, p.name]));
   const pname = (id: string) => names.get(id) ?? id;
@@ -242,8 +242,8 @@ export async function claudeOverview(scope: DeviceScope): Promise<ClaudeOverview
   }
 
   const needsYou = items
-    .filter(d => d.waitingOnOm)
-    .map(d => ({ id: d._id, ref: d.ref, projectId: d.projectId, projectName: pname(d.projectId), title: d.title, question: d.waitingOnOm, updatedAt: d.updatedAt.toISOString() }))
+    .filter(d => d.waitingOn === scope.userId)
+    .map(d => ({ id: d._id, ref: d.ref, projectId: d.projectId, projectName: pname(d.projectId), title: d.title, question: d.waitingText, updatedAt: d.updatedAt.toISOString() }))
     .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
 
   const blockerIds = [...new Set(items.map(d => d.blockedBy).filter((x): x is string => !!x))];
@@ -274,7 +274,7 @@ export type StartProject = { id: string; name: string; client?: string; /** Usab
 
 /** Projects for the Start picker. Archived ones are left out. */
 export async function startProjects(scope: DeviceScope): Promise<StartProject[]> {
-  const c = await collections();
+  const c = await scoped(scope);
   const [devices, mine] = await Promise.all([deviceMap(scope), ownedDeviceIds(scope)]);
   const [projects, linked, last] = await Promise.all([
     c.projects.find({ status: { $ne: 'archived' } }, { projection: { name: 1, client: 1 } }).sort({ nameLower: 1 }).toArray(),

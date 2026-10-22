@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { Bot, SquareTerminal, CheckCircle2, MessageSquare, Pencil, Plus, RotateCcw, TrendingUp, ArrowRightLeft, ListChecks, Archive, Trash2, ArchiveRestore } from 'lucide-react';
-import { describeActivity, ACTOR_LABEL } from '@/lib/activity-text';
-import { ACTOR_STYLE, fmtDateTime } from '@/lib/format';
+import { CheckCircle2, MessageSquare, Pencil, Plus, RotateCcw, TrendingUp, ArrowRightLeft, ListChecks, Archive, Trash2, ArchiveRestore } from 'lucide-react';
+import { describeActivity } from '@/lib/activity-text';
+import { fmtDateTime } from '@/lib/format';
+import { ActorBadge } from './actor-badge';
 import type { Activity, ActivityType } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { CommentEntry } from './comment-entry';
@@ -20,16 +21,6 @@ const ICONS: Record<ActivityType, React.ComponentType<{ className?: string }>> =
   trashed: Trash2,
   restored: ArchiveRestore,
 };
-
-export function ActorBadge({ actor }: { actor: string }) {
-  return (
-    <span className={cn('inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-medium', ACTOR_STYLE[actor])}>
-      {actor === 'claude' && <Bot className="w-2.5 h-2.5" />}
-      {actor === 'claude-code' && <SquareTerminal className="w-2.5 h-2.5" />}
-      {ACTOR_LABEL[actor] ?? actor}
-    </span>
-  );
-}
 
 export function ActivityTimeline({
   items,

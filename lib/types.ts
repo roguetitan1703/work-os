@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Actor } from './actors';
 
 export const ModeSchema = z.enum([
   'Code & Dev',
@@ -23,10 +24,13 @@ export type Status = z.infer<typeof StatusSchema>;
 export const CLOSED_STATUSES: Status[] = ['Done', 'Dropped'];
 export const OPEN_STATUSES: Status[] = ['Not Started', 'In Progress', 'Blocked'];
 
-/** Who made a change. `me` = the app UI, `discord` = me via Discord commands, `claude` = the claude.ai MCP connector (a Claude chat key),
- * `claude-code` = a Claude Code session on Om's PC (an API key from /connect), `system` = migrations/automation. */
-export const ActorSchema = z.enum(['me', 'discord', 'claude', 'claude-code', 'system']);
-export type Actor = z.infer<typeof ActorSchema>;
+/** Who made a change: lib/actors.ts (a person, an agent acting for a person, Discord, the system). */
+export type { Actor };
+
+/** Who sees a project and everything in it (docs/multi-user.md): the organization, or only its owner. */
+export const VISIBILITIES = ['org', 'private'] as const;
+export const VisibilitySchema = z.enum(VISIBILITIES);
+export type Visibility = z.infer<typeof VisibilitySchema>;
 
 export const ChecklistItemSchema = z.object({
   id: z.string(),
@@ -77,8 +81,14 @@ export type Task = {
   doneBy: Actor | null;
   /** Where the task came from, when created from an external message. */
   source?: TaskSource;
-  /** Given to Claude (docs/dispatcher.md). Read-only here: only Om's UI actions and the dispatcher write it. */
+  /** Given to Claude (docs/dispatcher.md). Read-only here: only the UI actions and the dispatcher write it. */
   claude?: TaskClaude;
+  /** The person it belongs to; with no project (or a private one) only they see it. */
+  ownerId: string;
+  /** Follows the project: 'org' in a shared project, else 'private'. */
+  visibility: Visibility;
+  /** Gets its alerts when set (and the task is shared); phase 4 adds the UI. */
+  assigneeId: string | null;
 };
 
 export const CLAUDE_TASK_STATES = ['queued', 'running', 'finished', 'stopped', 'failed'] as const;
@@ -141,7 +151,7 @@ export type Activity = {
 
 export const CLAUDE_ITEM_KINDS = ['feature', 'bug', 'debt', 'idea'] as const;
 export type ClaudeItemKind = (typeof CLAUDE_ITEM_KINDS)[number];
-/** dropped: Om only (Claude never removes items). */
+/** dropped: a person only (Claude never removes items). */
 export const CLAUDE_ITEM_STATES = ['queued', 'active', 'blocked', 'done', 'dropped'] as const;
 export type ClaudeItemState = (typeof CLAUDE_ITEM_STATES)[number];
 
@@ -155,7 +165,7 @@ export type ClaudeItem = {
   title: string;
   kind: ClaudeItemKind;
   state: ClaudeItemState;
-  /** Om's pick: a session takes the top queued item with next on. */
+  /** A person's pick: a session takes the top queued item with next on. */
   next: boolean;
   order: number;
   /** What and why, written so a session with no chat history understands it. */
@@ -165,8 +175,10 @@ export type ClaudeItem = {
   /** Small things grouped under one item. */
   parts: ClaudeItemPart[];
   blockedBy: string | null; // another item's id
-  /** Non-empty: blocked on a decision or action from Om (the text says what). */
-  waitingOnOm: string;
+  /** Blocked on a decision or action from this person (a user id), or null. */
+  waitingOn: string | null;
+  /** What they must decide or do (empty when not waiting). Was `waitingOnOm`. */
+  waitingText: string;
   gitRef: string; // branch or commit when done
   claimedBy: { session: string; at: string } | null;
   createdBy: Actor;
@@ -193,6 +205,8 @@ export const CodeLocationInputSchema = z.object({
 export type Project = {
   id: string; // slug
   name: string;
+  ownerId: string;
+  visibility: Visibility;
   client: string;
   description: string;
   status: ProjectStatus;
@@ -261,6 +275,8 @@ export const ProjectInputSchema = z.object({
   status: ProjectStatusSchema.optional(),
   /** Replaces the project's code locations; [] or null clears them. */
   code: z.array(CodeLocationInputSchema).max(20).nullable().optional(),
+  /** 'private': only its owner sees it and its tasks and notes. Default 'org'. */
+  visibility: VisibilitySchema.optional(),
 });
 export type ProjectInput = z.input<typeof ProjectInputSchema>;
 

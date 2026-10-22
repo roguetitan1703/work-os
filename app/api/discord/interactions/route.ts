@@ -2,6 +2,7 @@ import { after, NextResponse } from 'next/server';
 import { discordConfig } from '@/lib/discord/client';
 import { flushQueuedAlerts } from '@/lib/alerts';
 import { markSeen } from '@/lib/notify';
+import { discordScope } from '@/lib/people';
 import { editOriginal, errorText, handleInteraction, InteractionType, notAvailable, type Interaction } from '@/lib/discord/commands';
 
 // Discord HTTP interactions endpoint (set as "Interactions Endpoint URL" in the Developer Portal).
@@ -65,8 +66,11 @@ export async function POST(req: Request) {
   const userId = i.member?.user?.id ?? i.user?.id;
   if (!cfg || !userId || userId !== cfg.ownerId || i.guild_id !== cfg.guildId) return NextResponse.json(notAvailable(i));
 
+  // The Work OS user the bot acts for; nobody linked (no organization yet) = nothing to act as.
+  const s = await discordScope();
+  if (!s) return NextResponse.json(notAvailable(i));
   const baseUrl = (process.env.APP_URL || new URL(req.url).origin).replace(/\/+$/, '');
-  const plan = await handleInteraction(i, { baseUrl });
+  const plan = await handleInteraction(i, { baseUrl, s });
 
   if (plan.work) {
     const work = plan.work;
@@ -80,8 +84,8 @@ export async function POST(req: Request) {
       }
       try {
         await editOriginal(appId, i.token, reply);
-        await flushQueuedAlerts(baseUrl);
-        await markSeen('discord');
+        await flushQueuedAlerts(s, baseUrl);
+        await markSeen(s, 'discord');
       } catch (err) {
         console.error('[discord] edit original failed:', err instanceof Error ? err.message : String(err));
       }

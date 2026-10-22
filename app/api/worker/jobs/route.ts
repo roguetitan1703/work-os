@@ -14,15 +14,15 @@ export const dynamic = 'force-dynamic';
 export const GET = workerRoute(async d => {
   try {
     // Dispatcher off: the poll does nothing else (the worker polls all day; each poll is a function call).
-    const dispatched = await dispatchFor(d.id);
+    const dispatched = await dispatchFor(d.s, d.id);
     // Nothing queued or running: no alert can have been queued by this poll, so no flush.
-    if (!dispatched?.active) return pollJobs(d.id);
+    if (!dispatched?.active) return pollJobs(d.s, d.id);
     const h = await headers();
     const host = h.get('x-forwarded-host') ?? h.get('host');
     const base = (process.env.APP_URL || (host ? `${h.get('x-forwarded-proto') ?? 'https'}://${host}` : '')).replace(/\/+$/, '');
-    after(() => flushQueuedAlerts(base)); // a finished, stopped or failed task may have queued an alert
+    after(() => flushQueuedAlerts(d.s, base)); // a finished, stopped or failed task may have queued an alert
   } catch (e) {
     console.error('[dispatcher]', e instanceof Error ? e.message : e);
   }
-  return pollJobs(d.id);
+  return pollJobs(d.s, d.id);
 });

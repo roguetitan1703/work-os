@@ -3,7 +3,9 @@ import { differenceInDays, parseISO, format } from 'date-fns';
 import { EyeOff, Trash2 } from 'lucide-react';
 import { listActivity, listTasks, listTrash, TRASH_DAYS } from '@/lib/data/tasks';
 import { projectNameMap } from '@/lib/data/projects';
-import { ACTOR_LABEL } from '@/lib/activity-text';
+import { requireScope } from '@/lib/caller';
+import { ActorName } from '@/components/actor-badge';
+import { ACTOR_FILTERS, type ActorFilter } from '@/lib/actors';
 import { fmtAgo, fmtDate, fmtDateTime } from '@/lib/format';
 import { PurgeTrashButton, RestoreTrashButton } from '@/components/trash-controls';
 import { addDays, dateInTz, startOfDay, todayStr, weekStart } from '@/lib/dates';
@@ -18,7 +20,7 @@ import { UnarchiveButton } from './unarchive-button';
 export async function Completed({ weeks }: { weeks: number }) {
   const today = todayStr();
   const from = addDays(weekStart(today), -7 * (weeks - 1));
-  const done = await listTasks({ status: ['Done'], doneFrom: from, sort: 'done', archived: 'include' });
+  const done = await listTasks(await requireScope(), { status: ['Done'], doneFrom: from, sort: 'done', archived: 'include' });
   const groups = new Map<string, typeof done>();
   for (const t of done) {
     const wk = weekStart(t.doneOn ?? today);
@@ -67,9 +69,9 @@ export async function Completed({ weeks }: { weeks: number }) {
 }
 
 export async function Activity({ actor }: { actor?: string }) {
-  const a = actor === 'me' || actor === 'discord' || actor === 'claude' || actor === 'claude-code' || actor === 'system' ? actor : undefined;
+  const a = (ACTOR_FILTERS as readonly string[]).includes(actor ?? '') ? (actor as ActorFilter) : undefined;
   const since = startOfDay(addDays(todayStr(), -14));
-  const items = await listActivity({ since, actor: a, limit: 400 });
+  const items = await listActivity(await requireScope(), { since, actor: a, limit: 400 });
   const byDay = new Map<string, typeof items>();
   for (const i of items) {
     const d = dateInTz(new Date(i.at));
@@ -106,7 +108,8 @@ export async function Activity({ actor }: { actor?: string }) {
 }
 
 export async function Trash() {
-  const [items, names] = await Promise.all([listTrash(), projectNameMap()]);
+  const s = await requireScope();
+  const [items, names] = await Promise.all([listTrash(s), projectNameMap(s)]);
   return (
     <div className="space-y-2">
       <p className="text-sm md:text-xs text-muted-foreground px-1 md:px-0">
@@ -126,7 +129,7 @@ export async function Trash() {
                     {project && <span className="text-foreground/80">{project}</span>}
                     {project && <span>·</span>}
                     <span title={fmtDateTime(t.deletedAt)}>
-                      deleted {fmtAgo(t.deletedAt)} by {ACTOR_LABEL[t.deletedBy] ?? t.deletedBy}
+                      deleted {fmtAgo(t.deletedAt)} by <ActorName actor={t.deletedBy} />
                     </span>
                     <span>·</span>
                     <span>purged on {fmtDate(t.purgeOn, 'MMM d')}</span>
@@ -148,7 +151,8 @@ export async function Trash() {
   );
 }
 export async function Archived() {
-  const [tasks, names] = await Promise.all([listTasks({ archived: 'only', sort: 'updated' }), projectNameMap()]);
+  const s = await requireScope();
+  const [tasks, names] = await Promise.all([listTasks(s, { archived: 'only', sort: 'updated' }), projectNameMap(s)]);
   return (
     <div className="space-y-2">
       <p className="text-sm md:text-xs text-muted-foreground px-1 md:px-0">Archived tasks are hidden everywhere else. Restore one to bring it back.</p>
@@ -177,7 +181,7 @@ export async function Archived() {
 
 export async function Stale() {
   const now = new Date();
-  const stale = (await listTasks({ open: true, sort: 'updated' }))
+  const stale = (await listTasks(await requireScope(), { open: true, sort: 'updated' }))
     .map(t => ({ t, days: differenceInDays(now, parseISO(t.updatedAt)) }))
     .filter(x => isUntouched(x.t.updatedAt, now.getTime()))
     .sort((a, b) => b.days - a.days);

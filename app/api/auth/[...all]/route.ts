@@ -70,7 +70,7 @@ async function twoFactorUser(req: Request): Promise<string | null> {
   const signed = decodeURIComponent(raw);
   const identifier = signed.slice(0, signed.lastIndexOf('.'));
   if (!/^2fa-[A-Za-z0-9]{10,64}$/.test(identifier)) return null;
-  const v = await (await getDb()).collection<{ identifier: string; value: string }>('verification').findOne({ identifier });
+  const v = await (await getDb()).collection<{ identifier: string; value: string }>('verification').findOne({ identifier }); // scope-ok: Better Auth verification tokens (not organization data)
   return v?.value ? String(v.value) : null;
 }
 

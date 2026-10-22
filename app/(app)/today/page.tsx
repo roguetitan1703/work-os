@@ -17,8 +17,9 @@ export default async function TodayPage() {
   const wd = weekday(today);
   const me = await getCaller();
   if (!me) redirect('/login');
-  const [open, ritual, overview] = await Promise.all([listTasks({ open: true }), getRitualLog(today), claudeOverview(me).catch(() => null)]);
-  const [waiting, notes] = await Promise.all([unmetDependencies(open), taskIdsWithNotes(open.map(t => t.id))]);
+  const s = { userId: me.userId, orgId: me.orgId };
+  const [open, ritual, overview] = await Promise.all([listTasks(s, { open: true }), getRitualLog(s, today), claudeOverview(me).catch(() => null)]);
+  const [waiting, notes] = await Promise.all([unmetDependencies(s, open), taskIdsWithNotes(s, open.map(t => t.id))]);
   const waitingRefs = Object.fromEntries([...waiting].map(([id, deps]) => [id, deps.map(d => `#${d.ref}`)]));
   const dayName = format(new Date(today + 'T12:00:00Z'), 'EEEE, MMMM d');
   const keys = [null, 'mon', 'tue', 'wed', 'thu', 'fri', null] as const;

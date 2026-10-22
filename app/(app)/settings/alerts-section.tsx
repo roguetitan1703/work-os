@@ -2,11 +2,12 @@ import { CopyBox } from '@/components/copy-box';
 import { ALERT_RULES, lastRunStatus } from '@/lib/alerts';
 import { fmtAgo } from '@/lib/format';
 import { Card, Disclosure, Section, StatusLine } from './ui';
+import { requireScope } from '@/lib/caller';
 
 export async function AlertsSection({ base }: { base: string }) {
   const secret = process.env.CRON_SECRET;
   const ready = !!secret && secret.length >= 16;
-  const s = await lastRunStatus();
+  const s = await lastRunStatus(await requireScope());
   const stale = s.stale;
   const r = ALERT_RULES;
 

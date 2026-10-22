@@ -13,6 +13,7 @@ import { claudeWaitingCount, systemStatusLevel } from '@/lib/data/nav-counts';
 import { todayStr } from '@/lib/dates';
 import { redirect } from 'next/navigation';
 import { getCaller } from '@/lib/caller';
+import { memberNames } from '@/lib/people';
 import { NavTracker } from '@/components/nav-tracker';
 import { GlobalShortcuts } from '@/components/shortcuts';
 import { GlobalSearch } from '@/components/global-search';
@@ -22,18 +23,24 @@ export const dynamic = 'force-dynamic';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   // proxy.ts checked the session cookie; this also needs a membership (an account in no organization sees nothing).
-  if (!(await getCaller())) redirect('/login');
-  const [projects, overdue, unread, claudeWaiting, status] = await Promise.all([
-    listProjectsNav(),
-    overdueCount(),
-    unreadCount(),
-    claudeWaitingCount().catch(() => 0),
-    systemStatusLevel().catch(() => 'ok' as const),
+  const caller = await getCaller();
+  if (!caller) redirect('/login');
+  const s = { userId: caller.userId, orgId: caller.orgId };
+  const [projects, overdue, unread, claudeWaiting, status, people] = await Promise.all([
+    listProjectsNav(s),
+    overdueCount(s),
+    unreadCount(s),
+    claudeWaitingCount(s).catch(() => 0),
+    systemStatusLevel(s).catch(() => 'ok' as const),
+    memberNames(s.orgId),
   ]);
   return (
     <AppContextProvider
       today={todayStr()}
       unread={unread}
+      me={s.userId}
+      orgId={s.orgId}
+      people={people}
       badges={{ overdue, claudeWaiting, status }}
       projects={projects.map(p => ({ id: p.id, name: p.name, status: p.status }))}
     >

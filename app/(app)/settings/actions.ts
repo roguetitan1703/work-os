@@ -17,6 +17,7 @@ import {
 import { sendDm } from '@/lib/alerts';
 import { discordConfig } from '@/lib/discord/client';
 import { asCaller } from '@/lib/caller';
+import { isDiscordUser } from '@/lib/people';
 
 // Every action requires a signed-in caller (lib/caller.ts); proxy.ts is only the first gate.
 
@@ -25,7 +26,7 @@ const fail = (e: unknown): R => ({ ok: false, error: e instanceof Error ? e.mess
 
 export async function subscribePushAction(sub: PushSubJSON, device: string): Promise<R> {
   try {
-    await asCaller(() => savePushSubscription(sub, device));
+    await asCaller(c => savePushSubscription(c, sub, device));
     revalidatePath('/settings');
     return { ok: true };
   } catch (e) {
@@ -35,7 +36,7 @@ export async function subscribePushAction(sub: PushSubJSON, device: string): Pro
 
 export async function unsubscribePushAction(endpoint: string): Promise<R> {
   try {
-    await asCaller(() => removePushSubscription(endpoint));
+    await asCaller(c => removePushSubscription(c, endpoint));
     revalidatePath('/settings');
     return { ok: true };
   } catch (e) {
@@ -50,7 +51,7 @@ const NotifyIn = z.object({
 
 export async function saveNotifySettingsAction(next: NotifySettings): Promise<R> {
   try {
-    await asCaller(() => setNotifySettings(NotifyIn.parse(next) as NotifySettings));
+    await asCaller(c => setNotifySettings(c, NotifyIn.parse(next) as NotifySettings));
     return { ok: true };
   } catch (e) {
     return fail(e);
@@ -60,16 +61,17 @@ export async function saveNotifySettingsAction(next: NotifySettings): Promise<R>
 /** Sends a test through every enabled channel and reports what happened. */
 export async function testNotificationAction(): Promise<R> {
   try {
-    await asCaller(async () => undefined);
-    const s = await getNotifySettings();
+    const c = await asCaller(async c => c);
+    const s = await getNotifySettings(c);
     const parts: string[] = [];
-    await addToInbox([{ kind: 'test', title: 'Test notification', body: 'If you can read this, notifications work.', url: '/notifications' }]);
+    await addToInbox(c, [{ kind: 'test', title: 'Test notification', body: 'If you can read this, notifications work.', url: '/notifications' }]);
     parts.push('inbox ✓');
     if (s.channels.push) {
-      const r = await sendPush({ title: 'Work OS', body: 'Test notification: it works.', url: '/notifications', tag: 'test' });
+      const r = await sendPush(c, { title: 'Work OS', body: 'Test notification: it works.', url: '/notifications', tag: 'test' });
       parts.push(r.error ? `phone: ${r.error}` : `phone: ${r.sent} device${r.sent === 1 ? '' : 's'}`);
     }
-    if (s.channels.discord && discordConfig()) {
+    // The Discord DM goes to the linked account only (lib/people.ts discordScope).
+    if (s.channels.discord && discordConfig() && (await isDiscordUser(c))) {
       try {
         await sendDm('🔔 Test notification from Work OS: it works.');
         parts.push('Discord ✓');
@@ -85,6 +87,6 @@ export async function testNotificationAction(): Promise<R> {
 }
 
 export async function markAllReadAction(): Promise<void> {
-  await asCaller(() => markAllRead());
+  await asCaller(c => markAllRead(c));
   revalidatePath('/', 'layout');
 }

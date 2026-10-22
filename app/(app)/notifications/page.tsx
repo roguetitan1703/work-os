@@ -5,6 +5,7 @@ import { fmtAgo } from '@/lib/format';
 import { SubHeader } from '@/components/mobile/sub-header';
 import { cn } from '@/lib/utils';
 import { MarkRead } from './mark-read';
+import { requireScope } from '@/lib/caller';
 
 export const metadata = { title: 'Inbox · Work OS' };
 
@@ -23,7 +24,7 @@ const TONE: Record<string, string> = {
 };
 
 export default async function NotificationsPage() {
-  const items = await listInbox(150);
+  const items = await listInbox(await requireScope(), 150);
   const unread = items.filter(i => !i.read).length;
   return (
     <div className="max-w-xl mx-auto">

@@ -1,6 +1,7 @@
 import 'server-only';
 import { ZodError } from 'zod';
 import { inTransaction } from '../db';
+import type { Scope } from '../scope';
 import type { Actor, CodeLocation, Task, TaskInput, TaskPatch } from '../types';
 import { InputError, NotFoundError } from './errors';
 import * as tasks from './tasks';
@@ -52,7 +53,7 @@ export class BatchError extends InputError {
   }
 }
 
-export async function applyChanges(ops: BatchOp[], actor: Actor, opts: { dryRun?: boolean } = {}): Promise<BatchResult> {
+export async function applyChanges(s: Scope, ops: BatchOp[], actor: Actor, opts: { dryRun?: boolean } = {}): Promise<BatchResult> {
   if (!ops.length) throw new InputError('No operations given');
   if (ops.length > MAX_OPS) throw new InputError(`At most ${MAX_OPS} operations per batch (got ${ops.length})`);
 
@@ -76,7 +77,7 @@ export async function applyChanges(ops: BatchOp[], actor: Actor, opts: { dryRun?
         switch (o.op) {
           case 'create_task': {
             const { op: _op, as, note, ...input } = o;
-            const t = await tasks.createTask({ ...input, dependsOn: keys(input.dependsOn) }, actor, { note });
+            const t = await tasks.createTask(s, { ...input, dependsOn: keys(input.dependsOn) }, actor, { note });
             if (as) {
               if (!as.startsWith('$')) throw new InputError(`"as" must start with $, e.g. "$handover"`);
               if (labels.has(as)) throw new InputError(`${as} is already used`);
@@ -87,68 +88,68 @@ export async function applyChanges(ops: BatchOp[], actor: Actor, opts: { dryRun?
           }
           case 'update_task': {
             const { op: _op, task, note, ...patch } = o;
-            const t = await tasks.updateTask(key(task), { ...patch, ...(patch.dependsOn ? { dependsOn: keys(patch.dependsOn) } : {}) }, actor, { note });
+            const t = await tasks.updateTask(s, key(task), { ...patch, ...(patch.dependsOn ? { dependsOn: keys(patch.dependsOn) } : {}) }, actor, { note });
             done(i, o.op, t);
             break;
           }
           case 'log_progress': {
-            const t = await tasks.logProgress(key(o.task), o.progress, o.note, actor, o.status, o.blockedReason);
+            const t = await tasks.logProgress(s, key(o.task), o.progress, o.note, actor, o.status, o.blockedReason);
             done(i, o.op, t, `${t.progress}%`);
             break;
           }
           case 'complete_task': {
-            const t = await tasks.completeTask(key(o.task), o.note, actor);
+            const t = await tasks.completeTask(s, key(o.task), o.note, actor);
             done(i, o.op, t, t.nextRef ? `next occurrence #${t.nextRef}` : undefined);
             break;
           }
           case 'add_comment':
-            done(i, o.op, await tasks.addComment(key(o.task), o.text, actor));
+            done(i, o.op, await tasks.addComment(s, key(o.task), o.text, actor));
             break;
           case 'edit_comment': {
-            const a = await tasks.editComment(o.comment_id, o.text, actor);
+            const a = await tasks.editComment(s, o.comment_id, o.text, actor);
             done(i, o.op, { ref: a.taskRef, title: a.taskTitle });
             break;
           }
           case 'delete_comment': {
-            const r = await tasks.deleteComment(o.comment_id, actor);
+            const r = await tasks.deleteComment(s, o.comment_id, actor);
             done(i, o.op, undefined, `removed from #${r.taskRef}`);
             break;
           }
           case 'update_checklist':
-            done(i, o.op, await tasks.updateChecklist(key(o.task), { add: o.add, check: o.check, uncheck: o.uncheck, remove: o.remove }, actor));
+            done(i, o.op, await tasks.updateChecklist(s, key(o.task), { add: o.add, check: o.check, uncheck: o.uncheck, remove: o.remove }, actor));
             break;
           case 'archive_task':
-            done(i, o.op, await tasks.setArchived(key(o.task), o.archived ?? true, actor));
+            done(i, o.op, await tasks.setArchived(s, key(o.task), o.archived ?? true, actor));
             break;
           case 'delete_task': {
-            const r = await tasks.trashTask(key(o.task), actor, { reason: o.reason, expectTitle: o.title });
+            const r = await tasks.trashTask(s, key(o.task), actor, { reason: o.reason, expectTitle: o.title });
             done(i, o.op, r, `in trash for ${tasks.TRASH_DAYS} days`);
             break;
           }
           case 'restore_task':
-            done(i, o.op, await tasks.restoreTask(key(o.task), actor));
+            done(i, o.op, await tasks.restoreTask(s, key(o.task), actor));
             break;
           case 'write_note': {
             const { op: _op, note_id, task, project, parent_id, block_ops, ...w } = o;
-            const r = await notes.writeNote({ ...w, noteId: note_id, task: task !== undefined ? key(task) : undefined, project, parentId: parent_id, blockOps: block_ops }, actor);
+            const r = await notes.writeNote(s, { ...w, noteId: note_id, task: task !== undefined ? key(task) : undefined, project, parentId: parent_id, blockOps: block_ops }, actor);
             done(i, o.op, undefined, `${r.created ? 'created' : 'updated'} note ${r.note.id} "${r.note.title}"`);
             break;
           }
           case 'delete_note': {
-            const r = await notes.deleteNote(o.note_id, actor, { expectTitle: o.title });
+            const r = await notes.deleteNote(s, o.note_id, actor, { expectTitle: o.title });
             done(i, o.op, undefined, `deleted note "${r.title}"`);
             break;
           }
           case 'add_project': {
-            const r = await projects.createProject({ name: o.name, client: o.client, description: o.description, status: o.status, code: o.code });
+            const r = await projects.createProject(s, { name: o.name, client: o.client, description: o.description, status: o.status, code: o.code });
             done(i, o.op, undefined, `${r.project.name}${r.created ? '' : ' (already existed)'}`);
             break;
           }
           case 'update_project': {
-            const p = await projects.getProject(o.project);
+            const p = await projects.getProject(s, o.project);
             if (!p) throw new NotFoundError(`Project "${o.project}" not found`);
             const { op: _op, project: _p, ...patch } = o;
-            const r = await projects.updateProject(p.id, patch);
+            const r = await projects.updateProject(s, p.id, patch);
             done(i, o.op, undefined, r.name);
             break;
           }

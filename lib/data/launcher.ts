@@ -1,6 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { collections, type DeviceActivity, type ReportedClaudeSession, type WorkerFolderDoc, type WorkerJobDoc, type WorkerSessionDoc } from '../db';
+import type { DeviceActivity, ReportedClaudeSession, WorkerFolderDoc, WorkerJobDoc, WorkerSessionDoc } from '../db';
+import { scoped, type Scope } from '../scope';
 import { InputError, NotFoundError } from './errors';
 import { normalizeRemote } from './code-locations';
 
@@ -21,6 +22,8 @@ export const STALE_SESSION_MS = 3 * 60_000;
 export const WAITING_MS = 60_000;
 
 // ── Worker side ─────────────────────────────────────────────────────────────
+// The worker routes act for their device's owner (lib/worker-route.ts): `s` is { userId: device owner, orgId }, so
+// every read and write here stays inside that person's own folders, jobs and sessions.
 
 export type ReportedFolder = { id: string; name: string; git?: boolean; remote?: string; branch?: string };
 
@@ -45,12 +48,12 @@ function cleanFolder(f: unknown): ReportedFolder {
 }
 
 /** Replaces the device's folder list: upserts reported folders, marks the rest missing (never deletes). */
-export async function reportFolders(deviceId: string, body: unknown): Promise<{ known: number; missing: number }> {
+export async function reportFolders(s: Scope, deviceId: string, body: unknown): Promise<{ known: number; missing: number }> {
   const list = (body as { folders?: unknown })?.folders;
   if (!Array.isArray(list)) throw new InputError('folders must be an array');
   if (list.length > MAX_FOLDERS) throw new InputError(`at most ${MAX_FOLDERS} folders`);
   const folders = list.map(cleanFolder);
-  const c = await collections();
+  const c = await scoped(s);
   const now = new Date();
   if (folders.length) {
     await c.workerFolders.bulkWrite(
@@ -78,8 +81,8 @@ export type JobsResponse = {
   jobs: { id: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; projectName?: string; sessionId: string; prompt?: string }[];
 };
 
-export async function pollJobs(deviceId: string): Promise<JobsResponse> {
-  const c = await collections();
+export async function pollJobs(s: Scope, deviceId: string): Promise<JobsResponse> {
+  const c = await scoped(s);
   const now = new Date();
   // Idle poll = two reads plus one count: the linked folders with their project names (one query), this computer's
   // unfinished jobs (one query), and, only when there are none, whether a session is still starting.
@@ -165,11 +168,11 @@ export function cleanClaudeSessions(raw: unknown): ReportedClaudeSession[] {
   });
 }
 
-export async function reportStatus(deviceId: string, body: unknown): Promise<void> {
+export async function reportStatus(s: Scope, deviceId: string, body: unknown): Promise<void> {
   const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; allowPrompts?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown };
   const activity = b.activity === undefined ? null : cleanActivity(b.activity); // validate before any write
   const claudeSessions = b.claudeSessions === undefined ? null : cleanClaudeSessions(b.claudeSessions);
-  const c = await collections();
+  const c = await scoped(s);
   const now = new Date();
   if (claudeSessions) await c.devices.updateOne({ _id: deviceId }, { $set: { claudeSessions: { at: now, items: claudeSessions } } });
   if (activity) await c.devices.updateOne({ _id: deviceId }, { $set: { activity: { ...activity, at: now } } });
@@ -217,19 +220,18 @@ const ONLINE_MS = 2 * 60_000;
  * dispatcher and overview path driven by a signed-in person works only with devices where ownerId and orgId match;
  * another person's device, folder or session answers "not found". The worker routes act for their own device.
  */
-export type DeviceScope = { userId: string; orgId: string };
-const owned = (s: DeviceScope) => ({ ownerId: s.userId, orgId: s.orgId });
+export type DeviceScope = Scope;
 
 /** The person's non-revoked computers. */
 export async function deviceMap(scope: DeviceScope) {
-  const c = await collections();
-  const ds = await c.devices.find({ revokedAt: null, ...owned(scope) }).toArray();
+  const c = await scoped(scope);
+  const ds = await c.devices.find({ revokedAt: null }).toArray();
   return new Map(ds.map(d => [d._id, { name: d.name, online: !!d.lastSeenAt && Date.now() - d.lastSeenAt.getTime() < ONLINE_MS }]));
 }
 
 /** Every device of the person, revoked ones too (their sessions stay in the history lists). */
 export async function ownedDeviceIds(scope: DeviceScope): Promise<string[]> {
-  const ds = await (await collections()).devices.find(owned(scope), { projection: { _id: 1 } }).toArray();
+  const ds = await (await scoped(scope)).devices.find({}, { projection: { _id: 1 } }).toArray();
   return ds.map(d => d._id);
 }
 
@@ -243,7 +245,7 @@ export const derivedState = (s: WorkerSessionDoc): SessionView['state'] => ((s.s
 
 /** Linked folders, suggested folders (same git remote as one of the project's code locations), and recent sessions. */
 export async function projectLauncher(scope: DeviceScope, projectId: string): Promise<{ folders: FolderView[]; suggestions: FolderView[]; sessions: SessionView[]; devices: { id: string; name: string }[] }> {
-  const c = await collections();
+  const c = await scoped(scope);
   const [devices, mine] = await Promise.all([deviceMap(scope), ownedDeviceIds(scope)]);
   if (!devices.size) return { folders: [], suggestions: [], sessions: [], devices: [] };
   const p = await c.projects.findOne({ _id: projectId }, { projection: { code: 1 } });
@@ -276,7 +278,7 @@ export async function projectLauncher(scope: DeviceScope, projectId: string): Pr
 
 /** Folders on one device for the "Add folder" picker (unlinked first), filtered by text. */
 export async function searchFolders(scope: DeviceScope, deviceId: string, q: string): Promise<FolderView[]> {
-  const c = await collections();
+  const c = await scoped(scope);
   const devices = await deviceMap(scope);
   if (!devices.has(deviceId)) throw new NotFoundError('Device not found');
   const esc = q.trim().slice(0, 60).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -290,22 +292,22 @@ export async function searchFolders(scope: DeviceScope, deviceId: string, q: str
 
 /** A folder on one of the person's computers; anyone else's is "not found". */
 async function folderDoc(scope: DeviceScope, key: string): Promise<WorkerFolderDoc> {
-  const c = await collections();
+  const c = await scoped(scope);
   const f = await c.workerFolders.findOne({ _id: key });
-  if (!f || !(await c.devices.findOne({ _id: f.deviceId, ...owned(scope) }, { projection: { _id: 1 } }))) throw new NotFoundError('Folder not found');
+  if (!f || !(await c.devices.findOne({ _id: f.deviceId }, { projection: { _id: 1 } }))) throw new NotFoundError('Folder not found');
   return f;
 }
 
 /** A session of this project on one of the person's computers (revoked ones included); anyone else's is "not found". */
 async function sessionDoc(scope: DeviceScope, projectId: string, sessionId: string): Promise<WorkerSessionDoc> {
-  const c = await collections();
+  const c = await scoped(scope);
   const s = await c.workerSessions.findOne({ _id: sessionId, projectId });
-  if (!s || !(await c.devices.findOne({ _id: s.deviceId, ...owned(scope) }, { projection: { _id: 1 } }))) throw new NotFoundError('Session not found');
+  if (!s || !(await c.devices.findOne({ _id: s.deviceId }, { projection: { _id: 1 } }))) throw new NotFoundError('Session not found');
   return s;
 }
 
 export async function linkFolder(scope: DeviceScope, projectId: string, key: string): Promise<void> {
-  const c = await collections();
+  const c = await scoped(scope);
   if (!(await c.projects.findOne({ _id: projectId }, { projection: { _id: 1 } }))) throw new NotFoundError('Project not found');
   const f = await folderDoc(scope, key);
   if (f.projectId && f.projectId !== projectId) throw new InputError(`"${f.name}" is linked to another project; unlink it there first`);
@@ -313,17 +315,17 @@ export async function linkFolder(scope: DeviceScope, projectId: string, key: str
 }
 
 export async function unlinkFolder(scope: DeviceScope, projectId: string, key: string): Promise<void> {
-  const c = await collections();
+  const c = await scoped(scope);
   await folderDoc(scope, key);
   await c.workerFolders.updateOne({ _id: key, projectId }, { $set: { projectId: null, linkedAt: null } });
 }
 
-async function addJob(deviceId: string, job: { kind: 'start' | 'resume' | 'stop'; sessionId: string; folderId?: string; projectId?: string; prompt?: string }): Promise<void> {
-  const c = await collections();
+async function addJob(scope: DeviceScope, deviceId: string, job: { kind: 'start' | 'resume' | 'stop'; sessionId: string; folderId?: string; projectId?: string; prompt?: string }): Promise<void> {
+  const c = await scoped(scope);
   if (!(await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { _id: 1 } }))) throw new InputError('That device was revoked; add it again under Claude › Setup');
   const open = await c.workerJobs.countDocuments({ deviceId, doneAt: null });
   if (open >= 10) throw new InputError('That device has 10 jobs waiting; is its worker running?');
-  await c.workerJobs.insertOne({ _id: `j_${randomUUID()}`, deviceId, ...job, createdAt: new Date(), takenAt: null, doneAt: null });
+  await c.workerJobs.insertOne({ _id: `j_${randomUUID()}`, orgId: scope.orgId, ownerId: scope.userId, deviceId, ...job, createdAt: new Date(), takenAt: null, doneAt: null });
 }
 
 /** Start a new session in a linked folder. prompt: only what Om typed at Start (docs/launcher.md rule 3). */
@@ -331,21 +333,21 @@ export async function startSession(scope: DeviceScope, projectId: string, key: s
   const f = await folderDoc(scope, key);
   if (f.projectId !== projectId) throw new InputError('That folder is not linked to this project');
   if (f.missing) throw new InputError(`"${f.name}" was not found in the device's last scan`);
-  return createStartJob(f, projectId, prompt?.trim() ?? '');
+  return createStartJob(scope, f, projectId, prompt?.trim() ?? '');
 }
 
 /**
  * The session row and the start job. Also used by the dispatcher (docs/dispatcher.md), which passes `dispatched`
  * (the fixed template is the prompt, never task text) and a session id it already recorded on the task.
  */
-export async function createStartJob(f: WorkerFolderDoc, projectId: string, text: string, dispatched?: { taskId: string; sessionId: string }): Promise<string> {
+export async function createStartJob(scope: DeviceScope, f: WorkerFolderDoc, projectId: string, text: string, dispatched?: { taskId: string; sessionId: string }): Promise<string> {
   if (text.length > MAX_PROMPT) throw new InputError(`First message is too long (max ${MAX_PROMPT} characters)`);
   const sessionId = dispatched?.sessionId ?? randomUUID();
-  const c = await collections();
+  const c = await scoped(scope);
   const now = new Date();
-  await c.workerSessions.insertOne({ _id: sessionId, deviceId: f.deviceId, folderId: f.folderId, projectId, state: 'starting', startedAt: now, updatedAt: now, ...(dispatched ? { dispatched: true, taskId: dispatched.taskId } : {}) });
+  await c.workerSessions.insertOne({ _id: sessionId, orgId: scope.orgId, ownerId: scope.userId, deviceId: f.deviceId, folderId: f.folderId, projectId, state: 'starting', startedAt: now, updatedAt: now, ...(dispatched ? { dispatched: true, taskId: dispatched.taskId } : {}) });
   try {
-    await addJob(f.deviceId, { kind: 'start', sessionId, folderId: f.folderId, projectId, ...(text ? { prompt: text } : {}) });
+    await addJob(scope, f.deviceId, { kind: 'start', sessionId, folderId: f.folderId, projectId, ...(text ? { prompt: text } : {}) });
   } catch (err) {
     await c.workerSessions.deleteOne({ _id: sessionId }); // no orphan "starting" row when the job is refused
     throw err;
@@ -354,21 +356,21 @@ export async function createStartJob(f: WorkerFolderDoc, projectId: string, text
 }
 
 export async function resumeSession(scope: DeviceScope, projectId: string, sessionId: string): Promise<void> {
-  const c = await collections();
+  const c = await scoped(scope);
   const s = await sessionDoc(scope, projectId, sessionId);
   if (!(await c.workerFolders.findOne({ deviceId: s.deviceId, folderId: s.folderId, projectId }, { projection: { _id: 1 } }))) throw new InputError('That folder is no longer linked to this project; link it again first');
-  await addJob(s.deviceId, { kind: 'resume', sessionId, folderId: s.folderId, projectId });
+  await addJob(scope, s.deviceId, { kind: 'resume', sessionId, folderId: s.folderId, projectId });
   await c.workerSessions.updateOne({ _id: sessionId }, { $set: { state: 'starting', updatedAt: new Date() }, $unset: { error: '' } });
 }
 
 export async function stopSession(scope: DeviceScope, projectId: string, sessionId: string): Promise<void> {
   const s = await sessionDoc(scope, projectId, sessionId);
-  await addJob(s.deviceId, { kind: 'stop', sessionId });
+  await addJob(scope, s.deviceId, { kind: 'stop', sessionId });
 }
 
 /** Hide a finished session from the list. The doc stays (history); only stopped, failed, dead or silent ones. */
 export async function removeSession(scope: DeviceScope, projectId: string, sessionId: string): Promise<void> {
-  const c = await collections();
+  const c = await scoped(scope);
   const s = await sessionDoc(scope, projectId, sessionId);
   const st = derivedState(s);
   if (st === 'starting' || st === 'running') throw new InputError('Stop it first, then remove it');
@@ -377,7 +379,7 @@ export async function removeSession(scope: DeviceScope, projectId: string, sessi
 
 /** Undo for removeSession: show the session in the list again. */
 export async function unhideSession(scope: DeviceScope, projectId: string, sessionId: string): Promise<void> {
-  const c = await collections();
+  const c = await scoped(scope);
   await sessionDoc(scope, projectId, sessionId);
   const r = await c.workerSessions.updateOne({ _id: sessionId, projectId }, { $unset: { hidden: '' } });
   if (!r.matchedCount) throw new NotFoundError('Session not found');

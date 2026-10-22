@@ -31,9 +31,9 @@ export async function sendTestEmailAction(): Promise<R<string>> {
 /** Hides the "re-create your keys and re-link the worker" notice left by scripts/migrate-auth.mjs. */
 export async function dismissMigrationNoticeAction(): Promise<R<null>> {
   try {
-    await requireCaller('owner', 'admin');
+    const caller = await requireCaller('owner', 'admin');
     const { collections } = await import('@/lib/db');
-    await (await collections()).settings.updateOne({ _id: 'authMigration' }, { $set: { dismissedAt: new Date() } });
+    await (await collections()).settings.updateOne({ _id: 'authMigration', orgId: caller.orgId }, { $set: { dismissedAt: new Date() } }); // scope-ok: one-off migration notice, filtered by the caller's organization
     return { ok: true, data: null };
   } catch (e) {
     if (e instanceof SafeError) return { ok: false, error: e.message };

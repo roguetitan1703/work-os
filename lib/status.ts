@@ -4,6 +4,7 @@ import { discordConfig, guildContext } from './discord/client';
 import { lastRunStatus } from './alerts';
 import { lastSeen, pushConfigured, pushDeviceCount } from './notify';
 import { converterCheck } from './notes-convert';
+import { scoped, type Scope } from './scope';
 
 // Live health of everything Work OS depends on, for the Settings → Status panel.
 
@@ -20,26 +21,27 @@ const ago = (iso: string | null) => {
   return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
 };
 
-export async function systemStatus(): Promise<Check[]> {
+/** s: the person looking (their alert runs, connector use, push devices and their organization's task count). */
+export async function systemStatus(s: Scope): Promise<Check[]> {
   // Time the database on its own, before the other checks start: the notes-converter check loads a
   // heavy module that blocks the event loop, which used to inflate the ping. The first ping can also
   // include opening the connection, so the second one is the round trip we show.
   const db = await timed(async () => {
-    const d = await getDb();
+    const d = await getDb(); // scope-ok: ping only; the task count below goes through the door
     let t = Date.now();
     await d.command({ ping: 1 });
     const first = Date.now() - t;
     t = Date.now();
     await d.command({ ping: 1 });
     const ms = Date.now() - t;
-    const tasks = await d.collection('tasks').countDocuments();
+    const tasks = await (await scoped(s)).tasks.countDocuments();
     return { ms, first, tasks };
   }).catch((e: Error) => e);
   const [discord, alerts, seen, push, notes] = await Promise.all([
     timed(async () => (discordConfig() ? guildContext() : null)).catch((e: Error) => e),
-    lastRunStatus().catch(() => null),
-    lastSeen().catch(() => ({ mcp: null, discord: null })),
-    pushDeviceCount().catch(() => 0),
+    lastRunStatus(s).catch(() => null),
+    lastSeen(s).catch(() => ({ mcp: null, discord: null })),
+    pushDeviceCount(s).catch(() => 0),
     timed(converterCheck, 8000).catch((e: Error) => e.message),
   ]);
 

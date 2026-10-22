@@ -48,7 +48,7 @@ function range(docs: { counts?: Record<string, number> }[]): UsageRange {
 }
 
 export async function usageReport(now = new Date()): Promise<UsageReport> {
-  const { requestStats } = await collections();
+  const { requestStats } = await collections(); // scope-ok: request counters for the whole app (no organization data)
   const thisHour = Math.floor(now.getTime() / HOUR) * HOUR;
   const weekStart = thisHour - (7 * 24 - 1) * HOUR;
   const dayStart = thisHour - 23 * HOUR;

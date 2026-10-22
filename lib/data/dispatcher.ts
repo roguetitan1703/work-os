@@ -1,17 +1,19 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { collections, type ActivityDoc, type ClaudeMark, type Collections, type TaskDoc } from '../db';
+import type { ActivityDoc, ClaudeMark, TaskDoc } from '../db';
+import { forUser, getUserSetting, scoped, setUserSetting, type Scope, type ScopedCollections as Collections } from '../scope';
 import { requestContext } from '../request-context';
+import { agentActor, userActor, type Actor } from '../actors';
 import type { Status } from '../types';
 import { InputError, NotFoundError } from './errors';
 import { createStartJob, deviceMap, stopSession, type DeviceScope } from './launcher';
 
-// Task dispatcher, PC version (docs/dispatcher.md). Om gives a task to Claude (UI only); when a
-// computer has room, the worker's jobs poll claims the oldest marked task and starts a Claude Code
+// Task dispatcher, PC version (docs/dispatcher.md). A person gives a task to Claude (UI only); when one of
+// their computers has room, its worker's jobs poll claims the oldest task they marked and starts a Claude Code
 // session on it. The task is the finish signal: Done = finished, Blocked or a dead session = stopped.
 // Nothing here is reachable from MCP, Discord or apply_changes: those write tasks through
-// tasks.ts, which never touches `claude` (a task's text becomes a prompt on Om's PC, so only Om
-// chooses what runs).
+// tasks.ts, which never touches `claude` (a task's text becomes a prompt on that person's PC, so only they
+// choose what runs). Settings, the cap and every claim are per person (`dispatcher:<userId>`, markedByUserId).
 
 export const DEFAULT_CAP = 2;
 export const MAX_CAP = 4;
@@ -29,8 +31,8 @@ const CLAIMABLE: Status[] = ['Not Started', 'In Progress'];
 
 export type DispatcherSettings = { enabled: boolean; maxConcurrent: number; boilerplateNoteId: string };
 
-export async function getDispatcherSettings(c?: Collections): Promise<DispatcherSettings> {
-  const d = await (c ?? (await collections())).settings.findOne({ _id: 'dispatcher' });
+export async function getDispatcherSettings(s: Scope): Promise<DispatcherSettings> {
+  const d = await getUserSetting(s, 'dispatcher');
   const cap = Number(d?.maxConcurrent);
   return {
     enabled: d?.enabled === true,
@@ -41,24 +43,24 @@ export async function getDispatcherSettings(c?: Collections): Promise<Dispatcher
 
 const NOTE_ID = /^[A-Za-z0-9_-]{1,60}$/;
 
-/** Om's switch. Turning it on needs a boilerplate note, because every session starts by reading it. */
-export async function setDispatcherSettings(patch: Partial<DispatcherSettings>): Promise<DispatcherSettings> {
-  const c = await collections();
-  const cur = await getDispatcherSettings(c);
+/** The person's switch. Turning it on needs a boilerplate note, because every session starts by reading it. */
+export async function setDispatcherSettings(s: Scope, patch: Partial<DispatcherSettings>): Promise<DispatcherSettings> {
+  const c = await scoped(s);
+  const cur = await getDispatcherSettings(s);
   const next = { ...cur, ...patch };
   if (!Number.isInteger(next.maxConcurrent) || next.maxConcurrent < 1 || next.maxConcurrent > MAX_CAP) throw new InputError(`At most ${MAX_CAP} sessions at once, at least 1`);
   if (next.boilerplateNoteId) {
     if (!NOTE_ID.test(next.boilerplateNoteId) || !(await c.notes.findOne({ _id: next.boilerplateNoteId, deletedAt: null }, { projection: { _id: 1 } }))) throw new InputError('That note was not found');
   }
   if (next.enabled && !next.boilerplateNoteId) throw new InputError('Pick the note Claude reads first before turning this on');
-  await c.settings.updateOne({ _id: 'dispatcher' }, { $set: { enabled: next.enabled, maxConcurrent: next.maxConcurrent, boilerplateNoteId: next.boilerplateNoteId, updatedAt: new Date() } }, { upsert: true });
+  await setUserSetting(s, 'dispatcher', { enabled: next.enabled, maxConcurrent: next.maxConcurrent, boilerplateNoteId: next.boilerplateNoteId, updatedAt: new Date() });
   return next;
 }
 
 export type NotePick = { id: string; title: string; project: string | null };
 /** Live notes for the boilerplate picker, newest first. */
-export async function listNotePicks(): Promise<NotePick[]> {
-  const c = await collections();
+export async function listNotePicks(s: Scope): Promise<NotePick[]> {
+  const c = await scoped(s);
   const notes = await c.notes.find({ deletedAt: null, taskId: null, parentId: null }, { projection: { title: 1, projectId: 1 } }).sort({ updatedAt: -1 }).limit(200).toArray();
   const pids = [...new Set(notes.map(n => n.projectId).filter((x): x is string => !!x))];
   const names = new Map((await c.projects.find({ _id: { $in: pids } }, { projection: { name: 1 } }).toArray()).map(p => [p._id, p.name]));
@@ -84,10 +86,16 @@ export function buildPrompt(ref: number, noteId: string): string {
 
 // ── History and alerts ──────────────────────────────────────────────────────
 
-async function logTask(c: Collections, t: Pick<TaskDoc, '_id' | 'ref' | 'title'>, actor: 'me' | 'claude-code', type: ActivityDoc['type'], extra: { changes?: ActivityDoc['changes']; note?: string }): Promise<void> {
+/** The dispatcher acts as Claude Code for the person who gave the task. */
+const dispatcherActor = (t: Pick<TaskDoc, 'claude' | 'ownerId'>): Actor => agentActor('claude-code', t.claude?.markedByUserId ?? t.ownerId);
+
+async function logTask(c: Collections, t: Pick<TaskDoc, '_id' | 'ref' | 'title' | 'orgId' | 'ownerId' | 'visibility'>, actor: Actor, type: ActivityDoc['type'], extra: { changes?: ActivityDoc['changes']; note?: string }): Promise<void> {
   const rc = requestContext();
   await c.activity.insertOne({
     _id: randomUUID(),
+    orgId: t.orgId,
+    ownerId: t.ownerId,
+    visibility: t.visibility,
     taskId: t._id,
     taskRef: t.ref,
     taskTitle: t.title,
@@ -97,7 +105,6 @@ async function logTask(c: Collections, t: Pick<TaskDoc, '_id' | 'ref' | 'title'>
     ...(extra.changes ? { changes: extra.changes } : {}),
     ...(extra.note ? { note: extra.note } : {}),
     ...(rc.session ? { session: rc.session } : {}),
-    ...(rc.userId ? { actorUserId: rc.userId } : {}),
   });
 }
 
@@ -112,9 +119,13 @@ export function plainAlertText(s: string): string {
     .trim();
 }
 
-/** One alert per outcome. The queue id is per claim, and the state change that led here is conditional, so it is queued once. */
-async function queueOutcome(c: Collections, t: TaskDoc, kind: 'claude_finished' | 'claude_stopped', detail: string): Promise<void> {
+/**
+ * One alert per outcome, to the person who gave the task to Claude. The queue id is per claim, and the state change that
+ * led here is conditional, so it is queued once.
+ */
+async function queueOutcome(s: Scope, t: TaskDoc, kind: 'claude_finished' | 'claude_stopped', detail: string): Promise<void> {
   const claimedAt = t.claude?.claimedAt?.getTime() ?? t.claude?.markedAt.getTime() ?? 0;
+  const c = await scoped(forUser(s, t.claude?.markedByUserId ?? t.ownerId));
   await c.alertQueue.updateOne(
     { _id: `claude:${t._id}:${claimedAt}` },
     { $setOnInsert: { kind, taskId: t._id, byTaskId: t._id, createdAt: new Date(), sentAt: null, detail: plainAlertText(detail).slice(0, 300) } },
@@ -127,7 +138,7 @@ async function queueOutcome(c: Collections, t: TaskDoc, kind: 'claude_finished' 
 type End = { to: 'finished' | 'stopped' | 'failed'; note?: string };
 
 /** Running -> an end state, once (conditional on the task still being "running" under the same claim). Returns true if this call did it. */
-async function endRun(c: Collections, t: TaskDoc, end: End): Promise<boolean> {
+async function endRun(c: Collections, s: Scope, t: TaskDoc, end: End): Promise<boolean> {
   const now = new Date();
   const restore = end.to === 'failed' && t.claude?.prevStatus && t.status === 'In Progress' && t.claude.prevStatus !== 'In Progress';
   const claim = { _id: t._id, 'claude.state': 'running' as const, 'claude.sessionId': t.claude?.sessionId };
@@ -138,9 +149,9 @@ async function endRun(c: Collections, t: TaskDoc, end: End): Promise<boolean> {
   if (r) restored = true;
   else r = await c.tasks.findOneAndUpdate(claim, { $set: ended }, { returnDocument: 'after' });
   if (!r) return false;
-  if (restored) await logTask(c, r, 'claude-code', 'status', { changes: { status: { from: 'In Progress', to: t.claude!.prevStatus } }, note: `Dispatcher: ${end.note ?? 'could not start'}; status restored` });
-  if (end.to === 'finished') await queueOutcome(c, t, 'claude_finished', end.note ?? '');
-  else await queueOutcome(c, t, 'claude_stopped', end.note ?? (end.to === 'failed' ? 'could not start' : 'session ended'));
+  if (restored) await logTask(c, r, dispatcherActor(t), 'status', { changes: { status: { from: 'In Progress', to: t.claude!.prevStatus } }, note: `Dispatcher: ${end.note ?? 'could not start'}; status restored` });
+  if (end.to === 'finished') await queueOutcome(s, t, 'claude_finished', end.note ?? '');
+  else await queueOutcome(s, t, 'claude_stopped', end.note ?? (end.to === 'failed' ? 'could not start' : 'session ended'));
   return true;
 }
 
@@ -157,37 +168,44 @@ function outcomeOf(t: TaskDoc, session: { state: string; error?: string } | null
   return null;
 }
 
-/** Called from updateTask when a running task's status changed (inside its transaction, so the same collections). */
-export async function onTaskChanged(c: Collections, t: TaskDoc): Promise<void> {
+/**
+ * Called from updateTask when a running task's status changed (inside its transaction). Whoever changed it (a teammate
+ * on a shared task too), the session is the marker's: read through their scope.
+ */
+export async function onTaskChanged(c: Collections, s: Scope, t: TaskDoc): Promise<void> {
   if (t.claude?.state !== 'running') return;
-  const session = t.claude.sessionId ? await c.workerSessions.findOne({ _id: t.claude.sessionId }) : null;
+  const marker = forUser(s, t.claude.markedByUserId ?? t.ownerId);
+  const session = t.claude.sessionId ? await (await scoped(marker)).workerSessions.findOne({ _id: t.claude.sessionId }) : null;
   const o = outcomeOf(t, session);
-  if (o) await endRun(c, t, o);
+  if (o) await endRun(c, s, t, o);
 }
 
-/** Closes every running claim whose task or session has ended. Cheap: the running set is at most the cap. Returns how many ended. */
-export async function settleDispatched(c?: Collections): Promise<number> {
-  const col = c ?? (await collections());
-  const running = await col.tasks.find({ 'claude.state': 'running' }).toArray();
+/** The person's running claims (tasks they gave to Claude). */
+const mine = (s: Scope) => ({ 'claude.markedByUserId': s.userId });
+
+/** Closes every running claim of this person whose task or session has ended. Cheap: at most the cap. Returns how many ended. */
+export async function settleDispatched(s: Scope, c?: Collections): Promise<number> {
+  const col = c ?? (await scoped(s));
+  const running = await col.tasks.find({ 'claude.state': 'running', ...mine(s) }).toArray();
   let n = 0;
   for (const t of running) {
     const session = t.claude?.sessionId ? await col.workerSessions.findOne({ _id: t.claude.sessionId }) : null;
     const o = outcomeOf(t, session);
-    if (o && (await endRun(col, t, o))) n++;
+    if (o && (await endRun(col, s, t, o))) n++;
   }
   // A queued task whose chosen folder is no longer linked to its project (unlinked, or the project changed) would wait forever.
-  const picked = await col.tasks.find({ 'claude.state': 'queued', 'claude.folderKey': { $exists: true } }).toArray();
+  const picked = await col.tasks.find({ 'claude.state': 'queued', 'claude.folderKey': { $exists: true }, ...mine(s) }).toArray();
   for (const t of picked) {
     const key = t.claude!.folderKey!;
     if (t.projectId && (await col.workerFolders.findOne({ _id: key, projectId: t.projectId }, { projection: { _id: 1 } }))) continue;
     const r = await col.tasks.updateOne({ _id: t._id, 'claude.state': 'queued', 'claude.folderKey': key }, { $set: { 'claude.state': 'stopped', 'claude.endedAt': new Date(), 'claude.note': 'folder no longer linked' } });
     if (r.modifiedCount) {
-      await queueOutcome(col, t, 'claude_stopped', 'folder no longer linked');
+      await queueOutcome(s, t, 'claude_stopped', 'folder no longer linked');
       n++;
     }
   }
   // A task that was closed while still queued is no longer waiting for anyone.
-  await col.tasks.updateMany({ 'claude.state': 'queued', $or: [{ status: { $in: ['Done', 'Dropped'] } }, { archived: true }] }, { $set: { claude: null } });
+  await col.tasks.updateMany({ 'claude.state': 'queued', ...mine(s), $or: [{ status: { $in: ['Done', 'Dropped'] } }, { archived: true }] }, { $set: { claude: null } });
   return n;
 }
 
@@ -198,26 +216,27 @@ export async function settleDispatched(c?: Collections): Promise<number> {
  * computer reports allowPrompts, fewer than maxConcurrent claims are running, and a queued task's folder is linked here.
  * Returns the claimed task ref, if any.
  */
-/** null when the dispatcher is off (the poll then does nothing else); otherwise the claimed ref, if any. */
-export async function dispatchFor(deviceId: string): Promise<{ ref: number | null; active: boolean } | null> {
-  const c = await collections();
+/** s: the computer's owner. null when their dispatcher is off (the poll then does nothing else); otherwise the claimed ref, if any. */
+export async function dispatchFor(s: Scope, deviceId: string): Promise<{ ref: number | null; active: boolean } | null> {
+  const c = await scoped(s);
   // Off: nothing else on this poll (the worker polls all day; the status route and the cron still settle).
-  const set = await getDispatcherSettings(c);
+  const set = await getDispatcherSettings(s);
   if (!set.enabled) return null;
-  // On but nothing queued or running (the usual case): one indexed read, no settling, no claiming.
-  if (!(await c.tasks.findOne({ 'claude.state': { $in: ['queued', 'running'] } }, { projection: { _id: 1 } }))) return { ref: null, active: false };
-  await settleDispatched(c); // a task finished since the last poll frees its slot now
-  return { ref: await claimFor(c, deviceId, set), active: true };
+  // On but nothing of theirs queued or running (the usual case): one indexed read, no settling, no claiming.
+  if (!(await c.tasks.findOne({ 'claude.state': { $in: ['queued', 'running'] }, ...mine(s) }, { projection: { _id: 1 } }))) return { ref: null, active: false };
+  await settleDispatched(s, c); // a task finished since the last poll frees its slot now
+  return { ref: await claimFor(c, s, deviceId, set), active: true };
 }
 
-async function claimFor(c: Collections, deviceId: string, set: DispatcherSettings): Promise<number | null> {
+async function claimFor(c: Collections, s: Scope, deviceId: string, set: DispatcherSettings): Promise<number | null> {
   const dev = await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { worker: 1, ownerId: 1, orgId: 1 } });
-  if (dev?.worker?.allowPrompts !== true || !dev.ownerId || !dev.orgId) return null;
-  if ((await c.tasks.countDocuments({ 'claude.state': 'running' })) >= set.maxConcurrent) return null;
+  if (dev?.worker?.allowPrompts !== true) return null;
+  // The cap counts this person's own running tasks (their computers, their limit).
+  if ((await c.tasks.countDocuments({ 'claude.state': 'running', ...mine(s) })) >= set.maxConcurrent) return null;
 
   const queued = await c.tasks
     // Only tasks this computer's owner gave to Claude (a task given by someone else runs on their computers).
-    .find({ 'claude.state': 'queued', 'claude.markedByUserId': dev.ownerId, 'claude.markedByOrgId': dev.orgId, archived: false, status: { $in: CLAIMABLE }, projectId: { $ne: null } })
+    .find({ 'claude.state': 'queued', 'claude.markedByUserId': s.userId, 'claude.markedByOrgId': s.orgId, archived: false, status: { $in: CLAIMABLE }, projectId: { $ne: null } })
     .sort({ 'claude.markedAt': 1, ref: 1 })
     .limit(50)
     .toArray();
@@ -239,18 +258,18 @@ async function claimFor(c: Collections, deviceId: string, set: DispatcherSetting
     );
     if (!claimed) return null;
     try {
-      await createStartJob(f, claimed.projectId!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId });
+      await createStartJob(s, f, claimed.projectId!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[dispatcher] start job failed, rolled back', msg);
       // Counts toward MAX_ATTEMPTS, so a persistent failure ends as failed instead of retrying on every poll.
-      if ((claimed.claude?.attempts ?? 0) + 1 >= MAX_ATTEMPTS) await endRun(c, claimed, { to: 'failed', note: `could not start: ${msg}`.slice(0, 300) });
+      if ((claimed.claude?.attempts ?? 0) + 1 >= MAX_ATTEMPTS) await endRun(c, s, claimed, { to: 'failed', note: `could not start: ${msg}`.slice(0, 300) });
       else await requeue(c, claimed, true);
       return null;
     }
     // Recorded as the dispatcher, no inbox notice (that notice comes only from MCP writes).
-    if (t.status !== 'In Progress') await logTask(c, claimed, 'claude-code', 'status', { changes: { status: { from: t.status, to: 'In Progress' } }, note: `Dispatcher: started Claude on this task (${f.name})` });
-    else await logTask(c, claimed, 'claude-code', 'comment', { note: `Dispatcher: started Claude on this task (${f.name})` });
+    if (t.status !== 'In Progress') await logTask(c, claimed, dispatcherActor(claimed), 'status', { changes: { status: { from: t.status, to: 'In Progress' } }, note: `Dispatcher: started Claude on this task (${f.name})` });
+    else await logTask(c, claimed, dispatcherActor(claimed), 'comment', { note: `Dispatcher: started Claude on this task (${f.name})` });
     return claimed.ref;
   }
   return null;
@@ -273,11 +292,12 @@ async function requeue(c: Collections, t: TaskDoc, countAttempt: boolean): Promi
 
 export type Reconciled = { requeued: number; stopped: number; failed: number };
 
-export async function reconcileDispatched(now: Date = new Date()): Promise<Reconciled> {
-  const c = await collections();
+/** One person's running claims (the alerts cron calls it for everyone). */
+export async function reconcileDispatched(s: Scope, now: Date = new Date()): Promise<Reconciled> {
+  const c = await scoped(s);
   const out: Reconciled = { requeued: 0, stopped: 0, failed: 0 };
-  await settleDispatched(c);
-  const running = await c.tasks.find({ 'claude.state': 'running' }).toArray();
+  await settleDispatched(s, c);
+  const running = await c.tasks.find({ 'claude.state': 'running', ...mine(s) }).toArray();
   if (!running.length) return out;
   const devices = new Map((await c.devices.find({ _id: { $in: [...new Set(running.map(t => t.claude?.deviceId).filter((x): x is string => !!x))] } }, { projection: { lastSeenAt: 1, name: 1 } }).toArray()).map(d => [d._id, d]));
   for (const t of running) {
@@ -291,7 +311,7 @@ export async function reconcileDispatched(now: Date = new Date()): Promise<Recon
         await c.workerSessions.updateOne({ _id: session._id, state: 'starting' }, { $set: { state: 'failed', error: 'never started', hidden: true, updatedAt: now } });
       }
       if ((m.attempts ?? 0) + 1 >= MAX_ATTEMPTS) {
-        if (await endRun(c, t, { to: 'failed', note: `could not start after ${MAX_ATTEMPTS} tries (is the worker running?)` })) out.failed++;
+        if (await endRun(c, s, t, { to: 'failed', note: `could not start after ${MAX_ATTEMPTS} tries (is the worker running?)` })) out.failed++;
       } else {
         await requeue(c, t, true);
         out.requeued++;
@@ -302,7 +322,7 @@ export async function reconcileDispatched(now: Date = new Date()): Promise<Recon
       const dev = m.deviceId ? devices.get(m.deviceId) : undefined;
       const seen = dev?.lastSeenAt?.getTime() ?? 0;
       if (now.getTime() - seen > NO_REPORT_MS) {
-        if (await endRun(c, t, { to: 'stopped', note: `no news from ${dev?.name ?? 'the computer'} for 15 minutes` })) out.stopped++;
+        if (await endRun(c, s, t, { to: 'stopped', note: `no news from ${dev?.name ?? 'the computer'} for 15 minutes` })) out.stopped++;
       }
     }
   }
@@ -310,8 +330,9 @@ export async function reconcileDispatched(now: Date = new Date()): Promise<Recon
 }
 
 /** Running claims whose session has been quiet for STUCK_MS (worker's lastActiveAt), for the scheduled stuck alert. */
-export async function stuckClaims(c: Collections, now: Date): Promise<{ t: TaskDoc; quietMins: number }[]> {
-  const running = await c.tasks.find({ 'claude.state': 'running', status: 'In Progress' }).toArray();
+export async function stuckClaims(s: Scope, now: Date): Promise<{ t: TaskDoc; quietMins: number }[]> {
+  const c = await scoped(s);
+  const running = await c.tasks.find({ 'claude.state': 'running', status: 'In Progress', ...mine(s) }).toArray();
   const out: { t: TaskDoc; quietMins: number }[] = [];
   for (const t of running) {
     const m = t.claude!;
@@ -325,7 +346,7 @@ export async function stuckClaims(c: Collections, now: Date): Promise<{ t: TaskD
   return out;
 }
 
-// ── Marking (Om only: called from UI server actions) ────────────────────────
+// ── Marking (a person only: called from UI server actions) ──────────────────
 
 async function taskByKey(c: Collections, key: string): Promise<TaskDoc> {
   const m = key.trim().match(/^#?(\d{1,7})$/);
@@ -345,9 +366,9 @@ export type MarkOptions = {
 
 /** What the Give to Claude sheet needs for one task. */
 export async function markOptions(scope: DeviceScope, key: string): Promise<MarkOptions> {
-  const c = await collections();
+  const c = await scoped(scope);
   const t = await taskByKey(c, key);
-  const set = await getDispatcherSettings(c);
+  const set = await getDispatcherSettings(scope);
   const base = { ref: t.ref, state: t.claude?.state ?? null, dispatcherOn: set.enabled };
   if (t.archived || t.status === 'Done' || t.status === 'Dropped') return { ...base, folders: [], blocked: 'A finished or archived task cannot be given to Claude.' };
   if (!t.projectId) return { ...base, folders: [], blocked: 'Add this task to a project first. Claude works in the project\'s folder.' };
@@ -359,7 +380,7 @@ export async function markOptions(scope: DeviceScope, key: string): Promise<Mark
 }
 
 export async function giveToClaude(scope: DeviceScope, key: string, folderKey?: string): Promise<void> {
-  const c = await collections();
+  const c = await scoped(scope);
   const t = await taskByKey(c, key);
   if (t.archived || t.status === 'Done' || t.status === 'Dropped') throw new InputError('A finished or archived task cannot be given to Claude.');
   if (t.status === 'Blocked') throw new InputError('This task is Blocked. Set it to Not Started or In Progress first.');
@@ -373,13 +394,13 @@ export async function giveToClaude(scope: DeviceScope, key: string, folderKey?: 
     if (!folderKey || !folders.some(f => f._id === folderKey)) throw new InputError('Choose which folder Claude works in.');
     chosen = folderKey;
   }
-  const mark: ClaudeMark = { state: 'queued', markedAt: new Date(), markedBy: 'om', markedByUserId: scope.userId, markedByOrgId: scope.orgId, ...(chosen ? { folderKey: chosen } : {}) };
+  const mark: ClaudeMark = { state: 'queued', markedAt: new Date(), markedBy: 'user', markedByUserId: scope.userId, markedByOrgId: scope.orgId, ...(chosen ? { folderKey: chosen } : {}) };
   const r = await c.tasks.updateOne(
     { _id: t._id, archived: false, status: { $in: CLAIMABLE }, $or: [{ claude: null }, { claude: { $exists: false } }, { 'claude.state': { $in: ['finished', 'stopped', 'failed'] } }] },
     { $set: { claude: mark } },
   );
   if (!r.modifiedCount) throw new InputError('The task changed while you were choosing. Try again.');
-  await logTask(c, t, 'me', 'edit', { changes: { claude: { from: t.claude?.state ?? null, to: 'queued' } } });
+  await logTask(c, t, userActor(scope.userId), 'edit', { changes: { claude: { from: t.claude?.state ?? null, to: 'queued' } } });
 }
 
 /**
@@ -387,7 +408,7 @@ export async function giveToClaude(scope: DeviceScope, key: string, folderKey?: 
  * best-effort (the computer may be off) and the claim ends as stopped either way.
  */
 export async function takeBackFromClaude(scope: DeviceScope, key: string, opts: { stop?: boolean } = {}): Promise<void> {
-  const c = await collections();
+  const c = await scoped(scope);
   const t = await taskByKey(c, key);
   const from = t.claude?.state ?? null;
   if (!t.claude) return;
@@ -405,7 +426,7 @@ export async function takeBackFromClaude(scope: DeviceScope, key: string, opts: 
     const r = await c.tasks.updateOne({ _id: t._id, 'claude.state': t.claude.state }, { $set: { claude: null } });
     if (!r.modifiedCount) throw new InputError('Claude just started this task. Stop the session first.');
   }
-  await logTask(c, t, 'me', 'edit', { changes: { claude: { from, to: null } } });
+  await logTask(c, t, userActor(scope.userId), 'edit', { changes: { claude: { from, to: null } } });
 }
 
 // ── Claude page: Claude's tasks ─────────────────────────────────────────────
@@ -432,10 +453,10 @@ export type ClaudeTasks = { settings: DispatcherSettings; running: ClaudeTaskRow
 
 /** The tasks the signed-in person gave to Claude. */
 export async function claudeTasks(scope: DeviceScope): Promise<ClaudeTasks> {
-  const c = await collections();
+  const c = await scoped(scope);
   const cutoff = new Date(Date.now() - RECENT_DAYS * 86_400_000);
   const [settings, docs, devices] = await Promise.all([
-    getDispatcherSettings(c),
+    getDispatcherSettings(scope),
     c.tasks
       .find({ 'claude.markedByUserId': scope.userId, $or: [{ 'claude.state': { $in: ['queued', 'running'] } }, { 'claude.state': { $in: ['finished', 'stopped', 'failed'] }, 'claude.endedAt': { $gte: cutoff } }] })
       .sort({ 'claude.markedAt': 1 })

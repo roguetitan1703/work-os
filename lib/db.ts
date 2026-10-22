@@ -2,13 +2,23 @@ import 'server-only';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { MongoClient, type ClientSession, type Db, type Collection, type IndexDescription } from 'mongodb';
-import type { CodeLocation, TaskSource, Activity, Actor, ActivityType, FieldChange, ProjectStatus, Mode, Priority, Status, ChecklistItem, Link, Recurrence, WeeklyReview, FiverrRitualLog } from './types';
+import type { CodeLocation, TaskSource, Activity, Actor, ActivityType, FieldChange, ProjectStatus, Mode, Priority, Status, ChecklistItem, Link, Recurrence, Visibility, WeeklyReview, FiverrRitualLog } from './types';
+import { asActor } from './actors';
+
+// ── Ownership (docs/multi-user.md, phase 2) ──
+// Every stored document carries orgId. Documents that belong to one person carry ownerId (or userId: the recipient of
+// a notification, push device, alert). Shared things carry visibility: a project's, which its tasks, notes, Claude
+// items, history and trash entries copy. Queries go through lib/scope.ts, which adds orgId and the visibility rule.
+/** Fields of a document that lives in the shared space of an organization (project, task, note, ...). */
+export type Placed = { orgId: string; ownerId: string; visibility: Visibility };
 
 // ── Document shapes as stored in MongoDB ────────────────────────────────────
 
-export type TaskDoc = {
+export type TaskDoc = Placed & {
   _id: string;
   ref: number;
+  /** Gets the task's alerts (when the task is shared); else the owner does. */
+  assigneeId?: string | null;
   title: string;
   description: string;
   mode: Mode | null;
@@ -38,11 +48,11 @@ export type TaskDoc = {
   claude?: ClaudeMark | null;
 };
 
-/** A task Om gave to Claude. */
+/** A task a person gave to Claude. */
 export type ClaudeMark = {
   state: 'queued' | 'running' | 'finished' | 'stopped' | 'failed';
   markedAt: Date;
-  markedBy: 'om';
+  markedBy: 'user';
   /** The signed-in person who gave it to Claude: only their own computers claim it (docs/auth.md). */
   markedByUserId?: string;
   markedByOrgId?: string;
@@ -60,7 +70,7 @@ export type ClaudeMark = {
   attempts?: number;
 };
 
-export type ActivityDoc = {
+export type ActivityDoc = Placed & {
   _id: string;
   taskId: string;
   taskRef: number;
@@ -72,12 +82,10 @@ export type ActivityDoc = {
   note?: string;
   /** Claude Code session / repo headers (lib/request-context.ts). */
   session?: string;
-  /** The signed-in user (or the API key's owner) behind `actor` (lib/request-context.ts); for the phase 2 actor model. */
-  actorUserId?: string;
   repo?: string;
 };
 
-export type ProjectDoc = {
+export type ProjectDoc = Placed & {
   _id: string;
   name: string;
   nameLower: string;
@@ -90,10 +98,11 @@ export type ProjectDoc = {
   updatedAt: Date;
 };
 
-export type ReviewDoc = Omit<WeeklyReview, 'id'> & { _id: string };
-export type RitualDoc = Omit<FiverrRitualLog, 'id'> & { _id: string };
-export type CounterDoc = { _id: string; seq: number };
-export type ClaudeItemDoc = Omit<import('./types').ClaudeItem, 'id' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {
+export type ReviewDoc = Omit<WeeklyReview, 'id'> & { _id: string; orgId: string; ownerId: string };
+export type RitualDoc = Omit<FiverrRitualLog, 'id'> & { _id: string; orgId: string; ownerId: string };
+/** _id `<name>:<orgId>` (task and Claude item numbers per organization). */
+export type CounterDoc = { _id: string; seq: number; orgId: string };
+export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {
   _id: string;
   createdAt: Date;
   updatedAt: Date;
@@ -105,7 +114,7 @@ export type ClaudeItemDoc = Omit<import('./types').ClaudeItem, 'id' | 'createdAt
   /** The project's "Small fixes and checks" item (not counted toward the cap; title/kind fixed). */
   group?: true;
 };
-export type NoteDoc = {
+export type NoteDoc = Placed & {
   _id: string;
   title: string;
   /** Editor blocks (source of truth). Missing on notes written before the block editor; derived from body then. */
@@ -128,21 +137,21 @@ export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | '
 /** Kinds sent from the alertQueue (event alerts) rather than found by the scheduled check. */
 export type QueuedAlertKind = 'unblocked' | 'claude_finished' | 'claude_stopped';
 /** One row per alert sent (key encodes task + occasion), so each is sent once. */
-export type AlertLogDoc = { _id: string; kind: AlertKind; taskId?: string; sentAt: Date };
+export type AlertLogDoc = { _id: string; orgId: string; /** Who it was sent to. */ userId: string; kind: AlertKind; taskId?: string; sentAt: Date };
 /** Event alerts waiting for the next send (queued inside the write's transaction). */
-export type AlertQueueDoc = { _id: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason. */ detail?: string };
+export type AlertQueueDoc = { _id: string; orgId: string; /** Who gets it: the task's recipient, or the person who gave it to Claude. */ userId: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason. */ detail?: string };
 
 /** Inbox-only notices that are not scheduled alerts. */
 export type NoticeKind = 'claude_code_changes' | 'claude_waiting';
 /** Everything with an on/off switch in Settings → Notifications. */
 export type NotifyKind = AlertKind | NoticeKind;
 /** In-app inbox: every alert delivered (plus test notifications). */
-export type NotificationDoc = { _id: string; kind: NotifyKind | 'test' | 'security'; title: string; body: string; url: string; createdAt: Date; readAt: Date | null };
+export type NotificationDoc = { _id: string; orgId: string; /** The recipient. */ userId: string; kind: NotifyKind | 'test' | 'security'; title: string; body: string; url: string; createdAt: Date; readAt: Date | null };
 /** Web Push subscriptions, keyed by endpoint (one per device/browser). */
-export type PushSubDoc = { _id: string; keys: { p256dh: string; auth: string }; device: string; createdAt: Date; updatedAt: Date };
+export type PushSubDoc = { _id: string; orgId: string; /** The person signed in when this device turned push on. */ userId: string; keys: { p256dh: string; auth: string }; device: string; createdAt: Date; updatedAt: Date };
 
 /** A deleted task with its history, kept 30 days so it can be restored. */
-export type TrashDoc = {
+export type TrashDoc = Placed & {
   _id: string; // task id
   ref: number;
   title: string;
@@ -155,8 +164,16 @@ export type TrashDoc = {
   noteIds?: string[];
 };
 /** App settings, one doc per area. `discord.blockedIds` = channel/category/thread ids Work OS must never read. */
+/**
+ * Per-person and per-organization settings (lib/scope.ts): _id `<area>:<userId>` (notify, dispatcher, alerts, status)
+ * or `<area>:<orgId>` (discord). The older single docs (_id 'notify', ...) are renamed by scripts/migrate-ownership.mjs.
+ * 'indexes' and 'authMigration' stay global.
+ */
 export type SettingsDoc = {
   _id: string;
+  area?: string;
+  orgId?: string;
+  userId?: string;
   blockedIds?: string[];
   updatedAt?: Date;
   /** _id 'alerts': last scheduled run */
@@ -170,6 +187,11 @@ export type SettingsDoc = {
   enabled?: boolean;
   maxConcurrent?: number;
   boilerplateNoteId?: string;
+  /** notify:<userId>: where this person's alerts go. */
+  notify?: { channels?: Partial<Record<'push' | 'discord', boolean>>; kinds?: Partial<Record<NotifyKind, boolean>> };
+  /** status:<userId>: when their Claude connector and Discord were last used. */
+  lastMcpAt?: Date;
+  lastDiscordAt?: Date;
 };
 
 // ── Session launcher (docs/launcher.md) ──
@@ -178,9 +200,9 @@ export type DeviceDoc = { _id: string; name: string; /** The signed-in user who 
 export type ReportedClaudeSession = { sessionId: string; folder: string; title: string; lastActiveAt: Date; subagentsActive: number; startedByWorkOs: boolean; running: boolean };
 export type DeviceActivity = { sessions: number; sessionsWorkOs: number; sessionsOther: number; sessionsActive: number; subagents: number; at: Date };
 /** A folder a worker reported. _id = deviceId:folderId. Never a path. */
-export type WorkerFolderDoc = { _id: string; deviceId: string; folderId: string; name: string; git: boolean; remote?: string; branch?: string; projectId: string | null; linkedAt: Date | null; seenAt: Date; missing: boolean };
-export type WorkerJobDoc = { _id: string; deviceId: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; sessionId: string; prompt?: string; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
-export type WorkerSessionDoc = { _id: string; deviceId: string; folderId: string; projectId: string | null; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Om removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string };
+export type WorkerFolderDoc = { _id: string; /** The device's owner and organization. */ orgId: string; ownerId: string; deviceId: string; folderId: string; name: string; git: boolean; remote?: string; branch?: string; projectId: string | null; linkedAt: Date | null; seenAt: Date; missing: boolean };
+export type WorkerJobDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; sessionId: string; prompt?: string; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
+export type WorkerSessionDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; folderId: string; projectId: string | null; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Om removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string };
 /** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
 export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker'; at: Date; n?: number };
 
@@ -236,31 +258,34 @@ export async function getDb(): Promise<Db> {
 /** Every index the app relies on. Changing this list changes INDEX_VERSION by itself. */
 const INDEXES: [string, IndexDescription[]][] = [
     ['tasks', [
-      { key: { ref: 1 }, unique: true, name: 'ref_unique' },
-      { key: { status: 1, due: 1 }, name: 'status_due' },
+      { key: { orgId: 1, ref: 1 }, unique: true, name: 'org_ref_unique' },
+      { key: { orgId: 1, status: 1, due: 1 }, name: 'org_status_due' },
       { key: { projectId: 1 }, name: 'project' },
+      { key: { orgId: 1, ownerId: 1, status: 1 }, name: 'org_owner_status' },
       { key: { doneAt: -1 }, name: 'doneAt' },
       { key: { 'source.messageId': 1 }, name: 'source_message', sparse: true },
       { key: { 'claude.state': 1, 'claude.markedAt': 1 }, name: 'claude_state', sparse: true },
     ]],
     ['activity', [
       { key: { taskId: 1, at: -1 }, name: 'task_at' },
-      { key: { at: -1 }, name: 'at' },
+      { key: { orgId: 1, at: -1 }, name: 'org_at' },
     ]],
-    ['projects', [{ key: { nameLower: 1 }, unique: true, name: 'name_unique' }]],
-    ['ritualLogs', [{ key: { date: 1 }, unique: true, name: 'date_unique' }]],
+    ['projects', [{ key: { orgId: 1, nameLower: 1 }, unique: true, name: 'org_name_unique' }]],
+    ['ritualLogs', [{ key: { orgId: 1, ownerId: 1, date: 1 }, unique: true, name: 'owner_date_unique' }]],
     ['alertLog', [{ key: { taskId: 1 }, name: 'task' }, { key: { sentAt: 1 }, name: 'sentAt' }]],
-    ['alertQueue', [{ key: { sentAt: 1 }, name: 'sentAt' }]],
-    ['notifications', [{ key: { createdAt: -1 }, name: 'created' }, { key: { readAt: 1 }, name: 'read' }]],
+    ['alertQueue', [{ key: { sentAt: 1 }, name: 'sentAt' }, { key: { orgId: 1, sentAt: 1 }, name: 'org_sentAt' }]],
+    ['notifications', [{ key: { userId: 1, createdAt: -1 }, name: 'user_created' }, { key: { userId: 1, readAt: 1 }, name: 'user_read' }, { key: { createdAt: 1 }, name: 'created_at' }]],
+    ['pushSubs', [{ key: { userId: 1 }, name: 'user' }]],
     ['notes', [
       { key: { taskId: 1, deletedAt: 1 }, name: 'one_live_note_per_task', unique: true, partialFilterExpression: { taskId: { $type: 'string' } } },
       { key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' },
-      { key: { updatedAt: -1 }, name: 'updated' },
+      { key: { orgId: 1, updatedAt: -1 }, name: 'org_updated' },
       { key: { parentId: 1 }, name: 'parent', sparse: true },
     ]],
-    ['trash', [{ key: { deletedAt: -1 }, name: 'deletedAt' }, { key: { ref: 1 }, name: 'ref' }]],
+    ['trash', [{ key: { deletedAt: -1 }, name: 'deletedAt' }, { key: { orgId: 1, ref: 1 }, name: 'org_ref' }]],
     ['claudeItems', [
-      { key: { ref: 1 }, unique: true, name: 'ref_unique' },
+      { key: { orgId: 1, ref: 1 }, unique: true, name: 'org_ref_unique' },
+      { key: { orgId: 1, waitingOn: 1, state: 1 }, name: 'org_waiting' },
       { key: { projectId: 1, state: 1, order: 1 }, name: 'project_state_order' },
       { key: { blockedBy: 1 }, name: 'blockedBy' },
     ]],
@@ -274,14 +299,24 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['authLimits', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 3600 }, { key: { key: 1, at: -1 }, name: 'key_at' }]],
   ];
 
+/**
+ * Indexes replaced by the per-organization ones above (phase 2): a global unique ref or name would refuse the second
+ * organization's #1. Dropped when the index list changes (scripts/migrate-ownership.mjs drops them too).
+ */
+const OBSOLETE: [string, string][] = [
+  ['tasks', 'ref_unique'], ['tasks', 'status_due'], ['claudeItems', 'ref_unique'], ['projects', 'name_unique'], ['ritualLogs', 'date_unique'],
+  ['activity', 'at'], ['notes', 'updated'], ['trash', 'ref'], ['notifications', 'created'], ['notifications', 'read'],
+];
+
 /** Hash of the index list: stored in settings so cold starts only create indexes when the list changed. */
-const INDEX_VERSION = createHash('sha1').update(JSON.stringify(INDEXES)).digest('hex').slice(0, 12);
+const INDEX_VERSION = createHash('sha1').update(JSON.stringify([INDEXES, OBSOLETE])).digest('hex').slice(0, 12);
 
 /** Once per process, and not at all when the database already holds this index set (one read instead of ~25 createIndexes). */
 async function ensureIndexes(db: Db): Promise<void> {
   const settings = db.collection<{ _id: string; version?: string }>('settings');
   const marker = await settings.findOne({ _id: 'indexes' }, { projection: { version: 1 } });
   if (marker?.version === INDEX_VERSION) return;
+  await Promise.all(OBSOLETE.map(([col, name]) => db.collection(col).dropIndex(name).catch(() => {})));
   await Promise.all(INDEXES.map(([name, specs]) => db.collection(name).createIndexes(specs)));
   await settings.updateOne({ _id: 'indexes' }, { $set: { version: INDEX_VERSION, at: new Date() } }, { upsert: true });
 }
@@ -392,7 +427,7 @@ export function toActivity(d: ActivityDoc): Activity {
     taskRef: d.taskRef,
     taskTitle: d.taskTitle,
     at: d.at.toISOString(),
-    actor: d.actor,
+    actor: asActor(d.actor),
     type: d.type,
     ...(d.changes ? { changes: d.changes } : {}),
     ...(d.note ? { note: d.note } : {}),

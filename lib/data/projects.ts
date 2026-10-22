@@ -1,11 +1,13 @@
 import 'server-only';
-import { collections, type Collections, type ProjectDoc, type TaskDoc } from '../db';
+import type { ProjectDoc, TaskDoc } from '../db';
+import { idTaken, orgWide, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
 import {
   ProjectInputSchema,
   type Project,
   type ProjectInput,
   type ProjectStats,
   type ProjectWithStats,
+  type Visibility,
 } from '../types';
 import { todayStr, weekStart } from '../dates';
 import { InputError, NotFoundError } from './errors';
@@ -27,6 +29,8 @@ export function toProject(d: ProjectDoc): Project {
   return {
     id: d._id,
     name: d.name,
+    ownerId: d.ownerId,
+    visibility: d.visibility,
     client: d.client,
     description: d.description,
     status: d.status,
@@ -36,6 +40,50 @@ export function toProject(d: ProjectDoc): Project {
   };
 }
 
+// ── Where things live (docs/multi-user.md "Private vs shared") ──────────────
+
+export type Placement = { ownerId: string; visibility: Visibility };
+
+/**
+ * A task or note in this project (or in none): with no project it is private to its owner; in a private project it
+ * belongs to the project's owner; in a shared project it is shared and keeps its own owner.
+ */
+export function placeIn(project: Pick<ProjectDoc, 'ownerId' | 'visibility'> | null, owner: string): Placement {
+  if (!project) return { ownerId: owner, visibility: 'private' };
+  if (project.visibility === 'private') return { ownerId: project.ownerId, visibility: 'private' };
+  return { ownerId: owner, visibility: 'org' };
+}
+
+const PLACE_FIELDS = { ownerId: 1, visibility: 1 } as const;
+
+async function noteTree(c: Collections, rootIds: string[]): Promise<string[]> {
+  const out = [...rootIds];
+  let frontier = rootIds;
+  for (let depth = 0; depth < 10 && frontier.length; depth++) {
+    const kids = await c.notes.find({ parentId: { $in: frontier } }, { projection: { _id: 1 } }).toArray();
+    frontier = kids.map(k => k._id).filter(id => !out.includes(id));
+    out.push(...frontier);
+  }
+  return out;
+}
+
+/** Moves notes (with their sub-pages) to a placement. */
+export async function placeNotes(c: Collections, rootIds: string[], p: Placement): Promise<void> {
+  if (!rootIds.length) return;
+  await c.notes.updateMany({ _id: { $in: await noteTree(c, rootIds) } }, { $set: p });
+}
+
+/** Moves tasks with their history and notes to a placement. */
+export async function placeTasks(c: Collections, taskIds: string[], p: Placement): Promise<void> {
+  if (!taskIds.length) return;
+  await c.tasks.updateMany({ _id: { $in: taskIds } }, { $set: p });
+  await c.activity.updateMany({ taskId: { $in: taskIds } }, { $set: p });
+  const notes = await c.notes.find({ taskId: { $in: taskIds } }, { projection: { _id: 1 } }).toArray();
+  await placeNotes(c, notes.map(n => n._id), p);
+}
+
+// ── Lookups ─────────────────────────────────────────────────────────────────
+
 async function findProjectDoc(c: Collections, nameOrId: string): Promise<ProjectDoc | null> {
   const key = nameOrId.trim();
   if (!key) return null;
@@ -44,17 +92,33 @@ async function findProjectDoc(c: Collections, nameOrId: string): Promise<Project
   });
 }
 
+/** Project names are unique per organization, private ones included: say so instead of failing on the index. */
+async function assertNameFree(s: Scope, nameLower: string, except?: string): Promise<void> {
+  const other = await (await orgWide(s.orgId)).projects.findOne({ nameLower, ...(except ? { _id: { $ne: except } } : {}) }, { projection: PLACE_FIELDS });
+  if (other) throw new InputError(`A project with that name already exists in your organization${other.visibility === 'private' && other.ownerId !== s.userId ? ' (private to someone else)' : ''}`);
+}
+
 async function insertProject(
   c: Collections,
-  data: { name: string; client?: string; description?: string; status?: ProjectDoc['status']; code?: CodeLocation[] | null },
+  s: Scope,
+  data: { name: string; client?: string; description?: string; status?: ProjectDoc['status']; code?: CodeLocation[] | null; visibility?: Visibility },
 ): Promise<ProjectDoc> {
   const base = slugify(data.name);
   const now = new Date();
+  const nameLower = data.name.trim().toLowerCase();
+  await assertNameFree(s, nameLower);
   for (let i = 1; i < 50; i++) {
+    const _id = i === 1 ? base : `${base}-${i}`;
+    // Ids are global (another organization may have the same slug); check first: inside a transaction a
+    // duplicate-key error would abort the whole batch.
+    if (await idTaken('projects', _id)) continue;
     const doc: ProjectDoc = {
-      _id: i === 1 ? base : `${base}-${i}`,
+      _id,
+      orgId: s.orgId,
+      ownerId: s.userId,
+      visibility: data.visibility ?? 'org',
       name: data.name.trim(),
-      nameLower: data.name.trim().toLowerCase(),
+      nameLower,
       client: data.client?.trim() ?? '',
       description: data.description ?? '',
       status: data.status ?? 'active',
@@ -62,52 +126,52 @@ async function insertProject(
       createdAt: now,
       updatedAt: now,
     };
-    if (await c.projects.findOne({ _id: doc._id }, { projection: { _id: 1 } })) continue;
     try {
       await c.projects.insertOne(doc);
       return doc;
     } catch (err) {
       if ((err as { code?: number }).code !== 11000) throw err;
-      // Same name created concurrently → return that one; otherwise the slug is taken, try the next.
-      const existing = await c.projects.findOne({ nameLower: doc.nameLower });
+      // Same name created concurrently → return that one; otherwise the slug was taken meanwhile, try the next.
+      const existing = await c.projects.findOne({ nameLower });
       if (existing) return existing;
     }
   }
   throw new Error('Could not allocate a project id');
 }
 
-/** Find a project by id or (case-insensitive) name; optionally create it. */
+/** Find a project by id or (case-insensitive) name among the ones the caller sees; optionally create it. */
 export async function resolveProject(
   c: Collections,
+  s: Scope,
   nameOrId: string,
   opts: { create: boolean },
 ): Promise<ProjectDoc | null> {
   const found = await findProjectDoc(c, nameOrId);
   if (found || !opts.create) return found;
-  return insertProject(c, { name: nameOrId });
+  return insertProject(c, s, { name: nameOrId });
 }
 
-export async function getProject(nameOrId: string): Promise<Project | null> {
-  const c = await collections();
+export async function getProject(s: Scope, nameOrId: string): Promise<Project | null> {
+  const c = await scoped(s);
   const d = await findProjectDoc(c, nameOrId);
   return d ? toProject(d) : null;
 }
 
-export async function listProjectsBasic(): Promise<Project[]> {
-  const c = await collections();
+export async function listProjectsBasic(s: Scope): Promise<Project[]> {
+  const c = await scoped(s);
   const docs = await c.projects.find({}).sort({ nameLower: 1 }).toArray();
   return docs.map(toProject);
 }
 
 /** Just id, name and status, by name (the sidebar and pickers). */
-export async function listProjectsNav(): Promise<Pick<Project, 'id' | 'name' | 'status'>[]> {
-  const c = await collections();
+export async function listProjectsNav(s: Scope): Promise<Pick<Project, 'id' | 'name' | 'status'>[]> {
+  const c = await scoped(s);
   const docs = await c.projects.find({}, { projection: { name: 1, status: 1 } }).sort({ nameLower: 1 }).toArray();
   return docs.map(d => ({ id: d._id, name: d.name, status: d.status }));
 }
 
-export async function projectNameMap(c?: Collections): Promise<Map<string, string>> {
-  c ??= await collections();
+export async function projectNameMap(s: Scope, c?: Collections): Promise<Map<string, string>> {
+  c ??= await scoped(s);
   const docs = await c.projects.find({}, { projection: { name: 1 } }).toArray();
   return new Map(docs.map(d => [d._id, d.name]));
 }
@@ -172,8 +236,8 @@ function statsFromGroups(groups: { _id: { s: TaskDoc['status'] }; n: number; las
   return s;
 }
 
-export async function listProjects(opts: { includeInactive?: boolean } = {}): Promise<ProjectWithStats[]> {
-  const c = await collections();
+export async function listProjects(s: Scope, opts: { includeInactive?: boolean } = {}): Promise<ProjectWithStats[]> {
+  const c = await scoped(s);
   const filter = opts.includeInactive ? {} : { status: { $in: ['active', 'paused'] as ProjectDoc['status'][] } };
   const today = todayStr();
   const wk = weekStart(today);
@@ -209,8 +273,8 @@ export async function listProjects(opts: { includeInactive?: boolean } = {}): Pr
     });
 }
 
-export async function getProjectWithStats(nameOrId: string): Promise<ProjectWithStats | null> {
-  const c = await collections();
+export async function getProjectWithStats(s: Scope, nameOrId: string): Promise<ProjectWithStats | null> {
+  const c = await scoped(s);
   const p = await findProjectDoc(c, nameOrId);
   if (!p) return null;
   const tasks = await c.tasks
@@ -219,25 +283,24 @@ export async function getProjectWithStats(nameOrId: string): Promise<ProjectWith
   return { ...toProject(p), stats: computeStats(tasks) };
 }
 
-/** Creates a project; if one with that name exists, returns it with created=false. */
-export async function createProject(input: ProjectInput): Promise<{ project: Project; created: boolean }> {
+/** Creates a project; if one the caller sees has that name, returns it with created=false. */
+export async function createProject(s: Scope, input: ProjectInput): Promise<{ project: Project; created: boolean }> {
   const data = ProjectInputSchema.parse(input);
-  const c = await collections();
+  const c = await scoped(s);
   const existing = await c.projects.findOne({ nameLower: data.name.toLowerCase() });
   if (existing) return { project: toProject(existing), created: false };
-  const doc = await insertProject(c, data);
+  const doc = await insertProject(c, s, data);
   return { project: toProject(doc), created: true };
 }
 
-export async function updateProject(id: string, patch: Partial<ProjectInput>): Promise<Project> {
+export async function updateProject(s: Scope, id: string, patch: Partial<ProjectInput>): Promise<Project> {
   const data = ProjectInputSchema.partial().parse(patch);
-  const c = await collections();
+  const c = await scoped(s);
   const cur = await c.projects.findOne({ _id: id });
   if (!cur) throw new NotFoundError(`Project "${id}" not found`);
   const set: Partial<ProjectDoc> = { updatedAt: new Date() };
   if (data.name !== undefined && data.name !== cur.name) {
-    const clash = await c.projects.findOne({ nameLower: data.name.toLowerCase(), _id: { $ne: id } });
-    if (clash) throw new InputError(`A project named "${data.name}" already exists`);
+    await assertNameFree(s, data.name.toLowerCase(), id);
     set.name = data.name;
     set.nameLower = data.name.toLowerCase();
   }
@@ -245,8 +308,32 @@ export async function updateProject(id: string, patch: Partial<ProjectInput>): P
   if (data.description !== undefined) set.description = data.description;
   if (data.status !== undefined) set.status = data.status;
   if (data.code !== undefined) set.code = cleanCodeLocations(data.code);
+  if (data.visibility !== undefined && data.visibility !== cur.visibility) {
+    if (cur.ownerId !== s.userId) throw new InputError("Only the project's owner can make it private or shared");
+    set.visibility = data.visibility;
+    await setProjectVisibility(c, cur, data.visibility);
+  }
   await c.projects.updateOne({ _id: id }, { $set: set });
   return toProject({ ...cur, ...set });
+}
+
+/**
+ * Everything in the project follows it. Made private: its tasks, notes, Claude items, history and trash belong to the
+ * project's owner and only they see them. Made shared again: the organization sees them (owners stay).
+ */
+async function setProjectVisibility(c: Collections, p: ProjectDoc, visibility: Visibility): Promise<void> {
+  const owned = visibility === 'private' ? { ownerId: p.ownerId, visibility } : { visibility };
+  const taskIds = await c.tasks.distinct('_id', { projectId: p._id });
+  if (taskIds.length) {
+    await c.tasks.updateMany({ _id: { $in: taskIds } }, { $set: owned });
+    await c.activity.updateMany({ taskId: { $in: taskIds } }, { $set: owned });
+    const taskNotes = await c.notes.find({ taskId: { $in: taskIds } }, { projection: { _id: 1 } }).toArray();
+    if (taskNotes.length) await c.notes.updateMany({ _id: { $in: await noteTree(c, taskNotes.map(n => n._id)) } }, { $set: owned });
+  }
+  const projNotes = await c.notes.find({ projectId: p._id, taskId: null }, { projection: { _id: 1 } }).toArray();
+  if (projNotes.length) await c.notes.updateMany({ _id: { $in: await noteTree(c, projNotes.map(n => n._id)) } }, { $set: owned });
+  await c.claudeItems.updateMany({ projectId: p._id }, { $set: owned });
+  await c.trash.updateMany({ 'task.projectId': p._id }, { $set: owned });
 }
 
 export type ProjectByCode =
@@ -254,8 +341,8 @@ export type ProjectByCode =
   | { matched: false; candidates: { id: string; name: string; similarity: number }[] };
 
 /** The project whose code locations best match a git remote / subdir / branch / folder path. */
-export async function findProjectByCode(q: CodeQuery): Promise<ProjectByCode> {
-  const c = await collections();
+export async function findProjectByCode(s: Scope, q: CodeQuery): Promise<ProjectByCode> {
+  const c = await scoped(s);
   const docs = await c.projects.find({}, { projection: { name: 1, code: 1, status: 1 } }).toArray();
   const list = docs.map(d => ({ id: d._id, name: d.name, code: d.code }));
   const m = matchCodeLocation(list, q);

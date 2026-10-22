@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { authSecret } from '@/lib/auth';
 import { callerFromRequest } from '@/lib/caller';
-import { collections, mongoEnvNames } from '@/lib/db';
+import { mongoEnvNames } from '@/lib/db';
+import { scoped } from '@/lib/scope';
 import { APP_TZ, todayStr } from '@/lib/dates';
 import { converterCheck } from '@/lib/notes-convert';
 
@@ -25,14 +26,15 @@ export async function GET(req: Request) {
     APP_URL: process.env.APP_URL || null,
   };
   try {
-    const c = await collections();
+    // Counts of the caller's organization only (their own reviews and logs).
+    const c = await scoped({ userId: caller.userId, orgId: caller.orgId });
     const [tasks, activity, projects, reviews, ritualLogs, counter] = await Promise.all([
       c.tasks.countDocuments(),
       c.activity.countDocuments(),
       c.projects.countDocuments(),
       c.reviews.countDocuments(),
       c.ritualLogs.countDocuments(),
-      c.counters.findOne({ _id: 'task' }),
+      c.counters.findOne({ _id: `task:${caller.orgId}` }),
     ]);
     const notesConverter = await converterCheck();
     const runtime = process.version;

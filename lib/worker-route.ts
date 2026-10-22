@@ -1,7 +1,8 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { bearerToken } from './auth';
-import { verifyDeviceKey, type VerifiedDevice } from './devices';
+import { verifyDeviceKey } from './devices';
+import type { Scope } from './scope';
 import { InputError, NotFoundError } from './data/errors';
 import { runWithRequestContext } from './request-context';
 
@@ -27,11 +28,15 @@ function overLimit(deviceId: string): boolean {
   return false;
 }
 
-export function workerRoute(fn: (device: VerifiedDevice, body: unknown) => Promise<unknown>, opts: { body?: boolean } = {}) {
+/** A verified computer and its owner's scope: everything a worker does is that person's (their folders, jobs, tasks). */
+export type WorkerDevice = { id: string; name: string; s: Scope };
+
+export function workerRoute(fn: (device: WorkerDevice, body: unknown) => Promise<unknown>, opts: { body?: boolean } = {}) {
   return async (req: Request): Promise<Response> => {
     try {
       const device = await verifyDeviceKey(bearerToken(req));
-      if (!device) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+      // A computer from before sign-in by user has no owner: it acts for nobody, so it is refused (re-add it in Setup).
+      if (!device?.ownerId || !device.orgId) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
       if (overLimit(device.id)) return NextResponse.json({ error: 'too many requests' }, { status: 429 });
       let body: unknown;
       if (opts.body) {
@@ -43,8 +48,8 @@ export function workerRoute(fn: (device: VerifiedDevice, body: unknown) => Promi
           return NextResponse.json({ error: 'body must be JSON' }, { status: 400 });
         }
       }
-      // Writes the worker causes record the device's owner (actorUserId), like a signed-in user's.
-      return NextResponse.json(await runWithRequestContext({ userId: device.ownerId }, () => fn(device, body)));
+      const s: Scope = { userId: device.ownerId, orgId: device.orgId };
+      return NextResponse.json(await runWithRequestContext({ userId: device.ownerId }, () => fn({ id: device.id, name: device.name, s }, body)));
     } catch (err) {
       if (err instanceof InputError || err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 400 });
       console.error('[worker]', err);

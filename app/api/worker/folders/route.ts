@@ -5,4 +5,4 @@ import { reportFolders } from '@/lib/data/launcher';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export const POST = workerRoute(async (d, body) => ({ ok: true, ...(await reportFolders(d.id, body)) }), { body: true });
+export const POST = workerRoute(async (d, body) => ({ ok: true, ...(await reportFolders(d.s, d.id, body)) }), { body: true });

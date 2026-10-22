@@ -12,6 +12,7 @@ import { FileText, FolderOpen, ListTodo } from 'lucide-react';
 import { toast } from 'sonner';
 import { noteSchema, type NoteBlock } from '@/lib/notes-schema';
 import { createSubPageAction, saveNoteAction, searchMentionsAction } from '../actions';
+import { useApp } from '@/components/app-context';
 
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
 
@@ -23,9 +24,10 @@ const UPLOADS_ENABLED = false;
 const MEDIA_ITEMS = new Set(['Image', 'Video', 'Audio', 'File']);
 
 /** Upload to the private Blob store; the editor gets an app URL that streams it to logged-in users. */
-async function uploadFile(file: File): Promise<string> {
+/** Files live under notes/<organization>/ (the upload and file routes refuse other organizations' paths). */
+async function uploadFile(file: File, orgId: string): Promise<string> {
   const safe = file.name.replace(/[^\w.\-]+/g, '_').slice(-80) || 'file';
-  const blob = await upload(`notes/${safe}`, file, { access: 'private', handleUploadUrl: '/api/notes/upload' });
+  const blob = await upload(`notes/${orgId}/${safe}`, file, { access: 'private', handleUploadUrl: '/api/notes/upload' });
   return `/api/notes/file?p=${encodeURIComponent(blob.pathname)}`;
 }
 
@@ -45,6 +47,7 @@ export function BlockEditor({
 }) {
   const router = useRouter();
   const { resolvedTheme } = useTheme();
+  const { orgId } = useApp();
   const editor = useCreateBlockNote({
     schema: noteSchema,
     initialContent: initialBlocks.length ? initialBlocks : undefined,
@@ -52,7 +55,7 @@ export function BlockEditor({
       ? {
           uploadFile: async (file: File) => {
             try {
-              return await uploadFile(file);
+              return await uploadFile(file, orgId);
             } catch (e) {
               toast.error(e instanceof Error ? e.message : 'Upload failed');
               throw e;

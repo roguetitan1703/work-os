@@ -5,6 +5,7 @@ import { getDb } from './db';
 import { SafeError, bearerToken } from './auth';
 import { API_KEY_PREFIX, getAuth, idIn, ROLES, type Role } from './auth-server';
 import { requestContext, runWithRequestContext } from './request-context';
+import type { Scope } from './scope';
 
 // Who is calling (docs/auth.md). Every server action, API route and page that needs to know asks here; proxy.ts only
 // lets signed-in requests through, and each handler checks again with these helpers.
@@ -14,8 +15,8 @@ import { requestContext, runWithRequestContext } from './request-context';
 //   callerFromRequest(req)   route handlers: session cookie, else a Work OS API key in the Authorization/X-API-Key header
 //   verifyKey(token)         an API key alone (the MCP route)
 //
-// orgId is the session's active organization (set at sign-in to the user's oldest membership). Data is not yet
-// scoped by organization (phase 2 of docs/multi-user.md); the caller is made available everywhere so it can be.
+// orgId is the session's active organization (set at sign-in to the user's oldest membership). Every data call takes
+// the caller's scope ({ userId, orgId }, requireScope) and reads through lib/scope.ts (docs/multi-user.md "One door").
 
 export type Agent = 'claude' | 'claude-code';
 export type Caller = {
@@ -126,4 +127,10 @@ export function withCaller<T>(c: Caller, fn: () => T): T {
 export async function asCaller<T>(fn: (c: Caller) => Promise<T>, ...allowed: Role[]): Promise<T> {
   const c = await requireCaller(...allowed);
   return withCaller(c, () => fn(c));
+}
+
+/** The signed-in caller's data scope (lib/scope.ts), or throws NotSignedIn. Pages and actions pass it to lib/data. */
+export async function requireScope(): Promise<Scope> {
+  const c = await requireCaller();
+  return { userId: c.userId, orgId: c.orgId };
 }

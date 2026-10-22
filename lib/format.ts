@@ -68,8 +68,10 @@ export const PRIORITY_TEXT: Record<Priority, string> = {
   P4: 'text-muted-foreground',
 };
 
+/** Keyed by lib/actors.ts actorKey. */
 export const ACTOR_STYLE: Record<string, string> = {
   me: 'bg-muted text-foreground',
+  user: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
   claude: 'bg-orange-500/15 text-orange-700 dark:text-orange-300',
   'claude-code': 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
   system: 'bg-muted text-muted-foreground',

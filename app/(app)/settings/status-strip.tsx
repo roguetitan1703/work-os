@@ -5,16 +5,18 @@ import { pushConfigured, pushDeviceCount } from '@/lib/notify';
 import { systemStatusLevel } from '@/lib/data/nav-counts';
 import { cn } from '@/lib/utils';
 import { Dot, type Level } from './ui';
+import { requireScope } from '@/lib/caller';
 
 const TITLE = { ok: 'All systems OK', warn: 'Needs a look', error: 'Problem' } as const;
 const TEXT = { ok: 'text-green-700 dark:text-green-300', warn: 'text-amber-700 dark:text-amber-300', error: 'text-red-700 dark:text-red-300' } as const;
 
 /** One strip at the top of Settings: overall level (same helper as the sidebar dot) and what each part is doing. */
 export async function StatusStrip() {
+  const s = await requireScope();
   const [base, devices, run] = await Promise.all([
-    systemStatusLevel().catch(() => 'warn' as const),
-    pushDeviceCount().catch(() => 0),
-    lastRunStatus().catch(() => null),
+    systemStatusLevel(s).catch(() => 'warn' as const),
+    pushDeviceCount(s).catch(() => 0),
+    lastRunStatus(s).catch(() => null),
   ]);
   const cron = process.env.CRON_SECRET;
   const parts: { label: string; level: Level; text: string }[] = [

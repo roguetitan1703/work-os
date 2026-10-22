@@ -5,6 +5,7 @@ import { ModeSchema, type Mode } from '@/lib/types';
 import { BoardClient } from './board-client';
 import { MobileTasks } from '@/components/mobile/m-tasks';
 import { taskIdsWithNotes } from '@/lib/data/notes';
+import { requireScope } from '@/lib/caller';
 
 type Props = { searchParams: Promise<{ project?: string; mode?: string; due?: string; q?: string; search?: string }> };
 
@@ -17,14 +18,15 @@ export default async function BoardPage({ searchParams }: Props) {
   const mode = ModeSchema.safeParse(sp.mode).success ? (sp.mode as Mode) : undefined;
   const due = DUE.includes(sp.due as DueFilter) ? (sp.due as DueFilter) : undefined;
   const common = { project: sp.project || undefined, mode, due, q: sp.q || undefined };
+  const s = await requireScope();
   const [open, doneThisWeek, projects] = await Promise.all([
-    listTasks({ ...common, open: true }),
-    listTasks({ ...common, due: undefined, status: ['Done'], doneFrom: weekStart(todayStr()), sort: 'done' }),
-    listProjectsBasic(),
+    listTasks(s, { ...common, open: true }),
+    listTasks(s, { ...common, due: undefined, status: ['Done'], doneFrom: weekStart(todayStr()), sort: 'done' }),
+    listProjectsBasic(s),
   ]);
   const active = projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => ({ id: p.id, name: p.name }));
   const all = [...open, ...doneThisWeek];
-  const notes = await taskIdsWithNotes(all.map(t => t.id));
+  const notes = await taskIdsWithNotes(s, all.map(t => t.id));
   return (
     <>
       <div className="md:hidden">

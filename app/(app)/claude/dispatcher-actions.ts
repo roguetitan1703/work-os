@@ -49,11 +49,12 @@ export async function takeBackFromClaudeAction(taskKey: string, stop?: boolean):
 export async function dispatcherSettingsAction(patch: { enabled?: boolean; maxConcurrent?: number; boilerplateNoteId?: string }): Promise<R<DispatcherSettings>> {
   return run(c =>
     setDispatcherSettings(
+      c,
       z.object({ enabled: z.boolean().optional(), maxConcurrent: z.number().int().optional(), boilerplateNoteId: z.string().max(60).optional() }).strict().parse(patch),
     ),
   );
 }
 
 export async function dispatcherSetupAction(): Promise<R<{ settings: DispatcherSettings; notes: NotePick[] }>> {
-  return run(async c => ({ settings: await getDispatcherSettings(), notes: await listNotePicks() }), false);
+  return run(async c => ({ settings: await getDispatcherSettings(c), notes: await listNotePicks(c) }), false);
 }

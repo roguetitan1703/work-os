@@ -9,6 +9,8 @@ import { ZodError } from 'zod';
 import { SafeError } from '@/lib/auth';
 import { getAuth } from '@/lib/auth-server';
 import { requireCaller, withCaller } from '@/lib/caller';
+import { userActor, type Actor } from '@/lib/actors';
+import type { Scope } from '@/lib/scope';
 import * as tasks from '@/lib/data/tasks';
 import * as projects from '@/lib/data/projects';
 import * as reviews from '@/lib/data/reviews';
@@ -27,11 +29,12 @@ import type {
 
 export type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 
-/** Every action here: a signed-in caller (lib/caller.ts), whose user id goes on the history entries it writes. */
-async function run<T>(fn: () => Promise<T>): Promise<Result<T>> {
+/** Every action here: a signed-in caller (lib/caller.ts), acting in their scope as themselves (actor kind 'user'). */
+async function run<T>(fn: (s: Scope, me: Actor) => Promise<T>): Promise<Result<T>> {
   try {
     const caller = await requireCaller();
-    const data = await withCaller(caller, fn);
+    const s: Scope = { userId: caller.userId, orgId: caller.orgId };
+    const data = await withCaller(caller, () => fn(s, userActor(caller.userId)));
     revalidatePath('/', 'layout');
     return { ok: true, data };
   } catch (err) {
@@ -42,48 +45,51 @@ async function run<T>(fn: () => Promise<T>): Promise<Result<T>> {
   }
 }
 
-// ── Tasks (actor: me) ───────────────────────────────────────────────────────
+// ── Tasks (actor: the signed-in person) ─────────────────────────────────────
 
 export async function createTaskAction(input: TaskInput): Promise<Result<Task>> {
-  return run(() => tasks.createTask(input, 'me'));
+  return run((s, me) => tasks.createTask(s, input, me));
 }
 
 export async function bulkCreateTasksAction(inputs: TaskInput[]): Promise<Result<Task[]>> {
-  return run(() => tasks.bulkCreateTasks(inputs, 'me'));
+  return run((s, me) => tasks.bulkCreateTasks(s, inputs, me));
 }
 
 async function flushAlerts() {
+  const caller = await requireCaller().catch(() => null);
+  if (!caller) return;
+  const s: Scope = { userId: caller.userId, orgId: caller.orgId };
   const h = await headers();
   const host = h.get('x-forwarded-host') ?? h.get('host');
   const base = (process.env.APP_URL || (host ? `${h.get('x-forwarded-proto') ?? 'https'}://${host}` : '')).replace(/\/+$/, '');
-  after(() => flushQueuedAlerts(base));
+  after(() => flushQueuedAlerts(s, base));
 }
 
 export async function updateTaskAction(id: string, patch: TaskPatch, note?: string): Promise<Result<Task>> {
   await flushAlerts();
-  return run(() => tasks.updateTask(id, patch, 'me', { note }));
+  return run((s, me) => tasks.updateTask(s, id, patch, me, { note }));
 }
 
 export async function logProgressAction(id: string, progress: number, note?: string, status?: Status): Promise<Result<Task>> {
   await flushAlerts();
-  return run(() => tasks.logProgress(id, progress, note, 'me', status));
+  return run((s, me) => tasks.logProgress(s, id, progress, note, me, status));
 }
 
 export async function completeTaskAction(id: string, note?: string): Promise<Result<Task>> {
   await flushAlerts();
-  return run(() => tasks.completeTask(id, note, 'me'));
+  return run((s, me) => tasks.completeTask(s, id, note, me));
 }
 
 export async function addCommentAction(id: string, note: string): Promise<Result<Task>> {
-  return run(() => tasks.addComment(id, note, 'me'));
+  return run((s, me) => tasks.addComment(s, id, note, me));
 }
 
 export async function setArchivedAction(id: string, archived: boolean): Promise<Result<Task>> {
-  return run(() => tasks.setArchived(id, archived, 'me'));
+  return run((s, me) => tasks.setArchived(s, id, archived, me));
 }
 
 export async function checklistAction(id: string, ops: tasks.ChecklistOps): Promise<Result<Task>> {
-  return run(() => tasks.updateChecklist(id, ops, 'me'));
+  return run((s, me) => tasks.updateChecklist(s, id, ops, me));
 }
 
 // ── Trash (delete / restore) and comment edits ─────────────────────────────
@@ -92,54 +98,59 @@ export async function checklistAction(id: string, ops: tasks.ChecklistOps): Prom
 
 export async function deleteTaskAction(ref: number | string, reason?: string): Promise<Result<{ ref: number; title: string }>> {
   await flushAlerts();
-  return run(() => tasks.trashTask(ref, 'me', { reason }));
+  return run((s, me) => tasks.trashTask(s, ref, me, { reason }));
 }
 
 export async function restoreTaskAction(ref: number | string): Promise<Result<Task>> {
-  return run(() => tasks.restoreTask(ref, 'me'));
+  return run((s, me) => tasks.restoreTask(s, ref, me));
 }
 
 export async function purgeTrashItemAction(ref: number): Promise<Result<number>> {
-  return run(async () => {
-    const n = await tasks.purgeTrash(ref);
+  return run(async s => {
+    const n = await tasks.purgeTrash(s, ref);
     if (!n) throw new NotFoundError(`#${ref} is not in the trash`);
     return n;
   });
 }
 
 export async function editCommentAction(activityId: string, text: string): Promise<Result<Activity>> {
-  return run(() => tasks.editComment(activityId, text, 'me'));
+  return run((s, me) => tasks.editComment(s, activityId, text, me));
 }
 
 export async function deleteCommentAction(activityId: string): Promise<Result<{ taskRef: number }>> {
-  return run(() => tasks.deleteComment(activityId, 'me'));
+  return run((s, me) => tasks.deleteComment(s, activityId, me));
 }
 
 // ── Projects ────────────────────────────────────────────────────────────────
 
 export async function createProjectAction(input: ProjectInput): Promise<Result<{ project: Project; created: boolean }>> {
-  return run(() => projects.createProject(input));
+  return run(s => projects.createProject(s, input));
 }
 
 export async function updateProjectAction(id: string, patch: Partial<ProjectInput>): Promise<Result<Project>> {
-  return run(() => projects.updateProject(id, patch));
+  return run(s => projects.updateProject(s, id, patch));
 }
 
 // ── Weekly review + Fiverr ritual ───────────────────────────────────────────
 
+const scopeOf = (c: { userId: string; orgId: string }): Scope => ({ userId: c.userId, orgId: c.orgId });
+
 export async function createReview(input: Omit<WeeklyReview, 'id'>): Promise<WeeklyReview> {
-  const r = await withCaller(await requireCaller(), () => reviews.createReview(input));
+  const c = await requireCaller();
+  const r = await withCaller(c, () => reviews.createReview(scopeOf(c), input));
   revalidatePath('/review');
   return r;
 }
 
 export async function updateReview(id: string, patch: Partial<WeeklyReview>): Promise<void> {
-  await withCaller(await requireCaller(), () => reviews.updateReview(id, patch));
+  const c = await requireCaller();
+  await withCaller(c, () => reviews.updateReview(scopeOf(c), id, patch));
   revalidatePath('/review');
 }
 
 export async function logFiverrRitual(input: { bidsPlaced: number; notes?: string }): Promise<FiverrRitualLog> {
-  const log = await withCaller(await requireCaller(), () => reviews.logFiverrRitual(input));
+  const c = await requireCaller();
+  const log = await withCaller(c, () => reviews.logFiverrRitual(scopeOf(c), input));
   revalidatePath('/', 'layout');
   return log;
 }

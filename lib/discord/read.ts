@@ -27,6 +27,7 @@ import {
 } from './client';
 import { taskFromMessage, type MessageTaskOverrides, type MessageTaskResult } from './to-task';
 import type { Actor } from '../types';
+import type { Scope } from '../scope';
 
 // Read-only views of the Discord server for the MCP tools. Many channels are handled by
 // activity filtering: last_message_id (a snowflake) says when each channel/thread last moved,
@@ -244,9 +245,10 @@ export async function needsAttention(opts: { since?: Date; maxChannels?: number 
 // ── discord_message_to_task ─────────────────────────────────────────────────
 
 export async function messageToTask(
+  s: Scope,
   ref: { link?: string; channel?: string; messageId?: string },
   overrides: MessageTaskOverrides,
-  actor: Actor = 'claude',
+  actor: Actor,
 ): Promise<MessageTaskResult & { message: { url: string; author: string; at: string } }> {
   const ctx = await guildContext();
   let channelId: string | undefined;
@@ -268,7 +270,7 @@ export async function messageToTask(
     if (e instanceof DiscordError && (e.status === 403 || e.status === 404)) throw new NotFoundError(`Message not found or not readable (${e.status}).`);
     throw e;
   }
-  const res = await taskFromMessage(m, { guildId: ctx.guildId, channel: findChannel(ctx, channelId) }, actor, overrides);
+  const res = await taskFromMessage(s, m, { guildId: ctx.guildId, channel: findChannel(ctx, channelId) }, actor, overrides);
   const v = toView(ctx, m);
   return { ...res, message: { url: v.url, author: v.author, at: snowflakeTime(m.id).toISOString() } };
 }

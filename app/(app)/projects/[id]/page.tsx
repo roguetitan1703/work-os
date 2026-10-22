@@ -38,21 +38,22 @@ const CARD = 'rounded-2xl md:rounded-lg border border-border/70 md:border-border
 export default async function ProjectPage({ params, searchParams }: Props) {
   const { id } = await params;
   const sp = await searchParams;
-  const project = await getProjectWithStats(decodeURIComponent(id));
+  const me = await getCaller();
+  if (!me) redirect('/login');
+  const sc = { userId: me.userId, orgId: me.orgId };
+  const project = await getProjectWithStats(sc, decodeURIComponent(id));
   if (!project) notFound();
   // Old links (?claude=C12) land on the Claude tab.
   const tab: TabId = TABS.find(t => t.id === sp.tab)?.id ?? (sp.claude ? 'claude' : 'overview');
   const base = `/projects/${encodeURIComponent(project.id)}`;
   const tabHref = (t: TabId) => `${base}?tab=${t}`;
 
-  const me = await getCaller();
-  if (!me) redirect('/login');
   const [open, done, activity, notes, work, launcher] = await Promise.all([
-    listTasks({ project: project.id, open: true }),
-    listTasks({ project: project.id, status: ['Done', 'Dropped'], sort: 'done', limit: 30 }),
-    listActivity({ project: project.id, limit: 40 }),
-    listNotes({ project: project.id, state: 'all' }),
-    projectItems(project.id, { doneLimit: 30 }),
+    listTasks(sc, { project: project.id, open: true }),
+    listTasks(sc, { project: project.id, status: ['Done', 'Dropped'], sort: 'done', limit: 30 }),
+    listActivity(sc, { project: project.id, limit: 40 }),
+    listNotes(sc, { project: project.id, state: 'all' }),
+    projectItems(sc, project.id, { doneLimit: 30 }),
     projectLauncher(me, project.id),
   ]);
   const projectNotes = notes.notes.filter(n => !n.taskId && !n.archived);
@@ -62,8 +63,8 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const folders = launcher.folders.filter(f => !f.missing);
 
   const openItems = work.items.filter(i => i.state !== 'done' && i.state !== 'dropped');
-  const waiting = openItems.filter(i => i.waitingOnOm).map(i => ({ id: i.id, ref: i.ref, title: i.title, question: i.waitingOnOm, updatedAt: i.updatedAt }));
-  const queuedItems = openItems.filter(i => i.state === 'queued' && i.kind !== 'idea' && !i.waitingOnOm);
+  const waiting = openItems.filter(i => i.waitingOn === me.userId).map(i => ({ id: i.id, ref: i.ref, title: i.title, question: i.waitingText, updatedAt: i.updatedAt }));
+  const queuedItems = openItems.filter(i => i.state === 'queued' && i.kind !== 'idea' && !i.waitingOn);
   const nextItem = work.pickNext ?? queuedItems.find(i => i.next) ?? queuedItems[0] ?? null;
   const running = launcher.sessions.filter(x => x.state === 'running' || x.state === 'starting' || x.state === 'unknown');
 
@@ -72,7 +73,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
       projectId={project.id}
       items={work.items}
       blockers={Object.fromEntries([...work.blockers].map(([k, b]) => [k, { ref: b.ref, title: b.title, state: b.state }]))}
-      waitingOnOm={work.waitingOnOm}
+      waiting={work.waiting}
       doneCount={work.doneCount}
       openRef={Number(sp.claude?.replace(/^C/i, '')) || undefined}
     />

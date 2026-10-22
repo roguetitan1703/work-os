@@ -1,4 +1,5 @@
 import { listReviews } from '@/lib/data/reviews';
+import { requireScope } from '@/lib/caller';
 import { SubHeader } from '@/components/mobile/sub-header';
 import { ReviewNav, reviewView } from '@/components/review-nav';
 import { ReviewPageClient } from './review-page-client';
@@ -23,7 +24,7 @@ export default async function ReviewPage({ searchParams }: Props) {
       <ReviewNav active={view} />
       {view === 'done' && <Completed weeks={weeks} />}
       {view === 'activity' && <Activity actor={sp.actor} />}
-      {view === 'weekly' && <ReviewPageClient initialReviews={await listReviews()} />}
+      {view === 'weekly' && <ReviewPageClient initialReviews={await listReviews(await requireScope())} />}
       {view === 'stale' && <Stale />}
       {view === 'archive' && <Archived />}
       {view === 'trash' && <Trash />}
