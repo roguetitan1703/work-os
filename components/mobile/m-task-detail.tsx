@@ -10,12 +10,11 @@ import { addCommentAction, checklistAction, completeTaskAction, deleteTaskAction
 import { createNoteAction } from '@/app/(app)/notes/actions';
 import { addDays } from '@/lib/dates';
 import { fmtDue } from '@/lib/format';
-import { MODES } from '@/lib/modes';
 import type { Activity, Priority, Recurrence, Status, Task, TaskPatch } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ActivityTimeline } from '../activity-timeline';
 import { ProgressDialog } from '../progress-dialog';
-import { useApp } from '../app-context';
+import { useApp, useModes } from '../app-context';
 import { BottomSheet } from './sheet';
 import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, claudeMenuLabel } from '../give-to-claude';
 
@@ -49,6 +48,7 @@ export function MobileTaskDetail({
   dependents: Dep[];
 }) {
   const { today, projects, projectName } = useApp();
+  const { modes, color } = useModes();
   const router = useRouter();
   const [pending, start] = useTransition();
   const [title, setTitle] = useState(task.title);
@@ -248,7 +248,7 @@ export function MobileTaskDetail({
         </SelectRow>
         <SelectRow label="Mode" value={task.mode ?? ''} onChange={v => patch({ mode: (v || null) as Task['mode'] })}>
           <option value="">None</option>
-          {MODES.map(m => (
+          {modes.map(m => (
             <option key={m.name} value={m.name}>
               {m.name}
             </option>

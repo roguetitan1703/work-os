@@ -1,5 +1,6 @@
 import { listReviews } from '@/lib/data/reviews';
 import { requireScope } from '@/lib/caller';
+import { getSchedule } from '@/lib/user-schedule';
 import { SubHeader } from '@/components/mobile/sub-header';
 import { ReviewNav, reviewView } from '@/components/review-nav';
 import { ReviewPageClient } from './review-page-client';
@@ -8,6 +9,13 @@ import { Activity, Archived, Completed, Stale, Trash } from './views';
 export const metadata = { title: 'Review · Work OS' };
 
 type Props = { searchParams: Promise<{ view?: string; actor?: string; weeks?: string }> };
+
+/** Weekly reviews with the person's own questions. */
+async function Weekly() {
+  const s = await requireScope();
+  const [reviews, schedule] = await Promise.all([listReviews(s), getSchedule(s)]);
+  return <ReviewPageClient initialReviews={reviews} questions={schedule.review} />;
+}
 
 /** The Review hub: one place for look-back jobs. The segment is in the URL (?view=). */
 export default async function ReviewPage({ searchParams }: Props) {
@@ -24,7 +32,7 @@ export default async function ReviewPage({ searchParams }: Props) {
       <ReviewNav active={view} />
       {view === 'done' && <Completed weeks={weeks} />}
       {view === 'activity' && <Activity actor={sp.actor} />}
-      {view === 'weekly' && <ReviewPageClient initialReviews={await listReviews(await requireScope())} />}
+      {view === 'weekly' && <Weekly />}
       {view === 'stale' && <Stale />}
       {view === 'archive' && <Archived />}
       {view === 'trash' && <Trash />}

@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { ChevronRight, LifeBuoy } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/tab-bar';
-import { MODE_LINKS } from '@/lib/nav';
+import { modeLinks } from '@/lib/nav';
+import { getOrgModes } from '@/lib/org-modes';
 import { systemStatusLevel } from '@/lib/data/nav-counts';
 import { requireScope } from '@/lib/caller';
 
@@ -12,7 +13,8 @@ const DOT_TEXT = { ok: 'All systems OK', warn: 'Needs a look', error: 'Problem' 
 
 /** Phone Menu: the things that are not a tab. Replaces the old More page. */
 export default async function MenuPage() {
-  const status = await systemStatusLevel(await requireScope()).catch(() => 'ok' as const);
+  const s = await requireScope();
+  const [status, modes] = await Promise.all([systemStatusLevel(s).catch(() => 'ok' as const), getOrgModes(s.orgId)]);
   return (
     <div className="max-w-xl mx-auto">
       <MobileHeader title="Menu" />
@@ -28,7 +30,7 @@ export default async function MenuPage() {
 
       <Group title="Modes">
         <div className="flex flex-wrap gap-2 px-4 py-3">
-          {MODE_LINKS.map(m => (
+          {modeLinks(modes).map(m => (
             <Chip key={m.name} href={m.href}>
               <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: m.hex }} />
               {m.name}

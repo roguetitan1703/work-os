@@ -4,7 +4,8 @@ import { headers } from 'next/headers';
 import { getDb } from './db';
 import { SafeError, bearerToken } from './auth';
 import { API_KEY_PREFIX, getAuth, idIn, ROLES, type Role } from './auth-server';
-import { requestContext, runWithRequestContext } from './request-context';
+import { requestContext, runWithRequestContext, setRenderTz } from './request-context';
+import { timezoneOf } from './profile';
 import type { Scope } from './scope';
 
 // Who is calling (docs/auth.md). Every server action, API route and page that needs to know asks here; proxy.ts only
@@ -25,6 +26,8 @@ export type Caller = {
   role: Role;
   email: string;
   name: string;
+  /** Their timezone (lib/profile.ts): what "today" means in this request. */
+  tz: string;
   via: 'session' | 'key';
   /** Set when the request came with an API key. */
   key?: { id: string; name: string; agent: Agent };
@@ -91,11 +94,19 @@ export async function callerFromHeaders(h: Headers): Promise<Caller | null> {
   if (!orgId) return null; // an account with no organization can't use the app
   const role = await roleIn(userId, String(orgId));
   if (!role) return null;
-  return { userId, orgId: String(orgId), role, email: s.user.email, name: s.user.name, via: 'session' };
+  const tz = await timezoneOf({ userId, orgId: String(orgId) });
+  return { userId, orgId: String(orgId), role, email: s.user.email, name: s.user.name, tz, via: 'session' };
 }
 
-/** The signed-in caller of the current request (server components, server actions, route handlers), or null. */
-export const getCaller = cache(async (): Promise<Caller | null> => callerFromHeaders(await headers()));
+/**
+ * The signed-in caller of the current request (server components, server actions, route handlers), or null. In a page
+ * render it also sets "today" to the caller's timezone for the rest of the render (lib/request-context.ts).
+ */
+export const getCaller = cache(async (): Promise<Caller | null> => {
+  const c = await callerFromHeaders(await headers());
+  if (c) setRenderTz(c.tz);
+  return c;
+});
 
 /** The signed-in caller, or throws NotSignedIn; with roles, throws NotAllowed unless the caller has one of them. */
 export async function requireCaller(...allowed: Role[]): Promise<Caller> {
@@ -124,7 +135,8 @@ export async function verifyKey(token: string | null | undefined, agents: Agent[
   const role = await roleIn(userId, orgId);
   if (!role) return null;
   const { email, name } = await personOf(userId);
-  return { userId, orgId, role, email, name, via: 'key', key: { id: String(r.key.id), name: r.key.name ?? '', agent } };
+  const tz = await timezoneOf({ userId, orgId });
+  return { userId, orgId, role, email, name, tz, via: 'key', key: { id: String(r.key.id), name: r.key.name ?? '', agent } };
 }
 
 /** Route handlers other than /api/mcp: the session cookie, else a Claude chat key header (not a Claude Code key). */
@@ -132,9 +144,9 @@ export async function callerFromRequest(req: Request): Promise<Caller | null> {
   return (await callerFromHeaders(req.headers)) ?? (await verifyKey(bearerToken(req), ['claude']));
 }
 
-/** Runs fn with the caller's user id in the request context, so history entries record it (`actorUserId`). */
+/** Runs fn with the caller's user id (history entries record it) and timezone ("today") in the request context. */
 export function withCaller<T>(c: Caller, fn: () => T): T {
-  return runWithRequestContext({ ...requestContext(), userId: c.userId }, fn);
+  return runWithRequestContext({ ...requestContext(), userId: c.userId, tz: c.tz }, fn);
 }
 
 /** requireCaller + withCaller: for server actions that have no wrapper of their own. */

@@ -30,6 +30,7 @@ import {
 import { addDays, addMonths, resolveDate, todayStr, weekday, weekStart } from '../dates';
 import { placeIn, placeNotes, placeTasks, resolveProject, toProject, type Placement } from './projects';
 import { InputError, NotFoundError } from './errors';
+import { canonicalMode } from '../org-modes';
 import { queueUnblocked } from '../alerts';
 import { onTaskChanged, takeBackOnEdit } from './dispatcher';
 
@@ -251,6 +252,7 @@ async function insertTask(
 ): Promise<TaskDoc> {
   const now = new Date();
   const today = todayStr();
+  const mode = (await canonicalMode(s, data.mode)) ?? null;
   const project = data.project ? await resolveProject(c, s, data.project, { create: true }) : null;
   const status: Status = data.status ?? (data.blockedReason?.trim() ? 'Blocked' : 'Not Started');
   const done = status === 'Done';
@@ -262,7 +264,7 @@ async function insertTask(
     ref: await nextSeq(c.counters, taskCounter(s)),
     title: data.title,
     description: data.description ?? '',
-    mode: data.mode ?? null,
+    mode,
     projectId: project?._id ?? null,
     priority: data.priority ?? 'P2',
     status,
@@ -321,7 +323,8 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
 
   if (data.title !== undefined) apply('title', data.title);
   if (data.description !== undefined) apply('description', data.description);
-  if (data.mode !== undefined) apply('mode', data.mode ?? null);
+  // The organization's spelling; a task keeps a mode that was later removed from the list until someone changes it.
+  if (data.mode !== undefined) apply('mode', data.mode === cur.mode ? cur.mode : ((await canonicalMode(s, data.mode)) ?? null));
   if (data.priority !== undefined) apply('priority', data.priority);
   if (data.tags !== undefined) apply('tags', normalizeTags(data.tags));
   if (data.due !== undefined) apply('due', dateField(data.due, 'due'));
@@ -492,7 +495,7 @@ export async function trashTask(
   }
   const activity = await c.activity.find({ taskId: cur._id }).toArray();
   const notes = await c.notes.find({ taskId: cur._id, deletedAt: null }, { projection: { _id: 1 } }).toArray();
-  // A restored task must not come back queued for Claude: Om marks again if he wants it.
+  // A restored task must not come back queued for Claude: the person marks it again if they want.
   const { claude: _claude, ...plain } = cur;
   void _claude;
   const doc: TrashDoc = {

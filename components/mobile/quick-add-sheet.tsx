@@ -13,7 +13,7 @@ import { addDays, resolveDate, weekday } from '@/lib/dates';
 import { fmtDue } from '@/lib/format';
 import type { Priority } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { useApp } from '../app-context';
+import { useApp, useModes } from '../app-context';
 
 const PRIORITIES: Priority[] = ['P1', 'P2', 'P3', 'P4'];
 const PRIO_TONE: Record<Priority, string> = {
@@ -51,7 +51,8 @@ export function QuickAddSheet({ open, onClose, defaultProject }: { open: boolean
   }, [open, onClose]);
 
   const active = useMemo(() => projects.filter(p => p.status === 'active' || p.status === 'paused'), [projects]);
-  const parsed = useMemo(() => parseQuickAdd(text, projects), [text, projects]);
+  const { modes } = useModes();
+  const parsed = useMemo(() => parseQuickAdd(text, projects, modes), [text, projects, modes]);
   const typedDue = parsed.due ? resolveDate(parsed.due, today) : null;
   const finalDue = due ?? typedDue ?? null;
   const finalPrio = prio ?? parsed.priority ?? null;

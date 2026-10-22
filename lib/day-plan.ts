@@ -1,10 +1,9 @@
 import { Task } from './types';
-import { SCHEDULE, ScheduleBlock } from './schedule';
-import { RITUAL_MODE_MAP } from './ritual-mode-map';
+import { blockMinutes, taskModeFor, type ScheduleBlock, type WeekPlan, type Wd } from './schedule';
 
 export type SlotAssignment = {
   block: ScheduleBlock;
-  weekday: 'mon' | 'tue' | 'wed' | 'thu' | 'fri';
+  weekday: Wd;
   modeName: string;         // raw block mode (e.g. "Setup/Close")
   taskMode: string | null;  // resolved task mode (e.g. "Business Admin")
   slotMins: number;
@@ -32,21 +31,11 @@ export type DayPlan = {
   totalSlotMins: number;
 };
 
-function slotDurationMins(blk: ScheduleBlock): number {
-  const [sh, sm] = blk.start.split(':').map(Number);
-  const [eh, em] = blk.end.split(':').map(Number);
-  const start = sh * 60 + sm;
-  let end = eh * 60 + em;
-  if (end <= start) end += 24 * 60;
-  return end - start;
-}
 
 const PRIORITY_ORDER: Record<string, number> = { P1: 0, P2: 1, P3: 2, P4: 3 };
 
-export function buildDayPlan(
-  allTasks: Task[],
-  weekday: 'mon' | 'tue' | 'wed' | 'thu' | 'fri',
-): DayPlan {
+/** The person's day: their schedule's blocks for this weekday, filled with open tasks of each block's mode. */
+export function buildDayPlan(allTasks: Task[], weekday: Wd, plan: WeekPlan | null): DayPlan {
   // Only active tasks
   const active = allTasks.filter(t => t.status !== 'Done' && t.status !== 'Dropped');
 
@@ -73,13 +62,11 @@ export function buildDayPlan(
 
   const slots: SlotAssignment[] = [];
 
-  for (const blk of SCHEDULE) {
+  for (const blk of plan?.blocks ?? []) {
     const rawMode = blk.modes[weekday];
-    const taskMode = rawMode in RITUAL_MODE_MAP
-      ? (RITUAL_MODE_MAP[rawMode] || null)
-      : rawMode;
+    const taskMode = plan ? taskModeFor(plan, rawMode) : null;
 
-    const slotMins = slotDurationMins(blk);
+    const slotMins = blockMinutes(blk);
     const slotTasks: ScheduledTask[] = [];
     let cursor = 0;
 

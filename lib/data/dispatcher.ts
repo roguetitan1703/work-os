@@ -155,7 +155,7 @@ async function endRun(c: Collections, s: Scope, t: TaskDoc, end: End): Promise<b
   const restore = end.to === 'failed' && t.claude?.prevStatus && t.status === 'In Progress' && t.claude.prevStatus !== 'In Progress';
   const claim = { _id: t._id, 'claude.state': 'running' as const, 'claude.sessionId': t.claude?.sessionId };
   const ended = { 'claude.state': end.to, 'claude.endedAt': now, ...(end.note ? { 'claude.note': end.note.slice(0, 300) } : {}) };
-  // The status is restored only if it is still In Progress: one Om changed meanwhile is kept.
+  // The status is restored only if it is still In Progress: one the person changed meanwhile is kept.
   let restored = false;
   let r = restore ? await c.tasks.findOneAndUpdate({ ...claim, status: 'In Progress' }, { $set: { ...ended, status: t.claude!.prevStatus!, updatedAt: now } }, { returnDocument: 'after' }) : null;
   if (r) restored = true;
@@ -295,7 +295,7 @@ async function requeue(c: Collections, t: TaskDoc, countAttempt: boolean): Promi
   const claim = { _id: t._id, 'claude.state': 'running' as const, 'claude.sessionId': m.sessionId };
   const back = { 'claude.state': 'queued', updatedAt: now, ...(countAttempt ? { 'claude.attempts': (m.attempts ?? 0) + 1 } : {}) };
   const unset = { 'claude.claimedAt': '', 'claude.deviceId': '', 'claude.sessionId': '', 'claude.prevStatus': '' } as const;
-  // Restore prevStatus only while the task is still In Progress (a status Om changed meanwhile is kept).
+  // Restore prevStatus only while the task is still In Progress (a status the person changed meanwhile is kept).
   const r = m.prevStatus ? await c.tasks.updateOne({ ...claim, status: 'In Progress' }, { $set: { ...back, status: m.prevStatus }, $unset: unset }) : null;
   if (!r?.modifiedCount) await c.tasks.updateOne(claim, { $set: back, $unset: unset });
 }
@@ -416,7 +416,7 @@ export async function giveToClaude(scope: DeviceScope, key: string, folderKey?: 
 }
 
 /**
- * Take back: queued -> cleared; ended -> cleared; running needs stopSession (Om confirmed in the sheet): the stop job is
+ * Take back: queued -> cleared; ended -> cleared; running needs stopSession (the person confirmed in the sheet): the stop job is
  * best-effort (the computer may be off) and the claim ends as stopped either way.
  */
 export async function takeBackFromClaude(scope: DeviceScope, key: string, opts: { stop?: boolean } = {}): Promise<void> {

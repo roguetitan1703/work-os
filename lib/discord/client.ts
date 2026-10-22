@@ -1,16 +1,21 @@
 import 'server-only';
 import { getOrgSetting, setOrgSetting } from '../scope';
-import { discordScope } from '../people';
 
 // Read-only Discord REST client used by the MCP tools and the interactions endpoint.
 // No gateway, no storage: everything is fetched on demand with the bot token.
 //
-//   DISCORD_BOT_TOKEN, DISCORD_APPLICATION_ID, DISCORD_PUBLIC_KEY, DISCORD_GUILD_ID, DISCORD_OWNER_ID
+//   DISCORD_BOT_TOKEN, DISCORD_APPLICATION_ID, DISCORD_PUBLIC_KEY   one bot for the deployment
+//   discord:<orgId>.guildId                                          each organization's server (set by the operator)
+//   profile:<userId>.discordId                                       each person's own account (lib/profile.ts, /link)
 //
+// Reads are made for one person in one organization's server, and only show what that person's Discord account can
+// see there (their roles and the channel permissions), minus the organization's blocked channels.
 // The token never leaves this module: errors carry only status + route + Discord's message.
 
 // DISCORD_API_BASE is only for local tests against a fake API.
 const API = (process.env.DISCORD_API_BASE || 'https://discord.com/api/v10').replace(/\/+$/, '');
+/** Discord's API root (the interaction webhooks too). */
+export const API_BASE = API;
 const DISCORD_EPOCH = 1420070400000n;
 
 export const CHANNEL_TYPES: Record<number, string> = {
@@ -36,23 +41,40 @@ const PERM = {
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
-export type DiscordConfig = { token: string; appId: string; publicKey: string; guildId: string; ownerId: string };
+export type DiscordConfig = { token: string; appId: string; publicKey: string };
 
+/** The deployment's bot, or null when it is not set up. */
 export function discordConfig(): DiscordConfig | null {
   const c = {
     token: process.env.DISCORD_BOT_TOKEN ?? '',
     appId: process.env.DISCORD_APPLICATION_ID ?? '',
     publicKey: process.env.DISCORD_PUBLIC_KEY ?? '',
-    guildId: process.env.DISCORD_GUILD_ID ?? '',
-    ownerId: process.env.DISCORD_OWNER_ID ?? '',
   };
-  return c.token && c.guildId && c.ownerId ? c : null;
+  return c.token ? c : null;
 }
 
 export function requireConfig(): DiscordConfig {
   const c = discordConfig();
-  if (!c) throw new DiscordError('Discord is not configured: set DISCORD_BOT_TOKEN, DISCORD_GUILD_ID and DISCORD_OWNER_ID in Vercel.', 0, '');
+  if (!c) throw new DiscordError('Discord is not configured: set DISCORD_BOT_TOKEN, DISCORD_APPLICATION_ID and DISCORD_PUBLIC_KEY.', 0, '');
   return c;
+}
+
+/** One person's Discord in one organization: the organization's server and their linked account (null: not linked). */
+export type DiscordLink = { orgId: string; guildId: string; discordId: string | null };
+
+const SNOWFLAKE = /^\d{15,22}$/;
+
+/** The organization's Discord server id, or null. */
+export async function orgGuildId(orgId: string): Promise<string | null> {
+  const g = (await getOrgSetting(orgId, 'discord'))?.guildId;
+  return typeof g === 'string' && SNOWFLAKE.test(g) ? g : null;
+}
+
+/** The operator sets which Discord server belongs to an organization (one organization per server: unique index). */
+export async function setOrgGuildId(orgId: string, guildId: string | null): Promise<void> {
+  if (guildId !== null && !SNOWFLAKE.test(guildId)) throw new DiscordError('A server id is 15 to 22 digits.', 0, '');
+  await setOrgSetting(orgId, 'discord', { guildId, updatedAt: new Date() });
+  forget(orgId);
 }
 
 export class DiscordError extends Error {
@@ -211,15 +233,25 @@ export type ChannelInfo = {
 };
 
 export type GuildContext = {
+  orgId: string;
   guildId: string;
   botId: string;
   botRoleIds: string[];
+  /** The person the reads are for: their Discord account, name in the server and roles ('' when not linked). */
   ownerId: string;
   ownerName: string;
   ownerRoleIds: string[];
+  /** Their account has Administrator (or owns the server): sees every channel, private threads included. */
+  ownerAdmin: boolean;
   roleNames: Map<string, string>;
   contentIntent: boolean;
-  channels: ChannelInfo[]; // readable types + threads, incl. ones the bot can't read (canRead=false); blocked ones removed
+  /**
+   * Readable types + threads that the person can view, incl. ones the bot can't read (canRead=false); blocked ones
+   * removed. Private threads only for an administrator (membership is not known without a call per thread).
+   */
+  channels: ChannelInfo[];
+  /** Channel and category ids the person can view (for links to channels not in the list, e.g. archived threads). */
+  visible: Set<string>;
   /** Every guild channel incl. categories and blocked ones, for the settings UI. */
   layout: { id: string; name: string; type: string; parentId: string | null; blocked: boolean }[];
   /** Ids blocked in settings (channels, categories or threads) and every channel/thread under them. */
@@ -229,8 +261,14 @@ export type GuildContext = {
 };
 
 const CACHE_MS = 90_000;
-const g = globalThis as unknown as { __workosDiscord?: { ctx?: GuildContext; pending?: Promise<GuildContext> } };
-const cache = (g.__workosDiscord ??= {});
+type Entry = { ctx?: GuildContext; pending?: Promise<GuildContext> };
+const g = globalThis as unknown as { __workosDiscord?: Map<string, Entry> };
+/** Per organization, server and person. */
+const cache = (g.__workosDiscord ??= new Map());
+const cacheKey = (l: DiscordLink) => `${l.orgId}:${l.guildId}:${l.discordId ?? ''}`;
+function forget(orgId: string) {
+  for (const k of cache.keys()) if (k.startsWith(`${orgId}:`)) cache.delete(k);
+}
 
 function computePerms(ch: RawChannel, everyone: RawRole | undefined, roles: Map<string, RawRole>, memberRoles: string[], memberId: string): bigint {
   let base = BigInt(everyone?.permissions ?? '0');
@@ -251,22 +289,36 @@ function computePerms(ch: RawChannel, everyone: RawRole | undefined, roles: Map<
   return base;
 }
 
-async function loadContext(): Promise<GuildContext> {
-  const cfg = requireConfig();
+async function loadContext(link: DiscordLink): Promise<GuildContext> {
+  const guildId = link.guildId;
   const b = budget(15_000);
-  const [me, app, channels, threads, roles, owner, blockedRoots] = await Promise.all([
+  const [me, app, guild, channels, threads, roles, owner, blockedRoots] = await Promise.all([
     api<RawUser>('/users/@me', { budget: b }),
     api<{ flags?: number }>('/applications/@me', { budget: b }).catch(() => ({ flags: undefined })),
-    api<RawChannel[]>(`/guilds/${cfg.guildId}/channels`, { budget: b }),
-    api<{ threads: RawChannel[] }>(`/guilds/${cfg.guildId}/threads/active`, { budget: b }),
-    api<RawRole[]>(`/guilds/${cfg.guildId}/roles`, { budget: b }),
-    api<RawMember>(`/guilds/${cfg.guildId}/members/${cfg.ownerId}`, { budget: b }).catch(() => null),
-    blockedIds(),
+    api<{ owner_id?: string }>(`/guilds/${guildId}`, { budget: b }).catch(() => ({ owner_id: undefined })),
+    api<RawChannel[]>(`/guilds/${guildId}/channels`, { budget: b }),
+    api<{ threads: RawChannel[] }>(`/guilds/${guildId}/threads/active`, { budget: b }),
+    api<RawRole[]>(`/guilds/${guildId}/roles`, { budget: b }),
+    link.discordId ? api<RawMember>(`/guilds/${guildId}/members/${link.discordId}`, { budget: b }).catch(() => null) : Promise.resolve(null),
+    blockedIds(link.orgId),
   ]);
-  const botMember = await api<RawMember>(`/guilds/${cfg.guildId}/members/${me.id}`, { budget: b });
+  const botMember = await api<RawMember>(`/guilds/${guildId}/members/${me.id}`, { budget: b });
   const roleMap = new Map(roles.map(r => [r.id, r]));
-  const everyone = roleMap.get(cfg.guildId);
+  const everyone = roleMap.get(guildId);
   const byId = new Map(channels.map(c => [c.id, c]));
+
+  // What the person can read: computed like the bot's permissions, from their own roles (View Channel and Read Message
+  // History; a category needs only View). No account (not linked, or not in the server) sees nothing.
+  const ownerAdmin = !!owner && !!link.discordId && (guild.owner_id === link.discordId || computePerms({ id: '', type: 0 }, everyone, roleMap, owner.roles, link.discordId) === ~0n);
+  const personCanView = (permSource: RawChannel): boolean => {
+    if (!owner || !link.discordId) return false;
+    if (ownerAdmin) return true;
+    const perms = computePerms(permSource, everyone, roleMap, owner.roles, link.discordId);
+    const need = permSource.type === 4 ? PERM.VIEW_CHANNEL : PERM.VIEW_CHANNEL | PERM.READ_MESSAGE_HISTORY;
+    return (perms & need) === need;
+  };
+  const visible = new Set<string>();
+  for (const c of channels) if (personCanView(c)) visible.add(c.id);
 
   const toInfo = (c: RawChannel, permSource: RawChannel): ChannelInfo => {
     const perms = computePerms(permSource, everyone, roleMap, botMember.roles, me.id);
@@ -284,7 +336,7 @@ async function loadContext(): Promise<GuildContext> {
       lastActivity: c.last_message_id ? snowflakeTime(c.last_message_id).toISOString() : null,
       ...(isThread ? { archived: !!c.thread_metadata?.archived } : {}),
       canRead: (perms & PERM.VIEW_CHANNEL) !== 0n && (perms & PERM.READ_MESSAGE_HISTORY) !== 0n,
-      url: jumpLink(cfg.guildId, c.id),
+      url: jumpLink(guildId, c.id),
     };
   };
 
@@ -300,12 +352,15 @@ async function loadContext(): Promise<GuildContext> {
   for (const c of channels) {
     if (!READABLE.has(c.type)) continue;
     if (isBlocked(c)) blocked.add(c.id);
-    else infos.push(toInfo(c, c));
+    else if (visible.has(c.id)) infos.push(toInfo(c, c));
   }
   for (const t of threads.threads) {
     const parent = t.parent_id ? byId.get(t.parent_id) : undefined;
     if (isBlocked(t)) blocked.add(t.id);
-    else if (parent) infos.push(toInfo(t, parent));
+    else if (parent && visible.has(parent.id) && (t.type !== 12 || ownerAdmin)) {
+      infos.push(toInfo(t, parent));
+      visible.add(t.id);
+    }
   }
   for (const id of blockedRoots) blocked.add(id);
   const layout = channels
@@ -318,15 +373,18 @@ async function loadContext(): Promise<GuildContext> {
   const contentIntent = flags === undefined ? true : (flags & ((1 << 19) | (1 << 18))) !== 0;
 
   return {
-    guildId: cfg.guildId,
+    orgId: link.orgId,
+    guildId,
     botId: me.id,
     botRoleIds: roles.filter(r => r.tags?.bot_id === me.id).map(r => r.id),
-    ownerId: cfg.ownerId,
-    ownerName: owner?.nick || owner?.user?.global_name || owner?.user?.username || 'Om',
+    ownerId: link.discordId ?? '',
+    ownerName: owner?.nick || owner?.user?.global_name || owner?.user?.username || 'you',
     ownerRoleIds: owner?.roles ?? [],
+    ownerAdmin,
     roleNames: new Map(roles.map(r => [r.id, r.name])),
     contentIntent,
     channels: infos,
+    visible,
     layout,
     blocked,
     myThreadIds: new Set(),
@@ -335,21 +393,35 @@ async function loadContext(): Promise<GuildContext> {
 }
 
 // ── Blocked channels (sensitive: passwords etc.) ────────────────────────────
-// Stored per organization (settings._id = 'discord:<orgId>', the organization the bot is linked to: lib/people.ts),
-// editable in Settings › Connections by the linked person; DISCORD_BLOCKED_CHANNELS (comma-separated ids) adds more
-// from env. Blocked channels never reach any tool or command.
+// Stored per organization (settings._id = 'discord:<orgId>'), editable in Settings › Connections by its owners and
+// admins; DISCORD_BLOCKED_CHANNELS (comma-separated ids) adds more from env. Blocked channels never reach any tool or
+// command.
 
-async function blockedIds(): Promise<Set<string>> {
-  const fromEnv = (process.env.DISCORD_BLOCKED_CHANNELS ?? '').split(/[\s,]+/).filter(s => /^\d{15,22}$/.test(s));
-  const linked = await discordScope();
-  const doc = linked ? await getOrgSetting(linked.orgId, 'discord') : null;
+async function blockedIds(orgId: string): Promise<Set<string>> {
+  const fromEnv = (process.env.DISCORD_BLOCKED_CHANNELS ?? '').split(/[\s,]+/).filter(s => SNOWFLAKE.test(s));
+  const doc = await getOrgSetting(orgId, 'discord');
   return new Set([...fromEnv, ...(doc?.blockedIds ?? [])]);
 }
 
+/** The channels and categories a person is shown in the blocked-channel picker (only what they can see). */
+export const pickerLayout = (ctx: GuildContext) => ctx.layout.filter(r => ctx.visible.has(r.id));
+
+/**
+ * Save the blocked list as one person picked it. They only see (and submit) the channels their Discord account can
+ * see, so everything else stays as it was: new = what they ticked among their picker ∪ (old − their picker). Threads
+ * and channels hidden from them are never dropped.
+ */
+export async function saveBlockedAs(link: DiscordLink, ids: string[]): Promise<void> {
+  const ctx = await guildContext(link, { fresh: true });
+  const shown = new Set(pickerLayout(ctx).map(r => r.id));
+  const old: string[] = (await getOrgSetting(link.orgId, 'discord'))?.blockedIds ?? [];
+  await setBlockedIds(link.orgId, [...ids.filter(id => shown.has(id)), ...old.filter(id => !shown.has(id))]);
+}
+
 export async function setBlockedIds(orgId: string, ids: string[]): Promise<void> {
-  const clean = [...new Set(ids.filter(s => /^\d{15,22}$/.test(s)))];
+  const clean = [...new Set(ids.filter(s => SNOWFLAKE.test(s)))];
   await setOrgSetting(orgId, 'discord', { blockedIds: clean, updatedAt: new Date() });
-  cache.ctx = undefined;
+  forget(orgId);
 }
 
 export class BlockedChannelError extends Error {
@@ -359,25 +431,45 @@ export class BlockedChannelError extends Error {
   }
 }
 
-/** Throws if the channel (or its parent/category, for channels not in the cached list such as archived threads) is blocked. */
+export class NotVisibleError extends Error {
+  constructor() {
+    super('Channel not found, or your Discord account cannot see it.');
+    this.name = 'NotVisibleError';
+  }
+}
+
+/**
+ * Throws if the channel (or its parent/category, for channels not in the cached list such as archived threads) is
+ * blocked, or if the person's Discord account cannot view it. A thread not in the list counts as visible when its
+ * parent channel is (a private one only for an administrator); anything else unknown is refused.
+ */
 export async function assertNotBlocked(ctx: GuildContext, channelId: string, b?: Budget): Promise<void> {
   if (ctx.blocked.has(channelId)) throw new BlockedChannelError();
   if (ctx.channels.some(c => c.id === channelId)) return;
   const ch = await api<RawChannel>(`/channels/${channelId}`, { budget: b }).catch(() => null);
-  if (!ch) return;
+  if (!ch) throw new NotVisibleError();
   if (ch.parent_id && ctx.blocked.has(ch.parent_id)) throw new BlockedChannelError();
   const parent = ch.parent_id ? ctx.layout.find(c => c.id === ch.parent_id) : undefined;
   if (parent?.parentId && ctx.blocked.has(parent.parentId)) throw new BlockedChannelError();
+  const isThread = THREAD_TYPES.has(ch.type);
+  const ok = isThread ? !!ch.parent_id && ctx.visible.has(ch.parent_id) && (ch.type !== 12 || ctx.ownerAdmin) : ctx.visible.has(ch.id);
+  if (!ok) throw new NotVisibleError();
 }
 
-export async function guildContext(opts: { fresh?: boolean } = {}): Promise<GuildContext> {
-  if (!opts.fresh && cache.ctx && Date.now() - cache.ctx.fetchedAt < CACHE_MS) return cache.ctx;
-  if (!cache.pending) {
-    cache.pending = loadContext()
-      .then(ctx => (cache.ctx = ctx))
-      .finally(() => (cache.pending = undefined));
+/** The server as one person in one organization sees it (cached ~90 s per person). */
+export async function guildContext(link: DiscordLink, opts: { fresh?: boolean } = {}): Promise<GuildContext> {
+  requireConfig();
+  const k = cacheKey(link);
+  const e: Entry = cache.get(k) ?? {};
+  if (!opts.fresh && e.ctx && Date.now() - e.ctx.fetchedAt < CACHE_MS) return e.ctx;
+  if (!e.pending) {
+    e.pending = loadContext(link)
+      .then(ctx => (e.ctx = ctx))
+      .finally(() => (e.pending = undefined));
+    if (cache.size > 200) cache.clear();
+    cache.set(k, e);
   }
-  return cache.pending;
+  return e.pending;
 }
 
 /** Find a channel/thread by id, #name, name, or jump link. */

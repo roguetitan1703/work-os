@@ -125,7 +125,7 @@ async function AlertsPanel() {
   const [prefs, devices, base] = await Promise.all([getNotifySettings(caller), pushDeviceCount(caller).catch(() => 0), baseUrl()]);
   return (
     <div className="space-y-5">
-      <Group title="Alerts" note="Quiet hours 23:00–08:00 IST: nothing is sent; it waits for the morning." first>
+      <Group title="Alerts" note="During your quiet hours nothing is sent; it waits until they end." first>
         <AlertsTable initial={prefs} kinds={NOTIFY_KINDS} discordReady={!!discordConfig()} pushReady={pushConfigured()} devices={devices} />
       </Group>
       <AlertsSection base={base} />

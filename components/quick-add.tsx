@@ -10,7 +10,7 @@ import { fmtDue, fmtMins } from '@/lib/format';
 import type { Mode, TaskInput } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { useApp } from './app-context';
+import { useApp, useModes } from './app-context';
 import { TaskForm } from './task-form';
 import { usePhone } from './mobile/use-phone';
 
@@ -33,7 +33,8 @@ export function QuickAddBar({
   const [pending, start] = useTransition();
   const [formOpen, setFormOpen] = useState(false);
   const phone = usePhone();
-  const parsed = useMemo(() => parseQuickAdd(text, projects), [text, projects]);
+  const { modes } = useModes();
+  const parsed = useMemo(() => parseQuickAdd(text, projects, modes), [text, projects, modes]);
   const due = parsed.due ? resolveDate(parsed.due, today) : null;
 
   const input: TaskInput = {

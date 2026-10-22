@@ -1,314 +1,127 @@
-export type ScheduleBlock = {
-  start: string;
-  end: string;
-  block: string;
-  duration: string;
-  modes: {
-    mon: string;
-    tue: string;
-    wed: string;
-    thu: string;
-    fri: string;
-  };
-  notes: string;
-};
+import { z } from 'zod';
+import { clockInTz } from './dates';
+import { isHex } from './modes';
 
-export const SCHEDULE: ScheduleBlock[] = [
-  {
-    start: "10:00",
-    end: "10:20",
-    block: "Morning Setup",
-    duration: "20 min",
-    modes: {
-      mon: "Setup/Close",
-      tue: "Setup/Close",
-      wed: "Setup/Close",
-      thu: "Setup/Close",
-      fri: "Setup/Close",
-    },
-    notes:
-      "Open TODAY tab. Read the schedule. Pick 3 P1s. Update Last Touched. Start the day clean.",
-  },
-  {
-    start: "10:20",
-    end: "11:50",
-    block: "Morning Anchor",
-    duration: "90 min",
-    modes: {
-      mon: "Code & Dev",
-      tue: "Code & Dev",
-      wed: "Code & Dev",
-      thu: "Code & Dev",
-      fri: "Code & Dev",
-    },
-    notes:
-      "Sacred deep work. Hardest code, deployments, bug fixes, architecture, technical R&D.",
-  },
-  {
-    start: "11:50",
-    end: "12:35",
-    block: "Fiverr Ritual",
-    duration: "45 min",
-    modes: {
-      mon: "Outreach & Sales",
-      tue: "Outreach & Sales",
-      wed: "Outreach & Sales",
-      thu: "Outreach & Sales",
-      fri: "Outreach & Sales",
-    },
-    notes:
-      "Fiverr brief-applying, Fiverr lead replies, platform presence, inbound handling.",
-  },
-  {
-    start: "12:35",
-    end: "12:45",
-    block: "Buffer",
-    duration: "10 min",
-    modes: {
-      mon: "Personal",
-      tue: "Personal",
-      wed: "Personal",
-      thu: "Personal",
-      fri: "Personal",
-    },
-    notes: "Stand up. Water. Reset. No scrolling.",
-  },
-  {
-    start: "12:45",
-    end: "13:05",
-    block: "Meeting Prep / Founder Decisions Prep",
-    duration: "20 min",
-    modes: {
-      mon: "Founder Decisions",
-      tue: "Founder Decisions",
-      wed: "Founder Decisions",
-      thu: "Founder Decisions",
-      fri: "Founder Decisions",
-    },
-    notes:
-      "Prep for client calls or partner discussion. Review notes, open docs, decide what must be resolved today.",
-  },
-  {
-    start: "13:05",
-    end: "15:05",
-    block: "Meetings Window / Founder Decisions",
-    duration: "2 hr (HARD CAP)",
-    modes: {
-      mon: "Founder Decisions",
-      tue: "Founder Decisions",
-      wed: "Founder Decisions",
-      thu: "Founder Decisions",
-      fri: "Founder Decisions",
-    },
-    notes:
-      "Client meetings, discovery calls, handovers, and partner decisions. If no meeting, use this for founder decisions with your partner.",
-  },
-  {
-    start: "15:05",
-    end: "16:05",
-    block: "Lunch + Movement",
-    duration: "60 min",
-    modes: {
-      mon: "Personal",
-      tue: "Personal",
-      wed: "Personal",
-      thu: "Personal",
-      fri: "Personal",
-    },
-    notes: "Eat properly. Walk 20 min minimum. Non-negotiable.",
-  },
-  {
-    start: "16:05",
-    end: "17:05",
-    block: "Team Direction Block",
-    duration: "60 min",
-    modes: {
-      mon: "Team Direction",
-      tue: "Team Direction",
-      wed: "Team Direction",
-      thu: "Team Direction",
-      fri: "Team Direction",
-    },
-    notes:
-      "Review intern work, portfolio drafts, content plans, design requests, and assign next tasks.",
-  },
-  {
-    start: "17:05",
-    end: "17:15",
-    block: "Buffer",
-    duration: "10 min",
-    modes: {
-      mon: "Personal",
-      tue: "Personal",
-      wed: "Personal",
-      thu: "Personal",
-      fri: "Personal",
-    },
-    notes: "Mode reset. Tea, water, no inputs.",
-  },
-  {
-    start: "17:15",
-    end: "18:45",
-    block: "Client Delivery Block",
-    duration: "90 min",
-    modes: {
-      mon: "Client Delivery",
-      tue: "Client Delivery",
-      wed: "Client Delivery",
-      thu: "Client Delivery",
-      fri: "Client Delivery",
-    },
-    notes:
-      "Proposals, scoping docs, status updates, handover prep, replies on active client threads.",
-  },
-  {
-    start: "18:45",
-    end: "19:45",
-    block: "Growth / R&P Block",
-    duration: "60 min",
-    modes: {
-      mon: "Growth",
-      tue: "Research & Planning",
-      wed: "Growth",
-      thu: "Research & Planning",
-      fri: "Growth",
-    },
-    notes:
-      "IDEX portals, partnership work, positioning, content systems, portfolio templates, strategic R&D.",
-  },
-  {
-    start: "19:45",
-    end: "20:00",
-    block: "Snack + Decompress",
-    duration: "15 min",
-    modes: {
-      mon: "Personal",
-      tue: "Personal",
-      wed: "Personal",
-      thu: "Personal",
-      fri: "Personal",
-    },
-    notes: "Break from screens. Keep it light.",
-  },
-  {
-    start: "20:00",
-    end: "21:00",
-    block: "Outreach & Sales",
-    duration: "60 min",
-    modes: {
-      mon: "Outreach & Sales",
-      tue: "Outreach & Sales",
-      wed: "Outreach & Sales",
-      thu: "Outreach & Sales",
-      fri: "Outreach & Sales",
-    },
-    notes:
-      "Cold outreach, lead follow-up, discovery-call booking, referrals, expansion selling, non-Fiverr lead conversion.",
-  },
-  {
-    start: "21:00",
-    end: "22:30",
-    block: "Late-Night Build",
-    duration: "90 min",
-    modes: {
-      mon: "Code & Dev",
-      tue: "Code & Dev",
-      wed: "Code & Dev",
-      thu: "Code & Dev",
-      fri: "Code & Dev",
-    },
-    notes:
-      "Quiet deep work. Code, fixes, deployments, scripts, technical execution, high-focus R&D.",
-  },
-  {
-    start: "22:30",
-    end: "22:45",
-    block: "Comms 2",
-    duration: "15 min",
-    modes: {
-      mon: "Client Delivery",
-      tue: "Client Delivery",
-      wed: "Founder Decisions",
-      thu: "Client Delivery",
-      fri: "Client Delivery",
-    },
-    notes:
-      "Close loops, send quick replies, confirm tomorrow's questions. Wednesday: mid-week founder check.",
-  },
-  {
-    start: "23:05",
-    end: "00:00",
-    block: "Dinner",
-    duration: "55 min",
-    modes: {
-      mon: "Personal",
-      tue: "Personal",
-      wed: "Personal",
-      thu: "Personal",
-      fri: "Personal",
-    },
-    notes: "Eat properly. No work.",
-  },
-  {
-    start: "00:00",
-    end: "00:15",
-    block: "Day Close",
-    duration: "15 min",
-    modes: {
-      mon: "Setup/Close",
-      tue: "Setup/Close",
-      wed: "Setup/Close",
-      thu: "Setup/Close",
-      fri: "Setup/Close",
-    },
-    notes:
-      "Mark done, update Last Touched, log expenses/admin items, generate invoices, set tomorrow's 3 P1s.",
-  },
+// A person's week (docs/multi-user.md phase 3): time blocks Monday to Friday (Saturday and Sunday are flex days), the
+// optional daily routine card on Today, their weekly review questions and their own help text. Stored per person in
+// `schedule:<userId>` (lib/user-schedule.ts); someone who never set one has none: no block bar, no routine card.
+// Pure (browser and server).
+
+export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri'] as const;
+export type Wd = (typeof WEEKDAYS)[number];
+export const WEEKDAY_LABELS: Record<Wd, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri' };
+const WD_BY_DAY = [null, 'mon', 'tue', 'wed', 'thu', 'fri', null] as const;
+
+/** 0 = Sunday … 6 = Saturday → 'mon'…'fri', or null at the weekend. */
+export const weekdayKey = (day: number): Wd | null => WD_BY_DAY[day] ?? null;
+
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const time = z.string().regex(TIME_RE, 'a time like 09:30');
+const label = (max: number) => z.string().trim().max(max);
+
+export const ScheduleBlockSchema = z.object({
+  start: time,
+  end: time,
+  block: label(80).min(1),
+  duration: label(30).optional(),
+  /** Per weekday: an organization mode (its tasks show in the block) or one of the person's own names (`colors`). */
+  modes: z.object(Object.fromEntries(WEEKDAYS.map(d => [d, label(40).default('')])) as Record<Wd, z.ZodDefault<z.ZodString>>),
+  notes: label(500).default(''),
+});
+export type ScheduleBlock = z.infer<typeof ScheduleBlockSchema>;
+
+export const RoutineSchema = z.object({
+  name: label(40).min(1),
+  start: time,
+  end: time,
+  color: z.string().refine(isHex, 'a colour like #FACC15'),
+  /** The number logged each day, e.g. "Bids placed". */
+  countLabel: label(40).min(1),
+  /** The prompt before it is logged today. */
+  question: label(120).min(1),
+  placeholder: label(120).optional(),
+});
+export type Routine = z.infer<typeof RoutineSchema>;
+
+export const ReviewFieldSchema = z.object({
+  key: z.string().regex(/^[a-zA-Z][a-zA-Z0-9]{0,30}$/),
+  label: label(60).min(1),
+  kind: z.enum(['text', 'number']),
+});
+export type ReviewField = z.infer<typeof ReviewFieldSchema>;
+
+export const HelpSectionSchema = z.object({
+  title: label(80).min(1),
+  hint: label(120).optional(),
+  items: z.array(z.object({ title: label(80).optional(), text: label(1000).min(1) })).max(20),
+});
+export type HelpSection = z.infer<typeof HelpSectionSchema>;
+
+export const ScheduleSchema = z.object({
+  blocks: z.array(ScheduleBlockSchema).max(48).default([]),
+  /** Colours for block names that are not organization modes (a routine, a break, meetings). */
+  colors: z.record(label(40), z.string().refine(isHex)).default({}),
+  /** Block names whose time belongs to an organization mode's tasks ('' = none), e.g. "Setup/Close" → "Business Admin". */
+  taskModes: z.record(label(40), label(40)).default({}),
+  routine: RoutineSchema.nullable().default(null),
+  review: z.array(ReviewFieldSchema).min(1).max(12).optional(),
+  help: z.array(HelpSectionSchema).max(10).default([]),
+});
+export type Schedule = Omit<z.infer<typeof ScheduleSchema>, 'review'> & { review: ReviewField[] };
+
+/** Weekly review questions for someone who has not set their own. */
+export const DEFAULT_REVIEW: ReviewField[] = [
+  { key: 'shipped', label: 'Shipped', kind: 'text' },
+  { key: 'slipped', label: 'Slipped', kind: 'text' },
+  { key: 'toDrop', label: 'To drop', kind: 'text' },
+  { key: 'adjustments', label: 'Adjustments for next week', kind: 'text' },
 ];
 
-export function getCurrentBlock(
-  now: Date = new Date(),
-  allowWeekend = false,
-): ScheduleBlock | null {
-  const day = now.getDay();
+export const EMPTY_SCHEDULE: Schedule = { blocks: [], colors: {}, taskModes: {}, routine: null, review: DEFAULT_REVIEW, help: [] };
 
-  if (!allowWeekend && (day === 0 || day === 6)) return null;
+/** What the app shell needs on every page (the block bar and tint): no review or help text. */
+export type WeekPlan = Pick<Schedule, 'blocks' | 'colors' | 'taskModes'>;
 
-  let dayKey = (["", "mon", "tue", "wed", "thu", "fri"] as const)[day];
+const minutesOf = (t: string) => {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+};
 
-  if (!dayKey && allowWeekend) {
-    // map weekend → weekday schedule
-    dayKey = "mon"; // or "fri" depending on your preference
+export function blockMinutes(b: Pick<ScheduleBlock, 'start' | 'end'>): number {
+  const start = minutesOf(b.start);
+  let end = minutesOf(b.end);
+  if (end <= start) end += 24 * 60;
+  return end - start;
+}
+
+/** "90 min", "2 hr", "1 hr 30 min" from a block's times (for blocks saved without a duration label). */
+export function durationLabel(b: Pick<ScheduleBlock, 'start' | 'end' | 'duration'>): string {
+  if (b.duration) return b.duration;
+  const m = blockMinutes(b);
+  if (m < 60) return `${m} min`;
+  return m % 60 ? `${Math.floor(m / 60)} hr ${m % 60} min` : `${m / 60} hr`;
+}
+
+/**
+ * The block running at `now` in the person's timezone, or null. Weekends have no blocks unless allowWeekend (Today's
+ * "work day" switch), which uses Monday's.
+ */
+export function currentBlock(blocks: readonly ScheduleBlock[], now: Date, tz: string, allowWeekend = false): { block: ScheduleBlock; weekday: Wd } | null {
+  const clock = clockInTz(now, tz);
+  const weekday = weekdayKey(clock.weekday) ?? (allowWeekend ? 'mon' : null);
+  if (!weekday) return null;
+  for (const blk of blocks) {
+    const startMin = minutesOf(blk.start);
+    const endMin = startMin + blockMinutes(blk);
+    // A late block that runs past midnight (23:30–00:30) still holds just after midnight.
+    const nowMin = startMin > 23 * 60 && clock.minutes < 6 * 60 ? clock.minutes + 24 * 60 : clock.minutes;
+    if (nowMin >= startMin && nowMin < endMin) return { block: blk, weekday };
   }
-
-  if (!dayKey) return null;
-
-  const minutesNow = now.getHours() * 60 + now.getMinutes();
-
-  for (const blk of SCHEDULE) {
-    const [sh, sm] = blk.start.split(":").map(Number);
-    const [eh, em] = blk.end.split(":").map(Number);
-    const startMin = sh * 60 + sm;
-    let endMin = eh * 60 + em;
-
-    if (endMin <= startMin) endMin += 24 * 60;
-
-    let nowAdjusted = minutesNow;
-    if (startMin > 23 * 60 && minutesNow < 6 * 60) {
-      nowAdjusted += 24 * 60;
-    }
-
-    if (nowAdjusted >= startMin && nowAdjusted < endMin) {
-      return blk;
-    }
-  }
-
   return null;
 }
 
-export function getModeForDay(
-  blk: ScheduleBlock,
-  weekday: "mon" | "tue" | "wed" | "thu" | "fri",
-): string {
-  return blk.modes[weekday];
+/** The organization mode whose tasks belong in a block of this name (null: none). */
+export function taskModeFor(plan: Pick<WeekPlan, 'taskModes'>, blockMode: string | null | undefined): string | null {
+  if (!blockMode) return null;
+  return blockMode in plan.taskModes ? plan.taskModes[blockMode] || null : blockMode;
 }

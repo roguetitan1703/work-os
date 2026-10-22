@@ -4,7 +4,7 @@ import { callerFromRequest } from '@/lib/caller';
 import { isOperator } from '@/lib/operator';
 import { mongoEnvNames } from '@/lib/db';
 import { scoped } from '@/lib/scope';
-import { APP_TZ, todayStr } from '@/lib/dates';
+import { DEFAULT_TZ, todayStr } from '@/lib/dates';
 import { converterCheck } from '@/lib/notes-convert';
 
 // Connects to MongoDB (creating collections/indexes on first run) and reports what is configured.
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
     VERCEL_ENV: process.env.VERCEL_ENV ?? null,
     MONGODB_DB: process.env.MONGODB_DB || 'workos (default)',
     BETTER_AUTH_SECRET: !!authSecret(),
-    APP_TZ,
+    defaultTimezone: DEFAULT_TZ,
     APP_URL: process.env.APP_URL || null,
   };
   try {

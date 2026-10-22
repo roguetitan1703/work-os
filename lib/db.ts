@@ -2,7 +2,7 @@ import 'server-only';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { MongoClient, type ClientSession, type Db, type Collection, type IndexDescription } from 'mongodb';
-import type { CodeLocation, TaskSource, Activity, Actor, ActivityType, FieldChange, ProjectStatus, Mode, Priority, Status, ChecklistItem, Link, Recurrence, Visibility, WeeklyReview, FiverrRitualLog } from './types';
+import type { CodeLocation, TaskSource, Activity, Actor, ActivityType, FieldChange, ProjectStatus, Mode, Priority, Status, ChecklistItem, Link, Recurrence, Visibility, WeeklyReview, RoutineLog } from './types';
 import { asActor } from './actors';
 
 // ── Ownership (docs/multi-user.md, phase 2) ──
@@ -98,8 +98,10 @@ export type ProjectDoc = Placed & {
   updatedAt: Date;
 };
 
-export type ReviewDoc = Omit<WeeklyReview, 'id'> & { _id: string; orgId: string; ownerId: string };
-export type RitualDoc = Omit<FiverrRitualLog, 'id'> & { _id: string; orgId: string; ownerId: string };
+/** Reviews from before phase 3 kept their answers as fields (shipped, slipped, …); lib/data/reviews.ts reads both. */
+export type ReviewDoc = Omit<WeeklyReview, 'id' | 'answers'> & { _id: string; orgId: string; ownerId: string; answers?: WeeklyReview['answers'] } & Record<string, unknown>;
+/** A day's routine log. `bidsPlaced` is the count's name from before phase 3. */
+export type RitualDoc = Omit<RoutineLog, 'id' | 'count'> & { _id: string; orgId: string; ownerId: string; count?: number; bidsPlaced?: number };
 /** _id `<name>:<orgId>` (task and Claude item numbers per organization). */
 export type CounterDoc = { _id: string; seq: number; orgId: string };
 export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {
@@ -183,7 +185,7 @@ export type SettingsDoc = {
   oldKeys?: { name: string; prefix: string }[];
   oldDevices?: { name: string; prefix: string }[];
   dismissedAt?: Date | null;
-  /** _id 'dispatcher': Om's switch and limits for the task dispatcher (docs/dispatcher.md). */
+  /** dispatcher:<userId>: the person's switch and limits for the task dispatcher (docs/dispatcher.md). */
   enabled?: boolean;
   maxConcurrent?: number;
   boilerplateNoteId?: string;
@@ -192,6 +194,18 @@ export type SettingsDoc = {
   /** status:<userId>: when their Claude connector and Discord were last used. */
   lastMcpAt?: Date;
   lastDiscordAt?: Date;
+  /** profile:<userId> (lib/profile.ts): timezone, quiet hours, the linked Discord account and a pending link code. */
+  timezone?: string;
+  quietStart?: number;
+  quietEnd?: number;
+  discordId?: string | null;
+  discordLink?: { hash: string; expiresAt: Date } | null;
+  /** discord:<orgId>: the organization's Discord server (set by the operator). */
+  guildId?: string | null;
+  /** schedule:<userId> (lib/schedule.ts): the person's week, routine, review questions and own help text. */
+  schedule?: unknown;
+  /** modes:<orgId> (lib/modes.ts): the organization's modes of work. */
+  modes?: unknown;
 };
 
 // ── Session launcher (docs/launcher.md) ──
@@ -202,7 +216,7 @@ export type DeviceActivity = { sessions: number; sessionsWorkOs: number; session
 /** A folder a worker reported. _id = deviceId:folderId. Never a path. */
 export type WorkerFolderDoc = { _id: string; /** The device's owner and organization. */ orgId: string; ownerId: string; deviceId: string; folderId: string; name: string; git: boolean; remote?: string; branch?: string; projectId: string | null; linkedAt: Date | null; seenAt: Date; missing: boolean };
 export type WorkerJobDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; sessionId: string; prompt?: string; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
-export type WorkerSessionDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; folderId: string; projectId: string | null; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Om removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string };
+export type WorkerSessionDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; folderId: string; projectId: string | null; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Its owner removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string };
 /** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
 export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker'; at: Date; n?: number };
 
@@ -301,6 +315,11 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['mailLog', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { kind: 1, at: -1 }, name: 'kind_at' }, { key: { kind: 1, to: 1, at: -1 }, name: 'kind_to_at' }]],
     ['requestStats', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 35 * 86_400 }]],
     ['authLimits', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 3600 }, { key: { key: 1, at: -1 }, name: 'key_at' }]],
+    ['settings', [
+      // One Work OS person per Discord account in an organization, and one organization per Discord server.
+      { key: { area: 1, orgId: 1, discordId: 1 }, unique: true, name: 'discord_link_unique', partialFilterExpression: { discordId: { $type: 'string' } } },
+      { key: { area: 1, guildId: 1 }, unique: true, name: 'discord_guild_unique', partialFilterExpression: { guildId: { $type: 'string' } } },
+    ]],
   ];
 
 /**

@@ -1,7 +1,7 @@
 # Work state
 
 ## Now
-- 2026-10-22: multi-user Work OS, own sign-in first (Om); Delpat OS integration later. Plan: docs/multi-user.md. Phases 0 (CPU), 1 (sign-in, docs/auth.md) and 2 (ownership, re-reviewed safe) merged to master. Next: phase 3 (per-user settings, schedule as data, "Om" out of code). On deploy (phase 5, with Om's go): set OPERATOR_EMAILS, create the operator accounts first, then migrate-auth and migrate-ownership (--copy-to rehearsal first).
+- 2026-10-22: multi-user Work OS, own sign-in first (Om); Delpat OS integration later. Plan: docs/multi-user.md. Phases 0 (CPU), 1 (sign-in, docs/auth.md) and 2 (ownership, re-reviewed safe) merged to master. Phase 3 (per-user settings: schedule, routine, modes and review as data; timezone and quiet hours per person; Discord linked per person; "Om" out of code) merged (security review fixes in). On deploy (phase 5, with Om's go): set OPERATOR_EMAILS, create the operator accounts first, then migrate-auth, migrate-ownership (--copy-to rehearsal first) and migrate-phase3, register the Discord commands again, remove DISCORD_GUILD_ID and DISCORD_OWNER_ID.
 - 2026-10-19: Vercel paused Om's account (Fluid Active CPU); Work OS moves to Delpat's AWS server (work.delpat.in). Audit summary in docs/multi-user.md.
 
 ## Next
@@ -16,6 +16,16 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 
 ## Later
 - Claude page: after Move/Next/Remove in the queue or sessions list, the list sometimes stays stale (old order, disabled buttons, removed row still shown) until a reload, though the database is right; e2e now reloads to get past it. Suspect the 10 s auto-refresh racing the action's router.refresh (queue-tab.tsx does not await it and clears busy at once) — waits on a builder B slot.
+- Phase 3: no editor for an organization's modes (the default eight, or what migrate-phase3 seeds); colours for non-mode block names, which mode fills a block, review questions and help sections have no editor either (data only) — waits on Om wanting to change them in the app.
+- Phase 3: one routine per person; the timetable editor has no per-block colour — waits on someone needing a second routine.
+- Personal settings docs are keyed `<area>:<userId>` (lib/scope.ts setUserSetting, from phase 2), so a write in another organization moves profile, schedule, dispatcher and the Discord link to that organization (phase 3 security review). Fix: key them `<area>:<orgId>:<userId>`, or refuse a write across organizations — waits on phase 4 or a second organization in real use.
+- Clearing a cache clears it on one server instance only: another instance stays stale for 60–90 s after an unlink, a member removal or a new block (phase 3 security review) — waits on phase 5 (one server, or push).
+- When a modes editor ships, mode names and descriptions go into the MCP instructions: a prompt-injection path from any admin to every member's Claude (phase 3 security review) — waits on the modes editor; quote or limit them then.
+- Phase 3: Discord private threads are shown only to a server administrator (membership needs a call per thread) — waits on someone missing one.
+- Phase 3: only the operator sets an organization's Discord server and registers its commands (again after the modes change) — waits on organizations managing their own bot.
+- Phase 3: the MCP argument `waiting_on_om` keeps its name (renaming breaks connected clients) — waits on a tool-version bump.
+- Phase 3: a task keeps a mode its organization later drops (only new or changed modes are checked) — waits on a modes editor.
+- In-memory caches that live in a module are per bundle (route handlers, pages and actions can each have their own copy), so clearing one after a save does not clear the others; phase 3's profile, schedule and modes caches now live on globalThis, but memberNames and the role cache (lib/people.ts, lib/caller.ts) still don't (a rename or role change can take up to a minute to show) — waits on it being noticed, or phase 5's single server.
 - Phase 2 review leftovers: a teammate editing a sub-page of a task's note (or deleting/restoring the note) does not take the task back from Claude (only the root note has taskId; walk up to the root); a queued-to-running race can miss a take-back; moving a project org→private onto a name you already use privately gives a 500 (unhandled E11000); restoreTask deletes the trash doc before inserting — waits on a builder A slot after phase 3.
 - Operator by email: an admin who invites an address in OPERATOR_EMAILS that has no account yet makes that invitee an operator (invites set emailVerified) — create operator accounts before inviting anyone (deploy step above).
 - Take back on a legacy running Claude task (no marker) lets anyone mark it stopped; the session keeps running — goes away after the migration (no legacy marks) .
@@ -23,19 +33,19 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Menu, Settings, Claude and their tabs wait for a server round trip on first tap now (only Today, Tasks, Projects are warmed) — waits on Om noticing it in use.
 - Auth phase 1: the migration revokes old worker computers instead of giving them to Om — waits on Om saying whether to keep them.
 - Auth phase 1: password reset no longer asks for the authenticator code (the old flow did) — waits on Om saying whether he wants it back.
-- Discord acts for the owner of the first organization only (DISCORD_OWNER_ID); other members' Discord MCP tools are refused — waits on phase 3 linking each person's Discord id.
+
 - Auth phase 1: a revoked session or removed member can open pages for up to 2 min (cookie cache); actions and data reads check the database — waits on Om finding 2 min too long.
 - Auth phase 1: invitation link is shown to the inviter; an admin could claim the invitee's account — waits on Om deciding whether admins are less trusted than owners.
 - alertLog keys are per task (not per recipient): when phase 4 lets a task change assignee, the new recipient misses alerts already logged for that task — waits on phase 4 assignees.
 - Tasks have assigneeId but nothing sets it yet (no UI or MCP arg), so every alert goes to the owner — waits on phase 4.
 - Two visible projects can share a name (your private one and a teammate's later shared one); a lookup by name picks your private one — waits on Om finding it confusing.
-- OPERATOR_EMAILS must be set on the server, or nobody gets health, Usage or the schedule — set it with the deploy.
+- OPERATOR_EMAILS must be set on the server, or nobody gets health, Usage, Discord registration or the organizations' Discord server setting — set it with the deploy.
 - Old documents are invisible between deploying phase 2 and running scripts/migrate-ownership.mjs (no orgId) — run the migration right after the deploy.
 - Usage log cannot tell prefetches from page data (Next 16 hides the prefetch headers from the proxy; skipProxyUrlNormalize would change what the auth check sees) — waits on Om needing that split.
 - Dispatched sessions (wt tab, prompt as first argument) leave no transcript in ~/.claude/projects, so the Sessions list shows the folder name, no title, no subagents, and the stuck alert has no lastActiveAt — waits on finding where that Claude Code version writes them.
 - A dispatched session waits forever at a permission question (seen on the demo: a phone check, a git commit with a $(…) message); only the 20-min stuck alert says so — waits on Om choosing a permission mode for dispatched sessions.
 - Finishing a task given to Claude also sends "Claude Code changed #12" next to "Claude finished #12" (complete_task on a task Claude did not create) — waits on Om saying whether to drop it for dispatched tasks.
-- Today shows the built-in "Routine: Fiverr" card to every install (it is Om's own routine) — waits on Om wanting it optional.
+
 - Dispatcher: the stuck alert goes out once per claim, not again if the session wakes and goes quiet again — waits on Om wanting repeats.
 - Dispatcher: Take back on a running task while the PC is off marks it stopped but the session keeps running until the worker next polls a stop job (it is best-effort) — waits on real use.
 - Project Claude card header summary can truncate ("1 queu…") on 390px when 3 parts show — waits on Om noticing.

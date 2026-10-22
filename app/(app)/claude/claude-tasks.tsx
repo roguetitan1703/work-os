@@ -12,7 +12,7 @@ import { takeBackFromClaudeAction } from './dispatcher-actions';
 import { agoShort } from './now-tab';
 import { card, ghost, H2 } from './ui';
 
-// "Claude's tasks" (docs/dispatcher.md): the tasks Om gave to Claude. Running, then queued in the
+// "Claude's tasks" (docs/dispatcher.md): the tasks you gave to Claude. Running, then queued in the
 // order they will start, then recently finished or stopped. Compact rows, same look as Sessions.
 
 const STATE: Record<ClaudeTaskRow['state'], { label: string; dot: string; tone: string }> = {

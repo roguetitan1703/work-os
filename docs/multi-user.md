@@ -118,6 +118,39 @@ Comment edits: an agent may edit only entries of the same agent for the same use
 
 Order on deploy: deploy the code, then run the migration at once. Until it runs, old documents are invisible because they have no `orgId`.
 
+## As built: phase 3, per-user settings (2026-10-22)
+
+**Each person's own settings** live in `settings` through `lib/scope.ts`, one document per person or organization:
+- `profile:<userId>` (`lib/profile.ts`): timezone, quiet hours (whole hours, default 23–8; equal = none) and the linked Discord account.
+- `schedule:<userId>` (`lib/user-schedule.ts`, shape in `lib/schedule.ts`): the weekday time blocks, colours for block names that are not modes, which mode's tasks fill a block (`taskModes`), one routine, the weekly review questions and help sections.
+- `modes:<orgId>` (`lib/org-modes.ts`): the organization's modes. With no document it is the eight from `lib/modes.ts` `DEFAULT_MODES`.
+- `discord:<orgId>`: the organization's Discord server (`guildId`, unique across organizations) and its blocked channels.
+
+**Schedule as data.** Nothing about one person's week is in code any more: `SCHEDULE`, the Fiverr routine card and `RITUAL_MODE_MAP` are gone. A person with no schedule gets no block bar, no page tint, no Now line and no Schedule button on Today, and no routine card. `/timetable` shows your own week; `/timetable?edit=1` is a small editor (blocks with a mode per weekday, the routine on or off). The routine card is generic (`components/routine-card.tsx`): a name, times, a colour, what is counted and the question. Its logs keep the `ritualLogs` collection, with `count` in place of `bidsPlaced`. Weekly reviews store `answers` keyed by the person's questions (default: shipped, slipped, to drop, adjustments); old reviews with fixed fields are read as answers, and saving one moves them. Help (Settings › Help) shows the organization's modes and the person's own help sections.
+
+**Modes.** A task's mode must be one of the organization's modes (`canonicalMode`, the organization's spelling); an unchanged mode is not checked again, so a task keeps a mode the organization later drops. The sidebar, menu, filters, forms, quick add, imports, Discord's `/task` choices and the MCP instructions all read the list. There is no editor yet.
+
+**Timezone.** No timezone is hard-coded. `currentTz()` (`lib/dates.ts`) is the person's timezone: the request context carries it for actions, API routes, MCP, the worker and the cron (each person's run). For pages, `getCaller()` puts it in a per-render cell, and in the browser the app shell sets it. `APP_TZ` is now only the default for people who have not chosen one (else UTC). Alerts use each person's timezone and quiet hours. Settings › Alerts sets both.
+
+**Discord, per person.**
+- One bot for the deployment: `DISCORD_BOT_TOKEN`, `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`. `DISCORD_GUILD_ID` and `DISCORD_OWNER_ID` are no longer read.
+- The operator sets each organization's server in Settings › Connections › Discord, and registers that server's commands (`POST /api/admin/discord/register?org=<id>`; the mode choices are the organization's). A server belongs to one organization.
+- Linking: Settings makes an 8-character code (stored hashed, 10 minutes, used once); the person runs `/link <code>` on the organization's server; the signed interaction proves which Discord account it was. One account links to one person in an organization: linking it again moves it.
+- Interactions: the server picks the organization, the sender's linked account picks the person (who must still be a member). Everything runs as them, in their timezone. Anyone not linked gets "not linked", with how to link.
+- The Discord MCP tools need the key owner's account linked. Reads show only what that Discord account can see on the server: channel permissions are computed from their own roles. Private threads are shown only to a server administrator, because membership is not known without a call per thread. A channel id not in the list is allowed only for a thread whose parent channel they can see. Blocked channels apply to everyone.
+- Alert DMs go to the recipient's own linked account; no account, no DM.
+
+**Dispatcher.** Each person's switch, rules note and cap (phase 2); the cap counts only their own running claims. The tenancy suite checks that two people's caps and switches do not affect each other.
+
+**"Om" out of code.** User-facing text, MCP instructions and tool descriptions, policy messages and comments say "you", the person's name or "the owner". The MCP instructions name the key's owner and list the organization's modes (`instructions({ name, modes })`; the server pool keys on both). Docs and history are unchanged; the MCP argument `waiting_on_om` keeps its name.
+
+**Migration.** `scripts/migrate-phase3.mjs --db <name>` is a dry run that prints counts only; `--apply` writes. It is idempotent and never overwrites what is already set. It gives the first organization's owner the old timetable, routine, review questions and help (`scripts/lib/legacy-week.mjs`) and a timezone (`--tz`, else `APP_TZ`, else Asia/Kolkata). It also does the following:
+- sets the owner's Discord account from `DISCORD_OWNER_ID` and the organization's server from `DISCORD_GUILD_ID`;
+- seeds the organization's eight modes, with their original descriptions;
+- turns old reviews into `answers` and `bidsPlaced` into `count`.
+
+Run it after the deploy, then register the Discord commands again (they gain `/link`), then remove the two old Discord variables.
+
 ## Audit summary (2026-10-19)
 
 - All 26 collections have no owner or organization field; numbers, project names and Claude item numbers are globally unique.

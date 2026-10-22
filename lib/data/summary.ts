@@ -4,7 +4,7 @@ import { describeActivity } from '../activity-text';
 import { actorOut } from '../actors';
 import { memberNames } from '../people';
 import { OPEN_STATUSES, type Activity, type Task } from '../types';
-import { addDays, previousWorkdayStart, todayStr, weekStart, APP_TZ } from '../dates';
+import { addDays, currentTz, previousWorkdayStart, todayStr, weekStart } from '../dates';
 import { isOverdue, listActivity, sortTasks, toTask, unmetDependencies } from './tasks';
 import { projectNameMap } from './projects';
 
@@ -186,7 +186,7 @@ export async function dailySummary(s: Scope, opts: { since?: Date; baseUrl?: str
 
   return {
     date: today,
-    timezone: APP_TZ,
+    timezone: currentTz(),
     since: since.toISOString(),
     counts: {
       overdue: overdue.length,

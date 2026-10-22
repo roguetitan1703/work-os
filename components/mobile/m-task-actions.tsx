@@ -10,10 +10,9 @@ import { claudeMenuLabel } from '../give-to-claude';
 import { updateTaskAction } from '@/app/actions';
 import { addDays } from '@/lib/dates';
 import { fmtDue } from '@/lib/format';
-import { MODES } from '@/lib/modes';
 import type { Priority, Status, Task, TaskPatch } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { useApp } from '../app-context';
+import { useApp, useModes } from '../app-context';
 
 const STATUS_OPTS: { s: Status; label: string; on: string }[] = [
   { s: 'Not Started', label: 'To do', on: 'bg-foreground text-background border-foreground' },
@@ -32,6 +31,7 @@ const PRIO_OPTS: { p: Priority; on: string }[] = [
 /** Phone quick-edit sheet for one task: status, priority, due, mode. Reuses updateTaskAction. */
 export function TaskActionSheet({ task, open, onClose, onClaude }: { task: Task; open: boolean; onClose: () => void; onClaude?: () => void }) {
   const { today } = useApp();
+  const { modes, color } = useModes();
   const router = useRouter();
   const [pending, start] = useTransition();
   const [asking, setAsking] = useState(false);
@@ -147,7 +147,7 @@ export function TaskActionSheet({ task, open, onClose, onClaude }: { task: Task;
           {task.due && <Opt onClick={() => apply({ due: null }, 'due cleared')}>No date</Opt>}
         </Group>
         <Group label="Mode">
-          {MODES.map(m => (
+          {modes.map(m => (
             <Opt key={m.name} on={task.mode === m.name} onClick={() => apply({ mode: task.mode === m.name ? null : m.name }, task.mode === m.name ? 'mode cleared' : `→ ${m.name}`)}>
               {m.name}
             </Opt>

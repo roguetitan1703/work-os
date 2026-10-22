@@ -1,35 +1,39 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { FiverrRitualLog } from '@/lib/types';
-import { logFiverrRitual } from '@/app/actions';
+import type { RoutineLog } from '@/lib/types';
+import type { Routine } from '@/lib/schedule';
+import { logRoutine } from '@/app/actions';
 import { toast } from 'sonner';
 import { CheckCircle2, Circle, Flame, Pencil } from 'lucide-react';
 
 type Props = {
-  todayLog: FiverrRitualLog | null;
+  /** The person's routine (their schedule's `routine`). */
+  routine: Routine;
+  todayLog: RoutineLog | null;
 };
 
-export function FiverrRitualCard({ todayLog }: Props) {
+/** Today's routine: log a count (and a note) once a day, edit it later. */
+export function RoutineCard({ routine, todayLog }: Props) {
   const [editing, setEditing] = useState(false);
-  const [bids, setBids] = useState(todayLog?.bidsPlaced ?? 0);
+  const [count, setCount] = useState(todayLog?.count ?? 0);
   const [notes, setNotes] = useState(todayLog?.notes ?? '');
   const [, startTransition] = useTransition();
 
   const done = !!todayLog && !editing;
-  const FIVERR_COLOR = '#FACC15'; // yellow from RITUAL_BLOCKS
+  const color = routine.color;
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
-      await logFiverrRitual({ bidsPlaced: bids, notes });
+      await logRoutine({ count, notes });
       setEditing(false);
-      toast.success('Fiverr ritual logged.');
+      toast.success(`${routine.name} logged.`);
     });
   }
 
   function startEdit() {
-    setBids(todayLog?.bidsPlaced ?? 0);
+    setCount(todayLog?.count ?? 0);
     setNotes(todayLog?.notes ?? '');
     setEditing(true);
   }
@@ -37,15 +41,18 @@ export function FiverrRitualCard({ todayLog }: Props) {
   return (
     <div
       className="rounded-xl border-2 p-4 transition-all"
-      style={{ borderColor: FIVERR_COLOR + (done ? '60' : 'ff'), backgroundColor: FIVERR_COLOR + '10' }}
+      style={{ borderColor: color + (done ? '60' : 'ff'), backgroundColor: color + '10' }}
+      data-routine
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Flame className="w-4 h-4 shrink-0" style={{ color: FIVERR_COLOR }} />
-          <span className="font-bold text-sm" style={{ color: FIVERR_COLOR }}>
-            Fiverr Ritual
+          <Flame className="w-4 h-4 shrink-0" style={{ color }} />
+          <span className="font-bold text-sm" style={{ color }}>
+            {routine.name}
           </span>
-          <span className="text-xs text-muted-foreground font-mono">11:50–12:35</span>
+          <span className="text-xs text-muted-foreground font-mono">
+            {routine.start}–{routine.end}
+          </span>
         </div>
         {done ? (
           <button
@@ -64,7 +71,7 @@ export function FiverrRitualCard({ todayLog }: Props) {
           <CheckCircle2 className="w-5 h-5 shrink-0 text-green-500" />
           <div className="flex-1 min-w-0">
             <span className="text-sm font-medium text-foreground">
-              Done — {todayLog.bidsPlaced} bid{todayLog.bidsPlaced !== 1 ? 's' : ''} placed
+              Done: {routine.countLabel} {todayLog.count}
             </span>
             {todayLog.notes && (
               <p className="text-xs text-muted-foreground mt-0.5 truncate">{todayLog.notes}</p>
@@ -77,20 +84,19 @@ export function FiverrRitualCard({ todayLog }: Props) {
           <div className="flex items-center gap-3">
             <Circle className="w-5 h-5 shrink-0 text-muted-foreground/40" />
             <span className="text-sm text-muted-foreground">
-              {todayLog ? 'Update today\'s Fiverr ritual' : 'Did you do the Fiverr ritual today?'}
+              {todayLog ? `Update today's ${routine.name}` : routine.question}
             </span>
           </div>
           <div className="flex items-center gap-3 ml-8">
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-muted-foreground">Bids placed</label>
+              <label className="text-xs text-muted-foreground">{routine.countLabel}</label>
               <input
                 type="number"
                 min={0}
-                max={50}
-                value={bids}
-                onChange={e => setBids(Number(e.target.value))}
+                max={10000}
+                value={count}
+                onChange={e => setCount(Number(e.target.value))}
                 className="w-20 h-7 px-2 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-1"
-                style={{ focusRingColor: FIVERR_COLOR } as React.CSSProperties}
               />
             </div>
             <div className="flex flex-col gap-1 flex-1">
@@ -99,7 +105,7 @@ export function FiverrRitualCard({ todayLog }: Props) {
                 type="text"
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
-                placeholder="e.g. applied to 3 web dev gigs"
+                placeholder={routine.placeholder ?? ''}
                 className="h-7 px-2 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-1 w-full"
               />
             </div>
@@ -108,7 +114,7 @@ export function FiverrRitualCard({ todayLog }: Props) {
             <button
               type="submit"
               className="px-3 py-1 text-xs font-semibold rounded-lg transition-colors"
-              style={{ backgroundColor: FIVERR_COLOR, color: '#1a1a1a' }}
+              style={{ backgroundColor: color, color: '#1a1a1a' }}
             >
               {todayLog ? 'Update' : 'Mark done'}
             </button>

@@ -217,10 +217,11 @@ export const forUser = (s: Pick<Scope, 'orgId'>, userId: string): Scope => check
 export const scopeOf = (c: Scope): Scope => check({ userId: c.userId, orgId: c.orgId });
 
 // ── Settings ────────────────────────────────────────────────────────────────
-// One document per person (notify, dispatcher, alerts, status) or per organization (discord), _id `<area>:<id>`.
+// One document per person (notify, dispatcher, alerts, status, profile, schedule) or per organization (discord,
+// modes), _id `<area>:<id>`.
 
-export type UserArea = 'notify' | 'dispatcher' | 'alerts' | 'status';
-export type OrgArea = 'discord';
+export type UserArea = 'notify' | 'dispatcher' | 'alerts' | 'status' | 'profile' | 'schedule';
+export type OrgArea = 'discord' | 'modes';
 
 async function settingsCol() {
   return (await collections()).settings;
@@ -246,8 +247,29 @@ export async function setOrgSetting(orgId: string, area: OrgArea, set: Record<st
   await (await settingsCol()).updateOne({ _id: `${area}:${orgId}` }, { $set: { ...set, area, orgId } as Partial<SettingsDoc> }, { upsert: true });
 }
 
+/**
+ * Atomically take one person's setting that matches and apply `set` to it (e.g. use up a one-time code): of two
+ * concurrent calls only one gets the user id. null if none matches.
+ */
+export async function takeUserSetting(orgId: string, area: UserArea, match: Document, set: Record<string, unknown>): Promise<string | null> {
+  if (typeof orgId !== 'string' || !orgId) throw new ScopeError('takeUserSetting needs an organization');
+  if ('orgId' in set || 'userId' in set || 'area' in set) throw new ScopeError('settings: owner fields are set by the door');
+  const d = await (await settingsCol()).findOneAndUpdate({ ...match, area, orgId }, { $set: set as Partial<SettingsDoc> }, { projection: { userId: 1 } });
+  return d?.userId ?? null;
+}
+
 /** People in an organization whose setting matches (e.g. whose dispatcher reads one of these notes). */
 export async function usersWithSetting(orgId: string, area: UserArea, match: Document): Promise<string[]> {
+  if (typeof orgId !== 'string' || !orgId) throw new ScopeError('usersWithSetting needs an organization');
   const docs = await (await settingsCol()).find({ ...match, area, orgId }, { projection: { userId: 1 } }).toArray();
   return docs.map(d => d.userId).filter((x): x is string => !!x);
+}
+
+/**
+ * The one organization whose setting matches (the Discord server a command came from belongs to one organization:
+ * a unique index on discord guildId). null if none. Answers only which organization.
+ */
+export async function orgWithSetting(area: OrgArea, match: Document): Promise<string | null> {
+  const d = await (await settingsCol()).findOne({ ...match, area, _id: { $regex: `^${area}:` } }, { projection: { orgId: 1 } });
+  return d?.orgId ?? null;
 }

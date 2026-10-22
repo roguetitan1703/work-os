@@ -1,9 +1,9 @@
 import 'server-only';
 import { collections, type AlertKind, type TaskDoc } from './db';
 import { forUser, getUserSetting, orgWide, scoped, setUserSetting, type Scope, type ScopedCollections as Collections } from './scope';
-import { isDiscordUser } from './people';
+import { getProfile, inQuietHours, type Profile } from './profile';
 export type { AlertKind };
-import { APP_TZ, addDays, dateInTz, weekday } from './dates';
+import { addDays, clockInTz, dateInTz, weekday } from './dates';
 import { CLOSED_STATUSES, OPEN_STATUSES } from './types';
 import { api, discordConfig, DiscordError } from './discord/client';
 import { addToInbox, getNotifySettings, pushConfigured, sendPush } from './notify';
@@ -11,7 +11,8 @@ import { plainAlertText, stuckClaims } from './data/dispatcher';
 import { recipientFilter, recipientOf } from './data/tasks';
 
 // Nudges for each person about the tasks whose alerts go to them (recipientOf: the assignee of a shared task, else
-// its owner), to their inbox, their phones and (for the Discord-linked person) a Discord DM, by their own settings.
+// its owner), to their inbox, their phones and (if they linked Discord) a Discord DM, by their own settings, in their
+// own timezone.
 // The cron (/api/cron/alerts, every 15 minutes) runs once per person; writes that unblock a task or end a dispatched
 // one flush the queued alerts at once. Every alert is logged by key so it is sent once (overdue: every 2 days).
 //
@@ -22,11 +23,9 @@ import { recipientFilter, recipientOf } from './data/tasks';
 //   never_started  P1 still Not Started 24h after creation
 //   unblocked      as soon as the last task it waited on is closed
 //   claude_*       the task dispatcher (docs/dispatcher.md): finished / stopped (sent at once) and "may be stuck" (scheduled)
-//   quiet hours    23:00–08:00 (held until morning)
+//   quiet hours    each person's own (default 23:00–08:00 in their timezone; held until they end)
 
 export const ALERT_RULES = {
-  quietStart: 23,
-  quietEnd: 8,
   dueTodayHour: 9,
   dueTomorrowHour: 18,
   overdueEveryDays: 2,
@@ -42,13 +41,9 @@ const CLAUDE_OUTCOMES = ['claude_finished', 'claude_stopped'] as const;
 const FROM_QUEUE = new Set<AlertKind>(['unblocked', ...CLAUDE_OUTCOMES]);
 
 
-export function hourInTz(d: Date = new Date(), tz = APP_TZ): number {
-  return Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hourCycle: 'h23' }).format(d));
-}
-
-export function isQuietHour(d: Date = new Date()): boolean {
-  const h = hourInTz(d);
-  return h >= ALERT_RULES.quietStart || h < ALERT_RULES.quietEnd;
+/** Is it inside this person's quiet hours (in their timezone)? */
+export function isQuietHour(p: Profile, d: Date = new Date()): boolean {
+  return inQuietHours(p, clockInTz(d, p.timezone).hour);
 }
 
 /** Weekdays strictly after `from` up to and including `to` (YYYY-MM-DD). */
@@ -85,10 +80,12 @@ export async function queueUnblocked(s: Scope, closed: Pick<TaskDoc, '_id'>): Pr
 /** s: the recipient. Only tasks whose alerts go to them, and their own log and queue. */
 export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { onlyQueued?: boolean; queuedIds?: string[] } = {}): Promise<{ items: AlertItem[]; quiet: boolean }> {
   const c = await scoped(s);
-  if (isQuietHour(now)) return { items: [], quiet: true };
+  const profile = await getProfile(s);
+  if (isQuietHour(profile, now)) return { items: [], quiet: true };
   if (opts.onlyQueued) return { items: await queuedItems(c, opts.queuedIds), quiet: false };
-  const today = dateInTz(now);
-  const hour = hourInTz(now);
+  const tz = profile.timezone;
+  const today = dateInTz(now, tz);
+  const hour = clockInTz(now, tz).hour;
   const items: AlertItem[] = [];
   const open = await c.tasks
     .find({ status: { $in: OPEN_STATUSES }, archived: false, ...recipientFilter(s.userId) }, { projection: { ref: 1, title: 1, status: 1, priority: 1, due: 1, progress: 1, createdAt: 1, updatedAt: 1 } })
@@ -123,7 +120,7 @@ export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { on
   }
   // stalled: In Progress, untouched for N workdays (re-arms after any activity)
   for (const t of open.filter(t => t.status === 'In Progress')) {
-    const lastDay = dateInTz(t.updatedAt);
+    const lastDay = dateInTz(t.updatedAt, tz);
     if (workdaysBetween(lastDay, today) < ALERT_RULES.stalledWorkdays) continue;
     const key = `stalled:${t._id}:${t.updatedAt.toISOString()}`;
     if (!was(key)) items.push({ key, kind: 'stalled', taskId: t._id, ref: t.ref, title: t.title, detail: `no activity since ${lastDay}, ${t.progress}%` });
@@ -210,23 +207,29 @@ export function formatAlerts(items: AlertItem[], baseUrl: string): string[] {
 
 // ── Send ────────────────────────────────────────────────────────────────────
 
-const g = globalThis as unknown as { __workosDm?: string };
+const g = globalThis as unknown as { __workosDm?: Map<string, string> };
 
-/** The DM goes to DISCORD_OWNER_ID: only the Discord-linked person's alerts use it (people.ts discordScope). */
-async function dmChannel(): Promise<string> {
-  const cfg = discordConfig();
-  if (!cfg) throw new Error('Discord is not configured');
-  g.__workosDm ??= (await api<{ id: string }>('/users/@me/channels', { method: 'POST', body: { recipient_id: cfg.ownerId } })).id;
-  return g.__workosDm;
+/** The DM channel with a person's linked Discord account (lib/profile.ts), opened once per process. */
+async function dmChannel(discordId: string): Promise<string> {
+  if (!discordConfig()) throw new Error('Discord is not configured');
+  const map = (g.__workosDm ??= new Map());
+  let ch = map.get(discordId);
+  if (!ch) {
+    ch = (await api<{ id: string }>('/users/@me/channels', { method: 'POST', body: { recipient_id: discordId } })).id;
+    if (map.size > 1000) map.clear();
+    map.set(discordId, ch);
+  }
+  return ch;
 }
 
-export async function sendDm(content: string): Promise<void> {
-  const ch = await dmChannel();
+/** A DM to this Discord account (a person's linked one). */
+export async function sendDm(discordId: string, content: string): Promise<void> {
+  const ch = await dmChannel(discordId);
   try {
     await api(`/channels/${ch}/messages`, { method: 'POST', body: { content, allowed_mentions: { parse: [] }, flags: 1 << 2 /* suppress embeds */ } });
   } catch (e) {
     if (e instanceof DiscordError && e.status === 403) {
-      throw new Error('Discord refused the DM (403). In Discord: Delpat server → Privacy Settings → allow direct messages from server members.');
+      throw new Error("Discord refused the DM (403). In Discord: the organization's Discord server → Privacy Settings → allow direct messages from server members.");
     }
     throw e;
   }
@@ -249,7 +252,8 @@ const KIND_TITLE: Record<AlertKind, string> = {
 /** One person's alerts (s: the recipient), with their own settings and devices. */
 export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: string; now?: Date; onlyQueued?: boolean }): Promise<RunResult> {
   const c0 = await scoped(s);
-  const live = !opts.dryRun && !isQuietHour(opts.now ?? new Date());
+  const profile = await getProfile(s);
+  const live = !opts.dryRun && !isQuietHour(profile, opts.now ?? new Date());
   // Claim queued alerts atomically before delivering: a conditional update per entry (sentAt null -> now) that only one
   // overlapping run can win, so each queued alert is delivered exactly once. Alerts queued meanwhile wait for the next run.
   let claimedIds: string[] | undefined;
@@ -306,9 +310,9 @@ export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: str
       );
       if (r.error) errors.push(`push: ${r.error}`);
     }
-    if (settings.channels.discord && discordConfig() && (await isDiscordUser(s))) {
+    if (settings.channels.discord && discordConfig() && profile.discordId) {
       try {
-        for (const m of messages) await sendDm(m);
+        for (const m of messages) await sendDm(profile.discordId, m);
         res.sent = messages.length;
       } catch (e) {
         errors.push(`discord: ${e instanceof Error ? e.message : String(e)}`);
@@ -331,12 +335,11 @@ export async function pruneAlertLog(): Promise<void> {
 /**
  * After a write: if it queued event alerts (unblocked, Claude finished or stopped), send just those now, each to its
  * recipient, instead of waiting for the next scheduled run (the due/overdue digests keep their times). The write may
- * have queued alerts for teammates, so this looks across the writer's organization. Never throws; does nothing during
- * quiet hours.
+ * have queued alerts for teammates, so this looks across the writer's organization. Never throws; a recipient in
+ * their quiet hours gets nothing now (runAlerts holds it).
  */
 export async function flushQueuedAlerts(s: Scope, baseUrl: string): Promise<void> {
   try {
-    if (isQuietHour()) return;
     const c = await orgWide(s.orgId);
     const recipients = (await c.alertQueue.distinct('userId', { sentAt: null })) as string[];
     for (const userId of recipients) {

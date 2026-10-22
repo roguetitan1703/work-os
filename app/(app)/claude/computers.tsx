@@ -46,7 +46,7 @@ export function Computers() {
   const create = () =>
     start(async () => {
       const n = name.trim();
-      if (!n) return void toast.error('Name the computer, e.g. Om-PC');
+      if (!n) return void toast.error('Name the computer, e.g. Work-PC');
       let r = await createDeviceAction(n);
       if (!r.ok && needsReauth(r.error) && (await reauth.ask())) r = await createDeviceAction(n);
       if (!r.ok) return void toast.error(r.error);
@@ -107,7 +107,7 @@ export function Computers() {
               maxLength={40}
               onChange={e => setName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !pending && create()}
-              placeholder="Computer name, e.g. Om-PC"
+              placeholder="Computer name, e.g. Work-PC"
               aria-label="Name for the new computer"
               enterKeyHint="done"
             />

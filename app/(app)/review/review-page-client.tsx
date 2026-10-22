@@ -3,7 +3,8 @@
 import { useState, useTransition } from 'react';
 import { format, parseISO, startOfWeek } from 'date-fns';
 import { toast } from 'sonner';
-import { WeeklyReview } from '@/lib/types';
+import type { WeeklyReview } from '@/lib/types';
+import type { ReviewField as Question } from '@/lib/schedule';
 import { createReview, updateReview } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,20 +30,13 @@ function lastSunday(): string {
 type ReviewFormData = Omit<WeeklyReview, 'id'>;
 
 function emptyForm(): ReviewFormData {
-  return {
-    weekOf: lastSunday(),
-    shipped: '',
-    slipped: '',
-    toDrop: '',
-    brokenDays: 0,
-    extensionTokensUsed: 0,
-    adjustments: '',
-  };
+  return { weekOf: lastSunday(), answers: {} };
 }
 
-type Props = { initialReviews: WeeklyReview[] };
+/** questions: the person's own review questions (lib/schedule.ts; a default set for anyone who has not set theirs). */
+type Props = { initialReviews: WeeklyReview[]; questions: Question[] };
 
-export function ReviewPageClient({ initialReviews }: Props) {
+export function ReviewPageClient({ initialReviews, questions }: Props) {
   const [reviews, setReviews] = useState(initialReviews);
   const [newOpen, setNewOpen] = useState(false);
   const [newForm, setNewForm] = useState<ReviewFormData>(emptyForm());
@@ -54,6 +48,28 @@ export function ReviewPageClient({ initialReviews }: Props) {
   function setNewField<K extends keyof ReviewFormData>(k: K, v: ReviewFormData[K]) {
     setNewForm(prev => ({ ...prev, [k]: v }));
   }
+  const numbers = questions.filter(q => q.kind === 'number');
+  const texts = questions.filter(q => q.kind === 'text');
+  /** One line per review: its number answers. */
+  const summary = (r: WeeklyReview) =>
+    numbers
+      .filter(q => typeof r.answers[q.key] === 'number')
+      .map(q => `${q.label}: ${r.answers[q.key]}`)
+      .join(' · ');
+  const fields = (answers: WeeklyReview['answers'], set: (key: string, v: string | number) => void) => (
+    <>
+      {texts.map(q => (
+        <ReviewField key={q.key} label={q.label} multiline value={String(answers[q.key] ?? '')} onChange={v => set(q.key, v)} />
+      ))}
+      {numbers.length > 0 && (
+        <div className="grid grid-cols-2 gap-3">
+          {numbers.map(q => (
+            <ReviewField key={q.key} label={q.label} type="number" value={String(answers[q.key] ?? 0)} onChange={v => set(q.key, parseInt(v) || 0)} />
+          ))}
+        </div>
+      )}
+    </>
+  );
 
   function handleCreate() {
     startTransition(async () => {
@@ -77,6 +93,9 @@ export function ReviewPageClient({ initialReviews }: Props) {
   function setEditField(id: string, k: keyof WeeklyReview, v: unknown) {
     setEditForms(prev => ({ ...prev, [id]: { ...prev[id], [k]: v } }));
   }
+  function setEditAnswer(r: WeeklyReview, key: string, v: string | number) {
+    setEditForms(prev => ({ ...prev, [r.id]: { ...prev[r.id], answers: { ...(prev[r.id]?.answers ?? r.answers), [key]: v } } }));
+  }
 
   function handleUpdate(id: string) {
     startTransition(async () => {
@@ -94,14 +113,7 @@ export function ReviewPageClient({ initialReviews }: Props) {
   const newFields = (
     <div className="space-y-4">
       <ReviewField label="Week of" type="date" value={newForm.weekOf} onChange={v => setNewField('weekOf', v)} />
-      <ReviewField label="Shipped" multiline value={newForm.shipped} onChange={v => setNewField('shipped', v)} placeholder="What shipped this week?" />
-      <ReviewField label="Slipped" multiline value={newForm.slipped} onChange={v => setNewField('slipped', v)} placeholder="What didn't ship?" />
-      <ReviewField label="To Drop" multiline value={newForm.toDrop} onChange={v => setNewField('toDrop', v)} placeholder="What should be dropped?" />
-      <div className="grid grid-cols-2 gap-3">
-        <ReviewField label="Broken Days" type="number" value={String(newForm.brokenDays)} onChange={v => setNewField('brokenDays', parseInt(v) || 0)} />
-        <ReviewField label="Extension Tokens Used" type="number" value={String(newForm.extensionTokensUsed)} onChange={v => setNewField('extensionTokensUsed', parseInt(v) || 0)} />
-      </div>
-      <ReviewField label="Adjustments" multiline value={newForm.adjustments} onChange={v => setNewField('adjustments', v)} placeholder="What changes next week?" />
+      {fields(newForm.answers, (key, v) => setNewField('answers', { ...newForm.answers, [key]: v }))}
     </div>
   );
 
@@ -146,28 +158,16 @@ export function ReviewPageClient({ initialReviews }: Props) {
                     <div className="font-semibold text-[16px] md:text-base text-foreground">
                       Week of {format(parseISO(r.weekOf), 'MMM d, yyyy')}
                     </div>
-                    <div className="md:hidden text-sm text-muted-foreground">
-                      {r.brokenDays} broken day{r.brokenDays !== 1 ? 's' : ''} · {r.extensionTokensUsed} token{r.extensionTokensUsed !== 1 ? 's' : ''} used
-                    </div>
+                    {summary(r) && <div className="md:hidden text-sm text-muted-foreground">{summary(r)}</div>}
                   </div>
                 </div>
-                <div className="hidden md:flex items-center gap-3 text-xs text-muted-foreground">
-                  <span>{r.brokenDays} broken day{r.brokenDays !== 1 ? 's' : ''}</span>
-                  <span>{r.extensionTokensUsed} token{r.extensionTokensUsed !== 1 ? 's' : ''} used</span>
-                </div>
+                {summary(r) && <div className="hidden md:block text-xs text-muted-foreground">{summary(r)}</div>}
               </button>
 
               {isExpanded && (
                 <div className="px-4 py-4 border-t bg-muted/30 space-y-4">
                   <ReviewField label="Week of" type="date" value={ef.weekOf as string ?? ''} onChange={v => setEditField(r.id, 'weekOf', v)} />
-                  <ReviewField label="Shipped" multiline value={ef.shipped as string ?? ''} onChange={v => setEditField(r.id, 'shipped', v)} placeholder="What shipped this week?" />
-                  <ReviewField label="Slipped" multiline value={ef.slipped as string ?? ''} onChange={v => setEditField(r.id, 'slipped', v)} placeholder="What didn't ship?" />
-                  <ReviewField label="To Drop" multiline value={ef.toDrop as string ?? ''} onChange={v => setEditField(r.id, 'toDrop', v)} placeholder="What should be dropped?" />
-                  <div className="grid grid-cols-2 gap-3">
-                    <ReviewField label="Broken Days" type="number" value={String(ef.brokenDays ?? 0)} onChange={v => setEditField(r.id, 'brokenDays', parseInt(v) || 0)} />
-                    <ReviewField label="Extension Tokens Used" type="number" value={String(ef.extensionTokensUsed ?? 0)} onChange={v => setEditField(r.id, 'extensionTokensUsed', parseInt(v) || 0)} />
-                  </div>
-                  <ReviewField label="Adjustments" multiline value={ef.adjustments as string ?? ''} onChange={v => setEditField(r.id, 'adjustments', v)} placeholder="What changes next week?" />
+                  {fields(ef.answers ?? r.answers, (key, v) => setEditAnswer(r, key, v))}
                   <div className="flex justify-end gap-2">
                     <Button variant="outline" size="sm" className="max-md:h-11 max-md:flex-1" onClick={() => {
                       setEditForms(prev => { const n = { ...prev }; delete n[r.id]; return n; });

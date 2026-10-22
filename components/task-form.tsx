@@ -9,9 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { createTaskAction } from '@/app/actions';
-import { MODES } from '@/lib/modes';
 import { PRIORITIES, STATUSES, type Mode, type Priority, type Status, type TaskInput } from '@/lib/types';
-import { useApp } from './app-context';
+import { useApp, useModes } from './app-context';
 
 const field = 'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring dark:bg-input/30';
 
@@ -23,6 +22,7 @@ type Props = {
 
 export function TaskForm({ open, onClose, initial }: Props) {
   const { projects } = useApp();
+  const { modes, color } = useModes();
   const router = useRouter();
   const [pending, start] = useTransition();
   const [f, setF] = useState({
@@ -91,7 +91,7 @@ export function TaskForm({ open, onClose, initial }: Props) {
               <Label className="text-xs">Mode</Label>
               <select className={field} value={f.mode} onChange={e => set('mode', e.target.value as Mode | '')}>
                 <option value="">—</option>
-                {MODES.map(m => (
+                {modes.map(m => (
                   <option key={m.name} value={m.name}>
                     {m.name}
                   </option>

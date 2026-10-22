@@ -6,11 +6,10 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Bot, CheckCircle2, Circle, GitBranch, ListChecks, Repeat, TrendingUp } from 'lucide-react';
 import { completeTaskAction, updateTaskAction } from '@/app/actions';
-import { getBlockColor } from '@/lib/modes';
 import { fmtDue, fmtMins } from '@/lib/format';
 import type { Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { useApp } from './app-context';
+import { useApp, useModes } from './app-context';
 import { PrioritySelect, StatusSelect } from './inline-selects';
 import { ProgressDialog } from './progress-dialog';
 import { MTaskRow } from './mobile/m-task-row';
@@ -26,6 +25,7 @@ type Props = {
 
 export function TaskRow({ task, showProject = true, showMode = true, hint }: Props) {
   const { today, projectName } = useApp();
+  const { modes, color } = useModes();
   const router = useRouter();
   const prevStatus = task.status;
   const [pending, start] = useTransition();
@@ -34,7 +34,7 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
   const closed = task.status === 'Done' || task.status === 'Dropped';
   const overdue = !!task.due && task.due < today && !closed;
   const project = showProject ? projectName(task.projectId) : null;
-  const modeColor = task.mode ? getBlockColor(task.mode).hex : null;
+  const modeColor = task.mode ? color(task.mode).hex : null;
   const checklistDone = task.checklist.filter(i => i.done).length;
 
   function save(patch: Parameters<typeof updateTaskAction>[1], msg: string) {

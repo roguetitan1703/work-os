@@ -34,7 +34,7 @@ export const rawDb = mc.db(DBNAME);
 const SHARED = new Set(['projects', 'tasks', 'activity', 'notes', 'claudeItems', 'trash']);
 const OWNED = new Set(['reviews', 'ritualLogs', 'devices', 'workerFolders', 'workerJobs', 'workerSessions']);
 const RECIPIENT = new Set(['notifications', 'pushSubs', 'alertLog', 'alertQueue']);
-const USER_AREAS = new Set(['notify', 'dispatcher', 'alerts', 'status']);
+const USER_AREAS = new Set(['notify', 'dispatcher', 'alerts', 'status', 'profile', 'schedule']);
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 function mapId(name, id) {
   if (!ME || typeof id !== 'string') return id;
@@ -123,7 +123,10 @@ export async function admin() {
   adminP ??= import('../../scripts/lib/auth-admin.mjs').then(m => m.authAdmin({ db: rawDb, client: mc, secret: SECRET, baseURL: B }));
   return adminP;
 }
-/** Owner, organization, membership and a Claude chat key on an emptied database; written to the state file. */
+/**
+ * Owner, organization, membership and a Claude chat key on an emptied database; written to the state file. The owner
+ * gets what scripts/migrate-phase3.mjs gives the first owner: the old timetable and routine, in Asia/Kolkata.
+ */
 export async function makeIdentity() {
   const a = await admin();
   const userId = await a.createUser({ email: EMAIL, name: 'E2E Owner', password: PW });
@@ -132,7 +135,27 @@ export async function makeIdentity() {
   const { key } = await a.createKey({ userId, orgId, agent: 'claude', name: 'e2e chat' });
   fs.writeFileSync(STATE, JSON.stringify({ userId, orgId, claudeKey: key }));
   MCP = key; ME = { userId, orgId };
+  await giveLegacyWeek(ME);
+  await setProfile(ME, { timezone: 'Asia/Kolkata' });
   return ME;
+}
+/** The pre-phase-3 timetable, routine, review questions and help as someone's schedule (scripts/lib/legacy-week.mjs). */
+export async function giveLegacyWeek(who) {
+  const L = await import('../../scripts/lib/legacy-week.mjs');
+  const schedule = { blocks: L.LEGACY_BLOCKS, colors: L.LEGACY_COLORS, taskModes: L.LEGACY_TASK_MODES, routine: L.LEGACY_ROUTINE, review: L.LEGACY_REVIEW, help: L.LEGACY_HELP };
+  await setSchedule(who, schedule);
+}
+/** Write someone's schedule document directly (shape: lib/schedule.ts ScheduleSchema). */
+export async function setSchedule(who, schedule) {
+  await rawDb.collection('settings').updateOne({ _id: `schedule:${who.userId}` }, { $set: { area: 'schedule', orgId: who.orgId, userId: who.userId, schedule } }, { upsert: true });
+}
+/** Set fields of someone's profile (timezone, quietStart, quietEnd, discordId). The app caches profiles a minute. */
+export async function setProfile(who, set) {
+  await rawDb.collection('settings').updateOne({ _id: `profile:${who.userId}` }, { $set: { area: 'profile', orgId: who.orgId, userId: who.userId, ...set } }, { upsert: true });
+}
+/** Connect an organization to a Discord server id (what the operator does in Settings). */
+export async function setOrgGuild(orgId, guildId) {
+  await rawDb.collection('settings').updateOne({ _id: `discord:${orgId}` }, { $set: { area: 'discord', orgId, guildId } }, { upsert: true });
 }
 /** Another user (optionally in a new organization of their own, or in orgId with role). Returns { userId, orgId }. */
 export async function makeUser({ email, name = 'Someone', password = PW, orgId = null, role = 'member', orgName = null }) {

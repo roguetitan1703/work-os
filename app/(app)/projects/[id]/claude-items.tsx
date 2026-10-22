@@ -44,7 +44,7 @@ export function Chip({ kind }: { kind: string }) {
   return <span className={cn('text-[11px] px-1.5 py-0.5 rounded font-medium shrink-0', KIND_STYLE[kind])}>{kind}</span>;
 }
 
-/** Claude's own work list for a project (separate from Om's tasks). */
+/** Claude's own work list for a project (separate from the people's tasks). */
 export function ClaudeItems({ projectId, items, blockers, waiting: waitingCount, doneCount, openRef }: Props) {
   const [sel, setSel] = useState<number | null>(openRef ?? null);
   const [showDone, setShowDone] = useState(false);

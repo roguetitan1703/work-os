@@ -1,30 +1,37 @@
 // Single source for what Claude is told about Work OS: used by the MCP server
 // (server instructions + tool descriptions) and by Settings › Connections.
 
-import { ModeSchema } from '../types';
-import { APP_TZ } from '../dates';
+/** Who the connector acts for: the key's owner and their organization's modes of work. */
+export type InstructionsFor = { name: string; modes: string[] };
 
-export const INSTRUCTIONS = `Work OS is Om's personal task system (solo founder of a software agency). You can read and update it.
+/** What the MCP server tells Claude (and Settings › Connections shows), for one person. */
+export function instructions({ name, modes }: InstructionsFor): string {
+  const who = name.trim() || 'the user';
+  return `Work OS is a task system for a team; you act for ${who} (the owner of this key). You see their organization's shared projects and tasks plus ${who}'s private ones, and you can read and update them.
 - Tasks have a short number ("ref"); refer to them as #12. Any tool that takes "task" accepts 12, "#12" or the task id.
-- Dates are calendar dates (YYYY-MM-DD) in ${APP_TZ}. Date inputs also accept today, tomorrow, a weekday name (next occurrence), +3d, +2w.
+- Dates are calendar dates (YYYY-MM-DD) in ${who}'s own timezone (daily_summary says which). Date inputs also accept today, tomorrow, a weekday name (next occurrence), +3d, +2w.
 - Statuses: Not Started, In Progress, Blocked, Done, Dropped. Priorities: P1 (must ship today) … P4 (backlog).
-- Modes (type of work): ${ModeSchema.options.join(', ')}.
+- Modes (type of work, set by the organization): ${modes.length ? modes.join(', ') : 'none yet'}.
 - Every write you make is recorded in the task's history as done by Claude. Include a short "note" saying why, especially for status and progress changes.
 - Use log_progress (not update_task) to report progress; use complete_task to finish a task; use add_comment for a remark that changes nothing. update_task is for the other fields.
 - Ending a task, pick one: Dropped (status) = real work that stopped, stays visible in history; archive (apply_changes archive_task) = finished or old work hidden from lists but kept; delete_task = added by mistake, goes to a 30-day trash (restore_task brings it back).
-- Which read: daily_summary = Om's morning brief (what's on him today and what changed); list_tasks = filtered task lists; get_project = one project in depth; recent_activity = the change feed alone (e.g. what Claude Code did, actor claude-code).
+- Which read: daily_summary = ${who}'s morning brief (what is on them today and what changed); list_tasks = filtered task lists; get_project = one project in depth; recent_activity = the change feed alone (e.g. what Claude Code did, actor claude-code).
 - Notes are pages (markdown) for anything longer than a line or two: problem statements, handovers, drafts, client terms, idea lists. Keep task descriptions short and put the real content in a note. A task has at most one note; projects can have many. Reads (get_task, get_project, list_projects) show each note's id, title and first line: always update an existing note by note_id (or by task for a task's note) before creating a new one, and prefer append or edits over rewriting.
 - Several changes at once (a handover, a cleanup, re-planning): use apply_changes, one atomic call; run it with dry_run first when it deletes or touches many tasks. For a full picture of a project use get_project (depth full) instead of many get_task calls.
 - For the morning brief, call daily_summary once; it already contains overdue, due today, in progress, blocked, completions and changes since the previous workday.
-- Discord (server "Delpat", read-only): discord_needs_attention is the one call for "what needs me on Discord". It lists items Om flagged for later by tagging the bot (with the message he was replying to), mentions of him/his roles/@everyone, replies to him, and new activity in threads he is in, each marked handled if he posted after it. The bot cannot post, so never claim to have replied on Discord. Use discord_message_to_task to turn a message into a task (it won't duplicate one already tracked).`;
+- Discord (the organization's server, read-only; only once ${who} has linked their Discord account in Settings): discord_needs_attention is the one call for "what needs me on Discord". It lists items ${who} flagged for later by tagging the bot (with the message they were replying to), mentions of them or their roles, @everyone, replies to them, and new activity in threads they are in, each marked handled if they posted after it. The bot cannot post, so never claim to have replied on Discord. Use discord_message_to_task to turn a message into a task (it won't duplicate one already tracked).`;
+}
 
-/** Added to INSTRUCTIONS for Claude Code sessions (API keys from Claude › Setup), not for the claude.ai connector. */
-export const CLAUDE_CODE_INSTRUCTIONS = `You are connected as Claude Code (a session on Om's PC). Your writes are recorded as "Claude Code".
-- Start here: call get_project with your git remote (git remote get-url origin), your folder relative to the repo root (git rev-parse --show-prefix) and branch. If it says unmatched, ask Om which project this is and save it with update_project code, or create the project with add_project (code included) when it is new work.
+/** Added to instructions() for Claude Code sessions (API keys from Claude › Setup), not for the claude.ai connector. */
+export function claudeCodeInstructions({ name }: Pick<InstructionsFor, 'name'>): string {
+  const who = name.trim() || 'the user';
+  return `You are connected as Claude Code (a session on ${who}'s computer). Your writes are recorded as "Claude Code".
+- Start here: call get_project with your git remote (git remote get-url origin), your folder relative to the repo root (git rev-parse --show-prefix) and branch. If it says unmatched, ask ${who} which project this is and save it with update_project code, or create the project with add_project (code included) when it is new work.
 - You can create and edit projects, tasks and notes, and move tasks and notes to trash (restorable). Permanent deletion and admin are not available.
 - Limits per key: 300 tool calls per hour; 10 items moved to trash per 10 minutes. An apply_changes that trashes more than 10 items or changes more than 50 tasks must be run with dry_run: true first; the dry run returns a confirm token (valid 10 minutes) to pass as confirm with exactly the same ops.
-- When you change the title, priority, due date, project or status of a task you did not create, archive it or trash it, Om gets an inbox notice. Say why in the note.
-- Your work list is Claude items, not tasks: get_project shows them (claudeItems.takeNext is the one to take when nothing is active for you). Call update_claude_items once at start (start), when blocked (block) and when merged (done, with the commit). File what you discover as an item (small: true for small things) and don't chase it. Tasks are Om’s: create one only when he asks.`;
+- When you change the title, priority, due date, project or status of a task you did not create, archive it or trash it, the person it belongs to gets an inbox notice. Say why in the note.
+- Your work list is Claude items, not tasks: get_project shows them (claudeItems.takeNext is the one to take when nothing is active for you). Call update_claude_items once at start (start), when blocked (block) and when merged (done, with the commit). File what you discover as an item (small: true for small things) and don't chase it. Tasks belong to people: create one only when ${who} asks.`;
+}
 
 export type ToolName =
   | 'list_tasks'
@@ -118,7 +125,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   get_project: {
     title: 'Get project (nested)',
     description:
-      'One call for a project’s full picture: stats, code locations and recent activity; depth "tasks" adds its open tasks (include_closed for all); depth "full" adds each task’s checklist, what it waits on, and recent history entries with their ids. Start here from a repo: instead of project, pass your git remote, path relative to the repo root (subdir) and branch (or an absolute path); the most specific code location wins (remote+subdir+branch, then remote+subdir or remote+branch, then remote, then longest path). If nothing matches it returns unmatched with candidate projects: ask Om which project, then call update_project with code.',
+      'One call for a project’s full picture: stats, code locations and recent activity; depth "tasks" adds its open tasks (include_closed for all); depth "full" adds each task’s checklist, what it waits on, and recent history entries with their ids. Start here from a repo: instead of project, pass your git remote, path relative to the repo root (subdir) and branch (or an absolute path); the most specific code location wins (remote+subdir+branch, then remote+subdir or remote+branch, then remote, then longest path). If nothing matches it returns unmatched with candidate projects: ask the user which project, then call update_project with code.',
     writes: false,
     example: 'Give me the full state of the Grant Leads project',
   },
@@ -194,21 +201,21 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   discord_needs_attention: {
     title: 'Discord: needs attention',
     description:
-      'What on Discord needs Om since a time (default: start of the previous workday, Asia/Kolkata): items he flagged for later by tagging the bot (with the message he replied to), mentions of him or his roles, @everyone/@here, replies to him, and new activity in threads he is in. Grouped by channel with jump links; each marked handled if he posted after it. Only channels active since the cutoff are read.',
+      'What on Discord needs the user (the key owner, by their linked Discord account) since a time (default: start of their previous workday, in their timezone): items they flagged for later by tagging the bot (with the message they replied to), mentions of them or their roles, @everyone/@here, replies to them, and new activity in threads they are in. Grouped by channel with jump links; each marked handled if they posted after it. Only channels active since the cutoff are read.',
     writes: false,
     example: 'Anything on Discord I need to deal with?',
   },
   discord_list_channels: {
     title: 'Discord: list channels',
     description:
-      'Channels and active threads in the Delpat server with category/parent, type and last activity time; filter to those active since a time. Lists channels the bot cannot read separately.',
+      "Channels and active threads in the organization's Discord server with category/parent, type and last activity time; filter to those active since a time. Lists channels the bot cannot read separately.",
     writes: false,
     example: 'Which Discord channels were active today?',
   },
   discord_read_messages: {
     title: 'Discord: read messages',
     description:
-      'Read messages from a channel or thread (by name, id or link): since a time, or before/after/around a message id. Each message has author (and whether it is Om), time, text, mentions, reply reference, attachment names, thread info and a jump link.',
+      'Read messages from a channel or thread (by name, id or link): since a time, or before/after/around a message id. Each message has author (and whether it is the user), time, text, mentions, reply reference, attachment names, thread info and a jump link.',
     writes: false,
     example: 'What did the team say in #dev since this morning?',
   },
@@ -222,13 +229,13 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   update_claude_items: {
     title: 'Update Claude items',
     description:
-      'Claude Code’s own work list per project (refs like C12), separate from Om’s tasks: never in his to-do, no priority or due date. get_project returns them (claudeItems: takeNext, open items in order, recently done). One call per checkpoint with ops: add (discovered work: kind idea, bug, feature or debt; small: true for under ~30 minutes so it joins the "Small fixes and checks" item), start (claims it for your session; refused while another session holds it), block (blocked_by another item, or waiting_on_om = what a person must decide, and waiting_on = who: a member id or email, default you; they are notified), done (ref = branch or commit), note (a decision worth keeping), release (back to the queue), edit, parts. An item belongs to the project whose code it changes. Items must read clearly to a session with no chat history: the title names the thing, why says what and where, done_when says how to tell it is finished. Vague or near-duplicate items are refused, at most 10 new items per project per day, and items are never deleted.',
+      'Claude Code’s own work list per project (refs like C12), separate from people’s tasks: never in anyone’s to-do, no priority or due date. get_project returns them (claudeItems: takeNext, open items in order, recently done). One call per checkpoint with ops: add (discovered work: kind idea, bug, feature or debt; small: true for under ~30 minutes so it joins the "Small fixes and checks" item), start (claims it for your session; refused while another session holds it), block (blocked_by another item, or waiting_on_om = what a person must decide, and waiting_on = who: a member id or email, default you; they are notified), done (ref = branch or commit), note (a decision worth keeping), release (back to the queue), edit, parts. An item belongs to the project whose code it changes. Items must read clearly to a session with no chat history: the title names the thing, why says what and where, done_when says how to tell it is finished. Vague or near-duplicate items are refused, at most 10 new items per project per day, and items are never deleted.',
     writes: true,
     example: 'Start C9 on wt/debt-4t; file the flaky picker test as a bug',
   },
   recent_activity: {
     title: 'Recent activity',
-    description: 'The change feed on its own across all tasks (created, status, progress, edits, comments, completions, archive, trash and restore), newest first, filterable by who made it (e.g. actor claude-code) and project. For Om’s day use daily_summary instead.',
+    description: 'The change feed on its own across all tasks (created, status, progress, edits, comments, completions, archive, trash and restore), newest first, filterable by who made it (e.g. actor claude-code) and project. For the user’s day use daily_summary instead.',
     writes: false,
     example: 'What did I get done this week?',
   },

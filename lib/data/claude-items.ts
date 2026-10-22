@@ -18,7 +18,7 @@ async function waiter(s: Scope, place: Placement, who: string | undefined): Prom
   return id;
 }
 
-// Claude items: Claude Code's own work list, per project, kept apart from Om's tasks (no
+// Claude items: Claude Code's own work list, per project, kept apart from people's tasks (no
 // priority, due date or alerts; never in Today, the board, stats or Discord).
 //
 // Rules enforced here (not just described to Claude):

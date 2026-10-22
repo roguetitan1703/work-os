@@ -1,17 +1,9 @@
 import { z } from 'zod';
 import type { Actor } from './actors';
 
-export const ModeSchema = z.enum([
-  'Code & Dev',
-  'Client Delivery',
-  'Team Direction',
-  'Outreach & Sales',
-  'Growth',
-  'Research & Planning',
-  'Founder Decisions',
-  'Business Admin',
-]);
-export type Mode = z.infer<typeof ModeSchema>;
+/** A mode of work: one of the organization's list (lib/org-modes.ts checks it on every write). */
+export const ModeSchema = z.string().trim().max(40);
+export type Mode = string;
 
 export const PRIORITIES = ['P1', 'P2', 'P3', 'P4'] as const;
 export const PrioritySchema = z.enum(PRIORITIES);
@@ -147,7 +139,7 @@ export type Activity = {
   repo?: string;
 };
 
-// ── Claude items: Claude Code's own work list per project (never in Om's task views) ──
+// ── Claude items: Claude Code's own work list per project (never in people's task views) ──
 
 export const CLAUDE_ITEM_KINDS = ['feature', 'bug', 'debt', 'idea'] as const;
 export type ClaudeItemKind = (typeof CLAUDE_ITEM_KINDS)[number];
@@ -280,24 +272,24 @@ export const ProjectInputSchema = z.object({
 });
 export type ProjectInput = z.input<typeof ProjectInputSchema>;
 
-// ── Weekly review + Fiverr ritual (unchanged shape) ─────────────────────────
+// ── Weekly review + daily routine (the questions and the routine are each person's: lib/schedule.ts) ──
+
+/** Answers by question key (the person's review questions, lib/schedule.ts ReviewField). */
+export const ReviewAnswersSchema = z
+  .record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9]{0,30}$/), z.union([z.string().max(5000), z.number().int().min(0).max(1_000_000)]))
+  .refine(a => Object.keys(a).length <= 20, 'Too many answers');
 
 export const WeeklyReviewSchema = z.object({
   id: z.string(),
-  weekOf: z.string(),
-  shipped: z.string().default(''),
-  slipped: z.string().default(''),
-  toDrop: z.string().default(''),
-  brokenDays: z.number().int().default(0),
-  extensionTokensUsed: z.number().int().default(0),
-  adjustments: z.string().default(''),
+  weekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  answers: ReviewAnswersSchema.default({}),
 });
 export type WeeklyReview = z.infer<typeof WeeklyReviewSchema>;
 
-export const FiverrRitualLogSchema = z.object({
+export const RoutineLogSchema = z.object({
   id: z.string(),
   date: z.string(), // ISO date YYYY-MM-DD
-  bidsPlaced: z.number().int().nonnegative().default(0),
-  notes: z.string().optional().default(''),
+  count: z.number().int().nonnegative().max(100_000).default(0),
+  notes: z.string().max(500).optional().default(''),
 });
-export type FiverrRitualLog = z.infer<typeof FiverrRitualLogSchema>;
+export type RoutineLog = z.infer<typeof RoutineLogSchema>;

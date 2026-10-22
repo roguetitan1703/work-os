@@ -13,7 +13,7 @@ const execFileP = promisify(execFile);
 // --remote-control=<name> (one token, so the optional name can never swallow the next argument), optional prompt last.
 // mcpConfig (config.json, optional): only the MCP servers in that file, e.g. a demo copy of Work OS.
 export function claudeArgs({ kind, sessionId, projectName, prompt, mcpConfig }) {
-  // No --permission-mode: the user's own Claude default applies (Om's choice).
+  // No --permission-mode: the user's own Claude default applies (the user's choice).
   const a = [kind === 'resume' ? '--resume' : '--session-id', sessionId];
   if (mcpConfig) a.push('--strict-mcp-config', '--mcp-config', mcpConfig);
   const name = String(projectName || 'claude').replace(/\s+/g, ' ').slice(0, 120);

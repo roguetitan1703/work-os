@@ -1,4 +1,3 @@
-import { MODES } from './modes';
 import type { Mode, Priority, TaskInput } from './types';
 
 // Quick-capture syntax:
@@ -7,6 +6,7 @@ import type { Mode, Priority, TaskInput } from './types';
 //   !1 / !p1        → priority      #tag → tag      ~1h30m → estimate
 //   due:today|tomorrow|fri|+3d|2026-10-20   start:… same
 
+/** Short words for the default modes (lib/modes.ts DEFAULT_MODES); used only when the organization has that mode. */
 const MODE_ALIASES: Record<string, Mode> = {
   code: 'Code & Dev',
   dev: 'Code & Dev',
@@ -25,10 +25,13 @@ const MODE_ALIASES: Record<string, Mode> = {
   biz: 'Business Admin',
 };
 
-export function matchMode(s: string): Mode | undefined {
+/** The organization mode a word stands for (an alias, or the start of a mode's name). */
+export function matchMode(s: string, modes: readonly { name: string }[]): Mode | undefined {
   const v = s.toLowerCase();
-  if (MODE_ALIASES[v]) return MODE_ALIASES[v];
-  return MODES.find(m => m.name.toLowerCase().startsWith(v))?.name as Mode | undefined;
+  if (!v) return undefined;
+  const alias = MODE_ALIASES[v];
+  if (alias && modes.some(m => m.name === alias)) return alias;
+  return modes.find(m => m.name.toLowerCase().startsWith(v))?.name;
 }
 
 function parseEstimate(s: string): number | undefined {
@@ -39,7 +42,7 @@ function parseEstimate(s: string): number | undefined {
 
 export type QuickParse = TaskInput & { title: string };
 
-export function parseQuickAdd(raw: string, projects: { id: string; name: string }[] = []): QuickParse {
+export function parseQuickAdd(raw: string, projects: { id: string; name: string }[] = [], modes: readonly { name: string }[] = []): QuickParse {
   const out: QuickParse = { title: '' };
   const tags: string[] = [];
   const words: string[] = [];
@@ -63,7 +66,7 @@ export function parseQuickAdd(raw: string, projects: { id: string; name: string 
       out.project = p ? p.name : key;
     } else if (lower.startsWith('due:') && w.length > 4) out.due = w.slice(4);
     else if (lower.startsWith('start:') && w.length > 6) out.start = w.slice(6);
-    else if (lower.startsWith('mode:') && matchMode(w.slice(5))) out.mode = matchMode(w.slice(5));
+    else if (lower.startsWith('mode:') && matchMode(w.slice(5), modes)) out.mode = matchMode(w.slice(5), modes);
     else if (w.startsWith('~') && parseEstimate(w.slice(1)) !== undefined) out.estimateMins = parseEstimate(w.slice(1));
     else words.push(w);
   }

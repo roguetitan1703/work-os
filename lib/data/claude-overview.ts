@@ -5,7 +5,7 @@ import type { ClaudeItem } from '../types';
 import { deviceMap, derivedState, ownedDeviceIds, WAITING_MS, type DeviceScope, type SessionView } from './launcher';
 
 // The Claude area (/claude) reads everything Claude-related across projects in one go: what
-// waits on Om, every Claude Code session on his computers (named, from the worker's list), and the
+// waits on the person, every Claude Code session on their computers (named, from the worker's list), and the
 // open queue. Read-only; the writes go through the existing item and launcher actions. Call it only
 // from signed-in pages/actions.
 

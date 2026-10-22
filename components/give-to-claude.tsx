@@ -11,7 +11,7 @@ import type { Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ResponsiveSheet } from './responsive-sheet';
 
-// Give to Claude / Take back (docs/dispatcher.md). Only Om's session can do this (server actions);
+// Give to Claude / Take back (docs/dispatcher.md). Only a signed-in session can do this (server actions);
 // MCP, Discord and apply_changes cannot. One sheet for every entry point: task page, row menus.
 
 const btn = 'h-11 md:h-9 px-4 rounded-full text-sm font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-50';

@@ -35,7 +35,7 @@ export async function listDevices(caller: Caller): Promise<DeviceInfo[]> {
 /** Creates a device and returns its key in full. This is the only time the plaintext exists. */
 export async function createDevice(caller: Caller, name: string): Promise<{ key: string; info: DeviceInfo }> {
   const n = name.trim().replace(/\s+/g, ' ').slice(0, 40);
-  if (!n) throw new SafeError('Give the device a name, e.g. Om-PC.');
+  if (!n) throw new SafeError('Give the device a name, e.g. Work-PC.');
   if (caller.via !== 'session') throw new SafeError('Computers are added by a signed-in person.');
   const c = await collections(); // scope-ok: computers: every query filters by the caller (mine) or the key's hash
   if ((await c.devices.countDocuments(mine(caller))) >= MAX_DEVICES) throw new SafeError(`At most ${MAX_DEVICES} devices. Revoke one first.`);

@@ -3,16 +3,25 @@ import { ALERT_RULES, lastRunStatus } from '@/lib/alerts';
 import { fmtAgo } from '@/lib/format';
 import { Card, Disclosure, Section, StatusLine } from './ui';
 import { requireScope } from '@/lib/caller';
+import { getProfile } from '@/lib/profile';
+import { TimeSettings } from './time-settings';
 
 export async function AlertsSection({ base }: { base: string }) {
   const secret = process.env.CRON_SECRET;
   const ready = !!secret && secret.length >= 16;
-  const s = await lastRunStatus(await requireScope());
+  const scope = await requireScope();
+  const [s, profile] = await Promise.all([lastRunStatus(scope), getProfile(scope)]);
   const stale = s.stale;
   const r = ALERT_RULES;
 
   return (
     <div className="space-y-5">
+      <Section title="Your timezone and quiet hours">
+        <Card>
+          <TimeSettings timezone={profile.timezone} quietStart={profile.quietStart} quietEnd={profile.quietEnd} />
+        </Card>
+      </Section>
+
       <Section title="Scheduled checks">
         <Card>
           {!ready ? (
@@ -25,7 +34,10 @@ export async function AlertsSection({ base }: { base: string }) {
                 {s.lastResult}
                 {stale ? ' (expected every 15 minutes; is the scheduled job running?)' : ''}
               </p>
-              <p>Checks every 15 minutes. Nothing is sent between {r.quietStart}:00 and {r.quietEnd}:00.</p>
+              <p>
+                Checks every 15 minutes.{' '}
+                {profile.quietStart === profile.quietEnd ? 'No quiet hours.' : `Nothing is sent to you between ${profile.quietStart}:00 and ${profile.quietEnd}:00 (${profile.timezone}).`}
+              </p>
             </StatusLine>
           ) : (
             <StatusLine level="warn" title="Ready · no scheduled check has run yet" />
@@ -56,7 +68,7 @@ export async function AlertsSection({ base }: { base: string }) {
           Preview without sending:
           <CopyBox text={`curl -H "Authorization: Bearer $CRON_SECRET" "${base}/api/cron/alerts?dry=1"`} className="mt-2" />
         </li>
-        <li>If DMs fail with 403: in Discord, Delpat server → Privacy Settings → allow direct messages from server members.</li>
+        <li>If DMs fail with 403: in Discord, your organization&apos;s server → Privacy Settings → allow direct messages from server members.</li>
       </ol>
           </Disclosure>
         </div>

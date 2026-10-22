@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { bulkCreateTasksAction } from '@/app/actions';
 import { parseMarkdownTable, type ParsedTaskInput } from '@/lib/parse-markdown-table';
-import { MODE_NAMES } from '@/lib/modes';
+import { useModes } from '@/components/app-context';
 import { STATUSES, type Mode, type Priority, type Status } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { BottomSheet } from './sheet';
@@ -13,7 +13,7 @@ import { BottomSheet } from './sheet';
 type Tab = 'markdown' | 'json';
 const PRIOS = ['P1', 'P2', 'P3', 'P4'];
 
-function parseJSON(raw: string): { tasks: ParsedTaskInput[]; errors: string[] } {
+function parseJSON(raw: string, modeNames: readonly string[]): { tasks: ParsedTaskInput[]; errors: string[] } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim());
@@ -27,7 +27,7 @@ function parseJSON(raw: string): { tasks: ParsedTaskInput[]; errors: string[] } 
     const row = r as Record<string, unknown>;
     const title = row.title ?? row.task;
     if (typeof title !== 'string' || !title.trim()) return void errors.push(`Row ${i + 1}: missing "title"`);
-    if (row.mode && !MODE_NAMES.includes(row.mode as string)) return void errors.push(`Row ${i + 1}: invalid mode "${row.mode}"`);
+    if (row.mode && !modeNames.includes(row.mode as string)) return void errors.push(`Row ${i + 1}: invalid mode "${row.mode}"`);
     const prio = typeof row.priority === 'string' && PRIOS.includes(row.priority.toUpperCase()) ? row.priority.toUpperCase() : 'P2';
     const status = typeof row.status === 'string' ? (STATUSES.find(s => s.toLowerCase() === (row.status as string).toLowerCase()) ?? 'Not Started') : 'Not Started';
     const project = row.project ?? row.projectClient;
@@ -49,6 +49,7 @@ function parseJSON(raw: string): { tasks: ParsedTaskInput[]; errors: string[] } 
 /** Phone Import: paste a markdown table or JSON array from Claude, review as a checklist, insert. */
 export function MobileImport({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter();
+  const { names } = useModes();
   const [tab, setTab] = useState<Tab>('markdown');
   const [raw, setRaw] = useState('');
   const [preview, setPreview] = useState<{ task: ParsedTaskInput; checked: boolean }[] | null>(null);
@@ -66,7 +67,7 @@ export function MobileImport({ open, onClose }: { open: boolean; onClose: () => 
     onClose();
   }
   function review() {
-    const res = tab === 'markdown' ? parseMarkdownTable(raw) : parseJSON(raw);
+    const res = tab === 'markdown' ? parseMarkdownTable(raw, names) : parseJSON(raw, names);
     setErrors(res.errors);
     if (res.tasks.length) setPreview(res.tasks.map(t => ({ task: t, checked: true })));
   }

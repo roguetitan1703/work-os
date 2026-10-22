@@ -18,6 +18,7 @@ import {
 } from "@/lib/parse-markdown-table";
 import { bulkCreateTasksAction } from "@/app/actions";
 import type { Mode, Priority, Status } from "@/lib/types";
+import { useModes } from "@/components/app-context";
 import { PriorityBadge } from "@/components/priority-badge";
 
 type Tab = "markdown" | "json";
@@ -37,11 +38,11 @@ const JSON_SCHEMA_HINT = `Ask Claude to output a JSON array like this:
   }
 ]
 
-Modes: Code & Dev | Client Delivery | Team Direction | Outreach & Sales | Growth | Research & Planning | Founder Decisions | Business Admin
+Modes: {MODES}
 Priority: P1 | P2 | P3 | P4
 Status: Not Started | In Progress | Blocked | Done | Dropped`;
 
-function parseJSON(raw: string): {
+function parseJSON(raw: string, VALID_MODES: readonly string[]): {
   tasks: ParsedTaskInput[];
   errors: string[];
 } {
@@ -64,16 +65,6 @@ function parseJSON(raw: string): {
     return { tasks: [], errors };
   }
 
-  const VALID_MODES = [
-    "Code & Dev",
-    "Client Delivery",
-    "Team Direction",
-    "Outreach & Sales",
-    "Growth",
-    "Research & Planning",
-    "Founder Decisions",
-    "Business Admin",
-  ];
   const VALID_PRIORITIES = ["P1", "P2", "P3", "P4"];
   const VALID_STATUSES = [
     "Not Started",
@@ -141,6 +132,7 @@ function parseJSON(raw: string): {
 }
 
 export function PasteImportDialog({ open, onClose }: Props) {
+  const { names } = useModes();
   const [tab, setTab] = useState<Tab>("markdown");
   const [raw, setRaw] = useState("");
   const [preview, setPreview] = useState<
@@ -151,7 +143,7 @@ export function PasteImportDialog({ open, onClose }: Props) {
 
   function handlePreview() {
     const result =
-      tab === "markdown" ? parseMarkdownTable(raw) : parseJSON(raw);
+      tab === "markdown" ? parseMarkdownTable(raw, names) : parseJSON(raw, names);
     setErrors(result.errors);
     if (result.tasks.length > 0) {
       setPreview(result.tasks.map((t) => ({ task: t, checked: true })));
@@ -245,7 +237,7 @@ export function PasteImportDialog({ open, onClose }: Props) {
             ) : (
               <>
                 <pre className="text-xs bg-gray-50 dark:bg-gray-900 border rounded p-3 overflow-auto text-gray-600 dark:text-gray-400 whitespace-pre-wrap leading-relaxed">
-                  {JSON_SCHEMA_HINT}
+                  {JSON_SCHEMA_HINT.replace("{MODES}", names.join(" | "))}
                 </pre>
                 <Textarea
                   value={raw}

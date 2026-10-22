@@ -4,11 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { Search, SlidersHorizontal, X } from 'lucide-react';
-import { MODES } from '@/lib/modes';
 import type { Priority, Task } from '@/lib/types';
 import { addDays } from '@/lib/dates';
 import { cn } from '@/lib/utils';
-import { useApp } from '../app-context';
+import { useApp, useModes } from '../app-context';
 import { MobileHeader } from './tab-bar';
 import { MSection, MTaskRow } from './m-task-row';
 
@@ -39,6 +38,7 @@ const PRIO_LABEL: Record<Priority, string> = { P1: 'P1 · must ship', P2: 'P2', 
  */
 export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch = false }: { tasks: Task[]; projects: Proj[]; noteTaskIds: string[]; filters: Filters; focusSearch?: boolean }) {
   const { today } = useApp();
+  const { modes, color } = useModes();
   const router = useRouter();
   const notes = useMemo(() => new Set(noteTaskIds), [noteTaskIds]);
   const [seg, setSeg] = useState<Seg>('open');
@@ -165,7 +165,7 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch
             {dueLabel} <X className="inline w-3.5 h-3.5 -mr-1" />
           </Chip>
         )}
-        {MODES.map(m => (
+        {modes.map(m => (
           <Chip key={m.name} on={filters.mode === m.name} onClick={() => setFilter('mode', filters.mode === m.name ? '' : m.name)}>
             <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ backgroundColor: m.hex }} />
             {m.name}
@@ -197,6 +197,7 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch
 }
 
 function FilterSheet({ filters, projects, counts, onPick, onClear, onClose }: { filters: Filters; projects: Proj[]; counts: Record<string, number>; onPick: (k: keyof Filters, v: string) => void; onClear: () => void; onClose: () => void }) {
+  const { modes, color } = useModes();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -240,7 +241,7 @@ function FilterSheet({ filters, projects, counts, onPick, onClear, onClose }: { 
           ))}
         </FGroup>
         <FGroup label="Mode">
-          {MODES.map(m => (
+          {modes.map(m => (
             <Chip key={m.name} on={filters.mode === m.name} onClick={() => onPick('mode', filters.mode === m.name ? '' : m.name)}>
               {m.name}
             </Chip>
