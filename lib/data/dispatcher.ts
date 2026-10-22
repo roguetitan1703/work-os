@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { ActivityDoc, ClaudeMark, TaskDoc } from '../db';
 import { forUser, getUserSetting, scoped, setUserSetting, type Scope, type ScopedCollections as Collections } from '../scope';
 import { requestContext } from '../request-context';
-import { agentActor, userActor, type Actor } from '../actors';
+import { actorUserId, agentActor, userActor, type Actor } from '../actors';
 import type { Status } from '../types';
 import { InputError, NotFoundError } from './errors';
 import { createStartJob, deviceMap, stopSession, type DeviceScope } from './launcher';
@@ -12,8 +12,11 @@ import { createStartJob, deviceMap, stopSession, type DeviceScope } from './laun
 // their computers has room, its worker's jobs poll claims the oldest task they marked and starts a Claude Code
 // session on it. The task is the finish signal: Done = finished, Blocked or a dead session = stopped.
 // Nothing here is reachable from MCP, Discord or apply_changes: those write tasks through
-// tasks.ts, which never touches `claude` (a task's text becomes a prompt on that person's PC, so only they
-// choose what runs). Settings, the cap and every claim are per person (`dispatcher:<userId>`, markedByUserId).
+// tasks.ts, which never sets `claude` (a task's text becomes a prompt on that person's PC, so only they
+// choose what runs). In a shared project a teammate can still change that text: when anyone but the person who gave
+// it to Claude changes what Claude reads (title, description, checklist text, comments, the task's note) while it is
+// queued or running, the task is taken back from Claude (takeBackOnEdit) and the giver is told.
+// Settings, the cap and every claim are per person (`dispatcher:<userId>`, markedByUserId).
 
 export const DEFAULT_CAP = 2;
 export const MAX_CAP = 4;
@@ -31,37 +34,46 @@ const CLAIMABLE: Status[] = ['Not Started', 'In Progress'];
 
 export type DispatcherSettings = { enabled: boolean; maxConcurrent: number; boilerplateNoteId: string };
 
+const NOTE_ID = /^[A-Za-z0-9_-]{1,60}$/;
+
+/**
+ * The note every session reads first must be the person's own: a shared note could be changed by a teammate, and the
+ * lock on it (notes.ts guardBoilerplate) only holds for its owner. A setting that points at a note that is not theirs
+ * (chosen before this rule, or the note changed hands) counts as no note, which keeps the dispatcher off.
+ */
+async function ownNote(s: Scope, id: string): Promise<boolean> {
+  if (!id || !NOTE_ID.test(id)) return false;
+  return !!(await (await scoped(s)).notes.findOne({ _id: id, ownerId: s.userId, deletedAt: null }, { projection: { _id: 1 } }));
+}
+
 export async function getDispatcherSettings(s: Scope): Promise<DispatcherSettings> {
   const d = await getUserSetting(s, 'dispatcher');
   const cap = Number(d?.maxConcurrent);
+  const note = typeof d?.boilerplateNoteId === 'string' ? d.boilerplateNoteId : '';
+  const owned = await ownNote(s, note);
   return {
-    enabled: d?.enabled === true,
+    enabled: d?.enabled === true && owned,
     maxConcurrent: Number.isInteger(cap) && cap >= 1 ? Math.min(cap, MAX_CAP) : DEFAULT_CAP,
-    boilerplateNoteId: typeof d?.boilerplateNoteId === 'string' ? d.boilerplateNoteId : '',
+    boilerplateNoteId: owned ? note : '',
   };
 }
 
-const NOTE_ID = /^[A-Za-z0-9_-]{1,60}$/;
-
 /** The person's switch. Turning it on needs a boilerplate note, because every session starts by reading it. */
 export async function setDispatcherSettings(s: Scope, patch: Partial<DispatcherSettings>): Promise<DispatcherSettings> {
-  const c = await scoped(s);
   const cur = await getDispatcherSettings(s);
   const next = { ...cur, ...patch };
   if (!Number.isInteger(next.maxConcurrent) || next.maxConcurrent < 1 || next.maxConcurrent > MAX_CAP) throw new InputError(`At most ${MAX_CAP} sessions at once, at least 1`);
-  if (next.boilerplateNoteId) {
-    if (!NOTE_ID.test(next.boilerplateNoteId) || !(await c.notes.findOne({ _id: next.boilerplateNoteId, deletedAt: null }, { projection: { _id: 1 } }))) throw new InputError('That note was not found');
-  }
+  if (next.boilerplateNoteId && !(await ownNote(s, next.boilerplateNoteId))) throw new InputError('Pick one of your own notes (a note someone else owns could change under your sessions)');
   if (next.enabled && !next.boilerplateNoteId) throw new InputError('Pick the note Claude reads first before turning this on');
   await setUserSetting(s, 'dispatcher', { enabled: next.enabled, maxConcurrent: next.maxConcurrent, boilerplateNoteId: next.boilerplateNoteId, updatedAt: new Date() });
   return next;
 }
 
 export type NotePick = { id: string; title: string; project: string | null };
-/** Live notes for the boilerplate picker, newest first. */
+/** The person's own live notes for the boilerplate picker, newest first. */
 export async function listNotePicks(s: Scope): Promise<NotePick[]> {
   const c = await scoped(s);
-  const notes = await c.notes.find({ deletedAt: null, taskId: null, parentId: null }, { projection: { title: 1, projectId: 1 } }).sort({ updatedAt: -1 }).limit(200).toArray();
+  const notes = await c.notes.find({ ownerId: s.userId, deletedAt: null, taskId: null, parentId: null }, { projection: { title: 1, projectId: 1 } }).sort({ updatedAt: -1 }).limit(200).toArray();
   const pids = [...new Set(notes.map(n => n.projectId).filter((x): x is string => !!x))];
   const names = new Map((await c.projects.find({ _id: { $in: pids } }, { projection: { name: 1 } }).toArray()).map(p => [p._id, p.name]));
   return notes.map(n => ({ id: n._id, title: n.title || 'Untitled', project: n.projectId ? names.get(n.projectId) ?? null : null }));
@@ -427,6 +439,50 @@ export async function takeBackFromClaude(scope: DeviceScope, key: string, opts: 
     if (!r.modifiedCount) throw new InputError('Claude just started this task. Stop the session first.');
   }
   await logTask(c, t, userActor(scope.userId), 'edit', { changes: { claude: { from, to: null } } });
+}
+
+// ── Someone else changed what Claude reads ──────────────────────────────────
+
+/** "Claude for Bea", "Bea via Discord", "Bea". */
+async function whoDid(s: Scope, actor: Actor): Promise<string> {
+  const { memberNames } = await import('../people');
+  const id = actorUserId(actor);
+  const name = (id && (await memberNames(s.orgId))[id]) || 'someone';
+  if (actor.kind === 'agent') return `${actor.agent === 'claude' ? 'Claude' : 'Claude Code'} for ${name}`;
+  if (actor.kind === 'discord') return `${name} via Discord`;
+  return name;
+}
+
+/**
+ * The task's text is the prompt's source (get_task). If anyone but the person who gave it to Claude (or their own
+ * Claude) changes it while it is queued or running, the claim is taken back: a running session is stopped, the mark ends
+ * as "stopped", and the giver gets one notice. The edit itself goes through. Call after the edit is written.
+ */
+export async function takeBackOnEdit(s: Scope, t: Pick<TaskDoc, '_id' | 'ref' | 'title' | 'orgId' | 'ownerId' | 'visibility' | 'projectId' | 'claude'>, actor: Actor): Promise<boolean> {
+  const mark = t.claude;
+  if (!mark || (mark.state !== 'queued' && mark.state !== 'running')) return false;
+  if (actor.kind === 'system') return false;
+  const giver = mark.markedByUserId ?? t.ownerId;
+  if (actorUserId(actor) === giver) return false;
+  const gs = forUser(s, giver);
+  const org = await scoped(gs);
+  const who = await whoDid(s, actor);
+  const note = `taken back: changed by ${who}`.slice(0, 300);
+  const now = new Date();
+  const r = await org.tasks.updateOne(
+    { _id: t._id, 'claude.state': mark.state, ...(mark.sessionId ? { 'claude.sessionId': mark.sessionId } : {}) },
+    { $set: { 'claude.state': 'stopped', 'claude.endedAt': now, 'claude.note': note } },
+  );
+  if (!r.modifiedCount) return false;
+  if (mark.state === 'running' && t.projectId && mark.sessionId) await stopSession(gs, t.projectId, mark.sessionId).catch(() => {});
+  await logTask(org, t, actor, 'edit', { changes: { claude: { from: mark.state, to: 'stopped' } }, note });
+  try {
+    const { addToInbox } = await import('../notify');
+    await addToInbox(gs, [{ kind: 'claude_stopped', title: `#${t.ref} changed by ${who}, taken back from Claude`, body: t.title, url: `/tasks/${t.ref}` }]);
+  } catch (e) {
+    console.error('[dispatcher] take-back notice failed', e);
+  }
+  return true;
 }
 
 // ── Claude page: Claude's tasks ─────────────────────────────────────────────

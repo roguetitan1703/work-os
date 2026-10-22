@@ -1,31 +1,27 @@
 import { NextResponse } from 'next/server';
 import { get } from '@vercel/blob';
 import { callerFromRequest } from '@/lib/caller';
-import { firstOrgId } from '@/lib/people';
+import { noteFileHeaders, parseNoteFilePath } from '@/lib/note-files';
+import { scoped } from '@/lib/scope';
 
-// Streams a private note attachment. Only for a signed-in caller (proxy.ts, and checked again here), so files in
-// notes are never public, and only from the caller's organization. Usage: /api/notes/file?p=notes/<orgId>/<name>.
-// Files from before organizations (notes/<name>) belong to the first organization.
+// Streams a private note attachment: /api/notes/file?p=notes/<orgId>/<noteId>/<name>. Only for a signed-in caller
+// (proxy.ts, and checked again here) who can see the note the file was uploaded into (a private note's files are its
+// owner's only). Images show inline; everything else downloads (lib/note-files.ts). Older path shapes are not served:
+// uploads were switched off until this layout (block-editor.tsx UPLOADS_ENABLED).
 
 export const runtime = 'nodejs';
 
 export async function GET(req: Request) {
   const caller = await callerFromRequest(req);
   if (!caller) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  const p = new URL(req.url).searchParams.get('p') ?? '';
-  if (!p.startsWith('notes/') || p.includes('..')) return new NextResponse('bad path', { status: 400 });
-  const parts = p.split('/');
-  const mine = parts.length === 3 ? parts[1] === caller.orgId : parts.length === 2 && caller.orgId === (await firstOrgId());
-  if (!mine) return new NextResponse('not found', { status: 404 });
-  const r = await get(p, { access: 'private' }).catch(() => null);
+  const raw = new URL(req.url).searchParams.get('p') ?? '';
+  if (!raw.startsWith('notes/') || raw.includes('..')) return new NextResponse('bad path', { status: 400 });
+  const f = parseNoteFilePath(raw);
+  if (!f || f.orgId !== caller.orgId) return new NextResponse('not found', { status: 404 });
+  const note = await (await scoped({ userId: caller.userId, orgId: caller.orgId })).notes.findOne({ _id: f.noteId }, { projection: { _id: 1 } });
+  if (!note) return new NextResponse('not found', { status: 404 });
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return new NextResponse('file storage is not set up', { status: 503 });
+  const r = await get(raw, { access: 'private' }).catch(() => null);
   if (!r || r.statusCode !== 200) return new NextResponse('not found', { status: 404 });
-  const name = p.split('/').pop() ?? 'file';
-  return new NextResponse(r.stream, {
-    headers: {
-      'Content-Type': r.blob.contentType || 'application/octet-stream',
-      'Content-Disposition': `inline; filename="${name.replace(/"/g, '')}"`,
-      'Cache-Control': 'private, max-age=86400',
-      'X-Content-Type-Options': 'nosniff',
-    },
-  });
+  return new NextResponse(r.stream, { headers: noteFileHeaders(r.blob.contentType, f.name) });
 }

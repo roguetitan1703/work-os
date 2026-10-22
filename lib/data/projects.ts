@@ -1,6 +1,7 @@
 import 'server-only';
+import { randomBytes } from 'node:crypto';
 import type { ProjectDoc, TaskDoc } from '../db';
-import { idTaken, orgWide, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
+import { idTaken, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
 import {
   ProjectInputSchema,
   type Project,
@@ -54,7 +55,6 @@ export function placeIn(project: Pick<ProjectDoc, 'ownerId' | 'visibility'> | nu
   return { ownerId: owner, visibility: 'org' };
 }
 
-const PLACE_FIELDS = { ownerId: 1, visibility: 1 } as const;
 
 async function noteTree(c: Collections, rootIds: string[]): Promise<string[]> {
   const out = [...rootIds];
@@ -87,15 +87,25 @@ export async function placeTasks(c: Collections, taskIds: string[], p: Placement
 async function findProjectDoc(c: Collections, nameOrId: string): Promise<ProjectDoc | null> {
   const key = nameOrId.trim();
   if (!key) return null;
-  return c.projects.findOne({
-    $or: [{ _id: key }, { nameLower: key.toLowerCase() }, { _id: slugify(key) }],
-  });
+  const hits = await c.projects.find({ $or: [{ _id: key }, { nameLower: key.toLowerCase() }, { _id: slugify(key) }] }).limit(5).toArray();
+  // An id wins; then a name. Two visible projects can share a name only when one is your own private project and a
+  // teammate later made a shared one of that name (they could not see yours): your own is the one you mean.
+  return hits.find(p => p._id === key) ?? hits.find(p => p.visibility === 'private') ?? hits[0] ?? null;
 }
 
-/** Project names are unique per organization, private ones included: say so instead of failing on the index. */
-async function assertNameFree(s: Scope, nameLower: string, except?: string): Promise<void> {
-  const other = await (await orgWide(s.orgId)).projects.findOne({ nameLower, ...(except ? { _id: { $ne: except } } : {}) }, { projection: PLACE_FIELDS });
-  if (other) throw new InputError(`A project with that name already exists in your organization${other.visibility === 'private' && other.ownerId !== s.userId ? ' (private to someone else)' : ''}`);
+/**
+ * Names (docs/multi-user.md "Project names"): unique among the projects the person can see, so nobody learns the name
+ * of someone else's private project by being refused. Indexes back this up: one name per organization among shared
+ * projects, one per owner among private ones.
+ */
+async function assertNameFree(c: Collections, nameLower: string, except?: string): Promise<void> {
+  const other = await c.projects.findOne({ nameLower, ...(except ? { _id: { $ne: except } } : {}) }, { projection: { _id: 1 } });
+  if (other) throw new InputError('You already have a project with that name');
+}
+
+/** New ids: the name's slug plus a random tail. Ids are global, so a plain slug (or a -2 suffix) would tell one organization what another has named. */
+function newProjectId(name: string): string {
+  return `${slugify(name).slice(0, 48)}-${randomBytes(4).toString('hex')}`;
 }
 
 async function insertProject(
@@ -103,14 +113,12 @@ async function insertProject(
   s: Scope,
   data: { name: string; client?: string; description?: string; status?: ProjectDoc['status']; code?: CodeLocation[] | null; visibility?: Visibility },
 ): Promise<ProjectDoc> {
-  const base = slugify(data.name);
   const now = new Date();
   const nameLower = data.name.trim().toLowerCase();
-  await assertNameFree(s, nameLower);
-  for (let i = 1; i < 50; i++) {
-    const _id = i === 1 ? base : `${base}-${i}`;
-    // Ids are global (another organization may have the same slug); check first: inside a transaction a
-    // duplicate-key error would abort the whole batch.
+  await assertNameFree(c, nameLower);
+  for (let i = 1; i < 10; i++) {
+    const _id = newProjectId(data.name);
+    // Check first: inside a transaction a duplicate-key error would abort the whole batch.
     if (await idTaken('projects', _id)) continue;
     const doc: ProjectDoc = {
       _id,
@@ -131,7 +139,7 @@ async function insertProject(
       return doc;
     } catch (err) {
       if ((err as { code?: number }).code !== 11000) throw err;
-      // Same name created concurrently → return that one; otherwise the slug was taken meanwhile, try the next.
+      // Same name created concurrently → return that one; otherwise the id was taken meanwhile, try another.
       const existing = await c.projects.findOne({ nameLower });
       if (existing) return existing;
     }
@@ -300,7 +308,7 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
   if (!cur) throw new NotFoundError(`Project "${id}" not found`);
   const set: Partial<ProjectDoc> = { updatedAt: new Date() };
   if (data.name !== undefined && data.name !== cur.name) {
-    await assertNameFree(s, data.name.toLowerCase(), id);
+    await assertNameFree(c, data.name.toLowerCase(), id);
     set.name = data.name;
     set.nameLower = data.name.toLowerCase();
   }
@@ -310,6 +318,11 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
   if (data.code !== undefined) set.code = cleanCodeLocations(data.code);
   if (data.visibility !== undefined && data.visibility !== cur.visibility) {
     if (cur.ownerId !== s.userId) throw new InputError("Only the project's owner can make it private or shared");
+    // Made shared: the name must be free among the organization's shared projects (all visible to the owner already,
+    // so this refusal tells them nothing new). Someone else's private project of that name does not count.
+    if (data.visibility === 'org' && (await c.projects.findOne({ _id: { $ne: id }, nameLower: set.nameLower ?? cur.nameLower, visibility: 'org' }, { projection: { _id: 1 } }))) {
+      throw new InputError('A shared project with that name already exists');
+    }
     set.visibility = data.visibility;
     await setProjectVisibility(c, cur, data.visibility);
   }

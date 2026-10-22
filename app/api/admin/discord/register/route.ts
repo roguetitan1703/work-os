@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { callerFromRequest } from '@/lib/caller';
+import { isOperator } from '@/lib/operator';
 import { api, discordConfig, DiscordError } from '@/lib/discord/client';
 import { COMMANDS } from '@/lib/discord/commands';
 
 // Registers the Discord commands in the configured guild (bulk overwrite), or lists what's registered.
-// An owner or admin: signed in, or an API key of theirs (Authorization: Bearer wos_…).
+// The operator (OPERATOR_EMAILS): signed in, or an API key of theirs (Authorization: Bearer wos_…).
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,8 @@ export const dynamic = 'force-dynamic';
 async function deny(req: Request): Promise<NextResponse | null> {
   const caller = await callerFromRequest(req);
   if (!caller) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  if (caller.role !== 'owner' && caller.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  // About the deployment, not an organization: the operator only (lib/operator.ts OPERATOR_EMAILS).
+  if (!isOperator(caller)) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   return null;
 }
 

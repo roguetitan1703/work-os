@@ -28,7 +28,7 @@ function toInfo(d: DeviceDoc): DeviceInfo {
 const mine = (caller: Caller) => ({ ownerId: caller.userId, orgId: caller.orgId, revokedAt: null });
 
 export async function listDevices(caller: Caller): Promise<DeviceInfo[]> {
-  const docs = await (await collections()).devices.find(mine(caller)).sort({ createdAt: 1 }).toArray();
+  const docs = await (await collections()).devices.find(mine(caller)).sort({ createdAt: 1 }).toArray(); // scope-ok: the caller's own computers (mine)
   return docs.map(toInfo);
 }
 
@@ -37,7 +37,7 @@ export async function createDevice(caller: Caller, name: string): Promise<{ key:
   const n = name.trim().replace(/\s+/g, ' ').slice(0, 40);
   if (!n) throw new SafeError('Give the device a name, e.g. Om-PC.');
   if (caller.via !== 'session') throw new SafeError('Computers are added by a signed-in person.');
-  const c = await collections();
+  const c = await collections(); // scope-ok: computers: every query filters by the caller (mine) or the key's hash
   if ((await c.devices.countDocuments(mine(caller))) >= MAX_DEVICES) throw new SafeError(`At most ${MAX_DEVICES} devices. Revoke one first.`);
   if (await c.devices.findOne({ ...mine(caller), name: n })) throw new SafeError('A device with that name already exists.');
   const key = DEVICE_KEY_PREFIX + randomBytes(32).toString('base64url');
@@ -48,7 +48,7 @@ export async function createDevice(caller: Caller, name: string): Promise<{ key:
 
 /** Revoking also cancels the device's pending jobs. Its folders and session history stay. */
 export async function revokeDevice(caller: Caller, id: string): Promise<void> {
-  const c = await collections();
+  const c = await collections(); // scope-ok: computers: every query filters by the caller (mine) or the key's hash
   const r = await c.devices.updateOne({ _id: id, ...mine(caller) }, { $set: { revokedAt: new Date() } });
   if (!r.matchedCount) throw new SafeError('That device is already revoked or does not exist.');
   await c.workerJobs.updateMany({ deviceId: id, doneAt: null }, { $set: { doneAt: new Date(), ok: false, error: 'device revoked' } });
@@ -58,7 +58,7 @@ export async function revokeDevice(caller: Caller, id: string): Promise<void> {
 export async function verifyDeviceKey(token: string | null | undefined): Promise<VerifiedDevice | null> {
   if (!token || !token.startsWith(DEVICE_KEY_PREFIX) || token.length < 40 || token.length > 80) return null;
   const hash = sha256(token);
-  const c = await collections();
+  const c = await collections(); // scope-ok: computers: every query filters by the caller (mine) or the key's hash
   const doc = await c.devices.findOne({ hash });
   if (!doc || doc.revokedAt) return null;
   const a = Buffer.from(doc.hash, 'hex');

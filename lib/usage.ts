@@ -109,8 +109,8 @@ let scheduled: Promise<void> | null = null;
 async function flush(batch: Map<string, Map<string, number>>): Promise<void> {
   try {
     const { getDb } = await import('./db');
-    const db = await getDb();
-    await db.collection<{ _id: string }>('requestStats').bulkWrite(
+    const db = await getDb(); // scope-ok: request counters: operational, no work data
+    await db.collection<{ _id: string }>('requestStats').bulkWrite( // scope-ok: request counters: operational, no work data
       [...batch].map(([hour, counts]) => {
         const inc: Record<string, number> = { total: [...counts.values()].reduce((a, n) => a + n, 0) };
         for (const [k, n] of counts) inc[`counts.${k.replace(/[.$]/g, '_')}`] = n; // a dot would split the field path and fail the batch

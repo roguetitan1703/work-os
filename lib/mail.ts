@@ -82,7 +82,7 @@ const hashTo = (to: string) => createHash('sha256').update(to.trim().toLowerCase
  * Insert-then-count, so concurrent callers can't both slip under the limit. Only a hash of the address is kept.
  */
 export async function takeMailSlot(kind: MailLogDoc['kind'], to: string): Promise<boolean> {
-  const { mailLog } = await collections();
+  const { mailLog } = await collections(); // scope-ok: mail log: operational, no work data
   const at = new Date();
   const toHash = hashTo(to);
   await mailLog.insertOne({ _id: randomUUID(), kind, at, to: toHash });

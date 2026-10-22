@@ -4,6 +4,8 @@ import { getBlockColor } from '@/lib/modes';
 import { todayStr, weekday } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import { SubHeader } from '@/components/mobile/sub-header';
+import { requireCaller } from '@/lib/caller';
+import { isOperator } from '@/lib/operator';
 
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri'] as const;
 type Day = (typeof DAYS)[number];
@@ -18,6 +20,16 @@ export default async function SchedulePage({ searchParams }: Props) {
   const dow = weekday(todayStr()); // 0 = Sun
   const todayKey: Day | null = dow >= 1 && dow <= 5 ? DAYS[dow - 1] : null;
   const day: Day = (DAYS as readonly string[]).includes(sp.day ?? '') ? (sp.day as Day) : (todayKey ?? 'mon');
+  // The built-in schedule is Om's own week: until each person has their own (phase 3), only the operator sees it.
+  if (!isOperator(await requireCaller())) {
+    return (
+      <div className="space-y-6" data-schedule-empty>
+        <SubHeader title="Schedule" />
+        <h1 className="hidden md:block text-2xl font-bold text-foreground">Schedule</h1>
+        <p className="text-[15px] md:text-sm text-muted-foreground px-1 md:px-0">No schedule yet. Your own weekly schedule is coming in a later update.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

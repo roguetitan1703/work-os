@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server';
 import { authSecret } from '@/lib/auth';
 import { callerFromRequest } from '@/lib/caller';
+import { isOperator } from '@/lib/operator';
 import { mongoEnvNames } from '@/lib/db';
 import { scoped } from '@/lib/scope';
 import { APP_TZ, todayStr } from '@/lib/dates';
 import { converterCheck } from '@/lib/notes-convert';
 
 // Connects to MongoDB (creating collections/indexes on first run) and reports what is configured.
-// An owner or admin: signed in, or an API key of theirs (Authorization: Bearer wos_…).
+// The operator (OPERATOR_EMAILS): signed in, or an API key of theirs (Authorization: Bearer wos_…).
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,7 +16,8 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   const caller = await callerFromRequest(req);
   if (!caller) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  if (caller.role !== 'owner' && caller.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  // About the deployment, not an organization: the operator only (lib/operator.ts OPERATOR_EMAILS).
+  if (!isOperator(caller)) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   const env = {
     MONGODB_URI: !!process.env.MONGODB_URI,
     mongoVarsSeen: mongoEnvNames(),

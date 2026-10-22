@@ -23,11 +23,11 @@ const AUTOSAVE_MS = 1000;
 const UPLOADS_ENABLED = false;
 const MEDIA_ITEMS = new Set(['Image', 'Video', 'Audio', 'File']);
 
-/** Upload to the private Blob store; the editor gets an app URL that streams it to logged-in users. */
-/** Files live under notes/<organization>/ (the upload and file routes refuse other organizations' paths). */
-async function uploadFile(file: File, orgId: string): Promise<string> {
-  const safe = file.name.replace(/[^\w.\-]+/g, '_').slice(-80) || 'file';
-  const blob = await upload(`notes/${orgId}/${safe}`, file, { access: 'private', handleUploadUrl: '/api/notes/upload' });
+/** Upload to the private Blob store; the editor gets an app URL that streams it to people who can see this note. */
+/** Files live under notes/<organization>/<note>/ (lib/note-files.ts; the upload and file routes check the note). */
+async function uploadFile(file: File, orgId: string, noteId: string): Promise<string> {
+  const safe = file.name.replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/^\.+/, '').slice(-80) || 'file';
+  const blob = await upload(`notes/${orgId}/${noteId}/${safe}`, file, { access: 'private', handleUploadUrl: '/api/notes/upload' });
   return `/api/notes/file?p=${encodeURIComponent(blob.pathname)}`;
 }
 
@@ -55,7 +55,7 @@ export function BlockEditor({
       ? {
           uploadFile: async (file: File) => {
             try {
-              return await uploadFile(file, orgId);
+              return await uploadFile(file, orgId, noteId);
             } catch (e) {
               toast.error(e instanceof Error ? e.message : 'Upload failed');
               throw e;

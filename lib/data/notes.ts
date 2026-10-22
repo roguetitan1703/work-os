@@ -336,11 +336,24 @@ function newId() {
  * A dispatcher's boilerplate note is read by every session it starts, so only the person whose dispatcher reads it may
  * change, move or delete it (or add a sub-page to it), in the app: not their Claude, Discord or anyone else.
  */
+/** A task's note is part of what Claude reads for that task: someone else's change takes it back from Claude. */
+async function takeBackTaskOnNoteEdit(s: Scope, c: Collections, taskId: string, actor: Actor): Promise<void> {
+  const t = await c.tasks.findOne({ _id: taskId });
+  if (!t?.claude) return;
+  const { takeBackOnEdit } = await import('./dispatcher');
+  await takeBackOnEdit(s, t, actor);
+}
+
 async function guardBoilerplate(s: Scope, actor: Actor, ids: (string | null | undefined)[]): Promise<void> {
-  const list = ids.filter((x): x is string => !!x);
+  const list = [...new Set(ids.filter((x): x is string => !!x))];
   if (!list.length) return;
-  const owners = await usersWithSetting(s.orgId, 'dispatcher', { boilerplateNoteId: { $in: list } });
-  if (owners.some(u => !(isPerson(actor) && actor.userId === u))) throw new InputError("This note is a dispatcher's boilerplate; only the person who chose it can change it, in the app");
+  // Locked for the note's owner only, when it is their own boilerplate (a boilerplate must be the chooser's own note,
+  // dispatcher.ts ownNote): someone choosing a note they do not own locks nothing.
+  const notes = await (await scoped(s)).notes.find({ _id: { $in: list } }, { projection: { ownerId: 1 } }).toArray();
+  for (const n of notes) {
+    const chosen = await usersWithSetting(s.orgId, 'dispatcher', { userId: n.ownerId, boilerplateNoteId: n._id });
+    if (chosen.length && !(isPerson(actor) && actor.userId === n.ownerId)) throw new InputError("This note is a dispatcher's boilerplate; only the person who chose it can change it, in the app");
+  }
 }
 
 export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{ note: Note; created: boolean }> {
@@ -382,6 +395,7 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     }
     if (w.archived !== undefined) set.archived = w.archived;
     await c.notes.updateOne({ _id: cur._id }, { $set: set });
+    if (cur.taskId && (set.blocks || set.title)) await takeBackTaskOnNoteEdit(s, c, cur.taskId, actor);
     return { note: (await hydrate(c, [{ ...cur, ...set }]))[0], created: false };
   }
 
@@ -427,6 +441,7 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     throw err;
   }
   if (parent && w.linkInParent !== false) await addPageBlock(c, parent, doc._id, doc.title, actor);
+  if (doc.taskId) await takeBackTaskOnNoteEdit(s, c, doc.taskId, actor);
   return { note: (await hydrate(c, [doc]))[0], created: true };
 }
 

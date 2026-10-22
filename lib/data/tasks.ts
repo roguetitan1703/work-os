@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Filter } from 'mongodb';
 import { requestContext } from '../request-context';
 import { nextSeq, toActivity, type ActivityDoc, type ClaudeMark, type TaskDoc, type TrashDoc } from '../db';
-import { scoped, type Scope, type ScopedCollections as Collections } from '../scope';
+import { canSee, orgWide, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
 import { asActor, isPerson, actorUserId, type ActorFilter } from '../actors';
 import {
   CLOSED_STATUSES,
@@ -28,10 +28,10 @@ import {
   type TaskSource,
 } from '../types';
 import { addDays, addMonths, resolveDate, todayStr, weekday, weekStart } from '../dates';
-import { placeIn, placeTasks, resolveProject, toProject, type Placement } from './projects';
+import { placeIn, placeNotes, placeTasks, resolveProject, toProject, type Placement } from './projects';
 import { InputError, NotFoundError } from './errors';
 import { queueUnblocked } from '../alerts';
-import { onTaskChanged } from './dispatcher';
+import { onTaskChanged, takeBackOnEdit } from './dispatcher';
 
 // ── Conversions & helpers ───────────────────────────────────────────────────
 
@@ -384,6 +384,7 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
     if (opts.note?.trim()) {
       await logActivity(c, cur, actor, opts.kind === 'progress' ? 'progress' : 'comment', { note: opts.note });
       await c.tasks.updateOne({ _id: cur._id }, { $set: { updatedAt: now } });
+      await takeBackOnEdit(s, cur, actor);
       return toTask({ ...cur, updatedAt: now });
     }
     return toTask(cur);
@@ -410,6 +411,10 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
   }
 
   if (statusChanged && CLOSED_STATUSES.includes(status) && isOpen(cur.status)) await queueUnblocked(s, next);
+  // Someone else changed what Claude reads: take it back from Claude (docs/dispatcher.md).
+  if (changes.title || changes.description || newChecklistText(cur.checklist, next.checklist) || opts.note?.trim()) {
+    if (await takeBackOnEdit(s, next, actor)) next.claude = (await c.tasks.findOne({ _id: cur._id }, { projection: { claude: 1 } }))?.claude ?? next.claude;
+  }
   // A task someone gave to Claude: Done or Blocked ends the dispatcher's run (docs/dispatcher.md).
   if (statusChanged && next.claude?.state === 'running') await onTaskChanged(c, s, next);
   if (statusChanged && status === 'Done' && next.recurrence && !next.nextRef) {
@@ -447,6 +452,7 @@ export async function addComment(s: Scope, key: string | number, note: string, a
   const now = new Date();
   await c.tasks.updateOne({ _id: cur._id }, { $set: { updatedAt: now } });
   await logActivity(c, cur, actor, 'comment', { note });
+  await takeBackOnEdit(s, cur, actor);
   return toTask({ ...cur, updatedAt: now });
 }
 
@@ -521,13 +527,25 @@ export async function restoreTask(s: Scope, key: string | number, actor: Actor):
   if (!t) throw new NotFoundError(`Task ${typeof key === 'number' ? '#' + key : key} is not in the trash`);
   if (await c.tasks.findOne({ ref: t.ref }, { projection: { _id: 1 } })) throw new InputError(`#${t.ref} already exists`);
   // Older trash docs may still carry a claude mark: a restored task is never queued for Claude.
-  const { claude: _claude, ...restored } = t.task;
+  const { claude: _claude, ...old } = t.task;
   void _claude;
-  await c.tasks.insertOne(restored);
-  if (t.activity.length) await c.activity.insertMany(t.activity);
-  if (t.noteIds?.length) await c.notes.updateMany({ _id: { $in: t.noteIds } }, { $set: { deletedAt: null }, $unset: { deletedBy: '' } });
+  // Where it lives now: its project may have been made private or shared (or deleted) since it was trashed, and the
+  // copy in the trash keeps the placement it had then. Recompute from the project as it is now.
+  const org = await orgWide(s.orgId);
+  const project = old.projectId ? await org.projects.findOne({ _id: old.projectId }, { projection: { ownerId: 1, visibility: 1 } }) : null;
+  const place = placeIn(project, old.ownerId);
+  const restored: TaskDoc = { ...old, ...(old.projectId && !project ? { projectId: null } : {}), ...place };
+  // Someone who could not see the restored task does not get to put it back.
+  if (!canSee(s, restored)) throw new NotFoundError(`Task ${typeof key === 'number' ? '#' + key : key} is not in the trash`);
   await c.trash.deleteOne({ _id: t._id });
-  await logActivity(c, t.task, actor, 'restored');
+  // Written org-wide: the result may be private to the project's owner (who is then the restorer, see above).
+  await org.tasks.insertOne(restored);
+  if (t.activity.length) await org.activity.insertMany(t.activity.map(a => ({ ...a, ...place })));
+  if (t.noteIds?.length) {
+    await org.notes.updateMany({ _id: { $in: t.noteIds } }, { $set: { deletedAt: null }, $unset: { deletedBy: '' } });
+    await placeNotes(org, t.noteIds, place);
+  }
+  await logActivity(org, restored, actor, 'restored');
   return toTask(restored);
 }
 
@@ -581,6 +599,10 @@ export async function editComment(s: Scope, id: string, text: string, actor: Act
   const note = text.trim();
   if (!note && a.type === 'comment') throw new InputError('Comment text is empty; delete it instead.');
   await c.activity.updateOne({ _id: id }, note ? { $set: { note } } : { $unset: { note: '' } });
+  if (note) {
+    const t = await c.tasks.findOne({ _id: a.taskId });
+    if (t) await takeBackOnEdit(s, t, actor);
+  }
   return toActivity({ ...a, note: note || undefined });
 }
 
@@ -593,6 +615,12 @@ export async function deleteComment(s: Scope, id: string, actor: Actor): Promise
 }
 
 // ── Checklist ───────────────────────────────────────────────────────────────
+
+/** True when the checklist has an item text it did not have before (ticking or removing adds no new text). */
+function newChecklistText(before: ChecklistItem[], after: ChecklistItem[]): boolean {
+  const had = new Set(before.map(i => i.text));
+  return after.some(i => !had.has(i.text));
+}
 
 export type ChecklistOps = {
   add?: string[];
@@ -656,6 +684,7 @@ export async function updateChecklist(s: Scope, key: string | number, ops: Check
   const now = new Date();
   await c.tasks.updateOne({ _id: cur._id }, { $set: { checklist: items, updatedAt: now } });
   await logActivity(c, cur, actor, 'checklist', { note: notes.join('; ') });
+  if (newChecklistText(cur.checklist, items)) await takeBackOnEdit(s, cur, actor);
   return toTask({ ...cur, checklist: items, updatedAt: now });
 }
 

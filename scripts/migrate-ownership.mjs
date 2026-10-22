@@ -12,6 +12,7 @@
 //   alert log and queue
 //   actors                        'me' / 'claude' / 'claude-code' / 'discord' / 'system' → { kind, userId } (Om)
 //   Claude items waitingOnOm      → waitingText + waitingOn (Om)
+//   tasks given to Claude         claude.markedByUserId / markedByOrgId → Om / the first organization
 //   counters                      task / claudeItems → task:<orgId> / claudeItems:<orgId>, rebuilt from the highest ref
 //   settings                      notify / dispatcher / alerts / status → <area>:<Om's id>; discord → discord:<orgId>;
 //                                 authMigration gets the organization
@@ -126,6 +127,11 @@ try {
     if (legacy(t.createdBy)) set.createdBy = actor(t.createdBy, owner);
     if (legacy(t.doneBy)) set.doneBy = actor(t.doneBy, owner);
     if (t.claude && t.claude.markedBy === 'om') set['claude.markedBy'] = 'user';
+    // Marks from before per-person dispatch were Om's: only he can take them back, and only his computers claim them.
+    if (t.claude && !t.claude.markedByUserId) {
+      Object.assign(set, { 'claude.markedByUserId': owner, 'claude.markedByOrgId': orgId });
+      count('tasks given to Claude (who gave it)');
+    }
     if (Object.keys(set).length) {
       count('tasks');
       await write('tasks', { _id: t._id }, { $set: set });

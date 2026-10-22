@@ -7,9 +7,12 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-const SCANNED = ['lib/data', 'lib/mcp', 'lib/alerts.ts', 'lib/notify.ts', 'lib/discord', 'lib/status.ts', 'lib/people.ts', 'app'];
-// people.ts reads Better Auth's own collections (member, user, organization): names and memberships, no work data.
-const ALLOWED_FILES = new Set(['lib/people.ts']);
+const SCANNED = ['lib', 'app'];
+// db.ts opens the connection and defines the collections; scope.ts is the door itself.
+const SKIPPED = new Set(['lib/db.ts', 'lib/scope.ts']);
+// These read Better Auth's own collections (member, user, organization, invitation, session, account) or the auth
+// rate-limit log: sign-in, roles and memberships, no work data; each query is keyed by the caller's id or organization.
+const ALLOWED_FILES = new Set(['lib/people.ts', 'lib/auth-server.ts', 'lib/auth-limits.ts', 'lib/caller.ts', 'lib/fresh.ts', 'lib/members.ts']);
 const RAW = /\b(collections|getDb|getClient)\s*\(|\.collection\s*[<(]/;
 
 function* files(p) {
@@ -23,7 +26,7 @@ export function scopeViolations() {
   for (const top of SCANNED) {
     for (const f of files(join(ROOT, top))) {
       const rel = relative(ROOT, f).split('\\').join('/');
-      if (ALLOWED_FILES.has(rel)) continue;
+      if (ALLOWED_FILES.has(rel) || SKIPPED.has(rel)) continue;
       readFileSync(f, 'utf8')
         .split(/\r?\n/)
         .forEach((line, i) => {

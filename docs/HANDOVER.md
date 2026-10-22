@@ -41,6 +41,7 @@ All configuration is in Vercel → Project → Settings → Environment Variable
 | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `DISCORD_OWNER_ID` | Discord bot and the Delpat server | for Discord |
 | `DISCORD_BLOCKED_CHANNELS` | extra channel ids never to read (comma-separated); normally managed in Settings › Connections › Discord instead | optional |
 | `CRON_SECRET` | protects the alert check endpoint | for alerts |
+| `OPERATOR_EMAILS` | who runs the deployment (comma list): health, Discord registration, Settings › Usage, the built-in schedule (`lib/operator.ts`) | yes (Om's email) |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | keys for phone push (a `mailto:` address for the subject). **Must be added on Vercel**; copy the values from `.env.local`. Without them push is off and Settings → Status says so | for phone push |
 | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | SMTP for "Forgot password?" links, invitations, password-change emails and the Settings test email. `EMAIL_SECURE=true` = TLS from the start (port 465); otherwise STARTTLS is required. **Must be added on Vercel**; copy the values from `.env.local` | for password reset |
 | `OWNER_EMAIL`, `OWNER_NAME` | used only by `scripts/migrate-auth.mjs` (the first user) | for the migration |

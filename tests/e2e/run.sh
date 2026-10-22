@@ -103,6 +103,8 @@ export AUTH_RATE_LIMIT=off
 # Mail is written as JSON files here instead of being sent (lib/mail.ts); the auth suite reads reset links from it.
 export MAIL_CAPTURE_DIR="$TMP/mail" E2E_STATE="$TMP/state.json"
 export CRON_SECRET=testcron-e2e-0123456789abcdef
+# The e2e owner runs the deployment (lib/operator.ts): health, Discord registration, Usage, the schedule.
+export OPERATOR_EMAILS=e2e-owner@example.test
 export APP_TZ=Asia/Kolkata NEXT_PUBLIC_APP_TZ=Asia/Kolkata
 export APP_URL="http://localhost:$APORT" E2E_BASE="http://localhost:$APORT"
 export E2E_MONGO_PORT=$MPORT E2E_DISCORD_PORT=$DPORT

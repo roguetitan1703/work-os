@@ -270,7 +270,11 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { taskId: 1, at: -1 }, name: 'task_at' },
       { key: { orgId: 1, at: -1 }, name: 'org_at' },
     ]],
-    ['projects', [{ key: { orgId: 1, nameLower: 1 }, unique: true, name: 'org_name_unique' }]],
+    ['projects', [
+      // Names: one per organization among shared projects, one per owner among private ones (docs/multi-user.md).
+      { key: { orgId: 1, nameLower: 1 }, unique: true, name: 'org_shared_name_unique', partialFilterExpression: { visibility: 'org' } },
+      { key: { orgId: 1, ownerId: 1, nameLower: 1 }, unique: true, name: 'owner_private_name_unique', partialFilterExpression: { visibility: 'private' } },
+    ]],
     ['ritualLogs', [{ key: { orgId: 1, ownerId: 1, date: 1 }, unique: true, name: 'owner_date_unique' }]],
     ['alertLog', [{ key: { taskId: 1 }, name: 'task' }, { key: { sentAt: 1 }, name: 'sentAt' }]],
     ['alertQueue', [{ key: { sentAt: 1 }, name: 'sentAt' }, { key: { orgId: 1, sentAt: 1 }, name: 'org_sentAt' }]],
@@ -301,10 +305,11 @@ const INDEXES: [string, IndexDescription[]][] = [
 
 /**
  * Indexes replaced by the per-organization ones above (phase 2): a global unique ref or name would refuse the second
- * organization's #1. Dropped when the index list changes (scripts/migrate-ownership.mjs drops them too).
+ * organization's #1, and one name per organization would tell people the names of others' private projects. The app
+ * drops them when the index list changes (ensureIndexes).
  */
 const OBSOLETE: [string, string][] = [
-  ['tasks', 'ref_unique'], ['tasks', 'status_due'], ['claudeItems', 'ref_unique'], ['projects', 'name_unique'], ['ritualLogs', 'date_unique'],
+  ['tasks', 'ref_unique'], ['tasks', 'status_due'], ['claudeItems', 'ref_unique'], ['projects', 'name_unique'], ['projects', 'org_name_unique'], ['ritualLogs', 'date_unique'],
   ['activity', 'at'], ['notes', 'updated'], ['trash', 'ref'], ['notifications', 'created'], ['notifications', 'read'],
 ];
 

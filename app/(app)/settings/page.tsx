@@ -5,6 +5,7 @@ import { logoutAction } from '@/app/actions';
 import { headers } from 'next/headers';
 import { getAuth, idIn } from '@/lib/auth-server';
 import { requireCaller } from '@/lib/caller';
+import { isOperator } from '@/lib/operator';
 import { getDb } from '@/lib/db';
 import { listMembers } from '@/lib/members';
 import { mailConfigured, missingMailEnv } from '@/lib/mail';
@@ -45,7 +46,11 @@ type Props = { searchParams: Promise<{ section?: string; open?: string; range?: 
  */
 export default async function SettingsPage({ searchParams }: Props) {
   const sp = await searchParams;
-  const sec = sectionFrom(sp.section);
+  // Usage is the deployment's request log: the operator's only (lib/operator.ts).
+  const operator = isOperator(await requireCaller());
+  const sections = SECTIONS.filter(s => s.id !== 'usage' || operator);
+  const asked = sectionFrom(sp.section);
+  const sec = asked === 'usage' && !operator ? null : asked;
   const active: SectionId = sec ?? 'device';
   const title = sec ? SECTIONS.find(s => s.id === sec)!.label : 'Settings';
   const body: Record<SectionId, () => React.ReactNode> = {
@@ -71,7 +76,7 @@ export default async function SettingsPage({ searchParams }: Props) {
       <div className="md:grid md:grid-cols-[11rem_minmax(0,1fr)] md:gap-8 md:mt-5">
         <nav aria-label="Settings sections" className="hidden md:block">
           <ul className="sticky top-4 space-y-1">
-            {SECTIONS.map(s => (
+            {sections.map(s => (
               <li key={s.id}>
                 <Link
                   href={`/settings?section=${s.id}`}
@@ -92,7 +97,7 @@ export default async function SettingsPage({ searchParams }: Props) {
 
         <div className="min-w-0 max-w-xl">
           {body[active]()}
-          {!sec && <PhoneRows />}
+          {!sec && <PhoneRows operator={operator} />}
         </div>
       </div>
     </div>
@@ -146,7 +151,7 @@ async function MembersPanel() {
 }
 
 /** Phone overview rows, one per section after This device. */
-async function PhoneRows() {
+async function PhoneRows({ operator }: { operator: boolean }) {
   const caller = await requireCaller();
   const [prefs, memberCount] = await Promise.all([getNotifySettings(caller), getDb().then(db => db.collection('member').countDocuments({ organizationId: idIn(caller.orgId) })).catch(() => null)]); // scope-ok: Better Auth members of the caller's organization
   const on = NOTIFY_KINDS.filter(k => prefs.kinds[k.kind]).length;
@@ -155,7 +160,7 @@ async function PhoneRows() {
     { id: 'security', label: 'Security', hint: caller.email },
     { id: 'members', label: 'Members', hint: memberCount ? `${memberCount}` : '' },
     { id: 'connections', label: 'Connections', hint: `Discord ${discordConfig() ? '✓' : '✗'}` },
-    { id: 'usage', label: 'Usage', hint: 'Requests' },
+    ...(operator ? [{ id: 'usage', label: 'Usage', hint: 'Requests' }] : []),
     { id: 'help', label: 'Help and recovery', hint: '' },
   ];
   return (

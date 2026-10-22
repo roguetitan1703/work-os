@@ -2,7 +2,7 @@ import 'server-only';
 import { ZodError } from 'zod';
 import { inTransaction } from '../db';
 import type { Scope } from '../scope';
-import type { Actor, CodeLocation, Task, TaskInput, TaskPatch } from '../types';
+import type { Actor, CodeLocation, Task, TaskInput, TaskPatch, Visibility } from '../types';
 import { InputError, NotFoundError } from './errors';
 import * as tasks from './tasks';
 import * as projects from './projects';
@@ -30,8 +30,8 @@ export type BatchOp =
   | { op: 'restore_task'; task: Key }
   | ({ op: 'write_note'; note_id?: string; task?: Key; project?: string; parent_id?: string; block_ops?: notes.BlockOp[] } & Omit<notes.NoteWrite, 'noteId' | 'task' | 'project' | 'parentId' | 'blockOps' | 'blocks'>)
   | { op: 'delete_note'; note_id: string; title: string }
-  | { op: 'add_project'; name: string; client?: string; description?: string; status?: 'active' | 'paused' | 'done' | 'archived'; code?: CodeLocation[] | null }
-  | { op: 'update_project'; project: string; name?: string; client?: string; description?: string; status?: 'active' | 'paused' | 'done' | 'archived'; code?: CodeLocation[] | null };
+  | { op: 'add_project'; name: string; client?: string; description?: string; status?: 'active' | 'paused' | 'done' | 'archived'; visibility?: Visibility; code?: CodeLocation[] | null }
+  | { op: 'update_project'; project: string; name?: string; client?: string; description?: string; status?: 'active' | 'paused' | 'done' | 'archived'; visibility?: Visibility; code?: CodeLocation[] | null };
 
 export type OpResult = { i: number; op: BatchOp['op']; ok: true; ref?: number; title?: string; detail?: string };
 
@@ -141,7 +141,7 @@ export async function applyChanges(s: Scope, ops: BatchOp[], actor: Actor, opts:
             break;
           }
           case 'add_project': {
-            const r = await projects.createProject(s, { name: o.name, client: o.client, description: o.description, status: o.status, code: o.code });
+            const r = await projects.createProject(s, { name: o.name, client: o.client, description: o.description, status: o.status, visibility: o.visibility, code: o.code });
             done(i, o.op, undefined, `${r.project.name}${r.created ? '' : ' (already existed)'}`);
             break;
           }
