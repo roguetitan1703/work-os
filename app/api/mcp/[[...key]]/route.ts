@@ -23,18 +23,18 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ key?: string[] }> };
-type Authorized = Caller & { userId: string };
+type Authorized = Caller & { userId: string; tz: string };
 
 async function authorize(req: Request, ctx: Ctx): Promise<Authorized | null> {
   const { key } = await ctx.params;
   if (key?.length) {
     if (key.length !== 1 || !urlTokenAllowed()) return null;
     const c = await verifyKey(key[0]);
-    return c?.key?.agent === 'claude' ? { agent: 'claude', keyId: c.key.id, keyName: c.key.name, userId: c.userId, orgId: c.orgId } : null;
+    return c?.key?.agent === 'claude' ? { agent: 'claude', keyId: c.key.id, keyName: c.key.name, userId: c.userId, orgId: c.orgId, tz: c.tz } : null;
   }
   const c = await verifyKey(bearerToken(req));
   if (!c?.key) return null;
-  return { agent: c.key.agent, keyId: c.key.id, keyName: c.key.name, userId: c.userId, orgId: c.orgId };
+  return { agent: c.key.agent, keyId: c.key.id, keyName: c.key.name, userId: c.userId, orgId: c.orgId, tz: c.tz };
 }
 
 function baseUrl(req: Request): string {
@@ -47,7 +47,7 @@ async function handle(req: Request, ctx: Ctx): Promise<Response> {
     return Response.json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized' }, id: null }, { status: 401 });
   }
   const base = baseUrl(req);
-  const { server, release } = acquireMcpServer(base, caller);
+  const { server, release } = await acquireMcpServer(base, caller);
   const scope = { userId: caller.userId, orgId: caller.orgId };
   after(() => Promise.all([flushQueuedAlerts(scope, base), caller.agent === 'claude' ? markSeen(scope, 'mcp') : undefined]));
   const transport = new WebStandardStreamableHTTPServerTransport({
@@ -57,8 +57,8 @@ async function handle(req: Request, ctx: Ctx): Promise<Response> {
   await server.connect(transport);
   const rc: RequestContext =
     caller.agent === 'claude-code'
-      ? { userId: caller.userId, session: sessionHeader(req.headers.get('x-work-os-session')), repo: repoHeader(req.headers.get('x-work-os-repo')) }
-      : { userId: caller.userId };
+      ? { userId: caller.userId, tz: caller.tz, session: sessionHeader(req.headers.get('x-work-os-session')), repo: repoHeader(req.headers.get('x-work-os-repo')) }
+      : { userId: caller.userId, tz: caller.tz };
   try {
     return await runWithRequestContext(rc, () => transport.handleRequest(req));
   } finally {

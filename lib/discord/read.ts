@@ -1,5 +1,5 @@
 import 'server-only';
-import { previousWorkdayStart, APP_TZ } from '../dates';
+import { currentTz, previousWorkdayStart } from '../dates';
 import { InputError, NotFoundError } from '../data/errors';
 import {
   CONTENT_INTENT_WARNING,
@@ -10,6 +10,7 @@ import {
   fetchMessages,
   findChannel,
   guildContext,
+  type DiscordLink,
   looksContentless,
   mapWithBudget,
   mentionsBot,
@@ -29,7 +30,7 @@ import { taskFromMessage, type MessageTaskOverrides, type MessageTaskResult } fr
 import type { Actor } from '../types';
 import type { Scope } from '../scope';
 
-// Read-only views of the Discord server for the MCP tools. Many channels are handled by
+// Read-only views of the Discord server for the MCP tools, as one person sees it (link: lib/profile.ts discordLinkOf). Many channels are handled by
 // activity filtering: last_message_id (a snowflake) says when each channel/thread last moved,
 // so only channels active since the cutoff are read.
 
@@ -39,8 +40,8 @@ const where = (c: ChannelInfo) => (c.isThread && c.parentName ? `#${c.parentName
 
 // ── discord_list_channels ───────────────────────────────────────────────────
 
-export async function listChannels(opts: { activeSince?: Date; includeThreads?: boolean } = {}) {
-  const ctx = await guildContext();
+export async function listChannels(link: DiscordLink, opts: { activeSince?: Date; includeThreads?: boolean } = {}) {
+  const ctx = await guildContext(link);
   const since = opts.activeSince?.toISOString();
   const rows = ctx.channels
     .filter(c => opts.includeThreads !== false || !c.isThread)
@@ -55,7 +56,7 @@ export async function listChannels(opts: { activeSince?: Date; includeThreads?: 
     url: c.url,
   });
   return {
-    timezone: APP_TZ,
+    timezone: currentTz(),
     ...(since ? { activeSince: since } : {}),
     count: rows.filter(c => c.canRead).length,
     channels: rows.filter(c => c.canRead).map(shape),
@@ -67,7 +68,7 @@ export async function listChannels(opts: { activeSince?: Date; includeThreads?: 
 
 // ── discord_read_messages ───────────────────────────────────────────────────
 
-export async function readMessages(q: {
+export async function readMessages(link: DiscordLink, q: {
   channel: string;
   since?: Date;
   before?: string;
@@ -75,7 +76,7 @@ export async function readMessages(q: {
   around?: string;
   limit?: number;
 }) {
-  const ctx = await guildContext();
+  const ctx = await guildContext(link);
   const ch = findChannel(ctx, q.channel);
   const channelId = ch?.id ?? q.channel.match(/channels\/\d+\/(\d+)/)?.[1] ?? (/^\d{15,22}$/.test(q.channel.trim()) ? q.channel.trim() : null);
   if (!channelId) throw new NotFoundError(`No channel or thread matches "${q.channel}". Use discord_list_channels to see names.`);
@@ -135,8 +136,8 @@ function item(ctx: GuildContext, m: RawMessage, reasons: string[], handled: bool
   };
 }
 
-export async function needsAttention(opts: { since?: Date; maxChannels?: number } = {}) {
-  const ctx = await guildContext();
+export async function needsAttention(link: DiscordLink, opts: { since?: Date; maxChannels?: number } = {}) {
+  const ctx = await guildContext(link);
   const since = opts.since ?? previousWorkdayStart();
   const sinceIso = since.toISOString();
   const maxChannels = Math.min(Math.max(opts.maxChannels ?? 25, 1), 50);
@@ -225,7 +226,7 @@ export async function needsAttention(opts: { since?: Date; maxChannels?: number 
 
   return {
     since: sinceIso,
-    timezone: APP_TZ,
+    timezone: currentTz(),
     flaggedForLater: flagged,
     needsYou,
     activeThreadsYouAreIn: myThreads,
@@ -246,11 +247,12 @@ export async function needsAttention(opts: { since?: Date; maxChannels?: number 
 
 export async function messageToTask(
   s: Scope,
+  link: DiscordLink,
   ref: { link?: string; channel?: string; messageId?: string },
   overrides: MessageTaskOverrides,
   actor: Actor,
 ): Promise<MessageTaskResult & { message: { url: string; author: string; at: string } }> {
-  const ctx = await guildContext();
+  const ctx = await guildContext(link);
   let channelId: string | undefined;
   let messageId = ref.messageId;
   if (ref.link) {

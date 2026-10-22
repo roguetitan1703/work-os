@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { AlertTriangle, Check } from 'lucide-react';
 import { completeTaskAction } from '@/app/actions';
 import { buildDayPlan } from '@/lib/day-plan';
-import { getBlockColor } from '@/lib/modes';
+import { useApp, useModes } from '@/components/app-context';
 import { fmtMins } from '@/lib/format';
 import type { Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -14,7 +14,9 @@ import { BottomSheet } from './sheet';
 
 /** Phone Day Plan: same plan as desktop (buildDayPlan), laid out as a scrollable bottom sheet. */
 export function MobileDayPlan({ open, onClose, allTasks, weekday }: { open: boolean; onClose: () => void; allTasks: Task[]; weekday: 'mon' | 'tue' | 'wed' | 'thu' | 'fri' }) {
-  const plan = useMemo(() => buildDayPlan(allTasks, weekday), [allTasks, weekday]);
+  const { plan: week } = useApp();
+  const { color: colorOf } = useModes();
+  const plan = useMemo(() => buildDayPlan(allTasks, weekday, week), [allTasks, weekday, week]);
   const router = useRouter();
   const [, start] = useTransition();
   if (!open) return null;
@@ -51,7 +53,7 @@ export function MobileDayPlan({ open, onClose, allTasks, weekday }: { open: bool
         <p className="py-10 text-center text-sm text-muted-foreground">No tasks scheduled. Add tasks with modes that match your schedule blocks.</p>
       ) : (
         slots.map((slot, si) => {
-          const color = getBlockColor(slot.modeName);
+          const color = colorOf(slot.modeName);
           const pct = Math.min(100, Math.round((slot.usedMins / slot.slotMins) * 100));
           return (
             <section key={si} className="mt-4">

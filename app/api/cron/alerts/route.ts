@@ -3,6 +3,8 @@ import { pruneAlertLog, recordRun, runAlerts, type AlertItem } from '@/lib/alert
 import { reconcileDispatched } from '@/lib/data/dispatcher';
 import { pruneInbox } from '@/lib/notify';
 import { allMemberships } from '@/lib/people';
+import { timezoneOf } from '@/lib/profile';
+import { runWithRequestContext } from '@/lib/request-context';
 
 // Alert check, called every 15 minutes by an external scheduler (cron-job.org).
 //   GET/POST /api/cron/alerts   Authorization: Bearer <CRON_SECRET>   (or ?key=<CRON_SECRET>)
@@ -39,9 +41,13 @@ async function handle(req: Request) {
   const messages: string[] = [];
   const errors: string[] = [];
   for (const s of await allMemberships()) {
-    // Task dispatcher: requeue a claim that never started, stop one whose computer went silent (docs/dispatcher.md). Their alerts go out in the run below.
-    if (!dry) await reconcileDispatched(s, at).catch(e => console.error('[dispatcher] reconcile failed', e instanceof Error ? e.message : e));
-    const r = await runAlerts(s, { dryRun: dry, baseUrl, now: at }).catch(e => ({ quiet: false, dryRun: dry, sent: 0, messages: [], items: [], error: e instanceof Error ? e.message : String(e) }));
+    // Each person in their own timezone ("today", alert hours, quiet hours).
+    const tz = await timezoneOf(s).catch(() => undefined);
+    const r = await runWithRequestContext({ userId: s.userId, tz }, async () => {
+      // Task dispatcher: requeue a claim that never started, stop one whose computer went silent (docs/dispatcher.md). Their alerts go out in the run below.
+      if (!dry) await reconcileDispatched(s, at).catch(e => console.error('[dispatcher] reconcile failed', e instanceof Error ? e.message : e));
+      return runAlerts(s, { dryRun: dry, baseUrl, now: at }).catch(e => ({ quiet: false, dryRun: dry, sent: 0, messages: [] as string[], items: [] as AlertItem[], error: e instanceof Error ? e.message : String(e) }));
+    });
     quiet ||= r.quiet;
     sent += r.sent;
     items.push(...r.items);

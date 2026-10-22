@@ -1,4 +1,3 @@
-import { MODES } from '@/lib/modes';
 
 export type Place = 'today' | 'tasks' | 'projects' | 'notes' | 'claude' | 'inbox' | 'review' | 'schedule' | 'settings' | 'menu';
 
@@ -28,7 +27,8 @@ export function phoneTabOf(path: string): 'today' | 'projects' | 'claude' | 'tas
 }
 
 export const modeHref = (name: string) => `/tasks?mode=${encodeURIComponent(name)}`;
-export const MODE_LINKS = MODES.map(m => ({ name: m.name, hex: m.hex, href: modeHref(m.name) }));
+/** Sidebar and Menu links, one per organization mode. */
+export const modeLinks = (modes: readonly { name: string; hex: string }[]) => modes.map(m => ({ name: m.name, hex: m.hex, href: modeHref(m.name) }));
 
 /** Current URL with ?start=1 added (opens the global Start Claude modal). Client only. */
 export function startClaudeUrl(): string {

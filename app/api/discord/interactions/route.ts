@@ -2,12 +2,15 @@ import { after, NextResponse } from 'next/server';
 import { discordConfig } from '@/lib/discord/client';
 import { flushQueuedAlerts } from '@/lib/alerts';
 import { markSeen } from '@/lib/notify';
-import { discordScope } from '@/lib/people';
-import { editOriginal, errorText, handleInteraction, InteractionType, notAvailable, type Interaction } from '@/lib/discord/commands';
+import { discordUser, timezoneOf } from '@/lib/profile';
+import { runWithRequestContext } from '@/lib/request-context';
+import { editOriginal, errorText, handleInteraction, InteractionType, linkAccount, NOT_LINKED, notAvailable, type Interaction } from '@/lib/discord/commands';
 
 // Discord HTTP interactions endpoint (set as "Interactions Endpoint URL" in the Developer Portal).
-// Authenticated by Discord's Ed25519 signature, not by the app's proxy. Only the owner, in the
-// configured guild, gets anything back. Work runs in after() and edits the deferred response.
+// Authenticated by Discord's Ed25519 signature, not by the app's proxy. The server it came from picks the organization
+// (discord:<orgId>.guildId); the sender must have linked their Discord account there (/link, lib/profile.ts) and still
+// be a member, and everything then acts as them, in their timezone. Anyone else gets "not linked". Work runs in after()
+// and edits the deferred response.
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -63,19 +66,22 @@ export async function POST(req: Request) {
   if (i.type === InteractionType.PING) return NextResponse.json({ type: 1 });
 
   const cfg = discordConfig();
-  const userId = i.member?.user?.id ?? i.user?.id;
-  if (!cfg || !userId || userId !== cfg.ownerId || i.guild_id !== cfg.guildId) return NextResponse.json(notAvailable(i));
+  const guildId = i.guild_id;
+  const discordId = i.member?.user?.id; // only in a server (commands are registered per server)
+  if (!cfg || !guildId || !discordId) return NextResponse.json(notAvailable(i));
+  if (i.type === InteractionType.COMMAND && i.data?.name === 'link') return NextResponse.json(await linkAccount(i));
 
-  // The Work OS user the bot acts for; nobody linked (no organization yet) = nothing to act as.
-  const s = await discordScope();
-  if (!s) return NextResponse.json(notAvailable(i));
+  // The Work OS person this Discord account is linked to, in the organization that owns the server.
+  const s = await discordUser(guildId, discordId);
+  if (!s) return NextResponse.json(notAvailable(i, NOT_LINKED));
+  const ctx = { userId: s.userId, tz: await timezoneOf(s) };
   const baseUrl = (process.env.APP_URL || new URL(req.url).origin).replace(/\/+$/, '');
-  const plan = await handleInteraction(i, { baseUrl, s });
+  const plan = await runWithRequestContext(ctx, () => handleInteraction(i, { baseUrl, s, link: { orgId: s.orgId, guildId, discordId } }));
 
   if (plan.work) {
     const work = plan.work;
     const appId = cfg.appId || i.application_id;
-    after(async () => {
+    after(() => runWithRequestContext(ctx, async () => {
       let reply;
       try {
         reply = await work();
@@ -89,7 +95,7 @@ export async function POST(req: Request) {
       } catch (err) {
         console.error('[discord] edit original failed:', err instanceof Error ? err.message : String(err));
       }
-    });
+    }));
   }
   return NextResponse.json(plan.response);
 }

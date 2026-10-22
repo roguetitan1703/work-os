@@ -17,7 +17,7 @@ import {
 import { sendDm } from '@/lib/alerts';
 import { discordConfig } from '@/lib/discord/client';
 import { asCaller } from '@/lib/caller';
-import { isDiscordUser } from '@/lib/people';
+import { getProfile } from '@/lib/profile';
 
 // Every action requires a signed-in caller (lib/caller.ts); proxy.ts is only the first gate.
 
@@ -70,10 +70,11 @@ export async function testNotificationAction(): Promise<R> {
       const r = await sendPush(c, { title: 'Work OS', body: 'Test notification: it works.', url: '/notifications', tag: 'test' });
       parts.push(r.error ? `phone: ${r.error}` : `phone: ${r.sent} device${r.sent === 1 ? '' : 's'}`);
     }
-    // The Discord DM goes to the linked account only (lib/people.ts discordScope).
-    if (s.channels.discord && discordConfig() && (await isDiscordUser(c))) {
+    // The Discord DM goes to the caller's own linked account (lib/profile.ts).
+    const discordId = (await getProfile(c)).discordId;
+    if (s.channels.discord && discordConfig() && discordId) {
       try {
-        await sendDm('🔔 Test notification from Work OS: it works.');
+        await sendDm(discordId, '🔔 Test notification from Work OS: it works.');
         parts.push('Discord ✓');
       } catch (e) {
         parts.push(`Discord: ${e instanceof Error ? e.message : e}`);

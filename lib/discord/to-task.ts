@@ -3,6 +3,7 @@ import { createTask, findTaskBySourceMessage } from '../data/tasks';
 import { listProjectsBasic } from '../data/projects';
 import { resolveDate, todayStr, addDays } from '../dates';
 import { matchMode } from '../quick-parse';
+import { getOrgModes } from '../org-modes';
 import type { Actor, Mode, Priority, Task, TaskSource } from '../types';
 import type { Scope } from '../scope';
 import { authorName, excerpt, jumpLink, type ChannelInfo, type RawMessage } from './client';
@@ -72,10 +73,12 @@ const MODE_HINTS: [RegExp, Mode][] = [
   [/\b(admin|finance|invoices?|expenses?|accounts|billing|legal|hr)\b/, 'Business Admin'],
 ];
 
-function guessMode(channel: string): Mode | null {
-  const s = channel.toLowerCase().replace(/[-_]/g, ' ');
-  for (const [re, mode] of MODE_HINTS) if (re.test(s)) return mode;
-  return matchMode(s.split(' ')[0]) ?? null;
+/** A mode from the channel's name: hints for the default modes the organization has, else the start of a mode's name. */
+async function guessMode(s: Scope, channel: string): Promise<Mode | null> {
+  const modes = await getOrgModes(s.orgId);
+  const text = channel.toLowerCase().replace(/[-_]/g, ' ');
+  for (const [re, mode] of MODE_HINTS) if (re.test(text) && modes.some(m => m.name === mode)) return mode;
+  return matchMode(text.split(' ')[0], modes) ?? null;
 }
 
 async function guessProject(s: Scope, channel: ChannelInfo | undefined, text: string): Promise<string | null> {
@@ -123,7 +126,7 @@ export async function taskFromMessage(
       title: overrides.title?.trim() || draftTitle(text),
       description: `From Discord, ${author} in ${where} (${m.timestamp.slice(0, 10)}):\n\n${quote}${replyCtx}${files}\n\n${url}`,
       project: overrides.project !== undefined ? overrides.project : await guessProject(s, ctx.channel, text),
-      mode: overrides.mode !== undefined ? overrides.mode : guessMode(`${channelName} ${ctx.channel?.parentName ?? ''} ${ctx.channel?.category ?? ''}`),
+      mode: overrides.mode !== undefined ? overrides.mode : await guessMode(s, `${channelName} ${ctx.channel?.parentName ?? ''} ${ctx.channel?.category ?? ''}`),
       priority: overrides.priority ?? 'P2',
       due: overrides.due !== undefined ? overrides.due : explicitDue(text),
       links: [{ url, label: `Discord: ${where}` }],

@@ -6,10 +6,9 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { ListChecks } from 'lucide-react';
 import { updateTaskAction } from '@/app/actions';
-import { useApp } from '@/components/app-context';
+import { useApp, useModes } from '@/components/app-context';
 import { QuickAddBar } from '@/components/quick-add';
 import { PrioritySelect } from '@/components/inline-selects';
-import { getBlockColor, MODES } from '@/lib/modes';
 import { fmtDue, PRIORITY_TEXT } from '@/lib/format';
 import type { Status, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -33,6 +32,7 @@ type Props = {
 
 export function BoardClient({ tasks, projects, filters, focusSearch = false }: Props) {
   const searchBox = useRef<HTMLInputElement>(null);
+  const { modes, color } = useModes();
   useEffect(() => {
     if (focusSearch) searchBox.current?.focus();
   }, [focusSearch]);
@@ -86,7 +86,7 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false }: P
           </select>
           <select className={sel} value={filters.mode} onChange={e => setFilter('mode', e.target.value)}>
             <option value="">All modes</option>
-            {MODES.map(m => (
+            {modes.map(m => (
               <option key={m.name}>{m.name}</option>
             ))}
           </select>
@@ -143,6 +143,7 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false }: P
 
 function Card({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
   const { today, projectName } = useApp();
+  const { modes, color } = useModes();
   const [, start] = useTransition();
   const closed = task.status === 'Done' || task.status === 'Dropped';
   const overdue = !!task.due && task.due < today && !closed;
@@ -152,7 +153,7 @@ function Card({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
       draggable
       onDragStart={onDragStart}
       className="rounded-lg border border-border bg-card p-2.5 space-y-1.5 cursor-grab active:cursor-grabbing shadow-xs"
-      style={task.mode ? { borderLeft: `3px solid ${getBlockColor(task.mode).hex}` } : undefined}
+      style={task.mode ? { borderLeft: `3px solid ${color(task.mode).hex}` } : undefined}
     >
       <div className="flex items-start gap-1.5">
         <Link href={`/tasks/${task.ref}`} className={cn('text-sm leading-snug flex-1 hover:underline', closed && 'line-through text-muted-foreground')}>

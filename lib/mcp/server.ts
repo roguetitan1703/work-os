@@ -9,12 +9,13 @@ import { getProjectTree } from '../data/tree';
 import * as notesData from '../data/notes';
 import * as items from '../data/claude-items';
 import { InputError, NotFoundError } from '../data/errors';
-import { CLAUDE_CODE_INSTRUCTIONS, INSTRUCTIONS, TOOLS, type ToolName } from './docs';
+import { claudeCodeInstructions, instructions as instructionsFor, TOOLS, type InstructionsFor, type ToolName } from './docs';
 import { beforeTool, callerScope, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
 import { actorOut, agentActor } from '../actors';
-import { findMember, isDiscordUser, memberNames } from '../people';
+import { findMember, memberNames } from '../people';
+import { discordLinkOf } from '../profile';
 import * as discord from '../discord/read';
-import { BlockedChannelError, DiscordError } from '../discord/client';
+import { BlockedChannelError, DiscordError, NotVisibleError } from '../discord/client';
 import { describeActivity } from '../activity-text';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
 import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, VisibilitySchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
@@ -23,7 +24,8 @@ import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, Rec
  * caller: who is calling (a Claude chat key → agent "claude"; a Claude Code key → agent "claude-code"; lib/api-keys.ts).
  * The server acts for the key's owner in the key's organization: every data call gets their scope.
  */
-type Ctx = { baseUrl: string; caller: Caller };
+/** who: the key owner's name and their organization's modes, for the server instructions (lib/mcp/pool.ts reads them). */
+type Ctx = { baseUrl: string; caller: Caller; who: InstructionsFor };
 const sOf = (ctx: Ctx) => callerScope(ctx.caller);
 /** "by" fields: 'me' / 'claude' / 'claude-code' / … for the key's owner, a name for anyone else (lib/actors.ts actorOut). */
 async function byOf(ctx: Ctx): Promise<(a: unknown) => string> {
@@ -45,7 +47,7 @@ function handler<A>(fn: (args: A) => Promise<unknown>) {
       return ok(await fn(args));
     } catch (err) {
       if (err instanceof ZodError) return fail(err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '));
-      if (err instanceof InputError || err instanceof NotFoundError || err instanceof DiscordError || err instanceof BlockedChannelError) return fail(err.message);
+      if (err instanceof InputError || err instanceof NotFoundError || err instanceof DiscordError || err instanceof BlockedChannelError || err instanceof NotVisibleError) return fail(err.message);
       console.error('[mcp]', err);
       return fail('Internal error');
     }
@@ -219,11 +221,15 @@ export function createMcpServer(ctx: Ctx): McpServer {
     const people = await memberNames(s.orgId);
     return (id: string) => (id === s.userId ? 'me' : people[id] || 'another member');
   };
-  /** Discord is linked to one person (lib/people.ts discordScope): its tools are theirs only. */
+  /** Discord tools read the organization's server as the key's owner sees it: they need their account linked. */
   const discordGate = async () => {
-    if (!(await isDiscordUser(s))) throw new InputError('Discord is linked to another person in Work OS; its tools are not available with your key.');
+    const link = await discordLinkOf(s);
+    if (!link) throw new InputError('Your organization has no Discord server connected to Work OS.');
+    if (!link.discordId) throw new InputError('Link your Discord account first: Work OS Settings › Connections, then /link <code> on the server.');
+    return link;
   };
-  const instructions = caller.agent === 'claude-code' ? `${INSTRUCTIONS}\n${CLAUDE_CODE_INSTRUCTIONS}` : INSTRUCTIONS;
+  const base = instructionsFor(ctx.who);
+  const instructions = caller.agent === 'claude-code' ? `${base}\n${claudeCodeInstructions(ctx.who)}` : base;
   const server = new McpServer({ name: 'work-os', version: '1.0.0' }, { instructions });
   // Title/description come from docs.ts so the /connect page shows exactly what Claude sees.
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
@@ -626,7 +632,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
           return {
             unmatched: true,
             candidates: m.candidates,
-            hint: 'No project has this repo as a code location. Ask Om which project this is, then call update_project with code: [{ remote, subdir?, branch? }] (or path) so it resolves next time.',
+            hint: 'No project has this repo as a code location. Ask the user which project this is, then call update_project with code: [{ remote, subdir?, branch? }] (or path) so it resolves next time.',
           };
         }
         projectKey = m.project.id;
@@ -898,7 +904,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    handler(async a => (await discordGate(), discord.needsAttention({ since: parseSince(a.since), maxChannels: a.max_channels }))),
+    handler(async a => discord.needsAttention(await discordGate(), { since: parseSince(a.since), maxChannels: a.max_channels })),
   );
 
   tool(
@@ -910,7 +916,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    handler(async a => (await discordGate(), discord.listChannels({ activeSince: parseSince(a.active_since), includeThreads: a.include_threads }))),
+    handler(async a => discord.listChannels(await discordGate(), { activeSince: parseSince(a.active_since), includeThreads: a.include_threads })),
   );
 
   tool(
@@ -927,8 +933,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     handler(async a => {
-      await discordGate();
-      return discord.readMessages({ channel: a.channel, since: parseSince(a.since), before: a.before, after: a.after, around: a.around, limit: a.limit });
+      return discord.readMessages(await discordGate(), { channel: a.channel, since: parseSince(a.since), before: a.before, after: a.after, around: a.around, limit: a.limit });
     }),
   );
 
@@ -949,9 +954,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handler(async a => {
-      await discordGate();
+      const link = await discordGate();
       const r = await discord.messageToTask(
         s,
+        link,
         { link: a.message_link, channel: a.channel, messageId: a.message_id },
         { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note },
         ACTOR,

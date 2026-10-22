@@ -2,6 +2,8 @@ import 'server-only';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createMcpServer } from './server';
 import type { Caller } from './policy';
+import { memberNames } from '../people';
+import { getOrgModes } from '../org-modes';
 
 // Building the MCP server registers ~60 tools and their schemas: real CPU on every call. The SDK allows
 // one transport per server at a time (and a stateless transport serves one request), so concurrent calls
@@ -18,13 +20,16 @@ const pool = new Map<string, Idle[]>();
 
 // Every key belongs to a user in an organization (docs/auth.md): a server is never shared across users,
 // organizations or keys, so nothing one caller's server holds can reach another's request.
-function keyOf(baseUrl: string, caller: Caller): string {
-  return JSON.stringify([baseUrl, caller.agent, caller.userId, caller.orgId, caller.keyId, caller.keyName]);
+// The instructions name the key's owner and list the organization's modes, so a rename or a new mode builds new servers.
+function keyOf(baseUrl: string, caller: Caller, who: { name: string; modes: string[] }): string {
+  return JSON.stringify([baseUrl, caller.agent, caller.userId, caller.orgId, caller.keyId, caller.keyName, who.name, who.modes]);
 }
 
 /** An idle server for this caller, or a new one. Give it back with release() once its transport is closed. */
-export function acquireMcpServer(baseUrl: string, caller: Caller): { server: McpServer; release: () => Promise<void> } {
-  const key = keyOf(baseUrl, caller);
+export async function acquireMcpServer(baseUrl: string, caller: Caller): Promise<{ server: McpServer; release: () => Promise<void> }> {
+  const [people, modes] = await Promise.all([memberNames(caller.orgId), getOrgModes(caller.orgId)]);
+  const who = { name: people[caller.userId] ?? '', modes: modes.map(m => m.name) };
+  const key = keyOf(baseUrl, caller, who);
   const list = pool.get(key);
   const now = Date.now();
   let server: McpServer | undefined;
@@ -35,7 +40,7 @@ export function acquireMcpServer(baseUrl: string, caller: Caller): { server: Mcp
       break;
     }
   }
-  server ??= createMcpServer({ baseUrl, caller });
+  server ??= createMcpServer({ baseUrl, caller, who });
   const s = server;
   return {
     server: s,

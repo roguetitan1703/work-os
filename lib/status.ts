@@ -1,6 +1,7 @@
 import 'server-only';
 import { getDb } from './db';
 import { discordConfig, guildContext } from './discord/client';
+import { discordLinkOf } from './profile';
 import { lastRunStatus } from './alerts';
 import { lastSeen, pushConfigured, pushDeviceCount } from './notify';
 import { converterCheck } from './notes-convert';
@@ -38,7 +39,10 @@ export async function systemStatus(s: Scope): Promise<Check[]> {
     return { ms, first, tasks };
   }).catch((e: Error) => e);
   const [discord, alerts, seen, push, notes] = await Promise.all([
-    timed(async () => (discordConfig() ? guildContext() : null)).catch((e: Error) => e),
+    timed(async () => {
+      const link = discordConfig() ? await discordLinkOf(s) : null;
+      return link ? guildContext(link) : null;
+    }).catch((e: Error) => e),
     lastRunStatus(s).catch(() => null),
     lastSeen(s).catch(() => ({ mcp: null, discord: null })),
     pushDeviceCount(s).catch(() => 0),
@@ -76,13 +80,14 @@ export async function systemStatus(s: Scope): Promise<Check[]> {
       summary: `Connected · ${readable} channels readable`,
       detail: [
         discord.contentIntent ? null : 'Message Content Intent is OFF',
+        discord.ownerId ? null : 'your Discord account is not linked',
         discord.blocked.size ? `${discord.blocked.size} blocked as sensitive` : 'no channels blocked',
         seen.discord ? `last command ${ago(seen.discord)}` : 'no commands used yet',
       ]
         .filter(Boolean)
         .join(' · '),
     });
-  }
+  } else checks.push({ name: 'Discord bot', level: 'off', summary: 'No Discord server set for this organization' });
 
   checks.push(
     !process.env.CRON_SECRET

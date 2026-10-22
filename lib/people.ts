@@ -1,11 +1,10 @@
 import 'server-only';
 import { getDb } from './db';
 import { idIn } from './auth-server';
-import { discordConfig } from './discord/client';
 import type { Scope } from './scope';
 
 // Who is in an organization, read from Better Auth's own collections (member, user, organization). Used for names in
-// history ("Ana", "Claude Code · Ana"), the alerts cron (every membership) and the Discord link.
+// history ("Ana", "Claude Code · Ana"), the alerts cron (every membership) and Discord (a linked account must still be a member).
 
 const TTL_MS = 60_000;
 const names = new Map<string, { at: number; map: Record<string, string> }>();
@@ -34,29 +33,6 @@ export async function allMemberships(): Promise<Scope[]> {
   const db = await getDb();
   const ms = await db.collection('member').find({}, { projection: { userId: 1, organizationId: 1 } }).sort({ createdAt: 1 }).toArray();
   return ms.map(m => ({ userId: String(m.userId), orgId: String(m.organizationId) }));
-}
-
-let discordCache: { at: number; scope: Scope | null } | null = null;
-
-/**
- * The Work OS user the Discord bot acts for (docs/multi-user.md: phase 3 links each person's Discord id; until then
- * DISCORD_OWNER_ID maps to the owner of the first organization). null when Discord is not configured.
- */
-export async function discordScope(): Promise<Scope | null> {
-  if (!discordConfig()) return null;
-  if (discordCache && Date.now() - discordCache.at < TTL_MS) return discordCache.scope;
-  const db = await getDb();
-  const org = await db.collection('organization').find({}, { projection: { _id: 1 } }).sort({ createdAt: 1 }).limit(1).next();
-  const owner = org ? await db.collection('member').find({ organizationId: idIn(String(org._id)), role: 'owner' }).sort({ createdAt: 1 }).limit(1).next() : null;
-  const scope = org && owner ? { userId: String(owner.userId), orgId: String(org._id) } : null;
-  discordCache = { at: Date.now(), scope };
-  return scope;
-}
-
-/** Is this person the one the Discord bot is linked to? */
-export async function isDiscordUser(s: Scope): Promise<boolean> {
-  const d = await discordScope();
-  return !!d && d.userId === s.userId && d.orgId === s.orgId;
 }
 
 /** A member of the organization by user id or email (MCP args such as waiting_on), or null. */

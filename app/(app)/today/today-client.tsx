@@ -3,8 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { CalendarDays, ChevronDown, ChevronRight, ClipboardPaste, Flame, LayoutList, Zap } from "lucide-react";
-import type { FiverrRitualLog, Mode, Task } from "@/lib/types";
-import type { ScheduleBlock } from "@/lib/schedule";
+import type { RoutineLog, Mode, Task } from "@/lib/types";
+import type { Routine } from "@/lib/schedule";
 import { PasteImportDialog } from "@/components/paste-import";
 import { DayPlanDialog } from "@/components/day-plan-dialog";
 import { MobileImport } from "@/components/mobile/m-import";
@@ -12,7 +12,7 @@ import { MobileDayPlan } from "@/components/mobile/m-day-plan";
 import { MobileHeader } from "@/components/mobile/tab-bar";
 import { MTaskRow } from "@/components/mobile/m-task-row";
 import { Button } from "@/components/ui/button";
-import { FiverrRitualCard } from "@/components/fiverr-ritual-card";
+import { RoutineCard } from "@/components/routine-card";
 import { TaskRow } from "@/components/task-row";
 import { QuickAddBar } from "@/components/quick-add";
 import { cn } from "@/lib/utils";
@@ -23,12 +23,13 @@ type Props = {
   dayName: string;
   isNaturallyWeekend: boolean;
   weekday: Wd | null;
-  schedule: ScheduleBlock[];
   openTasks: Task[];
   waiting: Record<string, string[]>;
   noteTaskIds: string[];
   claude: ClaudeCardData | null;
-  todayRitualLog: FiverrRitualLog | null;
+  /** The person's own daily routine card (lib/schedule.ts), if they have one, and today's log of it. */
+  routine: Routine | null;
+  routineLog: RoutineLog | null;
 };
 
 type Model = ReturnType<typeof useTodayModel>;
@@ -52,7 +53,7 @@ export function TodayClient(props: Props) {
   );
 }
 
-function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, waiting, noteTaskIds, claude, todayRitualLog }: Props & { variant: Variant }) {
+function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, waiting, noteTaskIds, claude, routine, routineLog }: Props & { variant: Variant }) {
   const m = useTodayModel({ tasks: openTasks, waiting, isNaturallyWeekend, weekday });
   const phone = variant === "phone";
   const [importOpen, setImportOpen] = useState(false);
@@ -85,32 +86,39 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
             </Link>
           )}
         </Fold>
-        <Fold phone={phone} title="Routine" icon={<Flame className="w-4 h-4 text-yellow-400" />} hint={todayRitualLog ? `Fiverr ${todayRitualLog.bidsPlaced} bids` : "Fiverr not logged"}>
-          <div className="p-2 [&_input]:text-[16px] [&_input]:min-h-11 md:[&_input]:min-h-0 md:[&_input]:text-sm [&_textarea]:text-[16px] md:[&_textarea]:text-sm [&_button]:min-h-11 md:[&_button]:min-h-0">
-            <FiverrRitualCard todayLog={todayRitualLog} />
-          </div>
-        </Fold>
+        {routine && (
+          <Fold phone={phone} title="Routine" icon={<Flame className="w-4 h-4" style={{ color: routine.color }} />} hint={routineLog ? `${routine.name}: ${routineLog.count}` : `${routine.name} not logged`}>
+            <div className="p-2 [&_input]:text-[16px] [&_input]:min-h-11 md:[&_input]:min-h-0 md:[&_input]:text-sm [&_textarea]:text-[16px] md:[&_textarea]:text-sm [&_button]:min-h-11 md:[&_button]:min-h-0">
+              <RoutineCard routine={routine} todayLog={routineLog} />
+            </div>
+          </Fold>
+        )}
       </div>
     </div>
   );
 
+  // Schedule and the work/flex day switch only mean something to someone with a schedule.
   const buttons = (
     <>
-      <HeaderBtn phone={phone} onClick={() => setPlanOpen(true)} icon={<LayoutList className="w-4 h-4" />}>
-        Schedule
-      </HeaderBtn>
+      {m.hasSchedule && (
+        <HeaderBtn phone={phone} onClick={() => setPlanOpen(true)} icon={<LayoutList className="w-4 h-4" />}>
+          Schedule
+        </HeaderBtn>
+      )}
       <HeaderBtn phone={phone} onClick={() => setImportOpen(true)} icon={<ClipboardPaste className="w-4 h-4" />}>
         Import
       </HeaderBtn>
-      <HeaderBtn
-        phone={phone}
-        onClick={m.toggleFlex}
-        on={m.isFlexDay}
-        icon={<CalendarDays className="w-4 h-4" />}
-        label={m.isFlexDay ? "Flex day: switch to work day" : "Work day: switch to flex day"}
-      >
-        {m.isFlexDay ? "Flex day" : "Work day"}
-      </HeaderBtn>
+      {m.hasSchedule && (
+        <HeaderBtn
+          phone={phone}
+          onClick={m.toggleFlex}
+          on={m.isFlexDay}
+          icon={<CalendarDays className="w-4 h-4" />}
+          label={m.isFlexDay ? "Flex day: switch to work day" : "Work day: switch to flex day"}
+        >
+          {m.isFlexDay ? "Flex day" : "Work day"}
+        </HeaderBtn>
+      )}
     </>
   );
 
@@ -130,7 +138,7 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
     return (
       <div>
         <MobileHeader title="Today" subtitle={dayName} />
-        <div className="grid grid-cols-3 gap-2">{buttons}</div>
+        <div className={cn("grid gap-2", m.hasSchedule ? "grid-cols-3" : "grid-cols-1")}>{buttons}</div>
         <div className="mt-3 space-y-3">
           <NowLine m={m} row={row} />
           <ClaudeCard data={claude} />
@@ -251,6 +259,7 @@ function Fold({ phone, title, count, icon, hint, children }: { phone: boolean; t
 function NowLine({ m, row }: { m: Model; row: (t: Task) => React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const plain = "rounded-2xl border border-border/70 bg-card px-4 min-h-[52px] flex items-center text-[15px] text-muted-foreground";
+  if (!m.hasSchedule) return null;
   if (m.isFlexDay)
     return (
       <div className={plain}>
@@ -291,6 +300,7 @@ function NowLine({ m, row }: { m: Model; row: (t: Task) => React.ReactNode }) {
 /** Desktop right column: the current block (tap for its tasks) plus the next 3, and a link to the full schedule. */
 function NowNext({ m, row }: { m: Model; row: (t: Task) => React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  if (!m.hasSchedule) return null;
   return (
     <section className="rounded-lg border border-border bg-card overflow-hidden" data-section="now-next">
       <div className="flex items-center justify-between px-3 min-h-10 border-b border-border/60">

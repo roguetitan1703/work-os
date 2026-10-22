@@ -5,6 +5,7 @@ import { verifyDeviceKey } from './devices';
 import type { Scope } from './scope';
 import { InputError, NotFoundError } from './data/errors';
 import { runWithRequestContext } from './request-context';
+import { timezoneOf } from './profile';
 
 // Shared wrapper for /api/worker/* (docs/launcher.md): device keys only (wkr_…; Work OS API keys
 // are refused), body size cap, per-device rate limit, JSON errors.
@@ -49,7 +50,8 @@ export function workerRoute(fn: (device: WorkerDevice, body: unknown) => Promise
         }
       }
       const s: Scope = { userId: device.ownerId, orgId: device.orgId };
-      return NextResponse.json(await runWithRequestContext({ userId: device.ownerId }, () => fn({ id: device.id, name: device.name, s }, body)));
+      const tz = await timezoneOf(s);
+      return NextResponse.json(await runWithRequestContext({ userId: device.ownerId, tz }, () => fn({ id: device.id, name: device.name, s }, body)));
     } catch (err) {
       if (err instanceof InputError || err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 400 });
       console.error('[worker]', err);

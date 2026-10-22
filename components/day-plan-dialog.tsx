@@ -3,7 +3,7 @@
 import { useMemo, useTransition } from 'react';
 import { Task, Status } from '@/lib/types';
 import { buildDayPlan, SlotAssignment } from '@/lib/day-plan';
-import { getBlockColor } from '@/lib/modes';
+import { useApp, useModes } from '@/components/app-context';
 import { completeTaskAction } from '@/app/actions';
 import { PriorityBadge } from '@/components/priority-badge';
 import { toast } from 'sonner';
@@ -44,7 +44,8 @@ function fmtDate(d?: string | null) {
 }
 
 export function DayPlanDialog({ open, onClose, allTasks, weekday }: Props) {
-  const plan = useMemo(() => buildDayPlan(allTasks, weekday), [allTasks, weekday]);
+  const { plan: week } = useApp();
+  const plan = useMemo(() => buildDayPlan(allTasks, weekday, week), [allTasks, weekday, week]);
   const [, startTransition] = useTransition();
 
   function markDone(id: string) {
@@ -127,7 +128,7 @@ export function DayPlanDialog({ open, onClose, allTasks, weekday }: Props) {
 }
 
 function SlotSection({ slot, onMarkDone }: { slot: SlotAssignment; onMarkDone: (id: string) => void }) {
-  const color = getBlockColor(slot.modeName);
+  const color = useModes().color(slot.modeName);
   const fillPct = Math.min(100, Math.round((slot.usedMins / slot.slotMins) * 100));
   const isOver = slot.overflowMins > 0;
 

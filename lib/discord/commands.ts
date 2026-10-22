@@ -5,15 +5,17 @@ import { completeTask, createTask, getTask, listTasks, logProgress, updateTask }
 import { listProjectsBasic, projectNameMap } from '../data/projects';
 import { addDays, resolveDate, todayStr } from '../dates';
 import { fmtDate } from '../format';
-import { ModeSchema, PRIORITIES, type Mode, type Priority, type Task } from '../types';
-import { BlockedChannelError, DiscordError, assertNotBlocked, findChannel, guildContext, type ChannelInfo, type RawMessage } from './client';
+import { PRIORITIES, type Mode, type Priority, type Task } from '../types';
+import { API_BASE, BlockedChannelError, DiscordError, NotVisibleError, assertNotBlocked, findChannel, guildContext, type ChannelInfo, type DiscordLink, type RawMessage } from './client';
+import { finishDiscordLink } from '../profile';
 import { taskFromMessage } from './to-task';
 import type { Scope } from '../scope';
 import type { Actor } from '../actors';
 
 // Slash commands, the "Add to Work OS" message command and their component/modal follow-ups.
-// The route verifies the signature and owner, finds the Work OS user the bot is linked to (lib/people.ts
-// discordScope: everything here acts as them, actor kind 'discord'), then calls handleInteraction(): it returns the
+// The route verifies the signature, finds the organization that owns the server and the Work OS person who linked the
+// Discord account that sent it (lib/profile.ts discordUser: everything here acts as them, actor kind 'discord'), then
+// calls handleInteraction(): it returns the
 // immediate response (deferred, modal, or autocomplete choices) plus optional deferred work whose
 // result is written into the original response with editOriginal().
 
@@ -60,7 +62,18 @@ const GUILD_ONLY = { contexts: [0], integration_types: [0] };
 
 const refOption = { type: STRING, name: 'ref', description: 'Task (#12 or search by title)', required: true, autocomplete: true };
 
-export const COMMANDS = [
+/** /link <code>: the one command that works before an account is linked (Settings › Connections makes the code). */
+const LINK_COMMAND = {
+  type: 1,
+  name: 'link',
+  description: 'Link your Discord account to Work OS (get a code in Settings › Connections)',
+  ...GUILD_ONLY,
+  options: [{ type: STRING, name: 'code', description: 'The code from Settings', required: true, min_length: 6, max_length: 12 }],
+};
+
+/** The commands for one organization's server; the mode choices are its modes (Discord allows 25). */
+export const commandsFor = (modes: readonly string[]) => [
+  LINK_COMMAND,
   {
     type: 1,
     name: 'task',
@@ -71,7 +84,7 @@ export const COMMANDS = [
       { type: STRING, name: 'priority', description: 'Priority (default P2)', choices: PRIORITIES.map(p => ({ name: p, value: p })) },
       { type: STRING, name: 'due', description: 'today, tomorrow, fri, +3d or YYYY-MM-DD', max_length: 40 },
       { type: STRING, name: 'project', description: 'Project', autocomplete: true, max_length: 120 },
-      { type: STRING, name: 'mode', description: 'Work mode', choices: ModeSchema.options.map(m => ({ name: m, value: m })) },
+      { type: STRING, name: 'mode', description: 'Work mode', ...(modes.length ? { choices: modes.slice(0, 25).map(m => ({ name: m.slice(0, 100), value: m.slice(0, 100) })) } : { max_length: 40 }) },
     ],
   },
   { type: 1, name: 'today', description: 'Overdue, due today, in progress and open P1s', ...GUILD_ONLY },
@@ -119,13 +132,13 @@ function clip(s: string, n: number): string {
 
 export function errorText(err: unknown): string {
   if (err instanceof ZodError) return 'Invalid input: ' + err.issues.map(i => `${i.path.join('.') || 'value'}: ${i.message}`).join('; ');
-  if (err instanceof InputError || err instanceof NotFoundError || err instanceof DiscordError || err instanceof BlockedChannelError) return err.message;
+  if (err instanceof InputError || err instanceof NotFoundError || err instanceof DiscordError || err instanceof BlockedChannelError || err instanceof NotVisibleError) return err.message;
   console.error('[discord] interaction failed:', err instanceof Error ? `${err.name}: ${err.message}` : err);
   return 'Something went wrong. Check the server logs.';
 }
 
-/** s: the Work OS user the bot acts for. */
-type Ctx = { baseUrl: string; s: Scope };
+/** s: the Work OS person the command acts for; link: their Discord in the organization (what they can see there). */
+type Ctx = { baseUrl: string; s: Scope; link: DiscordLink };
 const by = (c: Ctx): Actor => ({ kind: 'discord', userId: c.s.userId });
 const taskUrl = (c: Ctx, ref: number) => `${c.baseUrl}/tasks/${ref}`;
 
@@ -190,7 +203,7 @@ function findModalValue(rows: ModalRow[] | undefined, id: string): string | unde
 async function addFromMessage(i: Interaction, c: Ctx): Promise<ReplyBody> {
   const target = i.data?.target_id ? i.data.resolved?.messages?.[i.data.target_id] : undefined;
   if (!target) return { content: 'Could not read that message.' };
-  const ctx = await guildContext();
+  const ctx = await guildContext(c.link);
   await assertNotBlocked(ctx, target.channel_id);
   const channel: ChannelInfo | undefined = findChannel(ctx, target.channel_id);
   const { task, existing } = await taskFromMessage(
@@ -367,7 +380,7 @@ function editModal(i: Interaction, ref: string): unknown {
 const DEFER_EPHEMERAL = { type: 5, data: { flags: EPHEMERAL } };
 const DEFER_UPDATE = { type: 6 };
 
-/** Owner/guild checks happen in the route; this only routes and plans the response. */
+/** The server and linked-person checks happen in the route; this only routes and plans the response. */
 export function handleInteraction(i: Interaction, c: Ctx): InteractionPlan | Promise<InteractionPlan> {
   switch (i.type) {
     case InteractionType.AUTOCOMPLETE:
@@ -403,13 +416,27 @@ export function handleInteraction(i: Interaction, c: Ctx): InteractionPlan | Pro
   return { response: ephemeral('Unsupported interaction.') };
 }
 
-export function notAvailable(i: Interaction): unknown {
-  return i.type === InteractionType.AUTOCOMPLETE ? { type: 8, data: { choices: [] } } : ephemeral('Not available.');
+export function notAvailable(i: Interaction, why = 'Not available.'): unknown {
+  return i.type === InteractionType.AUTOCOMPLETE ? { type: 8, data: { choices: [] } } : ephemeral(why);
+}
+
+export const NOT_LINKED = 'Your Discord account is not linked to Work OS here. In Work OS, open Settings › Connections, make a link code and run /link with it.';
+
+/** /link <code> on a server: links the sender's Discord account to whoever made the code (lib/profile.ts). */
+export async function linkAccount(i: Interaction): Promise<unknown> {
+  const discordId = i.member?.user?.id;
+  const code = optStr(i, 'code') ?? '';
+  if (!i.guild_id || !discordId) return ephemeral("Run /link on the organization's Discord server.");
+  const s = await finishDiscordLink(i.guild_id, discordId, code).catch(e => {
+    console.error('[discord] link failed:', e instanceof Error ? e.name : e);
+    return null;
+  });
+  return ephemeral(s ? 'Linked. Work OS commands here now act as you, and your alerts can come here as DMs.' : 'That code is unknown or expired. Make a new one in Work OS: Settings › Connections.');
 }
 
 /** Replace the deferred response. The interaction token authorises this; no bot token needed. */
 export async function editOriginal(appId: string, token: string, body: ReplyBody): Promise<void> {
-  const res = await fetch(`https://discord.com/api/v10/webhooks/${appId}/${token}/messages/@original`, {
+  const res = await fetch(`${API_BASE}/webhooks/${appId}/${token}/messages/@original`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content: clip(body.content, 2000), components: body.components ?? [], allowed_mentions: { parse: [] } }),

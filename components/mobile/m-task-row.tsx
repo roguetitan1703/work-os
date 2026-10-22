@@ -9,8 +9,7 @@ import { completeTaskAction, updateTaskAction } from '@/app/actions';
 import { fmtDue } from '@/lib/format';
 import type { Priority, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { getBlockColor } from '@/lib/modes';
-import { useApp } from '../app-context';
+import { useApp, useModes } from '../app-context';
 import { TaskActionSheet } from './m-task-actions';
 import { ClaudeBadge, ClaudeMarkSheet } from '../give-to-claude';
 
@@ -24,6 +23,7 @@ const PRIO_RING: Record<Priority, string> = {
 /** Phone task row: big tap target to complete (with undo), whole row opens the task. */
 export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Task; showProject?: boolean; hint?: React.ReactNode; hasNote?: boolean }) {
   const { today, projectName } = useApp();
+  const { modes, color } = useModes();
   const router = useRouter();
   const [done, setDone] = useState(task.status === 'Done');
   const [, start] = useTransition();
@@ -113,7 +113,7 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
             {project && <span className="truncate max-w-[45vw]">{project}</span>}
             {task.mode && (
               <span className="inline-flex items-center gap-1 min-w-0">
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: getBlockColor(task.mode).hex }} />
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color(task.mode).hex }} />
                 <span className="truncate max-w-[38vw]">{task.mode}</span>
               </span>
             )}

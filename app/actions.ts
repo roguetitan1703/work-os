@@ -17,7 +17,7 @@ import * as reviews from '@/lib/data/reviews';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 import type {
   Activity,
-  FiverrRitualLog,
+  RoutineLog,
   Project,
   ProjectInput,
   Status,
@@ -131,7 +131,7 @@ export async function updateProjectAction(id: string, patch: Partial<ProjectInpu
   return run(s => projects.updateProject(s, id, patch));
 }
 
-// ── Weekly review + Fiverr ritual ───────────────────────────────────────────
+// ── Weekly review + daily routine ───────────────────────────────────────────
 
 const scopeOf = (c: { userId: string; orgId: string }): Scope => ({ userId: c.userId, orgId: c.orgId });
 
@@ -142,15 +142,15 @@ export async function createReview(input: Omit<WeeklyReview, 'id'>): Promise<Wee
   return r;
 }
 
-export async function updateReview(id: string, patch: Partial<WeeklyReview>): Promise<void> {
+export async function updateReview(id: string, patch: Partial<Omit<WeeklyReview, 'id'>>): Promise<void> {
   const c = await requireCaller();
   await withCaller(c, () => reviews.updateReview(scopeOf(c), id, patch));
   revalidatePath('/review');
 }
 
-export async function logFiverrRitual(input: { bidsPlaced: number; notes?: string }): Promise<FiverrRitualLog> {
+export async function logRoutine(input: { count: number; notes?: string }): Promise<RoutineLog> {
   const c = await requireCaller();
-  const log = await withCaller(c, () => reviews.logFiverrRitual(scopeOf(c), input));
+  const log = await withCaller(c, () => reviews.logRoutine(scopeOf(c), input));
   revalidatePath('/', 'layout');
   return log;
 }

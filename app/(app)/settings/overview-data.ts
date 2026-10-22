@@ -2,6 +2,7 @@ import 'server-only';
 import { listApiKeys } from '@/lib/api-keys';
 import type { Caller } from '@/lib/caller';
 import { discordConfig, guildContext } from '@/lib/discord/client';
+import { discordLinkOf } from '@/lib/profile';
 import { lastRunStatus } from '@/lib/alerts';
 import { lastSeen } from '@/lib/notify';
 import { fmtAgo } from '@/lib/format';
@@ -21,7 +22,9 @@ export async function overviewCards(caller: Caller): Promise<{ cards: Card[]; mc
     listApiKeys(caller).catch(() => null),
     lastSeen(caller).catch(() => ({ mcp: null, discord: null })),
     lastRunStatus(caller).catch(() => null),
-    discordConfig() ? timed(guildContext()).catch((e: Error) => e) : Promise.resolve(null),
+    discordConfig()
+      ? timed(discordLinkOf(caller).then(l => (l ? guildContext(l) : null))).catch((e: Error) => e)
+      : Promise.resolve(null),
   ]);
 
   const keys = all?.filter(k => k.agent === 'claude-code') ?? null;
@@ -57,9 +60,13 @@ export async function overviewCards(caller: Caller): Promise<{ cards: Card[]; mc
       title: 'Discord bot',
       level: discord.contentIntent ? 'ok' : 'warn',
       status: discord.contentIntent ? 'Bot online' : 'Problem: Message Content Intent is off',
-      facts: [`${plural(discord.blocked.size, 'channel')} blocked`, seen.discord ? `last command ${fmtAgo(seen.discord)}` : 'no commands used yet'],
+      facts: [
+        discord.ownerId ? 'your account linked' : 'your account not linked',
+        `${plural(discord.blocked.size, 'channel')} blocked`,
+        seen.discord ? `last command ${fmtAgo(seen.discord)}` : 'no commands used yet',
+      ],
     };
-  else disc = { tab: 'discord', title: 'Discord bot', level: 'off', status: 'Not set up', facts: [] };
+  else disc = { tab: 'discord', title: 'Discord bot', level: 'off', status: 'Not set up', facts: ['no Discord server set for this organization'] };
 
   const cron = process.env.CRON_SECRET;
   let alert: Card;

@@ -20,8 +20,7 @@ import { PrioritySelect, StatusSelect } from '@/components/inline-selects';
 import { ProgressDialog } from '@/components/progress-dialog';
 import { DeleteTaskButton } from '@/components/trash-controls';
 import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, claudeMenuLabel } from '@/components/give-to-claude';
-import { useApp } from '@/components/app-context';
-import { MODES } from '@/lib/modes';
+import { useApp, useModes } from '@/components/app-context';
 import { fmtAgo, fmtDue } from '@/lib/format';
 import type { Mode, Recurrence, Task, TaskPatch } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -33,6 +32,7 @@ type Props = { task: Task; projectName: string | null; dependencies: Task[]; dep
 
 export function TaskDetailClient({ task, projectName, dependencies, dependents }: Props) {
   const { projects, today } = useApp();
+  const { modes, color } = useModes();
   const [pending, start] = useTransition();
   const [progressOpen, setProgressOpen] = useState(false);
   const [claudeOpen, setClaudeOpen] = useState(false);
@@ -152,7 +152,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
         <Field label="Mode">
           <select className={field} value={task.mode ?? ''} onChange={e => patch({ mode: (e.target.value || null) as Mode | null })}>
             <option value="">—</option>
-            {MODES.map(m => (
+            {modes.map(m => (
               <option key={m.name}>{m.name}</option>
             ))}
           </select>

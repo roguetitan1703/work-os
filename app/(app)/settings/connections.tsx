@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Bot, ChevronDown, ChevronRight, MessageSquare, SquareTerminal } from 'lucide-react';
-import { INSTRUCTIONS, TOOLS } from '@/lib/mcp/docs';
+import { instructions, TOOLS } from '@/lib/mcp/docs';
+import { getOrgModes } from '@/lib/org-modes';
 import { cn } from '@/lib/utils';
 import { baseUrl } from './base-url';
 import { ChatTab } from './chat-tab';
@@ -16,7 +17,7 @@ const ICON = { chat: MessageSquare, code: SquareTerminal, discord: Bot, alerts: 
 /** One card per integration: status always visible, setup behind the card. Keys and computers live in Claude > Setup. */
 export async function Connections({ open }: { open?: string }) {
   const caller = await requireCaller();
-  const [base, status] = await Promise.all([baseUrl(), overviewCards(caller)]);
+  const [base, status, modes] = await Promise.all([baseUrl(), overviewCards(caller), getOrgModes(caller.orgId)]);
   const url = `${base}/api/mcp`;
   const by = (t: Card['tab']) => status.cards.find(c => c.tab === t)!;
   const code = by('code');
@@ -28,7 +29,7 @@ export async function Connections({ open }: { open?: string }) {
         <Disclosure title="Tools" hint="What Claude chat and Claude Code can do here">
           <ReferenceTab
             url={url}
-            instructions={INSTRUCTIONS}
+            instructions={instructions({ name: caller.name, modes: modes.map(m => m.name) })}
             groups={GROUPS.map(g => ({
               title: g.title,
               tools: g.tools.map(name => ({ name, writes: TOOLS[name].writes, description: TOOLS[name].description, example: TOOLS[name].example })),
@@ -55,7 +56,7 @@ export async function Connections({ open }: { open?: string }) {
       </Link>
 
       <ConnectionCard card={by('discord')} id="discord" open={open === 'discord'}>
-        <DiscordSection base={base} />
+        <DiscordSection base={base} caller={caller} />
       </ConnectionCard>
     </div>
   );

@@ -1,34 +1,29 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getCurrentBlock } from '@/lib/schedule';
-import { getBlockColor } from '@/lib/modes';
+import { currentBlock } from '@/lib/schedule';
+import { useApp, useModes } from '@/components/app-context';
 
-function getWeekday(date: Date): 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | null {
-  const keys = [null, 'mon', 'tue', 'wed', 'thu', 'fri', null] as const;
-  return keys[date.getDay()] ?? null;
-}
-
+/** Desktop background tint in the colour of the person's current block (none without a schedule). */
 export function PageTint() {
   const [color, setColor] = useState<{ hex: string; light: string } | null>(null);
+  const { plan, tz } = useApp();
+  const { color: colorFor } = useModes();
 
   useEffect(() => {
     function update() {
-      const now = new Date();
-      const block = getCurrentBlock(now);
-      const weekday = getWeekday(now);
-      if (!block || !weekday) {
+      const live = plan ? currentBlock(plan.blocks, new Date(), tz) : null;
+      if (!live) {
         setColor(null);
         return;
       }
-      const modeName = block.modes[weekday];
-      const c = getBlockColor(modeName);
+      const c = colorFor(live.block.modes[live.weekday]);
       setColor({ hex: c.hex, light: c.light });
     }
     update();
     const id = setInterval(update, 60_000);
     return () => clearInterval(id);
-  }, []);
+  }, [plan, tz, colorFor]);
 
   if (!color) return null;
 

@@ -1,6 +1,6 @@
 import 'server-only';
 import { collections } from '../db';
-import { APP_TZ, dateInTz } from '../dates';
+import { currentTz, dateInTz } from '../dates';
 import { hourKey, type UsageCaller, type UsageKind } from '../usage';
 
 // Reads the request log (lib/usage.ts) for Settings › Usage.
@@ -14,7 +14,7 @@ export type UsageRange = {
 };
 export type UsageReport = {
   hours: { key: string; label: string; n: number }[]; // last 24 hours, oldest first
-  days: { date: string; label: string; n: number }[]; // last 7 days in APP_TZ, oldest first
+  days: { date: string; label: string; n: number }[]; // last 7 days in the viewer's timezone, oldest first
   day: UsageRange; // last 24 h
   week: UsageRange; // last 7 days
   since: string | null; // first bucket kept
@@ -58,14 +58,15 @@ export async function usageReport(now = new Date()): Promise<UsageReport> {
   ]);
   const byId = new Map(docs.map(d => [d._id, d]));
 
-  const hourFmt = new Intl.DateTimeFormat('en-GB', { timeZone: APP_TZ, hour: '2-digit', minute: '2-digit', hour12: false });
+  const tz = currentTz();
+  const hourFmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
   const hours = Array.from({ length: 24 }, (_, i) => {
     const t = new Date(dayStart + i * HOUR);
     return { key: hourKey(t), label: hourFmt.format(t), n: byId.get(hourKey(t))?.total ?? 0 };
   });
 
-  // Days in APP_TZ: each UTC hour bucket goes to the local day its start falls on.
-  const dayFmt = new Intl.DateTimeFormat('en-GB', { timeZone: APP_TZ, weekday: 'short', day: 'numeric', month: 'short' });
+  // Days in the viewer's timezone: each UTC hour bucket goes to the local day its start falls on.
+  const dayFmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' });
   const today = dateInTz(now);
   const days = new Map<string, { date: string; label: string; n: number }>();
   for (let i = 6; i >= 0; i--) {

@@ -1,5 +1,5 @@
 import type { Mode, Priority, Status } from './types';
-import { MODE_NAMES } from './modes';
+
 
 export type ParsedTaskInput = {
   title: string;
@@ -12,7 +12,8 @@ export type ParsedTaskInput = {
   description: string;
 };
 
-export function parseMarkdownTable(input: string): { tasks: ParsedTaskInput[]; errors: string[] } {
+/** modeNames: the organization's modes (a row's mode must be one of them). */
+export function parseMarkdownTable(input: string, modeNames: readonly string[]): { tasks: ParsedTaskInput[]; errors: string[] } {
   const errors: string[] = [];
   const tasks: ParsedTaskInput[] = [];
 
@@ -62,9 +63,9 @@ export function parseMarkdownTable(input: string): { tasks: ParsedTaskInput[]; e
       continue;
     }
 
-    const matchedMode = MODE_NAMES.find(m => m.toLowerCase() === rawMode.toLowerCase()) ?? null;
+    const matchedMode = modeNames.find(m => m.toLowerCase() === rawMode.toLowerCase()) ?? null;
     if (rawMode && !matchedMode) {
-      errors.push(`Row ${i - dataStart + 1}: invalid mode "${rawMode}". Must be one of: ${MODE_NAMES.join(', ')}`);
+      errors.push(`Row ${i - dataStart + 1}: invalid mode "${rawMode}". Must be one of: ${modeNames.join(', ')}`);
       continue;
     }
 

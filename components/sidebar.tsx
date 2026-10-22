@@ -5,9 +5,9 @@ import { useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ChevronRight, LogOut, Play, Search } from 'lucide-react';
 import { logoutAction } from '@/app/actions';
-import { placeOf, MODE_LINKS, startClaudeUrl } from '@/lib/nav';
+import { placeOf, modeLinks, startClaudeUrl } from '@/lib/nav';
 import { cn } from '@/lib/utils';
-import { useApp } from './app-context';
+import { useApp, useModes } from './app-context';
 import { ThemeToggle } from './theme-toggle';
 import { QuickAddLauncher } from './quick-add';
 import { openSearch } from './global-search';
@@ -88,6 +88,7 @@ function Modes() {
   const path = usePathname();
   const params = useSearchParams();
   const active = params.get('mode');
+  const { modes } = useModes();
   const [open, setOpen] = useState(false);
   const show = open || (!!active && path.startsWith('/tasks'));
   return (
@@ -101,7 +102,7 @@ function Modes() {
         <ChevronRight className={cn('w-3.5 h-3.5 text-muted-foreground transition-transform', show && 'rotate-90')} />
       </button>
       {show &&
-        MODE_LINKS.map(m => (
+        modeLinks(modes).map(m => (
           <Link
             key={m.name}
             href={m.href}
