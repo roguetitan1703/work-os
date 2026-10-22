@@ -7,7 +7,7 @@ import { organization, twoFactor } from 'better-auth/plugins';
 import { passkey } from '@better-auth/passkey';
 import { apiKey } from '@better-auth/api-key';
 import { ObjectId, type Db, type MongoClient } from 'mongodb';
-import { COOKIE_CACHE_SECONDS, COOKIE_PREFIX, appBaseUrl, authSecret, secureCookies } from './auth';
+import { CLIENT_IP_HEADER, COOKIE_CACHE_SECONDS, COOKIE_PREFIX, appBaseUrl, authSecret, secureCookies } from './auth';
 import { getClient, getDb } from './db';
 import { mailErrorMessage, sendMail, takeMailSlot } from './mail';
 
@@ -112,7 +112,8 @@ function build(db: Db, client: MongoClient) {
       cookiePrefix: COOKIE_PREFIX,
       useSecureCookies: secureCookies(),
       defaultCookieAttributes: { sameSite: 'lax', httpOnly: true },
-      ipAddress: { ipAddressHeaders: ['x-forwarded-for', 'x-real-ip'] },
+      // Only the header app/api/auth/[...all]/route.ts sets from clientIp() (TRUST_PROXY); missing = one shared bucket.
+      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },
     databaseHooks: {
       session: {

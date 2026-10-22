@@ -7,6 +7,7 @@ import QRCode from 'qrcode';
 import { authClient, authError } from '@/lib/auth-client';
 import { Row } from './device-settings';
 import { sendTestEmailAction } from './security-actions';
+import { needsReauth, useReauth } from '@/components/reauth';
 
 // Settings › Security (docs/auth.md): passkeys, authenticator app with backup codes, password, test email.
 // Everything except the test email is a Better Auth call from the browser (lib/auth-client.ts), which checks the session.
@@ -74,6 +75,7 @@ function Passkeys() {
   const [name, setName] = useState('');
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
   const [pending, start] = useTransition();
+  const reauth = useReauth();
 
   const load = async () => {
     const r = await authClient.passkey.listUserPasskeys();
@@ -92,7 +94,10 @@ function Passkeys() {
 
   const add = () =>
     start(async () => {
-      const r = await authClient.passkey.addPasskey({ name: name.trim().slice(0, 60) || 'Passkey' });
+      const make = () => authClient.passkey.addPasskey({ name: name.trim().slice(0, 60) || 'Passkey' });
+      let r = await make();
+      // More than 10 minutes after sign-in: confirm the password, then try again (lib/fresh.ts).
+      if (r?.error && needsReauth(r.error) && (await reauth.ask())) r = await make();
       if (r?.error) {
         const m = r.error.message ?? '';
         if (!/cancel|abort|not allowed/i.test(m)) toast.error(authError(r.error, 'Could not create a passkey.'));
@@ -125,6 +130,7 @@ function Passkeys() {
 
   return (
     <>
+      {reauth.dialog}
       <Row icon={<KeyRound className="w-5 h-5 text-blue-600" />} title="Passkeys" sub={list ? 'Sign in with Face ID, fingerprint or your device PIN. No password or code needed.' : 'Checking…'} />
       {(list ?? []).map(p =>
         editing?.id === p.id ? (

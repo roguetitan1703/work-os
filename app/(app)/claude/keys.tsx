@@ -10,6 +10,7 @@ import { BottomSheet } from '@/components/mobile/sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { ConfirmSheet } from '@/components/responsive-sheet';
 import { Disclosure } from '../settings/ui';
+import { needsReauth, useReauth } from '@/components/reauth';
 import { createApiKeyAction, listApiKeysAction, revokeApiKeyAction, rotateApiKeyAction } from './setup-actions';
 
 const field =
@@ -35,6 +36,7 @@ export function ClaudeCodeKeys({ url, agent = 'claude-code', urlKey = false }: {
   const [fresh, setFresh] = useState<{ key: string; name: string } | null>(null);
   const [confirm, setConfirm] = useState<Pending>(null);
   const [pending, start] = useTransition();
+  const reauth = useReauth();
 
   useEffect(() => {
     let alive = true;
@@ -51,7 +53,8 @@ export function ClaudeCodeKeys({ url, agent = 'claude-code', urlKey = false }: {
   const create = () =>
     start(async () => {
       const n = name.trim() || (agent === 'claude' ? 'claude.ai' : 'Claude Code');
-      const r = await createApiKeyAction(n, agent);
+      let r = await createApiKeyAction(n, agent);
+      if (!r.ok && needsReauth(r.error) && (await reauth.ask())) r = await createApiKeyAction(n, agent);
       if (!r.ok) return void toast.error(r.error);
       setKeys(r.data.keys);
       setFresh({ key: r.data.key, name: n });
@@ -66,7 +69,8 @@ export function ClaudeCodeKeys({ url, agent = 'claude-code', urlKey = false }: {
         setKeys(r.data);
         toast(`Revoked "${p.key.name}"`);
       } else {
-        const r = await rotateApiKeyAction(p.key.id);
+        let r = await rotateApiKeyAction(p.key.id);
+        if (!r.ok && needsReauth(r.error) && (await reauth.ask())) r = await rotateApiKeyAction(p.key.id);
         if (!r.ok) return void toast.error(r.error);
         setKeys(r.data.keys);
         setFresh({ key: r.data.key, name: p.key.name });
@@ -78,6 +82,7 @@ export function ClaudeCodeKeys({ url, agent = 'claude-code', urlKey = false }: {
 
   return (
     <section className="space-y-3">
+      {reauth.dialog}
       <div className="rounded-2xl border border-border/70 divide-y divide-border/60 bg-card overflow-hidden">
         {error ? (
           <p className="px-4 py-3 text-sm text-red-600 dark:text-red-400">{error}</p>

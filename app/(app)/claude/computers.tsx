@@ -9,6 +9,7 @@ import { BottomSheet } from '@/components/mobile/sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { ConfirmSheet } from '@/components/responsive-sheet';
 import { Disclosure, Section } from '../settings/ui';
+import { needsReauth, useReauth } from '@/components/reauth';
 import { createDeviceAction, listDevicesAction, revokeDeviceAction } from './setup-actions';
 
 const field =
@@ -28,6 +29,7 @@ export function Computers() {
   const [fresh, setFresh] = useState<{ key: string; name: string } | null>(null);
   const [confirm, setConfirm] = useState<DeviceInfo | null>(null);
   const [pending, start] = useTransition();
+  const reauth = useReauth();
 
   useEffect(() => {
     let alive = true;
@@ -45,7 +47,8 @@ export function Computers() {
     start(async () => {
       const n = name.trim();
       if (!n) return void toast.error('Name the computer, e.g. Om-PC');
-      const r = await createDeviceAction(n);
+      let r = await createDeviceAction(n);
+      if (!r.ok && needsReauth(r.error) && (await reauth.ask())) r = await createDeviceAction(n);
       if (!r.ok) return void toast.error(r.error);
       setDevices(r.data.devices);
       setFresh({ key: r.data.key, name: n });
@@ -65,6 +68,7 @@ export function Computers() {
 
   return (
     <div className="space-y-4">
+      {reauth.dialog}
       <Section title="Computers">
         <p className="text-sm text-muted-foreground mb-3">
           Computers that can open Claude Code sessions for you. Each runs a small worker that checks Work OS for Start / Resume / Stop and reports which folders it has (names only, never paths).

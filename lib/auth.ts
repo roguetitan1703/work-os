@@ -38,11 +38,31 @@ export const COOKIE_CACHE_SECONDS = 120;
 /** An error whose message is safe to show the user. Anything else gets a generic message. */
 export class SafeError extends Error {}
 
-/** Client IP for rate limits: first x-forwarded-for entry, else x-real-ip. */
-export function clientIp(h: Headers): string {
-  const xff = h.get('x-forwarded-for')?.split(',')[0]?.trim();
-  return (xff || h.get('x-real-ip')?.trim() || 'unknown').slice(0, 64);
+const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+const IPV6 = /^[0-9a-fA-F:.]{2,45}$/;
+const ipOk = (s: string | undefined | null): s is string => !!s && (IPV4.test(s) || (s.includes(':') && IPV6.test(s)));
+
+/** True when TRUST_PROXY is set: Work OS runs behind our own reverse proxy (or Vercel) that sets the client address. */
+export function trustProxy(): boolean {
+  return /^(1|true|yes)$/i.test(process.env.TRUST_PROXY?.trim() ?? '');
 }
+
+/**
+ * Client IP for rate limits, or null when it can't be trusted. Forwarded headers are read only with TRUST_PROXY:
+ * then x-real-ip (set by our proxy), else the right-most x-forwarded-for entry (the one our proxy added; entries to
+ * its left come from the client and can be anything). Without TRUST_PROXY a client could send any address, so
+ * callers use one shared bucket instead. Next route handlers don't expose the socket address.
+ */
+export function clientIp(h: Headers): string | null {
+  if (!trustProxy()) return null;
+  const real = h.get('x-real-ip')?.trim();
+  if (ipOk(real)) return real;
+  const last = h.get('x-forwarded-for')?.split(',').map(x => x.trim()).filter(Boolean).pop();
+  return ipOk(last) ? last : null;
+}
+
+/** Header the /api/auth route sets (after removing any copy the client sent) for Better Auth's per-IP limits. */
+export const CLIENT_IP_HEADER = 'x-workos-client-ip';
 
 /** API key from `Authorization: Bearer <key>` or `X-API-Key: <key>`. */
 export function bearerToken(req: Request | { headers: Headers }): string | null {

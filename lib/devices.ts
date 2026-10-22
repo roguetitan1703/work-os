@@ -24,8 +24,11 @@ function toInfo(d: DeviceDoc): DeviceInfo {
   return { id: d._id, name: d.name, prefix: d.prefix, createdAt: d.createdAt.toISOString(), lastSeenAt: d.lastSeenAt?.toISOString() ?? null, os: d.worker?.os ?? null, version: d.worker?.version ?? null };
 }
 
-export async function listDevices(): Promise<DeviceInfo[]> {
-  const docs = await (await collections()).devices.find({ revokedAt: null }).sort({ createdAt: 1 }).toArray();
+/** The caller's own computers, in their organization. Devices from before sign-in by user (no ownerId) match no one. */
+const mine = (caller: Caller) => ({ ownerId: caller.userId, orgId: caller.orgId, revokedAt: null });
+
+export async function listDevices(caller: Caller): Promise<DeviceInfo[]> {
+  const docs = await (await collections()).devices.find(mine(caller)).sort({ createdAt: 1 }).toArray();
   return docs.map(toInfo);
 }
 
@@ -35,8 +38,8 @@ export async function createDevice(caller: Caller, name: string): Promise<{ key:
   if (!n) throw new SafeError('Give the device a name, e.g. Om-PC.');
   if (caller.via !== 'session') throw new SafeError('Computers are added by a signed-in person.');
   const c = await collections();
-  if ((await c.devices.countDocuments({ revokedAt: null })) >= MAX_DEVICES) throw new SafeError(`At most ${MAX_DEVICES} devices. Revoke one first.`);
-  if (await c.devices.findOne({ revokedAt: null, name: n })) throw new SafeError('A device with that name already exists.');
+  if ((await c.devices.countDocuments(mine(caller))) >= MAX_DEVICES) throw new SafeError(`At most ${MAX_DEVICES} devices. Revoke one first.`);
+  if (await c.devices.findOne({ ...mine(caller), name: n })) throw new SafeError('A device with that name already exists.');
   const key = DEVICE_KEY_PREFIX + randomBytes(32).toString('base64url');
   const doc: DeviceDoc = { _id: randomUUID(), name: n, ownerId: caller.userId, orgId: caller.orgId, hash: sha256(key), prefix: key.slice(0, 8), createdAt: new Date(), lastSeenAt: null, revokedAt: null };
   await c.devices.insertOne(doc);
@@ -44,9 +47,9 @@ export async function createDevice(caller: Caller, name: string): Promise<{ key:
 }
 
 /** Revoking also cancels the device's pending jobs. Its folders and session history stay. */
-export async function revokeDevice(id: string): Promise<void> {
+export async function revokeDevice(caller: Caller, id: string): Promise<void> {
   const c = await collections();
-  const r = await c.devices.updateOne({ _id: id, revokedAt: null }, { $set: { revokedAt: new Date() } });
+  const r = await c.devices.updateOne({ _id: id, ...mine(caller) }, { $set: { revokedAt: new Date() } });
   if (!r.matchedCount) throw new SafeError('That device is already revoked or does not exist.');
   await c.workerJobs.updateMany({ deviceId: id, doneAt: null }, { $set: { doneAt: new Date(), ok: false, error: 'device revoked' } });
 }
