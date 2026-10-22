@@ -23,7 +23,7 @@ import path from 'node:path';
 import { createPrivateKey, randomBytes, randomUUID, sign } from 'node:crypto';
 import { ObjectId } from 'mongodb';
 import { B, CRON, EMAIL, ME, MCP, PW, check, finish, makeUser, mkKey, rawDb, setOrgGuild, setProfile, setSchedule, sha } from './lib.mjs';
-import { entryPoints } from './entry-points.mjs';
+import { entryPoints, unlistedBuilt } from './entry-points.mjs';
 
 const T0 = Date.now();
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', '..');
@@ -118,6 +118,21 @@ async function formAction(name, pagePath, fields, cookie = '') {
   for (const [k, v] of Object.entries(fields)) fd.append(k, v);
   const r = await fetch(B + pagePath, { method: 'POST', redirect: 'manual', headers: { ...(cookie ? { cookie } : {}), origin: B }, body: fd });
   return { status: r.status, text: await r.text(), redirect: r.headers.get('x-action-redirect') ?? r.headers.get('location') };
+}
+/**
+ * A form post of an action with bound arguments, as a <form action={fn.bind(null, ...args)}> sends it without
+ * JavaScript: `$ACTION_REF_1` names the field prefix, `$ACTION_1:0` the id and bound promise, `$ACTION_1:1` the arguments.
+ * No Next-Action header. The answer is the page's HTML, so callers check the database.
+ */
+async function formBound(name, args, cookie = '') {
+  const a = ACTIONS[name];
+  if (!a) return { status: 0, text: 'not in the build', missing: true };
+  const fd = new FormData();
+  fd.append('$ACTION_REF_1', '');
+  fd.append('$ACTION_1:0', JSON.stringify({ id: a.id, bound: '$@1' }));
+  fd.append('$ACTION_1:1', JSON.stringify(args));
+  const r = await fetch(B + a.page, { method: 'POST', redirect: 'manual', headers: { ...(cookie ? { cookie } : {}), origin: B }, body: fd });
+  return { status: r.status, text: await r.text() };
 }
 async function req(method, p, { cookie = '', bearer = '', headers = {}, body } = {}) {
   const r = await fetch(B + p, { method, redirect: 'manual', headers: { ...(cookie ? { cookie } : {}), ...(bearer ? { authorization: `Bearer ${bearer}` } : {}), ...(body !== undefined ? { 'content-type': 'application/json' } : {}), origin: B, ...headers }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
@@ -259,10 +274,14 @@ async function snapshot() {
   }
   return out;
 }
-// Writes that are fine whoever makes them: a key's and a session's own bookkeeping, a computer's lastSeenAt.
-const VOLATILE = { apikey: ['lastRequest', 'requestCount', 'remaining', 'lastRefillAt', 'updatedAt'], session: ['updatedAt', 'expiresAt', 'token', 'reauthAt'], devices: ['lastSeenAt', 'worker', 'activity', 'claudeSessions'], settings: ['lastSeen', 'mcpAt', 'discordAt', 'at'] };
-function same(col, a, b) {
-  const drop = VOLATILE[col] ?? [];
+// Writes that are fine whoever makes them: a key's and a session's own bookkeeping (a session's expiry moves when any
+// request of its owner refreshes it, such as X's open stream), a computer's lastSeenAt. A session's token and re-auth
+// time may change only in the owner's own calls: anyone else changing them is a write.
+const VOLATILE = { apikey: ['lastRequest', 'requestCount', 'remaining', 'lastRefillAt', 'updatedAt'], session: ['updatedAt', 'expiresAt'], devices: ['lastSeenAt', 'worker', 'activity', 'claudeSessions'], settings: ['lastSeen', 'mcpAt', 'discordAt', 'at'] };
+const OWNER_VOLATILE = { session: ['token', 'reauthAt'] };
+function same(col, a, b, persona) {
+  const own = persona && pOf(a.userId) === persona && pOf(b.userId) === persona;
+  const drop = [...(VOLATILE[col] ?? []), ...(own ? OWNER_VOLATILE[col] ?? [] : [])];
   const strip = d => JSON.stringify(Object.fromEntries(Object.entries(d).filter(([k]) => !drop.includes(k))));
   return strip(a) === strip(b);
 }
@@ -271,7 +290,7 @@ function diff(persona, before, after, allowed = () => false) {
   for (const [k, v] of after) {
     const old = before.get(k);
     if (old && old.j === v.j) continue;
-    if (old && same(v.col, old.d, v.d)) continue;
+    if (old && same(v.col, old.d, v.d, persona)) continue;
     const w = new Set([...(old ? writers(old.col, old.d) : []), ...writers(v.col, v.d)]);
     const ok = old ? writers(old.col, old.d).includes(persona) && writers(v.col, v.d).includes(persona) : writers(v.col, v.d).includes(persona);
     if (!ok && !allowed(v.col, old?.d, v.d)) bad.push(`${old ? 'changed' : 'added'} ${k} (writers ${[...w].join(',') || 'nobody'})`);
@@ -312,6 +331,8 @@ function pageState(r) {
   if (streamed) return `redirect ${streamed[1]}`;
   return NOT_FOUND.test(r.text) ? 'not found' : PAGE_ERROR.test(r.text) ? 'error' : 'page';
 }
+/** What an access check's refusal reads like: not found, not yours, sign in, 401/403/404. */
+const ACCESS = /not found|no such|not yours|not allowed|not linked|sign(%N| )in|not signed in|redirect \/login|^30[237] .*\/login\?|^40[134] /i;
 /** An answer for a failure message: an action's result, else the text. */
 const said = r => (r.value !== undefined && r.value !== null ? JSON.stringify(r.value) : String(r.text));
 let A, T, X, R;
@@ -327,6 +348,8 @@ try {
   const sourceActions = new Set(eps.filter(e => e.kind === 'action').map(e => e.id.slice(7)));
   const strayBuilt = [...builtActions].filter(a => !sourceActions.has(a));
   check('actions: every action in the build is an enumerated export', strayBuilt.length === 0, strayBuilt.join(', '));
+  const unlisted = unlistedBuilt(eps);
+  check('routes: every route and page in the build is enumerated', unlisted !== null && unlisted.length === 0, unlisted === null ? 'no app-paths-manifest.json' : unlisted.join(', '));
 
   // ── people ──
   A = { name: 'A', userId: ME.userId, orgId: ME.orgId, email: EMAIL };
@@ -578,7 +601,14 @@ try {
       const fake = await runProbe(pr, who, FAKE);
       const a = shape(pr, real, tgt);
       const b = shape(pr, fake, tgt);
-      if (refused) refusals.push({ kind: pr.kind, tag: tag(who, pr), said: a, thrown: !!pr.throws && (who === 'R' || who === 'N') });
+      const thrown = !!pr.throws && (who === 'R' || who === 'N');
+      if (refused) refusals.push({ kind: pr.kind, tag: tag(who, pr), said: a, thrown });
+      // With no owner control to prove the probe reaches the check, its refusal must read as the access check itself
+      // (a validation error would refuse it too and prove nothing), or the probe's own `refusal`.
+      const reads = t => ACCESS.test(t) || !!pr.refusal?.test(t);
+      if (refused && pr.control === false && !pr.mayWork?.(who) && !thrown && !reads(a) && !reads(`${real.status} ${said(real)}`)) {
+        outcome.refusedWrong.push(`${tag(who, pr)}: refused, but not by the access check: ${a.slice(0, 200)}`);
+      }
       if (a !== b && !pr.existenceOk) outcome.existence.push(`${tag(who, pr)}: real ${a.slice(0, 200)} | made-up ${b.slice(0, 200)}`);
     } else if ((who === 'R' || who === 'N') && !refused && !pr.public && !(who === 'R' && pr.ownAccount)) outcome.refusedWrong.push(`${tag(who, pr)} answered: ${String(real.text).slice(0, 200)}`);
     await dropMadeUp(p);
@@ -597,6 +627,17 @@ try {
   const wT = sse('/api/worker/stream', { authorization: `Bearer ${T.wkr}` });
   const wX = sse('/api/worker/stream', { authorization: `Bearer ${X.wkr}` });
 
+  // The MCP tools the server lists for the owner are exactly the enumerated ones (a tool registered some other way
+  // would have no audit entry).
+  {
+    const r = await req('POST', '/api/mcp', { bearer: A.chat, headers: { accept: 'application/json, text/event-stream' }, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } });
+    let listed = null;
+    try { const line = r.text.split('\n').find(l => l.startsWith('data:')); listed = JSON.parse(line ? line.slice(5) : r.text).result.tools.map(t => t.name); } catch { /* not a list */ }
+    const enumerated = new Set(eps.filter(e => e.kind === 'mcp').map(e => e.id.slice(4)));
+    const extra = (listed ?? []).filter(n => !enumerated.has(n));
+    const gone = [...enumerated].filter(n => listed && !listed.includes(n));
+    check(`mcp: tools/list as the owner names exactly the ${enumerated.size} enumerated tools`, !!listed && !extra.length && !gone.length, listed ? `not enumerated: ${extra.join(', ') || '-'}; not listed: ${gone.join(', ') || '-'}` : `${r.status} ${r.text.slice(0, 200)}`);
+  }
   const aimedOrScan = probes.filter(pr => !pr.ownerOnly);
   for (const who of ['T', 'X', 'R', 'N']) {
     const t = Date.now();
@@ -656,7 +697,6 @@ try {
   // (an action with no result type refuses someone signed out by throwing, which Next answers with 500)
   const crashed = refusals.filter(r => !r.thrown).filter(r => /^5\d\d /.test(r.said) || /Internal error|Something went wrong| error$/.test(r.said));
   check('refusals: none is a server error', crashed.length === 0, crashed.map(r => `${r.tag}: ${r.said.slice(0, 120)}`).join(' | '));
-  const ACCESS = /not found|no such|not yours|not allowed|not linked|sign in|redirect \/login|^40[134] /i;
   for (const kind of [...new Set(refusals.map(r => r.kind))].sort()) {
     const mine = refusals.filter(r => r.kind === kind);
     const real = mine.filter(r => ACCESS.test(r.said));
@@ -695,10 +735,16 @@ await finish();
 //   existenceOk  the reason a "not yours" vs "does not exist" difference is accepted (docs/multi-user.md "Leak audit")
 //   echo     () => strings the call sends that may come back (taken out before the canary scan)
 //   shape    (res) => what the existence check compares, when the whole answer is not the point
+//   refusal  aimed with control false: its refusal must read as ACCESS or match this regex (the entry point's own
+//            wording of its access check)
 //   throws   an action with no result type: refusing someone signed out is a thrown error (500), not a crash
 // Non-page calls run one at a time; pages side by side.
 // ══════════════════════════════════════════════════════════════════════════════
 function AUDIT() {
+  // Refusals that are the access check of their entry point, worded its own way (see `refusal` above):
+  const KEY_GONE = /already revoked or does not exist/; // a key id not among the caller's own keys, as for a made-up id
+  const NOT_THEIRS_MEMBER = /Only an owner or admin can do that|not a member of this organization/; // role, then membership
+  const BAD_LINK = /invitation(%N| )link(%N| )is(%N| )invalid/; // the invitation secret is the access check
   const mcpOk = r => r.ok;
   const actOk = r => r.status === 200 && !r.error && r.value != null && r.value.ok !== false && !r.value.error;
   const pageOk = r => r.status === 200 && pageState(r) === 'page';
@@ -806,8 +852,8 @@ function AUDIT() {
   const K_ = 'app/(app)/claude/setup-actions.ts#';
   add(`action ${K_}listApiKeysAction`, act(K_ + 'listApiKeysAction', ['claude']), act(K_ + 'listApiKeysAction', ['claude-code'], { label: 'code keys' }));
   add(`action ${K_}createApiKeyAction`, act(K_ + 'createApiKeyAction', ['lkq probe key', 'claude-code'], { ok: r => actOk(r), controlOk: r => actOk(r) }));
-  add(`action ${K_}rotateApiKeyAction`, act(K_ + 'rotateApiKeyAction', (t, c) => [c.keyIdOf?.(t) ?? 'none'], { control: false, label: 'their key id', aim: true, aimKeys: [], call: async ({ p, o }) => action(K_ + 'rotateApiKeyAction', [o === FAKE_REF.v ? FAKE_REF.key : await keyIdOf('A')], { cookie: p.cookie }) }));
-  add(`action ${K_}revokeApiKeyAction`, act(K_ + 'revokeApiKeyAction', [], { control: false, label: 'their key id', aim: true, aimKeys: [], call: async ({ p, o }) => action(K_ + 'revokeApiKeyAction', [o === FAKE_REF.v ? FAKE_REF.key : await keyIdOf('A'), 'claude-code'], { cookie: p.cookie }) }));
+  add(`action ${K_}rotateApiKeyAction`, act(K_ + 'rotateApiKeyAction', (t, c) => [c.keyIdOf?.(t) ?? 'none'], { control: false, label: 'their key id', aim: true, aimKeys: [], refusal: KEY_GONE, call: async ({ p, o }) => action(K_ + 'rotateApiKeyAction', [o === FAKE_REF.v ? FAKE_REF.key : await keyIdOf('A')], { cookie: p.cookie }) }));
+  add(`action ${K_}revokeApiKeyAction`, act(K_ + 'revokeApiKeyAction', [], { control: false, label: 'their key id', aim: true, aimKeys: [], refusal: KEY_GONE, call: async ({ p, o }) => action(K_ + 'revokeApiKeyAction', [o === FAKE_REF.v ? FAKE_REF.key : await keyIdOf('A'), 'claude-code'], { cookie: p.cookie }) }));
   add(`action ${K_}listDevicesAction`, act(K_ + 'listDevicesAction', []));
   add(`action ${K_}createDeviceAction`, act(K_ + 'createDeviceAction', ['lkq probe pc'], { controlOk: r => actOk(r) }));
   add(`action ${K_}revokeDeviceAction`, act(K_ + 'revokeDeviceAction', t => [t.device], aim(['device'], { stage: 2 })));
@@ -844,8 +890,8 @@ function AUDIT() {
   const MB = 'app/(app)/settings/members-actions.ts#';
   add(`action ${MB}inviteMemberAction`, act(MB + 'inviteMemberAction', [`lkq${hex(3)}@example.test`, 'owner'], { mayWork: w => w === 'X' /* X invites to X's own organization */ }));
   add(`action ${MB}cancelInvitationAction`, act(MB + 'cancelInvitationAction', t => [t.invite], aim(['invite'], { stage: 2 })));
-  add(`action ${MB}changeRoleAction`, act(MB + 'changeRoleAction', t => [t.member, 'member'], aim(['member'], { control: false /* the team suite */ })), act(MB + 'changeRoleAction', (t, c, p) => [p.userId, 'owner'], { label: 'promote myself', mayWork: w => w === 'X' /* already the owner */, control: false }));
-  add(`action ${MB}removeMemberAction`, act(MB + 'removeMemberAction', t => [t.member], aim(['member'], { control: false /* the team suite */ })));
+  add(`action ${MB}changeRoleAction`, act(MB + 'changeRoleAction', t => [t.member, 'member'], aim(['member'], { control: false /* the team suite */, refusal: NOT_THEIRS_MEMBER })), act(MB + 'changeRoleAction', (t, c, p) => [p.userId, 'owner'], { label: 'promote myself', mayWork: w => w === 'X' /* already the owner */, control: false }));
+  add(`action ${MB}removeMemberAction`, act(MB + 'removeMemberAction', t => [t.member], aim(['member'], { control: false /* the team suite */, refusal: NOT_THEIRS_MEMBER })));
   const PR = 'app/(app)/settings/profile-actions.ts#';
   add(`action ${PR}saveTimeSettingsAction`, act(PR + 'saveTimeSettingsAction', [{ timezone: 'Asia/Kolkata', quietStart: 0, quietEnd: 0 }]));
   add(`action ${PR}discordLinkCodeAction`, act(PR + 'discordLinkCodeAction', []));
@@ -857,8 +903,8 @@ function AUDIT() {
   add('action app/(app)/timetable/actions.ts#saveScheduleAction', act('app/(app)/timetable/actions.ts#saveScheduleAction', [[{ start: '09:00', end: '10:00', block: 'lkq own block', modes: { mon: 'Growth' }, notes: '' }], null], { control: false /* would replace the owner's canary week */ }));
   const IV = 'app/accept-invitation/actions.ts#';
   const accept = (name, fields) => ({ kind: 'action', ok: r => !!r.redirect && /\/today/.test(r.redirect), public: true, call: async ({ p, o: t }) => formAction(name, `/accept-invitation/${t.invite}`, fields(t, p), p.cookie) });
-  add(`action ${IV}acceptNewAction`, { ...accept(IV + 'acceptNewAction', t => ({ id: t.invite, t: 'x'.repeat(43), name: 'lkq', password: 'lkq-password-1', again: 'lkq-password-1' })), aim: true, aimKeys: ['invite'], control: false, label: 'without the secret' });
-  add(`action ${IV}acceptSignedInAction`, { ...accept(IV + 'acceptSignedInAction', t => ({ id: t.invite, t: 'x'.repeat(43) })), aim: true, aimKeys: ['invite'], control: false, label: 'without the secret' });
+  add(`action ${IV}acceptNewAction`, { ...accept(IV + 'acceptNewAction', t => ({ id: t.invite, t: 'x'.repeat(43), name: 'lkq', password: 'lkq-password-1', again: 'lkq-password-1' })), aim: true, aimKeys: ['invite'], control: false, label: 'without the secret', refusal: BAD_LINK });
+  add(`action ${IV}acceptSignedInAction`, { ...accept(IV + 'acceptSignedInAction', t => ({ id: t.invite, t: 'x'.repeat(43) })), aim: true, aimKeys: ['invite'], control: false, label: 'without the secret', refusal: BAD_LINK });
   add('action app/reauth-actions.ts#confirmPasswordAction', act('app/reauth-actions.ts#confirmPasswordAction', ['wrong-password-1'], { label: 'wrong password', control: false }));
 
   // ── pages (session cookie) ──
@@ -907,6 +953,8 @@ function AUDIT() {
   add('route POST /api/worker/status', worker('POST', '/api/worker/status', t => ({ worker: { version: '0.1.0', os: 'win32', allowPrompts: false }, jobs: [{ id: t.job, ok: false, error: 'lkq' }], sessions: [{ sessionId: t.session, state: 'dead' }] }), { label: 'their job and session ids', controlOk: r => two(r.status), stage: 1 }));
   add('route GET /api/worker/stream', { kind: 'worker', ok: r => r.status === 200, call: ({ p }) => streamPeek('/api/worker/stream', p.wkr ? { authorization: `Bearer ${p.wkr}` } : {}) });
   add('route GET /icons/[size]', route('GET', '/icons/192', { public: true }));
+  add('route GET /favicon.ico', route('GET', '/favicon.ico', { public: true }));
+  add('route GET /manifest.webmanifest', route('GET', '/manifest.webmanifest', { public: true }));
 
   // ── Better Auth endpoints the auth route serves ──
   add('auth /ok', authEp('GET', '/ok', undefined, { public: true }));
@@ -976,12 +1024,32 @@ function MISUSE({ A, T, X, R }) {
   L('a wkr_ key on /api/mcp', () => req('POST', '/api/mcp', { bearer: A.wkr, headers: mh, body: tl }));
   L('a session cookie on /api/mcp', () => req('POST', '/api/mcp', { cookie: A.cookie, headers: mh, body: tl }));
   // A copy of a cookie kept after sign-out: its signed cookie cache is still valid for a while, but actions read the
-  // session from the database.
-  L('a server action with a session cookie that signed out', async () => {
+  // session from the database, called by fetch (Next-Action header) or by a form post ($ACTION_REF_ fields, no header).
+  // Before sign-out the copy must hold the cache and open a page, and the form post must make the task.
+  // (the control's task, its history line and its number are taken back, so the misuse snapshot sees no write)
+  const made = async title => {
+    const d = await rawDb.collection('tasks').findOne({ title });
+    if (!d) return false;
+    await rawDb.collection('tasks').deleteOne({ _id: d._id });
+    await rawDb.collection('activity').deleteMany({ taskId: d._id });
+    await rawDb.collection('counters').updateOne({ _id: `task:${ME.orgId}` }, { $inc: { seq: -1 } });
+    return true;
+  };
+  L('a server action with a session cookie that signed out (fetch and form post)', async () => {
     const c = await signIn(EMAIL);
+    if (!/session_data=/.test(c)) return { status: 0, text: `the cookie holds no session_data: ${c.replace(/=[^;]+/g, '=…')}` };
+    const page = await req('GET', '/today', { cookie: c });
+    if (pageState(page) !== 'page') return { status: 0, text: `before sign-out /today is ${page.status} ${pageState(page)}` };
+    const ctl = `lkq form before sign-out ${hex(3)}`;
+    await formBound('app/actions.ts#createTaskAction', [{ title: ctl }], c);
+    if (!(await made(ctl))) return { status: 0, text: 'the form post made no task before sign-out (the probe does not reach the action)' };
     await action('app/actions.ts#logoutAction', [], { cookie: c });
-    return action('app/actions.ts#createTaskAction', [{ title: 'lkq after sign-out' }], { cookie: c });
-  }, actNo);
+    const viaFetch = await action('app/actions.ts#createTaskAction', [{ title: 'lkq after sign-out' }], { cookie: c });
+    if (!actNo(viaFetch)) return { status: 0, text: `fetch action after sign-out worked: ${said(viaFetch).slice(0, 120)}` };
+    const t = `lkq form after sign-out ${hex(3)}`;
+    const viaForm = await formBound('app/actions.ts#createTaskAction', [{ title: t }], c);
+    return { ...viaForm, made: await made(t) };
+  }, r => r.made === false);
   L('a removed member\'s chat key on /api/mcp', () => req('POST', '/api/mcp', { bearer: R.chat, headers: mh, body: tl }));
   L('a removed member\'s Claude Code key on /api/mcp', () => req('POST', '/api/mcp', { bearer: R.code, headers: mh, body: tl }));
   L('a made-up wos_ key on /api/mcp', () => req('POST', '/api/mcp', { bearer: 'wos_' + 'a'.repeat(48), headers: mh, body: tl }));

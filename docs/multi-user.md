@@ -335,7 +335,7 @@ The worker's own tests cover the stream client, change-only status and a simulat
 - Sign-in with a wrong password and password reset answer the same for a known and an unknown email (checked, no exception).
 
 **Found and fixed** by the first run:
-- Server actions and POST routes read the session through Better Auth's cookie cache. So a copy of a cookie kept after sign-out (or a revoked session) could still write for up to 2 minutes. They now read the session from the database (`callerFromHeaders` in lib/caller.ts). Pages and GET routes still use the cache (docs/auth.md).
+- Server actions and POST routes read the session through Better Auth's cookie cache. So a copy of a cookie kept after sign-out (or a revoked session) could still write for up to 2 minutes. They now read the session from the database (`callerFromHeaders` in lib/caller.ts). That covers every request Next may run as an action: a fetch call (`Next-Action` header) and a form post with no header (a `multipart/form-data` or urlencoded body naming the action in `$ACTION_REF_n`/`$ACTION_ID_n` fields; the security review found this second way). Pages and GET routes still use the cache (docs/auth.md).
 - Cancelling another organization's invitation answered "Member not found" (Better Auth) instead of "Invitation not found". So an owner of one organization could tell that an invitation id of another was real. `cancelInvitation` now checks first that the invitation is in the caller's organization. `/api/auth/organization/cancel-invitation` is no longer served: nothing used it, and Settings › Members uses the server action.
 
 ## Audit summary (2026-10-19)

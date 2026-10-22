@@ -92,11 +92,22 @@ async function firstOrg(userId: string): Promise<string | null> {
 }
 
 /**
- * The signed-in caller for these request headers, or null. Page renders and other reads trust Better Auth's signed
- * cookie cache (up to COOKIE_CACHE_SECONDS old); a server action (`next-action` header) or `fresh` reads the session
- * from the database, so a session that signed out or was revoked can no longer change anything (docs/auth.md).
+ * Could Next run a server action for this request? Next treats a POST as one when it has the `next-action` header
+ * (a fetch action) or a form body: `multipart/form-data` (a form post, which picks the action and its bound arguments
+ * from `$ACTION_REF_n`/`$ACTION_ID_n` fields) or `application/x-www-form-urlencoded`
+ * (next/dist/server/lib/server-action-request-meta.js). The method is not in the headers, so this is a superset: a GET
+ * with a form content type reads fresh too, which only costs a read.
  */
-export async function callerFromHeaders(h: Headers, fresh = h.has('next-action')): Promise<Caller | null> {
+function mayBeAction(h: Headers): boolean {
+  return h.has('next-action') || /^\s*(multipart\/form-data|application\/x-www-form-urlencoded)/i.test(h.get('content-type') ?? '');
+}
+
+/**
+ * The signed-in caller for these request headers, or null. Page renders and other reads trust Better Auth's signed
+ * cookie cache (up to COOKIE_CACHE_SECONDS old); a possible server action, or `fresh`, reads the session from the
+ * database, so a session that signed out or was revoked can no longer change anything (docs/auth.md).
+ */
+export async function callerFromHeaders(h: Headers, fresh = mayBeAction(h)): Promise<Caller | null> {
   const auth = await getAuth();
   const s = await auth.api.getSession({ headers: h, ...(fresh ? { query: { disableCookieCache: true } } : {}) }).catch(() => null);
   if (!s?.user) return null;

@@ -64,8 +64,8 @@ every member sees everything. Phase 2 does that.
 - **Proxy cost:** the signed `workos.session_data` cookie (compact, 120 s) is checked without a database read. When
   it is stale the proxy calls `getSession` once and forwards the refreshed cookies. So a revoked or signed-out session
   can keep opening pages (and GET routes) for up to 2 minutes; a removed member cannot (their role is read on every
-  request, and removal clears the role cache). Server actions and POST routes read the session from the database
-  (`callerFromHeaders`; until the leak audit they used the cookie cache too, so a cookie copied before sign-out could
+  request, and removal clears the role cache). Server actions (a fetch call with `Next-Action`, or a form post with a
+  `multipart/form-data` or urlencoded body) and POST routes read the session from the database (`callerFromHeaders`; until the leak audit they used the cookie cache too, so a cookie copied before sign-out could
   still write for 2 minutes).
   `/api/worker`, `/api/mcp`, `/api/cron`, `/api/discord/interactions` and `/api/auth` check their own
   credentials. Public pages: `/login`, `/login/reset`, `/accept-invitation/<id>`.
