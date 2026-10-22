@@ -26,7 +26,7 @@ const DUE_OPTS: { key: string; label: string }[] = [
   { key: 'next_7_days', label: 'Next 7 days' },
   { key: 'no_date', label: 'No date' },
 ];
-type Filters = { project: string; mode: string; due: string; q: string };
+type Filters = { project: string; mode: string; due: string; q: string; assigned: string };
 type Proj = { id: string; name: string };
 const PRIOS: Priority[] = ['P1', 'P2', 'P3', 'P4'];
 const PRIO_LABEL: Record<Priority, string> = { P1: 'P1 · must ship', P2: 'P2', P3: 'P3', P4: 'P4 · backlog' };
@@ -155,6 +155,10 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch
 
       {/* Active project/due filters first, then every mode as a one-tap filter. */}
       <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <Chip on={!!filters.assigned} onClick={() => setFilter('assigned', filters.assigned ? '' : 'me')}>
+          Assigned to me
+          {filters.assigned && <X className="inline w-3.5 h-3.5 ml-1 -mr-1" />}
+        </Chip>
         {filters.project && (
           <Chip on onClick={() => setFilter('project', '')}>
             {projName(filters.project)} <X className="inline w-3.5 h-3.5 -mr-1" />

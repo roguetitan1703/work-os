@@ -88,10 +88,12 @@ export type BriefTask = {
   blockedReason?: string;
   waitingOn?: string[];
   daysOverdue?: number;
+  /** 'me' or the member's name (phase 4), when someone is assigned. */
+  assignee?: string;
   url?: string;
 };
 
-export function briefTask(t: Task, names: Map<string, string>, opts: { baseUrl?: string; today?: string } = {}): BriefTask {
+export function briefTask(t: Task, names: Map<string, string>, opts: { baseUrl?: string; today?: string; who?: (userId: string) => string } = {}): BriefTask {
   const today = opts.today ?? todayStr();
   const out: BriefTask = {
     ref: t.ref,
@@ -106,6 +108,7 @@ export function briefTask(t: Task, names: Map<string, string>, opts: { baseUrl?:
   if (t.tags.length) out.tags = t.tags;
   if (t.blockedReason) out.blockedReason = t.blockedReason;
   if (isOverdue(t, today)) out.daysOverdue = Math.round((Date.parse(today) - Date.parse(t.due!)) / 86_400_000);
+  if (t.assigneeId && opts.who) out.assignee = opts.who(t.assigneeId);
   if (opts.baseUrl) out.url = `${opts.baseUrl}/tasks/${t.ref}`;
   return out;
 }

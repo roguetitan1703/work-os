@@ -13,9 +13,15 @@ every member sees everything. Phase 2 does that.
 - **Settings › Security:** passkeys, authenticator app (QR, then one code, then 10 backup codes shown once; turning it
   off or new backup codes needs your password), change password (other devices signed out), test email.
 - **Settings › Members:** who is in the organization. Owners and admins invite by email; only an owner can invite an
-  owner. The invitation email holds `/accept-invitation/<id>?t=<secret>`, valid 7 days, once. If email is not set up
-  the link is shown to copy. The invited person picks a name and password there and lands on Today; someone who
-  already has an account signs in first and clicks *Join*. Sign-up is otherwise closed.
+  owner. The invitation email holds `/accept-invitation/<id>?t=<secret>`, valid 7 days, once. By default the inviter
+  also sees the link, to copy when email is off; with `INVITE_LINK_TO_INVITER=0` it goes only by email (below). The
+  invited person picks a name and password there and lands on Today; someone who already has an account signs in
+  first and clicks *Join*. Sign-up is otherwise closed. Pending invitations are listed and can be cancelled.
+- **Roles and removal** (phase 4, docs/multi-user.md "As built: phase 4"):
+  - Owners and admins change roles and remove members. Only an owner makes, changes or removes an owner.
+  - The last owner can't be demoted or removed. An owner may step down while there is another one.
+  - Removing someone signs them out of the organization and deletes their keys for it. It revokes their computers there and stops the tasks they gave to Claude.
+  - Their private things stay, unseen by anyone.
 - **Keys** (each belongs to the person who made it, in their organization; history records who):
   - *Claude chat key* (Settings › Connections): the claude.ai connector. Replaces `MCP_TOKEN`. Also accepted on
     `/api/admin/*` for owners and admins, and on the other API routes.
@@ -104,7 +110,9 @@ every member sees everything. Phase 2 does that.
 | `AUTH_RATE_LIMIT` | `off` only in tests |
 | `TRUST_PROXY` | `1` when a proxy we control (Vercel, our nginx) sets `X-Real-IP` / `X-Forwarded-For`; without it, per-IP limits use one shared bucket |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows `/api/mcp/<Claude chat key>` |
+| `INVITE_LINK_TO_INVITER` | unset or `1` (default): whoever invites also sees the invitation link. `0`: the link goes only by email, so an owner or admin can't open it and claim the invitee's account; inviting then needs working email (`lib/members.ts` `inviteLinkToInviter`) |
 | `MAIL_CAPTURE_DIR` | tests: write mail as JSON files instead of sending |
 
 Tests: `tests/e2e/auth.mjs` (sign-in, 2FA, reset by email, invitations, other organizations, keys, a sweep of every
-page and API route without credentials). The e2e seed makes a test owner, organization and Claude chat key per run.
+page and API route without credentials) and `tests/e2e/team.mjs` (roles, the last owner, removal). The e2e seed makes
+a test owner, organization and Claude chat key per run.

@@ -7,7 +7,7 @@ import { MobileTasks } from '@/components/mobile/m-tasks';
 import { taskIdsWithNotes } from '@/lib/data/notes';
 import { requireScope } from '@/lib/caller';
 
-type Props = { searchParams: Promise<{ project?: string; mode?: string; due?: string; q?: string; search?: string }> };
+type Props = { searchParams: Promise<{ project?: string; mode?: string; due?: string; q?: string; search?: string; assigned?: string }> };
 
 const DUE: DueFilter[] = ['overdue', 'today', 'today_or_overdue', 'this_week', 'next_7_days', 'no_date'];
 
@@ -17,8 +17,10 @@ export default async function BoardPage({ searchParams }: Props) {
   const sp = await searchParams;
   const mode = ModeSchema.safeParse(sp.mode).success ? (sp.mode as Mode) : undefined;
   const due = DUE.includes(sp.due as DueFilter) ? (sp.due as DueFilter) : undefined;
-  const common = { project: sp.project || undefined, mode, due, q: sp.q || undefined };
   const s = await requireScope();
+  // ?assigned=me: the "Assigned to me" view (docs/multi-user.md phase 4).
+  const assigned = sp.assigned === 'me' ? 'me' : '';
+  const common = { project: sp.project || undefined, mode, due, q: sp.q || undefined, assignee: assigned ? s.userId : undefined };
   const [open, doneThisWeek, projects] = await Promise.all([
     listTasks(s, { ...common, open: true }),
     listTasks(s, { ...common, due: undefined, status: ['Done'], doneFrom: weekStart(todayStr()), sort: 'done' }),
@@ -30,13 +32,13 @@ export default async function BoardPage({ searchParams }: Props) {
   return (
     <>
       <div className="md:hidden">
-        <MobileTasks focusSearch={sp.search === '1'} tasks={all} projects={active} noteTaskIds={[...notes]} filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', q: sp.q ?? '' }} />
+        <MobileTasks focusSearch={sp.search === '1'} tasks={all} projects={active} noteTaskIds={[...notes]} filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', q: sp.q ?? '', assigned }} />
       </div>
       <div className="hidden md:block">
     <BoardClient focusSearch={sp.search === '1'}
       tasks={[...open, ...doneThisWeek]}
       projects={projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => ({ id: p.id, name: p.name }))}
-      filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', q: sp.q ?? '' }}
+      filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', q: sp.q ?? '', assigned }}
     />
       </div>
     </>

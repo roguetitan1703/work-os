@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Filter } from 'mongodb';
 import { requestContext } from '../request-context';
 import { nextSeq, toActivity, type ActivityDoc, type ClaudeMark, type TaskDoc, type TrashDoc } from '../db';
-import { canSee, orgWide, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
+import { canSee, forUser, orgWide, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
 import { asActor, isPerson, actorUserId, type ActorFilter } from '../actors';
 import {
   CLOSED_STATUSES,
@@ -104,6 +104,51 @@ export function recipientOf(t: Pick<TaskDoc, 'ownerId' | 'visibility' | 'assigne
 /** The query form of recipientOf: tasks whose alerts go to this person. */
 export function recipientFilter(userId: string): Filter<TaskDoc> {
   return { $or: [{ assigneeId: userId, visibility: 'org' }, { ownerId: userId, $or: [{ assigneeId: null }, { assigneeId: { $exists: false } }, { visibility: 'private' }] }] };
+}
+
+// ── Assignee (docs/multi-user.md phase 4) ──────────────────────────────────
+// Any member can be assigned to a shared task. A private task is seen only by its owner, so it can be assigned only to
+// them (anyone else is refused, and a task that becomes private loses an assignee who is not its owner).
+
+/** assignee input → a member's user id; 'me' is the caller; null (or '' / 'none') clears. undefined = not given. */
+async function resolveAssignee(s: Scope, v: string | null | undefined): Promise<string | null | undefined> {
+  if (v === undefined) return undefined;
+  const t = (v ?? '').trim();
+  if (!t || t.toLowerCase() === 'none') return null;
+  if (t.toLowerCase() === 'me') return s.userId;
+  const { findMember } = await import('../people');
+  const id = await findMember(s.orgId, t);
+  if (!id) throw new InputError(`assignee: "${t}" is not a member of this organization`);
+  return id;
+}
+
+function assertAssignable(place: Placement, assigneeId: string | null, ref?: number): void {
+  if (assigneeId && place.visibility === 'private' && assigneeId !== place.ownerId) {
+    throw new InputError(`${ref ? `#${ref}` : 'This task'} is private (only its owner sees it), so it can't be assigned to anyone else. Move it to a shared project first.`);
+  }
+}
+
+/** The assignee kept when a task moves to a placement: a private task keeps only its owner. */
+export const keptAssignee = (assigneeId: string | null | undefined, place: Placement): string | null =>
+  assigneeId && (place.visibility === 'org' || assigneeId === place.ownerId) ? assigneeId : null;
+
+async function personName(s: Scope, userId: string | null | undefined): Promise<string | null> {
+  if (!userId) return null;
+  const { memberNames } = await import('../people');
+  return (await memberNames(s.orgId))[userId] ?? 'a former member';
+}
+
+/**
+ * Tells the new assignee (inbox, plus push and Discord by their settings) through the alert queue: written with the
+ * task (in its transaction, if any) and sent right after the write (lib/alerts.ts flushQueuedAlerts). Assigning
+ * yourself sends nothing.
+ */
+async function queueAssigned(s: Scope, t: Pick<TaskDoc, '_id'>, assigneeId: string, actor: Actor): Promise<void> {
+  if (actorUserId(actor) === assigneeId) return;
+  const { whoDid } = await import('./dispatcher');
+  const c = await scoped(forUser(s, assigneeId));
+  const now = new Date();
+  await c.alertQueue.insertOne({ _id: `assigned:${t._id}:${assigneeId}:${now.getTime()}`, orgId: s.orgId, userId: assigneeId, kind: 'assigned', taskId: t._id, byTaskId: t._id, createdAt: now, sentAt: null, detail: (await whoDid(s, actor)).slice(0, 120) });
 }
 
 /** Accepts a task id, a number, or "#12" / "12". */
@@ -257,10 +302,14 @@ async function insertTask(
   const status: Status = data.status ?? (data.blockedReason?.trim() ? 'Blocked' : 'Not Started');
   const done = status === 'Done';
   const id = randomUUID();
+  const place = placeIn(project, opts.ownerId ?? s.userId);
+  const assigneeId = (await resolveAssignee(s, data.assignee)) ?? null;
+  assertAssignable(place, assigneeId);
   const doc: TaskDoc = {
     _id: id,
     orgId: s.orgId,
-    ...placeIn(project, opts.ownerId ?? s.userId),
+    ...place,
+    assigneeId,
     ref: await nextSeq(c.counters, taskCounter(s)),
     title: data.title,
     description: data.description ?? '',
@@ -290,6 +339,7 @@ async function insertTask(
   };
   await c.tasks.insertOne(doc);
   await logActivity(c, doc, actor, 'created', { note: opts.note });
+  if (assigneeId) await queueAssigned(s, doc, assigneeId, actor);
   return doc;
 }
 
@@ -351,6 +401,16 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
     }
   }
 
+  // Assignee: a member, on a shared task (or the owner on a private one). A move to private drops anyone else.
+  const place: Placement = moveTo ?? { ownerId: cur.ownerId, visibility: cur.visibility };
+  const wanted = await resolveAssignee(s, data.assignee);
+  if (wanted !== undefined) assertAssignable(place, wanted, cur.ref);
+  const assigneeId = wanted !== undefined ? wanted : keptAssignee(cur.assigneeId, place);
+  if ((cur.assigneeId ?? null) !== assigneeId) {
+    set.assigneeId = assigneeId;
+    changes.assignee = { from: await personName(s, cur.assigneeId), to: await personName(s, assigneeId) };
+  }
+
   // Status and its side effects.
   let status: Status = data.status ?? cur.status;
   const reason = data.blockedReason?.trim();
@@ -383,11 +443,14 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
   if (data.progress !== undefined) apply('progress', data.progress);
 
   const hasChanges = Object.keys(changes).length > 0;
+  // Someone else changing what Claude reads takes the task back from Claude (docs/dispatcher.md). It happens before the
+  // write: a claim needs the mark still queued, so no session can start on the edited text.
+  const readsChanged = !!(changes.title || changes.description || (set.checklist && newChecklistText(cur.checklist, set.checklist)) || opts.note?.trim());
+  const tookBack = readsChanged ? await takeBackOnEdit(s, cur, actor) : false;
   if (!hasChanges) {
     if (opts.note?.trim()) {
       await logActivity(c, cur, actor, opts.kind === 'progress' ? 'progress' : 'comment', { note: opts.note });
       await c.tasks.updateOne({ _id: cur._id }, { $set: { updatedAt: now } });
-      await takeBackOnEdit(s, cur, actor);
       return toTask({ ...cur, updatedAt: now });
     }
     return toTask(cur);
@@ -414,10 +477,8 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
   }
 
   if (statusChanged && CLOSED_STATUSES.includes(status) && isOpen(cur.status)) await queueUnblocked(s, next);
-  // Someone else changed what Claude reads: take it back from Claude (docs/dispatcher.md).
-  if (changes.title || changes.description || newChecklistText(cur.checklist, next.checklist) || opts.note?.trim()) {
-    if (await takeBackOnEdit(s, next, actor)) next.claude = (await c.tasks.findOne({ _id: cur._id }, { projection: { claude: 1 } }))?.claude ?? next.claude;
-  }
+  if (changes.assignee && assigneeId) await queueAssigned(s, next, assigneeId, actor);
+  if (tookBack) next.claude = (await c.tasks.findOne({ _id: cur._id }, { projection: { claude: 1 } }))?.claude ?? next.claude;
   // A task someone gave to Claude: Done or Blocked ends the dispatcher's run (docs/dispatcher.md).
   if (statusChanged && next.claude?.state === 'running') await onTaskChanged(c, s, next);
   if (statusChanged && status === 'Done' && next.recurrence && !next.nextRef) {
@@ -453,9 +514,9 @@ export async function addComment(s: Scope, key: string | number, note: string, a
   const c = await scoped(s);
   const cur = await findTaskDoc(c, key);
   const now = new Date();
+  await takeBackOnEdit(s, cur, actor);
   await c.tasks.updateOne({ _id: cur._id }, { $set: { updatedAt: now } });
   await logActivity(c, cur, actor, 'comment', { note });
-  await takeBackOnEdit(s, cur, actor);
   return toTask({ ...cur, updatedAt: now });
 }
 
@@ -537,17 +598,19 @@ export async function restoreTask(s: Scope, key: string | number, actor: Actor):
   const org = await orgWide(s.orgId);
   const project = old.projectId ? await org.projects.findOne({ _id: old.projectId }, { projection: { ownerId: 1, visibility: 1 } }) : null;
   const place = placeIn(project, old.ownerId);
-  const restored: TaskDoc = { ...old, ...(old.projectId && !project ? { projectId: null } : {}), ...place };
+  const restored: TaskDoc = { ...old, ...(old.projectId && !project ? { projectId: null } : {}), ...place, assigneeId: keptAssignee(old.assigneeId, place) };
   // Someone who could not see the restored task does not get to put it back.
   if (!canSee(s, restored)) throw new NotFoundError(`Task ${typeof key === 'number' ? '#' + key : key} is not in the trash`);
-  await c.trash.deleteOne({ _id: t._id });
   // Written org-wide: the result may be private to the project's owner (who is then the restorer, see above).
+  // The task goes back first and the trash entry goes last: a failure part-way leaves the trash entry in place (a retry
+  // then says "#12 already exists"), never a task in neither place.
   await org.tasks.insertOne(restored);
   if (t.activity.length) await org.activity.insertMany(t.activity.map(a => ({ ...a, ...place })));
   if (t.noteIds?.length) {
     await org.notes.updateMany({ _id: { $in: t.noteIds } }, { $set: { deletedAt: null }, $unset: { deletedBy: '' } });
     await placeNotes(org, t.noteIds, place);
   }
+  await c.trash.deleteOne({ _id: t._id });
   await logActivity(org, restored, actor, 'restored');
   return toTask(restored);
 }
@@ -601,11 +664,11 @@ export async function editComment(s: Scope, id: string, text: string, actor: Act
   const a = await ownedEntry(c, id, actor);
   const note = text.trim();
   if (!note && a.type === 'comment') throw new InputError('Comment text is empty; delete it instead.');
-  await c.activity.updateOne({ _id: id }, note ? { $set: { note } } : { $unset: { note: '' } });
   if (note) {
     const t = await c.tasks.findOne({ _id: a.taskId });
     if (t) await takeBackOnEdit(s, t, actor);
   }
+  await c.activity.updateOne({ _id: id }, note ? { $set: { note } } : { $unset: { note: '' } });
   return toActivity({ ...a, note: note || undefined });
 }
 
@@ -685,9 +748,9 @@ export async function updateChecklist(s: Scope, key: string | number, ops: Check
   if (!notes.length) return toTask(cur);
 
   const now = new Date();
+  if (newChecklistText(cur.checklist, items)) await takeBackOnEdit(s, cur, actor);
   await c.tasks.updateOne({ _id: cur._id }, { $set: { checklist: items, updatedAt: now } });
   await logActivity(c, cur, actor, 'checklist', { note: notes.join('; ') });
-  if (newChecklistText(cur.checklist, items)) await takeBackOnEdit(s, cur, actor);
   return toTask({ ...cur, checklist: items, updatedAt: now });
 }
 
@@ -765,6 +828,8 @@ export type TaskFilter = {
   doneFrom?: string; // YYYY-MM-DD, inclusive
   doneTo?: string;
   updatedSince?: Date;
+  /** Only tasks assigned to this member (a user id). */
+  assignee?: string;
   limit?: number;
   sort?: TaskSort;
 };
@@ -820,6 +885,7 @@ export async function listTasks(s: Scope, f: TaskFilter = {}): Promise<Task[]> {
     q.projectId = p._id;
   }
   if (f.mode) q.mode = f.mode;
+  if (f.assignee) q.assigneeId = f.assignee;
   if (f.tag) q.tags = f.tag.replace(/^#/, '').toLowerCase();
   if (f.priority?.length) q.priority = { $in: f.priority };
 

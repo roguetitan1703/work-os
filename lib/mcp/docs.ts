@@ -73,7 +73,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   list_tasks: {
     title: 'List tasks',
     description:
-      'List/filter tasks. By default returns open (Not Started / In Progress / Blocked), non-archived tasks sorted by priority. Set include_closed or status to see Done/Dropped.',
+      'List/filter tasks. By default returns open (Not Started / In Progress / Blocked), non-archived tasks sorted by priority. Set include_closed or status to see Done/Dropped. assignee:"me" lists what is assigned to you.',
     writes: false,
     example: 'Show my overdue Grant Leads tasks',
   },
@@ -85,14 +85,14 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   add_task: {
     title: 'Add task',
-    description: 'Create a task. Only title is required. Defaults: priority P2, status Not Started.',
+    description: 'Create a task. Only title is required. Defaults: priority P2, status Not Started. assignee gives it to a member (shared projects only); they are notified.',
     writes: true,
     example: 'Add a P1 for Terrah: send the revised quote, due Friday, 30 min',
   },
   update_task: {
     title: 'Update task',
     description:
-      'Change fields on a task (title, description, project, mode, priority, tags, dates, estimate, links, blocked reason, dependencies, recurrence). Only fields you pass change. Changes are diffed into the history with your note. For progress use log_progress, to finish use complete_task; status here is for Dropped or reopening.',
+      'Change fields on a task (title, description, project, mode, priority, tags, dates, estimate, links, blocked reason, dependencies, recurrence, assignee). Only fields you pass change. Changes are diffed into the history with your note. For progress use log_progress, to finish use complete_task; status here is for Dropped or reopening.',
     writes: true,
     example: 'Move #31 to next Tuesday and make it P2',
   },

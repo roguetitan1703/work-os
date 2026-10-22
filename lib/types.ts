@@ -79,7 +79,7 @@ export type Task = {
   ownerId: string;
   /** Follows the project: 'org' in a shared project, else 'private'. */
   visibility: Visibility;
-  /** Gets its alerts when set (and the task is shared); phase 4 adds the UI. */
+  /** A member who does it and gets its alerts (shared tasks only; a private task can be assigned only to its owner). */
   assigneeId: string | null;
 };
 
@@ -254,6 +254,8 @@ export const TaskInputSchema = z.object({
   blockedReason: z.string().max(2000).optional(),
   dependsOn: z.array(z.union([z.string(), z.number()])).max(50).optional(),
   recurrence: RecurrenceSchema.nullable().optional(),
+  /** Who does it: a member's user id or email, or 'me'; null clears. Shared tasks only (docs/multi-user.md phase 4). */
+  assignee: z.string().trim().min(1).max(200).nullable().optional(),
 });
 export type TaskInput = z.input<typeof TaskInputSchema>;
 

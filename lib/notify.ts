@@ -10,6 +10,7 @@ import { getUserSetting, scoped, setUserSetting, type Scope } from './scope';
 
 export const ALERT_KINDS: { kind: AlertKind; label: string; hint: string }[] = [
   { kind: 'unblocked', label: 'Unblocked', hint: 'The last task it waited on is done' },
+  { kind: 'assigned', label: 'Assigned to you', hint: 'Someone assigned a task to you' },
   { kind: 'overdue', label: 'Overdue', hint: 'Morning after, then every 2 days' },
   { kind: 'due_today', label: 'Due today', hint: '09:00' },
   { kind: 'due_tomorrow', label: 'Due tomorrow', hint: '18:00, P1 and P2' },
@@ -34,7 +35,7 @@ export type NotifySettings = {
 
 const DEFAULTS: NotifySettings = {
   channels: { push: true, discord: true },
-  kinds: { unblocked: true, overdue: true, due_today: true, due_tomorrow: true, never_started: true, stalled: true, claude_finished: true, claude_stopped: true, claude_stuck: true, claude_code_changes: true, claude_waiting: true },
+  kinds: { unblocked: true, assigned: true, overdue: true, due_today: true, due_tomorrow: true, never_started: true, stalled: true, claude_finished: true, claude_stopped: true, claude_stuck: true, claude_code_changes: true, claude_waiting: true },
 };
 
 export async function getNotifySettings(s: Scope): Promise<NotifySettings> {

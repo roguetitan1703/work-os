@@ -72,6 +72,12 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
       <TaskSection phone={phone} title="Due today" tasks={m.dueToday} render={t => row(t)} />
       <TaskSection phone={phone} title="In progress" tone="text-blue-600 dark:text-blue-400" tasks={m.inProgress} render={t => row(t)} />
       <TaskSection phone={phone} title="Blocked" tone="text-red-600 dark:text-red-400" tasks={m.blocked} render={t => row(t, waitHint(t))} />
+      <TaskSection phone={phone} title="Assigned to you" tasks={m.assigned} render={t => row(t)} />
+      {m.assignedTotal > 0 && (
+        <Link href="/tasks?assigned=me" className={cn("flex items-center text-muted-foreground hover:text-foreground", phone ? "min-h-11 px-1 text-[14px]" : "text-xs")} data-assigned-link>
+          {m.assignedTotal} assigned to you in Tasks ›
+        </Link>
+      )}
       {attention === 0 && openTasks.length > 0 && <p className={cn("text-muted-foreground", phone ? "mt-5 px-1 text-[15px]" : "text-sm")}>Nothing else needs attention today.</p>}
       {openTasks.length === 0 && <p className={cn("text-muted-foreground", phone ? "mt-5 px-1 text-[15px]" : "text-sm")}>No open tasks. {phone ? "Tap + to add one." : "Press N to add one."}</p>}
       <div className={cn("space-y-2", phone ? "mt-5" : "pt-1")}>

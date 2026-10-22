@@ -18,7 +18,7 @@ export type NextBlock = { block: ScheduleBlock; mode: string; hex: string };
  * timezone; none without one), and the task sections (each task in exactly one place).
  */
 export function useTodayModel({ tasks, waiting, isNaturallyWeekend, weekday }: { tasks: Task[]; waiting: Record<string, string[]>; isNaturallyWeekend: boolean; weekday: Wd | null }) {
-  const { today, plan, tz } = useApp();
+  const { today, plan, tz, me } = useApp();
   const { color } = useModes();
   const [flexOverride, setFlexOverride] = useState(false);
   const [now, setNow] = useState<Date | null>(null);
@@ -54,6 +54,9 @@ export function useTodayModel({ tasks, waiting, isNaturallyWeekend, weekday }: {
   const dueToday = take(tasks.filter(t => t.due === today).sort(byPrio));
   const inProgress = take(tasks.filter(t => t.status === 'In Progress').sort(byPrio));
   const blocked = take(tasks.filter(t => t.status === 'Blocked' || waiting[t.id]).sort(byPrio));
+  // Assigned to you (phase 4), what the sections above don't already show; Tasks › Assigned to me has them all.
+  const assignedTotal = tasks.filter(t => !!me && t.assigneeId === me).length;
+  const assigned = take(tasks.filter(t => !!me && t.assigneeId === me).sort(byPrio));
   // The NOW block only lists what the sections above don't already show; later groups skip its tasks too.
   const nowTasks = take(nowMode ? tasks.filter(t => t.mode === nowMode).sort(byPrio) : []);
   const week = addDays(today, 7);
@@ -64,5 +67,5 @@ export function useTodayModel({ tasks, waiting, isNaturallyWeekend, weekday }: {
   const idx = liveBlock ? blocks.indexOf(liveBlock) : -1;
   const nextBlocks: NextBlock[] = blocks.slice(idx + 1, idx + 4).map(b => ({ block: b, mode: b.modes[effectiveWeekday], hex: color(b.modes[effectiveWeekday]).hex }));
 
-  return { today, hasSchedule: !!plan, isFlexDay, toggleFlex, effectiveWeekday, liveBlock, rawBlockMode, nowMode, hex, nowTasks, overdue, dueToday, inProgress, blocked, upNext, alsoOpen, nextBlocks };
+  return { today, hasSchedule: !!plan, isFlexDay, toggleFlex, effectiveWeekday, liveBlock, rawBlockMode, nowMode, hex, nowTasks, overdue, dueToday, inProgress, blocked, assigned, assignedTotal, upNext, alsoOpen, nextBlocks };
 }

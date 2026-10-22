@@ -48,6 +48,7 @@ async function run<T>(fn: (s: Scope, me: Actor) => Promise<T>): Promise<Result<T
 // ── Tasks (actor: the signed-in person) ─────────────────────────────────────
 
 export async function createTaskAction(input: TaskInput): Promise<Result<Task>> {
+  await flushAlerts(); // a task made with an assignee tells them at once
   return run((s, me) => tasks.createTask(s, input, me));
 }
 

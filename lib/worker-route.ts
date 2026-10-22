@@ -2,6 +2,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { bearerToken } from './auth';
 import { verifyDeviceKey } from './devices';
+import { roleOf } from './caller';
 import type { Scope } from './scope';
 import { InputError, NotFoundError } from './data/errors';
 import { runWithRequestContext } from './request-context';
@@ -38,6 +39,8 @@ export function workerRoute(fn: (device: WorkerDevice, body: unknown) => Promise
       const device = await verifyDeviceKey(bearerToken(req));
       // A computer from before sign-in by user has no owner: it acts for nobody, so it is refused (re-add it in Setup).
       if (!device?.ownerId || !device.orgId) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+      // Its owner must still be a member: removing someone revokes their computers, and this holds even if that failed.
+      if (!(await roleOf(device.ownerId, device.orgId))) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
       if (overLimit(device.id)) return NextResponse.json({ error: 'too many requests' }, { status: 429 });
       let body: unknown;
       if (opts.body) {

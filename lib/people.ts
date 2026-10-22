@@ -7,7 +7,14 @@ import type { Scope } from './scope';
 // history ("Ana", "Claude Code · Ana"), the alerts cron (every membership) and Discord (a linked account must still be a member).
 
 const TTL_MS = 60_000;
-const names = new Map<string, { at: number; map: Record<string, string> }>();
+// On globalThis so a member change clears every bundle's copy in this process (forgetMembers).
+const gNames = globalThis as unknown as { __workosMemberNames?: Map<string, { at: number; map: Record<string, string> }> };
+const names = (gNames.__workosMemberNames ??= new Map());
+
+/** Forget the cached member list of an organization (after an invitation is accepted or a member removed). */
+export function forgetMembers(orgId: string): void {
+  names.delete(orgId);
+}
 
 /** userId → display name for every member of the organization (cached a minute per process). */
 export async function memberNames(orgId: string): Promise<Record<string, string>> {
@@ -35,15 +42,25 @@ export async function allMemberships(): Promise<Scope[]> {
   return ms.map(m => ({ userId: String(m.userId), orgId: String(m.organizationId) }));
 }
 
-/** A member of the organization by user id or email (MCP args such as waiting_on), or null. */
+/**
+ * A member of the organization by user id or email (MCP args such as waiting_on and assignee), or null. Someone not in
+ * the cached list is looked up in the database (they may have joined in the last minute).
+ */
 export async function findMember(orgId: string, idOrEmail: string): Promise<string | null> {
   const v = idOrEmail.trim();
   if (!v) return null;
   if (v in (await memberNames(orgId))) return v;
-  if (!v.includes('@')) return null;
   const db = await getDb();
-  const u = await db.collection('user').findOne({ email: v.toLowerCase() }, { projection: { _id: 1 } });
-  return u && (await isMember(orgId, String(u._id))) ? String(u._id) : null;
+  let userId = v;
+  if (v.includes('@')) {
+    const u = await db.collection('user').findOne({ email: v.toLowerCase() }, { projection: { _id: 1 } });
+    if (!u) return null;
+    userId = String(u._id);
+    if (userId in (await memberNames(orgId))) return userId;
+  } else if (!/^[A-Za-z0-9_-]{1,64}$/.test(v)) return null;
+  if (!(await db.collection('member').findOne({ organizationId: idIn(orgId), userId: idIn(userId) }, { projection: { _id: 1 } }))) return null;
+  forgetMembers(orgId);
+  return userId;
 }
 
 /** The first organization (by creation): data from before organizations belongs to it (old note files). */

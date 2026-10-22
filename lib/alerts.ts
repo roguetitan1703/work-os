@@ -22,6 +22,7 @@ import { recipientFilter, recipientOf } from './data/tasks';
 //   stalled        In Progress, no activity for 2 workdays
 //   never_started  P1 still Not Started 24h after creation
 //   unblocked      as soon as the last task it waited on is closed
+//   assigned       as soon as someone else assigns a task to you
 //   claude_*       the task dispatcher (docs/dispatcher.md): finished / stopped (sent at once) and "may be stuck" (scheduled)
 //   quiet hours    each person's own (default 23:00–08:00 in their timezone; held until they end)
 
@@ -38,7 +39,7 @@ export type AlertItem = { key: string; kind: AlertKind; ref: number; title: stri
 
 const CLAUDE_OUTCOMES = ['claude_finished', 'claude_stopped'] as const;
 /** Event alerts that live in alertQueue and are claimed there (not in alertLog). */
-const FROM_QUEUE = new Set<AlertKind>(['unblocked', ...CLAUDE_OUTCOMES]);
+const FROM_QUEUE = new Set<AlertKind>(['unblocked', 'assigned', ...CLAUDE_OUTCOMES]);
 
 
 /** Is it inside this person's quiet hours (in their timezone)? */
@@ -88,29 +89,32 @@ export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { on
   const hour = clockInTz(now, tz).hour;
   const items: AlertItem[] = [];
   const open = await c.tasks
-    .find({ status: { $in: OPEN_STATUSES }, archived: false, ...recipientFilter(s.userId) }, { projection: { ref: 1, title: 1, status: 1, priority: 1, due: 1, progress: 1, createdAt: 1, updatedAt: 1 } })
+    .find({ status: { $in: OPEN_STATUSES }, archived: false, ...recipientFilter(s.userId) }, { projection: { ref: 1, title: 1, status: 1, priority: 1, due: 1, progress: 1, createdAt: 1, updatedAt: 1, ownerId: 1 } })
     .toArray();
   const sent = new Map((await c.alertLog.find({ taskId: { $in: open.map(t => t._id) } }).toArray()).map(l => [l._id, l]));
   const was = (key: string) => sent.has(key);
+  // Log keys are per task and occasion; an assignee's carry their user id too, so a task that changes hands still
+  // alerts its new recipient (the owner's keep the old form, so nothing already sent goes out again).
+  const keyOf = (base: string, t: { ownerId: string }) => (t.ownerId === s.userId ? base : `${base}:${s.userId}`);
 
   // due_today digest (one per day)
   if (hour >= ALERT_RULES.dueTodayHour) {
     for (const t of open.filter(t => t.due === today)) {
-      const key = `due_today:${t._id}:${today}`;
+      const key = keyOf(`due_today:${t._id}:${today}`, t);
       if (!was(key)) items.push({ key, kind: 'due_today', taskId: t._id, ref: t.ref, title: t.title, detail: t.priority });
     }
   }
   // due_tomorrow (P1/P2)
   if (hour >= ALERT_RULES.dueTomorrowHour) {
     for (const t of open.filter(t => t.due === addDays(today, 1) && (t.priority === 'P1' || t.priority === 'P2'))) {
-      const key = `due_tomorrow:${t._id}:${t.due}`;
+      const key = keyOf(`due_tomorrow:${t._id}:${t.due}`, t);
       if (!was(key)) items.push({ key, kind: 'due_tomorrow', taskId: t._id, ref: t.ref, title: t.title, detail: t.priority });
     }
   }
   // overdue: from the morning after, then every N days
   if (hour >= ALERT_RULES.dueTodayHour) {
     for (const t of open.filter(t => t.due && t.due < today)) {
-      const key = `overdue:${t._id}:${t.due}`;
+      const key = keyOf(`overdue:${t._id}:${t.due}`, t);
       const last = sent.get(key);
       const days = Math.round((Date.parse(today) - Date.parse(t.due!)) / 86_400_000);
       if (!last || now.getTime() - last.sentAt.getTime() >= ALERT_RULES.overdueEveryDays * 86_400_000 - 30 * 60_000) {
@@ -122,13 +126,13 @@ export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { on
   for (const t of open.filter(t => t.status === 'In Progress')) {
     const lastDay = dateInTz(t.updatedAt, tz);
     if (workdaysBetween(lastDay, today) < ALERT_RULES.stalledWorkdays) continue;
-    const key = `stalled:${t._id}:${t.updatedAt.toISOString()}`;
+    const key = keyOf(`stalled:${t._id}:${t.updatedAt.toISOString()}`, t);
     if (!was(key)) items.push({ key, kind: 'stalled', taskId: t._id, ref: t.ref, title: t.title, detail: `no activity since ${lastDay}, ${t.progress}%` });
   }
   // never_started: P1 Not Started for 24h
   for (const t of open.filter(t => t.priority === 'P1' && t.status === 'Not Started')) {
     if (now.getTime() - t.createdAt.getTime() < ALERT_RULES.neverStartedHours * 3_600_000) continue;
-    const key = `never_started:${t._id}`;
+    const key = keyOf(`never_started:${t._id}`, t);
     if (!was(key)) items.push({ key, kind: 'never_started', taskId: t._id, ref: t.ref, title: t.title });
   }
   // claude_stuck: a task Claude is working on, session quiet for 20 minutes (once per claim)
@@ -146,9 +150,16 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
   const queued = await c.alertQueue.find(ids ? { _id: { $in: ids } } : { sentAt: null }).toArray();
   if (queued.length) {
     const taskIds = [...new Set(queued.flatMap(q => [q.taskId, q.byTaskId]))];
-    const byId = new Map((await c.tasks.find({ _id: { $in: taskIds } }, { projection: { ref: 1, title: 1, status: 1 } }).toArray()).map(t => [t._id, t]));
+    const byId = new Map((await c.tasks.find({ _id: { $in: taskIds } }, { projection: { ref: 1, title: 1, status: 1, archived: 1, assigneeId: 1 } }).toArray()).map(t => [t._id, t]));
     for (const q of queued) {
       const t = byId.get(q.taskId);
+      if (q.kind === 'assigned') {
+        // Dropped if it changed hands again, closed or was archived before it went out.
+        if (!t || t.assigneeId !== q.userId || CLOSED_STATUSES.includes(t.status) || t.archived) continue;
+        const by = plainAlertText(q.detail ?? '');
+        items.push({ key: q._id, kind: 'assigned', ref: t.ref, title: t.title, detail: by ? `by ${by}` : undefined, headline: `#${t.ref} assigned to you${by ? ` by ${by}` : ''}` });
+        continue;
+      }
       if (q.kind === 'claude_finished' || q.kind === 'claude_stopped') {
         if (!t) continue;
         q.detail = plainAlertText(q.detail ?? '');
@@ -171,6 +182,7 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
 // ── Message ─────────────────────────────────────────────────────────────────
 
 const SECTIONS: { kind: AlertKind; head: string }[] = [
+  { kind: 'assigned', head: '👤 **Assigned to you**' },
   { kind: 'unblocked', head: '🔓 **Unblocked**, you can start these' },
   { kind: 'overdue', head: '🔴 **Overdue**' },
   { kind: 'due_today', head: '📅 **Due today**' },
@@ -239,6 +251,7 @@ export type RunResult = { quiet: boolean; dryRun: boolean; sent: number; message
 
 const KIND_TITLE: Record<AlertKind, string> = {
   unblocked: 'Unblocked',
+  assigned: 'Assigned to you',
   overdue: 'Overdue',
   due_today: 'Due today',
   due_tomorrow: 'Due tomorrow',

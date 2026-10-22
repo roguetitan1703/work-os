@@ -151,6 +151,81 @@ Order on deploy: deploy the code, then run the migration at once. Until it runs,
 
 Run it after the deploy, then register the Discord commands again (they gain `/link`), then remove the two old Discord variables.
 
+## As built: phase 4, team (2026-10-22)
+
+**Members** (Settings › Members, `lib/members.ts`, `app/(app)/settings/members-section.tsx`). Owners and admins:
+- invite by email (role member, admin or owner), see pending invitations, and cancel them;
+- change a member's role with the select on their row;
+- remove a member (Remove, then confirm).
+
+Who may do what:
+- Only an owner makes someone an owner, and only an owner changes or removes an owner. Admins manage admins and members.
+- An owner may step down on their own row. Nobody removes themselves.
+- **There is always an owner.** A demotion of an owner is refused while they are the only one. The write is checked again after it is made and undone if it left none, so two owners demoting each other at the same moment cannot both win. Removing an owner first demotes them through the same guarded step.
+- The server checks every rule (`changeRole`, `removeMember`); the page only hides what you cannot do.
+- Changes are direct writes to Better Auth's `member` collection, not through its organization endpoints. Those endpoints stay off (docs/auth.md), and our rules (last owner, admins and owners) are not Better Auth's.
+
+**Removing a member** ends their access to that organization at once:
+- the membership is deleted;
+- their sessions whose active organization is this one are deleted, so an open browser is signed out on its next request;
+- their Claude chat and Claude Code keys for this organization are deleted (keys for other organizations stay);
+- their computers there are revoked and pending jobs cancelled. The worker routes also refuse a computer whose owner is no longer a member;
+- tasks they gave to Claude end as "stopped";
+- shared tasks assigned to them are unassigned, so alerts go back to each task's owner.
+
+The role and member-name caches now live on `globalThis` and are cleared in the process that made the change; other server instances catch up within a minute (phase 5 has one server).
+
+**A removed member's private data: kept untouched and unreachable.**
+- Their private projects, tasks, notes, settings, inbox and computers (revoked) stay in the database as they were, and nobody else can see them: the door shows private things only to their owner, who is no longer a member.
+- Invited again, they find everything where they left it (but must add their computers and keys again).
+- Shared work they made stays shared and keeps them as owner.
+- Nothing is deleted, so nothing is lost by a removal made in error.
+
+To erase someone's data, delete it by hand in the database (no tool yet).
+
+**Assignee** (`lib/data/tasks.ts`):
+- Any member can be assigned to a task in a shared project.
+- A private task can be assigned only to its owner. Anyone else is refused ("move it to a shared project first"), in the app, MCP and `apply_changes`.
+- A task that becomes private loses an assignee who is not its owner. This holds when the task moves out of its shared project, when its project is made private, and when it is restored into a private place.
+- History records the change by name ("assignee Bea → —").
+- Input: `assignee` on `TaskInput`/`TaskPatch`: a member's user id or email, `me`, or null to clear. Someone outside the organization is refused. `findMember` falls back to the database for someone who joined in the last minute.
+
+**Alerts to the assignee.**
+- `recipientOf` was already "the assignee of a shared task, else its owner", and the cron, unblocked alerts and Claude Code notices all use it.
+- What was missing: alert log keys were per task, so a task that changed hands never alerted its new recipient for an occasion already logged. An assignee's keys now carry their user id (`overdue:<task>:<due>:<user>`). The owner's keys keep the old form, so nothing already sent goes out again after the deploy.
+- Assigning someone queues an `assigned` alert to them in the alert queue (in the same transaction as the task write). It is sent right after the write: inbox always, phone push and Discord DM by their settings, held in their quiet hours. It is dropped if the task changed hands again, closed or was archived before it went out.
+- Assigning yourself sends nothing. "Assigned to you" is a new switch in Settings › Alerts (on by default).
+
+**Views.**
+- Tasks: an **Assigned to me** button (desktop) and chip (phone) set `?assigned=me`, which lists only tasks assigned to you.
+- Today: an **Assigned to you** section with your assigned tasks that no section above already shows, and a link to the full list.
+- The task page (desktop "Assigned to" field, phone "Assigned" row) has the picker: Nobody, Me, then everyone in the organization. A private task shows "Private: only you" instead.
+
+**MCP.**
+- `add_task`, `update_task` and the `create_task`/`update_task` ops of `apply_changes` take `assignee` ('me', an email or a user id; null clears).
+- `list_tasks` takes `assignee` as a filter.
+- `get_task` and every brief task (list_tasks, add/update answers) return `assignee`: 'me' or the member's name.
+
+**Invitation links: one switch** (`INVITE_LINK_TO_INVITER`, `inviteLinkToInviter()` in lib/members.ts).
+- Default (unset or `1`): the current behaviour. The inviter sees the link (to copy when email is off), and it is also emailed.
+- `0`: the link only goes by email, so an owner or admin can never open an invitee's link and claim the account. Inviting then needs working email: without it the invite is refused, and if the email cannot be sent the invitation is cancelled and the inviter is told to try again.
+- Om has not decided which he wants (WORK-STATE Later).
+
+**Phase 2 review leftovers, fixed.**
+- **Take-back through sub-pages.** Editing, adding, deleting or restoring any page under a task's note (any depth) takes the task back from Claude: the note's root `taskId` is found by walking up `parentId`.
+- **Take-back race.** `takeBackOnEdit` now runs *before* the edit is written. It reads the mark fresh and ends it with a conditional update, retried if a claim moved it meanwhile (queued → running). A claim (`claimFor`) starts a task only if its mark is still `queued`, in one atomic update. So a session either started before the edit (it read the old text, and is stopped) or never starts.
+- **Org → private onto a name you use privately** now answers "You already have a private project with that name" before anything moves. Before, it was a 500 after the cascade had already run.
+- **`restoreTask`** puts the task, history and note back first and deletes the trash entry last. A failure part-way leaves the trash entry, and a retry says "#12 already exists", rather than losing the task.
+
+Tests: `tests/e2e/team.mjs` (new). It covers:
+- assignee rules and notices;
+- alerts following the assignee;
+- take-back through sub-pages, a new sub-page, a delete and a comment;
+- the private-name clash and restore order;
+- invite, revoke, accept, role changes, the last-owner guard, stepping down and promoting back;
+- removing a member (keys, computer, sessions, claims, assignments, private data kept), and removing a second owner;
+- the pickers and the Assigned views on desktop and phone.
+
 ## Audit summary (2026-10-19)
 
 - All 26 collections have no owner or organization field; numbers, project names and Claude item numbers are globally unique.

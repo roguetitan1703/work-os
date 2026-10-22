@@ -260,6 +260,7 @@ async function claimFor(c: Collections, s: Scope, deviceId: string, set: Dispatc
     const sessionId = randomUUID();
     const now = new Date();
     // The claim: one conditional update. Whoever wins starts it; a loser stops (it does not take the next task, so the cap is not overshot).
+    // It needs the mark still "queued": a teammate's edit takes the task back before it is written (takeBackOnEdit).
     const claimed = await c.tasks.findOneAndUpdate(
       { _id: t._id, 'claude.state': 'queued', archived: false, status: { $in: CLAIMABLE } },
       {
@@ -444,7 +445,7 @@ export async function takeBackFromClaude(scope: DeviceScope, key: string, opts: 
 // ── Someone else changed what Claude reads ──────────────────────────────────
 
 /** "Claude for Bea", "Bea via Discord", "Bea". */
-async function whoDid(s: Scope, actor: Actor): Promise<string> {
+export async function whoDid(s: Scope, actor: Actor): Promise<string> {
   const { memberNames } = await import('../people');
   const id = actorUserId(actor);
   const name = (id && (await memberNames(s.orgId))[id]) || 'someone';
@@ -456,24 +457,34 @@ async function whoDid(s: Scope, actor: Actor): Promise<string> {
 /**
  * The task's text is the prompt's source (get_task). If anyone but the person who gave it to Claude (or their own
  * Claude) changes it while it is queued or running, the claim is taken back: a running session is stopped, the mark ends
- * as "stopped", and the giver gets one notice. The edit itself goes through. Call after the edit is written.
+ * as "stopped", and the giver gets one notice. The edit itself goes through.
+ *
+ * Call it BEFORE writing the edit. The mark is read fresh here and changed with a conditional update, retried when the
+ * claim moved meanwhile (queued -> running on a worker poll): once this returns, the mark is no longer "queued", and a
+ * claim (claimFor) only starts a task whose mark is still "queued", in one atomic update. So a session either started
+ * before the edit (it read the old text and is stopped here) or never starts.
  */
 export async function takeBackOnEdit(s: Scope, t: Pick<TaskDoc, '_id' | 'ref' | 'title' | 'orgId' | 'ownerId' | 'visibility' | 'projectId' | 'claude'>, actor: Actor): Promise<boolean> {
-  const mark = t.claude;
-  if (!mark || (mark.state !== 'queued' && mark.state !== 'running')) return false;
-  if (actor.kind === 'system') return false;
-  const giver = mark.markedByUserId ?? t.ownerId;
+  if (!t.claude || actor.kind === 'system') return false;
+  const giver = t.claude.markedByUserId ?? t.ownerId;
   if (actorUserId(actor) === giver) return false;
   const gs = forUser(s, giver);
   const org = await scoped(gs);
   const who = await whoDid(s, actor);
   const note = `taken back: changed by ${who}`.slice(0, 300);
-  const now = new Date();
-  const r = await org.tasks.updateOne(
-    { _id: t._id, 'claude.state': mark.state, ...(mark.sessionId ? { 'claude.sessionId': mark.sessionId } : {}) },
-    { $set: { 'claude.state': 'stopped', 'claude.endedAt': now, 'claude.note': note } },
-  );
-  if (!r.modifiedCount) return false;
+  let mark: ClaudeMark | null | undefined = null;
+  for (let i = 0; i < 5; i++) {
+    mark = (await org.tasks.findOne({ _id: t._id }, { projection: { claude: 1 } }))?.claude;
+    if (!mark || (mark.state !== 'queued' && mark.state !== 'running')) return false;
+    if ((mark.markedByUserId ?? t.ownerId) !== giver) return false;
+    const r = await org.tasks.updateOne(
+      { _id: t._id, 'claude.state': mark.state, ...(mark.sessionId ? { 'claude.sessionId': mark.sessionId } : { 'claude.sessionId': { $exists: false } }) },
+      { $set: { 'claude.state': 'stopped', 'claude.endedAt': new Date(), 'claude.note': note } },
+    );
+    if (r.modifiedCount) break;
+    mark = null; // claimed (or ended) between the read and the update: read again
+  }
+  if (!mark) return false;
   if (mark.state === 'running' && t.projectId && mark.sessionId) await stopSession(gs, t.projectId, mark.sessionId).catch(() => {});
   await logTask(org, t, actor, 'edit', { changes: { claude: { from: mark.state, to: 'stopped' } }, note });
   try {

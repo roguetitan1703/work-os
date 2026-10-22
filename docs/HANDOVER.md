@@ -47,6 +47,7 @@ All configuration is in Vercel → Project → Settings → Environment Variable
 | `OWNER_EMAIL`, `OWNER_NAME` | used only by `scripts/migrate-auth.mjs` (the first user) | for the migration |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob (private) for images and files in notes | not used yet |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows putting a Claude chat key in the URL (`/api/mcp/<key>`) instead of a header | leave unset |
+| `INVITE_LINK_TO_INVITER` | `0` sends invitation links only by email (the inviter never sees them); unset or `1` also shows the link to whoever invites (docs/auth.md) | default: shown |
 
 **Health check:** `GET /api/admin/health` with `Authorization: Bearer <Claude chat key of an owner or admin>` returns database status, document counts, the Node version, and whether the note converter works.
 
@@ -74,6 +75,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 `list_tasks`, `get_task`, `add_task`, `update_task`, `log_progress`, `complete_task`, `add_comment`, `update_checklist`, `list_projects`, `add_project`, `update_project`, `daily_summary`, `recent_activity`.
 - **`daily_summary`** is the one call for a morning brief: overdue, due today, in progress, blocked and waiting, the next 7 days, everything completed or changed since the last workday and who did it, and per-project counts.
 - **Dates** accept `today`, `tomorrow`, weekday names, `+3d`, `+2w` or `YYYY-MM-DD`.
+- **Assignee** (phase 4): `add_task`, `update_task` and the batch task ops take `assignee` ('me', an email or a user id; null clears), only on tasks in shared projects; `list_tasks` filters by it, and task answers show it as 'me' or a name.
 
 ### Claude Code
 - **Data layer:** `lib/data/tasks.ts` (create, update, history, recurrence, queries) and `lib/data/projects.ts`. Pages, server actions (`app/actions.ts`), MCP and Discord all go through it.
@@ -301,7 +303,7 @@ There's no bot server running all the time and no messages are stored.
 Nothing to call; alerts run on their own. Claude's own changes trigger them like anyone's: when Claude completes a blocking task, the unblocked alert goes out (to the waiting task's owner, or its assignee).
 
 **Per person (phase 2):**
-- Every alert has a recipient: the assignee of a shared task, else its owner (`recipientOf` in lib/data/tasks.ts).
+- Every alert has a recipient: the assignee of a shared task, else its owner (`recipientOf` in lib/data/tasks.ts). Assigning someone sends them "Assigned to you" at once (phase 4); an assignee's alert log keys carry their user id, so a task that changes hands alerts its new recipient.
 - The cron runs once per member, each with their own settings (`notify:<userId>`), inbox and push devices.
 - The Discord DM goes only to the Discord-linked person.
 
@@ -437,6 +439,8 @@ Full details: **`docs/auth.md`** (sign-in, roles, invitations, keys, the one-tim
 - **Web app:** sign-in by user (Better Auth): email + password, authenticator app with backup codes, passkeys,
   "Forgot password?" to your own email. Sign-up is closed: people join through an invitation (Settings › Members).
   Roles: owner, admin, member. Every request knows who (`getCaller()` in `lib/caller.ts`); history records `actorUserId`.
+  Owners and admins change roles and remove members there (phase 4: the last owner stays; removal ends the person's
+  sessions, keys, computers and Claude claims in that organization; docs/multi-user.md "As built: phase 4").
 - **`proxy.ts`** protects every page and API using Better Auth's signed cookie cache (no database read for most
   requests; a revoked session can open pages for up to 2 minutes). Public: `/login`, `/login/reset`,
   `/accept-invitation/<id>`, the PWA files.
@@ -487,7 +491,7 @@ Full details: **`docs/auth.md`** (sign-in, roles, invitations, keys, the one-tim
   - `/api/admin/health`, which should report `notesConverter: "ok"`
   - `node scripts/test-mcp.mjs …`
 - **Commits:** no co-author or "Generated with" lines (Om's preference).
-- **End-to-end tests:** `bash tests/e2e/run.sh [suite…]` (throwaway mongod, own ports via `E2E_MPORT`/`E2E_APORT`/`E2E_DPORT`). Each run makes a test owner, organization and Claude chat key (`tests/e2e/lib.mjs` `makeIdentity`); mail goes to JSON files (`MAIL_CAPTURE_DIR`). `auth.mjs` covers sign-in, 2FA, reset, invitations, keys and a no-credentials sweep of every route. `tenancy.mjs` covers two people in one organization plus a second organization: private vs shared, every MCP read tool, pages, search, note files, worker and admin APIs, per-organization numbers and recipients, and (phase 3) each person's own schedule, timezone and dispatcher cap. `discord-link.mjs` signs Discord interactions with a throwaway key against a stub Discord: linking, commands acting as the linked person, per-person channel visibility and DMs. Fixtures inserted with `db` from lib.mjs get the test owner's organization and owner filled in (`rawDb` writes exactly what you give it).
+- **End-to-end tests:** `bash tests/e2e/run.sh [suite…]` (throwaway mongod, own ports via `E2E_MPORT`/`E2E_APORT`/`E2E_DPORT`). Each run makes a test owner, organization and Claude chat key (`tests/e2e/lib.mjs` `makeIdentity`); mail goes to JSON files (`MAIL_CAPTURE_DIR`). `auth.mjs` covers sign-in, 2FA, reset, invitations, keys and a no-credentials sweep of every route. `tenancy.mjs` covers two people in one organization plus a second organization: private vs shared, every MCP read tool, pages, search, note files, worker and admin APIs, per-organization numbers and recipients, and (phase 3) each person's own schedule, timezone and dispatcher cap. `team.mjs` (phase 4) covers assignees and their alerts, take-back through sub-pages, invitations, roles, the last owner and removing a member. `discord-link.mjs` signs Discord interactions with a throwaway key against a stub Discord: linking, commands acting as the linked person, per-person channel visibility and DMs. Fixtures inserted with `db` from lib.mjs get the test owner's organization and owner filled in (`rawDb` writes exactly what you give it).
 - **Testing locally:**
   - **MongoDB:** transactions need a replica set: `mongod --replSet rs0 --port 28020 --dbpath <dir>`, then `replSetInitiate`.
   - **Discord:** set `DISCORD_API_BASE` to a fake Discord.

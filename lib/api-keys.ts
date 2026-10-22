@@ -69,6 +69,15 @@ export async function revokeApiKey(c: Caller, id: string): Promise<void> {
   await ctx.adapter.delete({ model: 'apikey', where: [{ field: 'id', value: row.id }] });
 }
 
+/** Deletes every key userId made for orgId (they left it). Their keys for other organizations stay. Returns how many. */
+export async function revokeKeysIn(userId: string, orgId: string): Promise<number> {
+  const rows = (await rowsOf(userId)).filter(r => meta(r.metadata).orgId === orgId);
+  if (!rows.length) return 0;
+  const ctx = await (await getAuth()).$context;
+  for (const r of rows) await ctx.adapter.delete({ model: 'apikey', where: [{ field: 'id', value: r.id }] });
+  return rows.length;
+}
+
 /** Revokes the key and issues a new one with the same name and agent. */
 export async function rotateApiKey(c: Caller, id: string): Promise<{ key: string; info: ApiKeyInfo }> {
   const row = (await rowsOf(c.userId)).find(r => String(r.id) === String(id));

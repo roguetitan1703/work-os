@@ -76,12 +76,19 @@ function parseSince(s: string | undefined): Date | undefined {
   throw new InputError(`Couldn't read "since" value "${s}"`);
 }
 
+/** A member id as MCP output: 'me' for the key's owner, else their name. */
+async function whoOf(ctx: Ctx): Promise<(id: string) => string> {
+  const people = await memberNames(ctx.caller.orgId);
+  return id => (id === ctx.caller.userId ? 'me' : people[id] || 'a former member');
+}
+
 async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
   const d = await tasks.getTaskDetail(sOf(ctx), key, { activityLimit });
   if (!d) throw new NotFoundError(`Task ${key} not found`);
   const t = d.task;
   const note = (await notesData.noteIndex(sOf(ctx), { taskIds: [t.id] })).byTask.get(t.id) ?? null;
   const by = await byOf(ctx);
+  const who = await whoOf(ctx);
   return {
     ref: t.ref,
     id: t.id,
@@ -108,6 +115,7 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     archived: t.archived,
     createdAt: t.createdAt,
     visibility: t.visibility,
+    assignee: t.assigneeId ? who(t.assigneeId) : null,
     createdBy: by(t.createdBy),
     updatedAt: t.updatedAt,
     doneAt: t.doneAt,
@@ -138,7 +146,7 @@ function itemOut(i: ClaudeItem, blockers: items.ProjectItems['blockers'] | undef
 
 async function brief(t: Task, ctx: Ctx) {
   const names = await projects.projectNameMap(sOf(ctx));
-  return briefTask(t, names, { baseUrl: ctx.baseUrl });
+  return briefTask(t, names, { baseUrl: ctx.baseUrl, who: await whoOf(ctx) });
 }
 
 // snake_case tool args → service input
@@ -159,6 +167,7 @@ type FieldArgs = {
   blocked_reason?: string;
   depends_on?: (string | number)[];
   recurrence?: z.infer<typeof RecurrenceSchema> | null;
+  assignee?: string | null;
 };
 
 function toPatch(a: FieldArgs): TaskPatch {
@@ -179,6 +188,7 @@ function toPatch(a: FieldArgs): TaskPatch {
   if (a.blocked_reason !== undefined) p.blockedReason = a.blocked_reason;
   if (a.depends_on !== undefined) p.dependsOn = a.depends_on;
   if (a.recurrence !== undefined) p.recurrence = a.recurrence;
+  if (a.assignee !== undefined) p.assignee = a.assignee;
   return p;
 }
 
@@ -196,6 +206,7 @@ const fieldShape = {
   blocked_reason: z.string().optional().describe('Setting this on an open task marks it Blocked'),
   depends_on: z.array(z.union([z.number().int(), z.string()])).optional().describe('Refs of tasks this one waits on'),
   recurrence: RecurrenceSchema.nullable().optional().describe('Repeat after completion: {freq: daily|weekdays|weekly|monthly, interval}'),
+  assignee: z.string().max(200).nullable().optional().describe("Who does it: 'me', or a member's email or user id; null clears. Only on a task in a shared project (a private task can't be assigned to anyone else). They are notified"),
 };
 
 const codeShape = z
@@ -264,6 +275,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         due_to: z.string().optional().describe('YYYY-MM-DD inclusive'),
         done_since: z.string().optional().describe('YYYY-MM-DD: only tasks completed on/after this date (implies Done)'),
         query: z.string().optional().describe('Text search in title, description and tags'),
+        assignee: z.string().max(200).optional().describe("Only tasks assigned to this member: 'me', an email or a user id"),
         archived: z.boolean().optional().describe('true = only archived tasks'),
         sort: z.enum(['priority', 'due', 'updated', 'created', 'done']).optional(),
         limit: z.number().int().min(1).max(200).optional().describe('Default 50'),
@@ -271,7 +283,15 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { readOnlyHint: true },
     },
     handler(async a => {
+      let assignee: string | undefined;
+      if (a.assignee) {
+        const v = a.assignee.trim();
+        const id = v.toLowerCase() === 'me' ? s.userId : await findMember(s.orgId, v);
+        if (!id) throw new InputError(`assignee: "${v}" is not a member of this organization`);
+        assignee = id;
+      }
       const all = await tasks.listTasks(s, {
+        assignee,
         status: a.done_since ? ['Done'] : a.status,
         open: !a.status?.length && !a.include_closed && !a.done_since,
         project: a.project,
@@ -288,11 +308,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
       });
       const limit = a.limit ?? 50;
       const names = await projects.projectNameMap(s);
+      const who = await whoOf(ctx);
       return {
         today: todayStr(),
         total: all.length,
         returned: Math.min(limit, all.length),
-        tasks: all.slice(0, limit).map(t => briefTask(t, names, { baseUrl: ctx.baseUrl })),
+        tasks: all.slice(0, limit).map(t => briefTask(t, names, { baseUrl: ctx.baseUrl, who })),
       };
     }),
   );

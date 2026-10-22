@@ -1,7 +1,7 @@
 # Work state
 
 ## Now
-- 2026-10-22: multi-user Work OS, own sign-in first (Om); Delpat OS integration later. Plan: docs/multi-user.md. Phases 0 (CPU), 1 (sign-in, docs/auth.md) and 2 (ownership, re-reviewed safe) merged to master. Phase 3 (per-user settings: schedule, routine, modes and review as data; timezone and quiet hours per person; Discord linked per person; "Om" out of code) merged (security review fixes in). On deploy (phase 5, with Om's go): set OPERATOR_EMAILS, create the operator accounts first, then migrate-auth, migrate-ownership (--copy-to rehearsal first) and migrate-phase3, register the Discord commands again, remove DISCORD_GUILD_ID and DISCORD_OWNER_ID.
+- 2026-10-22: multi-user Work OS, own sign-in first (Om); Delpat OS integration later. Plan: docs/multi-user.md. Phases 0 (CPU), 1 (sign-in, docs/auth.md) and 2 (ownership, re-reviewed safe) merged to master. Phase 3 (per-user settings: schedule, routine, modes and review as data; timezone and quiet hours per person; Discord linked per person; "Om" out of code) merged (security review fixes in). Phase 4 (team: members and roles, removal, assignees, Assigned to me, the invitation-link switch; plus the phase 2 review leftovers) built on builder-a, waiting on review and merge. On deploy (phase 5, with Om's go): set OPERATOR_EMAILS, create the operator accounts first, then migrate-auth, migrate-ownership (--copy-to rehearsal first) and migrate-phase3, register the Discord commands again, remove DISCORD_GUILD_ID and DISCORD_OWNER_ID.
 - 2026-10-19: Vercel paused Om's account (Fluid Active CPU); Work OS moves to Delpat's AWS server (work.delpat.in). Audit summary in docs/multi-user.md.
 
 ## Next
@@ -25,8 +25,13 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Phase 3: only the operator sets an organization's Discord server and registers its commands (again after the modes change) — waits on organizations managing their own bot.
 - Phase 3: the MCP argument `waiting_on_om` keeps its name (renaming breaks connected clients) — waits on a tool-version bump.
 - Phase 3: a task keeps a mode its organization later drops (only new or changed modes are checked) — waits on a modes editor.
-- In-memory caches that live in a module are per bundle (route handlers, pages and actions can each have their own copy), so clearing one after a save does not clear the others; phase 3's profile, schedule and modes caches now live on globalThis, but memberNames and the role cache (lib/people.ts, lib/caller.ts) still don't (a rename or role change can take up to a minute to show) — waits on it being noticed, or phase 5's single server.
-- Phase 2 review leftovers: a teammate editing a sub-page of a task's note (or deleting/restoring the note) does not take the task back from Claude (only the root note has taskId; walk up to the root); a queued-to-running race can miss a take-back; moving a project org→private onto a name you already use privately gives a 500 (unhandled E11000); restoreTask deletes the trash doc before inserting — waits on a builder A slot after phase 3.
+- In-memory caches are per server instance: a role change, removal or rename shows at once on the instance that made it and within a minute on others (memberNames and the role cache now live on globalThis, so every bundle in one process shares them) — waits on phase 5's single server.
+- Phase 4: a removed member's shared tasks keep them as owner; unassigned, their alerts go to nobody (the cron runs per membership). Fix: hand them to the remover, or prompt to reassign — waits on Om saying which.
+- Phase 4: a removed member's computers are revoked, so a Claude session already running on their PC is not stopped by Work OS (no stop job reaches a revoked computer); its key is dead, so it can no longer read or write Work OS — waits on it mattering.
+- Phase 4: `INVITE_LINK_TO_INVITER=0` (links by email only) has no e2e test (the suites share one server started without it); its code path is small — waits on Om choosing it.
+- Phase 4: two owners demoting each other at the same moment is handled (the demotion is checked after the write and undone if it left no owner) but not e2e-tested — waits on it mattering.
+- Phase 4: task rows (lists, board, Today) don't show who is assigned; only the task page, Assigned to me and MCP do. Quick add, Discord /task and import have no assignee syntax — waits on Om wanting them.
+- Phase 4: daily_summary does not split out what is assigned to you (list_tasks assignee:"me" does) — waits on Om's morning brief needing it.
 - Operator by email: an admin who invites an address in OPERATOR_EMAILS that has no account yet makes that invitee an operator (invites set emailVerified) — create operator accounts before inviting anyone (deploy step above).
 - Take back on a legacy running Claude task (no marker) lets anyone mark it stopped; the session keeps running — goes away after the migration (no legacy marks) .
 - CPU leftovers (docs/cpu.md): /today sends every open task in full; /today and /claude run claudeOverview (~12 reads); dispatcher settings and device key are read on every worker poll — wait on a smaller task shape for the client, and on phase 5 (push instead of polling).
@@ -35,9 +40,7 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Auth phase 1: password reset no longer asks for the authenticator code (the old flow did) — waits on Om saying whether he wants it back.
 
 - Auth phase 1: a revoked session or removed member can open pages for up to 2 min (cookie cache); actions and data reads check the database — waits on Om finding 2 min too long.
-- Auth phase 1: invitation link is shown to the inviter; an admin could claim the invitee's account — waits on Om deciding whether admins are less trusted than owners.
-- alertLog keys are per task (not per recipient): when phase 4 lets a task change assignee, the new recipient misses alerts already logged for that task — waits on phase 4 assignees.
-- Tasks have assigneeId but nothing sets it yet (no UI or MCP arg), so every alert goes to the owner — waits on phase 4.
+- Auth phase 1: invitation link is shown to the inviter; an admin could claim the invitee's account. Phase 4 made it one switch: `INVITE_LINK_TO_INVITER=0` sends links by email only (default unchanged: shown) — waits on Om choosing.
 - Two visible projects can share a name (your private one and a teammate's later shared one); a lookup by name picks your private one — waits on Om finding it confusing.
 - OPERATOR_EMAILS must be set on the server, or nobody gets health, Usage, Discord registration or the organizations' Discord server setting — set it with the deploy.
 - Old documents are invisible between deploying phase 2 and running scripts/migrate-ownership.mjs (no orgId) — run the migration right after the deploy.

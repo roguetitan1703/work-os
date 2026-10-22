@@ -26,7 +26,7 @@ const sel = 'h-8 rounded-lg border border-input bg-transparent px-2 text-sm outl
 type Props = {
   tasks: Task[];
   projects: { id: string; name: string }[];
-  filters: { project: string; mode: string; due: string; q: string };
+  filters: { project: string; mode: string; due: string; q: string; assigned: string };
   focusSearch?: boolean;
 };
 
@@ -76,6 +76,15 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false }: P
             placeholder="Search…"
             className={cn(sel, 'w-40')}
           />
+          <button
+            type="button"
+            data-assigned-filter
+            aria-pressed={!!filters.assigned}
+            onClick={() => setFilter('assigned', filters.assigned ? '' : 'me')}
+            className={cn(sel, 'px-3', filters.assigned && 'bg-foreground text-background border-foreground dark:bg-foreground')}
+          >
+            Assigned to me
+          </button>
           <select className={sel} value={filters.project} onChange={e => setFilter('project', e.target.value)}>
             <option value="">All projects</option>
             {projects.map(p => (

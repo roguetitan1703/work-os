@@ -336,8 +336,24 @@ function newId() {
  * A dispatcher's boilerplate note is read by every session it starts, so only the person whose dispatcher reads it may
  * change, move or delete it (or add a sub-page to it), in the app: not their Claude, Discord or anyone else.
  */
-/** A task's note is part of what Claude reads for that task: someone else's change takes it back from Claude. */
-async function takeBackTaskOnNoteEdit(s: Scope, c: Collections, taskId: string, actor: Actor): Promise<void> {
+/** The task a note belongs to: its own taskId, or its root page's (a sub-page of a task's note is part of that note). */
+async function rootTaskId(c: Collections, n: Pick<NoteDoc, 'taskId' | 'parentId'>): Promise<string | null> {
+  let cur: Pick<NoteDoc, 'taskId' | 'parentId'> | null = n;
+  for (let i = 0; i < 12 && cur; i++) {
+    if (cur.taskId) return cur.taskId;
+    if (!cur.parentId) return null;
+    cur = await c.notes.findOne({ _id: cur.parentId }, { projection: { taskId: 1, parentId: 1 } });
+  }
+  return null;
+}
+
+/**
+ * A task's note (with its sub-pages) is part of what Claude reads for that task: someone else's change, delete or
+ * restore takes it back from Claude. Called before the write (dispatcher.ts takeBackOnEdit says why).
+ */
+async function takeBackTaskOnNoteEdit(s: Scope, c: Collections, note: Pick<NoteDoc, 'taskId' | 'parentId'>, actor: Actor): Promise<void> {
+  const taskId = await rootTaskId(c, note);
+  if (!taskId) return;
   const t = await c.tasks.findOne({ _id: taskId });
   if (!t?.claude) return;
   const { takeBackOnEdit } = await import('./dispatcher');
@@ -389,13 +405,11 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
       set.blocks = next;
       set.body = await blocksToMarkdown(next);
     }
-    if (w.title?.trim() && w.title.trim() !== cur.title) {
-      set.title = w.title.trim();
-      if (cur.parentId) await renamePageBlock(c, cur.parentId, cur._id, set.title);
-    }
+    if (w.title?.trim() && w.title.trim() !== cur.title) set.title = w.title.trim();
     if (w.archived !== undefined) set.archived = w.archived;
+    if (set.blocks || set.title) await takeBackTaskOnNoteEdit(s, c, cur, actor);
+    if (set.title && cur.parentId) await renamePageBlock(c, cur.parentId, cur._id, set.title);
     await c.notes.updateOne({ _id: cur._id }, { $set: set });
-    if (cur.taskId && (set.blocks || set.title)) await takeBackTaskOnNoteEdit(s, c, cur.taskId, actor);
     return { note: (await hydrate(c, [{ ...cur, ...set }]))[0], created: false };
   }
 
@@ -434,6 +448,7 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     updatedAt: now,
     deletedAt: null,
   };
+  await takeBackTaskOnNoteEdit(s, c, doc, actor);
   try {
     await c.notes.insertOne(doc);
   } catch (err) {
@@ -441,7 +456,6 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     throw err;
   }
   if (parent && w.linkInParent !== false) await addPageBlock(c, parent, doc._id, doc.title, actor);
-  if (doc.taskId) await takeBackTaskOnNoteEdit(s, c, doc.taskId, actor);
   return { note: (await hydrate(c, [doc]))[0], created: true };
 }
 
@@ -488,6 +502,7 @@ export async function deleteNote(s: Scope, id: string, actor: Actor, opts: { exp
     throw new InputError(`Note ${id} is "${cur.title}", not "${opts.expectTitle}". Nothing deleted.`);
   }
   await guardBoilerplate(s, actor, [cur._id, cur.parentId]);
+  await takeBackTaskOnNoteEdit(s, c, cur, actor);
   const kids = await descendants(c, id);
   const at = new Date();
   await c.notes.updateMany({ _id: { $in: [id, ...kids] } }, { $set: { deletedAt: at, deletedBy: actor } });
@@ -507,6 +522,7 @@ export async function restoreNote(s: Scope, id: string, actor: Actor): Promise<N
   if (!cur) throw new NotFoundError(`Note ${id} is not deleted`);
   await guardBoilerplate(s, actor, [cur._id, cur.parentId]);
   if (cur.taskId && (await c.notes.findOne({ taskId: cur.taskId, ...live }))) throw new InputError('That task has a newer note; restore refused.');
+  await takeBackTaskOnNoteEdit(s, c, cur, actor);
   // Bring back sub-pages deleted in the same action.
   const same = await c.notes.find({ deletedAt: cur.deletedAt }, { projection: { _id: 1 } }).toArray();
   await c.notes.updateMany({ _id: { $in: same.map(s => s._id) } }, { $set: { deletedAt: null }, $unset: { deletedBy: '' } });

@@ -323,6 +323,11 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
     if (data.visibility === 'org' && (await c.projects.findOne({ _id: { $ne: id }, nameLower: set.nameLower ?? cur.nameLower, visibility: 'org' }, { projection: { _id: 1 } }))) {
       throw new InputError('A shared project with that name already exists');
     }
+    // Made private: the name must be free among the owner's own private projects (all theirs, so nothing leaks). Checked
+    // first: the cascade below is not undone if the project's own update then failed on the unique index.
+    if (data.visibility === 'private' && (await c.projects.findOne({ _id: { $ne: id }, nameLower: set.nameLower ?? cur.nameLower, visibility: 'private', ownerId: cur.ownerId }, { projection: { _id: 1 } }))) {
+      throw new InputError('You already have a private project with that name. Rename one of them first.');
+    }
     set.visibility = data.visibility;
     await setProjectVisibility(c, cur, data.visibility);
   }
@@ -340,6 +345,8 @@ async function setProjectVisibility(c: Collections, p: ProjectDoc, visibility: V
   const taskIds = [...(await c.tasks.distinct('_id', { projectId: p._id })), ...(await c.trash.distinct('_id', { 'task.projectId': p._id }))];
   if (taskIds.length) {
     await c.tasks.updateMany({ _id: { $in: taskIds } }, { $set: owned });
+    // A private task can be assigned only to its owner (docs/multi-user.md phase 4).
+    if (visibility === 'private') await c.tasks.updateMany({ _id: { $in: taskIds }, assigneeId: { $nin: [null, p.ownerId] } }, { $set: { assigneeId: null } });
     await c.activity.updateMany({ taskId: { $in: taskIds } }, { $set: owned });
     const taskNotes = await c.notes.find({ taskId: { $in: taskIds } }, { projection: { _id: 1 } }).toArray();
     if (taskNotes.length) await c.notes.updateMany({ _id: { $in: await noteTree(c, taskNotes.map(n => n._id)) } }, { $set: owned });

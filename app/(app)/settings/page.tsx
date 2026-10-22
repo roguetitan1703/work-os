@@ -7,7 +7,7 @@ import { getAuth, idIn } from '@/lib/auth-server';
 import { requireCaller } from '@/lib/caller';
 import { isOperator } from '@/lib/operator';
 import { getDb } from '@/lib/db';
-import { listMembers } from '@/lib/members';
+import { inviteLinkToInviter, listMembers } from '@/lib/members';
 import { mailConfigured, missingMailEnv } from '@/lib/mail';
 import { discordConfig } from '@/lib/discord/client';
 import { NOTIFY_KINDS, getNotifySettings, pushConfigured, pushDeviceCount, vapidPublicKey } from '@/lib/notify';
@@ -147,7 +147,7 @@ async function SecurityPanel() {
 async function MembersPanel() {
   const caller = await requireCaller();
   const { members, invitations } = await listMembers(caller);
-  return <MembersSection members={members} invitations={invitations} canInvite={caller.role === 'owner' || caller.role === 'admin'} isOwner={caller.role === 'owner'} />;
+  return <MembersSection members={members} invitations={invitations} canInvite={caller.role === 'owner' || caller.role === 'admin'} isOwner={caller.role === 'owner'} linkToInviter={inviteLinkToInviter()} />;
 }
 
 /** Phone overview rows, one per section after This device. */

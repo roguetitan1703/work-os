@@ -44,9 +44,11 @@ export class NotAllowed extends SafeError {
   }
 }
 
-// Role per (user, organization), kept briefly in memory: a role change shows within a minute.
+// Role per (user, organization), kept briefly in memory: a role change shows within a minute, at once in this process
+// (forgetRoles). On globalThis: route handlers, pages and actions can each load their own copy of this module.
 const ROLE_TTL_MS = 60_000;
-const roles = new Map<string, { role: Role | null; at: number }>();
+const gRoles = globalThis as unknown as { __workosRoles?: Map<string, { role: Role | null; at: number }> };
+const roles = (gRoles.__workosRoles ??= new Map());
 
 async function roleIn(userId: string, orgId: string): Promise<Role | null> {
   const k = `${userId}:${orgId}`;
@@ -71,6 +73,11 @@ async function personOf(userId: string): Promise<{ email: string; name: string }
   if (people.size > 5000) people.clear();
   people.set(userId, p);
   return p;
+}
+
+/** userId's role in orgId, or null when they are not a member (cached like every role check). */
+export async function roleOf(userId: string, orgId: string): Promise<Role | null> {
+  return roleIn(userId, orgId);
 }
 
 /** Forget cached roles (after a role change or a member removal in this process). */

@@ -24,6 +24,7 @@ import { useApp, useModes } from '@/components/app-context';
 import { fmtAgo, fmtDue } from '@/lib/format';
 import type { Mode, Recurrence, Task, TaskPatch } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { assigneeOptions } from '@/lib/assignees';
 
 const field =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring dark:bg-input/30';
@@ -31,7 +32,7 @@ const field =
 type Props = { task: Task; projectName: string | null; dependencies: Task[]; dependents: Task[] };
 
 export function TaskDetailClient({ task, projectName, dependencies, dependents }: Props) {
-  const { projects, today } = useApp();
+  const { projects, today, people, me } = useApp();
   const { modes, color } = useModes();
   const [pending, start] = useTransition();
   const [progressOpen, setProgressOpen] = useState(false);
@@ -148,6 +149,22 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
               <option key={p.id} value={p.name} />
             ))}
           </datalist>
+        </Field>
+        <Field label="Assigned to">
+          {task.visibility === 'org' ? (
+            <select className={field} value={task.assigneeId ?? ''} data-assignee-picker onChange={e => patch({ assignee: e.target.value || null }, e.target.value ? `Assigned to ${e.target.value === me ? 'you' : people[e.target.value] ?? 'them'}` : 'Unassigned')}>
+              <option value="">Nobody</option>
+              {assigneeOptions(people, me, task.assigneeId).map(o => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className={cn(field, 'flex items-center text-muted-foreground')} title="Only shared tasks can be assigned">
+              Private: only you
+            </div>
+          )}
         </Field>
         <Field label="Mode">
           <select className={field} value={task.mode ?? ''} onChange={e => patch({ mode: (e.target.value || null) as Mode | null })}>

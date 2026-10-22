@@ -38,6 +38,7 @@ launcher-backend|launcher-backend.mjs|none|plain
 usage|usage.mjs|none|plain
 auth|auth.mjs|none|plain
 tenancy|tenancy.mjs|none|plain
+team|team.mjs|none|plain
 alerts-once|alerts-once.mjs|none|discord
 discord-link|discord-link.mjs|none|discord
 ${E2E_EXTRA:-}

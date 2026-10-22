@@ -17,6 +17,7 @@ import { ProgressDialog } from '../progress-dialog';
 import { useApp, useModes } from '../app-context';
 import { BottomSheet } from './sheet';
 import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, claudeMenuLabel } from '../give-to-claude';
+import { assigneeOptions } from '@/lib/assignees';
 
 const STATUSES: { s: Status; tone: string }[] = [
   { s: 'Not Started', tone: 'bg-foreground text-background' },
@@ -47,7 +48,7 @@ export function MobileTaskDetail({
   dependencies: Dep[];
   dependents: Dep[];
 }) {
-  const { today, projects, projectName } = useApp();
+  const { today, projects, projectName, people, me } = useApp();
   const { modes, color } = useModes();
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -246,6 +247,21 @@ export function MobileTaskDetail({
               </option>
             ))}
         </SelectRow>
+        {task.visibility === 'org' ? (
+          <SelectRow label="Assigned" value={task.assigneeId ?? ''} onChange={v => patch({ assignee: v || null }, v ? `Assigned to ${v === me ? 'you' : people[v] ?? 'them'}` : 'Unassigned')}>
+            <option value="">Nobody</option>
+            {assigneeOptions(people, me, task.assigneeId).map(o => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </SelectRow>
+        ) : (
+          <div className="flex items-center gap-3 px-4 h-12">
+            <span className="text-[16px] text-foreground w-20">Assigned</span>
+            <span className="flex-1 text-right text-[16px] text-muted-foreground">Private: only you</span>
+          </div>
+        )}
         <SelectRow label="Mode" value={task.mode ?? ''} onChange={v => patch({ mode: (v || null) as Task['mode'] })}>
           <option value="">None</option>
           {modes.map(m => (
