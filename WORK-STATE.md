@@ -23,6 +23,7 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Auth phase 1: a revoked session or removed member can open pages for up to 2 min (cookie cache); actions and data reads check the database — waits on Om finding 2 min too long.
 - Auth phase 1: invitation link is shown to the inviter; an admin could claim the invitee's account — waits on Om deciding whether admins are less trusted than owners.
 - Auth phase 1: the dispatcher's "only Om" checks now mean any signed-in member — waits on phase 2 scoping.
+- e2e `settings` sometimes times out opening Settings › Alerts (waitForURL section=alerts) in the full run (2 of 4 full runs on builder-a), never alone (3 of 3) — waits on a test-fix slot.
 - e2e `today` fails on Sundays (waits for a schedule block that is not active) and `claude-page` is flaky (queue Up/Down refresh timing, ~3 of 4 runs fail) — both also on master; waits on a test-fix slot.
 - Usage log cannot tell prefetches from page data (Next 16 hides the prefetch headers from the proxy; skipProxyUrlNormalize would change what the auth check sees) — waits on Om needing that split.
 - Dispatched sessions (wt tab, prompt as first argument) leave no transcript in ~/.claude/projects, so the Sessions list shows the folder name, no title, no subagents, and the stuck alert has no lastActiveAt — waits on finding where that Claude Code version writes them.
