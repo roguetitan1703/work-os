@@ -2,6 +2,7 @@ import 'server-only';
 import { scoped, type Scope } from '../scope';
 import { toItem } from './claude-items';
 import type { ClaudeItem } from '../types';
+import { connectedDevice } from '../live';
 import { deviceMap, derivedState, ownedDeviceIds, WAITING_MS, type DeviceScope, type SessionView } from './launcher';
 
 // The Claude area (/claude) reads everything Claude-related across projects in one go: what
@@ -61,7 +62,9 @@ export type ClaudeOverview = {
   activity: { computers: ComputerActivity[]; total: ActivityTotal };
 };
 
-export const ACTIVITY_STALE_MS = 5 * 60_000; // the worker reports about every 2 min
+// The worker reports about every 2 min, or, while it holds a push stream (lib/live.ts), only when something changed:
+// a connected computer's last report is current however old it is.
+export const ACTIVITY_STALE_MS = 5 * 60_000;
 
 const lastSeg = (p: string) => p.split(/[\\/]+/).filter(Boolean).pop() ?? p;
 
@@ -73,7 +76,7 @@ export async function activityOverview(scope: DeviceScope): Promise<ClaudeOvervi
   const computers: ComputerActivity[] = ds.flatMap(d => {
     const a = d.activity;
     if (!a) return [];
-    return [{ deviceId: d._id, name: d.name, fresh: nowMs - a.at.getTime() <= ACTIVITY_STALE_MS, sessions: a.sessions, sessionsWorkOs: a.sessionsWorkOs, sessionsOther: a.sessionsOther, subagents: a.subagents, at: a.at.toISOString() }];
+    return [{ deviceId: d._id, name: d.name, fresh: nowMs - a.at.getTime() <= ACTIVITY_STALE_MS || connectedDevice(d._id), sessions: a.sessions, sessionsWorkOs: a.sessionsWorkOs, sessionsOther: a.sessionsOther, subagents: a.subagents, at: a.at.toISOString() }];
   });
   const total: ActivityTotal = { sessions: 0, sessionsWorkOs: 0, sessionsOther: 0, subagents: 0, reporting: 0 };
   for (const x of computers) {
@@ -144,7 +147,7 @@ export async function claudeOverview(scope: DeviceScope): Promise<ClaudeOverview
     const list = d.claudeSessions;
     const dev = devices.get(d._id);
     if (!list || !dev || nowMs - list.at.getTime() > LIST_DROP_MS) continue;
-    const stale = nowMs - list.at.getTime() > ACTIVITY_STALE_MS;
+    const stale = nowMs - list.at.getTime() > ACTIVITY_STALE_MS && !connectedDevice(d._id);
     for (const it of list.items) {
       const doc = wsById.get(it.sessionId);
       if (doc && doc.deviceId === d._id && doc.hidden) continue;

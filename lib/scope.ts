@@ -1,6 +1,8 @@
 import 'server-only';
 import type { Document } from 'mongodb';
-import { collections, type Collections, type SettingsDoc } from './db';
+import { afterCommit, collections, type Collections, type SettingsDoc } from './db';
+import { hint, isQuiet, pageUsers, type Topic } from './live';
+import { requestContext } from './request-context';
 
 // The one door to the data (docs/multi-user.md, "One door for data"). Every data function takes the caller's scope
 // ({ userId, orgId }) and reads and writes through scoped(scope), which adds the organization and the visibility rule
@@ -14,6 +16,9 @@ import { collections, type Collections, type SettingsDoc } from './db';
 // orgWide(orgId) is the same door without the visibility rule, for the few processes that must see a whole
 // organization: the alert flush (deliver to each recipient), fan-out of "unblocked" alerts to tasks the caller cannot
 // see, name uniqueness. Settings are read and written only through the helpers at the end.
+//
+// Every write through the door also tells the people who can read what changed to refresh (push, lib/live.ts): see
+// pushed() below.
 //
 // tests/scope-check.mjs fails the build if lib/data, lib/mcp, lib/alerts, lib/notify, lib/discord or app/ reach a
 // collection any other way (raw access needs a `// scope-ok: <reason>` comment on the same line).
@@ -140,49 +145,176 @@ function wrap<C extends object>(name: ScopedName, col: C, m: Mode): C {
       const v = Reflect.get(target, prop, receiver);
       if (typeof v !== 'function' || typeof prop !== 'string') return v;
       const call = (...a: unknown[]) => (v as (...x: unknown[]) => unknown).apply(target, a);
-      if (prop in READS) return (filter?: unknown, ...rest: unknown[]) => call(and(f(), filter), ...rest);
-      switch (prop) {
-        case 'distinct':
-          return (key: string, filter?: unknown, ...rest: unknown[]) => call(key, and(f(), filter), ...rest);
-        case 'aggregate':
-          return (pipeline: unknown, ...rest: unknown[]) => call([{ $match: f() }, ...scopeLookups(pipeline, m, name)], ...rest);
-        case 'updateOne':
-        case 'updateMany':
-        case 'findOneAndUpdate':
-          return (filter: unknown, update: unknown, opts?: unknown) => {
-            guardUpdate(name, update);
-            return call(and(f(), filter), withInsertStamp(name, m, update, opts), opts);
-          };
-        case 'replaceOne':
-        case 'findOneAndReplace':
-          return (filter: unknown, doc: unknown, opts?: unknown) => call(and(f(), filter), stamp(name, m, doc), opts);
-        case 'insertOne':
-          return (doc: unknown, opts?: unknown) => call(stamp(name, m, doc), opts);
-        case 'insertMany':
-          return (docs: unknown[], opts?: unknown) => call(docs.map(d => stamp(name, m, d)), opts);
-        case 'bulkWrite':
-          return (ops: Document[], opts?: unknown) =>
-            call(
-              ops.map(o => {
-                const [kind, body] = Object.entries(o)[0] as [string, Document];
-                if (kind === 'insertOne') return { insertOne: { document: stamp(name, m, body.document) } };
-                if (kind === 'replaceOne') return { replaceOne: { ...body, filter: and(f(), body.filter), replacement: stamp(name, m, body.replacement) } };
-                if (kind === 'updateOne' || kind === 'updateMany') {
-                  guardUpdate(name, body.update);
-                  return { [kind]: { ...body, filter: and(f(), body.filter), update: withInsertStamp(name, m, body.update, body) } };
-                }
-                if (kind === 'deleteOne' || kind === 'deleteMany') return { [kind]: { ...body, filter: and(f(), body.filter) } };
-                throw new ScopeError(`${name}: bulkWrite ${kind} is not allowed`);
-              }),
-              opts,
-            );
-        default:
-          return () => {
-            throw new ScopeError(`${name}.${prop} is not available through the door`);
-          };
+      if (prop in READS) {
+        const read = (filter?: unknown, ...rest: unknown[]) => call(and(f(), filter), ...rest);
+        return prop.startsWith('delete') || prop === 'findOneAndDelete' ? pushed(name, m, target, prop, read) : read;
       }
+      return pushed(name, m, target, prop, door(prop, call));
     },
   });
+
+  function door(prop: string, call: (...a: unknown[]) => unknown): (...a: never[]) => unknown {
+    switch (prop) {
+      case 'distinct':
+        return (key: string, filter?: unknown, ...rest: unknown[]) => call(key, and(f(), filter), ...rest);
+      case 'aggregate':
+        return (pipeline: unknown, ...rest: unknown[]) => call([{ $match: f() }, ...scopeLookups(pipeline, m, name)], ...rest);
+      case 'updateOne':
+      case 'updateMany':
+      case 'findOneAndUpdate':
+        return (filter: unknown, update: unknown, opts?: unknown) => {
+          guardUpdate(name, update);
+          return call(and(f(), filter), withInsertStamp(name, m, update, opts), opts);
+        };
+      case 'replaceOne':
+      case 'findOneAndReplace':
+        return (filter: unknown, doc: unknown, opts?: unknown) => call(and(f(), filter), stamp(name, m, doc), opts);
+      case 'insertOne':
+        return (doc: unknown, opts?: unknown) => call(stamp(name, m, doc), opts);
+      case 'insertMany':
+        return (docs: unknown[], opts?: unknown) => call(docs.map(d => stamp(name, m, d)), opts);
+      case 'bulkWrite':
+        return (ops: Document[], opts?: unknown) =>
+          call(
+            ops.map(o => {
+              const [kind, body] = Object.entries(o)[0] as [string, Document];
+              if (kind === 'insertOne') return { insertOne: { document: stamp(name, m, body.document) } };
+              if (kind === 'replaceOne') return { replaceOne: { ...body, filter: and(f(), body.filter), replacement: stamp(name, m, body.replacement) } };
+              if (kind === 'updateOne' || kind === 'updateMany') {
+                guardUpdate(name, body.update);
+                return { [kind]: { ...body, filter: and(f(), body.filter), update: withInsertStamp(name, m, body.update, body) } };
+              }
+              if (kind === 'deleteOne' || kind === 'deleteMany') return { [kind]: { ...body, filter: and(f(), body.filter) } };
+              throw new ScopeError(`${name}: bulkWrite ${kind} is not allowed`);
+            }),
+            opts,
+          );
+      default:
+        return () => {
+          throw new ScopeError(`${name}.${prop} is not available through the door`);
+        };
+    }
+  }
+}
+
+// ── Push hints (lib/live.ts) ────────────────────────────────────────────────
+// After a write commits, the people who could read what it touched, before or after, get "refresh <topic>". Who that
+// is follows the same rules as the filters above: a shared document placed 'org' is everyone in the organization, a
+// private one its owner; an own document its owner or recipient. Nothing is sent, and nothing extra is read, while
+// nobody in the organization has a page open; when only the writer has, no read either (they can see everything their
+// write touched). Otherwise one small read before the write finds the placements it touches.
+
+const TOPICS: Partial<Record<ScopedName, Topic>> = {
+  tasks: 'tasks',
+  activity: 'tasks',
+  trash: 'tasks',
+  projects: 'projects',
+  notes: 'notes',
+  claudeItems: 'claude',
+  devices: 'claude',
+  workerFolders: 'claude',
+  workerJobs: 'claude',
+  workerSessions: 'claude',
+  notifications: 'inbox',
+  reviews: 'review',
+  ritualLogs: 'review',
+};
+const WRITES = new Set(['insertOne', 'insertMany', 'updateOne', 'updateMany', 'findOneAndUpdate', 'replaceOne', 'findOneAndReplace', 'deleteOne', 'deleteMany', 'findOneAndDelete', 'bulkWrite']);
+const EVERYONE = '*';
+
+/** Who can read a document placed like d: EVERYONE in the organization, one person, or unknown (null). */
+function readerOf(name: ScopedName, d: Document | null | undefined): string | null {
+  if (!d) return null;
+  const rule: Rule = RULES[name];
+  if (rule.kind === 'own') return typeof d[rule.field] === 'string' ? (d[rule.field] as string) : null;
+  if (rule.kind === 'shared') return d.visibility === 'org' ? EVERYONE : typeof d.ownerId === 'string' ? (d.ownerId as string) : null;
+  return null;
+}
+
+/** The filter of the documents a write touches (before it runs), or undefined for a pure insert. */
+function touched(prop: string, a: unknown[]): Document | undefined {
+  if (prop === 'insertOne' || prop === 'insertMany') return undefined;
+  if (prop !== 'bulkWrite') return (a[0] as Document) ?? {};
+  const fs = (a[0] as Document[]).flatMap(o => {
+    const body = Object.values(o)[0] as Document;
+    return body && 'filter' in body ? [body.filter as Document] : [];
+  });
+  return fs.length ? { $or: fs } : undefined;
+}
+
+/** Where inserted, replaced or moved documents end up (the part a read before the write cannot see). */
+function placedAfter(prop: string, a: unknown[]): Document[] {
+  const fromUpdate = (u: unknown): Document[] => {
+    const set = (u as { $set?: Document } | undefined)?.$set;
+    return set && ('visibility' in set || 'ownerId' in set || 'userId' in set) ? [set] : [];
+  };
+  switch (prop) {
+    case 'insertOne':
+      return [a[0] as Document];
+    case 'insertMany':
+      return a[0] as Document[];
+    case 'replaceOne':
+    case 'findOneAndReplace':
+      return [a[1] as Document];
+    case 'updateOne':
+    case 'updateMany':
+    case 'findOneAndUpdate':
+      return fromUpdate(a[1]);
+    case 'bulkWrite':
+      return (a[0] as Document[]).flatMap(o => {
+        const [kind, body] = Object.entries(o)[0] as [string, Document];
+        if (kind === 'insertOne') return [body.document as Document];
+        if (kind === 'replaceOne') return [body.replacement as Document];
+        return fromUpdate(body.update);
+      });
+    default:
+      return [];
+  }
+}
+
+/** Did the write change anything (no hint for an update that matched nothing)? */
+function changed(res: unknown): boolean {
+  if (res === null || res === undefined) return false;
+  const r = res as Record<string, unknown>;
+  if ('ok' in r && 'value' in r && 'lastErrorObject' in r) return r.value !== null; // includeResultMetadata
+  const counts = ['modifiedCount', 'upsertedCount', 'deletedCount', 'insertedCount'].filter(k => typeof r[k] === 'number');
+  return counts.length ? counts.some(k => (r[k] as number) > 0) : true;
+}
+
+/** Wraps a write of the door so that, once it has committed, its readers get a hint. Other calls pass through. */
+function pushed(name: ScopedName, m: Mode, target: object, prop: string, base: (...a: never[]) => unknown): (...a: never[]) => unknown {
+  const topic = TOPICS[name];
+  if (!topic || !WRITES.has(prop)) return base;
+  const run = base as (...a: unknown[]) => unknown;
+  return async (...a: unknown[]) => {
+    if (isQuiet()) return run(...a);
+    const viewers = pageUsers(m.orgId);
+    if (!viewers.size) return run(...a);
+    const rule: Rule = RULES[name];
+    const who = new Set<string>();
+    const filter = touched(prop, a);
+    if (filter !== undefined) {
+      if (m.userId !== null && (rule.kind === 'own' || [...viewers].every(u => u === m.userId))) who.add(m.userId);
+      else {
+        // One read: the distinct placements of the documents this write is about to touch (through the door's filter).
+        const col = target as { aggregate: (p: Document[]) => { toArray: () => Promise<Document[]> } };
+        const key = rule.kind === 'own' ? `$${rule.field}` : { $cond: [{ $eq: ['$visibility', 'org'] }, EVERYONE, '$ownerId'] };
+        const rows = await col.aggregate([{ $match: and(scopeFilter(name, m), filter) }, { $group: { _id: key } }, { $limit: 500 }]).toArray();
+        for (const r of rows) if (typeof r._id === 'string') who.add(r._id);
+      }
+    }
+    for (const d of placedAfter(prop, a)) {
+      const r = readerOf(name, d) ?? (rule.kind !== 'org' ? m.userId : null);
+      if (r) who.add(r);
+    }
+    const res = await run(...a);
+    if (who.size && changed(res)) {
+      const audience = who.has(EVERYONE) ? EVERYONE : who;
+      const writer = requestContext().userId ?? m.userId;
+      afterCommit(() => hint(m.orgId, audience, topic, writer));
+    }
+    return res;
+  };
 }
 
 async function open(m: Mode): Promise<ScopedCollections> {

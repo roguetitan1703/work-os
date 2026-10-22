@@ -2,6 +2,8 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { DeviceActivity, ReportedClaudeSession, WorkerFolderDoc, WorkerJobDoc, WorkerSessionDoc } from '../db';
 import { scoped, type Scope } from '../scope';
+import { afterCommit } from '../db';
+import { quietly, wake, hint, connectedDevice } from '../live';
 import { InputError, NotFoundError } from './errors';
 import { normalizeRemote } from './code-locations';
 
@@ -174,38 +176,73 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
   const claudeSessions = b.claudeSessions === undefined ? null : cleanClaudeSessions(b.claudeSessions);
   const c = await scoped(s);
   const now = new Date();
-  if (claudeSessions) await c.devices.updateOne({ _id: deviceId }, { $set: { claudeSessions: { at: now, items: claudeSessions } } });
-  if (activity) await c.devices.updateOne({ _id: deviceId }, { $set: { activity: { ...activity, at: now } } });
-  if (b.worker && typeof b.worker === 'object') {
-    const version = String(b.worker.version ?? '').slice(0, 20);
-    const os = String(b.worker.os ?? '').slice(0, 20);
-    // allowPrompts: whether this worker passes a first message on to Claude. The dispatcher only sends tasks to workers that say true.
-    await c.devices.updateOne({ _id: deviceId }, { $set: { worker: { version, os, allowPrompts: b.worker.allowPrompts === true }, lastSeenAt: now } });
-  }
-  if (b.jobs !== undefined && !Array.isArray(b.jobs)) throw new InputError('jobs must be an array');
-  for (const r of ((b.jobs as unknown[]) ?? []).slice(0, 50)) {
-    const o = (r ?? {}) as { id?: unknown; ok?: unknown; error?: unknown };
-    if (typeof o.id !== 'string' || o.id.length > 60) continue;
-    const ok = o.ok === true;
-    const error = ok ? undefined : String(o.error ?? 'failed').slice(0, 300);
-    const job = await c.workerJobs.findOneAndUpdate({ _id: o.id, deviceId, doneAt: null }, { $set: { doneAt: now, ok, ...(error ? { error } : {}) } }, { returnDocument: 'after' });
-    if (job && !ok && job.kind !== 'stop') await c.workerSessions.updateOne({ _id: job.sessionId, deviceId }, { $set: { state: 'failed', error, updatedAt: now } });
-    // Stop on a session the worker doesn't know or that isn't running: nothing is left to stop, so don't leave it "running" forever.
-    if (job && !ok && job.kind === 'stop' && (error === 'unknown session' || error === 'session not running'))
-      await c.workerSessions.updateOne({ _id: job.sessionId, deviceId, state: { $in: ['starting', 'running'] } }, { $set: { state: 'stopped', updatedAt: now }, $unset: { error: '' } });
-  }
-  if (b.sessions !== undefined && !Array.isArray(b.sessions)) throw new InputError('sessions must be an array');
-  for (const s of ((b.sessions as unknown[]) ?? []).slice(0, 100)) {
-    const o = (s ?? {}) as { sessionId?: unknown; state?: unknown };
-    if (typeof o.sessionId !== 'string' || !UUID.test(o.sessionId)) continue;
-    const state = o.state === 'running' || o.state === 'dead' || o.state === 'stopped' ? o.state : null;
-    if (!state) continue;
-    // Only sessions Work OS created for this device can be updated: a worker can't invent sessions.
-    // Only live sessions move on a report, so a late or repeated report never revives a stopped, closed
-    // or failed session ("running" after "closed"). Resume sets "starting" first, which allows running again.
-    const from = state === 'stopped' ? ['starting', 'running', 'dead'] : ['starting', 'running'];
-    await c.workerSessions.updateOne({ _id: o.sessionId, deviceId, state: { $in: from as WorkerSessionDoc['state'][] } }, { $set: { state, updatedAt: now }, $unset: { error: '' } });
-  }
+  // A heartbeat writes the same rows every couple of minutes; it pushes a hint to the person's Claude page only when
+  // something that page shows has changed (push, lib/live.ts), so its writes run quietly and this decides.
+  let shown = false;
+  await quietly(async () => {
+    const set: Record<string, unknown> = {};
+    if (claudeSessions) set.claudeSessions = { at: now, items: claudeSessions };
+    if (activity) set.activity = { ...activity, at: now };
+    if (b.worker && typeof b.worker === 'object') {
+      const version = String(b.worker.version ?? '').slice(0, 20);
+      const os = String(b.worker.os ?? '').slice(0, 20);
+      // allowPrompts: whether this worker passes a first message on to Claude. The dispatcher only sends tasks to workers that say true.
+      set.worker = { version, os, allowPrompts: b.worker.allowPrompts === true };
+      set.lastSeenAt = now;
+    }
+    if (Object.keys(set).length) {
+      const before = await c.devices.findOneAndUpdate({ _id: deviceId }, { $set: set }, { returnDocument: 'before', projection: { activity: 1, claudeSessions: 1, worker: 1 } });
+      shown = !before || deviceViewChanged(before, set, now.getTime());
+    }
+    if (b.jobs !== undefined && !Array.isArray(b.jobs)) throw new InputError('jobs must be an array');
+    for (const r of ((b.jobs as unknown[]) ?? []).slice(0, 50)) {
+      const o = (r ?? {}) as { id?: unknown; ok?: unknown; error?: unknown };
+      if (typeof o.id !== 'string' || o.id.length > 60) continue;
+      const ok = o.ok === true;
+      const error = ok ? undefined : String(o.error ?? 'failed').slice(0, 300);
+      const job = await c.workerJobs.findOneAndUpdate({ _id: o.id, deviceId, doneAt: null }, { $set: { doneAt: now, ok, ...(error ? { error } : {}) } }, { returnDocument: 'after' });
+      if (job) shown = true;
+      if (job && !ok && job.kind !== 'stop') await c.workerSessions.updateOne({ _id: job.sessionId, deviceId }, { $set: { state: 'failed', error, updatedAt: now } });
+      // Stop on a session the worker doesn't know or that isn't running: nothing is left to stop, so don't leave it "running" forever.
+      if (job && !ok && job.kind === 'stop' && (error === 'unknown session' || error === 'session not running'))
+        await c.workerSessions.updateOne({ _id: job.sessionId, deviceId, state: { $in: ['starting', 'running'] } }, { $set: { state: 'stopped', updatedAt: now }, $unset: { error: '' } });
+    }
+    if (b.sessions !== undefined && !Array.isArray(b.sessions)) throw new InputError('sessions must be an array');
+    for (const x of ((b.sessions as unknown[]) ?? []).slice(0, 100)) {
+      const o = (x ?? {}) as { sessionId?: unknown; state?: unknown };
+      if (typeof o.sessionId !== 'string' || !UUID.test(o.sessionId)) continue;
+      const state = o.state === 'running' || o.state === 'dead' || o.state === 'stopped' ? o.state : null;
+      if (!state) continue;
+      // Only sessions Work OS created for this device can be updated: a worker can't invent sessions.
+      // Only live sessions move on a report, so a late or repeated report never revives a stopped, closed
+      // or failed session ("running" after "closed"). Resume sets "starting" first, which allows running again.
+      const from = state === 'stopped' ? ['starting', 'running', 'dead'] : ['starting', 'running'];
+      const was = await c.workerSessions.findOneAndUpdate({ _id: o.sessionId, deviceId, state: { $in: from as WorkerSessionDoc['state'][] } }, { $set: { state, updatedAt: now }, $unset: { error: '' } }, { returnDocument: 'before', projection: { state: 1 } });
+      if (was && was.state !== state) shown = true;
+    }
+  });
+  if (shown) afterCommit(() => hint(s.orgId, new Set([s.userId]), 'claude'));
+}
+
+/** What the Claude page shows of a computer's report: counts, and each session's name, flags and working/open/idle. */
+function deviceView(d: { activity?: unknown; claudeSessions?: unknown; worker?: unknown }, nowMs: number): string {
+  const a = d.activity as DeviceActivity | undefined;
+  const items = (d.claudeSessions as { items?: ReportedClaudeSession[] } | undefined)?.items ?? [];
+  const bucket = (it: ReportedClaudeSession) => {
+    const quiet = nowMs - new Date(it.lastActiveAt).getTime();
+    return !it.running ? 'closed' : it.subagentsActive > 0 || quiet <= 2 * 60_000 ? 'working' : quiet > 15 * 60_000 ? 'idle' : 'open';
+  };
+  return JSON.stringify([
+    a ? [a.sessions, a.sessionsWorkOs, a.sessionsOther, a.sessionsActive, a.subagents] : null,
+    items.map(it => [it.sessionId, it.folder, it.title, it.startedByWorkOs, it.subagentsActive > 0, bucket(it)]),
+    d.worker ?? null,
+  ]);
+}
+
+/** Did a report change what the page shows? Parts the report did not send count as unchanged. */
+function deviceViewChanged(before: { activity?: unknown; claudeSessions?: unknown; worker?: unknown }, set: Record<string, unknown>, nowMs: number): boolean {
+  const after = { activity: set.activity ?? before.activity, claudeSessions: set.claudeSessions ?? before.claudeSessions, worker: set.worker ?? before.worker };
+  return deviceView(before, nowMs) !== deviceView(after, nowMs);
 }
 
 // ── The person's side ───────────────────────────────────────────────────────────────
@@ -226,7 +263,8 @@ export type DeviceScope = Scope;
 export async function deviceMap(scope: DeviceScope) {
   const c = await scoped(scope);
   const ds = await c.devices.find({ revokedAt: null }).toArray();
-  return new Map(ds.map(d => [d._id, { name: d.name, online: !!d.lastSeenAt && Date.now() - d.lastSeenAt.getTime() < ONLINE_MS }]));
+  // Online: heard from in the last 2 minutes, or its worker holds a push stream now (it then polls only every 5 minutes).
+  return new Map(ds.map(d => [d._id, { name: d.name, online: (!!d.lastSeenAt && Date.now() - d.lastSeenAt.getTime() < ONLINE_MS) || connectedDevice(d._id) }]));
 }
 
 /** Every device of the person, revoked ones too (their sessions stay in the history lists). */
@@ -312,12 +350,14 @@ export async function linkFolder(scope: DeviceScope, projectId: string, key: str
   const f = await folderDoc(scope, key);
   if (f.projectId && f.projectId !== projectId) throw new InputError(`"${f.name}" is linked to another project; unlink it there first`);
   await c.workerFolders.updateOne({ _id: key }, { $set: { projectId, linkedAt: new Date() } });
+  afterCommit(() => wake(scope.orgId, scope.userId, f.deviceId)); // its worker writes the folder's marker
 }
 
 export async function unlinkFolder(scope: DeviceScope, projectId: string, key: string): Promise<void> {
   const c = await scoped(scope);
-  await folderDoc(scope, key);
+  const f = await folderDoc(scope, key);
   await c.workerFolders.updateOne({ _id: key, projectId }, { $set: { projectId: null, linkedAt: null } });
+  afterCommit(() => wake(scope.orgId, scope.userId, f.deviceId));
 }
 
 async function addJob(scope: DeviceScope, deviceId: string, job: { kind: 'start' | 'resume' | 'stop'; sessionId: string; folderId?: string; projectId?: string; prompt?: string }): Promise<void> {
@@ -326,6 +366,7 @@ async function addJob(scope: DeviceScope, deviceId: string, job: { kind: 'start'
   const open = await c.workerJobs.countDocuments({ deviceId, doneAt: null });
   if (open >= 10) throw new InputError('That device has 10 jobs waiting; is its worker running?');
   await c.workerJobs.insertOne({ _id: `j_${randomUUID()}`, orgId: scope.orgId, ownerId: scope.userId, deviceId, ...job, createdAt: new Date(), takenAt: null, doneAt: null });
+  afterCommit(() => wake(scope.orgId, scope.userId, deviceId)); // push: the worker fetches it now, not at its next poll
 }
 
 /** Start a new session in a linked folder. prompt: only what the person typed at Start (docs/launcher.md rule 3). */

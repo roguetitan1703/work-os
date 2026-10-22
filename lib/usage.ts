@@ -40,6 +40,8 @@ const ROUTE_LIST: [string, string][] = [
   ['/api/worker/jobs', '/api/worker/jobs'],
   ['/api/worker/status', '/api/worker/status'],
   ['/api/worker/folders', '/api/worker/folders'],
+  ['/api/worker/stream', '/api/worker/stream'],
+  ['/api/stream', '/api/stream'],
   ['/api/cron/alerts', '/api/cron/alerts'],
   ['/api/discord/interactions', '/api/discord/interactions'],
   ['/api/admin/health', '/api/admin/health'],

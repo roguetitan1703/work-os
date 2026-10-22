@@ -33,15 +33,22 @@ function overLimit(deviceId: string): boolean {
 /** A verified computer and its owner's scope: everything a worker does is that person's (their folders, jobs, tasks). */
 export type WorkerDevice = { id: string; name: string; s: Scope };
 
+/** The computer behind a worker request (device key, owner still a member, rate limit), or the refusal to send. */
+export async function workerDevice(req: Request): Promise<WorkerDevice | Response> {
+  const device = await verifyDeviceKey(bearerToken(req));
+  // A computer from before sign-in by user has no owner: it acts for nobody, so it is refused (re-add it in Setup).
+  if (!device?.ownerId || !device.orgId) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  // Its owner must still be a member: removing someone revokes their computers, and this holds even if that failed.
+  if (!(await roleOf(device.ownerId, device.orgId))) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  if (overLimit(device.id)) return NextResponse.json({ error: 'too many requests' }, { status: 429 });
+  return { id: device.id, name: device.name, s: { userId: device.ownerId, orgId: device.orgId } };
+}
+
 export function workerRoute(fn: (device: WorkerDevice, body: unknown) => Promise<unknown>, opts: { body?: boolean } = {}) {
   return async (req: Request): Promise<Response> => {
     try {
-      const device = await verifyDeviceKey(bearerToken(req));
-      // A computer from before sign-in by user has no owner: it acts for nobody, so it is refused (re-add it in Setup).
-      if (!device?.ownerId || !device.orgId) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-      // Its owner must still be a member: removing someone revokes their computers, and this holds even if that failed.
-      if (!(await roleOf(device.ownerId, device.orgId))) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-      if (overLimit(device.id)) return NextResponse.json({ error: 'too many requests' }, { status: 429 });
+      const device = await workerDevice(req);
+      if (device instanceof Response) return device;
       let body: unknown;
       if (opts.body) {
         const text = await req.text();
@@ -52,9 +59,8 @@ export function workerRoute(fn: (device: WorkerDevice, body: unknown) => Promise
           return NextResponse.json({ error: 'body must be JSON' }, { status: 400 });
         }
       }
-      const s: Scope = { userId: device.ownerId, orgId: device.orgId };
-      const tz = await timezoneOf(s);
-      return NextResponse.json(await runWithRequestContext({ userId: device.ownerId, tz }, () => fn({ id: device.id, name: device.name, s }, body)));
+      const tz = await timezoneOf(device.s);
+      return NextResponse.json(await runWithRequestContext({ userId: device.s.userId, tz }, () => fn(device, body)));
     } catch (err) {
       if (err instanceof InputError || err instanceof NotFoundError) return NextResponse.json({ error: err.message }, { status: 400 });
       console.error('[worker]', err);

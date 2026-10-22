@@ -2,6 +2,8 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { ActivityDoc, ClaudeMark, TaskDoc } from '../db';
 import { forUser, getUserSetting, scoped, setUserSetting, type Scope, type ScopedCollections as Collections } from '../scope';
+import { afterCommit } from '../db';
+import { wake } from '../live';
 import { requestContext } from '../request-context';
 import { actorUserId, agentActor, userActor, type Actor } from '../actors';
 import type { Status } from '../types';
@@ -66,6 +68,7 @@ export async function setDispatcherSettings(s: Scope, patch: Partial<DispatcherS
   if (next.boilerplateNoteId && !(await ownNote(s, next.boilerplateNoteId))) throw new InputError('Pick one of your own notes (a note someone else owns could change under your sessions)');
   if (next.enabled && !next.boilerplateNoteId) throw new InputError('Pick the note Claude reads first before turning this on');
   await setUserSetting(s, 'dispatcher', { enabled: next.enabled, maxConcurrent: next.maxConcurrent, boilerplateNoteId: next.boilerplateNoteId, updatedAt: new Date() });
+  if (next.enabled) wake(s.orgId, s.userId); // a queued task can start now (push: the worker polls at once)
   return next;
 }
 
@@ -161,6 +164,7 @@ async function endRun(c: Collections, s: Scope, t: TaskDoc, end: End): Promise<b
   if (r) restored = true;
   else r = await c.tasks.findOneAndUpdate(claim, { $set: ended }, { returnDocument: 'after' });
   if (!r) return false;
+  wakeMarker(t); // a slot is free: the next queued task can start
   if (restored) await logTask(c, r, dispatcherActor(t), 'status', { changes: { status: { from: 'In Progress', to: t.claude!.prevStatus } }, note: `Dispatcher: ${end.note ?? 'could not start'}; status restored` });
   if (end.to === 'finished') await queueOutcome(s, t, 'claude_finished', end.note ?? '');
   else await queueOutcome(s, t, 'claude_stopped', end.note ?? (end.to === 'failed' ? 'could not start' : 'session ended'));
@@ -286,6 +290,12 @@ async function claimFor(c: Collections, s: Scope, deviceId: string, set: Dispatc
     return claimed.ref;
   }
   return null;
+}
+
+/** The workers of the person who gave t to Claude poll at once (after the write commits): push, lib/live.ts. */
+function wakeMarker(t: TaskDoc): void {
+  const userId = t.claude?.markedByUserId ?? t.ownerId;
+  afterCommit(() => wake(t.orgId, userId));
 }
 
 /** Puts a claimed task back in the queue and restores its status. countAttempt: the reconciler's rollback counts toward the limit. */
@@ -414,6 +424,7 @@ export async function giveToClaude(scope: DeviceScope, key: string, folderKey?: 
   );
   if (!r.modifiedCount) throw new InputError('The task changed while you were choosing. Try again.');
   await logTask(c, t, userActor(scope.userId), 'edit', { changes: { claude: { from: t.claude?.state ?? null, to: 'queued' } } });
+  afterCommit(() => wake(scope.orgId, scope.userId));
 }
 
 /**

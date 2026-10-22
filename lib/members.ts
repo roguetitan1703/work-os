@@ -9,6 +9,7 @@ import { mailConfigured, mailErrorMessage, sendMail, takeMailSlot } from './mail
 import { forgetMembers } from './people';
 import { revokeKeysIn } from './api-keys';
 import { releaseMember } from './data/team';
+import { closeFor } from './live';
 
 // Members and invitations (docs/auth.md, docs/multi-user.md phase 4). Sign-up is closed: a person gets an account by
 // accepting an invitation. An invitation link is /accept-invitation/<invitation id>?t=<secret>; only the SHA-256 of the
@@ -184,6 +185,8 @@ async function releaseAccess(orgId: string, userId: string): Promise<{ computers
   await db.collection('invitation').updateMany({ organizationId: idIn(orgId), inviterId: idIn(userId), status: 'pending' }, { $set: { status: 'canceled' } });
   const keys = await revokeKeysIn(userId, orgId);
   const rest = await releaseMember(orgId, userId);
+  // Their open pages and workers lose their push streams now (a reconnect is refused: no session, no membership).
+  closeFor(orgId, userId);
   return { keys, ...rest };
 }
 

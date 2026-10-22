@@ -404,6 +404,17 @@ function withSession<C extends object>(col: C, session: ClientSession): C {
   });
 }
 
+// Work to do once the transaction has committed (push hints, lib/live.ts): dropped when it aborts or is a dry run.
+const afterCommits = new WeakMap<ClientSession, (() => void)[]>();
+
+/** Runs fn now, or, inside inTransaction, once the transaction has committed (never if it rolls back). */
+export function afterCommit(fn: () => void): void {
+  const session = txStore.getStore();
+  const list = session && afterCommits.get(session);
+  if (list) list.push(fn);
+  else fn();
+}
+
 export function inTransactionNow(): boolean {
   return !!txStore.getStore();
 }
@@ -415,6 +426,7 @@ export async function inTransaction<T>(fn: () => Promise<T>, opts: { dryRun?: bo
   const client = await getClient();
   const session = client.startSession();
   try {
+    afterCommits.set(session, []);
     if (opts.dryRun) {
       session.startTransaction();
       try {
@@ -425,8 +437,16 @@ export async function inTransaction<T>(fn: () => Promise<T>, opts: { dryRun?: bo
     }
     let result!: T;
     await session.withTransaction(async () => {
+      afterCommits.set(session, []); // a retried attempt starts over
       result = await txStore.run(session, fn);
     });
+    for (const f of afterCommits.get(session) ?? []) {
+      try {
+        f();
+      } catch (e) {
+        console.error('[afterCommit]', e);
+      }
+    }
     return result;
   } finally {
     await session.endSession();

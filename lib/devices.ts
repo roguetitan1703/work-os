@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { collections, type DeviceDoc } from './db';
 import { SafeError } from './auth';
 import type { Caller } from './caller';
+import { closeDevice } from './live';
 
 // Device keys for the session launcher's worker (docs/launcher.md). A separate kind of credential from Work OS API
 // keys (wos_…, lib/api-keys.ts): accepted ONLY by /api/worker/*, and those routes accept nothing else. Only the
@@ -52,6 +53,7 @@ export async function revokeDevice(caller: Caller, id: string): Promise<void> {
   const r = await c.devices.updateOne({ _id: id, ...mine(caller) }, { $set: { revokedAt: new Date() } });
   if (!r.matchedCount) throw new SafeError('That device is already revoked or does not exist.');
   await c.workerJobs.updateMany({ deviceId: id, doneAt: null }, { $set: { doneAt: new Date(), ok: false, error: 'device revoked' } });
+  closeDevice(id); // its push stream ends now; a reconnect is refused (revoked key)
 }
 
 /** The device for a presented key, or null. Hash lookup, then constant-time compare. */

@@ -4,13 +4,14 @@ import { loadConfig, loadState, saveState, configPath, checkBaseUrl } from './co
 import { getToken, setToken, readSecretFromStdin } from './secret.mjs';
 import { makeApi } from './api.mjs';
 import { createCore, VERSION } from './core.mjs';
+import { createLoop } from './loop.mjs';
 import { launch, listProcesses, killPid, resolveClaude } from './launch.mjs';
 import { scanRoots, publicFolder } from './scan.mjs';
 import { install, uninstall } from './install.mjs';
 import { runSetup } from './setup.mjs';
 import { collectActivity } from './activity.mjs';
+import { connectPush } from './push.mjs';
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (m) => console.log(`${new Date().toISOString()} ${m}`);
 
 async function run() {
@@ -25,24 +26,11 @@ async function run() {
   };
   const onlyRoots = () => { const c = loadConfig(); return c.sessionsInRootsOnly ? c.roots : null; };
   const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots() }) });
-  let delay = 10;
-  let failing = 0;
+  let loop = null;
+  const push = connectPush({ getCfg: loadConfig, getToken, onWake: () => loop?.wake(), onUp: (up) => { log(up ? 'push connected' : 'push disconnected'); loop?.wake(); }, log });
+  loop = createLoop({ core, getConfig: loadConfig, state, log, pushUp: () => push.up });
   log(`work-os-worker ${VERSION} started`);
-  for (;;) {
-    const cfg = loadConfig(); // re-read each cycle so enabled:false takes effect without a restart
-    if (cfg.enabled === false) { await sleep(30000); continue; }
-    try {
-      if (!state.lastScan || Date.now() - state.lastScan > cfg.scanEveryMinutes * 60000) await core.scanAndReport();
-      const r = await core.pollOnce();
-      delay = r.pollSeconds;
-      failing = 0;
-    } catch (e) {
-      failing++;
-      delay = Math.min(60, 10 * 2 ** Math.min(failing, 3));
-      log(`error: ${String(e.message || e).slice(0, 200)}`); // messages never include the token or remotes
-    }
-    await sleep(delay * 1000);
-  }
+  await loop.run();
 }
 
 function status() {
