@@ -1,11 +1,11 @@
 # Work state
 
 ## Now
-- 2026-10-18: request usage: fewer background requests (f7fa8d4) and our own request log, Settings › Usage (6496c32, b49b348), because Vercel Hobby hit 100% of CDN requests.
-- 2026-10-17: demo copy for the cutroom Work OS film is ready (brief, RUN.md and kit in cutroom films/demos/work-os; demo in D:\work-os-demo, own DB, ports 27291/3291, own worker with the new mcpConfig and sessionsInRootsOnly options). First full dispatcher run on the demo copy: #12 claimed, worked and finished in about 30 s, "Claude finished" alert arrived (C46 still wants one real task on the live site).
-- Sprint closed 2026-10-16: launcher, UX redesign (Today, Claude area, project overview, nav shell, Settings merge, Review hub, global search), dispatcher v1, worker supervisor, fewer worker calls. Full e2e: 15 suites, 740 checks pass (`bash tests/e2e/run.sh`). Waits on Om's live checks below. Open work is filed as Claude items C46–C52 on Work OS (#121 and #122 closed).
+- 2026-10-22: multi-user Work OS, own sign-in first (Om); Delpat OS integration later. Plan: docs/multi-user.md. Phase 0 (CPU) with builder S, phase 1 (Better Auth sign-in) with builder A.
+- 2026-10-19: Vercel paused Om's account (Fluid Active CPU); Work OS moves to Delpat's AWS server (work.delpat.in). Audit summary in docs/multi-user.md.
 
 ## Next
+Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
 Open work is filed as Claude items on Work OS (Claude page › Queue); this list only orders it.
 1. C46 (Om): first real dispatcher task — Claude › Setup: pick the boilerplate note, turn the dispatcher on, Give to Claude on one small task.
 2. C51 (Om): Settings › This device › Send test; report which channels arrived.
