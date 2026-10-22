@@ -48,7 +48,7 @@ export class PolicyError extends InputError {
 
 const isCode = (c: Caller) => c.agent === 'claude-code';
 
-/** Created by this person's Claude Code (older entries have no user: they were all Om's). */
+/** Created by this person's Claude Code (older entries have no user: they were all the first owner's). */
 const byOwnCode = (c: Caller, createdBy: unknown) => {
   const a = asActor(createdBy);
   return a.kind === 'agent' && a.agent === 'claude-code' && (!a.userId || a.userId === c.userId);
@@ -60,7 +60,7 @@ const TRASH_TOOLS = new Set(['delete_task', 'delete_note']);
 const TRASH_OPS = new Set(['delete_task', 'delete_note']);
 /** Ops that change an existing task (create_task and comments don't count toward the 50). */
 const TASK_CHANGE_OPS = new Set(['update_task', 'log_progress', 'complete_task', 'update_checklist', 'archive_task', 'delete_task', 'restore_task']);
-/** Fields whose change by Claude Code on someone else's task tells Om. */
+/** Fields whose change by Claude Code on someone else's task tells the task's owner. */
 type WatchedField = 'title' | 'priority' | 'due' | 'projectId' | 'status' | 'archived';
 const WATCHED: { arg: string; field: WatchedField; label: string }[] = [
   { arg: 'title', field: 'title', label: 'title' },
@@ -92,7 +92,7 @@ export function watchTarget(op: string, a: Record<string, unknown>): WatchTarget
     case 'restore_task':
       return { key, restore: true };
     default:
-      return null; // comments, checklist ticks and restores don't change what Om relies on
+      return null; // comments, checklist ticks and restores don't change what the owner relies on
   }
 }
 
@@ -142,7 +142,7 @@ const trashWindowStart = () => new Date(Date.now() - LIMITS.trashWindowMin * 60_
 export async function beforeTool(caller: Caller, tool: string): Promise<void> {
   if (!isCode(caller)) return;
   const keyId = caller.keyId!;
-  if (BLOCKED.has(tool)) throw new PolicyError(`${tool} is not available to Claude Code keys (permanent deletion and admin stay with Om).`);
+  if (BLOCKED.has(tool)) throw new PolicyError(`${tool} is not available to Claude Code keys (permanent deletion and admin stay with you, in the app).`);
   const call = await reserve(keyId, 'call', 1, new Date(Date.now() - 3_600_000), LIMITS.callsPerHour);
   if (!call.id) {
     throw new PolicyError(`Rate limit: this key made ${call.total} Work OS calls in the last hour (max ${LIMITS.callsPerHour}). Wait a few minutes, or batch work with apply_changes.`);
@@ -151,7 +151,7 @@ export async function beforeTool(caller: Caller, tool: string): Promise<void> {
     const t = await reserve(keyId, 'trash', 1, trashWindowStart(), LIMITS.trashPerWindow);
     if (!t.id) {
       throw new PolicyError(
-        `Too many deletions: ${t.total} items moved to trash in the last ${LIMITS.trashWindowMin} minutes (max ${LIMITS.trashPerWindow}). Ask Om first, or use apply_changes with dry_run: true and its confirm token.`,
+        `Too many deletions: ${t.total} items moved to trash in the last ${LIMITS.trashWindowMin} minutes (max ${LIMITS.trashPerWindow}). Ask the user first, or use apply_changes with dry_run: true and its confirm token.`,
       );
     }
   }
@@ -221,7 +221,7 @@ export async function checkBatch(caller: Caller, ops: Op[], opts: { dryRun?: boo
   if (!isCode(caller)) return { release: noop };
   const keyId = caller.keyId!;
   const blocked = ops.find(o => BLOCKED.has(o.op));
-  if (blocked) throw new PolicyError(`Op ${blocked.op} is not available to Claude Code keys (permanent deletion and admin stay with Om).`);
+  if (blocked) throw new PolicyError(`Op ${blocked.op} is not available to Claude Code keys (permanent deletion and admin stay with you, in the app).`);
   const size = batchSize(ops);
   if (opts.dryRun) {
     const confirm = makeConfirm(keyId, ops);

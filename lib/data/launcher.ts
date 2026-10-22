@@ -6,7 +6,7 @@ import { InputError, NotFoundError } from './errors';
 import { normalizeRemote } from './code-locations';
 
 // Session launcher, Work OS side (docs/launcher.md). Workers report folders (names + ids, never
-// paths), poll for jobs, and report sessions. Om links folders to projects and starts, resumes
+// paths), poll for jobs, and report sessions. The person links folders to projects and starts, resumes
 // or stops sessions; each of those is a job for one device.
 
 export const POLL_SECONDS = 10; // while something is starting or a job is open
@@ -18,7 +18,7 @@ const FOLDER_ID = /^[A-Za-z0-9_-]{4,40}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 /** A session not heard of for this long is shown as unknown (worker offline). */
 export const STALE_SESSION_MS = 3 * 60_000;
-/** A session still "starting" after this long is shown as waiting for Om at the terminal. */
+/** A session still "starting" after this long is shown as waiting for the person at the terminal. */
 export const WAITING_MS = 60_000;
 
 // ── Worker side ─────────────────────────────────────────────────────────────
@@ -140,7 +140,7 @@ export function cleanActivity(raw: unknown): Omit<DeviceActivity, 'at'> {
   return out;
 }
 
-/** Named session list a worker reports (Om approved sending folder names and titles, 2026-10-15). Strict: anything off is a 400. */
+/** Named session list a worker reports (sending folder names and titles was approved 2026-10-15). Strict: anything off is a 400. */
 export const MAX_SESSION_LIST = 50;
 const ANY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function cleanClaudeSessions(raw: unknown): ReportedClaudeSession[] {
@@ -208,7 +208,7 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
   }
 }
 
-// ── Om's side ───────────────────────────────────────────────────────────────
+// ── The person's side ───────────────────────────────────────────────────────────────
 
 export type FolderView = { key: string; /** Project it is linked to, if any. */ projectId: string | null; deviceId: string; deviceName: string; folderId: string; name: string; remote?: string; branch?: string; missing: boolean; online: boolean };
 export type SessionView = { id: string; deviceName: string; folderName: string; state: WorkerSessionDoc['state'] | 'unknown'; startedAt: string; updatedAt: string; error?: string; /** Folder is still linked to this project. Resume only makes sense then. */ linked: boolean; /** Still "starting" after WAITING_MS: probably sitting at a prompt in the terminal. */ waiting: boolean };
@@ -328,7 +328,7 @@ async function addJob(scope: DeviceScope, deviceId: string, job: { kind: 'start'
   await c.workerJobs.insertOne({ _id: `j_${randomUUID()}`, orgId: scope.orgId, ownerId: scope.userId, deviceId, ...job, createdAt: new Date(), takenAt: null, doneAt: null });
 }
 
-/** Start a new session in a linked folder. prompt: only what Om typed at Start (docs/launcher.md rule 3). */
+/** Start a new session in a linked folder. prompt: only what the person typed at Start (docs/launcher.md rule 3). */
 export async function startSession(scope: DeviceScope, projectId: string, key: string, prompt?: string): Promise<string> {
   const f = await folderDoc(scope, key);
   if (f.projectId !== projectId) throw new InputError('That folder is not linked to this project');

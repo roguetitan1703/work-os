@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { BottomSheet } from '@/components/mobile/sheet';
 
-/** A comment in the history timeline, with hover Edit / Delete (Om can do this on any comment). */
+/** A comment in the history timeline, with hover Edit / Delete (the signed-in person can do this on any comment). */
 export function CommentEntry({ id, note }: { id: string; note: string }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);

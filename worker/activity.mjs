@@ -141,7 +141,7 @@ const HEAD_BYTES = 128 * 1024;
 const UNMAPPED_WINDOW_MS = 24 * 3600_000;
 const SID_FILE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
 
-// Title record types, best first: a name Om gave (custom-title), Claude's generated title, an agent name, an old summary.
+// Title record types, best first: a name the user gave (custom-title), Claude's generated title, an agent name, an old summary.
 const TITLE_KINDS = [
   ['custom-title', 'customTitle'],
   ['ai-title', 'aiTitle'],
