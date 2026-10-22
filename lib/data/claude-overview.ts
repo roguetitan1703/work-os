@@ -2,7 +2,7 @@ import 'server-only';
 import { collections } from '../db';
 import { toItem } from './claude-items';
 import type { ClaudeItem } from '../types';
-import { deviceMap, derivedState, WAITING_MS, type SessionView } from './launcher';
+import { deviceMap, derivedState, ownedDeviceIds, WAITING_MS, type DeviceScope, type SessionView } from './launcher';
 
 // The Claude area (/claude) reads everything Claude-related across projects in one go: what
 // waits on Om, every Claude Code session on his computers (named, from the worker's list), and the
@@ -66,9 +66,9 @@ export const ACTIVITY_STALE_MS = 5 * 60_000; // the worker reports about every 2
 const lastSeg = (p: string) => p.split(/[\\/]+/).filter(Boolean).pop() ?? p;
 
 /** Latest reported counts per computer plus a total over the computers that are not stale. Read-only. */
-export async function activityOverview(): Promise<ClaudeOverview['activity']> {
+export async function activityOverview(scope: DeviceScope): Promise<ClaudeOverview['activity']> {
   const c = await collections();
-  const ds = await c.devices.find({ revokedAt: null, activity: { $exists: true } }, { projection: { name: 1, activity: 1 } }).sort({ name: 1 }).toArray();
+  const ds = await c.devices.find({ revokedAt: null, ownerId: scope.userId, orgId: scope.orgId, activity: { $exists: true } }, { projection: { name: 1, activity: 1 } }).sort({ name: 1 }).toArray();
   const nowMs = Date.now();
   const computers: ComputerActivity[] = ds.flatMap(d => {
     const a = d.activity;
@@ -95,24 +95,26 @@ function liveState(running: boolean, lastMs: number, subagents: number, nowMs: n
   return nowMs - lastMs > IDLE_MS ? 'idle' : 'open';
 }
 
-export async function claudeOverview(): Promise<ClaudeOverview> {
+/** Sessions and computers are the signed-in person's own (scope); the open Claude items are shared. */
+export async function claudeOverview(scope: DeviceScope): Promise<ClaudeOverview> {
   const c = await collections();
   const nowMs = Date.now();
+  const mine = await ownedDeviceIds(scope);
   const [devices, items, live, ended, projects, activity, reporting] = await Promise.all([
-    deviceMap(),
+    deviceMap(scope),
     c.claudeItems.find({ state: { $in: [...OPEN] } }).sort({ order: 1 }).toArray(),
-    c.workerSessions.find({ state: { $in: ['starting', 'running'] }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(50).toArray(),
-    c.workerSessions.find({ state: { $in: ['dead', 'stopped', 'failed'] }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(15).toArray(),
+    c.workerSessions.find({ state: { $in: ['starting', 'running'] }, deviceId: { $in: mine }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(50).toArray(),
+    c.workerSessions.find({ state: { $in: ['dead', 'stopped', 'failed'] }, deviceId: { $in: mine }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(15).toArray(),
     c.projects.find({}, { projection: { name: 1 } }).toArray(),
-    activityOverview(),
-    c.devices.find({ revokedAt: null, claudeSessions: { $exists: true } }, { projection: { name: 1, claudeSessions: 1 } }).toArray(),
+    activityOverview(scope),
+    c.devices.find({ revokedAt: null, ownerId: scope.userId, orgId: scope.orgId, claudeSessions: { $exists: true } }, { projection: { name: 1, claudeSessions: 1 } }).toArray(),
   ]);
   const names = new Map(projects.map(p => [p._id, p.name]));
   const pname = (id: string) => names.get(id) ?? id;
 
   // Work OS-started sessions by id (any visibility, so a removed one does not come back through the worker's list).
   const reportedIds = reporting.flatMap(d => (d.claudeSessions?.items ?? []).map(i => i.sessionId));
-  const known = reportedIds.length ? await c.workerSessions.find({ _id: { $in: reportedIds } }).toArray() : [];
+  const known = reportedIds.length ? await c.workerSessions.find({ _id: { $in: reportedIds }, deviceId: { $in: mine } }).toArray() : [];
   const wsById = new Map([...known, ...live, ...ended].map(s => [s._id, s]));
 
   // Folders: name and "still linked" for Work OS sessions; linked folders by (computer, name) to find a reported session's project.
@@ -271,15 +273,15 @@ export async function claudeOverview(): Promise<ClaudeOverview> {
 export type StartProject = { id: string; name: string; client?: string; /** Usable linked folders on non-revoked computers. */ folders: number; lastStartedAt: string | null };
 
 /** Projects for the Start picker. Archived ones are left out. */
-export async function startProjects(): Promise<StartProject[]> {
+export async function startProjects(scope: DeviceScope): Promise<StartProject[]> {
   const c = await collections();
-  const devices = await deviceMap();
+  const [devices, mine] = await Promise.all([deviceMap(scope), ownedDeviceIds(scope)]);
   const [projects, linked, last] = await Promise.all([
     c.projects.find({ status: { $ne: 'archived' } }, { projection: { name: 1, client: 1 } }).sort({ nameLower: 1 }).toArray(),
     c.workerFolders
       .aggregate<{ _id: string; n: number }>([{ $match: { projectId: { $ne: null }, missing: false, deviceId: { $in: [...devices.keys()] } } }, { $group: { _id: '$projectId', n: { $sum: 1 } } }])
       .toArray(),
-    c.workerSessions.aggregate<{ _id: string; at: Date }>([{ $match: { projectId: { $ne: null } } }, { $group: { _id: '$projectId', at: { $max: '$startedAt' } } }]).toArray(),
+    c.workerSessions.aggregate<{ _id: string; at: Date }>([{ $match: { projectId: { $ne: null }, deviceId: { $in: mine } } }, { $group: { _id: '$projectId', at: { $max: '$startedAt' } } }]).toArray(),
   ]);
   const n = new Map(linked.map(x => [x._id, x.n]));
   const at = new Map(last.map(x => [x._id, x.at.toISOString()]));

@@ -43,6 +43,9 @@ export type ClaudeMark = {
   state: 'queued' | 'running' | 'finished' | 'stopped' | 'failed';
   markedAt: Date;
   markedBy: 'om';
+  /** The signed-in person who gave it to Claude: only their own computers claim it (docs/auth.md). */
+  markedByUserId?: string;
+  markedByOrgId?: string;
   /** Which linked folder, when the project has more than one (a workerFolders _id). */
   folderKey?: string;
   sessionId?: string;

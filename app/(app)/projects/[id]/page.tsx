@@ -1,4 +1,6 @@
 import { notFound } from 'next/navigation';
+import { redirect } from 'next/navigation';
+import { getCaller } from '@/lib/caller';
 import Link from 'next/link';
 import { ChevronRight, FileText } from 'lucide-react';
 import { getProjectWithStats } from '@/lib/data/projects';
@@ -43,13 +45,15 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const base = `/projects/${encodeURIComponent(project.id)}`;
   const tabHref = (t: TabId) => `${base}?tab=${t}`;
 
+  const me = await getCaller();
+  if (!me) redirect('/login');
   const [open, done, activity, notes, work, launcher] = await Promise.all([
     listTasks({ project: project.id, open: true }),
     listTasks({ project: project.id, status: ['Done', 'Dropped'], sort: 'done', limit: 30 }),
     listActivity({ project: project.id, limit: 40 }),
     listNotes({ project: project.id, state: 'all' }),
     projectItems(project.id, { doneLimit: 30 }),
-    projectLauncher(project.id),
+    projectLauncher(me, project.id),
   ]);
   const projectNotes = notes.notes.filter(n => !n.taskId && !n.archived);
   const otherNotes = notes.notes.length - projectNotes.length;

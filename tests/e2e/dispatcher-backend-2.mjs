@@ -1,6 +1,6 @@
 // Dispatcher backend, part 2: boilerplate note protection, restore strips claude, stale folder, sanitised alert text, job failures, atomic hand-out. Seed profile: base (it needs the notes and projects of that seed).
 import { randomUUID } from 'node:crypto';
-import { db, check, mkDevice, api, mcpRaw as mcp, cron, finish } from './lib.mjs';
+import { db, check, mkDevice, api, mcpRaw as mcp, cron, finish, ME } from './lib.mjs';
 
 const status = (d, extra = {}, allowPrompts = true) => api(d.key, 'POST', '/api/worker/status', { worker: { version: '0.1.0', os: 'win32', allowPrompts }, jobs: [], sessions: [], ...extra });
 const poll = d => api(d.key, 'GET', '/api/worker/jobs');
@@ -8,7 +8,7 @@ const task = ref => db.collection('tasks').findOne({ ref });
 const now = Date.now();
 const base = { description: 'SECRET-DESCRIPTION-TEXT', mode: null, priority: 'P2', status: 'Not Started', tags: [], due: null, start: null, estimateMins: null, progress: 0, checklist: [], links: [], blockedReason: '', dependsOn: [], recurrence: null, nextRef: null, archived: false, createdBy: 'me', createdAt: new Date(now - 864e5), updatedAt: new Date(now - 36e5), doneAt: null, doneOn: null, doneBy: null };
 const mk = (ref, title, o = {}) => ({ ...base, _id: 'd' + ref, ref, title, ...o });
-const mark = (n, o = {}) => ({ state: 'queued', markedAt: new Date(now - (100 - n) * 60_000), markedBy: 'om', ...o });
+const mark = (n, o = {}) => ({ state: 'queued', markedAt: new Date(now - (100 - n) * 60_000), markedBy: 'om', markedByUserId: ME.userId, markedByOrgId: ME.orgId, ...o });
 const link = (dev, fid, projectId, o = {}) => ({ _id: `${dev.id}:${fid}`, deviceId: dev.id, folderId: fid, name: 'folder-' + fid, git: false, projectId, linkedAt: new Date(), seenAt: new Date(), missing: false, ...o });
 
 for (const n of ['tasks', 'activity', 'alertLog', 'alertQueue', 'notifications', 'workerSessions', 'workerJobs', 'workerFolders', 'devices', 'settings', 'policyEvents', 'trash']) await db.collection(n).deleteMany({});
@@ -47,7 +47,7 @@ await cron(); await cron();
 check('one alert for it', (await db.collection('notifications').countDocuments({ title: /^Claude stopped on #910: folder no longer linked/ })) === 1);
 
 // 4. alert text sanitised
-await db.collection('tasks').insertOne(mk(920, 'mentions', { projectId: 'p1', status: 'In Progress', claude: { state: 'running', markedAt: new Date(), markedBy: 'om', claimedAt: new Date(), deviceId: D1.id, sessionId: randomUUID(), prevStatus: 'Not Started' } }));
+await db.collection('tasks').insertOne(mk(920, 'mentions', { projectId: 'p1', status: 'In Progress', claude: { state: 'running', markedAt: new Date(), markedBy: 'om', markedByUserId: ME.userId, markedByOrgId: ME.orgId, claimedAt: new Date(), deviceId: D1.id, sessionId: randomUUID(), prevStatus: 'Not Started' } }));
 await mcp('log_progress', { task: 920, progress: 10, status: 'Blocked', blocked_reason: 'ping @everyone and @here <@123456> see [docs](http://evil.example/x) @om' });
 await cron();
 const nn = await db.collection('notifications').findOne({ title: /#920/ });
@@ -65,7 +65,7 @@ await db.collection('workerJobs').deleteMany({}); await db.collection('workerSes
 
 // 6. status clobber
 const sid6 = randomUUID();
-await db.collection('tasks').insertOne(mk(940, 'status kept', { projectId: 'p1', status: 'Not Started', claude: { state: 'running', markedAt: new Date(), markedBy: 'om', claimedAt: new Date(Date.now() - 10 * 60_000), deviceId: D1.id, sessionId: sid6, prevStatus: 'In Progress' } }));
+await db.collection('tasks').insertOne(mk(940, 'status kept', { projectId: 'p1', status: 'Not Started', claude: { state: 'running', markedAt: new Date(), markedBy: 'om', markedByUserId: ME.userId, markedByOrgId: ME.orgId, claimedAt: new Date(Date.now() - 10 * 60_000), deviceId: D1.id, sessionId: sid6, prevStatus: 'In Progress' } }));
 await db.collection('workerSessions').insertOne({ _id: sid6, deviceId: D1.id, folderId: 'f_aaaa1', projectId: 'p1', state: 'starting', startedAt: new Date(Date.now() - 10 * 60_000), updatedAt: new Date(Date.now() - 10 * 60_000), dispatched: true, taskId: 'd940' });
 await db.collection('settings').updateOne({ _id: 'dispatcher' }, { $set: { enabled: false } });
 await cron();

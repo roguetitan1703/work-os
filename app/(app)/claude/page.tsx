@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { getCaller } from '@/lib/caller';
 import { Play } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { claudeOverview } from '@/lib/data/claude-overview';
@@ -24,7 +26,9 @@ type Props = { searchParams: Promise<{ tab?: string }> };
 export default async function ClaudePage({ searchParams }: Props) {
   const raw = (await searchParams).tab;
   const tab: TabId = TABS.find(t => t.id === raw)?.id ?? 'now';
-  const [data, tasks] = tab === 'setup' ? [null, null] : await Promise.all([claudeOverview(), tab === 'now' ? claudeTasks() : Promise.resolve(null)]);
+  const me = await getCaller();
+  if (!me) redirect('/login');
+  const [data, tasks] = tab === 'setup' ? [null, null] : await Promise.all([claudeOverview(me), tab === 'now' ? claudeTasks(me) : Promise.resolve(null)]);
   const url = tab === 'setup' ? `${await baseUrl()}/api/mcp` : '';
   const startBtn = (
     <Link

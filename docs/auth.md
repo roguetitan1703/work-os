@@ -82,8 +82,13 @@ every member sees everything. Phase 2 does that.
   sign-in or a password re-entry in the last 10 minutes. Otherwise the action answers "Enter your password again to
   continue." (passkeys: 403 `FRESH_SESSION_REQUIRED`) and the page asks for the password (`components/reauth.tsx`),
   which stores `reauthAt` on the session, then retries.
-- **Computers are per person:** each user sees, counts (max 10) and revokes only their own (`ownerId` + `orgId`).
-  Computers from before the migration have no owner and are invisible.
+- **Computers and agent sessions are private to their owner** (`ownerId` + `orgId` on the device): Claude › Setup,
+  a project's folders and sessions, the Start picker, the Claude page and Today's Claude card, and the Give to
+  Claude folder picker show only your own computers (`DeviceScope` in `lib/data/launcher.ts`). Start, link, unlink,
+  resume, stop, remove and take back answer "not found" for anyone else's folder, session or task. A task given to
+  Claude records who gave it (`claude.markedByUserId`) and only that person's computers claim it. Max 10 computers
+  per person. Computers from before the migration have no owner and are invisible; the worker routes act for their
+  own device as before.
 - **Locked out of the authenticator app** (no passkey, no backup code): in Mongo delete the user's `twoFactor` doc
   and set `user.twoFactorEnabled` to false. Password reset still needs working email.
 

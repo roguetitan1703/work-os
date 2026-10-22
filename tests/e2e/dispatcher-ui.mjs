@@ -18,7 +18,7 @@ await runAssertSuite('dispatcher-ui', async () => {
   await db.collection('workerFolders').insertMany([fol('f_a1aa', 'akar-api', 'p1'), fol('f_a2aa', 'akar-web', 'p1'), fol('f_s1aa', 'delpat-site', 'p2')]);
   const base = { description: '', mode: null, priority: 'P2', status: 'Not Started', tags: [], due: null, start: null, estimateMins: null, progress: 0, checklist: [], links: [], blockedReason: '', dependsOn: [], recurrence: null, nextRef: null, archived: false, createdBy: 'me', createdAt: new Date(Date.now() - 864e5), updatedAt: new Date(Date.now() - 36e5), doneAt: null, doneOn: null, doneBy: null };
   const T = (ref, title, o = {}) => ({ ...base, _id: 'u' + ref, ref, title, ...o });
-  const mark = (state, o = {}) => ({ state, markedAt: new Date(Date.now() - 3e5), markedBy: 'om', ...o });
+  const mark = (state, o = {}) => ({ state, markedAt: new Date(Date.now() - 3e5), markedBy: 'om', markedByUserId: ME.userId, markedByOrgId: ME.orgId, ...o });
   await db.collection('tasks').insertMany([
     T(10, 'Two folders task', { projectId: 'p1' }),
     T(11, 'One folder task', { projectId: 'p2' }),

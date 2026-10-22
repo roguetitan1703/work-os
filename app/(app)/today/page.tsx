@@ -1,4 +1,6 @@
 import { format } from 'date-fns';
+import { redirect } from 'next/navigation';
+import { getCaller } from '@/lib/caller';
 import { SCHEDULE } from '@/lib/schedule';
 import { listTasks, unmetDependencies } from '@/lib/data/tasks';
 import { getRitualLog } from '@/lib/data/reviews';
@@ -13,7 +15,9 @@ export const metadata = { title: 'Today · Work OS' };
 export default async function TodayPage() {
   const today = todayStr();
   const wd = weekday(today);
-  const [open, ritual, overview] = await Promise.all([listTasks({ open: true }), getRitualLog(today), claudeOverview().catch(() => null)]);
+  const me = await getCaller();
+  if (!me) redirect('/login');
+  const [open, ritual, overview] = await Promise.all([listTasks({ open: true }), getRitualLog(today), claudeOverview(me).catch(() => null)]);
   const [waiting, notes] = await Promise.all([unmetDependencies(open), taskIdsWithNotes(open.map(t => t.id))]);
   const waitingRefs = Object.fromEntries([...waiting].map(([id, deps]) => [id, deps.map(d => `#${d.ref}`)]));
   const dayName = format(new Date(today + 'T12:00:00Z'), 'EEEE, MMMM d');

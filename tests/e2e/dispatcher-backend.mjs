@@ -1,6 +1,6 @@
 // Dispatcher backend: claim on worker poll, caps, MCP cannot set claude, outcomes, reconciler, alerts once. Seed profile: none.
 import { randomUUID } from 'node:crypto';
-import { db, check, mkDevice, api, mcpRaw as mcp, cron, finish } from './lib.mjs';
+import { db, check, mkDevice, api, mcpRaw as mcp, cron, finish, ME } from './lib.mjs';
 
 const status = (d, extra = {}, allowPrompts = true) => api(d.key, 'POST', '/api/worker/status', { worker: { version: '0.1.0', os: 'win32', allowPrompts }, jobs: [], sessions: [], ...extra });
 const poll = d => api(d.key, 'GET', '/api/worker/jobs');
@@ -8,7 +8,7 @@ const task = ref => db.collection('tasks').findOne({ ref });
 const now = Date.now();
 const base = { description: 'SECRET-DESCRIPTION-TEXT', mode: null, priority: 'P2', status: 'Not Started', tags: [], due: null, start: null, estimateMins: null, progress: 0, checklist: [], links: [], blockedReason: '', dependsOn: [], recurrence: null, nextRef: null, archived: false, createdBy: 'me', createdAt: new Date(now - 864e5), updatedAt: new Date(now - 36e5), doneAt: null, doneOn: null, doneBy: null };
 const mk = (ref, title, o = {}) => ({ ...base, _id: 'd' + ref, ref, title, ...o });
-const mark = (n, o = {}) => ({ state: 'queued', markedAt: new Date(now - (100 - n) * 60_000), markedBy: 'om', ...o });
+const mark = (n, o = {}) => ({ state: 'queued', markedAt: new Date(now - (100 - n) * 60_000), markedBy: 'om', markedByUserId: ME.userId, markedByOrgId: ME.orgId, ...o });
 const link = (dev, fid, projectId, o = {}) => ({ _id: `${dev.id}:${fid}`, deviceId: dev.id, folderId: fid, name: 'folder-' + fid, git: false, projectId, linkedAt: new Date(), seenAt: new Date(), missing: false, ...o });
 
 // ── clean slate ──
@@ -136,13 +136,13 @@ check('alert for failed start (one)', (await db.collection('notifications').coun
 await db.collection('tasks').updateMany({ 'claude.state': 'running' }, { $set: { 'claude.state': 'stopped' } });
 // (a) stuck "starting" > 5 min with the job never taken -> requeued
 const sidA = randomUUID();
-await db.collection('tasks').updateOne({ ref: 105 }, { $set: { status: 'In Progress', claude: { state: 'running', markedAt: new Date(now - 6e5), markedBy: 'om', claimedAt: new Date(Date.now() - 10 * 60_000), deviceId: D2.id, sessionId: sidA, prevStatus: 'Not Started' } } });
+await db.collection('tasks').updateOne({ ref: 105 }, { $set: { status: 'In Progress', claude: { state: 'running', markedAt: new Date(now - 6e5), markedBy: 'om', markedByUserId: ME.userId, markedByOrgId: ME.orgId, claimedAt: new Date(Date.now() - 10 * 60_000), deviceId: D2.id, sessionId: sidA, prevStatus: 'Not Started' } } });
 await db.collection('workerSessions').insertOne({ _id: sidA, deviceId: D2.id, folderId: 'f_bbbb1', projectId: 'p2', state: 'starting', startedAt: new Date(Date.now() - 10 * 60_000), updatedAt: new Date(Date.now() - 10 * 60_000), dispatched: true, taskId: 'd105' });
 await db.collection('workerJobs').insertOne({ _id: 'j_stuck', deviceId: D2.id, kind: 'start', sessionId: sidA, folderId: 'f_bbbb1', projectId: 'p2', prompt: 'x', createdAt: new Date(), takenAt: null, doneAt: null });
 // (b) running, computer silent 20 min -> stopped + alert
 const sidB = randomUUID();
 await db.collection('devices').updateOne({ _id: D3.id }, { $set: { lastSeenAt: new Date(Date.now() - 20 * 60_000) } });
-await db.collection('tasks').updateOne({ ref: 106 }, { $set: { status: 'In Progress', claude: { state: 'running', markedAt: new Date(now - 6e5), markedBy: 'om', claimedAt: new Date(Date.now() - 30 * 60_000), deviceId: D3.id, sessionId: sidB, prevStatus: 'Not Started' } } });
+await db.collection('tasks').updateOne({ ref: 106 }, { $set: { status: 'In Progress', claude: { state: 'running', markedAt: new Date(now - 6e5), markedBy: 'om', markedByUserId: ME.userId, markedByOrgId: ME.orgId, claimedAt: new Date(Date.now() - 30 * 60_000), deviceId: D3.id, sessionId: sidB, prevStatus: 'Not Started' } } });
 await db.collection('workerSessions').insertOne({ _id: sidB, deviceId: D3.id, folderId: 'f_cccc1', projectId: 'p1', state: 'running', startedAt: new Date(Date.now() - 30 * 60_000), updatedAt: new Date(Date.now() - 20 * 60_000), dispatched: true, taskId: 'd106' });
 await db.collection('settings').updateOne({ _id: 'dispatcher' }, { $set: { enabled: false } }); // so the requeued task is not re-claimed during the check
 await cron();
@@ -160,7 +160,7 @@ check('second cron sends no duplicates', (await db.collection('notifications').c
 const sidC = randomUUID();
 await db.collection('settings').updateOne({ _id: 'dispatcher' }, { $set: { enabled: true } });
 await db.collection('devices').updateOne({ _id: D1.id }, { $set: { lastSeenAt: new Date(), claudeSessions: { at: new Date(), items: [{ sessionId: sidC, folder: 'folder-f_aaaa1', title: 't', lastActiveAt: new Date(Date.now() - 25 * 60_000), subagentsActive: 0, startedByWorkOs: true, running: true }] } } });
-await db.collection('tasks').updateOne({ ref: 104 }, { $set: { status: 'In Progress', claude: { state: 'running', markedAt: new Date(now - 6e5), markedBy: 'om', claimedAt: new Date(Date.now() - 40 * 60_000), deviceId: D1.id, sessionId: sidC, prevStatus: 'Not Started' } } });
+await db.collection('tasks').updateOne({ ref: 104 }, { $set: { status: 'In Progress', claude: { state: 'running', markedAt: new Date(now - 6e5), markedBy: 'om', markedByUserId: ME.userId, markedByOrgId: ME.orgId, claimedAt: new Date(Date.now() - 40 * 60_000), deviceId: D1.id, sessionId: sidC, prevStatus: 'Not Started' } } });
 await db.collection('workerSessions').insertOne({ _id: sidC, deviceId: D1.id, folderId: 'f_aaaa1', projectId: 'p1', state: 'running', startedAt: new Date(Date.now() - 40 * 60_000), updatedAt: new Date(), dispatched: true, taskId: 'd104' });
 await cron(); await cron();
 const stuck = await db.collection('notifications').find({ kind: 'claude_stuck' }).toArray();

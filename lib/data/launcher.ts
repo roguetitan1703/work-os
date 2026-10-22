@@ -212,10 +212,25 @@ export type SessionView = { id: string; deviceName: string; folderName: string; 
 
 const ONLINE_MS = 2 * 60_000;
 
-export async function deviceMap() {
+/**
+ * Whose computers (docs/multi-user.md: computers and agent sessions are private to their owner). Every launcher,
+ * dispatcher and overview path driven by a signed-in person works only with devices where ownerId and orgId match;
+ * another person's device, folder or session answers "not found". The worker routes act for their own device.
+ */
+export type DeviceScope = { userId: string; orgId: string };
+const owned = (s: DeviceScope) => ({ ownerId: s.userId, orgId: s.orgId });
+
+/** The person's non-revoked computers. */
+export async function deviceMap(scope: DeviceScope) {
   const c = await collections();
-  const ds = await c.devices.find({ revokedAt: null }).toArray();
+  const ds = await c.devices.find({ revokedAt: null, ...owned(scope) }).toArray();
   return new Map(ds.map(d => [d._id, { name: d.name, online: !!d.lastSeenAt && Date.now() - d.lastSeenAt.getTime() < ONLINE_MS }]));
+}
+
+/** Every device of the person, revoked ones too (their sessions stay in the history lists). */
+export async function ownedDeviceIds(scope: DeviceScope): Promise<string[]> {
+  const ds = await (await collections()).devices.find(owned(scope), { projection: { _id: 1 } }).toArray();
+  return ds.map(d => d._id);
 }
 
 function folderView(f: WorkerFolderDoc, devices: Awaited<ReturnType<typeof deviceMap>>): FolderView | null {
@@ -227,9 +242,9 @@ function folderView(f: WorkerFolderDoc, devices: Awaited<ReturnType<typeof devic
 export const derivedState = (s: WorkerSessionDoc): SessionView['state'] => ((s.state === 'running' || s.state === 'starting') && Date.now() - s.updatedAt.getTime() > STALE_SESSION_MS ? 'unknown' : s.state);
 
 /** Linked folders, suggested folders (same git remote as one of the project's code locations), and recent sessions. */
-export async function projectLauncher(projectId: string): Promise<{ folders: FolderView[]; suggestions: FolderView[]; sessions: SessionView[]; devices: { id: string; name: string }[] }> {
+export async function projectLauncher(scope: DeviceScope, projectId: string): Promise<{ folders: FolderView[]; suggestions: FolderView[]; sessions: SessionView[]; devices: { id: string; name: string }[] }> {
   const c = await collections();
-  const devices = await deviceMap();
+  const [devices, mine] = await Promise.all([deviceMap(scope), ownedDeviceIds(scope)]);
   if (!devices.size) return { folders: [], suggestions: [], sessions: [], devices: [] };
   const p = await c.projects.findOne({ _id: projectId }, { projection: { code: 1 } });
   const remotes = [...new Set((p?.code ?? []).map(l => l.remote).filter((r): r is string => !!r))];
@@ -238,7 +253,7 @@ export async function projectLauncher(projectId: string): Promise<{ folders: Fol
     remotes.length
       ? c.workerFolders.find({ projectId: null, missing: false, deviceId: { $in: [...devices.keys()] }, remote: { $in: remotes } }).limit(20).toArray()
       : Promise.resolve([]),
-    c.workerSessions.find({ projectId, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(10).toArray(),
+    c.workerSessions.find({ projectId, deviceId: { $in: mine }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(10).toArray(),
   ]);
   const names = new Map(linked.map(f => [`${f.deviceId}:${f.folderId}`, f.name]));
   return {
@@ -260,9 +275,10 @@ export async function projectLauncher(projectId: string): Promise<{ folders: Fol
 }
 
 /** Folders on one device for the "Add folder" picker (unlinked first), filtered by text. */
-export async function searchFolders(deviceId: string, q: string): Promise<FolderView[]> {
+export async function searchFolders(scope: DeviceScope, deviceId: string, q: string): Promise<FolderView[]> {
   const c = await collections();
-  const devices = await deviceMap();
+  const devices = await deviceMap(scope);
+  if (!devices.has(deviceId)) throw new NotFoundError('Device not found');
   const esc = q.trim().slice(0, 60).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const docs = await c.workerFolders
     .find({ deviceId, missing: false, ...(esc ? { name: { $regex: esc, $options: 'i' } } : {}) })
@@ -272,22 +288,33 @@ export async function searchFolders(deviceId: string, q: string): Promise<Folder
   return docs.map(f => folderView(f, devices)).filter((x): x is FolderView => !!x);
 }
 
-async function folderDoc(key: string): Promise<WorkerFolderDoc> {
-  const f = await (await collections()).workerFolders.findOne({ _id: key });
-  if (!f) throw new NotFoundError('Folder not found');
+/** A folder on one of the person's computers; anyone else's is "not found". */
+async function folderDoc(scope: DeviceScope, key: string): Promise<WorkerFolderDoc> {
+  const c = await collections();
+  const f = await c.workerFolders.findOne({ _id: key });
+  if (!f || !(await c.devices.findOne({ _id: f.deviceId, ...owned(scope) }, { projection: { _id: 1 } }))) throw new NotFoundError('Folder not found');
   return f;
 }
 
-export async function linkFolder(projectId: string, key: string): Promise<void> {
+/** A session of this project on one of the person's computers (revoked ones included); anyone else's is "not found". */
+async function sessionDoc(scope: DeviceScope, projectId: string, sessionId: string): Promise<WorkerSessionDoc> {
+  const c = await collections();
+  const s = await c.workerSessions.findOne({ _id: sessionId, projectId });
+  if (!s || !(await c.devices.findOne({ _id: s.deviceId, ...owned(scope) }, { projection: { _id: 1 } }))) throw new NotFoundError('Session not found');
+  return s;
+}
+
+export async function linkFolder(scope: DeviceScope, projectId: string, key: string): Promise<void> {
   const c = await collections();
   if (!(await c.projects.findOne({ _id: projectId }, { projection: { _id: 1 } }))) throw new NotFoundError('Project not found');
-  const f = await folderDoc(key);
+  const f = await folderDoc(scope, key);
   if (f.projectId && f.projectId !== projectId) throw new InputError(`"${f.name}" is linked to another project; unlink it there first`);
   await c.workerFolders.updateOne({ _id: key }, { $set: { projectId, linkedAt: new Date() } });
 }
 
-export async function unlinkFolder(projectId: string, key: string): Promise<void> {
+export async function unlinkFolder(scope: DeviceScope, projectId: string, key: string): Promise<void> {
   const c = await collections();
+  await folderDoc(scope, key);
   await c.workerFolders.updateOne({ _id: key, projectId }, { $set: { projectId: null, linkedAt: null } });
 }
 
@@ -300,8 +327,8 @@ async function addJob(deviceId: string, job: { kind: 'start' | 'resume' | 'stop'
 }
 
 /** Start a new session in a linked folder. prompt: only what Om typed at Start (docs/launcher.md rule 3). */
-export async function startSession(projectId: string, key: string, prompt?: string): Promise<string> {
-  const f = await folderDoc(key);
+export async function startSession(scope: DeviceScope, projectId: string, key: string, prompt?: string): Promise<string> {
+  const f = await folderDoc(scope, key);
   if (f.projectId !== projectId) throw new InputError('That folder is not linked to this project');
   if (f.missing) throw new InputError(`"${f.name}" was not found in the device's last scan`);
   return createStartJob(f, projectId, prompt?.trim() ?? '');
@@ -326,35 +353,32 @@ export async function createStartJob(f: WorkerFolderDoc, projectId: string, text
   return sessionId;
 }
 
-export async function resumeSession(projectId: string, sessionId: string): Promise<void> {
+export async function resumeSession(scope: DeviceScope, projectId: string, sessionId: string): Promise<void> {
   const c = await collections();
-  const s = await c.workerSessions.findOne({ _id: sessionId, projectId });
-  if (!s) throw new NotFoundError('Session not found');
+  const s = await sessionDoc(scope, projectId, sessionId);
   if (!(await c.workerFolders.findOne({ deviceId: s.deviceId, folderId: s.folderId, projectId }, { projection: { _id: 1 } }))) throw new InputError('That folder is no longer linked to this project; link it again first');
   await addJob(s.deviceId, { kind: 'resume', sessionId, folderId: s.folderId, projectId });
   await c.workerSessions.updateOne({ _id: sessionId }, { $set: { state: 'starting', updatedAt: new Date() }, $unset: { error: '' } });
 }
 
-export async function stopSession(projectId: string, sessionId: string): Promise<void> {
-  const c = await collections();
-  const s = await c.workerSessions.findOne({ _id: sessionId, projectId });
-  if (!s) throw new NotFoundError('Session not found');
+export async function stopSession(scope: DeviceScope, projectId: string, sessionId: string): Promise<void> {
+  const s = await sessionDoc(scope, projectId, sessionId);
   await addJob(s.deviceId, { kind: 'stop', sessionId });
 }
 
 /** Hide a finished session from the list. The doc stays (history); only stopped, failed, dead or silent ones. */
-export async function removeSession(projectId: string, sessionId: string): Promise<void> {
+export async function removeSession(scope: DeviceScope, projectId: string, sessionId: string): Promise<void> {
   const c = await collections();
-  const s = await c.workerSessions.findOne({ _id: sessionId, projectId });
-  if (!s) throw new NotFoundError('Session not found');
+  const s = await sessionDoc(scope, projectId, sessionId);
   const st = derivedState(s);
   if (st === 'starting' || st === 'running') throw new InputError('Stop it first, then remove it');
   await c.workerSessions.updateOne({ _id: sessionId, projectId }, { $set: { hidden: true } });
 }
 
 /** Undo for removeSession: show the session in the list again. */
-export async function unhideSession(projectId: string, sessionId: string): Promise<void> {
+export async function unhideSession(scope: DeviceScope, projectId: string, sessionId: string): Promise<void> {
   const c = await collections();
+  await sessionDoc(scope, projectId, sessionId);
   const r = await c.workerSessions.updateOne({ _id: sessionId, projectId }, { $unset: { hidden: '' } });
   if (!r.matchedCount) throw new NotFoundError('Session not found');
 }

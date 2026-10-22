@@ -4,7 +4,7 @@ import { collections, type ActivityDoc, type ClaudeMark, type Collections, type 
 import { requestContext } from '../request-context';
 import type { Status } from '../types';
 import { InputError, NotFoundError } from './errors';
-import { createStartJob, deviceMap, stopSession } from './launcher';
+import { createStartJob, deviceMap, stopSession, type DeviceScope } from './launcher';
 
 // Task dispatcher, PC version (docs/dispatcher.md). Om gives a task to Claude (UI only); when a
 // computer has room, the worker's jobs poll claims the oldest marked task and starts a Claude Code
@@ -211,12 +211,13 @@ export async function dispatchFor(deviceId: string): Promise<{ ref: number | nul
 }
 
 async function claimFor(c: Collections, deviceId: string, set: DispatcherSettings): Promise<number | null> {
-  const dev = await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { worker: 1 } });
-  if (dev?.worker?.allowPrompts !== true) return null;
+  const dev = await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { worker: 1, ownerId: 1, orgId: 1 } });
+  if (dev?.worker?.allowPrompts !== true || !dev.ownerId || !dev.orgId) return null;
   if ((await c.tasks.countDocuments({ 'claude.state': 'running' })) >= set.maxConcurrent) return null;
 
   const queued = await c.tasks
-    .find({ 'claude.state': 'queued', archived: false, status: { $in: CLAIMABLE }, projectId: { $ne: null } })
+    // Only tasks this computer's owner gave to Claude (a task given by someone else runs on their computers).
+    .find({ 'claude.state': 'queued', 'claude.markedByUserId': dev.ownerId, 'claude.markedByOrgId': dev.orgId, archived: false, status: { $in: CLAIMABLE }, projectId: { $ne: null } })
     .sort({ 'claude.markedAt': 1, ref: 1 })
     .limit(50)
     .toArray();
@@ -343,28 +344,28 @@ export type MarkOptions = {
 };
 
 /** What the Give to Claude sheet needs for one task. */
-export async function markOptions(key: string): Promise<MarkOptions> {
+export async function markOptions(scope: DeviceScope, key: string): Promise<MarkOptions> {
   const c = await collections();
   const t = await taskByKey(c, key);
   const set = await getDispatcherSettings(c);
   const base = { ref: t.ref, state: t.claude?.state ?? null, dispatcherOn: set.enabled };
   if (t.archived || t.status === 'Done' || t.status === 'Dropped') return { ...base, folders: [], blocked: 'A finished or archived task cannot be given to Claude.' };
   if (!t.projectId) return { ...base, folders: [], blocked: 'Add this task to a project first. Claude works in the project\'s folder.' };
-  const devices = await deviceMap();
+  const devices = await deviceMap(scope);
   const docs = await c.workerFolders.find({ projectId: t.projectId, missing: false, deviceId: { $in: [...devices.keys()] } }).sort({ name: 1 }).toArray();
   const folders = docs.map(f => ({ key: f._id, name: f.name, ...(f.branch ? { branch: f.branch } : {}), deviceName: devices.get(f.deviceId)!.name, online: devices.get(f.deviceId)!.online }));
   if (!folders.length && (!t.claude || t.claude.state !== 'queued')) return { ...base, folders, blocked: 'Link a folder first: open the project and add a folder under Folders.' };
   return { ...base, folders };
 }
 
-export async function giveToClaude(key: string, folderKey?: string): Promise<void> {
+export async function giveToClaude(scope: DeviceScope, key: string, folderKey?: string): Promise<void> {
   const c = await collections();
   const t = await taskByKey(c, key);
   if (t.archived || t.status === 'Done' || t.status === 'Dropped') throw new InputError('A finished or archived task cannot be given to Claude.');
   if (t.status === 'Blocked') throw new InputError('This task is Blocked. Set it to Not Started or In Progress first.');
   if (!t.projectId) throw new InputError('Add this task to a project first.');
   if (t.claude?.state === 'queued' || t.claude?.state === 'running') throw new InputError('Already given to Claude.');
-  const devices = await deviceMap();
+  const devices = await deviceMap(scope);
   const folders = await c.workerFolders.find({ projectId: t.projectId, missing: false, deviceId: { $in: [...devices.keys()] } }).sort({ name: 1 }).toArray();
   if (!folders.length) throw new InputError('Link a folder to this project first.');
   let chosen: string | undefined;
@@ -372,7 +373,7 @@ export async function giveToClaude(key: string, folderKey?: string): Promise<voi
     if (!folderKey || !folders.some(f => f._id === folderKey)) throw new InputError('Choose which folder Claude works in.');
     chosen = folderKey;
   }
-  const mark: ClaudeMark = { state: 'queued', markedAt: new Date(), markedBy: 'om', ...(chosen ? { folderKey: chosen } : {}) };
+  const mark: ClaudeMark = { state: 'queued', markedAt: new Date(), markedBy: 'om', markedByUserId: scope.userId, markedByOrgId: scope.orgId, ...(chosen ? { folderKey: chosen } : {}) };
   const r = await c.tasks.updateOne(
     { _id: t._id, archived: false, status: { $in: CLAIMABLE }, $or: [{ claude: null }, { claude: { $exists: false } }, { 'claude.state': { $in: ['finished', 'stopped', 'failed'] } }] },
     { $set: { claude: mark } },
@@ -385,19 +386,21 @@ export async function giveToClaude(key: string, folderKey?: string): Promise<voi
  * Take back: queued -> cleared; ended -> cleared; running needs stopSession (Om confirmed in the sheet): the stop job is
  * best-effort (the computer may be off) and the claim ends as stopped either way.
  */
-export async function takeBackFromClaude(key: string, opts: { stop?: boolean } = {}): Promise<void> {
+export async function takeBackFromClaude(scope: DeviceScope, key: string, opts: { stop?: boolean } = {}): Promise<void> {
   const c = await collections();
   const t = await taskByKey(c, key);
   const from = t.claude?.state ?? null;
   if (!t.claude) return;
+  // Only the person who gave it (marks from before sign-in by user have no owner and can be cleared by anyone).
+  if (t.claude.markedByUserId && t.claude.markedByUserId !== scope.userId) throw new NotFoundError('Task not found');
   if (t.claude.state === 'running') {
     if (!opts.stop) throw new InputError('Claude is working on this. Stop the session first.');
-    if (t.projectId && t.claude.sessionId) await stopSession(t.projectId, t.claude.sessionId).catch(() => {});
+    if (t.projectId && t.claude.sessionId) await stopSession(scope, t.projectId, t.claude.sessionId).catch(() => {});
     const r = await c.tasks.updateOne(
       { _id: t._id, 'claude.state': 'running', 'claude.sessionId': t.claude.sessionId },
       { $set: { 'claude.state': 'stopped', 'claude.endedAt': new Date(), 'claude.note': 'taken back by you' } },
     );
-    if (!r.modifiedCount) return takeBackFromClaude(key, opts); // it ended meanwhile: clear the leftover state
+    if (!r.modifiedCount) return takeBackFromClaude(scope, key, opts); // it ended meanwhile: clear the leftover state
   } else {
     const r = await c.tasks.updateOne({ _id: t._id, 'claude.state': t.claude.state }, { $set: { claude: null } });
     if (!r.modifiedCount) throw new InputError('Claude just started this task. Stop the session first.');
@@ -427,17 +430,18 @@ export type ClaudeTaskRow = {
 };
 export type ClaudeTasks = { settings: DispatcherSettings; running: ClaudeTaskRow[]; queued: ClaudeTaskRow[]; recent: ClaudeTaskRow[] };
 
-export async function claudeTasks(): Promise<ClaudeTasks> {
+/** The tasks the signed-in person gave to Claude. */
+export async function claudeTasks(scope: DeviceScope): Promise<ClaudeTasks> {
   const c = await collections();
   const cutoff = new Date(Date.now() - RECENT_DAYS * 86_400_000);
   const [settings, docs, devices] = await Promise.all([
     getDispatcherSettings(c),
     c.tasks
-      .find({ $or: [{ 'claude.state': { $in: ['queued', 'running'] } }, { 'claude.state': { $in: ['finished', 'stopped', 'failed'] }, 'claude.endedAt': { $gte: cutoff } }] })
+      .find({ 'claude.markedByUserId': scope.userId, $or: [{ 'claude.state': { $in: ['queued', 'running'] } }, { 'claude.state': { $in: ['finished', 'stopped', 'failed'] }, 'claude.endedAt': { $gte: cutoff } }] })
       .sort({ 'claude.markedAt': 1 })
       .limit(100)
       .toArray(),
-    deviceMap(),
+    deviceMap(scope),
   ]);
   const pids = [...new Set(docs.map(t => t.projectId).filter((x): x is string => !!x))];
   const names = new Map((await c.projects.find({ _id: { $in: pids } }, { projection: { name: 1 } }).toArray()).map(p => [p._id, p.name]));

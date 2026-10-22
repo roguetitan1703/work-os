@@ -5,10 +5,10 @@
 // no session or key. Seed profile: none.
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { ObjectId } from 'mongodb';
-import { B, EMAIL, PW, ME, db, admin, makeUser, mkDevice, check, finish, launch, login, fillLogin } from './lib.mjs';
+import { B, EMAIL, PW, ME, db, admin, makeUser, mkDevice, call, api, sha, check, finish, launch, login, fillLogin } from './lib.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MAIL = process.env.MAIL_CAPTURE_DIR;
@@ -387,6 +387,90 @@ try {
     const pk2 = await authApi(cj, '/passkey/generate-register-options');
     check('fresh: ...and allowed right after the password', pk2.status === 200, `${pk2.status} ${pk2.text.slice(0, 80)}`);
     await ctx.close();
+  }
+
+  // ======== 7e. computers, folders and sessions are private to their owner ========
+  {
+    const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, '.next/server/server-reference-manifest.json'), 'utf8')).node;
+    const pid = (await call('add_project', { name: 'Auth Private Launcher' })).project.id;
+    // A server action called the way the browser does (Next-Action header), on a page that registers it.
+    const act = async (cookie, name, ...args) => {
+      const [id, e] = Object.entries(manifest).find(([, e]) => Object.values(e.workers).some(w => w.exportedName === name && /(launcher|dispatcher)-actions\.ts$/.test(w.filename)));
+      const pages = Object.keys(e.workers);
+      const page = pages.find(x => !x.includes('[')) ?? pages[0];
+      const url = '/' + page.replace(/^app\//, '').replace(/\/page$/, '').split('/').filter(x => !/^\(.*\)$/.test(x)).map(x => (/^\[.*\]$/.test(x) ? pid : x)).join('/');
+      const r = await fetch(B + url, { method: 'POST', redirect: 'manual', headers: { cookie, origin: B, 'next-action': id, 'content-type': 'text/plain;charset=UTF-8', accept: 'text/x-component' }, body: JSON.stringify(args) });
+      return { status: r.status, text: await r.text() };
+    };
+    const refused = (r, msg) => r.text.includes('"ok":false') && r.text.includes(msg);
+
+    const own = await mkDevice('owner-private-pc');
+    await db.collection('devices').updateOne({ _id: own.id }, { $set: { worker: { version: '0.1.0', os: 'win32', allowPrompts: true }, lastSeenAt: new Date() } });
+    const fA = own.id + ':fA', fB = own.id + ':fB';
+    const folder = (dev, fid, name, projectId) => ({ _id: dev + ':' + fid, deviceId: dev, folderId: fid, name, git: false, projectId, linkedAt: projectId ? new Date() : null, seenAt: new Date(), missing: false });
+    await db.collection('workerFolders').insertMany([folder(own.id, 'fA', 'owner-secret-folder', pid), folder(own.id, 'fB', 'owner-unlinked-folder', null)]);
+    const live = randomUUID(), done = randomUUID();
+    await db.collection('workerSessions').insertMany([
+      { _id: live, deviceId: own.id, folderId: 'fA', projectId: pid, state: 'running', startedAt: new Date(), updatedAt: new Date() },
+      { _id: done, deviceId: own.id, folderId: 'fA', projectId: pid, state: 'stopped', startedAt: new Date(), updatedAt: new Date() },
+    ]);
+    const jobs = () => db.collection('workerJobs').countDocuments({ deviceId: own.id });
+    const jobs0 = await jobs();
+
+    const member = (await signIn(INVITEE, PW)).j.header();
+    const html = async u => (await fetch(B + u, { headers: { cookie: member } })).text();
+    const projectPage = await html('/projects/' + pid);
+    check("private: the project page shows a member none of the owner's folders, computers or sessions", !projectPage.includes('owner-secret-folder') && !projectPage.includes('owner-private-pc') && !projectPage.includes(live));
+    const claudePage = await html('/claude');
+    check("private: the Claude page shows a member none of the owner's sessions or computers", !claudePage.includes('owner-private-pc') && !claudePage.includes(live));
+
+    let r = await act(member, 'startSessionAction', pid, fA, '');
+    check("private: start on the owner's folder -> not found", refused(r, 'Folder not found'), r.status + ' ' + r.text.slice(0, 160));
+    r = await act(member, 'linkAndStartAction', pid, fB, '');
+    check("private: link-and-start the owner's folder -> not found", refused(r, 'Folder not found') && (await db.collection('workerFolders').findOne({ _id: fB }))?.projectId === null, r.text.slice(0, 160));
+    r = await act(member, 'linkFolderAction', pid, fB);
+    check("private: link the owner's folder -> not found", refused(r, 'Folder not found'), r.text.slice(0, 160));
+    r = await act(member, 'unlinkFolderAction', pid, fA);
+    check("private: unlink the owner's folder -> not found, still linked", refused(r, 'Folder not found') && (await db.collection('workerFolders').findOne({ _id: fA }))?.projectId === pid, r.text.slice(0, 160));
+    r = await act(member, 'searchFoldersAction', own.id, '');
+    check("private: search folders on the owner's computer -> not found", refused(r, 'Device not found'), r.text.slice(0, 160));
+    r = await act(member, 'stopSessionAction', pid, live);
+    check("private: stop the owner's session -> not found", refused(r, 'Session not found'), r.text.slice(0, 160));
+    r = await act(member, 'resumeSessionAction', pid, done);
+    check("private: resume the owner's session -> not found", refused(r, 'Session not found'), r.text.slice(0, 160));
+    r = await act(member, 'removeSessionAction', pid, done);
+    check("private: remove the owner's session -> not found", refused(r, 'Session not found') && !(await db.collection('workerSessions').findOne({ _id: done }))?.hidden, r.text.slice(0, 160));
+    r = await act(member, 'unhideSessionAction', pid, done);
+    check("private: unhide the owner's session -> not found", refused(r, 'Session not found'), r.text.slice(0, 160));
+    check("private: none of that queued a job on the owner's computer", (await jobs()) === jobs0);
+    r = await act(member, 'startOptionsAction', pid);
+    check("private: the Start picker lists none of the owner's folders or computers", r.text.includes('"ok":true') && !r.text.includes('owner-secret-folder') && !r.text.includes('owner-private-pc'), r.text.slice(0, 160));
+    r = await act(member, 'startProjectsAction');
+    check("private: the Start project list counts none of the owner's folders", r.text.includes('"ok":true') && !/"name":"Auth Private Launcher"[^}]*"folders":[1-9]/.test(r.text), r.text.slice(0, 160));
+
+    // Dispatcher: a task given to Claude by the member runs only on the member's computer.
+    const tref = (await call('add_task', { title: 'auth private dispatch', project: 'Auth Private Launcher' })).created.ref;
+    r = await act(member, 'markOptionsAction', String(tref));
+    check("private: Give to Claude offers a member none of the owner's folders", r.text.includes('"ok":true') && !r.text.includes('owner-secret-folder'), r.text.slice(0, 160));
+    r = await act(member, 'giveToClaudeAction', String(tref));
+    check("private: Give to Claude with only the owner's folder -> refused", refused(r, 'Link a folder'), r.text.slice(0, 160));
+    const mkey = 'wkr_' + randomBytes(32).toString('base64url');
+    const mdev = randomUUID();
+    await db.collection('devices').insertOne({ _id: mdev, name: 'member-pc', ownerId: invitee, orgId: ME.orgId, hash: sha(mkey), prefix: mkey.slice(0, 8), createdAt: new Date(), lastSeenAt: new Date(), revokedAt: null, worker: { version: '0.1.0', os: 'win32', allowPrompts: true } });
+    await db.collection('workerFolders').insertOne(folder(mdev, 'fM', 'member-folder', pid));
+    r = await act(member, 'giveToClaudeAction', String(tref));
+    const marked = await db.collection('tasks').findOne({ ref: tref });
+    check('private: Give to Claude records who gave it', r.text.includes('"ok":true') && marked?.claude?.markedByUserId === invitee, r.text.slice(0, 160));
+    await db.collection('settings').updateOne({ _id: 'dispatcher' }, { $set: { enabled: true, maxConcurrent: 3, boilerplateNoteId: 'n-auth' } }, { upsert: true });
+    await api(own.key, 'GET', '/api/worker/jobs');
+    check("private: the owner's computer does not claim the member's task", (await db.collection('tasks').findOne({ ref: tref }))?.claude?.state === 'queued');
+    await api(mkey, 'GET', '/api/worker/jobs');
+    const claimed = await db.collection('tasks').findOne({ ref: tref });
+    check("private: the member's computer claims it", claimed?.claude?.state === 'running' && claimed?.claude?.deviceId === mdev, JSON.stringify(claimed?.claude));
+    const owner = (await signIn(EMAIL, PW)).j.header();
+    r = await act(owner, 'takeBackFromClaudeAction', String(tref), true);
+    check("private: the owner cannot take back (stop) the member's Claude task", refused(r, 'Task not found') && (await db.collection('tasks').findOne({ ref: tref }))?.claude?.state === 'running', r.text.slice(0, 160));
+    await db.collection('settings').updateOne({ _id: 'dispatcher' }, { $set: { enabled: false } });
   }
 
   // ======== 7d. per-account limit on failed sign-in steps ========
