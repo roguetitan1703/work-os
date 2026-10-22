@@ -19,26 +19,54 @@ export type Stats = {
   completedToday: number;
 };
 
+/** Open tasks past due: one indexed count (the nav badge, on every page render). */
+export async function overdueCount(): Promise<number> {
+  const c = await collections();
+  return c.tasks.countDocuments({ archived: false, status: { $in: OPEN_STATUSES }, due: { $gt: '', $lt: todayStr() } });
+}
+
 export async function getStats(): Promise<Stats> {
   const c = await collections();
   const today = todayStr();
   const ws = weekStart(today);
   const lastWs = addDays(ws, -7);
-  const [open, doneRecent] = await Promise.all([
-    c.tasks.find({ archived: false, status: { $in: OPEN_STATUSES } }, { projection: { status: 1, due: 1, priority: 1 } }).toArray(),
-    c.tasks.find({ status: 'Done', doneOn: { $gte: lastWs } }, { projection: { doneOn: 1 } }).toArray(),
+  // Counted in the database: no task documents travel (this runs on every page render).
+  const flag = (cond: object) => ({ $sum: { $cond: [cond, 1, 0] } });
+  const [[open], [done]] = await Promise.all([
+    c.tasks
+      .aggregate<{ total: number; overdue: number; dueToday: number; inProgress: number; blocked: number; p1: number }>([
+        { $match: { archived: false, status: { $in: OPEN_STATUSES } } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            overdue: flag({ $and: [{ $gt: ['$due', ''] }, { $lt: ['$due', today] }] }),
+            dueToday: flag({ $eq: ['$due', today] }),
+            inProgress: flag({ $eq: ['$status', 'In Progress'] }),
+            blocked: flag({ $eq: ['$status', 'Blocked'] }),
+            p1: flag({ $eq: ['$priority', 'P1'] }),
+          },
+        },
+      ])
+      .toArray(),
+    c.tasks
+      .aggregate<{ thisWeek: number; lastWeek: number; today: number }>([
+        { $match: { status: 'Done', doneOn: { $gte: lastWs } } },
+        { $group: { _id: null, thisWeek: flag({ $gte: ['$doneOn', ws] }), lastWeek: flag({ $lt: ['$doneOn', ws] }), today: flag({ $eq: ['$doneOn', today] }) } },
+      ])
+      .toArray(),
   ]);
   return {
     today,
-    openTotal: open.length,
-    overdue: open.filter(t => t.due && t.due < today).length,
-    dueToday: open.filter(t => t.due === today).length,
-    inProgress: open.filter(t => t.status === 'In Progress').length,
-    blocked: open.filter(t => t.status === 'Blocked').length,
-    p1Open: open.filter(t => t.priority === 'P1').length,
-    completedThisWeek: doneRecent.filter(t => t.doneOn! >= ws).length,
-    completedLastWeek: doneRecent.filter(t => t.doneOn! < ws).length,
-    completedToday: doneRecent.filter(t => t.doneOn === today).length,
+    openTotal: open?.total ?? 0,
+    overdue: open?.overdue ?? 0,
+    dueToday: open?.dueToday ?? 0,
+    inProgress: open?.inProgress ?? 0,
+    blocked: open?.blocked ?? 0,
+    p1Open: open?.p1 ?? 0,
+    completedThisWeek: done?.thisWeek ?? 0,
+    completedLastWeek: done?.lastWeek ?? 0,
+    completedToday: done?.today ?? 0,
   };
 }
 

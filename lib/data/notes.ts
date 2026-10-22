@@ -51,13 +51,16 @@ function firstLineOf(text: string): string {
   return l.length > 140 ? l.slice(0, 139) + '…' : l;
 }
 
-export function noteRef(d: NoteDoc): NoteRef {
+/** A list read: `body` is only a prefix (enough for the first line) and `_chars` is the full length. */
+type ListedNoteDoc = NoteDoc & { _chars?: number };
+
+export function noteRef(d: ListedNoteDoc): NoteRef {
   const text = d.blocks?.length ? plainText(d.blocks as NoteBlock[]) : d.body.replace(/^[#>*\-\s\d.[\]x|]+/gm, '');
   return {
     id: d._id,
     title: d.title,
     firstLine: firstLineOf(text),
-    chars: d.body.length,
+    chars: d._chars ?? d.body.length,
     updatedAt: d.updatedAt.toISOString(),
     updatedBy: d.updatedBy,
   };
@@ -69,21 +72,27 @@ export async function noteBlocks(d: NoteDoc): Promise<NoteBlock[]> {
   return d.body.trim() ? markdownToBlocks(d.body) : [];
 }
 
-async function hydrate(c: Collections, docs: NoteDoc[]): Promise<Note[]> {
+// Parents and projects are only read for a few fields, never their blocks or code locations.
+const PARENT_FIELDS = { title: 1, taskId: 1, archived: 1, parentId: 1, projectId: 1 } as const;
+type ParentDoc = Pick<NoteDoc, '_id' | 'title' | 'taskId' | 'archived' | 'parentId' | 'projectId'>;
+
+async function hydrate(c: Collections, docs: ListedNoteDoc[]): Promise<Note[]> {
   // Sub-pages take archive state and attachment from their root page.
   const parentIds = [...new Set(docs.map(d => d.parentId).filter((x): x is string => !!x))];
-  const parents = parentIds.length ? new Map((await c.notes.find({ _id: { $in: parentIds } }).toArray()).map(p => [p._id, p])) : new Map<string, NoteDoc>();
-  const rootOf = async (d: NoteDoc): Promise<NoteDoc> => {
-    let cur = d;
+  const parents = parentIds.length
+    ? new Map((await c.notes.find({ _id: { $in: parentIds } }, { projection: PARENT_FIELDS }).toArray()).map(p => [p._id, p as ParentDoc]))
+    : new Map<string, ParentDoc>();
+  const rootOf = async (d: ListedNoteDoc): Promise<ParentDoc> => {
+    let cur: ParentDoc = d;
     for (let i = 0; i < 10 && cur.parentId; i++) {
-      const p = parents.get(cur.parentId) ?? (await c.notes.findOne({ _id: cur.parentId }));
+      const p = parents.get(cur.parentId) ?? ((await c.notes.findOne({ _id: cur.parentId }, { projection: PARENT_FIELDS })) as ParentDoc | null);
       if (!p) break;
       parents.set(p._id, p);
       cur = p;
     }
     return cur;
   };
-  const roots = new Map<string, NoteDoc>();
+  const roots = new Map<string, ParentDoc>();
   for (const d of docs) roots.set(d._id, await rootOf(d));
 
   const taskIds = [...new Set([...roots.values()].map(r => r.taskId).filter((x): x is string => !!x))];
@@ -97,7 +106,7 @@ async function hydrate(c: Collections, docs: NoteDoc[]): Promise<Note[]> {
         .filter((x): x is string => !!x),
     ),
   ];
-  const projects = projIds.length ? new Map((await c.projects.find({ _id: { $in: projIds } }).toArray()).map(p => [p._id, p])) : new Map();
+  const projects = projIds.length ? new Map((await c.projects.find({ _id: { $in: projIds } }, { projection: { name: 1, status: 1 } }).toArray()).map(p => [p._id, p])) : new Map();
   const kids = await c.notes
     .find({ parentId: { $in: docs.map(d => d._id) }, ...live }, { projection: { _id: 1, title: 1, parentId: 1 } })
     .toArray();
@@ -178,7 +187,11 @@ export async function listNotes(f: NoteFilter = {}): Promise<{ total: number; no
     const re = new RegExp(f.q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     q.$or = [{ title: re }, { body: re }];
   }
-  const docs = await c.notes.find(q, { projection: { blocks: 0 } }).sort({ updatedAt: -1 }).toArray();
+  // Lists never need a whole page: keep a prefix of the text (for the first line) and the full length.
+  const docs = (await c.notes
+    .find(q, { projection: { blocks: 0, body: { $substrCP: ['$body', 0, 1000] }, _chars: { $strLenCP: '$body' } } })
+    .sort({ updatedAt: -1 })
+    .toArray()) as ListedNoteDoc[];
   let notes = await hydrate(c, docs);
   if (f.project) {
     const p = await resolveProject(c, f.project, { create: false });
@@ -204,6 +217,14 @@ export async function noteIndex(opts: { taskIds?: string[]; projectIds?: string[
     else if (d.projectId) byProject.set(d.projectId, [...(byProject.get(d.projectId) ?? []), noteRef(d)]);
   }
   return { byTask, byProject };
+}
+
+/** Which of these tasks have a live note (ids only; no content read). */
+export async function taskIdsWithNotes(taskIds: string[]): Promise<Set<string>> {
+  if (!taskIds.length) return new Set();
+  const c = await collections();
+  const docs = await c.notes.find({ ...live, taskId: { $in: taskIds } }, { projection: { taskId: 1 } }).toArray();
+  return new Set(docs.map(d => d.taskId!));
 }
 
 // ── Writes ──────────────────────────────────────────────────────────────────

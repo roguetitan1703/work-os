@@ -99,6 +99,13 @@ export async function listProjectsBasic(): Promise<Project[]> {
   return docs.map(toProject);
 }
 
+/** Just id, name and status, by name (the sidebar and pickers). */
+export async function listProjectsNav(): Promise<Pick<Project, 'id' | 'name' | 'status'>[]> {
+  const c = await collections();
+  const docs = await c.projects.find({}, { projection: { name: 1, status: 1 } }).sort({ nameLower: 1 }).toArray();
+  return docs.map(d => ({ id: d._id, name: d.name, status: d.status }));
+}
+
 export async function projectNameMap(c?: Collections): Promise<Map<string, string>> {
   c ??= await collections();
   const docs = await c.projects.find({}, { projection: { name: 1 } }).toArray();
@@ -141,26 +148,59 @@ function computeStats(tasks: Pick<TaskDoc, 'status' | 'due' | 'doneOn' | 'estima
   return s;
 }
 
+function statsFromGroups(groups: { _id: { s: TaskDoc['status'] }; n: number; last: Date; overdue: number; doneWk: number; est: number }[]): ProjectStats {
+  const s: ProjectStats = { open: 0, inProgress: 0, blocked: 0, overdue: 0, done: 0, dropped: 0, doneThisWeek: 0, openEstimateMins: 0, completion: 0, lastActivityAt: null };
+  let last = 0;
+  for (const g of groups) {
+    last = Math.max(last, g.last.getTime());
+    const st = g._id.s;
+    if (st === 'Done') {
+      s.done += g.n;
+      s.doneThisWeek += g.doneWk;
+    } else if (st === 'Dropped') {
+      s.dropped += g.n;
+    } else {
+      s.open += g.n;
+      if (st === 'In Progress') s.inProgress += g.n;
+      if (st === 'Blocked') s.blocked += g.n;
+      s.overdue += g.overdue;
+      s.openEstimateMins += g.est;
+    }
+  }
+  s.completion = s.done + s.open > 0 ? Math.round((s.done / (s.done + s.open)) * 100) : 0;
+  s.lastActivityAt = last ? new Date(last).toISOString() : null;
+  return s;
+}
+
 export async function listProjects(opts: { includeInactive?: boolean } = {}): Promise<ProjectWithStats[]> {
   const c = await collections();
   const filter = opts.includeInactive ? {} : { status: { $in: ['active', 'paused'] as ProjectDoc['status'][] } };
-  const [projects, tasks] = await Promise.all([
+  const today = todayStr();
+  const wk = weekStart(today);
+  const flag = (cond: object) => ({ $sum: { $cond: [cond, 1, 0] } });
+  // Counted in the database per project and status: no task documents travel.
+  const [projects, groups] = await Promise.all([
     c.projects.find(filter).toArray(),
     c.tasks
-      .find(
-        { archived: false, projectId: { $ne: null } },
-        { projection: { projectId: 1, status: 1, due: 1, doneOn: 1, estimateMins: 1, updatedAt: 1 } },
-      )
+      .aggregate<{ _id: { p: string; s: TaskDoc['status'] }; n: number; last: Date; overdue: number; doneWk: number; est: number }>([
+        { $match: { archived: false, projectId: { $ne: null } } },
+        {
+          $group: {
+            _id: { p: '$projectId', s: '$status' },
+            n: { $sum: 1 },
+            last: { $max: '$updatedAt' },
+            overdue: flag({ $and: [{ $gt: ['$due', ''] }, { $lt: ['$due', today] }] }),
+            doneWk: flag({ $and: [{ $gt: ['$doneOn', ''] }, { $gte: ['$doneOn', wk] }] }),
+            est: { $sum: { $ifNull: ['$estimateMins', 0] } },
+          },
+        },
+      ])
       .toArray(),
   ]);
-  const byProject = new Map<string, typeof tasks>();
-  for (const t of tasks) {
-    const list = byProject.get(t.projectId!) ?? [];
-    list.push(t);
-    byProject.set(t.projectId!, list);
-  }
+  const byProject = new Map<string, typeof groups>();
+  for (const g of groups) byProject.set(g._id.p, [...(byProject.get(g._id.p) ?? []), g]);
   return projects
-    .map(p => ({ ...toProject(p), stats: computeStats(byProject.get(p._id) ?? []) }))
+    .map(p => ({ ...toProject(p), stats: statsFromGroups(byProject.get(p._id) ?? []) }))
     .sort((a, b) => {
       const order = { active: 0, paused: 1, done: 2, archived: 3 };
       if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];

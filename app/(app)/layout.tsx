@@ -7,8 +7,8 @@ import { Preloader } from '@/components/preloader';
 import { StartClaude } from '@/components/start-claude';
 import { unreadCount } from '@/lib/notify';
 import { AppContextProvider } from '@/components/app-context';
-import { listProjectsBasic } from '@/lib/data/projects';
-import { getStats } from '@/lib/data/summary';
+import { listProjectsNav } from '@/lib/data/projects';
+import { overdueCount } from '@/lib/data/summary';
 import { claudeWaitingCount, systemStatusLevel } from '@/lib/data/nav-counts';
 import { todayStr } from '@/lib/dates';
 import { uiAuthDisabled } from '@/lib/auth';
@@ -20,9 +20,9 @@ import { GlobalSearch } from '@/components/global-search';
 export const dynamic = 'force-dynamic';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const [projects, stats, unread, claudeWaiting, status] = await Promise.all([
-    listProjectsBasic(),
-    getStats(),
+  const [projects, overdue, unread, claudeWaiting, status] = await Promise.all([
+    listProjectsNav(),
+    overdueCount(),
     unreadCount(),
     claudeWaitingCount().catch(() => 0),
     systemStatusLevel().catch(() => 'ok' as const),
@@ -31,7 +31,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <AppContextProvider
       today={todayStr()}
       unread={unread}
-      badges={{ overdue: stats.overdue, claudeWaiting, status }}
+      badges={{ overdue, claudeWaiting, status }}
       projects={projects.map(p => ({ id: p.id, name: p.name, status: p.status }))}
     >
       <PageTint />

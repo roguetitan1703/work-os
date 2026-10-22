@@ -81,7 +81,9 @@ export async function computeAlerts(now: Date = new Date(), opts: { onlyQueued?:
   const today = dateInTz(now);
   const hour = hourInTz(now);
   const items: AlertItem[] = [];
-  const open = await c.tasks.find({ status: { $in: OPEN_STATUSES }, archived: false }).toArray();
+  const open = await c.tasks
+    .find({ status: { $in: OPEN_STATUSES }, archived: false }, { projection: { ref: 1, title: 1, status: 1, priority: 1, due: 1, progress: 1, createdAt: 1, updatedAt: 1 } })
+    .toArray();
   const sent = new Map((await c.alertLog.find({ taskId: { $in: open.map(t => t._id) } }).toArray()).map(l => [l._id, l]));
   const was = (key: string) => sent.has(key);
 

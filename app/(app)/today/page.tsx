@@ -4,7 +4,7 @@ import { listTasks, unmetDependencies } from '@/lib/data/tasks';
 import { getRitualLog } from '@/lib/data/reviews';
 import { todayStr, weekday } from '@/lib/dates';
 import { TodayClient } from './today-client';
-import { noteIndex } from '@/lib/data/notes';
+import { taskIdsWithNotes } from '@/lib/data/notes';
 import { claudeOverview } from '@/lib/data/claude-overview';
 import type { ClaudeCardData } from './claude-card';
 
@@ -14,7 +14,7 @@ export default async function TodayPage() {
   const today = todayStr();
   const wd = weekday(today);
   const [open, ritual, overview] = await Promise.all([listTasks({ open: true }), getRitualLog(today), claudeOverview().catch(() => null)]);
-  const [waiting, notes] = await Promise.all([unmetDependencies(open), noteIndex({ taskIds: open.map(t => t.id) })]);
+  const [waiting, notes] = await Promise.all([unmetDependencies(open), taskIdsWithNotes(open.map(t => t.id))]);
   const waitingRefs = Object.fromEntries([...waiting].map(([id, deps]) => [id, deps.map(d => `#${d.ref}`)]));
   const dayName = format(new Date(today + 'T12:00:00Z'), 'EEEE, MMMM d');
   const keys = [null, 'mon', 'tue', 'wed', 'thu', 'fri', null] as const;
@@ -28,7 +28,7 @@ export default async function TodayPage() {
       schedule={SCHEDULE}
       openTasks={open}
       waiting={waitingRefs}
-      noteTaskIds={[...notes.byTask.keys()]}
+      noteTaskIds={[...notes]}
       claude={claude}
       todayRitualLog={ritual}
     />
