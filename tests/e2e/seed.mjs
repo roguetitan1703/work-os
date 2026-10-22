@@ -42,8 +42,15 @@ async function seedBase() {
   await db.collection('claudeItems').insertOne({ _id: 'c1', ref: 12, projectId: 'p1', title: 'Reorder invoice export', kind: 'task', state: 'queued', next: false, order: 1, why: 'x', doneWhen: 'y', note: '', parts: [], blockedBy: null, waitingOnOm: '', gitRef: '', claimedBy: null, createdBy: 'me', createdAt: now, updatedAt: now, doneAt: null, log: [] });
 }
 
+/** Projects with fixed ids (the suites open /projects/alpha-client); new ones made in the app get a random tail. */
+async function fixedProject(name, extra = {}) {
+  const now = new Date();
+  const _id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  await db.collection('projects').insertOne({ _id, name, nameLower: name.toLowerCase(), client: '', description: '', status: 'active', createdAt: now, updatedAt: now, ...extra });
+}
+
 async function seedNav() {
-  for (const n of ['Alpha Client', 'Beta Product', 'Gamma Internal']) await call('add_project', { name: n });
+  for (const n of ['Alpha Client', 'Beta Product', 'Gamma Internal']) await fixedProject(n);
   const T = [
     { title: 'Overdue invoice follow-up', project: 'Alpha Client', priority: 'P1', due: day(-5), mode: 'Client Delivery' },
     { title: 'Overdue contract review', project: 'Alpha Client', priority: 'P2', due: day(-6) },
@@ -76,7 +83,7 @@ async function seedNav() {
 
 async function seedToday() {
   const P = 'Alpha Client';
-  await call('add_project', { name: P, code: [{ remote: 'x/alpha' }] });
+  await fixedProject(P, { code: [{ remote: 'x/alpha' }] });
   const add = async (title, extra = {}) => { const r = await call('add_task', { title, project: P, ...extra }); if (r.ERROR) throw new Error('seed add_task: ' + r.ERROR); };
   for (let i = 1; i <= 7; i++) await add(`Overdue task ${i}`, { priority: i % 2 ? 'P1' : 'P2', due: day(-i), mode: i % 3 ? 'Client Delivery' : 'Code & Dev' });
   for (let i = 1; i <= 3; i++) await add(`Due today task ${i}`, { priority: 'P1', due: 'today', mode: 'Code & Dev' });

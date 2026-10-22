@@ -36,6 +36,8 @@ check('worker status stores allowPrompts true', (await db.collection('devices').
 
 let r = await poll(D1);
 check('dispatcher off (no settings doc): no jobs, nothing claimed', r.status === 200 && r.body.jobs.length === 0 && (await task(101)).claude.state === 'queued');
+// The note every session reads first must be the person's own (dispatcher.ts ownNote).
+await db.collection('notes').insertOne({ _id: 'n1', title: 'Rules', blocks: [], body: 'x', parentId: null, taskId: null, projectId: null, archived: false, createdBy: 'me', createdAt: new Date(), updatedBy: 'me', updatedAt: new Date(), deletedAt: null });
 await db.collection('settings').updateOne({ _id: 'dispatcher' }, { $set: { enabled: true, maxConcurrent: 2, boilerplateNoteId: 'n1' } }, { upsert: true });
 
 r = await poll(D2);
