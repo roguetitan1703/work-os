@@ -1,6 +1,7 @@
 import 'server-only';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { MongoClient, type ClientSession, type Db, type Collection } from 'mongodb';
+import { createHash } from 'node:crypto';
+import { MongoClient, type ClientSession, type Db, type Collection, type IndexDescription } from 'mongodb';
 import type { CodeLocation, TaskSource, Activity, Actor, ActivityType, FieldChange, ProjectStatus, Mode, Priority, Status, ChecklistItem, Link, Recurrence, WeeklyReview, FiverrRitualLog } from './types';
 
 // ── Document shapes as stored in MongoDB ────────────────────────────────────
@@ -259,49 +260,60 @@ export async function getDb(): Promise<Db> {
   return db;
 }
 
-async function ensureIndexes(db: Db): Promise<void> {
-  await Promise.all([
-    db.collection('tasks').createIndexes([
+/** Every index the app relies on. Changing this list changes INDEX_VERSION by itself. */
+const INDEXES: [string, IndexDescription[]][] = [
+    ['tasks', [
       { key: { ref: 1 }, unique: true, name: 'ref_unique' },
       { key: { status: 1, due: 1 }, name: 'status_due' },
       { key: { projectId: 1 }, name: 'project' },
       { key: { doneAt: -1 }, name: 'doneAt' },
       { key: { 'source.messageId': 1 }, name: 'source_message', sparse: true },
       { key: { 'claude.state': 1, 'claude.markedAt': 1 }, name: 'claude_state', sparse: true },
-    ]),
-    db.collection('activity').createIndexes([
+    ]],
+    ['activity', [
       { key: { taskId: 1, at: -1 }, name: 'task_at' },
       { key: { at: -1 }, name: 'at' },
-    ]),
-    db.collection('projects').createIndexes([{ key: { nameLower: 1 }, unique: true, name: 'name_unique' }]),
-    db.collection('ritualLogs').createIndexes([{ key: { date: 1 }, unique: true, name: 'date_unique' }]),
-    db.collection('alertLog').createIndexes([{ key: { taskId: 1 }, name: 'task' }, { key: { sentAt: 1 }, name: 'sentAt' }]),
-    db.collection('alertQueue').createIndexes([{ key: { sentAt: 1 }, name: 'sentAt' }]),
-    db.collection('notifications').createIndexes([{ key: { createdAt: -1 }, name: 'created' }, { key: { readAt: 1 }, name: 'read' }]),
-    db.collection('notes').createIndexes([
+    ]],
+    ['projects', [{ key: { nameLower: 1 }, unique: true, name: 'name_unique' }]],
+    ['ritualLogs', [{ key: { date: 1 }, unique: true, name: 'date_unique' }]],
+    ['alertLog', [{ key: { taskId: 1 }, name: 'task' }, { key: { sentAt: 1 }, name: 'sentAt' }]],
+    ['alertQueue', [{ key: { sentAt: 1 }, name: 'sentAt' }]],
+    ['notifications', [{ key: { createdAt: -1 }, name: 'created' }, { key: { readAt: 1 }, name: 'read' }]],
+    ['notes', [
       { key: { taskId: 1, deletedAt: 1 }, name: 'one_live_note_per_task', unique: true, partialFilterExpression: { taskId: { $type: 'string' } } },
       { key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' },
       { key: { updatedAt: -1 }, name: 'updated' },
       { key: { parentId: 1 }, name: 'parent', sparse: true },
-    ]),
-    db.collection('trash').createIndexes([{ key: { deletedAt: -1 }, name: 'deletedAt' }, { key: { ref: 1 }, name: 'ref' }]),
-    db.collection('authChallenges').createIndexes([{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }, { key: { ip: 1, kind: 1 }, name: 'ip_kind' }]),
-    db.collection('claudeItems').createIndexes([
+    ]],
+    ['trash', [{ key: { deletedAt: -1 }, name: 'deletedAt' }, { key: { ref: 1 }, name: 'ref' }]],
+    ['authChallenges', [{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }, { key: { ip: 1, kind: 1 }, name: 'ip_kind' }]],
+    ['claudeItems', [
       { key: { ref: 1 }, unique: true, name: 'ref_unique' },
       { key: { projectId: 1, state: 1, order: 1 }, name: 'project_state_order' },
       { key: { blockedBy: 1 }, name: 'blockedBy' },
-    ]),
-    db.collection('devices').createIndexes([{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]),
-    db.collection('workerFolders').createIndexes([{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }]),
-    db.collection('workerJobs').createIndexes([{ key: { deviceId: 1, doneAt: 1, createdAt: 1 }, name: 'device_pending' }, { key: { createdAt: 1 }, name: 'created_ttl', expireAfterSeconds: 30 * 86_400 }]),
-    db.collection('workerSessions').createIndexes([{ key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' }, { key: { deviceId: 1, state: 1 }, name: 'device_state' }]),
-    db.collection('apiKeys').createIndexes([{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]),
-    db.collection('policyEvents').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { keyId: 1, kind: 1, at: -1 }, name: 'key_kind_at' }]),
-    db.collection('authFailures').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 15 * 60 }, { key: { ip: 1, at: -1 }, name: 'ip_at' }]),
-    db.collection('passwordResets').createIndexes([{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }]),
-    db.collection('mailLog').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { kind: 1, at: -1 }, name: 'kind_at' }]),
-    db.collection('requestStats').createIndexes([{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 35 * 86_400 }]),
-  ]);
+    ]],
+    ['devices', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]],
+    ['workerFolders', [{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }]],
+    ['workerJobs', [{ key: { deviceId: 1, doneAt: 1, createdAt: 1 }, name: 'device_pending' }, { key: { createdAt: 1 }, name: 'created_ttl', expireAfterSeconds: 30 * 86_400 }]],
+    ['workerSessions', [{ key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' }, { key: { deviceId: 1, state: 1 }, name: 'device_state' }]],
+    ['apiKeys', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]],
+    ['policyEvents', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { keyId: 1, kind: 1, at: -1 }, name: 'key_kind_at' }]],
+    ['authFailures', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 15 * 60 }, { key: { ip: 1, at: -1 }, name: 'ip_at' }]],
+    ['passwordResets', [{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }]],
+    ['mailLog', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { kind: 1, at: -1 }, name: 'kind_at' }]],
+    ['requestStats', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 35 * 86_400 }]],
+  ];
+
+/** Hash of the index list: stored in settings so cold starts only create indexes when the list changed. */
+const INDEX_VERSION = createHash('sha1').update(JSON.stringify(INDEXES)).digest('hex').slice(0, 12);
+
+/** Once per process, and not at all when the database already holds this index set (one read instead of ~25 createIndexes). */
+async function ensureIndexes(db: Db): Promise<void> {
+  const settings = db.collection<{ _id: string; version?: string }>('settings');
+  const marker = await settings.findOne({ _id: 'indexes' }, { projection: { version: 1 } });
+  if (marker?.version === INDEX_VERSION) return;
+  await Promise.all(INDEXES.map(([name, specs]) => db.collection(name).createIndexes(specs)));
+  await settings.updateOne({ _id: 'indexes' }, { $set: { version: INDEX_VERSION, at: new Date() } }, { upsert: true });
 }
 
 export async function collections() {
