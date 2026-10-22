@@ -25,9 +25,15 @@ async function tap(label, loc, ready) {
   console.log(`${label}: ${ms} ms (${nav ? 'waited on the server' : 'from preload'})`, 'requests during tap:', rsc.slice(before).filter(r => !r[2]).map(r => r[1]).join(' '));
   return { ms, nav };
 }
-const more = await tap('Today → Menu', p.locator('header a[href="/menu"]:visible').first(), p.locator('h1:visible', { hasText: /^Menu$/ }).first());
-check('Menu opens from preload (<800 ms with server held 1.5 s)', more.nav === 0, `${more.nav} req, ${more.ms} ms`);
-const set = await tap('Menu → Settings', p.locator('main a[href="/settings"]'), p.locator('main h1:visible', { hasText: /Settings/ }).first());
-check('Settings opens from preload', set.nav === 0, `${set.nav} req, ${set.ms} ms`);
+// Only Today, Tasks and Projects are warmed (components/preloader.tsx; every warmed page is a server render).
+const proj = await tap('Today → Projects', p.locator('nav[aria-label=Main]:visible a[href="/projects"]').first(), p.locator('h1:visible', { hasText: /^Projects$/ }).first());
+check('Projects opens from preload (<800 ms with server held 1.5 s)', proj.nav === 0, `${proj.nav} req, ${proj.ms} ms`);
+const tasks = await tap('Projects → Tasks', p.locator('nav[aria-label=Main]:visible a[href="/tasks"]').first(), p.locator('h1:visible', { hasText: /^Tasks$/ }).first());
+check('Tasks opens from preload', tasks.nav === 0, `${tasks.nav} req, ${tasks.ms} ms`);
+// Not warmed any more: Menu and Settings wait for the server once (held 1.5 s here) but still open.
+const more = await tap('Tasks → Menu (not warmed)', p.locator('header a[href="/menu"]:visible').first(), p.locator('h1:visible', { hasText: /^Menu$/ }).first());
+check('Menu still opens (one server round trip allowed)', more.ms < 8000, `${more.ms} ms`);
+const set = await tap('Menu → Settings (not warmed)', p.locator('main a[href="/settings"]'), p.locator('main h1:visible', { hasText: /Settings/ }).first());
+check('Settings still opens (one server round trip allowed)', set.ms < 8000, `${set.ms} ms`);
 await b.close();
 await finish();

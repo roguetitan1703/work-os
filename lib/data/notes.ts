@@ -189,7 +189,7 @@ export async function listNotes(f: NoteFilter = {}): Promise<{ total: number; no
   }
   // Lists never need a whole page: keep a prefix of the text (for the first line) and the full length.
   const docs = (await c.notes
-    .find(q, { projection: { title: 1, parentId: 1, taskId: 1, projectId: 1, archived: 1, createdBy: 1, createdAt: 1, updatedBy: 1, updatedAt: 1, deletedAt: 1, body: { $substrCP: ['$body', 0, 1000] }, _chars: { $strLenCP: '$body' } } })
+    .find(q, { projection: { title: 1, parentId: 1, taskId: 1, projectId: 1, archived: 1, createdBy: 1, createdAt: 1, updatedBy: 1, updatedAt: 1, deletedAt: 1, body: { $substrCP: ['$body', 0, 500] }, _chars: { $strLenCP: '$body' } } })
     .sort({ updatedAt: -1 })
     .toArray()) as ListedNoteDoc[];
   let notes = await hydrate(c, docs);
@@ -211,7 +211,11 @@ export async function noteIndex(opts: { taskIds?: string[]; projectIds?: string[
   const byTask = new Map<string, NoteRef>();
   const byProject = new Map<string, NoteRef[]>();
   if (!or.length) return { byTask, byProject };
-  const docs = await c.notes.find({ ...live, $or: or }).sort({ updatedAt: -1 }).toArray();
+  // Only what noteRef needs: the first blocks (for the first line), a prefix of the text, the full length.
+  const docs = (await c.notes
+    .find({ ...live, $or: or }, { projection: { title: 1, taskId: 1, projectId: 1, parentId: 1, updatedAt: 1, updatedBy: 1, blocks: { $slice: 8 }, body: { $substrCP: ['$body', 0, 500] }, _chars: { $strLenCP: '$body' } } })
+    .sort({ updatedAt: -1 })
+    .toArray()) as ListedNoteDoc[];
   for (const d of docs) {
     if (d.taskId) byTask.set(d.taskId, noteRef(d));
     else if (d.projectId) byProject.set(d.projectId, [...(byProject.get(d.projectId) ?? []), noteRef(d)]);

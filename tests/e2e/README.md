@@ -41,8 +41,8 @@ Needs: Windows with MongoDB 8.2 at `C:\Program Files\MongoDB\Server\8.2\bin\mong
 | `claude-page` | none | `/claude` Now (Needs you, sessions), Queue (items, sheet), Setup (devices, folders, linking), Start Claude flow and its steps, at 1280 and 390 |
 | `nav` | nav | Phone bottom bar (order, badges, lit tab, 44px), headers, Menu links and mode chips, `+` sheet, tab/segment switches use replace, Back rules; desktop sidebar (order, badges, Modes, footer clickable), keyboard shortcuts, help dialog, Back |
 | `nav-cross` | nav | Start Claude modal from the `+` sheet, sidebar and key `S` on every main page, Back and Escape close it, old-URL redirects, no horizontal scroll on the main pages at 390 and 1280 |
-| `nav-preload-1` | nav | After idling, Today to Menu to Settings open from the preload, not from a server round trip. Phone |
-| `nav-preload-2` | nav | Same for Today to Claude, Claude Now/Queue/Setup tabs, and the project overview tabs (tasks, claude, notes, info). Phone |
+| `nav-preload-1` | nav | After idling, Today to Projects to Tasks open from the preload (the only warmed pages); Menu and Settings open after one server round trip. Phone |
+| `nav-preload-2` | nav | Today to Claude, the Claude Now/Queue/Setup tabs and the project overview tabs open (not prefetched in full any more: one server round trip allowed). Phone |
 | `fix-check` | none | Sidebar footer reachable, theme toggle, Day plan dialog (desktop) and sheet (phone), named switches on Settings, Claude item sheet on a project page (note, state, Next) |
 | `settings` | none | Redirects from `/connect` and `/recovery`, status strip, theme (one click), sections (alerts, security, connections, help), alerts table toggle persists, phone Back, no h-scroll |
 | `review` | base | Old URLs redirect to `/review?view=...`, the six views (Done, Activity, Weekly, Stale, Archive, Trash), unarchive and Undo, new weekly review, entry from the sidebar and Menu |

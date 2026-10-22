@@ -25,7 +25,8 @@ async function tap(label, loc, ready) {
   console.log(`${label}: ${ms} ms (${nav ? 'waited on the server' : 'from preload'})`, 'requests during tap:', rsc.slice(before).filter(r => !r[2]).map(r => r[1]).join(' '));
   return { ms, nav };
 }
-const T=async(label,loc,ready)=>{const r=await tap(label,loc,ready);check(label+' from preload',r.nav===0,r.ms+' ms');};
+// Claude and the tab links are no longer prefetched in full (one server render per link per visit): they open after one server round trip.
+const T=async(label,loc,ready)=>{const r=await tap(label,loc,ready);check(label+' opens (one server round trip allowed)',r.ms<8000,r.ms+' ms');};
 await T('Today -> Claude', p.locator('nav[aria-label=Main]:visible a[href="/claude"]').first(), p.locator('h1:visible',{hasText:/^Claude$/}).first());
 await p.waitForTimeout(3000);
 await T('Claude -> Queue tab', p.locator('[data-tab="queue"]'), p.locator('[data-tab="queue"][aria-current="page"]'));
