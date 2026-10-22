@@ -34,7 +34,7 @@ const ROUTE_LIST: [string, string][] = [
   ['/login', '/login'],
   ['/login/reset', '/login/reset'],
   [`/accept-invitation/${S}`, '/accept-invitation/[id]'],
-  ['/api/auth/.+', '/api/auth/[...all]'],
+  ['/api/auth/.+', '/api/auth/[all]'], // no dots: route names are Mongo field names
   ['/api/mcp', '/api/mcp'],
   [`/api/mcp/${S}`, '/api/mcp/[key]'],
   ['/api/worker/jobs', '/api/worker/jobs'],
@@ -113,7 +113,7 @@ async function flush(batch: Map<string, Map<string, number>>): Promise<void> {
     await db.collection<{ _id: string }>('requestStats').bulkWrite(
       [...batch].map(([hour, counts]) => {
         const inc: Record<string, number> = { total: [...counts.values()].reduce((a, n) => a + n, 0) };
-        for (const [k, n] of counts) inc[`counts.${k}`] = n;
+        for (const [k, n] of counts) inc[`counts.${k.replace(/[.$]/g, '_')}`] = n; // a dot would split the field path and fail the batch
         return { updateOne: { filter: { _id: hour }, update: { $inc: inc, $setOnInsert: { at: new Date(`${hour}:00:00Z`) } }, upsert: true } };
       }),
       { ordered: false },

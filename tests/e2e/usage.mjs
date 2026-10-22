@@ -63,7 +63,7 @@ r = await req('/api/discord/interactions', { method: 'POST', headers: { 'content
 check('discord: bad signature -> refused by the route', r.status >= 400 && r.text !== proxy401, `${r.status} ${r.text.slice(0, 60)}`);
 
 r = await req('/api/cronx');
-check('lookalike /api/cronx -> 404 (same prefix rule as the old matcher)', r.status === 404, r.status);
+check('lookalike /api/cronx -> proxy 401 (self-checking prefixes match whole path segments only)', r.status === 401 && r.text === proxy401, r.status);
 
 // ---- 2. guarded paths still guarded ----
 r = await req('/api/admin/health');
@@ -104,7 +104,7 @@ const errs = []; p.on('pageerror', e => errs.push(e.message));
 await login(p, { next: '/settings' });
 const cookie = (await sessionCookies(ctx)).map(c => `${c.name}=${c.value}`).join('; ');
 check('signed in', !!cookie);
-base = await expectCounts(base, { 'page|anonymous|/login': 1, 'api|anonymous|/api/auth/[...all]': 1 }, 'login');
+base = await expectCounts(base, { 'page|anonymous|/login': 1, 'api|anonymous|/api/auth/[all]': 1 }, 'login');
 
 await p.goto(B + '/today'); await p.waitForLoadState('networkidle').catch(() => {});
 base = await expectCounts(base, { 'page|browser|/today': 1 }, 'page load');
