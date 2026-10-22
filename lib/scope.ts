@@ -347,11 +347,12 @@ function pushed(name: ScopedName, m: Mode, target: object, prop: string, base: (
       const r = readerOf(name, d) ?? (rule.kind !== 'org' ? m.userId : null);
       if (r) who.add(r);
     }
+    // Worked out before the write: once it has committed, nothing here may throw.
+    const alsoClaude = name === 'tasks' && touchesClaudeMark(prop, a);
     const res = await run(...a);
     if (who.size && changed(res)) {
       const audience = who.has(EVERYONE) ? EVERYONE : who;
       const writer = requestContext().userId ?? m.userId;
-      const alsoClaude = name === 'tasks' && touchesClaudeMark(prop, a);
       afterCommit(() => {
         hint(m.orgId, audience, topic, writer);
         if (alsoClaude) hint(m.orgId, audience, 'claude', writer);

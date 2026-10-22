@@ -66,11 +66,12 @@ kill_port() {
 }
 stop_server() {
   if [ "$STARTED_APP" = 1 ]; then
-    kill_port "$APORT"
     # $! is a Git Bash pid: taskkill needs the Windows one (a raw $! can name an unrelated process and its tree).
+    # Kill it by that pid while it still runs (so the pid cannot have been reused), then whatever holds the port.
     local wp
     wp=$(cat "/proc/$SERVER_PID/winpid" 2>/dev/null)
     [ -n "$wp" ] && taskkill //PID "$wp" //F //T >/dev/null 2>&1
+    kill_port "$APORT"
     SERVER_PID=""
     STARTED_APP=0
   fi
