@@ -1,8 +1,7 @@
 # Work state
 
 ## Now
-- 2026-10-22: phase 2 (ownership) built on branch builder-a: one scoped door (lib/scope.ts), orgId/ownerId/visibility, actor objects, per-org numbers, per-person settings/inbox/push/alerts, tenancy e2e suite, scripts/migrate-ownership.mjs (docs/multi-user.md "As built"). Security review fixes done (batch visibility, per-note files, take-back on teammate edits, restore placement, own boilerplate, operator gate, random project ids, names per visibility, marker migration, wider scope check). Waits on the merge; then set OPERATOR_EMAILS, deploy, and run the migration at once (--copy-to rehearsal first).
-- 2026-10-22: multi-user Work OS, own sign-in first (Om); Delpat OS integration later. Plan: docs/multi-user.md. Phase 0 (CPU) merged to master (numbers in docs/cpu.md); phase 1 (Better Auth sign-in) built on branch builder-a, rebased on phase 0 (docs/auth.md), waits on a review subagent before merge, then `scripts/migrate-auth.mjs` on the real database.
+- 2026-10-22: multi-user Work OS, own sign-in first (Om); Delpat OS integration later. Plan: docs/multi-user.md. Phases 0 (CPU), 1 (sign-in, docs/auth.md) and 2 (ownership, re-reviewed safe) merged to master. Next: phase 3 (per-user settings, schedule as data, "Om" out of code). On deploy (phase 5, with Om's go): set OPERATOR_EMAILS, create the operator accounts first, then migrate-auth and migrate-ownership (--copy-to rehearsal first).
 - 2026-10-19: Vercel paused Om's account (Fluid Active CPU); Work OS moves to Delpat's AWS server (work.delpat.in). Audit summary in docs/multi-user.md.
 
 ## Next
@@ -16,6 +15,8 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- Phase 2 review leftovers: a teammate editing a sub-page of a task's note (or deleting/restoring the note) does not take the task back from Claude (only the root note has taskId; walk up to the root); a queued-to-running race can miss a take-back; moving a project org→private onto a name you already use privately gives a 500 (unhandled E11000); restoreTask deletes the trash doc before inserting — waits on a builder A slot after phase 3.
+- Operator by email: an admin who invites an address in OPERATOR_EMAILS that has no account yet makes that invitee an operator (invites set emailVerified) — create operator accounts before inviting anyone (deploy step above).
 - Take back on a legacy running Claude task (no marker) lets anyone mark it stopped; the session keeps running — goes away after the migration (no legacy marks) .
 - CPU leftovers (docs/cpu.md): /today sends every open task in full; /today and /claude run claudeOverview (~12 reads); dispatcher settings and device key are read on every worker poll — wait on a smaller task shape for the client, and on phase 5 (push instead of polling).
 - Menu, Settings, Claude and their tabs wait for a server round trip on first tap now (only Today, Tasks, Projects are warmed) — waits on Om noticing it in use.
