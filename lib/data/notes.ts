@@ -189,7 +189,7 @@ export async function listNotes(f: NoteFilter = {}): Promise<{ total: number; no
   }
   // Lists never need a whole page: keep a prefix of the text (for the first line) and the full length.
   const docs = (await c.notes
-    .find(q, { projection: { blocks: 0, body: { $substrCP: ['$body', 0, 1000] }, _chars: { $strLenCP: '$body' } } })
+    .find(q, { projection: { title: 1, parentId: 1, taskId: 1, projectId: 1, archived: 1, createdBy: 1, createdAt: 1, updatedBy: 1, updatedAt: 1, deletedAt: 1, body: { $substrCP: ['$body', 0, 1000] }, _chars: { $strLenCP: '$body' } } })
     .sort({ updatedAt: -1 })
     .toArray()) as ListedNoteDoc[];
   let notes = await hydrate(c, docs);
