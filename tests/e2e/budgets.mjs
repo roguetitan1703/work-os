@@ -32,7 +32,8 @@ try {
 
   // 1. per request kind
   const { runProbe } = await import('../load/probe.mjs');
-  const rows = await runProbe({ team, person: team.people[4], reps: 4 });
+  const { profilerOff } = await import('../load/measure.mjs');
+  const rows = await runProbe({ team, person: team.people[4], reps: 4 }).finally(() => profilerOff({ drop: true }));
   for (const r of rows) {
     over(`routes :: ${r.name}`, 'kb', r.clientKB);
     over(`routes :: ${r.name}`, 'ops', r.ops);
@@ -89,6 +90,8 @@ try {
 } catch (e) {
   check('budgets suite ran to the end', false, e.stack ?? String(e));
 }
+await rawDb.command({ profile: 0 }).catch(() => {});
+await rawDb.collection('system.profile').drop().catch(() => {});
 const out = process.env.E2E_LOGS;
 if (out) fs.writeFileSync(path.join(out, 'budgets.json'), JSON.stringify(results, null, 1));
 await finish();

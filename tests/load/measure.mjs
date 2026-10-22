@@ -20,8 +20,10 @@ export async function profilerOn(mb = 400) {
   await rawDb.createCollection('system.profile', { capped: true, size: mb * 1024 * 1024 });
   await rawDb.command({ profile: 2 });
 }
-export async function profilerOff() {
+/** drop: also remove system.profile (a later e2e seed that drops every collection cannot drop it). */
+export async function profilerOff({ drop = false } = {}) {
   await rawDb.command({ profile: 0 });
+  if (drop) await rawDb.collection('system.profile').drop().catch(() => {});
 }
 
 /**
