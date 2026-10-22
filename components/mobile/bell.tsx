@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { Bell } from 'lucide-react';
 import { useApp } from '../app-context';
 

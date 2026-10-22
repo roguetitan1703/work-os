@@ -19,7 +19,7 @@ export default async function TodayPage() {
   const today = todayStr(me.tz);
   const wd = weekday(today);
   const s = { userId: me.userId, orgId: me.orgId };
-  const [open, schedule, overview] = await Promise.all([listTasks(s, { open: true }), getSchedule(s), claudeOverview(me).catch(() => null)]);
+  const [open, schedule, overview] = await Promise.all([listTasks(s, { open: true, forList: true }), getSchedule(s), claudeOverview(me, { card: true }).catch(() => null)]);
   const [waiting, notes, routineLog] = await Promise.all([unmetDependencies(s, open), taskIdsWithNotes(s, open.map(t => t.id)), schedule.routine ? getRoutineLog(s, today) : null]);
   const waitingRefs = Object.fromEntries([...waiting].map(([id, deps]) => [id, deps.map(d => `#${d.ref}`)]));
   const dayName = format(new Date(today + 'T12:00:00Z'), 'EEEE, MMMM d');

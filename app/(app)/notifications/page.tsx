@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { Bell, ChevronRight, Settings } from 'lucide-react';
 import { listInbox } from '@/lib/notify';
 import { fmtAgo } from '@/lib/format';

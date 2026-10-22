@@ -1,7 +1,7 @@
 'use client';
 
 import { BackLink } from '@/components/back-link';
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -70,7 +70,6 @@ export function MobileTaskDetail({
       const r = await fn();
       if (!r.ok) return void toast.error(r.error ?? 'Failed');
       if (ok) toast.success(ok);
-      router.refresh();
     });
   const patch = (p: TaskPatch, ok?: string) => run(() => updateTaskAction(task.id, p), ok);
 
@@ -83,7 +82,6 @@ export function MobileTaskDetail({
       toast.success(`Done: ${task.title}`, {
         action: { label: 'Undo', onClick: () => patch({ status: prev }) },
       });
-      router.refresh();
     });
   }
 

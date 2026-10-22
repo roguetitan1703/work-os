@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { ArrowDown, ArrowUp, ChevronsUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';

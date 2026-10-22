@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useTransition } from 'react';
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowUp, FilePlus, Search, X } from 'lucide-react';
 import { toast } from 'sonner';

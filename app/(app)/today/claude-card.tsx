@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import Link from '@/components/intent-link';
 import { ChevronDown, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -85,7 +84,6 @@ export function ClaudeCard({ data }: { data: ClaudeCardData | null }) {
 }
 
 function Row({ item: i, open, onToggle, onAnswered }: { item: NeedsYouItem; open: boolean; onToggle: () => void; onAnswered: () => void }) {
-  const router = useRouter();
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
   const text = reply.trim();
@@ -97,7 +95,6 @@ function Row({ item: i, open, onToggle, onAnswered }: { item: NeedsYouItem; open
       toast(done);
       setReply('');
       after();
-      router.refresh();
     } catch {
       toast.error('Something went wrong');
     } finally {

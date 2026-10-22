@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { getCaller } from '@/lib/caller';
 import { MIN_PASSWORD } from '@/lib/auth-server';
 import { viewInvitation } from '@/lib/members';

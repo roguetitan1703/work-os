@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { differenceInDays, parseISO, format } from 'date-fns';
 import { EyeOff, Trash2 } from 'lucide-react';
 import { listActivity, listTasks, listTrash, TRASH_DAYS } from '@/lib/data/tasks';

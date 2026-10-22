@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { cn } from '@/lib/utils';
 
 /** Phone-only `Projects | Notes` segment. Both are their own routes; switching replaces, so Back leaves the hub. */

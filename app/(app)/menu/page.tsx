@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { ChevronRight, LifeBuoy } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { modeLinks } from '@/lib/nav';

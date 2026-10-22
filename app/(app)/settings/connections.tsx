@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { Bot, ChevronDown, ChevronRight, MessageSquare, SquareTerminal } from 'lucide-react';
 import { instructions, TOOLS } from '@/lib/mcp/docs';
 import { getOrgModes } from '@/lib/org-modes';

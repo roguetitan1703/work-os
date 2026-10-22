@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { ChevronRight, LogOut } from 'lucide-react';
 import { SubHeader } from '@/components/mobile/sub-header';
 import { logoutAction } from '@/app/actions';

@@ -1,8 +1,7 @@
 'use client';
 
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { useEffect, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { Bot, ExternalLink, X } from 'lucide-react';
@@ -32,7 +31,6 @@ const PRIO_OPTS: { p: Priority; on: string }[] = [
 export function TaskActionSheet({ task, open, onClose, onClaude }: { task: Task; open: boolean; onClose: () => void; onClaude?: () => void }) {
   const { today } = useApp();
   const { modes, color } = useModes();
-  const router = useRouter();
   const [pending, start] = useTransition();
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState(task.blockedReason ?? '');
@@ -57,7 +55,6 @@ export function TaskActionSheet({ task, open, onClose, onClaude }: { task: Task;
       if (!res.ok) return void toast.error(res.error);
       toast.success(`#${task.ref} ${msg}`);
       onClose();
-      router.refresh();
     });
   }
 

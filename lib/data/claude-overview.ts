@@ -98,14 +98,17 @@ function liveState(running: boolean, lastMs: number, subagents: number, nowMs: n
   return nowMs - lastMs > IDLE_MS ? 'idle' : 'open';
 }
 
-/** Sessions and computers are the signed-in person's own (scope); the open Claude items are shared. */
-export async function claudeOverview(scope: DeviceScope): Promise<ClaudeOverview> {
+/**
+ * Sessions and computers are the signed-in person's own (scope); the open Claude items are shared.
+ * `card` (Today's Claude card): only the items waiting on the caller, no queue (empty) and no blockers.
+ */
+export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean } = {}): Promise<ClaudeOverview> {
   const c = await scoped(scope);
   const nowMs = Date.now();
   const mine = await ownedDeviceIds(scope);
   const [devices, items, live, ended, projects, activity, reporting] = await Promise.all([
     deviceMap(scope),
-    c.claudeItems.find({ state: { $in: [...OPEN] } }).sort({ order: 1 }).toArray(),
+    c.claudeItems.find({ state: { $in: [...OPEN] }, ...(opts.card ? { waitingOn: scope.userId } : {}) }).sort({ order: 1 }).toArray(),
     c.workerSessions.find({ state: { $in: ['starting', 'running'] }, deviceId: { $in: mine }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(50).toArray(),
     c.workerSessions.find({ state: { $in: ['dead', 'stopped', 'failed'] }, deviceId: { $in: mine }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(15).toArray(),
     c.projects.find({}, { projection: { name: 1 } }).toArray(),
@@ -248,6 +251,8 @@ export async function claudeOverview(scope: DeviceScope): Promise<ClaudeOverview
     .filter(d => d.waitingOn === scope.userId)
     .map(d => ({ id: d._id, ref: d.ref, projectId: d.projectId, projectName: pname(d.projectId), title: d.title, question: d.waitingText, updatedAt: d.updatedAt.toISOString() }))
     .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+
+  if (opts.card) return { needsYou, sessions: rows, summary, queue: [], hasComputers: devices.size > 0, activity };
 
   const blockerIds = [...new Set(items.map(d => d.blockedBy).filter((x): x is string => !!x))];
   const blockerDocs = blockerIds.length ? await c.claudeItems.find({ _id: { $in: blockerIds } }, { projection: { ref: 1, title: 1, state: 1 } }).toArray() : [];

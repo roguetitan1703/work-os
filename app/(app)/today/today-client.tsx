@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/intent-link";
 import { CalendarDays, ChevronDown, ChevronRight, ClipboardPaste, Flame, LayoutList, Zap } from "lucide-react";
 import type { RoutineLog, Mode, Task } from "@/lib/types";
 import type { Routine } from "@/lib/schedule";

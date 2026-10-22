@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { ChevronRight, FileText, FolderOpen, ListTodo } from 'lucide-react';
 import { listNotes } from '@/lib/data/notes';
 import { listProjectsBasic } from '@/lib/data/projects';

@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { AlertCircle, ChevronLeft, FolderGit2, Play, Search } from 'lucide-react';
 import { toast } from 'sonner';

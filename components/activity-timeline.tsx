@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { CheckCircle2, MessageSquare, Pencil, Plus, RotateCcw, TrendingUp, ArrowRightLeft, ListChecks, Archive, Trash2, ArchiveRestore } from 'lucide-react';
 import { describeActivity } from '@/lib/activity-text';
 import { fmtDateTime } from '@/lib/format';

@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import Link from '@/components/intent-link';
 import { Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { giveToClaudeAction, markOptionsAction, takeBackFromClaudeAction } from '@/app/(app)/claude/dispatcher-actions';
@@ -52,7 +51,6 @@ export function ClaudeOutcome({ task, className }: { task: Pick<Task, 'claude'>;
 }
 
 export function ClaudeMarkSheet({ task, onClose }: { task: Pick<Task, 'id' | 'ref' | 'title' | 'claude' | 'projectId'>; onClose: () => void }) {
-  const router = useRouter();
   const [opts, setOpts] = useState<MarkOptions | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pick, setPick] = useState('');
@@ -77,7 +75,6 @@ export function ClaudeMarkSheet({ task, onClose }: { task: Pick<Task, 'id' | 're
       if (!r.ok) return void toast.error(r.error);
       toast(done);
       onClose();
-      router.refresh();
     } catch {
       toast.error('Something went wrong');
     } finally {

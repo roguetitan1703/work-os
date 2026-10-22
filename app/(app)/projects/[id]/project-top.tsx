@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useTransition } from 'react';
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, ChevronLeft, MoreHorizontal, Pencil, Archive, Play } from 'lucide-react';
 import { toast } from 'sonner';

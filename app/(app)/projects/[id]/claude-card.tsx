@@ -2,7 +2,7 @@
 
 import { Ago } from '@/components/ago';
 import { useState } from 'react';
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronRight, Square } from 'lucide-react';
 import { toast } from 'sonner';
@@ -145,7 +145,6 @@ function WaitingRow({ projectId, item: i, expanded, onToggle, onAnswered }: { pr
       toast(done);
       setReply('');
       after?.();
-      router.refresh();
     } catch {
       toast.error('Something went wrong');
     } finally {

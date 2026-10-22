@@ -22,8 +22,8 @@ export default async function BoardPage({ searchParams }: Props) {
   const assigned = sp.assigned === 'me' ? 'me' : '';
   const common = { project: sp.project || undefined, mode, due, q: sp.q || undefined, assignee: assigned ? s.userId : undefined };
   const [open, doneThisWeek, projects] = await Promise.all([
-    listTasks(s, { ...common, open: true }),
-    listTasks(s, { ...common, due: undefined, status: ['Done'], doneFrom: weekStart(todayStr()), sort: 'done' }),
+    listTasks(s, { ...common, open: true, forList: true }),
+    listTasks(s, { ...common, due: undefined, status: ['Done'], doneFrom: weekStart(todayStr()), sort: 'done', forList: true }),
     listProjectsBasic(s),
   ]);
   const active = projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => ({ id: p.id, name: p.name }));

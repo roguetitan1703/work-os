@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import Link from '@/components/intent-link';
 import { ActorName } from '@/components/actor-badge';
 import { BackLink } from '@/components/back-link';
 import { useState, useTransition } from 'react';

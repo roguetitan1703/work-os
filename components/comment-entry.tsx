@@ -1,6 +1,5 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
@@ -12,7 +11,6 @@ import { BottomSheet } from '@/components/mobile/sheet';
 
 /** A comment in the history timeline, with hover Edit / Delete (the signed-in person can do this on any comment). */
 export function CommentEntry({ id, note }: { id: string; note: string }) {
-  const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [sheet, setSheet] = useState<'menu' | 'delete' | null>(null);
@@ -28,7 +26,6 @@ export function CommentEntry({ id, note }: { id: string; note: string }) {
       if (!res.ok) return void toast.error(res.error);
       setEditing(false);
       toast.success('Comment updated');
-      router.refresh();
     });
   }
 
@@ -37,7 +34,6 @@ export function CommentEntry({ id, note }: { id: string; note: string }) {
       const res = await deleteCommentAction(id);
       if (!res.ok) return void toast.error(res.error);
       toast.success('Comment deleted');
-      router.refresh();
     });
   }
 
