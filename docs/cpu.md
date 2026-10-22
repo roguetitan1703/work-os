@@ -45,8 +45,8 @@ polling they did until now.
 
 | Idle client, one hour | Before (polling) | After (push) |
 |---|---|---|
-| Claude page, open and in use (input every 30 s) | 724 page fetches | 36 page fetches (all from the preloader, not the Claude page) + 2 stream connects |
-| Claude page, open and untouched | 72 page fetches | 6 page fetches (preloader, first 10 minutes) + 2 stream connects |
+| Claude page, open and in use (input every 30 s) | 724 to 939 page fetches (two runs) | 36 page fetches (all from the preloader, not the Claude page) + 2 stream connects |
+| Claude page, open and untouched | 70 to 72 page fetches | 6 page fetches (preloader, first 10 minutes) + 2 stream connects |
 | Worker, PC on, no session started from Work OS | 150 (120 job polls, 30 status) | 16 (12 job polls, 2 status, 2 stream connects) |
 
 How:
