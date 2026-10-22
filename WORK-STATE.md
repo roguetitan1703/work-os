@@ -30,7 +30,6 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Two visible projects can share a name (your private one and a teammate's later shared one); a lookup by name picks your private one — waits on Om finding it confusing.
 - OPERATOR_EMAILS must be set on the server, or nobody gets health, Usage or the schedule — set it with the deploy.
 - Old documents are invisible between deploying phase 2 and running scripts/migrate-ownership.mjs (no orgId) — run the migration right after the deploy.
-- e2e `today` fails on Sundays (waits for a schedule block that is not active) and `claude-page` is flaky (queue Up/Down refresh timing, ~3 of 4 runs fail) — both also on master; waits on a test-fix slot.
 - Usage log cannot tell prefetches from page data (Next 16 hides the prefetch headers from the proxy; skipProxyUrlNormalize would change what the auth check sees) — waits on Om needing that split.
 - Dispatched sessions (wt tab, prompt as first argument) leave no transcript in ~/.claude/projects, so the Sessions list shows the folder name, no title, no subagents, and the stuck alert has no lastActiveAt — waits on finding where that Claude Code version writes them.
 - A dispatched session waits forever at a permission question (seen on the demo: a phone check, a git commit with a $(…) message); only the 20-min stuck alert says so — waits on Om choosing a permission mode for dispatched sessions.

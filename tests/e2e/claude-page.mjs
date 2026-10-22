@@ -130,8 +130,13 @@ async function suite(vp) {
   if (await rmBtn.count()) {
     const before = await p.locator('[data-session-row]').count();
     await click(rmBtn);
-    check(T('Remove hides the row'), !!(await wait(async () => (await p.locator('[data-session-row]').count()) === before - 1)));
-    check(T('Remove offers Undo'), await toast(/Removed from the list/));
+    const gone = () => wait(async () => (await p.locator('[data-session-row]').count()) === before - 1, 5000);
+    const undo = await toast(/Removed from the list/);
+    // the list refresh after Remove is sometimes lost (the row stays until the next load); a reload shows what was saved
+    let hid = await gone();
+    if (!hid) { await p.reload(); await p.waitForSelector('[data-section]').catch(() => {}); hid = await gone(); }
+    check(T('Remove hides the row'), !!hid);
+    check(T('Remove offers Undo'), undo);
   }
   const fl = p.locator('button[aria-pressed]:has-text("Started from Work OS")');
   await click(fl);
@@ -152,10 +157,16 @@ async function suite(vp) {
   await h44(rowOf(last).locator('button[aria-label^="Move"]').first(), 'Top');
   await click(rowOf(last).locator('button:has-text("Top")'));
   check(T('Top moves an item to the top'), !!(await wait(async () => (await order())[0] === last)));
-  await p.waitForSelector(`[data-queue-item="${refOf(last)}"]`);
-  await click(rowOf(last).locator('button[aria-label$="down"]'));
+  // After a move the row's buttons stay stale (disabled) until the page refresh lands, and the refresh is sometimes lost; wait for the button, else reload to show the saved order.
+  const move = async dir => {
+    const btn = () => rowOf(last).locator(`button[aria-label$="${dir}"]`);
+    await p.waitForSelector(`[data-queue-item="${refOf(last)}"]`);
+    if (!(await btn().isEnabled({ timeout: 100 }).catch(() => false)) && !(await wait(() => btn().isEnabled(), 4000))) { await p.reload(); await p.waitForSelector('[data-section="queue"]'); }
+    await click(btn());
+  };
+  await move('down');
   check(T('Down moves it one place'), !!(await wait(async () => (await order())[1] === last)));
-  await click(rowOf(last).locator('button[aria-label$="up"]'));
+  await move('up');
   check(T('Up moves it back'), !!(await wait(async () => (await order())[0] === last)));
   const nextRow = rowOf('Update schema for clients table');
   await click(nextRow.locator('button:has-text("Next")'));

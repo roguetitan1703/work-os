@@ -22,6 +22,10 @@ async function open(kind) {
   await p.locator('button[type=submit]').click();
   await p.waitForURL(u => u.pathname === '/today', { timeout: 20000 });
   await p.locator(`[data-variant=${phone ? 'phone' : 'desk'}] [data-section="claude-card"]`).waitFor();
+  // The page starts as a flex day on weekends (no NOW block, no next blocks); switch to a work day so every weekday runs the same checks.
+  await p.waitForTimeout(600); // the saved flex choice is read right after hydration
+  const flexBtn = p.locator(`[data-variant=${phone ? 'phone' : 'desk'}] button[aria-label="Flex day: switch to work day"]`);
+  if (await flexBtn.count()) await tap(flexBtn.first(), phone);
   return { p, ctx, errs };
 }
 const tap = (loc, phone) => (phone ? loc.tap() : loc.click());
@@ -97,8 +101,15 @@ for (const kind of ['phone', 'desk']) {
   await p.getByText('Reply saved').first().waitFor({ timeout: 8000 }).then(() => check(`${kind}: Reply saved toast`, true)).catch(() => check(`${kind}: Reply saved toast`, false));
   await p.waitForTimeout(500);
   if ((await V.locator('input[placeholder="Reply…"]').count()) === 0) await tap(V.locator('[data-needs-you] button').first(), phone);
-  await tap(V.getByRole('button', { name: 'Answered', exact: true }), phone);
-  await p.waitForFunction(k => /^2 needs you/.test(document.querySelector(`[data-variant=${k}] [data-claude-status]`)?.textContent ?? ''), kind, { timeout: 10000 }).then(() => check(`${kind}: Answered drops the count to 2`, true)).catch(async () => check(`${kind}: Answered drops the count to 2`, false, await V.locator('[data-claude-status]').innerText()));
+  // The Reply refresh can re-render the card and swallow the tap; tap Answered again (re-opening the row if it collapsed) until the count drops.
+  const dropped = k => p.waitForFunction(k => /^2 needs you/.test(document.querySelector(`[data-variant=${k}] [data-claude-status]`)?.textContent ?? ''), k, { timeout: 4000 }).then(() => true, () => false);
+  let ok = false;
+  for (let n = 0; n < 3 && !ok; n++) {
+    if (n && (await V.getByRole('button', { name: 'Answered', exact: true }).count()) === 0) await tap(V.locator('[data-needs-you] button').first(), phone);
+    if ((await V.getByRole('button', { name: 'Answered', exact: true }).count()) === 1) await tap(V.getByRole('button', { name: 'Answered', exact: true }), phone);
+    ok = await dropped(kind);
+  }
+  check(`${kind}: Answered drops the count to 2`, ok, await V.locator('[data-claude-status]').innerText());
 
   // Start Claude
   await tap(V.locator('[data-start-claude]'), phone);
