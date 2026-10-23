@@ -234,8 +234,9 @@ export const ChecklistInputSchema = z.union([
 
 // A task link opens in the browser: only web pages and mail. A bare "example.com" gets https:// (lib/data/tasks.ts),
 // and any other scheme (javascript:, data:, vbscript:, file: …) is refused here and again where the link is stored.
-// "localhost:3000" or "example.com:8080/x" is a host and port, not a scheme.
-export const LINK_SCHEME = /^[a-z][a-z0-9+.-]*:(?!\d)/i;
+// "localhost:3000" or "example.com:8080/x" is a host and port, not a scheme; "javascript:1;…" is a scheme (digits
+// count as a port only when a path, query or the end follows).
+export const LINK_SCHEME = /^[a-z][a-z0-9+.-]*:(?!\d+(?:[/?#]|$))/i;
 /** Whether a link (as typed) may be stored: no scheme, or http(s) or mailto. */
 export const linkSchemeAllowed = (url: string) => !LINK_SCHEME.test(url.trim()) || /^(https?:\/\/|mailto:)/i.test(url.trim());
 const linkUrl = z

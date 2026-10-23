@@ -39,7 +39,7 @@ r = await get('/icons/192');
 check('app icons (next/og, built statically) still served', r.status === 200 && (r.h.get('content-type') ?? '').startsWith('image/png'), `${r.status} ${r.h.get('content-type')}`);
 
 // ---- 3. link schemes through MCP ----
-const BAD = ['javascript:alert(document.cookie)', 'JaVaScRiPt:alert(1)', ' javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)', 'file:///c:/windows/win.ini'];
+const BAD = ['javascript:alert(document.cookie)', 'JaVaScRiPt:alert(1)', ' javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)', 'file:///c:/windows/win.ini', 'javascript:1;alert(1)', 'data:1,x'];
 for (const u of BAD) {
   const x = await call('add_task', { title: 'Bad link ' + u.slice(0, 12), links: [u] });
   check(`mcp add_task refuses ${JSON.stringify(u.slice(0, 24))}`, !!x.ERROR && /http, https and mailto/.test(x.ERROR), JSON.stringify(x).slice(0, 160));

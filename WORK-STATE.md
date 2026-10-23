@@ -110,3 +110,6 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - CSP: pages that are still prerendered (`/_global-error`) carry no nonce, so with the page CSP their inline scripts would not run if Next served that static copy; not seen (global errors render per request) — waits on someone seeing a blank global error page.
 - CSP: a new third-party script, frame, font or upload host (S3 for note files after the move off Vercel Blob) needs a line in `pageCsp` (proxy.ts) or it is blocked — waits on the note-files move.
 - Next 16.4: `next dev` writes a managed block into AGENTS.md when it detects a coding agent (`agentRules`, on by default); leave it or set `agentRules: false` — waits on Om seeing the diff.
+- Links stored before the scheme allow-list (2026-10-23) are not re-checked and render as `href` as stored; the page CSP stops `javascript:` running — waits on a render-time safeHref or a one-off cleanup at the move.
+- Leak audit treats any empty digest as a client-only bailout; an error page with an empty digest would pass — waits on tying it to the 16.4 bailout marker.
+- CSP connect-src allows any `*.blob.vercel-storage.com` host (a small way out for data) — waits on the note-files move off Vercel Blob.
