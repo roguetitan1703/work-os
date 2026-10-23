@@ -4,7 +4,7 @@ import type { Filter } from 'mongodb';
 import { requestContext } from '../request-context';
 import { nextSeq, toActivity, type ActivityDoc, type ClaudeMark, type TaskDoc, type TrashDoc } from '../db';
 import { canSee, forUser, orgWide, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
-import { asActor, isPerson, actorUserId, type ActorFilter } from '../actors';
+import { asActor, isPerson, actorUserId, type ActorFilter, type TextAuthor } from '../actors';
 import {
   CLOSED_STATUSES,
   OPEN_STATUSES,
@@ -65,6 +65,10 @@ export function toTask(d: TaskDoc): Task {
     doneOn: d.doneOn,
     doneBy: d.doneBy ? asActor(d.doneBy) : null,
     ...(d.source ? { source: d.source } : {}),
+    ...(d.titleBy ? { titleBy: d.titleBy } : {}),
+    ...(d.descriptionBy ? { descriptionBy: d.descriptionBy } : {}),
+    ...(d.blockedReasonBy ? { blockedReasonBy: d.blockedReasonBy } : {}),
+    ...(d.tagsBy ? { tagsBy: d.tagsBy } : {}),
     ...(d.claude ? { claude: toTaskClaude(d.claude) } : {}),
     ownerId: d.ownerId,
     visibility: d.visibility,
@@ -180,16 +184,19 @@ function normalizeTags(tags: string[] | undefined): string[] {
   return [...out];
 }
 
+// Each item and link keeps who wrote it (lib/data/authors.ts): one already there keeps its author, a new one is `by`'s.
 function normalizeChecklist(
   items: (string | { text: string; done?: boolean })[] | undefined,
   existing: ChecklistItem[] = [],
+  by?: TextAuthor,
 ): ChecklistItem[] {
   if (!items) return [];
   return items.map(it => {
     const text = typeof it === 'string' ? it.trim() : it.text.trim();
     const prev = existing.find(e => e.text === text);
     const done = typeof it === 'string' ? (prev?.done ?? false) : (it.done ?? prev?.done ?? false);
-    return { id: prev?.id ?? shortId(), text, done };
+    const who = prev ? prev.by : by;
+    return { id: prev?.id ?? shortId(), text, done, ...(who ? { by: who } : {}) };
   });
 }
 
@@ -199,11 +206,14 @@ function normalizeUrl(u: string): string {
   return 'https://' + s;
 }
 
-function normalizeLinks(links: (string | { url: string; label?: string })[] | undefined): Link[] {
+function normalizeLinks(links: (string | { url: string; label?: string })[] | undefined, existing: Link[] = [], by?: TextAuthor): Link[] {
   if (!links) return [];
-  return links.map(l =>
-    typeof l === 'string' ? { url: normalizeUrl(l), label: '' } : { url: normalizeUrl(l.url), label: l.label?.trim() ?? '' },
-  );
+  return links.map(l => {
+    const link = typeof l === 'string' ? { url: normalizeUrl(l), label: '' } : { url: normalizeUrl(l.url), label: l.label?.trim() ?? '' };
+    const prev = existing.find(e => e.url === link.url && e.label === link.label);
+    const who = prev ? prev.by : by;
+    return { ...link, ...(who ? { by: who } : {}) };
+  });
 }
 
 function dateField(value: string | null | undefined, field: string): string | null {
@@ -271,12 +281,18 @@ export async function createTask(
   s: Scope,
   input: TaskInput,
   actor: Actor,
-  opts: { note?: string; source?: TaskSource } = {},
+  opts: { note?: string; source?: TaskSource; authors?: TextAuthors } = {},
 ): Promise<Task> {
   const data = TaskInputSchema.parse(input);
   const c = await scoped(s);
-  return toTask(await insertTask(c, s, data, actor, { note: opts.note, source: opts.source }));
+  return toTask(await insertTask(c, s, data, actor, { note: opts.note, source: opts.source, authors: opts.authors }));
 }
+
+/**
+ * Who wrote a new task's text when it is not the actor that creates it: a Discord message's author, or the original's
+ * authors for a recurring task's next copy (lib/data/authors.ts). Anything not given is the actor's.
+ */
+export type TextAuthors = { title?: TextAuthor; description?: TextAuthor; blockedReason?: TextAuthor; tags?: TextAuthor; checklist?: (TextAuthor | undefined)[]; links?: (TextAuthor | undefined)[] };
 
 /** The task already created from this external message, if any. */
 export async function findTaskBySourceMessage(s: Scope, messageId: string): Promise<Task | null> {
@@ -293,8 +309,9 @@ async function insertTask(
   s: Scope,
   data: ReturnType<typeof TaskInputSchema.parse>,
   actor: Actor,
-  opts: { note?: string; source?: TaskSource; ownerId?: string } = {},
+  opts: { note?: string; source?: TaskSource; ownerId?: string; authors?: TextAuthors } = {},
 ): Promise<TaskDoc> {
+  const au = opts.authors ?? {};
   const now = new Date();
   const today = todayStr();
   const mode = (await canonicalMode(s, data.mode)) ?? null;
@@ -322,9 +339,13 @@ async function insertTask(
     start: dateField(data.start, 'start'),
     estimateMins: data.estimateMins ?? null,
     progress: done ? 100 : (data.progress ?? 0),
-    checklist: normalizeChecklist(data.checklist),
-    links: normalizeLinks(data.links),
+    checklist: normalizeChecklist(data.checklist).map((i, n) => ({ ...i, by: au.checklist?.[n] ?? actor })),
+    links: normalizeLinks(data.links).map((l, n) => ({ ...l, by: au.links?.[n] ?? actor })),
     blockedReason: data.blockedReason?.trim() ?? '',
+    titleBy: au.title ?? actor,
+    ...(data.description?.trim() ? { descriptionBy: au.description ?? actor } : {}),
+    ...(data.blockedReason?.trim() ? { blockedReasonBy: au.blockedReason ?? actor } : {}),
+    ...(data.tags?.length ? { tagsBy: au.tags ?? actor } : {}),
     dependsOn: await resolveDependencies(c, data.dependsOn, id),
     recurrence: data.recurrence ?? null,
     nextRef: null,
@@ -380,8 +401,8 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
   if (data.due !== undefined) apply('due', dateField(data.due, 'due'));
   if (data.start !== undefined) apply('start', dateField(data.start, 'start'));
   if (data.estimateMins !== undefined) apply('estimateMins', data.estimateMins ?? null);
-  if (data.checklist !== undefined) apply('checklist', normalizeChecklist(data.checklist, cur.checklist));
-  if (data.links !== undefined) apply('links', normalizeLinks(data.links));
+  if (data.checklist !== undefined) apply('checklist', normalizeChecklist(data.checklist, cur.checklist, actor));
+  if (data.links !== undefined) apply('links', normalizeLinks(data.links, cur.links ?? [], actor));
   if (data.dependsOn !== undefined) apply('dependsOn', await resolveDependencies(c, data.dependsOn, cur._id));
   if (data.recurrence !== undefined) apply('recurrence', data.recurrence ?? null);
 
@@ -441,6 +462,11 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
     }
   }
   if (data.progress !== undefined) apply('progress', data.progress);
+  // Who wrote the text that changed (lib/data/authors.ts); items and links carry their own (normalizeChecklist).
+  if (changes.title) set.titleBy = actor;
+  if (changes.description) set.descriptionBy = actor;
+  if (changes.blockedReason) set.blockedReasonBy = actor;
+  if (changes.tags) set.tagsBy = actor;
 
   const hasChanges = Object.keys(changes).length > 0;
   // Someone else changing what Claude reads takes the task back from Claude (docs/dispatcher.md). It happens before the
@@ -741,7 +767,7 @@ export async function updateChecklist(s: Scope, key: string | number, ops: Check
   for (const text of ops.add ?? []) {
     const t = text.trim();
     if (!t) continue;
-    items.push({ id: shortId(), text: t, done: false });
+    items.push({ id: shortId(), text: t, done: false, by: actor });
     notes.push(`added "${t}"`);
   }
   if (missing.length) throw new InputError(`Checklist item(s) not found: ${missing.join(', ')}`);
@@ -782,6 +808,9 @@ async function spawnNextOccurrence(c: Collections, s: Scope, done: TaskDoc, acto
   let due = advance(done.due ?? today, r);
   while (due <= today) due = advance(due, r);
   const shift = done.due && done.start ? Math.round((Date.parse(done.due) - Date.parse(done.start)) / 86_400_000) : null;
+  // The copy's text is still whoever wrote the original's (an unknown author stays unknown), not the person completing it.
+  const { taskAuthors } = await import('./authors');
+  const a = await taskAuthors(s, done);
   const next = await insertTask(
     c,
     s,
@@ -801,7 +830,11 @@ async function spawnNextOccurrence(c: Collections, s: Scope, done: TaskDoc, acto
     },
     actor,
     // The next one belongs to whoever owned this one (a shared task completed by a teammate stays theirs).
-    { note: `Next occurrence of #${done.ref}`, ownerId: done.ownerId },
+    {
+      note: `Next occurrence of #${done.ref}`,
+      ownerId: done.ownerId,
+      authors: { title: a.title, description: a.description, tags: a.tags, checklist: a.checklist, links: a.links },
+    },
   );
   await c.tasks.updateOne({ _id: done._id }, { $set: { nextRef: next.ref } });
   return next.ref;

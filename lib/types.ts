@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Actor } from './actors';
+import type { Actor, TextAuthor } from './actors';
 
 /** A mode of work: one of the organization's list (lib/org-modes.ts checks it on every write). */
 export const ModeSchema = z.string().trim().max(40);
@@ -17,7 +17,7 @@ export const CLOSED_STATUSES: Status[] = ['Done', 'Dropped'];
 export const OPEN_STATUSES: Status[] = ['Not Started', 'In Progress', 'Blocked'];
 
 /** Who made a change: lib/actors.ts (a person, an agent acting for a person, Discord, the system). */
-export type { Actor };
+export type { Actor, TextAuthor };
 
 /** Who sees a project and everything in it (docs/multi-user.md): the organization, or only its owner. */
 export const VISIBILITIES = ['org', 'private'] as const;
@@ -29,13 +29,15 @@ export const ChecklistItemSchema = z.object({
   text: z.string(),
   done: z.boolean(),
 });
-export type ChecklistItem = z.infer<typeof ChecklistItemSchema>;
+/** `by`: who wrote the item's text (lib/data/authors.ts); missing on items from before it was stored. */
+export type ChecklistItem = z.infer<typeof ChecklistItemSchema> & { by?: TextAuthor };
 
 export const LinkSchema = z.object({
   url: z.string(),
   label: z.string(),
 });
-export type Link = z.infer<typeof LinkSchema>;
+/** `by`: who added the link (lib/data/authors.ts); missing on links from before it was stored. */
+export type Link = z.infer<typeof LinkSchema> & { by?: TextAuthor };
 
 export const RecurrenceSchema = z.object({
   freq: z.enum(['daily', 'weekdays', 'weekly', 'monthly']),
@@ -73,6 +75,11 @@ export type Task = {
   doneBy: Actor | null;
   /** Where the task came from, when created from an external message. */
   source?: TaskSource;
+  /** Who wrote the title, description, blocked reason and tags (lib/data/authors.ts); missing before it was stored. */
+  titleBy?: TextAuthor;
+  descriptionBy?: TextAuthor;
+  blockedReasonBy?: TextAuthor;
+  tagsBy?: TextAuthor;
   /** Given to Claude (docs/dispatcher.md). Read-only here: only the UI actions and the dispatcher write it. */
   claude?: TaskClaude;
   /** The person it belongs to; with no project (or a private one) only they see it. */
@@ -203,6 +210,8 @@ export type Project = {
   description: string;
   status: ProjectStatus;
   code?: CodeLocation[];
+  /** The member who last named it (created or renamed it); missing on older projects (then its owner). */
+  nameBy?: string;
   createdAt: string;
   updatedAt: string;
 };

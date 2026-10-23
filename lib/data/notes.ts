@@ -28,6 +28,8 @@ export type NoteRef = {
   chars: number;
   updatedAt: string;
   updatedBy: Actor;
+  /** Only where the listing asked for it (noteIndex: a task's note, whose authors get_task labels). */
+  createdBy?: Actor;
 };
 
 export type Note = NoteRef & {
@@ -65,6 +67,7 @@ export function noteRef(d: ListedNoteDoc): NoteRef {
     chars: d._chars ?? d.body.length,
     updatedAt: d.updatedAt.toISOString(),
     updatedBy: asActor(d.updatedBy),
+    ...(d.createdBy ? { createdBy: asActor(d.createdBy) } : {}),
   };
 }
 
@@ -215,7 +218,7 @@ export async function noteIndex(s: Scope, opts: { taskIds?: string[]; projectIds
   if (!or.length) return { byTask, byProject };
   // Only what noteRef needs: the first blocks (for the first line), a prefix of the text, the full length.
   const docs = (await c.notes
-    .find({ ...live, $or: or }, { projection: { title: 1, taskId: 1, projectId: 1, parentId: 1, updatedAt: 1, updatedBy: 1, blocks: { $slice: 8 }, body: { $substrCP: ['$body', 0, 500] }, _chars: { $strLenCP: '$body' } } })
+    .find({ ...live, $or: or }, { projection: { title: 1, taskId: 1, projectId: 1, parentId: 1, updatedAt: 1, updatedBy: 1, createdBy: 1, blocks: { $slice: 8 }, body: { $substrCP: ['$body', 0, 500] }, _chars: { $strLenCP: '$body' } } })
     .sort({ updatedAt: -1 })
     .toArray()) as ListedNoteDoc[];
   for (const d of docs) {

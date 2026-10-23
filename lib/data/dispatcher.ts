@@ -385,7 +385,7 @@ export type MarkOptions = {
   blocked?: string;
   folders: { key: string; name: string; branch?: string; deviceName: string; online: boolean }[];
   dispatcherOn: boolean;
-  /** Parts of the task someone else wrote (title, description, checklist, note) and who: the sheet warns. */
+  /** Parts of the task someone else wrote (title, description, checklist, links, note, comments, …) and who: the sheet warns. */
   othersWrote?: { parts: string[]; names: string[] };
 };
 
@@ -402,12 +402,10 @@ export async function markOptions(scope: DeviceScope, key: string): Promise<Mark
   const folders = docs.map(f => ({ key: f._id, name: f.name, ...(f.branch ? { branch: f.branch } : {}), deviceName: devices.get(f.deviceId)!.name, online: devices.get(f.deviceId)!.online }));
   if (!folders.length && (!t.claude || t.claude.state !== 'queued')) return { ...base, folders, blocked: 'Link a folder first: open the project and add a folder under Folders.' };
   // Claude reads text by others as information, not as this person's request (lib/data/authors.ts): say so before giving.
-  const { othersText } = await import('./authors');
-  const others = await othersText(scope, t);
+  const [{ othersText }, { memberNames }] = await Promise.all([import('./authors'), import('../people')]);
+  const others = await othersText(scope, t, await memberNames(scope.orgId));
   if (!others.parts.length) return { ...base, folders };
-  const { memberNames } = await import('../people');
-  const people = await memberNames(scope.orgId);
-  return { ...base, folders, othersWrote: { parts: others.parts, names: others.userIds.map(id => people[id] || 'a former member') } };
+  return { ...base, folders, othersWrote: others };
 }
 
 export async function giveToClaude(scope: DeviceScope, key: string, folderKey?: string): Promise<void> {
