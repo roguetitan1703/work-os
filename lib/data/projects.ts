@@ -330,6 +330,7 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
       throw new InputError('You already have a private project with that name. Rename one of them first.');
     }
     set.visibility = data.visibility;
+    if (data.visibility === 'private') await (await import('./dispatcher')).endForeignClaude(c, s, id, cur.ownerId);
     await setProjectVisibility(c, cur, data.visibility);
   }
   await c.projects.updateOne({ _id: id }, { $set: set });
@@ -337,7 +338,7 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
 }
 
 /** Who a shared project's owner would cut off by making it private: people assigned to its tasks, and people who commented on them. */
-export async function projectSharingImpact(s: Scope, id: string): Promise<{ assignees: string[]; commenters: string[] }> {
+export async function projectSharingImpact(s: Scope, id: string): Promise<{ assignees: string[]; commenters: string[]; claude: string[]; waiting: string[] }> {
   const c = await scoped(s);
   const p = await c.projects.findOne({ _id: id });
   if (!p) throw new NotFoundError(`Project "${id}" not found`);
@@ -345,9 +346,11 @@ export async function projectSharingImpact(s: Scope, id: string): Promise<{ assi
   const others = (ids: unknown[]) => [...new Set(ids.filter((x): x is string => typeof x === 'string' && !!x && x !== p.ownerId))];
   const assignees = others(await c.tasks.distinct('assigneeId', { projectId: id }));
   const commenters = others((await c.activity.distinct('actor.userId', { taskId: { $in: taskIds }, type: 'comment' })) as unknown[]);
+  const claude = others(await c.tasks.distinct('claude.markedByUserId', { projectId: id, 'claude.state': { $in: ['queued', 'running'] } }));
+  const waiting = others(await c.claudeItems.distinct('waitingOn', { projectId: id }));
   const names = await memberNames(s.orgId);
   const label = (u: string) => names[u] ?? 'Someone';
-  return { assignees: assignees.map(label), commenters: commenters.map(label) };
+  return { assignees: assignees.map(label), commenters: commenters.map(label), claude: claude.map(label), waiting: waiting.map(label) };
 }
 
 /**

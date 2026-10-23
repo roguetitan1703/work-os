@@ -128,7 +128,7 @@ export async function createProjectAction(input: ProjectInput): Promise<Result<{
   return run(s => projects.createProject(s, input));
 }
 
-export async function projectSharingImpactAction(id: string): Promise<Result<{ assignees: string[]; commenters: string[] }>> {
+export async function projectSharingImpactAction(id: string): Promise<Result<{ assignees: string[]; commenters: string[]; claude: string[]; waiting: string[] }>> {
   try {
     const caller = await requireCaller();
     return { ok: true, data: await withCaller(caller, () => projects.projectSharingImpact({ userId: caller.userId, orgId: caller.orgId }, id)) };

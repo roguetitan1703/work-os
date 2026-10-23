@@ -1,6 +1,7 @@
 // Shared / Private projects from the app: the new-project choice, switching on the project's Info tab (owner only, with a
 // confirm that names who loses access), the Private badge, and what a teammate can see at each step. Seed profile: none.
-import { B, ME, MCP, check, finish, launch, login, makeUser, mkKey, rawDb, setProfile } from './lib.mjs';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { B, ME, MCP, check, finish, launch, login, makeUser, mkKey, rawDb, setProfile, sha } from './lib.mjs';
 
 let rid = 0;
 async function as(key, name, args = {}) {
@@ -103,12 +104,26 @@ try {
   await must(kA, 'update_task', { task: t1.ref, assignee: 'bea@example.test' });
   const cm = await as(kB, 'add_comment', { task: t1.ref, note: 'Bea was here' });
   check('setup: Bea is assigned and has commented', !cm.isError && (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t1.ref }))?.assigneeId === Bu.userId, cm.text);
+  // Bea gives a shared task to Claude (queued), another is running, and a Claude item waits on her. Her computer is linked to the project.
+  const t2 = (await must(kA, 'add_task', { title: 'Bea queued for Claude', project: NAME })).created;
+  const t3 = (await must(kA, 'add_task', { title: 'Bea running with Claude', project: NAME })).created;
+  const dkey = 'wkr_' + randomBytes(32).toString('base64url');
+  const devId = randomUUID();
+  await rawDb.collection('devices').insertOne({ _id: devId, name: 'Bea PC', ownerId: Bu.userId, orgId: A.orgId, hash: sha(dkey), prefix: dkey.slice(0, 8), createdAt: new Date(), lastSeenAt: null, revokedAt: null });
+  await rawDb.collection('workerFolders').insertOne({ _id: `${devId}:f_bea01`, deviceId: devId, folderId: 'f_bea01', name: 'bea-folder', git: false, orgId: A.orgId, ownerId: Bu.userId, visibility: 'private', projectId: id, linkedAt: new Date(), seenAt: new Date(), missing: false });
+  await rawDb.collection('settings').updateOne({ _id: `dispatcher:${Bu.userId}` }, { $set: { area: 'dispatcher', orgId: A.orgId, userId: Bu.userId, enabled: true, maxConcurrent: 2, boilerplateNoteId: null } }, { upsert: true });
+  const mark = o => ({ state: 'queued', markedAt: new Date(), markedBy: 'user', markedByUserId: Bu.userId, markedByOrgId: A.orgId, ...o });
+  await rawDb.collection('tasks').updateOne({ orgId: A.orgId, ref: t2.ref }, { $set: { claude: mark({}) } });
+  await rawDb.collection('tasks').updateOne({ orgId: A.orgId, ref: t3.ref }, { $set: { status: 'In Progress', claude: mark({ state: 'running', claimedAt: new Date(), deviceId: devId, sessionId: randomUUID(), prevStatus: 'Not Started' }) } });
+  const itemId = randomUUID();
+  await rawDb.collection('claudeItems').insertOne({ _id: itemId, orgId: A.orgId, ownerId: A.userId, visibility: 'org', ref: 9001, projectId: id, title: 'Needs Bea', kind: 'task', why: 'w', doneWhen: 'd', state: 'blocked', next: false, order: 1, note: '', parts: [], blockedBy: null, waitingOn: Bu.userId, waitingText: 'Pick one', gitRef: '', claimedBy: null, createdBy: { kind: 'user', userId: A.userId }, createdAt: new Date(), updatedAt: new Date(), doneAt: null, log: [] });
   await pa.goto(`${B}/projects/${id}?tab=info`);
   await pa.waitForSelector('[data-section="sharing"] [data-sharing="private"]', { timeout: 15000 });
   await pa.click('[data-section="sharing"] [data-sharing="private"]');
   await pa.waitForSelector('[data-private-confirm]', { timeout: 15000 });
   const msg = await pa.locator('[data-private-confirm]').innerText();
   check('confirm: names who loses access and the assignment', /Bea/.test(msg) && /lose access/.test(msg) && /unassigned/.test(msg), msg);
+  check("confirm: says Bea's Claude task is stopped and the waiting item", /Claude task will be stopped/.test(msg) && /stop waiting/.test(msg), msg);
   check('confirm: nothing changed yet', (await proj())?.visibility === 'org');
   await pa.click('[data-confirm]');
   check('private again: the project switches', !!(await until(async () => (await proj())?.visibility === 'private')));
@@ -116,6 +131,16 @@ try {
   check('private again: the task is private to the owner and unassigned', tDoc?.visibility === 'private' && tDoc.ownerId === A.userId && tDoc.assigneeId === null, JSON.stringify(tDoc && [tDoc.visibility, tDoc.assigneeId]));
   seen = await beaSees(kB);
   check('private again: the teammate loses project, task and note', !seen.project && !seen.task && !seen.note, JSON.stringify(seen));
+  const q2 = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t2.ref });
+  const q3 = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t3.ref });
+  check("private again: Bea's queued Claude mark is cleared", !q2?.claude, JSON.stringify(q2?.claude));
+  check("private again: Bea's running Claude task is stopped (project made private)", q3?.claude?.state === 'stopped' && /made private/.test(q3.claude.note), JSON.stringify(q3?.claude));
+  check('private again: the item waiting on Bea no longer waits', !(await rawDb.collection('claudeItems').findOne({ _id: itemId }))?.waitingOn);
+  await rawDb.collection('tasks').updateOne({ orgId: A.orgId, ref: t2.ref }, { $set: { claude: mark({}) } }); // a leftover queued mark must still not be claimed
+  const poll = await fetch(`${B}/api/worker/jobs`, { headers: { authorization: `Bearer ${dkey}` } });
+  const pj = await poll.json().catch(() => ({}));
+  check("private again: Bea's worker claims nothing", poll.status === 200 && (pj.jobs ?? []).length === 0 && (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t2.ref }))?.claude?.state === 'queued', JSON.stringify(pj).slice(0, 200));
+  await rawDb.collection('tasks').updateOne({ orgId: A.orgId, ref: t2.ref }, { $set: { claude: null } });
   // With nobody assigned or commenting, the switch is immediate (no dialog).
   await pa.goto(`${B}/projects/${id}?tab=info`);
   await pa.waitForSelector('[data-section="sharing"] [data-sharing="org"]', { timeout: 15000 });

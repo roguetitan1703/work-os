@@ -577,3 +577,42 @@ export async function claudeTasks(scope: DeviceScope): Promise<ClaudeTasks> {
     recent: rows.filter(r => r.state !== 'queued' && r.state !== 'running').sort((a, b) => (b.endedAt ?? '').localeCompare(a.endedAt ?? '')).slice(0, 10),
   };
 }
+
+/**
+ * A project is made private: whatever other people gave to Claude in it ends, and a Claude item waiting on someone else
+ * stops waiting (a private item waits only on its owner). Queued marks are cleared like a take-back; a running one is
+ * stopped (a stop job to the giver's computer, best-effort) and ends as stopped. Called with the owner's scope before
+ * the project's tasks change hands. Returns what it did, for tests.
+ */
+export async function endForeignClaude(c: Collections, s: Scope, projectId: string, ownerId: string): Promise<{ queued: number; running: number; waiting: number }> {
+  const marks = await c.tasks.find({ projectId, 'claude.state': { $in: ['queued', 'running'] }, 'claude.markedByUserId': { $nin: [null, ownerId] } }).toArray();
+  let queued = 0;
+  let running = 0;
+  for (const t of marks) {
+    const giver = t.claude!.markedByUserId!;
+    const from = t.claude!.state;
+    if (from === 'queued') {
+      const r = await c.tasks.updateOne({ _id: t._id, 'claude.state': 'queued' }, { $set: { claude: null } });
+      if (r.modifiedCount) queued++;
+      else continue;
+    } else {
+      if (t.claude!.sessionId) await stopSession(forUser(s, giver), projectId, t.claude!.sessionId).catch(() => {});
+      const r = await c.tasks.updateOne(
+        { _id: t._id, 'claude.state': 'running', 'claude.sessionId': t.claude!.sessionId },
+        { $set: { 'claude.state': 'stopped', 'claude.endedAt': new Date(), 'claude.note': 'project made private' } },
+      );
+      if (r.modifiedCount) running++;
+      else continue;
+    }
+    await logTask(c, t, userActor(ownerId), 'edit', { changes: { claude: { from, to: from === 'queued' ? null : 'stopped' } }, note: 'Claude task ended: project made private' });
+    afterCommit(() => wake(t.orgId, giver));
+  }
+  const waits = await c.claudeItems.find({ projectId, waitingOn: { $nin: [null, ownerId] } }, { projection: { _id: 1, state: 1, blockedBy: 1 } }).toArray();
+  if (waits.length) {
+    const ids = waits.map(w => w._id);
+    await c.claudeItems.updateMany({ _id: { $in: ids } }, { $set: { waitingOn: null, waitingText: '' } });
+    const stuck = waits.filter(w => w.state === 'blocked' && !w.blockedBy).map(w => w._id);
+    if (stuck.length) await c.claudeItems.updateMany({ _id: { $in: stuck } }, { $set: { state: 'queued' } });
+  }
+  return { queued, running, waiting: waits.length };
+}

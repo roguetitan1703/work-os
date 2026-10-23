@@ -74,6 +74,11 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Two visible projects can share a name (your private one and a teammate's later shared one); a lookup by name picks your private one — waits on Om finding it confusing.
 - OPERATOR_EMAILS must be set on the server, or nobody gets health, Usage, Discord registration or the organizations' Discord server setting — set it with the deploy.
 - Old documents are invisible between deploying phase 2 and running scripts/migrate-ownership.mjs (no orgId) — run the migration right after the deploy.
+- Sharing (c): claimFor reads tasks through the marker's own scope, so a private project's tasks are invisible to a former marker even with a leftover mark (tested: worker claims nothing); no extra query was added — nothing to wait on.
+- Sharing: `updateProject` runs its own `updateOne` after the cascade (tasks, notes, Claude items already moved), so a failed project update leaves the cascade applied — waits on a transaction around it.
+- Sharing: the confirm's impact list misses people who only created tasks or notes in the project (they still lose access) — waits on Om wanting a fuller list.
+- Sharing: choosing Private in New project when a shared project of that name exists hands back the shared one (created: false, toast says it exists) — waits on Om noticing.
+- Sharing: the impact list falls back to "Someone" when a member has no name (names fall back to email in memberNames, then to "Someone") — waits on it mattering.
 - Private badge: not yet on the Claude page group headings (queue, now tab), note lists and note pages, or the Today Claude card; quick add has no private marker for project names — waits on Om noticing.
 - Sharing: the confirm lists people assigned or who commented on tasks; people who only edited a note or watched are not named (they still lose access) — waits on Om wanting a fuller list.
 - Sharing: after migrate-ownership every old project is private, so a teammate sees nothing until Om shares each (one by one in Project › Info) — waits on Om doing it after the move.

@@ -23,7 +23,7 @@ export function ProjectDetails({ project, isOwner }: { project: Project; isOwner
   const [status, setStatus] = useState(project.status);
   const [, start] = useTransition();
   const { people } = useApp();
-  const [cutting, setCutting] = useState<{ assignees: string[]; commenters: string[] } | null>(null);
+  const [cutting, setCutting] = useState<{ assignees: string[]; commenters: string[]; claude: string[]; waiting: string[] } | null>(null);
 
   function save(patch: Partial<ProjectInput>, done = 'Saved') {
     start(async () => {
@@ -89,7 +89,7 @@ export function ProjectDetails({ project, isOwner }: { project: Project; isOwner
               start(async () => {
                 const r = await projectSharingImpactAction(project.id);
                 if (!r.ok) return void toast.error(r.error);
-                if (r.data.assignees.length || r.data.commenters.length) setCutting(r.data);
+                if (r.data.assignees.length || r.data.commenters.length || r.data.claude.length || r.data.waiting.length) setCutting(r.data);
                 else save({ visibility: v }, 'Now private');
               });
             }}
@@ -104,8 +104,10 @@ export function ProjectDetails({ project, isOwner }: { project: Project; isOwner
           verb="Make private"
           message={
             <span data-private-confirm>
-              {[...new Set([...cutting.assignees, ...cutting.commenters])].join(', ')} will lose access to {project.name} and its tasks and notes.
+              {[...new Set([...cutting.assignees, ...cutting.commenters, ...cutting.claude, ...cutting.waiting])].join(', ')} will lose access to {project.name} and its tasks and notes.
               {cutting.assignees.length > 0 && ` Tasks assigned to ${cutting.assignees.join(', ')} will be unassigned.`}
+              {cutting.claude.length > 0 && ` ${cutting.claude.join(', ')}: their Claude task will be stopped.`}
+              {cutting.waiting.length > 0 && ` Claude items waiting on ${cutting.waiting.join(', ')} will stop waiting.`}
             </span>
           }
           onClose={() => setCutting(null)}
