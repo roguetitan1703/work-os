@@ -1,5 +1,6 @@
 'use client';
 
+import { PrivateBadge } from '@/components/private-badge';
 import { BackLink } from '@/components/back-link';
 import Link from '@/components/intent-link';
 import { useRef, useState, useTransition } from 'react';
@@ -48,7 +49,7 @@ export function MobileTaskDetail({
   dependencies: Dep[];
   dependents: Dep[];
 }) {
-  const { today, projects, projectName, people, me } = useApp();
+  const { today, projects, projectName, isPrivateProject, people, me } = useApp();
   const { modes, color } = useModes();
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -136,7 +137,7 @@ export function MobileTaskDetail({
       <div className="mt-1 flex flex-wrap gap-x-3 text-sm text-muted-foreground">
         {task.projectId && (
           <Link href={`/projects/${task.projectId}`} className="text-blue-600 dark:text-blue-400">
-            {projectName(task.projectId)}
+            {projectName(task.projectId)}{isPrivateProject(task.projectId) && <PrivateBadge compact className="ml-1" />}
           </Link>
         )}
         {closed && <span>{task.status}</span>}

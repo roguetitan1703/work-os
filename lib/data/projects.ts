@@ -12,6 +12,7 @@ import {
 } from '../types';
 import { todayStr, weekStart } from '../dates';
 import { InputError, NotFoundError } from './errors';
+import { memberNames } from '../people';
 import { cleanCodeLocations, codeCandidates, matchCodeLocation, type CodeQuery } from './code-locations';
 import type { CodeLocation } from '../types';
 
@@ -172,10 +173,10 @@ export async function listProjectsBasic(s: Scope): Promise<Project[]> {
 }
 
 /** Just id, name and status, by name (the sidebar and pickers). */
-export async function listProjectsNav(s: Scope): Promise<Pick<Project, 'id' | 'name' | 'status'>[]> {
+export async function listProjectsNav(s: Scope): Promise<Pick<Project, 'id' | 'name' | 'status' | 'visibility'>[]> {
   const c = await scoped(s);
-  const docs = await c.projects.find({}, { projection: { name: 1, status: 1 } }).sort({ nameLower: 1 }).toArray();
-  return docs.map(d => ({ id: d._id, name: d.name, status: d.status }));
+  const docs = await c.projects.find({}, { projection: { name: 1, status: 1, visibility: 1 } }).sort({ nameLower: 1 }).toArray();
+  return docs.map(d => ({ id: d._id, name: d.name, status: d.status, visibility: d.visibility }));
 }
 
 export async function projectNameMap(s: Scope, c?: Collections): Promise<Map<string, string>> {
@@ -329,10 +330,27 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
       throw new InputError('You already have a private project with that name. Rename one of them first.');
     }
     set.visibility = data.visibility;
+    if (data.visibility === 'private') await (await import('./dispatcher')).endForeignClaude(c, s, id, cur.ownerId);
     await setProjectVisibility(c, cur, data.visibility);
   }
   await c.projects.updateOne({ _id: id }, { $set: set });
   return toProject({ ...cur, ...set });
+}
+
+/** Who a shared project's owner would cut off by making it private: people assigned to its tasks, and people who commented on them. */
+export async function projectSharingImpact(s: Scope, id: string): Promise<{ assignees: string[]; commenters: string[]; claude: string[]; waiting: string[] }> {
+  const c = await scoped(s);
+  const p = await c.projects.findOne({ _id: id });
+  if (!p) throw new NotFoundError(`Project "${id}" not found`);
+  const taskIds = [...(await c.tasks.distinct('_id', { projectId: id })), ...(await c.trash.distinct('_id', { 'task.projectId': id }))];
+  const others = (ids: unknown[]) => [...new Set(ids.filter((x): x is string => typeof x === 'string' && !!x && x !== p.ownerId))];
+  const assignees = others(await c.tasks.distinct('assigneeId', { projectId: id }));
+  const commenters = others((await c.activity.distinct('actor.userId', { taskId: { $in: taskIds }, type: 'comment' })) as unknown[]);
+  const claude = others(await c.tasks.distinct('claude.markedByUserId', { projectId: id, 'claude.state': { $in: ['queued', 'running'] } }));
+  const waiting = others(await c.claudeItems.distinct('waitingOn', { projectId: id }));
+  const names = await memberNames(s.orgId);
+  const label = (u: string) => names[u] ?? 'Someone';
+  return { assignees: assignees.map(label), commenters: commenters.map(label), claude: claude.map(label), waiting: waiting.map(label) };
 }
 
 /**

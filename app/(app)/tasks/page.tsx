@@ -26,7 +26,7 @@ export default async function BoardPage({ searchParams }: Props) {
     listTasks(s, { ...common, due: undefined, status: ['Done'], doneFrom: weekStart(todayStr()), sort: 'done', forList: true }),
     listProjectsBasic(s),
   ]);
-  const active = projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => ({ id: p.id, name: p.name }));
+  const active = projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }));
   const all = [...open, ...doneThisWeek];
   const notes = await taskIdsWithNotes(s, all.map(t => t.id));
   return (
@@ -37,7 +37,7 @@ export default async function BoardPage({ searchParams }: Props) {
       <div className="hidden md:block">
     <BoardClient focusSearch={sp.search === '1'}
       tasks={[...open, ...doneThisWeek]}
-      projects={projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => ({ id: p.id, name: p.name }))}
+      projects={projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }))}
       filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', q: sp.q ?? '', assigned }}
     />
       </div>

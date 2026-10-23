@@ -3,7 +3,10 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { updateProjectAction } from '@/app/actions';
+import { projectSharingImpactAction, updateProjectAction } from '@/app/actions';
+import { useApp } from '@/components/app-context';
+import { ConfirmSheet } from '@/components/responsive-sheet';
+import { SharingChoice, SHARING_HELP, type Sharing } from '../sharing-choice';
 import { PROJECT_STATUSES, type Project, type ProjectInput } from '@/lib/types';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -12,19 +15,21 @@ const field =
   'w-full min-w-0 h-11 md:h-9 rounded-xl md:rounded-md border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
 
 /** Info tab: the details form (name, client, status, Description). */
-export function ProjectDetails({ project }: { project: Project }) {
+export function ProjectDetails({ project, isOwner }: { project: Project; isOwner: boolean }) {
   const router = useRouter();
   const [name, setName] = useState(project.name);
   const [client, setClient] = useState(project.client);
   const [description, setDescription] = useState(project.description);
   const [status, setStatus] = useState(project.status);
   const [, start] = useTransition();
+  const { people } = useApp();
+  const [cutting, setCutting] = useState<{ assignees: string[]; commenters: string[]; claude: string[]; waiting: string[] } | null>(null);
 
-  function save(patch: Partial<ProjectInput>) {
+  function save(patch: Partial<ProjectInput>, done = 'Saved') {
     start(async () => {
       const res = await updateProjectAction(project.id, patch);
       if (res.ok) {
-        toast.success('Saved');
+        toast.success(done);
         router.refresh();
       } else toast.error(res.error);
     });
@@ -74,7 +79,44 @@ export function ProjectDetails({ project }: { project: Project }) {
             className="text-[16px] md:text-sm"
           />
         </label>
+        <div className="space-y-1" data-section="sharing">
+          <div className="text-sm text-muted-foreground">Who sees it</div>
+          <SharingChoice
+            value={project.visibility}
+            disabled={!isOwner}
+            onChange={(v: Sharing) => {
+              if (v === 'org') return save({ visibility: v }, 'Shared with everyone');
+              start(async () => {
+                const r = await projectSharingImpactAction(project.id);
+                if (!r.ok) return void toast.error(r.error);
+                if (r.data.assignees.length || r.data.commenters.length || r.data.claude.length || r.data.waiting.length) setCutting(r.data);
+                else save({ visibility: v }, 'Now private');
+              });
+            }}
+          />
+          <p className="text-xs text-muted-foreground">{isOwner ? SHARING_HELP : `Only ${people[project.ownerId] ?? 'the owner'} can change this. ${SHARING_HELP}`}</p>
+        </div>
       </div>
+      {cutting && (
+        <ConfirmSheet
+          title="Make this project private"
+          danger
+          verb="Make private"
+          message={
+            <span data-private-confirm>
+              {[...new Set([...cutting.assignees, ...cutting.commenters, ...cutting.claude, ...cutting.waiting])].join(', ')} will lose access to {project.name} and its tasks and notes.
+              {cutting.assignees.length > 0 && ` Tasks assigned to ${cutting.assignees.join(', ')} will be unassigned.`}
+              {cutting.claude.length > 0 && ` ${cutting.claude.join(', ')}: their Claude task will be stopped.`}
+              {cutting.waiting.length > 0 && ` Claude items waiting on ${cutting.waiting.join(', ')} will stop waiting.`}
+            </span>
+          }
+          onClose={() => setCutting(null)}
+          onConfirm={() => {
+            setCutting(null);
+            save({ visibility: 'private' }, 'Now private');
+          }}
+        />
+      )}
     </section>
   );
 }

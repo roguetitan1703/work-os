@@ -5,7 +5,7 @@ import { setBrowserTz } from '@/lib/dates';
 import { DEFAULT_MODES, colorOf, type ModeColor, type ModeDef } from '@/lib/modes';
 import type { WeekPlan } from '@/lib/schedule';
 
-type ProjectRef = { id: string; name: string; status: string };
+type ProjectRef = { id: string; name: string; status: string; visibility?: 'org' | 'private' };
 export type NavBadges = { overdue: number; claudeWaiting: number; status: 'ok' | 'warn' | 'error' };
 /**
  * me: the signed-in user's id; people: user id → name for everyone in their organization (actor labels); tz: their
@@ -15,6 +15,7 @@ type AppCtx = {
   today: string;
   projects: ProjectRef[];
   projectName: (id: string | null) => string | null;
+  isPrivateProject: (id: string | null) => boolean;
   unread: number;
   badges: NavBadges;
   me: string;
@@ -26,7 +27,7 @@ type AppCtx = {
 };
 
 const NO_BADGES: NavBadges = { overdue: 0, claudeWaiting: 0, status: 'ok' };
-const Ctx = createContext<AppCtx>({ today: '', projects: [], projectName: () => null, unread: 0, badges: NO_BADGES, me: '', orgId: '', people: {}, tz: 'UTC', modes: DEFAULT_MODES, plan: null });
+const Ctx = createContext<AppCtx>({ today: '', projects: [], projectName: () => null, isPrivateProject: () => false, unread: 0, badges: NO_BADGES, me: '', orgId: '', people: {}, tz: 'UTC', modes: DEFAULT_MODES, plan: null });
 
 export function AppContextProvider({
   today,
@@ -58,7 +59,8 @@ export function AppContextProvider({
   const { overdue, claudeWaiting, status } = badges;
   const value = useMemo(() => {
     const map = new Map(projects.map(p => [p.id, p.name]));
-    return { today, projects, unread, me, orgId, people, tz, modes, plan, badges: { overdue, claudeWaiting, status }, projectName: (id: string | null) => (id ? (map.get(id) ?? id) : null) };
+    const priv = new Set(projects.filter(p => p.visibility === 'private').map(p => p.id));
+    return { today, projects, unread, me, orgId, people, tz, modes, plan, badges: { overdue, claudeWaiting, status }, projectName: (id: string | null) => (id ? (map.get(id) ?? id) : null), isPrivateProject: (id: string | null) => !!id && priv.has(id) };
   }, [today, projects, unread, overdue, claudeWaiting, status, me, orgId, people, tz, modes, plan]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

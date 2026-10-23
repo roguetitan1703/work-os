@@ -1,5 +1,6 @@
 'use client';
 
+import { PrivateBadge } from '@/components/private-badge';
 import Link from '@/components/intent-link';
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
@@ -22,7 +23,7 @@ const PRIO_RING: Record<Priority, string> = {
 
 /** Phone task row: big tap target to complete (with undo), whole row opens the task. */
 export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Task; showProject?: boolean; hint?: React.ReactNode; hasNote?: boolean }) {
-  const { today, projectName } = useApp();
+  const { today, projectName, isPrivateProject } = useApp();
   const { modes, color } = useModes();
   const router = useRouter();
   const [done, setDone] = useState(task.status === 'Done');
@@ -110,7 +111,7 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
           <div className={cn('text-[16px] leading-snug text-foreground', done && 'line-through text-muted-foreground')}>{task.title}</div>
           <div className="mt-1 flex items-center gap-x-2 gap-y-0.5 flex-wrap text-[13px] text-muted-foreground">
             {task.due && <span className={cn(overdue && 'text-red-600 dark:text-red-400 font-medium')}>{fmtDue(task.due, today)}</span>}
-            {project && <span className="truncate max-w-[45vw]">{project}</span>}
+            {project && <span className="truncate max-w-[45vw]">{project}{isPrivateProject(task.projectId) && <PrivateBadge compact className="ml-1" />}</span>}
             {task.mode && (
               <span className="inline-flex items-center gap-1 min-w-0">
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color(task.mode).hex }} />

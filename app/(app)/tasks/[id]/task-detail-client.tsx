@@ -1,5 +1,6 @@
 'use client';
 
+import { PrivateBadge } from '@/components/private-badge';
 import Link from '@/components/intent-link';
 import { ActorName } from '@/components/actor-badge';
 import { BackLink } from '@/components/back-link';
@@ -69,7 +70,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
           <span className="font-mono">#{task.ref}</span>
           {projectName && (
             <Link href={`/projects/${task.projectId}`} className="hover:text-foreground">
-              {projectName}
+              {projectName}{task.visibility === 'private' && <PrivateBadge compact className="ml-1" />}
             </Link>
           )}
           <span suppressHydrationWarning>· created {fmtAgo(task.createdAt)} by <ActorName actor={task.createdBy} /></span>
@@ -146,7 +147,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
           />
           <datalist id="project-options-detail">
             {projects.map(p => (
-              <option key={p.id} value={p.name} />
+              <option key={p.id} value={p.name} label={p.visibility === 'private' ? 'Private' : undefined} />
             ))}
           </datalist>
         </Field>

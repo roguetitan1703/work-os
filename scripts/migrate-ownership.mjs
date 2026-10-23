@@ -2,8 +2,8 @@
 // Phase 2 of docs/multi-user.md: gives every document an organization and an owner, so the scoped door (lib/scope.ts)
 // can serve it. Everything from before belongs to the first organization and its owner (Om):
 //
-//   projects                      shared with the organization (visibility 'org')
-//   tasks, notes, Claude items,   follow their project; with no project: private to Om
+//   projects                      private to Om (visibility 'private'); Om shares them one by one from the app
+//   tasks, notes, Claude items,   follow their project (so private to Om too); no project: private to Om
 //   history, trash
 //   reviews, ritual logs          Om's own
 //   computers, folders, jobs,     their computer's owner (computers without an owner stay as they are: refused)
@@ -101,15 +101,15 @@ try {
   };
   const noOrg = { orgId: { $exists: false } };
 
-  // ── Projects: shared with the organization ──
+  // ── Projects: private to Om (he shares them one by one) ──
   const projects = new Map();
   for (const p of await db.collection('projects').find({}).toArray()) {
     if (p.orgId === undefined) {
       count('projects');
-      await write('projects', { _id: p._id }, { $set: { orgId, ownerId: owner, visibility: 'org' } });
+      await write('projects', { _id: p._id }, { $set: { orgId, ownerId: owner, visibility: 'private' } });
       p.orgId = orgId;
       p.ownerId = owner;
-      p.visibility = 'org';
+      p.visibility = 'private';
     }
     projects.set(p._id, p);
   }

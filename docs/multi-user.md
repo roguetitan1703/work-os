@@ -107,7 +107,7 @@ Comment edits: an agent may edit only entries of the same agent for the same use
 
 **Migration.** Run `scripts/migrate-ownership.mjs --db <name>`. It is a dry run that prints counts only; `--apply` writes. `--copy-to <new db>` copies the database first and migrates the copy, never writing to the source. It is idempotent. It does the following:
 - assigns everything to the first organization and its owner;
-- makes projects `org`;
+- makes projects `private` (to the first owner), with their tasks and notes following; the owner shares them one by one from the app;
 - makes tasks and notes with no project private;
 - converts actors;
 - turns `waitingOnOm` into `waitingText`/`waitingOn`;

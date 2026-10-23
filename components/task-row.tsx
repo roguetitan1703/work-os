@@ -1,5 +1,6 @@
 'use client';
 
+import { PrivateBadge } from '@/components/private-badge';
 import Link from '@/components/intent-link';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
@@ -23,7 +24,7 @@ type Props = {
 };
 
 export function TaskRow({ task, showProject = true, showMode = true, hint }: Props) {
-  const { today, projectName } = useApp();
+  const { today, projectName, isPrivateProject } = useApp();
   const { modes, color } = useModes();
   const prevStatus = task.status;
   const [pending, start] = useTransition();
@@ -87,7 +88,7 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
         <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground flex-wrap">
           {project && (
             <Link href={`/projects/${task.projectId}`} className="hover:text-foreground truncate max-w-[160px]">
-              {project}
+              {project}{isPrivateProject(task.projectId) && <PrivateBadge compact className="ml-1" />}
             </Link>
           )}
           {task.tags.map(t => (

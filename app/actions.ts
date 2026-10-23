@@ -128,6 +128,18 @@ export async function createProjectAction(input: ProjectInput): Promise<Result<{
   return run(s => projects.createProject(s, input));
 }
 
+export async function projectSharingImpactAction(id: string): Promise<Result<{ assignees: string[]; commenters: string[]; claude: string[]; waiting: string[] }>> {
+  try {
+    const caller = await requireCaller();
+    return { ok: true, data: await withCaller(caller, () => projects.projectSharingImpact({ userId: caller.userId, orgId: caller.orgId }, id)) };
+  } catch (err) {
+    if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
+    if (err instanceof SafeError) return { ok: false, error: err.message };
+    console.error(err);
+    return { ok: false, error: "Something went wrong" };
+  }
+}
+
 export async function updateProjectAction(id: string, patch: Partial<ProjectInput>): Promise<Result<Project>> {
   return run(s => projects.updateProject(s, id, patch));
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { PrivateBadge } from '@/components/private-badge';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from '@/components/intent-link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -102,7 +103,7 @@ function PickProject({ onClose, onPick }: { onClose: () => void; onPick: (id: st
     <li key={p.id}>
       <button type="button" onClick={() => onPick(p.id)} data-start-project={p.id} className="w-full text-left flex items-center gap-2 px-3 min-h-12 md:min-h-10 hover:bg-muted/50 active:bg-muted/60">
         <span className="flex-1 min-w-0">
-          <span className="block text-[16px] md:text-sm truncate">{p.name}</span>
+          <span className="block text-[16px] md:text-sm truncate">{p.name}{p.private && <PrivateBadge compact className="ml-1.5" />}</span>
           {p.client && <span className="block text-[13px] md:text-xs text-muted-foreground truncate">{p.client}</span>}
         </span>
         {p.folders === 0 && (

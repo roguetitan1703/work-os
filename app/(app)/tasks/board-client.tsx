@@ -1,5 +1,6 @@
 'use client';
 
+import { PrivateBadge } from '@/components/private-badge';
 import Link from '@/components/intent-link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
@@ -25,7 +26,7 @@ const sel = 'h-8 rounded-lg border border-input bg-transparent px-2 text-sm outl
 
 type Props = {
   tasks: Task[];
-  projects: { id: string; name: string }[];
+  projects: { id: string; name: string; private?: boolean }[];
   filters: { project: string; mode: string; due: string; q: string; assigned: string };
   focusSearch?: boolean;
 };
@@ -89,7 +90,7 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false }: P
             <option value="">All projects</option>
             {projects.map(p => (
               <option key={p.id} value={p.id}>
-                {p.name}
+                {p.name}{p.private ? ' (private)' : ''}
               </option>
             ))}
           </select>
@@ -151,7 +152,7 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false }: P
 }
 
 function Card({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
-  const { today, projectName } = useApp();
+  const { today, projectName, isPrivateProject } = useApp();
   const { modes, color } = useModes();
   const [, start] = useTransition();
   const closed = task.status === 'Done' || task.status === 'Dropped';
@@ -182,7 +183,7 @@ function Card({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
       {task.status === 'Blocked' && task.blockedReason && <p className="text-[11px] text-red-600 dark:text-red-400">⛔ {task.blockedReason}</p>}
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
         <span className="font-mono">#{task.ref}</span>
-        {task.projectId && <span className="truncate max-w-[110px]">{projectName(task.projectId)}</span>}
+        {task.projectId && <span className="truncate max-w-[110px]">{projectName(task.projectId)}{isPrivateProject(task.projectId) && <PrivateBadge compact className="ml-1" />}</span>}
         {task.due && <span className={overdue ? 'text-red-600 dark:text-red-400 font-medium' : ''}>{fmtDue(task.due, today)}</span>}
         <ClaudeBadge task={task} />
         {task.checklist.length > 0 && (

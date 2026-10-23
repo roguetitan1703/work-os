@@ -83,7 +83,7 @@ export function TaskForm({ open, onClose, initial }: Props) {
               <input list="project-options" className={field} value={f.project} onChange={e => set('project', e.target.value)} placeholder="New or existing" />
               <datalist id="project-options">
                 {projects.map(p => (
-                  <option key={p.id} value={p.name} />
+                  <option key={p.id} value={p.name} label={p.visibility === 'private' ? 'Private' : undefined} />
                 ))}
               </datalist>
             </div>

@@ -1,5 +1,6 @@
 'use client';
 
+import { privateSuffix } from '@/components/private-badge';
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { FilePlus } from 'lucide-react';
@@ -21,7 +22,7 @@ export function NewNoteButton({
 }: {
   task?: number;
   project?: string;
-  projects?: { id: string; name: string }[];
+  projects?: { id: string; name: string; private?: boolean }[];
   defaultProject?: string;
   label?: string;
   className?: string;
@@ -52,7 +53,7 @@ export function NewNoteButton({
         <select value={pick} onChange={e => setPick(e.target.value)} className="h-9 rounded-md border border-border bg-background px-2 text-sm">
           {projects.map(p => (
             <option key={p.id} value={p.id}>
-              {p.name}
+              {p.name}{privateSuffix(p.private)}
             </option>
           ))}
         </select>

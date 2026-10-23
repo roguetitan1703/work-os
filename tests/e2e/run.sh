@@ -39,6 +39,7 @@ usage|usage.mjs|none|plain
 auth|auth.mjs|none|plain
 tenancy|tenancy.mjs|none|plain
 team|team.mjs|none|plain
+sharing|sharing.mjs|none|plain
 push|push.mjs|none|plain
 budgets|budgets.mjs|none|plain
 headers|headers.mjs|none|plain
