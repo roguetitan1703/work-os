@@ -519,7 +519,8 @@ try {
 
   // Targets: what each attacker aims at, and a made-up twin of the same shape (for the existence check)
   const fakeUuid = () => randomUUID();
-  const mutate = s => String(s).slice(0, -6) + hex(3);
+  // Always with a letter: an all-digit made-up id (short note ids, about 4% of runs) would be normalised as a number, not an id.
+  const mutate = s => String(s).slice(0, -6) + 'f' + hex(3).slice(1);
   const TARGET = {
     // T aims at A's private things
     T: { task: P.task, ref: P.taskRef, looseRef: P.looseRef, trashRef: P.trashRef, archRef: P.archRef, project: P.project, projectName: P.projectName, note: P.projNote, noteTitle: P.projNoteTitle, taskNote: P.noteId, sub: P.subNote, comment: P.comment, item: P.itemRef, itemProject: P.project, device: A.dev, folder: A.folder, session: A.session, job: A.job, review: A.review, push: A.push, passkey: String(A.passkey), invite: A.invite, member: A.userId, remote: P.remote },

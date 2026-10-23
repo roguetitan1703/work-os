@@ -14,6 +14,14 @@ export type Actor =
   | { kind: 'discord'; userId?: string }
   | { kind: 'system' };
 
+/**
+ * Who wrote a piece of task text (docs/dispatcher.md "Whose words count"): stored with the text (titleBy,
+ * descriptionBy, blockedReasonBy, tagsBy, and `by` on each checklist item and link). Usually the actor that wrote it;
+ * text taken from a Discord message is the message author's, who may not be a member at all; 'unknown' when older
+ * history cannot tell (a recurring task's copy keeps that).
+ */
+export type TextAuthor = Actor | { kind: 'discord-author'; name: string } | { kind: 'unknown' };
+
 /** Older stored strings (before phase 2): read them as the matching object (the user is unknown). */
 type LegacyActor = 'me' | 'discord' | 'claude' | 'claude-code' | 'system';
 

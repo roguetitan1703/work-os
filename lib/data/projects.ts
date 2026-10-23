@@ -37,6 +37,7 @@ export function toProject(d: ProjectDoc): Project {
     description: d.description,
     status: d.status,
     ...(d.code?.length ? { code: d.code } : {}),
+    ...(d.nameBy ? { nameBy: d.nameBy } : {}),
     createdAt: d.createdAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),
   };
@@ -128,6 +129,7 @@ async function insertProject(
       visibility: data.visibility ?? 'org',
       name: data.name.trim(),
       nameLower,
+      nameBy: s.userId,
       client: data.client?.trim() ?? '',
       description: data.description ?? '',
       status: data.status ?? 'active',
@@ -312,6 +314,8 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
     await assertNameFree(c, data.name.toLowerCase(), id);
     set.name = data.name;
     set.nameLower = data.name.toLowerCase();
+    // Who named it, for Claude's reads of a teammate-renamed project (lib/data/authors.ts).
+    set.nameBy = s.userId;
   }
   if (data.client !== undefined) set.client = data.client;
   if (data.description !== undefined) set.description = data.description;

@@ -33,6 +33,11 @@ export type TaskDoc = Placed & {
   checklist: ChecklistItem[];
   links: Link[];
   blockedReason: string;
+  /** Who wrote the title, description, blocked reason and tags (lib/data/authors.ts); missing on older tasks. */
+  titleBy?: import('./actors').TextAuthor;
+  descriptionBy?: import('./actors').TextAuthor;
+  blockedReasonBy?: import('./actors').TextAuthor;
+  tagsBy?: import('./actors').TextAuthor;
   dependsOn: string[];
   recurrence: Recurrence | null;
   nextRef: number | null;
@@ -94,6 +99,8 @@ export type ProjectDoc = Placed & {
   status: ProjectStatus;
   /** Where its code lives: git remotes (owner/name, optional subdir/branch) or folder paths. */
   code?: CodeLocation[];
+  /** The member who last named it (created or renamed it; lib/data/authors.ts). Missing on older projects. */
+  nameBy?: string;
   createdAt: Date;
   updatedAt: Date;
 };

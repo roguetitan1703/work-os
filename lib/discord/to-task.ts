@@ -132,7 +132,13 @@ export async function taskFromMessage(
       links: [{ url, label: `Discord: ${where}` }],
     },
     actor,
-    { note: overrides.note ?? `From Discord message by ${author} in ${where}`, source },
+    {
+      note: overrides.note ?? `From Discord message by ${author} in ${where}`,
+      source,
+      // The message's words are its author's, not the member's who made the task (lib/data/authors.ts): a title the
+      // member typed is theirs.
+      authors: { title: overrides.title?.trim() ? actor : { kind: 'discord-author', name: author }, description: { kind: 'discord-author', name: author } },
+    },
   );
   return { task, existing: false };
 }

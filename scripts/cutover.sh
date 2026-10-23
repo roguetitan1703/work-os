@@ -31,13 +31,15 @@
 #   --service <unit>    systemd unit of the app: stopped before step 1, started before step 5 (or at the end)
 #   --app-dir <dir>     the release whose scripts run (default /srv/work-os/current when installed, else this repo)
 #   --app-user <user>   who runs them when this script runs as root (default workos)
-#   --base <url>        where the app answers for step 5 (default http://127.0.0.1:3000)
+#   --base <url>        where the app answers for step 5 (default http://127.0.0.1:$WORK_OS_PORT, else :3100)
 #   --tz <zone>         the owner's timezone for step 4 (default APP_TZ, else Asia/Kolkata)
 #   --from <n>, --to <n>   run only steps n..m (e.g. --from 5 after fixing Discord)
 #   --skip-backup       no mongodump before --apply
 #
 # The steps are idempotent: running one again changes nothing that is already done.
 set -euo pipefail
+# Node 22 for Work OS only (docs/hosting.md section 2); the box's own node may be another version.
+[ -x "${WORK_OS_NODE:-/opt/work-os/node}/bin/node" ] && export PATH="${WORK_OS_NODE:-/opt/work-os/node}/bin:$PATH"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$HERE/work-os-env.sh" ]; then
   # Installed in /usr/local/sbin: the helpers beside it are root-owned too.
@@ -51,7 +53,7 @@ else
   APP_DIR="$(cd "$HERE/.." && pwd)"
 fi
 
-DB="" APPLY=0 ENV_FILE="" SERVICE="" BASE="http://127.0.0.1:3000" TZ_ARG="" FROM=0 TO=6 SKIP_BACKUP=0 APP_USER=workos
+DB="" APPLY=0 ENV_FILE="" SERVICE="" BASE="" TZ_ARG="" FROM=0 TO=6 SKIP_BACKUP=0 APP_USER=workos
 while [ $# -gt 0 ]; do
   case "$1" in
     --db) DB="${2:-}"; shift 2 ;;
@@ -76,6 +78,7 @@ if [ "$(id -u)" = 0 ]; then
   id "$APP_USER" >/dev/null 2>&1 || { echo "user $APP_USER does not exist (--app-user)" >&2; exit 2; }
 fi
 [ -z "$ENV_FILE" ] || load_env "$ENV_FILE"
+[ -n "$BASE" ] || BASE="http://127.0.0.1:${WORK_OS_PORT:-3100}"
 # The app also accepts the Atlas integration's MONGO_*_URI names; the helpers below want MONGODB_URI.
 if [ -z "${MONGODB_URI:-}" ]; then
   for v in $(compgen -e); do

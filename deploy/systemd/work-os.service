@@ -15,9 +15,18 @@ WorkingDirectory=/srv/work-os/current
 EnvironmentFile=/etc/work-os/env
 Environment=NODE_ENV=production
 Environment=NEXT_TELEMETRY_DISABLED=1
-# Heap cap: about half the instance's memory (t3.small: 1024, t3.medium: 2048).
-Environment=NODE_OPTIONS=--max-old-space-size=1024
-ExecStart=/usr/bin/node /srv/work-os/current/node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3000
+# Memory: the box has 1.8 GiB shared with other apps and already leans on swap. With 20 people the app peaked at
+# 216 MB of heap and 356 MB RSS (docs/cpu.md, measured with a 1024 MB heap cap). The heap cap is that peak plus a
+# third; past MemoryHigh the kernel reclaims from the app first (slower, not killed); past MemoryMax it is killed and
+# restarted (Restart=always). Watch `systemctl status work-os` (Memory: …) in the first weeks.
+Environment=NODE_OPTIONS=--max-old-space-size=288
+MemoryHigh=380M
+MemoryMax=480M
+# The app's port, on 127.0.0.1 only. Default 3100 (3000 is taken on the server); to change it set WORK_OS_PORT in
+# /etc/work-os/env (EnvironmentFile overrides this line) and the port in the Caddy site to match.
+Environment=WORK_OS_PORT=3100
+# Node 22 for Work OS only (docs/hosting.md section 2): the box's own Node is 20 and other apps use it.
+ExecStart=/opt/work-os/node/bin/node /srv/work-os/current/node_modules/next/dist/bin/next start -H 127.0.0.1 -p ${WORK_OS_PORT}
 # Every push stream holds a socket (docs/hosting.md "Push"); the default soft limit of 1024 is too close.
 LimitNOFILE=16384
 Restart=always

@@ -1,0 +1,54 @@
+# Caddy site for Work OS at work.delpat.in (docs/hosting.md section 5). The server already runs Caddy for other
+# sites, so this file only ADDS one site block: copy it to /etc/caddy/sites/work-os.caddy and add one line to the
+# existing Caddyfile, `import /etc/caddy/sites/work-os.caddy`, then `caddy validate --config /etc/caddy/Caddyfile`
+# and `sudo systemctl reload caddy`. Never replace or restart the whole Caddyfile: other sites live in it.
+# Caddy gets and renews the certificate itself (automatic HTTPS) once DNS points here.
+#
+# The app listens on 127.0.0.1:3100 only (WORK_OS_PORT, deploy/systemd/work-os.service); change the three ports
+# below if WORK_OS_PORT is not 3100.
+#
+# What it carries over from the nginx site (deploy/nginx/work-os.conf, kept as the alternative):
+# - the client address: X-Real-IP is set to the address Caddy saw, replacing whatever the client sent; Caddy also
+#   replaces X-Forwarded-For (it trusts no proxy in front of it) and sets X-Forwarded-Proto/-Host. The app reads them
+#   only with TRUST_PROXY=1 (docs/auth.md). x-workos-client-ip, the header Better Auth reads, is dropped here too (the
+#   app's auth route also deletes it before setting its own);
+# - push streams (/api/stream, /api/worker/stream): every event flushed at once (flush_interval -1), no compression
+#   (this site has no `encode`; Next compresses pages itself), no timeout on the 30-minute streams;
+# - request bodies up to 10 MB;
+# - HSTS, and no Server header;
+# - /api/cron/ is not served from outside (the timer calls the app on 127.0.0.1 directly).
+# Not carried over: nginx's per-address limits (30 a minute on /api/auth/, 20 open streams): stock Caddy has no rate
+# limiting. Better Auth's own limits (per address and per account) and the app's stream caps (10 per person, 2 per
+# computer) still apply.
+
+work.delpat.in {
+	request_body {
+		max_size 10MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	handle /api/cron/* {
+		respond 404
+	}
+
+	@work_os_streams path /api/stream /api/worker/stream
+	handle @work_os_streams {
+		reverse_proxy 127.0.0.1:3100 {
+			flush_interval -1
+			header_up X-Real-IP {remote_host}
+			header_up -X-Workos-Client-Ip
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:3100 {
+			flush_interval -1
+			header_up X-Real-IP {remote_host}
+			header_up -X-Workos-Client-Ip
+		}
+	}
+}
