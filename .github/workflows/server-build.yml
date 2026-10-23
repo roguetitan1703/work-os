@@ -2,6 +2,8 @@
 # does not build Work OS itself. This builds the .next folder on an arm64 runner, in the same folder path a release
 # has on the server, and publishes it as work-os-<commit>.tar.gz (+ .sha256) on the repo's "builds" release, where
 # `sudo work-os-deploy` downloads it. The server then runs `npm ci --omit=dev` for its own native modules.
+# The path matters: Next links the packages it keeps external (.next/node_modules/mongodb-<hash> and @blocknote/*)
+# to node_modules by the absolute path of the build folder, and the server accepts only links into its release.
 #
 # The build needs no secrets and no environment (checked: a build with no variables set serves normally). The token
 # is used only in the publish step, after the build, and is never written to disk (checkout keeps no credentials), so

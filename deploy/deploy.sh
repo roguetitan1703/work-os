@@ -114,14 +114,23 @@ TMPD=""
 trap '[ -z "$TMPD" ] || rm -rf "$TMPD"' EXIT
 
 # Unpacks a build tarball ($1, read by root) into $REL as the build user, after checking that it holds only the build
-# (.next and three small files, no links) and that it is this commit's build for this machine's architecture and Node.
+# (.next and three small files) and that it is this commit's build for this machine's architecture and Node.
+# Links: Next puts symlinks in .next/node_modules to the packages it keeps external (mongodb, @blocknote/*), pointing
+# into the node_modules of the folder it was built in. That is why the build is made in the release's own path
+# (/srv/work-os/releases/<commit>): those are the only links allowed, and only into this release's node_modules.
 unpack_build() {
-  local f="$1" bad want have
+  local f="$1" bad want have l to
   bad="$(tar -tzf "$f" | grep -vE '^(\./)?(\.next(/.*)?|REVISION|BUILD_ARCH|BUILD_NODE)?$' || true)"
   [ -z "$bad" ] || { echo "  it holds more than a build (e.g. $(echo "$bad" | head -n 1))" >&2; return 1; }
   if tar -tzf "$f" | grep -qE '(^|/)\.\.(/|$)'; then echo "  it holds a path with .." >&2; return 1; fi
-  if tar -tzvf "$f" | grep -qE '^[lh]'; then echo "  it holds links" >&2; return 1; fi
+  if tar -tzvf "$f" | grep -qE '^h'; then echo "  it holds hard links" >&2; return 1; fi
+  # GNU tar makes symlinks last, so nothing in the archive is written through one.
   as_build tar -xzf - -C "$REL" --no-same-owner --no-same-permissions <"$f"
+  while IFS= read -r -d '' l; do
+    to="$(readlink -m "$l")"
+    case "$l" in "$REL/.next/node_modules/"*) ;; *) echo "  it holds a link outside .next/node_modules: ${l#"$REL"/}" >&2; return 1 ;; esac
+    case "$to" in "$REL/node_modules/"*) ;; *) echo "  ${l#"$REL"/} points outside this release (${to}); was it built in $REL?" >&2; return 1 ;; esac
+  done < <(find "$REL" -type l -print0)
   [ "$(cat "$REL/REVISION" 2>/dev/null)" = "$SHA" ] || { echo "  it is the build of another commit" >&2; return 1; }
   [ "$(cat "$REL/BUILD_ARCH" 2>/dev/null)" = "$(uname -m)" ] ||
     { echo "  it was built for $(cat "$REL/BUILD_ARCH" 2>/dev/null || echo '?'); this machine is $(uname -m)" >&2; return 1; }

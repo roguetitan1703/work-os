@@ -158,10 +158,31 @@ credits and burst to 2 vCPUs. Assuming a t3 vCPU is 1.5x slower than the dev PC:
 As a rough guide, about 250 people active at the same time would use the whole 0.4 vCPU baseline, before banked
 credits. Memory: 356 MB RSS at peak, against 2 GB on the box (a 1,024 MB heap cap, nginx and the OS), so there is room.
 
-**When to size up.** Move to a t3.medium (or set the instance to unlimited credits) when either of these happens:
+### Graviton (t4g.small), shared with other apps
+
+The server Work OS goes on is a **t4g.small**: 2 Graviton2 (arm64) vCPUs, 2 GiB, already running other apps
+(docs/hosting.md section 1). Its credits are the same as a t3.small's: 24 an hour, a 20% baseline per vCPU (0.4 vCPU,
+1,440 CPU seconds an hour), up to 576 banked, standard mode.
+
+- **Speed.** Not measured on Graviton. A t4g vCPU is a whole core (a t3 vCPU is a hyperthread); for one Node process
+  it is about as fast as a t3 vCPU, so the table above stands as it is: Work OS's working day is about 1,305 CPU s,
+  4% of the daily baseline, and a busy hour 107 CPU s (0.03 vCPU). Check it on the box with
+  `systemctl status work-os` (CPU time so far) after a working day.
+- **Shared.** The 4% is Work OS's alone. The other apps spend from the same balance, and with standard credits the
+  whole box is held to 20% per vCPU once the balance is empty, Work OS included. So what matters is the box's
+  `CPUCreditBalance` in CloudWatch, not Work OS's share of it. Before the move, look at that graph for the last two
+  weeks: if it already falls through the working day and only refills overnight, the other apps use most of the
+  baseline and Work OS's 4% is what tips it.
+- **Builds are not on the box** (docs/hosting.md section 7): a build used about 2 vCPU for several minutes, a good part
+  of an hour's credits, and more memory than the box can spare. `npm ci --omit=dev` on a deploy is short.
+- **Memory** is the tighter limit here: 356 MB RSS at peak with 20 people, heap capped at 768 MB, out of 2 GiB shared
+  with the other apps and nginx. The optional 2 GiB swap (docs/hosting.md section 1) is a safety net, not room to
+  grow into.
+
+**When to size up.** Move to a t4g.medium (4 GiB; or set the instance to unlimited credits) when either of these happens:
 - the CPU credit balance (CloudWatch `CPUCreditBalance`) goes down from one working week to the next instead of
   refilling overnight;
-- the app's memory stays above 1.2 GB.
+- the app's memory stays above 600 MB, or the box (all apps) keeps using swap.
 
 Look first at what changed: a new page or link pattern that costs much more shows up in the budgets suite before it
 shows up on the box.

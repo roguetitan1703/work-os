@@ -56,7 +56,7 @@ if have free; then
   MEM_MB="$(free -m | awk 'NR==2{print $2}')"
   SWAP_MB="$(free -m | awk '/^Swap:/{print $2}')"
   AVAIL_MB="$(free -m | awk 'NR==2{print $7}')"
-  [ "${MEM_MB:-0}" -lt 3000 ] && [ "${SWAP_MB:-0}" -lt 1900 ] && warn "under 3 GB RAM and under 2 GB swap: a build on this box needs swap, or build elsewhere (docs/hosting.md \"Memory and the build\")"
+  [ "${MEM_MB:-0}" -lt 3000 ] && [ "${SWAP_MB:-0}" -lt 1900 ] && info "under 3 GB RAM and no 2 GB swap: fine, the box does not build (docs/hosting.md section 7); 2 GB swap is the optional safety net (section 1)"
   [ "${AVAIL_MB:-0}" -lt 700 ] && warn "under 700 MB available now: the app alone wants about 350-450 MB (docs/cpu.md); other apps already use most of it"
 fi
 if [ -r /proc/swaps ]; then sed -n '2,$p' /proc/swaps | awk '{printf "  ·     swap device %s (%s, %d MB)\n",$1,$2,$3/1024}'; fi
