@@ -7,11 +7,11 @@ Atlas. Akash runs the server side with Om. This is the whole runbook, in order; 
 | File | What |
 |---|---|
 | `deploy/preflight.sh` | read-only report on the box before anything is installed (section 1) |
-| `deploy/nginx/work-os.conf` | nginx site: TLS, client address headers, WebSocket upgrade, no buffering, 10 MB bodies; adds only, no default server |
-| `deploy/nginx/work-os-default-deny.conf` | opt-in: drop requests for unknown names and the bare IP (section 5) |
-| `deploy/systemd/work-os.service` | the app (`next start` on 127.0.0.1:`WORK_OS_PORT`, default 3000) |
+| `deploy/caddy/work-os.caddy` | the Caddy site (the box serves with Caddy): client address header, streams flushed at once, 10 MB bodies, HSTS; imported, adds one site only (section 5) |
+| `deploy/nginx/work-os.conf`, `work-os-default-deny.conf` | the same for a box that serves with nginx (alternative, section 5) |
+| `deploy/systemd/work-os.service` | the app (`next start` on 127.0.0.1:`WORK_OS_PORT`, default 3100), with its own Node 22 and memory caps |
 | `deploy/systemd/work-os-alerts.{service,timer}` | the alert check every 15 minutes (was cron-job.org) |
-| `deploy/systemd/work-os-backup.{service,timer}` | nightly `mongodump` to disk and S3 |
+| `deploy/systemd/work-os-backup.{service,timer}` | nightly `mongodump` to disk and S3 (off on the shared box: section 11) |
 | `deploy/env.template` | every variable the server needs, names only |
 | `.github/workflows/server-build.yml` | builds `.next` on an arm64 GitHub runner and publishes it (section 7) |
 | `deploy/deploy.sh` → `work-os-deploy` | fetch, download and check the build, `npm ci --omit=dev`, switch, restart, health check, automatic rollback |
@@ -39,9 +39,16 @@ anything from a release: a release is written by the build user and by every npm
   workflow, commit and branch, refused for another repo's build, another commit, another branch, a changed file and
   a broken bundle;
 - the build's fresh secrets (section 7): after the script, the published preview id no longer revalidates or
-  bypasses anything, and the app runs with `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` (every e2e suite sets it).
+  bypasses anything, and the app runs with `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` (every e2e suite sets it);
+- the Caddy site with Caddy 2.11.7 (plain HTTP on a test port, a stub app behind it): a client's own `X-Real-IP`,
+  `X-Forwarded-For` and `x-workos-client-ip` never reach the app, HSTS is set and `Server` dropped, `/api/cron/`
+  answers 404 without reaching the app, an 11 MB body gets 413 and a 9 MB one passes, a stream's first event arrives
+  at once (not when the response ends) and is not compressed;
+- `deploy.sh`'s refusal of a local `MONGODB_URI` (localhost, 127.x, ::1, 0.0.0.0, docker's 172.16-31.x) against
+  sample strings.
 
-**Not tested** (no Linux server or nginx on the dev PC): the nginx site, the systemd units, `deploy.sh` as a whole,
+**Not tested** (no Linux server, nginx or systemd on the dev PC): the Caddy site with TLS and inside the box's own
+Caddyfile, the nginx site, the systemd units and their memory caps under real load, `deploy.sh` as a whole,
 `preflight.sh`, `backup.sh`, `cron-alerts.sh` and the Server build workflow (it first runs on the first push to
 `master`) were only syntax-checked. Expect small fixes on the first real run; fix them in the repo.
 
@@ -51,6 +58,22 @@ Work OS goes on Delpat's existing EC2 server: a **t4g.small** (2 vCPU **ARM64 Gr
 one volume already, **shared with other apps**. Nothing about it (instance id, IP, internal names) goes in this repo:
 it is public. Placeholders below: `<ops email>`, `<bucket>`, `<your IP>`.
 
+**What is on it already** (2026-10-23; the details went to Om privately): Ubuntu 24.04 aarch64; 1.8 GiB RAM, most of
+it in use, and a 2 GiB swapfile already partly used; a few GB of disk free; a system Node 20 that other apps run on;
+Docker containers, among them a MongoDB on 27017; **Caddy** on :80 and :443; port 3000 and several others taken.
+So Work OS:
+- listens on **127.0.0.1:3100** (`WORK_OS_PORT`);
+- runs its **own Node 22** from `/opt/work-os/node` (section 2) and never touches the system Node or PM2;
+- is one more **Caddy site**, imported into the existing Caddyfile (section 5);
+- uses **Atlas only**: never the docker MongoDB on 27017 (`work-os-deploy` refuses a local `MONGODB_URI`);
+- is capped in memory (section 6) and keeps **one release** on disk (section 7); a deploy needs 1.5 GB free under
+  `/srv`;
+- keeps **no local backups** by default (section 11).
+
+The box is already **swap-heavy**: the memory Work OS takes comes partly out of what the other apps now hold in RAM.
+Expect it to get slower for everyone, not to fail; watch `free -m` and `systemctl status work-os` the first week,
+and talk to Om before Work OS takes more (docs/cpu.md).
+
 **First, the pre-flight** (read-only; changes nothing, prints no secrets):
 
 ```bash
@@ -58,51 +81,43 @@ curl -fsSLO https://raw.githubusercontent.com/roguetitan1703/work-os/master/depl
 sudo bash preflight.sh          # or without sudo: the same minus the process behind each port
 ```
 
-It reports the CPU type, OS, RAM, swap, disk, cgroup v2, Node, nginx (version, sites, default servers, names served,
-clashing names), the ports in use, users, and whatever Work OS would create that already exists. Read it before
-installing anything, and send it to Om **privately**: it describes the other apps on the box (their sites, ports,
-users and services), so never paste it into a public issue, the repo or a shared chat. What to look for:
-- **Port 3000** taken by another app: set `WORK_OS_PORT` (section 9) and the nginx upstream (section 5) to a free one.
-- **Node** other than 22.x already installed for another app: don't replace it under them. Talk first; Work OS can use
-  its own Node at another path (change `/usr/bin/node` in `work-os.service`).
-- **nginx** already has a `default_server`: leave `work-os-default-deny.conf` out (section 5).
-- **Under 700 MB available** with the other apps running: the app needs about 350-450 MB (docs/cpu.md); add the swap
-  below or ask Om before going on.
+It reports the CPU type, OS, RAM, swap, disk, cgroup v2, Node (the system one and Work OS's own), Caddy (sites and
+imports in the Caddyfile) and nginx if present, the ports in use, users, and whatever Work OS would create that
+already exists. Read it before installing anything, and send it to Om **privately**: it describes the other apps on
+the box (their sites, ports, users and services), so never paste it into a public issue, the repo or a shared chat.
+What to look for:
+- **Port 3100** taken by another app: set `WORK_OS_PORT` (section 9) and the ports in the Caddy site (section 5) to
+  a free one.
+- **Caddy** already serving `work.delpat.in`, or already importing a `work-os.caddy`: stop and ask Om.
+- **Under 1.5 GB free** under `/srv`: a deploy refuses to start; free space first (not the other apps').
+- **Under 400 MB available** with the other apps running: the app's cap is 480 MB (section 6); ask Om before going
+  on.
 
 **The shared box, what Work OS adds and touches:**
-- Users `workos` and `workos-build`; folders `/srv/work-os`, `/etc/work-os`, `/var/backups/work-os`; scripts
-  `/usr/local/sbin/work-os-*`; units `work-os.service`, `work-os-alerts.*`, `work-os-backup.*`. All named `work-os`,
-  so nothing collides; the pre-flight says if any exists already.
-- One nginx site, `work-os` (two server blocks for work.delpat.in, and a map, upstream and limit zones all named
-  `work_os_*`). It sets nothing at the http level and no default server. It never removes or edits other sites.
-- One app process on 127.0.0.1 (`WORK_OS_PORT`, default 3000), never opened in the security group.
+- Users `workos` and `workos-build`; folders `/srv/work-os`, `/opt/work-os`, `/etc/work-os`; scripts
+  `/usr/local/sbin/work-os-*`; units `work-os.service`, `work-os-alerts.*` (and `work-os-backup.*`, installed but
+  not enabled). All named `work-os`, so nothing collides; the pre-flight says if any exists already.
+- One Caddy site file, `/etc/caddy/sites/work-os.caddy` (the site `work.delpat.in` only), and one `import` line in
+  the existing Caddyfile. No global options, no other site touched; Caddy is reloaded, never restarted.
+- One app process on 127.0.0.1:3100, never opened in the security group.
 - The box's CPU credits and memory, which every app on it shares (docs/cpu.md "Graviton, shared").
-- Global nginx limits only if needed (`worker_connections`, section 12): raise, never lower, and tell the other apps'
-  owners.
 - **No ufw on a shared box.** `ufw enable` blocks every port not allowed first, including the other apps' ports. The
-  security group is the firewall: inbound 443 and 80 from anywhere (80 only redirects and answers certbot), 22 from
-  Delpat's office/VPN addresses only. If ufw is already on (the pre-flight says), only add `sudo ufw allow 'Nginx Full'`.
+  security group is the firewall: inbound 443 and 80 from anywhere (Caddy needs 80 for certificates and redirects),
+  22 from Delpat's office/VPN addresses only. If ufw is already on (the pre-flight says), Work OS needs nothing new
+  in it: Caddy already has 80 and 443.
 
-**Swap (optional, recommended): 2 GiB as a safety net for the running apps**, not for builds (the box does not build;
-section 7). With 2 GiB shared, a spike in any app could otherwise wake the OOM killer, which may pick Work OS or a
-neighbour. Skip it if the pre-flight shows swap already.
-
-```bash
-sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/90-swappiness.conf && sudo sysctl -p /etc/sysctl.d/90-swappiness.conf
-```
-
-`swappiness=10` keeps swap for real shortage; it applies to the whole box, so tell the other apps' owners.
+**Swap:** the box has a 2 GiB swapfile already; leave it. (On a box without one: 2 GiB as a safety net for the running
+apps, not for builds, made with `fallocate`, `mkswap`, `swapon` and a line in `/etc/fstab`. Don't change
+`vm.swappiness` on a shared box without its owners.)
 
 **CPU credits:** standard mode (decided; unlimited bills the burst). A t4g.small earns the same as a t3.small (20% of
 each vCPU), and the other apps spend from the same balance (docs/cpu.md).
 
 **DNS:** `work.delpat.in A <the Elastic IP>`.
 
-**Backups to S3 (on hold: Om is deciding whether and where).** The S3 parts of this runbook (an instance role with
-`s3:PutObject` only, IMDSv2 with hop limit 1, `BACKUP_S3_URI`, section 11) wait on that decision; the nightly
-`mongodump` to the local disk works without them.
+**Backups (on hold: Om is deciding whether and where).** Nothing is backed up from the box for now: the backup
+timer is not enabled (section 11), Atlas's own backups are what there is. The S3 parts of this runbook (an instance
+role with `s3:PutObject` only, IMDSv2 with hop limit 1, `BACKUP_S3_URI`) wait on that decision.
 
 ## 2. Software
 
@@ -121,21 +136,39 @@ against `package-lock.json`):
 Nothing found that is x64-only. The thing to get right is that **native packages match the machine**: they are
 installed on the box by `npm ci --omit=dev` (section 7), never copied from a build made on another kind of machine.
 
+**Node 22 for Work OS only.** The system Node (20) belongs to the other apps and stays as it is: no NodeSource, no
+`apt install nodejs`, no `n`/`nvm` for root. Work OS gets the official tarball, pinned and checked, under `/opt`;
+the unit, `work-os-deploy` and `work-os-cutover` use `/opt/work-os/node/bin/node` and never the one on `PATH`.
+
 ```bash
-# Ubuntu. Node 22 (package.json engines: 22.x). If the pre-flight shows another Node in use by other apps, stop and
-# read section 1 first.
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs git nginx certbot python3-certbot-nginx
-# MongoDB Database Tools for backups: the arm64 .deb for this Ubuntu from
-# https://www.mongodb.com/try/download/database-tools (Platform: Ubuntu 24.04 ARM 64, or the box's version)
-sudo apt-get install -y ./mongodb-database-tools-ubuntu2404-arm64-*.deb
-# GitHub CLI, only to verify build attestations offline (section 7 has the apt lines; it has arm64 packages)
-node -v && node -p process.arch   # v22.x, arm64
+V=v22.23.4
+F=node-$V-linux-arm64.tar.xz
+cd /tmp && curl -fsSLO --proto '=https' https://nodejs.org/dist/$V/$F
+# sha256 from https://nodejs.org/dist/v22.23.4/SHASUMS256.txt (checked 2026-10-23); it must print "OK"
+echo "6287aa46b6c375d816e63ae66d024fbbfd70404825aabdfdf898a970871d2f4b  $F" | sha256sum -c
+sudo install -d -o root -g root -m 0755 /opt/work-os
+sudo tar -xJf $F -C /opt/work-os --no-same-owner      # /opt/work-os/node-v22.23.4-linux-arm64, owned by root
+sudo ln -sfn /opt/work-os/node-$V-linux-arm64 /opt/work-os/node
+rm $F
+/opt/work-os/node/bin/node -v && /opt/work-os/node/bin/node -p process.arch    # v22.23.4, arm64
+node -v                                                                         # the system Node, still v20
 ```
 
-Amazon Linux 2023 instead: `sudo dnf install -y nodejs22 git nginx` (then `node` may be `node-22`: check
-`command -v node`, and the path in `work-os.service`), certbot from `pip` or `dnf install certbot python3-certbot-nginx`,
-and the `amazon2023-aarch64` rpm of the Database Tools.
+A Node update for Work OS: the same lines with the new version and its sha256 from that version's `SHASUMS256.txt`
+(and, to match, `node-version` in `.github/workflows/server-build.yml`), then `sudo systemctl restart work-os`. The
+old folder can go once the app runs on the new one. The deploy refuses a Node under `/opt/work-os/node` that is not
+22.x, and a build whose Node major differs from it.
+
+The rest:
+
+```bash
+sudo apt-get install -y git
+# GitHub CLI, only to verify build attestations offline (section 7 has the apt lines; it has arm64 packages)
+```
+
+Caddy is already installed and running; Work OS needs nothing more from it. MongoDB Database Tools (`mongodump`) are
+only for backups, which are off (section 11): install them when backups are decided (the `ubuntu2404-arm64` .deb from
+https://www.mongodb.com/try/download/database-tools).
 
 ## 3. Atlas
 
@@ -152,7 +185,6 @@ sudo adduser --system --group --home /var/lib/workos-build workos-build
 sudo install -d -o root -g root -m 0755 /srv/work-os
 sudo install -d -o workos-build -g workos-build -m 0755 /srv/work-os/releases
 sudo -u workos-build git clone https://github.com/roguetitan1703/work-os.git /srv/work-os/repo
-sudo install -d -o workos -g workos -m 0700 /var/backups/work-os
 sudo install -d -m 0750 -g workos /etc/work-os
 sudo install -m 0640 -g workos /srv/work-os/repo/deploy/env.template /etc/work-os/env
 sudo nano /etc/work-os/env      # fill in; see Environment below
@@ -177,19 +209,57 @@ sudo chown root:root /etc/work-os/deploy.conf && sudo chmod 0644 /etc/work-os/de
 
 The repo is public and needs no credentials to clone.
 
-## 5. TLS and nginx
+## 5. TLS and Caddy
 
-The box serves other sites: Work OS **adds** one site and touches nothing else. Never remove `sites-enabled/default`
-or another site, and never reload nginx with a config that fails `nginx -t`.
+The box serves its other sites with **Caddy**: Work OS **adds** one site file and one `import` line, and touches
+nothing else. Never replace the Caddyfile, never `systemctl restart caddy` (a reload keeps the other sites up and
+keeps the old config if the new one fails), and never reload a config that fails `caddy validate`.
+
+```bash
+sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile   # must pass BEFORE we add anything
+sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.before-work-os         # to undo
+sudo install -d -o root -g root -m 0755 /etc/caddy/sites
+sudo install -o root -g root -m 0644 /srv/work-os/repo/deploy/caddy/work-os.caddy /etc/caddy/sites/work-os.caddy
+# WORK_OS_PORT is not 3100? Change the two "127.0.0.1:3100" in /etc/caddy/sites/work-os.caddy.
+echo 'import /etc/caddy/sites/work-os.caddy' | sudo tee -a /etc/caddy/Caddyfile >/dev/null   # at the end, its own line
+sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo systemctl reload caddy
+journalctl -u caddy -n 30 --no-pager      # "certificate obtained successfully" for work.delpat.in
+```
+
+The `import` goes at the end of the Caddyfile on a line of its own, outside every other site's braces. If
+`caddy validate` fails after adding it, put the copy back (`sudo cp /etc/caddy/Caddyfile.before-work-os
+/etc/caddy/Caddyfile`) and stop. Likely causes: the Caddyfile has no such import path or a global block that
+conflicts, or another site already serves `work.delpat.in`. Caddy gets the certificate itself once DNS points here
+(ports 80 and 443 open); there is no certbot.
+
+What the site does, and why (comments in the file say the same):
+- `X-Real-IP` set to the address Caddy saw, replacing what the client sent; Caddy also replaces `X-Forwarded-For`
+  (it trusts no proxy in front of it) and sets `X-Forwarded-Proto`. The app reads them only with `TRUST_PROXY=1`
+  (sign-in rate limits per IP, `docs/auth.md`). The client's `x-workos-client-ip` (the header Better Auth reads) is
+  dropped.
+- `flush_interval -1`: pages stream (Suspense), MCP answers with server-sent events, and the push streams send an
+  event at a time (section 12). No `encode`: Next compresses pages itself, and the streams must not be held back.
+- `request_body max_size 10MB`: server actions and MCP calls are small; note files go straight to blob storage.
+- HSTS (a year), and no `Server` header.
+- `/api/cron/` answers 404 from outside. The timer calls the app on 127.0.0.1:`WORK_OS_PORT` directly; the route
+  takes the secret only as a header (`?key=` in the URL is no longer accepted: it would land in logs).
+- **No per-address rate limits.** The nginx site limits `/api/auth/` to 30 a minute per address and streams to 20 per
+  address; stock Caddy has no rate limiting (it needs a plugin, i.e. a rebuilt Caddy for the whole box). What still
+  limits: Better Auth's own limits per address and per account, and the app's stream caps (10 per person, 2 per
+  computer). Decision for Om: enough, or a Caddy with the rate-limit plugin (it changes the other apps' Caddy).
+
+### The nginx alternative
+
+For a box that serves with nginx instead, `deploy/nginx/work-os.conf` does the same plus the per-address limits.
+It too only adds (no default server, nothing at the http level), with the certificate from certbot:
 
 ```bash
 sudo nginx -t                   # must pass BEFORE we add anything; if not, stop: the other apps' config is broken
-# The certificate first (certbot's nginx plugin answers the challenge for a name no site serves yet):
 sudo certbot certonly --nginx -d work.delpat.in -m <ops email> --agree-tos -n
 sudo cp /srv/work-os/repo/deploy/nginx/work-os.conf /etc/nginx/sites-available/work-os
 sudo ln -s /etc/nginx/sites-available/work-os /etc/nginx/sites-enabled/work-os
-# Amazon Linux (no sites-available): sudo cp …/work-os.conf /etc/nginx/conf.d/work-os.conf
-# WORK_OS_PORT is not 3000? Change "server 127.0.0.1:3000;" in the upstream to the same port.
+# WORK_OS_PORT is not 3100? Change "server 127.0.0.1:3100;" in the upstream to the same port.
 sudo nginx -t && sudo systemctl reload nginx
 sudo certbot renew --dry-run    # renewal works with our site in place
 ```
@@ -209,7 +279,7 @@ Work OS is the **only** site on port 443, that first site is Work OS: the bare I
 show the Work OS sign-in page (with the work.delpat.in certificate, so browsers warn). Harmless (everything behind
 it still needs a session), but if that matters, install the opt-in file, or make sure another site is the default.
 
-What the site does, and why:
+What the nginx site does, and why:What the site does, and why:
 - `X-Real-IP $remote_addr` and `X-Forwarded-For $remote_addr`, both overwritten, so a client cannot pick its own
   address. The app reads them only with `TRUST_PROXY=1` (sign-in rate limits per IP, `docs/auth.md`).
 - WebSocket upgrade headers on every path (the map is `$work_os_connection_upgrade`: the usual `$connection_upgrade`
@@ -235,15 +305,26 @@ sudo cp /srv/work-os/repo/deploy/systemd/work-os*.service /srv/work-os/repo/depl
 sudo systemctl daemon-reload
 sudo systemctl enable work-os                     # started by the first deploy
 sudo work-os-deploy                               # fetch the build and start (section 7)
-sudo systemctl enable --now work-os-alerts.timer work-os-backup.timer
+sudo systemctl enable --now work-os-alerts.timer   # not work-os-backup.timer: backups are off (section 11)
 systemctl list-timers 'work-os*'
 ```
 
-The unit runs `next start -H 127.0.0.1 -p $WORK_OS_PORT` (default 3000) as `workos` from `/srv/work-os/current`, with `/etc/work-os/env`, in
-a read-only system where the only writable path is that release's `.next/cache`.
-On stop it sends SIGTERM and waits 30 s, so in-flight requests and `after()` work (alert flushes) finish. The unit
-caps the heap at 768 MB (`NODE_OPTIONS=--max-old-space-size=768`): the app peaked at 356 MB with 20 people
-(docs/cpu.md), and the other apps on the box need the rest. Alone on a box, about half its memory.
+The unit runs `/opt/work-os/node/bin/node … next start -H 127.0.0.1 -p $WORK_OS_PORT` (default 3100) as `workos`
+from `/srv/work-os/current`, with `/etc/work-os/env`, in a read-only system where the only writable path is that
+release's `.next/cache`.
+On stop it sends SIGTERM and waits 30 s, so in-flight requests and `after()` work (alert flushes) finish.
+
+**Memory.** The box has 1.8 GiB for every app and already leans on swap, so the unit caps Work OS:
+- heap 288 MB (`NODE_OPTIONS=--max-old-space-size=288`): the app peaked at 216 MB of heap and 356 MB RSS with 20
+  people (docs/cpu.md), measured with a 1024 MB cap; 288 is that peak plus a third;
+- `MemoryHigh=380M`: past it the kernel takes memory back from Work OS first (it slows down, it is not killed);
+- `MemoryMax=480M`: past it the app is killed and systemd starts it again (`Restart=always`); people see a few
+  seconds of errors and their pages reconnect.
+
+These are estimates from a load test on a PC, not measured on the box. In the first weeks watch
+`systemctl status work-os` (the `Memory:` line, against high and max) and `journalctl -u work-os | grep -i
+'heap\|oom'`. If the app hits them under normal use, raise all three together (e.g. 384 / 480M / 600M) after
+checking with Om what the other apps can spare. Alone on a box: heap about half its memory, no caps.
 
 Logs: `journalctl -u work-os -f`, `journalctl -u work-os-alerts`, `journalctl -u work-os-backup`.
 
@@ -258,8 +339,9 @@ sudo work-os-deploy <ref> --build-here           # last resort: build on the box
 
 ### The build: made off the box
 
-The box does not build Work OS. A Next build wants 1.5 GB or more for a few minutes, and the box has 2 GB shared with
-other apps: building there would push them into swap or wake the OOM killer. So the build is made elsewhere **for the
+The box does not build Work OS. A Next build wants 1.5 GB or more for a few minutes, and the box has 1.8 GiB shared
+with other apps and is already deep in swap: building there would push them further into swap or wake the OOM
+killer. So the build is made elsewhere **for the
 same CPU type (arm64)**, and the box only installs the runtime packages.
 
 1. **GitHub Actions** (`.github/workflows/server-build.yml`, "Server build") runs on every push to `master`, and by
@@ -341,8 +423,8 @@ machine's, because a build made on another platform is not checked to run here. 
 `--platform linux/arm64` works but takes far longer; use the workflow.)
 
 **`--build-here`** (last resort, e.g. GitHub down): `npm ci` and `npm run build` on the box, with `NEXT_BUILD_CPUS=1`,
-a 1.5 GB heap, low priority and the same memory cgroup (1200M plus up to 2G of swap, so it needs the swap from
-section 1). Slow; do it at a quiet hour. If it runs out of memory only the build stops; the app keeps serving the
+a 1.5 GB heap, low priority and its own memory cgroup (1200M plus up to 2G of swap). On this box that means pushing
+the other apps into swap for many minutes: ask Om first. Slow; do it at a quiet hour. If it runs out of memory only the build stops; the app keeps serving the
 old release. A build made on the box keeps its own secrets (they were never published).
 
 ### The build's secrets
@@ -369,11 +451,16 @@ After a Next upgrade, check that both are still where the script looks (it stops
 
 ### Switching
 
-While the new release is prepared the old one keeps serving. Then `current` moves to it, the old one becomes
-`previous`, the app restarts, and the script waits up to a minute for `/api/live` and `/login` to answer 200 on
-127.0.0.1:`WORK_OS_PORT`. If they don't, it switches back and restarts the old release by itself (`previous` stays
-what it was), and says so. If the old release does not come up either, it prints `FAILED: the app is DOWN`. It keeps
-the four newest releases. One deploy at a time (a lock). The app never reads `/etc/work-os/env` at build time.
+While the new release is prepared the old one keeps serving. Then `current` moves to it, the app restarts, and the
+script waits up to a minute for `/api/live` and `/login` to answer 200 on 127.0.0.1:`WORK_OS_PORT`. If they don't,
+it switches back to the old release (still on disk, so at once), restarts it, removes the failed one and says so. If
+the old release does not come up either, it prints `FAILED: the app is DOWN`.
+
+**One release on disk** (Om, 2026-10-23; the disk is short). Both exist only while a deploy runs. Once the new release
+answers, the script writes the old one's commit to `/srv/work-os/previous-commit` (root's) and deletes the old
+folder. It refuses to start with under 1.5 GB free under `/srv` (`MIN_FREE_MB`): a release (repo, `.next`, runtime
+`node_modules`, a few hundred MB), the download and the old release side by side need that. It also refuses a Node under `/opt/work-os/node` that is not 22.x, and a
+`MONGODB_URI` that points at this machine or a docker network (Work OS uses Atlas only). One deploy at a time (a lock). The app never reads `/etc/work-os/env` at build time.
 
 Pushing to `master` builds (Actions) but does not deploy: deploys are this command.
 
@@ -391,7 +478,8 @@ Pushing to `master` builds (Actions) but does not deploy: deploys are this comma
 - Where a build keeps its secrets (`prerender-manifest.json` `preview`, `server-reference-manifest` `encryptionKey`)
   and that `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` wins over the manifest ("The build's secrets" above); the script
   stops the deploy if the format changed.
-- The engines field (`node: 22.x`) and `BUILD_NODE`: a Next that needs a newer Node needs the box's Node first.
+- The engines field (`node: 22.x`) and `BUILD_NODE`: a Next that needs a newer Node needs Work OS's own Node
+  (`/opt/work-os/node`, section 2) first, and the workflow's `node-version`.
 
 **Health:** `GET /api/live` answers `ok` and nothing else, without a session (nginx, systemd and the deploy script
 use it; `proxy.ts` does not count it). `GET /api/admin/health` is the full report, for the operator only
@@ -399,9 +487,16 @@ use it; `proxy.ts` does not count it). `GET /api/admin/health` is the full repor
 
 ## 8. Rollback
 
-- **Code:** `sudo work-os-deploy --rollback` swaps `current` and `previous` and restarts (seconds, no build); if that
-  release does not come up it goes back and says so. Any older release still in `releases/`:
-  `sudo work-os-deploy <its commit>` (already built, so no build).
+- **Code:** `sudo work-os-deploy --rollback` deploys the commit in `/srv/work-os/previous-commit` (the one live before
+  the current one) exactly like a deploy: its build is **downloaded again** from the `builds` release and checked
+  (SHA-256, attestation, contents), `npm ci --omit=dev`, switch, health check. It takes **2 to 3 minutes and needs
+  GitHub reachable**; the current release keeps serving until the switch, and if the old one does not come up the
+  script goes back to the current one at once. `sudo work-os-deploy --rollback <commit>` (or plain
+  `sudo work-os-deploy <commit>`) does the same for any master commit whose build is still published (the newest 20
+  builds are kept). A rollback is a deploy, so afterwards `--rollback` points at the release you left. GitHub down and
+  the release broken: `--artifact` with a build from elsewhere, or, last resort, `--build-here` (section 7). A
+  release that fails its health check during a deploy needs none of this: the old one is still on disk and the
+  switch back is instant.
 - **Data:** code rollback does not undo a migration. Across the cut-over the only way back is restoring the backup
   taken just before it (section 11), with the old app; once people have used the new version, a restore loses their
   changes since. So: rehearse first, cut over at a quiet time, and check right after.
@@ -419,7 +514,7 @@ chat or tickets.
 | `MONGODB_DB` | database name, `workos` | |
 | `BETTER_AUTH_SECRET` | signs session cookies and MCP confirm tokens, hashes tokens, encrypts authenticator secrets. Make it once and keep it: changing it signs everyone out and breaks authenticator apps | **yes** |
 | `APP_URL` | `https://work.delpat.in`: Better Auth's base URL, the passkey domain (passkeys work only on the domain they were made on), links in mail, Discord and to Claude | |
-| `TRUST_PROXY` | `1`: trust nginx's `X-Real-IP` / `X-Forwarded-For` for per-IP sign-in limits | |
+| `TRUST_PROXY` | `1`: trust Caddy's (or nginx's) `X-Real-IP` / `X-Forwarded-For` for per-IP sign-in limits | |
 | `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` | encrypts server actions' bound arguments; Next reads it at runtime, before the (public) key in a published build. 32 random bytes, base64, made once (section 7 "The build's secrets") | **yes** |
 | `OPERATOR_EMAILS` | who runs the deployment (comma list): health, Usage, Discord registration and servers. Unset = nobody | |
 | `INVITE_LINK_TO_INVITER` | unset/`1`: the inviter also sees invitation links; `0`: by email only | |
@@ -432,7 +527,7 @@ chat or tickets.
 | `DISCORD_BOT_TOKEN` | the Discord bot | **yes** |
 | `DISCORD_BLOCKED_CHANNELS` | extra channels never read (normally set in Settings) | |
 | `APP_TZ` | timezone for people who have not chosen one | |
-| `WORK_OS_PORT` | the app's port on 127.0.0.1 (default 3000; set it if another app has 3000, and the nginx upstream to match). Leave the line out for 3000: an empty value overrides the unit's default | |
+| `WORK_OS_PORT` | the app's port on 127.0.0.1 (default 3100; set it only if another app has 3100, and the Caddy site's ports to match). Leave the line out for 3100: an empty value overrides the unit's default | |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows `/api/mcp/<key>`; leave unset | |
 | `USAGE_LOG` | `off` stops the request log (Settings › Usage); leave unset | |
 | `BACKUP_DIR`, `BACKUP_KEEP_DAYS`, `BACKUP_S3_URI` | `work-os-backup` (`deploy/backup.sh`) | |
@@ -526,7 +621,13 @@ The app under test needs `MAIL_CAPTURE_DIR` set, so the reset mail lands in a fo
 
 ## 11. Backups
 
-`work-os-backup.timer` runs `work-os-backup` (`deploy/backup.sh`) as `workos` at 03:00 IST:
+**Off on the shared box** (decided 2026-10-23, until Om decides on backups): the unit and timer are installed but
+`work-os-backup.timer` is **not enabled**, so nothing writes dumps to the box's short disk. Atlas's own backups are
+what there is meanwhile. When backups are decided, install the Database Tools (section 2), make
+`/var/backups/work-os` (`sudo install -d -o workos -g workos -m 0700 /var/backups/work-os`), check the disk, and
+`sudo systemctl enable --now work-os-backup.timer`.
+
+What it does once enabled: `work-os-backup.timer` runs `work-os-backup` (`deploy/backup.sh`) as `workos` at 03:00 IST:
 - `mongodump` of `MONGODB_DB` to `/var/backups/work-os/workos-<UTC time>.archive.gz`. The connection string goes to
   mongodump in a 0600 temporary file, never on the command line.
 - Then `aws s3 cp` to `BACKUP_S3_URI` with server-side encryption, using the instance role (put only: the server
@@ -556,7 +657,7 @@ umask 077; CFG=$(mktemp); trap 'rm -f "$CFG"' EXIT
 printf 'uri: "%s"\n' "$MONGODB_URI" >"$CFG"
 mongorestore --config="$CFG" --archive=/tmp/drill.archive.gz --gzip \
   --nsFrom 'workos.*' --nsTo 'workos_restore.*' --drop
-cd /srv/work-os/current && runuser -u workos -- node -e '
+cd /srv/work-os/current && runuser -u workos -- /opt/work-os/node/bin/node -e '
   const { MongoClient } = require("mongodb");
   const c = new MongoClient(process.env.MONGODB_URI);
   (async () => {
@@ -584,7 +685,13 @@ streams from ordinary route handlers.
 | Pages | `GET /api/stream` | session cookie (the proxy checks it like any page) |
 | Workers | `GET /api/worker/stream` | `Authorization: Bearer wkr_…` |
 
-What nginx must do for those two paths:
+**With Caddy** (the box's server, `deploy/caddy/work-os.caddy`) this is all in the site: `flush_interval -1`
+(every event goes out at once), no `encode` (no compression by Caddy), no read timeout on the upstream by default
+(the streams last 30 minutes), HTTP/1.1 keep-alive to the app, HTTP/2 to browsers by default, and no connection
+limit to raise. What Caddy does not have is nginx's per-address limit on streams (below): the app's own caps (10 per
+person, 2 per computer) are what limits them. Tested with Caddy 2.11.7 ("Tested so far").
+
+**With nginx** (the alternative), what it must do for those two paths:
 
 - **No buffering.** The responses send `X-Accel-Buffering: no`, which nginx honours by itself; setting
   `proxy_buffering off;` on the two locations as well does no harm. Without it, events sit in nginx's buffer and

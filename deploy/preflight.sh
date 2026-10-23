@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # Read-only check of a server before Work OS is installed on it (docs/hosting.md "1. The server"). It changes nothing:
 # no files written, no packages installed, no services touched. Run it on the box and send the output to whoever
-# installs; it prints no secrets (it never reads /etc/work-os/env or any other app's config values).
+# installs, privately: it describes the other apps on the box. It prints no secrets (it never reads /etc/work-os/env
+# or any other app's config values).
 #
 #   bash preflight.sh                 what an ordinary user can see
 #   sudo bash preflight.sh            also the process behind each listening port and nginx -T's site list
-#   WORK_OS_PORT=3100 bash preflight.sh   check another app port (default 3000)
+#   WORK_OS_PORT=3110 bash preflight.sh   check another app port (default 3100)
 #
-# Sections: machine (arch, OS, RAM, swap, disk, cgroup v2, CPU credits hint), software (Node, npm, git, nginx,
-# certbot, mongodump, age, systemd-run), nginx (version, sites, default servers, names already served, variables and
+# Sections: machine (arch, OS, RAM, swap, disk, cgroup v2, CPU credits hint), software (the system Node and Work OS's
+# own in /opt/work-os/node, npm, git, gh, mongodump, systemd-run, pm2, docker), Caddy (sites and imports), nginx (version, sites, default servers, names already served, variables and
 # zones that would clash), ports in use, users and groups, and what Work OS would create that already exists.
 set -u
-PORT="${WORK_OS_PORT:-3000}"
+PORT="${WORK_OS_PORT:-3100}"
 ROOT_RUN=0
 [ "$(id -u)" = 0 ] && ROOT_RUN=1
 
@@ -61,8 +62,10 @@ if have free; then
 fi
 if [ -r /proc/swaps ]; then sed -n '2,$p' /proc/swaps | awk '{printf "  ·     swap device %s (%s, %d MB)\n",$1,$2,$3/1024}'; fi
 if have df; then
-  echo "  ·     disk (Work OS wants about 4 GB under /srv: four releases with node_modules):"
+  echo "  ·     disk (Work OS keeps one release, two during a deploy; work-os-deploy refuses to start under 1.5 GB free):"
   df -h / /srv /var /tmp 2>/dev/null | awk 'NR==1 || !seen[$1 $6]++' | sed 's/^/          /'
+  FREE_MB="$(df -Pm /srv 2>/dev/null | awk 'NR==2 {print $4}')"
+  [ -n "$FREE_MB" ] && [ "$FREE_MB" -lt 1536 ] && warn "only $FREE_MB MB free for /srv: under the 1.5 GB a deploy needs"
 fi
 if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
   ok "cgroup v2 (the deploy can cap the build's memory: work-os-deploy uses systemd-run)"
@@ -74,14 +77,19 @@ h "Software"
 if have node; then
   NV="$(node -v)"
   case "$NV" in
-    v22.*) ok "node $NV ($(command -v node))" ;;
-    *) warn "node $NV at $(command -v node): Work OS wants 22.x (package.json engines). Other apps may need this one: talk before changing it" ;;
+    v22.*) ok "system node $NV ($(command -v node)); Work OS still uses its own in /opt/work-os/node" ;;
+    *) info "system node $NV at $(command -v node): leave it to the other apps; Work OS runs on its own Node 22 (/opt/work-os/node)" ;;
   esac
   info "node arch: $(node -p process.arch 2>/dev/null)"
 else
   info "node: not installed"
 fi
-for t in npm git curl flock systemd-run certbot mongodump mongorestore age aws rclone ufw; do
+if [ -x /opt/work-os/node/bin/node ]; then
+  ok "Work OS's own Node: /opt/work-os/node ($(/opt/work-os/node/bin/node -v))"
+else
+  info "Work OS's own Node 22 (/opt/work-os/node) is not installed yet (docs/hosting.md section 2); the system node stays as it is"
+fi
+for t in npm git curl flock systemd-run gh certbot mongodump mongorestore age aws rclone ufw; do
   if have "$t"; then
     v="$("$t" --version 2>/dev/null | head -1)"
     ok "$t ${v:-} ($(command -v "$t"))"
@@ -91,6 +99,22 @@ for t in npm git curl flock systemd-run certbot mongodump mongorestore age aws r
 done
 if have pm2; then info "pm2 is installed (another app may run under it; Work OS uses systemd)"; fi
 if have docker; then info "docker is installed: $(docker ps --format '{{.Names}} ({{.Ports}})' 2>/dev/null | tr '\n' ' ' || echo 'containers not readable without root')"; fi
+
+h "Caddy"
+if have caddy || systemctl is-active --quiet caddy 2>/dev/null; then
+  info "caddy $(caddy version 2>/dev/null | cut -d" " -f1) ($(systemctl is-active caddy 2>/dev/null || echo "?"))"
+  for f in /etc/caddy/Caddyfile; do
+    [ -r "$f" ] || { info "$f: not readable (run with sudo)"; continue; }
+    info "sites in $f: $(grep -hoE '^[^#[:space:]{(][^{]*{' "$f" | tr -d "{" | tr "
+" " ")"
+    info "imports: $(grep -hoE '^[[:space:]]*import[[:space:]]+[^[:space:]]+' "$f" | awk '{print $2}' | tr "
+" " ")"
+    if grep -qE '(^|[[:space:]])work.delpat.in([[:space:],{]|$)' "$f" /etc/caddy/sites/*.caddy 2>/dev/null; then warn "work.delpat.in already has a Caddy site"; fi
+  done
+  [ -e /etc/caddy/sites/work-os.caddy ] && warn "/etc/caddy/sites/work-os.caddy already exists"
+else
+  info "caddy: not found"
+fi
 
 h "nginx"
 if have nginx || [ -x /usr/sbin/nginx ]; then
@@ -143,11 +167,11 @@ if have ss; then
   if [ "$ROOT_RUN" = 1 ]; then ss -Htlnp 2>/dev/null; else ss -Htln 2>/dev/null; fi |
     awk '{a=$4; p=$NF; if (p ~ /users:/) {sub(/.*users:\(\("/,"",p); sub(/".*/,"",p)} else p=""; print "          " a (p ? "  " p : "")}' | sort -u
   if ss -Htln "sport = :$PORT" 2>/dev/null | grep -q .; then
-    warn "port $PORT is taken: set WORK_OS_PORT in /etc/work-os/env to a free one (and the upstream in the nginx site)"
+    warn "port $PORT is taken: set WORK_OS_PORT in /etc/work-os/env to a free one (and the port in the Caddy site)"
   else
     ok "port $PORT is free for Work OS (127.0.0.1 only)"
   fi
-  for p in 80 443; do ss -Htln "sport = :$p" 2>/dev/null | grep -q . && info "port $p is served (by nginx, presumably)"; done
+  for p in 80 443; do ss -Htln "sport = :$p" 2>/dev/null | grep -q . && info "port $p is served (Caddy or nginx: see above)"; done
 else
   info "ss not found"
 fi

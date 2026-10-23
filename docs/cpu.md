@@ -175,14 +175,16 @@ The server Work OS goes on is a **t4g.small**: 2 Graviton2 (arm64) vCPUs, 2 GiB,
   baseline and Work OS's 4% is what tips it.
 - **Builds are not on the box** (docs/hosting.md section 7): a build used about 2 vCPU for several minutes, a good part
   of an hour's credits, and more memory than the box can spare. `npm ci --omit=dev` on a deploy is short.
-- **Memory** is the tighter limit here: 356 MB RSS at peak with 20 people, heap capped at 768 MB, out of 2 GiB shared
-  with the other apps and nginx. The optional 2 GiB swap (docs/hosting.md section 1) is a safety net, not room to
-  grow into.
+- **Memory** is the tighter limit here: the box has 1.8 GiB for every app and already uses its swap. Work OS peaked
+  at 216 MB of heap and 356 MB RSS with 20 people (measured above with a 1024 MB heap cap); on the box its unit caps
+  the heap at 288 MB, slows it past 380 MB (`MemoryHigh`) and restarts it past 480 MB (`MemoryMax`)
+  (docs/hosting.md section 6). Those caps are estimates, not measured on the box: the first weeks tell.
 
 **When to size up.** Move to a t4g.medium (4 GiB; or set the instance to unlimited credits) when either of these happens:
 - the CPU credit balance (CloudWatch `CPUCreditBalance`) goes down from one working week to the next instead of
   refilling overnight;
-- the app's memory stays above 600 MB, or the box (all apps) keeps using swap.
+- the app's memory keeps reaching `MemoryHigh` (380 MB) or it is restarted at `MemoryMax` (`systemctl status
+  work-os`, `journalctl -u work-os`), or the box's swap use keeps growing.
 
 Look first at what changed: a new page or link pattern that costs much more shows up in the budgets suite before it
 shows up on the box.
