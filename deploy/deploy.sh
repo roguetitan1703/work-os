@@ -15,8 +15,9 @@
 # This script downloads them for the commit it deploys and, before unpacking anything, checks the SHA-256 and the
 # attestation: made by that workflow in this repo, from that commit, on master, on a GitHub-hosted runner. Then it
 # checks the contents (only the build, links only into the release), the commit, CPU type and Node version, gives the
-# build fresh secrets (work-os-fresh-secrets.mjs: the published ones are public), and runs `npm ci --omit=dev`, so the
-# native modules (Next's SWC, sharp) are this machine's. A release counts as prepared only when all of that passed.
+# build fresh secrets (work-os-fresh-secrets.mjs: the published ones are public), and runs `npm ci --omit=dev
+# --ignore-scripts`, so the native modules (Next's SWC, sharp) are this machine's. Then root seals the release (it
+# becomes root's, see seal_release). A release counts as prepared only when all of that passed.
 #
 # Each release is prepared in its own folder by the build user (workos-build, who cannot read /etc/work-os/env) while
 # the current one keeps serving; then the "current" symlink moves, the app (user workos) restarts and /api/live is
@@ -24,8 +25,8 @@
 # one answers is the old folder deleted: the box keeps one release (the disk is short), and a later rollback
 # downloads and checks the old build again, like any deploy (minutes; needs GitHub). One deploy at a time (a lock).
 #
-# Layout: $APP_ROOT/repo (git clone, build user), $APP_ROOT/releases/<commit> (build user; only .next/cache belongs to
-# the app user), $APP_ROOT/current (root's symlink) and $APP_ROOT/previous-commit (root's file: the commit that was
+# Layout: $APP_ROOT/repo (git clone, build user), $APP_ROOT/releases (root's)/<commit> (filled by the build user, then
+# root's; only .next/cache belongs to the app user), $APP_ROOT/current (root's symlink) and $APP_ROOT/previous-commit (root's file: the commit that was
 # live before the current one, what --rollback deploys). /etc/work-os/deploy.conf (root's, made at
 # install time) names the GitHub repo the builds come from: GITHUB_REPO=<owner>/<repo>.
 #
@@ -115,10 +116,37 @@ fi
 
 [ -x "$NODE_DIR/bin/node" ] || { echo "no Node at $NODE_DIR/bin/node (docs/hosting.md section 2: Node 22 for Work OS)" >&2; exit 2; }
 case "$("$NODE_DIR/bin/node" -v)" in v22.*) ;; *) echo "$NODE_DIR is Node $("$NODE_DIR/bin/node" -v), not 22.x (package.json engines)" >&2; exit 2 ;; esac
-# Work OS uses Atlas only: never the box's own MongoDB (the other apps' docker container on 27017). Names only checked.
-if grep -qE '^[[:space:]]*MONGODB_URI=["'"'"']?mongodb(\+srv)?://([^@/]*@)?(localhost|127\.|\[::1\]|0\.0\.0\.0|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[01]\.)' "$ENV_FILE" 2>/dev/null; then
-  echo "MONGODB_URI in $ENV_FILE points at this machine or a docker network: Work OS uses Atlas only" >&2
-  exit 2
+# Work OS uses Atlas only: never the box's own MongoDB (the other apps' docker container on 27017). A guard against a
+# slip, not a guarantee: it reads the names the app reads (MONGODB_URI and the MONGO_*_URI / MONGO_*_URL ones, lib/db.ts)
+# from the env file and wants an Atlas address, mongodb+srv://…mongodb.net. ALLOW_NON_ATLAS=1 in deploy.conf turns it off.
+conf_value() {
+  [ -f "$DEPLOY_CONF" ] && [ "$(stat -c '%u' "$DEPLOY_CONF")" = 0 ] && [ -z "$(find "$DEPLOY_CONF" -perm /022)" ] || return 0
+  sed -n "s/^[[:space:]]*$1=//p" "$DEPLOY_CONF" 2>/dev/null | tail -n 1 | tr -d '\r"'"'"' ' || true
+}
+not_atlas() {
+  local line k v
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
+    k="${BASH_REMATCH[2]}"
+    v="${BASH_REMATCH[3]}"
+    v="${v%"${v##*[![:space:]]}"}"
+    v="${v#[\"\']}"
+    v="${v%[\"\']}"
+    [ -n "$v" ] || continue
+    if [ "${k^^}" != MONGODB_URI ]; then
+      [[ "${k^^}" =~ (^|_)MONGODB_URI$|(^|_)MONGO_URL$|(^|_)MONGO_URI$ ]] && [[ "$v" == mongodb* ]] || continue
+    fi
+    [[ "$v" =~ ^mongodb\+srv://([^@/?#]*@)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.mongodb\.net(/|\?|$) ]] || echo "$k"
+  done
+}
+if [ "$(conf_value ALLOW_NON_ATLAS)" != 1 ]; then
+  BAD_DB="$(not_atlas <"$ENV_FILE" 2>/dev/null | head -n 1 || true)"
+  if [ -n "$BAD_DB" ]; then
+    echo "$BAD_DB in $ENV_FILE is not an Atlas address (mongodb+srv://….mongodb.net): Work OS uses Atlas only" >&2
+    echo "  (ALLOW_NON_ATLAS=1 in $DEPLOY_CONF if you really mean another server)" >&2
+    exit 2
+  fi
 fi
 # Disk: the box is short of it. A release (repo, .next, runtime node_modules) takes several hundred MB.
 FREE_MB="$(df -Pm "$APP_ROOT" 2>/dev/null | awk 'NR==2 {print $4}')"
@@ -171,11 +199,25 @@ verify_attestation() {
 # into the node_modules of the folder it was built in. That is why the build is made in the release's own path
 # (/srv/work-os/releases/<commit>): those are the only links allowed, and only into this release's node_modules.
 unpack_build() {
-  local f="$1" bad want have l to
+  local f="$1" bad want have l to listing line rest name
   bad="$(tar -tzf "$f" | grep -vE '^(\./)?(\.next(/.*)?|REVISION|BUILD_ARCH|BUILD_NODE)?$' || true)"
   [ -z "$bad" ] || { echo "  it holds more than a build (e.g. $(echo "$bad" | head -n 1))" >&2; return 1; }
   if tar -tzf "$f" | grep -qE '(^|/)\.\.(/|$)'; then echo "  it holds a path with .." >&2; return 1; fi
-  if tar -tzvf "$f" | grep -qE '^h'; then echo "  it holds hard links" >&2; return 1; fi
+  # Checked from the listing, before anything is written: only files, folders and symlinks (no hard links, devices or
+  # fifos), and each symlink sits in .next/node_modules and points into this release's node_modules.
+  listing="$(tar -tvzf "$f")"
+  bad="$(grep -vE '^[-dl]' <<<"$listing" | head -n 1 || true)"
+  [ -z "$bad" ] || { echo "  it holds a hard link, device or fifo: $bad" >&2; return 1; }
+  while IFS= read -r line; do
+    rest="$(sed -E 's/^([^[:space:]]+[[:space:]]+){5}//' <<<"$line")"
+    name="${rest%% -> *}"
+    name="${name#./}"
+    to="${rest#* -> }"
+    case "$name" in .next/node_modules/*) ;; *) echo "  it holds a link outside .next/node_modules: $name" >&2; return 1 ;; esac
+    case "$to" in /*) ;; *) to="$REL/$(dirname "$name")/$to" ;; esac
+    to="$(realpath -m -s "$to")"
+    case "$to" in "$REL/node_modules/"*) ;; *) echo "  $name points outside this release's node_modules ($to); was it built in $REL?" >&2; return 1 ;; esac
+  done < <(grep -E '^l' <<<"$listing" || true)
   # GNU tar makes symlinks last, so nothing in the archive is written through one. The build user reads root's copy
   # through stdin only.
   as_build tar -xzf - -C "$REL" --no-same-owner --no-same-permissions <"$f"
@@ -195,18 +237,56 @@ unpack_build() {
 
 fail_prepare() { rm -rf "$REL"; echo "$1 (nothing changed; the app still runs the old release)" >&2; exit 1; }
 
-# .prepared is written last, only when every step below passed; anything else in the folder is started over.
-if [ -f "$REL/.prepared" ]; then
+# Root never works inside a tree the build user can still change. The build user fills the release; then
+# seal_release stops whatever it still runs, gives the whole tree to root (links themselves, never followed), takes
+# away group/other write and set-id bits, and only then does root make the app's cache folder and write .prepared.
+# $RELEASES is root's, so the build user cannot swap $REL itself for a link.
+seal_release() {
+  local i
+  for i in 1 2 3 4 5; do
+    pgrep -u "$BUILD_USER" >/dev/null || break
+    pkill -KILL -u "$BUILD_USER" || true
+    sleep 1
+  done
+  ! pgrep -u "$BUILD_USER" >/dev/null || { echo "  $BUILD_USER still runs processes" >&2; return 1; }
+  [ -d "$REL" ] && [ ! -L "$REL" ] || { echo "  $REL is not a folder" >&2; return 1; }
+  [ -z "$(find "$REL" -xdev -type f -links +1 -print -quit)" ] || { echo "  the release holds hard links" >&2; return 1; }
+  chown -R -P -h root:root "$REL"
+  find "$REL" -xdev ! -type l -exec chmod u-s,g-s,go-w {} +
+  # From here the tree is root's and nothing in it moves: refuse a link where root writes.
+  [ -d "$REL/.next" ] && [ ! -L "$REL/.next" ] || { echo "  .next is missing or a link" >&2; return 1; }
+  [ ! -L "$REL/.next/cache" ] || rm -f "$REL/.next/cache"
+  rm -rf "$REL/.next/cache"
+  # The only place the app writes: its own cache (work-os.service ReadWritePaths).
+  install -d -o "$APP_USER" -g "$APP_USER" -m 0700 "$REL/.next/cache"
+  echo "$SHA" >"$REL/.prepared"
+}
+
+# A release counts as prepared only if root sealed it: $REL and .prepared root's, not links, .prepared names this
+# commit, and nothing outside the app's cache is anyone else's or writable by others. Anything else is started over.
+prepared() {
+  [ -d "$REL" ] && [ ! -L "$REL" ] && [ "$(stat -c '%u' "$REL")" = 0 ] || return 1
+  [ -f "$REL/.prepared" ] && [ ! -L "$REL/.prepared" ] && [ "$(stat -c '%u' "$REL/.prepared")" = 0 ] || return 1
+  [ "$(cat "$REL/.prepared")" = "$SHA" ] || return 1
+  [ -d "$REL/.next" ] && [ ! -L "$REL/.next" ] || return 1
+  [ -z "$(find "$REL" -xdev -path "$REL/.next/cache" -prune -o \( ! -user root -o \( ! -type l -perm /6022 \) \) -print -quit)" ]
+}
+
+[ "$(stat -c '%u' "$RELEASES")" = 0 ] && [ ! -L "$RELEASES" ] ||
+  { echo "$RELEASES must be root's (sudo chown root:root $RELEASES; docs/hosting.md section 4)" >&2; exit 2; }
+if prepared; then
   echo "  already prepared: $REL"
 else
   rm -rf "$REL"
-  as_build mkdir -p "$REL"
+  install -d -o "$BUILD_USER" -g "$BUILD_USER" -m 0755 "$REL"
   as_build bash -c "git -C '$REPO' archive '$SHA' | tar -x -C '$REL'"
   echo "$SHA" | as_build tee "$REL/REVISION" >/dev/null
+  # No install scripts, here or below: nothing at runtime needs one (sharp's only checks for its prebuilt binary,
+  # which comes as an optional package; msw's copies a worker for tests).
   if [ "$MODE" = here ]; then
     uname -m | as_build tee "$REL/BUILD_ARCH" >/dev/null
     echo "  npm ci"
-    as_build_capped bash -c "cd '$REL' && npm ci --no-audit --no-fund --loglevel=error" || fail_prepare "npm ci FAILED"
+    as_build_capped bash -c "cd '$REL' && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error" || fail_prepare "npm ci FAILED"
     echo "  build (on this box: slow, and it needs swap; docs/hosting.md \"The build\")"
     as_build_capped env NEXT_TELEMETRY_DISABLED=1 NEXT_BUILD_CPUS="${NEXT_BUILD_CPUS:-1}" \
       NODE_OPTIONS="--max-old-space-size=${BUILD_MEMORY_MB:-1536}" bash -c "cd '$REL' && npm run build >'$REL/build.log' 2>&1" ||
@@ -243,14 +323,12 @@ else
     echo "  fresh secrets for this build"
     as_build node "$FRESH" "$REL/.next" || fail_prepare "could not replace the build's published secrets"
     # Runtime packages only, installed here so their native parts (Next's SWC, sharp) are this machine's.
-    echo "  npm ci --omit=dev"
-    as_build_capped bash -c "cd '$REL' && npm ci --omit=dev --no-audit --no-fund --loglevel=error" || fail_prepare "npm ci FAILED"
+    echo "  npm ci --omit=dev --ignore-scripts"
+    as_build_capped bash -c "cd '$REL' && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error" || fail_prepare "npm ci FAILED"
   fi
-  as_build touch "$REL/.prepared"
+  echo "  seal the release (root's from here)"
+  seal_release || fail_prepare "RELEASE NOT SEALED"
 fi
-# The only place the app writes: its own cache (work-os.service ReadWritePaths).
-mkdir -p "$REL/.next/cache"
-chown -R "$APP_USER:$APP_USER" "$REL/.next/cache"
 
 OLD="$(target current)"
 if [ "$OLD" = "$REL" ]; then echo "  already live"; exit 0; fi

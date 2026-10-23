@@ -14,7 +14,7 @@ Atlas. Akash runs the server side with Om. This is the whole runbook, in order; 
 | `deploy/systemd/work-os-backup.{service,timer}` | nightly `mongodump` to disk and S3 (off on the shared box: section 11) |
 | `deploy/env.template` | every variable the server needs, names only |
 | `.github/workflows/server-build.yml` | builds `.next` on an arm64 GitHub runner and publishes it (section 7) |
-| `deploy/deploy.sh` → `work-os-deploy` | fetch, download and check the build, `npm ci --omit=dev`, switch, restart, health check, automatic rollback |
+| `deploy/deploy.sh` → `work-os-deploy` | fetch, download and check the build, `npm ci --omit=dev --ignore-scripts`, seal, switch, restart, health check, automatic rollback |
 | `deploy/fresh-build-secrets.mjs` → `work-os-fresh-secrets.mjs` | gives a downloaded build fresh secrets (section 7) |
 | `deploy/cron-alerts.sh` → `work-os-cron-alerts`, `deploy/backup.sh` → `work-os-backup` | what the timers run |
 | `deploy/env.sh` → `work-os-env.sh` | the env-file loader the scripts share |
@@ -44,8 +44,12 @@ anything from a release: a release is written by the build user and by every npm
   `X-Forwarded-For` and `x-workos-client-ip` never reach the app, HSTS is set and `Server` dropped, `/api/cron/`
   answers 404 without reaching the app, an 11 MB body gets 413 and a 9 MB one passes, a stream's first event arrives
   at once (not when the response ends) and is not compressed;
-- `deploy.sh`'s refusal of a local `MONGODB_URI` (localhost, 127.x, ::1, 0.0.0.0, docker's 172.16-31.x) against
-  sample strings.
+- `deploy.sh`'s Atlas guard against sample env files (local, docker and plain `mongodb://` addresses, a
+  `MONGO_*_URI` name, quotes, `export`, `ALLOW_NON_ATLAS`);
+- `deploy.sh`'s tarball listing check (symlinks out of the release or outside `.next/node_modules`, hard links,
+  devices) and the sealing of a release (root's tree, no group/other write, the app's cache, `.prepared`, a
+  `.prepared` the build user wrote) with stub users;
+- the app started from a release made with `npm ci --omit=dev --ignore-scripts` (pages, the image optimizer: sharp).
 
 **Not tested** (no Linux server, nginx or systemd on the dev PC): the Caddy site with TLS and inside the box's own
 Caddyfile, the nginx site, the systemd units and their memory caps under real load, `deploy.sh` as a whole,
@@ -65,7 +69,7 @@ So Work OS:
 - listens on **127.0.0.1:3100** (`WORK_OS_PORT`);
 - runs its **own Node 22** from `/opt/work-os/node` (section 2) and never touches the system Node or PM2;
 - is one more **Caddy site**, imported into the existing Caddyfile (section 5);
-- uses **Atlas only**: never the docker MongoDB on 27017 (`work-os-deploy` refuses a local `MONGODB_URI`);
+- uses **Atlas only**: never the docker MongoDB on 27017 (`work-os-deploy` wants an Atlas `MONGODB_URI`);
 - is capped in memory (section 6) and keeps **one release** on disk (section 7); a deploy needs 1.5 GB free under
   `/srv`;
 - keeps **no local backups** by default (section 11).
@@ -183,7 +187,7 @@ user that has `readWrite` on `workos` only.
 sudo adduser --system --group --no-create-home --home /nonexistent workos
 sudo adduser --system --group --home /var/lib/workos-build workos-build
 sudo install -d -o root -g root -m 0755 /srv/work-os
-sudo install -d -o workos-build -g workos-build -m 0755 /srv/work-os/releases
+sudo install -d -o root -g root -m 0755 /srv/work-os/releases   # root's: the build user only fills a release folder
 sudo -u workos-build git clone https://github.com/roguetitan1703/work-os.git /srv/work-os/repo
 sudo install -d -m 0750 -g workos /etc/work-os
 sudo install -m 0640 -g workos /srv/work-os/repo/deploy/env.template /etc/work-os/env
@@ -221,7 +225,9 @@ sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.before-work-os         # to un
 sudo install -d -o root -g root -m 0755 /etc/caddy/sites
 sudo install -o root -g root -m 0644 /srv/work-os/repo/deploy/caddy/work-os.caddy /etc/caddy/sites/work-os.caddy
 # WORK_OS_PORT is not 3100? Change the two "127.0.0.1:3100" in /etc/caddy/sites/work-os.caddy.
-echo 'import /etc/caddy/sites/work-os.caddy' | sudo tee -a /etc/caddy/Caddyfile >/dev/null   # at the end, its own line
+printf '
+import /etc/caddy/sites/work-os.caddy
+' | sudo tee -a /etc/caddy/Caddyfile >/dev/null   # at the end, its own line
 sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 sudo systemctl reload caddy
 journalctl -u caddy -n 30 --no-pager      # "certificate obtained successfully" for work.delpat.in
@@ -366,7 +372,9 @@ same CPU type (arm64)**, and the box only installs the runtime packages.
      `<GITHUB_REPO>/.github/workflows/server-build.yml`, from exactly the commit the box's git says it is deploying
      (`--source-digest`), on `refs/heads/master` (`--source-ref`), on a GitHub-hosted runner
      (`--deny-self-hosted-runners`). So a build from a branch, another repo, a fork or a changed file is refused;
-   - that the tarball holds only `.next/…`, `REVISION`, `BUILD_ARCH` and `BUILD_NODE`, with no hard links and no `..`.
+   - that the tarball holds only `.next/…`, `REVISION`, `BUILD_ARCH` and `BUILD_NODE`, with no `..`, and, from its
+     listing (`tar -tvzf`) before anything is written: only files, folders and symlinks (no hard links, devices or
+     fifos), each symlink in `.next/node_modules` and pointing into this release's `node_modules`.
 
    Then `workos-build` unpacks the commit from git into `/srv/work-os/releases/<commit>`, the build over it, and the
    checks go on:
@@ -376,11 +384,18 @@ same CPU type (arm64)**, and the box only installs the runtime packages.
    - `REVISION` is the commit being deployed, `BUILD_ARCH` this machine's (`aarch64`), `BUILD_NODE` this machine's
      Node major version;
    - the build gets **fresh secrets** (next section);
-   - **`npm ci --omit=dev`**: the runtime packages for this machine, native parts included (Next's SWC, which loads
-     `next.config.ts`). It runs at low priority in its own memory cgroup (`BUILD_MEMORY_MAX`, default 1200M), so it
-     cannot push the other apps out.
+   - **`npm ci --omit=dev --ignore-scripts`**: the runtime packages for this machine, native parts included (Next's
+     SWC, which loads `next.config.ts`; sharp's prebuilt binary comes as an optional package, its install script only
+     checks for it). No package's install script runs. It runs at low priority in its own memory cgroup
+     (`BUILD_MEMORY_MAX`, default 1200M), so it cannot push the other apps out.
 
-   Only then is `.prepared` written in the release folder; a folder without it is started over by the next deploy.
+   Then root **seals** the release: it stops anything `workos-build` still runs, refuses hard links, gives the whole
+   tree to root (`chown -R -P -h`: links themselves, never followed), removes group/other write and set-id bits, and
+   refuses a `.next` that is a link. Only then does root make the app's cache (`.next/cache`, `workos`, 0700) and
+   write `.prepared` (the commit). `/srv/work-os/releases` is root's, so the build user cannot swap a release folder
+   for a link. A folder whose `.prepared` is missing, not root's, names another commit, or whose tree has anything
+   not root's or writable by others (outside the cache), is wiped and started over by the next deploy.
+   `workos-build` runs nothing but these deploy steps (the deploy stops its processes).
 3. If the build for that commit is not there yet (the run takes about 5 minutes after a push) or failed, the deploy
    says `NO BUILD for <commit>` and changes nothing. Wait for the run, or look at it in the repo's Actions tab. A
    commit that is not on `master` has no build the box accepts: merge first.
@@ -460,7 +475,9 @@ the old release does not come up either, it prints `FAILED: the app is DOWN`.
 answers, the script writes the old one's commit to `/srv/work-os/previous-commit` (root's) and deletes the old
 folder. It refuses to start with under 1.5 GB free under `/srv` (`MIN_FREE_MB`): a release (repo, `.next`, runtime
 `node_modules`, a few hundred MB), the download and the old release side by side need that. It also refuses a Node under `/opt/work-os/node` that is not 22.x, and a
-`MONGODB_URI` that points at this machine or a docker network (Work OS uses Atlas only). One deploy at a time (a lock). The app never reads `/etc/work-os/env` at build time.
+`MONGODB_URI` (or a `MONGO_*_URI` / `MONGO_*_URL` the app would read) that is not an Atlas address,
+`mongodb+srv://….mongodb.net` (Work OS uses Atlas only). That is a guard against a slip, not a guarantee: it reads
+`/etc/work-os/env` by name, and `ALLOW_NON_ATLAS=1` in `/etc/work-os/deploy.conf` turns it off. One deploy at a time (a lock). The app never reads `/etc/work-os/env` at build time.
 
 Pushing to `master` builds (Actions) but does not deploy: deploys are this command.
 
