@@ -26,9 +26,26 @@ const nextConfig: NextConfig = {
       { source: '/recovery', destination: '/settings?section=help', permanent: false },
     ];
   },
-  // The reset token is in the URL: never leak it as a Referer (the page also sets a <meta name=referrer>).
+  // No next/image anywhere: /_next/image only passes files through, it never decodes or resizes one.
+  images: { unoptimized: true },
   async headers() {
-    return [{ source: '/login/reset', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] }];
+    return [
+      // Everything (pages also get a Content-Security-Policy with a nonce from proxy.ts). Never framed; no sniffing;
+      // other sites see only the origin. Permissions: what the app uses (passkeys; notifications are not a policy
+      // feature) is left alone, the rest is off.
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), hid=(), midi=(), browsing-topics=()' },
+        ],
+      },
+      // The reset token is in the URL: never leak it as a Referer (the page also sets a <meta name=referrer>). Last, so
+      // it wins over the default above.
+      { source: '/login/reset', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
+    ];
   },
   experimental: {
     // Client router cache: revisiting a page within 30s needs no request; fully prefetched pages

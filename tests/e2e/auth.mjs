@@ -395,7 +395,8 @@ try {
     const pid = (await call('add_project', { name: 'Auth Private Launcher' })).project.id;
     // A server action called the way the browser does (Next-Action header), on a page that registers it.
     const act = async (cookie, name, ...args) => {
-      const [id, e] = Object.entries(manifest).find(([, e]) => Object.values(e.workers).some(w => w.exportedName === name && /(launcher|dispatcher)-actions\.ts$/.test(w.filename)));
+      // Next 16.4 names the export on the entry, 16.2 on each worker.
+      const [id, e] = Object.entries(manifest).find(([, e]) => (e.exportedName ? [e] : Object.values(e.workers)).some(w => w.exportedName === name && /(launcher|dispatcher)-actions\.ts$/.test(w.filename)));
       const pages = Object.keys(e.workers);
       const page = pages.find(x => !x.includes('[')) ?? pages[0];
       const url = '/' + page.replace(/^app\//, '').replace(/\/page$/, '').split('/').filter(x => !/^\(.*\)$/.test(x)).map(x => (/^\[.*\]$/.test(x) ? pid : x)).join('/');

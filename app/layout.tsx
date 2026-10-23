@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
@@ -31,11 +32,14 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({
+// proxy.ts sends every page a Content-Security-Policy with a nonce; next-themes' inline script needs it too. Reading the
+// request makes every page render per request (a nonce cannot be baked into a static page).
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const nonce = (await headers()).get("content-security-policy")?.match(/'nonce-([^']+)'/)?.[1];
   return (
     <html
       lang="en"
@@ -43,7 +47,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="h-full flex bg-background">
-        <Providers>
+        <Providers nonce={nonce}>
           {children}
           <Toaster />
           <RegisterServiceWorker />

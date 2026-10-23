@@ -35,6 +35,7 @@ try {
   const { profilerOff } = await import('../load/measure.mjs');
   const rows = await runProbe({ team, person: team.people[4], reps: 4 }).finally(() => profilerOff({ drop: true }));
   for (const r of rows) {
+    check(`probe ${r.name}: answered 200 (else it measured nothing)`, !r.statuses.length, `status ${r.statuses.join(',')}`);
     over(`routes :: ${r.name}`, 'kb', r.clientKB);
     over(`routes :: ${r.name}`, 'ops', r.ops);
     over(`routes :: ${r.name}`, 'docsExamined', r.docsExamined);
