@@ -83,10 +83,13 @@ export async function runProbe({ team, person, reps = 10, only = null, log = con
     const t0 = new Date();
     let ms = 0;
     let kb = 0;
+    const statuses = new Set(); // answers other than 200 (a wrong _rsc or header is answered cheaply and measures nothing)
     for (let i = 0; i < n; i++) {
       b.lastBytes = 0;
+      b.lastStatus = 0;
       const s = Date.now();
       await fn();
+      if (b.lastStatus && b.lastStatus !== 200) statuses.add(b.lastStatus);
       ms += Date.now() - s;
       kb += b.lastBytes / 1024;
     }
@@ -109,8 +112,9 @@ export async function runProbe({ team, person, reps = 10, only = null, log = con
     const r = { name };
     for (const k of Object.keys(acc)) r[k] = +(acc[k] / n).toFixed(1);
     r.scans = [...scans];
+    r.statuses = [...statuses];
     rows.push(r);
-    log(`PROBE ${name.padEnd(30)} ops=${r.ops} docsEx=${r.docsExamined} keysEx=${r.keysExamined} ret=${r.nreturned} scans=${r.collscans}${r.scans.length ? '(' + r.scans.join(',') + ')' : ''} KB=${r.clientKB} sentKB=${r.sentKB} cpuMs=${r.cpuMs} ms=${r.ms}`);
+    log(`PROBE ${name.padEnd(30)} ops=${r.ops} docsEx=${r.docsExamined} keysEx=${r.keysExamined} ret=${r.nreturned} scans=${r.collscans}${r.scans.length ? '(' + r.scans.join(',') + ')' : ''} KB=${r.clientKB} sentKB=${r.sentKB} cpuMs=${r.cpuMs} ms=${r.ms}${r.statuses.length ? ' status=' + r.statuses.join(',') : ''}`);
   }
   return rows;
 }

@@ -2,7 +2,7 @@
 
 import { ThemeProvider } from "next-themes";
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({ children, nonce }: { children: React.ReactNode; nonce?: string }) {
   return (
     <ThemeProvider
       attribute="class"
@@ -10,6 +10,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       enableSystem
       enableColorScheme={false}
       disableTransitionOnChange
+      nonce={nonce}
     >
       {children}
     </ThemeProvider>

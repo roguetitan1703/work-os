@@ -17,6 +17,9 @@ import { recordRequest, requestCaller, requestKind, routePattern } from '@/lib/u
 // Other /api routes also accept a Claude chat key (`Authorization: Bearer wos_…` or `X-API-Key`), verified here and
 // again by the route. Claude Code keys open /api/mcp only.
 //
+// Pages get a Content-Security-Policy with a fresh nonce (pageCsp below): Next puts the nonce on its own inline
+// scripts, and the root layout hands it to next-themes. The other security headers are static (next.config.ts).
+//
 // Every request that reaches the proxy is also counted for Settings › Usage (lib/usage.ts, docs/usage-log.md),
 // after the response (event.waitUntil); counting never changes or delays the answer.
 
@@ -29,7 +32,34 @@ const sessionCookieName = () => `${secureCookies() ? '__Secure-' : ''}${COOKIE_P
 
 type Guarded = { res: NextResponse; session: boolean; token: boolean };
 const deny = (res: NextResponse): Guarded => ({ res, session: false, token: false });
-const pass = (session: boolean, token = false): Guarded => ({ res: NextResponse.next(), session, token });
+// The request goes on with its headers as the proxy left them (the page's nonce, refreshed session cookies).
+const pass = (req: NextRequest, session: boolean, token = false): Guarded => ({ res: NextResponse.next({ request: { headers: req.headers } }), session, token });
+
+/**
+ * Content-Security-Policy for a page (R2-01, defense in depth). Scripts run only with this request's nonce ('strict-dynamic'
+ * lets them load the app's chunks); inline javascript: URLs and injected <script>s are blocked. Styles stay
+ * 'unsafe-inline': React style attributes, sonner and BlockNote/Mantine set inline styles that cannot carry a nonce.
+ * Images and media may come from any https address (pasted into a note). Uploads go to Vercel Blob (block-editor.tsx).
+ * The app is never framed (frame-ancestors, and X-Frame-Options in next.config.ts).
+ */
+function pageCsp(nonce: string): string {
+  const dev = process.env.NODE_ENV === 'development';
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ''}`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' blob: https:",
+    "font-src 'self' data:",
+    "connect-src 'self' https://vercel.com/api/blob/ https://*.blob.vercel-storage.com",
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+}
 
 /** Session read from the database (cookie cache missing or stale). Returns the response carrying the refreshed cookies. */
 async function fullSessionCheck(req: NextRequest): Promise<NextResponse | null> {
@@ -40,7 +70,7 @@ async function fullSessionCheck(req: NextRequest): Promise<NextResponse | null> 
     if (!r.response?.session) return null;
     const { splitSetCookieHeader, parseSetCookieHeader } = await import('better-auth/cookies');
     const raw = r.headers.get('set-cookie');
-    if (!raw) return NextResponse.next();
+    if (!raw) return NextResponse.next({ request: { headers: req.headers } });
     // The page behind this request reads the refreshed copy too, so it needs no second database read.
     for (const [name, c] of parseSetCookieHeader(raw)) {
       if (c['max-age'] === 0 || !c.value) req.cookies.delete(name);
@@ -57,8 +87,8 @@ async function fullSessionCheck(req: NextRequest): Promise<NextResponse | null> 
 
 async function guard(req: NextRequest): Promise<Guarded> {
   const path = req.nextUrl.pathname;
-  if (selfAuth(path)) return pass(false);
-  if (isPublicPage(path)) return pass(!!req.cookies.get(sessionCookieName())?.value);
+  if (selfAuth(path)) return pass(req, false);
+  if (isPublicPage(path)) return pass(req, !!req.cookies.get(sessionCookieName())?.value);
 
   const isApi = path.startsWith('/api/');
   const secret = authSecret();
@@ -66,7 +96,7 @@ async function guard(req: NextRequest): Promise<Guarded> {
 
   if (req.cookies.get(sessionCookieName())?.value) {
     const cached = await getCookieCache(req, { cookiePrefix: COOKIE_PREFIX, isSecure: secureCookies(), secret }).catch(() => null);
-    if (cached?.session && cached.user) return pass(true);
+    if (cached?.session && cached.user) return pass(req, true);
     const res = await fullSessionCheck(req);
     if (res) return { res, session: true, token: false };
   }
@@ -75,7 +105,7 @@ async function guard(req: NextRequest): Promise<Guarded> {
     const token = bearerToken(req);
     if (token) {
       const { verifyKey } = await import('@/lib/caller');
-      if (await verifyKey(token, ['claude']).catch(() => null)) return pass(false, true);
+      if (await verifyKey(token, ['claude']).catch(() => null)) return pass(req, false, true);
     }
     return deny(NextResponse.json({ error: 'unauthorized' }, { status: 401 }));
   }
@@ -89,7 +119,10 @@ async function guard(req: NextRequest): Promise<Guarded> {
 }
 
 export async function proxy(req: NextRequest, event: NextFetchEvent) {
+  const csp = req.nextUrl.pathname.startsWith('/api/') ? null : pageCsp(btoa(crypto.randomUUID()));
+  if (csp) req.headers.set('content-security-policy', csp); // Next reads the nonce from here while rendering
   const g = await guard(req);
+  if (csp) g.res.headers.set('content-security-policy', csp);
   if (process.env.USAGE_LOG === 'off') return g.res;
   try {
     const path = req.nextUrl.pathname;

@@ -42,7 +42,8 @@ export function actionId(name, file = 'app/actions.ts') {
   if (!actions) {
     actions = {};
     const m = JSON.parse(fs.readFileSync(path.join(ROOT, '.next/server/server-reference-manifest.json'), 'utf8'));
-    for (const [id, e] of Object.entries(m.node)) for (const w of Object.values(e.workers)) actions[`${w.filename}#${w.exportedName}`] = id;
+    // Next 16.4 names the export on the entry, 16.2 on each worker.
+    for (const [id, e] of Object.entries(m.node)) for (const w of e.exportedName ? [e] : Object.values(e.workers)) actions[`${w.filename}#${w.exportedName}`] = id;
   }
   const id = actions[`${file}#${name}`];
   if (!id) throw new Error(`no server action ${file}#${name} in the build`);
@@ -98,13 +99,15 @@ async function send(rec, tag, kind, url, init) {
   }
 }
 
-function rscHeaders({ prefetch, segment, tree, nextUrl }) {
+// Next 16.4 computes _rsc asynchronously (SHA-256); 16.2 returned it directly. A wrong _rsc is answered with a cheap
+// redirect, so the request would measure nothing.
+async function rscHeaders({ prefetch, segment, tree, nextUrl }) {
   const h = { rsc: '1' };
   if (prefetch) h['next-router-prefetch'] = '1';
   if (segment) h['next-router-segment-prefetch'] = segment;
   if (tree) h['next-router-state-tree'] = tree;
   if (nextUrl) h['next-url'] = nextUrl;
-  return { h, q: computeCacheBustingSearchParam(prefetch ? '1' : undefined, segment, tree, nextUrl) };
+  return { h, q: await computeCacheBustingSearchParam(prefetch ? '1' : undefined, segment, tree, nextUrl) };
 }
 const withQ = (p, q) => p + (p.includes('?') ? '&' : '?') + '_rsc=' + q;
 
@@ -150,7 +153,7 @@ export class Browser {
       }
       this.cookie = [...m].map(([k, v]) => k + '=' + v).join('; ');
     };
-    this.rec = (kind, url, status, bytes, ms) => { this.lastBytes += bytes; if (rec) rec(kind, url, status, bytes, ms); };
+    this.rec = (kind, url, status, bytes, ms) => { this.lastBytes += bytes; this.lastStatus = status; if (rec) rec(kind, url, status, bytes, ms); };
     this.path = null;
     this.prefetched = new Map(); // href -> sim time of its metadata prefetch
     this.trees = new Set(); // hrefs whose route tree is cached
@@ -188,11 +191,11 @@ export class Browser {
     const jobs = [];
     for (const href of todo) {
       if (trees && !this.trees.has(href)) {
-        const { h, q } = rscHeaders({ prefetch: true, segment: '/_tree', nextUrl: this.path });
+        const { h, q } = await rscHeaders({ prefetch: true, segment: '/_tree', nextUrl: this.path });
         jobs.push(this.get('prefetch-tree', withQ(href, q), h));
         this.trees.add(href);
       }
-      const { h, q } = rscHeaders({ prefetch: true, tree: META_TREE, nextUrl: this.path });
+      const { h, q } = await rscHeaders({ prefetch: true, tree: META_TREE, nextUrl: this.path });
       jobs.push(this.get('prefetch', withQ(href, q), h));
       this.prefetched.set(href, now);
     }
@@ -205,7 +208,7 @@ export class Browser {
     this.warmedAt = this.clock();
     for (const r of ['/today', '/tasks', '/projects']) {
       if (r === this.path) continue;
-      const { h, q } = rscHeaders({ tree: treeFor(r, 'page'), nextUrl: this.path });
+      const { h, q } = await rscHeaders({ tree: treeFor(r, 'page'), nextUrl: this.path });
       await this.get('preload', withQ(r, q), h);
     }
   }
@@ -219,18 +222,18 @@ export class Browser {
   }
   /** One navigation request (no prefetches). */
   async navOnly(p) {
-    const { h, q } = rscHeaders({ tree: treeFor(p, 'page'), nextUrl: this.path });
+    const { h, q } = await rscHeaders({ tree: treeFor(p, 'page'), nextUrl: this.path });
     await this.get('rsc', withQ(p, q), h);
     this.path = p;
   }
   /** One router.refresh() request (no prefetches). */
-  refreshOnly() {
-    const { h, q } = rscHeaders({ tree: treeFor(this.path, 'root') });
+  async refreshOnly() {
+    const { h, q } = await rscHeaders({ tree: treeFor(this.path, 'root') });
     return this.get('refresh', withQ(this.path, q), h);
   }
   /** One link prefetch: its route tree (tree) or its metadata-only request. */
-  prefetchOne(href, tree) {
-    const { h, q } = tree ? rscHeaders({ prefetch: true, segment: '/_tree', nextUrl: this.path }) : rscHeaders({ prefetch: true, tree: META_TREE, nextUrl: this.path });
+  async prefetchOne(href, tree) {
+    const { h, q } = await (tree ? rscHeaders({ prefetch: true, segment: '/_tree', nextUrl: this.path }) : rscHeaders({ prefetch: true, tree: META_TREE, nextUrl: this.path }));
     return this.get(tree ? 'prefetch-tree' : 'prefetch', withQ(href, q), h);
   }
   /** One server action request on the current page (no prefetches after it). */

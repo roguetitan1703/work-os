@@ -10,6 +10,8 @@ import {
   OPEN_STATUSES,
   TaskInputSchema,
   TaskPatchSchema,
+  LINK_SCHEME,
+  linkSchemeAllowed,
   type Activity,
   type ActivityType,
   type Actor,
@@ -193,9 +195,11 @@ function normalizeChecklist(
   });
 }
 
+// Every way in (pages, MCP, REST, Discord, import) stores links through here: http(s) and mailto only.
 function normalizeUrl(u: string): string {
   const s = u.trim();
-  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return s;
+  if (!linkSchemeAllowed(s)) throw new InputError(`Link "${s.slice(0, 80)}" is not a web address: only http, https and mailto links are kept.`);
+  if (LINK_SCHEME.test(s)) return s;
   return 'https://' + s;
 }
 

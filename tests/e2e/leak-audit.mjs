@@ -85,7 +85,7 @@ const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, '.next/server/server
 const ACTIONS = {};
 for (const [id, v] of Object.entries(MANIFEST)) {
   const workers = Object.keys(v.workers);
-  const w = v.workers[workers[0]];
+  const w = v.exportedName ? v : v.workers[workers[0]]; // Next 16.4 names the export on the entry, 16.2 on each worker
   const page = workers.map(p => '/' + p.replace(/^app\//, '').replace(/\/page$/, '').split('/').filter(s => !/^\(.*\)$/.test(s)).join('/')).sort((a, b) => (/\[/.test(a) - /\[/.test(b)) || (a === '/menu' ? -1 : b === '/menu' ? 1 : a.length - b.length))[0];
   ACTIONS[`${w.filename}#${w.exportedName}`] = { id, page: page.replace(/\[[^\]]+\]/g, 'x') || '/' };
 }
@@ -324,7 +324,8 @@ function zipVals(real, fake) {
 const results = { probes: 0, aimed: 0, controls: 0 };
 // Next answers notFound() with 200 and a 404 digest in the stream; any other digest is a server error in a page.
 const NOT_FOUND = /NEXT_HTTP_ERROR_FALLBACK;404/;
-const PAGE_ERROR = /(E\{\\?"digest\\?":\\?"|data-dgst=")(?!NEXT_HTTP_ERROR_FALLBACK;404|NEXT_REDIRECT|BAILOUT_TO_CLIENT_SIDE_RENDERING)/;
+// An empty digest is a client-only part (Next 16.4 bails out with ReactDOM.browser, no BAILOUT_TO_CLIENT_SIDE_RENDERING).
+const PAGE_ERROR = /(E\{\\?"digest\\?":\\?"|data-dgst=")(?!NEXT_HTTP_ERROR_FALLBACK;404|NEXT_REDIRECT|BAILOUT_TO_CLIENT_SIDE_RENDERING|\\?")/;
 /** What a page answered: a redirect (a header, or redirect() inside the stream), not found, an error, or a page. */
 function pageState(r) {
   if (r.location) return `redirect ${r.location}`;
@@ -670,7 +671,9 @@ try {
       const res = await runProbe(pr, 'A', OWN);
       // An action the client never imports is not in the build: nobody can call it (the coverage check above lists it).
       if (res.missing) { notBuilt.add(pr.id); return; }
-      if (!(pr.controlOk ?? pr.ok)(res, 'A')) outcome.controls.push(`${pr.id}${pr.label ? ` (${pr.label})` : ''}: ${res.status} ${said(res).slice(0, 300)}`);
+      // A page error shows from its digest on (the HTML before it is only the head).
+      const errAt = String(res.text).search(PAGE_ERROR);
+      if (!(pr.controlOk ?? pr.ok)(res, 'A')) outcome.controls.push(`${pr.id}${pr.label ? ` (${pr.label})` : ''}: ${res.status} ${(errAt >= 0 ? String(res.text).slice(errAt) : said(res)).slice(0, 300)}`);
     };
     const notBuilt = new Set();
     for (const stage of [0, 1, 2]) {

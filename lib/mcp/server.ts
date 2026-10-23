@@ -202,7 +202,7 @@ const fieldShape = {
   start: dateArg.nullable().optional().describe('Date work should start'),
   estimate_mins: z.number().int().min(0).nullable().optional(),
   checklist: z.array(z.string()).optional().describe('Checklist items (on update this replaces the list; prefer update_checklist)'),
-  links: z.array(z.string()).optional().describe('URLs'),
+  links: z.array(z.string()).optional().describe('URLs (http, https or mailto; a bare example.com gets https://)'),
   blocked_reason: z.string().optional().describe('Setting this on an open task marks it Blocked'),
   depends_on: z.array(z.union([z.number().int(), z.string()])).optional().describe('Refs of tasks this one waits on'),
   recurrence: RecurrenceSchema.nullable().optional().describe('Repeat after completion: {freq: daily|weekdays|weekly|monthly, interval}'),
