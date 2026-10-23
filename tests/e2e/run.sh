@@ -34,6 +34,7 @@ search|search.mjs|base|plain
 dispatcher-backend|dispatcher-backend.mjs|none|plain
 dispatcher-backend-2|dispatcher-backend-2.mjs|base|plain
 dispatcher-ui|dispatcher-ui.mjs|none|plain
+dispatcher-trust|dispatcher-trust.mjs|none|plain
 launcher-backend|launcher-backend.mjs|none|plain
 usage|usage.mjs|none|plain
 auth|auth.mjs|none|plain

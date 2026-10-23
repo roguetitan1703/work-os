@@ -8,6 +8,7 @@
 - 2026-10-22: phase 5 deploy kit built on builder-a (docs/hosting.md, deploy/, scripts/cutover.sh; cut-over rehearsed on a throwaway database, 25/25 checks), waiting on review and merge, then on Akash's server and Om's go.
 - 2026-10-22: phase 5 push, the code part (SSE streams for pages and workers, fan-out in the data door; docs/multi-user.md "As built: phase 5 push", nginx in docs/hosting.md §12 and deploy/nginx/work-os.conf) on ui-settings, rebased on the deploy kit, waiting on its security review (auth on the streams, who gets hints).
 - 2026-10-19: Vercel paused Om's account (Fluid Active CPU); Work OS moves to Delpat's AWS server (work.delpat.in). Audit summary in docs/multi-user.md.
+- 2026-10-23: dispatcher prompt-injection hardening (builder-a, Om approved): only the giver's words instruct Claude. Fixed line in the MCP instructions; get_task and read_note label every piece of text by someone else (writtenBy, fromOthers, textRule; lib/data/authors.ts); the Give to Claude sheet warns when a teammate wrote part of the task; the prompt stays the fixed template. docs/dispatcher.md "Whose words count", tests/e2e/dispatcher-trust.mjs. Waiting on its security review and merge.
 
 ## Next
 Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
@@ -20,6 +21,9 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- Injection labels: get_project, list_tasks, daily_summary, list_notes, recent_activity, Claude items and the Discord tools carry teammates' text without writtenBy labels (the fixed instructions line covers them in words only) — waits on the review saying which matter.
+- Injection labels: notes keep only createdBy and updatedBy, so a teammate's edit followed by the owner's is not labelled; tasks made by discord_message_to_task hold another person's Discord message but count as the owner's; system copies (recurring tasks) count as the owner's — waits on per-block note authors or a copy-of-author field.
+- Give to Claude only warns when a teammate wrote part of the task; it does not refuse — waits on Om wanting a refusal (then: the owner re-saves the text as theirs first).
 - Deploy: the commit to deploy is resolved in the build user's git clone, so a compromised build user could make `work-os-deploy` pick an older master commit (its build is still attested); a downgrade, not foreign code — waits on it mattering (then resolve origin/master as root, or check the commit is the newest build).
 - Deploy: the Server build workflow, the attestation and the publish job have never run on GitHub (first push to master) — waits on the merge and push; check the first run's release assets and one deploy.
 - Server kit: nginx site, systemd units, `deploy.sh` (download, checks, `--artifact`, `--build-here`, the memory cgroup), `preflight.sh` and the Server build workflow are only syntax-checked or tested in pieces on Windows (the tarball checks with fake builds; a prebuilt `.next` started after `npm ci --omit=dev`) — waits on the first run on the box and the first push to master; fix them in the repo.
