@@ -278,14 +278,14 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
 
 // ── Start Claude: which projects can start ──────────────────────────────────
 
-export type StartProject = { id: string; name: string; client?: string; /** Usable linked folders on non-revoked computers. */ folders: number; lastStartedAt: string | null };
+export type StartProject = { id: string; name: string; client?: string; private?: boolean; /** Usable linked folders on non-revoked computers. */ folders: number; lastStartedAt: string | null };
 
 /** Projects for the Start picker. Archived ones are left out. */
 export async function startProjects(scope: DeviceScope): Promise<StartProject[]> {
   const c = await scoped(scope);
   const [devices, mine] = await Promise.all([deviceMap(scope), ownedDeviceIds(scope)]);
   const [projects, linked, last] = await Promise.all([
-    c.projects.find({ status: { $ne: 'archived' } }, { projection: { name: 1, client: 1 } }).sort({ nameLower: 1 }).toArray(),
+    c.projects.find({ status: { $ne: 'archived' } }, { projection: { name: 1, client: 1, visibility: 1 } }).sort({ nameLower: 1 }).toArray(),
     c.workerFolders
       .aggregate<{ _id: string; n: number }>([{ $match: { projectId: { $ne: null }, missing: false, deviceId: { $in: [...devices.keys()] } } }, { $group: { _id: '$projectId', n: { $sum: 1 } } }])
       .toArray(),
@@ -293,5 +293,5 @@ export async function startProjects(scope: DeviceScope): Promise<StartProject[]>
   ]);
   const n = new Map(linked.map(x => [x._id, x.n]));
   const at = new Map(last.map(x => [x._id, x.at.toISOString()]));
-  return projects.map(p => ({ id: p._id, name: p.name, ...(p.client ? { client: p.client } : {}), folders: n.get(p._id) ?? 0, lastStartedAt: at.get(p._id) ?? null }));
+  return projects.map(p => ({ id: p._id, name: p.name, ...(p.client ? { client: p.client } : {}), ...(p.visibility === 'private' ? { private: true } : {}), folders: n.get(p._id) ?? 0, lastStartedAt: at.get(p._id) ?? null }));
 }

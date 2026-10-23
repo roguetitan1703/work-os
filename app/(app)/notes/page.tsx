@@ -39,21 +39,21 @@ export default async function NotesPage({ searchParams }: Props) {
   };
   const activeProjects = projects.filter(p => p.status === 'active' || p.status === 'paused');
   // The New note sheet can file under any project (active first), so it still works when none are active.
-  const sheetProjects = [...activeProjects, ...projects.filter(p => !activeProjects.includes(p))].map(p => ({ id: p.id, name: p.name }));
+  const sheetProjects = [...activeProjects, ...projects.filter(p => !activeProjects.includes(p))].map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }));
 
   return (
     <div className="space-y-4 md:space-y-5 max-w-4xl">
       <MobileHeader title="Notes" subtitle={`${total} ${state === 'archived' ? 'archived' : 'notes'}`} right={<NewNoteSheetButton projects={sheetProjects} defaultProject={sp.project} />} />
       <HubSegment active="notes" />
       <Suspense>
-        <MobileNoteFilters projects={activeProjects.map(p => ({ id: p.id, name: p.name }))} />
+        <MobileNoteFilters projects={activeProjects.map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }))} />
       </Suspense>
       <div className="hidden md:flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Notes</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Pages attached to tasks and projects. A task&apos;s note is archived when the task is done.</p>
         </div>
-        <NewNoteButton projects={activeProjects.map(p => ({ id: p.id, name: p.name }))} defaultProject={sp.project} />
+        <NewNoteButton projects={activeProjects.map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }))} defaultProject={sp.project} />
       </div>
 
       <form action="/notes" className="hidden md:flex flex-wrap items-center gap-2">
@@ -69,7 +69,7 @@ export default async function NotesPage({ searchParams }: Props) {
           <option value="">All projects</option>
           {projects.map(p => (
             <option key={p.id} value={p.id}>
-              {p.name}
+              {p.name}{p.visibility === 'private' ? ' (private)' : ''}
             </option>
           ))}
         </select>

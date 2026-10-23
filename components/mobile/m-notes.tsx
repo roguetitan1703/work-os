@@ -1,5 +1,6 @@
 'use client';
 
+import { PrivateBadge } from '@/components/private-badge';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from '@/components/intent-link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -9,7 +10,7 @@ import { createNoteAction } from '@/app/(app)/notes/actions';
 import { cn } from '@/lib/utils';
 import { BottomSheet } from './sheet';
 
-type P = { id: string; name: string };
+type P = { id: string; name: string; private?: boolean };
 
 /** Phone filters for the notes list: live search and swipeable chips (no Filter button). */
 export function MobileNoteFilters({ projects }: { projects: P[] }) {
@@ -83,7 +84,7 @@ export function MobileNoteFilters({ projects }: { projects: P[] }) {
           </Chip>
           {projects.map(p => (
             <Chip key={p.id} on={project === p.id} onClick={() => go({ project: project === p.id ? '' : p.id })}>
-              {p.name}
+              {p.name}{p.private && <PrivateBadge compact className="ml-1.5" />}
             </Chip>
           ))}
         </div>
@@ -151,7 +152,7 @@ function NewNoteSheet({ projects, defaultProject, onClose }: { projects: P[]; de
           <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
             {projects.map(p => (
               <Chip key={p.id} on={project === p.id} onClick={() => setProject(p.id)}>
-                {p.name}
+                {p.name}{p.private && <PrivateBadge compact className="ml-1.5" />}
               </Chip>
             ))}
           </div>

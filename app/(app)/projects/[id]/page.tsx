@@ -233,7 +233,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
       {tab === 'info' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-6 items-start" data-view="info">
           <div className="space-y-5 min-w-0">
-            <ProjectDetails project={project} />
+            <ProjectDetails project={project} isOwner={project.ownerId === me.userId} />
             <CodeLocations projectId={project.id} initial={repos} />
           </div>
           <section className="space-y-2 min-w-0">

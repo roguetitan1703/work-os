@@ -1,5 +1,6 @@
 'use client';
 
+import { PrivateBadge } from '@/components/private-badge';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
@@ -27,7 +28,7 @@ const DUE_OPTS: { key: string; label: string }[] = [
   { key: 'no_date', label: 'No date' },
 ];
 type Filters = { project: string; mode: string; due: string; q: string; assigned: string };
-type Proj = { id: string; name: string };
+type Proj = { id: string; name: string; private?: boolean };
 const PRIOS: Priority[] = ['P1', 'P2', 'P3', 'P4'];
 const PRIO_LABEL: Record<Priority, string> = { P1: 'P1 · must ship', P2: 'P2', P3: 'P3', P4: 'P4 · backlog' };
 
@@ -254,7 +255,7 @@ function FilterSheet({ filters, projects, counts, onPick, onClear, onClose }: { 
         <FGroup label="Project">
           {projects.map(p => (
             <Chip key={p.id} on={filters.project === p.id} onClick={() => onPick('project', filters.project === p.id ? '' : p.id)}>
-              {p.name} {counts[p.id] ? <span className="opacity-60">{counts[p.id]}</span> : null}
+              {p.name}{p.private && <PrivateBadge compact className="ml-1" />} {counts[p.id] ? <span className="opacity-60">{counts[p.id]}</span> : null}
             </Chip>
           ))}
         </FGroup>

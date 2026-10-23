@@ -11,6 +11,7 @@ import { ConfirmSheet, ResponsiveSheet } from '@/components/responsive-sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { PROJECT_STATUSES, type Project, type ProjectInput } from '@/lib/types';
 import { AddTaskButton } from './add-task-button';
+import { PrivateBadge } from '@/components/private-badge';
 
 const field =
   'w-full min-w-0 h-11 md:h-9 rounded-xl md:rounded-md border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
@@ -88,6 +89,7 @@ export function ProjectTop({ project, tab }: { project: Project; tab: string }) 
       {/* Phone: one tap target opens the edit sheet. */}
       <button type="button" onClick={() => setSheet(true)} data-edit-header aria-label="Edit name, client and status" className="md:hidden block w-full text-left min-w-0 active:opacity-70">
         <span className="block text-2xl font-bold text-foreground truncate">{project.name}</span>
+        {project.visibility === 'private' && <PrivateBadge className="mb-1" />}
         <span className="block text-[16px] text-muted-foreground truncate">
           {project.client ? `${project.client} · ` : ''}
           <span className="capitalize">{project.status}</span>
@@ -106,6 +108,7 @@ export function ProjectTop({ project, tab }: { project: Project; tab: string }) 
             onKeyDown={e => e.key === 'Enter' && e.currentTarget.blur()}
             className="flex-1 min-w-0 bg-transparent text-2xl font-bold outline-none rounded-md px-1 -mx-1 hover:bg-muted/40 focus:bg-muted/40"
           />
+          {project.visibility === 'private' && <PrivateBadge />}
           <select
             value={status}
             aria-label="Project status"

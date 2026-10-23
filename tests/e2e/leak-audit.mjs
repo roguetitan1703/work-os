@@ -843,6 +843,7 @@ function AUDIT() {
   add(`action ${A_}deleteCommentAction`, act(A_ + 'deleteCommentAction', t => [t.comment], aim(['comment'], { stage: 2 })));
   add(`action ${A_}createProjectAction`, act(A_ + 'createProjectAction', [{ name: `lkq own project ${hex(3)}`, visibility: 'private' }]));
   add(`action ${A_}updateProjectAction`, act(A_ + 'updateProjectAction', t => [t.project, { description: 'lkq hacked' }], aim(['project'])), act(A_ + 'updateProjectAction', ['constructor', { description: 'x' }], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
+  add(`action ${A_}projectSharingImpactAction`, act(A_ + 'projectSharingImpactAction', t => [t.project], aim(['project'])));
   add(`action ${A_}createReview`, act(A_ + 'createReview', [{ weekOf: '2026-02-02', answers: { q1: 'lkq own review' } }], { ok: r => r.status === 200 && !r.error && !!r.value?.id }));
   add(`action ${A_}updateReview`, act(A_ + 'updateReview', t => [t.review, { answers: { q1: 'lkq hacked' } }], aim(['review'], { ok: r => r.status === 200 && !r.error, mayWork: () => true /* answers nothing either way; the write check catches a change */ })));
   add(`action ${A_}logRoutine`, act(A_ + 'logRoutine', [{ count: 2, notes: 'lkq own log' }], { ok: r => r.status === 200 && !r.error && !!r.value?.id }));

@@ -49,7 +49,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       modes={modes}
       plan={schedule.blocks.length ? { blocks: schedule.blocks, colors: schedule.colors, taskModes: schedule.taskModes } : null}
       badges={{ overdue, claudeWaiting, status }}
-      projects={projects.map(p => ({ id: p.id, name: p.name, status: p.status }))}
+      projects={projects.map(p => ({ id: p.id, name: p.name, status: p.status, visibility: p.visibility }))}
     >
       <PageTint />
       <NavTracker />

@@ -1,3 +1,4 @@
+import { PrivateBadge } from '@/components/private-badge';
 import Link from '@/components/intent-link';
 import { FolderOpen } from 'lucide-react';
 import { listProjects } from '@/lib/data/projects';
@@ -70,6 +71,7 @@ export default async function ProjectsPage({ searchParams }: Props) {
               <div className="min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="font-semibold text-[16px] md:text-base text-foreground truncate">{p.name}</span>
+                  {p.visibility === 'private' && <PrivateBadge />}
                   {waiting.get(p.id) && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 shrink-0">{waiting.get(p.id)} for you</span>}
                 </div>
                 {p.client && <div className="text-sm md:text-xs text-muted-foreground truncate">{p.client}</div>}
