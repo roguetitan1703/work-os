@@ -140,6 +140,7 @@ not_atlas() {
     [[ "$v" =~ ^mongodb\+srv://([^@/?#]*@)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.mongodb\.net(/|\?|$) ]] || echo "$k"
   done
 }
+[ -r "$ENV_FILE" ] || { echo "$ENV_FILE is missing or unreadable (docs/hosting.md section 4)" >&2; exit 2; }
 if [ "$(conf_value ALLOW_NON_ATLAS)" != 1 ]; then
   BAD_DB="$(not_atlas <"$ENV_FILE" 2>/dev/null | head -n 1 || true)"
   if [ -n "$BAD_DB" ]; then
@@ -210,9 +211,11 @@ unpack_build() {
   [ -z "$bad" ] || { echo "  it holds a hard link, device or fifo: $bad" >&2; return 1; }
   while IFS= read -r line; do
     rest="$(sed -E 's/^([^[:space:]]+[[:space:]]+){5}//' <<<"$line")"
-    name="${rest%% -> *}"
+    # Split on the last " -> " and refuse a name that holds one, so a name cannot pass for part of the target.
+    name="${rest% -> *}"
     name="${name#./}"
-    to="${rest#* -> }"
+    to="${rest##* -> }"
+    case "$name" in *" -> "*) echo "  it holds a link whose name contains \" -> \": $name" >&2; return 1 ;; esac
     case "$name" in .next/node_modules/*) ;; *) echo "  it holds a link outside .next/node_modules: $name" >&2; return 1 ;; esac
     case "$to" in /*) ;; *) to="$REL/$(dirname "$name")/$to" ;; esac
     to="$(realpath -m -s "$to")"
@@ -259,6 +262,8 @@ seal_release() {
   rm -rf "$REL/.next/cache"
   # The only place the app writes: its own cache (work-os.service ReadWritePaths).
   install -d -o "$APP_USER" -g "$APP_USER" -m 0700 "$REL/.next/cache"
+  # Whatever the build user left at .prepared (a link, a fifo, a folder) goes first: root's > would follow it.
+  rm -rf "$REL/.prepared"
   echo "$SHA" >"$REL/.prepared"
 }
 

@@ -128,3 +128,8 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Links stored before the scheme allow-list (2026-10-23) are not re-checked and render as `href` as stored; the page CSP stops `javascript:` running — waits on a render-time safeHref or a one-off cleanup at the move.
 - Leak audit treats any empty digest as a client-only bailout; an error page with an empty digest would pass — waits on tying it to the 16.4 bailout marker.
 - CSP connect-src allows any `*.blob.vercel-storage.com` host (a small way out for data) — waits on the note-files move off Vercel Blob.
+- Deploy: the build user must have no cron, at, linger or login sessions (seal_release kills its processes once, then chowns); hosting docs should say so (nologin, no linger) — waits on the box setup.
+- Trust labels: a Discord-made task's link label (channel/thread names) and its "From Discord message by …" activity note count as the member's text — waits on labelling Discord-sourced links and notes.
+- Trust labels: when the owner removes some of a teammate's tags, tagsBy becomes the owner for the tags left — waits on per-tag authors.
+- Trust labels: projects renamed by a teammate before nameBy existed count as named by their owner — waits on nothing (old data only; fades with renames).
+- Dispatcher: a teammate's change to blockedReason, links or tags does not take a queued task back from Claude (title, description and checklist do); they are labelled — waits on Om wanting take-back on those too.
