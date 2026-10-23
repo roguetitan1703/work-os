@@ -1,5 +1,6 @@
 import 'server-only';
 import { asActor, type TextAuthor } from '../actors';
+import type { Document } from 'mongodb';
 import type { ChecklistItem, Link, TaskSource } from '../types';
 import { scoped, type Scope } from '../scope';
 
@@ -10,8 +11,8 @@ import { scoped, type Scope } from '../scope';
 //
 // Tasks store the author with the text (lib/data/tasks.ts, on every write): titleBy, descriptionBy, blockedReasonBy,
 // tagsBy, and `by` on each checklist item and link. Tasks from before that have none: each field's author is then the
-// newest history entry that set that exact field (a targeted query, so a flood of other entries cannot push it out of
-// sight). If there is none, the creator wrote it, unless anyone other than the reader is in the task's history: then
+// newest history entry that set that exact field (one query for the task; per-field targeted queries when a flood
+// makes it too long, so nothing is pushed out of sight). If there is none, the creator wrote it, unless anyone other than the reader is in the task's history: then
 // it is "author unknown", never the reader. Notes keep who created them and who changed them last.
 
 /** True when the reader (`me`) wrote it: they, their Claude, their Discord link, or the system. */
@@ -122,20 +123,40 @@ export async function taskAuthors(s: Scope, t: TaskText): Promise<TaskAuthors> {
   }
   const c = await scoped(s);
   const fromDiscord: TextAuthor | null = t.source?.kind === 'discord' ? { kind: 'discord-author', name: t.source.author ?? '' } : null;
+  const itemConds = (text: string) => [{ type: 'checklist', note: { $regex: `(^|; )added "${esc(text)}"(;|$)` } }, { 'changes.checklist.to': { $in: [`[ ] ${text}`, `[x] ${text}`] } }];
+  const linkCond = (key: string) => ({ 'changes.links.to': key });
+  const foreign = { 'actor.userId': { $exists: true, $nin: [s.userId, ''] } };
+  const fieldCond = (f: string) => ({ [`changes.${f}`]: { $exists: true } });
+  // One query for the whole task: every entry that set one of these fields, added one of these items or links, or was
+  // made by someone other than the reader. Only when a task has more such entries than the limit (a flood) does each
+  // field get its own targeted query, so nothing is ever cut off.
+  type H = { actor: unknown; type: string; note?: string; changes?: Record<string, { from?: unknown; to?: unknown }> };
+  const LIMIT = 300;
+  const ors: Document[] = [fieldCond('title'), fieldCond('description'), fieldCond('blockedReason'), fieldCond('tags'), foreign];
+  for (const i of t.checklist) if (!i.by) ors.push(...itemConds(i.text));
+  for (const l of links) if (!l.by) ors.push(linkCond(l.label || l.url));
+  const proj = { actor: 1, type: 1, note: 1, 'changes.title': 1, 'changes.description': 1, 'changes.blockedReason.to': 1, 'changes.tags': 1, 'changes.checklist': 1, 'changes.links': 1 };
+  const rows = (await c.activity.find({ taskId, $or: ors }, { projection: proj }).sort({ at: -1 }).limit(LIMIT).toArray()) as unknown as H[];
+  const complete = rows.length < LIMIT;
+  const isForeign = (h: H) => {
+    const a = asActor(h.actor);
+    return 'userId' in a && !!a.userId && a.userId !== s.userId;
+  };
+  const pick = async (inRows: (h: H) => boolean, query: Document): Promise<H | null> =>
+    complete ? (rows.find(inRows) ?? null) : ((await c.activity.find({ taskId, ...query }, { projection: proj }).sort({ at: -1 }).limit(20).toArray()) as unknown as H[]).find(inRows) ?? null;
   let others: Promise<boolean> | null = null;
   // Nothing in the history set it: a Discord message's author (title and description of a task made from one), else
   // the creator, unless someone other than the reader shows up in the history.
   const fallback = async (discord = false): Promise<TextAuthor> => {
     if (discord && fromDiscord) return fromDiscord;
-    others ??= c.activity.findOne({ taskId, 'actor.userId': { $exists: true, $nin: [s.userId, ''] } }, { projection: { _id: 1 } }).then(x => !!x);
+    others ??= complete ? Promise.resolve(rows.some(isForeign)) : c.activity.findOne({ taskId, ...foreign }, { projection: { _id: 1 } }).then(x => !!x);
     return (await others) ? UNKNOWN : creator;
   };
   // The newest entry that changed this field; its author counts only if it set the value the task has now.
   const newest = async (field: string, now?: (to: unknown) => boolean): Promise<TextAuthor | null> => {
-    const h = await c.activity.findOne({ taskId, [`changes.${field}`]: { $exists: true } }, { sort: { at: -1 }, projection: { actor: 1, [`changes.${field}`]: 1 } });
+    const h = await pick(x => !!x.changes?.[field], fieldCond(field));
     if (!h) return null;
-    const to = (h.changes as Record<string, { to: unknown }> | undefined)?.[field]?.to;
-    return !now || now(to) ? (asActor(h.actor) as TextAuthor) : null;
+    return !now || now(h.changes?.[field]?.to) ? (asActor(h.actor) as TextAuthor) : null;
   };
   const title = t.titleBy ?? (await newest('title')) ?? (await fallback(true));
   const description = t.descriptionBy ?? (t.description?.trim() ? ((await newest('description')) ?? (await fallback(true))) : creator);
@@ -148,15 +169,11 @@ export async function taskAuthors(s: Scope, t: TaskText): Promise<TaskAuthors> {
       continue;
     }
     // The newest entry that added this exact text: a checklist op (`added "x"`) or an edit whose list gained it.
-    const hist = await c.activity
-      .find(
-        { taskId, $or: [{ type: 'checklist', note: { $regex: `(^|; )added "${esc(i.text)}"(;|$)` } }, { 'changes.checklist.to': { $in: [`[ ] ${i.text}`, `[x] ${i.text}`] } }] },
-        { projection: { actor: 1, type: 1, 'changes.checklist': 1 } },
-      )
-      .sort({ at: -1 })
-      .limit(20)
-      .toArray();
-    const h = hist.find(x => x.type === 'checklist' || !listHas(x.changes?.checklist?.from, i.text, true));
+    const added = new RegExp(`(^|; )added "${esc(i.text)}"(;|$)`);
+    const h = await pick(
+      x => (x.type === 'checklist' && added.test(x.note ?? '')) || (listHas(x.changes?.checklist?.to, i.text, true) && !listHas(x.changes?.checklist?.from, i.text, true)),
+      { $or: itemConds(i.text) },
+    );
     checklist.push(h ? (asActor(h.actor) as TextAuthor) : await fallback());
   }
   const linkAuthors: TextAuthor[] = [];
@@ -167,8 +184,7 @@ export async function taskAuthors(s: Scope, t: TaskText): Promise<TaskAuthors> {
     }
     // History keeps a link as its label, or its address when it has none.
     const key = l.label || l.url;
-    const hist = await c.activity.find({ taskId, 'changes.links.to': key }, { projection: { actor: 1, 'changes.links': 1 } }).sort({ at: -1 }).limit(20).toArray();
-    const h = hist.find(x => !listHas(x.changes?.links?.from, key));
+    const h = await pick(x => listHas(x.changes?.links?.to, key) && !listHas(x.changes?.links?.from, key), linkCond(key));
     linkAuthors.push(h ? (asActor(h.actor) as TextAuthor) : await fallback());
   }
   return { title, description, blockedReason, tags, checklist, links: linkAuthors };
