@@ -1,0 +1,76 @@
+# Server build (docs/hosting.md "The build"): the server (an arm64 Graviton box with 2 GB, shared with other apps)
+# does not build Work OS itself. This builds the .next folder on an arm64 runner, in the same folder path a release
+# has on the server, and publishes it as work-os-<commit>.tar.gz (+ .sha256) on the repo's "builds" release, where
+# `sudo work-os-deploy` downloads it. The server then runs `npm ci --omit=dev` for its own native modules.
+#
+# The build needs no secrets and no environment (checked: a build with no variables set serves normally). The token
+# is used only in the publish step, after the build, and is never written to disk (checkout keeps no credentials), so
+# npm install scripts never see it.
+name: Server build
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: server-build-${{ inputs.ref || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build in the server's release path
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          SHORT="${SHA:0:12}"
+          REL="/srv/work-os/releases/$SHORT"
+          sudo mkdir -p "$REL"
+          sudo chown "$(id -u):$(id -g)" "$REL"
+          git archive "$SHA" | tar -x -C "$REL"
+          cd "$REL"
+          npm ci --no-audit --no-fund --loglevel=error
+          NEXT_TELEMETRY_DISABLED=1 npm run build
+          echo "$SHA" > REVISION
+          uname -m > BUILD_ARCH
+          node -v > BUILD_NODE
+          tar -czf "$RUNNER_TEMP/work-os-$SHORT.tar.gz" --exclude=.next/cache .next REVISION BUILD_ARCH BUILD_NODE
+          cd "$RUNNER_TEMP"
+          sha256sum "work-os-$SHORT.tar.gz" > "work-os-$SHORT.tar.gz.sha256"
+          echo "SHORT=$SHORT" >> "$GITHUB_ENV"
+          ls -l "work-os-$SHORT.tar.gz"
+
+      - name: Publish to the "builds" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          if ! gh release view builds >/dev/null 2>&1; then
+            gh release create builds --prerelease --target "$GITHUB_SHA" --title "Server builds (linux arm64)" \
+              --notes "Built .next folders for the server, one per commit (work-os-<commit>.tar.gz). Made by .github/workflows/server-build.yml; used by deploy/deploy.sh. Not a release of the app."
+          fi
+          gh release upload builds "work-os-$SHORT.tar.gz" "work-os-$SHORT.tar.gz.sha256" --clobber
+          # Keep the newest 20 builds (40 files).
+          gh release view builds --json assets --jq '.assets | sort_by(.createdAt) | reverse | .[40:] | .[].name' |
+            while read -r a; do gh release delete-asset builds "$a" -y; done

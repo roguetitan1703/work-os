@@ -15,9 +15,13 @@ WorkingDirectory=/srv/work-os/current
 EnvironmentFile=/etc/work-os/env
 Environment=NODE_ENV=production
 Environment=NEXT_TELEMETRY_DISABLED=1
-# Heap cap: about half the instance's memory (t3.small: 1024, t3.medium: 2048).
-Environment=NODE_OPTIONS=--max-old-space-size=1024
-ExecStart=/usr/bin/node /srv/work-os/current/node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3000
+# Heap cap. Alone on a 2 GB box: 1024. Shared with other apps (t4g.small): 768 leaves them room; the app peaked at
+# 356 MB RSS with 20 people (docs/cpu.md). Raise it only if the box has the memory free.
+Environment=NODE_OPTIONS=--max-old-space-size=768
+# The app's port on 127.0.0.1. Default 3000; on a box where something already listens there set WORK_OS_PORT in
+# /etc/work-os/env (EnvironmentFile overrides this line) and change the upstream in the nginx site to match.
+Environment=WORK_OS_PORT=3000
+ExecStart=/usr/bin/node /srv/work-os/current/node_modules/next/dist/bin/next start -H 127.0.0.1 -p ${WORK_OS_PORT}
 # Every push stream holds a socket (docs/hosting.md "Push"); the default soft limit of 1024 is too close.
 LimitNOFILE=16384
 Restart=always
