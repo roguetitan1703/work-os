@@ -1,49 +1,59 @@
 # Server build (docs/hosting.md "The build"): the server (an arm64 Graviton box with 2 GB, shared with other apps)
 # does not build Work OS itself. This builds the .next folder on an arm64 runner, in the same folder path a release
-# has on the server, and publishes it as work-os-<commit>.tar.gz (+ .sha256) on the repo's "builds" release, where
-# `sudo work-os-deploy` downloads it. The server then runs `npm ci --omit=dev` for its own native modules.
+# has on the server, and publishes it as work-os-<commit>.tar.gz (+ .sha256) on the repo's "builds" release, with a
+# signed build provenance attestation. `sudo work-os-deploy` downloads it, verifies the attestation (this workflow,
+# this repo, the commit it deploys, from master, on a GitHub-hosted runner), gives the build fresh secrets, and runs
+# `npm ci --omit=dev` for its own native modules.
 # The path matters: Next links the packages it keeps external (.next/node_modules/mongodb-<hash> and @blocknote/*)
 # to node_modules by the absolute path of the build folder, and the server accepts only links into its release.
 #
-# The build needs no secrets and no environment (checked: a build with no variables set serves normally). The token
-# is used only in the publish step, after the build, and is never written to disk (checkout keeps no credentials), so
-# npm install scripts never see it.
+# Two jobs, so repository code and npm install scripts never run where a write token exists:
+# - build: read-only token, checkout keeps no credentials; npm ci, next build, upload the tarball as an artifact.
+# - publish: contents/attestations write; runs no repository code and no npm, only the artifact, the attestation and
+#   gh release upload.
+# The build needs no secrets and no environment (checked: a build with no variables set serves normally). The
+# secrets Next writes into .next (preview-mode keys, the server-actions key) are public in the tarball by design: the
+# server replaces them before serving (deploy/fresh-build-secrets.mjs).
+#
+# It builds only the commit that triggered it (a push to master, or "Run workflow" on master): the attestation names
+# the workflow run's commit and ref, and the server checks both against what it deploys.
 name: Server build
 
 on:
   push:
     branches: [master]
   workflow_dispatch:
-    inputs:
-      ref:
-        description: Branch, tag or commit to build
-        required: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: server-build-${{ inputs.ref || github.sha }}
+  group: server-build-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      short: ${{ steps.build.outputs.short }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+          package-manager-cache: false
 
       - name: Build in the server's release path
+        id: build
         run: |
           set -euo pipefail
-          SHA="$(git rev-parse HEAD)"
+          SHA="$GITHUB_SHA"
           SHORT="${SHA:0:12}"
           REL="/srv/work-os/releases/$SHORT"
           sudo mkdir -p "$REL"
@@ -55,24 +65,68 @@ jobs:
           echo "$SHA" > REVISION
           uname -m > BUILD_ARCH
           node -v > BUILD_NODE
-          tar -czf "$RUNNER_TEMP/work-os-$SHORT.tar.gz" --exclude=.next/cache .next REVISION BUILD_ARCH BUILD_NODE
-          cd "$RUNNER_TEMP"
+          mkdir -p "$RUNNER_TEMP/out"
+          tar -czf "$RUNNER_TEMP/out/work-os-$SHORT.tar.gz" --exclude=.next/cache .next REVISION BUILD_ARCH BUILD_NODE
+          cd "$RUNNER_TEMP/out"
           sha256sum "work-os-$SHORT.tar.gz" > "work-os-$SHORT.tar.gz.sha256"
-          echo "SHORT=$SHORT" >> "$GITHUB_ENV"
-          ls -l "work-os-$SHORT.tar.gz"
+          ls -l
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: server-build
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: server-build
+          path: ${{ runner.temp }}/out
+
+      - name: Check the artifact
+        env:
+          SHORT: ${{ needs.build.outputs.short }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/out"
+          [[ "$SHORT" =~ ^[0-9a-f]{12}$ ]]
+          sha256sum -c "work-os-$SHORT.tar.gz.sha256"
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        id: attest
+        with:
+          subject-path: ${{ runner.temp }}/out/work-os-${{ needs.build.outputs.short }}.tar.gz
 
       - name: Publish to the "builds" release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          SHORT: ${{ needs.build.outputs.short }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
         run: |
           set -euo pipefail
-          cd "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/out"
+          # The signed attestation, for the server to verify offline (gh attestation verify --bundle).
+          cp "$BUNDLE" "work-os-$SHORT.tar.gz.sigstore.json"
           if ! gh release view builds >/dev/null 2>&1; then
             gh release create builds --prerelease --target "$GITHUB_SHA" --title "Server builds (linux arm64)" \
               --notes "Built .next folders for the server, one per commit (work-os-<commit>.tar.gz). Made by .github/workflows/server-build.yml; used by deploy/deploy.sh. Not a release of the app."
           fi
-          gh release upload builds "work-os-$SHORT.tar.gz" "work-os-$SHORT.tar.gz.sha256" --clobber
-          # Keep the newest 20 builds (40 files).
-          gh release view builds --json assets --jq '.assets | sort_by(.createdAt) | reverse | .[40:] | .[].name' |
+          # A file already published for this commit is never replaced (no --clobber): each missing one is added.
+          HAVE="$(gh release view builds --json assets --jq '.assets[].name')"
+          for f in "work-os-$SHORT.tar.gz" "work-os-$SHORT.tar.gz.sha256" "work-os-$SHORT.tar.gz.sigstore.json"; do
+            if grep -qxF "$f" <<<"$HAVE"; then echo "$f is already published: kept as it is"; else gh release upload builds "$f"; fi
+          done
+          # Keep the newest 20 builds (60 files).
+          gh release view builds --json assets --jq '.assets | sort_by(.createdAt) | reverse | .[60:] | .[].name' |
             while read -r a; do gh release delete-asset builds "$a" -y; done

@@ -15,6 +15,7 @@ Atlas. Akash runs the server side with Om. This is the whole runbook, in order; 
 | `deploy/env.template` | every variable the server needs, names only |
 | `.github/workflows/server-build.yml` | builds `.next` on an arm64 GitHub runner and publishes it (section 7) |
 | `deploy/deploy.sh` → `work-os-deploy` | fetch, download and check the build, `npm ci --omit=dev`, switch, restart, health check, automatic rollback |
+| `deploy/fresh-build-secrets.mjs` → `work-os-fresh-secrets.mjs` | gives a downloaded build fresh secrets (section 7) |
 | `deploy/cron-alerts.sh` → `work-os-cron-alerts`, `deploy/backup.sh` → `work-os-backup` | what the timers run |
 | `deploy/env.sh` → `work-os-env.sh` | the env-file loader the scripts share |
 | `scripts/cutover.sh` → `work-os-cutover` | the one-time move to multi-user data (dry run by default) |
@@ -34,7 +35,11 @@ anything from a release: a release is written by the build user and by every npm
   `npm ci --omit=dev`; `next start` answered `/api/live` and `/login` 200 and a sign-in reached the database, also
   with the `typescript` package removed;
 - `deploy.sh`'s tarball checks with fake builds (wrong commit, CPU, Node, extra files, no BUILD_ID) and its link
-  rules.
+  rules; its attestation check with a real GitHub attestation, logged out of GitHub: accepted for the right repo,
+  workflow, commit and branch, refused for another repo's build, another commit, another branch, a changed file and
+  a broken bundle;
+- the build's fresh secrets (section 7): after the script, the published preview id no longer revalidates or
+  bypasses anything, and the app runs with `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` (every e2e suite sets it).
 
 **Not tested** (no Linux server or nginx on the dev PC): the nginx site, the systemd units, `deploy.sh` as a whole,
 `preflight.sh`, `backup.sh`, `cron-alerts.sh` and the Server build workflow (it first runs on the first push to
@@ -55,7 +60,8 @@ sudo bash preflight.sh          # or without sudo: the same minus the process be
 
 It reports the CPU type, OS, RAM, swap, disk, cgroup v2, Node, nginx (version, sites, default servers, names served,
 clashing names), the ports in use, users, and whatever Work OS would create that already exists. Read it before
-installing anything, and send it to Om. What to look for:
+installing anything, and send it to Om **privately**: it describes the other apps on the box (their sites, ports,
+users and services), so never paste it into a public issue, the repo or a shared chat. What to look for:
 - **Port 3000** taken by another app: set `WORK_OS_PORT` (section 9) and the nginx upstream (section 5) to a free one.
 - **Node** other than 22.x already installed for another app: don't replace it under them. Talk first; Work OS can use
   its own Node at another path (change `/usr/bin/node` in `work-os.service`).
@@ -123,6 +129,7 @@ sudo apt-get install -y nodejs git nginx certbot python3-certbot-nginx
 # MongoDB Database Tools for backups: the arm64 .deb for this Ubuntu from
 # https://www.mongodb.com/try/download/database-tools (Platform: Ubuntu 24.04 ARM 64, or the box's version)
 sudo apt-get install -y ./mongodb-database-tools-ubuntu2404-arm64-*.deb
+# GitHub CLI, only to verify build attestations offline (section 7 has the apt lines; it has arm64 packages)
 node -v && node -p process.arch   # v22.x, arm64
 ```
 
@@ -154,10 +161,18 @@ sudo nano /etc/work-os/env      # fill in; see Environment below
 # scripts/cutover.sh, having read the diff.
 D=/srv/work-os/repo/deploy
 sudo install -o root -g root -m 0755 $D/deploy.sh /usr/local/sbin/work-os-deploy
+sudo install -o root -g root -m 0644 $D/fresh-build-secrets.mjs /usr/local/sbin/work-os-fresh-secrets.mjs
 sudo install -o root -g root -m 0755 $D/backup.sh /usr/local/sbin/work-os-backup
 sudo install -o root -g root -m 0755 $D/cron-alerts.sh /usr/local/sbin/work-os-cron-alerts
 sudo install -o root -g root -m 0644 $D/env.sh /usr/local/sbin/work-os-env.sh
 sudo install -o root -g root -m 0755 /srv/work-os/repo/scripts/cutover.sh /usr/local/sbin/work-os-cutover
+```
+
+Where the builds come from (section 7), fixed once by root; deploys never read it from the build user's git remote:
+
+```bash
+echo 'GITHUB_REPO=roguetitan1703/work-os' | sudo tee /etc/work-os/deploy.conf >/dev/null
+sudo chown root:root /etc/work-os/deploy.conf && sudo chmod 0644 /etc/work-os/deploy.conf
 ```
 
 The repo is public and needs no credentials to clone.
@@ -189,7 +204,10 @@ it does not serve and for the bare IP (444 on 80; on 443 the TLS handshake is re
 It becomes the default server for **every** site on the box, so install it only if no other app is or relies on
 being the default (a `www.` alias nobody listed, a health check by IP), and only after asking the other apps' owners.
 nginx refuses two default servers on one port: if the pre-flight lists a `default_server` already, leave it out.
-Without it, a request to the IP or an unknown name gets whatever site nginx loads first, as before Work OS.
+Without it, a request to the IP or an unknown name gets whatever site nginx loads first, as before Work OS. If
+Work OS is the **only** site on port 443, that first site is Work OS: the bare IP and any name pointed at the box then
+show the Work OS sign-in page (with the work.delpat.in certificate, so browsers warn). Harmless (everything behind
+it still needs a session), but if that matters, install the opt-in file, or make sure another site is the default.
 
 What the site does, and why:
 - `X-Real-IP $remote_addr` and `X-Forwarded-For $remote_addr`, both overwritten, so a client cannot pick its own
@@ -233,7 +251,7 @@ Logs: `journalctl -u work-os -f`, `journalctl -u work-os-alerts`, `journalctl -u
 
 ```bash
 sudo work-os-deploy                              # origin/master
-sudo work-os-deploy <ref>                        # a branch, tag or commit
+sudo work-os-deploy <commit>                     # an older master commit whose build is still published
 sudo work-os-deploy <ref> --artifact <file>      # a build made on another arm64 machine (below)
 sudo work-os-deploy <ref> --build-here           # last resort: build on the box
 ```
@@ -244,31 +262,66 @@ The box does not build Work OS. A Next build wants 1.5 GB or more for a few minu
 other apps: building there would push them into swap or wake the OOM killer. So the build is made elsewhere **for the
 same CPU type (arm64)**, and the box only installs the runtime packages.
 
-1. **GitHub Actions** (`.github/workflows/server-build.yml`, "Server build") runs on every push to `master` (and by
-   hand, Actions → Server build → Run workflow, with any ref). On an `ubuntu-24.04-arm` runner, in the folder a
-   release has on the server (`/srv/work-os/releases/<commit>`), it runs `npm ci` and `npm run build` with no
-   variables (none are needed at build time), then publishes `work-os-<commit>.tar.gz` (the `.next` folder without
-   its cache, plus `REVISION`, `BUILD_ARCH` and `BUILD_NODE`) and its `.sha256` to the repo's **builds** pre-release
-   (public download, no credentials on the box). It keeps the newest 20. Arm64 runners are free for public repos.
-2. **`work-os-deploy`**, as `workos-build`, unpacks the commit from git into `/srv/work-os/releases/<commit>`, then as
-   root downloads that commit's tarball and checks it:
-   - its SHA-256 (against the `.sha256` beside it);
-   - that it holds only `.next/…`, `REVISION`, `BUILD_ARCH` and `BUILD_NODE`, with no hard links and no `..`;
-   - after unpacking, that its only symlinks are in `.next/node_modules` and point into this release's
-     `node_modules`. Next keeps some packages external (mongodb, @blocknote/*) and links them there by the absolute
-     path of the folder it was built in, which is why the workflow builds in `/srv/work-os/releases/<commit>`;
-   - that `REVISION` is the commit being deployed, `BUILD_ARCH` is this machine's (`aarch64`), and `BUILD_NODE` has
-     this machine's Node major version.
-   Then the build user unpacks it and runs **`npm ci --omit=dev`**: the runtime packages for this machine, native
-   parts included (Next's SWC, which loads `next.config.ts`). That runs at low priority in its own memory cgroup
-   (`BUILD_MEMORY_MAX`, default 1200M), so it cannot push the other apps out.
+1. **GitHub Actions** (`.github/workflows/server-build.yml`, "Server build") runs on every push to `master`, and by
+   hand (Actions → Server build → Run workflow, on `master`; it builds the commit it runs on, nothing else). Two jobs:
+   - **build** (read-only token; checkout keeps no credentials): on an `ubuntu-24.04-arm` runner, in the folder a
+     release has on the server (`/srv/work-os/releases/<commit>`), `npm ci` and `npm run build` with no variables
+     (none are needed at build time). It packs `work-os-<commit>.tar.gz` (the `.next` folder without its cache, plus
+     `REVISION`, `BUILD_ARCH` and `BUILD_NODE`) and its `.sha256`, and hands them on as a workflow artifact.
+   - **publish** (the only job that can write; it runs no repository code and no npm): takes the artifact, makes a
+     signed **build provenance attestation** for the tarball (`actions/attest-build-provenance`: GitHub's Sigstore
+     certificate names the repo, the workflow, the commit, the branch and a GitHub-hosted runner), and adds the
+     tarball, `.sha256` and the attestation (`.sigstore.json`) to the repo's **builds** pre-release. A file already
+     there is never replaced. It keeps the newest 20 builds.
+
+   Every action is pinned to a full commit SHA (the version is in a comment beside it). Arm64 runners are free for
+   public repos; the downloads are public, so the box needs no GitHub credentials.
+2. **`work-os-deploy`** downloads the three files for the commit it deploys over HTTPS only
+   (`https://github.com/<GITHUB_REPO>/releases/download/builds/…`, `GITHUB_REPO` from root's `/etc/work-os/deploy.conf`,
+   never from the build user's git remote) into root's own 0700 folder, and before unpacking anything checks:
+   - the SHA-256;
+   - the attestation, offline (`gh attestation verify --bundle`, no GitHub login): made by
+     `<GITHUB_REPO>/.github/workflows/server-build.yml`, from exactly the commit the box's git says it is deploying
+     (`--source-digest`), on `refs/heads/master` (`--source-ref`), on a GitHub-hosted runner
+     (`--deny-self-hosted-runners`). So a build from a branch, another repo, a fork or a changed file is refused;
+   - that the tarball holds only `.next/…`, `REVISION`, `BUILD_ARCH` and `BUILD_NODE`, with no hard links and no `..`.
+
+   Then `workos-build` unpacks the commit from git into `/srv/work-os/releases/<commit>`, the build over it, and the
+   checks go on:
+   - its only symlinks are in `.next/node_modules` and point into this release's `node_modules`. Next keeps some
+     packages external (mongodb, @blocknote/*) and links them there by the absolute path of the folder it was built
+     in, which is why the workflow builds in `/srv/work-os/releases/<commit>`;
+   - `REVISION` is the commit being deployed, `BUILD_ARCH` this machine's (`aarch64`), `BUILD_NODE` this machine's
+     Node major version;
+   - the build gets **fresh secrets** (next section);
+   - **`npm ci --omit=dev`**: the runtime packages for this machine, native parts included (Next's SWC, which loads
+     `next.config.ts`). It runs at low priority in its own memory cgroup (`BUILD_MEMORY_MAX`, default 1200M), so it
+     cannot push the other apps out.
+
+   Only then is `.prepared` written in the release folder; a folder without it is started over by the next deploy.
 3. If the build for that commit is not there yet (the run takes about 5 minutes after a push) or failed, the deploy
-   says `NO BUILD for <commit>` and changes nothing. Wait for the run, or look at it in the repo's Actions tab.
+   says `NO BUILD for <commit>` and changes nothing. Wait for the run, or look at it in the repo's Actions tab. A
+   commit that is not on `master` has no build the box accepts: merge first.
+
+**`gh` on the box** (for the attestation check; it never logs in):
+
+```bash
+# GitHub CLI's apt repository (has arm64): https://github.com/cli/cli/blob/trunk/docs/install_linux.md
+sudo mkdir -p -m 755 /etc/apt/keyrings
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
+sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+sudo apt-get update && sudo apt-get install -y gh
+```
+
+Instead of `gh`, `cosign verify-blob` checks the same bundle (`--bundle work-os-<commit>.tar.gz.sigstore.json
+--certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity
+https://github.com/<GITHUB_REPO>/.github/workflows/server-build.yml@refs/heads/master`, plus the commit in
+`--certificate-github-workflow-sha`); `deploy.sh` uses `gh`, so that would be a change to it.
 
 **Another arm64 machine** (a Graviton dev box, an Apple Silicon Mac in an `arm64` Linux container, a Raspberry Pi 5
-with 8 GB): the same steps as the workflow. The release folder path must be the same as on the server (the links
-above), Node the
-same major version, and the OS Linux on arm64 (`uname -m` = `aarch64`):
+with 8 GB): the same steps as the build job. The release folder path must be the same as on the server (the links
+above), Node the same major version, and the OS Linux on arm64 (`uname -m` = `aarch64`):
 
 ```bash
 SHA=$(git rev-parse HEAD); REL=/srv/work-os/releases/${SHA:0:12}
@@ -279,14 +332,40 @@ tar -czf ~/work-os-${SHA:0:12}.tar.gz --exclude=.next/cache .next REVISION BUILD
 # copy it to the server, then: sudo work-os-deploy $SHA --artifact ~/work-os-${SHA:0:12}.tar.gz
 ```
 
+Such a build has no attestation: `--artifact` copies the file into root's folder (mode 0600) and checks that copy
+like a download, except the attestation (it says it is trusting you). If a `.sigstore.json` lies beside the file (a
+build downloaded by hand), that is verified as above.
+
 The dev PC (Windows, x64) cannot make this build: the deploy refuses a build whose `BUILD_ARCH` is not the
-machine's, because a build made on another platform is not checked to run here. (Emulating arm64 with Docker `--platform linux/arm64` works but
-takes far longer; use the workflow.)
+machine's, because a build made on another platform is not checked to run here. (Emulating arm64 with Docker
+`--platform linux/arm64` works but takes far longer; use the workflow.)
 
 **`--build-here`** (last resort, e.g. GitHub down): `npm ci` and `npm run build` on the box, with `NEXT_BUILD_CPUS=1`,
 a 1.5 GB heap, low priority and the same memory cgroup (1200M plus up to 2G of swap, so it needs the swap from
 section 1). Slow; do it at a quiet hour. If it runs out of memory only the build stops; the app keeps serving the
-old release.
+old release. A build made on the box keeps its own secrets (they were never published).
+
+### The build's secrets
+
+A Next build writes secrets into `.next`, and the published tarball shows them to anyone:
+- `prerender-manifest.json` → `preview`: `previewModeId`, `previewModeSigningKey`, `previewModeEncryptionKey`. The id
+  is also what the `x-prerender-revalidate` header and the `__prerender_bypass` (draft mode) cookie must carry: with
+  the published id, anyone could force static routes to re-render or bypass their cache. `next start` reads these
+  from the file and no environment variable replaces them, so **`deploy.sh` gives every downloaded build fresh random
+  ones** (`deploy/fresh-build-secrets.mjs`, installed as `/usr/local/sbin/work-os-fresh-secrets.mjs`, run as the
+  build user before anything serves the release). It stops the deploy if Next's format changed or an old value is
+  still anywhere in `.next`.
+- `server/server-reference-manifest.{json,js}` → `encryptionKey`: encrypts the arguments bound into server actions.
+  Next 16 uses **`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`** from the environment before the manifest's
+  (`next/dist/server/app-render/encryption-utils.js`, `getActionEncryptionKey`), so it is set in `/etc/work-os/env`
+  (section 9) and stays the same across deploys. The script also replaces the manifest's copy, so the published key
+  is good for nothing even if the variable were missing.
+
+Checked 2026-10-23 on Next 16.2.4 (a release made the box's way): before, the published id made `/manifest.webmanifest`
+and `/icons/192` answer `x-nextjs-cache: REVALIDATED` (header) and `cache-control: private, no-store` (cookie); after
+the script, the published id is treated like any random string and only the fresh one works. The e2e runner sets
+`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`, so every suite's server actions run with the key from the environment.
+After a Next upgrade, check that both are still where the script looks (it stops the deploy if not).
 
 ### Switching
 
@@ -309,6 +388,9 @@ Pushing to `master` builds (Actions) but does not deploy: deploys are this comma
   shadcn). Test again after an upgrade: start the app from a release made with `--omit=dev` ("Tested so far" above).
 - The links in `.next/node_modules` to external packages (above) are how Next 16.2's Turbopack build does it; if an
   upgrade changes that, the link check in `deploy.sh` says so and the deploy stops before switching.
+- Where a build keeps its secrets (`prerender-manifest.json` `preview`, `server-reference-manifest` `encryptionKey`)
+  and that `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` wins over the manifest ("The build's secrets" above); the script
+  stops the deploy if the format changed.
 - The engines field (`node: 22.x`) and `BUILD_NODE`: a Next that needs a newer Node needs the box's Node first.
 
 **Health:** `GET /api/live` answers `ok` and nothing else, without a session (nginx, systemd and the deploy script
@@ -338,6 +420,7 @@ chat or tickets.
 | `BETTER_AUTH_SECRET` | signs session cookies and MCP confirm tokens, hashes tokens, encrypts authenticator secrets. Make it once and keep it: changing it signs everyone out and breaks authenticator apps | **yes** |
 | `APP_URL` | `https://work.delpat.in`: Better Auth's base URL, the passkey domain (passkeys work only on the domain they were made on), links in mail, Discord and to Claude | |
 | `TRUST_PROXY` | `1`: trust nginx's `X-Real-IP` / `X-Forwarded-For` for per-IP sign-in limits | |
+| `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` | encrypts server actions' bound arguments; Next reads it at runtime, before the (public) key in a published build. 32 random bytes, base64, made once (section 7 "The build's secrets") | **yes** |
 | `OPERATOR_EMAILS` | who runs the deployment (comma list): health, Usage, Discord registration and servers. Unset = nobody | |
 | `INVITE_LINK_TO_INVITER` | unset/`1`: the inviter also sees invitation links; `0`: by email only | |
 | `CRON_SECRET` | the alert check's header (`work-os-alerts.timer`); 16+ characters | **yes** |
