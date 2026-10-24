@@ -1,10 +1,10 @@
-# 03:00 India time (21:30 UTC), when nobody works. Enable: sudo systemctl enable --now work-os-backup.timer
+# 03:30 India time (22:00 UTC), when nobody works. Enable: sudo systemctl enable --now work-os-backup.timer
 [Unit]
 Description=Work OS nightly backup
 
 [Timer]
-OnCalendar=*-*-* 21:30:00 UTC
-RandomizedDelaySec=10m
+OnCalendar=*-*-* 22:00:00 UTC
+RandomizedDelaySec=15m
 # Server was off at that time: run once it is back.
 Persistent=true
 

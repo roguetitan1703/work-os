@@ -1,4 +1,4 @@
-# Nightly mongodump of the Atlas database to /var/backups/work-os and S3 (deploy/backup.sh, docs/hosting.md "Backups").
+# Nightly encrypted mongodump of the Atlas database to Cloudflare R2 (deploy/backup.sh, docs/hosting.md "Backups").
 [Unit]
 Description=Work OS database backup
 After=network-online.target
@@ -9,10 +9,23 @@ Type=oneshot
 User=workos
 Group=workos
 EnvironmentFile=/etc/work-os/env
+# The R2 keys: root-only (0600 root:root). systemd (root) reads the file and hands the two variables to this service
+# alone; the app never loads it, and the workos user cannot open it. A missing file fails the unit, on purpose.
+EnvironmentFile=/etc/work-os/backup-r2
 # Root-owned copy of deploy/backup.sh (docs/hosting.md section 4), not the release's.
 ExecStart=/usr/local/sbin/work-os-backup
+# A shared box with little memory: mongodump streams and is light; the cap stops a surprise, the others keep theirs.
+MemoryMax=256M
+TasksMax=64
+Nice=19
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+TimeoutStartSec=30min
 NoNewPrivileges=yes
 PrivateTmp=yes
+PrivateDevices=yes
 ProtectSystem=strict
 ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
 ReadWritePaths=/var/backups/work-os
