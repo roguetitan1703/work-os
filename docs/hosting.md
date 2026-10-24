@@ -13,6 +13,7 @@ Atlas. Akash runs the server side with Om. This is the whole runbook, in order; 
 | `deploy/systemd/work-os-alerts.{service,timer}` | the alert check every 15 minutes (was cron-job.org) |
 | `deploy/systemd/work-os-backup.{service,timer}` | nightly encrypted `mongodump` to Cloudflare R2 (section 11) |
 | `deploy/env.template` | every variable the server needs, names only |
+| `deploy/backup-env.template` | the backup's own env file (`/etc/work-os/backup-env`; section 11) |
 | `.github/workflows/server-build.yml` | builds `.next` on an arm64 GitHub runner and publishes it (section 7) |
 | `deploy/deploy.sh` → `work-os-deploy` | fetch, download and check the build, `npm ci --omit=dev --ignore-scripts`, seal, switch, restart, health check, automatic rollback |
 | `deploy/fresh-build-secrets.mjs` → `work-os-fresh-secrets.mjs` | gives a downloaded build fresh secrets (section 7) |
@@ -24,8 +25,10 @@ Atlas. Akash runs the server side with Om. This is the whole runbook, in order; 
 anything from a release: a release is written by the build user and by every npm package's install script.
 - `workos-build` fetches, unpacks the build and installs packages (and builds, with `--build-here`). It cannot read
   `/etc/work-os/env`.
-- `workos` runs the app, the timers and the cut-over's node steps. It can write only the live release's `.next/cache`
-  and `/var/backups/work-os`.
+- `workos` runs the app, the alerts timer and the cut-over's node steps. It can write only the live release's
+  `.next/cache`.
+- `workos-backup` runs the backup and the cut-over's dump (section 11). It owns `/var/backups/work-os` (0700) and reads
+  only `/etc/work-os/backup-env`; `workos` can read neither.
 - Root restarts the app, moves the `current` symlink and edits the env file (cut-over step 6).
 
 **Tested so far:**
@@ -98,7 +101,7 @@ What to look for:
   on.
 
 **The shared box, what Work OS adds and touches:**
-- Users `workos` and `workos-build`; folders `/srv/work-os`, `/opt/work-os`, `/etc/work-os`; scripts
+- Users `workos`, `workos-build` and `workos-backup`; folders `/srv/work-os`, `/opt/work-os`, `/etc/work-os`; scripts
   `/usr/local/sbin/work-os-*`; units `work-os.service`, `work-os-alerts.*` (and `work-os-backup.*`, enabled by
   section 11). All named `work-os`, so nothing collides; the pre-flight says if any exists already.
 - One Caddy site file, `/etc/caddy/sites/work-os.caddy` (the site `work.delpat.in` only), and one `import` line in
@@ -548,8 +551,7 @@ chat or tickets.
 | `WORK_OS_PORT` | the app's port on 127.0.0.1 (default 3100; set it only if another app has 3100, and the Caddy site's ports to match). Leave the line out for 3100: an empty value overrides the unit's default | |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows `/api/mcp/<key>`; leave unset | |
 | `USAGE_LOG` | `off` stops the request log (Settings › Usage); leave unset | |
-| `BACKUP_DIR`, `BACKUP_S3_URI`, `BACKUP_S3_ENDPOINT`, `BACKUP_AGE_RECIPIENT`, `BACKUP_KEEP_LOCAL` | `work-os-backup` (`deploy/backup.sh`; section 11) | |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | **not in the env file**: `/etc/work-os/backup-r2`, root only, read by the backup unit alone (section 11) | yes |
+| `MONGODB_URI`, `MONGODB_DB`, `BACKUP_S3_URI`, `BACKUP_S3_ENDPOINT`, `BACKUP_AGE_RECIPIENT`, `BACKUP_KEEP_LOCAL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | **not in this file**: `/etc/work-os/backup-env` (`deploy/backup-env.template`), loaded by `work-os-backup` only (section 11) | the keys and URI |
 | `OWNER_EMAIL`, `OWNER_NAME` | cut-over only: the first user (Om) | |
 | `DISCORD_GUILD_ID`, `DISCORD_OWNER_ID` | cut-over only: read once by `migrate-phase3`, then removed (step 6) | |
 
@@ -568,7 +570,8 @@ Not set on the server:
 
 Atlas still holds single-user data from before phase 1. `work-os-cutover` (`scripts/cutover.sh`, installed root-owned
 in section 4) moves it, in the order from WORK-STATE. Root only stops and starts the app and edits the env file; the
-backup and every node step run as `workos`, from the live release (`/srv/work-os/current`, so deploy first).
+every node step runs as `workos`, from the live release (`/srv/work-os/current`, so deploy first), and the backup as
+`workos-backup` (section 11: create that user first).
 
 | Step | What | Script |
 |---|---|---|
@@ -642,19 +645,23 @@ The app under test needs `MAIL_CAPTURE_DIR` set, so the reset mail lands in a fo
 
 Atlas M0 (free) has no snapshots and no point-in-time restore: **this dump is the only backup.** `work-os-backup.timer`
 runs `work-os-backup` (`deploy/backup.sh`) nightly at 03:30 IST (22:00 UTC, up to 15 min random delay, `Persistent`),
-as `workos`, at idle CPU and I/O priority with `MemoryMax=256M`:
+as its own system user **`workos-backup`** (not `workos`: the app could otherwise read the backup's environment, the R2
+keys that can delete backups included, through `/proc`), at idle CPU and I/O priority with `MemoryMax=256M`,
+`ProtectProc=invisible` and no capabilities. It loads **only `/etc/work-os/backup-env`**, never the app's env file.
 
-1. checks everything first (R2 settings, the age key, the tools) and that `/var/backups/work-os` has 1 GB free
-   (`BACKUP_MIN_FREE_KB`); a missing recipient or keys stops the run before any dump (fail closed: no unencrypted
-   upload, ever);
-2. `mongodump --archive --gzip | age -r <public key>` into one file `workos-<UTC time>.archive.gz.age` in
-   `/var/backups/work-os` (a few MB; the connection string goes to mongodump in a 0600 temp file, never on a command
-   line, and mongodump never sees the R2 keys);
+1. checks everything first (R2 settings, the age key, the tools) and that `/var/backups/work-os` (fixed; 0700,
+   owned by `workos-backup`) has 1 GB free (`BACKUP_MIN_FREE_KB`); a missing recipient or keys stops the run before
+   any dump (fail closed: no unencrypted upload, ever). It warns if a plaintext `*.archive.gz` older than 3 days is
+   still there (a forgotten cut-over dump);
+2. `mongodump --archive --gzip | age -r <public key>` into one file `workos-<UTC time>.archive.gz.age` (a few MB; the
+   connection string goes to mongodump in a 0600 temp file, never on a command line, and mongodump never sees the R2
+   keys). An encrypted file under 2 KB is refused as broken;
 3. `aws s3 cp` to `BACKUP_S3_URI` through `BACKUP_S3_ENDPOINT` (R2: region `auto`, no `--sse` header, R2 encrypts at
    rest), then `aws s3 ls` of that object and a size comparison; any mismatch exits non-zero;
 4. deletes the local file (`BACKUP_KEEP_LOCAL=0`; a failed upload also leaves nothing behind, tomorrow dumps again).
    With `BACKUP_KEEP_LOCAL=N` it keeps the newest N. Without `BACKUP_S3_ENDPOINT` it targets real S3 (instance role,
-   `--sse AES256`).
+   `--sse AES256`); that mode still needs `/etc/work-os/backup-env` to exist (the unit loads it; leave the AWS key
+   lines out).
 
 Any failure exits non-zero, so systemd marks the unit failed: `systemctl --failed`, `journalctl -u work-os-backup`.
 The service prints names and sizes only, never a URI or key. Nothing raises an alert on a failed backup yet: check
@@ -665,43 +672,52 @@ The service prints names and sizes only, never a URI or key. Nothing raises an a
 1. **age key pair, on Om's PC** (not on the server): `age-keygen -o work-os-backup.key`. It prints the public key
    (`age1...`). Keep the file in a password manager or offline; without it no backup can be read, and anyone with it
    can read all of them. Only the public key goes on the box.
-2. **R2 bucket** (Cloudflare dashboard, R2): a private bucket (no public access, no custom domain). Add a
-   **lifecycle rule** deleting objects after 30 days (bucket Settings, Object lifecycle rules, prefix `work-os/`).
-   Optional: a bucket lock rule retaining objects for 7 days, so a stolen key cannot erase recent backups.
+2. **R2 bucket** (Cloudflare dashboard, R2): a private bucket (no public access, no custom domain), with two rules
+   that are **required**: a **bucket lock rule retaining every object for 7 days** (so a stolen key cannot erase
+   recent backups), and a **lifecycle rule deleting objects after 30 days** (prefix `work-os/`; the lock must not
+   outlast it).
 3. **API token** (R2, Manage API tokens, Create): permission **Object Read & Write** (R2 has no write-only
    permission, and the post-upload `ls` needs read), **scoped to that one bucket**, nothing else. Note the Access Key
    ID, Secret Access Key and the account's S3 endpoint (`https://<account id>.r2.cloudflarestorage.com`). The token
-   can delete what it wrote: the age encryption (nobody can read it) and the lifecycle or lock (nobody can quietly
-   erase it) are what cover that.
-4. **On the server:**
+   can delete what it wrote; the age encryption (nobody can read it) and the lock (nobody can erase it within 7 days)
+   are what cover that.
+4. **Database user:** make a second Atlas user with `read` on `workos` only for the backup (the app's user can write).
+5. **On the server:**
 
 ```bash
 sudo apt-get install -y age
 # MongoDB Database Tools (section 2) and the aws CLI v2 (arm64) installed
-sudo install -d -o workos -g workos -m 0700 /var/backups/work-os
-# The keys: root only. systemd reads the file as root and hands the two variables to the backup unit; the app and
-# the workos user cannot open it. Type them at the prompts (nothing lands in shell history or ps).
-sudo bash -c 'umask 077; read -rp "Access Key ID: " a; read -rsp "Secret Access Key: " k; echo
-  printf "AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\n" "$a" "$k" >/etc/work-os/backup-r2
-  chown root:root /etc/work-os/backup-r2; chmod 0600 /etc/work-os/backup-r2'
-sudo nano /etc/work-os/env   # BACKUP_S3_URI=s3://<bucket>/work-os, BACKUP_S3_ENDPOINT=https://<account id>.r2.cloudflarestorage.com, BACKUP_AGE_RECIPIENT=age1...
+sudo adduser --system --group --no-create-home --home /nonexistent workos-backup   # nologin, no home, no linger
+sudo install -d -o workos-backup -g workos-backup -m 0700 /var/backups/work-os
+sudo install -o root -g workos-backup -m 0640 /srv/work-os/repo/deploy/backup-env.template /etc/work-os/backup-env
+sudo nano /etc/work-os/backup-env   # the backup's Atlas URI, bucket, endpoint, age1... key, and the R2 key pair
 sudo cp /srv/work-os/repo/deploy/systemd/work-os-backup.* /etc/systemd/system/ && sudo systemctl daemon-reload
 sudo install -o root -g root -m 0755 /srv/work-os/repo/deploy/backup.sh /usr/local/sbin/work-os-backup
 sudo systemctl start work-os-backup && journalctl -u work-os-backup -n 20   # one by hand: it should say "checked"
-sudo systemctl enable --now work-os-backup.timer
 ```
 
-(`/etc/work-os/backup-r2` is `0600 root:root` rather than group `workos`: the unit's `EnvironmentFile=` is read by
-systemd as root, so the app user never needs to read it.)
+6. **Restore drill: required before the timer is enabled** (below). Only after one succeeds:
+   `sudo systemctl enable --now work-os-backup.timer`.
 
-**Before the cut-over** (`scripts/cutover.sh` step 0) runs `work-os-backup --local-only`: a plain gzip dump in
-`/var/backups/work-os` (needs the same 1 GB free; needs no R2 or age; **not encrypted**; never deleted by the
-script). It is the safety copy for the move on M0: delete it (`sudo rm /var/backups/work-os/*.archive.gz`) once the
-cut-over is checked and the first nightly upload has succeeded.
+`/etc/work-os/backup-env` holds the R2 keys and the database URI. It is `0640 root:workos-backup`, so the app user
+(`workos`) cannot open it, and the backup unit never loads `/etc/work-os/env`. The R2 keys live only there.
 
-**Restore drill** (once after setup, then every few months; never onto `workos` itself unless restoring for real).
-It needs the age private key from Om's PC. Do the download and decryption on Om's PC (or another trusted machine with
-`age`, `aws` and the Database Tools), not on the server, so the private key never touches it:
+**Before the cut-over** (`scripts/cutover.sh` step 0) runs `work-os-backup --local-only` **as `workos-backup`**
+(`--backup-user`; the script needs that user to exist): a plain gzip dump in `/var/backups/work-os`, which `workos`
+cannot read (0700). It needs the same 1 GB free, no R2 or age, and the database URI the cut-over loaded from its
+`--env-file`. It is **not encrypted** and never deleted by the script, and it is the safety copy for the move on M0.
+Once the cut-over is checked and the first nightly upload has succeeded, delete it:
+`sudo find /var/backups/work-os -maxdepth 1 -name '*.archive.gz' -delete` (the `.age` files are the nightly ones).
+A nightly run warns in the journal while one older than 3 days remains.
+
+**Restore drill** (once after setup, before enabling the timer, then every few months; this is also how the move is
+rehearsed). It needs the age private key from Om's PC. Do it on Om's PC (or another trusted machine with `age`, `aws`
+and the Database Tools), not on the server, so the private key never touches it. On Windows the commands need Git Bash
+or WSL.
+
+**The scratch database must be a throwaway local `mongod`** (for example one started on a spare port with an empty
+`--dbpath`), **never the live cluster**: `$SCRATCH_MONGODB_URI` is that local server. Restoring into Atlas risks
+the live database, and a typo in the namespace flags can overwrite it.
 
 ```bash
 # 1. Download (the bucket's keys, this session only; a leading space keeps a line out of history) and decrypt.
@@ -711,18 +727,21 @@ aws --endpoint-url $EP s3 ls s3://<bucket>/work-os/
 aws --endpoint-url $EP s3 cp s3://<bucket>/work-os/workos-<time>.archive.gz.age .
 age -d -i work-os-backup.key -o drill.archive.gz workos-<time>.archive.gz.age
 
-# 2. Restore into a scratch database, renaming the namespace (never over workos). The connection string goes in a
-#    0600 config file, not argv. Use a throwaway local mongod, or Atlas with a scratch database name.
-umask 077; printf 'uri: "%s"\n' "$SCRATCH_MONGODB_URI" > drill.yaml
-mongorestore --config=drill.yaml --archive=drill.archive.gz --gzip --nsFrom 'workos.*' --nsTo 'workos_restore.*' --drop
+# 2. Restore into the scratch server, renaming the namespace. The connection string goes in a 0600 config file.
+DB=workos
+umask 077; printf 'uri: "%s"\n' "$SCRATCH_MONGODB_URI" > drill.yaml     # mongodb://127.0.0.1:<port>
+mongorestore --config=drill.yaml --archive=drill.archive.gz --gzip \
+  --nsInclude "$DB.*" --nsFrom "$DB.*" --nsTo "${DB}_restore.*"
 
-# 3. Check: the same collections and counts as the live database (mongosh:
-#    db.getSiblingDB("workos_restore").tasks.countDocuments(), against workos). Then drop workos_restore (Atlas Data
-#    Explorer, or mongosh) and delete drill.*, the .age file and the unset keys.
+# 3. Check: the same collections and counts as the live database (mongosh on the scratch server:
+#    db.getSiblingDB("workos_restore").tasks.countDocuments(), against the same count on workos). Then stop the
+#    scratch mongod and delete drill.*, the .age file and its dbpath, and unset the keys.
 ```
 
-A real restore is the same without `--nsFrom`/`--nsTo` (so into `workos`), with the app stopped first. The same
-steps on a restored copy rehearse the cut-over (`scripts/cutover.sh --db workos_restore --to 4 --skip-backup`).
+A real restore is the same without `--nsFrom`/`--nsTo` and with the app stopped first (into `workos`, `--drop` only
+when replacing what is there). The same steps rehearse the cut-over on the restored copy
+(`scripts/cutover.sh --db workos_restore --to 4 --skip-backup`, with the app's `MONGODB_URI` pointed at the scratch
+server).
 
 The dumps hold password hashes, encrypted authenticator secrets and everyone's tasks. They leave the box only
 encrypted; keep the private key apart from the bucket's credentials.

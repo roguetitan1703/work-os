@@ -6,12 +6,13 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=workos
-Group=workos
-EnvironmentFile=/etc/work-os/env
-# The R2 keys: root-only (0600 root:root). systemd (root) reads the file and hands the two variables to this service
-# alone; the app never loads it, and the workos user cannot open it. A missing file fails the unit, on purpose.
-EnvironmentFile=/etc/work-os/backup-r2
+# Its own user, not the app's: the app (any bug in it) cannot read this process's environment (the R2 keys that can
+# delete backups, the database URI) through /proc.
+User=workos-backup
+Group=workos-backup
+# Only the backup's own file (database URI, BACKUP_* settings, R2 keys); never /etc/work-os/env. systemd (root) reads
+# it, so a missing file fails the unit, on purpose.
+EnvironmentFile=/etc/work-os/backup-env
 # Root-owned copy of deploy/backup.sh (docs/hosting.md section 4), not the release's.
 ExecStart=/usr/local/sbin/work-os-backup
 # A shared box with little memory: mongodump streams and is light; the cap stops a surprise, the others keep theirs.
@@ -24,6 +25,9 @@ TimeoutStartSec=30min
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+CapabilityBoundingSet=
 ProtectSystem=strict
 ProtectHome=yes
 ProtectKernelTunables=yes

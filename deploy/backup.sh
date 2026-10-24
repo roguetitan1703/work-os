@@ -6,22 +6,23 @@
 #
 #   work-os-backup                   dump -> age -> upload -> verify; the local file is deleted afterwards
 #   work-os-backup --local-only      plain gzip dump on this disk, nothing uploaded, never deleted (the cut-over's
-#                                    safety copy; it is NOT encrypted, so it stays 0600 in BACKUP_DIR: delete it
-#                                    when the cut-over is done)
+#                                    safety copy; it is NOT encrypted, so it stays 0600 in a 0700 folder owned by
+#                                    workos-backup: delete it when the cut-over is done; a run warns when one is
+#                                    older than 3 days)
 #
-# Environment (/etc/work-os/env under systemd; the R2 keys come from a second file, see below):
+# Runs as the system user workos-backup, never as the app's user. Environment (/etc/work-os/backup-env under
+# systemd, which the app never loads):
 #   MONGODB_URI (or a MONGO_*_URI name)  the database server (secret; passed to mongodump in a 0600 file, never argv)
 #   MONGODB_DB                           database (default workos)
-#   BACKUP_DIR                           local folder (default /var/backups/work-os); the dump is written here first
 #   BACKUP_S3_URI                        s3://<bucket>/<prefix>. Unset: a normal run refuses (nothing to do)
 #   BACKUP_S3_ENDPOINT                   R2: https://<account id>.r2.cloudflarestorage.com. Set: R2 mode (region auto,
 #                                        no --sse header). Unset: real S3 (instance role, --sse AES256)
 #   BACKUP_AGE_RECIPIENT                 age public key(s), age1..., space separated. Required to upload: no key, no
 #                                        upload (fail closed). Never the private key.
 #   BACKUP_KEEP_LOCAL                    encrypted copies to keep on this disk after a good upload (default 0)
-#   BACKUP_MIN_FREE_KB                   refuse to start with less free space in BACKUP_DIR (default 1048576 = 1 GB)
-# R2 only: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, from /etc/work-os/backup-r2 (root only, read by systemd and
-# given to this service alone). Never printed, never on a command line.
+#   BACKUP_MIN_FREE_KB                   refuse to start with less free space in /var/backups/work-os (default 1048576 = 1 GB)
+# R2 only: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, in the same file. Never printed, never on a command line.
+# The dump folder is fixed: /var/backups/work-os (the unit's ReadWritePaths), 0700.
 # Needs mongodump (MongoDB Database Tools), age, and the aws CLI. Prints file names and sizes, never a secret.
 set -euo pipefail
 LOCAL_ONLY=0
@@ -38,7 +39,7 @@ if [ -z "${MONGODB_URI:-}" ]; then
 fi
 : "${MONGODB_URI:?MONGODB_URI is not set}"
 DB="${MONGODB_DB:-workos}"
-DIR="${BACKUP_DIR:-/var/backups/work-os}"
+DIR=/var/backups/work-os
 KEEP="${BACKUP_KEEP_LOCAL:-0}"
 MINFREE="${BACKUP_MIN_FREE_KB:-1048576}"
 URI="${BACKUP_S3_URI:-}"
@@ -61,12 +62,17 @@ if [ "$LOCAL_ONLY" = 0 ]; then
   command -v aws >/dev/null || { echo "aws CLI is not installed" >&2; exit 2; }
   if [ -n "$ENDPOINT" ]; then
     [[ "$ENDPOINT" =~ ^https://[^/[:space:]]+$ ]] || { echo "BACKUP_S3_ENDPOINT must look like https://<account id>.r2.cloudflarestorage.com" >&2; exit 2; }
-    [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] || { echo "R2 keys are missing (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from /etc/work-os/backup-r2)" >&2; exit 2; }
+    [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] || { echo "R2 keys are missing (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from /etc/work-os/backup-env)" >&2; exit 2; }
   fi
 fi
 
 umask 077
 mkdir -p "$DIR"
+chmod 0700 "$DIR"
+# A plaintext cut-over dump nobody removed.
+find "$DIR" -maxdepth 1 -name '*.archive.gz' -mtime +3 2>/dev/null | while IFS= read -r old; do
+  echo "warning: plaintext dump $(basename "$old") is older than 3 days: delete it (docs/hosting.md section 11)" >&2
+done || true
 FREE="$(df -Pk "$DIR" | awk 'NR==2 {print $4}')"
 if [ -z "$FREE" ] || [ "$FREE" -lt "$MINFREE" ]; then
   echo "less than $((MINFREE / 1024)) MB free in $DIR (${FREE:-?} KB): not starting" >&2
@@ -106,6 +112,8 @@ dump --archive | age "${AGEARGS[@]}" -o "$PART"
 mv "$PART" "$FILE"; PART=""
 SIZE="$(wc -c <"$FILE" | tr -d ' ')"
 echo "  $SIZE bytes encrypted"
+# An empty database or a broken pipe still produces an age header (about 200 bytes): a real dump is far bigger.
+if [ "$SIZE" -lt 2048 ]; then echo "the encrypted dump is only $SIZE bytes: not uploading" >&2; exit 1; fi
 
 AWSARGS=()
 if [ -n "$ENDPOINT" ]; then

@@ -31,6 +31,8 @@
 #   --service <unit>    systemd unit of the app: stopped before step 1, started before step 5 (or at the end)
 #   --app-dir <dir>     the release whose scripts run (default /srv/work-os/current when installed, else this repo)
 #   --app-user <user>   who runs them when this script runs as root (default workos)
+#   --backup-user <u>   who runs the step 0 dump when this script runs as root (default workos-backup: its folder is
+#                       0700, so the app user cannot read the plaintext dump)
 #   --base <url>        where the app answers for step 5 (default http://127.0.0.1:$WORK_OS_PORT, else :3100)
 #   --tz <zone>         the owner's timezone for step 4 (default APP_TZ, else Asia/Kolkata)
 #   --from <n>, --to <n>   run only steps n..m (e.g. --from 5 after fixing Discord)
@@ -53,7 +55,7 @@ else
   APP_DIR="$(cd "$HERE/.." && pwd)"
 fi
 
-DB="" APPLY=0 ENV_FILE="" SERVICE="" BASE="" TZ_ARG="" FROM=0 TO=6 SKIP_BACKUP=0 APP_USER=workos
+DB="" APPLY=0 ENV_FILE="" SERVICE="" BASE="" TZ_ARG="" FROM=0 TO=6 SKIP_BACKUP=0 APP_USER=workos BACKUP_USER=workos-backup
 while [ $# -gt 0 ]; do
   case "$1" in
     --db) DB="${2:-}"; shift 2 ;;
@@ -62,6 +64,7 @@ while [ $# -gt 0 ]; do
     --service) SERVICE="${2:-}"; shift 2 ;;
     --app-dir) APP_DIR="${2:-}"; shift 2 ;;
     --app-user) APP_USER="${2:-}"; shift 2 ;;
+    --backup-user) BACKUP_USER="${2:-}"; shift 2 ;;
     --base) BASE="${2:-}"; shift 2 ;;
     --tz) TZ_ARG="${2:-}"; shift 2 ;;
     --from) FROM="${2:-}"; shift 2 ;;
@@ -76,6 +79,7 @@ done
 [ -f "$APP_DIR/scripts/migrate-auth.mjs" ] || { echo "no Work OS release at $APP_DIR (--app-dir)" >&2; exit 2; }
 if [ "$(id -u)" = 0 ]; then
   id "$APP_USER" >/dev/null 2>&1 || { echo "user $APP_USER does not exist (--app-user)" >&2; exit 2; }
+  [ "$SKIP_BACKUP" = 1 ] || id "$BACKUP_USER" >/dev/null 2>&1 || { echo "user $BACKUP_USER does not exist (--backup-user; docs/hosting.md section 11)" >&2; exit 2; }
 fi
 [ -z "$ENV_FILE" ] || load_env "$ENV_FILE"
 [ -n "$BASE" ] || BASE="http://127.0.0.1:${WORK_OS_PORT:-3100}"
@@ -112,7 +116,11 @@ if [ "$APPLY" = 1 ]; then
   # Before anything is written, whatever --from says.
   if [ "$SKIP_BACKUP" = 0 ]; then
     echo "  backup before writing:"
-    (cd / && as_app bash "$BACKUP_SH" --local-only) || fail "$CURRENT (backup; --skip-backup if you have one)"
+    # As the backup user, not the app user: the plaintext dump lands in its 0600 folder. The variables loaded above
+    # (the database server's URI) pass through runuser; the database to dump is --db.
+    if [ "$(id -u)" = 0 ]; then BK=(runuser -u "$BACKUP_USER" -- env MONGODB_DB="$DB" bash "$BACKUP_SH" --local-only)
+    else BK=(env MONGODB_DB="$DB" bash "$BACKUP_SH" --local-only); fi
+    (cd / && "${BK[@]}") || fail "$CURRENT (backup; --skip-backup if you have one)"
   fi
   if [ -n "$SERVICE" ] && has_systemctl; then
     echo "  stopping $SERVICE while the data moves"
