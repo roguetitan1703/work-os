@@ -1,0 +1,21 @@
+# /etc/work-os/backup-env: read by work-os-backup.service only (root-readable, group workos-backup, 0640). The app's
+# own env file (/etc/work-os/env) is never loaded by the backup, and this one never by the app.
+# docs/hosting.md section 11. Names only here; fill in on the server.
+
+# The database server. A read-only Atlas user (read on workos) is enough and safer than the app's.
+MONGODB_URI=
+MONGODB_DB=workos
+
+# s3://<bucket>/work-os (the R2 bucket and a folder in it)
+BACKUP_S3_URI=
+# https://<account id>.r2.cloudflarestorage.com (leave empty only for real S3 with an instance role; the file must
+# still exist, so keep it with these lines)
+BACKUP_S3_ENDPOINT=
+# the age PUBLIC key (age1...) from age-keygen on Om's PC; the private key never comes to this server
+BACKUP_AGE_RECIPIENT=
+# encrypted copies kept on this disk after an upload (0: the disk is short)
+BACKUP_KEEP_LOCAL=0
+
+# R2 API token scoped to the one bucket, Object Read & Write
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=

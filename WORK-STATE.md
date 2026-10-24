@@ -1,7 +1,7 @@
 # Work state
 
 ## Now
-- 2026-10-23: move Work OS to Delpat's server (t4g.small, Caddy, work.delpat.in, Atlas) for the Delpat team. Code side done and merged: multi-user phases 0–5, leak audit, load budgets, Next 16.4.2 + CSP/headers, Shared/Private projects (old projects migrate as private), dispatcher trust labels (only the giver's words instruct Claude), deploy kit fitted to the box (docs/hosting.md). Waits on Om: DNS for work.delpat.in, Atlas access + allowlist, env values, the box steps in docs/hosting.md, then the cut-over (snapshot, copy run, apply).
+- 2026-10-23: move Work OS to Delpat's server (t4g.small, Caddy, work.delpat.in, Atlas) for the Delpat team. Code side done and merged: multi-user phases 0–5, leak audit, load budgets, Next 16.4.2 + CSP/headers, Shared/Private projects (old projects migrate as private), dispatcher trust labels (only the giver's words instruct Claude), deploy kit fitted to the box (docs/hosting.md). Waits on Om: DNS for work.delpat.in, Atlas access + allowlist, env values, R2 bucket/token and age key for backups, the box steps in docs/hosting.md, then the cut-over (snapshot, copy run, apply).
 
 ## Next
 Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
@@ -21,7 +21,8 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Give to Claude only warns when a teammate wrote part of the task; it does not refuse — waits on Om wanting a refusal (then: the owner re-saves the text as theirs first).
 - Deploy: the Server build workflow, the attestation and the publish job have never run on GitHub (first push to master) — waits on the merge and push; check the first run's release assets and one deploy.
 - Server kit: nginx site, systemd units, `deploy.sh` (download, checks, `--artifact`, `--build-here`, the memory cgroup), `preflight.sh` and the Server build workflow are only syntax-checked or tested in pieces on Windows (the tarball checks with fake builds; a prebuilt `.next` started after `npm ci --omit=dev`) — waits on the first run on the box and the first push to master; fix them in the repo.
-- Backups: `deploy/backup.sh` still copies to S3 with the instance role; R2 with age encryption was specified and is on hold — waits on Om deciding whether Work OS needs off-box backups.
+- Backups: nightly encrypted dump to R2 is built and stub-tested (deploy/backup.sh, docs/hosting.md section 11) but not run against real mongodump, age, aws or R2 — waits on Om providing the R2 bucket + token (Object Read & Write, one bucket) + the age public key, then the setup steps (new user workos-backup, /etc/work-os/backup-env, bucket lock + lifecycle), one hand run, and a restore drill into a throwaway local mongod before the timer is enabled; the runuser path in cutover.sh step 0 is untested (no root on the dev PC).
+- Backups: a failed backup raises no alert (only a failed systemd unit); could call the app's operator alert or an OnFailure unit — waits on the first weeks of nightly runs.
 - Shared box: the Caddy site has no per-address rate limits (nginx had 30/min on /api/auth/ and 20 streams per address; stock Caddy has no rate limiting, a plugin means rebuilding the box's Caddy); Better Auth's limits and the app's stream caps remain — waits on Om deciding whether that is enough.
 - Shared box: the memory caps (heap 288 MB, MemoryHigh 380M, MemoryMax 480M) are estimates from the PC load test, not measured on the box, which is already deep in swap — waits on the first weeks there (`systemctl status work-os`), then adjust.
 - Shared box: a rollback needs GitHub and the build still published (newest 20 builds) — waits on it mattering (then keep the previous release's tarball on disk, about 100 MB, instead of its folder).
