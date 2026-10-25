@@ -5,9 +5,9 @@ import { ZodError } from 'zod';
 import { asCaller } from '@/lib/caller';
 import { scopeOf } from '@/lib/scope';
 import { saveSchedule } from '@/lib/user-schedule';
-import type { Routine, ScheduleBlock } from '@/lib/schedule';
+import type { ScheduleBlock } from '@/lib/schedule';
 
-// The signed-in person's own schedule and routine (lib/user-schedule.ts). Nobody can edit anyone else's.
+// The signed-in person's own schedule (lib/user-schedule.ts). Nobody can edit anyone else's.
 
 type R = { ok: true } | { ok: false; error: string };
 
@@ -16,9 +16,9 @@ function fail(e: unknown): R {
   return { ok: false, error: e instanceof Error && e.name !== 'Error' ? e.message : 'Could not save' };
 }
 
-export async function saveScheduleAction(blocks: ScheduleBlock[], routine: Routine | null): Promise<R> {
+export async function saveScheduleAction(blocks: ScheduleBlock[]): Promise<R> {
   try {
-    await asCaller(c => saveSchedule(scopeOf(c), { blocks, routine }));
+    await asCaller(c => saveSchedule(scopeOf(c), { blocks }));
     revalidatePath('/', 'layout');
     return { ok: true };
   } catch (e) {

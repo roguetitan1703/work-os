@@ -36,7 +36,7 @@ check('API: static headers too (nosniff)', r.h.get('x-content-type-options') ===
 r = await get('/_next/image?url=%2Ficons%2F192&w=64&q=75');
 check('/_next/image optimizes nothing (404)', r.status === 404, r.status);
 r = await get('/icons/192');
-check('app icons (next/og, built statically) still served', r.status === 200 && (r.h.get('content-type') ?? '').startsWith('image/png'), `${r.status} ${r.h.get('content-type')}`);
+check('app icons (assets/brand, built statically) still served', r.status === 200 && (r.h.get('content-type') ?? '').startsWith('image/png'), `${r.status} ${r.h.get('content-type')}`);
 
 // ---- 3. link schemes through MCP ----
 const BAD = ['javascript:alert(document.cookie)', 'JaVaScRiPt:alert(1)', ' javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)', 'file:///c:/windows/win.ini', 'javascript:1;alert(1)', 'data:1,x'];

@@ -2,9 +2,9 @@ import { z } from 'zod';
 import { clockInTz } from './dates';
 import { isHex } from './modes';
 
-// A person's week (docs/multi-user.md phase 3): time blocks Monday to Friday (Saturday and Sunday are flex days), the
-// optional daily routine card on Today, their weekly review questions and their own help text. Stored per person in
-// `schedule:<userId>` (lib/user-schedule.ts); someone who never set one has none: no block bar, no routine card.
+// A person's week (docs/multi-user.md phase 3): time blocks Monday to Friday (Saturday and Sunday are flex days). Stored
+// per person in `schedule:<userId>` (lib/user-schedule.ts); someone who never set one has none: no block bar. The old
+// routine card, weekly review questions and help text are gone (one person's setup); parsing drops them from old documents.
 // Pure (browser and server).
 
 export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri'] as const;
@@ -30,56 +30,18 @@ export const ScheduleBlockSchema = z.object({
 });
 export type ScheduleBlock = z.infer<typeof ScheduleBlockSchema>;
 
-export const RoutineSchema = z.object({
-  name: label(40).min(1),
-  start: time,
-  end: time,
-  color: z.string().refine(isHex, 'a colour like #FACC15'),
-  /** The number logged each day, e.g. "Bids placed". */
-  countLabel: label(40).min(1),
-  /** The prompt before it is logged today. */
-  question: label(120).min(1),
-  placeholder: label(120).optional(),
-});
-export type Routine = z.infer<typeof RoutineSchema>;
-
-export const ReviewFieldSchema = z.object({
-  key: z.string().regex(/^[a-zA-Z][a-zA-Z0-9]{0,30}$/),
-  label: label(60).min(1),
-  kind: z.enum(['text', 'number']),
-});
-export type ReviewField = z.infer<typeof ReviewFieldSchema>;
-
-export const HelpSectionSchema = z.object({
-  title: label(80).min(1),
-  hint: label(120).optional(),
-  items: z.array(z.object({ title: label(80).optional(), text: label(1000).min(1) })).max(20),
-});
-export type HelpSection = z.infer<typeof HelpSectionSchema>;
-
 export const ScheduleSchema = z.object({
   blocks: z.array(ScheduleBlockSchema).max(48).default([]),
-  /** Colours for block names that are not organization modes (a routine, a break, meetings). */
+  /** Colours for block names that are not organization modes (a break, meetings). */
   colors: z.record(label(40), z.string().refine(isHex)).default({}),
   /** Block names whose time belongs to an organization mode's tasks ('' = none), e.g. "Setup/Close" → "Business Admin". */
   taskModes: z.record(label(40), label(40)).default({}),
-  routine: RoutineSchema.nullable().default(null),
-  review: z.array(ReviewFieldSchema).min(1).max(12).optional(),
-  help: z.array(HelpSectionSchema).max(10).default([]),
 });
-export type Schedule = Omit<z.infer<typeof ScheduleSchema>, 'review'> & { review: ReviewField[] };
+export type Schedule = z.infer<typeof ScheduleSchema>;
 
-/** Weekly review questions for someone who has not set their own. */
-export const DEFAULT_REVIEW: ReviewField[] = [
-  { key: 'shipped', label: 'Shipped', kind: 'text' },
-  { key: 'slipped', label: 'Slipped', kind: 'text' },
-  { key: 'toDrop', label: 'To drop', kind: 'text' },
-  { key: 'adjustments', label: 'Adjustments for next week', kind: 'text' },
-];
+export const EMPTY_SCHEDULE: Schedule = { blocks: [], colors: {}, taskModes: {} };
 
-export const EMPTY_SCHEDULE: Schedule = { blocks: [], colors: {}, taskModes: {}, routine: null, review: DEFAULT_REVIEW, help: [] };
-
-/** What the app shell needs on every page (the block bar and tint): no review or help text. */
+/** What the app shell needs on every page (the block bar and tint). */
 export type WeekPlan = Pick<Schedule, 'blocks' | 'colors' | 'taskModes'>;
 
 const minutesOf = (t: string) => {

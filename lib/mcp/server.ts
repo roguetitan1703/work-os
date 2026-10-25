@@ -201,6 +201,7 @@ function itemOut(i: ClaudeItem, blockers: items.ProjectItems['blockers'] | undef
     ...(i.parts.length ? { parts: i.parts.map((p, n) => ({ n: n + 1, text: p.text, done: p.done })) } : {}),
     ...(i.blockedBy ? { blockedBy: b ? `${items.itemRef(b.ref)} ${b.title} (${b.state})` : i.blockedBy } : {}),
     ...(i.waitingOn ? { waitingText: i.waitingText, waitingOn: who(i.waitingOn) } : {}),
+    ...(i.answer ? { answer: { question: i.answer.question, text: i.answer.text || '(closed without an answer)', by: who(i.answer.by), at: i.answer.at } } : {}),
     ...(i.claimedBy ? { activeIn: `${i.claimedBy.session} since ${i.claimedBy.at}` } : {}),
     ...(i.gitRef ? { landedIn: i.gitRef } : {}),
   };
@@ -738,6 +739,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
           return {
             takeNext: ci.pickNext ? `${items.itemRef(ci.pickNext.ref)} ${ci.pickNext.title}` : null,
             waiting: ci.waiting,
+            // Answers people gave in the app in the last 14 days to questions on open items: read and act on them.
+            answered: open
+              .filter(i => i.answer && Date.now() - Date.parse(i.answer.at) < 14 * 86400_000)
+              .map(i => `${items.itemRef(i.ref)} asked "${i.answer!.question}" → ${who(i.answer!.by)}: ${i.answer!.text ? `"${i.answer!.text}"` : 'closed it without an answer'} (${i.answer!.at})`),
             open: open.map(i => itemOut(i, ci.blockers, who)),
             recentlyDone: ci.items.filter(i => i.state === 'done').map(i => `${items.itemRef(i.ref)} ${i.title}${i.gitRef ? ` (${i.gitRef})` : ''}`),
             doneTotal: ci.doneCount,

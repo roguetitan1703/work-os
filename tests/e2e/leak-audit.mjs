@@ -845,9 +845,6 @@ function AUDIT() {
   add(`action ${A_}createProjectAction`, act(A_ + 'createProjectAction', [{ name: `lkq own project ${hex(3)}`, visibility: 'private' }]));
   add(`action ${A_}updateProjectAction`, act(A_ + 'updateProjectAction', t => [t.project, { description: 'lkq hacked' }], aim(['project'])), act(A_ + 'updateProjectAction', ['constructor', { description: 'x' }], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add(`action ${A_}projectSharingImpactAction`, act(A_ + 'projectSharingImpactAction', t => [t.project], aim(['project'])));
-  add(`action ${A_}createReview`, act(A_ + 'createReview', [{ weekOf: '2026-02-02', answers: { q1: 'lkq own review' } }], { ok: r => r.status === 200 && !r.error && !!r.value?.id }));
-  add(`action ${A_}updateReview`, act(A_ + 'updateReview', t => [t.review, { answers: { q1: 'lkq hacked' } }], aim(['review'], { ok: r => r.status === 200 && !r.error, mayWork: () => true /* answers nothing either way; the write check catches a change */ })));
-  add(`action ${A_}logRoutine`, act(A_ + 'logRoutine', [{ count: 2, notes: 'lkq own log' }], { ok: r => r.status === 200 && !r.error && !!r.value?.id }));
   add(`action ${A_}logoutAction`, act(A_ + 'logoutAction', [], { ok: r => !!r.redirect && /login/.test(r.redirect), public: true, only: ['N'], control: false /* it would sign the persona out for the rest of its probes; the misuse checks sign out a spare session */ }));
   const D_ = 'app/(app)/claude/dispatcher-actions.ts#';
   add(`action ${D_}markOptionsAction`, act(D_ + 'markOptionsAction', t => [t.task], aim(['task'])));
@@ -1016,7 +1013,7 @@ function AUDIT() {
   add('discord component edit', disc(3, t => ({ custom_id: `wo:edit:${t.ref}`, component_type: 2 }), { ok: r => /"type":\s*9/.test(r.text), public: true, label: 'opens a modal (no read)', extra: () => ({ message: { id: '1', content: 'Added [#1](<x>): lkq shown title (p, P2)' } }) }));
   add('discord component editmodal', disc(5, t => ({ custom_id: `wo:editmodal:${t.ref}`, components: [{ type: 1, components: [{ type: 4, custom_id: 'title', value: 'lkq hacked title' }] }] }), aim(['ref'], { ok: r => /Added \[/.test(r.text) })));
   // Actions with no result type (void or a bare value) refuse someone signed out by throwing.
-  for (const id of [`action ${A_}createReview`, `action ${A_}updateReview`, `action ${A_}logRoutine`, `action ${N_}searchMentionsAction`, `action ${ST}markAllReadAction`, 'action app/(app)/settings/blocked-actions.ts#saveBlockedChannels', 'action app/(app)/search-action.ts#searchAction']) for (const pr of items[id].probes) pr.throws = true;
+  for (const id of [`action ${N_}searchMentionsAction`, `action ${ST}markAllReadAction`, 'action app/(app)/settings/blocked-actions.ts#saveBlockedChannels', 'action app/(app)/search-action.ts#searchAction']) for (const pr of items[id].probes) pr.throws = true;
   return items;
 }
 

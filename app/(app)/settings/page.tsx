@@ -32,7 +32,7 @@ const SECTIONS = [
   { id: 'members', label: 'Members' },
   { id: 'connections', label: 'Connections' },
   { id: 'usage', label: 'Usage' },
-  { id: 'help', label: 'Help and recovery' },
+  { id: 'help', label: 'Modes of work' },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]['id'];
 const sectionFrom = (v: string | undefined): SectionId | null => SECTIONS.find(s => s.id === v)?.id ?? null;
@@ -161,7 +161,7 @@ async function PhoneRows({ operator }: { operator: boolean }) {
     { id: 'members', label: 'Members', hint: memberCount ? `${memberCount}` : '' },
     { id: 'connections', label: 'Connections', hint: `Discord ${discordConfig() ? '✓' : '✗'}` },
     ...(operator ? [{ id: 'usage', label: 'Usage', hint: 'Requests' }] : []),
-    { id: 'help', label: 'Help and recovery', hint: '' },
+    { id: 'help', label: 'Modes of work', hint: '' },
   ];
   return (
     <section className="mt-5 md:hidden">

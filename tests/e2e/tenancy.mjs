@@ -382,7 +382,7 @@ try {
     check('A settings: the operator sees Usage', /Last 24 h/.test(use.text));
     const aToday = await text(p, '/today');
     const aBar = await p.locator('[data-block-bar]').count();
-    check('A today: the schedule bar and the routine', aBar === 1 && /Fiverr Ritual/.test(aToday.text), `bar ${aBar} routine ${/Fiverr Ritual/.test(aToday.text)}`);
+    check('A today: the schedule bar, and no routine card (removed)', aBar === 1 && (await p.locator('[data-fold=routine], [data-routine]').count()) === 0 && !/not logged/.test(aToday.text), `bar ${aBar}`); // the old timetable still has a block named "Fiverr Ritual"
   });
 
   const FIRST = /Hidden|Zephyr shared task|Zephyr memo|Zephyr waits|Bea/; // C has its own "Zephyr Shared" project (names check above)

@@ -93,23 +93,19 @@ for (const kind of ['phone', 'desk']) {
   check(`${kind}: activity line`, /2 Claude Code sessions · 3 subagents working/.test(act), act);
   const rowH = await box(V.locator('[data-needs-you]'));
   check(`${kind}: waiting row one line (<=48px)`, rowH.height <= 48, `${rowH.height}`);
-  check(`${kind}: card pre-expand has no reply input`, (await V.locator('input[placeholder="Reply…"]').count()) === 0);
+  check(`${kind}: card pre-expand has no reply input`, (await V.locator('input[placeholder="Your answer…"]').count()) === 0);
   await tap(V.locator('[data-needs-you] button').first(), phone);
-  check(`${kind}: tap expands to Reply/Answered`, (await V.locator('input[placeholder="Reply…"]').count()) === 1);
-  await V.locator('input[placeholder="Reply…"]').first().fill('Use the dark logo');
-  await tap(V.getByRole('button', { name: 'Reply', exact: true }), phone);
-  await p.getByText('Reply saved').first().waitFor({ timeout: 8000 }).then(() => check(`${kind}: Reply saved toast`, true)).catch(() => check(`${kind}: Reply saved toast`, false));
-  await p.waitForTimeout(500);
-  if ((await V.locator('input[placeholder="Reply…"]').count()) === 0) await tap(V.locator('[data-needs-you] button').first(), phone);
-  // The Reply refresh can re-render the card and swallow the tap; tap Answered again (re-opening the row if it collapsed) until the count drops.
+  check(`${kind}: tap expands to the answer box`, (await V.locator('input[placeholder="Your answer…"]').count()) === 1);
+  await V.locator('input[placeholder="Your answer…"]').first().fill('Use the dark logo');
+  // The refresh can re-render the card and swallow the tap; tap Send answer again (re-opening the row if it collapsed) until the count drops.
   const dropped = k => p.waitForFunction(k => /^2 needs you/.test(document.querySelector(`[data-variant=${k}] [data-claude-status]`)?.textContent ?? ''), k, { timeout: 4000 }).then(() => true, () => false);
   let ok = false;
   for (let n = 0; n < 3 && !ok; n++) {
-    if (n && (await V.getByRole('button', { name: 'Answered', exact: true }).count()) === 0) await tap(V.locator('[data-needs-you] button').first(), phone);
-    if ((await V.getByRole('button', { name: 'Answered', exact: true }).count()) === 1) await tap(V.getByRole('button', { name: 'Answered', exact: true }), phone);
+    if (n && (await V.getByRole('button', { name: 'Send answer', exact: true }).count()) === 0) { await tap(V.locator('[data-needs-you] button').first(), phone); await V.locator('input[placeholder="Your answer…"]').first().fill('Use the dark logo'); }
+    if ((await V.getByRole('button', { name: 'Send answer', exact: true }).count()) === 1) await tap(V.getByRole('button', { name: 'Send answer', exact: true }), phone);
     ok = await dropped(kind);
   }
-  check(`${kind}: Answered drops the count to 2`, ok, await V.locator('[data-claude-status]').innerText());
+  check(`${kind}: Send answer drops the count to 2`, ok, await V.locator('[data-claude-status]').innerText());
 
   // Start Claude
   await tap(V.locator('[data-start-claude]'), phone);
@@ -131,8 +127,8 @@ for (const kind of ['phone', 'desk']) {
   check(`${kind}: after Undo task is back (${title})`, (await V.locator('[data-section=due-today] a[href^="/tasks/"]').count()) === 3 && (await head('due-today')) === before);
 
   // Folds + NOW + duplicates
-  check(`${kind}: Up next / Also open / Routine collapsed`, (await V.locator('[data-fold]').count()) === 3 && (await V.locator('[data-fold] [aria-expanded=true]').count()) === 0);
-  for (const f of ['up-next', 'also-open', 'routine']) await tap(V.locator(`[data-fold=${f}] > button`), phone);
+  check(`${kind}: Up next / Also open collapsed, no routine`, (await V.locator('[data-fold]').count()) === 2 && (await V.locator('[data-fold] [aria-expanded=true]').count()) === 0);
+  for (const f of ['up-next', 'also-open']) await tap(V.locator(`[data-fold=${f}] > button`), phone);
   const nowBtn = phone ? V.locator('[data-section=now] > button') : V.locator('[data-section=now] > button');
   await tap(nowBtn, phone);
   await p.waitForTimeout(400);
