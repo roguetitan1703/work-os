@@ -1,4 +1,4 @@
-// Review hub: redirects from old pages, six views, trash/archive/stale/weekly, unarchive + undo, nav entries at 390 and 1280. Seed profile: base.
+// Review hub: redirects from old pages, five views (Weekly removed: ?view=weekly shows Done), trash/archive/stale, unarchive + undo, nav entries at 390 and 1280. Seed profile: base.
 import { launch, B, PW, SP, db, mc, runAssertSuite, assert, check, fillLogin } from './lib.mjs';
 await runAssertSuite('review', async () => {
   const b = await launch();
@@ -11,9 +11,9 @@ await runAssertSuite('review', async () => {
     const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
     await p.goto(B + '/login'); await fillLogin(p); await p.click('button[type=submit]');
     await p.waitForURL(u => !u.pathname.startsWith('/login'));
-    for (const v of ['done', 'activity', 'weekly', 'stale', 'archive', 'trash']) {
+    for (const v of ['done', 'activity', 'weekly', 'stale', 'archive', 'trash']) { // weekly: removed, falls back to Done
       await p.goto(B + '/review?view=' + v); await p.waitForSelector('nav[aria-label=Review]');
-      assert.equal(await p.locator('nav[aria-label=Review] [aria-current=page]').innerText(), { done: 'Done', activity: 'Activity', weekly: 'Weekly', stale: 'Stale', archive: 'Archive', trash: 'Trash' }[v]);
+      assert.equal(await p.locator('nav[aria-label=Review] [aria-current=page]').innerText(), { done: 'Done', activity: 'Activity', weekly: 'Done', stale: 'Stale', archive: 'Archive', trash: 'Trash' }[v]);
       assert.ok(!(await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)), 'overflow ' + v);
       await p.screenshot({ path: `${SP}/rv-${label}-${v}.png`, fullPage: true });
     }
@@ -36,9 +36,6 @@ await runAssertSuite('review', async () => {
     assert.equal(await p.locator('[data-archived-row]').count(), 2); console.log(label, 'unarchive + undo ok');
     // stale
     await p.goto(B + '/review?view=stale'); assert.ok((await p.locator('body').innerText()).includes('Old stale idea'));
-    // weekly new review
-    await p.goto(B + '/review?view=weekly'); await p.getByRole('button', { name: 'New review' }).first().click();
-    await p.waitForTimeout(500); await p.screenshot({ path: `${SP}/rv-${label}-newreview.png` });
     assert.deepEqual(errs, []);
     // nav entries
     if (label === 'desktop') { await p.goto(B + '/today'); await p.locator('aside a[href="/review"]').click(); await p.waitForURL(/\/review/); }

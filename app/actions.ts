@@ -13,18 +13,15 @@ import { userActor, type Actor } from '@/lib/actors';
 import type { Scope } from '@/lib/scope';
 import * as tasks from '@/lib/data/tasks';
 import * as projects from '@/lib/data/projects';
-import * as reviews from '@/lib/data/reviews';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 import type {
   Activity,
-  RoutineLog,
   Project,
   ProjectInput,
   Status,
   Task,
   TaskInput,
   TaskPatch,
-  WeeklyReview,
 } from '@/lib/types';
 
 export type Result<T> = { ok: true; data: T } | { ok: false; error: string };
@@ -142,30 +139,6 @@ export async function projectSharingImpactAction(id: string): Promise<Result<{ a
 
 export async function updateProjectAction(id: string, patch: Partial<ProjectInput>): Promise<Result<Project>> {
   return run(s => projects.updateProject(s, id, patch));
-}
-
-// ── Weekly review + daily routine ───────────────────────────────────────────
-
-const scopeOf = (c: { userId: string; orgId: string }): Scope => ({ userId: c.userId, orgId: c.orgId });
-
-export async function createReview(input: Omit<WeeklyReview, 'id'>): Promise<WeeklyReview> {
-  const c = await requireCaller();
-  const r = await withCaller(c, () => reviews.createReview(scopeOf(c), input));
-  revalidatePath('/review');
-  return r;
-}
-
-export async function updateReview(id: string, patch: Partial<Omit<WeeklyReview, 'id'>>): Promise<void> {
-  const c = await requireCaller();
-  await withCaller(c, () => reviews.updateReview(scopeOf(c), id, patch));
-  revalidatePath('/review');
-}
-
-export async function logRoutine(input: { count: number; notes?: string }): Promise<RoutineLog> {
-  const c = await requireCaller();
-  const log = await withCaller(c, () => reviews.logRoutine(scopeOf(c), input));
-  revalidatePath('/', 'layout');
-  return log;
 }
 
 // ── Session ─────────────────────────────────────────────────────────────────

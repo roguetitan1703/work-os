@@ -21,7 +21,7 @@ export default async function MenuPage() {
       <h1 className="hidden md:block text-2xl font-bold mb-4">Menu</h1>
 
       <Group title="Review">
-        <Row href="/review" label="Done · Activity · Weekly · Stale · Archive · Trash" />
+        <Row href="/review" label="Done · Activity · Stale · Archive · Trash" />
       </Group>
 
       <Group title="Schedule">

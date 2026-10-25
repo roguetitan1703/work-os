@@ -29,7 +29,7 @@ export default async function SchedulePage({ searchParams }: Props) {
       <div className="space-y-6">
         <SubHeader title="Edit schedule" back="/timetable" backLabel="Schedule" />
         <h1 className="hidden md:block text-2xl font-bold text-foreground">Edit schedule</h1>
-        <ScheduleEditor initialBlocks={blocks} initialRoutine={schedule.routine} modes={modes.map(m => m.name)} extraNames={Object.keys(schedule.colors)} />
+        <ScheduleEditor initialBlocks={blocks} modes={modes.map(m => m.name)} extraNames={Object.keys(schedule.colors)} />
       </div>
     );
   }

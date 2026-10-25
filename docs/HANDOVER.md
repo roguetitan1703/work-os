@@ -61,11 +61,11 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 
 ### Om
 - **Laptop:**
-  - **Today:** schedule, current time block, overdue, in progress, blocked, rituals.
+  - **Today:** schedule, current time block, overdue, in progress, blocked.
   - **Board:** columns by status, with filters.
   - **Projects:** progress per client.
   - **Task page:** edit everything inline, log progress, checklist, comments, history.
-  - **Review** (`/review?view=done|activity|weekly|stale|archive|trash`, sidebar and phone Menu): Done, Activity (filter by you, Discord or Claude), Weekly review, Stale (untouched 14+ days), Archive (Restore on each row, with Undo), Trash (Restore, Delete forever). `/history`, `/hidden` and `/archive` redirect here.
+  - **Review** (`/review?view=done|activity|stale|archive|trash`, sidebar and phone Menu): Done, Activity (filter by you, Discord or Claude), Stale (untouched 14+ days), Archive (Restore on each row, with Undo), Trash (Restore, Delete forever). `/history`, `/hidden` and `/archive` redirect here. The weekly review, the daily routine card and per-person help text were one person's setup and were removed (2026-10-26); their old documents (reviews, ritualLogs) stay in the database, unread.
 - **Quick add:** press **N** anywhere. You can type it all in one line:
   - `Send invoice @"Grant Leads" !1 #billing due:fri ~20m mode:admin`
   - That reads as: `@project`, `!1`–`!4` for priority, `#tag`, `due:`, `start:`, `~20m` for the estimate, `mode:`.
@@ -363,8 +363,8 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
     - Each comment in history has a **⋯** that opens Edit / Delete (any comment).
   - **Today extras:** the bell with its unread badge, a **Day Plan** button (the day's schedule as a sheet, tick tasks off) and **Import** (paste a markdown table or JSON of tasks).
   - **Notes:** the same editor, sized for the phone. The list has live search and swipeable chips (Active / Archived / All, projects); **New note** opens a sheet (title, project).
-  - **Projects, History & trash, Untouched, Recovery, Weekly review, Timetable, Modes:** each has a phone layout with a back button to More, task rows like the Tasks tab, and no horizontal scrolling at 360–412px.
-  - **More:** projects with open and late counts, plus History & trash, Untouched, Weekly review, Timetable, Recovery, Notifications, Settings, Connect.
+  - **Projects, History & trash, Untouched, Recovery, Timetable, Modes:** each has a phone layout with a back button to More, task rows like the Tasks tab, and no horizontal scrolling at 360–412px.
+  - **More:** projects with open and late counts, plus History & trash, Untouched, Timetable, Recovery, Notifications, Settings, Connect.
   - **Pull to refresh:** pull down at the top of any screen to reload its data (an installed app has no browser refresh). It's ignored while a sheet is open.
 - **Offline:** shows a "You're offline" screen.
 
@@ -508,5 +508,5 @@ Full details: **`docs/auth.md`** (sign-in, roles, invitations, keys, the one-tim
   - Tool wording: `lib/mcp/docs.ts`
   - Quick-add syntax: `lib/quick-parse.ts`
   - Modes: each organization's list (`modes:<orgId>`, `lib/org-modes.ts`); the default eight and colour helpers in `lib/modes.ts`
-  - Schedule, routine, review questions, help: each person's own (`/timetable?edit=1`, `lib/user-schedule.ts`; docs/multi-user.md phase 3)
+  - Schedule: each person's own (`/timetable?edit=1`, `lib/user-schedule.ts`; docs/multi-user.md phase 3)
   - Timezone and quiet hours: each person's own (Settings › Alerts); `APP_TZ` is the default

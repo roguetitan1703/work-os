@@ -131,8 +131,8 @@ for (const kind of ['phone', 'desk']) {
   check(`${kind}: after Undo task is back (${title})`, (await V.locator('[data-section=due-today] a[href^="/tasks/"]').count()) === 3 && (await head('due-today')) === before);
 
   // Folds + NOW + duplicates
-  check(`${kind}: Up next / Also open / Routine collapsed`, (await V.locator('[data-fold]').count()) === 3 && (await V.locator('[data-fold] [aria-expanded=true]').count()) === 0);
-  for (const f of ['up-next', 'also-open', 'routine']) await tap(V.locator(`[data-fold=${f}] > button`), phone);
+  check(`${kind}: Up next / Also open collapsed, no routine`, (await V.locator('[data-fold]').count()) === 2 && (await V.locator('[data-fold] [aria-expanded=true]').count()) === 0);
+  for (const f of ['up-next', 'also-open']) await tap(V.locator(`[data-fold=${f}] > button`), phone);
   const nowBtn = phone ? V.locator('[data-section=now] > button') : V.locator('[data-section=now] > button');
   await tap(nowBtn, phone);
   await p.waitForTimeout(400);

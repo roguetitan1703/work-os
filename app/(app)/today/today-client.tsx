@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import Link from "@/components/intent-link";
-import { CalendarDays, ChevronDown, ChevronRight, ClipboardPaste, Flame, LayoutList, Zap } from "lucide-react";
-import type { RoutineLog, Mode, Task } from "@/lib/types";
-import type { Routine } from "@/lib/schedule";
+import { CalendarDays, ChevronDown, ChevronRight, ClipboardPaste, LayoutList, Zap } from "lucide-react";
+import type { Mode, Task } from "@/lib/types";
 import { PasteImportDialog } from "@/components/paste-import";
 import { DayPlanDialog } from "@/components/day-plan-dialog";
 import { MobileImport } from "@/components/mobile/m-import";
@@ -12,7 +11,6 @@ import { MobileDayPlan } from "@/components/mobile/m-day-plan";
 import { MobileHeader } from "@/components/mobile/tab-bar";
 import { MTaskRow } from "@/components/mobile/m-task-row";
 import { Button } from "@/components/ui/button";
-import { RoutineCard } from "@/components/routine-card";
 import { TaskRow } from "@/components/task-row";
 import { QuickAddBar } from "@/components/quick-add";
 import { cn } from "@/lib/utils";
@@ -27,9 +25,6 @@ type Props = {
   waiting: Record<string, string[]>;
   noteTaskIds: string[];
   claude: ClaudeCardData | null;
-  /** The person's own daily routine card (lib/schedule.ts), if they have one, and today's log of it. */
-  routine: Routine | null;
-  routineLog: RoutineLog | null;
 };
 
 type Model = ReturnType<typeof useTodayModel>;
@@ -53,7 +48,7 @@ export function TodayClient(props: Props) {
   );
 }
 
-function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, waiting, noteTaskIds, claude, routine, routineLog }: Props & { variant: Variant }) {
+function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, waiting, noteTaskIds, claude }: Props & { variant: Variant }) {
   const m = useTodayModel({ tasks: openTasks, waiting, isNaturallyWeekend, weekday });
   const phone = variant === "phone";
   const [importOpen, setImportOpen] = useState(false);
@@ -92,13 +87,6 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
             </Link>
           )}
         </Fold>
-        {routine && (
-          <Fold phone={phone} title="Routine" icon={<Flame className="w-4 h-4" style={{ color: routine.color }} />} hint={routineLog ? `${routine.name}: ${routineLog.count}` : `${routine.name} not logged`}>
-            <div className="p-2 [&_input]:text-[16px] [&_input]:min-h-11 md:[&_input]:min-h-0 md:[&_input]:text-sm [&_textarea]:text-[16px] md:[&_textarea]:text-sm [&_button]:min-h-11 md:[&_button]:min-h-0">
-              <RoutineCard routine={routine} todayLog={routineLog} />
-            </div>
-          </Fold>
-        )}
       </div>
     </div>
   );
