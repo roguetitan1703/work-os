@@ -8,8 +8,8 @@
 // A Next build writes secrets into .next, and the published tarball shows them to anyone:
 // - prerender-manifest.json `preview`: previewModeId (also the token that x-prerender-revalidate and the
 //   __prerender_bypass cookie must carry), previewModeSigningKey, previewModeEncryptionKey. `next start` reads them
-//   from this file (no environment variable overrides them), so they are replaced here with fresh random values in
-//   the same format.
+//   from this file and, since Next 16.4, from server/preview-props.json (no environment variable overrides them), so
+//   both are replaced here with the same fresh random values in the same format.
 // - server/server-reference-manifest.{json,js} `encryptionKey`: the key that encrypts server actions' bound
 //   arguments. Next uses NEXT_SERVER_ACTIONS_ENCRYPTION_KEY from the environment when it is set
 //   (next/dist/server/app-render/encryption-utils.js getActionEncryptionKey), and the server sets it
@@ -36,6 +36,18 @@ if (!pm.preview || typeof pm.preview.previewModeId !== 'string') {
 const oldPreview = [pm.preview.previewModeId, pm.preview.previewModeSigningKey, pm.preview.previewModeEncryptionKey].filter(v => typeof v === 'string' && v.length >= 16);
 pm.preview = { ...pm.preview, previewModeId: hex(16), previewModeSigningKey: hex(32), previewModeEncryptionKey: hex(32) };
 fs.writeFileSync(pmFile, JSON.stringify(pm));
+// Next 16.4 also writes the same three values to server/preview-props.json and reads them from there at runtime: the
+// same fresh values, so both copies agree.
+const ppFile = path.join(dir, 'server', 'preview-props.json');
+if (fs.existsSync(ppFile)) {
+  const pp = JSON.parse(fs.readFileSync(ppFile, 'utf8'));
+  if (typeof pp.previewModeId !== 'string') {
+    console.error('server/preview-props.json has no previewModeId: Next changed its format; stopping (check docs/hosting.md)');
+    process.exit(1);
+  }
+  const { previewModeId, previewModeSigningKey, previewModeEncryptionKey } = pm.preview;
+  fs.writeFileSync(ppFile, JSON.stringify({ ...pp, previewModeId, previewModeSigningKey, previewModeEncryptionKey }));
+}
 console.log('  fresh preview-mode id and keys');
 
 // Server actions key: the same value appears once in the .json and once (JSON-escaped) in the .js copy.
