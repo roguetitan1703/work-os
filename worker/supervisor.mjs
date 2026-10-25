@@ -2,6 +2,7 @@
 // Keeps `worker.mjs run` running and restarts it when the worker's code changes, so an update never
 // needs a reinstall. Autostart (install.mjs) runs this file. Output goes to worker.log next to the config.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -50,17 +51,31 @@ function logger() {
 }
 
 // One supervisor per config folder: a second start (setup run again, logon plus a hand start) exits quietly.
-// The file's time is refreshed every few seconds by the running one, so after a reboot a leftover file (whose pid may now be
-// another program) is not taken for a live supervisor.
-export const LOCK_FRESH_MS = 30000;
-export function takeLock(file = path.join(configDir(), 'supervisor.pid'), pid = process.pid, alive = (p) => { try { process.kill(p, 0); return true; } catch (e) { return e.code === 'EPERM'; } }, now = Date.now) {
-  try {
-    const other = Number(fs.readFileSync(file, 'utf8'));
-    if (other && other !== pid && alive(other) && now() - fs.statSync(file).mtimeMs < LOCK_FRESH_MS) return false;
-  } catch {}
+// The pid file is created atomically (open 'wx'): of two starts at the same moment exactly one wins. When the file exists, it
+// is a live lock only if its pid is alive (kill 0; right after a laptop sleep too, unlike a timestamp) and it was written
+// after the last boot (a pid in a file from before a reboot may now belong to another program).
+export function takeLock(
+  file = path.join(configDir(), 'supervisor.pid'),
+  pid = process.pid,
+  alive = (p) => { try { process.kill(p, 0); return true; } catch (e) { return e.code === 'EPERM'; } },
+  bootMs = Date.now() - os.uptime() * 1000,
+) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, String(pid));
-  return true;
+  for (let tries = 0; tries < 3; tries++) {
+    try {
+      const fd = fs.openSync(file, 'wx');
+      fs.writeSync(fd, String(pid));
+      fs.closeSync(fd);
+      return true;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+    }
+    let other = 0, written = 0;
+    try { other = Number(fs.readFileSync(file, 'utf8')); written = fs.statSync(file).mtimeMs; } catch { continue; } // gone meanwhile: try to create it again
+    if (other && other !== pid && alive(other) && written >= bootMs) return false;
+    try { fs.rmSync(file, { force: true }); } catch {} // stale: replace it (a racing start is settled by 'wx' above)
+  }
+  return false;
 }
 
 async function main() {

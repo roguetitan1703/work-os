@@ -48,7 +48,7 @@ export function InstallCommands({ info }: { info: InstallInfo }) {
       </div>
       <p className="text-[12px] text-muted-foreground">
         Needs Node 22 or newer and Claude Code on that computer; setup checks both and says what is missing. The command downloads the worker to a folder of your own, checks it against this checksum (
-        <code className="font-mono break-all">{info.sha256.slice(0, 16)}…</code>, version {info.version}), and asks for the key. Linux is not supported yet.
+        <code className="font-mono break-all">{info.sha256.slice(0, 16)}…</code>, version {info.version}), and asks for the key. The checksum only catches a damaged download; it comes from this same site. Linux is not supported yet.
       </p>
     </div>
   );

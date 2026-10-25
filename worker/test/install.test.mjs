@@ -84,7 +84,7 @@ function stub(status) {
   return new Promise((r) => server.listen(0, '127.0.0.1', () => r({ url: `http://127.0.0.1:${server.address().port}`, calls, close: () => { server.closeAllConnections?.(); return new Promise((x) => server.close(x)); } })));
 }
 
-async function setup({ argv, lines, config, token = null, verify, defaultServer }) {
+async function setup({ argv, lines, config, token = null, verify, defaultServer, tty = false }) {
   const dir = tmp();
   const prev = process.env.WORK_OS_WORKER_DIR;
   process.env.WORK_OS_WORKER_DIR = dir;
@@ -94,8 +94,8 @@ async function setup({ argv, lines, config, token = null, verify, defaultServer 
   console.log = (...a) => out.push(a.join(' '));
   // One line at a time, as a person types: readline drops a line that arrives before the next question is asked.
   const input = new PassThrough();
-  input.isTTY = false;
-  (async () => { for (const l of lines) { await new Promise((r) => setTimeout(r, 40)); input.write(l + '\n'); } })();
+  input.isTTY = tty;
+  (async () => { for (const l of lines) { await new Promise((r) => setTimeout(r, tty ? 150 : 40)); input.write(l + '\n'); } })();
   const stored = { token };
   const calls = { scans: 0, installs: 0 };
   let error = null;
@@ -104,7 +104,7 @@ async function setup({ argv, lines, config, token = null, verify, defaultServer 
       argv,
       deps: {
         input, verify, defaultServer,
-        getToken: () => stored.token, setToken: (t) => { stored.token = t; }, readSecret: async () => { throw new Error('no TTY'); },
+        getToken: () => stored.token, setToken: (t) => { stored.token = t; }, readSecret: async () => TEST_TOKEN,
         scanAndReport: async () => { calls.scans++; return 3; }, install: () => { calls.installs++; },
       },
     });
@@ -161,21 +161,39 @@ test('setup: a config that points at a *.vercel.app address says so and offers t
   } finally { rm(root); }
 });
 
-test('setup: HTTP 402 or 404 from the stored server offers the new address and retries there', async () => {
+test('setup: 402/404 offers the current address only for an old *.vercel.app host from the stored config, and only after a typed yes', async () => {
   const root = tmp();
-  for (const code of [402, 404]) {
-    const config = { baseUrl: 'https://old.example', deviceName: 'Om-PC', roots: [root] };
+  const D = 'https://work.example.test', OLD = 'https://work-os-old.vercel.app';
+  const run = (code, o) => {
     const verified = [];
-    const verify = async (url) => { verified.push(url); return url === 'https://old.example' ? { ok: false, status: code } : { ok: true, status: 200 }; };
-    const r = await setup({ argv: [], config, lines: [TEST_TOKEN], verify, defaultServer: 'https://work.example.test' });
+    const verify = async (url) => { verified.push(url); return url === D ? { ok: true, status: 200 } : { ok: false, status: code }; };
+    return setup({ verify, defaultServer: D, ...o }).then((r) => ({ ...r, verified }));
+  };
+  const cfg = (baseUrl) => ({ baseUrl, deviceName: 'Om-PC', roots: [root] });
+  for (const code of [402, 404]) {
+    // piped input: nobody can answer, so nothing is switched and the key never goes to the new host
+    let r = await run(code, { argv: [], config: cfg(OLD), lines: ['n', TEST_TOKEN] });
+    assert.match(String(r.error), /nothing was changed.*--server https:\/\/work\.example\.test/);
+    assert.deepEqual(r.verified, [OLD]);
+    assert.equal(r.cfg?.baseUrl, OLD);
+    // not an old host: never offered, plain error
+    r = await run(code, { argv: [], config: cfg('https://old.example'), lines: [TEST_TOKEN] });
+    assert.match(String(r.error), new RegExp(`HTTP ${code}`));
+    assert.deepEqual(r.verified, ['https://old.example']);
+    // --server given on the command line: never second-guessed, even a vercel address
+    r = await run(code, { argv: ['--server', OLD, '--name', 'n', '--root', root], config: cfg(OLD), lines: [TEST_TOKEN] });
+    assert.match(String(r.error), new RegExp(`HTTP ${code}`));
+    assert.deepEqual(r.verified, [OLD]);
+    // at a terminal: 'n' to the first question (keep the old address), then yes to the second -> verified there next
+    r = await run(code, { argv: [], config: cfg(OLD), lines: ['n', 'y'], tty: true });
     assert.equal(r.error, null, String(r.error));
-    assert.match(r.out, new RegExp(`https://old\\.example answered HTTP ${code}`));
-    assert.deepEqual(verified, ['https://old.example', 'https://work.example.test']);
-    assert.equal(r.cfg.baseUrl, 'https://work.example.test');
+    assert.deepEqual(r.verified, [OLD, D]);
+    assert.equal(r.cfg.baseUrl, D);
+    // at a terminal, a no: the key is not sent to the new host
+    r = await run(code, { argv: [], config: cfg(OLD), lines: ['n', 'n'], tty: true });
+    assert.match(String(r.error), /nothing was changed/);
+    assert.deepEqual(r.verified, [OLD]);
   }
-  // the current address answering 404 is not second-guessed: it is an error
-  const r = await setup({ argv: ['--server', 'https://work.example.test', '--name', 'n', '--root', root], lines: [TEST_TOKEN], verify: async () => ({ ok: false, status: 404 }), defaultServer: 'https://work.example.test' });
-  assert.match(String(r.error), /HTTP 404/);
   rm(root);
 });
 
@@ -214,13 +232,22 @@ test('setup: an autostart failure is one line with the hand command, then setup 
   assert.match(r.out, /Done:/);
 });
 
-test('supervisor lock: a live fresh one blocks a second, a stale or dead one does not', async () => {
+test('supervisor lock: created atomically; a live pid from this boot blocks a second; a dead pid or one from before the boot does not', async () => {
   const { takeLock } = await import('../supervisor.mjs');
   const d = tmp(); const f = path.join(d, 'supervisor.pid');
   try {
-    assert.equal(takeLock(f, 111, () => true), true);
-    assert.equal(takeLock(f, 222, () => true), false);
-    assert.equal(takeLock(f, 222, () => false), true);
-    assert.equal(takeLock(f, 333, () => true, () => Date.now() + 60000), true);
+    const boot = Date.now() - 3600_000;
+    assert.equal(takeLock(f, 111, () => true, boot), true);
+    assert.equal(fs.readFileSync(f, 'utf8'), '111');
+    assert.equal(takeLock(f, 222, () => true, boot), false, 'alive: blocked however old the file (a laptop sleep must not free it)');
+    fs.utimesSync(f, new Date(Date.now() - 600_000), new Date(Date.now() - 600_000));
+    assert.equal(takeLock(f, 222, () => true, boot), false, 'alive and written after the boot: still blocked');
+    assert.equal(takeLock(f, 222, () => false, boot), true, 'dead pid: replaced');
+    assert.equal(fs.readFileSync(f, 'utf8'), '222');
+    assert.equal(takeLock(f, 333, () => true, Date.now() + 60_000), true, 'written before the last boot: its pid may be another program');
+    // two starts at the same moment: 'wx' lets only one create the file
+    const g = path.join(d, 'race.pid');
+    const first = takeLock(g, 1, () => true, boot), second = takeLock(g, 2, () => true, boot);
+    assert.deepEqual([first, second], [true, false]);
   } finally { rm(d); }
 });

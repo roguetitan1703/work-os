@@ -73,9 +73,11 @@ export async function runSetup({ argv, deps }) {
     return a || def || '';
   };
   let baseUrl, deviceName, roots;
+  let fromConfig = false; // the address came from the stored config, not from --server or a typed answer
   let key = null;
   try {
     baseUrl = args.server || (cur.baseUrl && had('baseUrl') ? cur.baseUrl : '') || await ask('Server', defaultServer);
+    fromConfig = !args.server && !!cur.baseUrl && had('baseUrl');
     // An old address left in the config from before Work OS moved: say so, and offer the current one.
     if (!args.server && baseUrl !== defaultServer && isOldHost(baseUrl)) {
       console.log(`This config points at ${baseUrl}, an old address.`);
@@ -107,15 +109,18 @@ export async function runSetup({ argv, deps }) {
     try { return await verify(baseUrl, token); } catch (e) { throw new Error(`could not reach ${baseUrl}: ${String(e.message || e).slice(0, 100)}`); }
   };
   let v = await check();
-  // 402 or 404: nothing of Work OS lives at this address any more (the old host). Offer the current one once.
-  if ((v.status === 402 || v.status === 404) && baseUrl !== defaultServer) {
+  // 402 or 404 from an OLD host (a *.vercel.app address read from the stored config): nothing of Work OS lives there any more.
+  // Offer the current address, and send the key there only after a typed yes. Never for an address given with --server or
+  // typed by the person, never for another kind of host, and never by default on piped input (no one can answer).
+  if ((v.status === 402 || v.status === 404) && fromConfig && isOldHost(baseUrl) && baseUrl !== defaultServer) {
     console.log(`${baseUrl} answered HTTP ${v.status}: this config points at an address that no longer serves Work OS.`);
-    let yes = true; // piped input cannot answer a second question: take the current address
-    if (input.isTTY) {
-      const rl2 = readline.createInterface({ input, output: process.stdout, terminal: false });
-      try { yes = /^(y|$)/i.test((await rl2.question(`Use ${defaultServer}? (Y/n): `)).trim()); } finally { rl2.close(); }
-    }
-    if (yes) { baseUrl = defaultServer; v = await check(); }
+    if (!input.isTTY) throw new Error(`nothing was changed. Run setup again with --server ${defaultServer} to use the current address`);
+    const rl2 = readline.createInterface({ input, output: process.stdout, terminal: false });
+    let yes = false;
+    try { yes = /^(y|$)/i.test((await rl2.question(`Use ${defaultServer}? (Y/n): `)).trim()); } finally { rl2.close(); }
+    if (!yes) throw new Error('nothing was changed');
+    baseUrl = defaultServer;
+    v = await check();
   }
   if (v.status === 401 || v.status === 403) throw new Error('key refused (the server did not accept this device key; nothing was changed)');
   if (!v.ok) throw new Error(`server answered HTTP ${v.status}; nothing was changed`);

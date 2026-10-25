@@ -877,7 +877,7 @@ function AUDIT() {
   add(`action ${CI}moveClaudeItemAction`, act(CI + 'moveClaudeItemAction', t => [t.itemProject, t.item, 'top'], aim(['itemProject', 'item'])));
   const L_ = 'app/(app)/projects/[id]/launcher-actions.ts#';
   add(`action ${L_}searchFoldersAction`, act(L_ + 'searchFoldersAction', t => [t.device, ''], aim(['device'], { ok: r => actOk(r) && r.value.data?.length > 0 })));
-  add(`action ${L_}folderPickerAction`, act(L_ + 'folderPickerAction', t => [t.device, ''], aim(['device'], { ok: r => actOk(r) && r.value.data?.folders?.length > 0 })));
+  add(`action ${L_}folderPickerAction`, act(L_ + 'folderPickerAction', t => [t.device, ''], aim(['device', 'project'], { ok: r => actOk(r) && r.value.data?.folders?.length > 0 })));
   add(`action ${L_}relinkFolderAction`, act(L_ + 'relinkFolderAction', t => [t.folder, t.project], aim(['project', 'folder'], { stage: 2 })));
   add(`action ${L_}linkFolderAction`, act(L_ + 'linkFolderAction', t => [t.project, t.folder], aim(['project', 'folder'])));
   add(`action ${L_}unlinkFolderAction`, act(L_ + 'unlinkFolderAction', t => [t.project, t.folder], aim(['project', 'folder'], { stage: 2 })));
