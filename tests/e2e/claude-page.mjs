@@ -425,7 +425,7 @@ async function suite(vp) {
   await db.collection('devices').deleteMany({});
   await p.goto(B + '/claude'); await p.waitForSelector('[data-claude-banner]');
   check(T('no computer: banner "Claude has no PC to work on" with Set up Claude'), (await bnr.getAttribute('data-claude-banner')) === 'no-computer' && /Claude has no PC to work on/.test(await bnr.innerText()) && (await bnr.locator('a[href="/claude?tab=setup"]').count()) === 1);
-  check(T('no computer: Set up Claude replaces Start Claude'), (await p.locator('a[data-set-up-claude]:visible').count()) === 1 && (await p.locator('a[data-start-claude]:visible').count()) === 0);
+  check(T('no computer: Set up Claude replaces Start Claude'), (await p.locator('main a[data-set-up-claude]:visible').count()) === 1 && (await p.locator('main a[data-start-claude]:visible').count()) === 0);
   check(T('no computer: no "No computer added yet" line'), !/No computer added/i.test(await p.locator('body').innerText()));
   await h44(p.locator('a[data-set-up-claude]:visible'), 'Set up Claude');
   await p.goto(B + '/claude?tab=setup'); await p.waitForSelector('a[data-set-up-claude]:visible');

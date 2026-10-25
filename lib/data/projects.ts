@@ -183,15 +183,11 @@ export async function listProjectsNav(s: Scope): Promise<Pick<Project, 'id' | 'n
 
 /** The sidebar's Recent: the projects the caller can see (active or paused), newest activity first (a task change or the project's own). */
 export async function listRecentProjects(s: Scope, limit = 5): Promise<Pick<Project, 'id' | 'name' | 'visibility'>[]> {
+  // Runs on every page, so it reads projects only (a handful of documents), never the tasks.
   const c = await scoped(s);
-  const [docs, last] = await Promise.all([
-    c.projects.find({ status: { $in: ['active', 'paused'] } }, { projection: { name: 1, visibility: 1, updatedAt: 1 } }).toArray(),
-    c.tasks.aggregate<{ _id: string; at: Date }>([{ $match: { projectId: { $ne: null } } }, { $group: { _id: '$projectId', at: { $max: '$updatedAt' } } }]).toArray(),
-  ]);
-  const at = new Map(last.map(l => [l._id, l.at.getTime()]));
-  const when = (d: Pick<ProjectDoc, '_id' | 'updatedAt'>) => Math.max(at.get(d._id) ?? 0, d.updatedAt?.getTime() ?? 0);
+  const docs = await c.projects.find({ status: { $in: ['active', 'paused'] } }, { projection: { name: 1, visibility: 1, updatedAt: 1 } }).toArray();
   return docs
-    .sort((x, y) => when(y) - when(x))
+    .sort((x, y) => (y.updatedAt?.getTime() ?? 0) - (x.updatedAt?.getTime() ?? 0))
     .slice(0, limit)
     .map(d => ({ id: d._id, name: d.name, visibility: d.visibility }));
 }
