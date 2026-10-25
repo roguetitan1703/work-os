@@ -13,7 +13,7 @@ export async function Help() {
   const [modes, schedule] = await Promise.all([getOrgModes(me.orgId), getSchedule(me)]);
   return (
     <div className="space-y-3" data-help>
-      <p className="px-1 text-sm text-muted-foreground">{schedule.help.length ? 'Your modes of work and what to do when the day breaks.' : "Your organization's modes of work."}</p>
+      <p className="px-1 text-sm text-muted-foreground">{schedule.help.length ? 'Your modes of work and your own notes.' : "Your organization's modes of work."}</p>
 
       <Disclosure title="Mode definitions" hint={`The ${modes.length} modes of work`}>
         <div className="space-y-2 -mx-1">

@@ -42,7 +42,7 @@ export default async function MenuPage() {
       <Group title="Settings">
         <Row href="/settings" label="Settings" dot={<span role="img" aria-label={DOT_TEXT[status]} title={DOT_TEXT[status]} className={`w-2.5 h-2.5 rounded-full ${DOT[status]}`} />} />
 
-        <Row href="/settings?section=help" icon={<LifeBuoy className="w-5 h-5 text-pink-500" />} label="Help and recovery" />
+        <Row href="/settings?section=help" icon={<LifeBuoy className="w-5 h-5 text-pink-500" />} label="Modes of work" />
       </Group>
     </div>
   );
