@@ -203,6 +203,7 @@ sudo nano /etc/work-os/env      # fill in; see Environment below
 D=/srv/work-os/repo/deploy
 sudo install -o root -g root -m 0755 $D/deploy.sh /usr/local/sbin/work-os-deploy
 sudo install -o root -g root -m 0755 $D/update.sh /usr/local/sbin/work-os-update
+sudo install -o root -g root -m 0755 $D/cleanup-cutover.sh /usr/local/sbin/work-os-cleanup-cutover
 sudo install -o root -g root -m 0644 $D/fresh-build-secrets.mjs /usr/local/sbin/work-os-fresh-secrets.mjs
 sudo install -o root -g root -m 0755 $D/backup.sh /usr/local/sbin/work-os-backup
 sudo install -o root -g root -m 0755 $D/cron-alerts.sh /usr/local/sbin/work-os-cron-alerts
@@ -674,6 +675,11 @@ To repeat it: seed as above (old app on a throwaway database), then
 `scripts/cutover.sh` with a scratch env file, and
 `BASE=… MAIL_CAPTURE_DIR=… OWNER_EMAIL=… BETTER_AUTH_SECRET=… MONGODB_URI=… MONGODB_DB=… node tests/rehearsal/check-cutover.mjs`.
 The app under test needs `MAIL_CAPTURE_DIR` set, so the reset mail lands in a folder.
+
+**After the cut-over**, once Om has signed in and checked his data: `sudo work-os-cleanup-cutover` lists what the
+move left behind (env backups, plaintext dumps, build tarballs in /tmp, the `_cutover_` rehearsal databases and the old
+`workos` database when the app uses another); `--apply` deletes it. It never drops `MONGODB_DB` and touches no other
+cluster. The temporary Atlas user for the copy is deleted by hand.
 
 ## 11. Backups
 
