@@ -1,10 +1,10 @@
 # Work state
 
 ## Now
-- 2026-10-23: move Work OS to Delpat's server (t4g.small, Caddy, work.delpat.in, Atlas) for the Delpat team. Code side done and merged: multi-user phases 0–5, leak audit, load budgets, Next 16.4.2 + CSP/headers, Shared/Private projects (old projects migrate as private), dispatcher trust labels (only the giver's words instruct Claude), deploy kit fitted to the box (docs/hosting.md). Waits on Om: DNS for work.delpat.in, Atlas access + allowlist, env values, R2 bucket/token and age key for backups, the box steps in docs/hosting.md, then the cut-over (snapshot, copy run, apply).
+- 2026-10-26: Work OS runs at https://work.delpat.in (cut-over done 2026-10-25). Batch on master bb9b378, built and uploaded to manual-builds: OAuth sign-in for Claude, worker install without the repo, sidebar like claude.ai, personal setup removed. Waits on Om: `sudo work-os-update` on the box, then the first real claude.ai / Claude Code OAuth connection.
 
 ## Next
-0. OAuth sign-in for Claude (builder A, branch builder-a): built and tested on the PC (docs/auth.md "Connecting Claude with OAuth"); waits on its security review, the merge and the deploy, then Om adds the connector on claude.ai (URL `https://work.delpat.in/api/mcp`, sign in, Allow) and runs `claude mcp add` + `/mcp` in Claude Code. Keys stay under Settings › Connections › Advanced.
+0. Builder B (ui-settings): Settings like claude.ai, Claude › Set up in 3 steps, first-run checklist (docs: scratchpad ux-proposal); security review before merge.
 Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
 Open work is filed as Claude items on Work OS (Claude page › Queue); this list only orders it.
 1. C46 (Om): first real dispatcher task — Claude › Setup: pick the boilerplate note, turn the dispatcher on, Give to Claude on one small task.
