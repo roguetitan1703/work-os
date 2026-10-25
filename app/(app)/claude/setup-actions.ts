@@ -3,8 +3,11 @@
 import { SafeError } from '@/lib/auth';
 import { requireCaller, withCaller, type Agent, type Caller } from '@/lib/caller';
 import { createApiKey, listApiKeys, revokeApiKey, rotateApiKey, type ApiKeyInfo } from '@/lib/api-keys';
-import { createDevice, listDevices, revokeDevice, type DeviceInfo } from '@/lib/devices';
+import { createDevice, listDevices, replaceDeviceKey, revokeDevice, type DeviceInfo } from '@/lib/devices';
 import { requireFresh } from '@/lib/fresh';
+import { appBaseUrl } from '@/lib/auth';
+import { workerBundle } from '@/lib/worker-bundle';
+import type { InstallInfo } from '@/lib/worker-install';
 
 // ── API keys (Claude Code keys on Claude › Setup, Claude chat keys on Settings › Connections) ──
 // Every action requires a signed-in caller (lib/caller.ts) and works on that caller's own keys.
@@ -58,11 +61,28 @@ export async function listDevicesAction(): Promise<R<DeviceInfo[]>> {
   return run(c => listDevices(c));
 }
 
+/** What the install command needs: this site's address and the worker download's sha256 (no key, nothing private). */
+export async function workerInstallInfoAction(): Promise<R<InstallInfo>> {
+  return run(async () => {
+    const b = workerBundle();
+    return { server: appBaseUrl() ?? '', sha256: b.sha256, version: b.version };
+  });
+}
+
 export async function createDeviceAction(name: string): Promise<R<{ key: string; devices: DeviceInfo[] }>> {
   return run(async c => {
     await requireFresh(c);
     const { key } = await createDevice(c, String(name ?? ''));
     return { key, devices: await listDevices(c) };
+  });
+}
+
+/** A new key for the same computer (keeps its folders and sessions); the old key stops working now. Needs a recent sign-in. */
+export async function replaceDeviceKeyAction(id: string): Promise<R<{ key: string; name: string; devices: DeviceInfo[] }>> {
+  return run(async c => {
+    await requireFresh(c);
+    const { key, info } = await replaceDeviceKey(c, String(id));
+    return { key, name: info.name, devices: await listDevices(c) };
   });
 }
 

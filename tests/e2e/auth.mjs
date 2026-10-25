@@ -8,7 +8,7 @@ import path from 'node:path';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { ObjectId } from 'mongodb';
-import { B, EMAIL, PW, ME, db, rawDb, admin, makeUser, mkDevice, mkKey, mcpAs, call, api, sha, check, finish, launch, login, fillLogin } from './lib.mjs';
+import { B, EMAIL, PW, ME, db, rawDb, admin, makeUser, mkDevice, mkKey, mcpAs, call, api, sha, check, finish, launch, login, fillLogin, pick } from './lib.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MAIL = process.env.MAIL_CAPTURE_DIR;
@@ -204,7 +204,7 @@ try {
     check('members: the owner is listed', (await p.locator(`[data-member="${EMAIL}"]`).count()) === 1);
     const since = Date.now() - 1000;
     await p.fill('input[aria-label="Email to invite"]', email);
-    await p.selectOption('select[aria-label="Role"]', 'member');
+    await pick(p, '[aria-label="Role"]', 'member');
     await p.click('form button:has-text("Invite")');
     await p.waitForSelector('[data-invite-link] code', { timeout: 15000 }).catch(() => {});
     const link = ((await p.locator('[data-invite-link] code').textContent().catch(() => '')) ?? '').trim();
@@ -217,7 +217,7 @@ try {
 
     // A second, pending invitation for the cross-organization checks.
     await p.fill('input[aria-label="Email to invite"]', 'e2e-pending@example.test');
-    await p.selectOption('select[aria-label="Role"]', 'admin');
+    await pick(p, '[aria-label="Role"]', 'admin');
     await p.click('form button:has-text("Invite")');
     await p.waitForSelector('[data-invitation="e2e-pending@example.test"]', { timeout: 15000 }).catch(() => {});
     pendingId = String((await db.collection('invitation').findOne({ email: 'e2e-pending@example.test' }))?._id ?? '');
@@ -379,6 +379,19 @@ try {
     const made2 = await p.locator('code.bg-muted', { hasText: /^wkr_/ }).first().waitFor({ timeout: 10000 }).then(() => true, () => false);
     check('fresh: right password -> the computer is made', made2 && !!(await db.collection('devices').findOne({ name: 'stale-pc', ownerId: invitee })));
 
+    // The authenticator asks for the password in the same modal (one pattern), not inline.
+    await p.goto(B + '/settings?section=security');
+    await p.locator('button:has-text("Turn on")').first().click();
+    const tdlg = p.locator('[data-reauth]');
+    check('reauth: the authenticator asks in the same password modal', await tdlg.waitFor({ timeout: 10000 }).then(() => true, () => false) && /set up the authenticator app/.test(await tdlg.innerText()));
+    check('reauth: no inline password field on the page behind it', (await p.locator('input[aria-label="Your password"]').count()) === 0);
+    await tdlg.locator('input[name=password]').fill('wrong-password-000');
+    await tdlg.locator('button[type=submit]').click();
+    check('reauth: authenticator, wrong password -> message in the modal', ((await tdlg.locator('[role=alert]').textContent({ timeout: 8000 }).catch(() => '')) ?? '').includes('Wrong password'));
+    await tdlg.locator('input[name=password]').fill(PW);
+    await tdlg.locator('button[type=submit]').click();
+    check('reauth: authenticator, right password -> the setup (QR and key) shows', await p.locator('[data-totp-secret]').waitFor({ timeout: 10000 }).then(() => true, () => false));
+    await p.locator('button:has-text("Cancel")').last().click();
     const cj = jar(Object.fromEntries((await ctx.cookies()).filter(c => c.name === 'workos.session_token').map(c => [c.name, c.value])));
     await db.collection('session').updateMany({ userId: idIn(invitee) }, { $set: { createdAt: old }, $unset: { reauthAt: '' } });
     const pk = await authApi(cj, '/passkey/generate-register-options');
@@ -579,6 +592,15 @@ try {
         const r = await fetch(B + u, { redirect: 'manual' });
         const body = await r.text();
         check(`api GET ${u}: public discovery document -> 200 JSON, no cookie`, r.status === 200 && /json/.test(r.headers.get('content-type') ?? '') && !r.headers.get('set-cookie') && !/E2E Org|e2e-owner/.test(body), `${r.status} ${body.slice(0, 80)}`);
+        apis++;
+        continue;
+      }
+      if (u === '/worker/work-os-worker.mjs' || u === '/worker/latest.json') {
+        // The worker download: public by design (the install command fetches it before any key exists); its source only.
+        const r = await fetch(B + u, { redirect: 'manual' });
+        check(`api GET ${u}: public -> 200, no cookie set`, r.status === 200 && !r.headers.get('set-cookie'), r.status);
+        const look = await fetch(B + u + 'x', { redirect: 'manual' });
+        check(`page ${u}x (lookalike): proxy still guards it -> login`, look.status >= 300 && look.status < 400 && (look.headers.get('location') ?? '').includes('/login'), look.status);
         apis++;
         continue;
       }

@@ -1,4 +1,5 @@
 import 'server-only';
+import { createHash } from 'node:crypto';
 import webpush from 'web-push';
 import { collections, type AlertKind, type NotifyKind } from './db';
 import { getUserSetting, scoped, setUserSetting, type Scope } from './scope';
@@ -114,6 +115,25 @@ export async function savePushSubscription(s: Scope, sub: PushSubJSON, device: s
 
 export async function removePushSubscription(s: Scope, endpoint: string): Promise<void> {
   await (await scoped(s)).pushSubs.deleteOne({ _id: endpoint });
+}
+
+export type PushDeviceRow = { id: string; device: string; createdAt: Date; updatedAt: Date; endpoint: string };
+
+// A short id for the list (the endpoint itself is a capability URL and stays on the server).
+const pushId = (endpoint: string) => createHash('sha256').update(endpoint).digest('hex').slice(0, 24);
+
+/** The caller's own push devices (scoped door: recipient = caller), oldest first. */
+export async function listPushDevices(s: Scope): Promise<PushDeviceRow[]> {
+  const docs = await (await scoped(s)).pushSubs.find({}).sort({ createdAt: 1 }).toArray();
+  return docs.map(d => ({ id: pushId(d._id), device: d.device, createdAt: d.createdAt, updatedAt: d.updatedAt, endpoint: d._id }));
+}
+
+/** Removes one of the caller's own push devices by its list id; anyone else's id matches nothing. */
+export async function removePushDevice(s: Scope, id: string): Promise<boolean> {
+  const mine = (await listPushDevices(s)).find(d => d.id === id);
+  if (!mine) return false;
+  await removePushSubscription(s, mine.endpoint);
+  return true;
 }
 
 export async function pushDeviceCount(s: Scope): Promise<number> {

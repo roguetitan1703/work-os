@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { fileURLToPath } from 'node:url';
-import { loadConfig, loadState, saveState, configPath, checkBaseUrl } from './config.mjs';
+import { loadConfig, loadState, saveState, configPath, checkBaseUrl, bundleId } from './config.mjs';
 import { getToken, setToken, readSecretFromStdin } from './secret.mjs';
 import { makeApi } from './api.mjs';
 import { createCore, VERSION } from './core.mjs';
@@ -8,9 +8,10 @@ import { createLoop } from './loop.mjs';
 import { launch, listProcesses, killPid, resolveClaude } from './launch.mjs';
 import { scanRoots, publicFolder } from './scan.mjs';
 import { install, uninstall } from './install.mjs';
-import { runSetup } from './setup.mjs';
+import { runSetup, checkPrereqs } from './setup.mjs';
 import { collectActivity } from './activity.mjs';
 import { connectPush } from './push.mjs';
+import { startUpdateCheck } from './update.mjs';
 
 const log = (m) => console.log(`${new Date().toISOString()} ${m}`);
 
@@ -30,6 +31,7 @@ async function run() {
   const push = connectPush({ getCfg: loadConfig, getToken, onWake: () => loop?.wake(), onUp: (up) => { log(up ? 'push connected' : 'push disconnected'); loop?.wake(); }, log });
   loop = createLoop({ core, getConfig: loadConfig, state, log, pushUp: () => push.up });
   log(`work-os-worker ${VERSION} started`);
+  startUpdateCheck({ getBaseUrl: () => loadConfig().baseUrl, log });
   await loop.run();
 }
 
@@ -38,6 +40,7 @@ function status() {
   const state = loadState();
   console.log('config file:', configPath());
   console.log(JSON.stringify(cfg, null, 2));
+  console.log('worker code:', bundleId() ? `downloaded bundle ${bundleId().slice(0, 12)}` : 'run from the repo');
   console.log('device key set:', getToken() ? 'yes' : 'no');
   console.log('last scan:', state.lastScan ? new Date(state.lastScan).toISOString() : 'never');
   console.log('last poll:', state.lastPoll ? new Date(state.lastPoll).toISOString() : 'never');
@@ -77,7 +80,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       else console.log('(add --titles to print the list on your own console)');
       console.log('(read-only, nothing sent)');
     }
-    else if (cmd === 'setup') await runSetup({ argv: process.argv.slice(3), deps: { getToken, setToken, readSecret: readSecretFromStdin, scanAndReport: scanAndSend, install } });
+    else if (cmd === 'setup') await runSetup({ argv: process.argv.slice(3), deps: { getToken, setToken, readSecret: readSecretFromStdin, scanAndReport: scanAndSend, install, prereqs: () => checkPrereqs(loadConfig().roots) } });
     else if (cmd === 'scan') {
       if (process.argv.includes('--dry')) {
         const cfg = loadConfig();

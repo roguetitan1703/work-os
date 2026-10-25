@@ -1,6 +1,21 @@
 // Backend checks for the session launcher: worker API auth, folder validation, job isolation, rate limit. Seed profile: none.
 import { B, check, db, mkDevice, mkWos, api, mcp, MCP, finish } from './lib.mjs';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+
+// The worker download: public (no cookie, no key), the same bytes every time, the sha256 the app shows, no secrets.
+{
+  const get = () => fetch(B + '/worker/work-os-worker.mjs', { redirect: 'manual' });
+  const r = await get(), body = await r.text(), r2 = await (await get()).text();
+  const latest = await (await fetch(B + '/worker/latest.json', { redirect: 'manual' })).json();
+  check('worker download: public, 200, javascript, nosniff', r.status === 200 && /javascript/.test(r.headers.get('content-type') ?? '') && r.headers.get('x-content-type-options') === 'nosniff', r.status);
+  check('worker download: sets no cookie', !r.headers.get('set-cookie'));
+  check('worker download: same bytes every time, and its sha256 is the one in /worker/latest.json', body === r2 && createHash('sha256').update(body).digest('hex') === latest.sha256 && /^[0-9a-f]{64}$/.test(latest.sha256), latest.sha256);
+  check('worker download: the worker and its loader, no tests, no keys or secrets', body.includes('worker unpacked') && body.includes('supervisor.mjs') && !/wkr_[A-Za-z0-9_-]{20,}|wos_[A-Za-z0-9_-]{20,}|BETTER_AUTH_SECRET=|mongodb\+srv/.test(body));
+  const nm = await fetch(B + '/worker/work-os-worker.mjs', { headers: { 'if-none-match': `"${latest.sha256}"` } });
+  check('worker download: ETag is the sha256 (304 when unchanged)', nm.status === 304, nm.status);
+  const other = await fetch(B + '/worker/other.mjs', { redirect: 'manual' });
+  check('worker download: only these two paths are public', other.status !== 200, other.status);
+}
 const A = await mkDevice('dev-A'), Bd = await mkDevice('dev-B');
 const wos = await mkWos();
 const rev = await mkDevice('dev-revoked'); await db.collection('devices').updateOne({ _id: rev.id }, { $set: { revokedAt: new Date() } });

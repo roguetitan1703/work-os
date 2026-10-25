@@ -2,7 +2,7 @@
 
 import { Ago } from '@/components/ago';
 import { useEffect, useState, useTransition } from 'react';
-import { Check, Copy, Laptop, Plus, Trash2 } from 'lucide-react';
+import { Check, Copy, FolderGit2, KeyRound, Laptop, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { DeviceInfo } from '@/lib/devices';
 import { BottomSheet } from '@/components/mobile/sheet';
@@ -10,7 +10,10 @@ import { usePhone } from '@/components/mobile/use-phone';
 import { ConfirmSheet } from '@/components/responsive-sheet';
 import { Disclosure, Section } from '../settings/ui';
 import { needsReauth, useReauth } from '@/components/reauth';
-import { createDeviceAction, listDevicesAction, revokeDeviceAction } from './setup-actions';
+import { createDeviceAction, listDevicesAction, replaceDeviceKeyAction, revokeDeviceAction, workerInstallInfoAction } from './setup-actions';
+import { InstallCommands } from './worker-install';
+import { ComputerFolders } from './computer-folders';
+import type { InstallInfo } from '@/lib/worker-install';
 
 const field =
   'w-full min-w-0 h-11 rounded-xl border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
@@ -25,9 +28,13 @@ export function Computers() {
   const phone = usePhone();
   const [devices, setDevices] = useState<DeviceInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<InstallInfo | null>(null);
+  const [showUpdate, setShowUpdate] = useState(false);
   const [name, setName] = useState('');
   const [fresh, setFresh] = useState<{ key: string; name: string } | null>(null);
   const [confirm, setConfirm] = useState<DeviceInfo | null>(null);
+  const [replacing, setReplacing] = useState<DeviceInfo | null>(null);
+  const [foldersOf, setFoldersOf] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const reauth = useReauth();
 
@@ -38,6 +45,7 @@ export function Computers() {
       if (r.ok) setDevices(r.data);
       else setError(r.error);
     });
+    workerInstallInfoAction().then(r => alive && r.ok && setInfo(r.data));
     return () => {
       alive = false;
     };
@@ -64,6 +72,16 @@ export function Computers() {
       toast(`Revoked "${d.name}"`);
     });
 
+  const replaceKey = (d: DeviceInfo) =>
+    start(async () => {
+      let r = await replaceDeviceKeyAction(d.id);
+      if (!r.ok && needsReauth(r.error) && (await reauth.ask())) r = await replaceDeviceKeyAction(d.id);
+      setReplacing(null);
+      if (!r.ok) return void toast.error(r.error);
+      setDevices(r.data.devices);
+      setFresh({ key: r.data.key, name: r.data.name });
+    });
+
   const ask = (d: DeviceInfo) => setConfirm(d);
 
   return (
@@ -82,7 +100,8 @@ export function Computers() {
             <p className="px-4 py-3 text-sm text-muted-foreground">No computers yet.</p>
           ) : (
             devices.map(d => (
-              <div key={d.id} className="flex items-center gap-2 pl-4 pr-2 py-2 min-h-14" data-device={d.name}>
+              <div key={d.id}>
+              <div className="flex items-center gap-2 pl-4 pr-2 py-2 min-h-14" data-device={d.name}>
                 <Laptop className="w-4 h-4 text-muted-foreground shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 text-[15px] md:text-sm text-foreground">
@@ -92,11 +111,27 @@ export function Computers() {
                   <div className="text-[13px] md:text-xs text-muted-foreground truncate" suppressHydrationWarning>
                     <code className="font-mono">{d.prefix}…</code> · {d.lastSeenAt ? <Ago iso={d.lastSeenAt} prefix="seen " /> : 'worker not connected yet'}
                     {d.os ? ` · ${d.os === 'win32' ? 'Windows' : d.os === 'darwin' ? 'macOS' : d.os}` : ''}
+                    {stale(d, info) && (
+                      <>
+                        {' · '}
+                        <button type="button" className="underline underline-offset-2 text-foreground" onClick={() => setShowUpdate(v => !v)}>
+                          update available
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
+                <button type="button" className={iconBtn} onClick={() => setFoldersOf(v => (v === d.id ? null : d.id))} aria-expanded={foldersOf === d.id} aria-label={`Folders on ${d.name}`} title="Folders and their projects">
+                  <FolderGit2 className="w-4 h-4" />
+                </button>
+                <button type="button" className={iconBtn} onClick={() => setReplacing(d)} disabled={pending} aria-label={`Replace key for ${d.name}`} title="Replace key">
+                  <KeyRound className="w-4 h-4" />
+                </button>
                 <button type="button" className={iconBtn} onClick={() => ask(d)} disabled={pending} aria-label={`Revoke ${d.name}`} title="Revoke">
                   <Trash2 className="w-4 h-4 text-red-600 dark:text-red-400" />
                 </button>
+              </div>
+              {foldersOf === d.id && <ComputerFolders deviceId={d.id} />}
               </div>
             ))
           )}
@@ -116,6 +151,12 @@ export function Computers() {
             </button>
           </div>
         </div>
+        {showUpdate && info && (
+          <div className="mt-3 rounded-lg border border-border/70 p-3 space-y-2">
+            <p className="text-[13px] text-foreground">To update, run this on that computer again. Its settings and key are kept: press Enter at each question.</p>
+            <InstallCommands info={info} />
+          </div>
+        )}
       </Section>
 
       <Disclosure title="What a computer can do" hint="Limits and safety">
@@ -127,15 +168,25 @@ export function Computers() {
 
       {fresh && !phone && (
         <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-4">
-          <NewDevice fresh={fresh} onDone={() => setFresh(null)} />
+          <NewDevice fresh={fresh} info={info} onDone={() => setFresh(null)} />
         </div>
       )}
       {fresh && phone && (
         <BottomSheet title={`Key for "${fresh.name}"`} onClose={() => setFresh(null)}>
           <div className="pt-1 pb-2">
-            <NewDevice fresh={fresh} onDone={() => setFresh(null)} />
+            <NewDevice fresh={fresh} info={info} onDone={() => setFresh(null)} />
           </div>
         </BottomSheet>
+      )}
+      {replacing && (
+        <ConfirmSheet
+          title="Replace key"
+          message={<>Make a new key for &quot;{replacing.name}&quot;? Its folder links and sessions stay. The old key stops working at once, so its worker is offline until you run setup with the new key.</>}
+          verb="Replace key"
+          pending={pending}
+          onConfirm={() => replaceKey(replacing)}
+          onClose={() => setReplacing(null)}
+        />
       )}
       {confirm && (
         <ConfirmSheet
@@ -152,19 +203,11 @@ export function Computers() {
   );
 }
 
-const SETUP_CMD = 'node worker/worker.mjs setup';
+/** A downloaded worker older than the one this site serves (repo runs and not-yet-reported ones never show it). */
+const stale = (d: DeviceInfo, info: InstallInfo | null) => !!info && !!d.bundle && d.bundle !== info.sha256.slice(0, 12);
 
-function NewDevice({ fresh, onDone }: { fresh: { key: string; name: string }; onDone: () => void }) {
+function NewDevice({ fresh, info, onDone }: { fresh: { key: string; name: string }; info: InstallInfo | null; onDone: () => void }) {
   const [copied, setCopied] = useState(false);
-  const [copiedCmd, setCopiedCmd] = useState(false);
-  const copyCmd = () =>
-    navigator.clipboard?.writeText(SETUP_CMD).then(
-      () => {
-        setCopiedCmd(true);
-        setTimeout(() => setCopiedCmd(false), 1500);
-      },
-      () => toast.error('Could not copy'),
-    );
   const copy = () =>
     navigator.clipboard?.writeText(fresh.key).then(
       () => {
@@ -176,7 +219,7 @@ function NewDevice({ fresh, onDone }: { fresh: { key: string; name: string }; on
   return (
     <div className="space-y-3">
       <p className="text-[13px] text-foreground">
-        <strong>Copy this key now.</strong> It is not shown again; if you lose it, revoke the computer and add it again.
+        <strong>Copy this key now.</strong> It is not shown again; if you lose it, use Replace key on that computer.
       </p>
       <div className="flex items-center gap-2">
         <code className="flex-1 min-w-0 break-all rounded-lg bg-muted px-3 py-2 text-[13px] font-mono">{fresh.key}</code>
@@ -184,14 +227,8 @@ function NewDevice({ fresh, onDone }: { fresh: { key: string; name: string }; on
           {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
         </button>
       </div>
-      <p className="text-[13px] text-muted-foreground">On that computer, from the work-os repo, run:</p>
-      <div className="flex items-center gap-2">
-        <code className="flex-1 min-w-0 break-all rounded-lg bg-muted px-3 py-2 text-[13px] font-mono">{SETUP_CMD}</code>
-        <button type="button" className={iconBtn} onClick={copyCmd} aria-label="Copy command">
-          {copiedCmd ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
-        </button>
-      </div>
-      <p className="text-[13px] text-muted-foreground">Paste the key when asked.</p>
+      <p className="text-[13px] text-muted-foreground">On that computer, paste this into a terminal, then paste the key when it asks (the key is never part of the command):</p>
+      {info ? <InstallCommands info={info} /> : <p className="text-[13px] text-muted-foreground">Loading the install command…</p>}
       <button type="button" className={`${btnPrimary} w-full`} onClick={onDone}>
         I saved it
       </button>

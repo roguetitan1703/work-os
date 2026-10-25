@@ -177,7 +177,7 @@ export function cleanClaudeSessions(raw: unknown): ReportedClaudeSession[] {
 }
 
 export async function reportStatus(s: Scope, deviceId: string, body: unknown): Promise<void> {
-  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; allowPrompts?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown };
+  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; bundle?: unknown; allowPrompts?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown };
   const activity = b.activity === undefined ? null : cleanActivity(b.activity); // validate before any write
   const claudeSessions = b.claudeSessions === undefined ? null : cleanClaudeSessions(b.claudeSessions);
   const c = await scoped(s);
@@ -193,7 +193,8 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
       const version = String(b.worker.version ?? '').slice(0, 20);
       const os = String(b.worker.os ?? '').slice(0, 20);
       // allowPrompts: whether this worker passes a first message on to Claude. The dispatcher only sends tasks to workers that say true.
-      set.worker = { version, os, allowPrompts: b.worker.allowPrompts === true };
+      const bundle = typeof b.worker.bundle === 'string' && /^[0-9a-f]{12}$/.test(b.worker.bundle) ? b.worker.bundle : undefined;
+      set.worker = { version, os, ...(bundle ? { bundle } : {}), allowPrompts: b.worker.allowPrompts === true };
       set.lastSeenAt = now;
     }
     if (Object.keys(set).length) {
@@ -253,7 +254,7 @@ function deviceViewChanged(before: { activity?: unknown; claudeSessions?: unknow
 
 // ── The person's side ───────────────────────────────────────────────────────────────
 
-export type FolderView = { key: string; /** Project it is linked to, if any. */ projectId: string | null; deviceId: string; deviceName: string; folderId: string; name: string; remote?: string; branch?: string; missing: boolean; online: boolean };
+export type FolderView = { key: string; /** Project it is linked to, if any. */ projectId: string | null; deviceId: string; deviceName: string; folderId: string; name: string; remote?: string; branch?: string; missing: boolean; online: boolean; /** When its computer last reported (ISO), or null. */ lastSeenAt: string | null };
 export type SessionView = { id: string; deviceName: string; folderName: string; state: WorkerSessionDoc['state'] | 'unknown'; startedAt: string; updatedAt: string; error?: string; /** Folder is still linked to this project. Resume only makes sense then. */ linked: boolean; /** Still "starting" after WAITING_MS: probably sitting at a prompt in the terminal. */ waiting: boolean };
 
 const ONLINE_MS = 2 * 60_000;
@@ -270,7 +271,7 @@ export async function deviceMap(scope: DeviceScope) {
   const c = await scoped(scope);
   const ds = await c.devices.find({ revokedAt: null }).toArray();
   // Online: heard from in the last 2 minutes, or its worker holds a push stream now (it then polls only every 5 minutes).
-  return new Map(ds.map(d => [d._id, { name: d.name, online: (!!d.lastSeenAt && Date.now() - d.lastSeenAt.getTime() < ONLINE_MS) || connectedDevice(d._id) }]));
+  return new Map(ds.map(d => [d._id, { name: d.name, lastSeenAt: d.lastSeenAt?.toISOString() ?? null, online: (!!d.lastSeenAt && Date.now() - d.lastSeenAt.getTime() < ONLINE_MS) || connectedDevice(d._id) }]));
 }
 
 /** Every device of the person, revoked ones too (their sessions stay in the history lists). */
@@ -282,7 +283,7 @@ export async function ownedDeviceIds(scope: DeviceScope): Promise<string[]> {
 function folderView(f: WorkerFolderDoc, devices: Awaited<ReturnType<typeof deviceMap>>): FolderView | null {
   const d = devices.get(f.deviceId);
   if (!d) return null;
-  return { key: f._id, projectId: f.projectId ?? null, deviceId: f.deviceId, deviceName: d.name, folderId: f.folderId, name: f.name, ...(f.remote ? { remote: f.remote } : {}), ...(f.branch ? { branch: f.branch } : {}), missing: f.missing, online: d.online };
+  return { key: f._id, projectId: f.projectId ?? null, deviceId: f.deviceId, deviceName: d.name, folderId: f.folderId, name: f.name, ...(f.remote ? { remote: f.remote } : {}), ...(f.branch ? { branch: f.branch } : {}), missing: f.missing, online: d.online, lastSeenAt: d.lastSeenAt };
 }
 
 export const derivedState = (s: WorkerSessionDoc): SessionView['state'] => ((s.state === 'running' || s.state === 'starting') && Date.now() - s.updatedAt.getTime() > STALE_SESSION_MS ? 'unknown' : s.state);
@@ -357,6 +358,23 @@ export async function linkFolder(scope: DeviceScope, projectId: string, key: str
   if (f.projectId && f.projectId !== projectId) throw new InputError(`"${f.name}" is linked to another project; unlink it there first`);
   await c.workerFolders.updateOne({ _id: key }, { $set: { projectId, linkedAt: new Date() } });
   afterCommit(() => wake(scope.orgId, scope.userId, f.deviceId)); // its worker writes the folder's marker
+}
+
+/**
+ * Moves a folder to another project (or off any project when `projectId` is null): the computer page's "Link to project"
+ * picker. Same checks as link and unlink: the folder is on one of the caller's own computers and the project is one the
+ * caller can read; anyone else's is "not found".
+ */
+export async function relinkFolder(scope: DeviceScope, key: string, projectId: string | null): Promise<void> {
+  const c = await scoped(scope);
+  const f = await folderDoc(scope, key);
+  if (projectId) {
+    if (!(await c.projects.findOne({ _id: projectId }, { projection: { _id: 1 } }))) throw new NotFoundError('Project not found');
+    await c.workerFolders.updateOne({ _id: key }, { $set: { projectId, linkedAt: new Date() } });
+  } else {
+    await c.workerFolders.updateOne({ _id: key }, { $set: { projectId: null, linkedAt: null } });
+  }
+  afterCommit(() => wake(scope.orgId, scope.userId, f.deviceId));
 }
 
 export async function unlinkFolder(scope: DeviceScope, projectId: string, key: string): Promise<void> {

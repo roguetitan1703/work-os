@@ -21,28 +21,35 @@ export const needsReauth = (e: unknown): boolean => {
  * sign-in. `ask()` opens the dialog and resolves true once the password is confirmed, false if cancelled.
  * Render `dialog` once in the component.
  */
-export function useReauth(): { ask: () => Promise<boolean>; dialog: React.ReactNode } {
+export type AskOptions = { text?: string; verb?: string; danger?: boolean };
+
+export function useReauth(): { ask: () => Promise<boolean>; askPassword: (o?: AskOptions) => Promise<string | null>; dialog: React.ReactNode } {
   const [open, setOpen] = useState(false);
+  const [opts, setOpts] = useState<AskOptions>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const done = useRef<((ok: boolean) => void) | null>(null);
+  const done = useRef<((pw: string | null) => void) | null>(null);
 
-  const finish = (ok: boolean) => {
+  const finish = (pw: string | null) => {
     setOpen(false);
     setError(null);
-    done.current?.(ok);
+    done.current?.(pw);
     done.current = null;
   };
 
-  const ask = useCallback(
-    () =>
-      new Promise<boolean>(resolve => {
+  // The one password prompt of the app. Resolves with the confirmed password (callers that must pass it on, like the
+  // authenticator and password change, use it), or null when cancelled.
+  const askPassword = useCallback(
+    (o: AskOptions = {}) =>
+      new Promise<string | null>(resolve => {
         done.current = resolve;
+        setOpts(o);
         setError(null);
         setOpen(true);
       }),
     [],
   );
+  const ask = useCallback(async () => (await askPassword()) !== null, [askPassword]);
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -51,15 +58,15 @@ export function useReauth(): { ask: () => Promise<boolean>; dialog: React.ReactN
     const r = await confirmPasswordAction(password);
     setBusy(false);
     if (!r.ok) return setError(r.error);
-    finish(true);
+    finish(password);
   }
 
   const dialog = (
-    <Dialog open={open} onOpenChange={o => !o && finish(false)}>
+    <Dialog open={open} onOpenChange={o => !o && finish(null)}>
       <DialogContent className="max-w-sm" data-reauth>
         <DialogHeader>
           <DialogTitle>Confirm it is you</DialogTitle>
-          <DialogDescription>Enter your password. New keys, computers and passkeys need a sign-in in the last 10 minutes.</DialogDescription>
+          <DialogDescription>{opts.text ?? 'Enter your password. New keys, computers and passkeys need a sign-in in the last 10 minutes.'}</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-3">
           <input name="password" type="password" className={field} placeholder="Password" autoComplete="current-password" required autoFocus aria-label="Password" />
@@ -69,16 +76,16 @@ export function useReauth(): { ask: () => Promise<boolean>; dialog: React.ReactN
             </p>
           )}
           <div className="flex justify-end gap-2">
-            <button type="button" className={`${btn} border border-border`} onClick={() => finish(false)}>
+            <button type="button" className={`${btn} border border-border`} onClick={() => finish(null)}>
               Cancel
             </button>
-            <button type="submit" className={`${btn} bg-foreground text-background`} disabled={busy}>
-              Confirm
+            <button type="submit" className={`${btn} ${opts.danger ? 'bg-red-600 text-white' : 'bg-foreground text-background'}`} disabled={busy}>
+              {opts.verb ?? 'Confirm'}
             </button>
           </div>
         </form>
       </DialogContent>
     </Dialog>
   );
-  return { ask, dialog };
+  return { ask, askPassword, dialog };
 }
