@@ -21,6 +21,7 @@ export function StatusSelect({
 }) {
   return (
     <Select
+      compact
       aria-label="Status"
       value={value}
       disabled={disabled}
@@ -50,6 +51,7 @@ export function PrioritySelect({
 }) {
   return (
     <Select
+      compact
       aria-label="Priority"
       value={value}
       disabled={disabled}

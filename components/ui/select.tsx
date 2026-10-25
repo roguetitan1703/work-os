@@ -51,11 +51,13 @@ type Props = {
   className?: string
   children?: React.ReactNode
   onClick?: React.MouseEventHandler<HTMLElement>
+  /** No arrow: for the tiny inline pickers in task rows, where every pixel counts (the hover border shows it is a control). */
+  compact?: boolean
   "aria-label"?: string
   "data-assignee-picker"?: boolean
 }
 
-function Select({ value, defaultValue, onChange, name, id, disabled, required, className, children, onClick, "aria-label": ariaLabel, ...rest }: Props) {
+function Select({ value, defaultValue, onChange, name, id, disabled, required, className, children, onClick, compact, "aria-label": ariaLabel, ...rest }: Props) {
   const options = collect(children)
   const items = options.map((o) => ({ value: enc(o.value), label: o.label }))
   const controlled = value !== undefined
@@ -84,9 +86,11 @@ function Select({ value, defaultValue, onChange, name, id, disabled, required, c
         )}
       >
         <SelectPrimitive.Value className="min-w-0 flex-1 truncate" />
-        <SelectPrimitive.Icon className="shrink-0 opacity-60">
-          <ChevronDownIcon className="size-3.5" />
-        </SelectPrimitive.Icon>
+        {!compact && (
+          <SelectPrimitive.Icon className="shrink-0 opacity-60">
+            <ChevronDownIcon className="size-3.5" />
+          </SelectPrimitive.Icon>
+        )}
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>
         {/* Clicks in the list belong to the list: React would otherwise pass them to a clickable row the select sits in. */}
