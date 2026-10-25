@@ -10,6 +10,7 @@ const TTL_MS = 60_000;
 // On globalThis so a member change clears every bundle's copy in this process (forgetMembers).
 const gNames = globalThis as unknown as { __workosMemberNames?: Map<string, { at: number; map: Record<string, string> }> };
 const names = (gNames.__workosMemberNames ??= new Map());
+const orgNames = new Map<string, { at: number; name: string }>();
 
 /** Forget the cached member list of an organization (after an invitation is accepted or a member removed). */
 export function forgetMembers(orgId: string): void {
@@ -28,6 +29,17 @@ export async function memberNames(orgId: string): Promise<Record<string, string>
   if (names.size > 200) names.clear();
   names.set(orgId, { at: Date.now(), map });
   return map;
+}
+
+/** The organization's display name (cached a minute per process). */
+export async function orgName(orgId: string): Promise<string> {
+  const hit = orgNames.get(orgId);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.name;
+  const org = await (await getDb()).collection('organization').findOne({ _id: idIn(orgId) }, { projection: { name: 1 } });
+  const name = String(org?.name ?? 'Work OS');
+  if (orgNames.size > 200) orgNames.clear();
+  orgNames.set(orgId, { at: Date.now(), name });
+  return name;
 }
 
 /** Is userId a member of orgId (any role)? */
