@@ -13,7 +13,7 @@ const METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
 function* files(p, re) {
   const st = statSync(p);
   if (st.isDirectory()) {
-    for (const f of readdirSync(p)) if (f !== 'node_modules' && !f.startsWith('.')) yield* files(join(p, f), re);
+    for (const f of readdirSync(p)) if (f !== 'node_modules' && (!f.startsWith('.') || f === '.well-known')) yield* files(join(p, f), re);
   } else if (re.test(p)) yield p;
 }
 const rel = f => relative(ROOT, f).split('\\').join('/');

@@ -16,7 +16,16 @@ import './request-context';
 // runs /link <code> on the organization's Discord server; the signed interaction says which Discord account it was.
 
 export type Profile = { timezone: string; quietStart: number; quietEnd: number; discordId: string | null };
-export const DEFAULT_QUIET = { start: 23, end: 8 } as const;
+/**
+ * Quiet hours for someone who has not set their own: 23:00–08:00, or DEFAULT_QUIET_HOURS ("22-7", or "none"; the e2e
+ * runner sets none so alert suites pass at any hour).
+ */
+export const DEFAULT_QUIET = ((): { start: number; end: number } => {
+  const v = process.env.DEFAULT_QUIET_HOURS?.trim();
+  if (v === 'none') return { start: 0, end: 0 };
+  const m = v?.match(/^(d{1,2})-(d{1,2})$/);
+  return m && +m[1] <= 23 && +m[2] <= 23 ? { start: +m[1], end: +m[2] } : { start: 23, end: 8 };
+})();
 
 const TTL_MS = 60_000;
 // On globalThis: route handlers, pages and actions can each load their own copy of this module, and a save in one

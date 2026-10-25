@@ -180,7 +180,7 @@ function loadPlaywright() {
 }
 export const { chromium } = loadPlaywright();
 const CHROME = process.env.CHROME_EXE || (process.env.LOCALAPPDATA ? process.env.LOCALAPPDATA + '/ms-playwright/chromium-1243/chrome-win64/chrome.exe' : '');
-export const launch = () => chromium.launch(CHROME && fs.existsSync(CHROME) ? { executablePath: CHROME } : {});
+export const launch = (opts = {}) => chromium.launch({ ...(CHROME && fs.existsSync(CHROME) ? { executablePath: CHROME } : {}), ...opts });
 
 // ---- results ----
 export const state = { pass: 0, fail: 0, fails: [] };

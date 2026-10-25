@@ -29,6 +29,9 @@ await new Promise(r => setTimeout(r, 4000));
 const inbox = await db.collection('notifications').find({ createdAt: { $gte: t0 } }).toArray();
 const cnt = (re) => inbox.filter(n => re.test(n.title)).length;
 for (const r of dep) check(`unblocked #${r} in inbox exactly once`, cnt(new RegExp(`^Unblocked: #${r} `)) === 1, `got ${cnt(new RegExp(`^Unblocked: #${r} `))}`);
+// Overdue alerts start at 09:00 in the person's zone (lib/alerts.ts); before that none is due, so only the rest is checked.
+const morning = Number(new Intl.DateTimeFormat('en-GB', { timeZone: process.env.APP_TZ || 'Asia/Kolkata', hour: '2-digit', hourCycle: 'h23' }).format(new Date())) >= 9;
+if (!morning) { console.log('(before 09:00: overdue alerts are not due yet; checked unblocked only)'); over.length = 0; }
 for (const r of over) check(`overdue #${r} in inbox exactly once`, cnt(new RegExp(`^Overdue: #${r} `)) === 1, `got ${cnt(new RegExp(`^Overdue: #${r} `))}`);
 const all = dms.join('\n');
 for (const r of [...dep, ...over]) { const n = all.split(`[#${r}](`).length - 1; check(`Discord mentions #${r} exactly once`, n === 1, `got ${n}`); }

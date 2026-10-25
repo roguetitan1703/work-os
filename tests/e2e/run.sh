@@ -40,6 +40,8 @@ usage|usage.mjs|none|plain
 auth|auth.mjs|none|plain
 tenancy|tenancy.mjs|none|plain
 team|team.mjs|none|plain
+oauth|oauth.mjs|none|plain
+oauth-limits|oauth-limits.mjs|none|plain
 sharing|sharing.mjs|none|plain
 push|push.mjs|none|plain
 budgets|budgets.mjs|none|plain
@@ -111,7 +113,8 @@ export MONGODB_DB=workos_e2e
 export BETTER_AUTH_SECRET=test-secret-e2e-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 export APP_PASSWORD= SESSION_SECRET= MCP_TOKEN= MCP_ALLOW_URL_TOKEN= TRUST_PROXY=
 # Better Auth's sign-in rate limit counts every suite's sign-ins from 127.0.0.1; the auth suite checks limits itself.
-export AUTH_RATE_LIMIT=off
+export OAUTH_PRUNE_EVERY_MS=0 # the oauth suite checks the unused-client prune at once
+export AUTH_RATE_LIMIT="${E2E_AUTH_RATE_LIMIT:-off}"
 # Mail is written as JSON files here instead of being sent (lib/mail.ts); the auth suite reads reset links from it.
 export MAIL_CAPTURE_DIR="$TMP/mail" E2E_STATE="$TMP/state.json"
 export CRON_SECRET=testcron-e2e-0123456789abcdef
@@ -120,6 +123,9 @@ export NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$(node -e "console.log(require('crypt
 # The e2e owner runs the deployment (lib/operator.ts): health, Discord registration and servers, Usage.
 export OPERATOR_EMAILS=e2e-owner@example.test
 export APP_TZ=Asia/Kolkata
+# No default quiet hours (lib/profile.ts): the profile cache is shared across suites, so a suite run at night would
+# otherwise see 23:00–08:00 from an earlier suite and hold its alerts. Suites that test quiet hours set them per person.
+export DEFAULT_QUIET_HOURS=none
 export APP_URL="http://localhost:$APORT" E2E_BASE="http://localhost:$APORT"
 export E2E_MONGO_PORT=$MPORT E2E_DISCORD_PORT=$DPORT
 export E2E_SHOTS="${E2E_SHOTS:-$TMP/shots}"

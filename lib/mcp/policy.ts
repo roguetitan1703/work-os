@@ -138,10 +138,13 @@ async function reserve(keyId: string, kind: 'call' | 'trash', n: number, since: 
 
 const trashWindowStart = () => new Date(Date.now() - LIMITS.trashWindowMin * 60_000);
 
+/** Budgets are per key; an OAuth caller (a new client is registered on each connection) is budgeted per person so a new client is no fresh budget. */
+const budgetKey = (c: Caller): string => (c.keyId?.startsWith('oauth_') ? `oauth_${c.userId}` : c.keyId!);
+
 /** Runs before every tool call. Throws PolicyError to refuse. */
 export async function beforeTool(caller: Caller, tool: string): Promise<void> {
   if (!isCode(caller)) return;
-  const keyId = caller.keyId!;
+  const keyId = budgetKey(caller);
   if (BLOCKED.has(tool)) throw new PolicyError(`${tool} is not available to Claude Code keys (permanent deletion and admin stay with you, in the app).`);
   const call = await reserve(keyId, 'call', 1, new Date(Date.now() - 3_600_000), LIMITS.callsPerHour);
   if (!call.id) {
@@ -219,7 +222,7 @@ const noop = async () => {};
  */
 export async function checkBatch(caller: Caller, ops: Op[], opts: { dryRun?: boolean; confirm?: string }): Promise<BatchGate> {
   if (!isCode(caller)) return { release: noop };
-  const keyId = caller.keyId!;
+  const keyId = budgetKey(caller);
   const blocked = ops.find(o => BLOCKED.has(o.op));
   if (blocked) throw new PolicyError(`Op ${blocked.op} is not available to Claude Code keys (permanent deletion and admin stay with you, in the app).`);
   const size = batchSize(ops);
