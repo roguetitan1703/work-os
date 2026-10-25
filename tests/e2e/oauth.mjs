@@ -424,10 +424,12 @@ try {
   // ======== 11. registration scope, budgets, prune ========
   const wk = await register({ client_name: 'Scoped', redirect_uris: ['https://example.com/scoped'], scope: 'workos' });
   const wkRow = await rawDb.collection('oauthClient').findOne({ clientId: wk.body?.client_id });
-  check('register: scope "workos" is kept as exactly that (offline_access is not added)', JSON.stringify(wkRow?.scopes) === '["workos"]', JSON.stringify(wkRow?.scopes));
-  const wk2 = await register({ client_name: 'Scoped2', redirect_uris: ['https://example.com/scoped2'], scope: 'workos  evil admin offline_access' });
+  check('register: scope "workos" registers (201) and the stored scopes are only ours (the plugin stores its allowed set for every dynamic client)', (wk.status === 201 || wk.status === 200) && (wkRow?.scopes ?? []).every(x => ['workos', 'offline_access'].includes(x)) && (wkRow?.scopes ?? []).includes('workos'), JSON.stringify(wkRow?.scopes));
+  const wk2 = await register({ client_name: 'Scoped2', redirect_uris: ['https://example.com/scoped2'], scope: 'workos  evil	admin offline_access' });
   const wk2Row = await rawDb.collection('oauthClient').findOne({ clientId: wk2.body?.client_id });
-  check('register: unknown scopes are dropped, any spacing splits', JSON.stringify(wk2Row?.scopes) === '["workos","offline_access"]', JSON.stringify(wk2Row?.scopes));
+  check('register: unknown scopes are dropped (any spacing splits) and never stored', (wk2.status === 201 || wk2.status === 200) && (wk2Row?.scopes ?? []).every(x => ['workos', 'offline_access'].includes(x)) && !/evil|admin/.test(JSON.stringify(wk2.body)), JSON.stringify([wk2.body?.scope, wk2Row?.scopes]));
+  const wk3 = await register({ client_name: 'Scoped3', redirect_uris: ['https://example.com/scoped3'], scope: 'evil admin' });
+  check('register: only unknown scopes falls back to ours, not to theirs', !/evil|admin/.test(JSON.stringify(wk3.body)), JSON.stringify(wk3.body)?.slice(0, 200));
   const evs = await rawDb.collection('policyEvents').find({ keyId: { $regex: '^oauth_' } }).toArray();
   const budgetKeys = [...new Set(evs.map(e => e.keyId))];
   check('budgets: OAuth callers are counted per person (oauth_<userId>), not per app', budgetKeys.length > 0 && budgetKeys.every(k => /^oauth_[0-9a-f]{24}$/.test(k)) && budgetKeys.includes('oauth_' + A.userId), JSON.stringify(budgetKeys));

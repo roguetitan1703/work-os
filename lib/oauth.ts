@@ -186,7 +186,7 @@ export async function consentView(search: URLSearchParams, c: Caller): Promise<C
     redirectHost: host.host,
     loopbackOnly,
     // Calls itself Claude (or Anthropic) but is neither Claude's hosted connector nor a program on this computer.
-    lookalike: client.agent !== 'claude' && !loopbackOnly && /claude|anthropic|delpat|works*os/i.test(client.name),
+    lookalike: client.agent !== 'claude' && !loopbackOnly && /claude|anthropic|delpat|work\s*os/i.test(client.name),
     // Newly registered clients are the ones a phishing link would use: the screen says how new it is.
     ageMinutes: row?.createdAt && Date.now() - new Date(row.createdAt as string).getTime() < 86_400_000 ? Math.max(0, Math.round((Date.now() - new Date(row.createdAt as string).getTime()) / 60_000)) : null,
     orgName: String(org?.name ?? 'your organization'),

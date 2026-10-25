@@ -126,7 +126,7 @@ function trimRegistration(raw: string): { body: string } | { error: string } {
   const uris = j.redirect_uris;
   if (!Array.isArray(uris) || uris.length < 1 || uris.length > 5 || !uris.every(validRedirectUri)) return { error: 'invalid_redirect_uri' };
   const grants = Array.isArray(j.grant_types) ? j.grant_types.filter(g => g === 'authorization_code' || g === 'refresh_token') : ['authorization_code', 'refresh_token'];
-  const scope = typeof j.scope === 'string' ? j.scope.split(/s+/).filter(x => (OAUTH_SCOPES as readonly string[]).includes(x)).join(' ') : '';
+  const scope = typeof j.scope === 'string' ? j.scope.split(/\s+/).filter(x => (OAUTH_SCOPES as readonly string[]).includes(x)).join(' ') : '';
   const name = typeof j.client_name === 'string' ? j.client_name.slice(0, 100) : undefined;
   const out: Record<string, unknown> = {
     redirect_uris: uris,
