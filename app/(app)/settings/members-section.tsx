@@ -5,6 +5,7 @@ import { Check, Copy, Mail, UserMinus, UserPlus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import type { InviteRow, MemberRow } from '@/lib/members';
 import { cancelInvitationAction, changeRoleAction, inviteMemberAction, removeMemberAction } from './members-actions';
+import { Select } from '@/components/ui/select';
 
 const field =
   'w-full min-w-0 h-11 rounded-xl border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
@@ -82,11 +83,11 @@ export function MembersSection({ members, invitations, canInvite, isOwner, linkT
                 </div>
                 {canSetRole(m) ? (
                   <>
-                    <select className={roleSel} value={m.role} disabled={pending} onChange={e => setMemberRole(m, e.target.value)} aria-label={`Role of ${m.email}`} data-role-select={m.email}>
+                    <Select className={roleSel} value={m.role} disabled={pending} onChange={e => setMemberRole(m, e.target.value)} aria-label={`Role of ${m.email}`} data-role-select={m.email}>
                       <option value="member">Member</option>
                       <option value="admin">Admin</option>
                       {isOwner && <option value="owner">Owner</option>}
-                    </select>
+                    </Select>
                     {manages(m) && (
                       <button type="button" className={iconBtn} onClick={() => setRemoving(r => (r === m.userId ? null : m.userId))} disabled={pending} aria-label={`Remove ${m.email}`}>
                         <UserMinus className="w-4 h-4" />
@@ -137,11 +138,11 @@ export function MembersSection({ members, invitations, canInvite, isOwner, linkT
             ))}
             <form onSubmit={invite} className="flex flex-wrap items-center gap-2 px-4 py-3">
               <input className={`${field} flex-1 basis-48`} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email address" aria-label="Email to invite" required />
-              <select className={`${field} w-auto`} value={role} onChange={e => setRole(e.target.value)} aria-label="Role">
+              <Select className={`${field} w-auto`} value={role} onChange={e => setRole(e.target.value)} aria-label="Role">
                 <option value="member">Member</option>
                 <option value="admin">Admin</option>
                 {isOwner && <option value="owner">Owner</option>}
-              </select>
+              </Select>
               <button type="submit" className={`${btn} bg-foreground text-background`} disabled={pending}>
                 <UserPlus className="w-4 h-4" /> Invite
               </button>

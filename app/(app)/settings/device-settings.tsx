@@ -6,7 +6,7 @@ import { useSyncExternalStore } from 'react';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { saveNotifySettingsAction, subscribePushAction, testNotificationAction, unsubscribePushAction } from './actions';
+import { listPushDevicesAction, removePushDeviceAction, saveNotifySettingsAction, subscribePushAction, testNotificationAction, unsubscribePushAction, type PushDevice } from './actions';
 import type { NotifySettings } from '@/lib/notify';
 
 type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
@@ -101,7 +101,35 @@ export function InstallCard() {
 export function PushCard({ vapidKey, devices }: { vapidKey: string | null; devices: number }) {
   const [env, setEnv] = useState<Env | null>(null);
   const [subscribed, setSubscribed] = useState(false);
+  const [list, setList] = useState<PushDevice[] | null>(null);
   const [pending, start] = useTransition();
+
+  const thisEndpoint = async () => {
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      return (await reg?.pushManager.getSubscription())?.endpoint;
+    } catch {
+      return undefined;
+    }
+  };
+  const loadList = async () => {
+    const r = await listPushDevicesAction(await thisEndpoint());
+    if (r.ok) setList(r.data);
+  };
+  const removeDevice = (d: PushDevice) =>
+    start(async () => {
+      const r = await removePushDeviceAction(d.id);
+      if (!r.ok) toast.error(r.error);
+      else {
+        if (d.current) {
+          const reg = await navigator.serviceWorker.getRegistration();
+          await (await reg?.pushManager.getSubscription())?.unsubscribe();
+          setSubscribed(false);
+        }
+        toast('Removed. It will not get alerts any more.');
+      }
+      await loadList();
+    });
 
   useEffect(() => {
     let alive = true;
@@ -116,6 +144,8 @@ export function PushCard({ vapidKey, devices }: { vapidKey: string | null; devic
         setEnv(e);
         setSubscribed(sub);
       }
+      const r = await listPushDevicesAction(await thisEndpoint());
+      if (alive && r.ok) setList(r.data);
     })();
     return () => {
       alive = false;
@@ -135,6 +165,7 @@ export function PushCard({ vapidKey, devices }: { vapidKey: string | null; devic
       if (!r.ok) return void toast.error(r.error);
       setSubscribed(true);
       toast.success('Notifications on for this device');
+      void loadList();
     });
 
   const disable = () =>
@@ -147,6 +178,7 @@ export function PushCard({ vapidKey, devices }: { vapidKey: string | null; devic
       }
       setSubscribed(false);
       toast('Notifications off for this device');
+      void loadList();
     });
 
   const test = () =>
@@ -176,10 +208,27 @@ export function PushCard({ vapidKey, devices }: { vapidKey: string | null; devic
           ) : undefined
         }
       />
-      <div className="flex items-center justify-between px-4 h-14">
-        <span className="text-sm text-muted-foreground">
-          {devices} device{devices === 1 ? '' : 's'} receiving push
-        </span>
+      <div className="px-4 py-2" data-push-devices>
+        <div className="text-sm text-muted-foreground mb-1">
+          {(list?.length ?? devices)} device{(list?.length ?? devices) === 1 ? '' : 's'} receiving push
+        </div>
+        {(list ?? []).map(d => (
+          <div key={d.id} data-push-device={d.id} className="flex items-center gap-2 min-h-11 py-1">
+            <div className="flex-1 min-w-0">
+              <div className="text-[14px] text-foreground truncate">
+                {d.device}
+                {d.current && <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">this browser</span>}
+              </div>
+              <div className="text-[12px] text-muted-foreground" suppressHydrationWarning>Added {new Date(d.addedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+            </div>
+            <button type="button" onClick={() => removeDevice(d)} disabled={pending} aria-label={`Remove ${d.device}`} className="h-9 px-3 rounded-full border border-border text-[13px] font-medium disabled:opacity-50">
+              Remove
+            </button>
+          </div>
+        ))}
+        {list && list.length > 0 && <p className="text-[12px] text-muted-foreground pt-1">Remove a device you no longer use, or one that was set up on an old address of Work OS.</p>}
+      </div>
+      <div className="flex items-center justify-end px-4 h-14">
         <button onClick={test} disabled={pending} className="h-9 px-4 rounded-full border border-border text-sm font-medium disabled:opacity-50">
           Send test
         </button>

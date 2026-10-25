@@ -5,7 +5,8 @@ import { z, ZodError } from 'zod';
 import { SafeError } from '@/lib/auth';
 import { requireCaller, withCaller, type Caller } from '@/lib/caller';
 import { InputError, NotFoundError } from '@/lib/data/errors';
-import { linkFolder, projectLauncher, removeSession, resumeSession, searchFolders, startSession, stopSession, unhideSession, unlinkFolder, type FolderView } from '@/lib/data/launcher';
+import { linkFolder, projectLauncher, relinkFolder, removeSession, resumeSession, searchFolders, startSession, stopSession, unhideSession, unlinkFolder, type FolderView } from '@/lib/data/launcher';
+import { listProjectsNav } from '@/lib/data/projects';
 import { startProjects, type StartProject } from '@/lib/data/claude-overview';
 
 type R<T> = { ok: true; data: T } | { ok: false; error: string };
@@ -43,6 +44,22 @@ export async function linkFolderAction(projectId: string, key: string): Promise<
 export async function unlinkFolderAction(projectId: string, key: string): Promise<R<null>> {
   return run(projectId, async c => {
     await unlinkFolder(c, Id.parse(projectId), Id.parse(key));
+    return null;
+  });
+}
+
+/** One computer's folders (searchable) and the projects they can be linked to, for the computer page's picker. */
+export async function folderPickerAction(deviceId: string, q: string): Promise<R<{ folders: FolderView[]; projects: { id: string; name: string }[] }>> {
+  return run(null, async c => ({
+    folders: await searchFolders(c, Id.parse(deviceId), z.string().max(60).parse(q ?? '')),
+    projects: (await listProjectsNav(c)).filter(p => p.status !== 'archived').map(p => ({ id: p.id, name: p.name })),
+  }));
+}
+
+/** The computer page's "Link to project": move one of the caller's folders to a project, or off (projectId null). */
+export async function relinkFolderAction(key: string, projectId: string | null): Promise<R<null>> {
+  return run(projectId, async c => {
+    await relinkFolder(c, Id.parse(key), projectId === null ? null : Id.parse(projectId));
     return null;
   });
 }

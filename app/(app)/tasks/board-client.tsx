@@ -14,6 +14,7 @@ import { fmtDue, PRIORITY_TEXT } from '@/lib/format';
 import type { Status, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ClaudeBadge } from '@/components/give-to-claude';
+import { Select } from '@/components/ui/select';
 
 const COLUMNS: { status: Status; label: string; tone: string }[] = [
   { status: 'Not Started', label: 'To do', tone: 'bg-muted-foreground/40' },
@@ -86,21 +87,21 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false }: P
           >
             Assigned to me
           </button>
-          <select className={sel} value={filters.project} onChange={e => setFilter('project', e.target.value)}>
+          <Select className={sel} value={filters.project} onChange={e => setFilter('project', e.target.value)}>
             <option value="">All projects</option>
             {projects.map(p => (
               <option key={p.id} value={p.id}>
                 {p.name}{p.private ? ' (private)' : ''}
               </option>
             ))}
-          </select>
-          <select className={sel} value={filters.mode} onChange={e => setFilter('mode', e.target.value)}>
+          </Select>
+          <Select className={sel} value={filters.mode} onChange={e => setFilter('mode', e.target.value)}>
             <option value="">All modes</option>
             {modes.map(m => (
               <option key={m.name}>{m.name}</option>
             ))}
-          </select>
-          <select className={sel} value={filters.due} onChange={e => setFilter('due', e.target.value)}>
+          </Select>
+          <Select className={sel} value={filters.due} onChange={e => setFilter('due', e.target.value)}>
             <option value="">Any due date</option>
             <option value="overdue">Overdue</option>
             <option value="today">Due today</option>
@@ -108,7 +109,7 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false }: P
             <option value="this_week">This week</option>
             <option value="next_7_days">Next 7 days</option>
             <option value="no_date">No date</option>
-          </select>
+          </Select>
         </div>
       </div>
 

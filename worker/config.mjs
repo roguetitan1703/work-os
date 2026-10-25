@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export function configDir() {
   if (process.env.WORK_OS_WORKER_DIR) return process.env.WORK_OS_WORKER_DIR;
@@ -19,6 +20,11 @@ export function loadConfig() {
   const cfg = { ...DEFAULTS, ...c };
   cfg.roots = Array.isArray(cfg.roots) ? cfg.roots.filter((r) => typeof r === 'string' && r) : [];
   return cfg;
+}
+
+// Which downloaded bundle this code was unpacked from (first 12 hex of its sha256), or null when run from the repo.
+export function bundleId(dir = path.dirname(fileURLToPath(import.meta.url))) {
+  try { const s = fs.readFileSync(path.join(dir, 'BUNDLE'), 'utf8').trim(); return /^[0-9a-f]{64}$/.test(s) ? s : null; } catch { return null; }
 }
 
 export function checkBaseUrl(u) {

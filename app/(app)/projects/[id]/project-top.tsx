@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from '@/components/intent-link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ChevronLeft, MoreHorizontal, Pencil, Archive, Play } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, FolderGit2, MoreHorizontal, Pencil, Archive, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { updateProjectAction } from '@/app/actions';
 import { BackLink } from '@/components/back-link';
@@ -12,6 +12,7 @@ import { usePhone } from '@/components/mobile/use-phone';
 import { PROJECT_STATUSES, type Project, type ProjectInput } from '@/lib/types';
 import { AddTaskButton } from './add-task-button';
 import { PrivateBadge } from '@/components/private-badge';
+import { Select } from '@/components/ui/select';
 
 const field =
   'w-full min-w-0 h-11 md:h-9 rounded-xl md:rounded-md border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
@@ -109,7 +110,7 @@ export function ProjectTop({ project, tab }: { project: Project; tab: string }) 
             className="flex-1 min-w-0 bg-transparent text-2xl font-bold outline-none rounded-md px-1 -mx-1 hover:bg-muted/40 focus:bg-muted/40"
           />
           {project.visibility === 'private' && <PrivateBadge />}
-          <select
+          <Select
             value={status}
             aria-label="Project status"
             onChange={e => {
@@ -122,7 +123,7 @@ export function ProjectTop({ project, tab }: { project: Project; tab: string }) 
             {PROJECT_STATUSES.map(s => (
               <option key={s}>{s}</option>
             ))}
-          </select>
+          </Select>
         </div>
         <input
           value={client}
@@ -146,6 +147,16 @@ export function ProjectTop({ project, tab }: { project: Project; tab: string }) 
         </Link>
         <AddTaskButton project={project.name} className="flex-1 md:flex-none" />
       </div>
+
+      {/* Where the repository and the folders are: Info › Code. Shows the repo name, or "Link code" when there is none. */}
+      <Link
+        href={`/projects/${encodeURIComponent(project.id)}?tab=info#code`}
+        data-code-chip
+        className="inline-flex max-w-full items-center gap-1.5 h-9 md:h-7 px-3 rounded-full border border-border text-[13px] md:text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40"
+      >
+        <FolderGit2 className="w-3.5 h-3.5 shrink-0" />
+        <span className="truncate">{project.code?.find(l => l.remote)?.remote ?? project.code?.[0]?.path ?? 'Link code'}</span>
+      </Link>
 
       {sheet && <EditSheet project={project} onClose={() => setSheet(false)} onSave={patch => save(patch, 'Saved', () => setSheet(false))} />}
       {archiving && (

@@ -7,6 +7,8 @@ import {
   addToInbox,
   getNotifySettings,
   markAllRead,
+  listPushDevices,
+  removePushDevice,
   removePushSubscription,
   savePushSubscription,
   sendPush,
@@ -18,6 +20,7 @@ import { sendDm } from '@/lib/alerts';
 import { discordConfig } from '@/lib/discord/client';
 import { asCaller } from '@/lib/caller';
 import { getProfile } from '@/lib/profile';
+import { deviceFromUA } from '@/lib/ua';
 
 // Every action requires a signed-in caller (lib/caller.ts); proxy.ts is only the first gate.
 
@@ -37,6 +40,29 @@ export async function subscribePushAction(sub: PushSubJSON, device: string): Pro
 export async function unsubscribePushAction(endpoint: string): Promise<R> {
   try {
     await asCaller(c => removePushSubscription(c, endpoint));
+    revalidatePath('/settings');
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export type PushDevice = { id: string; device: string; addedAt: string; current: boolean };
+
+/** The signed-in person's own push devices. `thisEndpoint` (this browser's subscription, from the browser) marks "this browser". */
+export async function listPushDevicesAction(thisEndpoint?: string): Promise<{ ok: true; data: PushDevice[] } | { ok: false; error: string }> {
+  try {
+    const rows = await asCaller(c => listPushDevices(c));
+    return { ok: true, data: rows.map(r => ({ id: r.id, device: deviceFromUA(r.device), addedAt: r.createdAt.toISOString(), current: !!thisEndpoint && thisEndpoint === r.endpoint })) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function removePushDeviceAction(id: string): Promise<R> {
+  try {
+    const removed = await asCaller(c => removePushDevice(c, String(id)));
+    if (!removed) return { ok: false, error: 'That device is already gone.' };
     revalidatePath('/settings');
     return { ok: true };
   } catch (e) {

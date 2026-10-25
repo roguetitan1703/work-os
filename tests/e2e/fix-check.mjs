@@ -1,5 +1,5 @@
 // Sidebar footer, theme toggle, Day plan dialog/sheet, named switches, Claude item sheet (note/state/Next) at 1280 and 390.
-import { launch, check, B, PW, call, finish, fillLogin } from './lib.mjs';
+import { launch, check, B, PW, call, finish, fillLogin, pick } from './lib.mjs';
 const PN = 'Fix ' + Date.now();
 const pr = await call('add_project', { name: PN });
 const pid = pr.project.id;
@@ -44,16 +44,16 @@ for (const vp of [{ w: 1280, h: 800 }, { w: 390, h: 844 }]) {
   await p.goto(B + '/projects/' + pid + '?tab=claude');
   await click(p.locator('#claude-work li button').first());
   const dlg = phone ? p : p.locator('[role=dialog]');
-  const en = async () => (await p.locator('select[aria-label=State]').isEnabled());
-  const sel = p.locator('select[aria-label=State]');
+  const en = async () => (await p.locator('[aria-label=State]').isEnabled());
+  const sel = p.locator('[aria-label=State]');
   const until = async (f, ms = 8000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await f().catch(() => false)) return true; await p.waitForTimeout(150); } return false; };
   check(T('sheet open, controls enabled'), await en());
   await p.fill('input[aria-label="Add note"]', 'hello note'); await click(p.locator('button[type=submit]:has-text("Add")'));
   check(T('after note: log shows note and controls enabled'), await until(async () => (await p.locator('text=hello note').count()) > 0 && await en()));
-  await sel.selectOption('blocked');
-  check(T('after state=blocked: enabled and shows blocked'), await until(async () => (await en()) && (await sel.inputValue()) === 'blocked'));
-  await sel.selectOption('queued');
-  check(T('after state=queued: enabled'), await until(async () => (await en()) && (await sel.inputValue()) === 'queued' && (await p.locator('button[aria-pressed]').count()) > 0));
+  await pick(p, sel, 'blocked');
+  check(T('after state=blocked: enabled and shows blocked'), await until(async () => (await en()) && (await sel.innerText()).trim() === 'blocked'));
+  await pick(p, sel, 'queued');
+  check(T('after state=queued: enabled'), await until(async () => (await en()) && (await sel.innerText()).trim() === 'queued' && (await p.locator('button[aria-pressed]').count()) > 0));
   const nx = p.locator('button[aria-pressed]'); await click(nx);
   check(T('after Next: enabled and on'), await until(async () => (await en()) && (await nx.getAttribute('aria-pressed')) === 'true'), 'pressed=' + await nx.getAttribute('aria-pressed') + ' en=' + await en() + ' toasts=' + (await p.locator('[data-sonner-toast]').allInnerTexts()).join('|'));
   await click(nx);

@@ -1,7 +1,7 @@
 // UI checks for the Claude area (/claude: Now, Queue, Setup) and the Start Claude flow.
 // Seeds itself (device/folder/session docs inserted directly; no worker). Seed profile: none.
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
-import { check, db, mcp, B, PW, SP, ME, launch, finish, fillLogin } from './lib.mjs';
+import { check, db, mcp, B, PW, SP, ME, launch, finish, fillLogin, pick } from './lib.mjs';
 
 const browser = await launch();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -172,11 +172,11 @@ async function suite(vp) {
   await click(rowOf('Update schema for clients table').locator('button[aria-pressed]'));
   check(T('Next toggles off'), !!(await wait(async () => (await db.collection('claudeItems').findOne({ _id: itByTitle('Update schema for clients table')._id })).next === false)));
   await click(rowOf('Rename legacy settings keys').locator('button').first());
-  check(T('tapping a row opens the item sheet'), await p.locator('select[aria-label=State]').waitFor({ timeout: 5000 }).then(() => true, () => false));
+  check(T('tapping a row opens the item sheet'), await p.locator('[aria-label=State]').waitFor({ timeout: 5000 }).then(() => true, () => false));
   if (phone) check(T('item sheet has data-sheet'), (await p.locator('[data-sheet]').count()) === 1);
   await p.screenshot({ path: `${SP}/cl-${vp}-queue-sheet.png` });
   await p.keyboard.press('Escape'); if (phone) await click(p.locator('[data-sheet] button[aria-label="Close"]').last());
-  check(T('item sheet closes'), await p.locator('select[aria-label=State]').waitFor({ state: 'detached', timeout: 5000 }).then(() => true, () => false));
+  check(T('item sheet closes'), await p.locator('[aria-label=State]').waitFor({ state: 'detached', timeout: 5000 }).then(() => true, () => false));
   await p.screenshot({ path: `${SP}/cl-${vp}-queue.png`, fullPage: true });
   check(T('Queue: no horizontal scroll'), await noScroll());
 
@@ -188,11 +188,32 @@ async function suite(vp) {
   await click(p.locator('button:has-text("Add")').last());
   const keyEl = p.locator('code.bg-muted', { hasText: /^wkr_/ });
   const shown = await keyEl.first().waitFor({ timeout: 8000 }).then(() => true, () => false);
-  check(T('add computer shows the key once with the setup command'), shown && (await p.locator('code:has-text("node worker/worker.mjs setup")').count()) >= 1);
+  check(T('add computer shows the key once with the setup command'), shown);
+  const oldKey = (await keyEl.first().innerText()).trim();
+  const latest = await (await fetch(B + '/worker/latest.json')).json();
+  const winCmd = await p.locator('[data-install-command=windows]').innerText();
+  check(T('install command (Windows first): downloads from this site, checks the sha256, setup with --server, no key in it'), winCmd.includes(`${B}/worker/work-os-worker.mjs`) && winCmd.includes(latest.sha256) && winCmd.includes('Get-FileHash') && winCmd.includes('LOCALAPPDATA') && winCmd.includes(`setup --server ${B}`) && !winCmd.includes(oldKey), winCmd.slice(0, 200));
+  await click(p.locator('button:has-text("macOS")'));
+  const macCmd = await p.locator('[data-install-command=mac]').innerText();
+  check(T('install command (macOS): curl, sha256 check, setup, no key in it'), macCmd.includes('curl -fsSL') && macCmd.includes(latest.sha256) && macCmd.includes('.work-os') && macCmd.includes('setup --server') && !macCmd.includes(oldKey), macCmd.slice(0, 200));
   check(T('Setup new-key view: no horizontal scroll'), await noScroll());
   await click(p.locator('button:has-text("I saved it")'));
   await p.reload(); await p.waitForSelector(`[data-device="new-${vp}"]`);
   check(T('key gone after reload (prefix only)'), (await p.locator('code.bg-muted', { hasText: /^wkr_[A-Za-z0-9_-]{30,}/ }).count()) === 0);
+  // Replace key: same computer (id, folders, sessions stay), the old key stops at once, the new one works.
+  const devBefore = await db.collection('devices').findOne({ name: `new-${vp}` });
+  const jobsStatus = async k => (await fetch(B + '/api/worker/jobs', { headers: { authorization: `Bearer ${k}` } })).status;
+  check(T('before replace: the key works'), (await jobsStatus(oldKey)) === 200);
+  await click(p.locator(`button[aria-label="Replace key for new-${vp}"]`));
+  await click(p.locator('[role=dialog]').last().locator('button:has-text("Replace key")'));
+  const newEl = p.locator('code.bg-muted', { hasText: /^wkr_/ });
+  await newEl.first().waitFor({ timeout: 8000 });
+  const newKey = (await newEl.first().innerText()).trim();
+  const devAfter = await db.collection('devices').findOne({ name: `new-${vp}` });
+  check(T('replace key: a different key is shown once, and the instructions with it'), newKey !== oldKey && /^wkr_/.test(newKey) && (await p.locator('[data-install-command]').count()) === 1);
+  check(T('replace key: same device id, still active, replacement recorded'), devAfter._id === devBefore._id && devAfter.revokedAt === null && devAfter.keyReplacements === 1 && !!devAfter.keyReplacedAt);
+  check(T('replace key: the old key gets 401 on /api/worker/*, the new one 200'), (await jobsStatus(oldKey)) === 401 && (await jobsStatus(newKey)) === 200);
+  await click(p.locator('button:has-text("I saved it")'));
   await click(p.locator(`button[aria-label="Revoke new-${vp}"]`));
   const rd = p.locator('[role=dialog]').last();
   check(T('revoke computer asks in a sheet/dialog naming it'), await rd.innerText().then(t => t.includes(`new-${vp}`), () => false));
@@ -217,6 +238,47 @@ async function suite(vp) {
   check(T('revoked key leaves the list'), await p.locator(`button[aria-label="Revoke key-${vp}"]`).waitFor({ state: 'detached', timeout: 6000 }).then(() => true, () => false));
   await p.screenshot({ path: `${SP}/cl-${vp}-setup.png`, fullPage: true });
   check(T('Setup: no horizontal scroll'), await noScroll());
+
+  // ── Project Info › Code: two labelled parts, findable from the header, removals ask first ──
+  await p.goto(B + `/projects/${Bv}?tab=info`);
+  await p.waitForSelector('[data-section=code]');
+  const codeTxt = await p.locator('[data-section=code]').innerText();
+  check(T('Info › Code: "Repository" and "Folders on your computers", each with one line of help'), /Repository/.test(codeTxt) && /Folders on your computers/.test(codeTxt) && /GitHub project \(owner\/repo\)/.test(codeTxt) && /Claude opens its sessions in these folders/.test(codeTxt), codeTxt.slice(0, 300));
+  check(T('header chip shows the repo name'), (await p.locator('[data-code-chip]').innerText()).includes('om/bravo'));
+  await click(p.locator('button[aria-label="Remove om/bravo"]'));
+  const rr = p.locator('[role=dialog]').last();
+  check(T('removing a repository asks first, naming it'), await rr.innerText().then(t => t.includes('om/bravo') && /Remove repository/.test(t), () => false));
+  await click(rr.locator('button:has-text("Cancel")')); await sleep(400);
+  check(T('Cancel keeps the repository'), ((await db.collection('projects').findOne({ _id: Bv }))?.code ?? []).length === 1);
+  await click(p.locator('button[aria-label="Remove om/bravo"]'));
+  await click(p.locator('button[data-confirm]'));
+  await sleep(800);
+  check(T('Confirm removes it'), ((await db.collection('projects').findOne({ _id: Bv }))?.code ?? []).length === 0);
+  await db.collection('projects').updateOne({ _id: Bv }, { $set: { code: [{ remote: 'om/bravo' }] } });
+  await p.goto(B + `/projects/${A}?tab=info`);
+  await p.waitForSelector('[data-section=code]');
+  check(T('no repository: the header chip says "Link code"'), (await p.locator('[data-code-chip]').innerText()).includes('Link code'));
+  check(T('Info › Code lists the linked folders per computer with branch'), await p.locator('[data-section=code] [data-device-group="Om-PC"] [data-folder="alpha-wt/fix"]').innerText().then(t => /branch wt\/fix/.test(t), () => false));
+  await click(p.locator('button[aria-label="Unlink alpha-wt/fix"]'));
+  const ul = p.locator('[role=dialog]').last();
+  check(T('unlinking a folder asks first, naming it'), await ul.innerText().then(t => t.includes('alpha-wt/fix') && /Unlink folder/.test(t), () => false));
+  await click(ul.locator('button:has-text("Cancel")')); await sleep(400);
+  check(T('Cancel keeps the folder linked'), (await db.collection('workerFolders').findOne({ folderId: 'f_alpha2' }))?.projectId === A);
+  await click(p.locator('button[aria-label="Unlink alpha-wt/fix"]'));
+  await click(p.locator('button[data-confirm]'));
+  await sleep(800);
+  check(T('Confirm unlinks it'), (await db.collection('workerFolders').findOne({ folderId: 'f_alpha2' }))?.projectId == null);
+  await db.collection('workerFolders').updateOne({ folderId: 'f_alpha2' }, { $set: { projectId: A } });
+  // the computer's page: each folder has a "Link to project" picker
+  await p.goto(B + '/claude?tab=setup'); await p.waitForSelector('[data-device="Om-PC"]');
+  await click(p.locator('button[aria-label="Folders on Om-PC"]'));
+  await p.waitForSelector('[data-computer-folder="bravo"]');
+  await pick(p, '[aria-label="Link bravo to project"]', Bv);
+  await sleep(800);
+  check(T('computer page: the picker links a folder to a project'), (await db.collection('workerFolders').findOne({ folderId: 'f_bravo' }))?.projectId === Bv);
+  await pick(p, '[aria-label="Link bravo to project"]', '');
+  await sleep(800);
+  check(T('computer page: "Not linked" takes it off the project'), (await db.collection('workerFolders').findOne({ folderId: 'f_bravo' }))?.projectId == null);
 
   // redirects + Connect tabs gone
   for (const t of ['code', 'devices']) {
@@ -257,7 +319,7 @@ async function suite(vp) {
   const c2 = p.locator('[data-start-step="confirm"]');
   await c2.waitFor();
   await wait(async () => (await c2.getAttribute('data-start-mode')) !== 'loading');
-  check(T('Alpha (2 linked): modal with folder radios, no computer select (one computer)'), (await c2.getAttribute('data-start-mode')) === 'linked' && (await c2.locator('[role=radiogroup] input[type=radio]').count()) === 2 && (await c2.locator('select[aria-label="Computer"]').count()) === 0);
+  check(T('Alpha (2 linked): modal with folder radios, no computer select (one computer)'), (await c2.getAttribute('data-start-mode')) === 'linked' && (await c2.locator('[role=radiogroup] input[type=radio]').count()) === 2 && (await c2.locator('[aria-label="Computer"]').count()) === 0);
   check(T('modal does not start instantly'), (await jobs({ kind: 'start' })).length === 0);
   await c2.locator('label:has-text("alpha-wt/fix")').click();
   await c2.locator('textarea[aria-label="First message"]').fill('Say hello, then list open items.');
@@ -316,8 +378,8 @@ async function suite(vp) {
   await p.goto(B + `/claude?start=${A}`);
   const c5 = p.locator('[data-start-step="confirm"]');
   await c5.waitFor();
-  check(T('two computers: Computer select appears'), await c5.locator('select[aria-label="Computer"]').waitFor({ timeout: 5000 }).then(() => true, () => false));
-  await c5.locator('select[aria-label="Computer"]').selectOption({ label: 'Laptop' });
+  check(T('two computers: Computer select appears'), await c5.locator('[aria-label="Computer"]').waitFor({ timeout: 5000 }).then(() => true, () => false));
+  await pick(c5, '[aria-label="Computer"]', { label: 'Laptop' });
   check(T('choosing the computer filters folders (one folder shown as text)'), !!(await wait(async () => (await c5.locator('[data-folder-one]').count()) === 1)));
   await p.keyboard.press('Escape'); if (phone) await click(p.locator('[data-sheet] button[aria-label="Close"]').last());
   await p.locator('[data-start-step]').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});

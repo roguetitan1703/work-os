@@ -13,6 +13,7 @@ import type { StartProject } from '@/lib/data/claude-overview';
 import type { FolderView } from '@/lib/data/launcher';
 import { cn } from '@/lib/utils';
 import { linkAndStartAction, searchFoldersAction, startOptionsAction, startProjectsAction, startSessionAction } from '@/app/(app)/projects/[id]/launcher-actions';
+import { Select } from '@/components/ui/select';
 
 // Start Claude (docs/ux-audit/proposal.md §5.5): one flow for every entry point. The URL says what is open:
 //   ?start=1          step 1, pick a project
@@ -231,13 +232,13 @@ function Confirm({ projectId, onClose, onBack }: { projectId: string; onClose: (
             {opts.devices.length > 1 && (
               <label className="block space-y-1">
                 <span className="text-xs font-medium text-muted-foreground">Computer</span>
-                <select className={field} value={device} onChange={e => setDevice(e.target.value)} aria-label="Computer">
+                <Select className={field} value={device} onChange={e => setDevice(e.target.value)} aria-label="Computer">
                   {opts.devices.map(d => (
                     <option key={d.id} value={d.id}>
                       {d.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
             )}
 

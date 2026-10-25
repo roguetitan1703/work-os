@@ -406,7 +406,7 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings") has four groups:
 - **This device:**
   - **Install app:** one tap on Android/Chrome; on iPhone it shows the steps (Share → Add to Home Screen). Reads "Installed" once you're in the installed app.
-  - **Notifications on this device:** switch to turn phone push on or off for this phone only. On iPhone it asks you to install first.
+  - **Notifications on this device:** switch to turn phone push on or off for this phone only. On iPhone it asks you to install first. Under it, the list of your own push devices (name, added date, "this browser"), each with Remove, e.g. a phone set up on an old address of Work OS. Only your own appear.
 - **Notifications:** switches for the channels (In-app inbox is always on; Phone notifications; Discord DMs) and for each alert type (Unblocked, Overdue, Due today, Due tomorrow, P1 not started, Stalled), plus **Send test**. Details in section 7.
 - **Security:** passkeys, authenticator app, change password, test email (section 10).
 - **Status (on Connect):** a live list, each row a coloured dot (green ok, amber needs attention, red broken, grey off):
@@ -429,7 +429,10 @@ The live status list (below) is the status strip at the top of Settings.
 ### Claude Code
 - **Page:** `app/(app)/settings/page.tsx`; the device card, push and notification switches are client components in `device-settings.tsx`; server actions in `settings/actions.ts` (subscribe, unsubscribe, save switches, send test).
 - **Status:** `lib/status.ts` → `systemStatus()`, run on every page view inside `Suspense`; each probe has a time limit so a dead service can't hang the page. To add a row, push a `Check` (`name`, `level`, `summary`, `detail`) there.
-- **Install and push detection:** in `device-settings.tsx` (iOS, standalone, push support).
+- **Install and push detection:** in `device-settings.tsx` (iOS, standalone, push support). The push device list is `listPushDevices` / `removePushDevice` in `lib/notify.ts` (scoped door; the list id is a hash, the endpoint stays on the server).
+- **Dropdowns:** every `<select>` but the phone task screen's uses `components/ui/select.tsx` (Base UI, same `<option>` children and `onChange`); e2e suites choose with `pick()` in `tests/e2e/lib.mjs`.
+- **Password again:** one modal for every action that needs it (`components/reauth.tsx`: `ask()` for freshness, `askPassword()` when the action needs the password itself: authenticator, password change).
+- **Worker install, Replace key, autostart:** `docs/launcher.md` "Installing without the repo"; Settings › Connections lists your computers (`connections-computers.tsx`), Claude › Setup › Computers manages them (Replace key, Folders and their projects), Project › Info › Code holds the repository and folder links.
 - **Usage:** `usage-section.tsx` reads `lib/data/usage.ts`; counting happens in `proxy.ts` (see `docs/usage-log.md`). New routes go in the route table in `lib/usage.ts`, or they count as `(other)`.
 
 ---

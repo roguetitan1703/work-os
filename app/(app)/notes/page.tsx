@@ -11,6 +11,7 @@ import { MobileHeader } from '@/components/mobile/tab-bar';
 import { HubSegment } from '@/components/mobile/hub-segment';
 import { MobileNoteFilters, NewNoteSheetButton } from '@/components/mobile/m-notes';
 import { Suspense } from 'react';
+import { Select } from '@/components/ui/select';
 
 export const metadata = { title: 'Notes · Work OS' };
 
@@ -65,14 +66,14 @@ export default async function NotesPage({ searchParams }: Props) {
           placeholder="Search titles and text…"
           className="h-9 flex-1 min-w-48 rounded-md border border-border bg-background px-3 text-sm"
         />
-        <select name="project" defaultValue={sp.project ?? ''} className="h-9 rounded-md border border-border bg-background px-2 text-sm">
+        <Select name="project" defaultValue={sp.project ?? ''} className="h-9 rounded-md border border-border bg-background px-2 text-sm">
           <option value="">All projects</option>
           {projects.map(p => (
             <option key={p.id} value={p.id}>
               {p.name}{p.visibility === 'private' ? ' (private)' : ''}
             </option>
           ))}
-        </select>
+        </Select>
         <button className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium">Filter</button>
       </form>
 

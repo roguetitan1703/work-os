@@ -4,7 +4,9 @@ import { matchesClaudeProcess } from './launch.mjs';
 import { writeMarker, removeMarker } from './markers.mjs';
 import { trustFolder } from './trust.mjs';
 
-export const VERSION = '0.1.0';
+import { bundleId } from './config.mjs';
+
+export const VERSION = '0.2.0';
 const MISS_MS = 20000; // claude must be missing this long before the session counts as closed
 const GRACE_MS = 45000; // a just-launched session may not show in the process list yet
 
@@ -120,7 +122,7 @@ export function createCore(deps) {
     try { await refreshSessions(); } catch (e) { log('liveness failed: ' + errMsg(e)); }
     const sessions = Object.entries(state.sessions).map(([sessionId, s]) => ({ sessionId, folderId: s.folderId, state: s.state }));
     // allowPrompts: tells the server whether a first message reaches Claude here. The task dispatcher only sends tasks to a worker that says true.
-    const body = { worker: { version: VERSION, os: process.platform, allowPrompts: getConfig().allowPrompts !== false }, jobs: pendingResults, sessions };
+    const body = { worker: { version: VERSION, os: process.platform, ...(bundleId() ? { bundle: bundleId().slice(0, 12) } : {}), allowPrompts: getConfig().allowPrompts !== false }, jobs: pendingResults, sessions };
     // Counts only (docs/launcher.md "Activity counts"); a failed count never blocks the heartbeat.
     if (deps.activity) {
       try {

@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { CLAUDE_ITEM_KINDS, CLAUDE_ITEM_STATES, type ClaudeItem } from '@/lib/types';
 import { write } from '../../claude/auto-refresh';
 import { moveClaudeItemAction, updateClaudeItemAction } from './claude-items-actions';
+import { Select } from '@/components/ui/select';
 
 export type Blocker = { ref: number; title: string; state: string };
 type Props = { projectId: string; items: ClaudeItem[]; blockers: Record<string, Blocker>; waiting: number; doneCount: number; openRef?: number };
@@ -275,20 +276,20 @@ function Detail({ projectId, item: i, onSaved, blocker, up, down, first }: { pro
       <div className="space-y-2">
         <Label>Change</Label>
         <div className="flex gap-2 flex-wrap">
-          <select aria-label="State" value={i.state} disabled={pending} onChange={e => patch({ state: e.target.value as ClaudeItem['state'] })} className={field}>
+          <Select aria-label="State" value={i.state} disabled={pending} onChange={e => patch({ state: e.target.value as ClaudeItem['state'] })} className={field}>
             {CLAUDE_ITEM_STATES.map(s => (
               <option key={s} value={s}>
                 {s}
               </option>
             ))}
-          </select>
-          <select aria-label="Kind" value={i.kind} disabled={pending} onChange={e => patch({ kind: e.target.value as ClaudeItem['kind'] })} className={field}>
+          </Select>
+          <Select aria-label="Kind" value={i.kind} disabled={pending} onChange={e => patch({ kind: e.target.value as ClaudeItem['kind'] })} className={field}>
             {CLAUDE_ITEM_KINDS.map(k => (
               <option key={k} value={k}>
                 {k === 'idea' ? 'idea' : `make it a ${k}`}
               </option>
             ))}
-          </select>
+          </Select>
           {i.kind !== 'idea' && i.state === 'queued' && (
             <button type="button" aria-pressed={i.next} disabled={pending} onClick={() => patch({ next: !i.next })} className={cn(btn, i.next && 'bg-green-500/15 border-green-500/40 text-green-700 dark:text-green-300')}>
               Next{i.next ? ': on' : ''}

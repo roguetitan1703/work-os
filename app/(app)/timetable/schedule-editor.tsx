@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { WEEKDAYS, WEEKDAY_LABELS, type Routine, type ScheduleBlock } from '@/lib/schedule';
 import { saveScheduleAction } from './actions';
+import { Select } from '@/components/ui/select';
 
 const field = 'h-11 md:h-8 rounded-md border border-border bg-background px-2 text-[16px] md:text-sm text-foreground min-w-0';
 const emptyModes = () => Object.fromEntries(WEEKDAYS.map(d => [d, ''])) as ScheduleBlock['modes'];
@@ -63,19 +64,19 @@ export function ScheduleEditor({ initialBlocks, initialRoutine, modes, extraName
             <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
               <label className="flex flex-col gap-1 text-xs text-muted-foreground col-span-2 md:col-span-1">
                 Every day
-                <select className={field} value="" onChange={e => e.target.value !== '' && set(i, { modes: Object.fromEntries(WEEKDAYS.map(d => [d, e.target.value === '-' ? '' : e.target.value])) as ScheduleBlock['modes'] })}>
+                <Select className={field} value="" onChange={e => e.target.value !== '' && set(i, { modes: Object.fromEntries(WEEKDAYS.map(d => [d, e.target.value === '-' ? '' : e.target.value])) as ScheduleBlock['modes'] })}>
                   <option value="">Set all…</option>
                   <option value="-">(nothing)</option>
                   {options.map(o => <option key={o} value={o}>{o}</option>)}
-                </select>
+                </Select>
               </label>
               {WEEKDAYS.map(d => (
                 <label key={d} className="flex flex-col gap-1 text-xs text-muted-foreground">
                   {WEEKDAY_LABELS[d]}
-                  <select className={field} value={b.modes[d]} onChange={e => set(i, { modes: { ...b.modes, [d]: e.target.value } })}>
+                  <Select className={field} value={b.modes[d]} onChange={e => set(i, { modes: { ...b.modes, [d]: e.target.value } })}>
                     <option value="">(nothing)</option>
                     {options.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
+                  </Select>
                 </label>
               ))}
             </div>

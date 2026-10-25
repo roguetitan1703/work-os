@@ -8,6 +8,7 @@ import { authClient, authError } from '@/lib/auth-client';
 import { Row } from './device-settings';
 import { sendTestEmailAction } from './security-actions';
 import { needsReauth, useReauth } from '@/components/reauth';
+import { deviceFromUA } from '@/lib/ua';
 
 // Settings › Security (docs/auth.md): passkeys, authenticator app with backup codes, password, test email.
 // Everything except the test email is a Better Auth call from the browser (lib/auth-client.ts), which checks the session.
@@ -20,36 +21,6 @@ const btn = 'h-11 px-4 rounded-full text-sm font-semibold shrink-0 disabled:opac
 const btnPrimary = `${btn} bg-foreground text-background`;
 const btnOutline = `${btn} border border-border text-foreground font-medium`;
 const iconBtn = 'w-11 h-11 -my-1 rounded-full flex items-center justify-center text-muted-foreground active:bg-muted/60 hover:bg-muted/40 shrink-0 disabled:opacity-50';
-
-function deviceFromUA(ua: string): string {
-  const os = /iPhone/.test(ua)
-    ? 'iPhone'
-    : /iPad/.test(ua)
-      ? 'iPad'
-      : /Android/.test(ua)
-        ? 'Android'
-        : /CrOS/.test(ua)
-          ? 'Chromebook'
-          : /Macintosh|Mac OS X/.test(ua)
-            ? 'Mac'
-            : /Windows/.test(ua)
-              ? 'Windows PC'
-              : /Linux/.test(ua)
-                ? 'Linux'
-                : 'This device';
-  const browser = /Edg\//.test(ua)
-    ? 'Edge'
-    : /SamsungBrowser/.test(ua)
-      ? 'Samsung Internet'
-      : /Firefox|FxiOS/.test(ua)
-        ? 'Firefox'
-        : /Chrome|CriOS/.test(ua)
-          ? 'Chrome'
-          : /Safari/.test(ua)
-            ? 'Safari'
-            : '';
-  return browser ? `${os} · ${browser}` : os;
-}
 
 const day = (iso: string | Date) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -183,21 +154,32 @@ function Passkeys() {
 // ── Authenticator app ───────────────────────────────────────────────────────
 
 type Then = 'enable' | 'disable' | 'regen';
-type Mode = { kind: 'idle' } | { kind: 'password'; then: Then } | { kind: 'setup'; secret: string; qr: string; codes: string[] } | { kind: 'codes'; codes: string[] };
+type Mode = { kind: 'idle' } | { kind: 'setup'; secret: string; qr: string; codes: string[] } | { kind: 'codes'; codes: string[] };
 
 function Totp({ enabled, onChange }: { enabled: boolean; onChange: (on: boolean) => void }) {
   const [mode, setMode] = useState<Mode>({ kind: 'idle' });
   const [code, setCode] = useState('');
-  const [password, setPassword] = useState('');
   const [pending, start] = useTransition();
+  const reauth = useReauth();
 
   const go = (m: Mode) => {
     setCode('');
-    setPassword('');
     setMode(m);
   };
 
-  const withPassword = (then: Then) =>
+  // The same password prompt as adding a passkey or a computer (components/reauth.tsx), then the action with that password.
+  const ASK: Record<Then, { text: string; verb: string; danger?: boolean }> = {
+    enable: { text: 'Enter your password to set up the authenticator app.', verb: 'Continue' },
+    disable: { text: 'Enter your password to turn the authenticator app off.', verb: 'Turn off', danger: true },
+    regen: { text: 'Enter your password. Your old backup codes stop working.', verb: 'Continue' },
+  };
+  const withPassword = async (then: Then) => {
+    const password = await reauth.askPassword(ASK[then]);
+    if (password === null) return;
+    run(then, password);
+  };
+
+  const run = (then: Then, password: string) =>
     start(async () => {
       if (then === 'enable') {
         const r = await authClient.twoFactor.enable({ password });
@@ -243,11 +225,11 @@ function Totp({ enabled, onChange }: { enabled: boolean; onChange: (on: boolean)
         action={
           mode.kind === 'idle' ? (
             enabled ? (
-              <button type="button" className={btnOutline} onClick={() => go({ kind: 'password', then: 'disable' })}>
+              <button type="button" className={btnOutline} onClick={() => withPassword('disable')}>
                 Turn off
               </button>
             ) : (
-              <button type="button" className={btnPrimary} onClick={() => go({ kind: 'password', then: 'enable' })} disabled={pending}>
+              <button type="button" className={btnPrimary} onClick={() => withPassword('enable')} disabled={pending}>
                 Turn on
               </button>
             )
@@ -255,40 +237,14 @@ function Totp({ enabled, onChange }: { enabled: boolean; onChange: (on: boolean)
         }
       />
 
+      {reauth.dialog}
       {mode.kind === 'idle' && enabled && (
         <div className="flex items-center justify-between gap-3 px-4 py-2 min-h-14">
           <span className="text-sm text-muted-foreground">Lost or used up your backup codes?</span>
-          <button type="button" className={btnOutline} onClick={() => go({ kind: 'password', then: 'regen' })}>
+          <button type="button" className={btnOutline} onClick={() => withPassword('regen')}>
             New codes
           </button>
         </div>
-      )}
-
-      {mode.kind === 'password' && (
-        <form
-          className="px-4 py-4 space-y-3"
-          onSubmit={e => {
-            e.preventDefault();
-            if (password) withPassword(mode.then);
-          }}
-        >
-          <p className="text-[13px] text-muted-foreground">
-            {mode.then === 'enable'
-              ? 'Enter your password to set up the authenticator app.'
-              : mode.then === 'disable'
-                ? 'Enter your password to turn the authenticator app off.'
-                : 'Enter your password. Your old backup codes stop working.'}
-          </p>
-          <div className="flex items-center gap-2">
-            <input className={field} type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" autoFocus aria-label="Your password" placeholder="Password" />
-            <button type="submit" className={mode.then === 'disable' ? `${btn} bg-red-600 text-white` : btnPrimary} disabled={pending || !password}>
-              {mode.then === 'disable' ? 'Turn off' : 'Continue'}
-            </button>
-          </div>
-          <button type="button" className={`${btnOutline} w-full`} onClick={() => go({ kind: 'idle' })}>
-            Cancel
-          </button>
-        </form>
       )}
 
       {mode.kind === 'setup' && (
@@ -356,11 +312,12 @@ function Totp({ enabled, onChange }: { enabled: boolean; onChange: (on: boolean)
 
 function Password({ email }: { email: string }) {
   const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ current: '', password: '', again: '' });
+  const [f, setF] = useState({ password: '', again: '' });
   const [pending, start] = useTransition();
+  const reauth = useReauth();
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const close = () => {
-    setF({ current: '', password: '', again: '' });
+    setF({ password: '', again: '' });
     setOpen(false);
   };
 
@@ -369,7 +326,10 @@ function Password({ email }: { email: string }) {
     if (f.password.length < 10) return void toast.error('Use at least 10 characters.');
     if (f.password !== f.again) return void toast.error('The two new passwords do not match.');
     start(async () => {
-      const r = await authClient.changePassword({ currentPassword: f.current, newPassword: f.password, revokeOtherSessions: true });
+      // The same password prompt as adding a passkey (components/reauth.tsx).
+      const current = await reauth.askPassword({ text: 'Enter your current password to change it.', verb: 'Change password' });
+      if (current === null) return;
+      const r = await authClient.changePassword({ currentPassword: current, newPassword: f.password, revokeOtherSessions: true });
       if (r.error) return void toast.error(authError(r.error, 'Wrong password.'));
       close();
       toast.success('Password changed. Other devices were signed out.');
@@ -378,6 +338,7 @@ function Password({ email }: { email: string }) {
 
   return (
     <>
+      {reauth.dialog}
       <Row
         icon={<LockKeyhole className="w-5 h-5 text-amber-600" />}
         title="Password"
@@ -393,8 +354,7 @@ function Password({ email }: { email: string }) {
       {open && (
         <form className="px-4 py-4 space-y-3" onSubmit={save}>
           <input type="text" name="username" value={email} autoComplete="username" readOnly hidden />
-          <input className={field} type="password" value={f.current} onChange={set('current')} placeholder="Current password" autoComplete="current-password" required autoFocus aria-label="Current password" />
-          <input className={field} type="password" value={f.password} onChange={set('password')} placeholder="New password (10+ characters)" autoComplete="new-password" required minLength={10} maxLength={256} aria-label="New password" />
+          <input className={field} type="password" value={f.password} onChange={set('password')} placeholder="New password (10+ characters)" autoComplete="new-password" required minLength={10} maxLength={256} autoFocus aria-label="New password" />
           <input className={field} type="password" value={f.again} onChange={set('again')} placeholder="New password again" autoComplete="new-password" required minLength={10} maxLength={256} aria-label="New password again" />
           <p className="text-[13px] text-muted-foreground">Every other signed-in device will be signed out.</p>
           <div className="flex gap-2">

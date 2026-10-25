@@ -16,13 +16,13 @@ export const DEVICE_KEY_PREFIX = 'wkr_';
 const SEEN_EVERY_MS = 60_000;
 const MAX_DEVICES = 10;
 
-export type DeviceInfo = { id: string; name: string; prefix: string; createdAt: string; lastSeenAt: string | null; os: string | null; version: string | null };
+export type DeviceInfo = { id: string; name: string; prefix: string; createdAt: string; lastSeenAt: string | null; os: string | null; version: string | null; /** Which downloaded worker bundle it runs (first 12 hex of its sha256); null when run from the repo or not yet reported. */ bundle: string | null; /** When its key was last replaced (Replace key), or null. */ keyReplacedAt: string | null };
 export type VerifiedDevice = { id: string; name: string; ownerId?: string; orgId?: string };
 
 const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
 
 function toInfo(d: DeviceDoc): DeviceInfo {
-  return { id: d._id, name: d.name, prefix: d.prefix, createdAt: d.createdAt.toISOString(), lastSeenAt: d.lastSeenAt?.toISOString() ?? null, os: d.worker?.os ?? null, version: d.worker?.version ?? null };
+  return { id: d._id, name: d.name, prefix: d.prefix, createdAt: d.createdAt.toISOString(), lastSeenAt: d.lastSeenAt?.toISOString() ?? null, os: d.worker?.os ?? null, version: d.worker?.version ?? null, bundle: d.worker?.bundle ?? null, keyReplacedAt: d.keyReplacedAt?.toISOString() ?? null };
 }
 
 /** The caller's own computers, in their organization. Devices from before sign-in by user (no ownerId) match no one. */
@@ -44,6 +44,26 @@ export async function createDevice(caller: Caller, name: string): Promise<{ key:
   const key = DEVICE_KEY_PREFIX + randomBytes(32).toString('base64url');
   const doc: DeviceDoc = { _id: randomUUID(), name: n, ownerId: caller.userId, orgId: caller.orgId, hash: sha256(key), prefix: key.slice(0, 8), createdAt: new Date(), lastSeenAt: null, revokedAt: null };
   await c.devices.insertOne(doc);
+  return { key, info: toInfo(doc) };
+}
+
+/**
+ * A new key for the SAME computer: its id, folder links, sessions and queued jobs stay; the old key stops working at once
+ * (the hash is replaced, so it matches nothing) and its open push stream ends. Owner-only: `mine` is the caller's own
+ * live computers in their organization, so another member's id matches nothing. Returns the new key in full, once.
+ */
+export async function replaceDeviceKey(caller: Caller, id: string): Promise<{ key: string; info: DeviceInfo }> {
+  if (caller.via !== 'session') throw new SafeError('Keys are replaced by a signed-in person.');
+  const c = await collections(); // scope-ok: computers: every query filters by the caller (mine) or the key's hash
+  const key = DEVICE_KEY_PREFIX + randomBytes(32).toString('base64url');
+  const now = new Date();
+  const doc = await c.devices.findOneAndUpdate(
+    { _id: id, ...mine(caller) },
+    { $set: { hash: sha256(key), prefix: key.slice(0, 8), keyReplacedAt: now }, $inc: { keyReplacements: 1 } },
+    { returnDocument: 'after' },
+  );
+  if (!doc) throw new SafeError('That computer does not exist or was revoked.');
+  closeDevice(id); // the old key's stream ends now; the worker reconnects only with the new key
   return { key, info: toInfo(doc) };
 }
 

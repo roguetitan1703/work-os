@@ -14,6 +14,8 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- Worker install from the app (ui-settings): Linux is not offered (the worker supports Windows and macOS only: no Linux key store, terminal launcher or autostart) - waits on someone running Work OS sessions on Linux. The macOS command and unpack path are tested only on Windows (Node parts) - waits on a Mac teammate's first install.
+- Selects: components/mobile/m-task-detail.tsx (phone task screen) keeps native select on purpose: the phone's own picker is the better touch control, and color-scheme: dark now themes it; every other select uses components/ui/select.tsx (Base UI). The long timezone list has type-ahead but no search box - waits on someone asking.
 - Injection labels: the list and search tools (get_project, list_tasks, search, daily_summary, list_notes, recent_activity, Claude items, the Discord read tools) carry teammates' text without writtenBy labels (the fixed instructions line covers them in words only) — waits on the review saying which matter.
 - Injection labels: an owner's edit launders text: once the owner edits a field (say a teammate's description), the whole field counts as the owner's, the teammate's words left in it included; notes keep only createdBy and updatedBy (labelled when either is someone else) — waits on per-span or per-block authors.
 - Injection labels: projects from before nameBy count as named by their owner (a teammate's earlier rename is not known) — waits on it mattering (no shared projects predate the cutover).

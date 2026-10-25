@@ -49,7 +49,22 @@ function logger() {
   };
 }
 
+// One supervisor per config folder: a second start (setup run again, logon plus a hand start) exits quietly.
+// The file's time is refreshed every few seconds by the running one, so after a reboot a leftover file (whose pid may now be
+// another program) is not taken for a live supervisor.
+export const LOCK_FRESH_MS = 30000;
+export function takeLock(file = path.join(configDir(), 'supervisor.pid'), pid = process.pid, alive = (p) => { try { process.kill(p, 0); return true; } catch (e) { return e.code === 'EPERM'; } }, now = Date.now) {
+  try {
+    const other = Number(fs.readFileSync(file, 'utf8'));
+    if (other && other !== pid && alive(other) && now() - fs.statSync(file).mtimeMs < LOCK_FRESH_MS) return false;
+  } catch {}
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, String(pid));
+  return true;
+}
+
 async function main() {
+  if (!takeLock()) return;
   const write = logger();
   const log = (m) => write(`${new Date().toISOString()} [supervisor] ${m}\n`);
   let child = null, backoff = 5000, stopping = false;
@@ -72,6 +87,7 @@ async function main() {
   const watch = createWatch({ running: signature() });
   start();
   setInterval(() => {
+    try { fs.utimesSync(path.join(configDir(), 'supervisor.pid'), new Date(), new Date()); } catch {}
     const r = watch.tick();
     if (r === 'bad') log('worker code changed but does not parse; keeping the running version');
     if (r !== true || !child) return;

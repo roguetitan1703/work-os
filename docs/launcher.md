@@ -17,6 +17,16 @@ panel; the worker is a small Node program on each machine.
 6. Outbound only. One device key per machine (`wkr_…`), revocable on Claude › Setup › Computers (`/claude?tab=setup`; `/connect?tab=devices` redirects there).
 7. Kill switch: `enabled: false` in the worker config, or revoke the key.
 
+## Installing without the repo
+
+Teammates do not have the repository. Work OS serves the worker as one file: `GET /worker/work-os-worker.mjs` (a loader with `worker/*.mjs`, tests excluded, embedded; built by `worker/bundle/build.mjs` from the release's own files, so a release's bytes and sha256 never change; `ETag` is the sha256) and `GET /worker/latest.json` (`{ version, sha256, bytes }`). Both are public (no cookie, no key; the install command needs them before a key exists) and carry no secrets: only the worker's source. Claude › Setup › Computers shows, after Add, one copy-paste command per OS (`lib/worker-install.ts`): download to `%LOCALAPPDATA%\WorkOS` or `~/.work-os`, verify the sha256 shown (PowerShell `Get-FileHash`; macOS a Node one-liner), run `setup --server <APP_URL>`. The device key is typed at setup's hidden prompt, never in the command. Run, the file unpacks into a `worker/` folder beside itself, writes `worker/BUNDLE` (its sha256) and runs `worker.mjs` there with the same arguments (it refuses Node older than 22). The worker reports `worker.bundle` (12 hex of the sha256) in its status; the Computers list shows "update available" when it differs from the served one, and the worker logs the same (`update.mjs`, every 6 hours). Updating = run the command again; the supervisor restarts the worker when the unpacked code changes. No self-update, on purpose (server-delivered code would be remote code execution on every teammate's computer).
+
+Setup also checks the server address: a stored `*.vercel.app` address, or HTTP 402 or 404 on the key check, is named plainly and the current address offered; the default is `https://work.delpat.in`.
+
+**Autostart** (`worker/install.mjs`) needs no administrator: on Windows a per-user `HKCU\...\Run` value runs the supervisor hidden at logon (and now), replacing the old ONLOGON scheduled task, which needed admin and is deleted if present; on macOS a LaunchAgent. A failure to set it is one line in setup's output with the hand command, not an error. One supervisor per config folder (`supervisor.pid`, refreshed every few seconds so a leftover file after a reboot is ignored).
+
+**Replace key** (Computers list, per computer; needs a recent sign-in like Add): a new `wkr_` key for the same computer. Its id, folder links, sessions and queued jobs stay; the old key stops working at once (the stored hash is replaced) and its open stream is closed; only the person who owns the computer can do it (`replaceDeviceKey`, lib/devices.ts); the document records `keyReplacedAt` and `keyReplacements`. The new key is shown once with the same install instructions.
+
 ## Auth
 
 `Authorization: Bearer wkr_<43 base64url chars>` on every request. Device keys are a separate

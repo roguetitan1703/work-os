@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { FolderGit2, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { updateProjectAction } from '@/app/actions';
+import { ConfirmSheet } from '@/components/responsive-sheet';
 import type { CodeLocation } from '@/lib/types';
 
 const field =
@@ -18,10 +19,14 @@ function label(l: CodeLocation): { main: string; sub: string } {
   return { main, sub };
 }
 
-/** Where the project's code lives; Claude Code uses it to find the project from a repo (get_project with remote/subdir/branch). */
+/**
+ * Repository: where the project's code lives on GitHub (owner/repo, plus an optional folder or branch). Claude Code uses it to
+ * find the project from the repo it is working in (get_project with remote/subdir/branch). Removing one asks first.
+ */
 export function CodeLocations({ projectId, initial }: { projectId: string; initial: CodeLocation[] }) {
   const [list, setList] = useState<CodeLocation[]>(initial);
   const [draft, setDraft] = useState<CodeLocation | null>(null);
+  const [removing, setRemoving] = useState<number | null>(null);
   const [pending, start] = useTransition();
 
   const save = (next: CodeLocation[], after?: () => void) =>
@@ -44,13 +49,14 @@ export function CodeLocations({ projectId, initial }: { projectId: string; initi
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <h2 className="text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 md:px-0">Repos</h2>
+        <h3 className="text-[13px] md:text-xs font-semibold text-foreground px-1 md:px-0">Repository</h3>
         {!draft && (
           <button type="button" onClick={() => setDraft(EMPTY)} className="h-11 md:h-7 px-3 md:px-2 inline-flex items-center gap-1 text-sm md:text-xs text-muted-foreground hover:text-foreground rounded-xl md:rounded-md active:bg-muted">
-            <Plus className="w-4 h-4 md:w-3.5 md:h-3.5" /> Add
+            <Plus className="w-4 h-4 md:w-3.5 md:h-3.5" /> Add repository
           </button>
         )}
       </div>
+      <p className="text-[13px] md:text-xs text-muted-foreground px-1 md:px-0">The GitHub project (owner/repo) this work belongs to. Claude uses it to recognise this project when it opens the repo.</p>
       <div className="rounded-2xl md:rounded-lg border border-border/70 md:border-border divide-y divide-border/60 md:divide-border bg-card overflow-hidden">
         {list.map((l, i) => {
           const t = label(l);
@@ -63,7 +69,7 @@ export function CodeLocations({ projectId, initial }: { projectId: string; initi
               </div>
               <button
                 type="button"
-                onClick={() => save(list.filter((_, j) => j !== i))}
+                onClick={() => setRemoving(i)}
                 disabled={pending}
                 aria-label={`Remove ${t.main}`}
                 className="w-11 h-11 rounded-full flex items-center justify-center text-muted-foreground active:bg-muted/60 hover:bg-muted/40 shrink-0 disabled:opacity-50"
@@ -74,7 +80,7 @@ export function CodeLocations({ projectId, initial }: { projectId: string; initi
           );
         })}
         {!list.length && !draft && (
-          <p className="px-4 md:px-3 py-3 text-sm md:text-xs text-muted-foreground">No repos linked. Claude Code uses these to find this project from the repo it is working in.</p>
+          <p className="px-4 md:px-3 py-3 text-sm md:text-xs text-muted-foreground">No repository yet. Add the owner/repo so Claude can tell which project it is in.</p>
         )}
         {draft && (
           <div className="p-3 space-y-2">
@@ -83,7 +89,7 @@ export function CodeLocations({ projectId, initial }: { projectId: string; initi
               <input className={field} value={draft.subdir} onChange={set('subdir')} placeholder="Folder (optional)" aria-label="Folder inside the repo" autoCapitalize="off" spellCheck={false} />
               <input className={field} value={draft.branch} onChange={set('branch')} placeholder="Branch (optional)" aria-label="Branch" autoCapitalize="off" spellCheck={false} />
             </div>
-            <input className={field} value={draft.path} onChange={set('path')} placeholder="Or a folder path, e.g. D:\Work\client" aria-label="Folder path" autoCapitalize="off" spellCheck={false} />
+            <input className={field} value={draft.path} onChange={set('path')} placeholder="Or a path on a computer, e.g. D:\Work\client" aria-label="Folder path" autoCapitalize="off" spellCheck={false} />
             <div className="flex gap-2">
               <button type="button" className={`${btn} flex-1 border border-border text-foreground font-medium`} onClick={() => setDraft(null)}>
                 Cancel
@@ -95,6 +101,17 @@ export function CodeLocations({ projectId, initial }: { projectId: string; initi
           </div>
         )}
       </div>
+      {removing !== null && list[removing] && (
+        <ConfirmSheet
+          title="Remove repository"
+          message={<>Remove &quot;{label(list[removing]).main}&quot; from this project? Claude Code will no longer recognise the project from that repo. You can add it back.</>}
+          verb="Remove"
+          danger
+          pending={pending}
+          onConfirm={() => save(list.filter((_, j) => j !== removing), () => setRemoving(null))}
+          onClose={() => setRemoving(null)}
+        />
+      )}
     </div>
   );
 }

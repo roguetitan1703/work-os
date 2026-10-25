@@ -21,7 +21,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createPrivateKey, randomBytes, randomUUID, sign } from 'node:crypto';
+import { createHash, createPrivateKey, randomBytes, randomUUID, sign } from 'node:crypto';
 import { ObjectId } from 'mongodb';
 import { B, CRON, EMAIL, ME, MCP, PW, check, finish, makeUser, mkKey, rawDb, setOrgGuild, setProfile, setSchedule, sha } from './lib.mjs';
 import { entryPoints, unlistedBuilt } from './entry-points.mjs';
@@ -861,7 +861,9 @@ function AUDIT() {
   add(`action ${K_}rotateApiKeyAction`, act(K_ + 'rotateApiKeyAction', (t, c) => [c.keyIdOf?.(t) ?? 'none'], { control: false, label: 'their key id', aim: true, aimKeys: [], refusal: KEY_GONE, call: async ({ p, o }) => action(K_ + 'rotateApiKeyAction', [o === FAKE_REF.v ? FAKE_REF.key : await keyIdOf('A')], { cookie: p.cookie }) }));
   add(`action ${K_}revokeApiKeyAction`, act(K_ + 'revokeApiKeyAction', [], { control: false, label: 'their key id', aim: true, aimKeys: [], refusal: KEY_GONE, call: async ({ p, o }) => action(K_ + 'revokeApiKeyAction', [o === FAKE_REF.v ? FAKE_REF.key : await keyIdOf('A'), 'claude-code'], { cookie: p.cookie }) }));
   add(`action ${K_}listDevicesAction`, act(K_ + 'listDevicesAction', []));
+  add(`action ${K_}workerInstallInfoAction`, act(K_ + 'workerInstallInfoAction', []));
   add(`action ${K_}createDeviceAction`, act(K_ + 'createDeviceAction', ['lkq probe pc'], { controlOk: r => actOk(r) }));
+  add(`action ${K_}replaceDeviceKeyAction`, act(K_ + 'replaceDeviceKeyAction', t => [t.device], aim(['device'], { stage: 2 })));
   add(`action ${K_}revokeDeviceAction`, act(K_ + 'revokeDeviceAction', t => [t.device], aim(['device'], { stage: 2 })));
   const N_ = 'app/(app)/notes/actions.ts#';
   add(`action ${N_}createNoteAction`, act(N_ + 'createNoteAction', t => [{ task: t.ref, title: 'lkq' }], aim(['ref'], { ok: r => actOk(r) && !!r.value?.id, controlOk: r => actOk(r) || /already/i.test(r.text) })), act(N_ + 'createNoteAction', t => [{ project: t.project, title: 'lkq memo' }], aim(['project'], { label: 'project note', ok: r => actOk(r) && !!r.value?.id })));
@@ -875,6 +877,8 @@ function AUDIT() {
   add(`action ${CI}moveClaudeItemAction`, act(CI + 'moveClaudeItemAction', t => [t.itemProject, t.item, 'top'], aim(['itemProject', 'item'])));
   const L_ = 'app/(app)/projects/[id]/launcher-actions.ts#';
   add(`action ${L_}searchFoldersAction`, act(L_ + 'searchFoldersAction', t => [t.device, ''], aim(['device'], { ok: r => actOk(r) && r.value.data?.length > 0 })));
+  add(`action ${L_}folderPickerAction`, act(L_ + 'folderPickerAction', t => [t.device, ''], aim(['device'], { ok: r => actOk(r) && r.value.data?.folders?.length > 0 })));
+  add(`action ${L_}relinkFolderAction`, act(L_ + 'relinkFolderAction', t => [t.folder, t.project], aim(['project', 'folder'], { stage: 2 })));
   add(`action ${L_}linkFolderAction`, act(L_ + 'linkFolderAction', t => [t.project, t.folder], aim(['project', 'folder'])));
   add(`action ${L_}unlinkFolderAction`, act(L_ + 'unlinkFolderAction', t => [t.project, t.folder], aim(['project', 'folder'], { stage: 2 })));
   add(`action ${L_}startSessionAction`, act(L_ + 'startSessionAction', t => [t.project, t.folder, 'lkq prompt'], aim(['project', 'folder'], { stage: 1 })));
@@ -888,6 +892,8 @@ function AUDIT() {
   add('action app/(app)/search-action.ts#searchAction', act('app/(app)/search-action.ts#searchAction', ['lkq'], { ok: r => r.status === 200 && !r.error && r.value != null }), { ...act('app/(app)/search-action.ts#searchAction', []), label: 'by ref', aim: true, aimKeys: ['ref'], call: async ({ p, o }) => ({ ...(await action('app/(app)/search-action.ts#searchAction', [`#${o.ref}`], { cookie: p.cookie })), ref: o.ref }), ok: r => r.status === 200 && !!r.value?.tasks?.some(x => x.href === `/tasks/${r.ref}`), shape: r => `${r.status} ${r.value?.tasks?.some(x => x.href === `/tasks/${r.ref}`) ? 'found' : 'none'}` /* "#1" also matches #10 and other text */ });
   const ST = 'app/(app)/settings/actions.ts#';
   add(`action ${ST}subscribePushAction`, act(ST + 'subscribePushAction', () => [{ endpoint: `https://push.example.test/lkqown${hex(6)}`, keys: { p256dh: 'x', auth: 'y' } }, 'lkq probe']));
+  add(`action ${ST}listPushDevicesAction`, act(ST + 'listPushDevicesAction', t => [t.push], { controlOk: r => actOk(r) }));
+  add(`action ${ST}removePushDeviceAction`, act(ST + 'removePushDeviceAction', t => [createHash('sha256').update(t.push).digest('hex').slice(0, 24)], aim(['push'], { mayWork: () => true, stage: 2 })));
   add(`action ${ST}unsubscribePushAction`, act(ST + 'unsubscribePushAction', t => [t.push], aim(['push'], { mayWork: () => true /* answers ok either way; the write check catches a removal */, stage: 2 })));
   add(`action ${ST}saveNotifySettingsAction`, act(ST + 'saveNotifySettingsAction', [{ channels: { push: true, discord: true }, kinds: {} }]));
   add(`action ${ST}testNotificationAction`, act(ST + 'testNotificationAction', []));
@@ -944,6 +950,8 @@ function AUDIT() {
   add('route GET /api/cron/alerts', cronProbe('GET'));
   add('route POST /api/cron/alerts', cronProbe('POST'));
   add('route POST /api/discord/interactions', { kind: 'route', ok: r => two(r.status), call: () => req('POST', '/api/discord/interactions', { body: '{"type":1}', headers: { 'x-signature-ed25519': '00'.repeat(64), 'x-signature-timestamp': String(Math.floor(Date.now() / 1000)) } }), label: 'unsigned', control: false });
+  add('route GET /worker/work-os-worker.mjs', route('GET', '/worker/work-os-worker.mjs', { public: true }));
+  add('route GET /worker/latest.json', route('GET', '/worker/latest.json', { public: true }));
   add('route GET /api/live', route('GET', '/api/live', { public: true }));
   add('route HEAD /api/live', route('HEAD', '/api/live', { public: true }));
   const mcpRoute = m => ({ kind: 'mcp', ok: r => two(r.status) && !/Unauthorized/.test(r.text), call: ({ cred }) => req(m, '/api/mcp', { bearer: cred, headers: { accept: 'application/json, text/event-stream' }, body: m === 'POST' ? { jsonrpc: '2.0', id: 1, method: 'tools/list' } : undefined }), controlOk: r => (m === 'POST' ? two(r.status) : r.status !== 401) });

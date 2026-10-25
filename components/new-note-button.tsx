@@ -7,6 +7,7 @@ import { FilePlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { createNoteAction } from '@/app/(app)/notes/actions';
 import { cn } from '@/lib/utils';
+import { Select } from '@/components/ui/select';
 
 /**
  * New note. With `task`, opens (or creates) that task's note. With `project`, creates a project note.
@@ -50,13 +51,13 @@ export function NewNoteButton({
         }}
       >
         <input autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" className="h-9 w-48 rounded-md border border-border bg-background px-3 text-sm" />
-        <select value={pick} onChange={e => setPick(e.target.value)} className="h-9 rounded-md border border-border bg-background px-2 text-sm">
+        <Select value={pick} onChange={e => setPick(e.target.value)} className="h-9 rounded-md border border-border bg-background px-2 text-sm">
           {projects.map(p => (
             <option key={p.id} value={p.id}>
               {p.name}{privateSuffix(p.private)}
             </option>
           ))}
-        </select>
+        </Select>
         <button disabled={pending || !pick} className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium disabled:opacity-50">
           Create
         </button>

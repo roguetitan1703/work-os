@@ -2,7 +2,7 @@
 // the phase 2 review leftovers (project made private onto a private name, restore order), and Settings › Members:
 // invite, accept, role changes, the last-owner guard, and removing a member (sessions, Claude keys, computers and
 // claims stop; their private things are kept). Seed profile: none (this suite makes its own people and data).
-import { B, CRON, EMAIL, ME, MCP, PW, check, finish, launch, login, makeUser, mkKey, rawDb, setProfile, sha } from './lib.mjs';
+import { B, CRON, EMAIL, ME, MCP, PW, check, finish, launch, login, makeUser, mkKey, rawDb, setProfile, sha, pick } from './lib.mjs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { ObjectId } from 'mongodb';
 
@@ -162,7 +162,7 @@ try {
   await pa.waitForSelector('[data-members]', { timeout: 15000 });
   const tess = 'tess@example.test';
   await pa.fill('input[aria-label="Email to invite"]', tess);
-  await pa.selectOption('select[aria-label="Role"]', 'member');
+  await pick(pa, '[aria-label="Role"]', 'member');
   await pa.click('form button:has-text("Invite")');
   await pa.waitForSelector(`[data-invitation="${tess}"]`, { timeout: 15000 }).catch(() => {});
   check('invite: the invitation is listed as pending', (await pa.locator(`[data-invitation="${tess}"]`).count()) === 1);
@@ -191,16 +191,16 @@ try {
 
   await pa.reload();
   await pa.waitForSelector(`[data-role-select="${tess}"]`, { timeout: 15000 });
-  await pa.selectOption(`[data-role-select="${tess}"]`, 'admin');
+  await pick(pa, `[data-role-select="${tess}"]`, 'admin');
   check('roles: the owner makes Tess an admin', !!(await until(async () => (await roleOf(T.userId, A.orgId)) === 'admin')));
   await pt.goto(B + '/settings?section=members');
   await pt.waitForSelector('[data-members]', { timeout: 15000 });
   check('roles: an admin gets no role control on an owner', (await pt.locator(`[data-role-select="${ownerEmail}"]`).count()) === 0 && (await pt.locator(`button[aria-label="Remove ${ownerEmail}"]`).count()) === 0);
-  check('roles: an admin cannot invite an owner', (await pt.locator('select[aria-label="Role"] option[value="owner"]').count()) === 0);
+  check('roles: an admin cannot invite an owner', (await (async () => { await pt.locator('[aria-label="Role"]').click(); const n = await pt.locator('[role=option][data-value="owner"]').count(); await pt.keyboard.press('Escape'); return n; })()) === 0);
   check('roles: an admin manages members', (await pt.locator('[data-role-select="bea@example.test"]').count()) === 1);
   // Tess is demoted behind the role cache (as by another server): her open page must not still manage members
   await rawDb.collection('member').updateOne({ userId: idIn(T.userId), organizationId: idIn(A.orgId) }, { $set: { role: 'member' } });
-  await pt.selectOption('[data-role-select="bea@example.test"]', 'admin');
+  await pick(pt, '[data-role-select="bea@example.test"]', 'admin');
   await sleep(2000);
   check('roles: a demotion counts at once (fresh role, not the cached one)', (await roleOf(Bu.userId, A.orgId)) === 'member');
   await rawDb.collection('member').updateOne({ userId: idIn(T.userId), organizationId: idIn(A.orgId) }, { $set: { role: 'admin' } });
@@ -223,20 +223,21 @@ try {
   // the last owner can't step down
   await pa.reload();
   await pa.waitForSelector(`[data-role-select="${ownerEmail}"]`, { timeout: 15000 });
-  await pa.selectOption(`[data-role-select="${ownerEmail}"]`, 'admin');
-  const refused = await pa.waitForSelector('text=needs an owner', { timeout: 10000 }).then(() => true).catch(() => false);
+  const refusedP = pa.waitForSelector('text=needs an owner', { timeout: 15000 }).then(() => true).catch(() => false);
+  await pick(pa, `[data-role-select="${ownerEmail}"]`, 'admin');
+  const refused = await refusedP;
   check('last owner: stepping down is refused with a reason', refused);
   check('last owner: still the owner', (await roleOf(A.userId, A.orgId)) === 'owner');
   // with a second owner it works; the new owner promotes the first back
-  await pa.selectOption(`[data-role-select="${tess}"]`, 'owner');
+  await pick(pa, `[data-role-select="${tess}"]`, 'owner');
   check('roles: an owner promotes to owner', !!(await until(async () => (await roleOf(T.userId, A.orgId)) === 'owner')));
   await pa.reload();
   await pa.waitForSelector(`[data-role-select="${ownerEmail}"]`, { timeout: 15000 });
-  await pa.selectOption(`[data-role-select="${ownerEmail}"]`, 'admin');
+  await pick(pa, `[data-role-select="${ownerEmail}"]`, 'admin');
   check('roles: with another owner, an owner may step down', !!(await until(async () => (await roleOf(A.userId, A.orgId)) === 'admin')));
   await pt.reload();
   await pt.waitForSelector(`[data-role-select="${ownerEmail}"]`, { timeout: 15000 });
-  await pt.selectOption(`[data-role-select="${ownerEmail}"]`, 'owner');
+  await pick(pt, `[data-role-select="${ownerEmail}"]`, 'owner');
   check('roles: and is made owner again', !!(await until(async () => (await roleOf(A.userId, A.orgId)) === 'owner')));
 
   // ======== 6. removing a member ends their access ========
@@ -305,7 +306,7 @@ try {
   const t8 = (await must(kA, 'add_task', { title: 'Picker task', project: 'Team Shared' })).created;
   await pa.goto(`${B}/tasks/${t8.ref}`);
   await pa.waitForSelector('[data-assignee-picker]', { timeout: 15000 });
-  await pa.selectOption('[data-assignee-picker]', Bu.userId);
+  await pick(pa, '[data-assignee-picker]', Bu.userId);
   check('picker (desktop): assigns from the task page', !!(await until(async () => (await task(A.orgId, t8.ref))?.assigneeId === Bu.userId)));
   check('picker: the assignee is told at once (the flush ran)', !!(await until(() => rawDb.collection('notifications').findOne({ userId: Bu.userId, kind: 'assigned', title: { $regex: `#${t8.ref} ` } }))));
   check('flush: nothing goes to a removed member', (await rawDb.collection('alertQueue').findOne({ _id: `assigned:test:${R.userId}:2` }))?.sentAt === null);

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { startFakeServer, TEST_TOKEN } from './fake-server.mjs';
 import { makeApi } from '../api.mjs';
-import { createCore } from '../core.mjs';
+import { createCore, VERSION } from '../core.mjs';
 import { MARKER, excludePath } from '../markers.mjs';
 
 process.env.WORK_OS_CLAUDE_JSON = path.join(os.tmpdir(), 'wos-test-claude-' + process.pid + '.json');
@@ -96,7 +96,7 @@ test('end to end against fake server', async () => {
     assert.equal(results.find((r) => r.id === 'j_bad').ok, false);
     const last = server.statuses.at(-1);
     assert.deepEqual(last.sessions, [{ sessionId: SID, folderId: idBefore, state: 'running' }]);
-    assert.equal(last.worker.version, '0.1.0');
+    assert.equal(last.worker.version, VERSION);
 
     // stop job
     const killed = [];
