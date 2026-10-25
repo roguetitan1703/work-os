@@ -12,6 +12,7 @@ const DONE = 'The Playwright check sees this row in the queue.';
 
 async function reset() {
   for (const c of ['workerFolders', 'workerJobs', 'workerSessions', 'devices', 'claudeItems', 'projects', 'apiKeys']) await db.collection(c).deleteMany({});
+  await db.collection('settings').deleteMany({ area: 'dispatcher' }); await db.collection('notes').deleteMany({ title: 'Claude Code boilerplate' }); // Claude starts switched off
 }
 const mkDev = async (name, online = true) => {
   const _id = randomUUID();
@@ -78,7 +79,7 @@ async function suite(vp) {
 
   // ── Now ──
   const ny = p.locator('[data-section="needs-you"]');
-  check(T('Needs you shows count, project, ref and question text'), await ny.innerText().then(t => /Needs you\s*1/i.test(t) && /Alpha/.test(t) && /C\d+/.test(t) && t.includes('Which logo should the header use'), () => false));
+  check(T('Claude is asking shows count, project, ref and question text'), await ny.innerText().then(t => /Claude is asking\s*1/i.test(t) && !/Needs you/i.test(t) && /Alpha/.test(t) && /C\d+/.test(t) && t.includes('Which logo should the header use'), () => false));
   await click(ny.locator('[data-needs-you] button[aria-expanded]').first()); // STALE-FIX: rows are collapsed now
   const reply = ny.locator('input[placeholder="Your answer…"]');
   const sendBtn = ny.getByRole('button', { name: 'Send answer' });
@@ -97,6 +98,23 @@ async function suite(vp) {
   check(T('answered row disappears'), await ny.locator('[data-needs-you]').waitFor({ state: 'detached', timeout: 5000 }).then(() => true, () => false));
   // put a question back for later checks
   await db.collection('claudeItems').updateOne({ _id: itByTitle('Fix webhook retry backoff')._id }, { $set: { waitingText: 'Retry 3 or 5 times?', waitingOn: ME.userId, updatedAt: new Date() } });
+
+  // One state-aware banner: a computer exists but Claude is switched off -> "Switch on"; no word "dispatcher" on the page.
+  const bnr = p.locator('[data-claude-banner]');
+  check(T('banner: computer but off -> one banner "Claude will not start tasks yet" with Switch on'), (await bnr.count()) === 1 && (await bnr.getAttribute('data-claude-banner')) === 'off' && /Claude will not start tasks yet/.test(await bnr.innerText()));
+  check(T('no "dispatcher" in the page text'), !/dispatcher/i.test(await p.locator('body').innerText()));
+  await h44(p.locator('[data-claude-switch-on]'), 'Switch on');
+  // Turning Claude on needs the note every session reads first (picked in Set up): without one, Switch on goes there.
+  check(T('banner: no note picked yet -> Switch on opens Set up'), (await p.locator('a[data-claude-switch-on][href="/claude?tab=setup"]').count()) === 1);
+  const NOTE = 'note-' + vp;
+  await db.collection('notes').insertOne({ _id: NOTE, title: 'Claude Code boilerplate', blocks: [], body: 'rules', parentId: null, taskId: null, projectId: null, archived: false, createdBy: ME.userId, ownerId: ME.userId, orgId: ME.orgId, createdAt: new Date(), updatedBy: ME.userId, updatedAt: new Date(), deletedAt: null });
+  await db.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $set: { area: 'dispatcher', orgId: ME.orgId, userId: ME.userId, enabled: false, maxConcurrent: 2, boilerplateNoteId: NOTE } }, { upsert: true });
+  await p.goto(B + '/claude'); await p.waitForSelector('[data-claude-switch-on]');
+  check(T('banner: a note is picked -> Switch on is a button'), (await p.locator('button[data-claude-switch-on]').count()) === 1);
+  await click(p.locator('button[data-claude-switch-on]'));
+  check(T('Switch on removes the banner'), await bnr.waitFor({ state: 'detached', timeout: 8000 }).then(() => true, () => false));
+  check(T('Switch on saved the setting'), (await db.collection('settings').findOne({ _id: 'dispatcher:' + ME.userId }))?.enabled === true);
+  check(T("Claude's tasks empty copy"), /Nothing given to Claude yet\. Open any task and press Give to Claude\./.test(await p.locator('[data-claude-tasks-empty]').innerText()));
 
   const run = p.locator('[data-section="running"]');
   // ── Sessions (new UI) ──
@@ -341,6 +359,27 @@ async function suite(vp) {
     check(T('S does nothing while typing in a field'), (await p.locator('[data-start-step]').count()) === 0 && (await p.locator('[data-section="needs-you"] input[placeholder="Your answer…"]').inputValue()) === 's');
     await p.screenshot({ path: `${SP}/cl-${vp}-final.png` });
   }
+  // ── No computer yet: Set up Claude instead of Start Claude, one banner, nothing else telling you to go elsewhere ──
+  await db.collection('devices').deleteMany({});
+  await p.goto(B + '/claude'); await p.waitForSelector('[data-claude-banner]');
+  check(T('no computer: banner "Claude has no PC to work on" with Set up Claude'), (await bnr.getAttribute('data-claude-banner')) === 'no-computer' && /Claude has no PC to work on/.test(await bnr.innerText()) && (await bnr.locator('a[href="/claude?tab=setup"]').count()) === 1);
+  check(T('no computer: Set up Claude replaces Start Claude'), (await p.locator('a[data-set-up-claude]:visible').count()) === 1 && (await p.locator('a[data-start-claude]:visible').count()) === 0);
+  check(T('no computer: no "No computer added yet" line'), !/No computer added/i.test(await p.locator('body').innerText()));
+  await h44(p.locator('a[data-set-up-claude]:visible'), 'Set up Claude');
+  await p.goto(B + '/claude?tab=setup'); await p.waitForSelector('a[data-set-up-claude]:visible');
+  check(T('Set up tab: Set up Claude instead of Start Claude when no computer'), (await p.locator('a[data-start-claude]:visible').count()) === 0);
+  await p.goto(B + '/today'); await p.locator(`[data-variant=${phone ? 'phone' : 'desk'}] [data-section="claude-card"]`).waitFor();
+  const tv = p.locator(`[data-variant=${phone ? 'phone' : 'desk'}]`);
+  check(T('Today with no computer: Set up Claude link, no Start Claude'), (await tv.locator('a[data-set-up-claude]').count()) === 1 && (await tv.locator('[data-start-claude]').count()) === 0);
+  // ── Empty Tasks and Projects ──
+  await db.collection('tasks').deleteMany({}); await db.collection('projects').deleteMany({});
+  await p.goto(B + '/tasks'); await p.waitForSelector('[data-tasks-empty]:visible');
+  check(T('Tasks empty: "No tasks yet. Add one, or ask Claude to." with an Add a task button'), /No tasks yet\. Add one, or ask Claude to\./.test(await p.locator('[data-tasks-empty]:visible').innerText()) && (await p.locator('[data-tasks-empty]:visible button:has-text("Add a task")').count()) === 1);
+  await h44(p.locator('[data-tasks-empty]:visible button:has-text("Add a task")'), 'Add a task');
+  check(T('Tasks empty: no horizontal scroll'), await noScroll());
+  await p.goto(B + '/projects'); await p.waitForSelector('[data-projects-empty]');
+  const pe = await p.locator('[data-projects-empty]').innerText();
+  check(T('Projects empty: says what a project is, and Click / Tap by device'), /A project groups tasks, notes and Claude for one client or product\./.test(pe) && (phone ? /Tap \+/.test(pe) && !/Click New project/.test(pe) : /Click New project\./.test(pe) && !/Tap \+/.test(pe)), pe);
   check(T('no console/page errors'), errs.length === 0, errs.join(' | '));
   await ctx.close();
 }

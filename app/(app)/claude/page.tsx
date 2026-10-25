@@ -5,6 +5,7 @@ import { Play } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { claudeOverview } from '@/lib/data/claude-overview';
 import { claudeTasks } from '@/lib/data/dispatcher';
+import { deviceMap } from '@/lib/data/launcher';
 import { cn } from '@/lib/utils';
 import { baseUrl } from '../settings/base-url';
 import { AutoRefresh } from './auto-refresh';
@@ -29,8 +30,20 @@ export default async function ClaudePage({ searchParams }: Props) {
   const me = await getCaller();
   if (!me) redirect('/login');
   const [data, tasks] = tab === 'setup' ? [null, null] : await Promise.all([claudeOverview(me), tab === 'now' ? claudeTasks(me) : Promise.resolve(null)]);
+  // Start Claude has nothing to start on until a computer exists; until then the page offers Set up Claude instead.
+  const hasComputers = data ? data.hasComputers : (await deviceMap(me)).size > 0;
   const url = tab === 'setup' ? `${await baseUrl()}/api/mcp` : '';
-  const startBtn = (
+  const startBtn = !hasComputers ? (
+    <Link
+      href="/claude?tab=setup"
+      replace
+      scroll={false}
+      data-set-up-claude
+      className="h-11 md:h-9 px-5 md:px-4 rounded-full md:rounded-md text-sm font-semibold inline-flex items-center justify-center gap-1.5 bg-foreground text-background"
+    >
+      Set up Claude
+    </Link>
+  ) : (
     <Link
       href={`/claude?tab=${tab}&start=1`}
       scroll={false}

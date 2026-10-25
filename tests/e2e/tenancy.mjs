@@ -154,7 +154,7 @@ try {
   const waitB = await rawDb.collection('notifications').countDocuments({ userId: Bu.userId, kind: 'claude_waiting' });
   const waitA = await rawDb.collection('notifications').countDocuments({ userId: A.userId, kind: 'claude_waiting' });
   check('inbox: the item waiting on B tells B', waitB === 1, String(waitB));
-  check('inbox: A turned "Claude needs you" off, so A gets none (A\'s own settings)', waitA === 0, String(waitA));
+  check('inbox: A turned "Claude is asking" off, so A gets none (A\'s own settings)', waitA === 0, String(waitA));
   const bad = await as(kA, 'update_claude_items', { ops: [{ op: 'add', project: 'Zephyr Shared', kind: 'feature', title: 'Zephyr question for an outsider in this run', why, done_when: 'Nobody can answer this one.', waiting_on_om: 'x', waiting_on: 'cy@example.test' }] });
   check('waiting_on: someone outside the organization is refused', bad.isError, bad.text);
   // B's Claude Code changes A's shared task: A (its recipient) is told, B is not
@@ -353,7 +353,7 @@ try {
     m = await missing(p, `/notes/${vMemo.id}`, /Hidden/);
     check('B pages: A\'s private note is not found', m.ok, m.why);
     const inbox = await text(p, '/notifications');
-    check('B inbox: B\'s notice, not A\'s', /Claude needs you/.test(inbox.text) && !/changed #/.test(inbox.text) && !/Owner: pick a size/.test(inbox.text));
+    check('B inbox: B\'s notice, not A\'s', /Claude is asking/.test(inbox.text) && !/changed #/.test(inbox.text) && !/Owner: pick a size/.test(inbox.text));
     const dev = await text(p, '/settings?section=device');
     check('B settings: push devices are B\'s own (0)', /0 devices receiving push/.test(dev.text), (dev.text.match(/\d+ devices? receiving push/) ?? ['none'])[0]);
     const sh = await search(p, 'Hidden');
@@ -410,7 +410,10 @@ try {
     const cToday = await text(p, '/today');
     check('C today: a new person has no schedule bar and no routine', (await p.locator('[data-block-bar]').count()) === 0 && !/not logged|Fiverr/.test(cToday.text));
     const sched = await text(p, '/timetable');
-    check('C schedule page: offers to set one up', /No schedule yet/.test(sched.text) && /Set up your schedule/.test(sched.text), sched.text.slice(0, 120));
+    check('C schedule page: offers the 9 to 5 preset and a way to set up one’s own', /Optional: set when you work/.test(sched.text) && /Use 9 to 5 weekdays/.test(sched.text) && /Set up my own/.test(sched.text), sched.text.slice(0, 160));
+    await p.locator('[data-use-nine-to-five]').click();
+    const nine = await p.waitForFunction(() => /09:00/.test(document.body.innerText) && !document.querySelector('[data-schedule-empty]'), null, { timeout: 8000 }).then(() => true, () => false);
+    check('C schedule page: "Use 9 to 5 weekdays" saves one Work block, Monday to Friday', nine && /Work/.test(await p.locator('main').innerText()));
   });
   await b.close();
 } catch (e) {

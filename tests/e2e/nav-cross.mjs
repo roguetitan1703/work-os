@@ -27,7 +27,7 @@ console.log('alpha id', A);
   const badge = (await bar.locator('[data-badge=claude]').count()) ? await bar.locator('[data-badge=claude]').innerText() : '0';
   const head = await p.locator('[data-section=needs-you] h2').innerText();
   const n = Number((head.match(/(\d+)\s*$/) || [])[1] ?? 0);
-  check('phone: badge matches Needs you count', badge === String(n) && n > 0, `badge ${badge}, heading "${head}"`);
+  check('phone: badge matches Claude is asking count', badge === String(n) && n > 0, `badge ${badge}, heading "${head}"`);
   for (const u of ['/claude?tab=queue', '/claude?tab=setup']) {
     await p.goto(B + u); await p.waitForTimeout(500);
     const lit = await bar.locator('a[aria-current=page]').evaluateAll(e => e.map(x => (x.getAttribute('aria-label') || x.textContent).trim()));

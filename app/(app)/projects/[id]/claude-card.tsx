@@ -27,7 +27,7 @@ type Props = {
 
 const MAX_ROWS = 2;
 
-/** Overview card: Needs you (one line each), running sessions (one line each), the Next queue item. Compact on purpose. */
+/** Overview card: Claude is asking (the full question each), running sessions (one line each), the Next queue item. Compact on purpose. */
 export function ClaudeCard({ projectId, tabHref, waiting, running, next, queued, hasComputers }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState<string | null>(null);
@@ -37,7 +37,7 @@ export function ClaudeCard({ projectId, tabHref, waiting, running, next, queued,
   const shown = waiting.filter(w => answered[w.id] !== w.updatedAt);
   const rows = shown.slice(0, MAX_ROWS);
 
-  const summary = [shown.length ? `${shown.length} needs you` : null, running.length ? `${running.length} running` : null, `${queued} queued`].filter(Boolean).join(' · ');
+  const summary = [shown.length ? `Claude is asking ${shown.length}` : null, running.length ? `${running.length} running` : null, `${queued} queued`].filter(Boolean).join(' · ');
 
   const stop = async (s: SessionView) => {
     setBusy(true);
@@ -157,11 +157,11 @@ function WaitingRow({ projectId, item: i, expanded, onToggle, onAnswered }: { pr
   const closeIt = () => go({ waitingText: '' }, 'Closed without an answer', onAnswered);
   return (
     <div data-needs-you={`C${i.ref}`} className="bg-amber-500/5">
-      <button type="button" onClick={onToggle} aria-expanded={expanded} className="w-full flex items-center gap-2 px-4 md:px-3 min-h-11 md:min-h-9 text-left">
-        {expanded ? <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />}
-        <span className="font-mono text-xs text-muted-foreground shrink-0">C{i.ref}</span>
-        {!expanded && <span className="text-[15px] md:text-sm truncate">{i.question}</span>}
-        {expanded && <span className="text-[13px] md:text-xs text-muted-foreground truncate">{i.title}</span>}
+      <button type="button" onClick={onToggle} aria-expanded={expanded} className="w-full flex items-start gap-2 px-4 md:px-3 min-h-11 md:min-h-9 text-left">
+        {expanded ? <ChevronDown className="w-4 h-4 mt-3.5 md:mt-2.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 mt-3.5 md:mt-2.5 shrink-0 text-muted-foreground" />}
+        <span className="font-mono text-xs text-muted-foreground shrink-0 mt-3.5 md:mt-2.5">C{i.ref}</span>
+        {!expanded && <span className="text-[15px] md:text-sm py-2.5 md:py-2 break-words whitespace-pre-wrap min-w-0">{i.question}</span>}
+        {expanded && <span className="text-[13px] md:text-xs text-muted-foreground py-3 md:py-2.5 min-w-0 break-words">{i.title}</span>}
       </button>
       {expanded && (
         <div className="px-4 md:px-3 pb-3 space-y-2">

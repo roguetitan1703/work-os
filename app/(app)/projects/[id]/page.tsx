@@ -183,7 +183,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
             )}
           >
             {t.label}
-            {t.id === 'claude' && waiting.length > 0 && <span aria-label={`${waiting.length} need you`} className="ml-1 w-2 h-2 rounded-full bg-amber-500" />}
+            {t.id === 'claude' && waiting.length > 0 && <span aria-label={`Claude is asking ${waiting.length}`} className="ml-1 w-2 h-2 rounded-full bg-amber-500" />}
           </Link>
         ))}
       </nav>

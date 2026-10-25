@@ -280,7 +280,7 @@ export function AlertsTable({
         <li>
           <b>Discord:</b> {!discordReady ? 'the Discord bot is not set up (Connections).' : s.channels.discord ? 'on, sent as a direct message from the bot.' : 'switched off above.'}
         </li>
-        <li>Claude Code changes and Claude needs you are inbox-only.</li>
+        <li>Claude Code changes and questions from Claude are inbox-only.</li>
       </ul>
     </>
   );

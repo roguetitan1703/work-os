@@ -11,6 +11,7 @@ import { removeSessionAction, resumeSessionAction, stopSessionAction, unhideSess
 import { updateClaudeItemAction } from '../projects/[id]/claude-items-actions';
 import type { ClaudeTasks } from '@/lib/data/dispatcher';
 import { write } from './auto-refresh';
+import { dispatcherSettingsAction } from './dispatcher-actions';
 import { ClaudeTasksSection } from './claude-tasks';
 import { btnOutline, card, field, ghost, H2 } from './ui';
 
@@ -22,11 +23,60 @@ export function NowTab({ needsYou, sessions, summary, hasComputers, claudeTasks 
   const shown = needsYou.filter(i => answered[i.id] !== i.updatedAt);
   return (
     <div className="space-y-4">
+      <SetupBanner hasComputers={hasComputers} enabled={claudeTasks.settings.enabled} hasNote={!!claudeTasks.settings.boilerplateNoteId} />
       <Summary summary={summary} needs={shown.length} hasComputers={hasComputers} />
       {shown.length > 0 && <NeedsYou items={shown} onAnswered={i => setAnswered(a => ({ ...a, [i.id]: i.updatedAt }))} />}
       <ClaudeTasksSection data={claudeTasks} />
       <Sessions sessions={sessions} hasComputers={hasComputers} />
     </div>
+  );
+}
+
+// ── One banner for the state of Claude ──────────────────────────────────────
+
+const banner = 'flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-amber-500/10 text-amber-800 dark:text-amber-300 px-3 py-1.5 text-[15px] md:text-sm';
+
+/** No computer: set up. A computer but Claude is switched off: switch it on (turning it on needs the note every session reads first, which is picked in Set up). Ready: nothing. */
+function SetupBanner({ hasComputers, enabled, hasNote }: { hasComputers: boolean; enabled: boolean; hasNote: boolean }) {
+  const [busy, setBusy] = useState(false);
+  if (hasComputers && enabled) return null;
+  if (!hasComputers)
+    return (
+      <p className={banner} data-claude-banner="no-computer">
+        <span className="min-w-0 flex-1">Claude has no PC to work on.</span>
+        <Link href="/claude?tab=setup" replace className={cn(btnOutline, 'bg-foreground text-background border-foreground hover:bg-foreground/90')}>
+          Set up Claude
+        </Link>
+      </p>
+    );
+  if (!hasNote)
+    return (
+      <p className={banner} data-claude-banner="off">
+        <span className="min-w-0 flex-1">Claude will not start tasks yet.</span>
+        <Link href="/claude?tab=setup" replace className={cn(btnOutline, 'bg-foreground text-background border-foreground hover:bg-foreground/90')} data-claude-switch-on>
+          Switch on
+        </Link>
+      </p>
+    );
+  const switchOn = async () => {
+    setBusy(true);
+    try {
+      const r = await write(() => dispatcherSettingsAction({ enabled: true }));
+      if (!r.ok) return void toast.error(r.error);
+      toast('Claude will start the tasks you give it');
+    } catch {
+      toast.error('Something went wrong');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <p className={banner} data-claude-banner="off">
+      <span className="min-w-0 flex-1">Claude will not start tasks yet.</span>
+      <button type="button" className={cn(btnOutline, 'bg-foreground text-background border-foreground hover:bg-foreground/90')} disabled={busy} onClick={switchOn} data-claude-switch-on>
+        Switch on
+      </button>
+    </p>
   );
 }
 
@@ -53,9 +103,9 @@ function Summary({ summary, needs, hasComputers }: { summary: SessionSummary; ne
     parts.push({ text: computers.length === 0 ? 'No news from your computers yet' : many ? 'No news from your computers' : `No news from ${computers[0].name}` });
   } else {
     parts.push({ text: many ? `${plural(summary.sessions, 'session')} on ${computers.length} computers` : `${plural(summary.sessions, 'session')} on ${computers[0].name}` });
-    parts.push({ text: `${plural(summary.subagents, 'subagent')} working` });
+    if (summary.subagents > 0) parts.push({ text: `${plural(summary.subagents, 'subagent')} working` });
   }
-  if (needs > 0) parts.push({ text: `${needs} ${needs === 1 ? 'needs' : 'need'} you`, needs: true });
+  if (needs > 0) parts.push({ text: `Claude is asking ${needs}`, needs: true });
   return (
     <section className="px-1 md:px-0 space-y-0.5" data-section="summary" aria-label="Claude activity on your computers">
       <p className="text-[16px] md:text-sm text-foreground font-medium" data-summary-line>
@@ -79,7 +129,7 @@ function Summary({ summary, needs, hasComputers }: { summary: SessionSummary; ne
   );
 }
 
-// ── Needs you (compact) ─────────────────────────────────────────────────────
+// ── Claude is asking ─────────────────────────────────────────────────────
 
 const FIRST = 3;
 
@@ -89,7 +139,7 @@ function NeedsYou({ items, onAnswered }: { items: NeedsYouItem[]; onAnswered: (i
   const list = all ? items : items.slice(0, FIRST);
   return (
     <section className="space-y-1" data-section="needs-you">
-      <h2 className={cn(H2, 'px-1 md:px-0 text-amber-700 dark:text-amber-300')}>Needs you {items.length}</h2>
+      <h2 className={cn(H2, 'px-1 md:px-0 text-amber-700 dark:text-amber-300')}>Claude is asking {items.length}</h2>
       <ul className="rounded-xl border border-amber-500/30 bg-amber-500/5 divide-y divide-amber-500/20 overflow-hidden">
         {list.map(i => (
           <NeedsYouRow key={i.id} item={i} expanded={open === i.id} onToggle={() => setOpen(open === i.id ? null : i.id)} onAnswered={() => onAnswered(i)} />
@@ -133,17 +183,16 @@ function NeedsYouRow({ item: i, expanded, onToggle, onAnswered }: { item: NeedsY
   const closeIt = () => go({ waitingText: '' }, 'Closed without an answer', onAnswered);
   return (
     <li data-needs-you={`C${i.ref}`}>
-      <button type="button" onClick={onToggle} aria-expanded={expanded} className="w-full flex items-center gap-2 px-3 min-h-11 md:min-h-8 text-left hover:bg-amber-500/10 active:bg-amber-500/15">
-        {expanded ? <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />}
-        <span className="text-[16px] md:text-[13px] truncate min-w-0">
+      <button type="button" onClick={onToggle} aria-expanded={expanded} className="w-full flex items-start gap-2 px-3 min-h-11 md:min-h-8 text-left hover:bg-amber-500/10 active:bg-amber-500/15">
+        {expanded ? <ChevronDown className="w-4 h-4 mt-3.5 md:mt-2.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 mt-3.5 md:mt-2.5 shrink-0 text-muted-foreground" />}
+        <span className="text-[16px] md:text-[13px] min-w-0 py-2 md:py-1.5 break-words">
           <span className="font-semibold">{i.projectName}</span>
           <span className="font-mono text-muted-foreground"> · C{i.ref} · </span>
-          <span className="text-foreground">{i.question.replace(/\s+/g, ' ')}</span>
+          <span className="text-foreground whitespace-pre-wrap">{i.question}</span>
         </span>
       </button>
       {expanded && (
         <div className="px-3 pb-3 pt-1 space-y-2">
-          <p className="text-[16px] md:text-sm text-foreground whitespace-pre-wrap break-words">{i.question}</p>
           <Link href={`/projects/${encodeURIComponent(i.projectId)}?claude=C${i.ref}`} className="inline-flex items-center min-h-11 md:min-h-6 text-[13px] text-muted-foreground underline">
             {i.title}
           </Link>
@@ -255,6 +304,7 @@ function Sessions({ sessions, hasComputers }: { sessions: SessionRow[]; hasCompu
       () => toast('Resuming…'),
     );
 
+  if (!hasComputers && sessions.length === 0) return null; // the banner above says to set up first
   return (
     <section className="space-y-2" data-section="sessions">
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -280,15 +330,7 @@ function Sessions({ sessions, hasComputers }: { sessions: SessionRow[]; hasCompu
       </div>
       {ordered.length === 0 ? (
         <p className="text-[15px] md:text-sm text-muted-foreground px-1 md:px-0">
-          {!hasComputers ? (
-            <>
-              No computer added yet. Add one under{' '}
-              <Link href="/claude?tab=setup" replace className="underline">
-                Setup
-              </Link>
-              .
-            </>
-          ) : onlyWos ? (
+          {onlyWos ? (
             'No sessions started from Work OS.'
           ) : (
             'No Claude Code sessions open right now.'

@@ -58,18 +58,9 @@ export function ClaudeTasksSection({ data }: { data: ClaudeTasks }) {
   return (
     <section className="space-y-2" data-section="claude-tasks">
       <h2 className={cn(H2, 'px-1 md:px-0 text-muted-foreground')}>Claude&apos;s tasks {total > 0 && total}</h2>
-      {!settings.enabled && (
-        <p className="text-[15px] md:text-sm rounded-xl bg-amber-500/10 text-amber-800 dark:text-amber-300 px-3 py-2" data-dispatcher-off>
-          The dispatcher is off, so nothing starts.{' '}
-          <Link href="/claude?tab=setup" replace className="underline">
-            Turn it on in Setup
-          </Link>
-          .
-        </p>
-      )}
       {total === 0 && recent.length === 0 ? (
         <p className="text-[15px] md:text-sm text-muted-foreground px-1 md:px-0" data-claude-tasks-empty>
-          Nothing given to Claude. Open a task and choose <b>Give to Claude</b>.
+          Nothing given to Claude yet. Open any task and press <b>Give to Claude</b>.
         </p>
       ) : (
         <div className="space-y-2">
