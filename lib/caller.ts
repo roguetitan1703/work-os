@@ -64,7 +64,7 @@ async function roleIn(userId: string, orgId: string): Promise<Role | null> {
 
 // The key owner's email and name (operator checks, lib/operator.ts), kept as briefly as roles.
 const people = new Map<string, { email: string; name: string; at: number }>();
-async function personOf(userId: string): Promise<{ email: string; name: string }> {
+export async function personOf(userId: string): Promise<{ email: string; name: string }> {
   const hit = people.get(userId);
   if (hit && Date.now() - hit.at < ROLE_TTL_MS) return hit;
   const db = await getDb();

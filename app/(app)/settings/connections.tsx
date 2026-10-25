@@ -11,13 +11,14 @@ import { overviewCards, type Card } from './overview-data';
 import { ReferenceTab } from './reference-tab';
 import { Disclosure, Dot } from './ui';
 import { requireCaller } from '@/lib/caller';
+import { listAuthorizedApps } from '@/lib/oauth';
 
 const ICON = { chat: MessageSquare, code: SquareTerminal, discord: Bot, alerts: Bot } as const;
 
 /** One card per integration: status always visible, setup behind the card. Keys and computers live in Claude > Setup. */
 export async function Connections({ open }: { open?: string }) {
   const caller = await requireCaller();
-  const [base, status, modes] = await Promise.all([baseUrl(), overviewCards(caller), getOrgModes(caller.orgId)]);
+  const [base, status, modes, apps] = await Promise.all([baseUrl(), overviewCards(caller), getOrgModes(caller.orgId), listAuthorizedApps(caller).catch(() => [])]);
   const url = `${base}/api/mcp`;
   const by = (t: Card['tab']) => status.cards.find(c => c.tab === t)!;
   const code = by('code');
@@ -25,7 +26,7 @@ export async function Connections({ open }: { open?: string }) {
   return (
     <div className="space-y-3" data-connections>
       <ConnectionCard card={by('chat')} id="chat" open={open === 'chat'}>
-        <ChatTab url={url} ready={status.mcpReady} seen={status.mcpSeen} />
+        <ChatTab url={url} ready={status.mcpReady} seen={status.mcpSeen} apps={apps} />
         <Disclosure title="Tools" hint="What Claude chat and Claude Code can do here">
           <ReferenceTab
             url={url}
@@ -50,7 +51,7 @@ export async function Connections({ open }: { open?: string }) {
             <Dot level={code.level} />
             <span className="truncate" suppressHydrationWarning>{code.status}</span>
           </div>
-          <div className="text-[12px] text-muted-foreground">Keys and computers are in Claude › Setup</div>
+          <div className="text-[12px] text-muted-foreground">Add with one command and sign in (see Claude chat above); computers and keys are in Claude › Setup</div>
         </div>
         <ChevronRight className="w-4 h-4 text-muted-foreground/40 shrink-0" />
       </Link>

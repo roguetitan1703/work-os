@@ -1,15 +1,18 @@
 import 'server-only';
 import { createHash, randomBytes } from 'node:crypto';
 import { betterAuth } from 'better-auth';
+import { APIError } from 'better-auth/api';
 import { mongodbAdapter } from 'better-auth/adapters/mongodb';
 import { nextCookies } from 'better-auth/next-js';
 import { organization, twoFactor } from 'better-auth/plugins';
 import { passkey } from '@better-auth/passkey';
 import { apiKey } from '@better-auth/api-key';
+import { oauthProvider } from '@better-auth/oauth-provider';
 import { ObjectId, type Db, type MongoClient } from 'mongodb';
 import { CLIENT_IP_HEADER, COOKIE_CACHE_SECONDS, COOKIE_PREFIX, appBaseUrl, authSecret, secureCookies } from './auth';
 import { getClient, getDb } from './db';
 import { mailErrorMessage, sendMail, takeMailSlot } from './mail';
+import { ACCESS_TOKEN_SECONDS, OAUTH_SCOPES, REFRESH_TOKEN_SECONDS, mcpResource } from './oauth-config';
 
 // Better Auth (docs/auth.md): users, sessions, organizations, two-factor, passkeys and API keys, stored by its MongoDB
 // adapter in its own collections of the app database (user, session, account, verification, organization, member,
@@ -73,6 +76,12 @@ function build(db: Db, client: MongoClient) {
         })().catch(e => console.error('reset email failed:', mailErrorMessage(e)));
       },
       onPasswordReset: async ({ user }) => {
+        // A reset says the password may have been taken: the apps this person approved (OAuth) lose their access too.
+        try {
+          await (await import('./oauth')).dropOAuth(String(user.id), null);
+        } catch (e) {
+          console.error('revoking OAuth tokens after a password reset failed:', e instanceof Error ? e.message : e);
+        }
         try {
           if (await takeMailSlot('changed', user.email)) {
             await sendMail({
@@ -153,6 +162,42 @@ function build(db: Db, client: MongoClient) {
         // Work OS applies its own limits (lib/mcp/policy.ts); the plugin's would also cap the claude.ai connector.
         rateLimit: { enabled: false },
         keyExpiration: { defaultExpiresIn: null },
+      }),
+      // OAuth sign-in for MCP clients (docs/auth.md). Opaque tokens only (no JWT plugin): every request is checked against the
+      // database, so a revoked token stops at once. Tokens are bound to the organization approved at the consent screen
+      // (referenceId); lib/oauth.ts checks them on /api/mcp. Dynamic client registration is open but trimmed, validated and
+      // rate-limited in app/api/auth/[...all]/route.ts.
+      oauthProvider({
+        loginPage: '/login',
+        consentPage: '/oauth/consent',
+        scopes: [...OAUTH_SCOPES],
+        disableJwtPlugin: true,
+        allowDynamicClientRegistration: true,
+        allowUnauthenticatedClientRegistration: true,
+        clientRegistrationDefaultApplicationType: 'infer',
+        clientRegistrationDefaultScopes: [...OAUTH_SCOPES],
+        grantTypes: ['authorization_code', 'refresh_token'],
+        accessTokenExpiresIn: ACCESS_TOKEN_SECONDS,
+        refreshTokenExpiresIn: REFRESH_TOKEN_SECONDS,
+        codeExpiresIn: 120,
+        refreshTokenReuseInterval: 0, // any reuse of a rotated refresh token revokes the whole family
+        storeTokens: 'hashed',
+        resources: [{ identifier: mcpResource(), name: 'Work OS MCP', allowedScopes: [...OAUTH_SCOPES] }],
+        clientRegistrationDefaultResources: [mcpResource()],
+        prefix: { opaqueAccessToken: 'wosat_', refreshToken: 'wosrt_' },
+        postLogin: {
+          page: '/oauth/consent', // never used: shouldRedirect is always false
+          shouldRedirect: () => false,
+          // Consent and tokens belong to the organization the session is working in.
+          consentReferenceId: async ({ user, session }) => {
+            const orgId = (session as { activeOrganizationId?: string | null }).activeOrganizationId || (await firstOrgId(db, String(user.id)));
+            if (!orgId) throw new APIError('FORBIDDEN', { error: 'access_denied', error_description: 'This account is not in an organization.' });
+            const m = await db.collection('member').findOne({ userId: idIn(String(user.id)), organizationId: idIn(String(orgId)) }, { projection: { _id: 1 } });
+            if (!m) throw new APIError('FORBIDDEN', { error: 'access_denied', error_description: 'You are not a member of that organization.' });
+            return String(orgId);
+          },
+        },
+        rateLimit: { token: { window: 60, max: 30 }, authorize: { window: 60, max: 30 }, register: { window: 3600, max: 20 }, revoke: { window: 60, max: 30 }, introspect: false, userinfo: false },
       }),
       nextCookies(), // last: lets server actions that call auth.api set cookies
     ],

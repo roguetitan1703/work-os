@@ -13,6 +13,8 @@
   "dependencies": {
     "@base-ui/react": "^1.4.1",
     "@better-auth/api-key": "1.7.12",
+    "@better-auth/core": "1.7.12",
+    "@better-auth/oauth-provider": "1.7.12",
     "@better-auth/passkey": "1.7.12",
     "@blocknote/core": "^0.55.0",
     "@blocknote/mantine": "^0.55.0",

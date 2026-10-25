@@ -12,6 +12,13 @@ every member sees everything. Phase 2 does that.
   signs every device out. Unlike the old flow it does not ask for the authenticator code.
 - **Settings › Security:** passkeys, authenticator app (QR, then one code, then 10 backup codes shown once; turning it
   off or new backup codes needs your password), change password (other devices signed out), test email.
+- **Connect Claude (no key to copy):** Settings › Connections › *Connect Claude* shows the address to add. On claude.ai:
+  Settings → Connectors → Add custom connector → paste `https://work.delpat.in/api/mcp` → Connect. A Work OS page asks you to
+  sign in (if you aren't) and shows *"Claude wants to access your Work OS as you in <organization>: Allow / Deny"*. Allow, and
+  it works. Claude Code: `claude mcp add --scope user --transport http work-os https://work.delpat.in/api/mcp`, then `/mcp` →
+  work-os → Authenticate (or `claude mcp login work-os`); the same Allow screen opens in the browser. *Signed-in apps* lists
+  what you allowed (when, last used) with *Revoke*. API keys moved to *Advanced: API keys* (for the worker, scripts, clients
+  that cannot sign in).
 - **Settings › Members:** who is in the organization. Owners and admins invite by email; only an owner can invite an
   owner. The invitation email holds `/accept-invitation/<id>?t=<secret>`, valid 7 days, once. By default the inviter
   also sees the link, to copy when email is off; with `INVITE_LINK_TO_INVITER=0` it goes only by email (below). The
@@ -41,19 +48,92 @@ every member sees everything. Phase 2 does that.
    refuses to run without `--db`.
 3. `/login` → *Forgot password?* → set a password from the email. Turn the authenticator app and passkeys on again
    (old passkeys and TOTP are not carried over).
-4. Make a Claude chat key and update the claude.ai connector; make Claude Code keys; re-add each computer and put
-   the new `wkr_` key in the worker config. Settings shows this as a notice until dismissed.
+4. Add the connector on claude.ai again (sign in with Work OS and Allow; no key), and Claude Code (`claude mcp add`, then
+   `/mcp` → Authenticate); re-add each computer and put the new `wkr_` key in the worker config. Settings shows this as a
+   notice until dismissed.
+
+## Connecting Claude with OAuth
+
+Claude (claude.ai, Desktop, mobile, Claude Code) signs in to `/api/mcp` with OAuth, as the MCP authorization spec
+describes (the installed `@modelcontextprotocol/sdk` 1.32 speaks protocol 2025-11-25; the flow below is what Claude's
+connector docs ask for: https://claude.com/docs/connectors/building/authentication). The authorization server is
+Better Auth's own OAuth provider, `@better-auth/oauth-provider` 1.7.12 (pinned together with `@better-auth/core` 1.7.12;
+official, same release train as Better Auth, MongoDB through the same adapter, collections `oauthClient`,
+`oauthAccessToken`, `oauthRefreshToken`, `oauthConsent`, `oauthResource`, `oauthClientResource`). No JWT plugin: access
+tokens are opaque.
+
+**The flow**
+
+1. `/api/mcp` without a valid token answers **401** with `WWW-Authenticate: Bearer resource_metadata="<site>/.well-known/oauth-protected-resource/api/mcp", scope="workos"`
+   (plus `error="invalid_token"` when a bad token was sent, so the client refreshes).
+2. Protected-resource metadata (RFC 9728): `/.well-known/oauth-protected-resource[/api/mcp]`
+   (`app/.well-known/oauth-protected-resource/[[...path]]/route.ts`): `resource` = `<APP_URL>/api/mcp` exactly,
+   `authorization_servers` = [`<APP_URL>/api/auth`], scope `workos`.
+3. Authorization-server metadata (RFC 8414): `/.well-known/oauth-authorization-server` and the RFC path form
+   `/.well-known/oauth-authorization-server/api/auth`: Better Auth's document minus the endpoints we don't serve
+   (introspection, userinfo, end-session). `code_challenge_methods_supported` = [S256]; public clients (`none`); grants
+   `authorization_code` and `refresh_token` (no `client_credentials`); scopes `workos` and `offline_access` (Claude adds
+   `offline_access` itself to get a refresh token).
+4. **Dynamic client registration** (RFC 7591) at `POST /api/auth/oauth2/register`, open (claude.ai registers itself) but cut
+   down in `app/api/auth/[...all]/route.ts` before Better Auth sees it: 1 to 5 redirect addresses, each `https` or `http` on
+   `localhost`/`127.0.0.1`/`[::1]`, no fragment, no credentials, no custom schemes; always a public client; fields that make
+   the server fetch an address (`jwks_uri`, `logo_uri`, backchannel logout, software statement) and `skip_consent` are dropped;
+   body at most 8 KB. Better Auth rate-limits it (20 an hour per address; per address needs `TRUST_PROXY=1`). Clients that
+   nobody approved within 48 hours are deleted (`pruneUnusedClients`, lib/oauth.ts).
+5. **Authorize** (`GET /api/auth/oauth2/authorize`): S256 PKCE required (`plain` and no challenge are refused), `resource`
+   must be the MCP address, scope must be ours, `redirect_uri` must be exactly a registered one (except a loopback port, which
+   may differ: RFC 8252, and what Claude Code does). Anything else is refused without redirecting. A signed-out person goes to
+   `/login` (the login page carries the request through: `app/login/page.tsx` `oauthNext`) and back. Then the **consent
+   screen** `/oauth/consent` (our own page, `app/oauth/consent`): app name (labelled *not verified*: the app chose it), the
+   person and organization, what it can do, where Allow sends the browser (host shown; a loopback-only client gets a "program
+   on this computer" warning), **Allow / Deny**. The page is not frameable (CSP `frame-ancestors 'none'`, `X-Frame-Options`)
+   and shows nothing for a request whose signature (Better Auth's signed query) or app is wrong. Allow and Deny post to
+   `/api/auth/oauth2/consent`, which checks the signature, the session and the origin again. A new app (every dynamic
+   registration is a new client) always asks; an app this person already approved for this organization does not ask again.
+6. **Token** (`POST /api/auth/oauth2/token`, form-encoded): the code (valid 2 minutes, single use; reusing it revokes what it
+   issued) with its PKCE verifier gives `wosat_…` (access, **1 hour**) and `wosrt_…` (refresh, 30 days). Refreshing **rotates**
+   the refresh token; presenting an already-rotated one (`refreshTokenReuseInterval: 0`) answers `invalid_grant` and deletes
+   the whole family (every token of that app for that person). Both are stored **hashed** (SHA-256). `POST /api/auth/oauth2/revoke`
+   revokes one.
+7. **`/api/mcp` with the token** (`lib/oauth.ts` `callerFromOAuthToken`): looked up in the database on every call; must be
+   unexpired, unrevoked, carry scope `workos` and the MCP address as its resource; its app must exist and be enabled; and the
+   person must still be a member of the organization it was approved for. That organization (`referenceId`, the session's
+   active organization at the consent screen) is the only one it can reach. It then runs exactly like that person's Claude
+   key: the same `Caller` with `key.agent`, scope, rate limits, `lib/mcp/policy.ts`, usage logging, actor "Claude · <person>".
+
+**Chat or Claude Code.** Decided by the app's registered redirect addresses, never by its name (anyone can register as
+"Claude"): a client whose every address is `https://claude.ai/api/mcp/auth_callback` (or `claude.com`) is **chat** (`claude`,
+no Claude Code rules). Any other client (Claude Code's loopback callback, any other app, a mix) is **claude-code**: the
+stricter rules of `lib/mcp/policy.ts`. The consent screen says so. Call limits and dry-run confirmations are per (app,
+person) (`oauth_<clientId>_<userId>`), so they survive a refresh.
+
+**What ends a token:** Revoke in Settings › Connections › Signed-in apps (that app, for you, in this organization); the
+revoke endpoint; removing the member (`releaseAccess` deletes their approvals and tokens for the organization, and the role
+check stops them even before that); a password *reset* (all of that person's approvals and tokens); refresh-token reuse;
+expiry (1 hour for access, 30 days for refresh, renewed on each refresh). **Not** ending a token: signing out of the browser
+or "sign out other devices" (the connection is not the browser session; Revoke the app for that).
+
+**Not served** (404 from `app/api/auth/[...all]/route.ts`): introspection, userinfo, end-session, client create/update/delete,
+consent list/delete, `continue`, resource admin, device grant, JWKS. Apps register only through `/oauth2/register`.
+
+**Known limits:** the client-metadata-document way (CIMD) is not offered, so Claude falls back to registration, which it
+supports; a person in two organizations approves each separately (switch organization before pressing Allow);
+registration's per-address rate limit shares one bucket without `TRUST_PROXY=1` (on the server Caddy sets it).
+
+Tests: `tests/e2e/oauth.mjs` (the whole flow with a scripted client and the real pages).
 
 ## For Claude Code
 
 | File | What |
 |---|---|
-| `lib/auth-server.ts` | the Better Auth instance (`getAuth()`), plugins: organization, twoFactor, passkey, apiKey, nextCookies (last) |
+| `lib/auth-server.ts` | the Better Auth instance (`getAuth()`), plugins: organization, twoFactor, passkey, apiKey, oauthProvider, nextCookies (last) |
 | `lib/auth.ts` | light helpers with no Better Auth import: `authSecret()`, `appBaseUrl()`, cookie prefix `workos`, `SafeError` |
 | `lib/caller.ts` | `getCaller()` → `{userId, orgId, role, email, name, via, key?}`; `requireCaller(...roles)`, `withCaller`, `asCaller`, `callerFromRequest`, `verifyKey` |
 | `lib/members.ts` | members list, invite, cancel, view and accept invitations |
+| `lib/oauth.ts`, `lib/oauth-config.ts` | OAuth for MCP clients: token check for `/api/mcp`, chat vs Claude Code, the consent view, Settings list and revoke, `dropOAuth` (member removal, password reset), unused-client clean-up; constants (scope, lifetimes, resource address) |
+| `app/oauth/consent/*`, `app/.well-known/*` | the consent screen; protected-resource and authorization-server metadata |
 | `lib/api-keys.ts`, `lib/devices.ts` | Claude keys on the apiKey plugin (`metadata: {agent, orgId}`); worker devices with `ownerId`/`orgId` |
-| `app/api/auth/[...all]/route.ts` | Better Auth over HTTP, **allowlist only**: sign-in, sign-out, session, reset, change password, sessions, two-factor, passkeys, organization reads, set-active. Sign-up, API keys, organization create, invite and cancel-invitation are 404: server code calls `auth.api.*` directly |
+| `app/api/auth/[...all]/route.ts` | Better Auth over HTTP, **allowlist only**: sign-in, sign-out, session, reset, change password, sessions, two-factor, passkeys, organization reads, set-active. Sign-up, API keys, organization create, invite and cancel-invitation are 404: server code calls `auth.api.*` directly. Also the five OAuth endpoints (`/oauth2/authorize`, `consent`, `token`, `revoke`, `register`; register is trimmed first) |
 | `proxy.ts` | session via Better Auth's cookie cache; a Claude chat key passes on API routes |
 | `scripts/migrate-auth.mjs`, `scripts/lib/auth-admin.mjs` | the migration; a script-side Better Auth for creating users, organizations and keys (also used by the e2e seed) |
 
@@ -112,10 +192,11 @@ every member sees everything. Phase 2 does that.
 | `OWNER_EMAIL`, `OWNER_NAME` | the migration script only |
 | `AUTH_RATE_LIMIT` | `off` only in tests |
 | `TRUST_PROXY` | `1` when a proxy we control (Vercel, our nginx) sets `X-Real-IP` / `X-Forwarded-For`; without it, per-IP limits use one shared bucket |
+| `APP_URL` (again) | is also the OAuth issuer (`<APP_URL>/api/auth`) and resource (`<APP_URL>/api/mcp`): it must be the public address people type into Claude, https in production. No other new variable |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows `/api/mcp/<Claude chat key>` |
 | `INVITE_LINK_TO_INVITER` | unset or `1` (default): whoever invites also sees the invitation link. `0`: the link goes only by email, so an owner or admin can't open it and claim the invitee's account; inviting then needs working email (`lib/members.ts` `inviteLinkToInviter`) |
 | `MAIL_CAPTURE_DIR` | tests: write mail as JSON files instead of sending |
 
-Tests: `tests/e2e/auth.mjs` (sign-in, 2FA, reset by email, invitations, other organizations, keys, a sweep of every
+Tests: `tests/e2e/oauth.mjs` (OAuth sign-in, above), `tests/e2e/auth.mjs` (sign-in, 2FA, reset by email, invitations, other organizations, keys, a sweep of every
 page and API route without credentials) and `tests/e2e/team.mjs` (roles, the last owner, removal). The e2e seed makes
 a test owner, organization and Claude chat key per run.

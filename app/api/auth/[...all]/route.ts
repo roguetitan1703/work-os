@@ -4,6 +4,8 @@ import { accountKey, accountLocked, ACCOUNT_LOCKED_MESSAGE, clearAccountFailures
 import { getDb } from '@/lib/db';
 import { isFresh } from '@/lib/fresh';
 import { REAUTH_CODE, REAUTH_MESSAGE } from '@/lib/reauth-shared';
+import { ensureResource, pruneUnusedClients } from '@/lib/oauth';
+import { OAUTH_SCOPES } from '@/lib/oauth-config';
 
 // Better Auth's HTTP endpoints, for the browser client (lib/auth-client.ts): sign-in, two-factor, passkeys, password
 // reset and change, sessions, and reading the organization. Only the paths below are served; everything else answers
@@ -45,6 +47,13 @@ const ALLOWED = new Set([
   '/organization/list-members',
   '/organization/get-active-member',
   '/organization/get-active-member-role',
+  // OAuth sign-in for MCP clients (lib/auth-server.ts oauthProvider; docs/auth.md). Not served: introspect, userinfo, end-session,
+  // client create/update/delete, consent management, resource admin, continue: apps register only through /oauth2/register (trimmed below).
+  '/oauth2/authorize',
+  '/oauth2/consent',
+  '/oauth2/token',
+  '/oauth2/revoke',
+  '/oauth2/register',
 ]);
 
 function allowed(pathname: string): boolean {
@@ -83,6 +92,52 @@ async function accountKeyFor(path: string, req: Request, body: string): Promise<
   }
   const user = await twoFactorUser(req);
   return user ? accountKey('2fa', user) : null;
+}
+
+// ── Dynamic client registration (RFC 7591) ─────────────────────────────────
+// Open to anyone (claude.ai registers itself), so the request is cut down to what Work OS uses before Better Auth sees it:
+// - redirect addresses: https, or http on the loopback host for desktop and command-line apps; no fragment, no credentials
+//   (the plugin then matches them exactly at authorize, except a loopback port, as RFC 8252 asks)
+// - a public client only (no secret), authorization code and refresh grants, our scopes
+// - fields that make the server fetch an address (jwks_uri, logo, backchannel logout, software statement) are dropped
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+function validRedirectUri(u: unknown): u is string {
+  if (typeof u !== 'string' || u.length > 500 || u.includes('#')) return false;
+  let url: URL;
+  try {
+    url = new URL(u);
+  } catch {
+    return false;
+  }
+  if (url.username || url.password) return false;
+  if (url.protocol === 'https:') return true;
+  return url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname);
+}
+
+function trimRegistration(raw: string): { body: string } | { error: string } {
+  if (raw.length > 8192) return { error: 'invalid_client_metadata' };
+  let j: Record<string, unknown>;
+  try {
+    j = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return { error: 'invalid_client_metadata' };
+  }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return { error: 'invalid_client_metadata' };
+  const uris = j.redirect_uris;
+  if (!Array.isArray(uris) || uris.length < 1 || uris.length > 5 || !uris.every(validRedirectUri)) return { error: 'invalid_redirect_uri' };
+  const grants = Array.isArray(j.grant_types) ? j.grant_types.filter(g => g === 'authorization_code' || g === 'refresh_token') : ['authorization_code', 'refresh_token'];
+  const scope = typeof j.scope === 'string' ? j.scope.split(/s+/).filter(x => (OAUTH_SCOPES as readonly string[]).includes(x)).join(' ') : '';
+  const name = typeof j.client_name === 'string' ? j.client_name.slice(0, 100) : undefined;
+  const out: Record<string, unknown> = {
+    redirect_uris: uris,
+    client_name: name,
+    grant_types: grants.length ? grants : ['authorization_code'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none',
+    ...(scope ? { scope } : {}),
+    ...(j.application_type === 'web' || j.application_type === 'native' ? { application_type: j.application_type } : {}),
+  };
+  return { body: JSON.stringify(out) };
 }
 
 type FullOrg = { members?: { userId?: unknown; role?: unknown }[]; invitations?: Record<string, unknown>[] } | null;
@@ -125,7 +180,17 @@ async function handle(req: Request): Promise<Response> {
   headers.delete(CLIENT_IP_HEADER);
   const ip = clientIp(req.headers);
   if (ip) headers.set(CLIENT_IP_HEADER, ip);
-  const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.text();
+  let body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.text();
+  if (path === '/oauth2/register') {
+    if (req.method !== 'POST') return new Response('Not Found', { status: 404 });
+    const t = trimRegistration(body ?? '');
+    if ('error' in t) return Response.json({ error: t.error }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
+    body = t.body;
+    headers.set('content-type', 'application/json');
+    headers.delete('content-length');
+    void pruneUnusedClients().catch(() => {});
+  }
+  if (path === '/oauth2/register' || path === '/oauth2/authorize' || path === '/oauth2/token') await ensureResource();
   const forwarded = new Request(req.url, { method: req.method, headers, body });
 
   const key = req.method === 'POST' && PER_ACCOUNT.has(path) ? await accountKeyFor(path, req, body ?? '') : null;

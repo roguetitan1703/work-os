@@ -574,6 +574,14 @@ try {
         apis++;
         continue;
       }
+      if (u.startsWith('/.well-known/')) {
+        // OAuth discovery documents: public by design (RFC 9728, RFC 8414), the same for everyone, no cookies, no organization data.
+        const r = await fetch(B + u, { redirect: 'manual' });
+        const body = await r.text();
+        check(`api GET ${u}: public discovery document -> 200 JSON, no cookie`, r.status === 200 && /json/.test(r.headers.get('content-type') ?? '') && !r.headers.get('set-cookie') && !/E2E Org|e2e-owner/.test(body), `${r.status} ${body.slice(0, 80)}`);
+        apis++;
+        continue;
+      }
       const src = fs.readFileSync(f, 'utf8');
       const methods = new Set([...src.matchAll(/export\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE)\b|export\s+const\s+(GET|POST|PUT|PATCH|DELETE)\b|\bas\s+(GET|POST|PUT|PATCH|DELETE)\b/g)].map(m => m[1] || m[2] || m[3]));
       for (const method of methods) {

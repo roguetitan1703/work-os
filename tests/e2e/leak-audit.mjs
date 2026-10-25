@@ -264,6 +264,10 @@ function writers(col, d) {
   if (col === 'user') return [pOf(d._id)];
   if (['session', 'account', 'twoFactor', 'passkey'].includes(col)) return [pOf(d.userId)];
   if (col === 'apikey') return [pOf(d.referenceId ?? d.userId)];
+  // OAuth sign-in (docs/auth.md): registration is open to anyone (an app client and its resource link, the resource row is made on demand);
+  // an approval and its tokens belong to the person who gave them.
+  if (['oauthClient', 'oauthClientResource', 'oauthResource'].includes(col)) return ['A', 'T', 'X', 'R', 'N'];
+  if (['oauthConsent', 'oauthAccessToken', 'oauthRefreshToken'].includes(col)) return [pOf(d.userId)];
   if (col === 'member' || col === 'invitation') return org.admins;
   return [];
 }
@@ -475,6 +479,10 @@ try {
   const memberDoc = await rawDb.collection('member').findOne({ organizationId: { $in: [A.orgId, new ObjectId(A.orgId)] } });
   const uid = id => (memberDoc.userId instanceof ObjectId ? new ObjectId(id) : id);
   A.passkey = new ObjectId();
+  // An app the owner approved (OAuth, docs/auth.md): the others' Revoke must not reach it.
+  A.oauthClientId = 'lkqoauthclient' + hex(6);
+  await rawDb.collection('oauthClient').insertOne({ clientId: A.oauthClientId, name: can('aoauthapp', ['A']), redirectUris: ['https://claude.ai/api/mcp/auth_callback'], disabled: false, scopes: ['workos', 'offline_access'], grantTypes: ['authorization_code', 'refresh_token'], tokenEndpointAuthMethod: 'none', createdAt: now, updatedAt: now });
+  await rawDb.collection('oauthConsent').insertOne({ clientId: A.oauthClientId, userId: A.userId, referenceId: A.orgId, scopes: ['workos'], resources: [], createdAt: now, updatedAt: now });
   await rawDb.collection('passkey').insertOne({ _id: A.passkey, name: can('apasskey', ['A']), publicKey: 'x', userId: uid(A.userId), credentialID: 'lkqcred' + hex(6), counter: 0, deviceType: 'singleDevice', backedUp: false, transports: 'internal', createdAt: now });
   await rawDb.collection('settings').updateOne({ _id: `dispatcher:${A.userId}` }, { $set: { area: 'dispatcher', orgId: A.orgId, userId: A.userId, enabled: false, maxConcurrent: 1, boilerplateNoteId: P.boiler } }, { upsert: true });
 
@@ -859,6 +867,8 @@ function AUDIT() {
   add(`action ${K_}listApiKeysAction`, act(K_ + 'listApiKeysAction', ['claude']), act(K_ + 'listApiKeysAction', ['claude-code'], { label: 'code keys' }));
   add(`action ${K_}createApiKeyAction`, act(K_ + 'createApiKeyAction', ['lkq probe key', 'claude-code'], { ok: r => actOk(r), controlOk: r => actOk(r) }));
   add(`action ${K_}rotateApiKeyAction`, act(K_ + 'rotateApiKeyAction', (t, c) => [c.keyIdOf?.(t) ?? 'none'], { control: false, label: 'their key id', aim: true, aimKeys: [], refusal: KEY_GONE, call: async ({ p, o }) => action(K_ + 'rotateApiKeyAction', [o === FAKE_REF.v ? FAKE_REF.key : await keyIdOf('A')], { cookie: p.cookie }) }));
+  const AP_ = 'app/(app)/settings/apps-actions.ts#';
+  add(`action ${AP_}revokeAppAction`, act(AP_ + 'revokeAppAction', [], { control: false, label: 'their approved app', aim: true, aimKeys: [], refusal: KEY_GONE, call: async ({ p, o }) => action(AP_ + 'revokeAppAction', [o === FAKE_REF.v ? 'lkqnoclient' + hex(6) : A.oauthClientId], { cookie: p.cookie }) }));
   add(`action ${K_}revokeApiKeyAction`, act(K_ + 'revokeApiKeyAction', [], { control: false, label: 'their key id', aim: true, aimKeys: [], refusal: KEY_GONE, call: async ({ p, o }) => action(K_ + 'revokeApiKeyAction', [o === FAKE_REF.v ? FAKE_REF.key : await keyIdOf('A'), 'claude-code'], { cookie: p.cookie }) }));
   add(`action ${K_}listDevicesAction`, act(K_ + 'listDevicesAction', []));
   add(`action ${K_}createDeviceAction`, act(K_ + 'createDeviceAction', ['lkq probe pc'], { controlOk: r => actOk(r) }));
@@ -933,6 +943,8 @@ function AUDIT() {
   add('page /accept-invitation/[id]', pg(t => `/accept-invitation/${t.invite}?t=${'x'.repeat(43)}`, { ...aim(['invite']), public: true, label: 'without the secret', ok: r => r.status === 200 && /join|accept|create your account/i.test(r.text) && !/invalid|expired|no longer/i.test(r.text), control: false }));
   add('page /login', pg('/login', { public: true }));
   add('page /login/reset', pg('/login/reset?token=lkqnotatoken', { public: true }));
+  // The consent screen of the OAuth sign-in: with no (or a forged) signed request it shows nothing to approve, whoever opens it; a signed-out or removed person is sent to /login by the proxy.
+  add('page /oauth/consent', pg('/oauth/consent', { ok: r => r.status === 200 && /can.t be used/.test(r.text) && !/data-consent="allow"/.test(r.text) }), pg('/oauth/consent?client_id=lkqnone&redirect_uri=https%3A%2F%2Fevil.example%2Fcb&sig=lkq&ba_param=client_id&ba_param=sig', { label: 'forged request', ok: r => r.status === 200 && /can.t be used/.test(r.text) && !/data-consent="allow"/.test(r.text) }));
 
   // ── route handlers ──
   add('route GET /api/admin/health', route('GET', '/api/admin/health'), route('GET', '/api/admin/health', { label: 'chat key', useKey: true }));
@@ -959,6 +971,11 @@ function AUDIT() {
   add('route POST /api/worker/status', worker('POST', '/api/worker/status', t => ({ worker: { version: '0.1.0', os: 'win32', allowPrompts: false }, jobs: [{ id: t.job, ok: false, error: 'lkq' }], sessions: [{ sessionId: t.session, state: 'dead' }] }), { label: 'their job and session ids', controlOk: r => two(r.status), stage: 1 }));
   add('route GET /api/worker/stream', { kind: 'worker', ok: r => r.status === 200, call: ({ p }) => streamPeek('/api/worker/stream', p.wkr ? { authorization: `Bearer ${p.wkr}` } : {}) });
   add('route GET /icons/[size]', route('GET', '/icons/192', { public: true }));
+  // OAuth discovery documents (RFC 9728, RFC 8414): public by design, the same for everyone, nothing about any organization.
+  for (const [name, has] of [['oauth-protected-resource', /authorization_servers/], ['oauth-authorization-server', /code_challenge_methods_supported/]]) {
+    add(`route GET /.well-known/${name}/[[...path]]`, route('GET', `/.well-known/${name}`, { public: true, ok: r => two(r.status) && has.test(r.text) }));
+    add(`route OPTIONS /.well-known/${name}/[[...path]]`, route('OPTIONS', `/.well-known/${name}`, { public: true, ok: r => two(r.status) }));
+  }
   add('route GET /favicon.ico', route('GET', '/favicon.ico', { public: true }));
   add('route GET /manifest.webmanifest', route('GET', '/manifest.webmanifest', { public: true }));
 
@@ -990,6 +1007,14 @@ function AUDIT() {
   add('auth /organization/list-members', authEp('GET', () => `/organization/list-members?organizationId=${A.orgId}`, undefined, { label: 'the first organization', mayWork: w => w === 'T' }));
   add('auth /organization/get-active-member', authEp('GET', () => `/organization/get-active-member?organizationId=${A.orgId}`, undefined, { label: 'the first organization', mayWork: w => w === 'T' || w === 'X' /* X's own active membership */ }));
   add('auth /organization/get-active-member-role', authEp('GET', () => `/organization/get-active-member-role?organizationId=${A.orgId}`, undefined, { label: 'the first organization', mayWork: w => w === 'T' || w === 'X' }));
+
+  // OAuth sign-in for MCP clients: every call is public or checks its own credential (the signed request, the code, the token); none reads organization data.
+  const oauthEp = (method, sub, body, o = {}) => authEp(method, sub, body, { public: true, control: false, ok: r => r.status < 500, ...o });
+  add('auth /oauth2/authorize', oauthEp('GET', '/oauth2/authorize?response_type=code&client_id=lkqnone&redirect_uri=https%3A%2F%2Fclaude.ai%2Fx&code_challenge=x&code_challenge_method=S256'));
+  add('auth /oauth2/consent', oauthEp('POST', '/oauth2/consent', { accept: true, oauth_query: 'client_id=lkqnone&sig=lkq' }, { ok: r => r.status >= 400 && r.status < 500 }));
+  add('auth /oauth2/token', oauthEp('POST', '/oauth2/token', { grant_type: 'authorization_code', code: 'lkqnocode', client_id: 'lkqnone', redirect_uri: 'https://claude.ai/x', code_verifier: 'x'.repeat(50) }, { ok: r => r.status >= 400 && r.status < 500 }));
+  add('auth /oauth2/revoke', oauthEp('POST', '/oauth2/revoke', { token: 'lkqnotatoken', client_id: 'lkqnone' }));
+  add('auth /oauth2/register', oauthEp('POST', '/oauth2/register', { client_name: 'lkq app', redirect_uris: ['https://claude.ai/api/mcp/auth_callback'], token_endpoint_auth_method: 'none' }, { ok: r => two(r.status) }));
 
   // ── Discord (signed interactions as each person's linked account, against the stub) ──
   add('discord command link', disc(2, { name: 'link', type: 1, options: [{ name: 'code', type: 3, value: 'LKQWRONG' }] }, { label: 'a wrong code', ok: r => /^Linked/m.test(r.text) && !/unknown or expired/i.test(r.text), public: true, control: false }));
@@ -1058,6 +1083,10 @@ function MISUSE({ A, T, X, R }) {
   }, r => r.made === false);
   L('a removed member\'s chat key on /api/mcp', () => req('POST', '/api/mcp', { bearer: R.chat, headers: mh, body: tl }));
   L('a removed member\'s Claude Code key on /api/mcp', () => req('POST', '/api/mcp', { bearer: R.code, headers: mh, body: tl }));
+  L('a made-up OAuth access token on /api/mcp', () => req('POST', '/api/mcp', { bearer: 'wosat_' + 'a'.repeat(43), headers: mh, body: tl }));
+  L('Better Auth OAuth introspection (not served)', () => req('POST', '/api/auth/oauth2/introspect', { body: { token: 'x', client_id: 'x' } }), r => r.status === 404);
+  L('Better Auth OAuth client creation (not served)', () => req('POST', '/api/auth/oauth2/create-client', { cookie: A.cookie, body: { redirect_uris: ['https://evil.example/cb'] } }), r => r.status === 404);
+  L('Better Auth OAuth consent list (not served)', () => req('GET', '/api/auth/oauth2/get-consents', { cookie: A.cookie }), r => r.status === 404);
   L('a made-up wos_ key on /api/mcp', () => req('POST', '/api/mcp', { bearer: 'wos_' + 'a'.repeat(48), headers: mh, body: tl }));
   L('a chat key in the URL (MCP_ALLOW_URL_TOKEN off)', () => req('POST', `/api/mcp/${A.chat}`, { headers: mh, body: tl }));
   L('a chat key in X-API-Key on a page', () => req('GET', '/today', { headers: { 'x-api-key': A.chat } }), r => toLogin(r) || no(r));
