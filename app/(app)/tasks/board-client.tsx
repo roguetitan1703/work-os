@@ -15,6 +15,7 @@ import type { Status, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ClaudeBadge } from '@/components/give-to-claude';
 import { ModeHelp } from '@/components/mode-help';
+import { NavIcon, PLACE_ICON } from '@/components/nav-icons';
 import { AddTaskButton } from '@/app/(app)/projects/[id]/add-task-button';
 import { Select } from '@/components/ui/select';
 
@@ -120,6 +121,7 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false }: P
 
       {tasks.length === 0 && !filters.q && !filters.project && !filters.mode && !filters.due && !filters.assigned && (
         <div className="flex items-center gap-3 rounded-xl border border-dashed border-border px-4 py-3" data-tasks-empty>
+          <NavIcon icon={PLACE_ICON.tasks} className="text-muted-foreground" />
           <p className="flex-1 text-sm text-muted-foreground">No tasks yet. Add one, or ask Claude to.</p>
           <AddTaskButton label="Add a task" />
         </div>

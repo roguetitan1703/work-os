@@ -8,6 +8,7 @@ import { SubHeader } from '@/components/mobile/sub-header';
 import { requireCaller } from '@/lib/caller';
 import { getSchedule } from '@/lib/user-schedule';
 import { getOrgModes } from '@/lib/org-modes';
+import { NavIcon, PLACE_ICON } from '@/components/nav-icons';
 import { ScheduleEditor } from './schedule-editor';
 import { SchedulePreset } from './schedule-preset';
 
@@ -46,6 +47,7 @@ export default async function SchedulePage({ searchParams }: Props) {
       <div className="space-y-6" data-schedule-empty>
         <SubHeader title="Schedule" />
         <h1 className="hidden md:block text-2xl font-bold text-foreground">Schedule</h1>
+        <NavIcon icon={PLACE_ICON.schedule} size={24} className="mx-1 md:mx-0 text-muted-foreground" />
         <p className="text-[15px] md:text-sm text-muted-foreground px-1 md:px-0">
           Optional: set when you work, and Today shows what to do right now.
         </p>

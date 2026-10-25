@@ -1,7 +1,8 @@
 import Link from '@/components/intent-link';
 import { redirect } from 'next/navigation';
 import { getCaller } from '@/lib/caller';
-import { Play } from 'lucide-react';
+import { Activity, ListOrdered, Play, SlidersHorizontal } from 'lucide-react';
+import { NavIcon } from '@/components/nav-icons';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { claudeOverview } from '@/lib/data/claude-overview';
 import { claudeTasks } from '@/lib/data/dispatcher';
@@ -16,9 +17,9 @@ import { SetupTab } from './setup-tab';
 export const metadata = { title: 'Claude · Work OS' };
 
 const TABS = [
-  { id: 'now', label: 'Now' },
-  { id: 'queue', label: 'Queue' },
-  { id: 'setup', label: 'Setup' },
+  { id: 'now', label: 'Now', icon: Activity },
+  { id: 'queue', label: 'Queue', icon: ListOrdered },
+  { id: 'setup', label: 'Setup', icon: SlidersHorizontal },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
@@ -78,6 +79,7 @@ export default async function ClaudePage({ searchParams }: Props) {
               t.id === tab ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground active:bg-background/60 hover:text-foreground',
             )}
           >
+            <NavIcon icon={t.icon} size={16} className="mr-2" />
             {t.label}
           </Link>
         ))}
