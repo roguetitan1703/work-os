@@ -26,7 +26,7 @@ const must = async (key, name, args) => {
   return r.json;
 };
 const why = 'Fixture for the tenancy suite on the throwaway app; nothing real happens with this item at all.';
-const quiet = (() => {
+const quiet = process.env.DEFAULT_QUIET_HOURS === 'none' ? false : (() => {
   const h = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
   return h >= 23 || h < 8;
 })();

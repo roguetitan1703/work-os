@@ -123,6 +123,9 @@ export NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$(node -e "console.log(require('crypt
 # The e2e owner runs the deployment (lib/operator.ts): health, Discord registration and servers, Usage.
 export OPERATOR_EMAILS=e2e-owner@example.test
 export APP_TZ=Asia/Kolkata
+# No default quiet hours (lib/profile.ts): the profile cache is shared across suites, so a suite run at night would
+# otherwise see 23:00–08:00 from an earlier suite and hold its alerts. Suites that test quiet hours set them per person.
+export DEFAULT_QUIET_HOURS=none
 export APP_URL="http://localhost:$APORT" E2E_BASE="http://localhost:$APORT"
 export E2E_MONGO_PORT=$MPORT E2E_DISCORD_PORT=$DPORT
 export E2E_SHOTS="${E2E_SHOTS:-$TMP/shots}"

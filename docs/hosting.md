@@ -570,6 +570,7 @@ chat or tickets.
 | `MONGODB_DB` | database name, `workos` | |
 | `BETTER_AUTH_SECRET` | signs session cookies and MCP confirm tokens, hashes tokens, encrypts authenticator secrets. Make it once and keep it: changing it signs everyone out and breaks authenticator apps | **yes** |
 | `APP_URL` | `https://work.delpat.in`: Better Auth's base URL, the passkey domain (passkeys work only on the domain they were made on), links in mail, Discord and to Claude | |
+| `DEFAULT_QUIET_HOURS` | Quiet hours for people who have not set their own: `23-8` (the default), another `H-H`, or `none` | |
 | `TRUST_PROXY` | `1`: trust Caddy's (or nginx's) `X-Real-IP` / `X-Forwarded-For` for per-IP sign-in limits | |
 | `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` | encrypts server actions' bound arguments; Next reads it at runtime, before the (public) key in a published build. 32 random bytes, base64, made once (section 7 "The build's secrets") | **yes** |
 | `OPERATOR_EMAILS` | who runs the deployment (comma list): health, Usage, Discord registration and servers. Unset = nobody | |
