@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { saveTimeSettingsAction } from './profile-actions';
+import { Select } from '@/components/ui/select';
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 const select = 'h-11 md:h-9 rounded-md border border-border bg-background px-2 text-sm';
@@ -47,13 +48,13 @@ export function TimeSettings({ timezone, quietStart, quietEnd }: { timezone: str
     >
       <label className="flex flex-wrap items-center gap-2 text-sm">
         <span className="w-28 text-muted-foreground">Timezone</span>
-        <select value={tz} onChange={e => setTz(e.target.value)} className={select} name="timezone">
+        <Select value={tz} onChange={e => setTz(e.target.value)} className={select} name="timezone">
           {zones.map(z => (
             <option key={z} value={z}>
               {z}
             </option>
           ))}
-        </select>
+        </Select>
         {browser && browser !== tz && (
           <button type="button" className="text-xs underline text-muted-foreground" onClick={() => setTz(browser)}>
             Use this device&apos;s ({browser})
@@ -62,17 +63,17 @@ export function TimeSettings({ timezone, quietStart, quietEnd }: { timezone: str
       </label>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="w-28 text-muted-foreground">Quiet hours</span>
-        <select value={qs} onChange={e => setQs(Number(e.target.value))} className={select} aria-label="Quiet hours start" name="quietStart">
+        <Select value={qs} onChange={e => setQs(Number(e.target.value))} className={select} aria-label="Quiet hours start" name="quietStart">
           {HOURS.map(h => (
             <option key={h} value={h}>{`${String(h).padStart(2, '0')}:00`}</option>
           ))}
-        </select>
+        </Select>
         <span>to</span>
-        <select value={qe} onChange={e => setQe(Number(e.target.value))} className={select} aria-label="Quiet hours end" name="quietEnd">
+        <Select value={qe} onChange={e => setQe(Number(e.target.value))} className={select} aria-label="Quiet hours end" name="quietEnd">
           {HOURS.map(h => (
             <option key={h} value={h}>{`${String(h).padStart(2, '0')}:00`}</option>
           ))}
-        </select>
+        </Select>
         <span className="text-xs text-muted-foreground">{qs === qe ? 'none' : 'nothing is sent; it waits until they end'}</span>
       </div>
       <button type="submit" disabled={pending || !dirty} className="h-11 md:h-9 px-4 rounded-full text-sm font-semibold border border-border disabled:opacity-50" data-save-time>

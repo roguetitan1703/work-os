@@ -183,6 +183,19 @@ const CHROME = process.env.CHROME_EXE || (process.env.LOCALAPPDATA ? process.env
 export const launch = (opts = {}) => chromium.launch({ ...(CHROME && fs.existsSync(CHROME) ? { executablePath: CHROME } : {}), ...opts });
 
 // ---- results ----
+// Choose an option in the app's own select (components/ui/select.tsx): open its trigger, click the option by value
+// (string) or by label ({ label }). `where` is a selector or a locator.
+export async function pick(from, where, v) {
+  const page = typeof from.page === 'function' ? from.page() : from; // a locator inside a dialog still has its list in the page's body
+  const trig = typeof where === 'string' ? from.locator(where) : where;
+  await trig.click();
+  const list = page.locator('[data-slot=select-content]').last();
+  await list.waitFor({ timeout: 8000 });
+  const opt = typeof v === 'object' ? list.getByRole('option', { name: v.label, exact: true }) : list.locator(`[role=option][data-value="${v}"]`);
+  await opt.click();
+  await page.locator('[data-slot=select-content]').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+}
+
 export const state = { pass: 0, fail: 0, fails: [] };
 export const redact = s => String(s).replace(/w(kr|os)_[A-Za-z0-9_-]{8,}/g, 'w$1_<redacted>');
 export const check = (l, c, x = '') => { c ? state.pass++ : (state.fail++, state.fails.push(l)); console.log(`${c ? 'PASS' : 'FAIL'}  ${l}${!c && x ? '  - ' + redact(x) : ''}`); };

@@ -10,7 +10,7 @@ import { recordRequest, requestCaller, requestKind, routePattern } from '@/lib/u
 // run out, the session is read once (auth.api.getSession) and the refreshed copy goes back to the browser. Pages,
 // actions and routes then ask lib/caller.ts who is calling; this check is the first gate, not the only one.
 //
-// Public: /login, /login/reset (exact paths), /accept-invitation/<id> and Better Auth's endpoints under /api/auth
+// Public: /worker/work-os-worker.mjs and /worker/latest.json (exact paths), /login, /login/reset (exact paths), /accept-invitation/<id> and Better Auth's endpoints under /api/auth
 // (app/api/auth/[...all]/route.ts serves only an allowlist of them, each checking its own session).
 // /api/mcp, /api/worker, /api/cron and /api/discord/interactions check their own credentials (API key, device key,
 // cron secret, Discord signature): the proxy lets them through untouched, as before.
@@ -26,7 +26,8 @@ import { recordRequest, requestCaller, requestKind, routePattern } from '@/lib/u
 // Paths that skip the session check and check their own credentials (same prefix test the old matcher made).
 const SELF_AUTH_PREFIXES = ['/api/mcp', '/api/discord/interactions', '/api/cron', '/api/worker', '/api/auth'];
 const selfAuth = (pathname: string) => SELF_AUTH_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'));
-const isPublicPage = (p: string) => p === '/login' || p === '/login/reset' || /^\/accept-invitation\/[A-Za-z0-9_-]{1,64}$/.test(p);
+// The worker download (lib/worker-bundle.ts): its source only, fetched before any key exists.
+const isPublicPage = (p: string) => p === '/worker/work-os-worker.mjs' || p === '/worker/latest.json' || p === '/login' || p === '/login/reset' || /^\/accept-invitation\/[A-Za-z0-9_-]{1,64}$/.test(p);
 
 const sessionCookieName = () => `${secureCookies() ? '__Secure-' : ''}${COOKIE_PREFIX}.session_token`;
 

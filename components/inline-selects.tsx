@@ -3,6 +3,7 @@
 import { PRIORITIES, STATUSES, type Priority, type Status } from '@/lib/types';
 import { PRIORITY_TEXT, STATUS_TEXT } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { Select } from '@/components/ui/select';
 
 const base =
   'h-6 rounded-md border border-transparent bg-transparent px-1 text-xs font-medium outline-none hover:border-border focus-visible:border-ring cursor-pointer disabled:opacity-50 [&>option]:text-foreground [&>option]:bg-popover';
@@ -19,7 +20,8 @@ export function StatusSelect({
   className?: string;
 }) {
   return (
-    <select
+    <Select
+      compact
       aria-label="Status"
       value={value}
       disabled={disabled}
@@ -32,7 +34,7 @@ export function StatusSelect({
           {s}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }
 
@@ -48,7 +50,8 @@ export function PrioritySelect({
   className?: string;
 }) {
   return (
-    <select
+    <Select
+      compact
       aria-label="Priority"
       value={value}
       disabled={disabled}
@@ -61,6 +64,6 @@ export function PrioritySelect({
           {p}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }

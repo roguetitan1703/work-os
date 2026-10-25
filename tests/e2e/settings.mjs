@@ -1,5 +1,5 @@
 // Settings: redirects from /connect and /recovery, theme, status strip, alerts table, security, connections, help, phone Back at 390 and 1280. Seed profile: none.
-import { launch, B, PW, SP, db, mc, runAssertSuite, assert, check, fillLogin } from './lib.mjs';
+import { launch, B, PW, SP, db, mc, ME, rawDb, runAssertSuite, assert, check, fillLogin } from './lib.mjs';
 await runAssertSuite('settings', async () => {
   const b = await launch();
   // real HTTP redirects, no browser
@@ -77,7 +77,28 @@ await runAssertSuite('settings', async () => {
     await p.waitForSelector('[data-connections]');
     assert.ok(await p.locator('[data-connection=chat]').evaluate(e => e.open), 'chat open');
     console.log(label, 'redirected to', p.url());
+    assert.equal(await p.locator('[data-connection=computers] a[href="/claude?tab=setup"]').count(), 1, 'Connections lists computers with a manage link');
+    assert.ok(/Om-PC|No computer connected yet/.test(await p.locator('[data-connection=computers]').innerText()), 'computers group text');
     await p.screenshot({ path: `${SP}/${label}-connections.png`, fullPage: true });
+    if (label === 'desktop') {
+      // push devices: mine are listed with a Remove; someone else's never show and cannot be removed from here
+      const now = new Date();
+      await rawDb.collection('pushSubs').insertMany([
+        { _id: 'https://push.example.test/set-mine', orgId: ME.orgId, userId: ME.userId, keys: { p256dh: 'x', auth: 'y' }, device: 'Mozilla/5.0 (Windows NT 10.0) Chrome/120 Safari/537', createdAt: new Date('2026-10-15T08:00:00Z'), updatedAt: now },
+        { _id: 'https://push.example.test/set-other', orgId: ME.orgId, userId: 'someone-else', keys: { p256dh: 'x', auth: 'y' }, device: 'Mozilla/5.0 (iPhone) Safari', createdAt: now, updatedAt: now },
+      ]);
+      await p.goto(B + '/settings?section=device'); await p.waitForSelector('[data-push-devices]');
+      await p.waitForSelector('[data-push-device]', { timeout: 10000 });
+      const txt = await p.locator('[data-push-devices]').innerText();
+      assert.ok(/Windows PC · Chrome/.test(txt) && /Added/.test(txt) && !/iPhone/.test(txt), 'push list: mine only: ' + txt.slice(0, 200));
+      assert.equal(await p.locator('[data-push-device]').count(), 1);
+      await p.locator('[data-push-device] button:has-text("Remove")').click();
+      await p.waitForFunction(() => document.querySelectorAll('[data-push-device]').length === 0, null, { timeout: 10000 });
+      assert.equal(await rawDb.collection('pushSubs').countDocuments({ _id: 'https://push.example.test/set-mine' }), 0, 'removed');
+      assert.equal(await rawDb.collection('pushSubs').countDocuments({ _id: 'https://push.example.test/set-other' }), 1, 'the other person\'s stays');
+      await rawDb.collection('pushSubs').deleteOne({ _id: 'https://push.example.test/set-other' });
+      console.log('push devices ok');
+    }
     await p.goto(B + '/settings?section=help'); await p.waitForSelector('[data-help]');
     assert.equal(await p.locator('[data-help] details[open]').count(), 0);
     await p.goto(B + '/menu');

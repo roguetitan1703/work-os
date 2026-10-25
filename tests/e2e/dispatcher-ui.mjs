@@ -1,6 +1,6 @@
 // Dispatcher UI: Give to Claude / Take back sheet, folder picker, refusals, row menus, Claude's tasks section, Setup switch, alerts table kinds at 1280 and 390. Seeds itself. Seed profile: none.
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { launch, B, PW, SP, ME, db, mc, runAssertSuite, assert, check, fillLogin } from './lib.mjs';
+import { launch, B, PW, SP, ME, db, mc, runAssertSuite, assert, check, fillLogin, pick } from './lib.mjs';
 const sha = s => createHash('sha256').update(s).digest('hex');
 
 await runAssertSuite('dispatcher-ui', async () => {
@@ -142,8 +142,8 @@ await runAssertSuite('dispatcher-ui', async () => {
     await en.check(); await p.waitForTimeout(800);
     assert.ok(!(await db.collection('settings').findOne({ _id: 'dispatcher' }))?.enabled, 'cannot enable without a note');
     assert.equal(await en.isChecked(), false, 'switch rolled back');
-    await p.locator('[data-dispatcher-note]').selectOption('nb'); await p.waitForTimeout(800);
-    await p.locator('[data-dispatcher-cap]').selectOption('3'); await p.waitForTimeout(800);
+    await pick(p, '[data-dispatcher-note]', 'nb'); await p.waitForTimeout(800);
+    await pick(p, '[data-dispatcher-cap]', '3'); await p.waitForTimeout(800);
     await en.check(); await p.waitForTimeout(1000);
     let s = await db.collection('settings').findOne({ _id: 'dispatcher' });
     assert.ok(s.enabled === true && s.maxConcurrent === 3 && s.boilerplateNoteId === 'nb', JSON.stringify(s));

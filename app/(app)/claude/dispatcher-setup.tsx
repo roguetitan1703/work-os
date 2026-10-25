@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { Section } from '../settings/ui';
 import { dispatcherSettingsAction } from './dispatcher-actions';
 import { field } from './ui';
+import { Select } from '@/components/ui/select';
 
 // Claude › Setup › Tasks for Claude: the dispatcher's on/off switch, how many sessions at once, and the
 // note every session reads first (docs/dispatcher.md).
@@ -47,17 +48,17 @@ export function DispatcherSetup({ initial, notes, maxCap }: { initial: Dispatche
         </label>
         <label className="block space-y-1">
           <span className="block text-xs font-medium text-muted-foreground">Sessions at once</span>
-          <select className={cn(field, 'md:max-w-[8rem]')} value={s.maxConcurrent} disabled={busy} onChange={e => save({ maxConcurrent: Number(e.target.value) })} aria-label="Sessions at once" data-dispatcher-cap>
+          <Select className={cn(field, 'md:max-w-[8rem]')} value={s.maxConcurrent} disabled={busy} onChange={e => save({ maxConcurrent: Number(e.target.value) })} aria-label="Sessions at once" data-dispatcher-cap>
             {Array.from({ length: maxCap }, (_, n) => n + 1).map(n => (
               <option key={n} value={n}>
                 {n}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="block space-y-1">
           <span className="block text-xs font-medium text-muted-foreground">Note every session reads first</span>
-          <select className={field} value={s.boilerplateNoteId} disabled={busy} onChange={e => save({ boilerplateNoteId: e.target.value })} aria-label="Note every session reads first" data-dispatcher-note>
+          <Select className={field} value={s.boilerplateNoteId} disabled={busy} onChange={e => save({ boilerplateNoteId: e.target.value })} aria-label="Note every session reads first" data-dispatcher-note>
             <option value="">Pick a note…</option>
             {!known && s.boilerplateNoteId && <option value={s.boilerplateNoteId}>(note not in the list)</option>}
             {notes.map(n => (
@@ -66,7 +67,7 @@ export function DispatcherSetup({ initial, notes, maxCap }: { initial: Dispatche
                 {n.project ? ` · ${n.project}` : ''}
               </option>
             ))}
-          </select>
+          </Select>
           <span className="block text-[13px] md:text-xs text-muted-foreground">Your Claude Code boilerplate. The session reads it through the Work OS connection, so it always gets the current version. Claude can read this note; only you can edit it.</span>
         </label>
       </div>

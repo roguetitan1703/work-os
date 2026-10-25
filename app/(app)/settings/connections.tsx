@@ -9,6 +9,7 @@ import { GROUPS } from './data';
 import { DiscordSection } from './discord-section';
 import { overviewCards, type Card } from './overview-data';
 import { ReferenceTab } from './reference-tab';
+import { ConnectionsComputers } from './connections-computers';
 import { Disclosure, Dot } from './ui';
 import { requireCaller } from '@/lib/caller';
 import { listAuthorizedApps } from '@/lib/oauth';
@@ -55,6 +56,8 @@ export async function Connections({ open }: { open?: string }) {
         </div>
         <ChevronRight className="w-4 h-4 text-muted-foreground/40 shrink-0" />
       </Link>
+
+      <ConnectionsComputers caller={caller} />
 
       <ConnectionCard card={by('discord')} id="discord" open={open === 'discord'}>
         <DiscordSection base={base} caller={caller} />

@@ -17,6 +17,7 @@ import { projectLauncher } from '@/lib/data/launcher';
 import { ClaudeItems } from './claude-items';
 import { ProjectSessions } from './sessions';
 import { CodeLocations } from './code-locations';
+import { FolderLinks } from './folders';
 import { ProjectDetails } from './project-header';
 import { ProjectTop } from './project-top';
 import { ClaudeCard } from './claude-card';
@@ -145,10 +146,10 @@ export default async function ProjectPage({ params, searchParams }: Props) {
           <div className={cn('px-2 md:px-1', projectNotes.length > 0 && 'border-t border-border/60')}>{newNote}</div>
         </section>
         <section className={CARD} data-card="repos">
-          <Link href={tabHref('info')} replace scroll={false} className="flex items-center gap-2 px-4 md:px-3 min-h-11 md:min-h-9 hover:bg-muted/40">
-            <h2 className={H2}>Repos</h2>
+          <Link href={`${tabHref('info')}#code`} className="flex items-center gap-2 px-4 md:px-3 min-h-11 md:min-h-9 hover:bg-muted/40">
+            <h2 className={H2}>Code</h2>
             <span className="text-[15px] md:text-xs text-foreground truncate">
-              {repos.length} {repos.length === 1 ? 'repo' : 'repos'} · {folders.length} {folders.length === 1 ? 'folder' : 'folders'} linked
+              {repos.length} {repos.length === 1 ? 'repository' : 'repositories'} · {folders.length} {folders.length === 1 ? 'folder' : 'folders'} linked
             </span>
             <ChevronRight className="ml-auto w-4 h-4 text-muted-foreground/60 shrink-0" />
           </Link>
@@ -234,7 +235,15 @@ export default async function ProjectPage({ params, searchParams }: Props) {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-6 items-start" data-view="info">
           <div className="space-y-5 min-w-0">
             <ProjectDetails project={project} isOwner={project.ownerId === me.userId} />
-            <CodeLocations projectId={project.id} initial={repos} />
+            <section id="code" data-section="code" className="space-y-3 scroll-mt-24">
+              <h2 className={`${H2} px-1 md:px-0`}>Code</h2>
+              <CodeLocations projectId={project.id} initial={repos} />
+              <div className="space-y-1.5" data-part="folders">
+                <h3 className="text-[13px] md:text-xs font-semibold text-foreground px-1 md:px-0">Folders on your computers</h3>
+                <p className="text-[13px] md:text-xs text-muted-foreground px-1 md:px-0">Where this project lives on each of your computers. Claude opens its sessions in these folders. Only you see your computers.</p>
+                <FolderLinks projectId={project.id} folders={launcher.folders} suggestions={launcher.suggestions} devices={launcher.devices} />
+              </div>
+            </section>
           </div>
           <section className="space-y-2 min-w-0">
             <h2 className={`${H2} px-1 md:px-0`}>Activity</h2>

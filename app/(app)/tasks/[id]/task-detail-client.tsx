@@ -27,6 +27,7 @@ import { fmtAgo, fmtDue } from '@/lib/format';
 import type { Mode, Recurrence, Task, TaskPatch } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { assigneeOptions } from '@/lib/assignees';
+import { Select } from '@/components/ui/select';
 
 const field =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring dark:bg-input/30';
@@ -165,14 +166,14 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
         </Field>
         <Field label="Assigned to">
           {task.visibility === 'org' ? (
-            <select className={field} value={task.assigneeId ?? ''} data-assignee-picker onChange={e => patch({ assignee: e.target.value || null }, e.target.value ? `Assigned to ${e.target.value === me ? 'you' : people[e.target.value] ?? 'them'}` : 'Unassigned')}>
+            <Select className={field} value={task.assigneeId ?? ''} data-assignee-picker onChange={e => patch({ assignee: e.target.value || null }, e.target.value ? `Assigned to ${e.target.value === me ? 'you' : people[e.target.value] ?? 'them'}` : 'Unassigned')}>
               <option value="">Nobody</option>
               {assigneeOptions(people, me, task.assigneeId).map(o => (
                 <option key={o.id} value={o.id}>
                   {o.name}
                 </option>
               ))}
-            </select>
+            </Select>
           ) : (
             <div className={cn(field, 'flex items-center text-muted-foreground')} title="Only shared tasks can be assigned">
               Private: only you
@@ -212,12 +213,12 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
           </datalist>
         </Field>
         <Field label="Kind of work">
-          <select className={field} value={task.mode ?? ''} onChange={e => patch({ mode: (e.target.value || null) as Mode | null })}>
+          <Select className={field} value={task.mode ?? ''} onChange={e => patch({ mode: (e.target.value || null) as Mode | null })}>
             <option value="">—</option>
             {modes.map(m => (
               <option key={m.name}>{m.name}</option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Estimate (min)">
           <input
@@ -421,13 +422,13 @@ const RECURRENCE_OPTIONS: { label: string; value: Recurrence | null }[] = [
 function RecurrenceSelect({ value, onChange }: { value: Recurrence | null; onChange: (r: Recurrence | null) => void }) {
   const idx = RECURRENCE_OPTIONS.findIndex(o => JSON.stringify(o.value) === JSON.stringify(value));
   return (
-    <select className={field} value={idx === -1 ? 'custom' : String(idx)} onChange={e => onChange(RECURRENCE_OPTIONS[Number(e.target.value)].value)}>
+    <Select className={field} value={idx === -1 ? 'custom' : String(idx)} onChange={e => onChange(RECURRENCE_OPTIONS[Number(e.target.value)].value)}>
       {RECURRENCE_OPTIONS.map((o, i) => (
         <option key={i} value={i}>
           {o.label}
         </option>
       ))}
       {idx === -1 && value && <option value="custom">{`Every ${value.interval} ${value.freq}`}</option>}
-    </select>
+    </Select>
   );
 }

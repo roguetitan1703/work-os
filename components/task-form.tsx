@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { createTaskAction } from '@/app/actions';
 import { PRIORITIES, STATUSES, type Mode, type Priority, type Status, type TaskInput } from '@/lib/types';
 import { useApp, useModes } from './app-context';
+import { Select } from '@/components/ui/select';
 
 const field = 'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring dark:bg-input/30';
 
@@ -89,33 +90,33 @@ export function TaskForm({ open, onClose, initial }: Props) {
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Kind of work</Label>
-              <select className={field} value={f.mode} onChange={e => set('mode', e.target.value as Mode | '')}>
+              <Select className={field} value={f.mode} onChange={e => set('mode', e.target.value as Mode | '')}>
                 <option value="">—</option>
                 {modes.map(m => (
                   <option key={m.name} value={m.name}>
                     {m.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">Priority</Label>
-              <select className={field} value={f.priority} onChange={e => set('priority', e.target.value as Priority)}>
+              <Select className={field} value={f.priority} onChange={e => set('priority', e.target.value as Priority)}>
                 {PRIORITIES.map(p => (
                   <option key={p}>{p}</option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div className="space-y-1 col-span-1">
               <Label className="text-xs">Status</Label>
-              <select className={field} value={f.status} onChange={e => set('status', e.target.value as Status)}>
+              <Select className={field} value={f.status} onChange={e => set('status', e.target.value as Status)}>
                 {STATUSES.map(s => (
                   <option key={s}>{s}</option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Start</Label>
