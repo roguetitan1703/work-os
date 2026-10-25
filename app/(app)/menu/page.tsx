@@ -1,9 +1,8 @@
 import Link from '@/components/intent-link';
-import { ChevronRight, LifeBuoy } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/tab-bar';
-import { modeLinks } from '@/lib/nav';
-import { getOrgModes } from '@/lib/org-modes';
 import { systemStatusLevel } from '@/lib/data/nav-counts';
+import { unreadCount } from '@/lib/notify';
 import { requireScope } from '@/lib/caller';
 
 export const metadata = { title: 'Menu · Work OS' };
@@ -14,11 +13,15 @@ const DOT_TEXT = { ok: 'All systems OK', warn: 'Needs a look', error: 'Problem' 
 /** Phone Menu: the things that are not a tab. Replaces the old More page. */
 export default async function MenuPage() {
   const s = await requireScope();
-  const [status, modes] = await Promise.all([systemStatusLevel(s).catch(() => 'ok' as const), getOrgModes(s.orgId)]);
+  const [status, unread] = await Promise.all([systemStatusLevel(s).catch(() => 'ok' as const), unreadCount(s).catch(() => 0)]);
   return (
     <div className="max-w-xl mx-auto">
       <MobileHeader title="Menu" />
       <h1 className="hidden md:block text-2xl font-bold mb-4">Menu</h1>
+
+      <Group title="Inbox">
+        <Row href="/notifications" label="Inbox" dot={unread > 0 ? <span className="text-xs rounded-full px-1.5 py-0.5 font-medium bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-300">{unread}</span> : undefined} />
+      </Group>
 
       <Group title="Review">
         <Row href="/review" label="Done · Activity · Stale · Archive · Trash" />
@@ -28,21 +31,8 @@ export default async function MenuPage() {
         <Row href="/timetable" label="Today's blocks and the week" />
       </Group>
 
-      <Group title="Modes">
-        <div className="flex flex-wrap gap-2 px-4 py-3">
-          {modeLinks(modes).map(m => (
-            <Chip key={m.name} href={m.href}>
-              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: m.hex }} />
-              {m.name}
-            </Chip>
-          ))}
-        </div>
-      </Group>
-
       <Group title="Settings">
         <Row href="/settings" label="Settings" dot={<span role="img" aria-label={DOT_TEXT[status]} title={DOT_TEXT[status]} className={`w-2.5 h-2.5 rounded-full ${DOT[status]}`} />} />
-
-        <Row href="/settings?section=help" icon={<LifeBuoy className="w-5 h-5 text-pink-500" />} label="Modes of work" />
       </Group>
     </div>
   );
@@ -57,21 +47,12 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-function Row({ href, label, icon, dot }: { href: string; label: string; icon?: React.ReactNode; dot?: React.ReactNode }) {
+function Row({ href, label, dot }: { href: string; label: string; dot?: React.ReactNode }) {
   return (
     <Link href={href} className="flex items-center gap-3 px-4 h-14 active:bg-muted/60">
-      {icon}
       <span className="flex-1 min-w-0 truncate text-[16px] text-foreground">{label}</span>
       {dot}
       <ChevronRight className="w-4 h-4 text-muted-foreground/40" />
-    </Link>
-  );
-}
-
-function Chip({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <Link href={href} className="h-11 px-4 inline-flex items-center gap-2 rounded-full border border-border bg-background text-sm font-medium text-foreground active:scale-95 transition-transform">
-      {children}
     </Link>
   );
 }

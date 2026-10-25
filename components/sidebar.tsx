@@ -1,13 +1,12 @@
 'use client';
 
 import Link from '@/components/intent-link';
-import { useState } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { ChevronRight, LogOut, Play, Search } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { LogOut, Play, Search } from 'lucide-react';
 import { logoutAction } from '@/app/actions';
-import { placeOf, modeLinks, startClaudeUrl } from '@/lib/nav';
+import { placeOf, startClaudeUrl } from '@/lib/nav';
 import { cn } from '@/lib/utils';
-import { useApp, useModes } from './app-context';
+import { useApp } from './app-context';
 import { ThemeToggle } from './theme-toggle';
 import { QuickAddLauncher } from './quick-add';
 import { openSearch } from './global-search';
@@ -57,7 +56,6 @@ export function Sidebar({ showSignOut = true }: { showSignOut?: boolean }) {
           <NavItem href="/notifications" on={place === 'inbox'} count={unread} tone="red">Inbox</NavItem>
           <NavItem href="/review" on={place === 'review'}>Review</NavItem>
           <NavItem href="/timetable" on={place === 'schedule'}>Schedule</NavItem>
-          <Modes />
         </Group>
       </nav>
 
@@ -82,38 +80,6 @@ export function Sidebar({ showSignOut = true }: { showSignOut?: boolean }) {
 
 function Group({ children }: { children: React.ReactNode }) {
   return <div className="space-y-0.5 py-2 border-t border-border/60 first:border-t-0 first:pt-0">{children}</div>;
-}
-
-function Modes() {
-  const path = usePathname();
-  const params = useSearchParams();
-  const active = params.get('mode');
-  const { modes } = useModes();
-  const [open, setOpen] = useState(false);
-  const show = open || (!!active && path.startsWith('/tasks'));
-  return (
-    <div>
-      <button
-        onClick={() => setOpen(o => !o)}
-        aria-expanded={show}
-        className="flex items-center justify-between px-2 py-1.5 rounded hover:bg-muted text-foreground/80 transition-colors w-full"
-      >
-        Modes
-        <ChevronRight className={cn('w-3.5 h-3.5 text-muted-foreground transition-transform', show && 'rotate-90')} />
-      </button>
-      {show &&
-        modeLinks(modes).map(m => (
-          <Link
-            key={m.name}
-            href={m.href}
-            className={cn('flex items-center gap-2 pl-4 pr-2 py-1.5 rounded hover:bg-muted text-foreground/80 transition-colors', active === m.name && path.startsWith('/tasks') && 'bg-muted font-medium text-foreground')}
-          >
-            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: m.hex }} />
-            <span className="truncate">{m.name}</span>
-          </Link>
-        ))}
-    </div>
-  );
 }
 
 function NavItem({

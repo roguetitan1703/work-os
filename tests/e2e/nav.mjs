@@ -52,11 +52,29 @@ const settle = p => p.waitForTimeout(700);
   // Menu
   await p.goto(B + '/menu'); await settle(p);
   const hrefs = await p.locator('main a').evaluateAll(els => els.map(e => e.getAttribute('href')));
-  const want = ['/review', '/timetable', '/settings', '/settings?section=help']; // Review hub replaced the five history links; Connect and Recovery live in Settings
+  const want = ['/notifications', '/review', '/timetable', '/settings']; // Inbox, Review, Schedule, Settings; Connect lives in Settings
   for (const w of want) check(`menu links ${w}`, hrefs.includes(w));
   const mc = hrefs.filter(h => h?.startsWith('/tasks?mode='));
-  check('menu has 8 mode chips', mc.length === 8, String(mc.length));
+  check('menu has no mode chips and no Modes of work row', mc.length === 0 && !hrefs.includes('/settings?section=help'), String(mc.length));
+  check('menu has exactly Inbox, Review, Schedule, Settings', JSON.stringify([...new Set(hrefs)].sort()) === JSON.stringify(['/notifications', '/review', '/settings', '/timetable']), JSON.stringify(hrefs));
   check('menu Settings status dot', (await p.locator('main a[href="/settings"] [role=img]').count()) === 1);
+  await p.goto(B + '/tasks'); await settle(p);
+  const mh = p.locator('[data-mode-help]:visible').first();
+  const mhb = await mh.boundingBox();
+  check('phone Tasks: "What are these?" chip at 44px', mhb && mhb.height >= 43.5 && /What are these\?/.test(await mh.innerText()), JSON.stringify(mhb));
+  await mh.tap(); await p.locator('[data-mode-help-list]').waitFor();
+  check('phone Tasks: What are these? lists the 8 kinds of work with definitions', (await p.locator('[data-mode-help-list] > div').count()) === 8);
+  const oh = await overflow(p); check('phone Tasks: no horizontal scroll with the sheet open', okO(oh), JSON.stringify(oh).slice(0, 200));
+  await p.locator('[data-sheet] button[aria-label=Close]').first().tap(); await p.waitForTimeout(300);
+  // Task page (phone): core fields on top, the rest under More details
+  await p.goto(B + '/tasks/1'); await settle(p);
+  const mdb = p.locator('[data-more-details]:visible');
+  const mdbb = await mdb.boundingBox();
+  check('phone task: More details is collapsed, 44px, and Project / Kind of work are inside it', mdbb && mdbb.height >= 43.5 && (await p.locator('[data-more-details-body]:visible').count()) === 0 && !(await p.locator('main').innerText()).includes('Estimate'), JSON.stringify(mdbb));
+  await mdb.tap();
+  const mdtext = await p.locator('[data-more-details-body]:visible').innerText();
+  check('phone task: More details holds project, Kind of work, start, estimate, repeats, tags (no "Mode")', /Project/.test(mdtext) && /Kind of work/.test(mdtext) && /Start/.test(mdtext) && /Estimate/.test(mdtext) && /Repeats/.test(mdtext) && /Tags/.test(mdtext) && !/Mode/.test(mdtext), mdtext.replace(/\n/g, ' | ').slice(0, 160));
+  const ho = await overflow(p); check('phone task: no horizontal scroll with More details open', okO(ho), JSON.stringify(ho).slice(0, 200));
   const olds = ['/projects', '/projects?all=1', '/projects/alpha-client', '/modes/code-dev', '/history', '/hidden', '/review', '/timetable', '/recovery', '/notifications', '/settings', '/connect', '/archive'];
   for (const u of olds) { const r = await p.goto(B + u); await settle(p); check(`old More destination ${u} loads (${r.status()}) -> ${path(p)}`, r.status() === 200 && (await p.locator('h1:visible').count()) > 0); }
   await p.goto(B + '/projects'); await settle(p);
@@ -115,18 +133,35 @@ const settle = p => p.waitForTimeout(700);
   check('footer: theme clickable', (await hit('aside button:has(.sr-only)')) === 'ok');
   const order = await aside.locator('a, button').evaluateAll(els => els.map(e => e.textContent.replace(/\s+/g, ' ').trim().replace(/\s*[N1-5\/]$/, '').replace(/\d+$/, '').trim()).filter(Boolean));
   console.log('sidebar order:', JSON.stringify(order));
-  check('sidebar order', JSON.stringify(order.slice(0, 13)) === JSON.stringify(['New task', 'Start Claude', 'Search', 'Today', 'Tasks', 'Projects', 'Notes', 'Claude', 'Inbox', 'Review', 'Schedule', 'Modes', 'Settings']), JSON.stringify(order));
-  check('collapsed Modes shows no mode links', (await aside.locator('a[href^="/tasks?mode="]').count()) === 0);
+  check('sidebar order', JSON.stringify(order.slice(0, 12)) === JSON.stringify(['New task', 'Start Claude', 'Search', 'Today', 'Tasks', 'Projects', 'Notes', 'Claude', 'Inbox', 'Review', 'Schedule', 'Settings']), JSON.stringify(order));
+  check('sidebar has no Modes group or mode links', (await aside.locator('a[href^="/tasks?mode="]').count()) === 0 && (await aside.locator('button:has-text("Modes")').count()) === 0);
   const dbadge = t => aside.locator(`a:has-text("${t}") span.rounded-full`).first().innerText({ timeout: 1000 }).catch(() => '0');
   check('Today badge 2, Claude badge 2', (await dbadge('Today')) === '2' && (await dbadge('Claude')) === '2', `${await dbadge('Today')} ${await dbadge('Claude')}`);
   check('Settings status dot present', (await aside.locator('a[href="/settings"] [role=img]').count()) === 1);
-  await aside.locator('button:has-text("Modes")').click();
-  check('Modes expands to 8', (await aside.locator('a[href^="/tasks?mode="]').count()) === 8);
-  g = await geo();
-  check('expanded: sidebar still above time bar, footer clickable', g.bottom <= 760.5 && (await hit('aside button[title="Sign out"]')) === 'ok', JSON.stringify(g));
-  await aside.locator('a[href^="/tasks?mode="]').first().click(); await p.waitForURL(/mode=/); await settle(p);
-  check('mode link -> /tasks?mode=', path(p).startsWith('/tasks?mode='), path(p));
+  // Kind of work filter on Tasks (the modes moved here from the sidebar), with the definitions behind "What are these?"
+  await p.goto(B + '/tasks'); await settle(p);
+  check('Tasks: Kind of work filter lists the 8 modes', (await p.locator('select[aria-label="Kind of work"] option').count()) === 9);
+  await p.locator('[data-mode-help]:visible').click();
+  await p.locator('[data-mode-help-list]').waitFor();
+  check('What are these? shows the 8 mode definitions', (await p.locator('[data-mode-help-list] > div').count()) === 8, await p.locator('[data-mode-help-list]').innerText().then(t => t.slice(0, 80)));
+  await p.keyboard.press('Escape'); await p.waitForTimeout(300);
+  await p.goto(B + '/tasks?mode=Code%20%26%20Dev'); await settle(p);
+  check('mode filter is still a URL filter on Tasks', (await p.locator('select[aria-label="Kind of work"]').inputValue()) === 'Code & Dev');
   check('Tasks lit in sidebar for mode filter', (await aside.locator('a[aria-current=page]').first().innerText()).startsWith('Tasks'));
+  // Task page (desktop): Delete lives in the "..." menu, away from Complete; More details holds the rest
+  await p.goto(B + '/tasks/1'); await settle(p);
+  const dtxt = await p.locator('main').innerText();
+  check('desktop task: Delete is not on the page until the "..." menu opens', !/Delete/.test(dtxt) && (await p.locator('button:has-text("Complete")').count()) === 1 && (await p.locator('[data-task-options]').count()) === 1);
+  check('desktop task: More details is collapsed; Due and Assigned to are on top', (await p.locator('[data-more-details-body]').count()) === 0 && /Due/.test(dtxt) && /Assigned to/.test(dtxt) && !/Estimate/.test(dtxt));
+  await p.locator('[data-task-options]').click(); await p.locator('[data-task-options-menu]').waitFor();
+  const otxt = await p.locator('[data-task-options-menu]').innerText();
+  check('desktop task: "..." menu has Archive and Delete', /Archive/.test(otxt) && /Delete/.test(otxt), otxt);
+  await p.locator('[data-task-options-menu] button:has-text("Delete")').click();
+  check('desktop task: Delete asks first (modal confirm)', await p.locator('[role=dialog]:has-text("Move to trash")').waitFor({ timeout: 4000 }).then(() => true, () => false));
+  await p.keyboard.press('Escape'); await p.waitForTimeout(300);
+  await p.locator('[data-more-details]:visible').click();
+  const dmd = await p.locator('[data-more-details-body]:visible').innerText();
+  check('desktop task: More details holds Project, Kind of work, Estimate, Start, Repeats, Tags', /Project/.test(dmd) && /Kind of work/.test(dmd) && /Estimate/.test(dmd) && /Start/.test(dmd) && /Repeats/.test(dmd) && /Tags/.test(dmd) && !/Mode/.test(dmd), dmd.replace(/\n/g, ' | ').slice(0, 120));
   await p.goto(B + '/today'); await settle(p);
   await aside.locator('button:has-text("Start Claude")').click(); await p.waitForTimeout(700);
   check('Start Claude button -> ?start=1', path(p) === '/today?start=1', path(p));

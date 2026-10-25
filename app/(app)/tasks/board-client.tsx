@@ -14,6 +14,8 @@ import { fmtDue, PRIORITY_TEXT } from '@/lib/format';
 import type { Status, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ClaudeBadge } from '@/components/give-to-claude';
+import { ModeHelp } from '@/components/mode-help';
+import { AddTaskButton } from '@/app/(app)/projects/[id]/add-task-button';
 
 const COLUMNS: { status: Status; label: string; tone: string }[] = [
   { status: 'Not Started', label: 'To do', tone: 'bg-muted-foreground/40' },
@@ -94,12 +96,13 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false }: P
               </option>
             ))}
           </select>
-          <select className={sel} value={filters.mode} onChange={e => setFilter('mode', e.target.value)}>
-            <option value="">All modes</option>
+          <select className={sel} value={filters.mode} onChange={e => setFilter('mode', e.target.value)} aria-label="Kind of work">
+            <option value="">All kinds of work</option>
             {modes.map(m => (
               <option key={m.name}>{m.name}</option>
             ))}
           </select>
+          <ModeHelp />
           <select className={sel} value={filters.due} onChange={e => setFilter('due', e.target.value)}>
             <option value="">Any due date</option>
             <option value="overdue">Overdue</option>
@@ -113,6 +116,13 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false }: P
       </div>
 
       <QuickAddBar defaults={{ project: projectName }} />
+
+      {tasks.length === 0 && !filters.q && !filters.project && !filters.mode && !filters.due && !filters.assigned && (
+        <div className="flex items-center gap-3 rounded-xl border border-dashed border-border px-4 py-3" data-tasks-empty>
+          <p className="flex-1 text-sm text-muted-foreground">No tasks yet. Add one, or ask Claude to.</p>
+          <AddTaskButton label="Add a task" />
+        </div>
+      )}
 
       <div className={cn('grid grid-cols-4 gap-3 items-start', pending && 'opacity-70')}>
         {COLUMNS.map(col => {
