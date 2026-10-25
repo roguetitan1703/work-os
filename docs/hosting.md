@@ -202,6 +202,7 @@ sudo nano /etc/work-os/env      # fill in; see Environment below
 # scripts/cutover.sh, having read the diff.
 D=/srv/work-os/repo/deploy
 sudo install -o root -g root -m 0755 $D/deploy.sh /usr/local/sbin/work-os-deploy
+sudo install -o root -g root -m 0755 $D/update.sh /usr/local/sbin/work-os-update
 sudo install -o root -g root -m 0644 $D/fresh-build-secrets.mjs /usr/local/sbin/work-os-fresh-secrets.mjs
 sudo install -o root -g root -m 0755 $D/backup.sh /usr/local/sbin/work-os-backup
 sudo install -o root -g root -m 0755 $D/cron-alerts.sh /usr/local/sbin/work-os-cron-alerts
@@ -446,6 +447,21 @@ machine's, because a build made on another platform is not checked to run here. 
 a 1.5 GB heap, low priority and its own memory cgroup (1200M plus up to 2G of swap). On this box that means pushing
 the other apps into swap for many minutes: ask Om first. Slow; do it at a quiet hour. If it runs out of memory only the build stops; the app keeps serving the
 old release. A build made on the box keeps its own secrets (they were never published).
+
+### Updating
+
+One command on the server brings it to the latest `master`:
+
+```bash
+sudo work-os-update
+```
+
+`work-os-update` (`deploy/update.sh`) fetches `origin/master`; if that commit is already live it stops. Otherwise it
+looks for its build in the `builds` release (GitHub Actions; `work-os-deploy` checks the attestation), then in the
+`manual-builds` release (a PC build, checked against the `.sha256` uploaded with it), and hands it to
+`work-os-deploy`, which installs, switches and rolls back on a failed start. No build yet: it says so and changes
+nothing. It never re-installs the root-owned scripts: when `deploy/` or `scripts/cutover.sh` changed it lists them,
+and you re-run the install lines in section 4 after reading the diff.
 
 ### Building on a PC
 
