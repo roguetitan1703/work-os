@@ -4,6 +4,7 @@
 - 2026-10-23: move Work OS to Delpat's server (t4g.small, Caddy, work.delpat.in, Atlas) for the Delpat team. Code side done and merged: multi-user phases 0–5, leak audit, load budgets, Next 16.4.2 + CSP/headers, Shared/Private projects (old projects migrate as private), dispatcher trust labels (only the giver's words instruct Claude), deploy kit fitted to the box (docs/hosting.md). Waits on Om: DNS for work.delpat.in, Atlas access + allowlist, env values, R2 bucket/token and age key for backups, the box steps in docs/hosting.md, then the cut-over (snapshot, copy run, apply).
 
 ## Next
+0. OAuth sign-in for Claude (builder A, branch builder-a): built and tested on the PC (docs/auth.md "Connecting Claude with OAuth"); waits on its security review, the merge and the deploy, then Om adds the connector on claude.ai (URL `https://work.delpat.in/api/mcp`, sign in, Allow) and runs `claude mcp add` + `/mcp` in Claude Code. Keys stay under Settings › Connections › Advanced.
 Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
 Open work is filed as Claude items on Work OS (Claude page › Queue); this list only orders it.
 1. C46 (Om): first real dispatcher task — Claude › Setup: pick the boilerplate note, turn the dispatcher on, Give to Claude on one small task.
@@ -14,6 +15,14 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- OAuth: never tried against the real claude.ai or the real Claude Code (the suite is a scripted client following Claude's documented flow: 401 + resource_metadata, dynamic registration, S256, loopback redirects); check the first real connection and the consent screen on the box, and that claude.ai accepts the metadata (resource = APP_URL/api/mcp exactly) — waits on the deploy.
+- OAuth: claude.ai registers a new client on every connection, so Settings › Signed-in apps grows by one entry each time Om re-adds the connector (unused clients with no approval are deleted after 48 h; approved ones stay until revoked) — waits on it annoying (then group by name and redirect, or drop apps unused for 90 days).
+- OAuth: expired access and refresh tokens, used authorization codes and the `oauthConsent` rows of deleted clients are never swept (small rows) — waits on volume (a prune beside the alerts cron).
+- OAuth: the client-metadata-document way (CIMD, what Claude Code prefers) is not offered; Claude falls back to registration (docs/auth.md) — waits on registration being a nuisance.
+- OAuth: registration's 20 an hour and the token endpoint's 30 a minute are per address and share one bucket without TRUST_PROXY=1 — set on the box (Caddy sets X-Real-IP); check there.
+- OAuth: signing out of the browser or "sign out other devices" does not end an approved app; only Revoke, member removal and a password reset do (by design: the connection is not the browser session) — waits on Om wanting otherwise.
+- OAuth: a person in two organizations approves each separately and picks by switching organization first; the consent screen names the organization but does not offer a switch — waits on a real second organization.
+- Claude › Setup still creates Claude Code keys and the old connector guide is gone from Connections; the keys stay as the fallback — waits on OAuth proven with Claude Code, then remove the key path for Claude Code.
 - Injection labels: the list and search tools (get_project, list_tasks, search, daily_summary, list_notes, recent_activity, Claude items, the Discord read tools) carry teammates' text without writtenBy labels (the fixed instructions line covers them in words only) — waits on the review saying which matter.
 - Injection labels: an owner's edit launders text: once the owner edits a field (say a teammate's description), the whole field counts as the owner's, the teammate's words left in it included; notes keep only createdBy and updatedBy (labelled when either is someone else) — waits on per-span or per-block authors.
 - Injection labels: projects from before nameBy count as named by their owner (a teammate's earlier rename is not known) — waits on it mattering (no shared projects predate the cutover).

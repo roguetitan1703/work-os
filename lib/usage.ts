@@ -34,6 +34,7 @@ const ROUTE_LIST: [string, string][] = [
   ['/login', '/login'],
   ['/login/reset', '/login/reset'],
   [`/accept-invitation/${S}`, '/accept-invitation/[id]'],
+  ['/oauth/consent', '/oauth/consent'],
   ['/api/auth/.+', '/api/auth/[all]'], // no dots: route names are Mongo field names
   ['/api/mcp', '/api/mcp'],
   [`/api/mcp/${S}`, '/api/mcp/[key]'],

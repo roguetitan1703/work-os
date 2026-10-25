@@ -89,9 +89,8 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 ## 3. Claude connector (MCP)
 
 ### Om
-- **Connecting:** claude.ai → Settings → Connectors → Add custom connector:
-  - URL: `https://work-os-puce-delta.vercel.app/api/mcp`
-  - Authentication: no sign-in. Request header: `Authorization: Bearer <Claude chat key>` (Settings › Connections makes one; it belongs to you, and history records you).
+- **Connecting (OAuth, no key):** claude.ai → Settings → Connectors → Add custom connector → URL `https://work.delpat.in/api/mcp` (leave client ID and secret empty) → Connect. Work OS asks you to sign in, then shows *"Claude wants to access your Work OS as you in <organization>"* with Allow / Deny. Claude Code: `claude mcp add --scope user --transport http work-os https://work.delpat.in/api/mcp`, then `/mcp` → work-os → Authenticate (or `claude mcp login work-os`). Settings › Connections › *Signed-in apps* lists them (when, last used) with Revoke. Details, security rules and tests: `docs/auth.md` "Connecting Claude with OAuth".
+  - *Advanced: API keys* (same page): the old `Authorization: Bearer <key>` way, for the worker, scripts and clients that cannot sign in.
 - **Settings › Connections** (`/settings?section=connections`; the old `/connect` redirects there) has:
   - the URL and header with copy buttons (the key is hidden until you click reveal)
   - instructions to paste into a Claude Project or your preferences
@@ -99,7 +98,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
   - every tool with a description and an example question
   - Discord setup with live status
   - (alert settings and status live in Settings › Alerts)
-- **To change the key:** make a new Claude chat key in Settings › Connections, update the header in claude.ai, revoke the old one.
+- **To disconnect:** Revoke the app in Settings › Connections › Signed-in apps (or revoke the API key, if you used one).
 
 ### Claude
 - **Every write is attributed to Claude** in history. It records the key's owner: a teammate's key shows as "Claude · <name>".
@@ -115,7 +114,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
   - Update an existing note before creating a new one.
 
 ### Claude Code
-- **Endpoint:** `app/api/mcp/[[...key]]/route.ts`. Stateless Streamable HTTP. The key goes in a header (`Authorization: Bearer` or `X-API-Key`).
+- **Endpoint:** `app/api/mcp/[[...key]]/route.ts`. Stateless Streamable HTTP. `Authorization: Bearer` takes an OAuth access token (`wosat_…`, `lib/oauth.ts`) or an API key (`wos_…`, also `X-API-Key`); no or bad credentials get 401 with `WWW-Authenticate` pointing at `/.well-known/oauth-protected-resource`. An OAuth client counts as a Claude chat key only when all its registered redirect addresses are claude.ai's callback; any other client gets the Claude Code rules.
 - **Tool handlers:** `lib/mcp/server.ts`.
 - **Tool titles, descriptions and server instructions:** `lib/mcp/docs.ts`. This one file feeds both MCP and Settings › Connections, so edit descriptions there.
 - **Adding a tool:** add its name to `ToolName` and an entry in `TOOLS` (docs.ts), register it with `tool(...)` in server.ts, and add it to `ORDER` in `app/(app)/connect/page.tsx`.

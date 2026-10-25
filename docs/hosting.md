@@ -631,7 +631,7 @@ on a restored copy (section 11): `--db workos_restore --to 4 --skip-backup`.
 Then Om:
 1. `https://work.delpat.in/login` → *Forgot password?* → his address → sets a password from the mail; turns the
    authenticator app and passkeys on again.
-2. Settings › Connections: a Claude chat key; updates the claude.ai connector URL to `https://work.delpat.in/api/mcp`.
+2. claude.ai: Settings → Connectors → add (or edit) the custom connector with URL `https://work.delpat.in/api/mcp` and press Connect: he signs in to Work OS and presses Allow (OAuth; no key). Claude Code: `claude mcp add --scope user --transport http work-os https://work.delpat.in/api/mcp`, then `/mcp` → Authenticate. `APP_URL` must be exactly `https://work.delpat.in` (it is the OAuth issuer and resource).
 3. Claude › Setup: Claude Code keys; re-adds each computer and puts the new `wkr_` key and
    `baseUrl: https://work.delpat.in` in the worker config.
 4. Discord Developer Portal: Interactions Endpoint URL → `https://work.delpat.in/api/discord/interactions`.
