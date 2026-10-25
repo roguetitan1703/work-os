@@ -230,8 +230,13 @@ unpack_build() {
     case "$to" in "$REL/node_modules/"*) ;; *) echo "  ${l#"$REL"/} points outside this release (${to}); was it built in $REL?" >&2; return 1 ;; esac
   done < <(find "$REL" -type l -print0)
   [ "$(cat "$REL/REVISION" 2>/dev/null)" = "$SHA" ] || { echo "  it is the build of another commit" >&2; return 1; }
-  [ "$(cat "$REL/BUILD_ARCH" 2>/dev/null)" = "$(uname -m)" ] ||
-    { echo "  it was built for $(cat "$REL/BUILD_ARCH" 2>/dev/null || echo '?'); this machine is $(uname -m)" >&2; return 1; }
+  # .next is JavaScript plus links into node_modules, which npm ci installs for this machine below. A build made on
+  # another CPU type (scripts/build-artifact.sh on an x64 PC) is fine as long as it holds no native code of its own.
+  if [ "$(cat "$REL/BUILD_ARCH" 2>/dev/null)" != "$(uname -m)" ]; then
+    [ -z "$(find "$REL/.next" -type f \( -name '*.node' -o -name '*.so' \) -print -quit)" ] ||
+      { echo "  it was built for $(cat "$REL/BUILD_ARCH" 2>/dev/null || echo '?') and holds native code; this machine is $(uname -m)" >&2; return 1; }
+    echo "  built on $(cat "$REL/BUILD_ARCH" 2>/dev/null || echo '?'): no native code in it, so it runs on $(uname -m)"
+  fi
   want="$(sed -E 's/^v([0-9]+).*/\1/' "$REL/BUILD_NODE" 2>/dev/null || true)"
   have="$("$NODE_DIR/bin/node" -v | sed -E 's/^v([0-9]+).*/\1/')"
   [ -z "$want" ] || [ "$want" = "$have" ] || { echo "  it was built with Node $want; this machine runs Node $have" >&2; return 1; }

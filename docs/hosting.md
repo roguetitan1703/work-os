@@ -192,6 +192,7 @@ sudo adduser --system --group --no-create-home --home /nonexistent workos
 sudo adduser --system --group --home /var/lib/workos-build workos-build
 sudo install -d -o root -g root -m 0755 /srv/work-os
 sudo install -d -o root -g root -m 0755 /srv/work-os/releases   # root's: the build user only fills a release folder
+sudo install -d -o workos-build -g workos-build -m 0755 /srv/work-os/repo   # /srv/work-os is root's
 sudo -u workos-build git clone https://github.com/roguetitan1703/work-os.git /srv/work-os/repo
 sudo install -d -m 0750 -g workos /etc/work-os
 sudo install -m 0640 -g workos /srv/work-os/repo/deploy/env.template /etc/work-os/env
@@ -445,6 +446,23 @@ machine's, because a build made on another platform is not checked to run here. 
 a 1.5 GB heap, low priority and its own memory cgroup (1200M plus up to 2G of swap). On this box that means pushing
 the other apps into swap for many minutes: ask Om first. Slow; do it at a quiet hour. If it runs out of memory only the build stops; the app keeps serving the
 old release. A build made on the box keeps its own secrets (they were never published).
+
+### Building on a PC
+
+When GitHub Actions cannot run (2026-10-25: the account was locked over billing) and the box is too small to build
+(a `--build-here` build was OOM-killed at its 1.2 GB cap), build on a PC in WSL (Ubuntu) instead:
+
+```bash
+sudo bash scripts/build-artifact.sh origin/master /mnt/c/Users/<you>/Downloads   # in WSL, from a clone of the repo
+```
+
+It does what the workflow does: a clean clone of the public repo, the commit at `/srv/work-os/releases/<commit>`,
+`npm ci`, `npm run build` on Node 22, and `work-os-<commit>.tar.gz` plus its `.sha256`. Copy both to the server (e.g.
+uploaded to a release and fetched with `curl`), check the SHA-256 there against the one the PC printed, then
+`sudo work-os-deploy <commit> --artifact work-os-<commit>.tar.gz`. It has no attestation, so the deploy says
+"deploying it on your word". The PC is x86_64 and the box arm64: `deploy.sh` accepts a build from another CPU type only
+when `.next` holds no native code (`*.node`, `*.so`); `.next` is JavaScript and links, and npm ci installs the box's
+own native packages.
 
 ### The build's secrets
 
