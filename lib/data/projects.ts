@@ -181,6 +181,17 @@ export async function listProjectsNav(s: Scope): Promise<Pick<Project, 'id' | 'n
   return docs.map(d => ({ id: d._id, name: d.name, status: d.status, visibility: d.visibility }));
 }
 
+/** The sidebar's Recent: the projects the caller can see (active or paused), newest activity first (a task change or the project's own). */
+export async function listRecentProjects(s: Scope, limit = 5): Promise<Pick<Project, 'id' | 'name' | 'visibility'>[]> {
+  // Runs on every page, so it reads projects only (a handful of documents), never the tasks.
+  const c = await scoped(s);
+  const docs = await c.projects.find({ status: { $in: ['active', 'paused'] } }, { projection: { name: 1, visibility: 1, updatedAt: 1 } }).toArray();
+  return docs
+    .sort((x, y) => (y.updatedAt?.getTime() ?? 0) - (x.updatedAt?.getTime() ?? 0))
+    .slice(0, limit)
+    .map(d => ({ id: d._id, name: d.name, visibility: d.visibility }));
+}
+
 export async function projectNameMap(s: Scope, c?: Collections): Promise<Map<string, string>> {
   c ??= await scoped(s);
   const docs = await c.projects.find({}, { projection: { name: 1 } }).toArray();

@@ -30,6 +30,7 @@ export default async function AcceptInvitationPage({ params, searchParams }: Pro
       <div className="w-full max-w-sm rounded-2xl bg-card border border-border/70 p-6 space-y-5 shadow-sm" data-invite={view ? (view.accountExists ? 'existing' : 'new') : 'invalid'}>
         <div>
           <h1 className="text-2xl font-bold text-foreground">{view ? `Join ${view.orgName}` : 'Invitation'}</h1>
+          {view && !view.accountExists && <p className="text-[15px] font-medium text-foreground mt-1">Set a password to start.</p>}
           <p className="text-[15px] text-muted-foreground mt-1">
             {view ? `You were invited as ${view.role}, as ${view.email}.` : 'This invitation link is invalid, expired or already used. Ask for a new one.'}
           </p>

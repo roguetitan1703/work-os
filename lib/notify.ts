@@ -26,7 +26,7 @@ export const ALERT_KINDS: { kind: AlertKind; label: string; hint: string }[] = [
 export const NOTIFY_KINDS: { kind: NotifyKind; label: string; hint: string }[] = [
   ...ALERT_KINDS,
   { kind: 'claude_code_changes', label: 'Claude Code changes', hint: 'Claude Code changed or deleted a task it did not create (inbox)' },
-  { kind: 'claude_waiting', label: 'Claude needs you', hint: 'A Claude item is waiting on your decision (inbox)' },
+  { kind: 'claude_waiting', label: 'Claude is asking', hint: 'A Claude item is waiting on your decision (inbox)' },
 ];
 
 export type NotifySettings = {

@@ -3,7 +3,8 @@
 import Link from '@/components/intent-link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { CalendarCheck, FolderOpen, LayoutList, Menu, Plus, Search, Sparkles } from 'lucide-react';
+import { Menu, Plus, Search } from 'lucide-react';
+import { PLACE_ICON } from '../nav-icons';
 import { cn } from '@/lib/utils';
 import { phoneTabOf } from '@/lib/nav';
 import { useApp } from '../app-context';
@@ -13,11 +14,11 @@ import { openSearch } from '../global-search';
 
 type TabKey = 'today' | 'projects' | 'claude' | 'tasks';
 const TABS: ({ key: TabKey; href: string; label: string; icon: typeof Menu } | null)[] = [
-  { key: 'today', href: '/today', label: 'Today', icon: CalendarCheck },
-  { key: 'projects', href: '/projects', label: 'Projects', icon: FolderOpen },
+  { key: 'today', href: '/today', label: 'Today', icon: PLACE_ICON.today },
+  { key: 'projects', href: '/projects', label: 'Projects', icon: PLACE_ICON.projects },
   null, // + in the middle
-  { key: 'claude', href: '/claude', label: 'Claude', icon: Sparkles },
-  { key: 'tasks', href: '/tasks', label: 'Tasks', icon: LayoutList },
+  { key: 'claude', href: '/claude', label: 'Claude', icon: PLACE_ICON.claude },
+  { key: 'tasks', href: '/tasks', label: 'Tasks', icon: PLACE_ICON.tasks },
 ];
 
 /** Phone navigation: Today, Projects, a centre "add" button, Claude and Tasks, above the home indicator. */
@@ -63,7 +64,7 @@ export function TabBar() {
                 )}
               >
                 <span className="relative">
-                  <t.icon className="w-6 h-6" strokeWidth={lit === t.key ? 2.4 : 1.8} />
+                  <t.icon className="w-6 h-6" strokeWidth={lit === t.key ? 2.2 : 1.6} aria-hidden />
                   {count[t.key] > 0 && (
                     <span
                       data-badge={t.key}

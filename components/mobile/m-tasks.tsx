@@ -11,6 +11,9 @@ import { cn } from '@/lib/utils';
 import { useApp, useModes } from '../app-context';
 import { MobileHeader } from './tab-bar';
 import { MSection, MTaskRow } from './m-task-row';
+import { ModeHelp } from '../mode-help';
+import { NavIcon, PLACE_ICON } from '../nav-icons';
+import { AddTaskButton } from '@/app/(app)/projects/[id]/add-task-button';
 
 type Seg = 'open' | 'soon' | 'waiting' | 'done';
 const SEGS: { key: Seg; label: string }[] = [
@@ -177,9 +180,16 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch
             {filters.mode === m.name && <X className="inline w-3.5 h-3.5 ml-1 -mr-1" />}
           </Chip>
         ))}
+        <ModeHelp chip />
       </div>
 
-      {list.length === 0 ? (
+      {tasks.length === 0 && !q && !nFilters && !filters.assigned ? (
+        <div className="mt-12 flex flex-col items-center gap-3 text-center" data-tasks-empty>
+          <NavIcon icon={PLACE_ICON.tasks} size={24} className="text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">No tasks yet. Add one, or ask Claude to.</p>
+          <AddTaskButton label="Add a task" />
+        </div>
+      ) : list.length === 0 ? (
         <p className="mt-12 text-center text-sm text-muted-foreground">{q || nFilters ? 'No tasks match.' : seg === 'done' ? 'Nothing finished this week yet.' : 'Nothing here.'}</p>
       ) : seg === 'open' ? (
         PRIOS.map(p => {
@@ -245,12 +255,13 @@ function FilterSheet({ filters, projects, counts, onPick, onClear, onClose }: { 
             </Chip>
           ))}
         </FGroup>
-        <FGroup label="Mode">
+        <FGroup label="Kind of work">
           {modes.map(m => (
             <Chip key={m.name} on={filters.mode === m.name} onClick={() => onPick('mode', filters.mode === m.name ? '' : m.name)}>
               {m.name}
             </Chip>
           ))}
+          <ModeHelp chip />
         </FGroup>
         <FGroup label="Project">
           {projects.map(p => (

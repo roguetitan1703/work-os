@@ -25,9 +25,9 @@ export function useRestoreTask() {
   return { restore, pending };
 }
 
-export function DeleteTaskButton({ taskRef, title }: { taskRef: number; title: string }) {
+/** The delete-a-task dialog (a modal confirm with an optional reason); the page opens it from its "..." menu. */
+export function DeleteTaskDialog({ taskRef, title, open, onOpenChange }: { taskRef: number; title: string; open: boolean; onOpenChange: (open: boolean) => void }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [pending, start] = useTransition();
   const { restore } = useRestoreTask();
@@ -37,7 +37,7 @@ export function DeleteTaskButton({ taskRef, title }: { taskRef: number; title: s
     start(async () => {
       const res = await deleteTaskAction(taskRef, reason.trim() || undefined);
       if (!res.ok) return void toast.error(res.error);
-      setOpen(false);
+      onOpenChange(false);
       toast.success(`Moved #${taskRef} to trash`, {
         duration: 10_000,
         action: { label: 'Undo', onClick: () => restore(taskRef, { open: true }) },
@@ -47,34 +47,29 @@ export function DeleteTaskButton({ taskRef, title }: { taskRef: number; title: s
   }
 
   return (
-    <>
-      <Button size="sm" variant="ghost" className="gap-1.5 h-8 max-md:h-11 max-md:px-4 max-md:text-sm text-muted-foreground hover:text-red-600 dark:hover:text-red-400" onClick={() => setOpen(true)}>
-        <Trash2 className="w-3.5 h-3.5" /> Delete
-      </Button>
-      <Dialog open={open} onOpenChange={v => !pending && setOpen(v)}>
-        <DialogContent className="max-w-md">
-          <form onSubmit={submit} className="space-y-4">
-            <DialogHeader>
-              <DialogTitle className="text-sm">
-                Delete <span className="font-mono">#{taskRef}</span>?
-              </DialogTitle>
-              <DialogDescription className="text-xs">
-                <span className="text-foreground">{title}</span> and its history go to the trash for 30 days. You can restore it from History → Trash until then.
-              </DialogDescription>
-            </DialogHeader>
-            <Input value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason (optional)" autoFocus />
-            <DialogFooter className="sm:justify-end">
-              <Button type="button" variant="outline" size="sm" className="max-md:h-11" onClick={() => setOpen(false)} disabled={pending}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="destructive" size="sm" className="gap-1.5 max-md:h-11" disabled={pending}>
-                <Trash2 className="w-3.5 h-3.5" /> Move to trash
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </>
+    <Dialog open={open} onOpenChange={v => !pending && onOpenChange(v)}>
+      <DialogContent className="max-w-md">
+        <form onSubmit={submit} className="space-y-4">
+          <DialogHeader>
+            <DialogTitle className="text-sm">
+              Delete <span className="font-mono">#{taskRef}</span>?
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              <span className="text-foreground">{title}</span> and its history go to the trash for 30 days. You can restore it from History → Trash until then.
+            </DialogDescription>
+          </DialogHeader>
+          <Input value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason (optional)" autoFocus />
+          <DialogFooter className="sm:justify-end">
+            <Button type="button" variant="outline" size="sm" className="max-md:h-11" onClick={() => onOpenChange(false)} disabled={pending}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="destructive" size="sm" className="gap-1.5 max-md:h-11" disabled={pending}>
+              <Trash2 className="w-3.5 h-3.5" /> Move to trash
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -143,7 +143,7 @@ export function TaskActionSheet({ task, open, onClose, onClaude }: { task: Task;
           </label>
           {task.due && <Opt onClick={() => apply({ due: null }, 'due cleared')}>No date</Opt>}
         </Group>
-        <Group label="Mode">
+        <Group label="Kind of work">
           {modes.map(m => (
             <Opt key={m.name} on={task.mode === m.name} onClick={() => apply({ mode: task.mode === m.name ? null : m.name }, task.mode === m.name ? 'mode cleared' : `→ ${m.name}`)}>
               {m.name}

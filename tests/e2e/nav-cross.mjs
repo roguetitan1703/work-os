@@ -27,7 +27,7 @@ console.log('alpha id', A);
   const badge = (await bar.locator('[data-badge=claude]').count()) ? await bar.locator('[data-badge=claude]').innerText() : '0';
   const head = await p.locator('[data-section=needs-you] h2').innerText();
   const n = Number((head.match(/(\d+)\s*$/) || [])[1] ?? 0);
-  check('phone: badge matches Needs you count', badge === String(n) && n > 0, `badge ${badge}, heading "${head}"`);
+  check('phone: badge matches Claude is asking count', badge === String(n) && n > 0, `badge ${badge}, heading "${head}"`);
   for (const u of ['/claude?tab=queue', '/claude?tab=setup']) {
     await p.goto(B + u); await p.waitForTimeout(500);
     const lit = await bar.locator('a[aria-current=page]').evaluateAll(e => e.map(x => (x.getAttribute('aria-label') || x.textContent).trim()));
@@ -94,7 +94,7 @@ console.log('alpha id', A);
   console.log(JSON.stringify(g));
   check('sidebar fits 1280x800', g.maxItem <= g.vh + 0.5 && g.minItem >= -0.5 && !g.docScroll, JSON.stringify(g));
   const hit = async sel => p.evaluate(s => { const e = document.querySelector(s); if (!e) return 'missing'; const r = e.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return e.contains(t) ? 'ok' : 'covered by ' + (t?.tagName + '.' + String(t?.className).slice(0, 40)); }, sel);
-  check('footer Sign out clickable', (await hit('aside button[title="Sign out"]')) === 'ok', await hit('aside button[title="Sign out"]'));
+  check('footer account button clickable', (await hit('aside [data-account-button]')) === 'ok', await hit('aside [data-account-button]'));
   for (const u of ['/today', '/tasks', '/claude', '/claude?tab=queue', '/claude?tab=setup', '/projects', '/notes', '/menu']) {
     await p.goto(B + u); await p.waitForTimeout(700); const o = await overflow(p);
     check(`1280 no h-scroll ${u}`, okO(o), JSON.stringify(o));

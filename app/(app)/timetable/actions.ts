@@ -16,9 +16,9 @@ function fail(e: unknown): R {
   return { ok: false, error: e instanceof Error && e.name !== 'Error' ? e.message : 'Could not save' };
 }
 
-export async function saveScheduleAction(blocks: ScheduleBlock[]): Promise<R> {
+export async function saveScheduleAction(blocks: ScheduleBlock[], colors?: Record<string, string>): Promise<R> {
   try {
-    await asCaller(c => saveSchedule(scopeOf(c), { blocks }));
+    await asCaller(c => saveSchedule(scopeOf(c), { blocks, ...(colors ? { colors } : {}) }));
     revalidatePath('/', 'layout');
     return { ok: true };
   } catch (e) {

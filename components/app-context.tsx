@@ -7,6 +7,9 @@ import type { WeekPlan } from '@/lib/schedule';
 
 type ProjectRef = { id: string; name: string; status: string; visibility?: 'org' | 'private' };
 export type NavBadges = { overdue: number; claudeWaiting: number; status: 'ok' | 'warn' | 'error' };
+/** The signed-in person as the sidebar's account button shows them. `operator`: runs this deployment (sees the server status). */
+export type Account = { name: string; email: string; org: string; operator: boolean };
+export type RecentProject = { id: string; name: string; private: boolean };
 /**
  * me: the signed-in user's id; people: user id → name for everyone in their organization (actor labels); tz: their
  * timezone; modes: the organization's modes of work; plan: their week (null: no schedule, so no block bar or tint).
@@ -24,10 +27,14 @@ type AppCtx = {
   tz: string;
   modes: ModeDef[];
   plan: WeekPlan | null;
+  account: Account;
+  /** At least one computer is set up (Start Claude has something to start on). */
+  hasComputers: boolean;
+  recent: RecentProject[];
 };
 
 const NO_BADGES: NavBadges = { overdue: 0, claudeWaiting: 0, status: 'ok' };
-const Ctx = createContext<AppCtx>({ today: '', projects: [], projectName: () => null, isPrivateProject: () => false, unread: 0, badges: NO_BADGES, me: '', orgId: '', people: {}, tz: 'UTC', modes: DEFAULT_MODES, plan: null });
+const Ctx = createContext<AppCtx>({ today: '', projects: [], projectName: () => null, isPrivateProject: () => false, unread: 0, badges: NO_BADGES, me: '', orgId: '', people: {}, tz: 'UTC', modes: DEFAULT_MODES, plan: null, account: { name: '', email: '', org: '', operator: false }, hasComputers: false, recent: [] });
 
 export function AppContextProvider({
   today,
@@ -40,6 +47,9 @@ export function AppContextProvider({
   tz = 'UTC',
   modes = DEFAULT_MODES,
   plan = null,
+  account = { name: '', email: '', org: '', operator: false },
+  hasComputers = false,
+  recent = [],
   children,
 }: {
   today: string;
@@ -52,6 +62,9 @@ export function AppContextProvider({
   tz?: string;
   modes?: ModeDef[];
   plan?: WeekPlan | null;
+  account?: Account;
+  hasComputers?: boolean;
+  recent?: RecentProject[];
   children: React.ReactNode;
 }) {
   // "today" in client code (lib/dates.ts todayStr) is the signed-in person's.
@@ -60,8 +73,8 @@ export function AppContextProvider({
   const value = useMemo(() => {
     const map = new Map(projects.map(p => [p.id, p.name]));
     const priv = new Set(projects.filter(p => p.visibility === 'private').map(p => p.id));
-    return { today, projects, unread, me, orgId, people, tz, modes, plan, badges: { overdue, claudeWaiting, status }, projectName: (id: string | null) => (id ? (map.get(id) ?? id) : null), isPrivateProject: (id: string | null) => !!id && priv.has(id) };
-  }, [today, projects, unread, overdue, claudeWaiting, status, me, orgId, people, tz, modes, plan]);
+    return { today, projects, unread, me, orgId, people, tz, modes, plan, account, hasComputers, recent, badges: { overdue, claudeWaiting, status }, projectName: (id: string | null) => (id ? (map.get(id) ?? id) : null), isPrivateProject: (id: string | null) => !!id && priv.has(id) };
+  }, [today, projects, unread, overdue, claudeWaiting, status, me, orgId, people, tz, modes, plan, account, hasComputers, recent]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

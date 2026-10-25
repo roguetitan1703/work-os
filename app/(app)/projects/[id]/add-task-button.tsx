@@ -8,8 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { usePhone } from '@/components/mobile/use-phone';
 import { cn } from '@/lib/utils';
 
-/** "+ Task": capture sheet on phone, quick-add dialog on desktop, both preset to this project. */
-export function AddTaskButton({ project, className }: { project: string; className?: string }) {
+/** "+ Task": capture sheet on phone, quick-add dialog on desktop, both preset to this project (when there is one). */
+export function AddTaskButton({ project, label = 'Task', className }: { project?: string; label?: string; className?: string }) {
   const [open, setOpen] = useState(false);
   const phone = usePhone();
   return (
@@ -20,7 +20,7 @@ export function AddTaskButton({ project, className }: { project: string; classNa
         data-add-task
         className={cn('h-11 md:h-9 px-5 md:px-4 rounded-full md:rounded-md text-sm font-semibold inline-flex items-center justify-center gap-1.5 border border-border bg-card text-foreground active:bg-muted hover:bg-muted/60', className)}
       >
-        <Plus className="w-4 h-4" /> Task
+        <Plus className="w-4 h-4" /> {label}
       </button>
       {phone ? (
         <QuickAddSheet open={open} onClose={() => setOpen(false)} defaultProject={project} />
@@ -28,9 +28,9 @@ export function AddTaskButton({ project, className }: { project: string; classNa
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogContent className="max-w-xl top-[20%] translate-y-0">
             <DialogHeader>
-              <DialogTitle className="text-sm">New task in {project}</DialogTitle>
+              <DialogTitle className="text-sm">{project ? `New task in ${project}` : 'New task'}</DialogTitle>
             </DialogHeader>
-            {open && <QuickAddBar autoFocus defaults={{ project }} onCreated={() => setOpen(false)} />}
+            {open && <QuickAddBar autoFocus defaults={project ? { project } : undefined} onCreated={() => setOpen(false)} />}
             <p className="text-[11px] text-muted-foreground">{HELP}</p>
           </DialogContent>
         </Dialog>

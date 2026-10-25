@@ -1,6 +1,6 @@
 import { PrivateBadge } from '@/components/private-badge';
 import Link from '@/components/intent-link';
-import { FolderOpen } from 'lucide-react';
+import { PLACE_ICON, NavIcon } from '@/components/nav-icons';
 import { listProjects } from '@/lib/data/projects';
 import { fmtAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -54,7 +54,14 @@ export default async function ProjectsPage({ searchParams }: Props) {
       </div>
 
       {projects.length === 0 && (
-        <MEmpty icon={<FolderOpen className="w-5 h-5" />} title="No projects yet" hint="Tap + to create your first one." />
+        <div data-projects-empty>
+          <div className="md:hidden">
+            <MEmpty icon={<NavIcon icon={PLACE_ICON.projects} size={20} />} title="No projects yet" hint="Tap + to create your first one. A project groups tasks, notes and Claude for one client or product." />
+          </div>
+          <div className="hidden md:block">
+            <MEmpty icon={<NavIcon icon={PLACE_ICON.projects} size={20} />} title="No projects yet" hint="Click New project. A project groups tasks, notes and Claude for one client or product." />
+          </div>
+        </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">

@@ -8,7 +8,9 @@ import { SubHeader } from '@/components/mobile/sub-header';
 import { requireCaller } from '@/lib/caller';
 import { getSchedule } from '@/lib/user-schedule';
 import { getOrgModes } from '@/lib/org-modes';
+import { NavIcon, PLACE_ICON } from '@/components/nav-icons';
 import { ScheduleEditor } from './schedule-editor';
+import { SchedulePreset } from './schedule-preset';
 
 type Props = { searchParams: Promise<{ day?: string; edit?: string }> };
 
@@ -36,7 +38,7 @@ export default async function SchedulePage({ searchParams }: Props) {
 
   const edit = (
     <Link href="/timetable?edit=1" className="inline-flex items-center gap-1.5 h-11 md:h-8 px-3 rounded-lg border border-border text-sm md:text-xs text-foreground hover:bg-muted" data-edit-schedule>
-      <Pencil className="w-3.5 h-3.5" /> {blocks.length ? 'Edit' : 'Set up your schedule'}
+      <Pencil className="w-3.5 h-3.5" /> Edit
     </Link>
   );
 
@@ -45,10 +47,13 @@ export default async function SchedulePage({ searchParams }: Props) {
       <div className="space-y-6" data-schedule-empty>
         <SubHeader title="Schedule" />
         <h1 className="hidden md:block text-2xl font-bold text-foreground">Schedule</h1>
+        <NavIcon icon={PLACE_ICON.schedule} size={24} className="mx-1 md:mx-0 text-muted-foreground" />
         <p className="text-[15px] md:text-sm text-muted-foreground px-1 md:px-0">
-          No schedule yet. Add your week&apos;s time blocks (Monday to Friday) and Today shows the block you are in and its tasks.
+          Optional: set when you work, and Today shows what to do right now.
         </p>
-        <div className="px-1 md:px-0">{edit}</div>
+        <div className="px-1 md:px-0">
+          <SchedulePreset />
+        </div>
       </div>
     );
   }

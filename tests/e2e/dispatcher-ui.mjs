@@ -124,7 +124,7 @@ await runAssertSuite('dispatcher-ui', async () => {
     assert.ok(/Working 1 of 2/.test(sec) && /Running task/.test(sec) && /Queued, in order/.test(sec) && /#1 in line/.test(sec) && /#2 in line/.test(sec), 'groups');
     assert.ok(sec.indexOf('Queued first task') < sec.indexOf('Queued second task'), 'queue in marked order');
     assert.ok(/Recently finished or stopped/.test(sec) && /Finished task/.test(sec) && /needs prod credentials/.test(sec), 'recent');
-    assert.ok(await p.locator('[data-dispatcher-off]').count() === 1, 'off banner');
+    assert.ok(await p.locator('[data-claude-banner=off]').count() === 1, 'off banner');
     await btnH('[data-section=claude-tasks] button');
     await noScroll('claude now');
     await p.screenshot({ path: `${SP}/d-${label}-now.png`, fullPage: true });

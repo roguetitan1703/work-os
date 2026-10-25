@@ -156,7 +156,7 @@ try {
   const ctxP = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const pp = await ctxP.newPage();
   await login(pp, { phone: true, next: '/projects' });
-  await pp.waitForSelector(`a[href="/projects/${id}"]`, { timeout: 15000 });
+  await pp.waitForSelector(`a[href="/projects/${id}"]:visible`, { timeout: 15000 });
   check('phone: the list card carries the Private badge', (await pp.locator(`a[href="/projects/${id}"] [data-private-badge]:visible`).count()) > 0);
   await pp.click('button[aria-label="New project"]');
   await pp.waitForSelector('[data-sharing-choice]', { timeout: 15000 });

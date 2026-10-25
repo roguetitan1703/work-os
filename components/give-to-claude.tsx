@@ -128,7 +128,7 @@ export function ClaudeMarkSheet({ task, onClose }: { task: Pick<Task, 'id' | 're
             </p>
             {!opts.dispatcherOn && (
               <p className="text-[14px] md:text-xs rounded-lg bg-amber-500/10 text-amber-800 dark:text-amber-300 px-3 py-2" data-claude-off>
-                The dispatcher is off, so nothing starts yet. Turn it on in{' '}
+                Claude will not start tasks yet. Switch it on in{' '}
                 <Link href="/claude?tab=setup" onClick={onClose} className="underline">
                   Claude › Setup
                 </Link>

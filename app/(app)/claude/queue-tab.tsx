@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from '@/components/intent-link';
 import { ArrowDown, ArrowUp, ChevronsUp } from 'lucide-react';
 import { toast } from 'sonner';
+import { NavIcon, PLACE_ICON } from '@/components/nav-icons';
 import { cn } from '@/lib/utils';
 import type { QueueGroup } from '@/lib/data/claude-overview';
 import type { ClaudeItem } from '@/lib/types';
@@ -31,7 +32,7 @@ export function QueueTab({ groups }: { groups: QueueGroup[] }) {
     }
   };
 
-  if (groups.length === 0) return <p className="text-[15px] md:text-sm text-muted-foreground px-1 md:px-0">The queue is empty. Items Claude Code adds to a project&apos;s work list show up here.</p>;
+  if (groups.length === 0) return <p data-queue-empty className="text-[15px] md:text-sm text-muted-foreground px-1 md:px-0"><NavIcon icon={PLACE_ICON.claude} size={24} className="mb-2 block" />Nothing queued. Open a task and choose Give to Claude. Items Claude Code adds to a project&apos;s work list show up here too.</p>;
   const open = sel ? groups.find(g => g.projectId === sel.projectId) : undefined;
 
   return (

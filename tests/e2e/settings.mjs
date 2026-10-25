@@ -31,12 +31,12 @@ await runAssertSuite('settings', async () => {
     assert.ok(!(await p.evaluate(() => document.documentElement.classList.contains('dark'))));
     console.log(label, 'theme ok (was dark:', before, ')');
     if (label === 'desktop') {
-      // sidebar toggle first click from system
+      // account menu theme pick from system
       await p.evaluate(() => localStorage.removeItem('theme')); await p.reload(); await p.waitForSelector('[role=status]');
       const was = await p.evaluate(() => document.documentElement.classList.contains('dark'));
-      await p.locator('aside button:has(.sr-only)').first().click(); await p.waitForTimeout(200);
+      await p.locator('[data-account-button]').click(); await p.locator('[data-menu-theme]').hover(); await p.locator('[data-theme-option]').first().waitFor(); await p.locator(`[data-theme-option=${was ? 'light' : 'dark'}]`).click(); await p.waitForTimeout(300);
       const now = await p.evaluate(() => document.documentElement.classList.contains('dark'));
-      assert.notStrictEqual(was, now, 'sidebar toggle changes on first click'); console.log('sidebar toggle first click ok', was, '->', now);
+      assert.notStrictEqual(was, now, 'account menu theme changes on first pick'); console.log('account menu theme first pick ok', was, '->', now);
       await p.getByRole('radio', { name: 'Light' }).click();
     }
     await p.screenshot({ path: `${SP}/${label}-root.png`, fullPage: true });

@@ -1,5 +1,6 @@
 import Link from '@/components/intent-link';
-import { ChevronRight, LogOut } from 'lucide-react';
+import { BarChart3, Bell, ChevronRight, LogOut, Palette, Plug, ShieldCheck, Smartphone, Users, type LucideIcon } from 'lucide-react';
+import { NavIcon } from '@/components/nav-icons';
 import { SubHeader } from '@/components/mobile/sub-header';
 import { logoutAction } from '@/app/actions';
 import { headers } from 'next/headers';
@@ -35,6 +36,7 @@ const SECTIONS = [
   { id: 'help', label: 'Modes of work' },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]['id'];
+const SECTION_ICON: Record<SectionId, LucideIcon> = { device: Smartphone, alerts: Bell, security: ShieldCheck, members: Users, connections: Plug, usage: BarChart3, help: Palette };
 const sectionFrom = (v: string | undefined): SectionId | null => SECTIONS.find(s => s.id === v)?.id ?? null;
 
 type Props = { searchParams: Promise<{ section?: string; open?: string; range?: string }> };
@@ -88,6 +90,7 @@ export default async function SettingsPage({ searchParams }: Props) {
                     s.id === active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
                   )}
                 >
+                  <NavIcon icon={SECTION_ICON[s.id]} className="mr-3" />
                   {s.label}
                 </Link>
               </li>
@@ -168,6 +171,7 @@ async function PhoneRows({ operator }: { operator: boolean }) {
       <div className="rounded-2xl bg-card border border-border/70 divide-y divide-border/60 overflow-hidden">
         {rows.map(r => (
           <Link key={r.id} href={`/settings?section=${r.id}`} data-row={r.id} className="flex items-center gap-3 px-4 h-14 active:bg-muted/60">
+            <NavIcon icon={SECTION_ICON[r.id as SectionId]} className="text-muted-foreground" />
             <span className="flex-1 min-w-0 truncate text-[16px] text-foreground">{r.label}</span>
             {r.hint && <span className="text-sm text-muted-foreground truncate">{r.hint}</span>}
             <ChevronRight className="w-4 h-4 text-muted-foreground/40 shrink-0" />

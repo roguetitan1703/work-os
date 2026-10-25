@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import { ArrowUp, Play, X } from 'lucide-react';
+import { ArrowUp, Play, Sparkles, X } from 'lucide-react';
 import { HELP } from '../quick-add';
 import { startClaudeUrl } from '@/lib/nav';
 import { createTaskAction } from '@/app/actions';
@@ -28,7 +28,7 @@ const PRIO_TONE: Record<Priority, string> = {
  * priority and project. The quick syntax (@project !1 due:fri) still works when typed.
  */
 export function QuickAddSheet({ open, onClose, defaultProject }: { open: boolean; onClose: () => void; defaultProject?: string }) {
-  const { projects, today } = useApp();
+  const { projects, today, hasComputers } = useApp();
   const router = useRouter();
   const [text, setText] = useState('');
   const [prio, setPrio] = useState<Priority | null>(null);
@@ -134,17 +134,31 @@ export function QuickAddSheet({ open, onClose, defaultProject }: { open: boolean
 
         {!parsed.title.trim() && (
           <div className="px-4 pt-2">
-            <button
-              type="button"
-              data-start-claude
-              onClick={() => {
-                onClose();
-                router.push(startClaudeUrl());
-              }}
-              className="w-full h-11 rounded-xl border border-border flex items-center gap-2 px-3 text-[15px] font-medium text-foreground active:bg-muted"
-            >
-              <Play className="w-4 h-4" /> Start Claude
-            </button>
+            {hasComputers ? (
+              <button
+                type="button"
+                data-start-claude
+                onClick={() => {
+                  onClose();
+                  router.push(startClaudeUrl());
+                }}
+                className="w-full h-11 rounded-xl border border-border flex items-center gap-2 px-3 text-[15px] font-medium text-foreground active:bg-muted"
+              >
+                <Play className="w-4 h-4" /> Start Claude
+              </button>
+            ) : (
+              <button
+                type="button"
+                data-set-up-claude
+                onClick={() => {
+                  onClose();
+                  router.push('/claude?tab=setup');
+                }}
+                className="w-full h-11 rounded-xl border border-border flex items-center gap-2 px-3 text-[15px] font-medium text-foreground active:bg-muted"
+              >
+                <Sparkles className="w-4 h-4" /> Set up Claude
+              </button>
+            )}
           </div>
         )}
 

@@ -529,7 +529,7 @@ async function tellWaiting(s: Scope, d: ClaudeItemDoc, ctx: ItemCtx): Promise<vo
     const { addToInbox, getNotifySettings } = await import('../notify');
     const to = forUser(s, d.waitingOn);
     if ((await getNotifySettings(to)).kinds.claude_waiting === false) return;
-    await addToInbox(to, [{ kind: 'claude_waiting', title: `Claude needs you: ${itemRef(d.ref)} ${d.title}`, body: d.waitingText, url: `/projects/${d.projectId}?claude=${d.ref}` }]);
+    await addToInbox(to, [{ kind: 'claude_waiting', title: `Claude is asking: ${itemRef(d.ref)} ${d.title}`, body: d.waitingText, url: `/projects/${d.projectId}?claude=${d.ref}` }]);
   } catch (e) {
     console.error('[claude-items] notify failed', e);
   }

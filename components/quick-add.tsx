@@ -123,8 +123,8 @@ export function QuickAddBar({
   );
 }
 
-/** Global "N" shortcut → quick add dialog. */
-export function QuickAddLauncher() {
+/** Global "N" shortcut → quick add dialog. `render` draws the button that opens it (the sidebar's New task). */
+export function QuickAddLauncher({ render }: { render: (open: () => void) => React.ReactNode }) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -142,14 +142,7 @@ export function QuickAddLauncher() {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border border-border text-sm text-muted-foreground hover:bg-muted transition-colors"
-      >
-        <Plus className="w-3.5 h-3.5" />
-        New task
-        <kbd className="ml-auto text-[10px] font-mono border border-border rounded px-1">N</kbd>
-      </button>
+      {render(() => setOpen(true))}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl top-[20%] translate-y-0">
           <DialogHeader>

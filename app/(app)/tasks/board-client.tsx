@@ -14,6 +14,9 @@ import { fmtDue, PRIORITY_TEXT } from '@/lib/format';
 import type { Status, Task } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ClaudeBadge } from '@/components/give-to-claude';
+import { ModeHelp } from '@/components/mode-help';
+import { NavIcon, PLACE_ICON } from '@/components/nav-icons';
+import { AddTaskButton } from '@/app/(app)/projects/[id]/add-task-button';
 import { Select } from '@/components/ui/select';
 
 const COLUMNS: { status: Status; label: string; tone: string }[] = [
@@ -95,12 +98,13 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false }: P
               </option>
             ))}
           </Select>
-          <Select className={sel} value={filters.mode} onChange={e => setFilter('mode', e.target.value)}>
-            <option value="">All modes</option>
+          <Select className={sel} value={filters.mode} onChange={e => setFilter('mode', e.target.value)} aria-label="Kind of work">
+            <option value="">All kinds of work</option>
             {modes.map(m => (
               <option key={m.name}>{m.name}</option>
             ))}
           </Select>
+          <ModeHelp />
           <Select className={sel} value={filters.due} onChange={e => setFilter('due', e.target.value)}>
             <option value="">Any due date</option>
             <option value="overdue">Overdue</option>
@@ -114,6 +118,14 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false }: P
       </div>
 
       <QuickAddBar defaults={{ project: projectName }} />
+
+      {tasks.length === 0 && !filters.q && !filters.project && !filters.mode && !filters.due && !filters.assigned && (
+        <div className="flex items-center gap-3 rounded-xl border border-dashed border-border px-4 py-3" data-tasks-empty>
+          <NavIcon icon={PLACE_ICON.tasks} className="text-muted-foreground" />
+          <p className="flex-1 text-sm text-muted-foreground">No tasks yet. Add one, or ask Claude to.</p>
+          <AddTaskButton label="Add a task" />
+        </div>
+      )}
 
       <div className={cn('grid grid-cols-4 gap-3 items-start', pending && 'opacity-70')}>
         {COLUMNS.map(col => {

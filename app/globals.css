@@ -74,6 +74,12 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
+  /* Shared look tokens (see lib/ui-tokens.ts): row heights, icon size and stroke. */
+  --row-nav: 2.25rem;
+  --row-menu: 2.25rem;
+  --row-table: 2.75rem;
+  --icon-size: 18px;
+  --icon-stroke: 1.6;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);

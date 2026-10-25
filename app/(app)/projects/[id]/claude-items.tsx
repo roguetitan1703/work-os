@@ -89,10 +89,10 @@ export function ClaudeItems({ projectId, items, blockers, waiting: waitingCount,
           {open.length} open · {doneCount} done
         </span>
         {waitingCount > 0 && (
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">{waitingCount} waiting on a person</span>
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">Claude is asking {waitingCount}</span>
         )}
       </div>
-      {group('Waiting on you', waiting, 'text-amber-700 dark:text-amber-300')}
+      {group('Claude is asking', waiting, 'text-amber-700 dark:text-amber-300')}
       {group('Active', active)}
       {group('Next up', nextUp)}
       {group('Queued', plain)}
@@ -246,7 +246,7 @@ function Detail({ projectId, item: i, onSaved, blocker, up, down, first }: { pro
 
       {i.waitingOn && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
-          <div className="text-xs font-semibold text-amber-700 dark:text-amber-300">Claude is waiting on <PersonName userId={i.waitingOn} /></div>
+          <div className="text-xs font-semibold text-amber-700 dark:text-amber-300">Claude is asking <PersonName userId={i.waitingOn} /></div>
           <p className="text-sm whitespace-pre-wrap">{i.waitingText}</p>
           <div className="flex flex-wrap items-center gap-2">
             <input

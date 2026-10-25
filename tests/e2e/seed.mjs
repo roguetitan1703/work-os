@@ -79,6 +79,9 @@ async function seedNav() {
     const r = await call('update_claude_items', { project: P, ops: [{ op: 'add', project: P, kind: 'bug', title: t, why: 'Fixture for the nav badge test on the throwaway app, nothing real at all.', done_when: 'The nav badge check passes on the throwaway app.', waiting_on_om: 'Which one should we pick for this fixture?' }] });
     if (r.ERROR) throw new Error('seed claude items: ' + r.ERROR);
   }
+  // One computer, so Start Claude (not Set up Claude) shows in the sidebar and the + sheet.
+  const now = new Date();
+  await db.collection('devices').insertOne({ _id: 'dev1', name: 'Om-PC', ownerId: ME.userId, orgId: ME.orgId, hash: 'h1', prefix: 'p1', createdAt: now, lastSeenAt: now, revokedAt: null });
 }
 
 async function seedToday() {

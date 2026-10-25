@@ -279,7 +279,7 @@ export function PasteImportDialog({ open, onClose }: Props) {
                   <tr>
                     <th className="px-3 py-2 w-8"></th>
                     <th className="px-3 py-2 text-left">Task</th>
-                    <th className="px-3 py-2 text-left">Mode</th>
+                    <th className="px-3 py-2 text-left">Kind of work</th>
                     <th className="px-3 py-2 text-left">Project</th>
                     <th className="px-3 py-2 text-left">Priority</th>
                     <th className="px-3 py-2 text-left">Est.</th>
