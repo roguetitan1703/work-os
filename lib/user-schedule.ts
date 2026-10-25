@@ -1,8 +1,8 @@
 import 'server-only';
-import { DEFAULT_REVIEW, EMPTY_SCHEDULE, ScheduleSchema, type Schedule } from './schedule';
+import { EMPTY_SCHEDULE, ScheduleSchema, type Schedule } from './schedule';
 import { getUserSetting, setUserSetting, type Scope } from './scope';
 
-// Each person's own week, routine, review questions and help (`schedule:<userId>`; lib/schedule.ts has the shape).
+// Each person's own week (`schedule:<userId>`; lib/schedule.ts has the shape).
 // Read on every page (the block bar), so kept a minute per process; a save here clears it.
 
 const TTL_MS = 60_000;
@@ -15,7 +15,7 @@ const key = (s: Scope) => `${s.orgId}:${s.userId}`;
 function normalise(raw: unknown): Schedule {
   const p = ScheduleSchema.safeParse(raw ?? {});
   if (!p.success) return EMPTY_SCHEDULE;
-  return { ...p.data, review: p.data.review ?? DEFAULT_REVIEW };
+  return p.data;
 }
 
 export async function getSchedule(s: Scope): Promise<Schedule> {
@@ -29,11 +29,11 @@ export async function getSchedule(s: Scope): Promise<Schedule> {
 }
 
 /** Replace parts of the person's schedule (each part is checked; the rest is kept). */
-export async function saveSchedule(s: Scope, patch: Partial<Pick<Schedule, 'blocks' | 'routine' | 'colors' | 'taskModes' | 'review' | 'help'>>): Promise<Schedule> {
+export async function saveSchedule(s: Scope, patch: Partial<Pick<Schedule, 'blocks' | 'colors' | 'taskModes'>>): Promise<Schedule> {
   const d = await getUserSetting(s, 'schedule');
   const cur = ScheduleSchema.safeParse(d?.schedule ?? {});
   const next = ScheduleSchema.parse({ ...(cur.success ? cur.data : {}), ...patch });
   await setUserSetting(s, 'schedule', { schedule: next, updatedAt: new Date() });
   cache.delete(key(s));
-  return normalise(next);
+  return next;
 }

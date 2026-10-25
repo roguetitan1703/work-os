@@ -156,6 +156,7 @@ export type ClaudeItemState = (typeof CLAUDE_ITEM_STATES)[number];
 
 export type ClaudeItemPart = { id: string; text: string; done: boolean };
 export type ClaudeItemLog = { at: string; actor: Actor; session?: string; text: string };
+export type ClaudeItemAnswer = { question: string; text: string; by: string; at: string };
 
 export type ClaudeItem = {
   id: string;
@@ -178,6 +179,8 @@ export type ClaudeItem = {
   waitingOn: string | null;
   /** What they must decide or do (empty when not waiting). Was `waitingOnOm`. */
   waitingText: string;
+  /** The last question a person answered in the app (text empty: closed without an answer). Sessions read it in get_project. */
+  answer?: ClaudeItemAnswer | null;
   gitRef: string; // branch or commit when done
   claimedBy: { session: string; at: string } | null;
   createdBy: Actor;

@@ -102,6 +102,10 @@ function Row({ item: i, open, onToggle, onAnswered }: { item: NeedsYouItem; open
     }
   };
   const btn = 'h-11 md:h-9 px-4 rounded-full md:rounded-md text-sm font-semibold shrink-0 border border-border bg-card hover:bg-muted/60 active:bg-muted disabled:opacity-50';
+  // One question, one answer: the answer is stored with its question and Claude reads it in get_project
+  // (claudeItems.answered). Closing without an answer tells Claude that too.
+  const answer = () => go({ waitingText: '', note: text }, 'Answer sent. Claude sees it the next time it checks this project.', onAnswered);
+  const closeIt = () => go({ waitingText: '' }, 'Closed without an answer', onAnswered);
   return (
     <li data-needs-you={`C${i.ref}`}>
       <button type="button" onClick={onToggle} aria-expanded={open} className="w-full min-h-11 flex items-center gap-2 pl-4 md:pl-3 pr-3 text-left active:bg-muted/50 hover:bg-muted/30">
@@ -122,16 +126,16 @@ function Row({ item: i, open, onToggle, onAnswered }: { item: NeedsYouItem; open
               value={reply}
               maxLength={1000}
               onChange={e => setReply(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && text && !busy && void go({ note: text }, 'Reply saved', () => {})}
-              placeholder="Reply…"
-              aria-label={`Reply to C${i.ref}`}
+              onKeyDown={e => e.key === 'Enter' && text && !busy && void answer()}
+              placeholder="Your answer…"
+              aria-label={`Your answer to C${i.ref}`}
               enterKeyHint="send"
             />
-            <button type="button" className={btn} disabled={busy || !text} onClick={() => go({ note: text }, 'Reply saved', () => {})}>
-              Reply
+            <button type="button" className={cn(btn, 'bg-foreground text-background border-foreground hover:bg-foreground/90')} disabled={busy || !text} onClick={answer}>
+              Send answer
             </button>
-            <button type="button" className={btn} disabled={busy} onClick={() => go({ waitingText: '', ...(text ? { note: text } : {}) }, 'Marked answered', onAnswered)}>
-              Answered
+            <button type="button" className="h-11 md:h-auto px-2 text-[13px] md:text-xs text-muted-foreground underline shrink-0 disabled:opacity-50" disabled={busy} onClick={closeIt}>
+              Close without answer
             </button>
           </div>
         </div>

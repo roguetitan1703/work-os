@@ -206,6 +206,7 @@ function Detail({ projectId, item: i, onSaved, blocker, up, down, first }: { pro
   // Plain flag, not useTransition: the transition stayed pending after the action's revalidation, which left every control disabled.
   const [pending, setPending] = useState(false);
   const [note, setNote] = useState('');
+  const [answer, setAnswer] = useState('');
   const isOpen = i.state !== 'done' && i.state !== 'dropped';
 
   const go = async (fn: () => Promise<{ ok: true; item?: ClaudeItem } | { ok: false; error: string }>, after?: () => void) => {
@@ -246,9 +247,32 @@ function Detail({ projectId, item: i, onSaved, blocker, up, down, first }: { pro
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
           <div className="text-xs font-semibold text-amber-700 dark:text-amber-300">Claude is waiting on <PersonName userId={i.waitingOn} /></div>
           <p className="text-sm whitespace-pre-wrap">{i.waitingText}</p>
-          <button type="button" disabled={pending} onClick={() => patch({ waitingText: '' })} className={btn}>
-            Answered
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              className="w-full min-w-0 flex-1 basis-full md:basis-0 h-11 md:h-9 rounded-xl md:rounded-md border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm outline-none focus-visible:border-ring"
+              value={answer}
+              maxLength={1000}
+              onChange={e => setAnswer(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && answer.trim() && !pending && patch({ waitingText: '', note: answer.trim() }, () => setAnswer(''))}
+              placeholder="Your answer…"
+              aria-label={`Your answer to C${i.ref}`}
+              enterKeyHint="send"
+            />
+            <button type="button" disabled={pending || !answer.trim()} onClick={() => patch({ waitingText: '', note: answer.trim() }, () => setAnswer(''))} className={cn(btn, 'bg-foreground text-background border-foreground hover:bg-foreground/90')}>
+              Send answer
+            </button>
+            <button type="button" disabled={pending} onClick={() => patch({ waitingText: '' })} className="h-11 md:h-auto px-2 text-[13px] md:text-xs text-muted-foreground underline disabled:opacity-50">
+              Close without answer
+            </button>
+          </div>
+        </div>
+      )}
+      {!i.waitingOn && i.answer && (
+        <div className="rounded-xl border border-border p-3 space-y-1 text-sm" data-answer>
+          <div className="text-xs text-muted-foreground">Claude asked</div>
+          <p className="whitespace-pre-wrap">{i.answer.question}</p>
+          <div className="text-xs text-muted-foreground pt-1"><PersonName userId={i.answer.by} /> answered <Ago iso={i.answer.at} /></div>
+          <p className="whitespace-pre-wrap">{i.answer.text || <span className="text-muted-foreground">Closed without an answer</span>}</p>
         </div>
       )}
 
