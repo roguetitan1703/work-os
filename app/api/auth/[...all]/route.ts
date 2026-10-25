@@ -4,7 +4,7 @@ import { accountKey, accountLocked, ACCOUNT_LOCKED_MESSAGE, clearAccountFailures
 import { getDb } from '@/lib/db';
 import { isFresh } from '@/lib/fresh';
 import { REAUTH_CODE, REAUTH_MESSAGE } from '@/lib/reauth-shared';
-import { ensureResource, pruneUnusedClients } from '@/lib/oauth';
+import { dropOAuth, ensureResource, pruneUnusedClients } from '@/lib/oauth';
 import { OAUTH_SCOPES } from '@/lib/oauth-config';
 
 // Better Auth's HTTP endpoints, for the browser client (lib/auth-client.ts): sign-in, two-factor, passkeys, password
@@ -197,7 +197,10 @@ async function handle(req: Request): Promise<Response> {
   if (key && (await accountLocked(key))) {
     return Response.json({ code: 'TOO_MANY_ATTEMPTS', message: ACCOUNT_LOCKED_MESSAGE }, { status: 429 });
   }
+  // A password change or turning two-step sign-in off says the account may have been taken: the apps approved (OAuth) lose access too.
+  const dropFor = req.method === 'POST' && (path === '/change-password' || path === '/two-factor/disable') ? (await (await getAuth()).api.getSession({ headers: req.headers }).catch(() => null))?.user?.id : null;
   const res = await (await getAuth()).handler(forwarded);
+  if (dropFor && res.ok) await dropOAuth(String(dropFor), null).catch(e => console.error('revoking OAuth tokens failed:', e instanceof Error ? e.message : e));
   if (key) {
     if (res.ok) await clearAccountFailures(key).catch(() => {});
     else if (res.status === 400 || res.status === 401 || res.status === 403) await recordAccountFailure(key).catch(() => {});

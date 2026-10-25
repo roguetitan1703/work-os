@@ -140,7 +140,7 @@ export async function dropOAuth(userId: string, orgId: string | null, clientId?:
 
 export type ConsentView =
   | { ok: false }
-  | { ok: true; oauthQuery: string; clientName: string; agent: Agent; redirectHost: string; loopbackOnly: boolean; lookalike: boolean; orgName: string; offline: boolean };
+  | { ok: true; oauthQuery: string; clientName: string; agent: Agent; redirectHost: string; loopbackOnly: boolean; lookalike: boolean; ageMinutes: number | null; orgName: string; offline: boolean };
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -186,7 +186,9 @@ export async function consentView(search: URLSearchParams, c: Caller): Promise<C
     redirectHost: host.host,
     loopbackOnly,
     // Calls itself Claude (or Anthropic) but is neither Claude's hosted connector nor a program on this computer.
-    lookalike: client.agent !== 'claude' && !loopbackOnly && /claude|anthropic/i.test(client.name),
+    lookalike: client.agent !== 'claude' && !loopbackOnly && /claude|anthropic|delpat|works*os/i.test(client.name),
+    // Newly registered clients are the ones a phishing link would use: the screen says how new it is.
+    ageMinutes: row?.createdAt && Date.now() - new Date(row.createdAt as string).getTime() < 86_400_000 ? Math.max(0, Math.round((Date.now() - new Date(row.createdAt as string).getTime()) / 60_000)) : null,
     orgName: String(org?.name ?? 'your organization'),
     offline: (signed.get('scope') ?? '').split(' ').includes('offline_access'),
   };
@@ -197,7 +199,7 @@ export async function consentView(search: URLSearchParams, c: Caller): Promise<C
 let lastPrune = 0;
 /** Registration is open, so clients that nobody approved within UNUSED_CLIENT_HOURS are deleted (at most every 10 minutes, on a registration). */
 export async function pruneUnusedClients(): Promise<number> {
-  if (Date.now() - lastPrune < 600_000) return 0;
+  if (Date.now() - lastPrune < Number(process.env.OAUTH_PRUNE_EVERY_MS ?? 600_000)) return 0;
   lastPrune = Date.now();
   const adapter = await model();
   const cutoff = new Date(Date.now() - UNUSED_CLIENT_HOURS * 3_600_000);

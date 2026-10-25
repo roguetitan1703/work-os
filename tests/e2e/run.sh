@@ -113,6 +113,7 @@ export MONGODB_DB=workos_e2e
 export BETTER_AUTH_SECRET=test-secret-e2e-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 export APP_PASSWORD= SESSION_SECRET= MCP_TOKEN= MCP_ALLOW_URL_TOKEN= TRUST_PROXY=
 # Better Auth's sign-in rate limit counts every suite's sign-ins from 127.0.0.1; the auth suite checks limits itself.
+export OAUTH_PRUNE_EVERY_MS=0 # the oauth suite checks the unused-client prune at once
 export AUTH_RATE_LIMIT="${E2E_AUTH_RATE_LIMIT:-off}"
 # Mail is written as JSON files here instead of being sent (lib/mail.ts); the auth suite reads reset links from it.
 export MAIL_CAPTURE_DIR="$TMP/mail" E2E_STATE="$TMP/state.json"

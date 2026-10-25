@@ -5,6 +5,8 @@
 // refresh with rotation, reuse detection, revocation (endpoint and Settings), removed members, other organizations, the
 // claude / claude-code split, deny, tampered requests and routes that must not be served.
 // Seed profile: none (this suite makes its own people and data).
+import fs from 'node:fs';
+import path from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { B, EMAIL, ME, MCP, PW, SP, check, finish, launch, makeUser, mkKey, okO, overflow, rawDb } from './lib.mjs';
 
@@ -73,6 +75,7 @@ async function approve(ctx, url, { allow = true, callback, email = EMAIL } = {})
     await page.waitForSelector('[data-oauth-consent]', { timeout: 15000 });
     consent = {
       text: await page.locator('[data-oauth-consent]').innerText(),
+      allowDisabledAtLoad: await page.locator('[data-consent=allow]').isDisabled(),
       client: (await page.locator('[data-consent-client]').count()) ? await page.locator('[data-consent-client]').innerText() : null,
       org: (await page.locator('[data-consent-org]').count()) ? await page.locator('[data-consent-org]').innerText() : null,
       host: (await page.locator('[data-consent-host]').count()) ? await page.locator('[data-consent-host]').innerText() : null,
@@ -318,6 +321,11 @@ try {
   check('code: an app that only calls itself "Claude" (another address) is treated as Claude Code, not chat', !!impostor.access && (await tool(impostor.access, 'add_task', { title: 'Impostor task' })).isError === false && (await rawDb.collection('tasks').findOne({ title: 'Impostor task' }))?.createdBy?.agent === 'claude-code');
   check('code: the consent screen warns when an app calls itself Claude but is not Claude\'s connector', /not Claude's own connector/.test(impostor.r?.consent?.text ?? ''), impostor.r?.consent?.text?.slice(0, 400));
   check('code: but not for the real hosted connector or Claude Code itself', !/not Claude's own connector/.test(flow.r?.consent?.text ?? '') && !/not Claude's own connector/.test(rc.consent?.text ?? ''));
+  check('consent: the screen says how long access lasts (30 days, until revoked) for every app', [flow.r, rc, impostor.r].every(r => /keeps access for 30 days/.test(r?.consent?.text ?? '')), flow.r?.consent?.text?.slice(0, 300));
+  check('consent: a client registered minutes ago says so', /registered \d+ minutes? ago/.test(impostor.r?.consent?.text ?? '') && /registered \d+ minutes? ago/.test(rc.consent?.text ?? ''), impostor.r?.consent?.text?.slice(0, 300));
+  check('consent: Allow starts disabled for every app except Claude\'s hosted connector', impostor.r?.consent?.allowDisabledAtLoad === true && rc.consent?.allowDisabledAtLoad === true && flow.r?.consent?.allowDisabledAtLoad === false, JSON.stringify([impostor.r?.consent?.allowDisabledAtLoad, rc.consent?.allowDisabledAtLoad, flow.r?.consent?.allowDisabledAtLoad]));
+  const delpatLook = await connect(ctxCode, { name: 'Delpat Work OS Helper', redirects: ['https://evil.example/cb2'], callback: 'https://evil.example/cb2' });
+  check('consent: a name like Delpat or Work OS gets the lookalike warning too', /not Claude's own connector/.test(delpatLook.r?.consent?.text ?? ''), delpatLook.r?.consent?.text?.slice(0, 300));
   const mixed = await connect(ctxCode, { name: 'Claude', redirects: [CLAUDE_CB, 'https://evil.example/cb'], callback: 'https://claude.ai/api/mcp/auth_callback' });
   check('code: a client with Claude\'s address plus another one is also Claude Code', !!mixed.access && (await tool(mixed.access, 'add_task', { title: 'Mixed task' })).isError === false && (await rawDb.collection('tasks').findOne({ title: 'Mixed task' }))?.createdBy?.agent === 'claude-code');
 
@@ -413,7 +421,76 @@ try {
   const cookieless = await fetch(B + '/settings', { headers: { authorization: 'Bearer ' + flow3.access }, redirect: 'manual' });
   check('scope: and not the pages', cookieless.status >= 300 && cookieless.status < 400, String(cookieless.status));
 
-  // ======== 11. housekeeping and the old key ========
+  // ======== 11. registration scope, budgets, prune ========
+  const wk = await register({ client_name: 'Scoped', redirect_uris: ['https://example.com/scoped'], scope: 'workos' });
+  const wkRow = await rawDb.collection('oauthClient').findOne({ clientId: wk.body?.client_id });
+  check('register: scope "workos" is kept as exactly that (offline_access is not added)', JSON.stringify(wkRow?.scopes) === '["workos"]', JSON.stringify(wkRow?.scopes));
+  const wk2 = await register({ client_name: 'Scoped2', redirect_uris: ['https://example.com/scoped2'], scope: 'workos  evil admin offline_access' });
+  const wk2Row = await rawDb.collection('oauthClient').findOne({ clientId: wk2.body?.client_id });
+  check('register: unknown scopes are dropped, any spacing splits', JSON.stringify(wk2Row?.scopes) === '["workos","offline_access"]', JSON.stringify(wk2Row?.scopes));
+  const evs = await rawDb.collection('policyEvents').find({ keyId: { $regex: '^oauth_' } }).toArray();
+  const budgetKeys = [...new Set(evs.map(e => e.keyId))];
+  check('budgets: OAuth callers are counted per person (oauth_<userId>), not per app', budgetKeys.length > 0 && budgetKeys.every(k => /^oauth_[0-9a-f]{24}$/.test(k)) && budgetKeys.includes('oauth_' + A.userId), JSON.stringify(budgetKeys));
+
+  const stale = await register({ client_name: 'Stale', redirect_uris: ['https://example.com/stale'] });
+  const days3 = new Date(Date.now() - 3 * 86_400_000);
+  await rawDb.collection('oauthClient').updateOne({ clientId: stale.body.client_id }, { $set: { createdAt: days3 } });
+  await rawDb.collection('oauthClient').updateOne({ clientId: flow3.c.client_id }, { $set: { createdAt: days3 } });
+  await register({ client_name: 'Trigger', redirect_uris: ['https://example.com/trigger'] });
+  for (let i = 0; i < 30 && (await rawDb.collection('oauthClient').countDocuments({ clientId: stale.body.client_id })) > 0; i++) await sleep(300);
+  check('prune: an unapproved client older than 48 hours is deleted (with its resource link)', (await rawDb.collection('oauthClient').countDocuments({ clientId: stale.body.client_id })) === 0 && (await rawDb.collection('oauthClientResource').countDocuments({ clientId: stale.body.client_id })) === 0);
+  check('prune: an approved client of the same age stays', (await rawDb.collection('oauthClient').countDocuments({ clientId: flow3.c.client_id })) === 1);
+
+  // ======== 12. a password change, turning two-step sign-in off or a reset ends every approved app ========
+  const MAILDIR = process.env.MAIL_CAPTURE_DIR;
+  const signedIn = async (email, password) => {
+    const r = await fetch(B + '/api/auth/sign-in/email', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ email, password }), redirect: 'manual' });
+    return { status: r.status, cookie: r.headers.getSetCookie().map(c => c.split(';')[0]).join('; ') };
+  };
+  const authPost = (p, body, cookie) => fetch(B + '/api/auth' + p, { method: 'POST', headers: { origin: B, 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) }).then(async r => ({ status: r.status, text: await r.text() }));
+  const gone = async (f, label) => {
+    check(label + ': the app\'s access token is dead', (await status(f.access)) === 401);
+    check(label + ': and its refresh token', (await refresh(f.c, f.refreshTok)).status === 400);
+    check(label + ': approvals and tokens are deleted', (await rawDb.collection('oauthConsent').countDocuments({ clientId: f.c.client_id })) === 0 && (await rawDb.collection('oauthAccessToken').countDocuments({ clientId: f.c.client_id })) === 0 && (await rawDb.collection('oauthRefreshToken').countDocuments({ clientId: f.c.client_id })) === 0);
+  };
+  const NEWPW = 'brand-new-password-456';
+  for (const who of ['chg', 'tfa', 'rst']) await makeUser({ email: who + '@example.test', name: who.toUpperCase(), orgName: who + ' Org' });
+
+  const chg = await connect(await browser.newContext(), { email: 'chg@example.test' });
+  check('password change: the person connects an app', (await status(chg.access)) === 200);
+  const chgIn = await signedIn('chg@example.test', PW);
+  const chgDone = await authPost('/change-password', { currentPassword: PW, newPassword: NEWPW, revokeOtherSessions: true }, chgIn.cookie);
+  check('password change: succeeds', chgDone.status === 200, chgDone.status + ' ' + chgDone.text.slice(0, 120));
+  await gone(chg, 'password change');
+
+  const tfa = await connect(await browser.newContext(), { email: 'tfa@example.test' });
+  check('two-step off: the person connects an app', (await status(tfa.access)) === 200);
+  const tfaIn = await signedIn('tfa@example.test', PW);
+  const tfaOn = await authPost('/two-factor/enable', { password: PW }, tfaIn.cookie);
+  check('two-step off: two-step sign-in set up', tfaOn.status === 200, tfaOn.status + ' ' + tfaOn.text.slice(0, 120));
+  check('two-step off: turning it on does not touch the app', (await status(tfa.access)) === 200);
+  const tfaOff = await authPost('/two-factor/disable', { password: PW }, tfaIn.cookie);
+  check('two-step off: turning it off succeeds', tfaOff.status === 200, tfaOff.status + ' ' + tfaOff.text.slice(0, 120));
+  await gone(tfa, 'two-step off');
+
+  const rst = await connect(await browser.newContext(), { email: 'rst@example.test' });
+  check('reset: the person connects an app', (await status(rst.access)) === 200);
+  const since = Date.now() - 1000;
+  await authPost('/request-password-reset', { email: 'rst@example.test', redirectTo: '/login/reset' });
+  let token = '';
+  for (let i = 0; i < 40 && !token; i++) {
+    const files = fs.existsSync(MAILDIR) ? fs.readdirSync(MAILDIR).filter(f => f.endsWith('.json')) : [];
+    for (const f of files) {
+      const m = JSON.parse(fs.readFileSync(path.join(MAILDIR, f), 'utf8'));
+      if (m.to === 'rst@example.test' && Date.parse(m.at) >= since) token = m.text.match(/reset-password\/([A-Za-z0-9_-]+)/)?.[1] ?? token;
+    }
+    if (!token) await sleep(250);
+  }
+  const rstDone = await authPost('/reset-password', { newPassword: NEWPW, token });
+  check('reset: succeeds', !!token && rstDone.status === 200, rstDone.status + ' ' + rstDone.text.slice(0, 120));
+  await gone(rst, 'reset');
+
+  // ======== 13. the old key ========
   const old = await rawDb.collection('oauthClient').find({ clientId: { $in: [sneaky.body.client_id] } }).toArray();
   check('keys: the old key forms still work (chat key and Claude Code key)', (await status(kA)) === 200 && (await status(await mkKey({ agent: 'claude-code' }))) === 200);
   check('keys: a wos_ key is not treated as an OAuth token and the reverse', (await status('wos_' + 'a'.repeat(48))) === 401);

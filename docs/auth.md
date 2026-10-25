@@ -104,12 +104,18 @@ tokens are opaque.
 **Chat or Claude Code.** Decided by the app's registered redirect addresses, never by its name (anyone can register as
 "Claude"): a client whose every address is `https://claude.ai/api/mcp/auth_callback` (or `claude.com`) is **chat** (`claude`,
 no Claude Code rules). Any other client (Claude Code's loopback callback, any other app, a mix) is **claude-code**: the
-stricter rules of `lib/mcp/policy.ts`. The consent screen says so. Call limits and dry-run confirmations are per (app,
-person) (`oauth_<clientId>_<userId>`), so they survive a refresh.
+stricter rules of `lib/mcp/policy.ts`. The consent screen says so. The call and deletion limits are per **person** (`oauth_<userId>` in `policyEvents`), so registering a new app
+is no fresh budget; the key id shown in Usage stays `oauth_<clientId>_<userId>`.
+
+**Consent-phishing.** An attacker can register an app and send a member a signed consent link, so the screen always says
+how long access lasts (30 days, renewed on use, until revoked), says how new the app is when under 24 hours, keeps Allow
+disabled for 2 seconds for every app except Claude's hosted connector, and warns on names resembling Claude, Anthropic,
+Delpat or Work OS (unless Claude's hosted connector or a loopback program).
 
 **What ends a token:** Revoke in Settings › Connections › Signed-in apps (that app, for you, in this organization); the
 revoke endpoint; removing the member (`releaseAccess` deletes their approvals and tokens for the organization, and the role
-check stops them even before that); a password *reset* (all of that person's approvals and tokens); refresh-token reuse;
+check stops them even before that); a password *reset*, a password *change* and turning two-step sign-in *off* (all of that person's approvals and tokens;
+the change and the disable are handled in `app/api/auth/[...all]/route.ts` after the call succeeds); refresh-token reuse;
 expiry (1 hour for access, 30 days for refresh, renewed on each refresh). **Not** ending a token: signing out of the browser
 or "sign out other devices" (the connection is not the browser session; Revoke the app for that).
 

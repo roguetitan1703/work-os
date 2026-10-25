@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import type { ConsentView } from '@/lib/oauth';
 
@@ -22,6 +22,13 @@ function safeTarget(url: unknown): string | null {
 export function ConsentForm({ view, person }: { view: Extract<ConsentView, { ok: true }>; person: { name: string; email: string } }) {
   const [busy, setBusy] = useState<'allow' | 'deny' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Apps other than Claude's own connector: Allow stays off for 2 seconds so the screen is read before it is clicked.
+  const [waiting, setWaiting] = useState(view.agent !== 'claude');
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setTimeout(() => setWaiting(false), 2000);
+    return () => clearTimeout(t);
+  }, [waiting]);
 
   async function answer(accept: boolean) {
     setBusy(accept ? 'allow' : 'deny');
@@ -62,7 +69,8 @@ export function ConsentForm({ view, person }: { view: Extract<ConsentView, { ok:
         <li>It can read and change what you can: tasks, projects, notes, and your Claude queue. Everything it changes is recorded as Claude, under your name.</li>
         <li>It cannot manage members, keys or settings, and it never sees your password.</li>
         {!isClaudeApp && <li>It works under the stricter Claude Code limits: a cap on calls and deletions, and a notice to a task&apos;s owner when it changes their task.</li>}
-        {view.offline && <li>It stays connected until you revoke it in Settings › Connections.</li>}
+        {view.offline && <li data-consent-duration>It keeps access for 30 days, renewed each time it is used, until you revoke it in Settings › Connections.</li>}
+        {view.ageMinutes !== null && <li data-consent-age>This app was registered {view.ageMinutes} minute{view.ageMinutes === 1 ? '' : 's'} ago{view.ageMinutes >= 120 ? ` (${Math.round(view.ageMinutes / 60)} hours)` : ''}.</li>}
       </ul>
 
       <div className="rounded-xl border border-border/70 bg-muted/40 px-3.5 py-3 text-[13px] text-muted-foreground space-y-1">
@@ -75,7 +83,7 @@ export function ConsentForm({ view, person }: { view: Extract<ConsentView, { ok:
         </p>
         {view.lookalike && (
           <p data-consent-lookalike className="text-red-700 dark:text-red-300 font-medium">
-            Warning: this app calls itself &quot;{view.clientName}&quot; but it is not Claude&apos;s own connector (claude.ai). Deny it unless you know where it comes from.
+            Warning: this app calls itself &quot;{view.clientName}&quot; but it is not Claude&apos;s own connector (claude.ai) and was not made by Delpat. Deny it unless you know where it comes from.
           </p>
         )}
         <p>Only allow this if you started connecting it just now.</p>
@@ -90,7 +98,7 @@ export function ConsentForm({ view, person }: { view: Extract<ConsentView, { ok:
         <button type="button" data-consent="deny" className={`${btn} border border-border bg-background text-foreground active:bg-muted/60 hover:bg-muted/40`} disabled={busy !== null} onClick={() => answer(false)}>
           {busy === 'deny' ? 'Denying…' : 'Deny'}
         </button>
-        <button type="button" data-consent="allow" className={`${btn} bg-primary text-primary-foreground active:opacity-80 hover:bg-primary/90`} disabled={busy !== null} onClick={() => answer(true)}>
+        <button type="button" data-consent="allow" className={`${btn} bg-primary text-primary-foreground active:opacity-80 hover:bg-primary/90`} disabled={busy !== null || waiting} onClick={() => answer(true)}>
           {busy === 'allow' ? 'Allowing…' : 'Allow'}
         </button>
       </div>
