@@ -163,7 +163,6 @@ function Card({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
       draggable
       onDragStart={onDragStart}
       className="rounded-lg border border-border bg-card p-2.5 space-y-1.5 cursor-grab active:cursor-grabbing shadow-xs"
-      style={task.mode ? { borderLeft: `3px solid ${color(task.mode).hex}` } : undefined}
     >
       <div className="flex items-start gap-1.5">
         <Link href={`/tasks/${task.ref}`} className={cn('text-sm leading-snug flex-1 hover:underline', closed && 'line-through text-muted-foreground')}>
@@ -182,6 +181,7 @@ function Card({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
       </div>
       {task.status === 'Blocked' && task.blockedReason && <p className="text-[11px] text-red-600 dark:text-red-400">⛔ {task.blockedReason}</p>}
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
+        {task.mode && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color(task.mode).hex }} title={task.mode} aria-label={task.mode} />}
         <span className="font-mono">#{task.ref}</span>
         {task.projectId && <span className="truncate max-w-[110px]">{projectName(task.projectId)}{isPrivateProject(task.projectId) && <PrivateBadge compact className="ml-1" />}</span>}
         {task.due && <span className={overdue ? 'text-red-600 dark:text-red-400 font-medium' : ''}>{fmtDue(task.due, today)}</span>}

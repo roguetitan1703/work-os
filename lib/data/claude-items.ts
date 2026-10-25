@@ -483,7 +483,8 @@ export async function omUpdate(s: Scope, key: string | number, f: OmPatch): Prom
     const text = f.waitingText.trim();
     set.waitingText = text;
     set.waitingOn = text ? (d.waitingOn ?? s.userId) : null;
-    said.push(text ? `waiting on a person: ${text}` : 'answered (no longer waiting)');
+    said.push(text ? `waiting on a person: ${text}` : f.note?.trim() ? 'answered' : 'closed without an answer');
+    if (!text && d.waitingText) set.answer = { question: d.waitingText, text: f.note?.trim().slice(0, LIMITS.note) ?? '', by: s.userId, at: new Date().toISOString() };
     if (!text && d.state === 'blocked' && !d.blockedBy && !f.state) set.state = 'queued';
   }
   for (const k of ['kind', 'title', 'why', 'doneWhen'] as const) {
@@ -494,7 +495,8 @@ export async function omUpdate(s: Scope, key: string | number, f: OmPatch): Prom
     }
   }
   if ((set.kind ?? d.kind) === 'idea') set.next = false;
-  if (f.note?.trim()) {
+  // An answer is kept as the item's answer (with its question), not as a loose note.
+  if (f.note?.trim() && !set.answer) {
     set.note = appendNote(d.note, f.note);
     said.push('note added');
   }

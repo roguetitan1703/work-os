@@ -80,22 +80,20 @@ async function suite(vp) {
   const ny = p.locator('[data-section="needs-you"]');
   check(T('Needs you shows count, project, ref and question text'), await ny.innerText().then(t => /Needs you\s*1/i.test(t) && /Alpha/.test(t) && /C\d+/.test(t) && t.includes('Which logo should the header use'), () => false));
   await click(ny.locator('[data-needs-you] button[aria-expanded]').first()); // STALE-FIX: rows are collapsed now
-  const reply = ny.locator('input[placeholder="Reply…"]');
-  const replyBtn = ny.locator('button:has-text("Reply")');
-  const ansBtn = ny.locator('button:has-text("Answered")');
-  const sameRow = await Promise.all([reply.boundingBox(), replyBtn.boundingBox(), ansBtn.boundingBox()]).then(([a, b, c]) => Math.abs(a.y + a.height / 2 - (b.y + b.height / 2)) < 6 && Math.abs(b.y + b.height / 2 - (c.y + c.height / 2)) < 6);
-  check(T('Reply input, Reply and Answered on one row'), sameRow);
-  await h44(replyBtn, 'Reply'); await h44(ansBtn, 'Answered'); await h44(reply, 'Reply input');
-  check(T('Reply disabled while empty'), await replyBtn.isDisabled());
-  await reply.fill('Use the new logo.');
-  await click(replyBtn);
-  const afterReply = await wait(async () => { const d = await db.collection('claudeItems').findOne({ _id: itByTitle('Reorder invoice export columns')._id }); return d.note.includes('Use the new logo.') && d; });
-  check(T('Reply adds a note and keeps the item waiting'), afterReply && afterReply.waitingText !== '' && afterReply.waitingOn === ME.userId);
-  check(T('input cleared after Reply'), !!(await wait(async () => (await reply.inputValue()) === '')));
+  const reply = ny.locator('input[placeholder="Your answer…"]');
+  const sendBtn = ny.getByRole('button', { name: 'Send answer' });
+  const closeBtn = ny.getByRole('button', { name: 'Close without answer' });
+  const sameRow = await Promise.all([reply.boundingBox(), sendBtn.boundingBox()]).then(([a, b]) => Math.abs(a.y + a.height / 2 - (b.y + b.height / 2)) < 6);
+  check(T('answer input and Send answer on one row'), sameRow);
+  await h44(sendBtn, 'Send answer'); await h44(closeBtn, 'Close without answer'); await h44(reply, 'answer input');
+  check(T('Send answer disabled while empty'), await sendBtn.isDisabled());
+  check(T('no separate Reply / Answered buttons'), (await ny.getByRole('button', { name: /^(Reply|Answered)$/ }).count()) === 0);
   await reply.fill('Final: new logo, thanks.');
-  await click(ansBtn);
+  await click(sendBtn);
   const afterAns = await wait(async () => { const d = await db.collection('claudeItems').findOne({ _id: itByTitle('Reorder invoice export columns')._id }); return d.waitingText === '' && !d.waitingOn && d; });
-  check(T('Answered with typed text saves the note and clears the flag'), afterAns && afterAns.note.includes('Final: new logo, thanks.'));
+  check(T('Send answer stores the answer with its question and clears the flag'), afterAns && afterAns.answer?.text === 'Final: new logo, thanks.' && afterAns.answer?.question === 'Which logo should the header use, the old one or the new one?' && afterAns.answer?.by === ME.userId, JSON.stringify(afterAns?.answer));
+  const gp = await mcp('get_project', { project: 'Alpha' });
+  check(T('get_project shows Claude the answer (claudeItems.answered and the item)'), (gp.claudeItems?.answered ?? []).some(a => a.includes('Which logo should the header use') && a.includes('Final: new logo, thanks.')) && gp.claudeItems.open.some(o => o.answer?.text === 'Final: new logo, thanks.'), JSON.stringify(gp.claudeItems?.answered));
   check(T('answered row disappears'), await ny.locator('[data-needs-you]').waitFor({ state: 'detached', timeout: 5000 }).then(() => true, () => false));
   // put a question back for later checks
   await db.collection('claudeItems').updateOne({ _id: itByTitle('Fix webhook retry backoff')._id }, { $set: { waitingText: 'Retry 3 or 5 times?', waitingOn: ME.userId, updatedAt: new Date() } });
@@ -337,10 +335,10 @@ async function suite(vp) {
     check(T('S does nothing while a dialog is open'), p.url().includes(`start=${C}`) && (await p.locator('[data-start-step="project"]').count()) === 0);
     await p.keyboard.press('Escape');
     await p.locator('[data-start-step]').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
-    await p.goto(B + '/claude'); await p.waitForSelector('[data-needs-you] button[aria-expanded]'); await click(p.locator('[data-needs-you] button[aria-expanded]').first()); await p.waitForSelector('[data-section="needs-you"] input[placeholder="Reply…"]');
-    await p.locator('[data-section="needs-you"] input[placeholder="Reply…"]').click();
+    await p.goto(B + '/claude'); await p.waitForSelector('[data-needs-you] button[aria-expanded]'); await click(p.locator('[data-needs-you] button[aria-expanded]').first()); await p.waitForSelector('[data-section="needs-you"] input[placeholder="Your answer…"]');
+    await p.locator('[data-section="needs-you"] input[placeholder="Your answer…"]').click();
     await p.keyboard.type('s');
-    check(T('S does nothing while typing in a field'), (await p.locator('[data-start-step]').count()) === 0 && (await p.locator('[data-section="needs-you"] input[placeholder="Reply…"]').inputValue()) === 's');
+    check(T('S does nothing while typing in a field'), (await p.locator('[data-start-step]').count()) === 0 && (await p.locator('[data-section="needs-you"] input[placeholder="Your answer…"]').inputValue()) === 's');
     await p.screenshot({ path: `${SP}/cl-${vp}-final.png` });
   }
   check(T('no console/page errors'), errs.length === 0, errs.join(' | '));

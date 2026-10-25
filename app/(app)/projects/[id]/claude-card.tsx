@@ -151,6 +151,10 @@ function WaitingRow({ projectId, item: i, expanded, onToggle, onAnswered }: { pr
     }
   };
 
+  // One question, one answer: the answer is stored with its question and Claude reads it in get_project
+  // (claudeItems.answered). Closing without an answer tells Claude that too.
+  const answer = () => go({ waitingText: '', note: text }, 'Answer sent. Claude sees it the next time it checks this project.', onAnswered);
+  const closeIt = () => go({ waitingText: '' }, 'Closed without an answer', onAnswered);
   return (
     <div data-needs-you={`C${i.ref}`} className="bg-amber-500/5">
       <button type="button" onClick={onToggle} aria-expanded={expanded} className="w-full flex items-center gap-2 px-4 md:px-3 min-h-11 md:min-h-9 text-left">
@@ -168,16 +172,16 @@ function WaitingRow({ projectId, item: i, expanded, onToggle, onAnswered }: { pr
               value={reply}
               maxLength={1000}
               onChange={e => setReply(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && text && !busy && void go({ note: text }, 'Reply saved')}
-              placeholder="Reply…"
-              aria-label={`Reply to C${i.ref}`}
+              onKeyDown={e => e.key === 'Enter' && text && !busy && void answer()}
+              placeholder="Your answer…"
+              aria-label={`Your answer to C${i.ref}`}
               enterKeyHint="send"
             />
-            <button type="button" className={btnOutline} disabled={busy || !text} onClick={() => go({ note: text }, 'Reply saved')}>
-              Reply
+            <button type="button" className={cn(btnOutline, 'bg-foreground text-background border-foreground hover:bg-foreground/90')} disabled={busy || !text} onClick={answer}>
+              Send answer
             </button>
-            <button type="button" className={btnOutline} disabled={busy} onClick={() => go({ waitingText: '', ...(text ? { note: text } : {}) }, 'Marked answered', onAnswered)}>
-              Answered
+            <button type="button" className="h-11 md:h-auto px-2 text-[13px] md:text-xs text-muted-foreground underline shrink-0 disabled:opacity-50" disabled={busy} onClick={closeIt}>
+              Close without answer
             </button>
           </div>
         </div>
