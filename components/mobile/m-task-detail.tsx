@@ -62,6 +62,7 @@ export function MobileTaskDetail({
   const [progressOpen, setProgressOpen] = useState(false);
   const [sheet, setSheet] = useState<null | 'estimate' | 'tags' | 'blocked' | 'link' | 'dep' | 'delete'>(null);
   const [delReason, setDelReason] = useState('');
+  const [moreDetails, setMoreDetails] = useState(false);
   const dateRef = useRef<HTMLInputElement>(null);
   const closed = task.status === 'Done' || task.status === 'Dropped';
   const overdue = !!task.due && task.due < today && !closed;
@@ -234,18 +235,8 @@ export function MobileTaskDetail({
         </Field>
       )}
 
-      {/* Project + mode: native pickers */}
+      {/* Assigned: the core fields are above; the rest sits under More details. */}
       <div className="mt-5 rounded-2xl border border-border/70 bg-card divide-y divide-border/60">
-        <SelectRow label="Project" value={task.projectId ?? ''} onChange={v => patch({ project: v || null })}>
-          <option value="">None</option>
-          {projects
-            .filter(p => p.status === 'active' || p.status === 'paused' || p.id === task.projectId)
-            .map(p => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-        </SelectRow>
         {task.visibility === 'org' ? (
           <SelectRow label="Assigned" value={task.assigneeId ?? ''} onChange={v => patch({ assignee: v || null }, v ? `Assigned to ${v === me ? 'you' : people[v] ?? 'them'}` : 'Unassigned')}>
             <option value="">Nobody</option>
@@ -257,11 +248,36 @@ export function MobileTaskDetail({
           </SelectRow>
         ) : (
           <div className="flex items-center gap-3 px-4 h-12">
-            <span className="text-[16px] text-foreground w-20">Assigned</span>
+            <span className="text-[16px] text-foreground w-[7.5rem]">Assigned</span>
             <span className="flex-1 text-right text-[16px] text-muted-foreground">Private: only you</span>
           </div>
         )}
-        <SelectRow label="Mode" value={task.mode ?? ''} onChange={v => patch({ mode: (v || null) as Task['mode'] })}>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setMoreDetails(v => !v)}
+        aria-expanded={moreDetails}
+        data-more-details
+        className="mt-3 w-full flex items-center gap-2 px-1 h-11 text-left text-[14px] font-medium text-muted-foreground active:opacity-60"
+      >
+        <ChevronRight className={cn('w-4 h-4 transition-transform', moreDetails && 'rotate-90')} />
+        More details
+        <span className="min-w-0 truncate font-normal text-[13px]">project, kind of work, start, estimate, repeats, tags</span>
+      </button>
+      {moreDetails && (
+      <div className="rounded-2xl border border-border/70 bg-card divide-y divide-border/60" data-more-details-body>
+        <SelectRow label="Project" value={task.projectId ?? ''} onChange={v => patch({ project: v || null })}>
+          <option value="">None</option>
+          {projects
+            .filter(p => p.status === 'active' || p.status === 'paused' || p.id === task.projectId)
+            .map(p => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+        </SelectRow>
+        <SelectRow label="Kind of work" value={task.mode ?? ''} onChange={v => patch({ mode: (v || null) as Task['mode'] })}>
           <option value="">None</option>
           {modes.map(m => (
             <option key={m.name} value={m.name}>
@@ -270,13 +286,13 @@ export function MobileTaskDetail({
           ))}
         </SelectRow>
         <label className="relative flex items-center gap-3 px-4 h-12 active:bg-muted/60">
-          <span className="text-[16px] text-foreground w-20">Start</span>
+          <span className="text-[16px] text-foreground w-[7.5rem]">Start</span>
           <span className={cn('flex-1 text-right text-[16px]', task.start ? 'text-foreground' : 'text-muted-foreground')}>{task.start ? fmtDue(task.start, today) : 'None'}</span>
           <ChevronRight className="w-4 h-4 text-muted-foreground/50" />
           <input type="date" value={task.start ?? ''} onChange={e => patch({ start: e.target.value || null })} aria-label="Start date" className="absolute inset-0 w-full h-full opacity-0" />
         </label>
         <button onClick={() => setSheet('estimate')} className="w-full flex items-center gap-3 px-4 h-12 text-left active:bg-muted/60">
-          <span className="text-[16px] text-foreground w-20">Estimate</span>
+          <span className="text-[16px] text-foreground w-[7.5rem]">Estimate</span>
           <span className={cn('flex-1 text-right text-[16px]', task.estimateMins != null ? 'text-foreground' : 'text-muted-foreground')}>{task.estimateMins != null ? fmtMins(task.estimateMins) : 'None'}</span>
           <ChevronRight className="w-4 h-4 text-muted-foreground/50" />
         </button>
@@ -289,7 +305,7 @@ export function MobileTaskDetail({
           {recIdx(task.recurrence) === 'custom' && task.recurrence && <option value="custom">{`Every ${task.recurrence.interval} ${task.recurrence.freq}`}</option>}
         </SelectRow>
         <button onClick={() => setSheet('tags')} className="w-full flex items-center gap-3 px-4 min-h-12 py-2 text-left active:bg-muted/60">
-          <span className="text-[16px] text-foreground w-20 shrink-0">Tags</span>
+          <span className="text-[16px] text-foreground w-[7.5rem] shrink-0">Tags</span>
           <span className="flex-1 flex flex-wrap justify-end gap-1.5">
             {task.tags.length ? task.tags.map(t => (
               <span key={t} className="px-2 py-0.5 rounded-full bg-muted text-[13px] text-foreground">{t}</span>
@@ -298,6 +314,7 @@ export function MobileTaskDetail({
           <ChevronRight className="w-4 h-4 text-muted-foreground/50 shrink-0" />
         </button>
       </div>
+      )}
 
       {/* Note */}
       <Field label="Note">
@@ -566,7 +583,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function SelectRow({ label, value, onChange, children }: { label: string; value: string; onChange: (v: string) => void; children: React.ReactNode }) {
   return (
     <label className="flex items-center gap-3 px-4 h-12">
-      <span className="text-[16px] text-foreground w-20">{label}</span>
+      <span className="text-[16px] text-foreground w-[7.5rem] shrink-0">{label}</span>
       <select value={value} onChange={e => onChange(e.target.value)} className="flex-1 bg-transparent text-right text-[16px] text-muted-foreground outline-none appearance-none">
         {children}
       </select>

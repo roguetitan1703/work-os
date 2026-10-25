@@ -88,7 +88,7 @@ export function TaskForm({ open, onClose, initial }: Props) {
               </datalist>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Mode</Label>
+              <Label className="text-xs">Kind of work</Label>
               <select className={field} value={f.mode} onChange={e => set('mode', e.target.value as Mode | '')}>
                 <option value="">—</option>
                 {modes.map(m => (

@@ -233,6 +233,7 @@ try {
     check('accept: no secret -> invalid', (await q.getAttribute('[data-invite]', 'data-invite', { timeout: 10000 }).catch(() => null)) === 'invalid');
     await q.goto(link);
     check('accept: the real link -> new account form', (await q.getAttribute('[data-invite]', 'data-invite', { timeout: 10000 }).catch(() => null)) === 'new');
+    check('accept: header says "Set a password to start." (new account)', /Set a password to start\./.test(await q.locator('[data-invite]').innerText()));
     await q.fill('input[name=name]', 'Invited Person');
     await q.fill('input[name=password]', PW);
     await q.fill('input[name=again]', PW);

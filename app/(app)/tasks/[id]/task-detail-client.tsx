@@ -6,7 +6,7 @@ import { ActorName } from '@/components/actor-badge';
 import { BackLink } from '@/components/back-link';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
-import { ArrowLeft, Archive, ArchiveRestore, Bot, CheckCircle2, ExternalLink, Plus, Trash2, TrendingUp, X } from 'lucide-react';
+import { ArrowLeft, Archive, ArchiveRestore, Bot, CheckCircle2, ChevronRight, ExternalLink, MoreHorizontal, Plus, Trash2, TrendingUp, X } from 'lucide-react';
 import {
   addCommentAction,
   checklistAction,
@@ -19,7 +19,8 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { PrioritySelect, StatusSelect } from '@/components/inline-selects';
 import { ProgressDialog } from '@/components/progress-dialog';
-import { DeleteTaskButton } from '@/components/trash-controls';
+import { DeleteTaskDialog } from '@/components/trash-controls';
+import { ResponsiveSheet } from '@/components/responsive-sheet';
 import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, claudeMenuLabel } from '@/components/give-to-claude';
 import { useApp, useModes } from '@/components/app-context';
 import { fmtAgo, fmtDue } from '@/lib/format';
@@ -38,6 +39,9 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
   const [pending, start] = useTransition();
   const [progressOpen, setProgressOpen] = useState(false);
   const [claudeOpen, setClaudeOpen] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [moreDetails, setMoreDetails] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
   const [comment, setComment] = useState('');
@@ -107,19 +111,40 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
             <Bot className="w-3.5 h-3.5" /> {claudeMenuLabel(task)}
           </Button>
         )}
-        <Button
-          size="sm"
-          variant="ghost"
-          className="gap-1.5 h-8 ml-auto text-muted-foreground"
-          onClick={() => exec(() => setArchivedAction(task.id, !task.archived), task.archived ? 'Restored' : 'Archived')}
-        >
-          {task.archived ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
-          {task.archived ? 'Restore' : 'Archive'}
+        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 ml-auto text-muted-foreground" aria-label="Task options" data-task-options onClick={() => setOptionsOpen(true)}>
+          <MoreHorizontal className="w-4 h-4" />
         </Button>
-        <DeleteTaskButton taskRef={task.ref} title={task.title} />
       </div>
 
       {claudeOpen && <ClaudeMarkSheet task={task} onClose={() => setClaudeOpen(false)} />}
+      {optionsOpen && (
+        <ResponsiveSheet title={`Task #${task.ref}`} onClose={() => setOptionsOpen(false)}>
+          <div className="space-y-1 pb-2" data-task-options-menu>
+            <button
+              type="button"
+              className="w-full flex items-center gap-3 px-3 min-h-10 rounded-xl text-left text-sm text-foreground hover:bg-muted/60"
+              onClick={() => {
+                setOptionsOpen(false);
+                exec(() => setArchivedAction(task.id, !task.archived), task.archived ? 'Restored' : 'Archived');
+              }}
+            >
+              {task.archived ? <ArchiveRestore className="w-4 h-4 text-muted-foreground" /> : <Archive className="w-4 h-4 text-muted-foreground" />}
+              {task.archived ? 'Restore' : 'Archive'}
+            </button>
+            <button
+              type="button"
+              className="w-full flex items-center gap-3 px-3 min-h-10 rounded-xl text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10"
+              onClick={() => {
+                setOptionsOpen(false);
+                setDeleteOpen(true);
+              }}
+            >
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
+          </div>
+        </ResponsiveSheet>
+      )}
+      <DeleteTaskDialog taskRef={task.ref} title={task.title} open={deleteOpen} onOpenChange={setDeleteOpen} />
       {task.status === 'Blocked' && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 space-y-1">
           <label className="text-xs font-medium text-red-600 dark:text-red-400">Blocked because…</label>
@@ -133,23 +158,10 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
         </div>
       )}
 
-      {/* Fields grid */}
+      {/* Core fields; the rest is under More details. */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-        <Field label="Project">
-          <input
-            list="project-options-detail"
-            defaultValue={projectName ?? ''}
-            className={field}
-            onBlur={e => {
-              const v = e.target.value.trim();
-              if (v !== (projectName ?? '')) patch({ project: v || null }, 'Project saved');
-            }}
-          />
-          <datalist id="project-options-detail">
-            {projects.map(p => (
-              <option key={p.id} value={p.name} label={p.visibility === 'private' ? 'Private' : undefined} />
-            ))}
-          </datalist>
+        <Field label={overdue ? `Due · ${fmtDue(task.due, today)} (overdue)` : `Due${task.due ? ' · ' + fmtDue(task.due, today) : ''}`} warn={overdue}>
+          <input type="date" value={task.due ?? ''} className={field} onChange={e => patch({ due: e.target.value || null })} />
         </Field>
         <Field label="Assigned to">
           {task.visibility === 'org' ? (
@@ -167,7 +179,39 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
             </div>
           )}
         </Field>
-        <Field label="Mode">
+      </div>
+
+      <div className="space-y-3">
+        <button
+          type="button"
+          onClick={() => setMoreDetails(v => !v)}
+          aria-expanded={moreDetails}
+          data-more-details
+          className="flex items-center gap-1.5 h-8 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          <ChevronRight className={cn('w-3.5 h-3.5 transition-transform', moreDetails && 'rotate-90')} />
+          More details
+          <span className="font-normal">project, kind of work, estimate, start, repeats, tags</span>
+        </button>
+        {moreDetails && (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm" data-more-details-body>
+        <Field label="Project">
+          <input
+            list="project-options-detail"
+            defaultValue={projectName ?? ''}
+            className={field}
+            onBlur={e => {
+              const v = e.target.value.trim();
+              if (v !== (projectName ?? '')) patch({ project: v || null }, 'Project saved');
+            }}
+          />
+          <datalist id="project-options-detail">
+            {projects.map(p => (
+              <option key={p.id} value={p.name} label={p.visibility === 'private' ? 'Private' : undefined} />
+            ))}
+          </datalist>
+        </Field>
+        <Field label="Kind of work">
           <select className={field} value={task.mode ?? ''} onChange={e => patch({ mode: (e.target.value || null) as Mode | null })}>
             <option value="">—</option>
             {modes.map(m => (
@@ -190,9 +234,6 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
         <Field label="Start">
           <input type="date" value={task.start ?? ''} className={field} onChange={e => patch({ start: e.target.value || null })} />
         </Field>
-        <Field label={overdue ? `Due · ${fmtDue(task.due, today)} (overdue)` : `Due${task.due ? ' · ' + fmtDue(task.due, today) : ''}`} warn={overdue}>
-          <input type="date" value={task.due ?? ''} className={field} onChange={e => patch({ due: e.target.value || null })} />
-        </Field>
         <Field label="Repeats">
           <RecurrenceSelect value={task.recurrence} onChange={r => patch({ recurrence: r })} />
         </Field>
@@ -208,6 +249,8 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
             className={field}
           />
         </Field>
+          </div>
+        )}
       </div>
 
       {/* Description */}
