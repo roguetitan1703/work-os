@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 // App icons for the PWA manifest and Apple touch icon: /icons/192, /icons/512, /icons/maskable-512, /icons/180.
-// The Delpat D with the Work OS check badge, drawn once into assets/brand/ (maskable keeps the mark inside the 80%
+// The Work OS tick with the Delpat D in the corner, drawn once into assets/brand/ (maskable keeps the mark inside the 80%
 // safe zone). app/favicon.ico is the same mark.
 
 export const dynamic = 'force-static';
