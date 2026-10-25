@@ -7,13 +7,15 @@ import { Preloader } from '@/components/preloader';
 import { StartClaude } from '@/components/start-claude';
 import { unreadCount } from '@/lib/notify';
 import { AppContextProvider } from '@/components/app-context';
-import { listProjectsNav } from '@/lib/data/projects';
+import { listProjectsNav, listRecentProjects } from '@/lib/data/projects';
 import { overdueCount } from '@/lib/data/summary';
 import { claudeWaitingCount, systemStatusLevel } from '@/lib/data/nav-counts';
 import { todayStr } from '@/lib/dates';
 import { redirect } from 'next/navigation';
 import { getCaller } from '@/lib/caller';
-import { memberNames } from '@/lib/people';
+import { memberNames, orgName } from '@/lib/people';
+import { isOperator } from '@/lib/operator';
+import { deviceMap } from '@/lib/data/launcher';
 import { getOrgModes } from '@/lib/org-modes';
 import { getSchedule } from '@/lib/user-schedule';
 import { NavTracker } from '@/components/nav-tracker';
@@ -28,15 +30,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const caller = await getCaller();
   if (!caller) redirect('/login');
   const s = { userId: caller.userId, orgId: caller.orgId };
-  const [projects, overdue, unread, claudeWaiting, status, people, modes, schedule] = await Promise.all([
+  const operator = isOperator(caller);
+  const [projects, overdue, unread, claudeWaiting, status, people, modes, schedule, recent, org, computers] = await Promise.all([
     listProjectsNav(s),
     overdueCount(s),
     unreadCount(s),
     claudeWaitingCount(s).catch(() => 0),
-    systemStatusLevel(s).catch(() => 'ok' as const),
+    operator ? systemStatusLevel(s).catch(() => 'ok' as const) : Promise.resolve('ok' as const), // server health is the operator's
     memberNames(s.orgId),
     getOrgModes(s.orgId),
     getSchedule(s),
+    listRecentProjects(s, 5).catch(() => []),
+    orgName(s.orgId).catch(() => ''),
+    deviceMap(caller).then(m => m.size > 0).catch(() => false),
   ]);
   return (
     <AppContextProvider
@@ -48,6 +54,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       tz={caller.tz}
       modes={modes}
       plan={schedule.blocks.length ? { blocks: schedule.blocks, colors: schedule.colors, taskModes: schedule.taskModes } : null}
+      account={{ name: caller.name || caller.email, email: caller.email, org, operator }}
+      hasComputers={computers}
+      recent={recent.map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }))}
       badges={{ overdue, claudeWaiting, status }}
       projects={projects.map(p => ({ id: p.id, name: p.name, status: p.status, visibility: p.visibility }))}
     >

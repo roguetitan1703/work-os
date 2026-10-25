@@ -16,6 +16,8 @@ export const SHORTCUTS: [string, string][] = [
   ['4', 'Notes'],
   ['5', 'Claude'],
   ['/', 'Search'],
+  ['Ctrl+B', 'Collapse or expand the sidebar'],
+  ['Ctrl+,', 'Settings'],
   ['Ctrl+K', 'Search (also while typing)'],
   ['?', 'This help'],
   ['Shift+Enter', 'Full form (in quick add)'],
