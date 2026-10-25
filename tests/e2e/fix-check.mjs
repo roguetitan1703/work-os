@@ -16,17 +16,14 @@ for (const vp of [{ w: 1280, h: 800 }, { w: 390, h: 844 }]) {
   // sidebar
   if (!phone) {
     const probe = async sel => p.evaluate(s => { const e = document.querySelector(s); if (!e) return 'none'; const r = e.getBoundingClientRect(); const t = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return e.contains(t) || t?.contains(e) ? 'ok' : 'blocked:' + t?.tagName; }, sel);
-    check(T('sidebar sign-out reachable'), (await probe('aside button[title="Sign out"]')) === 'ok', await probe('aside button[title="Sign out"]'));
-    const tt = p.locator('aside button').last().locator('xpath=ancestor::div[1]');
-    const tog = p.locator('aside button:has(.sr-only)').first();
-    const bb = await tog.boundingBox(); const top = await p.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('button') !== null, [bb.x + bb.width / 2, bb.y + bb.height / 2]);
-    check(T('theme toggle hit-testable'), top);
-    const before = await p.evaluate(() => document.documentElement.outerHTML.slice(0,200));
-    await tog.click(); await p.waitForTimeout(600);
-    const flipped = await p.evaluate(() => document.documentElement.outerHTML.slice(0,200));
-    check(T('theme toggle flips the look on the first click'), before !== flipped);
-    await tog.click(); await p.waitForTimeout(600);
-    check(T('theme toggle flips it back on the second click'), before === await p.evaluate(() => document.documentElement.outerHTML.slice(0,200)));
+    await p.waitForTimeout(1500); await p.locator('[data-account-button]').click(); await p.locator('[data-menu=account]').waitFor();
+    check(T('account menu: Sign out is reachable'), (await probe('[data-menu-sign-out]')) === 'ok', await probe('[data-menu-sign-out]'));
+    const isDark = () => p.evaluate(() => document.documentElement.classList.contains('dark'));
+    const before = await isDark();
+    await p.locator('[data-menu-theme]').hover(); await p.locator('[data-theme-option]').first().waitFor(); await p.locator(`[data-theme-option=${before ? 'light' : 'dark'}]`).click(); await p.waitForTimeout(500);
+    check(T('account menu: Theme flips the look on the first pick'), (await isDark()) !== before);
+    await p.waitForTimeout(500); await p.locator('[data-account-button]').click(); await p.locator('[data-menu=account]').waitFor(); await p.locator('[data-menu-theme]').hover(); await p.locator('[data-theme-option]').first().waitFor(); await p.locator(`[data-theme-option=${before ? 'dark' : 'light'}]`).click(); await p.waitForTimeout(500);
+    check(T('account menu: Theme flips it back'), (await isDark()) === before);
     await p.click('button:visible:has-text("Schedule")'); await p.waitForSelector('[role=dialog]');
     const d = await p.evaluate(() => { const e = document.querySelector('[role=dialog]'); const r = e.getBoundingClientRect(); return { l: r.left, w: r.width, sw: e.scrollWidth, cw: e.clientWidth }; });
     check(T('Day plan dialog fits content'), d.w > 600 && d.sw <= d.cw + 1 && d.l >= 0, JSON.stringify(d));
