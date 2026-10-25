@@ -24,11 +24,15 @@ async function open(kind) {
   await p.locator(`[data-variant=${phone ? 'phone' : 'desk'}] [data-section="claude-card"]`).waitFor();
   // The page starts as a flex day on weekends (no NOW block, no next blocks); switch to a work day so every weekday runs the same checks.
   await p.waitForTimeout(600); // the saved flex choice is read right after hydration
-  const flexBtn = p.locator(`[data-variant=${phone ? 'phone' : 'desk'}] button[aria-label="Flex day: switch to work day"]`);
-  if (await flexBtn.count()) await tap(flexBtn.first(), phone);
+  await tap(p.locator(`[data-variant=${phone ? 'phone' : 'desk'}] button[aria-label="More"]`), phone); // Import and Work day live in the More menu
+  const flexItem = p.locator('[data-more-menu] button', { hasText: 'switch to work day' });
+  await p.locator('[data-more-menu]').waitFor();
+  if (await flexItem.count()) await tap(flexItem.first(), phone);
+  else await closeSheet(p, phone);
   return { p, ctx, errs };
 }
 const tap = (loc, phone) => (phone ? loc.tap() : loc.click());
+const closeSheet = (p, phone) => (phone ? p.locator('[data-sheet] button[aria-label=Close]').first().tap() : p.keyboard.press('Escape'));
 const hrefs = (V) => V.locator('a[href^="/tasks/"]:visible').evaluateAll(els => els.map(e => e.getAttribute('href')));
 
 async function reset() {
@@ -74,8 +78,14 @@ for (const kind of ['phone', 'desk']) {
   const head = async t => (await V.locator(`[data-section=${t}] h2`).innerText()).replace(/\s+/g, ' ');
   console.log(await head('overdue'), '|', await head('due-today'), '|', await head('in-progress'), '|', await head('blocked'));
   check(`${kind}: heading counts`, (await head('overdue')).includes('7') && (await head('due-today')).includes('3'));
-  for (const n of ['Schedule', 'Import']) check(`${kind}: header button ${n}`, (await V.getByRole('button', { name: n, exact: true }).count()) === 1);
-  check(`${kind}: Work day button`, (await V.getByRole('button', { name: /Work day|Flex day/ }).count()) >= 1);
+  for (const n of ['Schedule', 'More']) check(`${kind}: header button ${n}`, (await V.getByRole('button', { name: n, exact: true }).count()) === 1);
+  check(`${kind}: no loose Import or Work day button`, (await V.getByRole('button', { name: 'Import', exact: true }).count()) === 0 && (await V.getByRole('button', { name: /^(Work|Flex) day/ }).count()) === 0);
+  await tap(V.getByRole('button', { name: 'More', exact: true }), phone);
+  await p.locator('[data-more-menu]').waitFor();
+  const moreText = await p.locator('[data-more-menu]').innerText();
+  check(`${kind}: More menu holds Import and the work/flex day switch`, /Import tasks/.test(moreText) && /Work day|Flex day/.test(moreText), moreText);
+  await closeSheet(p, phone);
+  await p.locator('[data-more-menu]').waitFor({ state: 'detached' });
   check(`${kind}: no Day plan label`, (await V.getByText('Day plan', { exact: true }).count()) === 0);
 
   // Show more
@@ -87,18 +97,19 @@ for (const kind of ['phone', 'desk']) {
   // Claude card
   const st = (await V.locator('[data-claude-status]').innerText()).replace(/\s+/g, ' ');
   console.log('claude status:', st);
-  check(`${kind}: card "3 needs you · 2 running"`, /3 needs you/.test(st) && /2 running/.test(st), st);
+  check(`${kind}: card "Claude is asking 3 · 2 running"`, /Claude is asking 3/.test(st) && /2 running/.test(st) && !/needs you/i.test(st), st);
   check(`${kind}: at most 2 rows + "1 more"`, (await V.locator('[data-needs-you]').count()) === 2 && (await V.getByText('1 more ›').count()) === 1);
   const act = await V.locator('[data-activity-total]').innerText();
   check(`${kind}: activity line`, /2 Claude Code sessions · 3 subagents working/.test(act), act);
-  const rowH = await box(V.locator('[data-needs-you]'));
-  check(`${kind}: waiting row one line (<=48px)`, rowH.height <= 48, `${rowH.height}`);
+  // The collapsed row shows the whole question, wrapped (nothing cut with an ellipsis).
+  const cut = await V.locator('[data-needs-you] > button').first().evaluate(b => [...b.querySelectorAll('span')].some(s => s.scrollWidth > s.clientWidth + 1 || getComputedStyle(s).textOverflow === 'ellipsis'));
+  check(`${kind}: waiting row shows the question in full (wrapped, not cut)`, !cut && (await V.locator('[data-needs-you]').first().innerText()).includes('Which logo should the header use?'));
   check(`${kind}: card pre-expand has no reply input`, (await V.locator('input[placeholder="Your answer…"]').count()) === 0);
   await tap(V.locator('[data-needs-you] button').first(), phone);
   check(`${kind}: tap expands to the answer box`, (await V.locator('input[placeholder="Your answer…"]').count()) === 1);
   await V.locator('input[placeholder="Your answer…"]').first().fill('Use the dark logo');
   // The refresh can re-render the card and swallow the tap; tap Send answer again (re-opening the row if it collapsed) until the count drops.
-  const dropped = k => p.waitForFunction(k => /^2 needs you/.test(document.querySelector(`[data-variant=${k}] [data-claude-status]`)?.textContent ?? ''), k, { timeout: 4000 }).then(() => true, () => false);
+  const dropped = k => p.waitForFunction(k => /^Claude is asking 2/.test(document.querySelector(`[data-variant=${k}] [data-claude-status]`)?.textContent ?? ''), k, { timeout: 4000 }).then(() => true, () => false);
   let ok = false;
   for (let n = 0; n < 3 && !ok; n++) {
     if (n && (await V.getByRole('button', { name: 'Send answer', exact: true }).count()) === 0) { await tap(V.locator('[data-needs-you] button').first(), phone); await V.locator('input[placeholder="Your answer…"]').first().fill('Use the dark logo'); }
@@ -166,7 +177,7 @@ for (const kind of ['phone', 'desk']) {
   const V = p.locator(`[data-variant=${kind}]`);
   await p.waitForTimeout(600);
   const st = (await V.locator('[data-claude-status]').innerText()).replace(/\s+/g, ' ');
-  check(`${kind}: empty card "Nothing waiting · 2 running"`, /^Nothing waiting · 2 running/.test(st), st);
+  check(`${kind}: empty card "Claude is working · 2 running"`, /^Claude is working · 2 running/.test(st), st);
   check(`${kind}: card has no rows when nothing waits`, (await V.locator('[data-needs-you]').count()) === 0);
   check(`${kind}: "Nothing overdue."`, (await V.getByText('Nothing overdue.').count()) === 1);
   const cc = await V.locator('[data-section=claude-card]').boundingBox();

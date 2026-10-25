@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "@/components/intent-link";
-import { CalendarDays, ChevronDown, ChevronRight, ClipboardPaste, LayoutList, Zap } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronRight, ClipboardPaste, LayoutList, MoreHorizontal, Zap } from "lucide-react";
 import type { Mode, Task } from "@/lib/types";
 import { PasteImportDialog } from "@/components/paste-import";
 import { DayPlanDialog } from "@/components/day-plan-dialog";
@@ -13,6 +13,7 @@ import { MTaskRow } from "@/components/mobile/m-task-row";
 import { Button } from "@/components/ui/button";
 import { TaskRow } from "@/components/task-row";
 import { QuickAddBar } from "@/components/quick-add";
+import { ResponsiveSheet } from "@/components/responsive-sheet";
 import { cn } from "@/lib/utils";
 import { ClaudeCard, type ClaudeCardData } from "./claude-card";
 import { useTodayModel, type Wd } from "./today-model";
@@ -53,6 +54,7 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
   const phone = variant === "phone";
   const [importOpen, setImportOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const notes = new Set(noteTaskIds);
 
   const row = (t: Task, hint?: React.ReactNode) =>
@@ -91,38 +93,61 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
     </div>
   );
 
-  // Schedule and the work/flex day switch only mean something to someone with a schedule.
+  // Schedule only means something to someone with a schedule. Import and the work/flex day switch sit in one More menu.
   const buttons = (
     <>
       {m.hasSchedule && (
-        <HeaderBtn phone={phone} onClick={() => setPlanOpen(true)} icon={<LayoutList className="w-4 h-4" />}>
+        <HeaderBtn phone={phone} wide onClick={() => setPlanOpen(true)} icon={<LayoutList className="w-4 h-4" />}>
           Schedule
         </HeaderBtn>
       )}
-      <HeaderBtn phone={phone} onClick={() => setImportOpen(true)} icon={<ClipboardPaste className="w-4 h-4" />}>
-        Import
+      <HeaderBtn phone={phone} wide={m.hasSchedule} onClick={() => setMoreOpen(true)} icon={<MoreHorizontal className="w-4 h-4" />} label="More">
+        More
       </HeaderBtn>
-      {m.hasSchedule && (
-        <HeaderBtn
-          phone={phone}
-          onClick={m.toggleFlex}
-          on={m.isFlexDay}
-          icon={<CalendarDays className="w-4 h-4" />}
-          label={m.isFlexDay ? "Flex day: switch to work day" : "Work day: switch to flex day"}
-        >
-          {m.isFlexDay ? "Flex day" : "Work day"}
-        </HeaderBtn>
-      )}
     </>
+  );
+
+  const moreRow = "w-full flex items-center gap-3 px-3 min-h-12 md:min-h-10 rounded-xl text-left text-[16px] md:text-sm text-foreground hover:bg-muted/60 active:bg-muted";
+  const moreMenu = moreOpen && (
+    <ResponsiveSheet title="More" onClose={() => setMoreOpen(false)}>
+      <div className="space-y-1 pb-2" data-more-menu>
+        <button
+          type="button"
+          className={moreRow}
+          onClick={() => {
+            setMoreOpen(false);
+            setImportOpen(true);
+          }}
+        >
+          <ClipboardPaste className="w-4 h-4 shrink-0 text-muted-foreground" />
+          Import tasks
+        </button>
+        {m.hasSchedule && (
+          <button
+            type="button"
+            className={moreRow}
+            onClick={() => {
+              m.toggleFlex();
+              setMoreOpen(false);
+            }}
+          >
+            <CalendarDays className="w-4 h-4 shrink-0 text-muted-foreground" />
+            {m.isFlexDay ? "Flex day: switch to work day" : "Work day: switch to flex day"}
+          </button>
+        )}
+      </div>
+    </ResponsiveSheet>
   );
 
   const dialogs = phone ? (
     <>
+      {moreMenu}
       <MobileImport open={importOpen} onClose={() => setImportOpen(false)} />
       <MobileDayPlan open={planOpen} onClose={() => setPlanOpen(false)} allTasks={openTasks} weekday={m.effectiveWeekday} />
     </>
   ) : (
     <>
+      {moreMenu}
       <PasteImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
       <DayPlanDialog open={planOpen} onClose={() => setPlanOpen(false)} allTasks={openTasks} weekday={m.effectiveWeekday} />
     </>
@@ -132,7 +157,7 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
     return (
       <div>
         <MobileHeader title="Today" subtitle={dayName} />
-        <div className={cn("grid gap-2", m.hasSchedule ? "grid-cols-3" : "grid-cols-1")}>{buttons}</div>
+        <div className={cn("flex gap-2", !m.hasSchedule && "justify-end")}>{buttons}</div>
         <div className="mt-3 space-y-3">
           <NowLine m={m} row={row} />
           <ClaudeCard data={claude} />
@@ -167,7 +192,7 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
 
 // ── pieces ──────────────────────────────────────────────────────────────────
 
-function HeaderBtn({ phone, onClick, icon, children, on, label }: { phone: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode; on?: boolean; label?: string }) {
+function HeaderBtn({ phone, wide, onClick, icon, children, on, label }: { phone: boolean; wide?: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode; on?: boolean; label?: string }) {
   if (!phone) {
     return (
       <Button variant="outline" size="sm" className={cn("gap-1.5 text-xs", on && "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400")} onClick={onClick} aria-label={label}>
@@ -182,6 +207,7 @@ function HeaderBtn({ phone, onClick, icon, children, on, label }: { phone: boole
       aria-label={label}
       className={cn(
         "min-w-0 h-11 px-2 rounded-full border text-[14px] font-medium flex items-center justify-center gap-1.5 whitespace-nowrap active:scale-95 transition-transform",
+        wide ? "flex-1" : "px-5",
         on ? "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400" : "border-border bg-background text-foreground",
       )}
     >
@@ -257,10 +283,7 @@ function NowLine({ m, row }: { m: Model; row: (t: Task) => React.ReactNode }) {
   if (m.isFlexDay)
     return (
       <div className={plain}>
-        Flex day · no fixed schedule ·{" "}
-        <Link href="/settings?section=help" className="underline ml-1 inline-flex items-center min-h-11">
-          Recovery
-        </Link>
+        Flex day · no fixed schedule
       </div>
     );
   if (!m.liveBlock || !m.hex) return <div className={plain}>No active block right now</div>;
@@ -305,7 +328,7 @@ function NowNext({ m, row }: { m: Model; row: (t: Task) => React.ReactNode }) {
       </div>
       {m.isFlexDay ? (
         <p className="px-3 py-3 text-xs text-muted-foreground">
-          Flex day, no fixed schedule. <Link href="/settings?section=help" className="underline">Recovery playbook</Link>
+          Flex day, no fixed schedule.
         </p>
       ) : (
         <>
