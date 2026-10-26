@@ -398,14 +398,18 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
     set.visibility = data.visibility;
     if (data.visibility === 'private') await (await import('./dispatcher')).endForeignClaude(c, s, id, cur.ownerId);
   }
-  // The project first, then what follows it: if the update is refused (a unique index) nothing has moved.
+  // Whichever order fails safe. Made shared: the project first, then what follows it, so a refused update (a unique index)
+  // moves nothing private. Made private: what follows it first, so a failure part-way leaves things private under a
+  // still-shared project, never shared things under a private one.
+  const moving = set.visibility && set.visibility !== cur.visibility ? set.visibility : null;
+  if (moving === 'private') await setProjectVisibility(c, cur, 'private');
   try {
     await c.projects.updateOne({ _id: id }, { $set: set });
   } catch (err) {
     if ((err as { code?: number }).code === 11000) throw new InputError('That change clashes with another project (its name or its Delpat OS import). Nothing was changed.');
     throw err;
   }
-  if (set.visibility && set.visibility !== cur.visibility) await setProjectVisibility(c, cur, set.visibility);
+  if (moving === 'org') await setProjectVisibility(c, cur, 'org');
   return toProject({ ...cur, ...set });
 }
 

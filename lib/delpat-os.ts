@@ -322,12 +322,12 @@ export async function linkStatus(c: Caller): Promise<LinkStatus> {
 const refreshing = new Map<string, Promise<string>>();
 
 const fresh = (row: { access: string | null; accessExpiresAt: Date | null }) => !!row.access && !!row.accessExpiresAt && row.accessExpiresAt.getTime() - Date.now() > 60_000;
-const LEASE_MS = 15_000;
+const LEASE_MS = 30_000; // longer than a token call can take (metadata 10 s + token 10 s)
 
 /**
  * A valid access token for this person (refreshing when it ran out). The refresh token rotates, so a refresh must happen
  * once: one at a time per person in this process (the row is read again inside it, and a fresh token is just used), and
- * across processes under a lease on the row (`refreshingUntil`, 15 s): only the process that sets it calls the token
+ * across processes under a lease on the row (`refreshingUntil`, 30 s): only the process that sets it calls the token
  * endpoint, the others poll until the lease clears or the tokens change and use the result. The winner clears the lease
  * when it saves or fails. A refusal deletes the link only if the refresh token we used is still the stored one.
  * `rejected` is an access token Delpat OS just refused (401): it counts as expired, so a new one is fetched.

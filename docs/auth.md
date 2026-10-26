@@ -149,7 +149,7 @@ is no card, no tabs, the callback is a 404 and the actions say "not set up".
   logged. A refresh token has to be readable to use, so it is sealed, not hashed.
 - **Use:** an access token is reused until 60 s before it expires, then refreshed. The refresh token rotates, so a refresh happens once: one at
   a time per person in the process (the row is read again inside it and a fresh token is just used), and across processes under a
-  15 s lease on the row (`refreshingUntil`): only the process that sets it calls the token endpoint, the others poll until the tokens change and
+  30 s lease on the row (`refreshingUntil`): only the process that sets it calls the token endpoint, the others poll until the tokens change and
   use the result; the winner clears the lease when it saves or fails. A refused refresh token deletes the link only if it is still the stored
   one (otherwise someone rotated it meanwhile and their result is used). A 401 from the MCP first refreshes once and retries; only a second
   refusal with the tokens unchanged drops the link. Both say "link it again". A network error or 5xx keeps it. Answers from Delpat OS are read as a stream and refused beyond ~1 MB.
