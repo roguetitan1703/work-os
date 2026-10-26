@@ -227,7 +227,7 @@ try {
 
   // ======== 3. link ========
   await startLink(p, 'owner', false);
-  check('link: through Delpat OS and back, Settings says linked', /^s*Linked/.test(await p.locator('[data-connection="delpat-os"] [data-status]').innerText()) && (await p.locator('[data-delpat-notice]').innerText()).includes('linked'));
+  check('link: through Delpat OS and back, Settings says linked', /^\s*Linked/.test(await p.locator('[data-connection="delpat-os"] [data-status]').innerText()) && (await p.locator('[data-delpat-notice]').innerText()).includes('linked'));
   check('link: exactly one authorization-code exchange, with the verifier (the stub checked S256) and client_secret_post', tokenOk() === 1 && stub.tokenCalls.every(t => !t.basic));
   const row = await linkRow(A.orgId, A.userId);
   check('link: stored for this person in this organization', !!row && row.userId === A.userId && row.orgId === A.orgId);
