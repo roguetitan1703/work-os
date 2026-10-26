@@ -17,9 +17,9 @@ const back = (flag: 'linked' | 'error') => {
 };
 
 export async function GET(req: NextRequest) {
-  if (!delpatOsEnabled()) return new NextResponse('Not Found', { status: 404 });
   const caller = await getCaller();
-  if (!caller) return back('error');
+  if (!caller) return NextResponse.redirect(`${appBaseUrl() ?? ''}/login?next=${encodeURIComponent('/settings?section=connections')}`, { status: 303, headers: { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
+  if (!delpatOsEnabled()) return new NextResponse('Not Found', { status: 404 });
   const q = req.nextUrl.searchParams;
   try {
     await completeLink(caller, { code: q.get('code'), state: q.get('state'), error: q.get('error') });
