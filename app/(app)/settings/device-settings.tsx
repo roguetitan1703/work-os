@@ -154,7 +154,7 @@ export function PushCard({ vapidKey, devices }: { vapidKey: string | null; devic
 
   const enable = () =>
     start(async () => {
-      if (!vapidKey) return void toast.error('Push keys are not set on the server yet (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY in Vercel).');
+      if (!vapidKey) return void toast.error('Push keys are not set on the server yet (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY in /etc/work-os/env on the server).');
       const perm = await Notification.requestPermission();
       setEnv(e => (e ? { ...e, permission: perm } : e));
       if (perm !== 'granted') return void toast.error('Notifications were not allowed. Allow them in the phone settings for this app.');

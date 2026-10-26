@@ -9,7 +9,7 @@ import { instructions, TOOLS } from '@/lib/mcp/docs';
 import { getOrgModes } from '@/lib/org-modes';
 import { listAuthorizedApps } from '@/lib/oauth';
 import { cn } from '@/lib/utils';
-import { BRIEF_PROMPT, GROUPS, PROJECT_INSTRUCTIONS } from '../settings/data';
+import { GROUPS, PROJECT_INSTRUCTIONS } from '../settings/data';
 import { Disclosure, Field, code } from '../settings/ui';
 import { AdvancedFold } from './advanced-fold';
 import { Computers } from './computers';
@@ -120,12 +120,9 @@ export async function SetupTab({ url }: { url: string }) {
                 <code>enabled: false</code> in the worker&apos;s config, to stop it.
               </p>
             </Disclosure>
-            <Disclosure title="Prompts for Claude chat" hint="Project instructions and morning brief">
-              <Field label="Tell Claude how you use it (paste into a Claude Project's instructions, or Settings → Profile → personal preferences)">
+            <Disclosure title="Instructions for Claude chat" hint="Paste into a Claude Project">
+              <Field label="Tell Claude how to use Work OS (paste into a Claude Project's instructions, or Settings → Profile → personal preferences)">
                 <CopyBox text={PROJECT_INSTRUCTIONS} multiline />
-              </Field>
-              <Field label="Add to the morning brief (the prompt of your weekday 8am brief, alongside Calendar, Gmail and Vercel)">
-                <CopyBox text={BRIEF_PROMPT} multiline />
               </Field>
             </Disclosure>
             <Disclosure title="What Claude can do here" hint="Every tool, with an example">

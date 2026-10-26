@@ -193,7 +193,7 @@ async function ServerPanel({ caller, range }: { caller: Caller; range?: string }
       {operator && (
         <div className="space-y-3">
           <h2 className={cn(ui.sectionLabel, 'px-1')}>Scheduled alert checks</h2>
-          <ServerAlerts base={base} />
+          <ServerAlerts />
         </div>
       )}
       {operator && (

@@ -94,7 +94,6 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 - **Settings › Connections** (`/settings?section=connections`; the old `/connect` redirects there) has:
   - the URL and header with copy buttons (the key is hidden until you click reveal)
   - instructions to paste into a Claude Project or your preferences
-  - a **morning brief** prompt covering Work OS and Discord
   - every tool with a description and an example question
   - Discord setup with live status
   - (alert settings and status live in Settings › Alerts)
@@ -295,9 +294,8 @@ There's no bot server running all the time and no messages are stored.
 - **Rules:** quiet hours 23:00–08:00 IST (anything due then waits until morning), one combined DM per check, and each alert sent only once.
 - **Status:** Settings › Alerts (and the status strip at the top of Settings) shows when the last check ran and what it did.
 - **Setup still to do:**
-  1. Add `CRON_SECRET` in Vercel; the value is in `work-os/.env.local`.
-  2. On cron-job.org, create a job every 15 minutes on `https://work-os-puce-delta.vercel.app/api/cron/alerts` with the header `Authorization: Bearer <CRON_SECRET>`.
-  3. For phone push, add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` in Vercel and redeploy, then turn on "Notifications on this device" in Settings on each phone.
+  1. Add `CRON_SECRET` to `/etc/work-os/env` on the server and restart `work-os`. `work-os-alerts.timer` (see `docs/hosting.md`) then calls the check every 15 minutes; check it with `systemctl list-timers 'work-os*'` and `journalctl -u work-os-alerts`.
+  3. For phone push, add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` to `/etc/work-os/env` and restart, then turn on "Notifications on this device" in Settings on each phone.
   4. If DMs fail with a 403: Discord → Delpat server → Privacy Settings → allow direct messages.
 
 ### Claude
@@ -413,15 +411,15 @@ Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings") has
 | Row | What it checks |
 |---|---|
 | Database | pings MongoDB; amber if slower than 150 ms; shows the task count |
-| Server | Vercel region and commit; amber if not Mumbai (`bom1`) |
+| Server | the release commit (from the `REVISION` file) and Node version |
 | Claude connector | when a Claude chat key was last used on the connector (amber until first use) |
 | Discord bot | token works, channels readable, Message Content Intent on, blocked-channel count, last command; grey if not configured |
-| Scheduled alerts | `CRON_SECRET` set and the cron job's last run (amber if never or stale) |
+| Scheduled alerts | `CRON_SECRET` set and the alerts timer's last run (amber if never or stale) |
 | Phone notifications | VAPID keys set and how many devices are subscribed |
 | Notes converter | the markdown ↔ blocks converter loads and works |
 
 - **App:** one Settings page with sections This device (push, theme, test, sign out), Alerts, Security, Connections (Claude chat, Discord; Claude Code keys and computers are in Claude › Setup), Usage and Help; status strip on top.
-- **Usage:** our own request log, since Vercel Hobby shows no per-route breakdown: requests in the last 24 h and 7 days, per hour, per day, and the top routes by kind (page load, page data, action, API) and caller (browser, worker, Claude, cron, Discord, no sign-in). Static files are not counted; Vercel's limit counts them too. How it works: `docs/usage-log.md` (`proxy.ts` → `lib/usage.ts` → `requestStats`, 35 days).
+- **Usage:** our own request log, requests in the last 24 h and 7 days, per hour, per day, and the top routes by kind (page load, page data, action, API) and caller (browser, worker, Claude, cron, Discord, no sign-in). Static files are not counted. How it works: `docs/usage-log.md` (`proxy.ts` → `lib/usage.ts` → `requestStats`, 35 days).
 
 The live status list (below) is the status strip at the top of Settings.
 

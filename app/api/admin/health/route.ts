@@ -22,7 +22,6 @@ export async function GET(req: Request) {
   const env = {
     MONGODB_URI: !!process.env.MONGODB_URI,
     mongoVarsSeen: mongoEnvNames(),
-    VERCEL_ENV: process.env.VERCEL_ENV ?? null,
     MONGODB_DB: process.env.MONGODB_DB || 'workos (default)',
     BETTER_AUTH_SECRET: !!authSecret(),
     defaultTimezone: DEFAULT_TZ,
