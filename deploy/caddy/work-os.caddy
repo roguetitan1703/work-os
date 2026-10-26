@@ -16,7 +16,10 @@
 #   (this site has no `encode`; Next compresses pages itself), no timeout on the 30-minute streams;
 # - request bodies up to 10 MB;
 # - HSTS, and no Server header;
-# - /api/cron/ is not served from outside (the timer calls the app on 127.0.0.1 directly).
+# - /api/cron/ is not served from outside (the timer calls the app on 127.0.0.1 directly);
+# - a restart (a deploy, or systemd after a crash) is not a 502: while the app is not listening, Caddy keeps trying to
+#   connect for up to 30 s (lb_try_duration) and the request waits. It retries only when the connection was refused,
+#   so nothing is sent twice.
 # Not carried over: nginx's per-address limits (30 a minute on /api/auth/, 20 open streams): stock Caddy has no rate
 # limiting. Better Auth's own limits (per address and per account) and the app's stream caps (10 per person, 2 per
 # computer) still apply.
@@ -41,6 +44,8 @@ work.delpat.in {
 			flush_interval -1
 			header_up X-Real-IP {remote_host}
 			header_up -X-Workos-Client-Ip
+			lb_try_duration 30s
+			lb_try_interval 250ms
 		}
 	}
 
@@ -49,6 +54,8 @@ work.delpat.in {
 			flush_interval -1
 			header_up X-Real-IP {remote_host}
 			header_up -X-Workos-Client-Ip
+			lb_try_duration 30s
+			lb_try_interval 250ms
 		}
 	}
 }
