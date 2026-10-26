@@ -1,11 +1,10 @@
 # Work state
 
 ## Now
-- 2026-10-26: Work OS runs at https://work.delpat.in (cut-over done 2026-10-25). Master now also has Settings like claude.ai, Claude › Set up in 3 steps and the first-run checklist (ui-settings, reviewed; 29 suites pass), built and uploaded to manual-builds. Waits on Om: `sudo work-os-update` on the box, then the first real claude.ai / Claude Code OAuth connection. A how-to-use guide for colleagues is a Claude doc ("Work OS: how to use it").
+- 2026-10-26: Work OS runs at https://work.delpat.in (cut-over done 2026-10-25). Master has Settings like claude.ai, Claude › Set up in 3 steps, the first-run checklist, the Delpat OS import (security reviewed twice) and the last Vercel/personal text removed; 31 suites pass; built and uploaded to manual-builds. Waits on Om: `sudo work-os-update` on the box, DELPAT_OS_CLIENT_SECRET in /etc/work-os/env, then the first real Delpat OS link and import. Claude Code sign-in (OAuth) works on the live server. A how-to-use guide for colleagues is a Claude doc ("Work OS: how to use it").
 
 ## Next
-0. Builder A (builder-a): Delpat OS import (link in Connections, New project › From Delpat OS); review findings being fixed; security review, merge, ship; Om sets DELPAT_OS_CLIENT_SECRET on the box.
-0b. Builder S: drop the last personal and Vercel text: Settings › Server alerts setup guide ("add CRON_SECRET in Vercel", cron-job.org) and Claude › Set up › Prompts for Claude chat (the morning brief with Calendar, Gmail and Vercel).
+0. Om: Discord Interactions Endpoint URL = https://work.delpat.in/api/discord/interactions, then Settings › Server › Discord › Register the commands.
 Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
 Open work is filed as Claude items on Work OS (Claude page › Queue); this list only orders it.
 1. C46 (Om): first real dispatcher task — Claude › Setup: pick the boilerplate note, turn the dispatcher on, Give to Claude on one small task.
@@ -147,3 +146,7 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Trust labels: when the owner removes some of a teammate's tags, tagsBy becomes the owner for the tags left — waits on per-tag authors.
 - Trust labels: projects renamed by a teammate before nameBy existed count as named by their owner — waits on nothing (old data only; fades with renames).
 - Dispatcher: a teammate's change to blockedReason, links or tags does not take a queued task back from Claude (title, description and checklist do); they are labelled — waits on Om wanting take-back on those too.
+- Delpat OS: unlink only deletes our copy of the tokens; Delpat OS publishes no revocation_endpoint (Work OS uses it automatically once it does) — waits on Delpat OS adding it.
+- Delpat OS: never linked against the real os.delpat.in (stub only); the MCP may need an initialize call — waits on Om setting DELPAT_OS_CLIENT_SECRET and the first link.
+- Delpat OS: a refresh waiter polls about 18 s while the lease is 30 s, so a very slow token call makes the waiter fail with an error (the link is kept) — waits on it happening.
+- Note uploads still use Vercel Blob and say "connect a Vercel Blob store" when off — waits on Om choosing where note files live (S3/R2 on the box).
