@@ -49,6 +49,8 @@ headers|headers.mjs|none|plain
 alerts-once|alerts-once.mjs|none|discord
 discord-link|discord-link.mjs|none|discord
 leak-audit|leak-audit.mjs|none|discord
+delpat-os|delpat-os.mjs|none|delpat
+delpat-os-off|delpat-os-off.mjs|none|plain
 ${E2E_EXTRA:-}
 "
 
@@ -130,6 +132,7 @@ export APP_URL="http://localhost:$APORT" E2E_BASE="http://localhost:$APORT"
 export E2E_MONGO_PORT=$MPORT E2E_DISCORD_PORT=$DPORT
 export E2E_SHOTS="${E2E_SHOTS:-$TMP/shots}"
 export DISCORD_BOT_TOKEN= DISCORD_PUBLIC_KEY= DISCORD_APPLICATION_ID= DISCORD_API_BASE=
+export DELPAT_OS_CLIENT_ID= DELPAT_OS_CLIENT_SECRET= DELPAT_OS_ISSUER= DELPAT_OS_TOKEN_KEY=
 export VAPID_PUBLIC_KEY= VAPID_PRIVATE_KEY= VAPID_SUBJECT=
 export EMAIL_HOST= EMAIL_PORT= EMAIL_SECURE= EMAIL_USER= EMAIL_PASSWORD= EMAIL_FROM= EMAIL_FROM_NAME= OWNER_EMAIL=
 mkdir -p "$MAIL_CAPTURE_DIR"
@@ -157,6 +160,12 @@ else
 fi
 
 start_server() {
+  # The delpat mode points Work OS at a stub Delpat OS that the delpat-os suite runs on the discord stub's port.
+  if [ "$1" = delpat ]; then
+    export DELPAT_OS_CLIENT_ID=cli_e2e_client DELPAT_OS_CLIENT_SECRET=e2e-delpat-client-secret-0123456789 DELPAT_OS_ISSUER="http://127.0.0.1:$DPORT"
+  else
+    export DELPAT_OS_CLIENT_ID= DELPAT_OS_CLIENT_SECRET= DELPAT_OS_ISSUER=
+  fi
   if [ "$1" = discord ]; then
     export DISCORD_BOT_TOKEN=test-bot-token DISCORD_APPLICATION_ID=222222222222222222
     export DISCORD_PUBLIC_KEY="$E2E_DISCORD_PUB" DISCORD_API_BASE="http://127.0.0.1:$DPORT"
