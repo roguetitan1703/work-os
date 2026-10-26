@@ -1,7 +1,7 @@
 import 'server-only';
 import { randomBytes } from 'node:crypto';
 import type { ProjectDoc, TaskDoc } from '../db';
-import { idTaken, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
+import { idTaken, orgWide, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
 import {
   ProjectInputSchema,
   type Project,
@@ -113,7 +113,7 @@ function newProjectId(name: string): string {
 async function insertProject(
   c: Collections,
   s: Scope,
-  data: { name: string; client?: string; description?: string; status?: ProjectDoc['status']; code?: CodeLocation[] | null; visibility?: Visibility },
+  data: { name: string; client?: string; description?: string; status?: ProjectDoc['status']; code?: CodeLocation[] | null; visibility?: Visibility; delpatOsId?: string },
 ): Promise<ProjectDoc> {
   const now = new Date();
   const nameLower = data.name.trim().toLowerCase();
@@ -133,6 +133,7 @@ async function insertProject(
       client: data.client?.trim() ?? '',
       description: data.description ?? '',
       status: data.status ?? 'active',
+      ...(data.delpatOsId ? { delpatOsId: data.delpatOsId } : {}),
       ...(data.code?.length ? { code: cleanCodeLocations(data.code) } : {}),
       createdAt: now,
       updatedAt: now,
@@ -312,6 +313,44 @@ export async function createProject(s: Scope, input: ProjectInput): Promise<{ pr
   const existing = await c.projects.findOne({ nameLower: data.name.toLowerCase() });
   if (existing) return { project: toProject(existing), created: false };
   const doc = await insertProject(c, s, data);
+  return { project: toProject(doc), created: true };
+}
+
+/** The caller's visible project already imported from this Delpat OS project, if any. */
+export async function importedProject(s: Scope, delpatOsId: string): Promise<Project | null> {
+  const c = await scoped(s);
+  const p = await c.projects.findOne({ delpatOsId });
+  return p ? toProject(p) : null;
+}
+
+/** Which of these Delpat OS ids the caller already has in Work OS (visible projects only): id -> Work OS project id. */
+export async function importedProjects(s: Scope, delpatOsIds: string[]): Promise<Record<string, string>> {
+  if (!delpatOsIds.length) return {};
+  const c = await scoped(s);
+  const rows = await c.projects.find({ delpatOsId: { $in: delpatOsIds } }, { projection: { _id: 1, delpatOsId: 1 } }).toArray();
+  return Object.fromEntries(rows.map(r => [String(r.delpatOsId), r._id]));
+}
+
+/**
+ * Makes a project from a Delpat OS one (lib/delpat-os.ts). One per organization: if the caller sees it already, that one
+ * comes back (created=false); if someone else holds it privately it is refused without saying who. A name that clashes
+ * with a project of the caller's gets " (Delpat OS)" added.
+ */
+export async function createImportedProject(
+  s: Scope,
+  data: { delpatOsId: string; name: string; client: string; description: string; status: ProjectDoc['status']; visibility: Visibility },
+): Promise<{ project: Project; created: boolean }> {
+  const c = await scoped(s);
+  const seen = await c.projects.findOne({ delpatOsId: data.delpatOsId });
+  if (seen) return { project: toProject(seen), created: false };
+  if (await (await orgWide(s.orgId)).projects.findOne({ delpatOsId: data.delpatOsId }, { projection: { _id: 1 } })) {
+    throw new InputError('This Delpat OS project was already imported into your organization by someone else.');
+  }
+  const base = { client: data.client, description: data.description.slice(0, 5000), status: data.status, visibility: data.visibility, delpatOsId: data.delpatOsId };
+  const name = data.name.trim().slice(0, 120) || 'Delpat OS project';
+  const clash = async (n: string) => !!(await c.projects.findOne({ nameLower: n.toLowerCase() }, { projection: { _id: 1 } }));
+  const finalName = (await clash(name)) ? `${name.slice(0, 100)} (Delpat OS)` : name;
+  const doc = await insertProject(c, s, { ...base, name: finalName });
   return { project: toProject(doc), created: true };
 }
 

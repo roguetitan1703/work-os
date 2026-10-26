@@ -11,6 +11,7 @@ import { overviewCards, type Card } from './overview-data';
 import { ReferenceTab } from './reference-tab';
 import { ConnectionsComputers } from './connections-computers';
 import { Disclosure, Dot } from './ui';
+import { DelpatOsLink } from './delpat-os-link';
 import { requireCaller } from '@/lib/caller';
 import { listAuthorizedApps } from '@/lib/oauth';
 
@@ -58,6 +59,8 @@ export async function Connections({ open }: { open?: string }) {
       </Link>
 
       <ConnectionsComputers caller={caller} />
+
+      <DelpatOsLink />
 
       <ConnectionCard card={by('discord')} id="discord" open={open === 'discord'}>
         <DiscordSection base={base} caller={caller} />

@@ -101,9 +101,16 @@ export type ProjectDoc = Placed & {
   code?: CodeLocation[];
   /** The member who last named it (created or renamed it; lib/data/authors.ts). Missing on older projects. */
   nameBy?: string;
+  /** The Delpat OS project it was imported from (lib/delpat-os.ts); unique per organization. */
+  delpatOsId?: string;
   createdAt: Date;
   updatedAt: Date;
 };
+
+/** A person's link to Delpat OS: tokens sealed with AES-256-GCM (lib/delpat-os.ts). _id `<orgId>:<userId>`. */
+export type DelpatOsLinkDoc = { _id: string; orgId: string; userId: string; refresh: string; access: string | null; accessExpiresAt: Date | null; createdAt: Date; updatedAt: Date };
+/** A link in progress: the state (hashed) with its sealed PKCE verifier; deleted when used, expires after 10 minutes. */
+export type DelpatOsAuthDoc = { _id: string; orgId: string; userId: string; verifier: string; expiresAt: Date };
 
 /** Reviews from before phase 3 kept their answers as fields (shipped, slipped, …); lib/data/reviews.ts reads both. */
 export type ReviewDoc = Omit<WeeklyReview, 'id' | 'answers'> & { _id: string; orgId: string; ownerId: string; answers?: WeeklyReview['answers'] } & Record<string, unknown>;
@@ -299,7 +306,11 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { orgId: 1, ownerId: 1, nameLower: 1 }, unique: true, name: 'owner_private_name_unique', partialFilterExpression: { visibility: 'private' } },
       // The door's filter (orgId + visibility or owner) on every project read; the partial indexes above cannot serve it.
       { key: { orgId: 1 }, name: 'org' },
+      // One import of a Delpat OS project per organization (lib/delpat-os.ts).
+      { key: { orgId: 1, delpatOsId: 1 }, unique: true, name: 'org_delpat_os_unique', partialFilterExpression: { delpatOsId: { $type: 'string' } } },
     ]],
+    ['delpatOsLinks', [{ key: { userId: 1 }, name: 'user' }]],
+    ['delpatOsAuth', [{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }]],
     ['ritualLogs', [{ key: { orgId: 1, ownerId: 1, date: 1 }, unique: true, name: 'owner_date_unique' }]],
     ['alertLog', [{ key: { taskId: 1 }, name: 'task' }, { key: { sentAt: 1 }, name: 'sentAt' }]],
     ['alertQueue', [{ key: { sentAt: 1 }, name: 'sentAt' }, { key: { orgId: 1, sentAt: 1 }, name: 'org_sentAt' }]],
@@ -381,6 +392,8 @@ export async function collections() {
     notifications: db.collection<NotificationDoc>('notifications'),
     pushSubs: db.collection<PushSubDoc>('pushSubs'),
     mailLog: db.collection<MailLogDoc>('mailLog'),
+    delpatOsLinks: db.collection<DelpatOsLinkDoc>('delpatOsLinks'),
+    delpatOsAuth: db.collection<DelpatOsAuthDoc>('delpatOsAuth'),
     requestStats: db.collection<RequestStatsDoc>('requestStats'),
     policyEvents: db.collection<PolicyEventDoc>('policyEvents'),
     claudeItems: db.collection<ClaudeItemDoc>('claudeItems'),
