@@ -28,8 +28,8 @@ export async function UsageSection({ range }: { range?: string }) {
           <Split title={`By caller · ${week ? 'last 7 days' : 'last 24 h'}`} keys={USAGE_CALLERS} labels={CALLER_LABEL} counts={sel.byCaller} />
         </Card>
         <p className="px-1 mt-1.5 text-xs text-muted-foreground">
-          Every page load, page-data fetch, action and API call that reaches the app. Static files (scripts, styles, images, icons, sw.js) come from
-          Vercel&apos;s CDN and are not counted. Vercel&apos;s limit counts these plus static files.
+          Every page load, page-data fetch, action and API call that reaches the app. Static files (scripts, styles, images, icons, sw.js) are served
+          without reaching the app and are not counted.
         </p>
       </Section>
 

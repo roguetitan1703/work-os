@@ -159,7 +159,7 @@ for (const [label, vp, touch] of [['desktop', { width: 1280, height: 800 }, fals
   check(`${label}: 7 day rows`, (await q.locator('[data-usage-day]').count()) === 7);
   check(`${label}: worker route with its kind and caller`, (await q.locator('[data-usage-route="/api/worker/jobs"] [data-usage-part="api|worker"]').count()) === 1);
   check(`${label}: /tasks/[id] row`, (await q.locator('[data-usage-route="/tasks/[id]"]').count()) === 1);
-  check(`${label}: Vercel note`, (await q.locator('[data-usage]').innerText()).includes("Vercel's limit counts these plus static files."));
+  check(`${label}: static files note`, (await q.locator('[data-usage]').innerText()).includes('are not counted.'));
   const o = await overflow(q); check(`${label}: no overflow`, okO(o), JSON.stringify(o));
   await q.screenshot({ path: `${SP}/usage-${label}.png`, fullPage: true });
   check(`${label}: 7-day toggle links to range=7d`, (await q.locator('[data-usage-range="7d"]').getAttribute('href')) === '/settings?section=server&range=7d');

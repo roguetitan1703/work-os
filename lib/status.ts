@@ -1,4 +1,6 @@
 import 'server-only';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { getDb } from './db';
 import { discordConfig, guildContext } from './discord/client';
 import { discordLinkOf } from './profile';
@@ -57,13 +59,13 @@ export async function systemStatus(s: Scope): Promise<Check[]> {
       : { name: 'Database', level: db.ms > 150 ? 'warn' : 'ok', summary: `MongoDB Atlas · ${db.ms} ms`, detail: `${db.tasks} tasks${db.first > db.ms + 50 ? ` · first query ${db.first} ms (new connection)` : ``}` },
   );
 
-  const region = process.env.VERCEL_REGION ?? 'local';
-  const sha = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7);
+  // The release commit: deploy writes it to REVISION in the release folder (the app's working directory).
+  const sha = (await readFile(join(process.cwd(), 'REVISION'), 'utf8').catch(() => '')).trim().slice(0, 7);
   checks.push({
     name: 'Server',
-    level: region === 'local' || region === 'bom1' ? 'ok' : 'warn',
-    summary: `Vercel ${region}${sha ? ` · ${sha}` : ''}`,
-    detail: `${process.env.VERCEL_ENV ?? 'development'} · Node ${process.version}${region !== 'bom1' && region !== 'local' ? ' · not Mumbai: slower' : ''}`,
+    level: 'ok',
+    summary: `Work OS server${sha ? ` · ${sha}` : ''}`,
+    detail: `${process.env.NODE_ENV ?? 'development'} · Node ${process.version}`,
   });
 
   checks.push(
@@ -93,13 +95,13 @@ export async function systemStatus(s: Scope): Promise<Check[]> {
     !process.env.CRON_SECRET
       ? { name: 'Scheduled alerts', level: 'warn', summary: 'CRON_SECRET not set', detail: 'Alerts only fire on unblock until the 15-minute job is set up' }
       : !alerts?.lastRunAt
-        ? { name: 'Scheduled alerts', level: 'warn', summary: 'No check has run yet', detail: 'Create the cron-job.org job (see Connect page)' }
+        ? { name: 'Scheduled alerts', level: 'warn', summary: 'No check has run yet', detail: 'Check work-os-alerts.timer on the server (Settings › Server)' }
         : { name: 'Scheduled alerts', level: alerts.stale ? 'warn' : 'ok', summary: `Last check ${ago(alerts.lastRunAt)}`, detail: alerts.lastResult ?? undefined },
   );
 
   checks.push(
     !pushConfigured()
-      ? { name: 'Phone notifications', level: 'warn', summary: 'Push keys not set', detail: 'Add VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT in Vercel' }
+      ? { name: 'Phone notifications', level: 'warn', summary: 'Push keys not set', detail: 'Add VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT in /etc/work-os/env on the server' }
       : { name: 'Phone notifications', level: push ? 'ok' : 'warn', summary: push ? `${push} device${push === 1 ? '' : 's'}` : 'No devices yet', detail: push ? undefined : 'Turn on "Notifications on this device" above' },
   );
 

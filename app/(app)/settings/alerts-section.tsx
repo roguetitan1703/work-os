@@ -18,7 +18,7 @@ export async function QuietHours() {
 }
 
 /** Settings › Server: the scheduled alert checks (status, rules, setup). Deployment business: the operator's. */
-export async function ServerAlerts({ base }: { base: string }) {
+export async function ServerAlerts() {
   const secret = process.env.CRON_SECRET;
   const ready = !!secret && secret.length >= 16;
   const scope = await requireScope();
@@ -32,13 +32,13 @@ export async function ServerAlerts({ base }: { base: string }) {
         <Card>
           {!ready ? (
             <StatusLine level="off" title="Not set up">
-              <p>Add CRON_SECRET in Vercel (16+ random characters), redeploy, then create the scheduled job in the setup guide below.</p>
+              <p>Add CRON_SECRET (16+ random characters) to /etc/work-os/env on the server and restart Work OS. The alerts timer then works on its own (see the setup guide below).</p>
             </StatusLine>
           ) : s.lastRunAt ? (
             <StatusLine level={stale ? 'warn' : 'ok'} title={`Last check ${fmtAgo(s.lastRunAt)}`}>
               <p suppressHydrationWarning>
                 {s.lastResult}
-                {stale ? ' (expected every 15 minutes; is the scheduled job running?)' : ''}
+                {stale ? ' (expected every 15 minutes; is work-os-alerts.timer running?)' : ''}
               </p>
               <p>
                 Checks every 15 minutes.{' '}
@@ -63,16 +63,16 @@ export async function ServerAlerts({ base }: { base: string }) {
         <li><b>Unblocked</b>: right away when the last task it waited on is done</li>
       </ul>
           </Disclosure>
-          <Disclosure title="Setup guide" hint="CRON_SECRET and the 15-minute job" open={!ready || !s.lastRunAt}>
+          <Disclosure title="Setup guide" hint="CRON_SECRET and the 15-minute timer" open={!ready || !s.lastRunAt}>
       <ol className="list-decimal pl-5 space-y-3 text-sm text-foreground/90">
-        <li>In Vercel add <code>CRON_SECRET</code> (any long random string) and redeploy.</li>
+        <li>On the server, add <code>CRON_SECRET</code> (any long random string) to <code>/etc/work-os/env</code> and restart <code>work-os</code>.</li>
         <li>
-          On <b>cron-job.org</b> (free) create a job: URL below, every 15 minutes, and under <i>Advanced → Headers</i> add <code>Authorization: Bearer &lt;CRON_SECRET&gt;</code>.
-          <CopyBox text={`${base}/api/cron/alerts`} className="mt-2" />
+          The timer <code>work-os-alerts.timer</code> runs <code>work-os-cron-alerts</code> every 15 minutes. Check it:
+          <CopyBox text="systemctl list-timers 'work-os*' && journalctl -u work-os-alerts -n 20" className="mt-2" />
         </li>
         <li>
-          Preview without sending:
-          <CopyBox text={`curl -H "Authorization: Bearer $CRON_SECRET" "${base}/api/cron/alerts?dry=1"`} className="mt-2" />
+          Preview without sending (from the server):
+          <CopyBox text={`curl -H "Authorization: Bearer $CRON_SECRET" "http://127.0.0.1:3100/api/cron/alerts?dry=1"`} className="mt-2" />
         </li>
         <li>If DMs fail with 403: in Discord, your organization&apos;s server → Privacy Settings → allow direct messages from server members.</li>
       </ol>
