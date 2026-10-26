@@ -74,13 +74,13 @@ export async function setChecklistHidden(c: Caller, hidden: boolean): Promise<vo
  * The first-run checklist. Each row ticks from real data. Owner rows (Invite your team, Create your first project) show
  * for owners only; server-health rows for the operator only (lib/operator.ts), never for members.
  */
-export async function getChecklist(c: Caller): Promise<Checklist> {
+export async function getChecklist(c: Caller, opts: { hasOpenTask?: boolean; skipIfHidden?: boolean } = {}): Promise<Checklist> {
   const owner = c.role === 'owner';
   const operator = isOperator(c);
   const col = await scoped(c);
   const [hidden, hasTask, devicesN, profile, guild, setup, members, hasProject, run] = await Promise.all([
     isHidden(c).catch(() => false),
-    col.tasks.findOne({ $or: [{ ownerId: c.userId }, { assigneeId: c.userId }] }, { projection: { _id: 1 } }).then(Boolean).catch(() => false),
+    opts.hasOpenTask ? Promise.resolve(true) : col.tasks.findOne({ $or: [{ ownerId: c.userId }, { assigneeId: c.userId }] }, { projection: { _id: 1 } }).then(Boolean).catch(() => false),
     pushDeviceCount(c).catch(() => 0),
     getProfile(c).catch(() => null),
     orgGuildId(c.orgId).catch(() => null),

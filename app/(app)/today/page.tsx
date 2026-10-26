@@ -20,7 +20,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const today = todayStr(me.tz);
   const wd = weekday(today);
   const s = { userId: me.userId, orgId: me.orgId };
-  const [open, schedule, overview, checklist] = await Promise.all([listTasks(s, { open: true, forList: true }), getSchedule(s), claudeOverview(me, { card: true }).catch(() => null), getChecklist(me).catch(() => null)]);
+  const openP = listTasks(s, { open: true, forList: true });
+  const [open, schedule, overview, checklist] = await Promise.all([openP, getSchedule(s), claudeOverview(me, { card: true }).catch(() => null), openP.then(o => getChecklist(me, { skipIfHidden: true, hasOpenTask: o.length > 0 })).catch(() => null)]);
   const [waiting, notes] = await Promise.all([unmetDependencies(s, open), taskIdsWithNotes(s, open.map(t => t.id))]);
   const waitingRefs = Object.fromEntries([...waiting].map(([id, deps]) => [id, deps.map(d => `#${d.ref}`)]));
   const dayName = format(new Date(today + 'T12:00:00Z'), 'EEEE, MMMM d');

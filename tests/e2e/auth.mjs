@@ -341,7 +341,7 @@ try {
     await p.waitForTimeout(500);
     check('devices: a member does not see the owner\'s computers', (await p.locator('[data-device^="owner-pc-"]').count()) === 0);
     await p.fill('input[aria-label="Name for the new computer"]', 'owner-pc-1');
-    await p.locator('button:has-text("Add")').last().click();
+    await p.locator('button:has-text("Add this PC")').last().click();
     const made = await p.locator('code.bg-muted', { hasText: /^wkr_/ }).first().waitFor({ timeout: 10000 }).then(() => true, () => false);
     const mine = await db.collection('devices').findOne({ name: 'owner-pc-1', ownerId: invitee, revokedAt: null });
     check('devices: the owner\'s 10 computers and names do not count against the member', made && !!mine && mine.orgId === ME.orgId);
@@ -355,7 +355,7 @@ try {
       if (r.method() === 'POST' && r.headers()['next-action'] && (r.postData() ?? '').includes(mine._id)) return route.continue({ postData: r.postData().split(mine._id).join(target) });
       return route.continue();
     });
-    await p.locator(`button[aria-label="Revoke owner-pc-1"]`).click();
+    await p.locator(`button[aria-label="Remove owner-pc-1"]`).click();
     await p.locator('button[data-confirm]').click();
     await p.waitForTimeout(1500);
     await p.unroute('**/claude**');
@@ -369,7 +369,7 @@ try {
     const old = new Date(Date.now() - 20 * 60_000);
     await db.collection('session').updateMany({ userId: idIn(invitee) }, { $set: { createdAt: old }, $unset: { reauthAt: '' } });
     await p.fill('input[aria-label="Name for the new computer"]', 'stale-pc');
-    await p.locator('button:has-text("Add")').last().click();
+    await p.locator('button:has-text("Add this PC")').last().click();
     const dlg = p.locator('[data-reauth]');
     check('fresh: adding a computer 20 min after sign-in asks for the password', await dlg.waitFor({ timeout: 10000 }).then(() => true, () => false));
     await dlg.locator('input[name=password]').fill('wrong-password-000');

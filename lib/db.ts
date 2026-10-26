@@ -338,6 +338,10 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['apikey', [{ key: { key: 1 }, name: 'key' }, { key: { referenceId: 1 }, name: 'reference' }]],
     ['user', [{ key: { email: 1 }, name: 'email' }]],
     ['account', [{ key: { userId: 1 }, name: 'user' }]],
+    // Read by Today's checklist and Settings (who is invited, which apps are signed in) on every open.
+    ['invitation', [{ key: { organizationId: 1 }, name: 'org' }]],
+    ['oauthConsent', [{ key: { userId: 1 }, name: 'user' }]],
+    ['oauthAccessToken', [{ key: { userId: 1, clientId: 1 }, name: 'user_client' }]],
     ['settings', [
       // One Work OS person per Discord account in an organization, and one organization per Discord server.
       { key: { area: 1, orgId: 1, discordId: 1 }, unique: true, name: 'discord_link_unique', partialFilterExpression: { discordId: { $type: 'string' } } },

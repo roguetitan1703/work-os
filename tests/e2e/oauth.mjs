@@ -287,7 +287,7 @@ try {
   check('Set up: lists authorized apps with name, when connected and last used', /Claude/.test(appsText) && /Claude Desktop \(test\)/.test(appsText) && /used/i.test(appsText), appsText.slice(0, 300));
   check('settings: Connect Claude is the main path (the URL to add, no key needed)', (await ps.locator('[data-connect-claude]').innerText()).includes(MCP_URL), await ps.locator('[data-connect-claude]').innerText().catch(() => ''));
   const advanced = ps.locator('[data-advanced-keys]');
-  check('settings: access keys are under Advanced', (await advanced.count()) === 1 && /Access keys/i.test(await advanced.first().innerText()));
+  check('settings: access keys are under Advanced', (await advanced.count()) === 1 && /Access keys/i.test(await advanced.first().textContent()));
   await ps.screenshot({ path: SP + '/oauth-settings-desktop.png', fullPage: true });
   await ps.setViewportSize({ width: 390, height: 800 });
   check('settings: phone: no sideways scroll', okO(await overflow(ps)), JSON.stringify(await overflow(ps)));
