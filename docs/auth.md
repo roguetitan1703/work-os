@@ -135,10 +135,10 @@ client (`client_secret_post`, grants `authorization_code` and `refresh_token`, s
 `<APP_URL>/api/delpat-os/callback`). Off unless `DELPAT_OS_CLIENT_ID` and `DELPAT_OS_CLIENT_SECRET` are set (docs/hosting.md): then there
 is no card, no tabs, the callback is a 404 and the actions say "not set up".
 
-- **Link** (Settings › Connections › Delpat OS, `app/(app)/settings/delpat-os-link*.tsx`, a server action): makes a random 256-bit state and a
+- **Link** (Settings › Connections, a Delpat OS row in the table with Link / Unlink: `app/(app)/settings/connections.tsx`, `delpat-os-link-buttons.tsx`, a server action): makes a random 256-bit state and a
   PKCE verifier, stores the state hashed and the verifier sealed in `delpatOsAuth` (10 minutes, single use, for that person and
   organization), and sends the browser to Delpat OS's authorize address with `code_challenge_method=S256`.
-- **Callback** (`GET /api/delpat-os/callback`): needs the session; the state must exist, be unexpired and belong to the same person and
+- **Callback** (`GET /api/delpat-os/callback`): needs the session (read fresh from the database, like a server action); the state must exist, be unexpired and belong to the same person and
   organization (it is deleted whatever happens next, so it is single use); a wrong or foreign state is refused **before** the token endpoint
   is called. Then code + verifier + secret are traded for tokens, stored in `delpatOsLinks` (`_id` `<orgId>:<userId>`). The reply is always a
   redirect to Settings with one fixed word (`delpat=linked` or `error`), never the code or text.
@@ -147,14 +147,21 @@ is no card, no tabs, the callback is a 404 and the actions say "not set up".
 - **Tokens at rest:** access and refresh tokens are sealed with AES-256-GCM (key: HKDF of `DELPAT_OS_TOKEN_KEY`, else of `BETTER_AUTH_SECRET`); the
   ciphertext is bound (AAD) to the organization and person, so a copied row opens for nobody else. No token, secret or Delpat OS response body is
   logged. A refresh token has to be readable to use, so it is sealed, not hashed.
-- **Use:** an access token is reused until 60 s before it expires, then refreshed (one refresh at a time per person; the refresh token rotates). A
-  refused refresh token (or a 401 from the MCP) deletes the link and says "link it again"; a network error or 5xx keeps it.
+- **Use:** an access token is reused until 60 s before it expires, then refreshed. The refresh token rotates, so a refresh happens once: one at
+  a time per person in the process (the row is read again inside it and a fresh token is just used), and across processes the rotation is
+  claimed with a conditional update on `updatedAt`. A refused refresh token deletes the link only if it is still the stored one (otherwise
+  someone rotated it meanwhile and their result is used); a 401 from the MCP also drops the link. Both say "link it again". A network
+  error or 5xx keeps it. Answers from Delpat OS are read as a stream and refused beyond ~1 MB.
+- **Upstream revoke:** if the metadata has a `revocation_endpoint` (RFC 7009, same origin), Unlink, member removal, password reset and the 401
+  path call it best effort for the refresh token, never waited for. **Delpat OS offers none today** (checked 2026-10-26), so unlinking in
+  Work OS only deletes our copy; the grant stays at Delpat OS until it expires or is revoked there.
 - **Reading:** `tools/list` fresh before every `tools/call` (`list_projects`, `get_project {id}`), always with the caller's own token (the link is
   looked up by the caller's organization and user id, never by anything in the request).
 - **Import** (New project › From Delpat OS, `app/(app)/projects/delpat-os-*`): name ← title; client ← client (absent or null = empty); status
   `completed`→done, `archived`→archived, anything else→active; description ← focus + a phases list; visibility Shared unless Private is picked. The
-  Work OS project stores `delpatOsId`; **one per organization** (unique partial index `org_delpat_os_unique`). A project the person already sees
-  shows "Already in Work OS ›". If a teammate holds it privately, the import is refused ("already imported by someone else") without naming them.
+  Work OS project stores `delpatOsId`; **one per organization among shared projects, one per owner among private ones** (unique partial indexes, like names), so a
+  private import never blocks a teammate. A project the person already sees (shared, or their own private one) shows "Already in Work OS ›". A
+  race that loses to another import says "just imported. Reload to see it."
   A name clash with one of the person's projects adds " (Delpat OS)".
 - **What ends a link:** Unlink; Delpat OS refusing the token; removing the member from the organization (their links there); a password reset or
   change (all their links, via `dropOAuth`); not by signing out.
