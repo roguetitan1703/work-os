@@ -1,10 +1,11 @@
 # Work state
 
 ## Now
-- 2026-10-26: Work OS runs at https://work.delpat.in (cut-over done 2026-10-25). Batch on master bb9b378, built and uploaded to manual-builds: OAuth sign-in for Claude, worker install without the repo, sidebar like claude.ai, personal setup removed. Waits on Om: `sudo work-os-update` on the box, then the first real claude.ai / Claude Code OAuth connection.
+- 2026-10-26: Work OS runs at https://work.delpat.in (cut-over done 2026-10-25). Master now also has Settings like claude.ai, Claude › Set up in 3 steps and the first-run checklist (ui-settings, reviewed; 29 suites pass), built and uploaded to manual-builds. Waits on Om: `sudo work-os-update` on the box, then the first real claude.ai / Claude Code OAuth connection. A how-to-use guide for colleagues is a Claude doc ("Work OS: how to use it").
 
 ## Next
-0. Builder B (ui-settings): Settings like claude.ai, Claude › Set up in 3 steps, first-run checklist (docs: scratchpad ux-proposal); security review before merge.
+0. Builder A (builder-a): Delpat OS import (link in Connections, New project › From Delpat OS); review findings being fixed; security review, merge, ship; Om sets DELPAT_OS_CLIENT_SECRET on the box.
+0b. Builder S: drop the last personal and Vercel text: Settings › Server alerts setup guide ("add CRON_SECRET in Vercel", cron-job.org) and Claude › Set up › Prompts for Claude chat (the morning brief with Calendar, Gmail and Vercel).
 Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
 Open work is filed as Claude items on Work OS (Claude page › Queue); this list only orders it.
 1. C46 (Om): first real dispatcher task — Claude › Setup: pick the boilerplate note, turn the dispatcher on, Give to Claude on one small task.
