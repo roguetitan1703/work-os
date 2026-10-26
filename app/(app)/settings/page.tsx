@@ -56,7 +56,7 @@ export default async function SettingsPage({ searchParams }: Props) {
   // Old links into Connections: the Discord card is now in Notifications, the Claude connector guide in Claude › Set up.
   if (sp.section === 'connections' && sp.open === 'discord') redirect('/settings?section=notifications&open=discord');
   if (sp.section === 'connections' && (sp.open === 'chat' || sp.open === 'code')) redirect('/claude?tab=setup');
-  const legacy = sp.section ? LEGACY[sp.section] : undefined;
+  const legacy = sp.section ? (Object.hasOwn(LEGACY, sp.section) ? LEGACY[sp.section] : undefined) : undefined;
   if (legacy) {
     const open = legacy.open ?? sp.open;
     redirect(`/settings?section=${legacy.to}${open ? `&open=${encodeURIComponent(open)}` : ''}${sp.range ? `&range=${encodeURIComponent(sp.range)}` : ''}`);

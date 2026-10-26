@@ -21,7 +21,6 @@ export async function Help({ open }: { open?: boolean }) {
                 <div className="flex items-center gap-2 mb-1">
                   <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.hex }} />
                   <span className="font-semibold text-sm" style={{ color: c.hex }}>{mode.name}</span>
-                  <span className="font-mono text-xs text-muted-foreground">RGB({c.rgb})</span>
                 </div>
                 {mode.description && <p className="text-sm text-foreground/70">{mode.description}</p>}
               </div>

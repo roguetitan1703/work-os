@@ -42,6 +42,11 @@ await runAssertSuite('settings', async () => {
       await p.goto(`${B}/settings?section=${from}`);
       await p.waitForURL(want, { timeout: 10000 });
     }
+    for (const bad of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+      const r = await p.goto(`${B}/settings?section=${bad}`);
+      assert.ok(r.status() < 500 && p.url().includes('/settings') && !p.url().includes('section=' + bad + '&'), 'prototype name ' + bad + ' is not a section: ' + r.status() + ' ' + p.url());
+      await p.waitForSelector('[data-settings-search]', { state: 'attached', timeout: 10000 });
+    }
     await p.goto(`${B}/settings?section=connections&open=chat`);
     await p.waitForURL(u => u.pathname === '/claude' && u.search === '?tab=setup', { timeout: 10000 });
     await p.goto(`${B}/settings?section=help`); await p.waitForURL(/section=team/); await p.waitForSelector('[data-help]');

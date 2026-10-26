@@ -82,14 +82,17 @@ export async function setDispatcherSettings(s: Scope, patch: Partial<DispatcherS
 export async function autoEnableDispatcher(s: Scope): Promise<{ applied: boolean; settings: DispatcherSettings }> {
   const raw = await getUserSetting(s, 'dispatcher');
   const cur = await getDispatcherSettings(s);
-  if (raw?.autoOnDone === true || cur.enabled || !cur.boilerplateNoteId) return { applied: false, settings: cur };
+  // Only a person who never set the switch (no enabled value at all) gets the offer: an older false is their choice.
+  if (raw?.autoOnDone === true || raw?.enabled !== undefined || cur.enabled || !cur.boilerplateNoteId) return { applied: false, settings: cur };
+  if (!(await ownNote(s, cur.boilerplateNoteId))) return { applied: false, settings: cur };
   const seen = await (await scoped(s)).devices.findOne({ revokedAt: null, lastSeenAt: { $ne: null } }, { projection: { _id: 1 } });
   if (!seen) return { applied: false, settings: cur };
-  // One conditional write claims the offer, so two open pages cannot both switch it on.
-  const claimed = await takeUserSetting(s.orgId, 'dispatcher', { _id: `dispatcher:${s.userId}`, autoOnDone: { $ne: true }, enabled: { $ne: true } }, { autoOnDone: true });
+  // One conditional write switches it on and claims the offer together (the note was checked above and must still be the
+  // picked one), so two open pages cannot both do it and a failure cannot lose the offer.
+  const claimed = await takeUserSetting(s.orgId, 'dispatcher', { _id: `dispatcher:${s.userId}`, autoOnDone: { $ne: true }, enabled: { $exists: false }, boilerplateNoteId: cur.boilerplateNoteId }, { enabled: true, autoOnDone: true, updatedAt: new Date() });
   if (!claimed) return { applied: false, settings: cur };
-  const settings = await setDispatcherSettings(s, { enabled: true });
-  return { applied: true, settings };
+  wake(s.orgId, s.userId);
+  return { applied: true, settings: { ...cur, enabled: true } };
 }
 
 export type NotePick = { id: string; title: string; project: string | null };

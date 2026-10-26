@@ -189,7 +189,7 @@ await runAssertSuite('dispatcher-ui', async () => {
     }
     await p.screenshot({ path: `${SP}/d-${label}-setup.png`, fullPage: true });
     // switched on by itself, once: a person with their note and a PC that has checked in, who never set the switch
-    await rawDb.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $set: { enabled: false }, $unset: { autoOnDone: '' } });
+    await rawDb.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $unset: { enabled: '', autoOnDone: '' } });
     await p.goto(B + '/claude?tab=setup'); await p.locator('[data-dispatcher-setup]').waitFor();
     await p.getByText('We switched this on because your PC connected').waitFor({ timeout: 10000 });
     s = await dispatcherDoc();
@@ -200,15 +200,21 @@ await runAssertSuite('dispatcher-ui', async () => {
     await p.goto(B + '/claude?tab=setup'); await p.locator('[data-dispatcher-setup]').waitFor(); await p.waitForTimeout(1500);
     assert.equal((await dispatcherDoc()).enabled, false, 'it does not switch itself on again after Undo');
     // no note: it never switches on by itself
-    await rawDb.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $set: { enabled: false, boilerplateNoteId: '' }, $unset: { autoOnDone: '' } });
+    await rawDb.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $set: { boilerplateNoteId: '' }, $unset: { enabled: '', autoOnDone: '' } });
     await p.goto(B + '/claude?tab=setup'); await p.locator('[data-dispatcher-setup]').waitFor(); await p.waitForTimeout(1500);
-    assert.equal((await dispatcherDoc()).enabled, false, 'without a note it stays off');
+    assert.ok(!(await dispatcherDoc()).enabled, 'without a note it stays off');
     // a PC that never checked in: not switched on either
-    await rawDb.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $set: { enabled: false, boilerplateNoteId: 'nb' }, $unset: { autoOnDone: '' } });
+    await rawDb.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $set: { boilerplateNoteId: 'nb' }, $unset: { enabled: '', autoOnDone: '' } });
     await devSeen(null);
     await p.goto(B + '/claude?tab=setup'); await p.locator('[data-step="3"]').waitFor(); await p.waitForTimeout(1500);
-    assert.equal((await dispatcherDoc()).enabled, false, 'no PC has checked in: stays off');
+    assert.ok(!(await dispatcherDoc()).enabled, 'no PC has checked in: stays off');
     await devSeen(new Date());
+    // a switch set to off before this release (enabled:false, a note, a seen PC, no autoOnDone) is their choice: stays off
+    await rawDb.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $set: { enabled: false, boilerplateNoteId: 'nb' }, $unset: { autoOnDone: '' } });
+    await p.goto(B + '/claude?tab=setup'); await p.locator('[data-step="3"]').waitFor(); await p.waitForTimeout(1500);
+    s = await dispatcherDoc();
+    assert.ok(s.enabled === false && s.autoOnDone !== true, 'an earlier off stays off: ' + JSON.stringify(s));
+    await rawDb.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $set: { enabled: false, boilerplateNoteId: 'nb' } });
     // reset for the second viewport pass
     await db.collection('settings').deleteMany({});
     await db.collection('tasks').updateOne({ ref: 14 }, { $set: { claude: mark('queued') } });
