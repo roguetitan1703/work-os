@@ -34,7 +34,7 @@ for (const vp of [{ w: 1280, h: 800 }, { w: 390, h: 844 }]) {
     check(T('phone Day plan sheet opens, no h-scroll'), !ov); await p.reload();
   }
   // switches
-  await p.goto(B + '/settings?section=alerts'); await p.waitForSelector('[role=switch]'); // the alert switches moved into the Alerts section
+  await p.goto(B + '/settings?section=notifications'); await p.waitForSelector('[role=switch]'); // the alert switches moved into the Alerts section
   const sw = await p.$$eval('[role=switch]', els => els.map(e => e.getAttribute('aria-label') || e.textContent.trim()));
   check(T(`switches named (${sw.length})`), sw.length >= 3 && sw.every(Boolean), JSON.stringify(sw));
   // item sheet

@@ -26,7 +26,7 @@ export async function MigrationNotice() {
       </p>
       <ul className="list-disc pl-5 text-[13px]">
         <li>
-          Claude chat: <Link className="underline" href="/settings?section=connections&open=chat">create a Claude chat key</Link> and update the claude.ai connector.
+          Claude chat: <Link className="underline" href="/claude?tab=setup">create a Claude chat key</Link> and update the claude.ai connector.
         </li>
         <li>
           Claude Code and computers: <Link className="underline" href="/claude?tab=setup">create new keys and add each computer again</Link>, then put the new device key in the

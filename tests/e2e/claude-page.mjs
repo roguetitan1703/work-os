@@ -1,7 +1,7 @@
-// UI checks for the Claude area (/claude: Now, Queue, Setup) and the Start Claude flow.
+// UI checks for the Claude area (/claude: Now, Queue, Set up) and the Start Claude flow.
 // Seeds itself (device/folder/session docs inserted directly; no worker). Seed profile: none.
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
-import { check, db, mcp, B, PW, SP, ME, launch, finish, fillLogin, pick } from './lib.mjs';
+import { check, db, rawDb, mcp, B, PW, SP, ME, launch, finish, fillLogin, pick } from './lib.mjs';
 
 const browser = await launch();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -196,12 +196,13 @@ async function suite(vp) {
   await p.screenshot({ path: `${SP}/cl-${vp}-queue.png`, fullPage: true });
   check(T('Queue: no horizontal scroll'), await noScroll());
 
-  // ── Setup ──
+  // ── Set up (step 1 must be done for the PC step to open: Claude was used through MCP above; make it certain) ──
+  await rawDb.collection('settings').updateOne({ _id: 'status:' + ME.userId }, { $set: { area: 'status', orgId: ME.orgId, userId: ME.userId, lastMcpAt: new Date() } }, { upsert: true });
   await p.goto(B + '/claude?tab=setup'); await p.waitForSelector('[data-device="Om-PC"]');
   const dev = p.locator('[data-device="Om-PC"]');
   check(T('Setup lists the computer with online dot and last seen'), (await dev.locator('[aria-label="online"]').count()) === 1 && /seen/.test(await dev.innerText()));
   await p.fill('input[aria-label="Name for the new computer"]', `new-${vp}`);
-  await click(p.locator('button:has-text("Add")').last());
+  await click(p.locator('button:has-text("Add this PC")'));
   const keyEl = p.locator('code.bg-muted', { hasText: /^wkr_/ });
   const shown = await keyEl.first().waitFor({ timeout: 8000 }).then(() => true, () => false);
   check(T('add computer shows the key once with the setup command'), shown);
@@ -230,28 +231,29 @@ async function suite(vp) {
   check(T('replace key: same device id, still active, replacement recorded'), devAfter._id === devBefore._id && devAfter.revokedAt === null && devAfter.keyReplacements === 1 && !!devAfter.keyReplacedAt);
   check(T('replace key: the old key gets 401 on /api/worker/*, the new one 200'), (await jobsStatus(oldKey)) === 401 && (await jobsStatus(newKey)) === 200);
   await click(p.locator('button:has-text("I saved it")'));
-  await click(p.locator(`button[aria-label="Revoke new-${vp}"]`));
+  await click(p.locator(`button[aria-label="Remove new-${vp}"]`));
   const rd = p.locator('[role=dialog]').last();
   check(T('revoke computer asks in a sheet/dialog naming it'), await rd.innerText().then(t => t.includes(`new-${vp}`), () => false));
   await click(rd.locator('button:has-text("Cancel")'));
   await sleep(300);
   check(T('Cancel keeps the computer'), (await db.collection('devices').findOne({ name: `new-${vp}` })).revokedAt === null);
-  await click(p.locator(`button[aria-label="Revoke new-${vp}"]`));
+  await click(p.locator(`button[aria-label="Remove new-${vp}"]`));
   await click(p.locator('button[data-confirm]'));
   check(T('revoke removes it'), await p.locator(`[data-device="new-${vp}"]`).waitFor({ state: 'detached', timeout: 6000 }).then(() => true, () => false));
-  // keys
-  await p.fill('input[aria-label="Name for the new key"]', `key-${vp}`);
-  await click(p.locator('button:has-text("Create")'));
+  // keys (Advanced, folded: open it; the Claude Code list is the second one)
+  await click(p.locator('[data-advanced] > summary'));
+  await p.locator('input[aria-label="Name for the new key"]').last().fill(`key-${vp}`);
+  await click(p.locator('button:has-text("Create")').last());
   const wk = p.locator('code.bg-muted', { hasText: /^wos_/ });
   check(T('create key shows it once'), await wk.first().waitFor({ timeout: 8000 }).then(() => true, () => false));
   check(T('key command shown'), (await p.locator('code:has-text("claude mcp add")').count()) >= 1);
   await click(p.locator('button:has-text("I saved it")'));
   const krow = p.locator(`text=key-${vp}`).first();
   await krow.waitFor();
-  await click(p.locator(`button[aria-label="Revoke key-${vp}"]`));
+  await click(p.locator(`button[aria-label="Remove key key-${vp}"]`));
   check(T('revoke key asks in a sheet/dialog naming it'), await p.locator('[role=dialog]').last().innerText().then(t => t.includes(`key-${vp}`), () => false));
   await click(p.locator('button[data-confirm]'));
-  check(T('revoked key leaves the list'), await p.locator(`button[aria-label="Revoke key-${vp}"]`).waitFor({ state: 'detached', timeout: 6000 }).then(() => true, () => false));
+  check(T('revoked key leaves the list'), await p.locator(`button[aria-label="Remove key key-${vp}"]`).waitFor({ state: 'detached', timeout: 6000 }).then(() => true, () => false));
   await p.screenshot({ path: `${SP}/cl-${vp}-setup.png`, fullPage: true });
   check(T('Setup: no horizontal scroll'), await noScroll());
 

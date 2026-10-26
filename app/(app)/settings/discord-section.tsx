@@ -5,7 +5,7 @@ import { isOperator } from '@/lib/operator';
 import { getProfile } from '@/lib/profile';
 import { Card, Disclosure, Section, StatusLine } from './ui';
 import { BlockedChannels } from './blocked-channels';
-import { DiscordLink, DiscordServerForm } from './discord-link';
+import { DiscordServerForm } from './discord-link';
 
 // View Channel (1<<10) + Read Message History (1<<16). Nothing else: the bot never posts.
 const PERMISSIONS = String((1 << 10) | (1 << 16));
@@ -38,6 +38,7 @@ async function status(caller: Caller) {
   }
 }
 
+/** Settings › Server › Discord: how the bot is doing, the organization's server, sensitive channels, setup. (A person's own link is in Notifications.) */
 export async function DiscordSection({ base, caller }: { base: string; caller: Caller }) {
   const appId = process.env.DISCORD_APPLICATION_ID || '<APPLICATION_ID>';
   const invite = `https://discord.com/oauth2/authorize?client_id=${appId}&scope=bot+applications.commands&permissions=${PERMISSIONS}&integration_type=0`;
@@ -84,14 +85,6 @@ export async function DiscordSection({ base, caller }: { base: string; caller: C
         </Card>
       </Section>
 
-      {discordConfig() && guildId && (
-        <Section title="Your Discord account">
-          <Card>
-            <DiscordLink linked={s.ok && s.linked} serverReady />
-          </Card>
-        </Section>
-      )}
-
       {operator && discordConfig() && (
         <Section title="Organization's Discord server">
           <Card>
@@ -114,9 +107,10 @@ export async function DiscordSection({ base, caller }: { base: string; caller: C
         </Section>
       )}
 
+      {operator && (
       <Section title="Setup and use">
         <div className="space-y-3">
-          {operator && (
+          {
             <Disclosure title="Setup and registration" hint="Developer Portal, invite, env vars, server, commands" open={!s.ok}>
               <ol className="list-decimal pl-5 space-y-3 text-sm text-foreground/90">
                 <li>
@@ -146,34 +140,13 @@ export async function DiscordSection({ base, caller }: { base: string; caller: C
                   modes change:
                   <CopyBox text={`curl -X POST "${base}/api/admin/discord/register?org=${caller.orgId}" -H "Authorization: Bearer <your key>"`} className="mt-2" />
                 </li>
-                <li>Each person then links their own account in <b>Your Discord account</b> above.</li>
+                <li>Each person then links their own account in Settings › Notifications.</li>
               </ol>
             </Disclosure>
-          )}
-          <Disclosure title="Commands" hint="Right-click, slash commands, tagging the bot">
-            <div className="-mx-4 -my-4 divide-y divide-border/60 text-sm">
-              {[
-                ['/link code', 'Links your Discord account to Work OS (the code comes from this page).'],
-                ['Right-click a message → Apps → Add to Work OS', 'Creates a task from the message (or says it’s already tracked), with buttons to set priority/due.'],
-                ['/task title [priority] [due] [project] [mode]', 'Adds a task. Due accepts today, tomorrow, fri, +3d, 2026-10-20.'],
-                ['/today', 'Overdue, due today, in progress and open P1s.'],
-                ['/done ref [note]', 'Completes a task (ref autocompletes from open tasks).'],
-                ['/progress ref percent [note]', 'Logs progress.'],
-                ['Tag the bot in any message', 'Nothing happens on Discord. Claude lists it as “flagged for later” (with the message you replied to) in discord_needs_attention and the brief.'],
-              ].map(([cmd, what]) => (
-                <div key={cmd} className="px-4 py-2.5">
-                  <code className="text-xs font-semibold text-foreground break-words">{cmd}</code>
-                  <p className="text-xs text-muted-foreground mt-0.5">{what}</p>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground pt-4">
-              Commands act as whoever linked the Discord account that runs them; an account that isn&apos;t linked gets &ldquo;not linked&rdquo;. Writes from Discord show in task
-              history as <b>You · Discord</b>. Personal DMs and group DMs are out of reach for bots and are not read.
-            </p>
-          </Disclosure>
+          }
         </div>
       </Section>
+      )}
     </div>
   );
 }

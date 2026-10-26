@@ -4,7 +4,8 @@ import { MobileHeader } from '@/components/mobile/tab-bar';
 import { NavIcon, PLACE_ICON } from '@/components/nav-icons';
 import { systemStatusLevel } from '@/lib/data/nav-counts';
 import { unreadCount } from '@/lib/notify';
-import { requireScope } from '@/lib/caller';
+import { requireCaller } from '@/lib/caller';
+import { isOperator } from '@/lib/operator';
 
 export const metadata = { title: 'Menu · Work OS' };
 
@@ -13,8 +14,10 @@ const DOT_TEXT = { ok: 'All systems OK', warn: 'Needs a look', error: 'Problem' 
 
 /** Phone Menu: the things that are not a tab. Replaces the old More page. */
 export default async function MenuPage() {
-  const s = await requireScope();
-  const [status, unread] = await Promise.all([systemStatusLevel(s).catch(() => 'ok' as const), unreadCount(s).catch(() => 0)]);
+  const s = await requireCaller();
+  // Server health is the operator's: everyone else gets no dot.
+  const operator = isOperator(s);
+  const [status, unread] = await Promise.all([operator ? systemStatusLevel(s).catch(() => 'ok' as const) : Promise.resolve('ok' as const), unreadCount(s).catch(() => 0)]);
   return (
     <div className="max-w-xl mx-auto">
       <MobileHeader title="Menu" />
@@ -33,7 +36,7 @@ export default async function MenuPage() {
       </Group>
 
       <Group title="Settings">
-        <Row href="/settings" icon={PLACE_ICON.settings} label="Settings" dot={<span role="img" aria-label={DOT_TEXT[status]} title={DOT_TEXT[status]} className={`w-2.5 h-2.5 rounded-full ${DOT[status]}`} />} />
+        <Row href="/settings" icon={PLACE_ICON.settings} label="Settings" dot={operator && status !== 'ok' ? <span role="img" aria-label={DOT_TEXT[status]} title={DOT_TEXT[status]} data-menu-status className={`w-2.5 h-2.5 rounded-full ${DOT[status]}`} /> : undefined} />
       </Group>
     </div>
   );

@@ -63,8 +63,6 @@ export function CurrentBlockBar() {
       <span className="font-semibold">{live.block.block}</span>
       <span>·</span>
       <span>{modeName}</span>
-      <span>·</span>
-      <span className="font-mono">RGB({c.rgb})</span>
     </div>
   );
 }

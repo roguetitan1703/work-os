@@ -22,7 +22,7 @@ export async function acceptNewAction(form: FormData): Promise<void> {
     if (!(e instanceof SafeError)) console.error('accept invitation failed', e);
     redirect(back(id, t, e instanceof SafeError ? e.message : 'Something went wrong. Try again.'));
   }
-  redirect('/today');
+  redirect('/today?welcome=1');
 }
 
 export async function acceptSignedInAction(form: FormData): Promise<void> {
@@ -34,5 +34,5 @@ export async function acceptSignedInAction(form: FormData): Promise<void> {
     if (!(e instanceof SafeError)) console.error('accept invitation failed', e);
     redirect(back(id, t, e instanceof SafeError ? e.message : 'Something went wrong. Try again.'));
   }
-  redirect('/today');
+  redirect('/today?welcome=1');
 }

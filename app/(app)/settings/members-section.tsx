@@ -12,6 +12,12 @@ const field =
 const btn = 'h-11 px-4 rounded-full text-sm font-semibold shrink-0 disabled:opacity-50 inline-flex items-center justify-center gap-1.5';
 const iconBtn = 'w-11 h-11 rounded-full flex items-center justify-center text-muted-foreground active:bg-muted/60 hover:bg-muted/40 shrink-0 disabled:opacity-50';
 const roleSel = 'h-11 rounded-xl border border-input bg-background dark:bg-input/30 px-2 text-base md:text-sm text-foreground outline-none shrink-0 disabled:opacity-50';
+/** What each role means, shown under the invite form (the server's rules are in lib/members.ts). */
+const ROLE_HINT: Record<string, string> = {
+  member: 'Member: works on projects and tasks. Sees shared projects and their own private ones.',
+  admin: 'Admin: a member who can also invite people, change roles and remove members.',
+  owner: 'Owner: full control of the organization. There is always at least one.',
+};
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
 /**
@@ -69,7 +75,7 @@ export function MembersSection({ members, invitations, canInvite, isOwner, linkT
   return (
     <div className="space-y-5" data-members>
       <section>
-        <h2 className="px-1 mb-1.5 text-[13px] font-semibold uppercase tracking-wider text-muted-foreground">Members</h2>
+        <h2 className="px-1 mb-1.5 text-[13px] font-medium text-muted-foreground">People</h2>
         <div className="rounded-2xl bg-card border border-border/70 divide-y divide-border/60 overflow-hidden">
           {members.map(m => (
             <div key={m.userId} className="px-4 py-2 min-h-14" data-member={m.email}>
@@ -119,8 +125,8 @@ export function MembersSection({ members, invitations, canInvite, isOwner, linkT
       </section>
 
       {canInvite && (
-        <section>
-          <h2 className="px-1 mb-1.5 text-[13px] font-semibold uppercase tracking-wider text-muted-foreground">Invite</h2>
+        <section id="invite" className="scroll-mt-6">
+          <h2 className="px-1 mb-1.5 text-[13px] font-medium text-muted-foreground">Invite</h2>
           <div className="rounded-2xl bg-card border border-border/70 divide-y divide-border/60 overflow-hidden">
             {invitations.map(i => (
               <div key={i.id} className="flex items-center gap-3 pl-4 pr-2 py-2 min-h-14" data-invitation={i.email}>
@@ -138,7 +144,7 @@ export function MembersSection({ members, invitations, canInvite, isOwner, linkT
             ))}
             <form onSubmit={invite} className="flex flex-wrap items-center gap-2 px-4 py-3">
               <input className={`${field} flex-1 basis-48`} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email address" aria-label="Email to invite" required />
-              <Select className={`${field} w-auto`} value={role} onChange={e => setRole(e.target.value)} aria-label="Role">
+              <Select className={`${field} w-auto`} value={role} onChange={e => setRole(e.target.value)} aria-label="Role" data-invite-role>
                 <option value="member">Member</option>
                 <option value="admin">Admin</option>
                 {isOwner && <option value="owner">Owner</option>}
@@ -148,6 +154,9 @@ export function MembersSection({ members, invitations, canInvite, isOwner, linkT
               </button>
             </form>
           </div>
+          <p className="px-1 mt-1.5 text-[13px] text-muted-foreground" data-role-hint={role}>
+            {ROLE_HINT[role]}
+          </p>
           {link && (
             <div className="mt-3 rounded-xl border border-border/70 p-3 space-y-2" data-invite-link>
               <p className="text-[13px] text-foreground">

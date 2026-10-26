@@ -73,7 +73,7 @@ export async function UsageSection({ range }: { range?: string }) {
           ].map(t => (
             <Link
               key={t.v}
-              href={`/settings?section=usage${t.v === '7d' ? '&range=7d' : ''}`}
+              href={`/settings?section=server${t.v === '7d' ? '&range=7d' : ''}`}
               prefetch={false}
               scroll={false}
               role="tab"

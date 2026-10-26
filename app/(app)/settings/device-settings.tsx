@@ -91,7 +91,7 @@ export function InstallCard() {
           ? 'In Safari: tap Share → Add to Home Screen. Needed for notifications on iPhone.'
           : env.android
             ? 'Chrome menu (⋮) → Install app / Add to Home screen.'
-            : 'Browser menu → Install Work OS (Chrome/Edge), or open this page on your phone.'
+            : 'Put Work OS on your phone: open this page on the phone, then Share or the browser menu, Add to Home Screen.'
       }
     />
   );
@@ -192,7 +192,7 @@ export function PushCard({ vapidKey, devices }: { vapidKey: string | null; devic
 
   let sub: string;
   if (!env.pushSupported) sub = env.ios && !env.standalone ? 'On iPhone, install the app first (above), then open it from the home screen.' : 'This browser does not support push notifications.';
-  else if (env.permission === 'denied') sub = 'Blocked. Allow notifications for Work OS in the phone settings, then come back.';
+  else if (env.permission === 'denied') sub = 'Notifications are blocked on this phone. Allow them in the phone settings, then press Send test.';
   else if (subscribed) sub = 'On. Alerts arrive even when the app is closed.';
   else sub = 'Off. Turn on to get alerts as phone notifications.';
 
@@ -210,7 +210,7 @@ export function PushCard({ vapidKey, devices }: { vapidKey: string | null; devic
       />
       <div className="px-4 py-2" data-push-devices>
         <div className="text-sm text-muted-foreground mb-1">
-          {(list?.length ?? devices)} device{(list?.length ?? devices) === 1 ? '' : 's'} receiving push
+          {(list?.length ?? devices) === 0 ? 'No phone is set up for alerts yet' : `${list?.length ?? devices} device${(list?.length ?? devices) === 1 ? '' : 's'} receiving push`}
         </div>
         {(list ?? []).map(d => (
           <div key={d.id} data-push-device={d.id} className="flex items-center gap-2 min-h-11 py-1">
