@@ -148,10 +148,11 @@ is no card, no tabs, the callback is a 404 and the actions say "not set up".
   ciphertext is bound (AAD) to the organization and person, so a copied row opens for nobody else. No token, secret or Delpat OS response body is
   logged. A refresh token has to be readable to use, so it is sealed, not hashed.
 - **Use:** an access token is reused until 60 s before it expires, then refreshed. The refresh token rotates, so a refresh happens once: one at
-  a time per person in the process (the row is read again inside it and a fresh token is just used), and across processes the rotation is
-  claimed with a conditional update on `updatedAt`. A refused refresh token deletes the link only if it is still the stored one (otherwise
-  someone rotated it meanwhile and their result is used); a 401 from the MCP also drops the link. Both say "link it again". A network
-  error or 5xx keeps it. Answers from Delpat OS are read as a stream and refused beyond ~1 MB.
+  a time per person in the process (the row is read again inside it and a fresh token is just used), and across processes under a
+  15 s lease on the row (`refreshingUntil`): only the process that sets it calls the token endpoint, the others poll until the tokens change and
+  use the result; the winner clears the lease when it saves or fails. A refused refresh token deletes the link only if it is still the stored
+  one (otherwise someone rotated it meanwhile and their result is used). A 401 from the MCP first refreshes once and retries; only a second
+  refusal with the tokens unchanged drops the link. Both say "link it again". A network error or 5xx keeps it. Answers from Delpat OS are read as a stream and refused beyond ~1 MB.
 - **Upstream revoke:** if the metadata has a `revocation_endpoint` (RFC 7009, same origin), Unlink, member removal, password reset and the 401
   path call it best effort for the refresh token, never waited for. **Delpat OS offers none today** (checked 2026-10-26), so unlinking in
   Work OS only deletes our copy; the grant stays at Delpat OS until it expires or is revoked there.
@@ -161,13 +162,17 @@ is no card, no tabs, the callback is a 404 and the actions say "not set up".
   `completed`→done, `archived`→archived, anything else→active; description ← focus + a phases list; visibility Shared unless Private is picked. The
   Work OS project stores `delpatOsId`; **one per organization among shared projects, one per owner among private ones** (unique partial indexes, like names), so a
   private import never blocks a teammate. A project the person already sees (shared, or their own private one) shows "Already in Work OS ›". A
-  race that loses to another import says "just imported. Reload to see it."
+  race that loses to another import says "just imported. Reload to see it." Making a private import shared when a shared one exists is refused up front ("already shared in
+  Work OS as …") before anything moves: `updateProject` now updates the project first and cascades the visibility to its tasks, notes and history after.
+- **Issuer check (RFC 9207):** if the metadata says `authorization_response_iss_parameter_supported`, the callback must carry `iss` equal to the
+  issuer (Delpat OS does not say so today). Member removal and password reset drop the links last, in a try/catch, so a failure there cannot stop
+  the OAuth token revocation.
   A name clash with one of the person's projects adds " (Delpat OS)".
 - **What ends a link:** Unlink; Delpat OS refusing the token; removing the member from the organization (their links there); a password reset or
   change (all their links, via `dropOAuth`); not by signing out.
 - **Not done on purpose:** nothing is written back to Delpat OS (read-only, no money), and no organization-wide view.
 
-Tests: `tests/e2e/delpat-os.mjs` (stub Delpat OS; server mode `delpat`), `delpat-os-off.mjs` (hidden), and the leak-audit entries for the new actions and route.
+Tests: `tests/e2e/delpat-os.mjs` (stub Delpat OS; server mode `delpat`, which sets `E2E_NO_SINGLE_FLIGHT=1` so two callers stand in for two processes), `delpat-os-off.mjs` (hidden), and the leak-audit entries for the new actions and route.
 
 ## For Claude Code
 
