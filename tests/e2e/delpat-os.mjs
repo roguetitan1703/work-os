@@ -8,7 +8,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createCipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto';
-import { B, ME, PW, check, finish, launch, login, makeUser, rawDb } from './lib.mjs';
+import { B, ME, PW, check, finish, launch, login, makeUser, mcpRaw, rawDb } from './lib.mjs';
 
 const PORT = Number(process.env.E2E_DISCORD_PORT);
 const ISSUER = `http://127.0.0.1:${PORT}`;
@@ -43,7 +43,7 @@ const PROJECTS = {
   ],
   cy: [{ id: 'dp7', title: 'Cy Project', client: 'Cy Co', status: 'on_track', focus: '', myRole: 'lead', updatedAt: '2026-05-01T00:00:00Z', phases: [] }],
 };
-const stub = { next: 'owner', hold: false, held: null, codes: new Map(), access: new Map(), refresh: new Map(), issued: [], authorize: [], tokenCalls: [], mcp: [], n: 0, down: false, refreshDelay: 0, refreshFailNext: false, revoked: [], revokeFail: false, big: false };
+const stub = { next: 'owner', hold: false, held: null, codes: new Map(), access: new Map(), refresh: new Map(), issued: [], authorize: [], tokenCalls: [], mcp: [], n: 0, down: false, always401: false, refreshDelay: 0, refreshFailNext: false, revoked: [], revokeFail: false, big: false };
 const send = (s, code, body) => { s.statusCode = code; s.setHeader('content-type', 'application/json'); s.end(JSON.stringify(body)); };
 function issue(subject) {
   const access = `dat_${++stub.n}_${randomBytes(12).toString('hex')}`;
@@ -59,7 +59,7 @@ const server = http.createServer((q, s) => {
   q.on('end', () => {
     const url = new URL(q.url, ISSUER);
     if (url.pathname === '/.well-known/oauth-authorization-server') {
-      return send(s, 200, { issuer: ISSUER, authorization_endpoint: `${ISSUER}/authorize`, token_endpoint: `${ISSUER}/token`, mcp_endpoint: `${ISSUER}/mcp`, revocation_endpoint: `${ISSUER}/revoke`, code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['client_secret_post'], scopes_supported: ['mcp'] });
+      return send(s, 200, { issuer: ISSUER, authorization_endpoint: `${ISSUER}/authorize`, token_endpoint: `${ISSUER}/token`, mcp_endpoint: `${ISSUER}/mcp`, revocation_endpoint: `${ISSUER}/revoke`, authorization_response_iss_parameter_supported: true, code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['client_secret_post'], scopes_supported: ['mcp'] });
     }
     if (url.pathname === '/authorize') {
       const p = Object.fromEntries(url.searchParams);
@@ -71,7 +71,7 @@ const server = http.createServer((q, s) => {
       stub.held = { code, state: p.state, params: p };
       if (stub.hold) return send(s, 200, { held: true });
       s.statusCode = 302;
-      s.setHeader('location', `${REDIRECT}?code=${code}&state=${encodeURIComponent(p.state)}`);
+      s.setHeader('location', `${REDIRECT}?code=${code}&state=${encodeURIComponent(p.state)}&iss=${encodeURIComponent(ISSUER)}`);
       return s.end();
     }
     if (url.pathname === '/token' && q.method === 'POST') {
@@ -108,6 +108,7 @@ const server = http.createServer((q, s) => {
       const tok = (q.headers.authorization ?? '').replace(/^Bearer /, '');
       const a = stub.access.get(tok);
       if (stub.down) return send(s, 503, {});
+      if (stub.always401) return send(s, 401, { error: 'invalid_token' });
       if (stub.big) return send(s, 200, { pad: 'x'.repeat(2_000_000) });
       if (!a || a.exp < Date.now()) return send(s, 401, { error: 'invalid_token' });
       const m = JSON.parse(b);
@@ -196,7 +197,7 @@ try {
   const ap = h1.params;
   check('authorize: sent with client id, exact redirect address, scope mcp, code response', ap.client_id === CLIENT_ID && ap.redirect_uri === REDIRECT && ap.scope === 'mcp' && ap.response_type === 'code', JSON.stringify(ap));
   check('authorize: PKCE S256 challenge and a long random state', ap.code_challenge_method === 'S256' && ap.code_challenge.length >= 43 && ap.state.length >= 40);
-  const get = (cookie, st, code) => fetch(`${B}/api/delpat-os/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(st)}`, { headers: cookie ? { cookie } : {}, redirect: 'manual' });
+  const get = (cookie, st, code, iss = null) => fetch(`${B}/api/delpat-os/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(st)}${iss ? `&iss=${encodeURIComponent(iss)}` : ''}`, { headers: cookie ? { cookie } : {}, redirect: 'manual' });
   const ownerCookie = (await ctx.cookies()).filter(c => c.name.startsWith('workos.')).map(c => `${c.name}=${c.value}`).join('; ');
   const beaCookie = await signInCookie('bea@example.test');
   const before = stub.tokenCalls.length;
@@ -210,6 +211,18 @@ try {
   check('state: single use (the owner\'s own state is spent too once presented)', /delpat=error/.test(r.headers.get('location')) && stub.tokenCalls.length === before);
   r = await get(null, ap.state, h1.code);
   check('state: signed out, the callback never links', [303, 307, 302, 401, 403].includes(r.status) && !(await linkRow(A.orgId, A.userId)), String(r.status));
+  // The issuer answer (RFC 9207): the stub says it sends `iss`; a right state and code with a missing or wrong one is refused.
+  await startLink(p, 'owner', true);
+  const hi = stub.held;
+  const tokBefore = stub.tokenCalls.length;
+  r = await get(ownerCookie, hi.state, hi.code, 'https://evil.example');
+  check('iss: a wrong issuer in the answer is refused before any token call, and spends the state', /delpat=error/.test(r.headers.get('location')) && stub.tokenCalls.length === tokBefore && !(await linkRow(A.orgId, A.userId)));
+  r = await get(ownerCookie, hi.state, hi.code, ISSUER);
+  check('iss: and the spent state cannot be retried with the right one', /delpat=error/.test(r.headers.get('location')) && stub.tokenCalls.length === tokBefore);
+  await startLink(p, 'owner', true);
+  const hj = stub.held;
+  r = await get(ownerCookie, hj.state, hj.code);
+  check('iss: a missing issuer is refused too', /delpat=error/.test(r.headers.get('location')) && stub.tokenCalls.length === tokBefore);
   // expired state
   await startLink(p, 'owner', true);
   const h2 = stub.held;
@@ -277,6 +290,15 @@ try {
   await pb.waitForURL(u => /^\/projects\/.+/.test(u.pathname), { timeout: 15000 });
   const d4 = await rawDb.collection('projects').find({ orgId: A.orgId, delpatOsId: 'dp4' }).toArray();
   check("squatting: the owner's private import does not block a teammate's own (a shared one)", d4.length === 2 && d4.some(x => x.ownerId === Bea.userId && x.visibility === 'org') && d4.some(x => x.ownerId === A.userId && x.visibility === 'private'), JSON.stringify(d4.map(x => [x.ownerId, x.visibility])));
+  // The owner holds dp4 privately and Bea has it shared: making the owner's shared must be refused WITHOUT moving anything.
+  await mcpRaw('add_task', { title: 'owner private dp4 task', project: p4._id });
+  const privTask = await rawDb.collection('tasks').findOne({ projectId: p4._id, title: 'owner private dp4 task' });
+  await mcpRaw('update_project', { project: p4._id, name: 'Rework Portal (mine)' }); // so the name is not what clashes
+  const share = await mcpRaw('update_project', { project: p4._id, visibility: 'org' });
+  const p4After = await rawDb.collection('projects').findOne({ _id: p4._id });
+  const taskAfter = await rawDb.collection('tasks').findOne({ _id: privTask?._id });
+  check('share clash: sharing the private import is refused with a plain message naming only the shared project', share.isError && /already shared in Work OS as "Rework Portal"/.test(share.text), share.text.slice(0, 200));
+  check('share clash: nothing moved (project and its tasks are still private)', !!privTask && privTask.visibility === 'private' && p4After.visibility === 'private' && taskAfter.visibility === 'private');
   check('duplicate: one per Delpat OS id among shared projects, one per owner among private ones', (await rawDb.collection('projects').aggregate([{ $match: { delpatOsId: { $type: 'string' } } }, { $group: { _id: { o: '$orgId', d: '$delpatOsId', v: '$visibility', w: { $cond: [{ $eq: ['$visibility', 'private'] }, '$ownerId', null] } }, n: { $sum: 1 } } }, { $match: { n: { $gt: 1 } } }]).toArray()).length === 0);
   const dupIdx = (await rawDb.collection('projects').indexes()).filter(i => /delpat_os/.test(i.name));
   check('duplicate: the indexes are split like the name ones (shared per organization, private per owner)', dupIdx.length === 2 && dupIdx.every(i => i.unique && i.partialFilterExpression?.visibility), JSON.stringify(dupIdx.map(i => i.name)));
@@ -324,7 +346,7 @@ try {
   const pTwo = await ctx.newPage();
   const tc = tokenOk();
   await rawDb.collection('delpatOsLinks').updateOne({ _id: `${A.orgId}:${A.userId}` }, { $set: { accessExpiresAt: new Date(Date.now() - 60_000) } });
-  stub.refreshDelay = 700;
+  stub.refreshDelay = 1200; // longer than a waiting caller's poll, with the in-process queue off (E2E_NO_SINGLE_FLIGHT): two callers stand in for two server processes
   await Promise.all([picker(p), picker(pTwo)]);
   await Promise.all([p.waitForSelector('[data-delpat-project]', { timeout: 15000 }), pTwo.waitForSelector('[data-delpat-project]', { timeout: 15000 })]);
   stub.refreshDelay = 0;
@@ -339,7 +361,7 @@ try {
   const inflight = picker(p);
   await until(() => stub.tokenCalls.length > n0, 10000);
   const other = (() => { const acc = `dat_other_${randomBytes(6).toString('hex')}`, ref = `drt_other_${randomBytes(6).toString('hex')}`; stub.access.set(acc, { subject: 'owner', exp: Date.now() + 3600e3 }); stub.refresh.set(ref, { subject: 'owner', valid: true }); return { acc, ref }; })();
-  await rawDb.collection('delpatOsLinks').updateOne({ _id: lidA }, { $set: { refresh: seal(other.ref, `refresh:${lidA}`), access: seal(other.acc, `access:${lidA}`), accessExpiresAt: new Date(Date.now() + 3600e3), updatedAt: new Date() } });
+  await rawDb.collection('delpatOsLinks').updateOne({ _id: lidA }, { $set: { refresh: seal(other.ref, `refresh:${lidA}`), access: seal(other.acc, `access:${lidA}`), accessExpiresAt: new Date(Date.now() + 3600e3), updatedAt: new Date(), refreshingUntil: null } });
   await inflight;
   await p.waitForSelector('[data-delpat-project], [data-delpat-error]', { timeout: 15000 });
   stub.refreshDelay = 0;
@@ -350,6 +372,19 @@ try {
   await p.waitForSelector('[data-delpat-error]', { timeout: 15000 });
   stub.big = false;
   check('body cap: a 2 MB answer is refused with a plain error and the link stays', /too much|could not/i.test(await p.locator('[data-delpat-error]').innerText()) && !!(await linkRow(A.orgId, A.userId)));
+  // Delpat OS refuses the access token we hold (revoked early): refresh once and retry, the link stays.
+  const t2 = tokenOk();
+  for (const a of stub.access.values()) a.exp = 0;
+  await picker(p);
+  await p.waitForSelector('[data-delpat-project]', { timeout: 15000 });
+  check('401: a refused access token is refreshed once and the call retried, the link stays', tokenOk() === t2 + 1 && !!(await linkRow(A.orgId, A.userId)));
+  // Refused again even with the new token: the link goes (only because the stored token is still the refused one).
+  stub.always401 = true;
+  await picker(p);
+  await p.waitForSelector('[data-delpat-error]', { timeout: 15000 });
+  stub.always401 = false;
+  check('401: refused again after a refresh -> "Link it again" and the link is dropped', /Link it again/.test(await p.locator('[data-delpat-error]').innerText()) && !(await linkRow(A.orgId, A.userId)));
+  await startLink(p, 'owner', false);
   // Delpat OS no longer accepts the refresh token (revoked there).
   for (const v of stub.refresh.values()) v.valid = false;
   await rawDb.collection('delpatOsLinks').updateOne({ _id: `${A.orgId}:${A.userId}` }, { $set: { accessExpiresAt: new Date(Date.now() - 60_000) } });
