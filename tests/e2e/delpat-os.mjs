@@ -321,14 +321,14 @@ try {
   await p.waitForSelector('[data-delpat-project]', { timeout: 15000 });
   check('refresh: a still-valid access token is reused (no extra token call)', tokenOk() === t1);
   // Two calls at expiry: one refresh only, the link stays, both lists work.
-  const p2 = await ctx.newPage();
+  const pTwo = await ctx.newPage();
   const tc = tokenOk();
   await rawDb.collection('delpatOsLinks').updateOne({ _id: `${A.orgId}:${A.userId}` }, { $set: { accessExpiresAt: new Date(Date.now() - 60_000) } });
   stub.refreshDelay = 700;
-  await Promise.all([picker(p), picker(p2)]);
-  await Promise.all([p.waitForSelector('[data-delpat-project]', { timeout: 15000 }), p2.waitForSelector('[data-delpat-project]', { timeout: 15000 })]);
+  await Promise.all([picker(p), picker(pTwo)]);
+  await Promise.all([p.waitForSelector('[data-delpat-project]', { timeout: 15000 }), pTwo.waitForSelector('[data-delpat-project]', { timeout: 15000 })]);
   stub.refreshDelay = 0;
-  await p2.close();
+  await pTwo.close();
   check('refresh race: two concurrent calls at expiry make one refresh, both succeed, the link stays', tokenOk() === tc + 1 && !!(await linkRow(A.orgId, A.userId)) && stub.tokenCalls.filter(t => t.grant === 'refresh_token' && !t.ok).length === 0);
   // Another process rotated the token while ours was in flight and ours was refused: the link must survive.
   const lidA = `${A.orgId}:${A.userId}`;
@@ -404,7 +404,7 @@ try {
   check('reset: and revoked upstream', !!(await until(() => stub.revoked.some(r => r.token === cyRefresh), 8000)));
 
   check("removal: Bea's link exists before", !!(await linkRow(A.orgId, Bea.userId)));
-  const beaRefresh = [...stub.refresh].filter(([, r]) => r.subject === 'bea' && r.valid).pop()?.[0];
+  const beaRefresh = [...stub.refresh].filter(([, r]) => r.subject === 'bea').pop()?.[0];
   await p.goto(B + '/settings?section=members');
   await p.waitForSelector('button[aria-label="Remove bea@example.test"]', { timeout: 15000 });
   await p.click('button[aria-label="Remove bea@example.test"]');
