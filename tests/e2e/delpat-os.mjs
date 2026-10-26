@@ -142,7 +142,7 @@ const mcpCount = () => stub.mcp.length;
 
 async function openSettings(p) {
   await p.goto(B + '/settings?section=connections');
-  await p.waitForSelector('[data-delpat-status]', { timeout: 20000 });
+  await p.waitForSelector('[data-connection="delpat-os"] [data-status]', { timeout: 20000 });
 }
 async function startLink(p, subject, hold) {
   stub.next = subject;
@@ -185,7 +185,7 @@ try {
 
   // ======== 1. not linked ========
   await openSettings(p);
-  check('unlinked: Settings says not linked and offers Link', /Not linked/.test(await p.locator('[data-delpat-status]').innerText()) && (await p.locator('[data-delpat-link]').count()) === 1);
+  check('unlinked: Settings says not linked and offers Link', /Not linked/.test(await p.locator('[data-connection="delpat-os"] [data-status]').innerText()) && (await p.locator('[data-delpat-link]').count()) === 1);
   await picker(p);
   check('unlinked: From Delpat OS asks to link first', (await p.locator('[data-delpat-unlinked]').count()) === 1);
   check('unlinked: no Delpat OS call was made', mcpCount() === 0 && stub.tokenCalls.length === 0);
@@ -227,7 +227,7 @@ try {
 
   // ======== 3. link ========
   await startLink(p, 'owner', false);
-  check('link: through Delpat OS and back, Settings says linked', /^Linked/.test(await p.locator('[data-delpat-status]').innerText()) && (await p.locator('[data-delpat-notice]').innerText()).includes('linked'));
+  check('link: through Delpat OS and back, Settings says linked', /^s*Linked/.test(await p.locator('[data-connection="delpat-os"] [data-status]').innerText()) && (await p.locator('[data-delpat-notice]').innerText()).includes('linked'));
   check('link: exactly one authorization-code exchange, with the verifier (the stub checked S256) and client_secret_post', tokenOk() === 1 && stub.tokenCalls.every(t => !t.basic));
   const row = await linkRow(A.orgId, A.userId);
   check('link: stored for this person in this organization', !!row && row.userId === A.userId && row.orgId === A.orgId);
@@ -357,7 +357,7 @@ try {
   await p.waitForSelector('[data-delpat-error]', { timeout: 15000 });
   check('refresh: a refused refresh token says to link again and drops the link', /Link it again/.test(await p.locator('[data-delpat-error]').innerText()) && !(await linkRow(A.orgId, A.userId)));
   await openSettings(p);
-  check('refresh: Settings then shows Not linked', /Not linked/.test(await p.locator('[data-delpat-status]').innerText()));
+  check('refresh: Settings then shows Not linked', /Not linked/.test(await p.locator('[data-connection="delpat-os"] [data-status]').innerText()));
   // Delpat OS down: the link stays.
   await startLink(p, 'owner', false);
   stub.down = true;

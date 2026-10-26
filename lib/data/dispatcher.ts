@@ -1,7 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { ActivityDoc, ClaudeMark, TaskDoc } from '../db';
-import { forUser, getUserSetting, scoped, setUserSetting, type Scope, type ScopedCollections as Collections } from '../scope';
+import { forUser, getUserSetting, scoped, setUserSetting, takeUserSetting, type Scope, type ScopedCollections as Collections } from '../scope';
 import { afterCommit } from '../db';
 import { wake } from '../live';
 import { requestContext } from '../request-context';
@@ -67,9 +67,32 @@ export async function setDispatcherSettings(s: Scope, patch: Partial<DispatcherS
   if (!Number.isInteger(next.maxConcurrent) || next.maxConcurrent < 1 || next.maxConcurrent > MAX_CAP) throw new InputError(`At most ${MAX_CAP} sessions at once, at least 1`);
   if (next.boilerplateNoteId && !(await ownNote(s, next.boilerplateNoteId))) throw new InputError('Pick one of your own notes (a note someone else owns could change under your sessions)');
   if (next.enabled && !next.boilerplateNoteId) throw new InputError('Pick the note Claude reads first before turning this on');
-  await setUserSetting(s, 'dispatcher', { enabled: next.enabled, maxConcurrent: next.maxConcurrent, boilerplateNoteId: next.boilerplateNoteId, updatedAt: new Date() });
+  // Setting the switch by hand ends the "switched on when the first computer connects" offer (autoEnableDispatcher).
+  await setUserSetting(s, 'dispatcher', { enabled: next.enabled, maxConcurrent: next.maxConcurrent, boilerplateNoteId: next.boilerplateNoteId, updatedAt: new Date(), ...(patch.enabled !== undefined ? { autoOnDone: true } : {}) });
   if (next.enabled) wake(s.orgId, s.userId); // a queued task can start now (push: the worker polls at once)
   return next;
+}
+
+/**
+ * Claude › Set up: the first time one of the person's own computers has checked in, switch their dispatcher on, once.
+ * Only for the person it is about (their own setting, their own computer), only when they never set the switch
+ * themselves and already picked their own note (the rule in setDispatcherSettings is unchanged: no note, no switch).
+ * The page tells them (toast with Undo); Undo is an ordinary switch-off, which also ends this offer for good.
+ */
+export async function autoEnableDispatcher(s: Scope): Promise<{ applied: boolean; settings: DispatcherSettings }> {
+  const raw = await getUserSetting(s, 'dispatcher');
+  const cur = await getDispatcherSettings(s);
+  // Only a person who never set the switch (no enabled value at all) gets the offer: an older false is their choice.
+  if (raw?.autoOnDone === true || raw?.enabled !== undefined || cur.enabled || !cur.boilerplateNoteId) return { applied: false, settings: cur };
+  if (!(await ownNote(s, cur.boilerplateNoteId))) return { applied: false, settings: cur };
+  const seen = await (await scoped(s)).devices.findOne({ revokedAt: null, lastSeenAt: { $ne: null } }, { projection: { _id: 1 } });
+  if (!seen) return { applied: false, settings: cur };
+  // One conditional write switches it on and claims the offer together (the note was checked above and must still be the
+  // picked one), so two open pages cannot both do it and a failure cannot lose the offer.
+  const claimed = await takeUserSetting(s.orgId, 'dispatcher', { _id: `dispatcher:${s.userId}`, autoOnDone: { $ne: true }, enabled: { $exists: false }, boilerplateNoteId: cur.boilerplateNoteId }, { enabled: true, autoOnDone: true, updatedAt: new Date() });
+  if (!claimed) return { applied: false, settings: cur };
+  wake(s.orgId, s.userId);
+  return { applied: true, settings: { ...cur, enabled: true } };
 }
 
 export type NotePick = { id: string; title: string; project: string | null };

@@ -1,5 +1,5 @@
 // Today page at 390 and 1280: first screen, Claude card, show more, done+undo, folds, empty states. Seed profile: today.
-import { launch, check, B, PW, SP, db, finish, overflow, okO, fillLogin, ME } from './lib.mjs';
+import { launch, check, B, PW, SP, db, finish, overflow, okO, fillLogin, ME, rawDb } from './lib.mjs';
 
 const OUT = SP;
 const b = await launch();
@@ -36,6 +36,8 @@ const closeSheet = (p, phone) => (phone ? p.locator('[data-sheet] button[aria-la
 const hrefs = (V) => V.locator('a[href^="/tasks/"]:visible').evaluateAll(els => els.map(e => e.getAttribute('href')));
 
 async function reset() {
+  // The first-run checklist has its own suite (get-started); here it is hidden so the first-screen budget measures Today itself.
+  await rawDb.collection('settings').updateOne({ _id: 'profile:' + ME.userId }, { $set: { checklistHidden: true } }, { upsert: true });
   await db.collection('tasks').updateMany({ title: /^Overdue task/ }, { $set: { status: 'Not Started' } });
   await db.collection('devices').updateOne({ _id: 'dev1' }, { $set: { 'activity.at': new Date() } });
   const items = await db.collection('claudeItems').find({}).sort({ ref: 1 }).toArray();

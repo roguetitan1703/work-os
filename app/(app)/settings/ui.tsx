@@ -17,7 +17,7 @@ export function Dot({ level, className }: { level: Level; className?: string }) 
 
 /** Muted section label, as on Settings and More. */
 export function Label({ children }: { children: React.ReactNode }) {
-  return <h2 className="px-1 mb-1.5 text-[13px] font-semibold uppercase tracking-wider text-muted-foreground">{children}</h2>;
+  return <h2 className="px-1 mb-1.5 text-[13px] font-medium text-muted-foreground">{children}</h2>;
 }
 
 export function Section({ title, children, className }: { title?: string; children: React.ReactNode; className?: string }) {

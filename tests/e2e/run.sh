@@ -29,6 +29,7 @@ nav-preload-1|nav-preload-1.mjs|nav|plain
 nav-preload-2|nav-preload-2.mjs|nav|plain
 fix-check|fix-check.mjs|none|plain
 settings|settings.mjs|none|plain
+get-started|get-started.mjs|none|plain
 review|review.mjs|base|plain
 search|search.mjs|base|plain
 dispatcher-backend|dispatcher-backend.mjs|none|plain

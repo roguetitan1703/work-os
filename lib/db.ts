@@ -203,6 +203,8 @@ export type SettingsDoc = {
   enabled?: boolean;
   maxConcurrent?: number;
   boilerplateNoteId?: string;
+  /** dispatcher:<userId>: true once the person set the switch themselves, or it was switched on for them when their first computer connected (once). */
+  autoOnDone?: boolean;
   /** notify:<userId>: where this person's alerts go. */
   notify?: { channels?: Partial<Record<'push' | 'discord', boolean>>; kinds?: Partial<Record<NotifyKind, boolean>> };
   /** status:<userId>: when their Claude connector and Discord were last used. */
@@ -214,6 +216,8 @@ export type SettingsDoc = {
   quietEnd?: number;
   discordId?: string | null;
   discordLink?: { hash: string; expiresAt: Date } | null;
+  /** profile:<userId>: the person hid the first-run checklist on Today. */
+  checklistHidden?: boolean;
   /** discord:<orgId>: the organization's Discord server (set by the operator). */
   guildId?: string | null;
   /** schedule:<userId> (lib/schedule.ts): the person's week, routine, review questions and own help text. */
@@ -347,6 +351,10 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['apikey', [{ key: { key: 1 }, name: 'key' }, { key: { referenceId: 1 }, name: 'reference' }]],
     ['user', [{ key: { email: 1 }, name: 'email' }]],
     ['account', [{ key: { userId: 1 }, name: 'user' }]],
+    // Read by Today's checklist and Settings (who is invited, which apps are signed in) on every open.
+    ['invitation', [{ key: { organizationId: 1 }, name: 'org' }]],
+    ['oauthConsent', [{ key: { userId: 1 }, name: 'user' }]],
+    ['oauthAccessToken', [{ key: { userId: 1, clientId: 1 }, name: 'user_client' }]],
     ['settings', [
       // One Work OS person per Discord account in an organization, and one organization per Discord server.
       { key: { area: 1, orgId: 1, discordId: 1 }, unique: true, name: 'discord_link_unique', partialFilterExpression: { discordId: { $type: 'string' } } },

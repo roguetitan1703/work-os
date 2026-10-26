@@ -36,6 +36,12 @@ export function TabBar() {
     router.replace(path);
     return () => clearTimeout(t);
   }, [path, router]);
+  // The first-run checklist's Add a task button (the desktop dialog listens on wide screens only).
+  useEffect(() => {
+    const open = () => window.innerWidth < 768 && setAdding(true);
+    window.addEventListener('wos:quick-add', open);
+    return () => window.removeEventListener('wos:quick-add', open);
+  }, []);
   return (
     <>
       <nav

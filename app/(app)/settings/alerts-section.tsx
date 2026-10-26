@@ -6,7 +6,19 @@ import { requireScope } from '@/lib/caller';
 import { getProfile } from '@/lib/profile';
 import { TimeSettings } from './time-settings';
 
-export async function AlertsSection({ base }: { base: string }) {
+/** Settings › Notifications: your timezone and quiet hours. */
+export async function QuietHours() {
+  const scope = await requireScope();
+  const profile = await getProfile(scope);
+  return (
+    <div data-quiet-hours>
+      <TimeSettings timezone={profile.timezone} quietStart={profile.quietStart} quietEnd={profile.quietEnd} />
+    </div>
+  );
+}
+
+/** Settings › Server: the scheduled alert checks (status, rules, setup). Deployment business: the operator's. */
+export async function ServerAlerts({ base }: { base: string }) {
   const secret = process.env.CRON_SECRET;
   const ready = !!secret && secret.length >= 16;
   const scope = await requireScope();
@@ -16,12 +28,6 @@ export async function AlertsSection({ base }: { base: string }) {
 
   return (
     <div className="space-y-5">
-      <Section title="Your timezone and quiet hours">
-        <Card>
-          <TimeSettings timezone={profile.timezone} quietStart={profile.quietStart} quietEnd={profile.quietEnd} />
-        </Card>
-      </Section>
-
       <Section title="Scheduled checks">
         <Card>
           {!ready ? (

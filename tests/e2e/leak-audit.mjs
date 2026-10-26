@@ -860,11 +860,16 @@ function AUDIT() {
   add(`action ${D_}takeBackFromClaudeAction`, act(D_ + 'takeBackFromClaudeAction', t => [t.task, true], aim(['task'], { controlOk: r => actOk(r) || /not given|isn.t|not with/i.test(r.text) })));
   add(`action ${D_}dispatcherSettingsAction`, act(D_ + 'dispatcherSettingsAction', t => [{ boilerplateNoteId: t.boiler }], aim(['boiler'], { label: 'their note as my boilerplate' })));
   add(`action ${D_}dispatcherSetupAction`, act(D_ + 'dispatcherSetupAction', []));
+  // Set up: switch the caller's OWN switch on once (their own setting and computers only), and hide or show their own checklist.
+  add(`action ${D_}autoEnableDispatcherAction`, act(D_ + 'autoEnableDispatcherAction', []));
+  const CK_ = 'app/(app)/today/checklist-actions.ts#';
+  add(`action ${CK_}hideChecklistAction`, act(CK_ + 'hideChecklistAction', []));
+  add(`action ${CK_}showChecklistAction`, act(CK_ + 'showChecklistAction', []));
   const K_ = 'app/(app)/claude/setup-actions.ts#';
   add(`action ${K_}listApiKeysAction`, act(K_ + 'listApiKeysAction', ['claude']), act(K_ + 'listApiKeysAction', ['claude-code'], { label: 'code keys' }));
   add(`action ${K_}createApiKeyAction`, act(K_ + 'createApiKeyAction', ['lkq probe key', 'claude-code'], { ok: r => actOk(r), controlOk: r => actOk(r) }));
   add(`action ${K_}rotateApiKeyAction`, act(K_ + 'rotateApiKeyAction', (t, c) => [c.keyIdOf?.(t) ?? 'none'], { control: false, label: 'their key id', aim: true, aimKeys: [], refusal: KEY_GONE, call: async ({ p, o }) => action(K_ + 'rotateApiKeyAction', [o === FAKE_REF.v ? FAKE_REF.key : await keyIdOf('A')], { cookie: p.cookie }) }));
-  const AP_ = 'app/(app)/settings/apps-actions.ts#';
+  const AP_ = 'app/(app)/claude/apps-actions.ts#';
   add(`action ${AP_}revokeAppAction`, act(AP_ + 'revokeAppAction', [], { control: false, label: 'their approved app', aim: true, aimKeys: [], refusal: KEY_GONE, call: async ({ p, o }) => action(AP_ + 'revokeAppAction', [o === FAKE_REF.v ? 'lkqnoclient' + hex(6) : A.oauthClientId], { cookie: p.cookie }) }));
   add(`action ${K_}revokeApiKeyAction`, act(K_ + 'revokeApiKeyAction', [], { control: false, label: 'their key id', aim: true, aimKeys: [], refusal: KEY_GONE, call: async ({ p, o }) => action(K_ + 'revokeApiKeyAction', [o === FAKE_REF.v ? FAKE_REF.key : await keyIdOf('A'), 'claude-code'], { cookie: p.cookie }) }));
   add(`action ${K_}listDevicesAction`, act(K_ + 'listDevicesAction', []));
@@ -949,7 +954,7 @@ function AUDIT() {
   add('page /modes/[mode]', pg('/modes/growth', { ok: r => /^redirect \/tasks\?mode=/.test(pageState(r)) }), pg(() => `/modes/${CANARIES.find(c => c.tag === 'xmode').s}`, { label: 'the second org\'s mode', echo: () => [CANARIES.find(c => c.tag === 'xmode').s], ok: r => /^redirect \/tasks\?mode=/.test(pageState(r)), aim: true, aimKeys: [], control: false }));
   add('page /notifications', pg('/notifications'));
   add('page /review', ...['done', 'activity', 'weekly', 'stale', 'archive', 'trash'].map(v => pg(`/review?view=${v}`, { label: v })));
-  add('page /settings', ...['device', 'alerts', 'security', 'connections', 'members', 'usage', 'help'].map(v => pg(`/settings?section=${v}`, { label: v })));
+  add('page /settings', ...['account', 'notifications', 'connections', 'started', 'team', 'server'].map(v => pg(`/settings?section=${v}`, { label: v })));
   add('page /claude', ...['now', 'queue', 'setup'].map(v => pg(`/claude?tab=${v}`, { label: v })));
   add('page /menu', pg('/menu'));
   add('page /timetable', pg('/timetable'), pg('/timetable?edit=1', { label: 'editor' }));

@@ -118,7 +118,7 @@ await p.waitForURL(/\/notes/);
 base = await expectCounts(base, { 'rsc|browser|/notes': 1 }, 'client navigation or preload');
 
 // a server action: Settings › Alerts switch, then back
-await p.goto(B + '/settings?section=alerts'); await p.waitForSelector('table[aria-label="Alerts by channel"]');
+await p.goto(B + '/settings?section=notifications'); await p.waitForSelector('table[aria-label="Alerts by channel"]');
 const sw = p.getByRole('switch', { name: 'Overdue', exact: true });
 await sw.click(); await p.waitForTimeout(700); await sw.click(); await p.waitForTimeout(700);
 base = await expectCounts(base, { 'action|browser|/settings': 2 }, 'server action');
@@ -150,8 +150,8 @@ for (const [label, vp, touch] of [['desktop', { width: 1280, height: 800 }, fals
   const q = await c2.newPage(); q.on('pageerror', e => errs.push(e.message));
   // the entry (phone: a row on the overview; desktop: the sub-nav), then the section itself
   await q.goto(B + '/settings');
-  check(`${label}: Usage entry links to the section`, (await q.locator(label === 'phone' ? '[data-row=usage]' : '[data-section=usage]').getAttribute('href')) === '/settings?section=usage');
-  await q.goto(B + '/settings?section=usage');
+  check(`${label}: Usage entry links to the section`, (await q.locator(label === 'phone' ? '[data-row=server]' : '[data-section=server]').getAttribute('href')) === '/settings?section=server');
+  await q.goto(B + '/settings?section=server');
   await q.waitForSelector('[data-usage]');
   const day = Number((await q.locator('[data-usage-total=day]').innerText()).replace(/,/g, ''));
   check(`${label}: 24 h total shown (${day} >= ${total})`, day >= total);
@@ -162,8 +162,8 @@ for (const [label, vp, touch] of [['desktop', { width: 1280, height: 800 }, fals
   check(`${label}: Vercel note`, (await q.locator('[data-usage]').innerText()).includes("Vercel's limit counts these plus static files."));
   const o = await overflow(q); check(`${label}: no overflow`, okO(o), JSON.stringify(o));
   await q.screenshot({ path: `${SP}/usage-${label}.png`, fullPage: true });
-  check(`${label}: 7-day toggle links to range=7d`, (await q.locator('[data-usage-range="7d"]').getAttribute('href')) === '/settings?section=usage&range=7d');
-  await q.goto(B + '/settings?section=usage&range=7d');
+  check(`${label}: 7-day toggle links to range=7d`, (await q.locator('[data-usage-range="7d"]').getAttribute('href')) === '/settings?section=server&range=7d');
+  await q.goto(B + '/settings?section=server&range=7d');
   await q.waitForSelector('[data-usage-range="7d"][aria-selected=true]');
   check(`${label}: 7-day range shows routes`, (await q.locator('[data-usage-route]').count()) > 3);
   const o2 = await overflow(q); check(`${label}: no overflow (7 days)`, okO(o2), JSON.stringify(o2));

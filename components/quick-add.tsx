@@ -136,8 +136,13 @@ export function QuickAddLauncher({ render }: { render: (open: () => void) => Rea
         setOpen(true);
       }
     }
+    const onOpen = () => window.innerWidth >= 768 && setOpen(true); // the first-run checklist's Add a task button
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('wos:quick-add', onOpen);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('wos:quick-add', onOpen);
+    };
   }, []);
 
   return (

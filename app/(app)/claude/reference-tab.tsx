@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { ChevronDown, Search } from 'lucide-react';
 import { CopyBox } from '@/components/copy-box';
 import { cn } from '@/lib/utils';
-import { Card, Disclosure, Field, Label, code } from './ui';
+import { Card, Disclosure, Field, Label, code } from '../settings/ui';
 
 export type ToolRow = { name: string; writes: boolean; description: string; example: string };
 export type ToolGroup = { title: string; tools: ToolRow[] };

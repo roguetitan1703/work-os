@@ -1,6 +1,6 @@
-// Dispatcher UI: Give to Claude / Take back sheet, folder picker, refusals, row menus, Claude's tasks section, Setup switch, alerts table kinds at 1280 and 390. Seeds itself. Seed profile: none.
+// Dispatcher UI: Give to Claude / Take back sheet, folder picker, refusals, row menus, Claude's tasks section, Set up steps (locked / done), the switch, the 1 to 4 stepper and switch-on-once, alerts table kinds at 1280 and 390. Seeds itself. Seed profile: none.
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { launch, B, PW, SP, ME, db, mc, runAssertSuite, assert, check, fillLogin, pick } from './lib.mjs';
+import { launch, B, PW, SP, ME, db, rawDb, mc, runAssertSuite, assert, check, fillLogin, pick } from './lib.mjs';
 const sha = s => createHash('sha256').update(s).digest('hex');
 
 await runAssertSuite('dispatcher-ui', async () => {
@@ -135,21 +135,86 @@ await runAssertSuite('dispatcher-ui', async () => {
     assert.ok(!(await st(14)).claude, '14 taken back from the page');
     console.log(label, 'claude tasks section ok');
 
-    // 6. Setup
-    await p.goto(B + '/claude?tab=setup'); await p.locator('[data-dispatcher-setup]').waitFor();
+    // 6. Set up: the three steps in order, step 3 = the switch and a 1 to 4 stepper (docs/dispatcher.md)
+    const states = async () => p.locator('[data-step]').evaluateAll(es => es.map(e => e.getAttribute('data-step-state')));
+    const statusDoc = { $set: { area: 'status', orgId: ME.orgId, userId: ME.userId, lastMcpAt: new Date() } };
+    const devSeen = v => db.collection('devices').updateOne({ _id: dev }, { $set: { lastSeenAt: v } });
+    const dispatcherDoc = () => rawDb.collection('settings').findOne({ _id: 'dispatcher:' + ME.userId });
+    await rawDb.collection('settings').deleteOne({ _id: 'status:' + ME.userId });
+    await p.goto(B + '/claude?tab=setup'); await p.locator('[data-setup]').waitFor();
+    assert.deepEqual(await states(), ['todo', 'locked', 'locked'], 'nothing connected: step 1 open, the rest locked');
+    assert.ok(/Do step 1 first/.test(await p.locator('[data-step="2"] [data-step-locked]').innerText()) && /Do step 1 first/.test(await p.locator('[data-step="3"] [data-step-locked]').innerText()));
+    assert.equal(await p.locator('[data-step="2"] [data-computers]').count(), 0, 'a locked step shows no controls');
+    assert.ok(/0 of 3 done/.test(await p.locator('[data-setup-count]').innerText()));
+    await rawDb.collection('settings').updateOne({ _id: 'status:' + ME.userId }, statusDoc, { upsert: true });
+    await devSeen(null);
+    await p.goto(B + '/claude?tab=setup'); await p.locator('[data-setup]').waitFor();
+    assert.deepEqual(await states(), ['done', 'todo', 'locked'], 'Claude connected, no PC has checked in yet');
+    assert.ok(/Do step 2 first/.test(await p.locator('[data-step="3"] [data-step-locked]').innerText()));
+    assert.ok(/waiting for this PC to connect/.test(await p.locator('[data-device="Om-PC"]').innerText()), 'a PC that has not checked in says so');
+    await devSeen(new Date());
+    await p.goto(B + '/claude?tab=setup'); await p.locator('[data-setup]').waitFor(); await p.locator('[data-dispatcher-setup]').waitFor();
+    assert.deepEqual(await states(), ['done', 'done', 'todo'], 'a PC checked in: step 3 opens');
+    assert.ok(/2 of 3 done/.test(await p.locator('[data-setup-count]').innerText()));
     await noScroll('setup');
-    const en = p.locator('[data-dispatcher-enabled]');
-    await en.check(); await p.waitForTimeout(800);
-    assert.ok(!(await db.collection('settings').findOne({ _id: 'dispatcher' }))?.enabled, 'cannot enable without a note');
-    assert.equal(await en.isChecked(), false, 'switch rolled back');
-    await pick(p, '[data-dispatcher-note]', 'nb'); await p.waitForTimeout(800);
-    await pick(p, '[data-dispatcher-cap]', '3'); await p.waitForTimeout(800);
-    await en.check(); await p.waitForTimeout(1000);
-    let s = await db.collection('settings').findOne({ _id: 'dispatcher' });
-    assert.ok(s.enabled === true && s.maxConcurrent === 3 && s.boilerplateNoteId === 'nb', JSON.stringify(s));
-    const fs = await p.locator('[data-dispatcher-note]').evaluate(e => getComputedStyle(e).fontSize);
-    if (phone) assert.equal(fs, '16px', 'select font 16px');
+    const sw = p.getByRole('switch', { name: 'Claude starts tasks I give it' });
+    assert.equal(await sw.isDisabled(), true, 'no note: the switch cannot be turned on');
+    assert.equal(await p.locator('[data-needs-note]').count(), 1);
+    assert.equal(await p.locator('[data-advanced]').evaluate(e => e.open), false, 'Advanced is folded');
+    await p.locator('[data-needs-note] button').click();
+    assert.equal(await p.locator('[data-advanced]').evaluate(e => e.open), true, '"Choose it" opens Advanced');
+    await pick(p, '[data-dispatcher-note]', 'nb'); await p.waitForTimeout(900);
+    let s = await dispatcherDoc();
+    assert.ok(s.boilerplateNoteId === 'nb' && s.enabled === false, 'the note is saved and the switch stays off: ' + JSON.stringify(s));
+    assert.equal(await sw.isDisabled(), false);
+    await sw.click(); await p.waitForTimeout(1000);
+    s = await dispatcherDoc();
+    assert.ok(s.enabled === true && s.autoOnDone === true, 'switched on by hand: ' + JSON.stringify(s));
+    // the stepper: 1 to 4
+    const cap = p.locator('[data-dispatcher-cap]');
+    await p.getByRole('button', { name: 'One more task at a time' }).click(); await p.waitForTimeout(700);
+    assert.equal((await dispatcherDoc()).maxConcurrent, 3);
+    assert.equal((await cap.locator('[data-cap-value]').innerText()).trim(), '3');
+    await p.getByRole('button', { name: 'One more task at a time' }).click(); await p.waitForTimeout(700);
+    assert.equal(await p.getByRole('button', { name: 'One more task at a time' }).isDisabled(), true, 'at most 4');
+    for (let n = 0; n < 3; n++) { await p.getByRole('button', { name: 'One fewer task at a time' }).click(); await p.waitForTimeout(600); }
+    assert.equal(await p.getByRole('button', { name: 'One fewer task at a time' }).isDisabled(), true, 'at least 1');
+    assert.equal((await dispatcherDoc()).maxConcurrent, 1);
+    assert.equal(await p.locator('select[data-dispatcher-cap]').count(), 0, 'no native select for the cap');
+    if (phone) {
+      const hs = await cap.locator('button').evaluateAll(es => es.map(e => e.getBoundingClientRect().height));
+      assert.ok(hs.every(h => h >= 43.5), 'stepper taps are 44px: ' + hs);
+      const fs = await p.locator('[data-dispatcher-note]').evaluate(e => getComputedStyle(e).fontSize);
+      assert.equal(fs, '16px', 'select font 16px');
+    }
     await p.screenshot({ path: `${SP}/d-${label}-setup.png`, fullPage: true });
+    // switched on by itself, once: a person with their note and a PC that has checked in, who never set the switch
+    await rawDb.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $unset: { enabled: '', autoOnDone: '' } });
+    await p.goto(B + '/claude?tab=setup'); await p.locator('[data-dispatcher-setup]').waitFor();
+    await p.getByText('We switched this on because your PC connected').waitFor({ timeout: 10000 });
+    s = await dispatcherDoc();
+    assert.ok(s.enabled === true && s.autoOnDone === true && s.boilerplateNoteId === 'nb', 'auto-on: ' + JSON.stringify(s));
+    assert.equal(await sw.getAttribute('aria-checked'), 'true', 'the switch shows on');
+    await p.getByRole('button', { name: 'Undo' }).click(); await p.waitForTimeout(1000);
+    assert.equal((await dispatcherDoc()).enabled, false, 'Undo switches it off');
+    await p.goto(B + '/claude?tab=setup'); await p.locator('[data-dispatcher-setup]').waitFor(); await p.waitForTimeout(1500);
+    assert.equal((await dispatcherDoc()).enabled, false, 'it does not switch itself on again after Undo');
+    // no note: it never switches on by itself
+    await rawDb.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $set: { boilerplateNoteId: '' }, $unset: { enabled: '', autoOnDone: '' } });
+    await p.goto(B + '/claude?tab=setup'); await p.locator('[data-dispatcher-setup]').waitFor(); await p.waitForTimeout(1500);
+    assert.ok(!(await dispatcherDoc()).enabled, 'without a note it stays off');
+    // a PC that never checked in: not switched on either
+    await rawDb.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $set: { boilerplateNoteId: 'nb' }, $unset: { enabled: '', autoOnDone: '' } });
+    await devSeen(null);
+    await p.goto(B + '/claude?tab=setup'); await p.locator('[data-step="3"]').waitFor(); await p.waitForTimeout(1500);
+    assert.ok(!(await dispatcherDoc()).enabled, 'no PC has checked in: stays off');
+    await devSeen(new Date());
+    // a switch set to off before this release (enabled:false, a note, a seen PC, no autoOnDone) is their choice: stays off
+    await rawDb.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $set: { enabled: false, boilerplateNoteId: 'nb' }, $unset: { autoOnDone: '' } });
+    await p.goto(B + '/claude?tab=setup'); await p.locator('[data-step="3"]').waitFor(); await p.waitForTimeout(1500);
+    s = await dispatcherDoc();
+    assert.ok(s.enabled === false && s.autoOnDone !== true, 'an earlier off stays off: ' + JSON.stringify(s));
+    await rawDb.collection('settings').updateOne({ _id: 'dispatcher:' + ME.userId }, { $set: { enabled: false, boilerplateNoteId: 'nb' } });
     // reset for the second viewport pass
     await db.collection('settings').deleteMany({});
     await db.collection('tasks').updateOne({ ref: 14 }, { $set: { claude: mark('queued') } });
@@ -161,7 +226,7 @@ await runAssertSuite('dispatcher-ui', async () => {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
   const p = await ctx.newPage();
   await p.goto(B + '/login'); await fillLogin(p); await p.click('button[type=submit]'); await p.waitForURL(u => !u.pathname.startsWith('/login'));
-  await p.goto(B + '/settings?section=alerts'); await p.waitForTimeout(800);
+  await p.goto(B + '/settings?section=notifications'); await p.waitForTimeout(800);
   const txt = await p.locator('main').innerText();
   assert.ok(/Claude finished/.test(txt) && /Claude stopped/.test(txt) && /may be stuck/.test(txt), 'alerts table shows claude kinds: ' + txt.slice(0, 300));
   await p.screenshot({ path: `${SP}/d-desktop-alerts.png` });
