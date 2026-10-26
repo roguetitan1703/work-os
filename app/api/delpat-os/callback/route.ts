@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   if (!delpatOsEnabled()) return new NextResponse('Not Found', { status: 404 });
   const q = req.nextUrl.searchParams;
   try {
-    await completeLink(caller, { code: q.get('code'), state: q.get('state'), error: q.get('error') });
+    await completeLink(caller, { code: q.get('code'), state: q.get('state'), error: q.get('error'), iss: q.get('iss') });
     return back('linked');
   } catch (e) {
     if (!(e instanceof DelpatOsError)) console.error('delpat os link failed:', e instanceof Error ? e.name : 'error');

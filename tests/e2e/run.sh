@@ -163,9 +163,9 @@ fi
 start_server() {
   # The delpat mode points Work OS at a stub Delpat OS that the delpat-os suite runs on the discord stub's port.
   if [ "$1" = delpat ]; then
-    export DELPAT_OS_CLIENT_ID=cli_e2e_client DELPAT_OS_CLIENT_SECRET=e2e-delpat-client-secret-0123456789 DELPAT_OS_ISSUER="http://127.0.0.1:$DPORT"
+    export DELPAT_OS_CLIENT_ID=cli_e2e_client DELPAT_OS_CLIENT_SECRET=e2e-delpat-client-secret-0123456789 DELPAT_OS_ISSUER="http://127.0.0.1:$DPORT" E2E_NO_SINGLE_FLIGHT=1
   else
-    export DELPAT_OS_CLIENT_ID= DELPAT_OS_CLIENT_SECRET= DELPAT_OS_ISSUER=
+    export DELPAT_OS_CLIENT_ID= DELPAT_OS_CLIENT_SECRET= DELPAT_OS_ISSUER= E2E_NO_SINGLE_FLIGHT=
   fi
   if [ "$1" = discord ]; then
     export DISCORD_BOT_TOKEN=test-bot-token DISCORD_APPLICATION_ID=222222222222222222

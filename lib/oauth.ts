@@ -127,15 +127,21 @@ export async function revokeAuthorizedApp(c: Caller, clientId: string): Promise<
  * organization, everything they have (their password was reset). Returns how many access tokens went.
  */
 export async function dropOAuth(userId: string, orgId: string | null, clientId?: string): Promise<number> {
-  // Their link to Delpat OS (lib/delpat-os.ts) goes with the rest of what they approved: when they leave an organization,
-  // and on a password reset or change. Not when one app is revoked.
-  if (!clientId) await (await import('./delpat-os')).dropLinks(userId, orgId);
   const adapter = await model();
   const where = [{ field: 'userId', value: userId }, ...(orgId ? [{ field: 'referenceId', value: orgId }] : []), ...(clientId ? [{ field: 'clientId', value: clientId }] : [])];
   const access = (await adapter.findMany<Row>({ model: 'oauthAccessToken', where })) ?? [];
   await adapter.deleteMany({ model: 'oauthAccessToken', where });
   await adapter.deleteMany({ model: 'oauthRefreshToken', where });
   await adapter.deleteMany({ model: 'oauthConsent', where });
+  // Their link to Delpat OS (lib/delpat-os.ts) goes with the rest of what they approved: when they leave an organization,
+  // and on a password reset or change. Not when one app is revoked. Last, and never able to stop the revocations above.
+  if (!clientId) {
+    try {
+      await (await import('./delpat-os')).dropLinks(userId, orgId);
+    } catch (e) {
+      console.error('dropping Delpat OS links failed:', e instanceof Error ? e.name : 'error');
+    }
+  }
   return access.length;
 }
 

@@ -384,11 +384,28 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
     if (data.visibility === 'private' && (await c.projects.findOne({ _id: { $ne: id }, nameLower: set.nameLower ?? cur.nameLower, visibility: 'private', ownerId: cur.ownerId }, { projection: { _id: 1 } }))) {
       throw new InputError('You already have a private project with that name. Rename one of them first.');
     }
+    // An import of the same Delpat OS project: one per organization among shared projects, one per owner among private ones.
+    // Checked here so the cascade below never runs for an update the unique index would then refuse.
+    if (cur.delpatOsId) {
+      const clash = await c.projects.findOne(
+        { _id: { $ne: id }, delpatOsId: cur.delpatOsId, ...(data.visibility === 'org' ? { visibility: 'org' } : { visibility: 'private', ownerId: cur.ownerId }) },
+        { projection: { name: 1 } },
+      );
+      if (clash) {
+        throw new InputError(data.visibility === 'org' ? `This Delpat OS project is already shared in Work OS as "${clash.name}".` : `You already have a private project imported from this Delpat OS project ("${clash.name}").`);
+      }
+    }
     set.visibility = data.visibility;
     if (data.visibility === 'private') await (await import('./dispatcher')).endForeignClaude(c, s, id, cur.ownerId);
-    await setProjectVisibility(c, cur, data.visibility);
   }
-  await c.projects.updateOne({ _id: id }, { $set: set });
+  // The project first, then what follows it: if the update is refused (a unique index) nothing has moved.
+  try {
+    await c.projects.updateOne({ _id: id }, { $set: set });
+  } catch (err) {
+    if ((err as { code?: number }).code === 11000) throw new InputError('That change clashes with another project (its name or its Delpat OS import). Nothing was changed.');
+    throw err;
+  }
+  if (set.visibility && set.visibility !== cur.visibility) await setProjectVisibility(c, cur, set.visibility);
   return toProject({ ...cur, ...set });
 }
 

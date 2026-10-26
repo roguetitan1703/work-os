@@ -108,7 +108,7 @@ export type ProjectDoc = Placed & {
 };
 
 /** A person's link to Delpat OS: tokens sealed with AES-256-GCM (lib/delpat-os.ts). _id `<orgId>:<userId>`. */
-export type DelpatOsLinkDoc = { _id: string; orgId: string; userId: string; refresh: string; access: string | null; accessExpiresAt: Date | null; createdAt: Date; updatedAt: Date };
+export type DelpatOsLinkDoc = { _id: string; orgId: string; userId: string; refresh: string; access: string | null; accessExpiresAt: Date | null; createdAt: Date; updatedAt: Date; /** Lease: a refresh is in progress until then (lib/delpat-os.ts). */ refreshingUntil?: Date | null };
 /** A link in progress: the state (hashed) with its sealed PKCE verifier; deleted when used, expires after 10 minutes. */
 export type DelpatOsAuthDoc = { _id: string; orgId: string; userId: string; verifier: string; expiresAt: Date };
 
