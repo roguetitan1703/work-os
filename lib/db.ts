@@ -101,7 +101,7 @@ export type ProjectDoc = Placed & {
   code?: CodeLocation[];
   /** The member who last named it (created or renamed it; lib/data/authors.ts). Missing on older projects. */
   nameBy?: string;
-  /** The Delpat OS project it was imported from (lib/delpat-os.ts); unique per organization. */
+  /** The Delpat OS project it was imported from (lib/delpat-os.ts); unique per organization among shared projects, per owner among private ones. */
   delpatOsId?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -306,8 +306,10 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { orgId: 1, ownerId: 1, nameLower: 1 }, unique: true, name: 'owner_private_name_unique', partialFilterExpression: { visibility: 'private' } },
       // The door's filter (orgId + visibility or owner) on every project read; the partial indexes above cannot serve it.
       { key: { orgId: 1 }, name: 'org' },
-      // One import of a Delpat OS project per organization (lib/delpat-os.ts).
-      { key: { orgId: 1, delpatOsId: 1 }, unique: true, name: 'org_delpat_os_unique', partialFilterExpression: { delpatOsId: { $type: 'string' } } },
+      // One import of a Delpat OS project per organization among shared projects, one per owner among private ones (lib/delpat-os.ts):
+      // like names, a private import never blocks anyone else.
+      { key: { orgId: 1, delpatOsId: 1 }, unique: true, name: 'org_shared_delpat_os_unique', partialFilterExpression: { visibility: 'org', delpatOsId: { $type: 'string' } } },
+      { key: { orgId: 1, ownerId: 1, delpatOsId: 1 }, unique: true, name: 'owner_private_delpat_os_unique', partialFilterExpression: { visibility: 'private', delpatOsId: { $type: 'string' } } },
     ]],
     ['delpatOsLinks', [{ key: { userId: 1 }, name: 'user' }]],
     ['delpatOsAuth', [{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }]],
@@ -358,7 +360,7 @@ const INDEXES: [string, IndexDescription[]][] = [
  * drops them when the index list changes (ensureIndexes).
  */
 const OBSOLETE: [string, string][] = [
-  ['tasks', 'ref_unique'], ['tasks', 'status_due'], ['claudeItems', 'ref_unique'], ['projects', 'name_unique'], ['projects', 'org_name_unique'], ['ritualLogs', 'date_unique'],
+  ['tasks', 'ref_unique'], ['tasks', 'status_due'], ['claudeItems', 'ref_unique'], ['projects', 'name_unique'], ['projects', 'org_name_unique'], ['projects', 'org_delpat_os_unique'], ['ritualLogs', 'date_unique'],
   ['activity', 'at'], ['notes', 'updated'], ['trash', 'ref'], ['notifications', 'created'], ['notifications', 'read'],
 ];
 

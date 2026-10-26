@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { appBaseUrl } from '@/lib/auth';
-import { getCaller } from '@/lib/caller';
+import { callerFromHeaders } from '@/lib/caller';
 import { DelpatOsError, completeLink, delpatOsEnabled } from '@/lib/delpat-os';
 
 // Where Delpat OS sends the browser back after the person allowed (or refused) Work OS (lib/delpat-os.ts completeLink).
@@ -17,7 +17,7 @@ const back = (flag: 'linked' | 'error') => {
 };
 
 export async function GET(req: NextRequest) {
-  const caller = await getCaller();
+  const caller = await callerFromHeaders(req.headers, true); // a fresh session read, like a server action: a signed-out session cannot link
   if (!caller) return NextResponse.redirect(`${appBaseUrl() ?? ''}/login?next=${encodeURIComponent('/settings?section=connections')}`, { status: 303, headers: { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
   if (!delpatOsEnabled()) return new NextResponse('Not Found', { status: 404 });
   const q = req.nextUrl.searchParams;

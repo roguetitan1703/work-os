@@ -11,8 +11,8 @@ const SCANNED = ['lib', 'app'];
 // db.ts opens the connection and defines the collections; scope.ts is the door itself.
 const SKIPPED = new Set(['lib/db.ts', 'lib/scope.ts']);
 // These read Better Auth's own collections (member, user, organization, invitation, session, account) or the auth
-// rate-limit log (and lib/delpat-os.ts: each person's own sealed Delpat OS link, keyed by organization and user): sign-in, roles and memberships, no work data; each query is keyed by the caller's id or organization.
-const ALLOWED_FILES = new Set(['lib/people.ts', 'lib/auth-server.ts', 'lib/auth-limits.ts', 'lib/caller.ts', 'lib/fresh.ts', 'lib/members.ts', 'lib/delpat-os.ts']);
+// rate-limit log: sign-in, roles and memberships, no work data; each query is keyed by the caller's id or organization.
+const ALLOWED_FILES = new Set(['lib/people.ts', 'lib/auth-server.ts', 'lib/auth-limits.ts', 'lib/caller.ts', 'lib/fresh.ts', 'lib/members.ts']);
 const RAW = /\b(collections|getDb|getClient)\s*\(|\.collection\s*[<(]/;
 
 function* files(p) {

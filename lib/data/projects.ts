@@ -1,7 +1,7 @@
 import 'server-only';
 import { randomBytes } from 'node:crypto';
 import type { ProjectDoc, TaskDoc } from '../db';
-import { idTaken, orgWide, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
+import { idTaken, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
 import {
   ProjectInputSchema,
   type Project,
@@ -143,6 +143,10 @@ async function insertProject(
       return doc;
     } catch (err) {
       if ((err as { code?: number }).code !== 11000) throw err;
+      // An import of the same Delpat OS project landed first (one the caller can see: shared, or their own private one).
+      if (data.delpatOsId && (await c.projects.findOne({ delpatOsId: data.delpatOsId }, { projection: { _id: 1 } }))) {
+        throw new InputError('That Delpat OS project was just imported. Reload to see it.');
+      }
       // Same name created concurrently → return that one; otherwise the id was taken meanwhile, try another.
       const existing = await c.projects.findOne({ nameLower });
       if (existing) return existing;
@@ -332,9 +336,9 @@ export async function importedProjects(s: Scope, delpatOsIds: string[]): Promise
 }
 
 /**
- * Makes a project from a Delpat OS one (lib/delpat-os.ts). One per organization: if the caller sees it already, that one
- * comes back (created=false); if someone else holds it privately it is refused without saying who. A name that clashes
- * with a project of the caller's gets " (Delpat OS)" added.
+ * Makes a project from a Delpat OS one (lib/delpat-os.ts). If the caller already sees an import of it (shared in the
+ * organization, or their own private one) that one comes back (created=false). Someone else's private import does not
+ * count and cannot block this one. A name that clashes with a project of the caller's gets " (Delpat OS)" added.
  */
 export async function createImportedProject(
   s: Scope,
@@ -343,9 +347,6 @@ export async function createImportedProject(
   const c = await scoped(s);
   const seen = await c.projects.findOne({ delpatOsId: data.delpatOsId });
   if (seen) return { project: toProject(seen), created: false };
-  if (await (await orgWide(s.orgId)).projects.findOne({ delpatOsId: data.delpatOsId }, { projection: { _id: 1 } })) {
-    throw new InputError('This Delpat OS project was already imported into your organization by someone else.');
-  }
   const base = { client: data.client, description: data.description.slice(0, 5000), status: data.status, visibility: data.visibility, delpatOsId: data.delpatOsId };
   const name = data.name.trim().slice(0, 120) || 'Delpat OS project';
   const clash = async (n: string) => !!(await c.projects.findOne({ nameLower: n.toLowerCase() }, { projection: { _id: 1 } }));

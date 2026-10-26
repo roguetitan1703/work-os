@@ -99,10 +99,48 @@ export function unseal(sealed: string, aad: string): string | null {
   }
 }
 
+/** The only two collections this file touches: a person's Delpat OS link and their pending links, always keyed by organization and person. */
+async function stores() {
+  const c = await collections(); // scope-ok: delpatOsLinks and delpatOsAuth only, keyed by the caller's organization and user
+  return { links: c.delpatOsLinks, pending: c.delpatOsAuth };
+}
+
 const linkId = (c: { orgId: string; userId: string }) => `${c.orgId}:${c.userId}`;
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
 // ── Talking to Delpat OS ───────────────────────────────────────────────────
+
+const MAX_BODY = 1_000_000;
+
+/** The body as text, read as a stream and refused beyond ~1 MB (a hostile or broken Delpat OS cannot fill memory). */
+async function bodyText(res: Response): Promise<string> {
+  const len = Number(res.headers.get('content-length') ?? 0);
+  if (len > MAX_BODY) throw new DelpatOsError('Delpat OS sent too much data.');
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read().catch(() => ({ done: true, value: undefined }));
+    if (done || !value) break;
+    n += value.byteLength;
+    if (n > MAX_BODY) {
+      void reader.cancel().catch(() => {});
+      throw new DelpatOsError('Delpat OS sent too much data.');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function bodyJson(res: Response): Promise<unknown> {
+  const text = await bodyText(res);
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
 
 async function http(url: string, init: RequestInit): Promise<Response> {
   try {
@@ -112,7 +150,7 @@ async function http(url: string, init: RequestInit): Promise<Response> {
   }
 }
 
-type Meta = { authorize: string; token: string; mcp: string };
+type Meta = { authorize: string; token: string; mcp: string; revoke: string | null };
 let metaCache: { key: string; at: number; meta: Meta } | null = null;
 
 /** Fetches (cached 5 minutes) and checks the issuer's metadata document. */
@@ -120,7 +158,7 @@ export async function delpatOsMetadata(): Promise<Meta> {
   const cfg = need();
   if (metaCache && metaCache.key === cfg.issuer && Date.now() - metaCache.at < META_TTL_MS) return metaCache.meta;
   const res = await http(`${cfg.issuer}/.well-known/oauth-authorization-server`, { headers: { accept: 'application/json' } });
-  const doc = res.ok ? ((await res.json().catch(() => null)) as Record<string, unknown> | null) : null;
+  const doc = res.ok ? ((await bodyJson(res)) as Record<string, unknown> | null) : null;
   if (!doc || typeof doc !== 'object') throw new DelpatOsError('Delpat OS did not describe itself. Try again later.');
   const origin = new URL(cfg.issuer).origin;
   const same = (v: unknown): string => {
@@ -141,6 +179,7 @@ export async function delpatOsMetadata(): Promise<Meta> {
     authorize: same(doc.authorization_endpoint),
     token: same(doc.token_endpoint),
     mcp: doc.mcp_endpoint !== undefined ? same(doc.mcp_endpoint) : `${cfg.issuer}/api/mcp`,
+    revoke: doc.revocation_endpoint !== undefined ? same(doc.revocation_endpoint) : null,
   };
   metaCache = { key: cfg.issuer, at: Date.now(), meta };
   return meta;
@@ -159,9 +198,27 @@ async function tokenCall(params: Record<string, string>): Promise<{ ok: true; t:
   const body = new URLSearchParams({ ...params, client_id: cfg.clientId, client_secret: cfg.clientSecret });
   const res = await http(meta.token, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body });
   if (!res.ok) return { ok: false, status: res.status };
-  const t = (await res.json().catch(() => null)) as TokenReply | null;
+  const t = (await bodyJson(res)) as TokenReply | null;
   if (!t || typeof t.access_token !== 'string' || !t.access_token) return { ok: false, status: 502 };
   return { ok: true, t };
+}
+
+/**
+ * Tells Delpat OS to revoke a refresh token (RFC 7009) when its metadata offers a revocation_endpoint. Best effort and
+ * never waited for: a failure or a missing endpoint changes nothing (the link is deleted here either way).
+ * Delpat OS offers none today, so unlinking in Work OS does not revoke at Delpat OS (docs/auth.md).
+ */
+function revokeUpstream(sealedRefresh: string | undefined, lid: string): void {
+  if (!sealedRefresh) return;
+  void (async () => {
+    const cfg = delpatOsConfig();
+    if (!cfg) return;
+    const token = unseal(sealedRefresh, `refresh:${lid}`);
+    const meta = await delpatOsMetadata();
+    if (!token || !meta.revoke) return;
+    const body = new URLSearchParams({ token, token_type_hint: 'refresh_token', client_id: cfg.clientId, client_secret: cfg.clientSecret });
+    await fetch(meta.revoke, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body, redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(5000) });
+  })().catch(() => {});
 }
 
 // ── Linking ────────────────────────────────────────────────────────────────
@@ -176,9 +233,9 @@ export async function startLink(c: Caller): Promise<string> {
   const verifier = b64u(randomBytes(48));
   const challenge = b64u(createHash('sha256').update(verifier).digest());
   const id = sha(state);
-  const db = await collections();
-  await db.delpatOsAuth.deleteMany({ orgId: c.orgId, userId: c.userId });
-  await db.delpatOsAuth.insertOne({ _id: id, orgId: c.orgId, userId: c.userId, verifier: seal(verifier, `auth:${id}:${linkId(c)}`), expiresAt: new Date(Date.now() + AUTH_MINUTES * 60_000) });
+  const db = await stores();
+  await db.pending.deleteMany({ orgId: c.orgId, userId: c.userId });
+  await db.pending.insertOne({ _id: id, orgId: c.orgId, userId: c.userId, verifier: seal(verifier, `auth:${id}:${linkId(c)}`), expiresAt: new Date(Date.now() + AUTH_MINUTES * 60_000) });
   const u = new URL(meta.authorize);
   u.searchParams.set('response_type', 'code');
   u.searchParams.set('client_id', cfg.clientId);
@@ -200,8 +257,8 @@ export async function completeLink(c: Caller, q: { code: string | null; state: s
   const state = q.state ?? '';
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(state)) throw new DelpatOsError('That sign-in link is not valid. Start again from Settings.');
   const id = sha(state);
-  const db = await collections();
-  const row = await db.delpatOsAuth.findOneAndDelete({ _id: id }); // single use, whatever happens next
+  const db = await stores();
+  const row = await db.pending.findOneAndDelete({ _id: id }); // single use, whatever happens next
   if (!row || row.userId !== c.userId || row.orgId !== c.orgId || row.expiresAt.getTime() < Date.now()) throw new DelpatOsError('That sign-in link expired or is not yours. Start again from Settings.');
   if (q.error) throw new DelpatOsError('Delpat OS did not allow the link.');
   const code = q.code ?? '';
@@ -213,7 +270,7 @@ export async function completeLink(c: Caller, q: { code: string | null; state: s
   if (typeof r.t.refresh_token !== 'string' || !r.t.refresh_token) throw new DelpatOsError('Delpat OS gave no long-lived access. Try again.');
   const now = new Date();
   const lid = linkId(c);
-  await db.delpatOsLinks.updateOne(
+  await db.links.updateOne(
     { _id: lid },
     {
       $set: { orgId: c.orgId, userId: c.userId, refresh: seal(r.t.refresh_token, `refresh:${lid}`), ...accessFields(r.t, lid), updatedAt: now },
@@ -229,24 +286,27 @@ function accessFields(t: TokenReply, lid: string): { access: string; accessExpir
 }
 
 export async function unlink(c: Caller): Promise<void> {
-  const db = await collections();
-  await db.delpatOsLinks.deleteOne({ _id: linkId(c) });
-  await db.delpatOsAuth.deleteMany({ orgId: c.orgId, userId: c.userId });
+  const db = await stores();
+  const row = await db.links.findOneAndDelete({ _id: linkId(c) });
+  revokeUpstream(row?.refresh, linkId(c));
+  await db.pending.deleteMany({ orgId: c.orgId, userId: c.userId });
 }
 
 /** Drops a person's links (and pending links): in one organization (they left it) or everywhere (password reset or change). */
 export async function dropLinks(userId: string, orgId: string | null): Promise<void> {
-  const db = await collections();
+  const db = await stores();
   const where = orgId ? { userId, orgId } : { userId };
-  await db.delpatOsLinks.deleteMany(where);
-  await db.delpatOsAuth.deleteMany(where);
+  const rows = await db.links.find(where).toArray();
+  await db.links.deleteMany(where);
+  await db.pending.deleteMany(where);
+  for (const r of rows) revokeUpstream(r.refresh, r._id);
 }
 
 export type LinkStatus = { enabled: boolean; linked: boolean; since: string | null };
 
 export async function linkStatus(c: Caller): Promise<LinkStatus> {
   if (!delpatOsEnabled()) return { enabled: false, linked: false, since: null };
-  const row = await (await collections()).delpatOsLinks.findOne({ _id: linkId(c) }, { projection: { createdAt: 1 } });
+  const row = await (await stores()).links.findOne({ _id: linkId(c) }, { projection: { createdAt: 1 } });
   return { enabled: true, linked: !!row, since: row ? row.createdAt.toISOString() : null };
 }
 
@@ -254,35 +314,59 @@ export async function linkStatus(c: Caller): Promise<LinkStatus> {
 
 const refreshing = new Map<string, Promise<string>>();
 
-/** A valid access token for this person (refreshing when it ran out). One refresh at a time per person: the refresh token rotates. */
+const fresh = (row: { access: string | null; accessExpiresAt: Date | null }) => !!row.access && !!row.accessExpiresAt && row.accessExpiresAt.getTime() - Date.now() > 60_000;
+
+/**
+ * A valid access token for this person (refreshing when it ran out). The refresh token rotates, so a refresh must happen
+ * once: one at a time per person here (the link row is read again inside it, and a refresh that finds a fresh token
+ * just uses it), and across processes by claiming the rotation with a conditional update on updatedAt. A refusal
+ * deletes the link only if the refresh token we used is still the stored one (otherwise someone rotated it meanwhile).
+ */
 async function accessToken(c: Caller): Promise<string> {
   const lid = linkId(c);
-  const db = await collections();
-  const row = await db.delpatOsLinks.findOne({ _id: lid });
+  const db = await stores();
+  const row = await db.links.findOne({ _id: lid });
   if (!row || row.userId !== c.userId || row.orgId !== c.orgId) throw new NotLinked();
-  if (row.access && row.accessExpiresAt && row.accessExpiresAt.getTime() - Date.now() > 60_000) {
-    const t = unseal(row.access, `access:${lid}`);
+  if (fresh(row)) {
+    const t = unseal(row.access!, `access:${lid}`);
     if (t) return t;
   }
   const hit = refreshing.get(lid);
   if (hit) return hit;
   const p = (async () => {
-    const refresh = unseal(row.refresh, `refresh:${lid}`);
-    if (!refresh) {
-      await db.delpatOsLinks.deleteOne({ _id: lid });
-      throw new NotLinked('Your Delpat OS link could not be read. Link it again.');
-    }
-    const r = await tokenCall({ grant_type: 'refresh_token', refresh_token: refresh });
-    if (!r.ok) {
-      if (r.status === 400 || r.status === 401) {
-        await db.delpatOsLinks.deleteOne({ _id: lid });
-        throw new NotLinked('Delpat OS no longer accepts your link. Link it again (Settings › Connections).');
+    for (let tries = 0; tries < 8; tries++) {
+      const cur = await db.links.findOne({ _id: lid });
+      if (!cur || cur.userId !== c.userId || cur.orgId !== c.orgId) throw new NotLinked();
+      if (fresh(cur)) {
+        const t = unseal(cur.access!, `access:${lid}`);
+        if (t) return t;
       }
-      throw new DelpatOsError('Delpat OS did not answer. Try again in a moment.');
+      const refresh = unseal(cur.refresh, `refresh:${lid}`);
+      if (!refresh) {
+        await db.links.deleteOne({ _id: lid, refresh: cur.refresh });
+        throw new NotLinked('Your Delpat OS link could not be read. Link it again.');
+      }
+      // Claim the rotation: only one process wins; the others wait for its result and read it.
+      const claim = await db.links.updateOne({ _id: lid, updatedAt: cur.updatedAt, refresh: cur.refresh }, { $set: { updatedAt: new Date() } });
+      if (claim.modifiedCount !== 1) {
+        await new Promise(r => setTimeout(r, 400));
+        continue;
+      }
+      const r = await tokenCall({ grant_type: 'refresh_token', refresh_token: refresh });
+      if (!r.ok) {
+        if (r.status === 400 || r.status === 401) {
+          const gone = await db.links.deleteOne({ _id: lid, refresh: cur.refresh });
+          if (gone.deletedCount === 1) throw new NotLinked('Delpat OS no longer accepts your link. Link it again (Settings › Connections).');
+          continue; // someone else rotated it meanwhile: read their result
+        }
+        throw new DelpatOsError('Delpat OS did not answer. Try again in a moment.');
+      }
+      const next = typeof r.t.refresh_token === 'string' && r.t.refresh_token ? r.t.refresh_token : refresh;
+      const saved = await db.links.updateOne({ _id: lid, refresh: cur.refresh }, { $set: { refresh: seal(next, `refresh:${lid}`), ...accessFields(r.t, lid), updatedAt: new Date() } });
+      if (saved.modifiedCount !== 1) throw new NotLinked(); // unlinked while we refreshed
+      return String(r.t.access_token);
     }
-    const next = typeof r.t.refresh_token === 'string' && r.t.refresh_token ? r.t.refresh_token : refresh;
-    await db.delpatOsLinks.updateOne({ _id: lid }, { $set: { refresh: seal(next, `refresh:${lid}`), ...accessFields(r.t, lid), updatedAt: new Date() } });
-    return String(r.t.access_token);
+    throw new DelpatOsError('Delpat OS is busy. Try again in a moment.');
   })().finally(() => refreshing.delete(lid));
   refreshing.set(lid, p);
   return p;
@@ -301,10 +385,11 @@ async function rpc(c: Caller, method: string, params?: Record<string, unknown>):
   });
   if (res.status === 401) {
     // The token was refused (revoked at Delpat OS): treat the link as gone.
-    await (await collections()).delpatOsLinks.deleteOne({ _id: linkId(c) });
+    const gone = await (await stores()).links.findOneAndDelete({ _id: linkId(c) });
+    revokeUpstream(gone?.refresh, linkId(c));
     throw new NotLinked('Delpat OS no longer accepts your link. Link it again (Settings › Connections).');
   }
-  const text = await res.text();
+  const text = await bodyText(res);
   if (!res.ok) throw new DelpatOsError('Delpat OS could not do that right now.');
   const line = text.split('\n').find(l => l.startsWith('data:'));
   let body: { result?: unknown; error?: unknown } | null = null;

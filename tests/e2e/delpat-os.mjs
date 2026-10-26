@@ -7,7 +7,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto';
 import { B, ME, PW, check, finish, launch, login, makeUser, rawDb } from './lib.mjs';
 
 const PORT = Number(process.env.E2E_DISCORD_PORT);
@@ -18,6 +18,14 @@ const REDIRECT = `${B}/api/delpat-os/callback`;
 const MAIL = process.env.MAIL_CAPTURE_DIR;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const sha = s => createHash('sha256').update(s).digest('base64url');
+/** Seals like lib/delpat-os.ts (key from BETTER_AUTH_SECRET): lets a test play "another process rotated the token". */
+const seal = (plain, aad) => {
+  const iv = randomBytes(12);
+  const c = createCipheriv('aes-256-gcm', Buffer.from(hkdfSync('sha256', process.env.BETTER_AUTH_SECRET, 'work-os', 'delpat-os-tokens-v1', 32)), iv);
+  c.setAAD(Buffer.from(aad));
+  const ct = Buffer.concat([c.update(plain, 'utf8'), c.final()]);
+  return ['v1', iv.toString('base64url'), c.getAuthTag().toString('base64url'), ct.toString('base64url')].join('.');
+};
 
 // ---- stub Delpat OS ----
 const PROJECTS = {
@@ -35,7 +43,7 @@ const PROJECTS = {
   ],
   cy: [{ id: 'dp7', title: 'Cy Project', client: 'Cy Co', status: 'on_track', focus: '', myRole: 'lead', updatedAt: '2026-05-01T00:00:00Z', phases: [] }],
 };
-const stub = { next: 'owner', hold: false, held: null, codes: new Map(), access: new Map(), refresh: new Map(), issued: [], authorize: [], tokenCalls: [], mcp: [], n: 0, down: false };
+const stub = { next: 'owner', hold: false, held: null, codes: new Map(), access: new Map(), refresh: new Map(), issued: [], authorize: [], tokenCalls: [], mcp: [], n: 0, down: false, refreshDelay: 0, refreshFailNext: false, revoked: [], revokeFail: false, big: false };
 const send = (s, code, body) => { s.statusCode = code; s.setHeader('content-type', 'application/json'); s.end(JSON.stringify(body)); };
 function issue(subject) {
   const access = `dat_${++stub.n}_${randomBytes(12).toString('hex')}`;
@@ -51,7 +59,7 @@ const server = http.createServer((q, s) => {
   q.on('end', () => {
     const url = new URL(q.url, ISSUER);
     if (url.pathname === '/.well-known/oauth-authorization-server') {
-      return send(s, 200, { issuer: ISSUER, authorization_endpoint: `${ISSUER}/authorize`, token_endpoint: `${ISSUER}/token`, mcp_endpoint: `${ISSUER}/mcp`, code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['client_secret_post'], scopes_supported: ['mcp'] });
+      return send(s, 200, { issuer: ISSUER, authorization_endpoint: `${ISSUER}/authorize`, token_endpoint: `${ISSUER}/token`, mcp_endpoint: `${ISSUER}/mcp`, revocation_endpoint: `${ISSUER}/revoke`, code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['client_secret_post'], scopes_supported: ['mcp'] });
     }
     if (url.pathname === '/authorize') {
       const p = Object.fromEntries(url.searchParams);
@@ -79,18 +87,28 @@ const server = http.createServer((q, s) => {
         return send(s, 200, issue(c.subject));
       }
       if (rec.grant === 'refresh_token') {
-        const r = stub.refresh.get(f.get('refresh_token'));
-        if (!r || !r.valid) return send(s, 400, { error: 'invalid_grant' });
-        r.valid = false; // rotation
-        rec.ok = true;
-        return send(s, 200, issue(r.subject));
+        const go = () => {
+          const r = stub.refresh.get(f.get('refresh_token'));
+          if (stub.refreshFailNext) { stub.refreshFailNext = false; return send(s, 400, { error: 'invalid_grant' }); }
+          if (!r || !r.valid) return send(s, 400, { error: 'invalid_grant' });
+          r.valid = false; // rotation
+          rec.ok = true;
+          return send(s, 200, issue(r.subject));
+        };
+        return stub.refreshDelay ? setTimeout(go, stub.refreshDelay) : go();
       }
       return send(s, 400, { error: 'unsupported_grant_type' });
+    }
+    if (url.pathname === '/revoke' && q.method === 'POST') {
+      const f = new URLSearchParams(b);
+      stub.revoked.push({ token: f.get('token'), hint: f.get('token_type_hint'), secret: f.get('client_secret') === CLIENT_SECRET });
+      return stub.revokeFail ? send(s, 500, {}) : send(s, 200, {});
     }
     if (url.pathname === '/mcp' && q.method === 'POST') {
       const tok = (q.headers.authorization ?? '').replace(/^Bearer /, '');
       const a = stub.access.get(tok);
       if (stub.down) return send(s, 503, {});
+      if (stub.big) return send(s, 200, { pad: 'x'.repeat(2_000_000) });
       if (!a || a.exp < Date.now()) return send(s, 401, { error: 'invalid_token' });
       const m = JSON.parse(b);
       stub.mcp.push({ method: m.method, tool: m.params?.name, subject: a.subject, token: tok });
@@ -256,9 +274,12 @@ try {
   check('duplicate: a teammate sees the shared import as already there', (await pb.locator('[data-delpat-project="dp1"] [data-delpat-already]').count()) === 1);
   check('duplicate: a project the owner holds privately shows as importable to her (she cannot see it)', (await pb.locator('[data-delpat-project="dp4"] [data-delpat-import]').count()) === 1);
   await pb.click('[data-delpat-project="dp4"] [data-delpat-import]');
-  await pb.waitForSelector('[data-sonner-toast]', { timeout: 10000 });
-  check('duplicate: importing it is refused with a plain message and makes no second project', /already imported/i.test(await pb.locator('[data-sonner-toast]').first().innerText()) && (await rawDb.collection('projects').countDocuments({ orgId: A.orgId, delpatOsId: 'dp4' })) === 1);
-  check('duplicate: one project per Delpat OS id in the organization', (await rawDb.collection('projects').aggregate([{ $match: { delpatOsId: { $type: 'string' } } }, { $group: { _id: { o: '$orgId', d: '$delpatOsId' }, n: { $sum: 1 } } }, { $match: { n: { $gt: 1 } } }]).toArray()).length === 0);
+  await pb.waitForURL(u => /^\/projects\/.+/.test(u.pathname), { timeout: 15000 });
+  const d4 = await rawDb.collection('projects').find({ orgId: A.orgId, delpatOsId: 'dp4' }).toArray();
+  check("squatting: the owner's private import does not block a teammate's own (a shared one)", d4.length === 2 && d4.some(x => x.ownerId === Bea.userId && x.visibility === 'org') && d4.some(x => x.ownerId === A.userId && x.visibility === 'private'), JSON.stringify(d4.map(x => [x.ownerId, x.visibility])));
+  check('duplicate: one per Delpat OS id among shared projects, one per owner among private ones', (await rawDb.collection('projects').aggregate([{ $match: { delpatOsId: { $type: 'string' } } }, { $group: { _id: { o: '$orgId', d: '$delpatOsId', v: '$visibility', w: { $cond: [{ $eq: ['$visibility', 'private'] }, '$ownerId', null] } }, n: { $sum: 1 } } }, { $match: { n: { $gt: 1 } } }]).toArray()).length === 0);
+  const dupIdx = (await rawDb.collection('projects').indexes()).filter(i => /delpat_os/.test(i.name));
+  check('duplicate: the indexes are split like the name ones (shared per organization, private per owner)', dupIdx.length === 2 && dupIdx.every(i => i.unique && i.partialFilterExpression?.visibility), JSON.stringify(dupIdx.map(i => i.name)));
   await picker(pb);
   await pb.waitForSelector('[data-delpat-project="dp5"]', { timeout: 15000 });
   await pb.click('[data-delpat-project="dp5"] [data-delpat-import]');
@@ -299,6 +320,36 @@ try {
   await picker(p);
   await p.waitForSelector('[data-delpat-project]', { timeout: 15000 });
   check('refresh: a still-valid access token is reused (no extra token call)', tokenOk() === t1);
+  // Two calls at expiry: one refresh only, the link stays, both lists work.
+  const p2 = await ctx.newPage();
+  const tc = tokenOk();
+  await rawDb.collection('delpatOsLinks').updateOne({ _id: `${A.orgId}:${A.userId}` }, { $set: { accessExpiresAt: new Date(Date.now() - 60_000) } });
+  stub.refreshDelay = 700;
+  await Promise.all([picker(p), picker(p2)]);
+  await Promise.all([p.waitForSelector('[data-delpat-project]', { timeout: 15000 }), p2.waitForSelector('[data-delpat-project]', { timeout: 15000 })]);
+  stub.refreshDelay = 0;
+  await p2.close();
+  check('refresh race: two concurrent calls at expiry make one refresh, both succeed, the link stays', tokenOk() === tc + 1 && !!(await linkRow(A.orgId, A.userId)) && stub.tokenCalls.filter(t => t.grant === 'refresh_token' && !t.ok).length === 0);
+  // Another process rotated the token while ours was in flight and ours was refused: the link must survive.
+  const lidA = `${A.orgId}:${A.userId}`;
+  await rawDb.collection('delpatOsLinks').updateOne({ _id: lidA }, { $set: { accessExpiresAt: new Date(Date.now() - 60_000) } });
+  stub.refreshDelay = 900;
+  stub.refreshFailNext = true;
+  const n0 = stub.tokenCalls.length;
+  const inflight = picker(p);
+  await until(() => stub.tokenCalls.length > n0, 10000);
+  const other = (() => { const acc = `dat_other_${randomBytes(6).toString('hex')}`, ref = `drt_other_${randomBytes(6).toString('hex')}`; stub.access.set(acc, { subject: 'owner', exp: Date.now() + 3600e3 }); stub.refresh.set(ref, { subject: 'owner', valid: true }); return { acc, ref }; })();
+  await rawDb.collection('delpatOsLinks').updateOne({ _id: lidA }, { $set: { refresh: seal(other.ref, `refresh:${lidA}`), access: seal(other.acc, `access:${lidA}`), accessExpiresAt: new Date(Date.now() + 3600e3), updatedAt: new Date() } });
+  await inflight;
+  await p.waitForSelector('[data-delpat-project], [data-delpat-error]', { timeout: 15000 });
+  stub.refreshDelay = 0;
+  check('refresh race: a refusal of a token someone else already rotated does not drop the link, and the new token is used', !!(await linkRow(A.orgId, A.userId)) && (await p.locator('[data-delpat-project]').count()) > 0 && stub.mcp.slice(-1)[0].token === other.acc);
+  // A huge answer from Delpat OS is refused (body capped at 1 MB) and keeps the link.
+  stub.big = true;
+  await picker(p);
+  await p.waitForSelector('[data-delpat-error]', { timeout: 15000 });
+  stub.big = false;
+  check('body cap: a 2 MB answer is refused with a plain error and the link stays', /too much|could not/i.test(await p.locator('[data-delpat-error]').innerText()) && !!(await linkRow(A.orgId, A.userId)));
   // Delpat OS no longer accepts the refresh token (revoked there).
   for (const v of stub.refresh.values()) v.valid = false;
   await rawDb.collection('delpatOsLinks').updateOne({ _id: `${A.orgId}:${A.userId}` }, { $set: { accessExpiresAt: new Date(Date.now() - 60_000) } });
@@ -318,8 +369,13 @@ try {
 
   // ======== 8. unlink ========
   await openSettings(p);
+  const ownerRefresh = [...stub.refresh].filter(([, r]) => r.subject === 'owner' && r.valid).pop()?.[0];
+  stub.revokeFail = true; // a failing revocation endpoint must not stop the unlink
   await p.click('[data-delpat-unlink]');
   await until(async () => !(await linkRow(A.orgId, A.userId)));
+  await until(() => stub.revoked.some(r => r.token === ownerRefresh), 8000);
+  stub.revokeFail = false;
+  check('unlink: the refresh token is also revoked upstream (best effort; a failing endpoint did not block the unlink)', !!ownerRefresh && stub.revoked.some(r => r.token === ownerRefresh && r.hint === 'refresh_token' && r.secret));
   check('unlink: the stored tokens are deleted', !(await linkRow(A.orgId, A.userId)));
   await p.waitForSelector('[data-delpat-link]', { timeout: 10000 });
   const m1 = mcpCount();
@@ -328,6 +384,7 @@ try {
 
   // ======== 9. removal and password reset drop links ========
   await startLink(pc, 'cy', false);
+  const cyRefresh = [...stub.refresh].filter(([, r]) => r.subject === 'cy' && r.valid).pop()?.[0];
   check('cy: linked in her own organization', !!(await linkRow(Cy.orgId, Cy.userId)));
   const since = Date.now() - 1000;
   const rq = await fetch(B + '/api/auth/request-password-reset', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ email: 'cy@example.test', redirectTo: '/login/reset' }) });
@@ -344,13 +401,16 @@ try {
   const rs = await fetch(B + '/api/auth/reset-password', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ newPassword: 'brand-new-password-456', token }) });
   check('reset: the password was reset', rs.status === 200, String(rs.status));
   check('reset: her Delpat OS link is gone', !!(await until(async () => !(await linkRow(Cy.orgId, Cy.userId)), 8000)));
+  check('reset: and revoked upstream', !!(await until(() => stub.revoked.some(r => r.token === cyRefresh), 8000)));
 
   check("removal: Bea's link exists before", !!(await linkRow(A.orgId, Bea.userId)));
+  const beaRefresh = [...stub.refresh].filter(([, r]) => r.subject === 'bea' && r.valid).pop()?.[0];
   await p.goto(B + '/settings?section=members');
   await p.waitForSelector('button[aria-label="Remove bea@example.test"]', { timeout: 15000 });
   await p.click('button[aria-label="Remove bea@example.test"]');
   await p.click('[data-remove-confirm="bea@example.test"] button:has-text("Remove")');
   check('removal: removing the member deletes her link', !!(await until(async () => !(await linkRow(A.orgId, Bea.userId)), 15000)));
+  check('removal: and revokes it upstream', !!(await until(() => stub.revoked.some(r => r.token === beaRefresh), 8000)));
   check("removal: the owner's imported projects were not touched", !!(await projectOf(A.orgId, 'dp1')));
 } catch (e) {
   check('suite error', false, e?.stack || String(e));
