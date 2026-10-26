@@ -133,6 +133,15 @@ export async function dropOAuth(userId: string, orgId: string | null, clientId?:
   await adapter.deleteMany({ model: 'oauthAccessToken', where });
   await adapter.deleteMany({ model: 'oauthRefreshToken', where });
   await adapter.deleteMany({ model: 'oauthConsent', where });
+  // Their link to Delpat OS (lib/delpat-os.ts) goes with the rest of what they approved: when they leave an organization,
+  // and on a password reset or change. Not when one app is revoked. Last, and never able to stop the revocations above.
+  if (!clientId) {
+    try {
+      await (await import('./delpat-os')).dropLinks(userId, orgId);
+    } catch (e) {
+      console.error('dropping Delpat OS links failed:', e instanceof Error ? e.name : 'error');
+    }
+  }
   return access.length;
 }
 

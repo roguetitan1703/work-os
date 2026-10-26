@@ -921,6 +921,16 @@ function AUDIT() {
   add(`action ${PR}discordLinkCodeAction`, act(PR + 'discordLinkCodeAction', []));
   add(`action ${PR}unlinkDiscordAction`, act(PR + 'unlinkDiscordAction', [], { only: ['R', 'N'], control: false /* T and X would unlink their own Discord account before their Discord probes run; the owner's for the rest of the run */ }));
   add(`action ${PR}saveDiscordServerAction`, act(PR + 'saveDiscordServerAction', [G2], { label: 'claim the second org\'s server', control: false }), act(PR + 'saveDiscordServerAction', [G1], { label: 'own server again', controlOk: actOk, only: ['R', 'N'] }));
+  // Delpat OS import (lib/delpat-os.ts): this audit runs with no Delpat OS client set, so each action answers "not set up" to everyone;
+  // they take no id of anyone else's (each acts on the caller's own link), and the delpat-os suite covers the working paths.
+  const DO = 'app/(app)/settings/delpat-os-actions.ts#';
+  const DP = 'app/(app)/projects/delpat-os-actions.ts#';
+  const notSetUp = r => actOk(r) || /not set up/i.test(r.text);
+  add(`action ${DO}startDelpatOsLinkAction`, act(DO + 'startDelpatOsLinkAction', [], { ok: notSetUp, controlOk: notSetUp }));
+  add(`action ${DO}unlinkDelpatOsAction`, act(DO + 'unlinkDelpatOsAction', [], { ok: notSetUp, controlOk: notSetUp }));
+  add(`action ${DP}delpatOsStatusAction`, act(DP + 'delpatOsStatusAction', [], { ok: r => actOk(r) && r.value.data?.enabled === false, controlOk: r => actOk(r) && r.value.data?.enabled === false }));
+  add(`action ${DP}listDelpatOsProjectsAction`, act(DP + 'listDelpatOsProjectsAction', [], { ok: notSetUp, controlOk: notSetUp }));
+  add(`action ${DP}importDelpatOsProjectAction`, act(DP + 'importDelpatOsProjectAction', ['lkqdp1', 'org'], { ok: notSetUp, controlOk: notSetUp }));
   const SE = 'app/(app)/settings/security-actions.ts#';
   add(`action ${SE}sendTestEmailAction`, act(SE + 'sendTestEmailAction', [], { controlOk: r => actOk(r) || /not set up/i.test(r.text) }));
   add(`action ${SE}dismissMigrationNoticeAction`, act(SE + 'dismissMigrationNoticeAction', [], { mayWork: w => w === 'X' }));
@@ -966,6 +976,7 @@ function AUDIT() {
   add('route POST /api/discord/interactions', { kind: 'route', ok: r => two(r.status), call: () => req('POST', '/api/discord/interactions', { body: '{"type":1}', headers: { 'x-signature-ed25519': '00'.repeat(64), 'x-signature-timestamp': String(Math.floor(Date.now() / 1000)) } }), label: 'unsigned', control: false });
   add('route GET /worker/work-os-worker.mjs', route('GET', '/worker/work-os-worker.mjs', { public: true }));
   add('route GET /worker/latest.json', route('GET', '/worker/latest.json', { public: true }));
+  add('route GET /api/delpat-os/callback', route('GET', '/api/delpat-os/callback?code=lkqcode&state=lkqstate', { ok: r => r.status === 404, controlOk: r => r.status === 404 }));
   add('route GET /api/live', route('GET', '/api/live', { public: true }));
   add('route HEAD /api/live', route('HEAD', '/api/live', { public: true }));
   const mcpRoute = m => ({ kind: 'mcp', ok: r => two(r.status) && !/Unauthorized/.test(r.text), call: ({ cred }) => req(m, '/api/mcp', { bearer: cred, headers: { accept: 'application/json, text/event-stream' }, body: m === 'POST' ? { jsonrpc: '2.0', id: 1, method: 'tools/list' } : undefined }), controlOk: r => (m === 'POST' ? two(r.status) : r.status !== 401) });

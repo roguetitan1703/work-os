@@ -113,7 +113,7 @@ function newProjectId(name: string): string {
 async function insertProject(
   c: Collections,
   s: Scope,
-  data: { name: string; client?: string; description?: string; status?: ProjectDoc['status']; code?: CodeLocation[] | null; visibility?: Visibility },
+  data: { name: string; client?: string; description?: string; status?: ProjectDoc['status']; code?: CodeLocation[] | null; visibility?: Visibility; delpatOsId?: string },
 ): Promise<ProjectDoc> {
   const now = new Date();
   const nameLower = data.name.trim().toLowerCase();
@@ -133,6 +133,7 @@ async function insertProject(
       client: data.client?.trim() ?? '',
       description: data.description ?? '',
       status: data.status ?? 'active',
+      ...(data.delpatOsId ? { delpatOsId: data.delpatOsId } : {}),
       ...(data.code?.length ? { code: cleanCodeLocations(data.code) } : {}),
       createdAt: now,
       updatedAt: now,
@@ -142,6 +143,10 @@ async function insertProject(
       return doc;
     } catch (err) {
       if ((err as { code?: number }).code !== 11000) throw err;
+      // An import of the same Delpat OS project landed first (one the caller can see: shared, or their own private one).
+      if (data.delpatOsId && (await c.projects.findOne({ delpatOsId: data.delpatOsId }, { projection: { _id: 1 } }))) {
+        throw new InputError('That Delpat OS project was just imported. Reload to see it.');
+      }
       // Same name created concurrently → return that one; otherwise the id was taken meanwhile, try another.
       const existing = await c.projects.findOne({ nameLower });
       if (existing) return existing;
@@ -315,6 +320,41 @@ export async function createProject(s: Scope, input: ProjectInput): Promise<{ pr
   return { project: toProject(doc), created: true };
 }
 
+/** The caller's visible project already imported from this Delpat OS project, if any. */
+export async function importedProject(s: Scope, delpatOsId: string): Promise<Project | null> {
+  const c = await scoped(s);
+  const p = await c.projects.findOne({ delpatOsId });
+  return p ? toProject(p) : null;
+}
+
+/** Which of these Delpat OS ids the caller already has in Work OS (visible projects only): id -> Work OS project id. */
+export async function importedProjects(s: Scope, delpatOsIds: string[]): Promise<Record<string, string>> {
+  if (!delpatOsIds.length) return {};
+  const c = await scoped(s);
+  const rows = await c.projects.find({ delpatOsId: { $in: delpatOsIds } }, { projection: { _id: 1, delpatOsId: 1 } }).toArray();
+  return Object.fromEntries(rows.map(r => [String(r.delpatOsId), r._id]));
+}
+
+/**
+ * Makes a project from a Delpat OS one (lib/delpat-os.ts). If the caller already sees an import of it (shared in the
+ * organization, or their own private one) that one comes back (created=false). Someone else's private import does not
+ * count and cannot block this one. A name that clashes with a project of the caller's gets " (Delpat OS)" added.
+ */
+export async function createImportedProject(
+  s: Scope,
+  data: { delpatOsId: string; name: string; client: string; description: string; status: ProjectDoc['status']; visibility: Visibility },
+): Promise<{ project: Project; created: boolean }> {
+  const c = await scoped(s);
+  const seen = await c.projects.findOne({ delpatOsId: data.delpatOsId });
+  if (seen) return { project: toProject(seen), created: false };
+  const base = { client: data.client, description: data.description.slice(0, 5000), status: data.status, visibility: data.visibility, delpatOsId: data.delpatOsId };
+  const name = data.name.trim().slice(0, 120) || 'Delpat OS project';
+  const clash = async (n: string) => !!(await c.projects.findOne({ nameLower: n.toLowerCase() }, { projection: { _id: 1 } }));
+  const finalName = (await clash(name)) ? `${name.slice(0, 100)} (Delpat OS)` : name;
+  const doc = await insertProject(c, s, { ...base, name: finalName });
+  return { project: toProject(doc), created: true };
+}
+
 export async function updateProject(s: Scope, id: string, patch: Partial<ProjectInput>): Promise<Project> {
   const data = ProjectInputSchema.partial().parse(patch);
   const c = await scoped(s);
@@ -344,11 +384,32 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
     if (data.visibility === 'private' && (await c.projects.findOne({ _id: { $ne: id }, nameLower: set.nameLower ?? cur.nameLower, visibility: 'private', ownerId: cur.ownerId }, { projection: { _id: 1 } }))) {
       throw new InputError('You already have a private project with that name. Rename one of them first.');
     }
+    // An import of the same Delpat OS project: one per organization among shared projects, one per owner among private ones.
+    // Checked here so the cascade below never runs for an update the unique index would then refuse.
+    if (cur.delpatOsId) {
+      const clash = await c.projects.findOne(
+        { _id: { $ne: id }, delpatOsId: cur.delpatOsId, ...(data.visibility === 'org' ? { visibility: 'org' } : { visibility: 'private', ownerId: cur.ownerId }) },
+        { projection: { name: 1 } },
+      );
+      if (clash) {
+        throw new InputError(data.visibility === 'org' ? `This Delpat OS project is already shared in Work OS as "${clash.name}".` : `You already have a private project imported from this Delpat OS project ("${clash.name}").`);
+      }
+    }
     set.visibility = data.visibility;
     if (data.visibility === 'private') await (await import('./dispatcher')).endForeignClaude(c, s, id, cur.ownerId);
-    await setProjectVisibility(c, cur, data.visibility);
   }
-  await c.projects.updateOne({ _id: id }, { $set: set });
+  // Whichever order fails safe. Made shared: the project first, then what follows it, so a refused update (a unique index)
+  // moves nothing private. Made private: what follows it first, so a failure part-way leaves things private under a
+  // still-shared project, never shared things under a private one.
+  const moving = set.visibility && set.visibility !== cur.visibility ? set.visibility : null;
+  if (moving === 'private') await setProjectVisibility(c, cur, 'private');
+  try {
+    await c.projects.updateOne({ _id: id }, { $set: set });
+  } catch (err) {
+    if ((err as { code?: number }).code === 11000) throw new InputError('That change clashes with another project (its name or its Delpat OS import). Nothing was changed.');
+    throw err;
+  }
+  if (moving === 'org') await setProjectVisibility(c, cur, 'org');
   return toProject({ ...cur, ...set });
 }
 

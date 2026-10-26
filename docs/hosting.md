@@ -583,6 +583,10 @@ chat or tickets.
 | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY` | the Discord bot | |
 | `DISCORD_BOT_TOKEN` | the Discord bot | **yes** |
 | `DISCORD_BLOCKED_CHANNELS` | extra channels never read (normally set in Settings) | |
+| `DELPAT_OS_CLIENT_ID` | Work OS's client id at Delpat OS (`cli_4hbK4PhW1d2a7AYMtMXV3Q`; not secret). With the secret it switches on Settings › Connections › Delpat OS and New project › From Delpat OS; unset = hidden | |
+| `DELPAT_OS_CLIENT_SECRET` | the client secret, shown once in the Delpat OS UI. Put it in this file only | **yes** |
+| `DELPAT_OS_ISSUER` | default `https://os.delpat.in`; https only (http for localhost in tests) | |
+| `DELPAT_OS_TOKEN_KEY` | optional: seals people's stored Delpat OS tokens (AES-256-GCM). Unset = derived from `BETTER_AUTH_SECRET`. Changing it (or that secret) makes everyone link Delpat OS again | **yes** |
 | `APP_TZ` | timezone for people who have not chosen one | |
 | `WORK_OS_PORT` | the app's port on 127.0.0.1 (default 3100; set it only if another app has 3100, and the Caddy site's ports to match). Leave the line out for 3100: an empty value overrides the unit's default | |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows `/api/mcp/<key>`; leave unset | |
@@ -598,7 +602,7 @@ Not set on the server:
 - `BETTER_AUTH_URL`: a fallback for `APP_URL`;
 - `BLOB_READ_WRITE_TOKEN`: Vercel Blob, for note files, which are switched off;
 - Vercel's own: `VERCEL_ENV`, `VERCEL_REGION`, `VERCEL_GIT_COMMIT_SHA`, `VERCEL_PROJECT_PRODUCTION_URL`;
-- tests only: `AUTH_RATE_LIMIT`, `MAIL_CAPTURE_DIR`, `DISCORD_API_BASE`;
+- tests only: `AUTH_RATE_LIMIT`, `MAIL_CAPTURE_DIR`, `DISCORD_API_BASE` (the Delpat OS suite points `DELPAT_OS_ISSUER` at a stub);
 - build only: `NEXT_BUILD_CPUS`;
 - the worker on each PC: `WORK_OS_WORKER_DIR`, `WORK_OS_CLAUDE_JSON`, `WORK_OS_CLAUDE_PROJECTS`, `DEVICE_KEY`.
 
