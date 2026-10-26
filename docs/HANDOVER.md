@@ -72,6 +72,10 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 - **Completing a recurring task** creates its next occurrence automatically.
 - **Reopening a done task** restores its earlier progress. It no longer stays at 100%.
 
+### Delpat OS import (2026-10)
+- **Om:** Settings › Connections › **Delpat OS** › Link (once per person; sign in at Delpat OS and allow). Then New project › **From Delpat OS**: search your Delpat OS projects and press Import. Name, client, status and a description (focus and phases) are filled; it is Shared unless you pick Private. An imported project shows "Already in Work OS" next time. Hidden until `DELPAT_OS_CLIENT_SECRET` is set on the server.
+- **Claude Code:** `lib/delpat-os.ts` (everything), `docs/auth.md` "Linking Delpat OS" (security design), `ProjectDoc.delpatOsId` (unique per organization). Env in `docs/hosting.md`. Tests `delpat-os` and `delpat-os-off`.
+
 ### Claude
 `list_tasks`, `get_task`, `add_task`, `update_task`, `log_progress`, `complete_task`, `add_comment`, `update_checklist`, `list_projects`, `add_project`, `update_project`, `daily_summary`, `recent_activity`.
 - **`daily_summary`** is the one call for a morning brief: overdue, due today, in progress, blocked and waiting, the next 7 days, everything completed or changed since the last workday and who did it, and per-project counts.

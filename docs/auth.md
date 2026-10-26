@@ -128,6 +128,40 @@ registration's per-address rate limit shares one bucket without `TRUST_PROXY=1` 
 
 Tests: `tests/e2e/oauth.mjs` (the whole flow with a scripted client and the real pages).
 
+## Linking Delpat OS (importing projects)
+
+Here Work OS is the OAuth **client** (`lib/delpat-os.ts`). Delpat OS (issuer `https://os.delpat.in`) registered Work OS as a confidential
+client (`client_secret_post`, grants `authorization_code` and `refresh_token`, scope `mcp`, redirect exactly
+`<APP_URL>/api/delpat-os/callback`). Off unless `DELPAT_OS_CLIENT_ID` and `DELPAT_OS_CLIENT_SECRET` are set (docs/hosting.md): then there
+is no card, no tabs, the callback is a 404 and the actions say "not set up".
+
+- **Link** (Settings › Connections › Delpat OS, `app/(app)/settings/delpat-os-link*.tsx`, a server action): makes a random 256-bit state and a
+  PKCE verifier, stores the state hashed and the verifier sealed in `delpatOsAuth` (10 minutes, single use, for that person and
+  organization), and sends the browser to Delpat OS's authorize address with `code_challenge_method=S256`.
+- **Callback** (`GET /api/delpat-os/callback`): needs the session; the state must exist, be unexpired and belong to the same person and
+  organization (it is deleted whatever happens next, so it is single use); a wrong or foreign state is refused **before** the token endpoint
+  is called. Then code + verifier + secret are traded for tokens, stored in `delpatOsLinks` (`_id` `<orgId>:<userId>`). The reply is always a
+  redirect to Settings with one fixed word (`delpat=linked` or `error`), never the code or text.
+- **Metadata:** endpoints come from `<issuer>/.well-known/oauth-authorization-server`, cached 5 minutes. The issuer must match, and the authorize
+  and token (and `mcp_endpoint`, else `<issuer>/api/mcp`) addresses must be on the issuer's own origin. Calls have a 10 s timeout and follow no redirects.
+- **Tokens at rest:** access and refresh tokens are sealed with AES-256-GCM (key: HKDF of `DELPAT_OS_TOKEN_KEY`, else of `BETTER_AUTH_SECRET`); the
+  ciphertext is bound (AAD) to the organization and person, so a copied row opens for nobody else. No token, secret or Delpat OS response body is
+  logged. A refresh token has to be readable to use, so it is sealed, not hashed.
+- **Use:** an access token is reused until 60 s before it expires, then refreshed (one refresh at a time per person; the refresh token rotates). A
+  refused refresh token (or a 401 from the MCP) deletes the link and says "link it again"; a network error or 5xx keeps it.
+- **Reading:** `tools/list` fresh before every `tools/call` (`list_projects`, `get_project {id}`), always with the caller's own token (the link is
+  looked up by the caller's organization and user id, never by anything in the request).
+- **Import** (New project › From Delpat OS, `app/(app)/projects/delpat-os-*`): name ← title; client ← client (absent or null = empty); status
+  `completed`→done, `archived`→archived, anything else→active; description ← focus + a phases list; visibility Shared unless Private is picked. The
+  Work OS project stores `delpatOsId`; **one per organization** (unique partial index `org_delpat_os_unique`). A project the person already sees
+  shows "Already in Work OS ›". If a teammate holds it privately, the import is refused ("already imported by someone else") without naming them.
+  A name clash with one of the person's projects adds " (Delpat OS)".
+- **What ends a link:** Unlink; Delpat OS refusing the token; removing the member from the organization (their links there); a password reset or
+  change (all their links, via `dropOAuth`); not by signing out.
+- **Not done on purpose:** nothing is written back to Delpat OS (read-only, no money), and no organization-wide view.
+
+Tests: `tests/e2e/delpat-os.mjs` (stub Delpat OS; server mode `delpat`), `delpat-os-off.mjs` (hidden), and the leak-audit entries for the new actions and route.
+
 ## For Claude Code
 
 | File | What |
@@ -137,6 +171,7 @@ Tests: `tests/e2e/oauth.mjs` (the whole flow with a scripted client and the real
 | `lib/caller.ts` | `getCaller()` → `{userId, orgId, role, email, name, via, key?}`; `requireCaller(...roles)`, `withCaller`, `asCaller`, `callerFromRequest`, `verifyKey` |
 | `lib/members.ts` | members list, invite, cancel, view and accept invitations |
 | `lib/oauth.ts`, `lib/oauth-config.ts` | OAuth for MCP clients: token check for `/api/mcp`, chat vs Claude Code, the consent view, Settings list and revoke, `dropOAuth` (member removal, password reset), unused-client clean-up; constants (scope, lifetimes, resource address) |
+| `lib/delpat-os.ts` | Work OS as an OAuth client of Delpat OS: link, sealed tokens, refresh, MCP reads, project import |
 | `app/oauth/consent/*`, `app/.well-known/*` | the consent screen; protected-resource and authorization-server metadata |
 | `lib/api-keys.ts`, `lib/devices.ts` | Claude keys on the apiKey plugin (`metadata: {agent, orgId}`); worker devices with `ownerId`/`orgId` |
 | `app/api/auth/[...all]/route.ts` | Better Auth over HTTP, **allowlist only**: sign-in, sign-out, session, reset, change password, sessions, two-factor, passkeys, organization reads, set-active. Sign-up, API keys, organization create, invite and cancel-invitation are 404: server code calls `auth.api.*` directly. Also the five OAuth endpoints (`/oauth2/authorize`, `consent`, `token`, `revoke`, `register`; register is trimmed first) |
@@ -201,6 +236,7 @@ Tests: `tests/e2e/oauth.mjs` (the whole flow with a scripted client and the real
 | `APP_URL` (again) | is also the OAuth issuer (`<APP_URL>/api/auth`) and resource (`<APP_URL>/api/mcp`): it must be the public address people type into Claude, https in production. No other new variable |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows `/api/mcp/<Claude chat key>` |
 | `INVITE_LINK_TO_INVITER` | unset or `1` (default): whoever invites also sees the invitation link. `0`: the link goes only by email, so an owner or admin can't open it and claim the invitee's account; inviting then needs working email (`lib/members.ts` `inviteLinkToInviter`) |
+| `DELPAT_OS_CLIENT_ID`, `DELPAT_OS_CLIENT_SECRET`, `DELPAT_OS_ISSUER`, `DELPAT_OS_TOKEN_KEY` | linking Delpat OS (section "Linking Delpat OS"); hidden unless id and secret are set |
 | `MAIL_CAPTURE_DIR` | tests: write mail as JSON files instead of sending |
 
 Tests: `tests/e2e/oauth.mjs` (OAuth sign-in, above), `tests/e2e/auth.mjs` (sign-in, 2FA, reset by email, invitations, other organizations, keys, a sweep of every
