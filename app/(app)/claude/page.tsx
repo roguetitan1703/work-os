@@ -19,7 +19,7 @@ export const metadata = { title: 'Claude · Work OS' };
 const TABS = [
   { id: 'now', label: 'Now', icon: Activity },
   { id: 'queue', label: 'Queue', icon: ListOrdered },
-  { id: 'setup', label: 'Setup', icon: SlidersHorizontal },
+  { id: 'setup', label: 'Set up', icon: SlidersHorizontal },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
@@ -85,8 +85,9 @@ export default async function ClaudePage({ searchParams }: Props) {
         ))}
       </nav>
 
+      {/* Set up refreshes too: it waits for a computer to connect and shows it when it does. */}
       {/* eslint-disable-next-line react-hooks/purity -- a server render runs once per request; the stamp marks it */}
-      {tab !== 'setup' && <AutoRefresh stamp={Date.now()} />}
+      <AutoRefresh stamp={Date.now()} />
       {tab === 'now' && data && tasks && <NowTab claudeTasks={tasks} needsYou={data.needsYou} sessions={data.sessions} summary={data.summary} hasComputers={data.hasComputers} />}
       {tab === 'queue' && data && <QueueTab groups={data.queue} />}
       {tab === 'setup' && <SetupTab url={url} />}

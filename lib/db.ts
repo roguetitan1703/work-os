@@ -196,6 +196,8 @@ export type SettingsDoc = {
   enabled?: boolean;
   maxConcurrent?: number;
   boilerplateNoteId?: string;
+  /** dispatcher:<userId>: true once the person set the switch themselves, or it was switched on for them when their first computer connected (once). */
+  autoOnDone?: boolean;
   /** notify:<userId>: where this person's alerts go. */
   notify?: { channels?: Partial<Record<'push' | 'discord', boolean>>; kinds?: Partial<Record<NotifyKind, boolean>> };
   /** status:<userId>: when their Claude connector and Discord were last used. */
@@ -207,6 +209,8 @@ export type SettingsDoc = {
   quietEnd?: number;
   discordId?: string | null;
   discordLink?: { hash: string; expiresAt: Date } | null;
+  /** profile:<userId>: the person hid the first-run checklist on Today. */
+  checklistHidden?: boolean;
   /** discord:<orgId>: the organization's Discord server (set by the operator). */
   guildId?: string | null;
   /** schedule:<userId> (lib/schedule.ts): the person's week, routine, review questions and own help text. */

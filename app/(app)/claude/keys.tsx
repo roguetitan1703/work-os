@@ -67,7 +67,7 @@ export function ClaudeCodeKeys({ url, agent = 'claude-code', urlKey = false }: {
         const r = await revokeApiKeyAction(p.key.id, agent);
         if (!r.ok) return void toast.error(r.error);
         setKeys(r.data);
-        toast(`Revoked "${p.key.name}"`);
+        toast(`Removed "${p.key.name}"`);
       } else {
         let r = await rotateApiKeyAction(p.key.id);
         if (!r.ok && needsReauth(r.error) && (await reauth.ask())) r = await rotateApiKeyAction(p.key.id);
@@ -100,10 +100,10 @@ export function ClaudeCodeKeys({ url, agent = 'claude-code', urlKey = false }: {
                   <code className="font-mono">{k.prefix}…</code> · created {day(k.createdAt)} · {k.lastUsedAt ? <Ago iso={k.lastUsedAt} prefix="used " /> : 'never used'}
                 </div>
               </div>
-              <button type="button" className={iconBtn} onClick={() => ask({ kind: 'rotate', key: k })} disabled={pending} aria-label={`Rotate ${k.name}`} title="Rotate">
+              <button type="button" className={iconBtn} onClick={() => ask({ kind: 'rotate', key: k })} disabled={pending} aria-label={`Replace key ${k.name}`} title="Replace key">
                 <RefreshCw className="w-4 h-4" />
               </button>
-              <button type="button" className={iconBtn} onClick={() => ask({ kind: 'revoke', key: k })} disabled={pending} aria-label={`Revoke ${k.name}`} title="Revoke">
+              <button type="button" className={iconBtn} onClick={() => ask({ kind: 'revoke', key: k })} disabled={pending} aria-label={`Remove key ${k.name}`} title="Remove">
                 <Trash2 className="w-4 h-4 text-red-600 dark:text-red-400" />
               </button>
             </div>
@@ -127,17 +127,17 @@ export function ClaudeCodeKeys({ url, agent = 'claude-code', urlKey = false }: {
       </div>
 
       {agent === 'claude' ? (
-        <Disclosure title="What this key can do" hint="The claude.ai connector">
+        <Disclosure title="More about keys" hint="What this key can do">
           <p>
-            One key per Claude chat connector. It opens the MCP endpoint as you: everything it changes is marked{' '}
+            Keys cannot change settings, only tasks and notes. One key per Claude chat connector. It opens the MCP endpoint as you: everything it changes is marked{' '}
             <span className="px-1 rounded bg-orange-500/15 text-orange-700 dark:text-orange-300 text-xs font-medium">Claude</span> and recorded as yours. Revoking it
             disconnects that connector at once.
           </p>
         </Disclosure>
       ) : (
-      <Disclosure title="Limits and safety" hint="What a Claude Code key can do">
+      <Disclosure title="More about keys" hint="Limits and safety">
         <p>
-          Separate keys for Claude Code sessions on your PC. They only open the MCP endpoint (not admin or the rest of the API), and everything they change is marked{' '}
+          Keys cannot change settings, only tasks and notes. Separate keys for Claude Code sessions on your PC. They only open the MCP endpoint (not admin or the rest of the API), and everything they change is marked{' '}
           <span className="px-1 rounded bg-violet-500/15 text-violet-700 dark:text-violet-300 text-xs font-medium">Claude Code</span>. Limits: 300 calls an hour, 10
           deletions per 10 minutes, big batches need a dry run first, and you get a notification when one changes or deletes your tasks.
         </p>
@@ -159,13 +159,13 @@ export function ClaudeCodeKeys({ url, agent = 'claude-code', urlKey = false }: {
 
       {confirm && (
         <ConfirmSheet
-          title={confirm.kind === 'revoke' ? 'Revoke key' : 'Rotate key'}
+          title={confirm.kind === 'revoke' ? 'Remove key' : 'Replace key'}
           message={
             confirm.kind === 'revoke'
-              ? `Revoke "${confirm.key.name}"? ${agent === 'claude' ? 'The connector using it' : 'Claude Code sessions using it'} stop working at once.`
-              : `Rotate "${confirm.key.name}"? The old key stops working at once and a new one is shown.`
+              ? `Remove "${confirm.key.name}"? ${agent === 'claude' ? 'The connector using it' : 'Claude Code sessions using it'} stop working at once. This cannot be undone.`
+              : `Replace "${confirm.key.name}"? The old key stops working at once, and you get a new one to copy.`
           }
-          verb={confirm.kind === 'revoke' ? 'Revoke' : 'Rotate'}
+          verb={confirm.kind === 'revoke' ? 'Remove' : 'Replace key'}
           danger={confirm.kind === 'revoke'}
           pending={pending}
           onConfirm={() => act(confirm)}
@@ -195,7 +195,7 @@ function NewKey({ fresh, url, agent, urlKey, onDone }: { fresh: { key: string; n
   return (
     <div className="space-y-3">
       <p className="text-[13px] text-foreground">
-        <strong>Copy this key now.</strong> It is not shown again; if you lose it, rotate the key.
+        <strong>Copy this key now.</strong> It is not shown again; if you lose it, replace the key.
       </p>
       <div className="flex items-center gap-2">
         <code className="flex-1 min-w-0 break-all rounded-lg bg-muted px-3 py-2 text-[13px] font-mono">{fresh.key}</code>

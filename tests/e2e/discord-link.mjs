@@ -119,8 +119,8 @@ try {
   const br = await launch();
   const ctx = await br.newContext({ viewport: { width: 1280, height: 800 } });
   const p = await ctx.newPage();
-  await login(p, { next: '/settings?section=connections&open=discord' });
-  await p.goto(`${B}/settings?section=connections&open=discord`);
+  await login(p, { next: '/settings?section=notifications' });
+  await p.goto(`${B}/settings?section=notifications`);
   await p.locator('[data-discord-link-code]').click();
   await p.waitForFunction(() => /\/link [A-Z0-9]{8}/.test(document.body.innerText), null, { timeout: 8000 }).catch(() => {});
   const code = (await p.locator('body').innerText()).match(/\/link ([A-Z0-9]{8})/)?.[1];
@@ -192,8 +192,8 @@ try {
     const br2 = await launch();
     const ctx2 = await br2.newContext({ viewport: { width: 1280, height: 800 } });
     const q = await ctx2.newPage();
-    await login(q, { email: 'bea@example.test', next: '/settings?section=connections&open=discord' });
-    await q.goto(`${B}/settings?section=connections&open=discord`);
+    await login(q, { email: 'bea@example.test', next: '/settings?section=server' });
+    await q.goto(`${B}/settings?section=server`);
     const gen = q.locator('label:has-text("#general") input[type=checkbox]');
     await gen.waitFor({ timeout: 10000 });
     check('blocked list: Bea\'s picker does not show #secret-plans', (await q.locator('label:has-text("#secret-plans")').count()) === 0);

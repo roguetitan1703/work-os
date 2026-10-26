@@ -10,11 +10,11 @@ const nextConfig: NextConfig = {
     return [
       { source: '/more', destination: '/menu', permanent: false },
       { source: '/board', destination: '/tasks', permanent: false },
-      // Connect merged into Settings (the old tabs map to a section; keys and computers moved to Claude > Setup).
+      // Connect merged into Settings (the old tabs map to a section; keys, computers and the Claude connector moved to Claude > Set up; Alerts and Discord to Notifications).
       { source: '/connect', has: [{ type: 'query', key: 'tab', value: 'code|devices' }], destination: '/claude?tab=setup', permanent: false },
-      { source: '/connect', has: [{ type: 'query', key: 'tab', value: 'alerts' }], destination: '/settings?section=alerts', permanent: false },
-      { source: '/connect', has: [{ type: 'query', key: 'tab', value: '(?<card>chat|discord)' }], destination: '/settings?section=connections&open=:card', permanent: false },
-      { source: '/connect', has: [{ type: 'query', key: 'tab', value: 'reference' }], destination: '/settings?section=connections&open=chat', permanent: false },
+      { source: '/connect', has: [{ type: 'query', key: 'tab', value: 'alerts' }], destination: '/settings?section=notifications', permanent: false },
+      { source: '/connect', has: [{ type: 'query', key: 'tab', value: 'discord' }], destination: '/settings?section=notifications&open=discord', permanent: false },
+      { source: '/connect', has: [{ type: 'query', key: 'tab', value: 'chat|reference' }], destination: '/claude?tab=setup', permanent: false },
       { source: '/connect', destination: '/settings?section=connections', permanent: false },
       // History, Untouched and Archive merged into Review (one page, the segment is ?view=).
       { source: '/history', has: [{ type: 'query', key: 'tab', value: 'activity' }], destination: '/review?view=activity', permanent: false },
@@ -23,7 +23,7 @@ const nextConfig: NextConfig = {
       { source: '/history', destination: '/review?view=done', permanent: false },
       { source: '/hidden', destination: '/review?view=stale', permanent: false },
       { source: '/archive', destination: '/review?view=archive', permanent: false },
-      { source: '/recovery', destination: '/settings?section=help', permanent: false },
+      { source: '/recovery', destination: '/settings?section=team&open=modes', permanent: false },
     ];
   },
   // No next/image anywhere: /_next/image only passes files through, it never decodes or resizes one.

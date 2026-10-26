@@ -4,14 +4,15 @@ import { getOrgModes } from '@/lib/org-modes';
 import { Disclosure } from './ui';
 
 /** Settings › Modes of work: the organization's modes, collapsed. */
-export async function Help() {
+export async function Help({ open }: { open?: boolean }) {
   const me = await requireCaller();
   const modes = await getOrgModes(me.orgId);
   return (
     <div className="space-y-3" data-help>
-      <p className="px-1 text-sm text-muted-foreground">{"Your organization's modes of work."}</p>
+      <h2 className="px-1 text-[13px] font-medium text-muted-foreground">Kinds of work</h2>
+      <p className="px-1 text-sm text-muted-foreground">{"Each task can have a kind of work (its mode). These are your organization's, with what each one means."}</p>
 
-      <Disclosure title="Mode definitions" hint={`The ${modes.length} modes of work`}>
+      <Disclosure title="What are these?" hint={`The ${modes.length} kinds of work and their colours`} open={open}>
         <div className="space-y-2 -mx-1">
           {modes.map(mode => {
             const c = colorFromHex(mode.hex, mode.light);

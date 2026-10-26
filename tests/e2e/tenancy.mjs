@@ -354,8 +354,8 @@ try {
     check('B pages: A\'s private note is not found', m.ok, m.why);
     const inbox = await text(p, '/notifications');
     check('B inbox: B\'s notice, not A\'s', /Claude is asking/.test(inbox.text) && !/changed #/.test(inbox.text) && !/Owner: pick a size/.test(inbox.text));
-    const dev = await text(p, '/settings?section=device');
-    check('B settings: push devices are B\'s own (0)', /0 devices receiving push/.test(dev.text), (dev.text.match(/\d+ devices? receiving push/) ?? ['none'])[0]);
+    const dev = await text(p, '/settings?section=notifications');
+    check('B settings: push devices are B\'s own (none)', /No phone is set up for alerts yet/.test(dev.text), (dev.text.match(/\d+ devices? receiving push/) ?? ['none'])[0]);
     const sh = await search(p, 'Hidden');
     check('B search: nothing private of A', sh.n === 0 || !/Hidden/.test(sh.t), sh.t);
     const sz = await search(p, 'Zephyr');
@@ -372,7 +372,7 @@ try {
   });
 
   await session(EMAIL, async p => {
-    const dev = await text(p, '/settings?section=device');
+    const dev = await text(p, '/settings?section=notifications');
     check('A settings: push devices are A\'s own (2)', /2 devices receiving push/.test(dev.text), (dev.text.match(/\d+ devices? receiving push/) ?? ['none'])[0]);
     const inbox = await text(p, '/notifications');
     check('A inbox: A\'s notices, not B\'s', /changed #/.test(inbox.text) && !/Bea: pick a colour/.test(inbox.text));
