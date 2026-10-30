@@ -46,6 +46,15 @@ const settle = p => p.waitForTimeout(700);
   check('+ sheet: row hides once a title typed', !(await p.locator('[data-start-claude]').count()));
   await p.locator('[data-quick-add] textarea').fill('');
   check('+ sheet: row back when empty', await p.locator('[data-start-claude]').isVisible());
+  // every:week in quick add makes a recurring task, and its row shows the repeat icon
+  await p.locator('[data-quick-add] textarea').fill('Water the plants every:week every:bogus');
+  await p.locator('[data-quick-add] textarea').press('Enter'); await p.waitForTimeout(1500);
+  const rec = await db0.collection('tasks').findOne({ title: 'Water the plants every:bogus' });
+  check('quick add every:week -> weekly recurrence, unknown every:bogus stays in title', rec?.recurrence?.freq === 'weekly' && rec.recurrence.interval === 1, JSON.stringify(rec?.recurrence));
+  await p.locator('[data-quick-add] button[aria-label=Close]').first().tap();
+  await p.goto(B + '/tasks'); await settle(p);
+  check('task row shows the Recurring icon', (await p.locator('a:has-text("Water the plants") [aria-label=Recurring], :has(> a:has-text("Water the plants")) [aria-label=Recurring]').count()) >= 1);
+  await p.locator('button[aria-label=Add]').tap(); await p.locator('[data-quick-add] textarea').waitFor();
   await p.locator('[data-start-claude]').tap(); await p.waitForTimeout(800);
   check('Start Claude -> current URL + ?start=1', path(p) === '/tasks?start=1', path(p));
   check('sheet closed after Start Claude', !(await p.locator('[data-quick-add]').count()));

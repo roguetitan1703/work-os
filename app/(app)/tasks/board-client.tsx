@@ -5,7 +5,7 @@ import Link from '@/components/intent-link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { toast } from 'sonner';
-import { ListChecks } from 'lucide-react';
+import { ListChecks, Repeat } from 'lucide-react';
 import { updateTaskAction } from '@/app/actions';
 import { useApp, useModes } from '@/components/app-context';
 import { QuickAddBar } from '@/components/quick-add';
@@ -198,6 +198,7 @@ function Card({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
         <span className="font-mono">#{task.ref}</span>
         {task.projectId && <span className="truncate max-w-[110px]">{projectName(task.projectId)}{isPrivateProject(task.projectId) && <PrivateBadge compact className="ml-1" />}</span>}
         {task.due && <span className={overdue ? 'text-red-600 dark:text-red-400 font-medium' : ''}>{fmtDue(task.due, today)}</span>}
+        {task.recurrence && <Repeat className="w-3 h-3 shrink-0" aria-label="Recurring" />}
         <ClaudeBadge task={task} />
         {task.checklist.length > 0 && (
           <span className="inline-flex items-center gap-0.5">

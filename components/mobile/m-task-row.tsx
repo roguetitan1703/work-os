@@ -127,7 +127,7 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
               </span>
             )}
             <ClaudeBadge task={task} />
-            {task.recurrence && <Repeat className="w-3.5 h-3.5" />}
+            {task.recurrence && <Repeat className="w-3.5 h-3.5" aria-label="Recurring" />}
             {hasNote && <FileText className="w-3.5 h-3.5" />}
             {hint}
           </div>

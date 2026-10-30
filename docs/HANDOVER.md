@@ -69,6 +69,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1â
 - **Quick add:** press **N** anywhere. You can type it all in one line:
   - `Send invoice @"Grant Leads" !1 #billing due:fri ~20m mode:admin`
   - That reads as: `@project`, `!1`â€“`!4` for priority, `#tag`, `due:`, `start:`, `~20m` for the estimate, `mode:`.
+  - **Repeat:** `every:day`, `every:weekday`, `every:week`, `every:2w`, `every:month` (also `every:3d`, `every:2m`) make a recurring task; an unknown value stays in the title. Discord `/task` has a `repeat` choice; MCP `add_task` takes `recurrence`. The New task form (Shift+Enter) and the task page have a Repeats select. Recurring tasks show a small repeat icon on rows, board cards and Today rows (`lib/recurrence-options.ts` holds the choices).
 - **Completing a recurring task** creates its next occurrence automatically.
 - **Reopening a done task** restores its earlier progress. It no longer stays at 100%.
 
