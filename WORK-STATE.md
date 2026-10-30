@@ -6,8 +6,8 @@
 ## Next
 0a. Builder B (ui-settings): Open in VS Code for Claude sessions (the extension's vscode://anthropic.claude-code/open?session= link) and Reopen all after a PC restart; security review before merge (it changes what the PC runs).
 0b. Builder S (builder-s): recurring tasks findable: every:week in quick add, repeat icon on rows, MCP/Discord repeat.
-0c. Builder A (next free slot): Clone and link: from Project › Code, the PC clones a repo that is not in a scanned folder into a scan root and links it (teammate ask, 2026-10-30); security review (server makes the PC run git).
-0d. Om: what "chat storage" means in the teammate's list (keep Claude chats in Work OS? store chat files?).
+0c. Builder A (next free slot): Turbo mode (design agreed with Om 2026-10-30): Start Claude / Give to Claude on a project whose repo is not on the PC -> the worker creates the folder in the PC's default projects folder, clones the project's repo (any https/ssh git address, never ext::/file::), links it and starts Claude; row shows Cloning -> Starting; plain error on no access. On by default, local off switch; owner's own PC only. Also: a folder he clones himself gets linked by remote. Security review (light: no extra friction).
+0d. Chat porting between tools (Antigravity -> Claude): test Antigravity writing a handover note over MCP with Akash; else Import chat into a note (builder S). Add Resume / handover note / /export tips to the colleague guide.
 0. Om: Discord Interactions Endpoint URL = https://work.delpat.in/api/discord/interactions, then Settings › Server › Discord › Register the commands.
 Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
 Open work is filed as Claude items on Work OS (Claude page › Queue); this list only orders it.
