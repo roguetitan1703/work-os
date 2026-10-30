@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import type { ActivityDoc, ClaudeMark, TaskDoc } from '../db';
+import type { ActivityDoc, ClaudeMark, TaskDoc, WorkerFolderDoc } from '../db';
 import { forUser, getUserSetting, scoped, setUserSetting, takeUserSetting, type Scope, type ScopedCollections as Collections } from '../scope';
 import { afterCommit } from '../db';
 import { wake } from '../live';
@@ -9,6 +9,7 @@ import { actorUserId, agentActor, userActor, type Actor } from '../actors';
 import type { Status } from '../types';
 import { InputError, NotFoundError } from './errors';
 import { createStartJob, deviceMap, stopSession, type DeviceScope } from './launcher';
+import { createCloneJob, turboAvailable, turboPlanFor } from './turbo';
 
 // Task dispatcher, PC version (docs/dispatcher.md). A person gives a task to Claude (UI only); when one of
 // their computers has room, its worker's jobs poll claims the oldest task they marked and starts a Claude Code
@@ -281,8 +282,16 @@ async function claimFor(c: Collections, s: Scope, deviceId: string, set: Dispatc
     .toArray();
   for (const t of queued) {
     const folders = await c.workerFolders.find({ deviceId, projectId: t.projectId, missing: false }).sort({ name: 1 }).toArray();
-    const f = t.claude?.folderKey ? folders.find(x => x._id === t.claude!.folderKey) : folders[0];
-    if (!f) continue;
+    let f: WorkerFolderDoc | undefined = t.claude?.folderKey ? folders.find(x => x._id === t.claude!.folderKey) : folders[0];
+    // Turbo mode (lib/data/turbo.ts): no folder of this project on any of the person's computers: link a scanned one with the repo, or clone it here.
+    let clone: { spec: string; repo: string } | null = null;
+    if (!f && !t.claude?.folderKey && t.projectId) {
+      const plan = await turboPlanFor(c, deviceId, t.projectId, dev.worker);
+      if (plan && 'folder' in plan) f = plan.folder;
+      else if (plan) clone = plan.clone;
+    }
+    if (!f && !clone) continue;
+    const where = f ? f.name : clone!.repo;
 
     const sessionId = randomUUID();
     const now = new Date();
@@ -298,7 +307,8 @@ async function claimFor(c: Collections, s: Scope, deviceId: string, set: Dispatc
     );
     if (!claimed) return null;
     try {
-      await createStartJob(s, f, claimed.projectId!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId });
+      if (f) await createStartJob(s, f, claimed.projectId!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId });
+      else await createCloneJob(s, deviceId, claimed.projectId!, clone!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[dispatcher] start job failed, rolled back', msg);
@@ -308,8 +318,8 @@ async function claimFor(c: Collections, s: Scope, deviceId: string, set: Dispatc
       return null;
     }
     // Recorded as the dispatcher, no inbox notice (that notice comes only from MCP writes).
-    if (t.status !== 'In Progress') await logTask(c, claimed, dispatcherActor(claimed), 'status', { changes: { status: { from: t.status, to: 'In Progress' } }, note: `Dispatcher: started Claude on this task (${f.name})` });
-    else await logTask(c, claimed, dispatcherActor(claimed), 'comment', { note: `Dispatcher: started Claude on this task (${f.name})` });
+    if (t.status !== 'In Progress') await logTask(c, claimed, dispatcherActor(claimed), 'status', { changes: { status: { from: t.status, to: 'In Progress' } }, note: `Dispatcher: started Claude on this task (${clone ? 'cloning ' : ''}${where})` });
+    else await logTask(c, claimed, dispatcherActor(claimed), 'comment', { note: `Dispatcher: started Claude on this task (${clone ? 'cloning ' : ''}${where})` });
     return claimed.ref;
   }
   return null;
@@ -408,6 +418,8 @@ export type MarkOptions = {
   blocked?: string;
   folders: { key: string; name: string; branch?: string; deviceName: string; online: boolean }[];
   dispatcherOn: boolean;
+  /** Turbo mode: the project's repo is not on the computer yet; Claude clones it first. */
+  cloneNote?: string;
   /** Parts of the task someone else wrote (title, description, checklist, links, note, comments, …) and who: the sheet warns. */
   othersWrote?: { parts: string[]; names: string[] };
 };
@@ -423,12 +435,14 @@ export async function markOptions(scope: DeviceScope, key: string): Promise<Mark
   const devices = await deviceMap(scope);
   const docs = await c.workerFolders.find({ projectId: t.projectId, missing: false, deviceId: { $in: [...devices.keys()] } }).sort({ name: 1 }).toArray();
   const folders = docs.map(f => ({ key: f._id, name: f.name, ...(f.branch ? { branch: f.branch } : {}), deviceName: devices.get(f.deviceId)!.name, online: devices.get(f.deviceId)!.online }));
-  if (!folders.length && (!t.claude || t.claude.state !== 'queued')) return { ...base, folders, blocked: 'Link a folder first: open the project and add a folder under Folders.' };
+  const turbo = folders.length ? null : await turboAvailable(scope, t.projectId);
+  if (!folders.length && !turbo && (!t.claude || t.claude.state !== 'queued')) return { ...base, folders, blocked: 'Link a folder first: open the project and add a folder under Folders.' };
+  const cloneNote = turbo ? `Not on ${turbo.deviceName} yet: Claude clones ${turbo.repo} into ${turbo.destination} first, then works on the task.` : undefined;
   // Claude reads text by others as information, not as this person's request (lib/data/authors.ts): say so before giving.
   const [{ othersText }, { memberNames }] = await Promise.all([import('./authors'), import('../people')]);
   const others = await othersText(scope, t, await memberNames(scope.orgId));
-  if (!others.parts.length) return { ...base, folders };
-  return { ...base, folders, othersWrote: others };
+  if (!others.parts.length) return { ...base, folders, ...(cloneNote ? { cloneNote } : {}) };
+  return { ...base, folders, othersWrote: others, ...(cloneNote ? { cloneNote } : {}) };
 }
 
 export async function giveToClaude(scope: DeviceScope, key: string, folderKey?: string): Promise<void> {
@@ -440,7 +454,7 @@ export async function giveToClaude(scope: DeviceScope, key: string, folderKey?: 
   if (t.claude?.state === 'queued' || t.claude?.state === 'running') throw new InputError('Already given to Claude.');
   const devices = await deviceMap(scope);
   const folders = await c.workerFolders.find({ projectId: t.projectId, missing: false, deviceId: { $in: [...devices.keys()] } }).sort({ name: 1 }).toArray();
-  if (!folders.length) throw new InputError('Link a folder to this project first.');
+  if (!folders.length && !(await turboAvailable(scope, t.projectId))) throw new InputError('Link a folder to this project first.');
   let chosen: string | undefined;
   if (folders.length > 1) {
     if (!folderKey || !folders.some(f => f._id === folderKey)) throw new InputError('Choose which folder Claude works in.');

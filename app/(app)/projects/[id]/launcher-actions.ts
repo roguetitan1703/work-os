@@ -8,6 +8,7 @@ import { InputError, NotFoundError } from '@/lib/data/errors';
 import { linkFolder, projectLauncher, relinkFolder, removeSession, resumeSession, searchFolders, startSession, stopSession, unhideSession, unlinkFolder, type FolderView } from '@/lib/data/launcher';
 import { listProjectsNav } from '@/lib/data/projects';
 import { startProjects, type StartProject } from '@/lib/data/claude-overview';
+import { turboInfo, turboStart, type TurboInfo } from '@/lib/data/turbo';
 
 type R<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -103,11 +104,16 @@ export async function startProjectsAction(): Promise<R<StartProject[]>> {
 }
 
 /** Linked folders, same-repo suggestions and computers for one project. */
-export async function startOptionsAction(projectId: string): Promise<R<{ folders: FolderView[]; suggestions: FolderView[]; devices: { id: string; name: string }[] }>> {
+export async function startOptionsAction(projectId: string): Promise<R<{ folders: FolderView[]; suggestions: FolderView[]; devices: { id: string; name: string }[]; turbo: TurboInfo }>> {
   return run(null, async c => {
     const { folders, suggestions, devices } = await projectLauncher(c, Id.parse(projectId));
-    return { folders: folders.filter(f => !f.missing), suggestions, devices };
+    return { folders: folders.filter(f => !f.missing), suggestions, devices, turbo: await turboInfo(c, Id.parse(projectId), { folders, suggestions }) };
   });
+}
+
+/** Turbo mode: start Claude on this computer; if the repo is not there, the computer clones it first (lib/data/turbo.ts). */
+export async function turboStartAction(projectId: string, deviceId: string, prompt: string): Promise<R<string>> {
+  return run(projectId, c => turboStart(c, Id.parse(projectId), Id.parse(deviceId), z.string().max(4000).parse(prompt ?? '')));
 }
 
 /** "Link and start": link the folder to the project, then start a session in it. */

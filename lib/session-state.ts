@@ -11,8 +11,9 @@ const STATE: Record<SessionView['state'], { label: string; tone: string }> = {
   unknown: { label: 'no news from its computer', tone: 'text-amber-600 dark:text-amber-400' },
 };
 
-export function stateText(s: Pick<SessionView, 'state' | 'linked' | 'waiting' | 'deviceName'>): { label: string; tone: string } {
-  if (!s.linked && s.state !== 'running' && s.state !== 'starting') return { label: 'ended · folder unlinked', tone: 'text-muted-foreground' };
+export function stateText(s: Pick<SessionView, 'state' | 'linked' | 'waiting' | 'deviceName' | 'cloning'>): { label: string; tone: string } {
+  if (s.cloning && s.state === 'starting') return { label: `Cloning on ${s.deviceName}…`, tone: STATE.starting.tone };
+  if (!s.linked && s.state !== 'running' && s.state !== 'starting' && s.state !== 'failed') return { label: 'ended · folder unlinked', tone: 'text-muted-foreground' };
   if (s.state === 'starting' && s.waiting) return { label: `Waiting: check the terminal on ${s.deviceName}`, tone: 'text-amber-600 dark:text-amber-400' };
   if (s.state === 'running') return { label: `open on ${s.deviceName}`, tone: STATE.running.tone };
   return STATE[s.state];

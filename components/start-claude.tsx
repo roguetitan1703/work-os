@@ -12,7 +12,8 @@ import { ResponsiveSheet } from '@/components/responsive-sheet';
 import type { StartProject } from '@/lib/data/claude-overview';
 import type { FolderView } from '@/lib/data/launcher';
 import { cn } from '@/lib/utils';
-import { linkAndStartAction, searchFoldersAction, startOptionsAction, startProjectsAction, startSessionAction } from '@/app/(app)/projects/[id]/launcher-actions';
+import { linkAndStartAction, searchFoldersAction, startOptionsAction, startProjectsAction, startSessionAction, turboStartAction } from '@/app/(app)/projects/[id]/launcher-actions';
+import type { TurboInfo } from '@/lib/data/turbo';
 import { Select } from '@/components/ui/select';
 
 // Start Claude (docs/ux-audit/proposal.md §5.5): one flow for every entry point. The URL says what is open:
@@ -161,7 +162,7 @@ function PickProject({ onClose, onPick }: { onClose: () => void; onPick: (id: st
 
 // ── Step 2: confirm folder and first message ────────────────────────────────
 
-type Options = { folders: FolderView[]; suggestions: FolderView[]; devices: { id: string; name: string }[] };
+type Options = { folders: FolderView[]; suggestions: FolderView[]; devices: { id: string; name: string }[]; turbo: TurboInfo };
 
 function Confirm({ projectId, onClose, onBack }: { projectId: string; onClose: () => void; onBack: () => void }) {
   const { projectName } = useApp();
@@ -172,6 +173,7 @@ function Confirm({ projectId, onClose, onBack }: { projectId: string; onClose: (
   const [pick, setPick] = useState('');
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
+  const [manual, setManual] = useState(false); // chose to pick a folder instead of letting the computer clone
 
   useEffect(() => {
     let alive = true;
@@ -190,10 +192,26 @@ function Confirm({ projectId, onClose, onBack }: { projectId: string; onClose: (
 
   const linked = opts?.folders.filter(f => f.deviceId === device) ?? [];
   const suggested = opts?.suggestions.filter(f => f.deviceId === device) ?? [];
-  const mode: 'linked' | 'suggest' | 'search' = linked.length ? 'linked' : suggested.length ? 'suggest' : 'search';
+  const tdev = opts?.turbo.devices.find(d => d.id === device);
+  const canClone = !!opts?.turbo.repo && tdev?.clone === 'ready' && !tdev.has;
+  const mode: 'linked' | 'suggest' | 'clone' | 'search' = linked.length ? 'linked' : suggested.length ? 'suggest' : canClone && !manual ? 'clone' : 'search';
   const list = mode === 'linked' ? linked : suggested;
   const chosen = list.find(f => f.key === pick) ?? list[0];
   const deviceName = opts?.devices.find(d => d.id === device)?.name ?? '';
+
+  const goClone = async () => {
+    setBusy(true);
+    try {
+      const r = await turboStartAction(projectId, device, prompt);
+      if (!r.ok) return void toast.error(r.error);
+      toast(`Cloning ${opts?.turbo.repo} on ${deviceName}, then starting ${name}. It appears in the Claude app in a few seconds.`);
+      onClose();
+    } catch {
+      toast.error('Something went wrong');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const go = async (f: FolderView, link: boolean) => {
     setBusy(true);
@@ -242,7 +260,7 @@ function Confirm({ projectId, onClose, onBack }: { projectId: string; onClose: (
               </label>
             )}
 
-            {mode !== 'search' && (
+            {(mode === 'linked' || mode === 'suggest') && (
               <div className="space-y-1.5">
                 <span className="text-xs font-medium text-muted-foreground">{mode === 'linked' ? 'Folder' : 'Same repo, not linked yet'}</span>
                 {list.length === 1 && mode === 'linked' ? (
@@ -267,6 +285,17 @@ function Confirm({ projectId, onClose, onBack }: { projectId: string; onClose: (
                 )}
               </div>
             )}
+            {mode === 'clone' && tdev && (
+              <div className="space-y-1.5" data-turbo-clone>
+                <p className="text-[15px] md:text-sm text-foreground">
+                  Not on <span className="font-medium">{deviceName}</span> yet. Claude will clone <span className="font-mono">{opts?.turbo.repo}</span> into <span className="font-mono break-all">{tdev.destination}</span>, then start.
+                </p>
+                <button type="button" className="text-[13px] underline text-muted-foreground" onClick={() => setManual(true)}>
+                  Pick a folder I already have instead
+                </button>
+              </div>
+            )}
+            {mode === 'search' && opts && <TurboHint turbo={opts.turbo} deviceId={device} deviceName={deviceName} />}
             {mode === 'search' && <FolderSearch projectId={projectId} deviceId={device} deviceName={deviceName} busy={busy} onPick={f => go(f, true)} />}
 
             <div className="space-y-1">
@@ -280,7 +309,12 @@ function Confirm({ projectId, onClose, onBack }: { projectId: string; onClose: (
               />
               <p className="text-[12px] text-muted-foreground">Opens Claude Code in that folder, in normal permission mode, connected to the Claude app.</p>
             </div>
-            {mode !== 'search' && (
+            {mode === 'clone' && (
+              <button type="button" className={`${btn} w-full bg-foreground text-background`} disabled={busy} onClick={goClone} data-start-go data-start-clone>
+                <Play className="w-4 h-4" /> Clone and start
+              </button>
+            )}
+            {(mode === 'linked' || mode === 'suggest') && (
               <button type="button" className={`${btn} w-full bg-foreground text-background`} disabled={busy || !chosen} onClick={() => chosen && go(chosen, mode === 'suggest')} data-start-go>
                 <Play className="w-4 h-4" /> {mode === 'suggest' ? 'Link and start' : 'Start'}
               </button>
@@ -290,6 +324,23 @@ function Confirm({ projectId, onClose, onBack }: { projectId: string; onClose: (
       </div>
     </ResponsiveSheet>
   );
+}
+
+/** Why Claude cannot clone here (shown above the folder search): no repo on the project, cloning off, or an older worker. */
+function TurboHint({ turbo, deviceId, deviceName }: { turbo: TurboInfo; deviceId: string; deviceName: string }) {
+  const d = turbo.devices.find(x => x.id === deviceId);
+  const text = !turbo.repo
+    ? 'Add the repo in Info › Code to let your PC clone it.'
+    : d?.clone === 'off'
+      ? `Cloning is turned off on ${deviceName}.`
+      : d?.clone === 'old'
+        ? `${deviceName} runs an older worker that cannot clone yet; update it under Claude › Setup.`
+        : null;
+  return text ? (
+    <p className="text-[13px] md:text-xs text-muted-foreground" data-turbo-hint>
+      {text}
+    </p>
+  ) : null;
 }
 
 /** Nothing linked: search the computer's folders; picking one links it to the project and starts. */

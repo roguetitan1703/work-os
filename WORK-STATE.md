@@ -154,3 +154,4 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Delpat OS: never linked against the real os.delpat.in (stub only); the MCP may need an initialize call — waits on Om setting DELPAT_OS_CLIENT_SECRET and the first link.
 - Delpat OS: a refresh waiter polls about 18 s while the lease is 30 s, so a very slow token call makes the waiter fail with an error (the link is kept) — waits on it happening.
 - Note uploads still use Vercel Blob and say "connect a Vercel Blob store" when off — waits on Om choosing where note files live (S3/R2 on the box).
+- Turbo mode: 'scan now' poke so a folder the person clones himself is offered for linking at once (waits on a new push event or a hint field on the jobs poll; today it appears after the next 15-minute scan). Also: nested GitLab group paths are cut to the last two parts, ssh-only hosts clone over https.

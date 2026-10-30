@@ -8,6 +8,7 @@ import type { FolderView, SessionView } from '@/lib/data/launcher';
 import { stateText } from '@/lib/session-state';
 import { removeSessionAction, resumeSessionAction, stopSessionAction } from './launcher-actions';
 import { FolderLinks } from './folders';
+import type { TurboInfo } from '@/lib/data/turbo';
 
 const H2 = 'text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider';
 const card = 'rounded-2xl md:rounded-lg border border-border/70 md:border-border bg-card overflow-hidden';
@@ -19,12 +20,14 @@ export function ProjectSessions({
   suggestions,
   sessions,
   devices,
+  turbo,
 }: {
   projectId: string;
   folders: FolderView[];
   suggestions: FolderView[];
   sessions: SessionView[];
   devices: { id: string; name: string }[];
+  turbo?: TurboInfo;
 }) {
   const [pending, start] = useTransition();
 
@@ -41,7 +44,7 @@ export function ProjectSessions({
         <h2 className={`${H2} px-1 md:px-0`}>Sessions and folders</h2>
       </div>
 
-      <FolderLinks projectId={projectId} folders={folders} suggestions={suggestions} devices={devices} />
+      <FolderLinks projectId={projectId} folders={folders} suggestions={suggestions} devices={devices} turbo={turbo} />
 
       {sessions.length > 0 && (
         <div className={`${card} divide-y divide-border/60`}>

@@ -86,7 +86,7 @@ export type JobsResponse = {
   enabled: boolean;
   pollSeconds: number;
   links: { folderId: string; projectId: string; projectName: string }[];
-  jobs: { id: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; projectName?: string; sessionId: string; prompt?: string }[];
+  jobs: { id: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; projectName?: string; sessionId: string; prompt?: string; clone?: { repo: string } }[];
 };
 
 export async function pollJobs(s: Scope, deviceId: string): Promise<JobsResponse> {
@@ -128,6 +128,7 @@ export async function pollJobs(s: Scope, deviceId: string): Promise<JobsResponse
       ...(j.folderId ? { folderId: j.folderId } : {}),
       ...(j.projectId ? { projectId: j.projectId, projectName: names.get(j.projectId) ?? j.projectId } : {}),
       ...(j.prompt ? { prompt: j.prompt } : {}),
+      ...(j.clone ? { clone: j.clone } : {}),
     })),
   };
 }
@@ -177,7 +178,7 @@ export function cleanClaudeSessions(raw: unknown): ReportedClaudeSession[] {
 }
 
 export async function reportStatus(s: Scope, deviceId: string, body: unknown): Promise<void> {
-  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; bundle?: unknown; allowPrompts?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown };
+  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; bundle?: unknown; allowPrompts?: unknown; allowClone?: unknown; projectsDir?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown };
   const activity = b.activity === undefined ? null : cleanActivity(b.activity); // validate before any write
   const claudeSessions = b.claudeSessions === undefined ? null : cleanClaudeSessions(b.claudeSessions);
   const c = await scoped(s);
@@ -194,7 +195,9 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
       const os = String(b.worker.os ?? '').slice(0, 20);
       // allowPrompts: whether this worker passes a first message on to Claude. The dispatcher only sends tasks to workers that say true.
       const bundle = typeof b.worker.bundle === 'string' && /^[0-9a-f]{12}$/.test(b.worker.bundle) ? b.worker.bundle : undefined;
-      set.worker = { version, os, ...(bundle ? { bundle } : {}), allowPrompts: b.worker.allowPrompts === true };
+      // allowClone / projectsDir: turbo mode (lib/data/turbo.ts). The projects folder is the one path a worker sends, so the page can say where a clone will go.
+      const dir = typeof b.worker.projectsDir === 'string' ? b.worker.projectsDir.replace(/[\u0000-\u001f]+/g, '').trim().slice(0, 200) : '';
+      set.worker = { version, os, ...(bundle ? { bundle } : {}), allowPrompts: b.worker.allowPrompts === true, ...(typeof b.worker.allowClone === 'boolean' ? { allowClone: b.worker.allowClone && !!dir } : {}), ...(dir ? { projectsDir: dir } : {}) };
       set.lastSeenAt = now;
     }
     if (Object.keys(set).length) {
@@ -203,12 +206,17 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
     }
     if (b.jobs !== undefined && !Array.isArray(b.jobs)) throw new InputError('jobs must be an array');
     for (const r of ((b.jobs as unknown[]) ?? []).slice(0, 50)) {
-      const o = (r ?? {}) as { id?: unknown; ok?: unknown; error?: unknown };
+      const o = (r ?? {}) as { id?: unknown; ok?: unknown; error?: unknown; folderId?: unknown };
       if (typeof o.id !== 'string' || o.id.length > 60) continue;
       const ok = o.ok === true;
       const error = ok ? undefined : String(o.error ?? 'failed').slice(0, 300);
       const job = await c.workerJobs.findOneAndUpdate({ _id: o.id, deviceId, doneAt: null }, { $set: { doneAt: now, ok, ...(error ? { error } : {}) } }, { returnDocument: 'after' });
       if (job) shown = true;
+      // Turbo mode: the worker cloned the repo, reported the new folder in its scan and started Claude there. Link the folder to the project and show the session in it.
+      if (job && ok && job.clone && job.projectId && typeof o.folderId === 'string' && FOLDER_ID.test(o.folderId)) {
+        await c.workerFolders.updateOne({ _id: `${deviceId}:${o.folderId}`, projectId: null }, { $set: { projectId: job.projectId, linkedAt: now } });
+        await c.workerSessions.updateOne({ _id: job.sessionId, deviceId }, { $set: { folderId: o.folderId, updatedAt: now }, $unset: { cloning: '' } });
+      }
       if (job && !ok && job.kind !== 'stop') await c.workerSessions.updateOne({ _id: job.sessionId, deviceId }, { $set: { state: 'failed', error, updatedAt: now } });
       // Stop on a session the worker doesn't know or that isn't running: nothing is left to stop, so don't leave it "running" forever.
       if (job && !ok && job.kind === 'stop' && (error === 'unknown session' || error === 'session not running'))
@@ -216,8 +224,14 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
     }
     if (b.sessions !== undefined && !Array.isArray(b.sessions)) throw new InputError('sessions must be an array');
     for (const x of ((b.sessions as unknown[]) ?? []).slice(0, 100)) {
-      const o = (x ?? {}) as { sessionId?: unknown; state?: unknown };
+      const o = (x ?? {}) as { sessionId?: unknown; state?: unknown; phase?: unknown };
       if (typeof o.sessionId !== 'string' || !UUID.test(o.sessionId)) continue;
+      // Turbo mode: while the worker clones it says so now and then (keeps the row alive); "starting" means the clone is done.
+      if (o.state === 'starting') {
+        const r = await c.workerSessions.updateOne({ _id: o.sessionId, deviceId, state: 'starting' }, { $set: { updatedAt: now, ...(o.phase === 'cloning' ? {} : { cloning: false }) } });
+        if (r.modifiedCount && o.phase !== 'cloning') shown = true;
+        continue;
+      }
       const state = o.state === 'running' || o.state === 'dead' || o.state === 'stopped' ? o.state : null;
       if (!state) continue;
       // Only sessions Work OS created for this device can be updated: a worker can't invent sessions.
@@ -255,7 +269,7 @@ function deviceViewChanged(before: { activity?: unknown; claudeSessions?: unknow
 // ── The person's side ───────────────────────────────────────────────────────────────
 
 export type FolderView = { key: string; /** Project it is linked to, if any. */ projectId: string | null; deviceId: string; deviceName: string; folderId: string; name: string; remote?: string; branch?: string; missing: boolean; online: boolean; /** When its computer last reported (ISO), or null. */ lastSeenAt: string | null };
-export type SessionView = { id: string; deviceName: string; folderName: string; state: WorkerSessionDoc['state'] | 'unknown'; startedAt: string; updatedAt: string; error?: string; /** Folder is still linked to this project. Resume only makes sense then. */ linked: boolean; /** Still "starting" after WAITING_MS: probably sitting at a prompt in the terminal. */ waiting: boolean };
+export type SessionView = { id: string; deviceName: string; folderName: string; state: WorkerSessionDoc['state'] | 'unknown'; startedAt: string; updatedAt: string; error?: string; /** Folder is still linked to this project. Resume only makes sense then. */ linked: boolean; /** Still "starting" after WAITING_MS: probably sitting at a prompt in the terminal. */ waiting: boolean; /** Turbo mode: its computer is cloning the repo first. */ cloning?: boolean };
 
 const ONLINE_MS = 2 * 60_000;
 
@@ -310,9 +324,10 @@ export async function projectLauncher(scope: DeviceScope, projectId: string): Pr
     sessions: sessions.map(s => ({
       id: s._id,
       linked: names.has(`${s.deviceId}:${s.folderId}`),
-      waiting: s.state === 'starting' && Date.now() - s.updatedAt.getTime() > WAITING_MS,
+      waiting: s.state === 'starting' && !s.cloning && Date.now() - s.updatedAt.getTime() > WAITING_MS,
+      ...(s.cloning && s.state === 'starting' ? { cloning: true } : {}),
       deviceName: devices.get(s.deviceId)?.name ?? 'revoked device',
-      folderName: names.get(`${s.deviceId}:${s.folderId}`) ?? s.folderId,
+      folderName: names.get(`${s.deviceId}:${s.folderId}`) ?? (s.folderId || s.repo || 'new folder'),
       state: derivedState(s),
       startedAt: s.startedAt.toISOString(),
       updatedAt: s.updatedAt.toISOString(),
@@ -384,7 +399,7 @@ export async function unlinkFolder(scope: DeviceScope, projectId: string, key: s
   afterCommit(() => wake(scope.orgId, scope.userId, f.deviceId));
 }
 
-async function addJob(scope: DeviceScope, deviceId: string, job: { kind: 'start' | 'resume' | 'stop'; sessionId: string; folderId?: string; projectId?: string; prompt?: string }): Promise<void> {
+export async function addJob(scope: DeviceScope, deviceId: string, job: { kind: 'start' | 'resume' | 'stop'; sessionId: string; folderId?: string; projectId?: string; prompt?: string; clone?: { repo: string } }): Promise<void> {
   const c = await scoped(scope);
   if (!(await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { _id: 1 } }))) throw new InputError('That device was revoked; add it again under Claude › Setup');
   const open = await c.workerJobs.countDocuments({ deviceId, doneAt: null });

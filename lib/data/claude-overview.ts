@@ -194,12 +194,12 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
     const f = folderOf.get(`${s.deviceId}:${s.folderId}`);
     const st: SessionView['state'] = derivedState(s);
     const state: SessionRowState = st === 'running' ? 'open' : st === 'dead' ? 'closed' : st;
-    const folder = f ? lastSeg(f.name) : s.folderId;
+    const folder = f ? lastSeg(f.name) : s.folderId || (s.repo ? lastSeg(s.repo) : 'new folder');
     const isLive = st === 'running' || st === 'starting';
     const linked = !!f && f.projectId === s.projectId;
     rows.push({
       key: `${s.deviceId}:${s._id}`,
-      title: folder,
+      title: s.cloning && st === 'starting' ? `${folder} (cloning…)` : folder,
       folder,
       projectId: s.projectId!,
       projectName: pname(s.projectId!),
@@ -212,7 +212,7 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
       workOs: true,
       workOsId: s._id,
       controlProjectId: s.projectId!,
-      ...(st === 'starting' && nowMs - s.updatedAt.getTime() > WAITING_MS ? { waiting: true } : {}),
+      ...(st === 'starting' && !s.cloning && nowMs - s.updatedAt.getTime() > WAITING_MS ? { waiting: true } : {}),
       ...(s.error ? { error: s.error } : {}),
       canStop: isLive || st === 'unknown',
       canResume: linked && !isLive,

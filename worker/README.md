@@ -12,7 +12,7 @@ Small Node program (Node 22+, no npm dependencies) that lets Work OS start, resu
    ```
    node worker/worker.mjs setup
    ```
-   It asks only for what is missing (server, device name, folder to scan, then the key, hidden), checks the key with one real call (a refused key stops it with "key refused"), stores the key with DPAPI or the Keychain (never in config.json), writes config.json, scans and reports folders, and installs autostart. Optional flags: `--server URL --name NAME --root DIR` (repeat `--root`). Safe to rerun; existing settings such as `allowPrompts` are kept.
+   It asks only for what is missing (server, device name, folder to scan, then the key, hidden), checks the key with one real call (a refused key stops it with "key refused"), stores the key with DPAPI or the Keychain (never in config.json), writes config.json, scans and reports folders, and installs autostart. Optional flags: `--server URL --name NAME --root DIR` (repeat `--root`) `--projects DIR` (where Work OS clones new repos; default: the first `--root`). Safe to rerun; existing settings such as `allowPrompts` are kept.
 2. Open a project in Work OS, Sessions, and link a folder.
 
 ## Manual setup
@@ -39,7 +39,7 @@ Same steps; config lives in `~/Library/Application Support/work-os-worker/config
 
 ## Risk
 
-Anyone who controls Work OS (the server, its database or your account) can start sessions here and type prompts into them. Only linked folders can be launched. Sessions use your own Claude default permission mode; if that is auto or bypassPermissions, a prompt from Work OS runs without asking, so only link folders you are comfortable with. Set `"allowPrompts": false` in config.json to ignore prompts sent from Work OS. The worker reports this setting to Work OS, and the task dispatcher never gives a task to a worker that reports false (or does not report it, as older versions). Windows needs Windows Terminal (wt.exe); there is no cmd.exe fallback. Linking a folder also marks it as trusted in Claude Code (sets `hasTrustDialogAccepted` for that folder in `~/.claude.json`, never untrusts), so Claude skips its trust prompt there.
+Anyone who controls Work OS (the server, its database or your account) can start sessions here and type prompts into them. Only linked folders can be launched. Sessions use your own Claude default permission mode; if that is auto or bypassPermissions, a prompt from Work OS runs without asking, so only link folders you are comfortable with. Set `"allowPrompts": false` in config.json to ignore prompts sent from Work OS. The worker reports this setting to Work OS, and the task dispatcher never gives a task to a worker that reports false (or does not report it, as older versions). Windows needs Windows Terminal (wt.exe); there is no cmd.exe fallback. Turbo mode: when a project's repo is not on this PC, Start from Work OS makes the worker clone it (git over https or ssh only, never a command-running transport, no prompts, 8 minute limit) into `projectsDir` (default: your first scan root) and start Claude there; set `"allowClone": false` in config.json to turn it off. Linking a folder also marks it as trusted in Claude Code (sets `hasTrustDialogAccepted` for that folder in `~/.claude.json`, never untrusts), so Claude skips its trust prompt there.
 
 ## Remote Control
 

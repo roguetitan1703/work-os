@@ -14,6 +14,7 @@ import { fmtAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { projectItems } from '@/lib/data/claude-items';
 import { projectLauncher } from '@/lib/data/launcher';
+import { turboInfo } from '@/lib/data/turbo';
 import { ClaudeItems } from './claude-items';
 import { ProjectSessions } from './sessions';
 import { CodeLocations } from './code-locations';
@@ -57,6 +58,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     projectItems(sc, project.id, { doneLimit: 30 }),
     projectLauncher(me, project.id),
   ]);
+  const turbo = await turboInfo(me, project.id, launcher);
   const projectNotes = notes.notes.filter(n => !n.taskId && !n.archived);
   const otherNotes = notes.notes.length - projectNotes.length;
   const s = project.stats;
@@ -208,7 +210,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
       {tab === 'claude' && (
         <div className="space-y-5 max-w-3xl" data-view="claude">
           {work.items.length > 0 ? claudeBlock : <p className="text-sm text-muted-foreground px-1">Nothing in the queue. Claude adds items here as it plans work for this project.</p>}
-          <ProjectSessions projectId={project.id} {...launcher} />
+          <ProjectSessions projectId={project.id} {...launcher} turbo={turbo} />
         </div>
       )}
 
@@ -241,7 +243,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
               <div className="space-y-1.5" data-part="folders">
                 <h3 className="text-[13px] md:text-xs font-semibold text-foreground px-1 md:px-0">Folders on your computers</h3>
                 <p className="text-[13px] md:text-xs text-muted-foreground px-1 md:px-0">Where this project lives on each of your computers. Claude opens its sessions in these folders. Only you see your computers.</p>
-                <FolderLinks projectId={project.id} folders={launcher.folders} suggestions={launcher.suggestions} devices={launcher.devices} />
+                <FolderLinks projectId={project.id} folders={launcher.folders} suggestions={launcher.suggestions} devices={launcher.devices} turbo={turbo} />
               </div>
             </section>
           </div>
