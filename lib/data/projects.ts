@@ -134,7 +134,7 @@ async function insertProject(
       description: data.description ?? '',
       status: data.status ?? 'active',
       ...(data.delpatOsId ? { delpatOsId: data.delpatOsId } : {}),
-      ...(data.code?.length ? { code: cleanCodeLocations(data.code) } : {}),
+      ...(data.code?.length ? { code: cleanCodeLocations(data.code), codeBy: s.userId } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -371,7 +371,11 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
   if (data.client !== undefined) set.client = data.client;
   if (data.description !== undefined) set.description = data.description;
   if (data.status !== undefined) set.status = data.status;
-  if (data.code !== undefined) set.code = cleanCodeLocations(data.code);
+  if (data.code !== undefined) {
+    set.code = cleanCodeLocations(data.code);
+    // Who set the repo: a PC clones it, and trusts the clone only when its owner set it (lib/data/turbo.ts).
+    if (JSON.stringify(set.code) !== JSON.stringify(cur.code ?? [])) set.codeBy = s.userId;
+  }
   if (data.visibility !== undefined && data.visibility !== cur.visibility) {
     if (cur.ownerId !== s.userId) throw new InputError("Only the project's owner can make it private or shared");
     // Made shared: the name must be free among the organization's shared projects (all visible to the owner already,

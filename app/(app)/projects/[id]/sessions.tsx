@@ -10,6 +10,7 @@ import { openInVscodeAction, removeSessionAction, resumeSessionAction, stopSessi
 import { ReopenBanner } from '../../claude/reopen-banner';
 import { trackJob } from '../../claude/job-toast';
 import { FolderLinks } from './folders';
+import type { TurboInfo } from '@/lib/data/turbo';
 
 const H2 = 'text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider';
 const card = 'rounded-2xl md:rounded-lg border border-border/70 md:border-border bg-card overflow-hidden';
@@ -21,6 +22,7 @@ export function ProjectSessions({
   suggestions,
   sessions,
   devices,
+  turbo,
   reopen = [],
 }: {
   projectId: string;
@@ -28,6 +30,7 @@ export function ProjectSessions({
   suggestions: FolderView[];
   sessions: SessionView[];
   devices: { id: string; name: string }[];
+  turbo?: TurboInfo;
   reopen?: ReopenPrompt[];
 }) {
   const [pending, start] = useTransition();
@@ -45,7 +48,7 @@ export function ProjectSessions({
         <h2 className={`${H2} px-1 md:px-0`}>Sessions and folders</h2>
       </div>
 
-      <FolderLinks projectId={projectId} folders={folders} suggestions={suggestions} devices={devices} />
+      <FolderLinks projectId={projectId} folders={folders} suggestions={suggestions} devices={devices} turbo={turbo} />
 
       <ReopenBanner prompts={reopen} onlyDevices={folders.map(f => f.deviceId)} />
 

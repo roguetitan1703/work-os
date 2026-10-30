@@ -8,6 +8,7 @@ import { Ago } from '@/components/ago';
 import type { FolderView } from '@/lib/data/launcher';
 import { ConfirmSheet, ResponsiveSheet as Sheet } from '@/components/responsive-sheet';
 import { Select } from '@/components/ui/select';
+import type { TurboInfo } from '@/lib/data/turbo';
 import { linkFolderAction, searchFoldersAction, unlinkFolderAction } from './launcher-actions';
 
 const card = 'rounded-2xl md:rounded-lg border border-border/70 md:border-border bg-card overflow-hidden';
@@ -23,7 +24,7 @@ const label = (f: FolderView) => `${f.name}${f.branch ? ` (${f.branch})` : ''}`;
  * branch, Unlink (asks first), suggestions with the same repo, and Link folder. Shown on the project's Info tab and on its
  * Claude tab.
  */
-export function FolderLinks({ projectId, folders, suggestions, devices }: { projectId: string; folders: FolderView[]; suggestions: FolderView[]; devices: { id: string; name: string }[] }) {
+export function FolderLinks({ projectId, folders, suggestions, devices, turbo }: { projectId: string; folders: FolderView[]; suggestions: FolderView[]; devices: { id: string; name: string }[]; turbo?: TurboInfo }) {
   const [pending, start] = useTransition();
   const [adding, setAdding] = useState(false);
   const [unlinking, setUnlinking] = useState<FolderView | null>(null);
@@ -87,6 +88,7 @@ export function FolderLinks({ projectId, folders, suggestions, devices }: { proj
             </button>
           </div>
         ))}
+        {turbo && <TurboLines turbo={turbo} />}
         <button type="button" className="w-full flex items-center gap-2 px-4 md:px-3 min-h-12 md:min-h-10 text-sm text-muted-foreground hover:bg-muted/40 active:bg-muted/60" onClick={() => setAdding(true)} data-link-folder>
           <Plus className="w-4 h-4" /> Link folder
         </button>
@@ -114,6 +116,31 @@ export function FolderLinks({ projectId, folders, suggestions, devices }: { proj
           onClose={() => setUnlinking(null)}
         />
       )}
+    </>
+  );
+}
+
+/** Turbo mode (lib/data/turbo.ts): per computer where the repo is not yet, what Claude will do when you start. */
+function TurboLines({ turbo }: { turbo: TurboInfo }) {
+  if (!turbo.repo) {
+    return turbo.devices.length ? (
+      <p className="px-4 md:px-3 py-2 text-[13px] md:text-xs text-muted-foreground" data-turbo-norepo>
+        Add the repo in Info › Code to let your PC clone it.
+      </p>
+    ) : null;
+  }
+  const rows = turbo.devices.filter(d => !d.has);
+  return (
+    <>
+      {rows.map(d => (
+        <p key={d.id} className="px-4 md:px-3 py-2 text-[13px] md:text-xs text-muted-foreground" data-turbo-device={d.name} data-turbo-state={d.clone}>
+          {d.clone === 'ready'
+            ? `Not on ${d.name} yet. Claude will clone it into ${d.destination} when you start.`
+            : d.clone === 'off'
+              ? `Not on ${d.name} yet. Cloning is turned off on that PC.`
+              : `Not on ${d.name} yet. Its worker is older and cannot clone; update it under Claude › Setup.`}
+        </p>
+      ))}
     </>
   );
 }

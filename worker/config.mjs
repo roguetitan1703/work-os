@@ -12,7 +12,7 @@ export function configDir() {
 export const configPath = () => path.join(configDir(), 'config.json');
 export const statePath = () => path.join(configDir(), 'state.json');
 
-const DEFAULTS = { baseUrl: '', deviceName: os.hostname(), roots: [], enabled: true, allowPrompts: true, scanEveryMinutes: 15, maxDepth: 6 };
+const DEFAULTS = { baseUrl: '', deviceName: os.hostname(), roots: [], enabled: true, allowPrompts: true, allowClone: true, scanEveryMinutes: 15, maxDepth: 6 };
 
 export function loadConfig() {
   let c = {};

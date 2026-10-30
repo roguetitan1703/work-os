@@ -236,7 +236,7 @@ const STATE: Record<SessionRowState, { label: string; dot: string; tone: string 
   failed: { label: 'failed', dot: 'bg-red-500', tone: 'text-red-600 dark:text-red-400' },
   unknown: { label: 'no news', dot: 'bg-amber-500', tone: 'text-amber-600 dark:text-amber-400' },
 };
-const stateOf = (s: SessionRow) => (s.waiting ? { label: 'waiting at terminal', dot: 'bg-amber-500', tone: 'text-amber-600 dark:text-amber-400' } : STATE[s.state]);
+const stateOf = (s: SessionRow) => (s.needsTrust ? { label: `Waiting for you to trust this new repo on ${s.deviceName}`, dot: 'bg-amber-500', tone: 'text-amber-600 dark:text-amber-400' } : s.waiting ? { label: 'waiting at terminal', dot: 'bg-amber-500', tone: 'text-amber-600 dark:text-amber-400' } : STATE[s.state]);
 
 function Sessions({ sessions, hasComputers }: { sessions: SessionRow[]; hasComputers: boolean }) {
   const [onlyWos, setOnlyWos] = useState(false);

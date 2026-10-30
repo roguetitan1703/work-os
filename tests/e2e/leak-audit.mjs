@@ -904,6 +904,7 @@ function AUDIT() {
   add(`action ${L_}linkFolderAction`, act(L_ + 'linkFolderAction', t => [t.project, t.folder], aim(['project', 'folder'])));
   add(`action ${L_}unlinkFolderAction`, act(L_ + 'unlinkFolderAction', t => [t.project, t.folder], aim(['project', 'folder'], { stage: 2 })));
   add(`action ${L_}startSessionAction`, act(L_ + 'startSessionAction', t => [t.project, t.folder, 'lkq prompt'], aim(['project', 'folder'], { stage: 1 })));
+  add(`action ${L_}turboStartAction`, act(L_ + 'turboStartAction', t => [t.project, t.device, 'lkq prompt'], aim(['project', 'device'], { stage: 1 })));
   add(`action ${L_}resumeSessionAction`, act(L_ + 'resumeSessionAction', t => [t.project, t.session], aim(['project', 'session'], { stage: 1, controlOk: r => actOk(r) || /running|already/i.test(r.text) })));
   add(`action ${L_}stopSessionAction`, act(L_ + 'stopSessionAction', t => [t.project, t.session], aim(['project', 'session'], { stage: 1 })));
   add(`action ${L_}removeSessionAction`, act(L_ + 'removeSessionAction', t => [t.project, t.session], aim(['project', 'session'], { stage: 2, controlOk: r => actOk(r) || /running|stop it/i.test(r.text) })));

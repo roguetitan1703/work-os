@@ -7,6 +7,7 @@ import { validateJob, insideRoot } from './validate.mjs';
 import { matchesClaudeProcess } from './launch.mjs';
 import { writeMarker, removeMarker } from './markers.mjs';
 import { trustFolder } from './trust.mjs';
+import { handleCloneJob, projectsDirOf } from './clone.mjs';
 
 import { bundleId } from './config.mjs';
 
@@ -129,6 +130,8 @@ export function createCore(deps) {
 
   async function handleJob(job) {
     const id = job && typeof job.id === 'string' ? job.id : 'unknown';
+    // Turbo mode (clone.mjs): a start job with no folder yet; the worker makes the folder, clones, links and starts.
+    if (job && job.kind === 'start' && job.clone) return handleCloneJob(job, { getConfig, state, save, api, launcher, scanAndReport, scan, log, now });
     // Already started (a re-offered job): never open a second window for the same session.
     if (job && job.kind === 'start' && typeof job.sessionId === 'string' && state.sessions[job.sessionId] && state.sessions[job.sessionId].folderId === job.folderId) return { id, ok: true };
     const v = validateJob(job, { folders: state.folders, roots: roots() });
@@ -191,11 +194,18 @@ export function createCore(deps) {
     }
   }
 
+  // Turbo mode as the server shows it: whether this PC clones, and where (the projects folder; the one path that is sent, by design).
+  function cloneInfo() {
+    const cfg = getConfig();
+    const dir = projectsDirOf(cfg);
+    return { allowClone: cfg.allowClone !== false, ...(dir ? { projectsDir: dir } : {}) };
+  }
+
   async function buildStatus() {
     try { await refreshSessions(); } catch (e) { log('liveness failed: ' + errMsg(e)); }
     const sessions = Object.entries(state.sessions).map(([sessionId, s]) => ({ sessionId, folderId: s.folderId, state: s.state }));
     // allowPrompts: tells the server whether a first message reaches Claude here. The task dispatcher only sends tasks to a worker that says true.
-    const body = { worker: { version: VERSION, os: process.platform, ...(bundleId() ? { bundle: bundleId().slice(0, 12) } : {}), allowPrompts: getConfig().allowPrompts !== false }, jobs: pendingResults, sessions };
+    const body = { worker: { version: VERSION, os: process.platform, ...(bundleId() ? { bundle: bundleId().slice(0, 12) } : {}), allowPrompts: getConfig().allowPrompts !== false, ...cloneInfo() }, jobs: pendingResults, sessions };
     // Counts only (docs/launcher.md "Activity counts"); a failed count never blocks the heartbeat.
     if (deps.activity) {
       try {
@@ -253,11 +263,11 @@ export function createCore(deps) {
     const jobs = Array.isArray(res && res.jobs) ? res.jobs : [];
     for (const job of jobs) {
       const prior = job && state.doneJobs.find((d) => d.id === job.id);
-      if (prior) { pendingResults.push({ id: prior.id, ok: prior.ok, ...(prior.error ? { error: prior.error } : {}) }); await sendStatus(); continue; }
+      if (prior) { pendingResults.push({ id: prior.id, ok: prior.ok, ...(prior.error ? { error: prior.error } : {}), ...(prior.folderId ? { folderId: prior.folderId } : {}), ...(prior.untrusted ? { untrusted: true } : {}) }); await sendStatus(); continue; }
       const r = await handleJob(job);
       pendingResults.push(r);
       if (job && typeof job.id === 'string') {
-        state.doneJobs.push({ id: r.id, ok: r.ok, ...(r.error ? { error: r.error } : {}) });
+        state.doneJobs.push({ id: r.id, ok: r.ok, ...(r.error ? { error: r.error } : {}), ...(r.folderId ? { folderId: r.folderId } : {}), ...(r.untrusted ? { untrusted: true } : {}) });
         state.doneJobs = state.doneJobs.slice(-200);
       }
       save();

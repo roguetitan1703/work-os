@@ -47,6 +47,8 @@ export type SessionRow = {
   /** Project the session is controlled under (Work OS ones). */
   controlProjectId?: string;
   waiting?: boolean;
+  /** Turbo mode: a new repo cloned but not trusted automatically; Claude Code asks on that computer (first 10 minutes). */
+  needsTrust?: boolean;
   error?: string;
   /** Where it was last used (VS Code, a terminal, other), when the worker reports it. */
   origin?: SessionOrigin;
@@ -188,6 +190,7 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
         workOs: it.startedByWorkOs || !!own,
         ...(own && own.projectId ? { workOsId: own._id, controlProjectId: own.projectId } : {}),
         ...(own && own.state === 'starting' && nowMs - own.updatedAt.getTime() > WAITING_MS ? { waiting: true } : {}),
+        ...(own?.needsTrust && isLive && nowMs - own.startedAt.getTime() < 10 * 60_000 ? { needsTrust: true } : {}),
         ...(own?.error ? { error: friendlyError(own.error) } : {}),
         ...(it.origin ? { origin: it.origin } : {}),
         canVscode: dev.online,
@@ -205,12 +208,12 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
     const f = folderOf.get(`${s.deviceId}:${s.folderId}`);
     const st: SessionView['state'] = derivedState(s);
     const state: SessionRowState = st === 'running' ? 'open' : st === 'dead' ? 'closed' : st;
-    const folder = f ? lastSeg(f.name) : s.folderId;
+    const folder = f ? lastSeg(f.name) : s.folderId || (s.repo ? lastSeg(s.repo) : 'new folder');
     const isLive = st === 'running' || st === 'starting';
     const linked = !!f && f.projectId === s.projectId;
     rows.push({
       key: `${s.deviceId}:${s._id}`,
-      title: folder,
+      title: s.cloning && st === 'starting' ? `${folder} (cloning…)` : folder,
       folder,
       projectId: s.projectId!,
       projectName: pname(s.projectId!),
@@ -223,7 +226,8 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
       workOs: true,
       workOsId: s._id,
       controlProjectId: s.projectId!,
-      ...(st === 'starting' && nowMs - s.updatedAt.getTime() > WAITING_MS ? { waiting: true } : {}),
+      ...(st === 'starting' && !s.cloning && nowMs - s.updatedAt.getTime() > WAITING_MS ? { waiting: true } : {}),
+      ...(s.needsTrust && isLive && nowMs - s.startedAt.getTime() < 10 * 60_000 ? { needsTrust: true } : {}),
       ...(s.error ? { error: friendlyError(s.error) } : {}),
       canVscode: false, // not in the computer's own list: it has no transcript to open
       canStop: isLive || st === 'unknown',

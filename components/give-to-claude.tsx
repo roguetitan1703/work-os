@@ -135,6 +135,11 @@ export function ClaudeMarkSheet({ task, onClose }: { task: Pick<Task, 'id' | 're
                 .
               </p>
             )}
+            {opts.cloneNote && (
+              <p className="text-[14px] md:text-xs rounded-lg bg-muted/50 px-3 py-2" data-claude-clone>
+                {opts.cloneNote}
+              </p>
+            )}
             {opts.othersWrote && (
               <p className="text-[14px] md:text-xs rounded-lg bg-amber-500/10 text-amber-800 dark:text-amber-300 px-3 py-2" data-claude-others>
                 {opts.othersWrote.names.join(', ')} wrote part of this task ({opts.othersWrote.parts.join(', ')}). Claude is told to treat that as information, not as your request. Read it before you give it.

@@ -9,7 +9,7 @@
 
 import { InputError } from './errors';
 
-export type CodeLocation = { remote?: string; path?: string; subdir?: string; branch?: string };
+export type CodeLocation = { remote?: string; path?: string; subdir?: string; branch?: string; host?: string };
 export type CodeQuery = { remote?: string; path?: string; subdir?: string; branch?: string };
 export type CodeProject = { id: string; name: string; code?: CodeLocation[] };
 export type CodeMatch = { project: CodeProject; score: number; location: CodeLocation; how: string };
@@ -43,6 +43,22 @@ export function normalizeRemote(input: string | null | undefined): string | null
   const [owner, name] = parts.slice(-2);
   if (!/^[A-Za-z0-9_.-]{1,100}$/.test(owner) || !/^[A-Za-z0-9_.-]{1,100}$/.test(name)) return null;
   return `${owner}/${name}`.toLowerCase();
+}
+
+const HOST = /^[a-z0-9][a-z0-9.-]{0,252}$/;
+
+/** The host a remote was written with, lowercase, when it is not github.com ("owner/name" alone means GitHub). Null when none or not a plain host. */
+export function remoteHost(input: string | null | undefined): string | null {
+  const s = (input ?? '').trim();
+  const m = s.match(/^[a-z][a-z0-9+.-]*:\/\/(?:[^/@]*@)?([^/:?#]+)/i) ?? s.match(/^(?:[^@/\s]*@)([^:/\s]+):/) ?? s.match(/^([^/:@\s]+\.[^/:@\s]+):(?!\/)/);
+  const h = m?.[1]?.toLowerCase();
+  return h && h !== 'github.com' && HOST.test(h) ? h : null;
+}
+
+/** What a PC is told to clone: "owner/name" (GitHub) or https://host/owner/name. Null when the location has no remote. */
+export function cloneSpec(loc: Pick<CodeLocation, 'remote' | 'host'>): string | null {
+  if (!loc.remote) return null;
+  return loc.host && HOST.test(loc.host) && loc.host !== 'github.com' ? `https://${loc.host}/${loc.remote}` : loc.remote;
 }
 
 /** Folder path for comparison: forward slashes, no trailing slash, lowercase (Windows paths are case-insensitive). */
@@ -81,6 +97,8 @@ export function cleanCodeLocations(input: CodeLocation[] | null | undefined): Co
       const r = normalizeRemote(l.remote);
       if (!r) throw new InputError('Invalid remote URL: use owner/name or the clone URL');
       loc.remote = r;
+      const host = remoteHost(l.remote) ?? (l.host?.trim() && HOST.test(l.host.trim().toLowerCase()) && l.host.trim().toLowerCase() !== 'github.com' ? l.host.trim().toLowerCase() : null);
+      if (host) loc.host = host;
     }
     if (l.path?.trim()) {
       const p = l.path.trim().replace(/[\\/]+$/, '');
@@ -98,7 +116,7 @@ export function cleanCodeLocations(input: CodeLocation[] | null | undefined): Co
       if (br.length > 200 || /\s/.test(br)) throw new InputError(`Bad branch "${l.branch}"`);
       loc.branch = br;
     }
-    const k = JSON.stringify([loc.remote, loc.path && normalizePath(loc.path), loc.subdir, loc.branch]);
+    const k = JSON.stringify([loc.remote, loc.path && normalizePath(loc.path), loc.subdir, loc.branch, loc.host]);
     if (!seen.has(k)) {
       seen.add(k);
       out.push(loc);
