@@ -4,6 +4,7 @@
 - 2026-10-26: Work OS runs at https://work.delpat.in (cut-over done 2026-10-25). Master has Settings like claude.ai, Claude › Set up in 3 steps, the first-run checklist, the Delpat OS import (security reviewed twice) and the last Vercel/personal text removed; 31 suites pass; built and uploaded to manual-builds. Waits on Om: `sudo work-os-update` on the box, DELPAT_OS_CLIENT_SECRET in /etc/work-os/env, then the first real Delpat OS link and import. Claude Code sign-in (OAuth) works on the live server. A how-to-use guide for colleagues is a Claude doc ("Work OS: how to use it").
 
 ## Next
+0a. Builder B (ui-settings): Open in VS Code for Claude sessions (the extension's vscode://anthropic.claude-code/open?session= link) and Reopen all after a PC restart; security review before merge (it changes what the PC runs).
 0. Om: Discord Interactions Endpoint URL = https://work.delpat.in/api/discord/interactions, then Settings › Server › Discord › Register the commands.
 Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
 Open work is filed as Claude items on Work OS (Claude page › Queue); this list only orders it.
