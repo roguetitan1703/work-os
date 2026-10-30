@@ -122,7 +122,7 @@ const fs2 = await db.collection('workerSessions').findOne({ _id: sid2 }); check(
   check('bad origin rejected', (await st({ claudeSessions: [item(s1, { origin: 'rm -rf' })] })).status === 400);
   const ro = (o = {}) => ({ sessionId: s1, origin: 'vscode', title: 'Fix login', folder: 'pms', ...o });
   check('reopen list accepted and stored', (await st({ reopen: [ro(), ro({ sessionId: s2, origin: 'cli' })] })).status === 200 && (await db.collection('devices').findOne({ _id: V.id })).reopen?.items.length === 2);
-  for (const [label, bad] of [['not an array', 'x'], ['path as folder', [ro({ folder: 'C:\\Users\\om\\pms' })]], ['slash in folder', [ro({ folder: 'a/b' })]], ['bad origin', [ro({ origin: 'x' })]], ['bad id', [ro({ sessionId: 'nope' })]], ['duplicate id', [ro(), ro()]], ['over 20', Array.from({ length: 21 }, () => ro({ sessionId: randomUUID() }))], ['extra title type', [ro({ title: 5 })]]]) {
+  for (const [label, bad] of [['not an array', 'x'], ['path as folder', [ro({ folder: 'C:\\Users\\om\\pms' })]], ['slash in folder', [ro({ folder: 'a/b' })]], ['backslash in folder', [ro({ folder: 'a\\b' })]], ['dot-dot folder', [ro({ folder: '..' })]], ['dot folder', [ro({ folder: '.' })]], ['bad origin', [ro({ origin: 'x' })]], ['bad id', [ro({ sessionId: 'nope' })]], ['duplicate id', [ro(), ro()]], ['over 20', Array.from({ length: 21 }, () => ro({ sessionId: randomUUID() }))], ['extra title type', [ro({ title: 5 })]]]) {
     check(`reopen rejected: ${label}`, (await st({ reopen: bad })).status === 400);
   }
   check('rejected reopen left the stored list alone', (await db.collection('devices').findOne({ _id: V.id })).reopen?.items.length === 2);

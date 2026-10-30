@@ -282,7 +282,7 @@ async function snapshot() {
 // Writes that are fine whoever makes them: a key's and a session's own bookkeeping (a session's expiry moves when any
 // request of its owner refreshes it, such as X's open stream), a computer's lastSeenAt. A session's token and re-auth
 // time may change only in the owner's own calls: anyone else changing them is a write.
-const VOLATILE = { apikey: ['lastRequest', 'requestCount', 'remaining', 'lastRefillAt', 'updatedAt'], session: ['updatedAt', 'expiresAt'], devices: ['lastSeenAt', 'worker', 'activity', 'claudeSessions'], settings: ['lastSeen', 'mcpAt', 'discordAt', 'at'] };
+const VOLATILE = { apikey: ['lastRequest', 'requestCount', 'remaining', 'lastRefillAt', 'updatedAt'], session: ['updatedAt', 'expiresAt'], devices: ['lastSeenAt', 'worker', 'activity', 'claudeSessions', 'reopen'], settings: ['lastSeen', 'mcpAt', 'discordAt', 'at'] };
 const OWNER_VOLATILE = { session: ['token', 'reauthAt'] };
 function same(col, a, b, persona) {
   const own = persona && pOf(a.userId) === persona && pOf(b.userId) === persona;
@@ -473,6 +473,16 @@ try {
     await rawDb.collection('workerFolders').insertOne({ _id: p.folder, deviceId: p.dev, folderId: 'lkqf0001', name: can(`${p.name.toLowerCase()}folder`, al), path: `C:/${can(`${p.name.toLowerCase()}path`, al)}`, git: true, remote: `${can(`${p.name.toLowerCase()}fremote`, al)}/x`, projectId: p === A ? P.project : null, linkedAt: now, seenAt: now, missing: false, orgId: p.orgId, ownerId: p.userId });
     p.session = randomUUID();
     await rawDb.collection('workerSessions').insertOne({ _id: p.session, orgId: p.orgId, ownerId: p.userId, deviceId: p.dev, folderId: 'lkqf0001', projectId: p === A ? P.project : 'none', state: 'running', startedAt: now, updatedAt: now });
+    // The computer's own report of sessions and of what was open before a restart (sent as the worker sends it, with
+    // extra fields that must not be kept), so Open in VS Code / Reopen all have something real to act on.
+    {
+      const rep = await fetch(B + '/api/worker/status', { method: 'POST', headers: { authorization: `Bearer ${p.wkr}`, 'content-type': 'application/json' }, body: JSON.stringify({
+        claudeSessions: [{ sessionId: p.session, folder: 'lkqfolder', title: 'lkq', lastActiveAt: Date.now() - 1000, subagentsActive: 0, startedByWorkOs: false, running: true, origin: 'vscode' }],
+        reopen: [{ sessionId: p.session, origin: 'vscode', title: 'lkq', folder: 'lkqfolder', path: 'C:/lkq-secret-path', cwd: 'C:/lkq-secret-cwd', text: 'lkq-secret-text' }],
+      }) });
+      const dv = await rawDb.collection('devices').findOne({ _id: p.dev });
+      check(`reopen: ${p.name}'s report is accepted and keeps only id, origin, title and folder name`, rep.status === 200 && dv.reopen?.items.length === 1 && Object.keys(dv.reopen.items[0]).sort().join() === 'folder,origin,sessionId,title' && !/lkq-secret/.test(JSON.stringify(dv.reopen)), `${rep.status} ${JSON.stringify(dv.reopen)}`);
+    }
     p.job = `j_${randomUUID()}`;
     await rawDb.collection('workerJobs').insertOne({ _id: p.job, orgId: p.orgId, ownerId: p.userId, deviceId: p.dev, kind: 'start', sessionId: p.session, folderId: 'lkqf0001', projectId: 'none', prompt: can(`${p.name.toLowerCase()}prompt`, al), createdAt: now, takenAt: null, doneAt: null });
   }
@@ -898,6 +908,10 @@ function AUDIT() {
   add(`action ${L_}stopSessionAction`, act(L_ + 'stopSessionAction', t => [t.project, t.session], aim(['project', 'session'], { stage: 1 })));
   add(`action ${L_}removeSessionAction`, act(L_ + 'removeSessionAction', t => [t.project, t.session], aim(['project', 'session'], { stage: 2, controlOk: r => actOk(r) || /running|stop it/i.test(r.text) })));
   add(`action ${L_}unhideSessionAction`, act(L_ + 'unhideSessionAction', t => [t.project, t.session], aim(['project', 'session'], { stage: 2 })));
+  add(`action ${L_}openInVscodeAction`, act(L_ + 'openInVscodeAction', t => [t.device, t.session], aim(['device', 'session'], { stage: 1 })));
+  add(`action ${L_}reopenAllAction`, act(L_ + 'reopenAllAction', t => [t.device], aim(['device'], { stage: 1 })));
+  add(`action ${L_}dismissReopenAction`, act(L_ + 'dismissReopenAction', t => [t.device], aim(['device'], { stage: 1 })));
+  add(`action ${L_}jobOutcomeAction`, act(L_ + 'jobOutcomeAction', t => [t.job], aim(['job'])));
   add(`action ${L_}startProjectsAction`, act(L_ + 'startProjectsAction', []));
   add(`action ${L_}startOptionsAction`, act(L_ + 'startOptionsAction', t => [t.project], aim(['project'], { ok: r => actOk(r) && (r.value.data?.folders?.length > 0 || r.value.data?.suggestions?.length > 0) })));
   add(`action ${L_}linkAndStartAction`, act(L_ + 'linkAndStartAction', t => [t.project, t.folder, 'lkq'], aim(['project', 'folder'], { stage: 1 })));

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { scanRoots, publicFolder } from './scan.mjs';
 import { sessionProcs } from './activity.mjs';
@@ -11,6 +12,8 @@ import { bundleId } from './config.mjs';
 
 export const VERSION = '0.3.0';
 const MISS_MS = 20000; // claude must be missing this long before the session counts as closed
+const OPEN_WINDOW_MS = 60_000;
+const OPEN_MAX_PER_MIN = 4;
 const GRACE_MS = 45000; // a just-launched session may not show in the process list yet
 
 // deps: { getConfig, state, save, api, launcher, listProcesses, killPid, now?, log? }
@@ -84,6 +87,7 @@ export function createCore(deps) {
     if (!loc.cwd || !path.isAbsolute(loc.cwd)) return { error: 'session folder unknown' };
     const dir = insideRoot(loc.cwd, roots());
     if (!dir) return { error: 'folder outside allowed roots' };
+    try { if (!fs.statSync(dir).isDirectory()) return { error: 'session folder unknown' }; } catch { return { error: 'session folder unknown' }; }
     for (const l of links) {
       if (!l || !l.projectId || typeof l.folderId !== 'string' || !Object.prototype.hasOwnProperty.call(state.folders, l.folderId)) continue;
       const base = insideRoot(state.folders[l.folderId], roots());
@@ -134,8 +138,16 @@ export function createCore(deps) {
       if (job.kind === 'reopen') { const r = await openPending(); save(); return { ...r, id }; }
       if (job.kind === 'vscode') {
         if (!deps.openVscode) return { id, ok: false, error: 'Opening in VS Code is not available on this computer' };
+        // The same session again within a minute (a double tap, or a job offered again after a crash) opens nothing more;
+        // and no more than OPEN_MAX_PER_MIN opens a minute, whoever asks.
+        const t = now();
+        const opens = (state.vscodeOpens = (state.vscodeOpens || []).filter((o) => t - o.at < OPEN_WINDOW_MS));
+        if (opens.some((o) => o.sessionId === job.sessionId)) return { id, ok: true };
+        if (opens.length >= OPEN_MAX_PER_MIN) return { id, ok: false, error: 'Too many opens at once, try again in a minute' };
         const l = locate(job.sessionId);
         if (l.error) return { id, ok: false, error: l.error };
+        opens.push({ sessionId: job.sessionId, at: t });
+        save();
         await deps.openVscode({ folder: l.dir, sessionId: job.sessionId });
         return { id, ok: true };
       }

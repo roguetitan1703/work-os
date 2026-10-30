@@ -166,7 +166,7 @@ export function cleanReopen(raw: unknown): ReopenItem[] {
     if (seen.has(sessionId)) throw new InputError(`reopen[${n}] repeats a session id`);
     seen.add(sessionId);
     if (!ORIGINS.includes(o.origin as SessionOrigin)) throw new InputError(`reopen[${n}].origin must be vscode, cli or other`);
-    if (typeof o.folder !== 'string' || !o.folder.trim() || o.folder.length > 80 || /[\/]|^[a-z]:|^~|[\u0000-\u001f]/i.test(o.folder)) throw new InputError(`reopen[${n}].folder must be a folder name`);
+    if (typeof o.folder !== 'string' || !o.folder.trim() || o.folder.length > 80 || /[\\/]|^[a-z]:|^~|^\.\.?$|[\u0000-\u001f]/i.test(o.folder)) throw new InputError(`reopen[${n}].folder must be a folder name`);
     if (typeof o.title !== 'string' || o.title.length > 500) throw new InputError(`reopen[${n}].title must be a string`);
     const title = o.title.replace(/[\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || o.folder.trim();
     return { sessionId, folder: o.folder.trim(), title, origin: o.origin as SessionOrigin };

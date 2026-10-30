@@ -48,11 +48,11 @@ export function codeCommands(folder, sessionId) {
   return [[folder], ['--open-url', '--', sessionUri(sessionId)]];
 }
 
-// VS Code (an Electron app) must not run as plain Node, and must not talk to another VS Code's terminal.
+// VS Code (an Electron app) must not run as plain Node (ELECTRON_*), must not preload code (NODE_OPTIONS), and must not talk to another VS Code's terminal (VSCODE_*).
 export function cleanEnv(env = process.env) {
   const e = { ...env };
-  delete e.ELECTRON_RUN_AS_NODE;
-  for (const k of Object.keys(e)) if (k.startsWith('VSCODE_')) delete e[k];
+  delete e.NODE_OPTIONS;
+  for (const k of Object.keys(e)) if (k.startsWith('VSCODE_') || k.startsWith('ELECTRON_')) delete e[k];
   return e;
 }
 

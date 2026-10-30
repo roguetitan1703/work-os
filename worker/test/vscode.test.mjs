@@ -28,7 +28,7 @@ test('uri and commands: args arrays, id validated, folder absolute', () => {
 });
 
 test('cleanEnv drops ELECTRON_RUN_AS_NODE and VSCODE_*', () => {
-  assert.deepEqual(cleanEnv({ A: '1', ELECTRON_RUN_AS_NODE: '1', VSCODE_IPC_HOOK_CLI: 'x', VSCODE_DEV: '' }), { A: '1' });
+  assert.deepEqual(cleanEnv({ A: '1', ELECTRON_RUN_AS_NODE: '1', ELECTRON_NO_ATTACH_CONSOLE: '1', NODE_OPTIONS: '--require x', VSCODE_IPC_HOOK_CLI: 'x', VSCODE_DEV: '' }), { A: '1' });
 });
 
 test('resolveCode: standard paths only, never inside a root', () => {
@@ -178,6 +178,36 @@ test('vscode job: opens the transcript folder when linked and inside a root; sam
     assert.equal(r.ok, false); assert.equal(r.error, 'folder not linked to a project');
     assert.equal(n.opened.length, 0);
   } finally { n.done(); }
+});
+
+test('vscode job: the same session again within a minute opens nothing; more than 4 a minute are refused; a file as folder is refused', async () => {
+  const m = mkCore();
+  try {
+    let t = 1_000_000;
+    const ids = [SID, '8c1d2f3a-1b2c-4d5e-8f90-0000000000a1', '8c1d2f3a-1b2c-4d5e-8f90-0000000000a2', '8c1d2f3a-1b2c-4d5e-8f90-0000000000a3', '8c1d2f3a-1b2c-4d5e-8f90-0000000000a4'];
+    const locals = {};
+    for (const i of ids) locals[i] = { cwd: path.join(m.app, 'sub'), origin: 'vscode' };
+    const opened = [];
+    const c = createCore({ getConfig: () => ({ roots: [path.dirname(m.app)] }), state: m.state, save() {}, api: {}, now: () => t, launcher: async () => {}, listProcesses: async () => [], killPid: async () => {}, sessionLocal: (s) => locals[s] || null, openVscode: async (a) => void opened.push(a.sessionId) });
+    c.applyLinks([{ folderId: 'f_app', projectId: 'p1', projectName: 'Proj' }]);
+    assert.equal((await c.handleJob({ id: 'a', kind: 'vscode', sessionId: ids[0] })).ok, true);
+    assert.equal((await c.handleJob({ id: 'b', kind: 'vscode', sessionId: ids[0] })).ok, true); // dropped
+    assert.equal(opened.length, 1);
+    for (const i of ids.slice(1, 4)) assert.equal((await c.handleJob({ id: i, kind: 'vscode', sessionId: i })).ok, true);
+    const over = await c.handleJob({ id: 'x', kind: 'vscode', sessionId: ids[4] });
+    assert.equal(over.ok, false); assert.equal(over.error, 'Too many opens at once, try again in a minute');
+    assert.equal(opened.length, 4);
+    t += 61_000;
+    assert.equal((await c.handleJob({ id: 'y', kind: 'vscode', sessionId: ids[4] })).ok, true);
+    assert.equal(opened.length, 5);
+    // a transcript whose cwd is a file, not a folder
+    const f = path.join(m.app, 'a-file.txt');
+    fs.writeFileSync(f, 'x');
+    locals[ids[0]] = { cwd: f, origin: 'vscode' };
+    t += 61_000;
+    const r = await c.handleJob({ id: 'z', kind: 'vscode', sessionId: ids[0] });
+    assert.equal(r.ok, false); assert.equal(opened.length, 5);
+  } finally { m.done(); }
 });
 
 test('reopen: each opened where it was made, running ones skipped, refusals reported, set cleared; dismiss clears', async () => {
