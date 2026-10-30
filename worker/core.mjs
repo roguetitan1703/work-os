@@ -75,7 +75,7 @@ export function createCore(deps) {
   async function handleJob(job) {
     const id = job && typeof job.id === 'string' ? job.id : 'unknown';
     // Turbo mode (clone.mjs): a start job with no folder yet; the worker makes the folder, clones, links and starts.
-    if (job && job.kind === 'start' && job.clone) return handleCloneJob(job, { getConfig, state, save, api, launcher, scanAndReport, log, now });
+    if (job && job.kind === 'start' && job.clone) return handleCloneJob(job, { getConfig, state, save, api, launcher, scanAndReport, scan, log, now });
     // Already started (a re-offered job): never open a second window for the same session.
     if (job && job.kind === 'start' && typeof job.sessionId === 'string' && state.sessions[job.sessionId] && state.sessions[job.sessionId].folderId === job.folderId) return { id, ok: true };
     const v = validateJob(job, { folders: state.folders, roots: roots() });
@@ -182,11 +182,11 @@ export function createCore(deps) {
     const jobs = Array.isArray(res && res.jobs) ? res.jobs : [];
     for (const job of jobs) {
       const prior = job && state.doneJobs.find((d) => d.id === job.id);
-      if (prior) { pendingResults.push({ id: prior.id, ok: prior.ok, ...(prior.error ? { error: prior.error } : {}), ...(prior.folderId ? { folderId: prior.folderId } : {}) }); await sendStatus(); continue; }
+      if (prior) { pendingResults.push({ id: prior.id, ok: prior.ok, ...(prior.error ? { error: prior.error } : {}), ...(prior.folderId ? { folderId: prior.folderId } : {}), ...(prior.untrusted ? { untrusted: true } : {}) }); await sendStatus(); continue; }
       const r = await handleJob(job);
       pendingResults.push(r);
       if (job && typeof job.id === 'string') {
-        state.doneJobs.push({ id: r.id, ok: r.ok, ...(r.error ? { error: r.error } : {}), ...(r.folderId ? { folderId: r.folderId } : {}) });
+        state.doneJobs.push({ id: r.id, ok: r.ok, ...(r.error ? { error: r.error } : {}), ...(r.folderId ? { folderId: r.folderId } : {}), ...(r.untrusted ? { untrusted: true } : {}) });
         state.doneJobs = state.doneJobs.slice(-200);
       }
       save();

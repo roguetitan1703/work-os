@@ -80,9 +80,12 @@ export async function createCloneJob(scope: Scope, deviceId: string, projectId: 
   const sessionId = dispatched?.sessionId ?? randomUUID();
   const c = await scoped(scope);
   const now = new Date();
+  // Trusted automatically only when the PC's owner set the repo: a teammate who can edit the project could point it at a repo with hooks.
+  const pr = await c.projects.findOne({ _id: projectId }, { projection: { codeBy: 1, ownerId: 1 } });
+  const trusted = (pr?.codeBy ?? pr?.ownerId) === scope.userId;
   await c.workerSessions.insertOne({ _id: sessionId, orgId: scope.orgId, ownerId: scope.userId, deviceId, folderId: '', projectId, cloning: true, repo: r.repo, state: 'starting', startedAt: now, updatedAt: now, ...(dispatched ? { dispatched: true, taskId: dispatched.taskId } : {}) });
   try {
-    await addJob(scope, deviceId, { kind: 'start', sessionId, projectId, clone: { repo: r.spec }, ...(text ? { prompt: text } : {}) });
+    await addJob(scope, deviceId, { kind: 'start', sessionId, projectId, clone: { repo: r.spec, trusted }, ...(text ? { prompt: text } : {}) });
   } catch (err) {
     await c.workerSessions.deleteOne({ _id: sessionId });
     throw err;

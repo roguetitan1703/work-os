@@ -86,7 +86,7 @@ export type JobsResponse = {
   enabled: boolean;
   pollSeconds: number;
   links: { folderId: string; projectId: string; projectName: string }[];
-  jobs: { id: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; projectName?: string; sessionId: string; prompt?: string; clone?: { repo: string } }[];
+  jobs: { id: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; projectName?: string; sessionId: string; prompt?: string; clone?: { repo: string; trusted: boolean } }[];
 };
 
 export async function pollJobs(s: Scope, deviceId: string): Promise<JobsResponse> {
@@ -206,7 +206,7 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
     }
     if (b.jobs !== undefined && !Array.isArray(b.jobs)) throw new InputError('jobs must be an array');
     for (const r of ((b.jobs as unknown[]) ?? []).slice(0, 50)) {
-      const o = (r ?? {}) as { id?: unknown; ok?: unknown; error?: unknown; folderId?: unknown };
+      const o = (r ?? {}) as { id?: unknown; ok?: unknown; error?: unknown; folderId?: unknown; untrusted?: unknown };
       if (typeof o.id !== 'string' || o.id.length > 60) continue;
       const ok = o.ok === true;
       const error = ok ? undefined : String(o.error ?? 'failed').slice(0, 300);
@@ -215,7 +215,7 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
       // Turbo mode: the worker cloned the repo, reported the new folder in its scan and started Claude there. Link the folder to the project and show the session in it.
       if (job && ok && job.clone && job.projectId && typeof o.folderId === 'string' && FOLDER_ID.test(o.folderId)) {
         await c.workerFolders.updateOne({ _id: `${deviceId}:${o.folderId}`, projectId: null }, { $set: { projectId: job.projectId, linkedAt: now } });
-        await c.workerSessions.updateOne({ _id: job.sessionId, deviceId }, { $set: { folderId: o.folderId, updatedAt: now }, $unset: { cloning: '' } });
+        await c.workerSessions.updateOne({ _id: job.sessionId, deviceId }, { $set: { folderId: o.folderId, updatedAt: now, ...(o.untrusted === true ? { needsTrust: true } : {}) }, $unset: { cloning: '' } });
       }
       if (job && !ok && job.kind !== 'stop') await c.workerSessions.updateOne({ _id: job.sessionId, deviceId }, { $set: { state: 'failed', error, updatedAt: now } });
       // Stop on a session the worker doesn't know or that isn't running: nothing is left to stop, so don't leave it "running" forever.
@@ -269,7 +269,7 @@ function deviceViewChanged(before: { activity?: unknown; claudeSessions?: unknow
 // ── The person's side ───────────────────────────────────────────────────────────────
 
 export type FolderView = { key: string; /** Project it is linked to, if any. */ projectId: string | null; deviceId: string; deviceName: string; folderId: string; name: string; remote?: string; branch?: string; missing: boolean; online: boolean; /** When its computer last reported (ISO), or null. */ lastSeenAt: string | null };
-export type SessionView = { id: string; deviceName: string; folderName: string; state: WorkerSessionDoc['state'] | 'unknown'; startedAt: string; updatedAt: string; error?: string; /** Folder is still linked to this project. Resume only makes sense then. */ linked: boolean; /** Still "starting" after WAITING_MS: probably sitting at a prompt in the terminal. */ waiting: boolean; /** Turbo mode: its computer is cloning the repo first. */ cloning?: boolean };
+export type SessionView = { id: string; deviceName: string; folderName: string; state: WorkerSessionDoc['state'] | 'unknown'; startedAt: string; updatedAt: string; error?: string; /** Folder is still linked to this project. Resume only makes sense then. */ linked: boolean; /** Still "starting" after WAITING_MS: probably sitting at a prompt in the terminal. */ waiting: boolean; /** Turbo mode: its computer is cloning the repo first. */ cloning?: boolean; /** Turbo mode: a new repo not trusted automatically; Claude Code asks on this computer. */ needsTrust?: boolean };
 
 const ONLINE_MS = 2 * 60_000;
 
@@ -326,6 +326,7 @@ export async function projectLauncher(scope: DeviceScope, projectId: string): Pr
       linked: names.has(`${s.deviceId}:${s.folderId}`),
       waiting: s.state === 'starting' && !s.cloning && Date.now() - s.updatedAt.getTime() > WAITING_MS,
       ...(s.cloning && s.state === 'starting' ? { cloning: true } : {}),
+      ...(s.needsTrust && (s.state === 'starting' || s.state === 'running') && Date.now() - s.startedAt.getTime() < 10 * 60_000 ? { needsTrust: true } : {}),
       deviceName: devices.get(s.deviceId)?.name ?? 'revoked device',
       folderName: names.get(`${s.deviceId}:${s.folderId}`) ?? (s.folderId || s.repo || 'new folder'),
       state: derivedState(s),
@@ -399,7 +400,7 @@ export async function unlinkFolder(scope: DeviceScope, projectId: string, key: s
   afterCommit(() => wake(scope.orgId, scope.userId, f.deviceId));
 }
 
-export async function addJob(scope: DeviceScope, deviceId: string, job: { kind: 'start' | 'resume' | 'stop'; sessionId: string; folderId?: string; projectId?: string; prompt?: string; clone?: { repo: string } }): Promise<void> {
+export async function addJob(scope: DeviceScope, deviceId: string, job: { kind: 'start' | 'resume' | 'stop'; sessionId: string; folderId?: string; projectId?: string; prompt?: string; clone?: { repo: string; trusted: boolean } }): Promise<void> {
   const c = await scoped(scope);
   if (!(await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { _id: 1 } }))) throw new InputError('That device was revoked; add it again under Claude › Setup');
   const open = await c.workerJobs.countDocuments({ deviceId, doneAt: null });

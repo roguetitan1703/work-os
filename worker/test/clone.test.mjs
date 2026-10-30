@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { cloneUrl, safeName, gitArgs, resolveDestination, runClone, prepareClone, handleCloneJob, projectsDirOf, CloneError } from '../clone.mjs';
+import { shouldTrust, ownerKey, cloneUrl, safeName, gitArgs, resolveDestination, runClone, prepareClone, handleCloneJob, projectsDirOf, CloneError } from '../clone.mjs';
 import { createCore } from '../core.mjs';
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'wos-c-')));
@@ -12,7 +12,7 @@ const rm = (d) => fs.rmSync(d, { recursive: true, force: true });
 const SID = '8c1d2f3a-1b2c-4d5e-8f90-123456789abc';
 
 test('cloneUrl: owner/name is GitHub; full https and ssh addresses are used as given (any host)', () => {
-  assert.deepEqual(cloneUrl('delpat-tech/grant-leads-portal'), { url: 'https://github.com/delpat-tech/grant-leads-portal.git', name: 'grant-leads-portal', display: 'delpat-tech/grant-leads-portal' });
+  assert.deepEqual(cloneUrl('delpat-tech/grant-leads-portal'), { url: 'https://github.com/delpat-tech/grant-leads-portal.git', name: 'grant-leads-portal', display: 'delpat-tech/grant-leads-portal', key: 'github.com/delpat-tech/grant-leads-portal' });
   assert.equal(cloneUrl('Owner/Repo.git').url, 'https://github.com/Owner/Repo.git');
   assert.equal(cloneUrl('https://gitlab.com/a/b.git').url, 'https://gitlab.com/a/b.git');
   assert.equal(cloneUrl('git@bitbucket.org:team/thing.git').url, 'git@bitbucket.org:team/thing.git');
@@ -54,11 +54,12 @@ test('resolveDestination: free name, reuse of the same repo, -2 for something el
   const root = tmp();
   try {
     const roots = [root];
-    const args = { projectsDir: root, name: 'app', display: 'o/app', roots };
+    const args = { projectsDir: root, name: 'app', key: 'github.com/o/app', roots };
     assert.deepEqual(resolveDestination({ ...args }), { dest: path.join(root, 'app'), reuse: false });
     fs.mkdirSync(path.join(root, 'app', '.git'), { recursive: true });
     assert.deepEqual(resolveDestination({ ...args, remoteOf: () => 'git@github.com:O/App.git' }), { dest: path.join(root, 'app'), reuse: true });
     assert.deepEqual(resolveDestination({ ...args, remoteOf: () => 'https://github.com/o/other' }), { dest: path.join(root, 'app-2'), reuse: false });
+    assert.equal(resolveDestination({ ...args, remoteOf: () => 'https://gitlab.com/o/app' }).dest, path.join(root, 'app-2'), 'same owner/name on another host is not the same repo');
     fs.mkdirSync(path.join(root, 'app-2'));
     fs.writeFileSync(path.join(root, 'app-3'), 'a file');
     assert.deepEqual(resolveDestination({ ...args, remoteOf: () => '' }), { dest: path.join(root, 'app-4'), reuse: false });
@@ -66,7 +67,7 @@ test('resolveDestination: free name, reuse of the same repo, -2 for something el
     assert.throws(() => resolveDestination({ ...args, name: '..' }), CloneError);
     // the scan root's own path is never the destination
     const parent = path.dirname(root);
-    assert.equal(resolveDestination({ projectsDir: parent, name: path.basename(root), display: 'o/x', roots: [root, parent] }).dest, path.join(parent, path.basename(root) + '-2'));
+    assert.equal(resolveDestination({ projectsDir: parent, name: path.basename(root), key: 'github.com/o/x', roots: [root, parent] }).dest, path.join(parent, path.basename(root) + '-2'));
     // projects folder outside every root
     const other = tmp();
     try { assert.throws(() => resolveDestination({ ...args, projectsDir: other }), /not inside a folder the worker scans/); } finally { rm(other); }
@@ -77,7 +78,7 @@ test('resolveDestination: free name, reuse of the same repo, -2 for something el
 test('resolveDestination: a projects folder inside a root is created and used', () => {
   const root = tmp();
   try {
-    const r = resolveDestination({ projectsDir: path.join(root, 'sub', 'dir'), name: 'x', display: 'o/x', roots: [root] });
+    const r = resolveDestination({ projectsDir: path.join(root, 'sub', 'dir'), name: 'x', key: 'github.com/o/x', roots: [root] });
     assert.equal(r.dest, path.join(root, 'sub', 'dir', 'x'));
   } finally { rm(root); }
 });
@@ -219,4 +220,56 @@ test('status reports allowClone and projectsDir (default: the first scan root)',
     await m.core.sendStatus();
     assert.deepEqual([m.posted[1].worker.allowClone, m.posted[1].worker.projectsDir], [false, path.join(root, 'p')]);
   } finally { rm(root); }
+});
+
+test('shouldTrust: the server says the owner set the repo, or the same host and owner is already on this PC; otherwise Claude Code asks', () => {
+  const key = 'github.com/delpat-tech/new';
+  const dest = path.join(os.tmpdir(), 'wos-trust-dest');
+  const other = { remote: 'github.com/delpat-tech/other', path: path.join(os.tmpdir(), 'wos-trust-other') };
+  assert.equal(ownerKey(key), 'github.com/delpat-tech');
+  assert.equal(shouldTrust({ serverTrusted: true, key, found: [], dest }), true, '(a) set by the PC owner');
+  assert.equal(shouldTrust({ serverTrusted: false, key, found: [other], dest }), true, '(b) same host and owner already here');
+  assert.equal(shouldTrust({ serverTrusted: false, key, found: [], dest }), false, 'nothing known: not trusted');
+  assert.equal(shouldTrust({ key, found: [], dest }), false, 'server silent: not trusted');
+  assert.equal(shouldTrust({ serverTrusted: false, key, found: [{ remote: 'gitlab.com/delpat-tech/other', path: other.path }], dest }), false, 'another host');
+  assert.equal(shouldTrust({ serverTrusted: false, key, found: [{ remote: 'github.com/evil/other', path: other.path }], dest }), false, 'another owner');
+  assert.equal(shouldTrust({ serverTrusted: false, key, found: [{ remote: key, path: dest }], dest }), false, 'the new folder itself does not count');
+  assert.equal(shouldTrust({ serverTrusted: false, key, found: [other], dest, untrusted: ['github.com/delpat-tech'] }), false, 'an owner we skipped trusting before does not vouch');
+  assert.equal(shouldTrust({ serverTrusted: false, key: null, found: [other], dest }), false);
+});
+
+test('handleCloneJob: trusts only by the rules; an untrusted clone starts anyway and says so', async () => {
+  const root = tmp();
+  const home = tmp();
+  const cj = path.join(home, 'claude.json');
+  const old = process.env.WORK_OS_CLAUDE_JSON;
+  process.env.WORK_OS_CLAUDE_JSON = cj;
+  try {
+    const m = mkCoreForClone(root);
+    const run = async ({ dest }) => { fs.mkdirSync(path.join(dest, '.git'), { recursive: true }); };
+    const mk = (id, sid, repo, trusted) => ({ id, kind: 'start', sessionId: sid, projectId: 'p1', projectName: 'Proj', clone: { repo, trusted } });
+    const deps = (scanFound) => ({ getConfig: () => m.cfg, state: m.state, save() {}, api: { postStatus: async () => {} }, launcher: async (a) => void m.launches.push(a), scanAndReport: m.core.scanAndReport, scan: () => scanFound, run });
+    const trustedNow = () => { try { return Object.values(JSON.parse(fs.readFileSync(cj, 'utf8')).projects || {}).filter((p) => p.hasTrustDialogAccepted).length; } catch { return 0; } };
+    const r1 = await handleCloneJob(mk('t1', SID, 'evil/a', false), deps([]));
+    assert.equal(r1.ok, true, r1.error);
+    assert.equal(r1.untrusted, true);
+    assert.equal(trustedNow(), 0, 'not trusted');
+    assert.equal(m.launches.length, 1, 'still starts');
+    assert.ok(m.state.untrustedOwners.includes('github.com/evil'));
+    const SID2 = '9c1d2f3a-1b2c-4d5e-8f90-123456789abc';
+    const r2 = await handleCloneJob(mk('t2', SID2, 'evil/b', false), deps([{ remote: 'github.com/evil/a', path: path.join(root, 'a') }]));
+    assert.equal(r2.untrusted, true, 'an owner we did not trust does not vouch for itself');
+    const SID3 = 'ac1d2f3a-1b2c-4d5e-8f90-123456789abc';
+    const r3 = await handleCloneJob(mk('t3', SID3, 'mine/c', true), deps([]));
+    assert.equal(r3.untrusted, undefined);
+    assert.equal(trustedNow(), 1, 'owner-set repo trusted');
+    const SID4 = 'bc1d2f3a-1b2c-4d5e-8f90-123456789abc';
+    const r4 = await handleCloneJob(mk('t4', SID4, 'mine/d', false), deps([{ remote: 'github.com/mine/c', path: path.join(root, 'c') }]));
+    assert.equal(r4.untrusted, undefined, 'same host and owner already here');
+    assert.equal(trustedNow(), 2);
+  } finally {
+    if (old === undefined) delete process.env.WORK_OS_CLAUDE_JSON; else process.env.WORK_OS_CLAUDE_JSON = old;
+    rm(root);
+    rm(home);
+  }
 });

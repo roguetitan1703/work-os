@@ -1,7 +1,7 @@
 // Turbo mode: Start Claude (and a task given to Claude) on a project whose repo is not on the PC yet makes the PC's worker clone it, link the folder
 // and start. A stub worker (device key + the worker API) plays the PC: what the server hands out, what it shows, what it refuses. Seed profile: none.
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { launch, B, PW, ME, db, check, finish, api, makeUser, login, pick } from './lib.mjs';
+import { launch, B, PW, ME, db, check, finish, api, makeUser, login, pick, mkKey, mcpAs } from './lib.mjs';
 const sha = s => createHash('sha256').update(s).digest('hex');
 
 for (const n of ['tasks', 'activity', 'alertLog', 'alertQueue', 'notifications', 'workerSessions', 'workerJobs', 'workerFolders', 'devices', 'settings', 'projects', 'notes', 'trash', 'claudeItems']) await db.collection(n).deleteMany({});
@@ -75,7 +75,7 @@ try {
   await p.locator('[data-start-clone]').click();
   await p.waitForFunction(() => !document.querySelector('[data-start-step]'));
   const job = await db.collection('workerJobs').findOne({ deviceId: T.id, kind: 'start' });
-  check('a clone job was made for PC-T: repo, project, prompt, no folder', !!job && job.clone?.repo === 'delpat-tech/turbo-demo' && job.projectId === 'tp1' && job.prompt === 'hello turbo' && !job.folderId, JSON.stringify(job));
+  check('a clone job was made for PC-T: repo, project, prompt, no folder, trusted (the owner set the repo)', !!job && job.clone?.repo === 'delpat-tech/turbo-demo' && job.clone.trusted === true && job.projectId === 'tp1' && job.prompt === 'hello turbo' && !job.folderId, JSON.stringify(job));
   const sess = await db.collection('workerSessions').findOne({ _id: job?.sessionId });
   check('its session is starting and cloning, with no folder yet', sess?.state === 'starting' && sess.cloning === true && sess.folderId === '' && sess.repo === 'delpat-tech/turbo-demo', JSON.stringify(sess));
   check('no job for the other computers', (await db.collection('workerJobs').countDocuments({ deviceId: { $in: [OFF.id, OLD.id] } })) === 0);
@@ -202,6 +202,24 @@ try {
   check('dispatcher: a gitlab project is cloned from its full URL', c3?.clone?.repo === 'https://gitlab.com/acme/widgets', JSON.stringify(res3.body.jobs));
   await api(T.key, 'POST', '/api/worker/status', { jobs: [{ id: c3.id, ok: false, error: msg }], sessions: [] });
   check('dispatcher: a failed clone leaves the session failed with the reason', (await db.collection('workerSessions').findOne({ _id: c3.sessionId })).error === msg);
+
+  // A teammate edits a project's repo: the clone is not trusted automatically (Claude Code asks), and the session says it is waiting for the owner.
+  await db.collection('projects').insertOne(proj('tp7', 'Mate Edited', [{ remote: 'delpat-tech/mate-edited' }]));
+  const mkey = await mkKey({ agent: 'claude-code', userId: mate.userId, orgId: ME.orgId, name: 'mate' });
+  const up = await mcpAs(mkey, 'update_project', { project: 'tp7', code: [{ remote: 'https://github.com/mate-owned/hooks-repo' }] });
+  check('a teammate can edit the code location (the premise)', !up.isError, up.text);
+  check('the project records who set the repo', (await db.collection('projects').findOne({ _id: 'tp7' })).codeBy === mate.userId);
+  await db.collection('tasks').insertOne(task(306, 'Teammate-edited repo', 'tp7', 6));
+  const res7 = await poll(T);
+  const c7 = res7.body.jobs.find(j => j.projectId === 'tp7');
+  check('a teammate-edited repo gives a clone job with trusted:false', c7?.clone?.repo === 'mate-owned/hooks-repo' && c7.clone.trusted === false, JSON.stringify(res7.body.jobs));
+  check('an owner-set repo gave trusted:true (dispatcher)', clone5.clone.trusted === true);
+  await api(T.key, 'POST', '/api/worker/folders', { folders: [{ id: 'f_hooks7', name: 'hooks-repo', git: true, remote: 'github.com/mate-owned/hooks-repo' }] });
+  await api(T.key, 'POST', '/api/worker/status', { jobs: [{ id: c7.id, ok: true, folderId: 'f_hooks7', untrusted: true }], sessions: [{ sessionId: c7.sessionId, state: 'running' }] });
+  check('the session is marked as waiting for the owner to trust it', (await db.collection('workerSessions').findOne({ _id: c7.sessionId })).needsTrust === true);
+  await p.goto(B + '/projects/tp7?tab=claude');
+  await p.locator(`[data-session="${c7.sessionId}"]`).waitFor();
+  check('the row says so in plain words', /Waiting for you to trust this new repo on PC-T/.test(await p.locator(`[data-session="${c7.sessionId}"]`).innerText()));
 
   check('no page errors', errs.length === 0, errs.join(' | '));
 } catch (e) {

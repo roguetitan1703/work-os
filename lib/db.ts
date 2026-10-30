@@ -101,6 +101,8 @@ export type ProjectDoc = Placed & {
   code?: CodeLocation[];
   /** The member who last named it (created or renamed it; lib/data/authors.ts). Missing on older projects. */
   nameBy?: string;
+  /** Who last set its code locations (turbo mode trusts a clone only when the PC's owner did; missing = its owner). */
+  codeBy?: string;
   /** The Delpat OS project it was imported from (lib/delpat-os.ts); unique per organization among shared projects, per owner among private ones. */
   delpatOsId?: string;
   createdAt: Date;
@@ -233,8 +235,8 @@ export type ReportedClaudeSession = { sessionId: string; folder: string; title: 
 export type DeviceActivity = { sessions: number; sessionsWorkOs: number; sessionsOther: number; sessionsActive: number; subagents: number; at: Date };
 /** A folder a worker reported. _id = deviceId:folderId. Never a path. */
 export type WorkerFolderDoc = { _id: string; /** The device's owner and organization. */ orgId: string; ownerId: string; deviceId: string; folderId: string; name: string; git: boolean; remote?: string; branch?: string; projectId: string | null; linkedAt: Date | null; seenAt: Date; missing: boolean };
-export type WorkerJobDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; sessionId: string; prompt?: string; /** Turbo mode: the repo is not on the computer; the worker clones it first (docs/launcher.md). No folderId then. */ clone?: { repo: string }; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
-export type WorkerSessionDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; /** '' while its repo is still being cloned (turbo mode). */ folderId: string; projectId: string | null; /** Turbo mode: still cloning `repo` (owner/name). */ cloning?: boolean; repo?: string; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Its owner removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string };
+export type WorkerJobDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; sessionId: string; prompt?: string; /** Turbo mode: the repo is not on the computer; the worker clones it first (docs/launcher.md). No folderId then. */ clone?: { repo: string; trusted: boolean }; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
+export type WorkerSessionDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; /** '' while its repo is still being cloned (turbo mode). */ folderId: string; projectId: string | null; /** Turbo mode: still cloning `repo` (owner/name). */ cloning?: boolean; repo?: string; /** Turbo mode: cloned but not trusted automatically; Claude Code asks the person on first run. */ needsTrust?: boolean; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Its owner removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string };
 /** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
 export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker'; at: Date; n?: number };
 

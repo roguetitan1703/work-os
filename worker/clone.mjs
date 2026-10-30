@@ -62,7 +62,7 @@ export function cloneUrl(spec) {
   if (parts.length < 2 || parts.some((p) => p === '.' || p === '..')) throw bad('the repository address needs owner/name');
   const [owner, repo] = parts.slice(-2);
   if (!PART_RE.test(owner) || !PART_RE.test(repo)) throw bad('the repository address is not valid');
-  return { url, name: safeName(repo), display: `${owner}/${repo}` };
+  return { url, name: safeName(repo), display: `${owner}/${repo}`, key: normalizeRemote(url) };
 }
 
 /** A folder name made from a repo name: plain characters, no leading dot, no reserved Windows names. */
@@ -92,7 +92,7 @@ function gitRemoteOf(dir) {
  * is <name>-2, -3 ... It never leaves projectsDir and is never a scan root's own path. projectsDir must be inside a scan root,
  * because only folders under a root can be started. Returns { dest, reuse }.
  */
-export function resolveDestination({ projectsDir, name, display, roots, remoteOf = gitRemoteOf }) {
+export function resolveDestination({ projectsDir, name, key, roots, remoteOf = gitRemoteOf }) {
   const fail = (why) => new CloneError(`Couldn't clone: ${why}`, 'destination');
   if (typeof name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(name) || RESERVED.test(name) || /[. ]$/.test(name)) throw fail('the folder name is not allowed');
   if (!projectsDir) throw fail('this PC has no projects folder yet (set projectsDir in the worker settings)');
@@ -100,7 +100,6 @@ export function resolveDestination({ projectsDir, name, display, roots, remoteOf
   const base = insideRoot(projectsDir, roots);
   if (!base) throw fail(`the projects folder ${projectsDir} is not inside a folder the worker scans`);
   const rootReals = roots.map((r) => { try { return fs.realpathSync(r); } catch { return path.resolve(r); } });
-  const want = normalizeRemote(`https://x/${display}`);
   for (let i = 1; i <= 50; i++) {
     const folder = i === 1 ? name : `${name}-${i}`;
     const dest = path.resolve(base, folder);
@@ -110,8 +109,9 @@ export function resolveDestination({ projectsDir, name, display, roots, remoteOf
     if (!st) return { dest, reuse: false };
     if (st.isSymbolicLink() || !st.isDirectory()) continue;
     if (fs.existsSync(path.join(dest, '.git'))) {
+      // The same repo means the same host too (github.com/o/x is not gitlab.com/o/x).
       const got = normalizeRemote(remoteOf(dest));
-      if (got && want && got.split('/').slice(-2).join('/') === want.split('/').slice(-2).join('/')) return { dest, reuse: true };
+      if (got && key && got === key) return { dest, reuse: true };
     }
   }
   throw fail(`the folder ${path.resolve(base, name)} is something else`);
@@ -158,13 +158,31 @@ export function runClone({ url, dest, display, timeoutMs = CLONE_TIMEOUT_MS, spa
 /** Turbo mode for one repo: refuse or resolve the address, find the destination, clone (unless the folder is already that repo). */
 export async function prepareClone({ repo, cfg, run = runClone, remoteOf }) {
   if (cfg.allowClone === false) throw new CloneError("Couldn't clone: cloning is turned off on this PC", 'off');
-  const { url, name, display } = cloneUrl(repo);
+  const { url, name, display, key } = cloneUrl(repo);
   const roots = cfg.roots || [];
-  const { dest, reuse } = resolveDestination({ projectsDir: projectsDirOf(cfg), name, display, roots, ...(remoteOf ? { remoteOf } : {}) });
+  const { dest, reuse } = resolveDestination({ projectsDir: projectsDirOf(cfg), name, key, roots, ...(remoteOf ? { remoteOf } : {}) });
   if (!reuse) await run({ url, dest, display, ...(cfg.cloneTimeoutMs ? { timeoutMs: cfg.cloneTimeoutMs } : {}) });
   const dir = insideRoot(dest, roots);
   if (!dir) throw new CloneError("Couldn't clone: the new folder is outside the folders the worker scans");
-  return { dir, reused: reuse, display };
+  return { dir, reused: reuse, display, key };
+}
+
+/** host/owner of a normalized remote ("github.com/delpat-tech/x" -> "github.com/delpat-tech"). */
+export const ownerKey = (key) => (typeof key === 'string' && key.split('/').length >= 3 ? key.split('/').slice(0, -1).join('/') : null);
+
+/**
+ * Does the clone get trusted in Claude Code without asking (hasTrustDialogAccepted)? Only when it is clearly the owner's own world:
+ * (a) the server says the PC's owner set the repo (trusted: true), or (b) another repo of the same host and owner is already on this
+ * PC (scanned folders' remotes, not the new folder itself, and not an owner we skipped trusting before). Otherwise Claude Code's own
+ * trust dialog appears on first run: a teammate who can edit the project must not get a repo with hooks trusted on someone else's PC.
+ */
+export function shouldTrust({ serverTrusted, key, found = [], dest, untrusted = [] }) {
+  if (serverTrusted === true) return true;
+  const owner = ownerKey(key);
+  if (!owner || untrusted.includes(owner)) return false;
+  const here = (p) => { try { return fs.realpathSync(p); } catch { return p; } };
+  const self = dest ? here(dest) : null;
+  return found.some((f) => f && f.remote && f.path && (!self || !same(here(f.path), self)) && ownerKey(f.remote) === owner);
 }
 
 const INTERIM_MS = 30_000;
@@ -186,9 +204,11 @@ export async function handleCloneJob(job, deps) {
   if (prior) return { id, ok: true, ...(prior.folderId ? { folderId: prior.folderId } : {}) }; // re-offered: never a second window
   const progress = (phase) => api.postStatus({ sessions: [{ sessionId: job.sessionId, state: 'starting', phase }] }).catch(() => {});
   const beat = setInterval(() => progress('cloning'), INTERIM_MS);
-  let dir;
+  let dir, key;
+  let found = [];
   try {
-    ({ dir } = await prepareClone({ repo: job.clone.repo, cfg: getConfig(), ...(deps.run ? { run: deps.run } : {}), ...(deps.remoteOf ? { remoteOf: deps.remoteOf } : {}) }));
+    if (job.clone.trusted !== true && deps.scan) { try { found = deps.scan(); } catch {} } // what is already on this PC, for the trust rule
+    ({ dir, key } = await prepareClone({ repo: job.clone.repo, cfg: getConfig(), ...(deps.run ? { run: deps.run } : {}), ...(deps.remoteOf ? { remoteOf: deps.remoteOf } : {}) }));
   } catch (e) {
     return fail(e);
   } finally {
@@ -203,11 +223,14 @@ export async function handleCloneJob(job, deps) {
     if (!folderId) return fail("Couldn't clone: the new folder was not found when scanning (is it deeper than the scan depth?)");
     writeMarker(dir, { projectId: job.projectId, projectName: job.projectName, folderId });
     state.markers[folderId] = true;
-    trustFolder(dir, log);
+    state.untrustedOwners = Array.isArray(state.untrustedOwners) ? state.untrustedOwners : [];
+    const trust = shouldTrust({ serverTrusted: job.clone.trusted, key, found, dest: dir, untrusted: state.untrustedOwners });
+    if (trust) trustFolder(dir, log);
+    else { const o = ownerKey(key); if (o && !state.untrustedOwners.includes(o)) state.untrustedOwners.push(o); } // Claude Code asks on first run
     await launcher({ kind: 'start', folder: dir, sessionId: job.sessionId, projectName: job.projectName, prompt: getConfig().allowPrompts !== false ? job.prompt || undefined : undefined });
     state.sessions[job.sessionId] = { folderId, state: 'running', startedAt: now() };
     save();
-    return { id, ok: true, folderId };
+    return { id, ok: true, folderId, ...(trust ? {} : { untrusted: true }) };
   } catch (e) {
     return fail(e);
   }
