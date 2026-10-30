@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { createTaskAction } from '@/app/actions';
+import { RECURRENCE_OPTIONS } from '@/lib/recurrence-options';
 import { PRIORITIES, STATUSES, type Mode, type Priority, type Status, type TaskInput } from '@/lib/types';
 import { useApp, useModes } from './app-context';
 import { Select } from '@/components/ui/select';
@@ -39,6 +40,7 @@ export function TaskForm({ open, onClose, initial }: Props) {
     tags: initial?.tags?.join(', ') ?? '',
     checklist: '',
     links: '',
+    repeat: '0',
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF(p => ({ ...p, [k]: v }));
 
@@ -58,6 +60,7 @@ export function TaskForm({ open, onClose, initial }: Props) {
       tags: f.tags.split(',').map(t => t.trim()).filter(Boolean),
       checklist: lines(f.checklist),
       links: lines(f.links),
+      recurrence: RECURRENCE_OPTIONS[Number(f.repeat)]?.value ?? null,
     };
     start(async () => {
       const res = await createTaskAction(input);
@@ -129,6 +132,16 @@ export function TaskForm({ open, onClose, initial }: Props) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Repeats</Label>
+              <Select className={field} value={f.repeat} onChange={e => set('repeat', e.target.value)}>
+                {RECURRENCE_OPTIONS.map((o, i) => (
+                  <option key={i} value={i}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
             <div className="space-y-1">
               <Label className="text-xs">Estimate (min)</Label>
               <input type="number" min={0} className={field} value={f.estimateMins} onChange={e => set('estimateMins', e.target.value)} />

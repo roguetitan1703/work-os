@@ -5,6 +5,7 @@ import { completeTask, createTask, getTask, listTasks, logProgress, updateTask }
 import { listProjectsBasic, projectNameMap } from '../data/projects';
 import { addDays, resolveDate, todayStr } from '../dates';
 import { fmtDate } from '../format';
+import { parseRepeat } from '../quick-parse';
 import { PRIORITIES, type Mode, type Priority, type Task } from '../types';
 import { API_BASE, BlockedChannelError, DiscordError, NotVisibleError, assertNotBlocked, findChannel, guildContext, type ChannelInfo, type DiscordLink, type RawMessage } from './client';
 import { finishDiscordLink } from '../profile';
@@ -56,6 +57,13 @@ export type InteractionPlan = { response: unknown; work?: () => Promise<ReplyBod
 
 // ── Command definitions (registered per guild) ──────────────────────────────
 
+const REPEAT_CHOICES = [
+  { label: 'Every day', value: 'day' },
+  { label: 'Every weekday', value: 'weekday' },
+  { label: 'Every week', value: 'week' },
+  { label: 'Every 2 weeks', value: '2w' },
+  { label: 'Every month', value: 'month' },
+];
 const STRING = 3;
 const INTEGER = 4;
 const GUILD_ONLY = { contexts: [0], integration_types: [0] };
@@ -83,6 +91,7 @@ export const commandsFor = (modes: readonly string[]) => [
       { type: STRING, name: 'title', description: 'What needs doing', required: true, max_length: 300 },
       { type: STRING, name: 'priority', description: 'Priority (default P2)', choices: PRIORITIES.map(p => ({ name: p, value: p })) },
       { type: STRING, name: 'due', description: 'today, tomorrow, fri, +3d or YYYY-MM-DD', max_length: 40 },
+      { type: STRING, name: 'repeat', description: 'Repeat after completion', choices: REPEAT_CHOICES.map(r => ({ name: r.label, value: r.value })) },
       { type: STRING, name: 'project', description: 'Project', autocomplete: true, max_length: 120 },
       { type: STRING, name: 'mode', description: 'Work mode', ...(modes.length ? { choices: modes.slice(0, 25).map(m => ({ name: m.slice(0, 100), value: m.slice(0, 100) })) } : { max_length: 40 }) },
     ],
@@ -230,6 +239,7 @@ async function addTask(i: Interaction, c: Ctx): Promise<ReplyBody> {
       due,
       project: optStr(i, 'project') ?? null,
       mode: mode ?? null,
+      recurrence: parseRepeat(optStr(i, 'repeat') ?? '') ?? null,
     },
     by(c),
     { note: 'via Discord' },

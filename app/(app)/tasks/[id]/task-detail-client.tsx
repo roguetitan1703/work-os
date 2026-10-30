@@ -28,6 +28,7 @@ import type { Mode, Recurrence, Task, TaskPatch } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { assigneeOptions } from '@/lib/assignees';
 import { Select } from '@/components/ui/select';
+import { RECURRENCE_OPTIONS } from '@/lib/recurrence-options';
 
 const field =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring dark:bg-input/30';
@@ -409,15 +410,6 @@ function AddInline({ value, onChange, placeholder, onSubmit }: { value: string; 
     </div>
   );
 }
-
-const RECURRENCE_OPTIONS: { label: string; value: Recurrence | null }[] = [
-  { label: 'Never', value: null },
-  { label: 'Daily', value: { freq: 'daily', interval: 1 } },
-  { label: 'Weekdays', value: { freq: 'weekdays', interval: 1 } },
-  { label: 'Weekly', value: { freq: 'weekly', interval: 1 } },
-  { label: 'Every 2 weeks', value: { freq: 'weekly', interval: 2 } },
-  { label: 'Monthly', value: { freq: 'monthly', interval: 1 } },
-];
 
 function RecurrenceSelect({ value, onChange }: { value: Recurrence | null; onChange: (r: Recurrence | null) => void }) {
   const idx = RECURRENCE_OPTIONS.findIndex(o => JSON.stringify(o.value) === JSON.stringify(value));

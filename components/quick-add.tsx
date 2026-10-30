@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { ArrowUp, Plus } from 'lucide-react';
 import { createTaskAction } from '@/app/actions';
 import { parseQuickAdd } from '@/lib/quick-parse';
+import { recurrenceLabel } from '@/lib/recurrence-options';
 import { resolveDate } from '@/lib/dates';
 import { fmtDue, fmtMins } from '@/lib/format';
 import type { Mode, TaskInput } from '@/lib/types';
@@ -14,7 +15,7 @@ import { useApp, useModes } from './app-context';
 import { TaskForm } from './task-form';
 import { usePhone } from './mobile/use-phone';
 
-export const HELP = '@project  !1–!4  #tag  due:fri  start:mon  ~45m  mode:code';
+export const HELP = '@project  !1–!4  #tag  due:fri  start:mon  ~45m  mode:code  every:week';
 
 /** Single-line capture. Enter creates; Shift+Enter opens the full form prefilled. */
 export function QuickAddBar({
@@ -60,6 +61,7 @@ export function QuickAddBar({
   if (parsed.due) chips.push(due ? `due ${fmtDue(due, today)}` : `due ? "${parsed.due}"`);
   if (parsed.start) chips.push(`start ${parsed.start}`);
   if (parsed.estimateMins) chips.push(fmtMins(parsed.estimateMins));
+  if (parsed.recurrence) chips.push(recurrenceLabel(parsed.recurrence));
   if (input.mode) chips.push(input.mode);
   parsed.tags?.forEach(t => chips.push(`#${t}`));
 

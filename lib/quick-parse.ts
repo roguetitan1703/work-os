@@ -1,10 +1,11 @@
-import type { Mode, Priority, TaskInput } from './types';
+import type { Mode, Priority, Recurrence, TaskInput } from './types';
 
 // Quick-capture syntax:
 //   Fix login bug @grant-leads !1 #bug due:fri start:mon ~45m mode:code
 //   @"Grant Leads"  → project with spaces
 //   !1 / !p1        → priority      #tag → tag      ~1h30m → estimate
 //   due:today|tomorrow|fri|+3d|2026-10-20   start:… same
+//   every:day|weekday|week|2w|month (or daily / weekly)  → repeats after completion
 
 /** Short words for the default modes (lib/modes.ts DEFAULT_MODES); used only when the organization has that mode. */
 const MODE_ALIASES: Record<string, Mode> = {
@@ -40,6 +41,27 @@ function parseEstimate(s: string): number | undefined {
   return Math.round((m[1] ? parseFloat(m[1]) * 60 : 0) + (m[2] ? parseInt(m[2], 10) : 0));
 }
 
+/** every:day | weekday | week | month | 3d | 2w | 2m (also daily, weekdays, weekly, monthly); undefined when not understood. */
+export function parseRepeat(s: string): Recurrence | undefined {
+  const v = s.toLowerCase();
+  const named: Record<string, Recurrence> = {
+    day: { freq: 'daily', interval: 1 },
+    daily: { freq: 'daily', interval: 1 },
+    weekday: { freq: 'weekdays', interval: 1 },
+    weekdays: { freq: 'weekdays', interval: 1 },
+    week: { freq: 'weekly', interval: 1 },
+    weekly: { freq: 'weekly', interval: 1 },
+    month: { freq: 'monthly', interval: 1 },
+    monthly: { freq: 'monthly', interval: 1 },
+  };
+  if (named[v]) return named[v];
+  const m = v.match(/^(\d{1,3})([dwm])$/);
+  if (!m) return undefined;
+  const n = parseInt(m[1], 10);
+  if (n < 1) return undefined;
+  return { freq: m[2] === 'd' ? 'daily' : m[2] === 'w' ? 'weekly' : 'monthly', interval: n };
+}
+
 export type QuickParse = TaskInput & { title: string };
 
 export function parseQuickAdd(raw: string, projects: { id: string; name: string }[] = [], modes: readonly { name: string }[] = []): QuickParse {
@@ -66,6 +88,7 @@ export function parseQuickAdd(raw: string, projects: { id: string; name: string 
       out.project = p ? p.name : key;
     } else if (lower.startsWith('due:') && w.length > 4) out.due = w.slice(4);
     else if (lower.startsWith('start:') && w.length > 6) out.start = w.slice(6);
+    else if (lower.startsWith('every:') && parseRepeat(w.slice(6))) out.recurrence = parseRepeat(w.slice(6));
     else if (lower.startsWith('mode:') && matchMode(w.slice(5), modes)) out.mode = matchMode(w.slice(5), modes);
     else if (w.startsWith('~') && parseEstimate(w.slice(1)) !== undefined) out.estimateMins = parseEstimate(w.slice(1));
     else words.push(w);
