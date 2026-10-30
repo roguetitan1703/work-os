@@ -2,28 +2,32 @@
 
 import { useState } from 'react';
 import Link from '@/components/intent-link';
-import { ChevronDown, ChevronRight, RotateCcw, Square, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, MonitorUp, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmSheet } from '@/components/responsive-sheet';
 import { cn } from '@/lib/utils';
+import type { ReopenPrompt } from '@/lib/data/launcher';
 import type { NeedsYouItem, SessionRow, SessionRowState, SessionSummary } from '@/lib/data/claude-overview';
-import { removeSessionAction, resumeSessionAction, stopSessionAction, unhideSessionAction } from '../projects/[id]/launcher-actions';
+import { openInVscodeAction, removeSessionAction, resumeSessionAction, stopSessionAction, unhideSessionAction } from '../projects/[id]/launcher-actions';
 import { updateClaudeItemAction } from '../projects/[id]/claude-items-actions';
 import type { ClaudeTasks } from '@/lib/data/dispatcher';
 import { write } from './auto-refresh';
 import { dispatcherSettingsAction } from './dispatcher-actions';
 import { ClaudeTasksSection } from './claude-tasks';
+import { ReopenBanner } from './reopen-banner';
+import { trackJob } from './job-toast';
 import { btnOutline, card, field, ghost, H2 } from './ui';
 
-type Props = { needsYou: NeedsYouItem[]; sessions: SessionRow[]; summary: SessionSummary; hasComputers: boolean; claudeTasks: ClaudeTasks };
+type Props = { needsYou: NeedsYouItem[]; sessions: SessionRow[]; summary: SessionSummary; hasComputers: boolean; claudeTasks: ClaudeTasks; reopen?: ReopenPrompt[] };
 
-export function NowTab({ needsYou, sessions, summary, hasComputers, claudeTasks }: Props) {
+export function NowTab({ needsYou, sessions, summary, hasComputers, claudeTasks, reopen = [] }: Props) {
   // Hide an answered row at once; it stays hidden until the server copy changes (a late refresh must not bring it back).
   const [answered, setAnswered] = useState<Record<string, string>>({});
   const shown = needsYou.filter(i => answered[i.id] !== i.updatedAt);
   return (
     <div className="space-y-4">
       <SetupBanner hasComputers={hasComputers} enabled={claudeTasks.settings.enabled} hasNote={!!claudeTasks.settings.boilerplateNoteId} />
+      <ReopenBanner prompts={reopen} />
       <Summary summary={summary} needs={shown.length} hasComputers={hasComputers} />
       {shown.length > 0 && <NeedsYou items={shown} onAnswered={i => setAnswered(a => ({ ...a, [i.id]: i.updatedAt }))} />}
       <ClaudeTasksSection data={claudeTasks} />
@@ -240,12 +244,12 @@ function Sessions({ sessions, hasComputers }: { sessions: SessionRow[]; hasCompu
   const [gone, setGone] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
 
-  const call = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>, done?: () => void) => {
+  const call = async (key: string, fn: () => Promise<{ ok: boolean; error?: string; data?: unknown }>, done?: (data?: unknown) => void) => {
     setBusy(key);
     try {
       const r = await write(fn);
       if (!r.ok) return void toast.error(r.error ?? 'Failed');
-      done?.();
+      done?.(r.data);
     } catch {
       toast.error('Something went wrong');
     } finally {
@@ -297,6 +301,12 @@ function Sessions({ sessions, hasComputers }: { sessions: SessionRow[]; hasCompu
           .sort((a, b) => a.name.localeCompare(b.name))
       : [{ id: 'all', name: '', rows: ordered }];
 
+  const onVscode = (s: SessionRow) =>
+    call(
+      s.key,
+      () => openInVscodeAction(s.deviceId, s.key.slice(s.deviceId.length + 1)),
+      id => void trackJob(id as string, `Opening ${s.title} in VS Code…`, 'Opened in VS Code'),
+    );
   const onResume = (s: SessionRow) =>
     call(
       s.key,
@@ -342,7 +352,7 @@ function Sessions({ sessions, hasComputers }: { sessions: SessionRow[]; hasCompu
             {g.name && <h3 className="px-1 md:px-0 text-[13px] md:text-xs font-semibold text-muted-foreground">{g.name}</h3>}
             <ul className={cn(card, 'divide-y divide-border/60')}>
               {g.rows.map(s => (
-                <SessionLine key={s.key} s={s} busy={busy} onStop={setStopping} onRemove={remove} onResume={onResume} />
+                <SessionLine key={s.key} s={s} busy={busy} onStop={setStopping} onRemove={remove} onResume={onResume} onVscode={onVscode} />
               ))}
             </ul>
           </div>
@@ -367,13 +377,13 @@ function Sessions({ sessions, hasComputers }: { sessions: SessionRow[]; hasCompu
   );
 }
 
-function SessionLine({ s, busy, onStop, onRemove, onResume }: { s: SessionRow; busy: string | null; onStop: (s: SessionRow) => void; onRemove: (s: SessionRow) => void; onResume: (s: SessionRow) => void }) {
+function SessionLine({ s, busy, onStop, onRemove, onResume, onVscode }: { s: SessionRow; busy: string | null; onStop: (s: SessionRow) => void; onRemove: (s: SessionRow) => void; onResume: (s: SessionRow) => void; onVscode: (s: SessionRow) => void }) {
   const st = stateOf(s);
   const off = busy === s.key;
   const subs = s.subagents > 0 ? `${s.subagents} ${s.subagents === 1 ? 'subagent' : 'subagents'}` : '';
   return (
     <li
-      className="grid grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[auto_minmax(0,1.5fr)_minmax(0,1fr)_6rem_8rem_5rem_10.5rem] items-center gap-x-2 pl-4 md:pl-3 pr-1 py-1 min-h-14 md:min-h-10"
+      className="grid grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[auto_minmax(0,1.5fr)_minmax(0,1fr)_6rem_minmax(8rem,12rem)_5rem_auto] items-center gap-x-2 pl-4 md:pl-3 pr-1 py-1 min-h-14 md:min-h-10"
       data-session-row={s.key}
       data-state={s.state}
     >
@@ -384,6 +394,7 @@ function SessionLine({ s, busy, onStop, onRemove, onResume }: { s: SessionRow; b
             {s.title}
           </span>
           {s.workOs && <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground font-medium">Work OS</span>}
+          {s.origin === 'vscode' && <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 font-medium" data-origin-badge>VS Code</span>}
         </div>
         {/* Phone: one meta line under the title. Desktop shows these as columns. */}
         <div className="md:hidden text-[13px] text-muted-foreground truncate" data-session-meta suppressHydrationWarning>
@@ -411,11 +422,21 @@ function SessionLine({ s, busy, onStop, onRemove, onResume }: { s: SessionRow; b
       <div className="hidden md:block text-xs truncate" data-col="state">
         <span className={st.tone}>{st.label}</span>
         {subs && <span className="text-muted-foreground"> · {subs}</span>}
+        {s.error && (
+          <span className="text-muted-foreground" title={s.error} data-session-error>
+            {' '}· {s.error}
+          </span>
+        )}
       </div>
       <div className="hidden md:block text-xs text-muted-foreground" data-col="ago" suppressHydrationWarning>
         <span suppressHydrationWarning>{agoShort(s.lastActiveAt)}</span>
       </div>
       <div className="flex items-center justify-end col-start-3 row-start-1 md:col-start-auto md:row-start-auto min-w-0">
+        {s.canVscode && (
+          <button type="button" className={ghost} disabled={off} onClick={() => onVscode(s)} aria-label={`Open ${s.title} in VS Code`} title="Open this session in VS Code on its computer" data-open-vscode data-origin={s.origin ?? ''}>
+            <MonitorUp className="w-4 h-4" /> Open in VS Code
+          </button>
+        )}
         {s.canStop && (
           <button type="button" className={ghost} disabled={off} onClick={() => onStop(s)} aria-label={`Stop ${s.title}`}>
             <Square className="w-4 h-4" /> Stop

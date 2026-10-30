@@ -2,11 +2,13 @@
 
 import { Ago } from '@/components/ago';
 import { useTransition } from 'react';
-import { RotateCcw, Square, Trash2 } from 'lucide-react';
+import { MonitorUp, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { FolderView, SessionView } from '@/lib/data/launcher';
+import type { FolderView, ReopenPrompt, SessionView } from '@/lib/data/launcher';
 import { stateText } from '@/lib/session-state';
-import { removeSessionAction, resumeSessionAction, stopSessionAction } from './launcher-actions';
+import { openInVscodeAction, removeSessionAction, resumeSessionAction, stopSessionAction } from './launcher-actions';
+import { ReopenBanner } from '../../claude/reopen-banner';
+import { trackJob } from '../../claude/job-toast';
 import { FolderLinks } from './folders';
 
 const H2 = 'text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider';
@@ -19,12 +21,14 @@ export function ProjectSessions({
   suggestions,
   sessions,
   devices,
+  reopen = [],
 }: {
   projectId: string;
   folders: FolderView[];
   suggestions: FolderView[];
   sessions: SessionView[];
   devices: { id: string; name: string }[];
+  reopen?: ReopenPrompt[];
 }) {
   const [pending, start] = useTransition();
 
@@ -42,6 +46,8 @@ export function ProjectSessions({
       </div>
 
       <FolderLinks projectId={projectId} folders={folders} suggestions={suggestions} devices={devices} />
+
+      <ReopenBanner prompts={reopen} onlyDevices={folders.map(f => f.deviceId)} />
 
       {sessions.length > 0 && (
         <div className={`${card} divide-y divide-border/60`}>
@@ -69,6 +75,25 @@ export function ProjectSessions({
               {canResume && (
                 <button type="button" className={iconBtn} disabled={pending} onClick={() => act(() => resumeSessionAction(projectId, s.id), 'Resuming…')} aria-label="Resume" title="Resume this session in its terminal">
                   <RotateCcw className="w-4 h-4" /> Resume
+                </button>
+              )}
+              {s.linked && (
+                <button
+                  type="button"
+                  className={iconBtn}
+                  disabled={pending}
+                  onClick={() =>
+                    start(async () => {
+                      const r = await openInVscodeAction(s.deviceId, s.id);
+                      if (!r.ok) return void toast.error(r.error);
+                      void trackJob(r.data, 'Opening in VS Code…', 'Opened in VS Code');
+                    })
+                  }
+                  aria-label="Open in VS Code"
+                  title="Open this session in VS Code on its computer"
+                  data-open-vscode
+                >
+                  <MonitorUp className="w-4 h-4" /> Open in VS Code
                 </button>
               )}
               {canStop && (

@@ -88,7 +88,7 @@ export default async function ClaudePage({ searchParams }: Props) {
       {/* Set up refreshes too: it waits for a computer to connect and shows it when it does. */}
       {/* eslint-disable-next-line react-hooks/purity -- a server render runs once per request; the stamp marks it */}
       <AutoRefresh stamp={Date.now()} />
-      {tab === 'now' && data && tasks && <NowTab claudeTasks={tasks} needsYou={data.needsYou} sessions={data.sessions} summary={data.summary} hasComputers={data.hasComputers} />}
+      {tab === 'now' && data && tasks && <NowTab claudeTasks={tasks} needsYou={data.needsYou} sessions={data.sessions} summary={data.summary} hasComputers={data.hasComputers} reopen={data.reopen} />}
       {tab === 'queue' && data && <QueueTab groups={data.queue} />}
       {tab === 'setup' && <SetupTab url={url} />}
     </div>
