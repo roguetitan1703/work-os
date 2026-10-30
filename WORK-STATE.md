@@ -1,10 +1,9 @@
 # Work state
 
 ## Now
-- 2026-10-26: Work OS runs at https://work.delpat.in (cut-over done 2026-10-25). Master has Settings like claude.ai, Claude › Set up in 3 steps, the first-run checklist, the Delpat OS import (security reviewed twice) and the last Vercel/personal text removed; 31 suites pass; built and uploaded to manual-builds. Waits on Om: `sudo work-os-update` on the box, DELPAT_OS_CLIENT_SECRET in /etc/work-os/env, then the first real Delpat OS link and import. Claude Code sign-in (OAuth) works on the live server. A how-to-use guide for colleagues is a Claude doc ("Work OS: how to use it").
+- 2026-10-30: Work OS runs at https://work.delpat.in. Master adds turbo mode (Start / Give to Claude clones, links and starts), Open in VS Code and Reopen all after a restart, failure reasons in plain words, recurring tasks findable, Caddy waits through restarts; 33 suites pass (tenancy once flaky, passed on rerun); built and uploaded. Waits on Om: edit /etc/caddy/sites/work-os.caddy (lb_try lines) + reload, , DELPAT_OS_CLIENT_SECRET, first real turbo Start and Open in VS Code.
 
 ## Next
-0c. Builder A (next free slot): Turbo mode (design agreed with Om 2026-10-30): Start Claude / Give to Claude on a project whose repo is not on the PC -> the worker creates the folder in the PC's default projects folder, clones the project's repo (any https/ssh git address, never ext::/file::), links it and starts Claude; row shows Cloning -> Starting; plain error on no access. On by default, local off switch; owner's own PC only. Also: a folder he clones himself gets linked by remote. Security review (light: no extra friction).
 0d. Chat porting between tools (Antigravity -> Claude): test Antigravity writing a handover note over MCP with Akash; else Import chat into a note (builder S). Add Resume / handover note / /export tips to the colleague guide.
 0. Om: Discord Interactions Endpoint URL = https://work.delpat.in/api/discord/interactions, then Settings › Server › Discord › Register the commands.
 Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
@@ -155,3 +154,5 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Turbo mode: 'scan now' poke so a folder the person clones himself is offered for linking at once (waits on a new push event or a hint field on the jobs poll; today it appears after the next 15-minute scan). Also: nested GitLab group paths are cut to the last two parts, ssh-only hosts clone over https.
 - Open in VS Code: the extension asks once "Allow Claude Code for VS Code to open this URI?" (tick do not ask again); the panel loading the session and a cold start after reboot (25 s wait) are not checked by hand — waits on Om's first use.
 - Leak audit: one run showed 12 notes "not found" mismatches that passed on rerun (builder B, 2026-10-30) — waits on it happening again (then find the race).
+- e2e tenancy: "A settings: the operator sees Usage" failed once in the full run and passed alone (2026-10-30) — waits on it happening again.
+- Turbo: a repo the user clones by hand is offered for Link only after the next 15-min scan (no scan-now push event) — waits on Om or Akash wanting it faster.
