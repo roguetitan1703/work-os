@@ -1,7 +1,7 @@
 # Work state
 
 ## Now
-- 2026-10-30: Work OS runs at https://work.delpat.in. Master adds turbo mode (Start / Give to Claude clones, links and starts), Open in VS Code and Reopen all after a restart, failure reasons in plain words, recurring tasks findable, Caddy waits through restarts; 33 suites pass (tenancy once flaky, passed on rerun); built and uploaded. Waits on Om: edit /etc/caddy/sites/work-os.caddy (lb_try lines) + reload, , DELPAT_OS_CLIENT_SECRET, first real turbo Start and Open in VS Code.
+- 2026-10-30: Work OS runs at https://work.delpat.in. Master adds turbo mode (Start / Give to Claude clones, links and starts), Open in VS Code and Reopen all after a restart, failure reasons in plain words, recurring tasks findable, Caddy waits through restarts; 33 suites pass (tenancy once flaky, passed on rerun); built and uploaded. Waits on Om: edit /etc/caddy/sites/work-os.caddy (lb_try lines) + reload, `sudo work-os-update`, DELPAT_OS_CLIENT_SECRET, first real turbo Start and Open in VS Code.
 
 ## Next
 0d. Chat porting between tools (Antigravity -> Claude): test Antigravity writing a handover note over MCP with Akash; else Import chat into a note (builder S). Add Resume / handover note / /export tips to the colleague guide.
