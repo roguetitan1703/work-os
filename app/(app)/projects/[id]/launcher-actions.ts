@@ -5,7 +5,7 @@ import { z, ZodError } from 'zod';
 import { SafeError } from '@/lib/auth';
 import { requireCaller, withCaller, type Caller } from '@/lib/caller';
 import { InputError, NotFoundError } from '@/lib/data/errors';
-import { linkFolder, projectLauncher, relinkFolder, removeSession, resumeSession, searchFolders, startSession, stopSession, unhideSession, unlinkFolder, type FolderView } from '@/lib/data/launcher';
+import { dismissReopen, jobOutcome, linkFolder, openSessionInVscode, projectLauncher, relinkFolder, reopenAll, removeSession, resumeSession, searchFolders, startSession, stopSession, unhideSession, unlinkFolder, type FolderView } from '@/lib/data/launcher';
 import { listProjectsNav } from '@/lib/data/projects';
 import { startProjects, type StartProject } from '@/lib/data/claude-overview';
 
@@ -73,6 +73,36 @@ export async function resumeSessionAction(projectId: string, sessionId: string):
     await resumeSession(c, Id.parse(projectId), Uuid.parse(sessionId));
     return null;
   });
+}
+
+/**
+ * Open a session in VS Code on its computer (the Claude Code extension shows it). Returns the job id; jobOutcomeAction says
+ * how it went. The computer's worker finds the folder itself and applies the checks a resume makes.
+ */
+export async function openInVscodeAction(deviceId: string, sessionId: string): Promise<R<string>> {
+  return run(null, c => openSessionInVscode(c, Id.parse(deviceId), Uuid.parse(sessionId)));
+}
+
+/** "Reopen all": the computer's worker reopens the sessions it remembers were open before it restarted. */
+export async function reopenAllAction(deviceId: string): Promise<R<string>> {
+  return run(null, async c => {
+    const id = await reopenAll(c, Id.parse(deviceId));
+    revalidatePath('/claude');
+    return id;
+  });
+}
+
+export async function dismissReopenAction(deviceId: string): Promise<R<null>> {
+  return run(null, async c => {
+    await dismissReopen(c, Id.parse(deviceId));
+    revalidatePath('/claude');
+    return null;
+  });
+}
+
+/** Has a job finished, and how? (For the toast after Open in VS Code and Reopen all.) */
+export async function jobOutcomeAction(jobId: string): Promise<R<{ done: boolean; ok?: boolean; error?: string }>> {
+  return run(null, c => jobOutcome(c, Id.parse(jobId)));
 }
 
 export async function stopSessionAction(projectId: string, sessionId: string): Promise<R<null>> {

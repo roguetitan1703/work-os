@@ -53,9 +53,9 @@ test('payload has only the allowed keys and no message text or full path', () =>
     assert.ok(!json.includes('secret-dir'));
     assert.ok(!/[\\/]/.test(json.replace(/\\"/g, '')), 'no path separators anywhere in the payload');
     for (const s of list) {
-      assert.deepEqual(Object.keys(s).sort(), ['folder', 'lastActiveAt', 'running', 'sessionId', 'startedByWorkOs', 'subagentsActive', 'title']);
+      assert.deepEqual(Object.keys(s).sort(), ['folder', 'lastActiveAt', 'origin', 'running', 'sessionId', 'startedByWorkOs', 'subagentsActive', 'title']);
       const strings = Object.values(s).filter((v) => typeof v === 'string');
-      assert.equal(strings.length, 3); // sessionId, folder, title
+      assert.equal(strings.length, 4); // sessionId, folder, title, origin
       assert.ok(Number.isInteger(s.lastActiveAt) && Number.isInteger(s.subagentsActive));
     }
     const untitled = list.find((s) => s.sessionId === uuid(2));
@@ -122,7 +122,7 @@ test('large transcript: title found in the tail without reading the whole file',
   try {
     const big = rec({ type: 'user', cwd: '/a/big', message: { content: 'x'.repeat(2000) } }).repeat(1500); // ~3 MB
     const f = put('p1', uuid(1), 1000, [big, rec({ type: 'ai-title', aiTitle: 'Tail title' })]);
-    assert.deepEqual(readSessionMeta(f), { title: 'Tail title', folder: 'big' });
+    assert.deepEqual(readSessionMeta(f), { title: 'Tail title', folder: 'big', origin: 'other' });
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

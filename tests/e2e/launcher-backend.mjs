@@ -109,6 +109,39 @@ await db.collection('workerJobs').insertOne({ _id: 'j_fail1', deviceId: A.id, ki
 await api(A.key, 'POST', '/api/worker/status', { jobs: [{ id: 'j_fail1', ok: false, error: 'e'.repeat(500) }] });
 const fs2 = await db.collection('workerSessions').findOne({ _id: sid2 }); check('failed job -> session failed, error <=300', fs2.state === 'failed' && fs2.error.length === 300);
 
+// session origin, reopen list (docs/launcher.md "Reopen after a restart")
+{
+  const V = await mkDevice('dev-vs'); // its own device: the per-device rate limit counts calls
+  const s1 = randomUUID(), s2 = randomUUID();
+  const item = (id, o = {}) => ({ sessionId: id, folder: 'pms', title: 't', lastActiveAt: Date.now() - 1000, subagentsActive: 0, startedByWorkOs: false, running: true, origin: 'vscode', ...o });
+  const st = b => api(V.key, 'POST', '/api/worker/status', b);
+  check('claudeSessions with origin vscode/cli/other accepted', (await st({ claudeSessions: [item(s1), item(s2, { origin: 'cli' })] })).status === 200);
+  const dv = await db.collection('devices').findOne({ _id: V.id });
+  check('origin stored per session', dv.claudeSessions.items.find(i => i.sessionId === s1)?.origin === 'vscode' && dv.claudeSessions.items.find(i => i.sessionId === s2)?.origin === 'cli');
+  check('claudeSessions without origin still accepted (older worker)', (await st({ claudeSessions: [item(s1, { origin: undefined })] })).status === 200);
+  check('bad origin rejected', (await st({ claudeSessions: [item(s1, { origin: 'rm -rf' })] })).status === 400);
+  const ro = (o = {}) => ({ sessionId: s1, origin: 'vscode', title: 'Fix login', folder: 'pms', ...o });
+  check('reopen list accepted and stored', (await st({ reopen: [ro(), ro({ sessionId: s2, origin: 'cli' })] })).status === 200 && (await db.collection('devices').findOne({ _id: V.id })).reopen?.items.length === 2);
+  for (const [label, bad] of [['not an array', 'x'], ['path as folder', [ro({ folder: 'C:\\Users\\om\\pms' })]], ['slash in folder', [ro({ folder: 'a/b' })]], ['backslash in folder', [ro({ folder: 'a\\b' })]], ['dot-dot folder', [ro({ folder: '..' })]], ['dot folder', [ro({ folder: '.' })]], ['bad origin', [ro({ origin: 'x' })]], ['bad id', [ro({ sessionId: 'nope' })]], ['duplicate id', [ro(), ro()]], ['over 20', Array.from({ length: 21 }, () => ro({ sessionId: randomUUID() }))], ['extra title type', [ro({ title: 5 })]]]) {
+    check(`reopen rejected: ${label}`, (await st({ reopen: bad })).status === 400);
+  }
+  check('rejected reopen left the stored list alone', (await db.collection('devices').findOne({ _id: V.id })).reopen?.items.length === 2);
+  check('status without reopen leaves it alone', (await st({ worker: { version: '0.2.0', os: 'win32' } })).status === 200 && (await db.collection('devices').findOne({ _id: V.id })).reopen?.items.length === 2);
+  check('empty reopen clears it (the worker reopened or dismissed)', (await st({ reopen: [] })).status === 200 && !(await db.collection('devices').findOne({ _id: V.id })).reopen);
+  // new job kinds travel without a session id; a failed vscode job never marks a session failed
+  const sid3 = randomUUID();
+  await db.collection('workerSessions').insertOne({ _id: sid3, deviceId: V.id, folderId: 'f_good1', projectId: pid, state: 'running', startedAt: new Date(), updatedAt: new Date() });
+  await db.collection('workerJobs').insertMany([
+    { _id: 'j_ro1', deviceId: V.id, kind: 'reopen', createdAt: new Date(), takenAt: null, doneAt: null },
+    { _id: 'j_vs1', deviceId: V.id, kind: 'vscode', sessionId: sid3, createdAt: new Date(), takenAt: null, doneAt: null },
+  ]);
+  const jj = (await api(V.key, 'GET', '/api/worker/jobs')).body.jobs;
+  check('reopen job delivered without a session id', jj.find(j => j.id === 'j_ro1')?.kind === 'reopen' && !('sessionId' in jj.find(j => j.id === 'j_ro1')), JSON.stringify(jj));
+  check('vscode job delivered with its session id only', jj.find(j => j.id === 'j_vs1')?.sessionId === sid3 && !('folderId' in jj.find(j => j.id === 'j_vs1')));
+  await st({ jobs: [{ id: 'j_vs1', ok: false, error: 'folder not linked to a project' }, { id: 'j_ro1', ok: true }] });
+  check('failed vscode job is recorded but the running session stays running', (await db.collection('workerJobs').findOne({ _id: 'j_vs1' })).error === 'folder not linked to a project' && (await db.collection('workerSessions').findOne({ _id: sid3 })).state === 'running');
+}
+
 // rate limit
 const L = await mkDevice('dev-rate');
 let first429 = -1;

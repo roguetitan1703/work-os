@@ -7,8 +7,9 @@ panel; the worker is a small Node program on each machine.
 ## Rules (both sides)
 
 1. Paths never leave the machine. Work OS knows folders by `folderId` + display `name` only.
-2. The worker does exactly three things: start, resume, stop. It never runs commands from the
-   server and launches `claude` with an argument array (no shell string, except the macOS
+2. The worker does exactly these things: start, resume, stop, open a session in VS Code, and reopen/dismiss the sessions
+   it remembers were open before a restart ("VS Code and Reopen after a restart" below). It never runs commands from the
+   server and launches `claude` and VS Code with argument arrays (no shell string, except the macOS
    Terminal script, which must quote every value).
 3. A job's optional `prompt` is only ever text Om typed at Start. Work OS never fills it from a
    task, note, Discord or Claude.
@@ -170,6 +171,18 @@ start there):
 - Claude Code sessions resolve their project in this order: nearest `.workos.json` (this folder
   or a parent) → git remote / subdir / branch (`get_project`) → ask Om.
 
+## VS Code and Reopen after a restart
+
+Added for Om's VS Code sessions (most of his sessions live in VS Code, and a crash or restart used to mean reopening each one by hand).
+
+- **Where a session was made.** Each session in `claudeSessions` carries `origin`: `vscode` (transcript lines say `"entrypoint":"claude-vscode"`), `cli` (`"cli"`) or `other`. It is the LAST entrypoint in the transcript tail (where the session was last used); only that short token is read, nothing else on those lines. Server: `cleanClaudeSessions` accepts `origin` (optional, an unknown value is a 400).
+- **Open in VS Code** (job kind `vscode`, `{id, kind, sessionId}`; no folder id, no prompt). Button on any session row on the Claude page (and on the project's sessions) when the computer is online. The server action (`openInVscodeAction`) only accepts a session the computer itself reported. The worker finds `~/.claude/projects/*/<sessionId>.jsonl`, reads the session's `cwd` (local only, never sent), and applies the checks a resume makes: the id is a UUID, the folder resolves (realpath) inside an allowed root, and it is at or below a scanned folder that is linked to a project (`locate()` in `worker/core.mjs`). Then, with `Code.exe` started directly with an argument array (never a shell, never `code.cmd`, never from PATH or inside an allowed root; standard install paths only: `%LOCALAPPDATA%\Programs\Microsoft VS Code`, Program Files, the macOS app): `Code.exe <folder>` (reuses the window already showing that folder), a wait of 8 s, then `Code.exe --open-url -- vscode://anthropic.claude-code/open?session=<id>` (what Windows runs for a `vscode://` link). The Claude Code extension opens the session in that window. `ELECTRON_RUN_AS_NODE` and `VSCODE_*` are removed from the environment. Opens run one at a time. `worker/vscode.mjs`.
+- **VS Code asks once.** The first time, VS Code shows "Allow 'Claude Code for VS Code' to open this URI?"; Om answers Open (the checkbox makes it permanent). Work OS cannot and does not answer it. Checked by hand on Om's PC (VS Code with the extension 2.1.312, Windows 11): the folder window opens and the link reaches the extension, which showed this prompt.
+- **Reopen after a restart.** Each status report (list built) the worker saves `state.openSet` (sessions in its list that are running: id, origin, title, folder name, time). At the first list after the worker starts, entries of the old set that are not running now become `state.reopen` (pending; older than 7 days dropped; at most 20). Pending ones leave it when they run again, on Reopen all or on Dismiss. A session closed normally while the worker ran leaves the set at the next report, so only sessions that vanished with the PC are offered (closing everything and shutting down within 2 minutes can still offer them: Dismiss). The status carries `reopen: [{sessionId, origin, title, folder}]` (always, `[]` when none; strict validation `cleanReopen`, at most 20, folder a name). No paths, no timestamps.
+- **The prompt.** The Claude page (Now) and the project's Sessions show "N sessions were open before <PC> restarted" with the list (title, folder, where it reopens), **Reopen all** and **Dismiss** (`app/(app)/claude/reopen-banner.tsx`). Nothing is reopened without the tap. Reopen all queues a `reopen` job (no ids: the server cannot name sessions, the worker uses its own remembered list); Dismiss queues `dismiss`. Both clear the server copy at once. The worker reopens each session where it was made: `vscode` as above, anything else with `claude --resume` in Windows Terminal (like Resume, project name from the link). Sessions that are running again are skipped; ones that fail the checks are listed in the job result ("Opened 1 of 2: Link this folder to a project first").
+- **Feedback.** After a tap the page polls `jobOutcomeAction` (about 1 minute) and toasts how it went. Failure reasons from the worker are shown in plain words (`lib/worker-errors.ts`, used for failed sessions on the Claude page and the project's sessions).
+- Not verified: a cold start (VS Code not running, as after a reboot). The worker then waits 25 s instead of 8 s before sending the link; if that is still too short the link can be lost (tap again).
+
 ## Launching
 
 - Windows: Windows Terminal, new window in the folder, running `node worker/run-claude.mjs <claude> <args>`. The wrapper
@@ -183,6 +196,7 @@ start there):
 - Stop: end only that claude process tree; the wrapper then exits 0 and the tab closes.
 - The folder must resolve (realpath) inside an allowed root; otherwise the job fails.
 - Windows requires Windows Terminal (`wt.exe`). The cmd.exe fallback was removed; without wt.exe the job fails with "Install Windows Terminal (wt.exe)".
+- Resume and open-in-VS Code also come from the remembered open set ("VS Code and Reopen after a restart").
 - The worker launches an absolute `claude` path resolved once at startup (outside any allowed root), only in folders that are currently linked, and only acts on sessions it started (exact `--session-id`/`--resume <id>` match). Recently handled job ids are remembered so a re-offered job is not launched twice. Config `allowPrompts: false` makes the worker ignore job prompts.
 
 ## Folder trust
