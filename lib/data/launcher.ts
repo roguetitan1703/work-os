@@ -1,6 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import type { DeviceActivity, ReportedClaudeSession, WorkerFolderDoc, WorkerJobDoc, WorkerSessionDoc } from '../db';
+import type { DeviceActivity, ReopenItem, ReportedClaudeSession, SessionOrigin, WorkerFolderDoc, WorkerJobDoc, WorkerSessionDoc } from '../db';
+import { friendlyError } from '../worker-errors';
 import { scoped, type Scope } from '../scope';
 import { afterCommit } from '../db';
 import { quietly, wake, hint, connectedDevice } from '../live';
@@ -86,7 +87,7 @@ export type JobsResponse = {
   enabled: boolean;
   pollSeconds: number;
   links: { folderId: string; projectId: string; projectName: string }[];
-  jobs: { id: string; kind: 'start' | 'resume' | 'stop'; folderId?: string; projectId?: string; projectName?: string; sessionId: string; prompt?: string; clone?: { repo: string; trusted: boolean } }[];
+  jobs: { id: string; kind: WorkerJobDoc['kind']; folderId?: string; projectId?: string; projectName?: string; sessionId?: string; prompt?: string; clone?: { repo: string; trusted: boolean } }[];
 };
 
 export async function pollJobs(s: Scope, deviceId: string): Promise<JobsResponse> {
@@ -124,7 +125,7 @@ export async function pollJobs(s: Scope, deviceId: string): Promise<JobsResponse
     jobs: pending.map(j => ({
       id: j._id,
       kind: j.kind,
-      sessionId: j.sessionId,
+      ...(j.sessionId ? { sessionId: j.sessionId } : {}),
       ...(j.folderId ? { folderId: j.folderId } : {}),
       ...(j.projectId ? { projectId: j.projectId, projectName: names.get(j.projectId) ?? j.projectId } : {}),
       ...(j.prompt ? { prompt: j.prompt } : {}),
@@ -152,6 +153,27 @@ export function cleanActivity(raw: unknown): Omit<DeviceActivity, 'at'> {
 /** Named session list a worker reports (sending folder names and titles was approved 2026-10-15). Strict: anything off is a 400. */
 export const MAX_SESSION_LIST = 50;
 const ANY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ORIGINS: SessionOrigin[] = ['vscode', 'cli', 'other'];
+/** Sessions the worker remembers as open before the PC restarted: id, where it was made, folder name, title. Strict, like the session list. */
+export const MAX_REOPEN = 20;
+export function cleanReopen(raw: unknown): ReopenItem[] {
+  if (!Array.isArray(raw)) throw new InputError('reopen must be an array');
+  if (raw.length > MAX_REOPEN) throw new InputError(`at most ${MAX_REOPEN} sessions in reopen`);
+  const seen = new Set<string>();
+  return raw.map((x, n) => {
+    const o = (x && typeof x === 'object' && !Array.isArray(x) ? x : {}) as Record<string, unknown>;
+    if (typeof o.sessionId !== 'string' || !ANY_UUID.test(o.sessionId)) throw new InputError(`reopen[${n}].sessionId must be a UUID`);
+    const sessionId = o.sessionId.toLowerCase();
+    if (seen.has(sessionId)) throw new InputError(`reopen[${n}] repeats a session id`);
+    seen.add(sessionId);
+    if (!ORIGINS.includes(o.origin as SessionOrigin)) throw new InputError(`reopen[${n}].origin must be vscode, cli or other`);
+    if (typeof o.folder !== 'string' || !o.folder.trim() || o.folder.length > 80 || /[\\/]|^[a-z]:|^~|^\.\.?$|[\u0000-\u001f]/i.test(o.folder)) throw new InputError(`reopen[${n}].folder must be a folder name`);
+    if (typeof o.title !== 'string' || o.title.length > 500) throw new InputError(`reopen[${n}].title must be a string`);
+    const title = o.title.replace(/[\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || o.folder.trim();
+    return { sessionId, folder: o.folder.trim(), title, origin: o.origin as SessionOrigin };
+  });
+}
+
 export function cleanClaudeSessions(raw: unknown): ReportedClaudeSession[] {
   if (!Array.isArray(raw)) throw new InputError('claudeSessions must be an array');
   if (raw.length > MAX_SESSION_LIST) throw new InputError(`at most ${MAX_SESSION_LIST} sessions`);
@@ -173,14 +195,16 @@ export function cleanClaudeSessions(raw: unknown): ReportedClaudeSession[] {
     const sub = o.subagentsActive;
     if (typeof sub !== 'number' || !Number.isInteger(sub) || sub < 0) throw new InputError(`claudeSessions[${n}].subagentsActive must be a whole number, 0 or more`);
     if (typeof o.startedByWorkOs !== 'boolean' || typeof o.running !== 'boolean') throw new InputError(`claudeSessions[${n}] flags must be true or false`);
-    return { sessionId, folder: o.folder.trim(), title, lastActiveAt: new Date(Math.round(at)), subagentsActive: Math.min(sub, 99), startedByWorkOs: o.startedByWorkOs, running: o.running };
+    if (o.origin !== undefined && !ORIGINS.includes(o.origin as SessionOrigin)) throw new InputError(`claudeSessions[${n}].origin must be vscode, cli or other`);
+    return { sessionId, folder: o.folder.trim(), title, lastActiveAt: new Date(Math.round(at)), subagentsActive: Math.min(sub, 99), startedByWorkOs: o.startedByWorkOs, running: o.running, ...(o.origin ? { origin: o.origin as SessionOrigin } : {}) };
   });
 }
 
 export async function reportStatus(s: Scope, deviceId: string, body: unknown): Promise<void> {
-  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; bundle?: unknown; allowPrompts?: unknown; allowClone?: unknown; projectsDir?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown };
+  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; bundle?: unknown; allowPrompts?: unknown; allowClone?: unknown; projectsDir?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown; reopen?: unknown };
   const activity = b.activity === undefined ? null : cleanActivity(b.activity); // validate before any write
   const claudeSessions = b.claudeSessions === undefined ? null : cleanClaudeSessions(b.claudeSessions);
+  const reopen = b.reopen === undefined ? undefined : cleanReopen(b.reopen);
   const c = await scoped(s);
   const now = new Date();
   // A heartbeat writes the same rows every couple of minutes; it pushes a hint to the person's Claude page only when
@@ -190,6 +214,7 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
     const set: Record<string, unknown> = {};
     if (claudeSessions) set.claudeSessions = { at: now, items: claudeSessions };
     if (activity) set.activity = { ...activity, at: now };
+    if (reopen && reopen.length) set.reopen = { at: now, items: reopen };
     if (b.worker && typeof b.worker === 'object') {
       const version = String(b.worker.version ?? '').slice(0, 20);
       const os = String(b.worker.os ?? '').slice(0, 20);
@@ -200,9 +225,10 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
       set.worker = { version, os, ...(bundle ? { bundle } : {}), allowPrompts: b.worker.allowPrompts === true, ...(typeof b.worker.allowClone === 'boolean' ? { allowClone: b.worker.allowClone && !!dir } : {}), ...(dir ? { projectsDir: dir } : {}) };
       set.lastSeenAt = now;
     }
-    if (Object.keys(set).length) {
-      const before = await c.devices.findOneAndUpdate({ _id: deviceId }, { $set: set }, { returnDocument: 'before', projection: { activity: 1, claudeSessions: 1, worker: 1 } });
-      shown = !before || deviceViewChanged(before, set, now.getTime());
+    if (Object.keys(set).length || (reopen && !reopen.length)) {
+      const unset = reopen && !reopen.length ? { reopen: '' as const } : null; // the worker says nothing is pending any more
+      const before = await c.devices.findOneAndUpdate({ _id: deviceId }, { ...(Object.keys(set).length ? { $set: set } : {}), ...(unset ? { $unset: unset } : {}) }, { returnDocument: 'before', projection: { activity: 1, claudeSessions: 1, worker: 1, reopen: 1 } });
+      shown = !before || deviceViewChanged(before, { ...set, ...(unset ? { reopen: undefined } : {}) }, now.getTime());
     }
     if (b.jobs !== undefined && !Array.isArray(b.jobs)) throw new InputError('jobs must be an array');
     for (const r of ((b.jobs as unknown[]) ?? []).slice(0, 50)) {
@@ -217,9 +243,9 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
         await c.workerFolders.updateOne({ _id: `${deviceId}:${o.folderId}`, projectId: null }, { $set: { projectId: job.projectId, linkedAt: now } });
         await c.workerSessions.updateOne({ _id: job.sessionId, deviceId }, { $set: { folderId: o.folderId, updatedAt: now, ...(o.untrusted === true ? { needsTrust: true } : {}) }, $unset: { cloning: '' } });
       }
-      if (job && !ok && job.kind !== 'stop') await c.workerSessions.updateOne({ _id: job.sessionId, deviceId }, { $set: { state: 'failed', error, updatedAt: now } });
+      if (job && !ok && job.sessionId && (job.kind === 'start' || job.kind === 'resume')) await c.workerSessions.updateOne({ _id: job.sessionId, deviceId }, { $set: { state: 'failed', error, updatedAt: now } });
       // Stop on a session the worker doesn't know or that isn't running: nothing is left to stop, so don't leave it "running" forever.
-      if (job && !ok && job.kind === 'stop' && (error === 'unknown session' || error === 'session not running'))
+      if (job && !ok && job.sessionId && job.kind === 'stop' && (error === 'unknown session' || error === 'session not running'))
         await c.workerSessions.updateOne({ _id: job.sessionId, deviceId, state: { $in: ['starting', 'running'] } }, { $set: { state: 'stopped', updatedAt: now }, $unset: { error: '' } });
     }
     if (b.sessions !== undefined && !Array.isArray(b.sessions)) throw new InputError('sessions must be an array');
@@ -246,7 +272,7 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
 }
 
 /** What the Claude page shows of a computer's report: counts, and each session's name, flags and working/open/idle. */
-function deviceView(d: { activity?: unknown; claudeSessions?: unknown; worker?: unknown }, nowMs: number): string {
+function deviceView(d: { activity?: unknown; claudeSessions?: unknown; worker?: unknown; reopen?: unknown }, nowMs: number): string {
   const a = d.activity as DeviceActivity | undefined;
   const items = (d.claudeSessions as { items?: ReportedClaudeSession[] } | undefined)?.items ?? [];
   const bucket = (it: ReportedClaudeSession) => {
@@ -255,21 +281,22 @@ function deviceView(d: { activity?: unknown; claudeSessions?: unknown; worker?: 
   };
   return JSON.stringify([
     a ? [a.sessions, a.sessionsWorkOs, a.sessionsOther, a.sessionsActive, a.subagents] : null,
-    items.map(it => [it.sessionId, it.folder, it.title, it.startedByWorkOs, it.subagentsActive > 0, bucket(it)]),
+    items.map(it => [it.sessionId, it.folder, it.title, it.startedByWorkOs, it.subagentsActive > 0, bucket(it), it.origin ?? null]),
     d.worker ?? null,
+    ((d.reopen as { items?: ReopenItem[] } | undefined)?.items ?? []).map(r => r.sessionId),
   ]);
 }
 
 /** Did a report change what the page shows? Parts the report did not send count as unchanged. */
-function deviceViewChanged(before: { activity?: unknown; claudeSessions?: unknown; worker?: unknown }, set: Record<string, unknown>, nowMs: number): boolean {
-  const after = { activity: set.activity ?? before.activity, claudeSessions: set.claudeSessions ?? before.claudeSessions, worker: set.worker ?? before.worker };
+function deviceViewChanged(before: { activity?: unknown; claudeSessions?: unknown; worker?: unknown; reopen?: unknown }, set: Record<string, unknown>, nowMs: number): boolean {
+  const after = { activity: set.activity ?? before.activity, claudeSessions: set.claudeSessions ?? before.claudeSessions, worker: set.worker ?? before.worker, reopen: 'reopen' in set ? set.reopen : before.reopen };
   return deviceView(before, nowMs) !== deviceView(after, nowMs);
 }
 
 // ── The person's side ───────────────────────────────────────────────────────────────
 
 export type FolderView = { key: string; /** Project it is linked to, if any. */ projectId: string | null; deviceId: string; deviceName: string; folderId: string; name: string; remote?: string; branch?: string; missing: boolean; online: boolean; /** When its computer last reported (ISO), or null. */ lastSeenAt: string | null };
-export type SessionView = { id: string; deviceName: string; folderName: string; state: WorkerSessionDoc['state'] | 'unknown'; startedAt: string; updatedAt: string; error?: string; /** Folder is still linked to this project. Resume only makes sense then. */ linked: boolean; /** Still "starting" after WAITING_MS: probably sitting at a prompt in the terminal. */ waiting: boolean; /** Turbo mode: its computer is cloning the repo first. */ cloning?: boolean; /** Turbo mode: a new repo not trusted automatically; Claude Code asks on this computer. */ needsTrust?: boolean };
+export type SessionView = { id: string; deviceId: string; deviceName: string; folderName: string; state: WorkerSessionDoc['state'] | 'unknown'; startedAt: string; updatedAt: string; error?: string; /** Folder is still linked to this project. Resume only makes sense then. */ linked: boolean; /** Still "starting" after WAITING_MS: probably sitting at a prompt in the terminal. */ waiting: boolean; /** Turbo mode: its computer is cloning the repo first. */ cloning?: boolean; /** Turbo mode: a new repo not trusted automatically; Claude Code asks on this computer. */ needsTrust?: boolean };
 
 const ONLINE_MS = 2 * 60_000;
 
@@ -323,6 +350,7 @@ export async function projectLauncher(scope: DeviceScope, projectId: string): Pr
     suggestions: sugg.map(f => folderView(f, devices)).filter((x): x is FolderView => !!x),
     sessions: sessions.map(s => ({
       id: s._id,
+      deviceId: s.deviceId,
       linked: names.has(`${s.deviceId}:${s.folderId}`),
       waiting: s.state === 'starting' && !s.cloning && Date.now() - s.updatedAt.getTime() > WAITING_MS,
       ...(s.cloning && s.state === 'starting' ? { cloning: true } : {}),
@@ -332,7 +360,7 @@ export async function projectLauncher(scope: DeviceScope, projectId: string): Pr
       state: derivedState(s),
       startedAt: s.startedAt.toISOString(),
       updatedAt: s.updatedAt.toISOString(),
-      ...(s.error ? { error: s.error } : {}),
+      ...(s.error ? { error: friendlyError(s.error) } : {}),
     })),
   };
 }
@@ -400,13 +428,15 @@ export async function unlinkFolder(scope: DeviceScope, projectId: string, key: s
   afterCommit(() => wake(scope.orgId, scope.userId, f.deviceId));
 }
 
-export async function addJob(scope: DeviceScope, deviceId: string, job: { kind: 'start' | 'resume' | 'stop'; sessionId: string; folderId?: string; projectId?: string; prompt?: string; clone?: { repo: string; trusted: boolean } }): Promise<void> {
+export async function addJob(scope: DeviceScope, deviceId: string, job: { kind: WorkerJobDoc['kind']; sessionId?: string; folderId?: string; projectId?: string; prompt?: string; clone?: { repo: string; trusted: boolean } }): Promise<string> {
   const c = await scoped(scope);
   if (!(await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { _id: 1 } }))) throw new InputError('That device was revoked; add it again under Claude › Setup');
   const open = await c.workerJobs.countDocuments({ deviceId, doneAt: null });
   if (open >= 10) throw new InputError('That device has 10 jobs waiting; is its worker running?');
-  await c.workerJobs.insertOne({ _id: `j_${randomUUID()}`, orgId: scope.orgId, ownerId: scope.userId, deviceId, ...job, createdAt: new Date(), takenAt: null, doneAt: null });
+  const id = `j_${randomUUID()}`;
+  await c.workerJobs.insertOne({ _id: id, orgId: scope.orgId, ownerId: scope.userId, deviceId, ...job, createdAt: new Date(), takenAt: null, doneAt: null });
   afterCommit(() => wake(scope.orgId, scope.userId, deviceId)); // push: the worker fetches it now, not at its next poll
+  return id;
 }
 
 /** Start a new session in a linked folder. prompt: only what the person typed at Start (docs/launcher.md rule 3). */
@@ -464,4 +494,62 @@ export async function unhideSession(scope: DeviceScope, projectId: string, sessi
   await sessionDoc(scope, projectId, sessionId);
   const r = await c.workerSessions.updateOne({ _id: sessionId, projectId }, { $unset: { hidden: '' } });
   if (!r.matchedCount) throw new NotFoundError('Session not found');
+}
+
+// ── VS Code, and reopening after a restart ───────────────────────────────────
+
+const STALE_REPORT_MS = 6 * 3600_000;
+
+/**
+ * "Open in VS Code" for a session this computer reported (any session, not only Work OS ones). The job carries only the
+ * session id: the worker reads the folder from the session's own transcript and applies the checks a resume makes
+ * (inside an allowed root, at or below a folder linked to a project). Returns the job id (see jobOutcome).
+ */
+export async function openSessionInVscode(scope: DeviceScope, deviceId: string, sessionId: string): Promise<string> {
+  const c = await scoped(scope);
+  const d = await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { claudeSessions: 1, reopen: 1 } });
+  if (!d) throw new NotFoundError('Computer not found');
+  const sid = sessionId.toLowerCase();
+  const known = (d.claudeSessions?.items ?? []).some(i => i.sessionId === sid) || (d.reopen?.items ?? []).some(i => i.sessionId === sid);
+  if (!known) throw new NotFoundError('That session is not on this computer');
+  return addJob(scope, deviceId, { kind: 'vscode', sessionId: sid });
+}
+
+/** The reopen banner's two buttons. The set is the worker's own; the server only says "do it" or "forget it". */
+export async function reopenAll(scope: DeviceScope, deviceId: string): Promise<string> {
+  const c = await scoped(scope);
+  const d = await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { reopen: 1 } });
+  if (!d) throw new NotFoundError('Computer not found');
+  if (!d.reopen?.items.length) throw new InputError('Nothing to reopen on that computer');
+  const id = await addJob(scope, deviceId, { kind: 'reopen' });
+  await c.devices.updateOne({ _id: deviceId }, { $unset: { reopen: '' } }); // gone from the page at once; the worker confirms with its next report
+  return id;
+}
+export async function dismissReopen(scope: DeviceScope, deviceId: string): Promise<void> {
+  const c = await scoped(scope);
+  if (!(await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { _id: 1 } }))) throw new NotFoundError('Computer not found');
+  await addJob(scope, deviceId, { kind: 'dismiss' });
+  await c.devices.updateOne({ _id: deviceId }, { $unset: { reopen: '' } });
+}
+
+export type ReopenPrompt = { deviceId: string; deviceName: string; online: boolean; items: ReopenItem[] };
+/** Per computer: sessions that were open before it restarted (an old report is dropped, like the session list). */
+export async function reopenPrompts(scope: DeviceScope): Promise<ReopenPrompt[]> {
+  const c = await scoped(scope);
+  const devices = await deviceMap(scope);
+  if (!devices.size) return [];
+  const ds = await c.devices.find({ _id: { $in: [...devices.keys()] }, 'reopen.items.0': { $exists: true } }, { projection: { reopen: 1 } }).toArray();
+  const now = Date.now();
+  return ds
+    .filter(d => d.reopen && now - d.reopen.at.getTime() <= STALE_REPORT_MS)
+    .map(d => ({ deviceId: d._id, deviceName: devices.get(d._id)!.name, online: devices.get(d._id)!.online, items: d.reopen!.items }));
+}
+
+/** How a job went, for the toast after a tap: pending until the worker reports. Only the person's own jobs. */
+export async function jobOutcome(scope: DeviceScope, jobId: string): Promise<{ done: boolean; ok?: boolean; error?: string }> {
+  const c = await scoped(scope);
+  const j = await c.workerJobs.findOne({ _id: jobId }, { projection: { doneAt: 1, ok: 1, error: 1 } });
+  if (!j) throw new NotFoundError('Job not found');
+  if (!j.doneAt) return { done: false };
+  return { done: true, ok: !!j.ok, ...(j.error ? { error: friendlyError(j.error) } : {}) };
 }

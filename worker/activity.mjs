@@ -184,12 +184,50 @@ function inspect(text, found) {
   }
 }
 
+// Where a session was last used: the `entrypoint` Claude Code writes on transcript lines. Only this short token
+// is taken (the last one in the text), nothing else on those lines. 'claude-vscode' = the VS Code extension, 'cli' = a terminal.
+const ENTRY_RE = /"entrypoint":"([a-z0-9_-]{1,32})"/g;
+export function originOf(entrypoint) {
+  return entrypoint === 'claude-vscode' ? 'vscode' : entrypoint === 'cli' ? 'cli' : 'other';
+}
+export function lastEntrypoint(text) {
+  let last = null;
+  for (const m of String(text).matchAll(ENTRY_RE)) last = m[1];
+  return last;
+}
+
 export function readSessionMeta(file) {
   const found = { titles: {}, cwdName: '' };
-  inspect(readChunk(file, TAIL_BYTES, true), found);
+  const tail = readChunk(file, TAIL_BYTES, true);
+  inspect(tail, found);
+  let entry = lastEntrypoint(tail);
   const best = () => TITLE_KINDS.map(([t]) => found.titles[t]).find(Boolean) || '';
-  if (!best() || !found.cwdName) inspect(readChunk(file, HEAD_BYTES, false), found);
-  return { title: best(), folder: found.cwdName };
+  if (!best() || !found.cwdName || !entry) {
+    const head = readChunk(file, HEAD_BYTES, false);
+    inspect(head, found);
+    if (!entry) entry = lastEntrypoint(head);
+  }
+  return { title: best(), folder: found.cwdName, origin: originOf(entry) };
+}
+
+// Local only, never sent: where a session started (the first full `cwd` in its transcript) and where it was last used.
+// Finds <projects root>/<any folder>/<sessionId>.jsonl; the session id must be a UUID, so it cannot point elsewhere.
+export function sessionLocal(sessionId, root = defaultProjectsRoot()) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId))) return null;
+  let projects;
+  try { projects = fs.readdirSync(root, { withFileTypes: true }); } catch { return null; }
+  for (const proj of projects) {
+    if (!proj.isDirectory()) continue;
+    const file = path.join(root, proj.name, `${String(sessionId).toLowerCase()}.jsonl`);
+    if (!fs.existsSync(file)) continue;
+    const head = readChunk(file, HEAD_BYTES, false);
+    const m = head.match(/"cwd":"((?:[^"\\]|\\.)*)"/);
+    let cwd = '';
+    if (m) { try { cwd = JSON.parse(`"${m[1]}"`); } catch {} }
+    const entry = lastEntrypoint(readChunk(file, TAIL_BYTES, true)) || lastEntrypoint(head);
+    return { cwd, origin: originOf(entry) };
+  }
+  return null;
 }
 
 function nameArg(cmd) {
@@ -270,6 +308,7 @@ export function listSessions({ procs, workOsIds = [], root = defaultProjectsRoot
       subagentsActive: Math.min(subagentsActive, 99),
       startedByWorkOs: wos.has(f.sid),
       running: f.running,
+      origin: meta.origin,
     });
   }
   return out;

@@ -3,7 +3,9 @@ import { scoped, type Scope } from '../scope';
 import { toItem } from './claude-items';
 import type { ClaudeItem } from '../types';
 import { connectedDevice } from '../live';
-import { deviceMap, derivedState, ownedDeviceIds, WAITING_MS, type DeviceScope, type SessionView } from './launcher';
+import { deviceMap, derivedState, ownedDeviceIds, reopenPrompts, WAITING_MS, type DeviceScope, type ReopenPrompt, type SessionView } from './launcher';
+import { friendlyError } from '../worker-errors';
+import type { SessionOrigin } from '../db';
 
 // The Claude area (/claude) reads everything Claude-related across projects in one go: what
 // waits on the person, every Claude Code session on their computers (named, from the worker's list), and the
@@ -45,7 +47,13 @@ export type SessionRow = {
   /** Project the session is controlled under (Work OS ones). */
   controlProjectId?: string;
   waiting?: boolean;
+  /** Turbo mode: a new repo cloned but not trusted automatically; Claude Code asks on that computer (first 10 minutes). */
+  needsTrust?: boolean;
   error?: string;
+  /** Where it was last used (VS Code, a terminal, other), when the worker reports it. */
+  origin?: SessionOrigin;
+  /** The computer is online, so Open in VS Code can be sent. */
+  canVscode: boolean;
   canStop: boolean;
   canResume: boolean;
   canRemove: boolean;
@@ -60,6 +68,8 @@ export type ClaudeOverview = {
   queue: QueueGroup[];
   hasComputers: boolean;
   activity: { computers: ComputerActivity[]; total: ActivityTotal };
+  /** Sessions that were open before a computer restarted (docs/launcher.md). */
+  reopen: ReopenPrompt[];
 };
 
 // The worker reports about every 2 min, or, while it holds a push stream (lib/live.ts), only when something changed:
@@ -106,7 +116,7 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
   const c = await scoped(scope);
   const nowMs = Date.now();
   const mine = await ownedDeviceIds(scope);
-  const [devices, items, live, ended, projects, activity, reporting] = await Promise.all([
+  const [devices, items, live, ended, projects, activity, reporting, reopen] = await Promise.all([
     deviceMap(scope),
     c.claudeItems.find({ state: { $in: [...OPEN] }, ...(opts.card ? { waitingOn: scope.userId } : {}) }).sort({ order: 1 }).toArray(),
     c.workerSessions.find({ state: { $in: ['starting', 'running'] }, deviceId: { $in: mine }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(50).toArray(),
@@ -114,6 +124,7 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
     c.projects.find({}, { projection: { name: 1 } }).toArray(),
     activityOverview(scope),
     c.devices.find({ revokedAt: null, claudeSessions: { $exists: true } }, { projection: { name: 1, claudeSessions: 1 } }).toArray(),
+    opts.card ? Promise.resolve([] as ReopenPrompt[]) : reopenPrompts(scope),
   ]);
   const names = new Map(projects.map(p => [p._id, p.name]));
   const pname = (id: string) => names.get(id) ?? id;
@@ -179,7 +190,10 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
         workOs: it.startedByWorkOs || !!own,
         ...(own && own.projectId ? { workOsId: own._id, controlProjectId: own.projectId } : {}),
         ...(own && own.state === 'starting' && nowMs - own.updatedAt.getTime() > WAITING_MS ? { waiting: true } : {}),
-        ...(own?.error ? { error: own.error } : {}),
+        ...(own?.needsTrust && isLive && nowMs - own.startedAt.getTime() < 10 * 60_000 ? { needsTrust: true } : {}),
+        ...(own?.error ? { error: friendlyError(own.error) } : {}),
+        ...(it.origin ? { origin: it.origin } : {}),
+        canVscode: dev.online,
         canStop: !!own?.projectId && (isLive || state === 'unknown'),
         canResume: !!own?.projectId && linked && !isLive && state !== 'unknown',
         canRemove: !!own?.projectId && !isLive,
@@ -213,7 +227,9 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
       workOsId: s._id,
       controlProjectId: s.projectId!,
       ...(st === 'starting' && !s.cloning && nowMs - s.updatedAt.getTime() > WAITING_MS ? { waiting: true } : {}),
-      ...(s.error ? { error: s.error } : {}),
+      ...(s.needsTrust && isLive && nowMs - s.startedAt.getTime() < 10 * 60_000 ? { needsTrust: true } : {}),
+      ...(s.error ? { error: friendlyError(s.error) } : {}),
+      canVscode: false, // not in the computer's own list: it has no transcript to open
       canStop: isLive || st === 'unknown',
       canResume: linked && !isLive,
       canRemove: !isLive,
@@ -252,7 +268,7 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
     .map(d => ({ id: d._id, ref: d.ref, projectId: d.projectId, projectName: pname(d.projectId), title: d.title, question: d.waitingText, updatedAt: d.updatedAt.toISOString() }))
     .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
 
-  if (opts.card) return { needsYou, sessions: rows, summary, queue: [], hasComputers: devices.size > 0, activity };
+  if (opts.card) return { needsYou, sessions: rows, summary, queue: [], hasComputers: devices.size > 0, activity, reopen };
 
   const blockerIds = [...new Set(items.map(d => d.blockedBy).filter((x): x is string => !!x))];
   const blockerDocs = blockerIds.length ? await c.claudeItems.find({ _id: { $in: blockerIds } }, { projection: { ref: 1, title: 1, state: 1 } }).toArray() : [];
@@ -273,6 +289,7 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
     queue: [...byProject.values()].sort((a, b) => a.projectName.localeCompare(b.projectName)),
     hasComputers: devices.size > 0,
     activity,
+    reopen,
   };
 }
 

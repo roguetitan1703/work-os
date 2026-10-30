@@ -1,4 +1,8 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { scanRoots, publicFolder } from './scan.mjs';
+import { sessionProcs } from './activity.mjs';
+import { trackOpenSet, reopenReport } from './openset.mjs';
 import { validateJob, insideRoot } from './validate.mjs';
 import { matchesClaudeProcess } from './launch.mjs';
 import { writeMarker, removeMarker } from './markers.mjs';
@@ -7,8 +11,10 @@ import { handleCloneJob, projectsDirOf } from './clone.mjs';
 
 import { bundleId } from './config.mjs';
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 const MISS_MS = 20000; // claude must be missing this long before the session counts as closed
+const OPEN_WINDOW_MS = 60_000;
+const OPEN_MAX_PER_MIN = 4;
 const GRACE_MS = 45000; // a just-launched session may not show in the process list yet
 
 // deps: { getConfig, state, save, api, launcher, listProcesses, killPid, now?, log? }
@@ -27,6 +33,8 @@ export function createCore(deps) {
   let pendingResults = [];
   let lastStatus = 0;
   let lastSent = '';
+  let tracked = false; // the first session list since this worker started has been compared with the remembered open set
+  let savedOpen = '';
 
   const roots = () => getConfig().roots;
   const errMsg = (e) => String((e && e.message) || e).slice(0, 300);
@@ -72,6 +80,54 @@ export function createCore(deps) {
     save();
   }
 
+  // Where a session may be opened: the folder it started in, read from its transcript on this computer, must be inside an
+  // allowed root and at or below a scanned folder that is linked to a project (the checks a resume makes).
+  function locate(sessionId) {
+    const loc = deps.sessionLocal ? deps.sessionLocal(sessionId) : null;
+    if (!loc) return { error: 'session not found on this computer' };
+    if (!loc.cwd || !path.isAbsolute(loc.cwd)) return { error: 'session folder unknown' };
+    const dir = insideRoot(loc.cwd, roots());
+    if (!dir) return { error: 'folder outside allowed roots' };
+    try { if (!fs.statSync(dir).isDirectory()) return { error: 'session folder unknown' }; } catch { return { error: 'session folder unknown' }; }
+    for (const l of links) {
+      if (!l || !l.projectId || typeof l.folderId !== 'string' || !Object.prototype.hasOwnProperty.call(state.folders, l.folderId)) continue;
+      const base = insideRoot(state.folders[l.folderId], roots());
+      if (!base) continue;
+      const rel = path.relative(base, dir);
+      if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) return { dir, origin: loc.origin, link: l };
+    }
+    return { error: 'folder not linked to a project' };
+  }
+
+  async function openPending() {
+    const pending = Array.isArray(state.reopen) ? state.reopen : [];
+    state.reopen = [];
+    if (!pending.length) return { id: '', ok: true };
+    const running = sessionProcs(await listProcesses()).byId;
+    let opened = 0;
+    const why = new Set();
+    const bg = [];
+    for (const s of pending) {
+      if (running.has(s.sessionId)) continue;
+      const l = locate(s.sessionId);
+      if (l.error) { why.add(l.error); continue; }
+      try {
+        if (s.origin === 'vscode') {
+          if (!deps.openVscode) throw new Error('VS Code not found');
+          bg.push(deps.openVscode({ folder: l.dir, sessionId: s.sessionId }).catch((e) => log('vscode open failed: ' + errMsg(e))));
+        } else {
+          trustFolder(l.dir, log);
+          await launcher({ kind: 'resume', folder: l.dir, sessionId: s.sessionId, projectName: l.link.projectName || undefined });
+        }
+        opened++;
+      } catch (e) { why.add(errMsg(e)); }
+    }
+    Promise.allSettled(bg).then(() => save());
+    // ok only when every one that was not already running was opened; the message says how many and why not.
+    const todo = pending.filter((s) => !running.has(s.sessionId)).length;
+    return why.size ? { id: '', ok: false, error: `Opened ${opened} of ${todo}: ${[...why].join('; ')}`.slice(0, 300) } : { id: '', ok: true };
+  }
+
   async function handleJob(job) {
     const id = job && typeof job.id === 'string' ? job.id : 'unknown';
     // Turbo mode (clone.mjs): a start job with no folder yet; the worker makes the folder, clones, links and starts.
@@ -81,6 +137,23 @@ export function createCore(deps) {
     const v = validateJob(job, { folders: state.folders, roots: roots() });
     if (!v.ok) return { id, ok: false, error: v.error };
     try {
+      if (job.kind === 'dismiss') { state.reopen = []; save(); return { id, ok: true }; }
+      if (job.kind === 'reopen') { const r = await openPending(); save(); return { ...r, id }; }
+      if (job.kind === 'vscode') {
+        if (!deps.openVscode) return { id, ok: false, error: 'Opening in VS Code is not available on this computer' };
+        // The same session again within a minute (a double tap, or a job offered again after a crash) opens nothing more;
+        // and no more than OPEN_MAX_PER_MIN opens a minute, whoever asks.
+        const t = now();
+        const opens = (state.vscodeOpens = (state.vscodeOpens || []).filter((o) => t - o.at < OPEN_WINDOW_MS));
+        if (opens.some((o) => o.sessionId === job.sessionId)) return { id, ok: true };
+        if (opens.length >= OPEN_MAX_PER_MIN) return { id, ok: false, error: 'Too many opens at once, try again in a minute' };
+        const l = locate(job.sessionId);
+        if (l.error) return { id, ok: false, error: l.error };
+        opens.push({ sessionId: job.sessionId, at: t });
+        save();
+        await deps.openVscode({ folder: l.dir, sessionId: job.sessionId });
+        return { id, ok: true };
+      }
       if (job.kind === 'stop') {
         const s = state.sessions[job.sessionId];
         if (!s) return { id, ok: false, error: 'unknown session' };
@@ -138,7 +211,15 @@ export function createCore(deps) {
       try {
         const ids = Object.keys(state.sessions).filter((k) => state.sessions[k].state === 'running');
         const a = await deps.activity(ids);
-        if (a && a.list) { body.activity = a.counts; body.claudeSessions = a.list; } else body.activity = a;
+        if (a && a.list) {
+          body.activity = a.counts;
+          body.claudeSessions = a.list;
+          trackOpenSet(state, a.list, now(), !tracked);
+          tracked = true;
+          body.reopen = reopenReport(state);
+          const snap = JSON.stringify([state.openSet, state.reopen]);
+          if (snap !== savedOpen) { savedOpen = snap; save(); } // survives a crash: the next start compares with it
+        } else body.activity = a;
       } catch (e) { log('activity count failed: ' + errMsg(e)); }
     }
     return body;
@@ -154,7 +235,7 @@ export function createCore(deps) {
     save();
   }
 
-  const statusKey = (b) => JSON.stringify([b.worker, b.sessions, b.activity ?? null, b.claudeSessions ?? null]);
+  const statusKey = (b) => JSON.stringify([b.worker, b.sessions, b.activity ?? null, b.claudeSessions ?? null, b.reopen ?? null]);
   const busy = () => pendingResults.length > 0 || Object.values(state.sessions).some((s) => s.state === 'running');
 
   // The status timer (every STATUS_EVERY_MS). pushUp: the push stream is connected (push.mjs). Without push, or with

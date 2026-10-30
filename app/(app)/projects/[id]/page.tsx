@@ -13,7 +13,7 @@ import { NewNoteButton } from '@/components/new-note-button';
 import { fmtAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { projectItems } from '@/lib/data/claude-items';
-import { projectLauncher } from '@/lib/data/launcher';
+import { projectLauncher, reopenPrompts } from '@/lib/data/launcher';
 import { turboInfo } from '@/lib/data/turbo';
 import { ClaudeItems } from './claude-items';
 import { ProjectSessions } from './sessions';
@@ -50,13 +50,14 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const base = `/projects/${encodeURIComponent(project.id)}`;
   const tabHref = (t: TabId) => `${base}?tab=${t}`;
 
-  const [open, done, activity, notes, work, launcher] = await Promise.all([
+  const [open, done, activity, notes, work, launcher, reopen] = await Promise.all([
     listTasks(sc, { project: project.id, open: true }),
     listTasks(sc, { project: project.id, status: ['Done', 'Dropped'], sort: 'done', limit: 30 }),
     listActivity(sc, { project: project.id, limit: 40 }),
     listNotes(sc, { project: project.id, state: 'all' }),
     projectItems(sc, project.id, { doneLimit: 30 }),
     projectLauncher(me, project.id),
+    reopenPrompts(me),
   ]);
   const turbo = await turboInfo(me, project.id, launcher);
   const projectNotes = notes.notes.filter(n => !n.taskId && !n.archived);
@@ -210,7 +211,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
       {tab === 'claude' && (
         <div className="space-y-5 max-w-3xl" data-view="claude">
           {work.items.length > 0 ? claudeBlock : <p className="text-sm text-muted-foreground px-1">Nothing in the queue. Claude adds items here as it plans work for this project.</p>}
-          <ProjectSessions projectId={project.id} {...launcher} turbo={turbo} />
+          <ProjectSessions projectId={project.id} {...launcher} turbo={turbo} reopen={reopen} />
         </div>
       )}
 

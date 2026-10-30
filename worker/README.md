@@ -41,6 +41,12 @@ Same steps; config lives in `~/Library/Application Support/work-os-worker/config
 
 Anyone who controls Work OS (the server, its database or your account) can start sessions here and type prompts into them. Only linked folders can be launched. Sessions use your own Claude default permission mode; if that is auto or bypassPermissions, a prompt from Work OS runs without asking, so only link folders you are comfortable with. Set `"allowPrompts": false` in config.json to ignore prompts sent from Work OS. The worker reports this setting to Work OS, and the task dispatcher never gives a task to a worker that reports false (or does not report it, as older versions). Windows needs Windows Terminal (wt.exe); there is no cmd.exe fallback. Turbo mode: when a project's repo is not on this PC, Start from Work OS makes the worker clone it (git over https or ssh only, never a command-running transport, no prompts, 8 minute limit) into `projectsDir` (default: your first scan root) and start Claude there; set `"allowClone": false` in config.json to turn it off. Linking a folder also marks it as trusted in Claude Code (sets `hasTrustDialogAccepted` for that folder in `~/.claude.json`, never untrusts), so Claude skips its trust prompt there.
 
+## Open in VS Code and reopen after a restart
+
+Most Claude Code sessions live in VS Code, so Work OS can open one there: the worker runs `Code.exe <folder>`, waits a few seconds, then `Code.exe --open-url -- vscode://anthropic.claude-code/open?session=<id>`. It needs the Claude Code extension and VS Code in its usual install folder (`%LOCALAPPDATA%\Programs\Microsoft VS Code`, Program Files, or the macOS Applications folder). The first time, VS Code asks "Allow 'Claude Code for VS Code' to open this URI?"; answer Open (tick the box to stop it asking). The session's folder is read from its own history on this PC and must be inside an allowed root and linked to a project, as for Resume.
+
+The worker also remembers which sessions were open. After the PC restarted or crashed, Work OS shows "N sessions were open before your PC restarted" with Reopen all and Dismiss; nothing opens without that tap. Each session reopens where it was made (VS Code, or a terminal with `claude --resume`). The memory is in `state.json` (session ids, where each was made, title, folder name; no paths). Code: `vscode.mjs`, `openset.mjs`.
+
 ## Remote Control
 
 Every session the worker launches starts with `--remote-control=<project name>`, so it appears in the Claude app and you can talk to it there. Work OS never carries the conversation.
