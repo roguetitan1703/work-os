@@ -303,7 +303,7 @@ The worker's own tests cover the stream client, change-only status and a simulat
 
 ## As built: sharing a project with chosen people (2026-11, Work OS #173)
 
-**What people see.** Project › Info › "Who sees it" keeps Shared / Private. Under Shared there is a second choice: **Everyone** (the default, as before) or **Choose people**. Choose people shows a tick list of the organization's members; the owner is always ticked and cannot be unticked; nothing changes until **Save who sees it**. A line under it says who has access ("Everyone in Delpat", "Om (owner), Bea", "Only Om"). Projects shared with chosen people show a "2 people" badge on the projects list and the project header (names on hover). Only the project's owner changes any of this; others see the list read-only. The New project dialog still offers Shared (everyone) / Private; the list is set afterwards on the Info tab or through MCP.
+**What people see.** Project › Info › "Who sees it" keeps Shared / Private. Under Shared there is a second choice: **Everyone** (the default, as before) or **Choose people**. Choose people shows a tick list of the organization's members; the owner is always ticked and cannot be unticked; nothing changes until **Save who sees it**. A line under it says who has access ("Everyone in Delpat", "Om (owner), Bea", "Only Om"). Projects shared with chosen people show a "2 people" badge on the projects list and the project header (names on hover). Only the project's owner changes any of this; others see the list read-only. The New project dialog has the same Everyone / Choose people choice under Shared.
 
 **Fields.** `visibility: 'members'` plus `sharedWith: [userId]` on the project, always holding its owner (first). Everything in the project copies both, exactly like visibility already cascaded: tasks, history, notes (and sub-pages), Claude items and trash. Other placements carry `sharedWith: []`. New things made inside the project take the list from it (`placeIn` in lib/data/projects.ts; history, trash and notes copy their task's or parent's placement with `placeOf`).
 
@@ -319,7 +319,13 @@ The worker's own tests cover the stream client, change-only status and a simulat
 
 **Changing the list** (`updateProject`). `sharedWith` alone means "shared with these people"; `visibility: 'members'` alone keeps the current list. Someone outside the organization is refused. Taking anyone off (Everyone → a list, a shorter list, a list → Private) works like Shared → Private: the app asks first with `projectSharingImpact(s, id, keep)` (who is assigned, commented, gave a task to Claude or is waited on), and then their assignments end, their queued or running Claude tasks in it end (`endForeignClaude(c, s, id, keep, why)`, note "no longer shared with them") and Claude items waiting on them stop waiting. What follows the project moves before the project when someone loses access, after it otherwise.
 
-**Names.** Only shared-with-everyone and private projects have unique indexes; a list has none, so its name is checked only among the projects the person sees (as before). Going from a list to Everyone or Private runs the same name and Delpat OS checks as before.
+**Names.** Only shared-with-everyone and private projects have unique indexes; a list has none, so its name is checked only among the projects the person sees (as before). Someone off a list may therefore make a project shared with everyone of the same name. A lookup by name (quick add, MCP, Discord, `add_project` returning an existing one) then takes the narrowest project the person sees: private, then a list, then everyone's (`narrowest` in lib/data/projects.ts), so work meant for the list never lands where everyone sees it. Going from a list to Everyone or Private runs the same name and Delpat OS checks as before.
+
+**Moving a task out.** Out of a project shared with chosen people, only the task's owner or the project's owner may move a task (a teammate on the list cannot carry the owner's task to a wider project).
+
+**Leaving the organization.** A removed member is taken off every list they were on, through the same cascade as unticking them (`takeOffLists`, called from `releaseMember` in lib/data/team.ts). Their things in those projects go to each project's owner, so an invitation later does not quietly give the access back. Projects they own stay as they are (like their shared-with-everyone projects).
+
+The New project dialog offers Everyone / Choose people under Shared too.
 
 **MCP.** `add_project`, `update_project` and the apply_changes ops take `visibility: 'members'` and `shared_with` ('me', emails or user ids; the whole list). `list_projects` and `get_project` return `sharedWith` as names ('me' for the key's owner).
 

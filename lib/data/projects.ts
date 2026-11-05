@@ -126,9 +126,22 @@ async function findProjectDoc(c: Collections, nameOrId: string): Promise<Project
   const key = nameOrId.trim();
   if (!key) return null;
   const hits = await c.projects.find({ $or: [{ _id: key }, { nameLower: key.toLowerCase() }, { _id: slugify(key) }] }).limit(5).toArray();
-  // An id wins; then a name. Two visible projects can share a name only when one is your own private project and a
-  // teammate later made a shared one of that name (they could not see yours): your own is the one you mean.
-  return hits.find(p => p._id === key) ?? hits.find(p => p.visibility === 'private') ?? hits[0] ?? null;
+  // An id wins; then a name.
+  return hits.find(p => p._id === key) ?? narrowest(hits);
+}
+
+/**
+ * Of visible projects that share a name, the one you mean. They can share one only when a teammate who could not see
+ * yours (your private project, or one shared with people they are not among) later made a shared one of that name: the
+ * narrower one is yours, so work you put "in X" never lands where the whole organization sees it.
+ */
+function narrowest(hits: ProjectDoc[]): ProjectDoc | null {
+  return hits.find(p => p.visibility === 'private') ?? hits.find(p => p.visibility === 'members') ?? hits[0] ?? null;
+}
+
+/** The visible project with this name (the narrowest, see above), or null. */
+async function projectNamed(c: Collections, nameLower: string): Promise<ProjectDoc | null> {
+  return narrowest(await c.projects.find({ nameLower }).limit(5).toArray());
 }
 
 /**
@@ -188,7 +201,7 @@ async function insertProject(
         throw new InputError('That Delpat OS project was just imported. Reload to see it.');
       }
       // Same name created concurrently → return that one; otherwise the id was taken meanwhile, try another.
-      const existing = await c.projects.findOne({ nameLower });
+      const existing = await projectNamed(c, nameLower);
       if (existing) return existing;
     }
   }
@@ -354,7 +367,7 @@ export async function getProjectWithStats(s: Scope, nameOrId: string): Promise<P
 export async function createProject(s: Scope, input: ProjectInput): Promise<{ project: Project; created: boolean }> {
   const data = ProjectInputSchema.parse(input);
   const c = await scoped(s);
-  const existing = await c.projects.findOne({ nameLower: data.name.toLowerCase() });
+  const existing = await projectNamed(c, data.name.toLowerCase());
   if (existing) return { project: toProject(existing), created: false };
   const doc = await insertProject(c, s, data);
   return { project: toProject(doc), created: true };
@@ -452,6 +465,22 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
   }
   if (moving && !cut) await setProjectPlacement(c, cur, next);
   return toProject({ ...cur, ...set });
+}
+
+/**
+ * Someone left the organization: take them off every project list they are on (not their own projects), exactly as if
+ * each project's owner had unticked them, so an invitation later does not quietly give the access back. c: the
+ * organization without the visibility rule (lib/data/team.ts). Returns how many projects changed.
+ */
+export async function takeOffLists(c: Collections, orgId: string, userId: string): Promise<number> {
+  const ps = await c.projects.find({ visibility: 'members', sharedWith: userId, ownerId: { $ne: userId } }).toArray();
+  for (const p of ps) {
+    const next: Placement = { ownerId: p.ownerId, visibility: 'members', sharedWith: placeOf(p).sharedWith.filter(u => u !== userId) };
+    await (await import('./dispatcher')).endForeignClaude(c, { orgId, userId: p.ownerId }, p._id, next.sharedWith, 'no longer shared with them');
+    await setProjectPlacement(c, p, next);
+    await c.projects.updateOne({ _id: p._id }, { $set: { sharedWith: next.sharedWith, updatedAt: new Date() } });
+  }
+  return ps.length;
 }
 
 /** Does moving from one placement to another take access away from anyone? */

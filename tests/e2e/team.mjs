@@ -251,6 +251,9 @@ try {
   await rawDb.collection('tasks').updateOne({ orgId: A.orgId, ref: rTask.ref }, { $set: { claude: { state: 'queued', markedAt: new Date(), markedBy: 'user', markedByUserId: R.userId, markedByOrgId: A.orgId } } });
   const rAssigned = (await must(kA, 'add_task', { title: 'Assigned to Rex', project: 'Team Shared', assignee: 'rex@example.test' })).created;
   const rPriv = (await must(kR, 'add_task', { title: 'Rex private thing' })).created;
+  // a project shared with Rex (and the owner) only, with a task Rex made in it
+  await must(kA, 'add_project', { name: 'Rex Circle', visibility: 'members', shared_with: ['rex@example.test'] });
+  const rCircle = (await must(kR, 'add_task', { title: 'Rex circle task', project: 'Rex Circle' })).created;
   const rPrivBefore = await task(A.orgId, rPriv.ref);
   // an invitation Rex sent (as if he had been an admin) and an alert waiting for him
   const tessInv = await rawDb.collection('invitation').findOne({ email: tess });
@@ -286,6 +289,10 @@ try {
   const aSees = await as(kA, 'get_task', { task: rPriv.ref });
   check('remove: nobody else can reach his private task', aSees.isError, aSees.text.slice(0, 120));
   check('remove: invitations he sent are cancelled', (await rawDb.collection('invitation').findOne({ _id: rexInvId }))?.status === 'canceled');
+  const rcp = await rawDb.collection('projects').findOne({ orgId: A.orgId, name: 'Rex Circle' });
+  const rct = await task(A.orgId, rCircle.ref);
+  check('remove: he is taken off the project lists he was on (an invitation later gives nothing back)', rcp?.visibility === 'members' && !rcp.sharedWith.includes(R.userId) && rcp.sharedWith.includes(A.userId), JSON.stringify(rcp?.sharedWith));
+  check('remove: his task in that project goes to its owner and off his reach', rct?.ownerId === A.userId && rct.visibility === 'members' && !rct.sharedWith.includes(R.userId), JSON.stringify(rct && [rct.ownerId === A.userId, rct.sharedWith]));
   check('remove: alerts waiting for him are dropped', (await rawDb.collection('alertQueue').countDocuments({ userId: R.userId, sentAt: null })) === 0);
   // one queued after the removal (a race) is never sent: a flush skips anyone who is not a member (section 7 flushes)
   await rawDb.collection('alertQueue').insertOne({ _id: `assigned:test:${R.userId}:2`, orgId: A.orgId, userId: R.userId, kind: 'assigned', taskId: (await task(A.orgId, rAssigned.ref))._id, byTaskId: 'none', createdAt: new Date(), sentAt: null, detail: 'test' });

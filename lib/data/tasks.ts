@@ -419,7 +419,7 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
   if (data.project !== undefined) {
     const p = data.project ? await resolveProject(c, s, data.project, { create: true }) : null;
     if ((p?._id ?? null) !== cur.projectId) {
-      const old = cur.projectId ? await c.projects.findOne({ _id: cur.projectId }, { projection: { name: 1 } }) : null;
+      const old = cur.projectId ? await c.projects.findOne({ _id: cur.projectId }, { projection: { name: 1, ownerId: 1 } }) : null;
       set.projectId = p?._id ?? null;
       changes.project = { from: old?.name ?? cur.projectId, to: p?.name ?? null };
       // The task follows its project. Taking a shared task to fewer people (a private project, or one shared with chosen
@@ -427,6 +427,11 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
       const place = placeIn(p, cur.ownerId);
       if (cur.visibility !== 'private' && place.visibility !== 'org' && cur.ownerId !== s.userId) {
         throw new InputError(`Only the task's owner can take #${cur.ref} out of a project shared with everyone`);
+      }
+      // Out of a project shared with chosen people, it may reach people the list kept out: the task's owner or the
+      // project's owner decides that, not anyone else on the list.
+      if (cur.visibility === 'members' && !samePlace(place, placeOf(cur)) && s.userId !== cur.ownerId && s.userId !== old?.ownerId) {
+        throw new InputError(`Only the task's owner or the project's owner can move #${cur.ref} out of a project shared with chosen people`);
       }
       if (!samePlace(place, placeOf(cur))) moveTo = place;
     }

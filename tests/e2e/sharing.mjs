@@ -171,7 +171,7 @@ try {
   const Cal = await makeUser({ email: 'cal@example.test', name: 'Cal', orgId: A.orgId, role: 'member' });
   const kC = await mkKey({ agent: 'claude', userId: Cal.userId, orgId: A.orgId, name: 'cal chat' });
   const TEAM = 'Team Plan';
-  const team = () => rawDb.collection('projects').findOne({ orgId: A.orgId, name: TEAM });
+  const team = () => rawDb.collection('projects').findOne({ orgId: A.orgId, name: TEAM, visibility: { $ne: 'org' } }).then(p => p ?? rawDb.collection('projects').findOne({ orgId: A.orgId, name: TEAM }));
   const sees = async (key, title) => {
     const [p, t, n] = await Promise.all([as(key, 'list_projects'), as(key, 'list_tasks', {}), as(key, 'list_notes', { state: 'all' })]);
     return { project: p.text.includes(TEAM), task: t.text.includes(title), note: n.text.includes('Team note') };
@@ -202,6 +202,30 @@ try {
   const noteDoc = await rawDb.collection('notes').findOne({ title: 'Team note' });
   const actDocs = await rawDb.collection('activity').find({ taskId: ttDoc._id }).toArray();
   check('choose: its note and history follow', noteDoc?.visibility === 'members' && actDocs.length > 0 && actDocs.every(a => a.visibility === 'members' && !a.sharedWith.includes(Cal.userId)), JSON.stringify(actDocs.map(a => a.visibility)));
+  // Cal (off the list) can make a project shared with everyone with the same name; work put "in Team Plan" by the
+  // people on the list still lands in their narrower one.
+  const calSame = await as(kC, 'add_project', { name: TEAM });
+  const calProj = await rawDb.collection('projects').findOne({ orgId: A.orgId, name: TEAM, visibility: 'org' });
+  check('names: someone off the list may use the name for a project shared with everyone', !calSame.isError && !!calProj && calProj._id !== teamId, calSame.text);
+  const intoA = (await must(kA, 'add_task', { title: 'Name pick by owner', project: TEAM })).created;
+  const intoB = (await must(kB, 'add_task', { title: 'Name pick by Bea', project: TEAM })).created;
+  const pickA = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: intoA.ref });
+  const pickB = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: intoB.ref });
+  check('names: by name, the owner and Bea get the project shared with them, not the one everyone sees', pickA?.projectId === teamId && pickB?.projectId === teamId && pickB.visibility === 'members', JSON.stringify([pickA?.projectId, pickB?.projectId]));
+  check('names: add_project with that name gives Bea the list project back', (await must(kB, 'add_project', { name: TEAM })).project?.id === teamId);
+  // Moving a task out of the list's project: the task's owner or the project's owner only
+  const mvB = await as(kB, 'update_task', { task: tt.ref, project: calProj._id });
+  const mvBatch = await as(kB, 'apply_changes', { ops: [{ op: 'update_task', task: tt.ref, project: calProj._id }] });
+  const ttNow = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: tt.ref });
+  check('move: Bea cannot move the owner\'s task out to a project everyone sees (update_task, apply_changes)', mvB.isError && /project's owner/.test(mvB.text) && /project's owner|not found|failed/i.test(mvBatch.text) && ttNow?.projectId === teamId && ttNow.visibility === 'members', `${mvB.text.slice(0, 120)} | ${mvBatch.text.slice(0, 120)}`);
+  const mvOwn = await as(kB, 'update_task', { task: intoB.ref, project: calProj._id });
+  check('move: Bea may move her own task out', !mvOwn.isError && (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: intoB.ref }))?.visibility === 'org', mvOwn.text.slice(0, 120));
+  for (const r of [intoA.ref, intoB.ref]) {
+    const d = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: r });
+    await rawDb.collection('tasks').deleteOne({ _id: d._id });
+    await rawDb.collection('activity').deleteMany({ taskId: d._id });
+  }
+  await rawDb.collection('projects').deleteOne({ _id: calProj._id });
   let bs = await sees(kB, 'Team task');
   let cs = await sees(kC, 'Team task');
   check('choose: Bea (on the list) sees project, task and note', bs.project && bs.task && bs.note, JSON.stringify(bs));
@@ -256,6 +280,18 @@ try {
   check('everyone: one click shares it with everyone again', !!(await until(async () => (await team())?.visibility === 'org')) && (await pa.locator('[data-cut-confirm]').count()) === 0);
   check('everyone: its tasks follow (no list left)', (await rawDb.collection('tasks').countDocuments({ projectId: teamId, $or: [{ visibility: { $ne: 'org' } }, { 'sharedWith.0': { $exists: true } }] })) === 0);
   check('everyone: Bea sees it again', (await sees(kB, 'Team task')).project);
+  // the New project dialog offers Choose people under Shared
+  await pa.goto(`${B}/projects`);
+  await pa.click('button:has-text("New project"):visible');
+  await pa.waitForSelector('[data-sharing-choice]', { timeout: 15000 });
+  check('dialog: Shared offers Everyone (picked) or Choose people', (await pa.getAttribute('[data-audience="everyone"]', 'aria-checked')) === 'true');
+  await pa.fill('input[placeholder="Name"]', 'Picked Plan');
+  await pa.click('[data-audience="people"]');
+  await pa.click(`[data-people-picker] [data-person="${Bu.userId}"] input`);
+  await pa.click('button[type=submit]:has-text("Create")');
+  await pa.waitForURL(u => u.pathname.startsWith('/projects/') && u.pathname !== '/projects', { timeout: 20000 });
+  const picked = await rawDb.collection('projects').findOne({ orgId: A.orgId, name: 'Picked Plan' });
+  check('dialog: Choose people makes a project shared with you and the people ticked', picked?.visibility === 'members' && picked.sharedWith.length === 2 && picked.sharedWith.includes(A.userId) && picked.sharedWith.includes(Bu.userId), JSON.stringify(picked && [picked.visibility, picked.sharedWith]));
   await Promise.all([ctxA.close(), ctxB.close(), ctxP.close()]);
 } catch (e) {
   check('suite ran to the end', false, e instanceof Error ? e.stack ?? e.message : String(e));

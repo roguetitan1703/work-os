@@ -435,8 +435,10 @@ try {
     check('A inbox: A\'s notices, not B\'s', /changed #/.test(inbox.text) && !/Bea: pick a colour/.test(inbox.text));
     check('notes upload: into one\'s own note passes the checks', (await upload(p, `notes/${A.orgId}/${vMemo.id}/x.png`)) === 503);
     check('notes file: one\'s own private note\'s file passes the checks', (await filePath(p, `notes/${A.orgId}/${vMemo.id}/x.png`)) === 503);
-    const use = await text(p, '/settings?section=usage');
-    check('A settings: the operator sees Usage', /Last 24 h/.test(use.text));
+    await text(p, '/settings?section=usage');
+    // The section streams in after the page (a server component reading the request log): wait for it, not a fixed time.
+    const usage = await p.waitForSelector('[data-usage]', { timeout: 15000 }).then(() => p.locator('[data-usage]').innerText(), () => '');
+    check('A settings: the operator sees Usage', /Last 24 h/.test(usage), usage.slice(0, 120));
     const aToday = await text(p, '/today');
     const aBar = await p.locator('[data-block-bar]').count();
     check('A today: the schedule bar, and no routine card (removed)', aBar === 1 && (await p.locator('[data-fold=routine], [data-routine]').count()) === 0 && !/not logged/.test(aToday.text), `bar ${aBar}`); // the old timetable still has a block named "Fiverr Ritual"

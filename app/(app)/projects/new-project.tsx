@@ -13,7 +13,8 @@ import { FullSheet } from '@/components/mobile/full-sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { delpatOsStatusAction } from './delpat-os-actions';
 import { DelpatOsPicker } from './delpat-os-picker';
-import { SharingChoice, SHARING_HELP, type Sharing } from './sharing-choice';
+import { AudiencePicker, SharingChoice, SHARING_HELP, type Sharing } from './sharing-choice';
+import { useApp } from '@/components/app-context';
 
 export function NewProjectButton() {
   const router = useRouter();
@@ -23,6 +24,9 @@ export function NewProjectButton() {
   const [client, setClient] = useState('');
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<Sharing>('org');
+  // Shared with chosen people (user ids besides you), or null for everyone.
+  const [picked, setPicked] = useState<string[] | null>(null);
+  const { people, me } = useApp();
   const [pending, start] = useTransition();
   // "From Delpat OS" shows only where this Work OS has it set up (asked when the dialog opens).
   const [delpat, setDelpat] = useState<{ enabled: boolean; linked: boolean }>({ enabled: false, linked: false });
@@ -54,7 +58,7 @@ export function NewProjectButton() {
     e?.preventDefault();
     if (!name.trim()) return;
     start(async () => {
-      const res = await createProjectAction({ name, client, description, visibility });
+      const res = await createProjectAction(visibility === 'org' && picked !== null ? { name, client, description, visibility: 'members', sharedWith: [me, ...picked] } : { name, client, description, visibility });
       if (!res.ok) return void toast.error(res.error);
       if (!res.data.created) toast.info(`"${res.data.project.name}" already exists`);
       setOpen(false);
@@ -97,6 +101,7 @@ export function NewProjectButton() {
               <Input value={client} onChange={e => setClient(e.target.value)} placeholder="Client (optional)" className={fieldCls} />
               <Textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="What is it, what does done look like?" rows={5} className="text-[16px]" />
               <SharingChoice value={visibility} onChange={setVisibility} />
+              {visibility === 'org' && <AudiencePicker people={people} me={me} picked={picked} onChange={setPicked} />}
               <p className="text-xs text-muted-foreground" data-sharing-help>{SHARING_HELP}</p>
             </form>
             )}
@@ -115,6 +120,7 @@ export function NewProjectButton() {
               <Input value={client} onChange={e => setClient(e.target.value)} placeholder="Client (optional)" />
               <Textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="What is it, what does done look like?" rows={3} />
               <SharingChoice value={visibility} onChange={setVisibility} />
+              {visibility === 'org' && <AudiencePicker people={people} me={me} picked={picked} onChange={setPicked} />}
               <p className="text-xs text-muted-foreground" data-sharing-help>{SHARING_HELP}</p>
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>
