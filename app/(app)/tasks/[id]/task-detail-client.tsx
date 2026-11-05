@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { assigneeOptions } from '@/lib/assignees';
 import { Select } from '@/components/ui/select';
 import { RECURRENCE_OPTIONS } from '@/lib/recurrence-options';
+import { useSynced } from '@/components/use-synced';
 
 const field =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring dark:bg-input/30';
@@ -44,14 +45,15 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [moreDetails, setMoreDetails] = useState(false);
-  const [title, setTitle] = useState(task.title);
-  const [description, setDescription] = useState(task.description);
+  // Fields follow the server when the page refreshes (useSynced), unless the person is mid-edit.
+  const [title, setTitle] = useSynced(task.title);
+  const [description, setDescription] = useSynced(task.description);
   const [comment, setComment] = useState('');
   const [newItem, setNewItem] = useState('');
   const [newLink, setNewLink] = useState('');
   const [newDep, setNewDep] = useState('');
-  const [tagText, setTagText] = useState(task.tags.join(', '));
-  const [blockedReason, setBlockedReason] = useState(task.blockedReason);
+  const [tagText, setTagText] = useSynced(task.tags.join(', '));
+  const [blockedReason, setBlockedReason] = useSynced(task.blockedReason);
   const closed = task.status === 'Done' || task.status === 'Dropped';
   const overdue = !!task.due && task.due < today && !closed;
 
@@ -200,6 +202,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
         <Field label="Project">
           <input
             list="project-options-detail"
+            key={projectName ?? ''}
             defaultValue={projectName ?? ''}
             className={field}
             onBlur={e => {
@@ -225,6 +228,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
           <input
             type="number"
             min={0}
+            key={task.estimateMins ?? ''}
             defaultValue={task.estimateMins ?? ''}
             className={field}
             onBlur={e => {

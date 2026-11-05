@@ -19,6 +19,7 @@ import { useApp, useModes } from '../app-context';
 import { BottomSheet } from './sheet';
 import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, claudeMenuLabel } from '../give-to-claude';
 import { assigneeOptions } from '@/lib/assignees';
+import { useSynced } from '@/components/use-synced';
 
 const STATUSES: { s: Status; tone: string }[] = [
   { s: 'Not Started', tone: 'bg-foreground text-background' },
@@ -53,8 +54,8 @@ export function MobileTaskDetail({
   const { modes, color } = useModes();
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [title, setTitle] = useState(task.title);
-  const [desc, setDesc] = useState(task.description);
+  const [title, setTitle] = useSynced(task.title);
+  const [desc, setDesc] = useSynced(task.description);
   const [comment, setComment] = useState('');
   const [newItem, setNewItem] = useState('');
   const [menu, setMenu] = useState(false);

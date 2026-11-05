@@ -21,6 +21,7 @@ import { getSchedule } from '@/lib/user-schedule';
 import { NavTracker } from '@/components/nav-tracker';
 import { GlobalShortcuts } from '@/components/shortcuts';
 import { GlobalSearch } from '@/components/global-search';
+import { LiveRefresh } from '@/components/live-refresh';
 
 // Every page reads live data (the MCP connector writes too), so never prerender.
 export const dynamic = 'force-dynamic';
@@ -73,6 +74,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <PullToRefresh targetId="app-main" />
       <StartClaude />
       <Preloader />
+      {/* eslint-disable-next-line react-hooks/purity -- a server render runs once per request; the stamp marks it */}
+      <LiveRefresh stamp={Date.now()} />
     </AppContextProvider>
   );
 }
