@@ -57,7 +57,7 @@ All configuration is in Vercel → Project → Settings → Environment Variable
 ## 2. Tasks and projects
 
 ### What a task has
-A number (`#12`), title, description, project, mode (type of work), priority P1–P4, status (Not Started, In Progress, Blocked, Done, Dropped), tags, start and due dates, estimate, progress %, checklist, links, blocked reason, dependencies ("waits on #5"), a repeat schedule (daily, weekdays, weekly or monthly; the next one is created when it's completed) and archived. Every change is written to the task's **history**, which records who made it: **You**, **You · Discord**, **Claude**, **Claude Code** or **System**.
+A number (`#12`), title, description, project, mode (type of work), priority P1–P4, status (Not Started, In Progress, Blocked, Done, Dropped), tags, start and due dates, estimate, progress %, checklist, links, blocked reason, dependencies ("waits on #5"), subtasks (one level; see below), a repeat schedule (daily, weekdays, weekly or monthly; the next one is created when it's completed) and archived. Every change is written to the task's **history**, which records who made it: **You**, **You · Discord**, **Claude**, **Claude Code** or **System**.
 
 ### Om
 - **Laptop:**
@@ -70,7 +70,8 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
   - `Send invoice @"Grant Leads" !1 #billing due:fri ~20m mode:admin`
   - That reads as: `@project`, `!1`–`!4` for priority, `#tag`, `due:`, `start:`, `~20m` for the estimate, `mode:`.
   - **Repeat:** `every:day`, `every:weekday`, `every:week`, `every:2w`, `every:month` (also `every:3d`, `every:2m`) make a recurring task; an unknown value stays in the title. Discord `/task` has a `repeat` choice; MCP `add_task` takes `recurrence`. The New task form (Shift+Enter) and the task page have a Repeats select. Recurring tasks show a small repeat icon on rows, board cards and Today rows (`lib/recurrence-options.ts` holds the choices).
-- **Completing a recurring task** creates its next occurrence automatically.
+- **Completing a recurring task** creates its next occurrence automatically (its subtasks come back as new open ones).
+- **Subtasks** (docs/subtasks.md, #183): the task page has a Subtasks section (add a title and press Enter, tick one done, open it, × takes it out). A parent shows "3/8" on rows and board cards and its progress is the average of its subtasks (Done counts 100, Dropped is left out); a subtask shows "in <parent>" and its page says "Subtask of #N". One level only. A subtask is in its parent's project and moves with it. Completing a parent with open subtasks asks "Close the N open subtasks too?" (Close them / Leave them open). Deleting a parent takes its subtasks to the trash; restoring it brings them back.
 - **Reopening a done task** restores its earlier progress. It no longer stays at 100%.
 
 ### Delpat OS import (2026-10)
@@ -79,6 +80,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 
 ### Claude
 `list_tasks`, `get_task`, `add_task`, `update_task`, `log_progress`, `complete_task`, `add_comment`, `update_checklist`, `list_projects`, `add_project`, `update_project`, `daily_summary`, `recent_activity`.
+- **Subtasks:** `add_task` (and `apply_changes` `create_task`) take `subtasks: [{title, …}]` to make a parent and its subtasks in one call, and `parent` (a ref, or "$name" in a batch); `update_task` `parent` moves a task under another (`null` takes it out); `get_task` returns `parent` or `subtasks` (status, progress, assignee) and `subtaskProgress`; `list_tasks` takes `parent`; task answers carry `parent` ("#12 Title") or `subtasks` ("3 of 8 done"). `complete_task` on a parent leaves open subtasks open and lists them (`openSubtasks`). The tool text says when to use a subtask (a deliverable someone tracks on its own) and when a checklist item (a step the same person does inside the task); `add_task` and the server instructions say "for 2 or more writes, use apply_changes".
 - **`daily_summary`** is the one call for a morning brief: overdue, due today, in progress, blocked and waiting, the next 7 days, everything completed or changed since the last workday and who did it, and per-project counts.
 - **Dates** accept `today`, `tomorrow`, weekday names, `+3d`, `+2w` or `YYYY-MM-DD`.
 - **Assignee** (phase 4): `add_task`, `update_task` and the batch task ops take `assignee` ('me', an email or a user id; null clears), only on tasks in shared projects (and only people on the list of a project shared with chosen people); `list_tasks` filters by it, and task answers show it as 'me' or a name.
@@ -88,6 +90,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 - **Data layer:** `lib/data/tasks.ts` (create, update, history, recurrence, queries) and `lib/data/projects.ts`. Pages, server actions (`app/actions.ts`), MCP and Discord all go through it.
 - **Types:** `lib/types.ts` (zod schemas). Stored document shapes and indexes: `lib/db.ts`.
 - **History:** entries in `activity` are written by `logActivity()`; display text comes from `lib/activity-text.ts`.
+- **Subtasks:** the "Subtasks" block in `lib/data/tasks.ts` (`placeUnder`, `parentFor`, `rollUp`, `moveSubtasks`, `listSubtasks`, `createTaskWithSubtasks`); trash and restore (`trashOne`, `restoreOne`, `withParent` on TrashDoc); UI in `components/subtasks.tsx` (chip, "in" line, the close question, the task page section). Stored fields and rules: docs/subtasks.md "As built". Tested by `tests/e2e/subtasks.mjs`.
 
 ---
 

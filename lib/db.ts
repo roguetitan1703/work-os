@@ -52,6 +52,12 @@ export type TaskDoc = Placed & {
   source?: TaskSource;
   /** Dispatcher (docs/dispatcher.md). Set only by the UI actions and the dispatcher itself, never by a task write from MCP or Discord. */
   claude?: ClaudeMark | null;
+  /** Subtasks (docs/subtasks.md): the parent's id, with its ref and title copied for the rows (kept in step on rename). */
+  parentId?: string | null;
+  parentRef?: number;
+  parentTitle?: string;
+  /** On a parent: its subtasks done and counted, recomputed with its progress whenever one changes. */
+  subtaskCount?: import('./types').SubtaskCount;
 };
 
 /** A task a person gave to Claude. */
@@ -181,6 +187,8 @@ export type TrashDoc = Placed & {
   reason: string;
   /** The task's note, soft-deleted alongside it. */
   noteIds?: string[];
+  /** A subtask that went to the trash with its parent (the parent's id): it comes back when the parent does. */
+  withParent?: string;
 };
 /** App settings, one doc per area. `discord.blockedIds` = channel/category/thread ids Work OS must never read. */
 /**
@@ -305,6 +313,8 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { 'claude.state': 1, 'claude.markedAt': 1 }, name: 'claude_state', sparse: true },
       // "Who waits on this task" (the task page, get_task, unblocked alerts): without it every task page read the whole organization.
       { key: { dependsOn: 1 }, name: 'depends_on' },
+      // A parent's subtasks (rollup, the task page, list_tasks parent).
+      { key: { parentId: 1 }, name: 'parent', sparse: true },
     ]],
     ['activity', [
       { key: { taskId: 1, at: -1 }, name: 'task_at' },

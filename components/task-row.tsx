@@ -14,6 +14,7 @@ import { PrioritySelect, StatusSelect } from './inline-selects';
 import { ProgressDialog } from './progress-dialog';
 import { MTaskRow } from './mobile/m-task-row';
 import { ClaudeBadge, ClaudeMarkSheet, claudeMenuLabel } from './give-to-claude';
+import { ParentLine, SubtaskChip, useCloseSubtasks } from './subtasks';
 
 type Props = {
   task: Task;
@@ -35,6 +36,7 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
   const project = showProject ? projectName(task.projectId) : null;
   const modeColor = task.mode ? color(task.mode).hex : null;
   const checklistDone = task.checklist.filter(i => i.done).length;
+  const closeAsk = useCloseSubtasks(task);
 
   function save(patch: Parameters<typeof updateTaskAction>[1], msg: string) {
     start(async () => {
@@ -45,8 +47,8 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
   }
 
   function complete() {
-    start(async () => {
-      const res = await completeTaskAction(task.id);
+    closeAsk.ask(closeSubtasks => start(async () => {
+      const res = await completeTaskAction(task.id, undefined, closeSubtasks);
       if (!res.ok) return void toast.error(res.error);
       toast.success(`#${task.ref} done${res.data.nextRef ? ` · next is #${res.data.nextRef}` : ''}`, {
         action: {
@@ -57,7 +59,7 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
           },
         },
       });
-    });
+    }));
   }
 
   return (
@@ -86,6 +88,7 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
           {task.dependsOn.length > 0 && <GitBranch className="w-3 h-3 text-muted-foreground shrink-0" aria-label="Has dependencies" />}
         </div>
         <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground flex-wrap">
+          <ParentLine task={task} />
           {project && (
             <Link href={`/projects/${task.projectId}`} className="hover:text-foreground truncate max-w-[160px]">
               {project}{isPrivateProject(task.projectId) && <PrivateBadge compact className="ml-1" />}
@@ -102,6 +105,7 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
               {checklistDone}/{task.checklist.length}
             </span>
           )}
+          <SubtaskChip task={task} />
           {task.status === 'Blocked' && task.blockedReason && <span className="text-red-600 dark:text-red-400 truncate max-w-[280px]">⛔ {task.blockedReason}</span>}
           {hint}
         </div>
@@ -136,6 +140,7 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
 
       {progressOpen && <ProgressDialog task={task} open={progressOpen} onClose={() => setProgressOpen(false)} />}
       {claudeOpen && <ClaudeMarkSheet task={task} onClose={() => setClaudeOpen(false)} />}
+      {closeAsk.sheet}
     </div>
   );
 }

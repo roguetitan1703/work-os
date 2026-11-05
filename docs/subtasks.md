@@ -1,7 +1,7 @@
 # Subtasks (design, #183 and Akash's "task linking … hierarchical like threads" in #165)
 
-Status: design with recommended defaults, built after builders A (sharing) and B (multiple assignees) merge, because
-all three change `lib/data/tasks.ts`.
+Status: built (2026-11) as designed below. Code: "Subtasks" in `lib/data/tasks.ts`, `components/subtasks.tsx`; tests
+`tests/e2e/subtasks.mjs` plus a subtask case in `tenancy` and `leak-audit`. See "As built" at the end.
 
 ## Problem
 
@@ -42,3 +42,20 @@ linked by "Blocked by" (`dependsOn`); what is missing is "part of".
 
 Build as above. Cost: medium (model + rollup, task page section, row chips, MCP, e2e). It is not a permissions
 change, but subtasks inherit visibility, so the leak-audit and tenancy suites get a subtask case.
+
+## As built
+
+- **Stored:** a subtask has `parentId` with the parent's `parentRef` and `parentTitle` copied (renaming the parent
+  updates them), so every list can show "in <parent>" without another read. A parent has `subtaskCount: { done, total }`
+  (Dropped left out) next to its `progress`; `rollUp` recomputes both whenever a subtask is added, changes status or
+  progress, moves, is trashed or restored. A closed parent keeps its own progress (100 when Done); reopening it takes
+  the average again.
+- **Where it lives:** `placeUnder` = `placeIn(parent's project, owner)`; with no project the subtask is private to the
+  parent's owner. A subtask asked to change project is refused; moving the parent runs `moveSubtasks` (each gets a
+  "Moved with #N" history line; an assignee who can't see it there is dropped). The move rules (owner-only out of a
+  shared project) are checked on the parent only: its owner moves the whole group.
+- **Trash:** the parent's subtasks go with it (`withParent` on their trash entries, hidden from the trash list, purged
+  with it); restoring a subtask alone while its parent is in the trash is refused with "restore #N". A subtask trashed
+  on its own goes back under its parent if the parent is still there, else on its own.
+- **App:** the "Close the N open subtasks too?" question is asked by the row tick (desktop and phone), the task page's
+  Complete / Mark done. Setting status Done from a status menu, the board drag or the day plan leaves them open (as MCP).

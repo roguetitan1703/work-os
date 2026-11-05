@@ -90,6 +90,9 @@ export type BriefTask = {
   daysOverdue?: number;
   /** 'me' or the member's name (phase 4), when someone is assigned. */
   assignee?: string;
+  /** A subtask: "#12 Parent title". A parent: "3 of 8 done" (docs/subtasks.md). */
+  parent?: string;
+  subtasks?: string;
   url?: string;
 };
 
@@ -109,6 +112,8 @@ export function briefTask(t: Task, names: Map<string, string>, opts: { baseUrl?:
   if (t.blockedReason) out.blockedReason = t.blockedReason;
   if (isOverdue(t, today)) out.daysOverdue = Math.round((Date.parse(today) - Date.parse(t.due!)) / 86_400_000);
   if (t.assigneeId && opts.who) out.assignee = opts.who(t.assigneeId);
+  if (t.parentId) out.parent = `#${t.parentRef} ${t.parentTitle ?? ''}`.trim();
+  if (t.subtaskCount) out.subtasks = `${t.subtaskCount.done} of ${t.subtaskCount.total} done`;
   if (opts.baseUrl) out.url = `${opts.baseUrl}/tasks/${t.ref}`;
   return out;
 }

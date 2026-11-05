@@ -29,13 +29,14 @@ import { cn } from '@/lib/utils';
 import { assigneeOptions } from '@/lib/assignees';
 import { Select } from '@/components/ui/select';
 import { RECURRENCE_OPTIONS } from '@/lib/recurrence-options';
+import { PartOf, SubtasksSection, useCloseSubtasks } from '@/components/subtasks';
 
 const field =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring dark:bg-input/30';
 
-type Props = { task: Task; projectName: string | null; dependencies: Task[]; dependents: Task[] };
+type Props = { task: Task; projectName: string | null; dependencies: Task[]; dependents: Task[]; subtasks: Task[] };
 
-export function TaskDetailClient({ task, projectName, dependencies, dependents }: Props) {
+export function TaskDetailClient({ task, projectName, dependencies, dependents, subtasks }: Props) {
   const { projects, today, people, me } = useApp();
   const { modes, color } = useModes();
   const [pending, start] = useTransition();
@@ -54,6 +55,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
   const [blockedReason, setBlockedReason] = useState(task.blockedReason);
   const closed = task.status === 'Done' || task.status === 'Dropped';
   const overdue = !!task.due && task.due < today && !closed;
+  const closeAsk = useCloseSubtasks(task);
 
   function exec<T>(fn: () => Promise<Result<T>>, msg?: string, after?: () => void) {
     start(async () => {
@@ -84,6 +86,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
           <ClaudeBadge task={task} />
         </div>
         <ClaudeOutcome task={task} />
+        <PartOf task={task} className="text-xs text-muted-foreground max-w-full" />
         <input
           value={title}
           onChange={e => setTitle(e.target.value)}
@@ -104,7 +107,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
           <TrendingUp className="w-3.5 h-3.5 text-muted-foreground" />
         </button>
         {!closed && (
-          <Button size="sm" className="gap-1.5 h-8" onClick={() => exec(() => completeTaskAction(task.id), 'Completed')}>
+          <Button size="sm" className="gap-1.5 h-8" onClick={() => closeAsk.ask(close => exec(() => completeTaskAction(task.id, undefined, close), 'Completed'))}>
             <CheckCircle2 className="w-3.5 h-3.5" /> Complete
           </Button>
         )}
@@ -267,6 +270,8 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
         />
       </section>
 
+      <SubtasksSection task={task} subtasks={subtasks} />
+
       {/* Checklist */}
       <section className="space-y-1.5">
         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -378,6 +383,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
       </section>
 
       {progressOpen && <ProgressDialog task={task} open={progressOpen} onClose={() => setProgressOpen(false)} />}
+      {closeAsk.sheet}
     </div>
   );
 }

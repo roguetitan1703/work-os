@@ -416,6 +416,9 @@ try {
   P.archRef = await mkTask(A.chat, { title: can('pvarch', ['A']), project: P.projectName });
   P.giveRef = await mkTask(A.chat, { title: can('pvgive', ['A']), project: P.projectName });
   S.taskRef = await mkTask(A.chat, { title: can('shtask', ['A', 'T']), project: S.projectName, description: can('shtaskdesc', ['A', 'T']) });
+  // Subtasks (docs/subtasks.md): one under the private task, one under the shared one; each copies its parent's title.
+  P.subRef = await mkTask(A.chat, { title: can('pvsubtask', ['A']), parent: P.taskRef });
+  S.subRef = await mkTask(A.chat, { title: can('shsubtask', ['A', 'T']), parent: S.taskRef });
   S.trashRef = await mkTask(A.chat, { title: can('shtrash', ['A', 'T']), project: S.projectName });
   await mustMcp(A.chat, 'add_comment', { task: P.taskRef, note: can('pvcomment', ['A']) });
   await mustMcp(A.chat, 'add_comment', { task: P.taskRef, note: can('pvcomment', ['A']) });
@@ -790,9 +793,9 @@ function AUDIT() {
   void skip;
 
   // ── MCP tools (chat key; the read tools again with a Claude Code key) ──
-  add('mcp list_tasks', M('list_tasks', { include_closed: true }), Mc('list_tasks', { include_closed: true, archived: true }, { label: 'code key, archived' }), M('list_tasks', t => ({ project: t.projectName, include_closed: true }), aim(['projectName'], { label: 'by project', ok: r => r.ok && r.json?.total > 0 })), M('list_tasks', { query: 'lkq', include_closed: true }, { label: 'search' }));
+  add('mcp list_tasks', M('list_tasks', { include_closed: true }), Mc('list_tasks', { include_closed: true, archived: true }, { label: 'code key, archived' }), M('list_tasks', t => ({ project: t.projectName, include_closed: true }), aim(['projectName'], { label: 'by project', ok: r => r.ok && r.json?.total > 0 })), M('list_tasks', { query: 'lkq', include_closed: true }, { label: 'search' }), M('list_tasks', t => ({ parent: t.ref, include_closed: true }), aim(['ref'], { label: 'by parent' })));
   add('mcp get_task', M('get_task', t => ({ task: t.task }), aim(['task'])), M('get_task', t => ({ task: `#${t.ref}` }), aim(['ref'], { label: 'by ref' })), M('get_task', { task: 'constructor' }, { label: 'prototype key', aim: true, aimKeys: [], control: false }), Mc('get_task', t => ({ task: t.ref }), aim(['ref'], { label: 'code key' })));
-  add('mcp add_task', M('add_task', t => ({ title: 'lkq probe task', depends_on: [t.ref] }), aim(['ref'], { label: 'waits on' })), M('add_task', t => ({ title: 'lkq probe in project', project: t.project }), { label: 'into a project id', controlOk: r => r.ok, ok: r => r.ok && !/"project":\s*"lkqpvproj|"project":\s*"lkqshproj/.test(r.text) }));
+  add('mcp add_task', M('add_task', t => ({ title: 'lkq probe task', depends_on: [t.ref] }), aim(['ref'], { label: 'waits on' })), M('add_task', t => ({ title: 'lkq probe in project', project: t.project }), { label: 'into a project id', controlOk: r => r.ok, ok: r => r.ok && !/"project":\s*"lkqpvproj|"project":\s*"lkqshproj/.test(r.text) }), M('add_task', t => ({ title: 'lkq probe subtask', parent: t.ref }), aim(['ref'], { label: 'under a task' })));
   add('mcp update_task', M('update_task', t => ({ task: t.task, title: 'lkq hacked' }), aim(['task'])), M('update_task', t => ({ task: t.ref, assignee: 'me' }), aim(['ref'], { label: 'assign to me' })));
   add('mcp log_progress', M('log_progress', t => ({ task: t.ref, progress: 40 }), aim(['ref'])));
   add('mcp complete_task', M('complete_task', t => ({ task: t.task }), aim(['task'], { stage: 1 })));

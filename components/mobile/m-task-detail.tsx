@@ -19,6 +19,7 @@ import { useApp, useModes } from '../app-context';
 import { BottomSheet } from './sheet';
 import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, claudeMenuLabel } from '../give-to-claude';
 import { assigneeOptions } from '@/lib/assignees';
+import { PartOf, SubtasksSection, useCloseSubtasks } from '../subtasks';
 
 const STATUSES: { s: Status; tone: string }[] = [
   { s: 'Not Started', tone: 'bg-foreground text-background' },
@@ -42,12 +43,14 @@ export function MobileTaskDetail({
   note,
   dependencies,
   dependents,
+  subtasks,
 }: {
   task: Task;
   activity: Activity[];
   note: NoteRef;
   dependencies: Dep[];
   dependents: Dep[];
+  subtasks: Task[];
 }) {
   const { today, projects, projectName, isPrivateProject, people, me } = useApp();
   const { modes, color } = useModes();
@@ -66,6 +69,7 @@ export function MobileTaskDetail({
   const dateRef = useRef<HTMLInputElement>(null);
   const closed = task.status === 'Done' || task.status === 'Dropped';
   const overdue = !!task.due && task.due < today && !closed;
+  const closeAsk = useCloseSubtasks(task);
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>, ok?: string) =>
     start(async () => {
@@ -76,10 +80,14 @@ export function MobileTaskDetail({
   const patch = (p: TaskPatch, ok?: string) => run(() => updateTaskAction(task.id, p), ok);
 
   function complete() {
+    closeAsk.ask(completeWith);
+  }
+
+  function completeWith(closeSubtasks: boolean) {
     navigator.vibrate?.(15);
     const prev = task.status;
     start(async () => {
-      const r = await completeTaskAction(task.id);
+      const r = await completeTaskAction(task.id, undefined, closeSubtasks);
       if (!r.ok) return void toast.error(r.error);
       toast.success(`Done: ${task.title}`, {
         action: { label: 'Undo', onClick: () => patch({ status: prev }) },
@@ -146,6 +154,7 @@ export function MobileTaskDetail({
         <ClaudeBadge task={task} />
       </div>
       <ClaudeOutcome task={task} className="mt-1" />
+      <PartOf task={task} className="mt-1 text-sm text-muted-foreground max-w-full" />
       {claudeOpen && <ClaudeMarkSheet task={task} onClose={() => setClaudeOpen(false)} />}
 
       {/* Status */}
@@ -333,6 +342,8 @@ export function MobileTaskDetail({
           </button>
         )}
       </Field>
+
+      <SubtasksSection task={task} subtasks={subtasks} phone />
 
       {/* Checklist */}
       <Field label={`Checklist${task.checklist.length ? ` · ${task.checklist.filter(i => i.done).length}/${task.checklist.length}` : ''}`}>
@@ -567,6 +578,7 @@ export function MobileTaskDetail({
       )}
 
       {progressOpen && <ProgressDialog task={task} open={progressOpen} onClose={() => setProgressOpen(false)} />}
+      {closeAsk.sheet}
     </div>
   );
 }

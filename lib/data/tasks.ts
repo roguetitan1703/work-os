@@ -2,7 +2,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { Filter } from 'mongodb';
 import { requestContext } from '../request-context';
-import { nextSeq, toActivity, type ActivityDoc, type ClaudeMark, type TaskDoc, type TrashDoc } from '../db';
+import { inTransaction, nextSeq, toActivity, type ActivityDoc, type ClaudeMark, type ProjectDoc, type TaskDoc, type TrashDoc } from '../db';
 import { canSee, forUser, orgWide, readableFilter, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
 import { asActor, isPerson, actorUserId, type ActorFilter, type TextAuthor } from '../actors';
 import {
@@ -73,6 +73,9 @@ export function toTask(d: TaskDoc): Task {
     ...(d.blockedReasonBy ? { blockedReasonBy: d.blockedReasonBy } : {}),
     ...(d.tagsBy ? { tagsBy: d.tagsBy } : {}),
     ...(d.claude ? { claude: toTaskClaude(d.claude) } : {}),
+    parentId: d.parentId ?? null,
+    ...(d.parentId ? { parentRef: d.parentRef, parentTitle: d.parentTitle } : {}),
+    ...(d.subtaskCount ? { subtaskCount: d.subtaskCount } : {}),
     ownerId: d.ownerId,
     visibility: d.visibility,
     ...(d.visibility === 'members' ? { sharedWith: placeOf(d).sharedWith } : {}),
@@ -284,6 +287,84 @@ async function logActivity(
   return doc;
 }
 
+// ── Subtasks (docs/subtasks.md) ─────────────────────────────────────────────
+// A subtask is a real task with parentId, one level deep (a subtask has no subtasks). It lives where its parent lives:
+// the same project, so the same visibility and list; moving the parent moves it. The parent's progress is the average
+// of its subtasks' (Done counts 100, Dropped is left out), recomputed whenever one changes (rollUp).
+
+/** Where a subtask of `parent` lives: placeIn the parent's project; with no project, private to the parent's owner. */
+function placeUnder(project: Parameters<typeof placeIn>[0], parent: Pick<TaskDoc, 'ownerId'>, owner: string): Placement {
+  return project ? placeIn(project, owner) : placeIn(null, parent.ownerId);
+}
+
+/** The task a new or moved task goes under: it must exist, not be the task itself, and not be a subtask. */
+async function parentFor(c: Collections, key: string | number, selfId?: string): Promise<TaskDoc> {
+  const p = await c.tasks.findOne(taskKeyFilter(key));
+  if (!p) throw new InputError(`Parent task ${typeof key === 'number' ? '#' + key : key} not found`);
+  if (p._id === selfId) throw new InputError(`#${p.ref} can't be a subtask of itself`);
+  if (p.parentId) throw new InputError(`#${p.ref} is itself a subtask of #${p.parentRef}: subtasks go one level deep. Put it under #${p.parentRef} instead.`);
+  return p;
+}
+
+/** The parent's project, checking that a project asked for alongside is that one. */
+async function parentProject(c: Collections, s: Scope, parent: TaskDoc, wanted: string | null | undefined, ref?: number) {
+  const p = parent.projectId ? await c.projects.findOne({ _id: parent.projectId }) : null;
+  if (wanted !== undefined) {
+    const w = wanted ? await resolveProject(c, s, wanted, { create: false }) : null;
+    if ((w?._id ?? null) !== parent.projectId) {
+      throw new InputError(`${ref ? `#${ref}` : 'A subtask'} stays in its parent's project (#${parent.ref} is in ${p ? `"${p.name}"` : 'no project'}). Move #${parent.ref} instead, or take it out from under #${parent.ref} first.`);
+    }
+  }
+  return p;
+}
+
+/** Recomputes a parent's subtask count and (while it is open) its progress from its subtasks. */
+async function rollUp(c: Collections, parentId: string | null | undefined): Promise<void> {
+  if (!parentId) return;
+  const parent = await c.tasks.findOne({ _id: parentId }, { projection: { status: 1, progress: 1, subtaskCount: 1 } });
+  if (!parent) return;
+  const kids = await c.tasks.find({ parentId }, { projection: { status: 1, progress: 1 } }).toArray();
+  if (!kids.length) {
+    if (parent.subtaskCount) await c.tasks.updateOne({ _id: parentId }, { $unset: { subtaskCount: '' } });
+    return;
+  }
+  const counted = kids.filter(k => k.status !== 'Dropped');
+  const subtaskCount = { done: counted.filter(k => k.status === 'Done').length, total: counted.length };
+  const set: Partial<TaskDoc> = { subtaskCount };
+  if (isOpen(parent.status) && counted.length) set.progress = Math.round(counted.reduce((n, k) => n + (k.status === 'Done' ? 100 : k.progress), 0) / counted.length);
+  if (same(parent.subtaskCount, subtaskCount) && (set.progress === undefined || set.progress === parent.progress)) return;
+  await c.tasks.updateOne({ _id: parentId }, { $set: set });
+}
+
+/** A parent's subtasks, open ones first by number. */
+export async function listSubtasks(s: Scope, taskId: string, opts: { open?: boolean } = {}): Promise<Task[]> {
+  const c = await scoped(s);
+  const docs = await c.tasks.find({ parentId: taskId, ...(opts.open ? { status: { $in: OPEN_STATUSES } } : {}) }).sort({ ref: 1 }).toArray();
+  return docs.map(toTask).sort((a, b) => Number(!isOpen(a.status)) - Number(!isOpen(b.status)) || a.ref - b.ref);
+}
+
+/** Moves a parent's subtasks to where the parent now is (its project and placement); a moved assignee who can't see it there is dropped. */
+async function moveSubtasks(c: Collections, s: Scope, parent: TaskDoc, project: ProjectDoc | null, actor: Actor): Promise<void> {
+  const kids = await c.tasks.find({ parentId: parent._id }).toArray();
+  for (const k of kids) {
+    const place = placeUnder(project, parent, k.ownerId);
+    const set: Partial<TaskDoc> = {};
+    const changes: Record<string, FieldChange> = {};
+    if (k.projectId !== parent.projectId) {
+      set.projectId = parent.projectId;
+      changes.project = { from: k.projectId ? ((await c.projects.findOne({ _id: k.projectId }, { projection: { name: 1 } }))?.name ?? k.projectId) : null, to: project?.name ?? null };
+    }
+    const assigneeId = keptAssignee(k.assigneeId, place);
+    if ((k.assigneeId ?? null) !== assigneeId) {
+      set.assigneeId = assigneeId;
+      changes.assignee = { from: await personName(s, k.assigneeId), to: null };
+    }
+    if (Object.keys(set).length) await c.tasks.updateOne({ _id: k._id }, { $set: set });
+    if (!samePlace(place, placeOf(k))) await placeTasks(c, [k._id], place);
+    if (Object.keys(changes).length) await logActivity(c, { ...k, ...place }, actor, 'edit', { changes, note: `Moved with #${parent.ref}` });
+  }
+}
+
 // ── Create ──────────────────────────────────────────────────────────────────
 
 export async function createTask(
@@ -324,11 +405,13 @@ async function insertTask(
   const now = new Date();
   const today = todayStr();
   const mode = (await canonicalMode(s, data.mode)) ?? null;
-  const project = data.project ? await resolveProject(c, s, data.project, { create: true }) : null;
+  // A subtask goes in its parent's project (docs/subtasks.md).
+  const parent = data.parent != null ? await parentFor(c, data.parent) : null;
+  const project = parent ? await parentProject(c, s, parent, data.project) : data.project ? await resolveProject(c, s, data.project, { create: true }) : null;
   const status: Status = data.status ?? (data.blockedReason?.trim() ? 'Blocked' : 'Not Started');
   const done = status === 'Done';
   const id = randomUUID();
-  const place = placeIn(project, opts.ownerId ?? s.userId);
+  const place = parent ? placeUnder(project, parent, opts.ownerId ?? s.userId) : placeIn(project, opts.ownerId ?? s.userId);
   const assigneeId = (await resolveAssignee(s, data.assignee)) ?? null;
   assertAssignable(place, assigneeId);
   const doc: TaskDoc = {
@@ -366,11 +449,24 @@ async function insertTask(
     doneOn: done ? today : null,
     doneBy: done ? actor : null,
     ...(opts.source ? { source: opts.source } : {}),
+    ...(parent ? { parentId: parent._id, parentRef: parent.ref, parentTitle: parent.title } : {}),
   };
   await c.tasks.insertOne(doc);
   await logActivity(c, doc, actor, 'created', { note: opts.note });
   if (assigneeId) await queueAssigned(s, doc, assigneeId, actor);
+  if (parent) await rollUp(c, parent._id);
   return doc;
+}
+
+/** A parent and its subtasks in one atomic write (MCP add_task subtasks). */
+export async function createTaskWithSubtasks(s: Scope, input: TaskInput, subtasks: TaskInput[], actor: Actor, opts: { note?: string } = {}): Promise<{ task: Task; subtasks: Task[] }> {
+  if (subtasks.length && input.parent != null) throw new InputError('A subtask cannot have subtasks of its own: give either parent or subtasks');
+  return inTransaction(async () => {
+    const task = await createTask(s, input, actor, { note: opts.note });
+    const kids: Task[] = [];
+    for (const k of subtasks) kids.push(await createTask(s, { ...k, parent: task.id }, actor, { note: opts.note }));
+    return { task: kids.length ? ((await getTask(s, task.id)) ?? task) : task, subtasks: kids };
+  });
 }
 
 export async function bulkCreateTasks(s: Scope, inputs: TaskInput[], actor: Actor): Promise<Task[]> {
@@ -415,25 +511,50 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
   if (data.dependsOn !== undefined) apply('dependsOn', await resolveDependencies(c, data.dependsOn, cur._id));
   if (data.recurrence !== undefined) apply('recurrence', data.recurrence ?? null);
 
+  // Subtasks (docs/subtasks.md): `parent` puts the task under another (it joins that task's project) or, null, takes it
+  // out. A subtask can't change project on its own: it moves with its parent.
+  let parentSet: TaskDoc | null | undefined;
+  if (data.parent !== undefined) {
+    const p = data.parent === null ? null : await parentFor(c, data.parent, cur._id);
+    if ((p?._id ?? null) !== (cur.parentId ?? null)) {
+      if (p && (await c.tasks.findOne({ parentId: cur._id }, { projection: { _id: 1 } }))) {
+        throw new InputError(`#${cur.ref} has subtasks of its own, so it can't go under #${p.ref}: subtasks go one level deep`);
+      }
+      parentSet = p;
+      changes.parent = { from: cur.parentId ? `#${cur.parentRef} ${cur.parentTitle ?? ''}`.trim() : null, to: p ? `#${p.ref} ${p.title}` : null };
+    }
+  }
+  const parentNow = parentSet !== undefined ? parentSet : cur.parentId && data.project !== undefined ? await c.tasks.findOne({ _id: cur.parentId }) : null;
+  let target: ProjectDoc | null | undefined;
+  if (parentNow) {
+    const p = await parentProject(c, s, parentNow, data.project, cur.ref);
+    if (parentSet) target = p;
+  } else if (data.project !== undefined) {
+    // (Taken out from under its parent, a task stays in the project it is in unless one is given.)
+    target = data.project ? await resolveProject(c, s, data.project, { create: true }) : null;
+  }
+
   let moveTo: Placement | null = null;
-  if (data.project !== undefined) {
-    const p = data.project ? await resolveProject(c, s, data.project, { create: true }) : null;
+  if (target !== undefined) {
+    const p = target;
+    const old = cur.projectId ? await c.projects.findOne({ _id: cur.projectId }, { projection: { name: 1, ownerId: 1 } }) : null;
     if ((p?._id ?? null) !== cur.projectId) {
-      const old = cur.projectId ? await c.projects.findOne({ _id: cur.projectId }, { projection: { name: 1, ownerId: 1 } }) : null;
       set.projectId = p?._id ?? null;
       changes.project = { from: old?.name ?? cur.projectId, to: p?.name ?? null };
-      // The task follows its project. Taking a shared task to fewer people (a private project, or one shared with chosen
-      // people) is its owner's call.
-      const place = placeIn(p, cur.ownerId);
+    }
+    // The task follows its project. Taking a shared task to fewer people (a private project, or one shared with chosen
+    // people) is its owner's call.
+    const place = parentNow ? placeUnder(p, parentNow, cur.ownerId) : placeIn(p, cur.ownerId);
+    if (!samePlace(place, placeOf(cur))) {
       if (cur.visibility !== 'private' && place.visibility !== 'org' && cur.ownerId !== s.userId) {
         throw new InputError(`Only the task's owner can take #${cur.ref} out of a project shared with everyone`);
       }
       // Out of a project shared with chosen people, it may reach people the list kept out: the task's owner or the
       // project's owner decides that, not anyone else on the list.
-      if (cur.visibility === 'members' && !samePlace(place, placeOf(cur)) && s.userId !== cur.ownerId && s.userId !== old?.ownerId) {
+      if (cur.visibility === 'members' && s.userId !== cur.ownerId && s.userId !== old?.ownerId) {
         throw new InputError(`Only the task's owner or the project's owner can move #${cur.ref} out of a project shared with chosen people`);
       }
-      if (!samePlace(place, placeOf(cur))) moveTo = place;
+      moveTo = place;
     }
   }
 
@@ -498,9 +619,29 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
   }
 
   set.updatedAt = now;
-  await c.tasks.updateOne({ _id: cur._id }, { $set: set });
+  if (parentSet) Object.assign(set, { parentId: parentSet._id, parentRef: parentSet.ref, parentTitle: parentSet.title });
+  await c.tasks.updateOne({ _id: cur._id }, { $set: set, ...(parentSet === null ? { $unset: { parentId: '', parentRef: '', parentTitle: '' } } : {}) });
   if (moveTo) await placeTasks(c, [cur._id], moveTo);
   const next: TaskDoc = { ...cur, ...set, ...(moveTo ?? {}) };
+  if (parentSet === null) {
+    delete next.parentId;
+    delete next.parentRef;
+    delete next.parentTitle;
+  }
+  // A parent: its subtasks follow it to another project and keep its title; reopening it takes its progress from them.
+  if (!next.parentId) {
+    if (set.projectId !== undefined || moveTo) await moveSubtasks(c, s, next, target ?? null, actor);
+    if (changes.title) await c.tasks.updateMany({ parentId: cur._id }, { $set: { parentTitle: next.title } });
+  }
+  // A subtask: its old and new parent's rollup.
+  if (changes.status || changes.progress || parentSet !== undefined) {
+    await rollUp(c, cur.parentId);
+    if (parentSet) await rollUp(c, parentSet._id);
+  }
+  if (changes.status && cur.subtaskCount) {
+    await rollUp(c, cur._id);
+    next.progress = (await c.tasks.findOne({ _id: cur._id }, { projection: { progress: 1 } }))?.progress ?? next.progress;
+  }
 
   // History: a status transition gets its own entry; other field changes are grouped.
   const statusKeys = ['status', 'blockedReason', 'progress'];
@@ -546,7 +687,15 @@ export async function logProgress(
   return updateTask(s, key, { progress, ...(status ? { status } : {}), ...(blockedReason !== undefined ? { blockedReason } : {}) }, actor, { note, kind: 'progress' });
 }
 
-export async function completeTask(s: Scope, key: string | number, note: string | undefined, actor: Actor): Promise<Task> {
+/**
+ * Marks a task Done. A parent's open subtasks stay open unless closeSubtasks (the app asks "Close the N open subtasks
+ * too?"; MCP leaves them open and lists them).
+ */
+export async function completeTask(s: Scope, key: string | number, note: string | undefined, actor: Actor, opts: { closeSubtasks?: boolean } = {}): Promise<Task> {
+  if (opts.closeSubtasks) {
+    const t = await getTask(s, key);
+    if (t) for (const k of await listSubtasks(s, t.id, { open: true })) await updateTask(s, k.id, { status: 'Done' }, actor, { note: `Closed with #${t.ref}` });
+  }
   return updateTask(s, key, { status: 'Done' }, actor, { note });
 }
 
@@ -589,12 +738,22 @@ export async function trashTask(
   key: string | number,
   actor: Actor,
   opts: { reason?: string; expectTitle?: string } = {},
-): Promise<{ ref: number; title: string }> {
+): Promise<{ ref: number; title: string; subtasks?: number }> {
   const c = await scoped(s);
   const cur = await findTaskDoc(c, key);
   if (opts.expectTitle !== undefined && !titleMatches(cur.title, opts.expectTitle)) {
     throw new InputError(`#${cur.ref} is "${cur.title}", not "${opts.expectTitle}". Nothing deleted.`);
   }
+  const at = new Date();
+  // A parent takes its subtasks with it; restoring it brings them back (docs/subtasks.md).
+  const kids = await c.tasks.find({ parentId: cur._id }).toArray();
+  for (const k of kids) await trashOne(c, s, k, actor, at, opts.reason, cur._id);
+  await trashOne(c, s, cur, actor, at, opts.reason);
+  await rollUp(c, cur.parentId);
+  return { ref: cur.ref, title: cur.title, ...(kids.length ? { subtasks: kids.length } : {}) };
+}
+
+async function trashOne(c: Collections, s: Scope, cur: TaskDoc, actor: Actor, at: Date, reason?: string, withParent?: string): Promise<void> {
   const activity = await c.activity.find({ taskId: cur._id }).toArray();
   const notes = await c.notes.find({ taskId: cur._id, deletedAt: null }, { projection: { _id: 1 } }).toArray();
   // A restored task must not come back queued for Claude: the person marks it again if they want.
@@ -608,20 +767,20 @@ export async function trashTask(
     title: cur.title,
     task: plain,
     activity,
-    deletedAt: new Date(),
+    deletedAt: at,
     deletedBy: actor,
-    reason: opts.reason?.trim() ?? '',
+    reason: reason?.trim() ?? '',
     ...(notes.length ? { noteIds: notes.map(n => n._id) } : {}),
+    ...(withParent ? { withParent } : {}),
   };
   if (notes.length) await c.notes.updateMany({ _id: { $in: notes.map(n => n._id) } }, { $set: { deletedAt: doc.deletedAt, deletedBy: actor } });
   await c.trash.replaceOne({ _id: cur._id }, doc, { upsert: true });
   await c.tasks.deleteOne({ _id: cur._id });
   await c.activity.deleteMany({ taskId: cur._id });
   // One line stays in the feed so "who deleted what" shows in History and recent_activity.
-  await logActivity(c, cur, actor, 'trashed', { note: opts.reason });
+  await logActivity(c, cur, actor, 'trashed', { note: withParent ? `With its parent${reason?.trim() ? `: ${reason.trim()}` : ''}` : reason });
   // Tasks that waited only on this one can start now.
   if (isOpen(cur.status)) await queueUnblocked(s, cur);
-  return { ref: cur.ref, title: cur.title };
 }
 
 export async function restoreTask(s: Scope, key: string | number, actor: Actor): Promise<Task> {
@@ -629,16 +788,41 @@ export async function restoreTask(s: Scope, key: string | number, actor: Actor):
   const f = taskKeyFilter(key);
   const t = await c.trash.findOne('ref' in f ? { ref: f.ref as number } : { _id: f._id as string }, { sort: { deletedAt: -1 } });
   if (!t) throw new NotFoundError(`Task ${typeof key === 'number' ? '#' + key : key} is not in the trash`);
+  if (t.withParent) {
+    const p = await c.trash.findOne({ _id: t.withParent }, { projection: { ref: 1 } });
+    if (p) throw new InputError(`#${t.ref} went to the trash with its parent #${p.ref}: restore #${p.ref} and it comes back too`);
+  }
+  const org = await orgWide(s.orgId);
+  const restored = await restoreOne(s, c, org, t, actor, key);
+  // Its subtasks that went with it come back with it.
+  for (const k of await c.trash.find({ withParent: t._id }).toArray()) await restoreOne(s, c, org, k, actor, k.ref, restored);
+  await rollUp(org, restored._id);
+  await rollUp(org, restored.parentId);
+  const back = await org.tasks.findOne({ _id: restored._id });
+  return toTask(back ?? restored);
+}
+
+async function restoreOne(s: Scope, c: Collections, org: Collections, t: TrashDoc, actor: Actor, key: string | number, under?: TaskDoc): Promise<TaskDoc> {
   if (await c.tasks.findOne({ ref: t.ref }, { projection: { _id: 1 } })) throw new InputError(`#${t.ref} already exists`);
   // Older trash docs may still carry a claude mark: a restored task is never queued for Claude.
   const { claude: _claude, ...old } = t.task;
   void _claude;
+  // A subtask goes back under its parent when the parent is still there (and into its project); else on its own.
+  const parent = under ?? (old.parentId ? await org.tasks.findOne({ _id: old.parentId }) : null);
+  const projectId = parent ? parent.projectId : old.projectId;
   // Where it lives now: its project may have been made private or shared (or deleted) since it was trashed, and the
   // copy in the trash keeps the placement it had then. Recompute from the project as it is now.
-  const org = await orgWide(s.orgId);
-  const project = old.projectId ? await org.projects.findOne({ _id: old.projectId }, { projection: { ownerId: 1, visibility: 1, sharedWith: 1 } }) : null;
-  const place = placeIn(project, old.ownerId);
-  const restored: TaskDoc = { ...old, ...(old.projectId && !project ? { projectId: null } : {}), ...place, assigneeId: keptAssignee(old.assigneeId, place) };
+  const project = projectId ? await org.projects.findOne({ _id: projectId }, { projection: { ownerId: 1, visibility: 1, sharedWith: 1 } }) : null;
+  const place = parent ? placeUnder(project, parent, old.ownerId) : placeIn(project, old.ownerId);
+  const { parentId: _p, parentRef: _r, parentTitle: _t, ...rest } = old;
+  void [_p, _r, _t];
+  const restored: TaskDoc = {
+    ...rest,
+    projectId: project ? project._id : null,
+    ...place,
+    assigneeId: keptAssignee(old.assigneeId, place),
+    ...(parent ? { parentId: parent._id, parentRef: parent.ref, parentTitle: parent.title } : {}),
+  };
   // Someone who could not see the restored task does not get to put it back.
   if (!canSee(s, restored)) throw new NotFoundError(`Task ${typeof key === 'number' ? '#' + key : key} is not in the trash`);
   // Written org-wide: the result may be private to the project's owner (who is then the restorer, see above).
@@ -652,7 +836,7 @@ export async function restoreTask(s: Scope, key: string | number, actor: Actor):
   }
   await c.trash.deleteOne({ _id: t._id });
   await logActivity(org, restored, actor, 'restored');
-  return toTask(restored);
+  return restored;
 }
 
 export type TrashItem = { ref: number; title: string; status: Status; projectId: string | null; deletedAt: string; deletedBy: Actor; reason: string; purgeOn: string };
@@ -660,7 +844,8 @@ export type TrashItem = { ref: number; title: string; status: Status; projectId:
 export async function listTrash(s: Scope): Promise<TrashItem[]> {
   const c = await scoped(s);
   await purgeTrash(s);
-  const docs = await c.trash.find({}, { projection: { activity: 0 } }).sort({ deletedAt: -1 }).toArray();
+  // Subtasks that went with their parent are not listed: they come back (and go for good) with it.
+  const docs = await c.trash.find({ withParent: { $exists: false } }, { projection: { activity: 0 } }).sort({ deletedAt: -1 }).toArray();
   return docs.map(d => ({
     ref: d.ref,
     title: d.title,
@@ -676,7 +861,12 @@ export async function listTrash(s: Scope): Promise<TrashItem[]> {
 /** Permanently remove trash older than 30 days (or one item now, by ref). */
 export async function purgeTrash(s: Scope, ref?: number): Promise<number> {
   const c = await scoped(s);
-  const r = await c.trash.deleteMany(ref !== undefined ? { ref } : { deletedAt: { $lt: new Date(Date.now() - TRASH_DAYS * 86_400_000) } });
+  if (ref !== undefined) {
+    const t = await c.trash.findOne({ ref }, { projection: { _id: 1 } });
+    if (!t) return 0;
+    return (await c.trash.deleteMany({ $or: [{ _id: t._id }, { withParent: t._id }] })).deletedCount;
+  }
+  const r = await c.trash.deleteMany({ deletedAt: { $lt: new Date(Date.now() - TRASH_DAYS * 86_400_000) } });
   return r.deletedCount;
 }
 
@@ -841,6 +1031,7 @@ async function spawnNextOccurrence(c: Collections, s: Scope, done: TaskDoc, acto
       checklist: done.checklist.map(i => i.text),
       links: done.links,
       recurrence: r,
+      ...(done.parentId && (await c.tasks.findOne({ _id: done.parentId }, { projection: { _id: 1 } })) ? { parent: done.parentId } : {}),
     },
     actor,
     // The next one belongs to whoever owned this one (a shared task completed by a teammate stays theirs).
@@ -851,6 +1042,9 @@ async function spawnNextOccurrence(c: Collections, s: Scope, done: TaskDoc, acto
     },
   );
   await c.tasks.updateOne({ _id: done._id }, { $set: { nextRef: next.ref } });
+  // Its subtasks come back as new open subtasks of the next one, like the checklist (Dropped ones are left out).
+  const kids = await c.tasks.find({ parentId: done._id, status: { $ne: 'Dropped' } }, { projection: { title: 1, ownerId: 1 } }).sort({ ref: 1 }).toArray();
+  for (const k of kids) await insertTask(c, s, { title: k.title, parent: next._id }, actor, { note: `Next occurrence of #${done.ref}`, ownerId: k.ownerId });
   return next.ref;
 }
 
@@ -877,6 +1071,8 @@ export type TaskFilter = {
   updatedSince?: Date;
   /** Only tasks assigned to this member (a user id). */
   assignee?: string;
+  /** Only the subtasks of this task (a ref, "#12" or an id). */
+  parent?: string | number;
   limit?: number;
   sort?: TaskSort;
   /**
@@ -938,6 +1134,11 @@ export async function listTasks(s: Scope, f: TaskFilter = {}): Promise<Task[]> {
     if (!p) return [];
     q.projectId = p._id;
   }
+  if (f.parent !== undefined) {
+    const p = await c.tasks.findOne(taskKeyFilter(f.parent), { projection: { _id: 1 } });
+    if (!p) throw new NotFoundError(`Task ${f.parent} not found`);
+    q.parentId = p._id;
+  }
   if (f.mode) q.mode = f.mode;
   if (f.assignee) q.assigneeId = f.assignee;
   if (f.tag) q.tags = f.tag.replace(/^#/, '').toLowerCase();
@@ -997,13 +1198,16 @@ export type TaskDetail = {
   activity: Activity[];
   dependencies: Task[];
   dependents: Task[];
+  /** Subtasks (docs/subtasks.md): the parent of a subtask, the subtasks of a parent (open first). */
+  parent: Task | null;
+  subtasks: Task[];
 };
 
 export async function getTaskDetail(s: Scope, key: string | number, opts: { activityLimit?: number } = {}): Promise<TaskDetail | null> {
   const c = await scoped(s);
   const doc = await c.tasks.findOne(taskKeyFilter(key));
   if (!doc) return null;
-  const [project, activity, deps, dependents] = await Promise.all([
+  const [project, activity, deps, dependents, parent, subtasks] = await Promise.all([
     doc.projectId ? c.projects.findOne({ _id: doc.projectId }) : null,
     c.activity
       .find({ taskId: doc._id })
@@ -1012,6 +1216,8 @@ export async function getTaskDetail(s: Scope, key: string | number, opts: { acti
       .toArray(),
     doc.dependsOn.length ? c.tasks.find({ _id: { $in: doc.dependsOn } }).toArray() : [],
     c.tasks.find({ dependsOn: doc._id }).toArray(),
+    doc.parentId ? c.tasks.findOne({ _id: doc.parentId }) : null,
+    doc.parentId ? [] : listSubtasks(s, doc._id),
   ]);
   return {
     task: toTask(doc),
@@ -1019,6 +1225,8 @@ export async function getTaskDetail(s: Scope, key: string | number, opts: { acti
     activity: activity.map(toActivity),
     dependencies: deps.map(toTask),
     dependents: dependents.map(toTask),
+    parent: parent ? toTask(parent) : null,
+    subtasks,
   };
 }
 

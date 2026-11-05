@@ -93,7 +93,15 @@ export type Task = {
   sharedWith?: string[];
   /** A member who does it and gets its alerts (shared tasks only; a private task can be assigned only to its owner). */
   assigneeId: string | null;
+  /** The task this one is a subtask of (docs/subtasks.md; one level only), with its number and title for the rows. */
+  parentId: string | null;
+  parentRef?: number;
+  parentTitle?: string;
+  /** On a parent: its subtasks done and counted (Dropped ones are left out). */
+  subtaskCount?: SubtaskCount;
 };
+
+export type SubtaskCount = { done: number; total: number };
 
 export const CLAUDE_TASK_STATES = ['queued', 'running', 'finished', 'stopped', 'failed'] as const;
 export type ClaudeTaskState = (typeof CLAUDE_TASK_STATES)[number];
@@ -290,6 +298,8 @@ export const TaskInputSchema = z.object({
   recurrence: RecurrenceSchema.nullable().optional(),
   /** Who does it: a member's user id or email, or 'me'; null clears. Shared tasks only (docs/multi-user.md phase 4). */
   assignee: z.string().trim().min(1).max(200).nullable().optional(),
+  /** The task this one is a subtask of (a ref, "#12" or an id); null detaches. One level only (docs/subtasks.md). */
+  parent: z.union([z.number().int(), z.string().trim().min(1).max(100)]).nullable().optional(),
 });
 export type TaskInput = z.input<typeof TaskInputSchema>;
 

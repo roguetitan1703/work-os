@@ -18,6 +18,7 @@ import { ModeHelp } from '@/components/mode-help';
 import { NavIcon, PLACE_ICON } from '@/components/nav-icons';
 import { AddTaskButton } from '@/app/(app)/projects/[id]/add-task-button';
 import { Select } from '@/components/ui/select';
+import { ParentLine, SubtaskChip } from '@/components/subtasks';
 
 const COLUMNS: { status: Status; label: string; tone: string }[] = [
   { status: 'Not Started', label: 'To do', tone: 'bg-muted-foreground/40' },
@@ -193,6 +194,7 @@ function Card({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
         />
       </div>
       {task.status === 'Blocked' && task.blockedReason && <p className="text-[11px] text-red-600 dark:text-red-400">⛔ {task.blockedReason}</p>}
+      <ParentLine task={task} className="text-[11px] text-muted-foreground" />
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
         {task.mode && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color(task.mode).hex }} title={task.mode} aria-label={task.mode} />}
         <span className="font-mono">#{task.ref}</span>
@@ -206,6 +208,7 @@ function Card({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
             {done}/{task.checklist.length}
           </span>
         )}
+        <SubtaskChip task={task} />
       </div>
       {task.progress > 0 && !closed && (
         <div className="h-1 rounded-full bg-muted overflow-hidden">
