@@ -5,6 +5,7 @@
 import { B, CRON, EMAIL, ME, MCP, PW, check, finish, launch, login, makeUser, mkKey, rawDb, setProfile, sha, pick } from './lib.mjs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { ObjectId } from 'mongodb';
+import { fileURLToPath } from 'node:url';
 
 let rid = 0;
 async function as(key, name, args = {}) {
@@ -39,6 +40,9 @@ const mcpStatus = key => fetch(B + '/api/mcp', { method: 'POST', headers: { 'con
 const cron = () => fetch(`${B}/api/cron/alerts`, { headers: { authorization: `Bearer ${CRON}` } }).then(r => r.json());
 const roleOf = async (userId, orgId) => (await rawDb.collection('member').findOne({ userId: idIn(userId), organizationId: idIn(orgId) }))?.role ?? null;
 const task = async (orgId, ref) => rawDb.collection('tasks').findOne({ orgId, ref });
+/** A task document's assignees (the list, or the one old field). */
+const ids = d => (d ? (Array.isArray(d.assigneeIds) ? d.assigneeIds : d.assigneeId ? [d.assigneeId] : []) : null);
+const same = (a, b) => !!a && a.length === b.length && b.every(x => a.includes(x));
 // No quiet hours: alerts go out whatever time the suite runs.
 const NO_QUIET = { quietStart: 0, quietEnd: 0 };
 
@@ -57,7 +61,7 @@ try {
   await must(kA, 'add_project', { name: 'Team Shared' });
   const t1 = (await must(kA, 'add_task', { title: 'Team task for Bea', project: 'Team Shared', assignee: 'bea@example.test' })).created;
   check('assign: add_task takes an assignee (by email) and shows the name', t1.assignee === 'Bea', JSON.stringify(t1));
-  check('assign: stored as the member\'s user id', (await task(A.orgId, t1.ref))?.assigneeId === Bu.userId);
+  check('assign: stored as the member\'s user id, in the list', same((await task(A.orgId, t1.ref))?.assigneeIds, [Bu.userId]));
   const note1 = await until(() => rawDb.collection('notifications').findOne({ userId: Bu.userId, kind: 'assigned' }));
   check('assign: the assignee gets an inbox notice at once, saying who', !!note1 && note1.title.includes(`#${t1.ref}`) && /E2E Owner/.test(note1.title), JSON.stringify(note1));
   check('assign: whoever assigned gets no notice', (await rawDb.collection('notifications').countDocuments({ userId: A.userId, kind: 'assigned' })) === 0);
@@ -67,7 +71,7 @@ try {
   const t2 = (await must(kB, 'add_task', { title: 'Bea assigns herself', project: 'Team Shared', assignee: 'me' })).created;
   await sleep(2500);
   check('assign: assigning yourself sends no notice', (await rawDb.collection('notifications').countDocuments({ userId: Bu.userId, kind: 'assigned' })) === 1);
-  check('assign: "me" is the caller', (await task(A.orgId, t2.ref))?.assigneeId === Bu.userId);
+  check('assign: "me" is the caller', same(ids(await task(A.orgId, t2.ref)), [Bu.userId]));
   const outsider = await as(kA, 'update_task', { task: t1.ref, assignee: 'cy@example.test' });
   check('assign: someone outside the organization is refused', outsider.isError && /not a member/.test(outsider.text), outsider.text);
   for (const name of ['constructor', 'toString', '__proto__']) {
@@ -75,9 +79,90 @@ try {
     check(`assign: "${name}" is not a member (no inherited keys)`, odd.isError && /not a member/.test(odd.text), odd.text);
   }
   const re = await as(kA, 'update_task', { task: t1.ref, assignee: null });
-  check('assign: null clears it', !re.isError && (await task(A.orgId, t1.ref))?.assigneeId === null, re.text);
+  check('assign: null clears it', !re.isError && same(ids(await task(A.orgId, t1.ref)), []), re.text);
   const hist = (await must(kA, 'get_task', { task: t1.ref })).activity.map(a => a.text).join(' | ');
   check('assign: history names the people, not ids', /assignee Bea → —/.test(hist), hist);
+
+
+  // ======== 1b. several assignees ========
+  const Dee = await makeUser({ email: 'dee@example.test', name: 'Dee', orgId: A.orgId, role: 'member' });
+  await setProfile(Dee, NO_QUIET);
+  const kD = await mkKey({ agent: 'claude', userId: Dee.userId, orgId: A.orgId, name: 'dee chat' });
+  const assignedN = (who, ref) => rawDb.collection('notifications').countDocuments({ userId: who.userId, kind: 'assigned', title: { $regex: `#${ref} ` } });
+  const m1 = (await must(kA, 'add_task', { title: 'Two people on it', project: 'Team Shared', assignees: ['bea@example.test', 'dee@example.test'] })).created;
+  check('several: add_task takes a list (stored once each, in order)', same((await task(A.orgId, m1.ref))?.assigneeIds, [Bu.userId, Dee.userId]) && !('assigneeId' in (await task(A.orgId, m1.ref))));
+  check('several: each assignee is told', !!(await until(async () => (await assignedN(Bu, m1.ref)) === 1 && (await assignedN(Dee, m1.ref)) === 1)), `${await assignedN(Bu, m1.ref)} ${await assignedN(Dee, m1.ref)}`);
+  const g1 = await must(kA, 'get_task', { task: m1.ref });
+  check('several: get_task names them all', same(g1.assignees, ['Bea', 'Dee']) && g1.assignee === 'Bea, Dee', JSON.stringify([g1.assignee, g1.assignees]));
+  const dMine = await must(kD, 'list_tasks', { assignee: 'me' });
+  check('several: list_tasks assignee:"me" matches any of them', dMine.tasks.some(t => t.ref === m1.ref), JSON.stringify(dMine.tasks.map(t => t.ref)));
+  const bMine2 = await must(kB, 'list_tasks', { assignee: 'me' });
+  check('several: ...for each of them', bMine2.tasks.some(t => t.ref === m1.ref));
+  await must(kA, 'update_task', { task: m1.ref, assignees: ['bea@example.test', 'dee@example.test', 'me'] });
+  await sleep(1500);
+  check('several: adding someone tells only the new one (the others are not told again; yourself never)', (await assignedN(Bu, m1.ref)) === 1 && (await assignedN(Dee, m1.ref)) === 1 && (await assignedN(A, m1.ref)) === 0);
+  await must(kA, 'update_task', { task: m1.ref, assignees: ['bea@example.test'] });
+  check('several: the list replaces (two taken off)', same((await task(A.orgId, m1.ref))?.assigneeIds, [Bu.userId]));
+  const hist2 = (await must(kA, 'get_task', { task: m1.ref })).activity.map(a => a.text).join(' | ');
+  check('several: history names everyone', /assignee Bea, Dee, E2E Owner → Bea/.test(hist2), hist2);
+  await must(kA, 'update_task', { task: m1.ref, assignee: 'dee@example.test' });
+  check('several: assignee (one) still works and replaces the list', same((await task(A.orgId, m1.ref))?.assigneeIds, [Dee.userId]));
+  const twice = await must(kA, 'add_task', { title: 'Same person twice', project: 'Team Shared', assignees: ['bea@example.test', Bu.userId, 'me'] });
+  check('several: the same person twice is kept once', same((await task(A.orgId, twice.created.ref))?.assigneeIds, [Bu.userId, A.userId]));
+  const bad = await as(kA, 'update_task', { task: m1.ref, assignees: ['bea@example.test', 'cy@example.test'] });
+  check('several: one outsider refuses the whole list (nothing changes)', bad.isError && /not a member/.test(bad.text) && same((await task(A.orgId, m1.ref))?.assigneeIds, [Dee.userId]), bad.text);
+  const privMany = await as(kA, 'add_task', { title: 'Private for two', assignees: ['me', 'bea@example.test'] });
+  check('several: a private task refuses anyone but its owner in the list', privMany.isError && /private/.test(privMany.text), privMany.text);
+  const batMany = await as(kA, 'apply_changes', { ops: [{ op: 'create_task', as: '$m', title: 'Batch for two', project: 'Team Shared', assignees: ['bea@example.test', 'dee@example.test'] }, { op: 'update_task', task: '$m', assignees: ['dee@example.test'] }] });
+  const bm = await rawDb.collection('tasks').findOne({ orgId: A.orgId, title: 'Batch for two' });
+  check('several: apply_changes takes assignees on create and update', !batMany.isError && same(bm?.assigneeIds, [Dee.userId]), batMany.text);
+  // the scheduled alerts go to every assignee, and stop for one taken off
+  const m2 = (await must(kA, 'add_task', { title: 'Old P1 for two', project: 'Team Shared', priority: 'P1', assignees: ['bea@example.test', 'dee@example.test'] })).created;
+  await rawDb.collection('tasks').updateOne({ orgId: A.orgId, ref: m2.ref }, { $set: { createdAt: new Date(Date.now() - 3 * 864e5) } });
+  const ns2 = who => rawDb.collection('notifications').countDocuments({ userId: who.userId, kind: 'never_started', title: { $regex: `#${m2.ref} ` } });
+  await cron();
+  check('several: a scheduled alert reaches each assignee (not the owner)', (await ns2(Bu)) === 1 && (await ns2(Dee)) === 1 && (await ns2(A)) === 0, `${await ns2(Bu)} ${await ns2(Dee)} ${await ns2(A)}`);
+  // an assignment alert still queued for someone taken off before it goes out is dropped
+  const m3 = (await must(kA, 'add_task', { title: 'Taken off again', project: 'Team Shared' })).created;
+  const m3d = await task(A.orgId, m3.ref);
+  await rawDb.collection('alertQueue').insertOne({ _id: `assigned:${m3d._id}:${Dee.userId}:race`, orgId: A.orgId, userId: Dee.userId, kind: 'assigned', taskId: m3d._id, byTaskId: m3d._id, createdAt: new Date(), sentAt: null, detail: 'E2E Owner' });
+  await must(kA, 'update_task', { task: m3.ref, assignees: ['bea@example.test'] });
+  await cron();
+  await sleep(800);
+  check('several: someone taken off is not told about it after all', (await assignedN(Dee, m3.ref)) === 0 && (await assignedN(Bu, m3.ref)) === 1);
+  // a task from before several assignees (the one old field) still works, and moves over at its next change
+  const legacyRef = 900001;
+  await rawDb.collection('tasks').insertOne({ ...(await task(A.orgId, m3.ref)), _id: randomUUID(), ref: legacyRef, title: 'Old single-assignee task', assigneeId: Dee.userId, assigneeIds: undefined });
+  await rawDb.collection('tasks').updateOne({ ref: legacyRef }, { $unset: { assigneeIds: '' } });
+  check('old task: get_task shows its one assignee', (await must(kA, 'get_task', { task: legacyRef })).assignee === 'Dee');
+  check('old task: Assigned to me finds it', (await must(kD, 'list_tasks', { assignee: 'me' })).tasks.some(t => t.ref === legacyRef));
+  await must(kA, 'update_task', { task: legacyRef, priority: 'P1' });
+  const lg = await task(A.orgId, legacyRef);
+  check('old task: its next change moves it to the list', same(lg?.assigneeIds, [Dee.userId]) && !('assigneeId' in lg), JSON.stringify(lg && [lg.assigneeId, lg.assigneeIds]));
+  // the one-off migration (scripts/migrate-assignees.mjs)
+  const oldOnes = [{ ref: 900002, assigneeId: Bu.userId }, { ref: 900003, assigneeId: null }, { ref: 900004, assigneeId: Bu.userId, assigneeIds: [Dee.userId] }];
+  for (const o of oldOnes) {
+    const base = { ...(await task(A.orgId, m3.ref)), _id: randomUUID(), ref: o.ref, title: `Migrate me ${o.ref}`, assigneeId: o.assigneeId };
+    delete base.assigneeIds;
+    if (o.assigneeIds) base.assigneeIds = o.assigneeIds;
+    await rawDb.collection('tasks').insertOne(base);
+  }
+  await rawDb.collection('trash').insertOne({ _id: 'trash-migrate-e2e', orgId: A.orgId, ownerId: A.userId, visibility: 'org', ref: 900005, deletedAt: new Date(), task: { ...(await task(A.orgId, 900002)), ref: 900005 }, activity: [], purgeOn: '2099-01-01' });
+  const { execFileSync } = await import('node:child_process');
+  const runMig = (...extra) => execFileSync(process.execPath, [fileURLToPath(new URL('../../scripts/migrate-assignees.mjs', import.meta.url)), '--db', process.env.MONGODB_DB, ...extra], { encoding: 'utf8', env: process.env });
+  const dry = runMig();
+  check('migration: a dry run counts and changes nothing', /DRY RUN/.test(dry) && (await task(A.orgId, 900002))?.assigneeId === Bu.userId, dry);
+  check('migration: prints counts only (no names, ids or titles)', !/Bea|Dee|Migrate me|example\.test/.test(dry) && !dry.includes(Bu.userId), dry);
+  const applied = runMig('--apply');
+  const mg = await Promise.all([900002, 900003, 900004].map(r => task(A.orgId, r)));
+  check('migration: one assignee becomes a list of one', same(mg[0]?.assigneeIds, [Bu.userId]) && !('assigneeId' in mg[0]), applied);
+  check('migration: nobody becomes an empty list', same(mg[1]?.assigneeIds, []) && !('assigneeId' in mg[1]));
+  check('migration: a list already there is kept and the old one added', same(mg[2]?.assigneeIds, [Dee.userId, Bu.userId]));
+  const tr = await rawDb.collection('trash').findOne({ _id: 'trash-migrate-e2e' });
+  check('migration: tasks in the trash too', same(tr?.task?.assigneeIds, [Bu.userId]) && !('assigneeId' in tr.task));
+  check('migration: a second run finds nothing to do', /Nothing to do/.test(runMig('--apply')));
+  await rawDb.collection('trash').deleteOne({ _id: 'trash-migrate-e2e' });
+  await rawDb.collection('tasks').deleteMany({ orgId: A.orgId, ref: { $gte: 900000 } });
 
   // a private task can't be assigned to anyone else
   const priv = await as(kA, 'add_task', { title: 'Private for Bea', assignee: 'bea@example.test' });
@@ -87,17 +172,17 @@ try {
   const priv2 = await as(kA, 'update_task', { task: p1.ref, assignee: 'bea@example.test' });
   check('private: update_task with a teammate as assignee is refused', priv2.isError && /private/.test(priv2.text), priv2.text);
   const self = await as(kA, 'update_task', { task: p1.ref, assignee: 'me' });
-  check('private: its owner may be its assignee', !self.isError && (await task(A.orgId, p1.ref))?.assigneeId === A.userId, self.text);
+  check('private: its owner may be its assignee', !self.isError && same(ids(await task(A.orgId, p1.ref)), [A.userId]), self.text);
   const bat = await as(kA, 'apply_changes', { ops: [{ op: 'create_task', title: 'Batch private for Bea', assignee: 'bea@example.test' }] });
   check('private: apply_changes create_task follows the same rule (nothing saved)', bat.isError && /private/.test(bat.text) && !(await rawDb.collection('tasks').findOne({ title: 'Batch private for Bea' })), bat.text);
   const t3 = (await must(kA, 'add_task', { title: 'Moves to private', project: 'Team Shared', assignee: 'bea@example.test' })).created;
   await must(kA, 'update_task', { task: t3.ref, project: null });
   const t3d = await task(A.orgId, t3.ref);
-  check('private: taking a task out of its shared project drops a teammate assignee', t3d?.visibility === 'private' && t3d.assigneeId === null, JSON.stringify(t3d && [t3d.visibility, t3d.assigneeId]));
+  check('private: taking a task out of its shared project drops a teammate assignee', t3d?.visibility === 'private' && same(ids(t3d), []), JSON.stringify(t3d && [t3d.visibility, ids(t3d)]));
   await must(kA, 'add_project', { name: 'Goes Private' });
   const t4 = (await must(kA, 'add_task', { title: 'In a project made private', project: 'Goes Private', assignee: 'bea@example.test' })).created;
   await must(kA, 'update_project', { project: 'Goes Private', visibility: 'private' });
-  check('private: making the project private drops teammate assignees', (await task(A.orgId, t4.ref))?.assigneeId === null);
+  check('private: making the project private drops teammate assignees', same(ids(await task(A.orgId, t4.ref)), []));
 
   // ======== 2. alerts go to the assignee ========
   const t5 = (await must(kA, 'add_task', { title: 'Old P1 nobody started', project: 'Team Shared', priority: 'P1' })).created;
@@ -153,7 +238,7 @@ try {
   await must(kA, 'delete_task', { task: t7.ref, title: 'Trash and back again' });
   await must(kA, 'restore_task', { task: t7.ref });
   const t7d = await task(A.orgId, t7.ref);
-  check('restore: the task is back, its trash entry gone, its assignee kept', !!t7d && t7d.assigneeId === Bu.userId && !(await rawDb.collection('trash').findOne({ _id: t7d._id })));
+  check('restore: the task is back, its trash entry gone, its assignee kept', !!t7d && same(ids(t7d), [Bu.userId]) && !(await rawDb.collection('trash').findOne({ _id: t7d._id })));
 
   // ======== 5. members: invite, accept, roles, last owner ========
   const ctxA = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -250,6 +335,7 @@ try {
   const rTask = (await must(kR, 'add_task', { title: 'Rex gave this to Claude', project: 'Team Shared' })).created;
   await rawDb.collection('tasks').updateOne({ orgId: A.orgId, ref: rTask.ref }, { $set: { claude: { state: 'queued', markedAt: new Date(), markedBy: 'user', markedByUserId: R.userId, markedByOrgId: A.orgId } } });
   const rAssigned = (await must(kA, 'add_task', { title: 'Assigned to Rex', project: 'Team Shared', assignee: 'rex@example.test' })).created;
+  const rShared = (await must(kA, 'add_task', { title: 'Rex and Bea', project: 'Team Shared', assignees: ['rex@example.test', 'bea@example.test'] })).created;
   const rPriv = (await must(kR, 'add_task', { title: 'Rex private thing' })).created;
   const rPrivBefore = await task(A.orgId, rPriv.ref);
   // an invitation Rex sent (as if he had been an admin) and an alert waiting for him
@@ -280,7 +366,8 @@ try {
   check('remove: his open browser is signed out', new URL(pr.url()).pathname.startsWith('/login'), pr.url());
   const rc = (await task(A.orgId, rTask.ref))?.claude;
   check('remove: the task he gave to Claude stops', rc?.state === 'stopped', JSON.stringify(rc));
-  check('remove: a task assigned to him goes back to its owner', (await task(A.orgId, rAssigned.ref))?.assigneeId === null);
+  check('remove: a task assigned to him goes back to its owner', same(ids(await task(A.orgId, rAssigned.ref)), []));
+  check('remove: on a task with others assigned, only he comes off', same(ids(await task(A.orgId, rShared.ref)), [Bu.userId]));
   const rPrivAfter = await task(A.orgId, rPriv.ref);
   check('remove: his private task is kept untouched', !!rPrivAfter && rPrivAfter.ownerId === R.userId && rPrivAfter.visibility === 'private' && rPrivAfter.updatedAt.getTime() === rPrivBefore.updatedAt.getTime());
   const aSees = await as(kA, 'get_task', { task: rPriv.ref });
@@ -305,26 +392,41 @@ try {
   // ======== 7. assignee picker and "Assigned to me" views ========
   const t8 = (await must(kA, 'add_task', { title: 'Picker task', project: 'Team Shared' })).created;
   await pa.goto(`${B}/tasks/${t8.ref}`);
-  await pa.waitForSelector('[data-assignee-picker]', { timeout: 15000 });
-  await pick(pa, '[data-assignee-picker]', Bu.userId);
-  check('picker (desktop): assigns from the task page', !!(await until(async () => (await task(A.orgId, t8.ref))?.assigneeId === Bu.userId)));
+  await pa.waitForSelector('[data-assignee-picker]:visible', { timeout: 15000 });
+  const tick = async (pg, who, tap = false) => {
+    await (tap ? pg.tap('[data-assignee-picker]:visible') : pg.click('[data-assignee-picker]:visible'));
+    for (const id of who) await (tap ? pg.tap(`[data-assignee-option="${id}"]`) : pg.click(`[data-assignee-option="${id}"]`));
+    await (tap ? pg.tap('[data-assignee-save]') : pg.click('[data-assignee-save]'));
+  };
+  await tick(pa, [Bu.userId]);
+  check('picker (desktop): assigns from the task page', !!(await until(async () => same((await task(A.orgId, t8.ref))?.assigneeIds, [Bu.userId]))));
   check('picker: the assignee is told at once (the flush ran)', !!(await until(() => rawDb.collection('notifications').findOne({ userId: Bu.userId, kind: 'assigned', title: { $regex: `#${t8.ref} ` } }))));
   check('flush: nothing goes to a removed member', (await rawDb.collection('alertQueue').findOne({ _id: `assigned:test:${R.userId}:2` }))?.sentAt === null);
   await pa.goto(`${B}/tasks/${p1.ref}`);
   await pa.waitForSelector('text=Private: only you', { timeout: 15000 }).catch(() => {});
   check('picker (desktop): a private task offers no picker', (await pa.locator('[data-assignee-picker]').count()) === 0 && (await pa.locator('text=Private: only you').count()) > 0);
-  // A is assigned two tasks: t8 goes to A too, plus p1 (own private)
-  await must(kA, 'update_task', { task: t8.ref, assignee: 'me' });
+  await pa.goto(`${B}/tasks/${t8.ref}`);
+  await pa.waitForSelector('[data-assignee-picker]:visible:has-text("Bea")', { timeout: 15000 });
+  await tick(pa, [Dee.userId]);
+  check('picker (desktop): ticks a second person (both kept)', !!(await until(async () => same((await task(A.orgId, t8.ref))?.assigneeIds, [Bu.userId, Dee.userId]))));
+  check('picker (desktop): the button names them', !!(await until(async () => /Bea, Dee/.test(await pa.locator('[data-assignee-picker]:visible').innerText()))));
+  await tick(pa, [Bu.userId, Dee.userId]);
+  check('picker (desktop): unticking everyone leaves nobody', !!(await until(async () => same((await task(A.orgId, t8.ref))?.assigneeIds, []))));
+  // A is assigned two tasks: t8 goes to A too (with Bea), plus p1 (own private)
+  await must(kA, 'update_task', { task: t8.ref, assignees: ['me', 'bea@example.test'] });
   await pa.goto(`${B}/tasks?assigned=me`);
   await pa.waitForSelector('[data-assigned-filter]', { timeout: 15000 });
   const shown = (pg, ref) => pg.locator(`a[href="/tasks/${ref}"]:visible`).count();
   check('Tasks › Assigned to me (desktop): only tasks assigned to you', (await shown(pa, t8.ref)) > 0 && (await shown(pa, p1.ref)) > 0 && (await shown(pa, t5.ref)) === 0 && (await shown(pa, t2.ref)) === 0);
   check('Tasks › Assigned to me (desktop): the button is on', (await pa.getAttribute('[data-assigned-filter]', 'aria-pressed')) === 'true');
+  const dots = pa.locator('[data-assignees="2"]:visible').first();
+  check('rows (desktop): a task row shows its assignees initials', (await dots.count()) > 0 && /Bea/.test((await dots.getAttribute('title')) ?? ''), String(await dots.getAttribute('title').catch(() => null)));
   const ctxP = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const pp = await ctxP.newPage();
   await login(pp, { phone: true, next: '/tasks?assigned=me' });
   await pp.waitForSelector(`a[href="/tasks/${t8.ref}"]:visible`, { timeout: 15000 }).catch(() => {});
   check('Tasks › Assigned to me (phone): only tasks assigned to you', (await shown(pp, t8.ref)) > 0 && (await shown(pp, t5.ref)) === 0 && (await shown(pp, t2.ref)) === 0);
+  check('rows (phone): a task row shows its assignees\' initials', (await pp.locator('[data-assignees="2"]:visible').count()) > 0);
   await pp.goto(`${B}/today`);
   await pp.waitForSelector('[data-variant="phone"]', { timeout: 15000 });
   const todayPhone = await pp.locator('[data-variant="phone"]').innerText();
@@ -334,9 +436,17 @@ try {
   const todayDesk = await pa.locator('[data-variant="desk"]').innerText();
   check('Today (desktop): "Assigned to you"', /Assigned to you/i.test(todayDesk) && /Picker task/.test(todayDesk), todayDesk.slice(0, 400));
   await pp.goto(`${B}/tasks/${t1.ref}`);
-  await pp.waitForSelector('select:visible', { timeout: 15000 }).catch(() => {});
-  const phonePicker = await pp.locator('select:visible').evaluateAll(els => els.map(e => [...e.options].map(o => o.text).join(',')));
-  check('picker (phone): the task screen lists members to assign', phonePicker.some(o => /Me/.test(o) && /Bea/.test(o)), JSON.stringify(phonePicker));
+  await pp.waitForSelector('[data-assignee-picker]:visible', { timeout: 15000 }).catch(() => {});
+  await pp.tap('[data-assignee-picker]:visible');
+  await pp.waitForSelector('[data-assignee-sheet]', { timeout: 5000 }).catch(() => {});
+  const phonePicker = await pp.locator('[data-assignee-sheet]').innerText().catch(() => '');
+  check('picker (phone): the task screen lists members to tick', /Me/.test(phonePicker) && /Bea/.test(phonePicker) && /Dee/.test(phonePicker), phonePicker);
+  const optH = await pp.locator('[data-assignee-option]').first().boundingBox();
+  check('picker (phone): rows are 44px tap targets', !!optH && optH.height >= 44, JSON.stringify(optH));
+  await pp.tap(`[data-assignee-option="${Bu.userId}"]`);
+  await pp.tap(`[data-assignee-option="${Dee.userId}"]`);
+  await pp.tap('[data-assignee-save]');
+  check('picker (phone): assigns two people at once', !!(await until(async () => same((await task(A.orgId, t1.ref))?.assigneeIds, [Bu.userId, Dee.userId]))));
   await Promise.all([ctxA.close(), ctxT.close(), ctxR.close(), ctxP.close()]);
 } catch (e) {
   check('suite ran to the end', false, e instanceof Error ? e.stack ?? e.message : String(e));

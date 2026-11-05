@@ -103,7 +103,7 @@ try {
   // ======== 4. back to private: confirm, access and assignment go ========
   await must(kA, 'update_task', { task: t1.ref, assignee: 'bea@example.test' });
   const cm = await as(kB, 'add_comment', { task: t1.ref, note: 'Bea was here' });
-  check('setup: Bea is assigned and has commented', !cm.isError && (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t1.ref }))?.assigneeId === Bu.userId, cm.text);
+  check('setup: Bea is assigned and has commented', !cm.isError && (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t1.ref }))?.assigneeIds?.includes(Bu.userId), cm.text);
   // Bea gives a shared task to Claude (queued), another is running, and a Claude item waits on her. Her computer is linked to the project.
   const t2 = (await must(kA, 'add_task', { title: 'Bea queued for Claude', project: NAME })).created;
   const t3 = (await must(kA, 'add_task', { title: 'Bea running with Claude', project: NAME })).created;
@@ -128,7 +128,7 @@ try {
   await pa.click('[data-confirm]');
   check('private again: the project switches', !!(await until(async () => (await proj())?.visibility === 'private')));
   const tDoc = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t1.ref });
-  check('private again: the task is private to the owner and unassigned', tDoc?.visibility === 'private' && tDoc.ownerId === A.userId && tDoc.assigneeId === null, JSON.stringify(tDoc && [tDoc.visibility, tDoc.assigneeId]));
+  check('private again: the task is private to the owner and unassigned', tDoc?.visibility === 'private' && tDoc.ownerId === A.userId && (tDoc.assigneeIds ?? []).length === 0 && !tDoc.assigneeId, JSON.stringify(tDoc && [tDoc.visibility, tDoc.assigneeIds]));
   seen = await beaSees(kB);
   check('private again: the teammate loses project, task and note', !seen.project && !seen.task && !seen.note, JSON.stringify(seen));
   const q2 = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t2.ref });

@@ -177,7 +177,8 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     archived: t.archived,
     createdAt: t.createdAt,
     visibility: t.visibility,
-    assignee: t.assigneeId ? who(t.assigneeId) : null,
+    assignee: t.assigneeIds.length ? t.assigneeIds.map(who).join(', ') : null,
+    assignees: t.assigneeIds.map(who),
     createdBy: by(t.createdBy),
     updatedAt: t.updatedAt,
     doneAt: t.doneAt,
@@ -231,6 +232,7 @@ type FieldArgs = {
   depends_on?: (string | number)[];
   recurrence?: z.infer<typeof RecurrenceSchema> | null;
   assignee?: string | null;
+  assignees?: string[] | null;
 };
 
 function toPatch(a: FieldArgs): TaskPatch {
@@ -251,7 +253,8 @@ function toPatch(a: FieldArgs): TaskPatch {
   if (a.blocked_reason !== undefined) p.blockedReason = a.blocked_reason;
   if (a.depends_on !== undefined) p.dependsOn = a.depends_on;
   if (a.recurrence !== undefined) p.recurrence = a.recurrence;
-  if (a.assignee !== undefined) p.assignee = a.assignee;
+  if (a.assignees !== undefined) p.assignees = a.assignees;
+  else if (a.assignee !== undefined) p.assignee = a.assignee;
   return p;
 }
 
@@ -269,7 +272,8 @@ const fieldShape = {
   blocked_reason: z.string().optional().describe('Setting this on an open task marks it Blocked'),
   depends_on: z.array(z.union([z.number().int(), z.string()])).optional().describe('Refs of tasks this one waits on'),
   recurrence: RecurrenceSchema.nullable().optional().describe('Repeat after completion: {freq: daily|weekdays|weekly|monthly, interval}'),
-  assignee: z.string().max(200).nullable().optional().describe("Who does it: 'me', or a member's email or user id; null clears. Only on a task in a shared project (a private task can't be assigned to anyone else). They are notified"),
+  assignees: z.array(z.string().max(200)).max(20).nullable().optional().describe("Who does it, the whole list: 'me', members' emails, names or user ids; [] or null clears. Only on a task in a shared project (a private task can't be assigned to anyone else). Each newly added person is notified. To add one person, send the current list plus them"),
+  assignee: z.string().max(200).nullable().optional().describe("One assignee (same as assignees with one entry; replaces the list); null clears. Ignored when assignees is given"),
 };
 
 const codeShape = z
@@ -338,7 +342,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         due_to: z.string().optional().describe('YYYY-MM-DD inclusive'),
         done_since: z.string().optional().describe('YYYY-MM-DD: only tasks completed on/after this date (implies Done)'),
         query: z.string().optional().describe('Text search in title, description and tags'),
-        assignee: z.string().max(200).optional().describe("Only tasks assigned to this member: 'me', an email or a user id"),
+        assignee: z.string().max(200).optional().describe("Only tasks this member is one of the assignees of: 'me', an email or a user id"),
         archived: z.boolean().optional().describe('true = only archived tasks'),
         sort: z.enum(['priority', 'due', 'updated', 'created', 'done']).optional(),
         limit: z.number().int().min(1).max(200).optional().describe('Default 50'),

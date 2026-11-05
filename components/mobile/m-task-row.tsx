@@ -14,6 +14,7 @@ import { useApp, useModes } from '../app-context';
 import { TaskActionSheet } from './m-task-actions';
 import { ClaudeBadge, ClaudeMarkSheet } from '../give-to-claude';
 import { useSynced } from '@/components/use-synced';
+import { AssigneeDots } from '@/components/assignee-picker';
 
 const PRIO_RING: Record<Priority, string> = {
   P1: 'border-red-500',
@@ -128,6 +129,7 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
               </span>
             )}
             <ClaudeBadge task={task} />
+            <AssigneeDots ids={task.assigneeIds} />
             {task.recurrence && <Repeat className="w-3.5 h-3.5" aria-label="Recurring" />}
             {hasNote && <FileText className="w-3.5 h-3.5" />}
             {hint}

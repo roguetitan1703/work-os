@@ -8,10 +8,11 @@ import { CLOSED_STATUSES, OPEN_STATUSES } from './types';
 import { api, discordConfig, DiscordError } from './discord/client';
 import { addToInbox, getNotifySettings, pushConfigured, sendPush } from './notify';
 import { plainAlertText, stuckClaims } from './data/dispatcher';
-import { recipientFilter, recipientOf } from './data/tasks';
+import { recipientFilter, recipientsOf } from './data/tasks';
+import { assigneesOf } from './assignees';
 import { isMember } from './people';
 
-// Nudges for each person about the tasks whose alerts go to them (recipientOf: the assignee of a shared task, else
+// Nudges for each person about the tasks whose alerts go to them (recipientsOf: the assignees of a shared task, else
 // its owner), to their inbox, their phones and (if they linked Discord) a Discord DM, by their own settings, in their
 // own timezone.
 // The cron (/api/cron/alerts, every 15 minutes) runs once per person; writes that unblock a task or end a dispatched
@@ -63,16 +64,20 @@ function workdaysBetween(from: string, to: string): number {
  */
 export async function queueUnblocked(s: Scope, closed: Pick<TaskDoc, '_id'>): Promise<void> {
   const c = await orgWide(s.orgId);
-  const waiting = await c.tasks.find({ dependsOn: closed._id, status: { $in: OPEN_STATUSES }, archived: false }, { projection: { dependsOn: 1, ownerId: 1, visibility: 1, assigneeId: 1 } }).toArray();
+  const waiting = await c.tasks.find({ dependsOn: closed._id, status: { $in: OPEN_STATUSES }, archived: false }, { projection: { dependsOn: 1, ownerId: 1, visibility: 1, assigneeIds: 1, assigneeId: 1 } }).toArray();
   for (const t of waiting) {
     const others = t.dependsOn.filter(id => id !== closed._id);
     const stillOpen = others.length ? await c.tasks.countDocuments({ _id: { $in: others }, status: { $in: OPEN_STATUSES } }) : 0;
     if (stillOpen) continue;
-    await c.alertQueue.updateOne(
-      { _id: `unblocked:${t._id}:${closed._id}` },
-      { $setOnInsert: { userId: recipientOf(t), kind: 'unblocked', taskId: t._id, byTaskId: closed._id, createdAt: new Date(), sentAt: null } },
-      { upsert: true },
-    );
+    // One per recipient (each assignee of a shared task); a task with one keeps the old key.
+    const to = recipientsOf(t);
+    for (const u of to) {
+      await c.alertQueue.updateOne(
+        { _id: to.length === 1 ? `unblocked:${t._id}:${closed._id}` : `unblocked:${t._id}:${closed._id}:${u}` },
+        { $setOnInsert: { userId: u, kind: 'unblocked', taskId: t._id, byTaskId: closed._id, createdAt: new Date(), sentAt: null } },
+        { upsert: true },
+      );
+    }
   }
 }
 
@@ -151,12 +156,12 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
   const queued = await c.alertQueue.find(ids ? { _id: { $in: ids } } : { sentAt: null }).toArray();
   if (queued.length) {
     const taskIds = [...new Set(queued.flatMap(q => [q.taskId, q.byTaskId]))];
-    const byId = new Map((await c.tasks.find({ _id: { $in: taskIds } }, { projection: { ref: 1, title: 1, status: 1, archived: 1, assigneeId: 1 } }).toArray()).map(t => [t._id, t]));
+    const byId = new Map((await c.tasks.find({ _id: { $in: taskIds } }, { projection: { ref: 1, title: 1, status: 1, archived: 1, assigneeIds: 1, assigneeId: 1 } }).toArray()).map(t => [t._id, t]));
     for (const q of queued) {
       const t = byId.get(q.taskId);
       if (q.kind === 'assigned') {
-        // Dropped if it changed hands again, closed or was archived before it went out.
-        if (!t || t.assigneeId !== q.userId || CLOSED_STATUSES.includes(t.status) || t.archived) continue;
+        // Dropped if they were taken off it again, or it closed or was archived, before it went out.
+        if (!t || !assigneesOf(t).includes(q.userId) || CLOSED_STATUSES.includes(t.status) || t.archived) continue;
         const by = plainAlertText(q.detail ?? '');
         items.push({ key: q._id, kind: 'assigned', ref: t.ref, title: t.title, detail: by ? `by ${by}` : undefined, headline: `#${t.ref} assigned to you${by ? ` by ${by}` : ''}` });
         continue;

@@ -55,8 +55,8 @@ export function useTodayModel({ tasks, waiting, isNaturallyWeekend, weekday }: {
   const inProgress = take(tasks.filter(t => t.status === 'In Progress').sort(byPrio));
   const blocked = take(tasks.filter(t => t.status === 'Blocked' || waiting[t.id]).sort(byPrio));
   // Assigned to you (phase 4), what the sections above don't already show; Tasks › Assigned to me has them all.
-  const assignedTotal = tasks.filter(t => !!me && t.assigneeId === me).length;
-  const assigned = take(tasks.filter(t => !!me && t.assigneeId === me).sort(byPrio));
+  const assignedTotal = tasks.filter(t => !!me && t.assigneeIds.includes(me)).length;
+  const assigned = take(tasks.filter(t => !!me && t.assigneeIds.includes(me)).sort(byPrio));
   // The NOW block only lists what the sections above don't already show; later groups skip its tasks too.
   const nowTasks = take(nowMode ? tasks.filter(t => t.mode === nowMode).sort(byPrio) : []);
   const week = addDays(today, 7);

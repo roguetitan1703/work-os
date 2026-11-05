@@ -424,7 +424,7 @@ export async function projectSharingImpact(s: Scope, id: string): Promise<{ assi
   if (!p) throw new NotFoundError(`Project "${id}" not found`);
   const taskIds = [...(await c.tasks.distinct('_id', { projectId: id })), ...(await c.trash.distinct('_id', { 'task.projectId': id }))];
   const others = (ids: unknown[]) => [...new Set(ids.filter((x): x is string => typeof x === 'string' && !!x && x !== p.ownerId))];
-  const assignees = others(await c.tasks.distinct('assigneeId', { projectId: id }));
+  const assignees = others([...new Set([...(await c.tasks.distinct('assigneeIds', { projectId: id })), ...(await c.tasks.distinct('assigneeId', { projectId: id }))])]);
   const commenters = others((await c.activity.distinct('actor.userId', { taskId: { $in: taskIds }, type: 'comment' })) as unknown[]);
   const claude = others(await c.tasks.distinct('claude.markedByUserId', { projectId: id, 'claude.state': { $in: ['queued', 'running'] } }));
   const waiting = others(await c.claudeItems.distinct('waitingOn', { projectId: id }));
@@ -444,7 +444,11 @@ async function setProjectVisibility(c: Collections, p: ProjectDoc, visibility: V
   if (taskIds.length) {
     await c.tasks.updateMany({ _id: { $in: taskIds } }, { $set: owned });
     // A private task can be assigned only to its owner (docs/multi-user.md phase 4).
-    if (visibility === 'private') await c.tasks.updateMany({ _id: { $in: taskIds }, assigneeId: { $nin: [null, p.ownerId] } }, { $set: { assigneeId: null } });
+    if (visibility === 'private') {
+      // Only the owner may stay assigned on a private task: everyone else comes off (old single-assignee tasks too).
+      await c.tasks.updateMany({ _id: { $in: taskIds }, assigneeIds: { $elemMatch: { $ne: p.ownerId } } }, { $pull: { assigneeIds: { $ne: p.ownerId } } });
+      await c.tasks.updateMany({ _id: { $in: taskIds }, assigneeId: { $nin: [null, p.ownerId] } }, { $set: { assigneeIds: [] }, $unset: { assigneeId: '' } });
+    }
     await c.activity.updateMany({ taskId: { $in: taskIds } }, { $set: owned });
     const taskNotes = await c.notes.find({ taskId: { $in: taskIds } }, { projection: { _id: 1 } }).toArray();
     if (taskNotes.length) await c.notes.updateMany({ _id: { $in: await noteTree(c, taskNotes.map(n => n._id)) } }, { $set: owned });

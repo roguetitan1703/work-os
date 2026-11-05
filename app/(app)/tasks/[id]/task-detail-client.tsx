@@ -26,7 +26,7 @@ import { useApp, useModes } from '@/components/app-context';
 import { fmtAgo, fmtDue } from '@/lib/format';
 import type { Mode, Recurrence, Task, TaskPatch } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { assigneeOptions } from '@/lib/assignees';
+import { AssigneePicker, assigneeLabel } from '@/components/assignee-picker';
 import { Select } from '@/components/ui/select';
 import { RECURRENCE_OPTIONS } from '@/lib/recurrence-options';
 import { useSynced } from '@/components/use-synced';
@@ -169,14 +169,13 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
         </Field>
         <Field label="Assigned to">
           {task.visibility === 'org' ? (
-            <Select className={field} value={task.assigneeId ?? ''} data-assignee-picker onChange={e => patch({ assignee: e.target.value || null }, e.target.value ? `Assigned to ${e.target.value === me ? 'you' : people[e.target.value] ?? 'them'}` : 'Unassigned')}>
-              <option value="">Nobody</option>
-              {assigneeOptions(people, me, task.assigneeId).map(o => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </Select>
+            <AssigneePicker value={task.assigneeIds} onSave={ids => patch({ assignees: ids }, ids.length ? `Assigned to ${assigneeLabel(ids, people, me).replace(/^Me(?=,|$)/, 'you')}` : 'Unassigned')}>
+              {(label, open) => (
+                <button type="button" className={cn(field, 'flex items-center text-left truncate')} data-assignee-picker onClick={open}>
+                  {label}
+                </button>
+              )}
+            </AssigneePicker>
           ) : (
             <div className={cn(field, 'flex items-center text-muted-foreground')} title="Only shared tasks can be assigned">
               Private: only you

@@ -74,6 +74,24 @@ try {
   check('A: a task with no project is private', p1Detail.visibility === 'private', p1Detail.visibility);
   check('A: a task in a shared project is shared', (await must(kA, 'get_task', { task: s1.ref })).visibility === 'org');
 
+  // ---- assignees stay inside the organization (several per task) ----
+  const crossList = await as(kA, 'update_task', { task: s1.ref, assignees: ['bea@example.test', 'cy@example.test'] });
+  check('assignees: someone from another organization in the list is refused (nothing changes)', crossList.isError && /not a member/.test(crossList.text) && ((await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: s1.ref }))?.assigneeIds ?? []).length === 0, crossList.text);
+  const crossId = await as(kA, 'update_task', { task: s1.ref, assignees: [Cu.userId] });
+  check('assignees: a user id from another organization is refused too', crossId.isError && /not a member/.test(crossId.text), crossId.text);
+  await must(kA, 'update_task', { task: s1.ref, assignees: ['me', 'bea@example.test'] });
+  const cyToA = await as(kC, 'add_task', { title: 'Cy assigns across', assignees: [A.userId] });
+  check('assignees: Cy cannot assign someone of our organization (nothing made)', cyToA.isError && /not a member/.test(cyToA.text) && !(await rawDb.collection('tasks').findOne({ title: 'Cy assigns across' })), cyToA.text);
+  const cyFilter = await as(kC, 'list_tasks', { assignee: 'bea@example.test' });
+  check('assignees: Cy cannot filter by a member of ours', cyFilter.isError && /not a member/.test(cyFilter.text), cyFilter.text);
+  const cyMine = await must(kC, 'list_tasks', { assignee: 'me' });
+  check('assignees: "assigned to me" for Cy holds nothing of ours', cyMine.tasks.every(t => !/Zephyr|Hidden/.test(t.title)), JSON.stringify(cyMine.tasks.map(t => t.title)));
+  const bSees = await must(kB, 'list_tasks', { assignee: 'me' });
+  check('assignees: Bea (one of two) finds the shared task', bSees.tasks.some(t => t.ref === s1.ref));
+  // back as it was: the inbox checks below count each person's notices
+  await must(kA, 'update_task', { task: s1.ref, assignees: [] });
+  await rawDb.collection('notifications').deleteMany({ userId: Bu.userId, kind: 'assigned' });
+
   // ---- numbers count per organization ----
   const sB = (await must(kB, 'add_task', { title: 'Zephyr task by Bea', project: 'Zephyr Shared' })).created;
   check('refs: B continues the organization\'s numbers', sB.ref === pv2.ref + 1, `${sB.ref} after ${pv2.ref}`);
@@ -379,7 +397,9 @@ try {
     check('notes upload: into one\'s own note passes the checks', (await upload(p, `notes/${A.orgId}/${vMemo.id}/x.png`)) === 503);
     check('notes file: one\'s own private note\'s file passes the checks', (await filePath(p, `notes/${A.orgId}/${vMemo.id}/x.png`)) === 503);
     const use = await text(p, '/settings?section=usage');
-    check('A settings: the operator sees Usage', /Last 24 h/.test(use.text));
+    // The Usage section streams in after the page (Suspense); give it a few seconds (was flaky at 500 ms).
+    const usage = use.text.includes('Last 24 h') || (await p.waitForSelector('text=Last 24 h', { timeout: 8000 }).then(() => true, () => false));
+    check('A settings: the operator sees Usage', usage, use.text.slice(0, 300));
     const aToday = await text(p, '/today');
     const aBar = await p.locator('[data-block-bar]').count();
     check('A today: the schedule bar, and no routine card (removed)', aBar === 1 && (await p.locator('[data-fold=routine], [data-routine]').count()) === 0 && !/not logged/.test(aToday.text), `bar ${aBar}`); // the old timetable still has a block named "Fiverr Ritual"
