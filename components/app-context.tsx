@@ -5,7 +5,7 @@ import { setBrowserTz } from '@/lib/dates';
 import { DEFAULT_MODES, colorOf, type ModeColor, type ModeDef } from '@/lib/modes';
 import type { WeekPlan } from '@/lib/schedule';
 
-type ProjectRef = { id: string; name: string; status: string; visibility?: 'org' | 'private' };
+type ProjectRef = { id: string; name: string; status: string; visibility?: 'org' | 'private' | 'members' };
 export type NavBadges = { overdue: number; claudeWaiting: number; status: 'ok' | 'warn' | 'error' };
 /** The signed-in person as the sidebar's account button shows them. `operator`: runs this deployment (sees the server status). */
 export type Account = { name: string; email: string; org: string; operator: boolean };

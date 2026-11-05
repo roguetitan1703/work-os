@@ -19,8 +19,11 @@ export const OPEN_STATUSES: Status[] = ['Not Started', 'In Progress', 'Blocked']
 /** Who made a change: lib/actors.ts (a person, an agent acting for a person, Discord, the system). */
 export type { Actor, TextAuthor };
 
-/** Who sees a project and everything in it (docs/multi-user.md): the organization, or only its owner. */
-export const VISIBILITIES = ['org', 'private'] as const;
+/**
+ * Who sees a project and everything in it (docs/multi-user.md): the organization ('org'), only its owner ('private'),
+ * or the people on its list ('members': `sharedWith`, which always holds the owner).
+ */
+export const VISIBILITIES = ['org', 'private', 'members'] as const;
 export const VisibilitySchema = z.enum(VISIBILITIES);
 export type Visibility = z.infer<typeof VisibilitySchema>;
 
@@ -84,8 +87,10 @@ export type Task = {
   claude?: TaskClaude;
   /** The person it belongs to; with no project (or a private one) only they see it. */
   ownerId: string;
-  /** Follows the project: 'org' in a shared project, else 'private'. */
+  /** Follows the project: 'org' or 'members' in a shared project, else 'private'. */
   visibility: Visibility;
+  /** Who sees it when visibility is 'members' (the project's list). */
+  sharedWith?: string[];
   /** A member who does it and gets its alerts (shared tasks only; a private task can be assigned only to its owner). */
   assigneeId: string | null;
 };
@@ -210,6 +215,8 @@ export type Project = {
   name: string;
   ownerId: string;
   visibility: Visibility;
+  /** visibility 'members': the people who see it (user ids, the owner first). */
+  sharedWith?: string[];
   client: string;
   description: string;
   status: ProjectStatus;
@@ -296,8 +303,10 @@ export const ProjectInputSchema = z.object({
   status: ProjectStatusSchema.optional(),
   /** Replaces the project's code locations; [] or null clears them. */
   code: z.array(CodeLocationInputSchema).max(20).nullable().optional(),
-  /** 'private': only its owner sees it and its tasks and notes. Default 'org'. */
+  /** 'private': only its owner sees it and its tasks and notes. 'members': only the people in sharedWith. Default 'org'. */
   visibility: VisibilitySchema.optional(),
+  /** With visibility 'members': who sees it (members' user ids or emails; the owner is always on it). */
+  sharedWith: z.array(z.string().trim().min(1).max(200)).max(500).optional(),
 });
 export type ProjectInput = z.input<typeof ProjectInputSchema>;
 

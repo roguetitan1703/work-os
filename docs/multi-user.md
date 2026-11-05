@@ -15,7 +15,7 @@ Background: Vercel paused Om's account on 2026-10-19 (Fluid Active CPU). Work OS
 | Schedule, routines, timezone, quiet hours, notification settings, inbox, push devices | Members and roles, task assignment, comments |
 | Computers (worker devices), agent sessions, MCP/API keys, dispatcher settings | Who did what (people and agents) on shared work |
 
-A project has `visibility: 'org' | 'private'`; a task or note follows its project, and one with no project is private to its owner. v1: every member sees every shared project (per-project membership comes later if needed). Roles: `owner`, `admin`, `member`.
+A project has `visibility: 'org' | 'private' | 'members'`; a task or note follows its project, and one with no project is private to its owner. A shared project is seen by every member, or (2026-11) only by the people its owner chose (`'members'` with `sharedWith`, see "As built: sharing a project with chosen people"). Roles: `owner`, `admin`, `member`.
 
 **Numbers.** Task and Claude item numbers (#12, C3) are per organization: unique index `(orgId, ref)`. Project names unique per organization.
 
@@ -49,7 +49,7 @@ Each phase ships with its e2e suites passing and a security review before merge 
 **Fields.** Shared collections (projects, tasks, activity, notes, claudeItems, trash) carry `orgId`, `ownerId`, `visibility`. Tasks also have `assigneeId` (null until phase 4 adds assigning). Children copy their placement: a task, note, Claude item, history entry or trash entry lives where its project lives. With no project it is private to its owner. In a private project it is private to the project's owner. Personal collections carry `orgId` plus `ownerId` (reviews, ritualLogs, devices, workerFolders/Jobs/Sessions) or the recipient `userId` (notifications, pushSubs, alertLog, alertQueue). Counters are `task:<orgId>` and `claudeItems:<orgId>`. Indexes: `(orgId, ref)` unique on tasks and claudeItems; on projects, `(orgId, name)` unique among shared ones and `(orgId, ownerId, name)` unique among private ones; `(ownerId, date)` unique on ritualLogs.
 
 **One door.** `lib/scope.ts`. Every data function takes the caller's scope `{ userId, orgId }` first. `scoped(s)` returns the collections behind a proxy that:
-- adds the rule to every filter: shared = `orgId` and (`visibility: 'org'` or `ownerId` = caller); own = `orgId` and `ownerId`/`userId` = caller; counters = `orgId`;
+- adds the rule to every filter: shared = `orgId` and (`visibility: 'org'` or `ownerId` = caller, or `visibility: 'members'` with the caller in `sharedWith`: lib/visibility.ts); own = `orgId` and `ownerId`/`userId` = caller; counters = `orgId`;
 - stamps inserts and upserts with `orgId` (and the owner field);
 - refuses updates that touch `orgId`, plus `$unionWith`, `$graphLookup`, `$out`, `$merge` and `$facet`;
 - scopes the sub-pipeline of a `$lookup`.
@@ -190,7 +190,7 @@ The role and member-name caches now live on `globalThis` and are cleared in the 
 To erase someone's data, delete it by hand in the database (no tool yet).
 
 **Assignee** (`lib/data/tasks.ts`):
-- Any member can be assigned to a task in a shared project.
+- Any member can be assigned to a task in a project shared with everyone; in a project shared with chosen people, only the people on its list (`canBeAssigned` in lib/assignees.ts: someone who can see the task).
 - A private task can be assigned only to its owner. Anyone else is refused ("move it to a shared project first"), in the app, MCP and `apply_changes`.
 - A task that becomes private loses an assignee who is not its owner. This holds when the task moves out of its shared project, when its project is made private, and when it is restored into a private place.
 - History records the change by name ("assignee Bea → —").
@@ -300,6 +300,30 @@ The cost: writes that bypass the door (raw `// scope-ok` lines, Better Auth's co
 - the request counts (docs/cpu.md).
 
 The worker's own tests cover the stream client, change-only status and a simulated hour of the loop.
+
+## As built: sharing a project with chosen people (2026-11, Work OS #173)
+
+**What people see.** Project › Info › "Who sees it" keeps Shared / Private. Under Shared there is a second choice: **Everyone** (the default, as before) or **Choose people**. Choose people shows a tick list of the organization's members; the owner is always ticked and cannot be unticked; nothing changes until **Save who sees it**. A line under it says who has access ("Everyone in Delpat", "Om (owner), Bea", "Only Om"). Projects shared with chosen people show a "2 people" badge on the projects list and the project header (names on hover). Only the project's owner changes any of this; others see the list read-only. The New project dialog still offers Shared (everyone) / Private; the list is set afterwards on the Info tab or through MCP.
+
+**Fields.** `visibility: 'members'` plus `sharedWith: [userId]` on the project, always holding its owner (first). Everything in the project copies both, exactly like visibility already cascaded: tasks, history, notes (and sub-pages), Claude items and trash. Other placements carry `sharedWith: []`. New things made inside the project take the list from it (`placeIn` in lib/data/projects.ts; history, trash and notes copy their task's or parent's placement with `placeOf`).
+
+**The rule** (`lib/visibility.ts`, one place): a shared document is readable by its organization when `visibility` is `'org'`, by its owner, or, when `visibility` is `'members'`, by the people in `sharedWith`. `readable()` (in memory) and `readableFilter()` (the query) are the same rule. Built on them:
+- the door: `scopeFilter` and `canSee` in lib/scope.ts; `stamp` refuses a `'members'` insert without a list, or whose owner is not on it;
+- push audiences (lib/scope.ts `readersOf` and the pre-write read): the owner plus the list, so someone off the list gets no hint, and someone taken off or put on gets one;
+- assignees: `canBeAssigned` / `unassignableFilter` in lib/assignees.ts (the one assignee rule, used by the data layer and the pickers): someone who can see the task;
+- alert recipients: `recipientOf` / `recipientFilter` (the assignee if they can see the task, else the owner);
+- Claude items can wait only on someone who can see them;
+- Claude Code change notices skip a task the recipient can no longer see.
+
+**Owners stay on the list.** A thing in the project owned by someone who is not on the list (a teammate's task when the project goes from Everyone to a list without them) goes to the project's owner. Otherwise its old owner would still see it through `ownerId`.
+
+**Changing the list** (`updateProject`). `sharedWith` alone means "shared with these people"; `visibility: 'members'` alone keeps the current list. Someone outside the organization is refused. Taking anyone off (Everyone → a list, a shorter list, a list → Private) works like Shared → Private: the app asks first with `projectSharingImpact(s, id, keep)` (who is assigned, commented, gave a task to Claude or is waited on), and then their assignments end, their queued or running Claude tasks in it end (`endForeignClaude(c, s, id, keep, why)`, note "no longer shared with them") and Claude items waiting on them stop waiting. What follows the project moves before the project when someone loses access, after it otherwise.
+
+**Names.** Only shared-with-everyone and private projects have unique indexes; a list has none, so its name is checked only among the projects the person sees (as before). Going from a list to Everyone or Private runs the same name and Delpat OS checks as before.
+
+**MCP.** `add_project`, `update_project` and the apply_changes ops take `visibility: 'members'` and `shared_with` ('me', emails or user ids; the whole list). `list_projects` and `get_project` return `sharedWith` as names ('me' for the key's owner).
+
+Tests: `tests/e2e/sharing.mjs` section 6 (the UI end to end, the confirm, the badge, assignees, owner-only, swap through MCP, back to everyone), `tenancy.mjs` (a third member off the list: every MCP read tool, pages, search, note files, assigning, waiting, unblocked alerts), `push.mjs` (hints only to the list; taken off and put on).
 
 ## Leak audit (2026-10-23)
 

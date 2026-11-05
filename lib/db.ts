@@ -7,10 +7,11 @@ import { asActor } from './actors';
 
 // ── Ownership (docs/multi-user.md, phase 2) ──
 // Every stored document carries orgId. Documents that belong to one person carry ownerId (or userId: the recipient of
-// a notification, push device, alert). Shared things carry visibility: a project's, which its tasks, notes, Claude
-// items, history and trash entries copy. Queries go through lib/scope.ts, which adds orgId and the visibility rule.
+// a notification, push device, alert). Shared things carry visibility (and, for 'members', sharedWith): a project's,
+// which its tasks, notes, Claude items, history and trash entries copy. Queries go through lib/scope.ts, which adds
+// orgId and the visibility rule.
 /** Fields of a document that lives in the shared space of an organization (project, task, note, ...). */
-export type Placed = { orgId: string; ownerId: string; visibility: Visibility };
+export type Placed = { orgId: string; ownerId: string; visibility: Visibility; /** visibility 'members': who sees it (always holds the project's owner). */ sharedWith?: string[] };
 
 // ── Document shapes as stored in MongoDB ────────────────────────────────────
 

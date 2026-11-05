@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Filter } from 'mongodb';
 import { requestContext } from '../request-context';
 import { nextSeq, toActivity, type ActivityDoc, type ClaudeMark, type TaskDoc, type TrashDoc } from '../db';
-import { canSee, forUser, orgWide, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
+import { canSee, forUser, orgWide, readableFilter, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
 import { asActor, isPerson, actorUserId, type ActorFilter, type TextAuthor } from '../actors';
 import {
   CLOSED_STATUSES,
@@ -30,7 +30,8 @@ import {
   type TaskSource,
 } from '../types';
 import { addDays, addMonths, resolveDate, todayStr, weekday, weekStart } from '../dates';
-import { placeIn, placeNotes, placeTasks, resolveProject, toProject, type Placement } from './projects';
+import { placeIn, placeNotes, placeOf, placeTasks, resolveProject, samePlace, toProject, type Placement } from './projects';
+import { canBeAssigned } from '../assignees';
 import { InputError, NotFoundError } from './errors';
 import { canonicalMode } from '../org-modes';
 import { queueUnblocked } from '../alerts';
@@ -74,6 +75,7 @@ export function toTask(d: TaskDoc): Task {
     ...(d.claude ? { claude: toTaskClaude(d.claude) } : {}),
     ownerId: d.ownerId,
     visibility: d.visibility,
+    ...(d.visibility === 'members' ? { sharedWith: placeOf(d).sharedWith } : {}),
     assigneeId: d.assigneeId ?? null,
   };
 }
@@ -100,21 +102,24 @@ export function isOverdue(t: Pick<Task, 'due' | 'status'>, today: string = today
 }
 
 /**
- * Who gets a task's alerts and notices (docs/multi-user.md "Inbox, push, alerts"): its assignee when set and the task
- * is shared (a private task is seen only by its owner), else its owner.
+ * Who gets a task's alerts and notices (docs/multi-user.md "Inbox, push, alerts"): its assignee when set and they can
+ * see the task (canBeAssigned), else its owner.
  */
-export function recipientOf(t: Pick<TaskDoc, 'ownerId' | 'visibility' | 'assigneeId'>): string {
-  return t.assigneeId && t.visibility === 'org' ? t.assigneeId : t.ownerId;
+export function recipientOf(t: Pick<TaskDoc, 'ownerId' | 'visibility' | 'sharedWith' | 'assigneeId'>): string {
+  return t.assigneeId && canBeAssigned(t, t.assigneeId) ? t.assigneeId : t.ownerId;
 }
 
 /** The query form of recipientOf: tasks whose alerts go to this person. */
 export function recipientFilter(userId: string): Filter<TaskDoc> {
-  return { $or: [{ assigneeId: userId, visibility: 'org' }, { ownerId: userId, $or: [{ assigneeId: null }, { assigneeId: { $exists: false } }, { visibility: 'private' }] }] };
+  // An assignee who could not see the task (never left so by the writes, but kept safe) leaves its alerts to the owner.
+  const cannotSee = [{ visibility: 'private' }, { visibility: 'members', $expr: { $not: [{ $in: ['$assigneeId', { $ifNull: ['$sharedWith', []] }] }] } }];
+  return { $or: [{ assigneeId: userId, ...readableFilter(userId) }, { ownerId: userId, $or: [{ assigneeId: null }, { assigneeId: { $exists: false } }, ...cannotSee] }] } as Filter<TaskDoc>;
 }
 
 // ── Assignee (docs/multi-user.md phase 4) ──────────────────────────────────
-// Any member can be assigned to a shared task. A private task is seen only by its owner, so it can be assigned only to
-// them (anyone else is refused, and a task that becomes private loses an assignee who is not its owner).
+// An assignee must be able to see the task (canBeAssigned in lib/assignees.ts, the one rule): any member on a task
+// shared with everyone, the people on the list of a project shared with chosen people, only the owner on a private
+// task. Anyone else is refused, and a task moved to where its assignee cannot see it loses them.
 
 /** assignee input → a member's user id; 'me' is the caller; null (or '' / 'none') clears. undefined = not given. */
 async function resolveAssignee(s: Scope, v: string | null | undefined): Promise<string | null | undefined> {
@@ -129,14 +134,15 @@ async function resolveAssignee(s: Scope, v: string | null | undefined): Promise<
 }
 
 function assertAssignable(place: Placement, assigneeId: string | null, ref?: number): void {
-  if (assigneeId && place.visibility === 'private' && assigneeId !== place.ownerId) {
-    throw new InputError(`${ref ? `#${ref}` : 'This task'} is private (only its owner sees it), so it can't be assigned to anyone else. Move it to a shared project first.`);
-  }
+  if (!assigneeId || canBeAssigned(place, assigneeId)) return;
+  const what = ref ? `#${ref}` : 'This task';
+  if (place.visibility === 'private') throw new InputError(`${what} is private (only its owner sees it), so it can't be assigned to anyone else. Move it to a shared project first.`);
+  throw new InputError(`${what} is in a project shared with chosen people, and they are not one of them. The project's owner can add them first.`);
 }
 
-/** The assignee kept when a task moves to a placement: a private task keeps only its owner. */
+/** The assignee kept when a task moves to a placement: only someone who can see it there. */
 export const keptAssignee = (assigneeId: string | null | undefined, place: Placement): string | null =>
-  assigneeId && (place.visibility === 'org' || assigneeId === place.ownerId) ? assigneeId : null;
+  assigneeId && canBeAssigned(place, assigneeId) ? assigneeId : null;
 
 async function personName(s: Scope, userId: string | null | undefined): Promise<string | null> {
   if (!userId) return null;
@@ -252,7 +258,7 @@ function compactValue(field: string, v: unknown): unknown {
 
 async function logActivity(
   c: Collections,
-  task: Pick<TaskDoc, '_id' | 'ref' | 'title' | 'orgId' | 'ownerId' | 'visibility'>,
+  task: Pick<TaskDoc, '_id' | 'ref' | 'title' | 'orgId' | 'ownerId' | 'visibility' | 'sharedWith'>,
   actor: Actor,
   type: ActivityType,
   extra: { changes?: Record<string, FieldChange>; note?: string; at?: Date } = {},
@@ -261,8 +267,7 @@ async function logActivity(
   const doc: ActivityDoc = {
     _id: randomUUID(),
     orgId: task.orgId,
-    ownerId: task.ownerId,
-    visibility: task.visibility,
+    ...placeOf(task),
     taskId: task._id,
     taskRef: task.ref,
     taskTitle: task.title,
@@ -417,17 +422,18 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
       const old = cur.projectId ? await c.projects.findOne({ _id: cur.projectId }, { projection: { name: 1 } }) : null;
       set.projectId = p?._id ?? null;
       changes.project = { from: old?.name ?? cur.projectId, to: p?.name ?? null };
-      // The task follows its project. Taking a shared task out of the shared space is its owner's call.
+      // The task follows its project. Taking a shared task to fewer people (a private project, or one shared with chosen
+      // people) is its owner's call.
       const place = placeIn(p, cur.ownerId);
-      if (cur.visibility === 'org' && place.visibility === 'private' && cur.ownerId !== s.userId) {
-        throw new InputError(`Only the task's owner can take #${cur.ref} out of a shared project`);
+      if (cur.visibility !== 'private' && place.visibility !== 'org' && cur.ownerId !== s.userId) {
+        throw new InputError(`Only the task's owner can take #${cur.ref} out of a project shared with everyone`);
       }
-      if (place.ownerId !== cur.ownerId || place.visibility !== cur.visibility) moveTo = place;
+      if (!samePlace(place, placeOf(cur))) moveTo = place;
     }
   }
 
-  // Assignee: a member, on a shared task (or the owner on a private one). A move to private drops anyone else.
-  const place: Placement = moveTo ?? { ownerId: cur.ownerId, visibility: cur.visibility };
+  // Assignee: someone who can see the task where it ends up. A move drops one who could not.
+  const place: Placement = moveTo ?? placeOf(cur);
   const wanted = await resolveAssignee(s, data.assignee);
   if (wanted !== undefined) assertAssignable(place, wanted, cur.ref);
   const assigneeId = wanted !== undefined ? wanted : keptAssignee(cur.assigneeId, place);
@@ -592,8 +598,7 @@ export async function trashTask(
   const doc: TrashDoc = {
     _id: cur._id,
     orgId: cur.orgId,
-    ownerId: cur.ownerId,
-    visibility: cur.visibility,
+    ...placeOf(cur),
     ref: cur.ref,
     title: cur.title,
     task: plain,
@@ -626,7 +631,7 @@ export async function restoreTask(s: Scope, key: string | number, actor: Actor):
   // Where it lives now: its project may have been made private or shared (or deleted) since it was trashed, and the
   // copy in the trash keeps the placement it had then. Recompute from the project as it is now.
   const org = await orgWide(s.orgId);
-  const project = old.projectId ? await org.projects.findOne({ _id: old.projectId }, { projection: { ownerId: 1, visibility: 1 } }) : null;
+  const project = old.projectId ? await org.projects.findOne({ _id: old.projectId }, { projection: { ownerId: 1, visibility: 1, sharedWith: 1 } }) : null;
   const place = placeIn(project, old.ownerId);
   const restored: TaskDoc = { ...old, ...(old.projectId && !project ? { projectId: null } : {}), ...place, assigneeId: keptAssignee(old.assigneeId, place) };
   // Someone who could not see the restored task does not get to put it back.

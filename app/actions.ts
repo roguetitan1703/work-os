@@ -125,10 +125,12 @@ export async function createProjectAction(input: ProjectInput): Promise<Result<{
   return run(s => projects.createProject(s, input));
 }
 
-export async function projectSharingImpactAction(id: string): Promise<Result<{ assignees: string[]; commenters: string[]; claude: string[]; waiting: string[] }>> {
+/** Who would lose access if the project became private (no keep) or shared with just `keep`. */
+export async function projectSharingImpactAction(id: string, keep: string[] = []): Promise<Result<{ assignees: string[]; commenters: string[]; claude: string[]; waiting: string[] }>> {
   try {
     const caller = await requireCaller();
-    return { ok: true, data: await withCaller(caller, () => projects.projectSharingImpact({ userId: caller.userId, orgId: caller.orgId }, id)) };
+    const list = Array.isArray(keep) ? keep.filter((x): x is string => typeof x === 'string').slice(0, 500) : [];
+    return { ok: true, data: await withCaller(caller, () => projects.projectSharingImpact({ userId: caller.userId, orgId: caller.orgId }, id, list)) };
   } catch (err) {
     if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
     if (err instanceof SafeError) return { ok: false, error: err.message };

@@ -503,12 +503,14 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const list = await projects.listProjects(s, { includeInactive: a.include_inactive });
       const idx = await notesData.noteIndex(s, { projectIds: list.map(p => p.id) });
+      const who = await whoIs();
       return list.map(p => ({
         id: p.id,
         name: p.name,
         client: p.client || undefined,
         status: p.status,
         visibility: p.visibility,
+        ...(p.sharedWith ? { sharedWith: p.sharedWith.map(who) } : {}),
         ...p.stats,
         notes: idx.byProject.get(p.id)?.map(n => ({ id: n.id, title: n.title })),
         url: `${ctx.baseUrl}/projects/${p.id}`,
@@ -524,12 +526,13 @@ export function createMcpServer(ctx: Ctx): McpServer {
         client: z.string().optional(),
         description: z.string().optional(),
         status: ProjectStatusSchema.optional(),
-        visibility: VisibilitySchema.optional().describe('org (default): everyone in the organization sees it; private: only you'),
+        visibility: VisibilitySchema.optional().describe('org (default): everyone in the organization sees it; members: only you and the people in shared_with; private: only you'),
+        shared_with: z.array(z.string().min(1).max(200)).max(500).optional().describe("With visibility members: who sees it ('me', members' emails or user ids; you are always on it)"),
         code: codeShape,
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
-    handler(async a => projects.createProject(s, a)),
+    handler(async ({ shared_with, ...a }) => projects.createProject(s, { ...a, ...(shared_with !== undefined ? { sharedWith: shared_with } : {}) })),
   );
 
   tool(
@@ -541,16 +544,21 @@ export function createMcpServer(ctx: Ctx): McpServer {
         client: z.string().optional(),
         description: z.string().optional(),
         status: ProjectStatusSchema.optional(),
-        visibility: VisibilitySchema.optional().describe("Only the project's owner can change it; its tasks, notes and Claude items follow"),
+        visibility: VisibilitySchema.optional().describe("Only the project's owner can change it; its tasks, notes and Claude items follow. members: only the people in shared_with"),
+        shared_with: z
+          .array(z.string().min(1).max(200))
+          .max(500)
+          .optional()
+          .describe("The whole list of who sees it ('me', members' emails or user ids; the owner is always on it). People taken off lose access: their assignments, Claude tasks and waits in it end"),
         code: codeShape,
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     handler(async a => {
-      const { project, ...patch } = a;
+      const { project, shared_with, ...patch } = a;
       const p = await projects.getProject(s, project);
       if (!p) throw new NotFoundError(`Project "${project}" not found`);
-      return projects.updateProject(s, p.id, patch);
+      return projects.updateProject(s, p.id, { ...patch, ...(shared_with !== undefined ? { sharedWith: shared_with } : {}) });
     }),
   );
 
@@ -622,8 +630,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
       archived: z.boolean().optional(),
     }),
     z.object({ op: z.literal('delete_note'), note_id: z.string(), title: z.string() }),
-    z.object({ op: z.literal('add_project'), name: z.string().min(1), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional(), visibility: VisibilitySchema.optional(), code: codeShape }),
-    z.object({ op: z.literal('update_project'), project: z.string(), name: z.string().optional(), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional(), visibility: VisibilitySchema.optional(), code: codeShape }),
+    z.object({ op: z.literal('add_project'), name: z.string().min(1), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional(), visibility: VisibilitySchema.optional(), shared_with: z.array(z.string().min(1).max(200)).max(500).optional(), code: codeShape }),
+    z.object({ op: z.literal('update_project'), project: z.string(), name: z.string().optional(), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional(), visibility: VisibilitySchema.optional(), shared_with: z.array(z.string().min(1).max(200)).max(500).optional(), code: codeShape }),
   ]);
 
   function toBatchOp(o: z.infer<typeof OpSchema>): BatchOp {
@@ -643,6 +651,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
     if (o.op === 'log_progress') {
       const { blocked_reason, ...rest } = o;
       return { ...rest, ...(blocked_reason !== undefined ? { blockedReason: blocked_reason } : {}) };
+    }
+    if (o.op === 'add_project' || o.op === 'update_project') {
+      const { shared_with, ...rest } = o;
+      return { ...rest, ...(shared_with !== undefined ? { sharedWith: shared_with } : {}) } as BatchOp;
     }
     return o as BatchOp;
   }
@@ -730,7 +742,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const who = await whoIs();
       const act = (x: { id: string; at: string; actor: unknown; type: string; taskRef: number }, text: string) => ({ id: x.id, at: x.at, by: by(x.actor), type: x.type, ref: x.taskRef, text });
       return {
-        project: { id: t.project.id, name: t.project.name, client: t.project.client || undefined, status: t.project.status, visibility: t.project.visibility, description: t.project.description || undefined, code: t.project.code, url: `${ctx.baseUrl}/projects/${t.project.id}`, ...t.project.stats },
+        project: { id: t.project.id, name: t.project.name, client: t.project.client || undefined, status: t.project.status, visibility: t.project.visibility, ...(t.project.sharedWith ? { sharedWith: t.project.sharedWith.map(who) } : {}), description: t.project.description || undefined, code: t.project.code, url: `${ctx.baseUrl}/projects/${t.project.id}`, ...t.project.stats },
         ...(matchedBy ? { matchedBy } : {}),
         notes: (idx.byProject.get(t.project.id) ?? []).map(nref),
         claudeItems: await (async () => {

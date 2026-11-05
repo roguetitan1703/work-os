@@ -8,6 +8,7 @@ import { requestContext } from '../request-context';
 import { actorUserId, agentActor, userActor, type Actor } from '../actors';
 import type { Status } from '../types';
 import { InputError, NotFoundError } from './errors';
+import { placeOf } from './projects';
 import { createStartJob, deviceMap, stopSession, type DeviceScope } from './launcher';
 import { createCloneJob, turboAvailable, turboPlanFor } from './turbo';
 
@@ -128,13 +129,12 @@ export function buildPrompt(ref: number, noteId: string): string {
 /** The dispatcher acts as Claude Code for the person who gave the task. */
 const dispatcherActor = (t: Pick<TaskDoc, 'claude' | 'ownerId'>): Actor => agentActor('claude-code', t.claude?.markedByUserId ?? t.ownerId);
 
-async function logTask(c: Collections, t: Pick<TaskDoc, '_id' | 'ref' | 'title' | 'orgId' | 'ownerId' | 'visibility'>, actor: Actor, type: ActivityDoc['type'], extra: { changes?: ActivityDoc['changes']; note?: string }): Promise<void> {
+async function logTask(c: Collections, t: Pick<TaskDoc, '_id' | 'ref' | 'title' | 'orgId' | 'ownerId' | 'visibility' | 'sharedWith'>, actor: Actor, type: ActivityDoc['type'], extra: { changes?: ActivityDoc['changes']; note?: string }): Promise<void> {
   const rc = requestContext();
   await c.activity.insertOne({
     _id: randomUUID(),
     orgId: t.orgId,
-    ownerId: t.ownerId,
-    visibility: t.visibility,
+    ...placeOf(t),
     taskId: t._id,
     taskRef: t.ref,
     taskTitle: t.title,
@@ -518,7 +518,7 @@ export async function whoDid(s: Scope, actor: Actor): Promise<string> {
  * claim (claimFor) only starts a task whose mark is still "queued", in one atomic update. So a session either started
  * before the edit (it read the old text and is stopped here) or never starts.
  */
-export async function takeBackOnEdit(s: Scope, t: Pick<TaskDoc, '_id' | 'ref' | 'title' | 'orgId' | 'ownerId' | 'visibility' | 'projectId' | 'claude'>, actor: Actor): Promise<boolean> {
+export async function takeBackOnEdit(s: Scope, t: Pick<TaskDoc, '_id' | 'ref' | 'title' | 'orgId' | 'ownerId' | 'visibility' | 'sharedWith' | 'projectId' | 'claude'>, actor: Actor): Promise<boolean> {
   if (!t.claude || actor.kind === 'system') return false;
   const giver = t.claude.markedByUserId ?? t.ownerId;
   if (actorUserId(actor) === giver) return false;
@@ -622,13 +622,14 @@ export async function claudeTasks(scope: DeviceScope): Promise<ClaudeTasks> {
 }
 
 /**
- * A project is made private: whatever other people gave to Claude in it ends, and a Claude item waiting on someone else
- * stops waiting (a private item waits only on its owner). Queued marks are cleared like a take-back; a running one is
- * stopped (a stop job to the giver's computer, best-effort) and ends as stopped. Called with the owner's scope before
- * the project's tasks change hands. Returns what it did, for tests.
+ * A project is made private, or people are taken off its list: whatever anyone not in `keep` (who still see it) gave to
+ * Claude in it ends, and a Claude item waiting on them stops waiting (an item waits only on someone who can see it).
+ * Queued marks are cleared like a take-back; a running one is stopped (a stop job to the giver's computer, best-effort)
+ * and ends as stopped. Called with the owner's scope before the project's tasks change hands. Returns what it did, for
+ * tests.
  */
-export async function endForeignClaude(c: Collections, s: Scope, projectId: string, ownerId: string): Promise<{ queued: number; running: number; waiting: number }> {
-  const marks = await c.tasks.find({ projectId, 'claude.state': { $in: ['queued', 'running'] }, 'claude.markedByUserId': { $nin: [null, ownerId] } }).toArray();
+export async function endForeignClaude(c: Collections, s: Scope, projectId: string, keep: string[], why: string): Promise<{ queued: number; running: number; waiting: number }> {
+  const marks = await c.tasks.find({ projectId, 'claude.state': { $in: ['queued', 'running'] }, 'claude.markedByUserId': { $nin: [null, ...keep] } }).toArray();
   let queued = 0;
   let running = 0;
   for (const t of marks) {
@@ -642,15 +643,15 @@ export async function endForeignClaude(c: Collections, s: Scope, projectId: stri
       if (t.claude!.sessionId) await stopSession(forUser(s, giver), projectId, t.claude!.sessionId).catch(() => {});
       const r = await c.tasks.updateOne(
         { _id: t._id, 'claude.state': 'running', 'claude.sessionId': t.claude!.sessionId },
-        { $set: { 'claude.state': 'stopped', 'claude.endedAt': new Date(), 'claude.note': 'project made private' } },
+        { $set: { 'claude.state': 'stopped', 'claude.endedAt': new Date(), 'claude.note': why } },
       );
       if (r.modifiedCount) running++;
       else continue;
     }
-    await logTask(c, t, userActor(ownerId), 'edit', { changes: { claude: { from, to: from === 'queued' ? null : 'stopped' } }, note: 'Claude task ended: project made private' });
+    await logTask(c, t, userActor(s.userId), 'edit', { changes: { claude: { from, to: from === 'queued' ? null : 'stopped' } }, note: `Claude task ended: ${why}` });
     afterCommit(() => wake(t.orgId, giver));
   }
-  const waits = await c.claudeItems.find({ projectId, waitingOn: { $nin: [null, ownerId] } }, { projection: { _id: 1, state: 1, blockedBy: 1 } }).toArray();
+  const waits = await c.claudeItems.find({ projectId, waitingOn: { $nin: [null, ...keep] } }, { projection: { _id: 1, state: 1, blockedBy: 1 } }).toArray();
   if (waits.length) {
     const ids = waits.map(w => w._id);
     await c.claudeItems.updateMany({ _id: { $in: ids } }, { $set: { waitingOn: null, waitingText: '' } });

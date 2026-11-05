@@ -1,7 +1,7 @@
 import 'server-only';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { collections, type PolicyEventDoc } from '../db';
-import { forUser, scoped, type Scope } from '../scope';
+import { forUser, readable, scoped, type Scope } from '../scope';
 import { asActor, type AgentName } from '../actors';
 import { authSecret } from '../auth';
 import { InputError } from '../data/errors';
@@ -260,7 +260,7 @@ export async function checkBatch(caller: Caller, ops: Op[], opts: { dryRun?: boo
 
 // ── Tell a task's person when Claude Code changes it ────────────────────────
 
-type Snap = Pick<Task, 'id' | 'ref' | 'title' | 'priority' | 'due' | 'projectId' | 'status' | 'archived' | 'createdBy' | 'ownerId' | 'visibility' | 'assigneeId'>;
+type Snap = Pick<Task, 'id' | 'ref' | 'title' | 'priority' | 'due' | 'projectId' | 'status' | 'archived' | 'createdBy' | 'ownerId' | 'visibility' | 'sharedWith' | 'assigneeId'>;
 export type Watch = { caller: Caller; before: Map<string, Snap>; trashed: Set<string>; restored: Set<string>; fields: Map<string, Set<string>> };
 
 /** Things to watch in one call: task keys with the watched fields they set (args) or may change (also), and keys being trashed. */
@@ -278,7 +278,7 @@ export async function watchTasks(caller: Caller, targets: WatchTarget[]): Promis
       const tr = await (await scoped(s)).trash.findOne(m ? { ref: Number(m[1]) } : { _id: String(t.key) }, { sort: { deletedAt: -1 }, projection: { task: 1 } });
       if (tr && !byOwnCode(caller, tr.task.createdBy)) {
         const d = tr.task;
-        w.before.set(d._id, { id: d._id, ref: d.ref, title: d.title, priority: d.priority, due: d.due, projectId: d.projectId, status: d.status, archived: d.archived, createdBy: asActor(d.createdBy), ownerId: d.ownerId, visibility: d.visibility, assigneeId: d.assigneeId ?? null });
+        w.before.set(d._id, { id: d._id, ref: d.ref, title: d.title, priority: d.priority, due: d.due, projectId: d.projectId, status: d.status, archived: d.archived, createdBy: asActor(d.createdBy), ownerId: d.ownerId, visibility: d.visibility, sharedWith: d.sharedWith, assigneeId: d.assigneeId ?? null });
         w.restored.add(tr.task._id);
       }
       continue;
@@ -305,7 +305,7 @@ export async function notifyChanges(w: Watch | null): Promise<void> {
   if (!w) return;
   const byRecipient = new Map<string, Map<string, Snap>>();
   for (const [id, b] of w.before) {
-    const r = tasks.recipientOf({ ownerId: b.ownerId, visibility: b.visibility, assigneeId: b.assigneeId });
+    const r = tasks.recipientOf({ ownerId: b.ownerId, visibility: b.visibility, sharedWith: b.sharedWith, assigneeId: b.assigneeId });
     byRecipient.set(r, (byRecipient.get(r) ?? new Map()).set(id, b));
   }
   for (const [userId, before] of byRecipient) await notifyOne(w, forUser(callerScope(w.caller), userId), before);
@@ -325,7 +325,9 @@ async function notifyOne(w: Watch, to: Scope, before: Map<string, Snap>): Promis
         continue;
       }
       const now = await tasks.getTask(s, id).catch(() => null);
-      if (!now) continue;
+      // Read with the writer's scope: a task the change took out of the recipient's sight (moved to a project they are
+      // not in) is not described to them.
+      if (!now || !readable(now, to.userId)) continue;
       const diffs: string[] = [];
       for (const f of WATCHED) {
         if (!w.fields.get(id)?.has(f.label)) continue;

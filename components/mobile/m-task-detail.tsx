@@ -237,10 +237,10 @@ export function MobileTaskDetail({
 
       {/* Assigned: the core fields are above; the rest sits under More details. */}
       <div className="mt-5 rounded-2xl border border-border/70 bg-card divide-y divide-border/60">
-        {task.visibility === 'org' ? (
+        {task.visibility !== 'private' ? (
           <SelectRow label="Assigned" value={task.assigneeId ?? ''} onChange={v => patch({ assignee: v || null }, v ? `Assigned to ${v === me ? 'you' : people[v] ?? 'them'}` : 'Unassigned')}>
             <option value="">Nobody</option>
-            {assigneeOptions(people, me, task.assigneeId).map(o => (
+            {assigneeOptions(people, me, task.assigneeId, task).map(o => (
               <option key={o.id} value={o.id}>
                 {o.name}
               </option>

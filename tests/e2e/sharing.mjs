@@ -1,5 +1,8 @@
 // Shared / Private projects from the app: the new-project choice, switching on the project's Info tab (owner only, with a
-// confirm that names who loses access), the Private badge, and what a teammate can see at each step. Seed profile: none.
+// confirm that names who loses access), the Private badge, and what a teammate can see at each step. Then sharing with
+// chosen people: the Everyone / Choose people choice, the list and its confirm, who has access, the people badge, what
+// someone off the list sees (MCP and pages), assignees on the list only, owner-only changes, and back to everyone.
+// Seed profile: none.
 import { randomBytes, randomUUID } from 'node:crypto';
 import { B, ME, MCP, check, finish, launch, login, makeUser, mkKey, rawDb, setProfile, sha } from './lib.mjs';
 
@@ -164,6 +167,95 @@ try {
   await pp.goto(`${B}/projects/${id}`);
   await pp.waitForSelector('[data-edit-header]', { timeout: 15000 });
   check('phone: the project header shows Private', (await pp.locator('[data-private-badge]:visible').count()) > 0);
+  // ======== 6. shared with chosen people ========
+  const Cal = await makeUser({ email: 'cal@example.test', name: 'Cal', orgId: A.orgId, role: 'member' });
+  const kC = await mkKey({ agent: 'claude', userId: Cal.userId, orgId: A.orgId, name: 'cal chat' });
+  const TEAM = 'Team Plan';
+  const team = () => rawDb.collection('projects').findOne({ orgId: A.orgId, name: TEAM });
+  const sees = async (key, title) => {
+    const [p, t, n] = await Promise.all([as(key, 'list_projects'), as(key, 'list_tasks', {}), as(key, 'list_notes', { state: 'all' })]);
+    return { project: p.text.includes(TEAM), task: t.text.includes(title), note: n.text.includes('Team note') };
+  };
+  await must(kA, 'add_project', { name: TEAM });
+  const tt = (await must(kA, 'add_task', { title: 'Team task', project: TEAM, assignee: 'cal@example.test' })).created;
+  await must(kA, 'write_note', { project: TEAM, title: 'Team note', body: 'for the team' });
+  await must(kC, 'add_comment', { task: tt.ref, note: 'Cal was here' });
+  const bt = (await must(kB, 'add_task', { title: 'Bea team task', project: TEAM })).created;
+  const teamId = (await team())._id;
+  await pa.goto(`${B}/projects/${teamId}?tab=info`);
+  await pa.waitForSelector('[data-section="sharing"] [data-audience="people"]', { timeout: 15000 });
+  check('choose: Shared offers Everyone (picked) or Choose people', (await pa.getAttribute('[data-audience="everyone"]', 'aria-checked')) === 'true');
+  check('choose: says everyone has access', /Has access: Everyone in/.test(await pa.locator('[data-access]').innerText()));
+  await pa.click('[data-audience="people"]');
+  await pa.waitForSelector('[data-people-picker]', { timeout: 8000 });
+  check('choose: the owner is on the list and cannot be taken off', (await pa.locator(`[data-person="${A.userId}"] input`).isChecked()) && (await pa.locator(`[data-person="${A.userId}"] input`).isDisabled()));
+  check('choose: nothing changes before Save', (await team())?.visibility === 'org');
+  await pa.click(`[data-person="${Bu.userId}"] input`);
+  await pa.click('[data-save-people]');
+  await pa.waitForSelector('[data-cut-confirm]', { timeout: 15000 });
+  const cmsg = await pa.locator('[data-cut-confirm]').innerText();
+  check('choose: the confirm names who loses access (Cal, assigned and commented), not Bea', /Cal/.test(cmsg) && /lose access/.test(cmsg) && /unassigned/.test(cmsg) && !/Bea/.test(cmsg), cmsg);
+  await pa.click('[data-confirm]');
+  check('choose: the project is shared with the owner and Bea', !!(await until(async () => { const p = await team(); return p?.visibility === 'members' && p.sharedWith.length === 2 && p.sharedWith.includes(A.userId) && p.sharedWith.includes(Bu.userId); })), JSON.stringify(await team()));
+  const ttDoc = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: tt.ref });
+  check('choose: its task follows (the list) and Cal is unassigned', ttDoc?.visibility === 'members' && ttDoc.sharedWith?.includes(Bu.userId) && !ttDoc.sharedWith.includes(Cal.userId) && ttDoc.assigneeId === null, JSON.stringify(ttDoc && [ttDoc.visibility, ttDoc.sharedWith, ttDoc.assigneeId]));
+  const noteDoc = await rawDb.collection('notes').findOne({ title: 'Team note' });
+  const actDocs = await rawDb.collection('activity').find({ taskId: ttDoc._id }).toArray();
+  check('choose: its note and history follow', noteDoc?.visibility === 'members' && actDocs.length > 0 && actDocs.every(a => a.visibility === 'members' && !a.sharedWith.includes(Cal.userId)), JSON.stringify(actDocs.map(a => a.visibility)));
+  let bs = await sees(kB, 'Team task');
+  let cs = await sees(kC, 'Team task');
+  check('choose: Bea (on the list) sees project, task and note', bs.project && bs.task && bs.note, JSON.stringify(bs));
+  check('choose: Cal (off the list) sees none of them', !cs.project && !cs.task && !cs.note, JSON.stringify(cs));
+  check('choose: Cal cannot read the task by number', (await as(kC, 'get_task', { task: tt.ref })).isError);
+  await pa.reload();
+  await pa.waitForSelector('[data-access]', { timeout: 15000 });
+  const acc = await pa.locator('[data-access]').innerText();
+  check('choose: the Info tab shows who has access', /\(owner\)/.test(acc) && /Bea/.test(acc) && !/Cal/.test(acc), acc);
+  check('choose: the project header shows how many people', /2 people/.test(await pa.locator('[data-people-badge]:visible').first().innerText()));
+  await pa.goto(`${B}/projects`);
+  check('choose: the list card shows how many people', (await pa.locator(`a[href="/projects/${teamId}"] [data-people-badge]`).count()) > 0);
+  await pb.goto(`${B}/projects/${teamId}?tab=info`);
+  await pb.waitForSelector('[data-section="sharing"]', { timeout: 15000 });
+  check('choose: Bea (not the owner) sees the list but cannot change it', (await pb.locator('[data-audience="everyone"]').isDisabled()) && (await pb.locator('[data-people-picker]').count()) === 0 && /Bea/.test(await pb.locator('[data-access]').innerText()));
+  const ctxC = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const pc = await ctxC.newPage();
+  await login(pc, { email: 'cal@example.test', next: '/projects' });
+  check("choose: Cal's Projects list does not show it", !(await pc.locator('body').innerText()).includes(TEAM));
+  await pc.goto(`${B}/projects/${teamId}`);
+  check('choose: Cal cannot open its page', !(await pc.locator('body').innerText()).includes(TEAM));
+  await pc.goto(`${B}/tasks/${tt.ref}`);
+  check('choose: Cal cannot open its task', !(await pc.locator('body').innerText()).includes('Team task') && (await pc.locator('input[value="Team task"]').count()) === 0);
+  await ctxC.close();
+
+  // assignees must be on the list; only the owner changes it
+  const assignCal = await as(kA, 'update_task', { task: tt.ref, assignee: 'cal@example.test' });
+  check('assignee: someone off the list is refused', assignCal.isError && /chosen people/.test(assignCal.text), assignCal.text);
+  const assignBea = await as(kA, 'update_task', { task: tt.ref, assignee: 'bea@example.test' });
+  check('assignee: someone on the list is fine', !assignBea.isError && (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: tt.ref }))?.assigneeId === Bu.userId, assignBea.text);
+  const beaList = await as(kB, 'update_project', { project: TEAM, shared_with: ['bea@example.test', 'cal@example.test'] });
+  check('list: a non-owner cannot change it (MCP)', beaList.isError && /owner/i.test(beaList.text) && !(await team()).sharedWith.includes(Cal.userId), beaList.text);
+  const outsider = await as(kA, 'update_project', { project: TEAM, shared_with: ['nobody@example.test'] });
+  check('list: someone outside the organization is refused', outsider.isError && /not a member/.test(outsider.text), outsider.text);
+  // MCP: Cal on, Bea off. Bea's own task goes to the owner, her assignment ends, her queued Claude task ends.
+  await rawDb.collection('tasks').updateOne({ orgId: A.orgId, ref: bt.ref }, { $set: { claude: mark({}) } });
+  const swap = await as(kA, 'update_project', { project: TEAM, shared_with: ['cal@example.test'] });
+  check('list (MCP): swap Bea for Cal', !swap.isError && (await team()).sharedWith.includes(Cal.userId) && !(await team()).sharedWith.includes(Bu.userId), swap.text);
+  const btDoc = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: bt.ref });
+  check("list: Bea's own task in it now belongs to the owner (she is off the list)", btDoc?.ownerId === A.userId && btDoc.visibility === 'members' && !btDoc.claude, JSON.stringify(btDoc && [btDoc.ownerId === A.userId, btDoc.visibility, btDoc.claude]));
+  check("list: Bea's assignment ended", (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: tt.ref }))?.assigneeId === null);
+  bs = await sees(kB, 'Bea team task');
+  cs = await sees(kC, 'Team task');
+  check('list: Bea now sees nothing of it, not even the task she made', !bs.project && !bs.task && !bs.note, JSON.stringify(bs));
+  check('list: Cal now sees it', cs.project && cs.task && cs.note, JSON.stringify(cs));
+  const gp = await must(kA, 'get_project', { project: TEAM });
+  check('MCP get_project: lists who sees it by name', gp.project.visibility === 'members' && gp.project.sharedWith?.includes('me') && gp.project.sharedWith.includes('Cal'), JSON.stringify(gp.project.sharedWith));
+  // back to everyone: no confirm (nobody loses access)
+  await pa.goto(`${B}/projects/${teamId}?tab=info`);
+  await pa.waitForSelector('[data-audience="everyone"]', { timeout: 15000 });
+  await pa.click('[data-audience="everyone"]');
+  check('everyone: one click shares it with everyone again', !!(await until(async () => (await team())?.visibility === 'org')) && (await pa.locator('[data-cut-confirm]').count()) === 0);
+  check('everyone: its tasks follow (no list left)', (await rawDb.collection('tasks').countDocuments({ projectId: teamId, $or: [{ visibility: { $ne: 'org' } }, { 'sharedWith.0': { $exists: true } }] })) === 0);
+  check('everyone: Bea sees it again', (await sees(kB, 'Team task')).project);
   await Promise.all([ctxA.close(), ctxB.close(), ctxP.close()]);
 } catch (e) {
   check('suite ran to the end', false, e instanceof Error ? e.stack ?? e.message : String(e));
