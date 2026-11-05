@@ -14,7 +14,7 @@ import { todayStr, weekStart } from '../dates';
 import { InputError, NotFoundError } from './errors';
 import { memberNames } from '../people';
 import { cleanCodeLocations, codeCandidates, matchCodeLocation, type CodeQuery } from './code-locations';
-import { unassignableFilter, unassignUpdate } from '../assignees';
+import { assigneesOf, unassignableFilter, unassignPull } from '../assignees';
 import type { CodeLocation } from '../types';
 
 export function slugify(name: string): string {
@@ -557,7 +557,12 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   if (taskIds.length) {
     // Assignees who could not see their task there come off it (each of them; the others stay).
     const unassignable = unassignableFilter(next);
-    if (unassignable) await c.tasks.updateMany({ _id: { $in: taskIds }, ...unassignable }, unassignUpdate(next) as never);
+    if (unassignable) {
+      // Tasks from before several assignees: the one old assignee moves into the list first.
+      const old = await c.tasks.find({ _id: { $in: taskIds }, assigneeId: { $exists: true } }, { projection: { assigneeId: 1, assigneeIds: 1 } }).toArray();
+      for (const t of old) await c.tasks.updateOne({ _id: t._id }, { $set: { assigneeIds: assigneesOf(t) }, $unset: { assigneeId: '' } });
+      await c.tasks.updateMany({ _id: { $in: taskIds }, ...unassignable }, unassignPull(next));
+    }
     await move('tasks', { _id: { $in: taskIds } });
     await move('activity', { taskId: { $in: taskIds } });
     const taskNotes = await c.notes.find({ taskId: { $in: taskIds } }, { projection: { _id: 1 } }).toArray();

@@ -39,7 +39,7 @@ function mayBeAssigned(place: Place): string[] | null {
 
 /**
  * The query form, for moving many tasks at once to a placement: those with any assignee who could not see them there
- * (old single field included). null when everyone can (shared with the organization). Pair it with unassignUpdate.
+ * (old single field included). null when everyone can (shared with the organization). Pair it with unassignPull.
  */
 export function unassignableFilter(place: Place): Record<string, unknown> | null {
   const may = mayBeAssigned(place);
@@ -48,13 +48,11 @@ export function unassignableFilter(place: Place): Record<string, unknown> | null
 }
 
 /**
- * The update (a pipeline) that takes everyone who could not see the task at the placement off its assignees, keeps the
- * others, and moves an old single assignee into the list.
+ * The update that takes everyone who could not see the task at the placement off its list, keeping the others. The door
+ * allows no update pipelines, so a task still on the old single field is moved to the list first (assigneesOf).
  */
-export function unassignUpdate(place: Place): Record<string, unknown>[] {
-  const may = mayBeAssigned(place) ?? [];
-  const list = { $cond: [{ $isArray: '$assigneeIds' }, '$assigneeIds', { $cond: [{ $eq: [{ $type: '$assigneeId' }, 'string'] }, ['$assigneeId'], []] }] };
-  return [{ $set: { assigneeIds: { $filter: { input: list, cond: { $in: ['$$this', may] } } } } }, { $unset: 'assigneeId' }];
+export function unassignPull(place: Place): { $pull: { assigneeIds: { $nin: string[] } } } {
+  return { $pull: { assigneeIds: { $nin: mayBeAssigned(place) ?? [] } } };
 }
 
 /** Members to assign, you first, only those who can see the task; an assignee who has left stays listed so the picker shows them. */
