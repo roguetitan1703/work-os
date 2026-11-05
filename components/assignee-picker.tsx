@@ -6,6 +6,7 @@ import { useApp } from '@/components/app-context';
 import { ResponsiveSheet } from '@/components/responsive-sheet';
 import { assigneeOptions, initials } from '@/lib/assignees';
 import { cn } from '@/lib/utils';
+import type { Readable } from '@/lib/visibility';
 
 /** "Nobody", "Me", "Me, Bea" … for a picker button. */
 export function assigneeLabel(ids: string[], people: Record<string, string>, me: string): string {
@@ -15,9 +16,9 @@ export function assigneeLabel(ids: string[], people: Record<string, string>, me:
 
 /**
  * Who does a task (several people may): a button that opens a sheet (phone) or dialog (desktop) with a tick per
- * member. Nothing is saved until Save, so ticking a few people is one change (and one alert each for the new ones).
+ * member who can see the task. Nothing is saved until Save, so ticking a few people is one change (and one alert each for the new ones).
  */
-export function AssigneePicker({ value, onSave, children }: { value: string[]; onSave: (ids: string[]) => void; children: (label: string, open: () => void) => React.ReactNode }) {
+export function AssigneePicker({ task, value, onSave, children }: { task?: Readable; value: string[]; onSave: (ids: string[]) => void; children: (label: string, open: () => void) => React.ReactNode }) {
   const { people, me } = useApp();
   const [open, setOpen] = useState(false);
   const [picked, setPicked] = useState<string[]>(value);
@@ -33,7 +34,7 @@ export function AssigneePicker({ value, onSave, children }: { value: string[]; o
       {open && (
         <ResponsiveSheet title="Who does it" onClose={() => setOpen(false)}>
           <div className="space-y-1 pb-2" data-assignee-sheet>
-            {assigneeOptions(people, me, value).map(o => {
+            {assigneeOptions(people, me, value, task).map(o => {
               const on = picked.includes(o.id);
               return (
                 <button

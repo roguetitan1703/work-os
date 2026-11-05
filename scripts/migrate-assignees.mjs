@@ -32,7 +32,12 @@ const uri =
 if (!uri) die('MONGODB_URI is not set.');
 const host = u => u.replace(/\/\/[^@]*@/, '//<credentials>@').replace(/\?.*$/, '');
 
-/** The pipeline that moves `<at>assigneeId` into `<at>assigneeIds` (at: '' for a task, 'task.' for a trash copy). */
+/**
+ * The pipeline that moves `<at>assigneeId` into `<at>assigneeIds` (at: '' for a task, 'task.' for a trash copy). The old
+ * assignee goes into the list only if they can see the task (the app's rule, lib/assignees.ts canBeAssigned): anyone
+ * on a task shared with everyone, its owner, or someone on the list of a project shared with chosen people
+ * ('members'). Anyone else is dropped (an older build may have left them), and so leaves its alerts to the owner.
+ */
 function moveOver(at) {
   const one = `$${at}assigneeId`;
   return [
@@ -41,7 +46,7 @@ function moveOver(at) {
         [`${at}assigneeIds`]: {
           $let: {
             vars: { a: { $cond: [{ $isArray: `$${at}assigneeIds` }, `$${at}assigneeIds`, []] } },
-            in: { $cond: [{ $and: [{ $eq: [{ $type: one }, 'string'] }, { $ne: [one, ''] }, { $not: [{ $in: [one, '$$a'] }] }] }, { $concatArrays: ['$$a', [one]] }, '$$a'] },
+            in: { $cond: [{ $and: [{ $eq: [{ $type: one }, 'string'] }, { $ne: [one, ''] }, { $not: [{ $in: [one, '$$a'] }] }, sees(at, one)] }, { $concatArrays: ['$$a', [one]] }, '$$a'] },
           },
         },
       },
@@ -49,6 +54,21 @@ function moveOver(at) {
     { $unset: `${at}assigneeId` },
   ];
 }
+
+/** Can the user (an expression) see the task at `at`? */
+const sees = (at, user) => ({
+  $or: [
+    { $eq: [`$${at}visibility`, 'org'] },
+    { $eq: [user, `$${at}ownerId`] },
+    { $and: [{ $eq: [`$${at}visibility`, 'members'] }, { $in: [user, { $ifNull: [`$${at}sharedWith`, []] }] }] },
+  ],
+});
+
+/** The query form: an old assignee who could not see the task (dropped). */
+const blind = at => ({
+  [`${at}assigneeId`]: { $type: 'string', $ne: '' },
+  $expr: { $not: [sees(at, `$${at}assigneeId`)] },
+});
 
 const client = new MongoClient(uri);
 await client.connect();
@@ -63,8 +83,9 @@ try {
     const filter = { [`${at}assigneeId`]: { $exists: true } };
     const total = await db.collection(col).countDocuments(filter);
     const assigned = await db.collection(col).countDocuments({ [`${at}assigneeId`]: { $type: 'string', $ne: '' } });
+    const dropped = await db.collection(col).countDocuments(blind(at));
     if (APPLY && total) await db.collection(col).updateMany(filter, moveOver(at));
-    if (total) lines.push(`  ${APPLY ? '✓' : '-'} ${label}: ${total} moved to the list (${assigned} with someone assigned, ${total - assigned} with nobody)`);
+    if (total) lines.push(`  ${APPLY ? '✓' : '-'} ${label}: ${total} moved to the list (${assigned} with someone assigned, ${total - assigned} with nobody; ${dropped} assignee${dropped === 1 ? '' : 's'} who could not see the task dropped)`);
   }
   console.log(lines.length ? lines.join('\n') : '  Nothing to do: every task already has the list.');
   if (!APPLY) console.log('\nDry run: nothing was changed.');

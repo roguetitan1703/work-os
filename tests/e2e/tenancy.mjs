@@ -3,7 +3,9 @@
 // MCP (every read tool), pages, search, the notes file routes or the worker and admin APIs; numbers restart per
 // organization; inbox notices and alerts go only to their recipient, by the recipient's own settings. Also runs the
 // static one-door check (tests/scope-check.mjs). Phase 3: each person's own schedule and timezone, and dispatcher caps
-// that count only their own claims. Seed profile: none (this suite makes its own people and data).
+// that count only their own claims. A project shared with chosen people (A and B): a third member of the organization
+// (Dee) off the list sees nothing of it through MCP, pages, search, note files or alerts, and cannot be assigned or
+// waited on in it. Seed profile: none (this suite makes its own people and data).
 import { B, CRON, EMAIL, ME, MCP, PW, check, db, finish, launch, login, makeUser, mkKey, rawDb, setProfile, setSchedule, sha } from './lib.mjs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { scopeViolations } from '../scope-check.mjs';
@@ -197,6 +199,61 @@ try {
   await fetch(`${B}/api/cron/alerts`, { headers: { authorization: `Bearer ${CRON}` } }).then(r => r.json());
   const runs = await rawDb.collection('settings').find({ area: 'alerts' }).toArray();
   check('cron: one run per person (A, B and C)', [A.userId, Bu.userId, Cu.userId].every(u => runs.some(r => r._id === `alerts:${u}`)), runs.map(r => r._id).join(','));
+  // ---- shared with chosen people: Dee (same organization, not on the list) sees nothing of it ----
+  const Du = await makeUser({ email: 'dee@example.test', name: 'Dee', orgId: A.orgId, role: 'member' });
+  const kD = await mkKey({ agent: 'claude', userId: Du.userId, orgId: A.orgId, name: 'dee chat' });
+  await must(kA, 'add_project', { name: 'Circle Room', visibility: 'members', shared_with: ['bea@example.test'] });
+  const circle = (await must(kA, 'list_projects', {})).find(p => p.name === 'Circle Room');
+  check('list: add_project with visibility members makes a list of the owner and Bea', circle?.visibility === 'members' && circle.sharedWith?.length === 2 && circle.sharedWith.includes('me') && circle.sharedWith.includes('Bea'), JSON.stringify(circle));
+  const ct = (await must(kA, 'add_task', { title: 'Circle task one', project: 'Circle Room' })).created;
+  ct.id = (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: ct.ref }))._id;
+  const ctB = (await must(kB, 'add_task', { title: 'Circle task by Bea', project: 'Circle Room' })).created;
+  await must(kB, 'add_comment', { task: ct.ref, note: 'Circle comment text' });
+  const cMemo = (await must(kA, 'write_note', { project: 'Circle Room', title: 'Circle memo', body: 'Circle memo body' })).created;
+  const cTaskNote = (await must(kA, 'write_note', { task: ct.ref, body: 'Circle task note body' })).created;
+  await must(kA, 'update_claude_items', { ops: [{ op: 'add', project: 'Circle Room', kind: 'feature', title: 'Circle item for the tenancy check run', why, done_when: 'The tenancy suite passes.' }] });
+  await must(kB, 'delete_task', { task: ctB.ref, title: 'Circle task by Bea' });
+  const placedDocs = await Promise.all(['tasks', 'activity', 'notes', 'claudeItems', 'trash'].map(n => rawDb.collection(n).find({ orgId: A.orgId, $or: [{ projectId: circle.id }, { taskId: ct.id }, { 'task.projectId': circle.id }] }).toArray()));
+  check('list: everything in it carries the list (tasks, history, notes, Claude items, trash)', placedDocs.every(ds => ds.length > 0 && ds.every(d => d.visibility === 'members' && d.sharedWith?.includes(Bu.userId) && !d.sharedWith.includes(Du.userId))), placedDocs.map(ds => ds.length).join(','));
+  const circleReads = async key => {
+    const out = [];
+    for (const [n, a] of [
+      ['list_tasks', { include_closed: true }], ['list_projects', { include_inactive: true }], ['daily_summary', { since: '7d' }],
+      ['recent_activity', { since: '7d' }], ['list_trash', {}], ['list_notes', { state: 'all' }], ['get_task', { task: ct.ref }], ['get_task', { task: ct.id }],
+      ['get_project', { project: circle.id }], ['get_project', { project: 'Circle Room', depth: 'full' }], ['read_note', { note_id: cMemo.id }], ['read_note', { task: ct.ref }],
+      ['read_note', { note_id: cTaskNote.id }], ['list_notes', { query: 'Circle', state: 'all' }], ['list_tasks', { query: 'Circle', include_closed: true }],
+    ]) out.push({ n, a, ...(await as(key, n, a)) });
+    return out;
+  };
+  const dReads = await circleReads(kD);
+  const dEcho = r => r.text.replaceAll('Project "Circle Room" not found', '');
+  check('Dee (off the list): nothing of it in any MCP read tool', !dReads.some(r => /Circle/.test(dEcho(r))), dReads.filter(r => /Circle/.test(dEcho(r))).map(r => `${r.n} ${JSON.stringify(r.a)}`).join(', '));
+  const bCircle = (await circleReads(kB)).map(r => r.text).join('\n');
+  check('Bea (on the list): sees its task, note, history and item', /Circle task one/.test(bCircle) && /Circle memo/.test(bCircle) && /Circle comment text/.test(bCircle), bCircle.slice(0, 200));
+  for (const [n, a] of [['update_task', { task: ct.id, title: 'Dee was here' }], ['add_comment', { task: ct.id, note: 'Dee was here' }], ['write_note', { note_id: cMemo.id, append: 'Dee was here' }], ['restore_task', { task: ctB.ref }], ['add_task', { title: 'Dee into the circle', project: circle.id }]]) {
+    const r = await as(kD, n, a);
+    check(`Dee: ${n} into it is refused`, r.isError || (n === 'add_task' && (await rawDb.collection('tasks').findOne({ title: 'Dee into the circle' }))?.projectId !== circle.id), r.text.slice(0, 160));
+  }
+  // Dee's add_task made a project of her own from the id she typed: remove it so the page checks below look only for the list's things.
+  const deeInto = await rawDb.collection('tasks').findOne({ orgId: A.orgId, title: 'Dee into the circle' });
+  if (deeInto) {
+    await rawDb.collection('tasks').deleteOne({ _id: deeInto._id });
+    await rawDb.collection('activity').deleteMany({ taskId: deeInto._id });
+    if (deeInto.projectId && deeInto.projectId !== circle.id) await rawDb.collection('projects').deleteOne({ _id: deeInto.projectId });
+  }
+  const dAssign = await as(kA, 'update_task', { task: ct.ref, assignee: 'dee@example.test' });
+  check('Dee: cannot be assigned a task in it', dAssign.isError && /chosen people/.test(dAssign.text), dAssign.text);
+  const dWait = await as(kA, 'update_claude_items', { ops: [{ op: 'add', project: 'Circle Room', kind: 'feature', title: 'Circle question for Dee in this run', why, done_when: 'Dee has answered the question in the app.', waiting_on_om: 'x', waiting_on: 'dee@example.test' }] });
+  check('Dee: a Claude item in it cannot wait on her', dWait.isError && /chosen people/.test(dWait.text), dWait.text);
+  // A task in it that waits on a task Dee closes: the "unblocked" alert goes to the owner, never to Dee.
+  const dTask = (await must(kD, 'add_task', { title: 'Dee shared step', project: 'Zephyr Shared' })).created;
+  const cDep = (await must(kA, 'add_task', { title: 'Circle waits on Dee', project: 'Circle Room', depends_on: [dTask.ref] })).created;
+  await must(kD, 'complete_task', { task: dTask.ref });
+  await new Promise(r => setTimeout(r, 1500));
+  const cq = await rawDb.collection('alertQueue').find({ taskId: (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: cDep.ref }))._id }).toArray();
+  check('Dee: "unblocked" for a task in it is queued for its owner, not her', cq.length === 1 && cq[0].userId === A.userId, JSON.stringify(cq.map(x => x.userId === A.userId ? 'A' : x.userId)));
+  check('Dee: nothing of it in her inbox', !(await rawDb.collection('notifications').find({ userId: Du.userId }).toArray()).some(n => /Circle/.test(`${n.title} ${n.body}`)));
+
   // push devices: each person's own (the same query sendPush uses)
   await rawDb.collection('pushSubs').insertMany([
     { _id: 'https://push.example.test/a1', orgId: A.orgId, userId: A.userId, keys: { p256dh: 'x', auth: 'y' }, device: 'A phone', createdAt: new Date(), updatedAt: new Date() },
@@ -396,13 +453,33 @@ try {
     check('A inbox: A\'s notices, not B\'s', /changed #/.test(inbox.text) && !/Bea: pick a colour/.test(inbox.text));
     check('notes upload: into one\'s own note passes the checks', (await upload(p, `notes/${A.orgId}/${vMemo.id}/x.png`)) === 503);
     check('notes file: one\'s own private note\'s file passes the checks', (await filePath(p, `notes/${A.orgId}/${vMemo.id}/x.png`)) === 503);
-    const use = await text(p, '/settings?section=usage');
-    // The Usage section streams in after the page (Suspense); give it a few seconds (was flaky at 500 ms).
-    const usage = use.text.includes('Last 24 h') || (await p.waitForSelector('text=Last 24 h', { timeout: 8000 }).then(() => true, () => false));
-    check('A settings: the operator sees Usage', usage, use.text.slice(0, 300));
+    await text(p, '/settings?section=usage');
+    // The section streams in after the page (a server component reading the request log): wait for it, not a fixed time.
+    const usage = await p.waitForSelector('[data-usage]', { timeout: 15000 }).then(() => p.locator('[data-usage]').innerText(), () => '');
+    check('A settings: the operator sees Usage', /Last 24 h/.test(usage), usage.slice(0, 120));
     const aToday = await text(p, '/today');
     const aBar = await p.locator('[data-block-bar]').count();
     check('A today: the schedule bar, and no routine card (removed)', aBar === 1 && (await p.locator('[data-fold=routine], [data-routine]').count()) === 0 && !/not logged/.test(aToday.text), `bar ${aBar}`); // the old timetable still has a block named "Fiverr Ritual"
+  });
+
+  await session('dee@example.test', async p => {
+    for (const path of ['/tasks', '/notes', '/projects', '/today', '/review?view=activity', '/review?view=trash', '/review?view=done', '/notifications', '/claude', `/projects/${zephyr.id}`]) {
+      const r = await text(p, path);
+      check(`Dee pages: ${path} shows nothing of the project she is not on`, r.status === 200 && !/Circle/.test(r.text), `${r.status} ${(r.text.match(/.{0,40}Circle.{0,40}/) ?? [''])[0]}`);
+    }
+    for (const path of [`/projects/${circle.id}`, `/projects/${circle.id}?tab=info`, `/tasks/${ct.ref}`, `/tasks/${ct.id}`, `/notes/${cMemo.id}`, `/notes/${cTaskNote.id}`]) {
+      const m = await missing(p, path, /Circle/);
+      check(`Dee pages: ${path} is not found`, m.ok, m.why);
+    }
+    const r = await search(p, 'Circle');
+    check('Dee search: "Circle" finds nothing', r.n === 0 || !/Circle/.test(r.t), r.t);
+    check('Dee notes file: its note\'s file is not served', (await filePath(p, `notes/${A.orgId}/${cMemo.id}/x.png`)) === 404);
+    check('Dee notes upload: into its note is refused', (await upload(p, `notes/${A.orgId}/${cMemo.id}/x.png`)) === 400);
+  });
+  await session('bea@example.test', async p => {
+    const r = await search(p, 'Circle');
+    check('Bea search (on the list): finds it', r.n > 0 && /Circle/.test(r.t), r.t);
+    check('Bea notes file (on the list): its note\'s file passes the checks', (await filePath(p, `notes/${A.orgId}/${cMemo.id}/x.png`)) === 503);
   });
 
   const FIRST = /Hidden|Zephyr shared task|Zephyr memo|Zephyr waits|Bea/; // C has its own "Zephyr Shared" project (names check above)

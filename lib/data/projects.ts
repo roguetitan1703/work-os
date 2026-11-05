@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomBytes } from 'node:crypto';
-import type { ProjectDoc, TaskDoc } from '../db';
+import type { Placed, ProjectDoc, TaskDoc } from '../db';
 import { idTaken, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
 import {
   ProjectInputSchema,
@@ -14,6 +14,7 @@ import { todayStr, weekStart } from '../dates';
 import { InputError, NotFoundError } from './errors';
 import { memberNames } from '../people';
 import { cleanCodeLocations, codeCandidates, matchCodeLocation, type CodeQuery } from './code-locations';
+import { unassignableFilter, unassignUpdate } from '../assignees';
 import type { CodeLocation } from '../types';
 
 export function slugify(name: string): string {
@@ -33,6 +34,7 @@ export function toProject(d: ProjectDoc): Project {
     name: d.name,
     ownerId: d.ownerId,
     visibility: d.visibility,
+    ...(d.visibility === 'members' ? { sharedWith: d.sharedWith ?? [d.ownerId] } : {}),
     client: d.client,
     description: d.description,
     status: d.status,
@@ -45,16 +47,50 @@ export function toProject(d: ProjectDoc): Project {
 
 // ── Where things live (docs/multi-user.md "Private vs shared") ──────────────
 
-export type Placement = { ownerId: string; visibility: Visibility };
+/** Where a shared document lives: its owner, who sees it, and (visibility 'members') the list; [] otherwise. */
+export type Placement = { ownerId: string; visibility: Visibility; sharedWith: string[] };
 
 /**
  * A task or note in this project (or in none): with no project it is private to its owner; in a private project it
- * belongs to the project's owner; in a shared project it is shared and keeps its own owner.
+ * belongs to the project's owner; in a project shared with everyone it is shared and keeps its own owner; in one shared
+ * with chosen people it carries the project's list and keeps its own owner while they are on it (else the project's
+ * owner takes it, so nobody off the list sees it as its owner).
  */
-export function placeIn(project: Pick<ProjectDoc, 'ownerId' | 'visibility'> | null, owner: string): Placement {
-  if (!project) return { ownerId: owner, visibility: 'private' };
-  if (project.visibility === 'private') return { ownerId: project.ownerId, visibility: 'private' };
-  return { ownerId: owner, visibility: 'org' };
+export function placeIn(project: Pick<ProjectDoc, 'ownerId' | 'visibility' | 'sharedWith'> | null, owner: string): Placement {
+  if (!project) return { ownerId: owner, visibility: 'private', sharedWith: [] };
+  if (project.visibility === 'private') return { ownerId: project.ownerId, visibility: 'private', sharedWith: [] };
+  if (project.visibility === 'members') {
+    const list = projectList(project);
+    return { ownerId: list.includes(owner) ? owner : project.ownerId, visibility: 'members', sharedWith: list };
+  }
+  return { ownerId: owner, visibility: 'org', sharedWith: [] };
+}
+
+/** The placement a stored document has now. */
+export const placeOf = (d: Pick<Placed, 'ownerId' | 'visibility' | 'sharedWith'>): Placement => ({
+  ownerId: d.ownerId,
+  visibility: d.visibility,
+  sharedWith: d.visibility === 'members' ? projectList(d) : [],
+});
+
+export const samePlace = (a: Placement, b: Placement): boolean =>
+  a.ownerId === b.ownerId && a.visibility === b.visibility && a.sharedWith.length === b.sharedWith.length && a.sharedWith.every(u => b.sharedWith.includes(u));
+
+/** A 'members' project's list: the owner first, then the people chosen (an older or odd document still holds its owner). */
+function projectList(p: Pick<Placed, 'ownerId' | 'sharedWith'>): string[] {
+  return [...new Set([p.ownerId, ...(p.sharedWith ?? []).filter(u => typeof u === 'string' && !!u)])];
+}
+
+/** sharedWith input (members' user ids or emails, or 'me') → user ids, the owner first. Someone outside the organization is refused. */
+async function resolveList(s: Scope, ownerId: string, list: string[]): Promise<string[]> {
+  const { findMember } = await import('../people');
+  const out = [ownerId];
+  for (const v of list) {
+    const id = v.trim().toLowerCase() === 'me' ? s.userId : await findMember(s.orgId, v);
+    if (!id) throw new InputError(`sharedWith: "${v.trim().slice(0, 80)}" is not a member of this organization`);
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
 }
 
 
@@ -90,9 +126,22 @@ async function findProjectDoc(c: Collections, nameOrId: string): Promise<Project
   const key = nameOrId.trim();
   if (!key) return null;
   const hits = await c.projects.find({ $or: [{ _id: key }, { nameLower: key.toLowerCase() }, { _id: slugify(key) }] }).limit(5).toArray();
-  // An id wins; then a name. Two visible projects can share a name only when one is your own private project and a
-  // teammate later made a shared one of that name (they could not see yours): your own is the one you mean.
-  return hits.find(p => p._id === key) ?? hits.find(p => p.visibility === 'private') ?? hits[0] ?? null;
+  // An id wins; then a name.
+  return hits.find(p => p._id === key) ?? narrowest(hits);
+}
+
+/**
+ * Of visible projects that share a name, the one you mean. They can share one only when a teammate who could not see
+ * yours (your private project, or one shared with people they are not among) later made a shared one of that name: the
+ * narrower one is yours, so work you put "in X" never lands where the whole organization sees it.
+ */
+function narrowest(hits: ProjectDoc[]): ProjectDoc | null {
+  return hits.find(p => p.visibility === 'private') ?? hits.find(p => p.visibility === 'members') ?? hits[0] ?? null;
+}
+
+/** The visible project with this name (the narrowest, see above), or null. */
+async function projectNamed(c: Collections, nameLower: string): Promise<ProjectDoc | null> {
+  return narrowest(await c.projects.find({ nameLower }).limit(5).toArray());
 }
 
 /**
@@ -113,11 +162,14 @@ function newProjectId(name: string): string {
 async function insertProject(
   c: Collections,
   s: Scope,
-  data: { name: string; client?: string; description?: string; status?: ProjectDoc['status']; code?: CodeLocation[] | null; visibility?: Visibility; delpatOsId?: string },
+  data: { name: string; client?: string; description?: string; status?: ProjectDoc['status']; code?: CodeLocation[] | null; visibility?: Visibility; sharedWith?: string[]; delpatOsId?: string },
 ): Promise<ProjectDoc> {
   const now = new Date();
   const nameLower = data.name.trim().toLowerCase();
   await assertNameFree(c, nameLower);
+  const visibility = data.visibility ?? (data.sharedWith ? 'members' : 'org');
+  if (data.sharedWith && visibility !== 'members') throw new InputError('sharedWith goes with visibility "members" (shared with chosen people)');
+  const list = visibility === 'members' ? await resolveList(s, s.userId, data.sharedWith ?? []) : null;
   for (let i = 1; i < 10; i++) {
     const _id = newProjectId(data.name);
     // Check first: inside a transaction a duplicate-key error would abort the whole batch.
@@ -126,7 +178,8 @@ async function insertProject(
       _id,
       orgId: s.orgId,
       ownerId: s.userId,
-      visibility: data.visibility ?? 'org',
+      visibility,
+      ...(list ? { sharedWith: list } : {}),
       name: data.name.trim(),
       nameLower,
       nameBy: s.userId,
@@ -148,7 +201,7 @@ async function insertProject(
         throw new InputError('That Delpat OS project was just imported. Reload to see it.');
       }
       // Same name created concurrently → return that one; otherwise the id was taken meanwhile, try another.
-      const existing = await c.projects.findOne({ nameLower });
+      const existing = await projectNamed(c, nameLower);
       if (existing) return existing;
     }
   }
@@ -314,7 +367,7 @@ export async function getProjectWithStats(s: Scope, nameOrId: string): Promise<P
 export async function createProject(s: Scope, input: ProjectInput): Promise<{ project: Project; created: boolean }> {
   const data = ProjectInputSchema.parse(input);
   const c = await scoped(s);
-  const existing = await c.projects.findOne({ nameLower: data.name.toLowerCase() });
+  const existing = await projectNamed(c, data.name.toLowerCase());
   if (existing) return { project: toProject(existing), created: false };
   const doc = await insertProject(c, s, data);
   return { project: toProject(doc), created: true };
@@ -376,55 +429,106 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
     // Who set the repo: a PC clones it, and trusts the clone only when its owner set it (lib/data/turbo.ts).
     if (JSON.stringify(set.code) !== JSON.stringify(cur.code ?? [])) set.codeBy = s.userId;
   }
-  if (data.visibility !== undefined && data.visibility !== cur.visibility) {
-    if (cur.ownerId !== s.userId) throw new InputError("Only the project's owner can make it private or shared");
-    // Made shared: the name must be free among the organization's shared projects (all visible to the owner already,
-    // so this refusal tells them nothing new). Someone else's private project of that name does not count.
-    if (data.visibility === 'org' && (await c.projects.findOne({ _id: { $ne: id }, nameLower: set.nameLower ?? cur.nameLower, visibility: 'org' }, { projection: { _id: 1 } }))) {
-      throw new InputError('A shared project with that name already exists');
-    }
-    // Made private: the name must be free among the owner's own private projects (all theirs, so nothing leaks). Checked
-    // first: the cascade below is not undone if the project's own update then failed on the unique index.
-    if (data.visibility === 'private' && (await c.projects.findOne({ _id: { $ne: id }, nameLower: set.nameLower ?? cur.nameLower, visibility: 'private', ownerId: cur.ownerId }, { projection: { _id: 1 } }))) {
-      throw new InputError('You already have a private project with that name. Rename one of them first.');
-    }
-    // An import of the same Delpat OS project: one per organization among shared projects, one per owner among private ones.
-    // Checked here so the cascade below never runs for an update the unique index would then refuse.
-    if (cur.delpatOsId) {
-      const clash = await c.projects.findOne(
-        { _id: { $ne: id }, delpatOsId: cur.delpatOsId, ...(data.visibility === 'org' ? { visibility: 'org' } : { visibility: 'private', ownerId: cur.ownerId }) },
-        { projection: { name: 1 } },
-      );
-      if (clash) {
-        throw new InputError(data.visibility === 'org' ? `This Delpat OS project is already shared in Work OS as "${clash.name}".` : `You already have a private project imported from this Delpat OS project ("${clash.name}").`);
-      }
-    }
-    set.visibility = data.visibility;
-    if (data.visibility === 'private') await (await import('./dispatcher')).endForeignClaude(c, s, id, cur.ownerId);
+  // Who sees it: Shared with everyone ('org'), Shared with chosen people ('members' + sharedWith), Private. A list given
+  // alone means "shared with these people"; 'members' alone keeps the current list.
+  const nextVis: Visibility = data.visibility ?? (data.sharedWith !== undefined ? 'members' : cur.visibility);
+  if (data.sharedWith !== undefined && nextVis !== 'members') throw new InputError('sharedWith goes with visibility "members" (shared with chosen people)');
+  if (nextVis === 'members' && cur.visibility !== 'members' && data.sharedWith === undefined) throw new InputError('Say who sees it: pass sharedWith with visibility "members"');
+  const was = placeOf(cur);
+  const next: Placement = {
+    ownerId: cur.ownerId,
+    visibility: nextVis,
+    sharedWith: nextVis !== 'members' ? [] : data.sharedWith !== undefined ? await resolveList(s, cur.ownerId, data.sharedWith) : was.sharedWith,
+  };
+  const moving = !samePlace(was, next);
+  if (moving) {
+    if (cur.ownerId !== s.userId) throw new InputError("Only the project's owner can change who sees it");
+    if (next.visibility !== cur.visibility) await assertPlacementFree(c, cur, id, next.visibility, set.nameLower ?? cur.nameLower);
+    set.visibility = next.visibility;
+    set.sharedWith = next.sharedWith;
   }
-  // Whichever order fails safe. Made shared: the project first, then what follows it, so a refused update (a unique index)
-  // moves nothing private. Made private: what follows it first, so a failure part-way leaves things private under a
-  // still-shared project, never shared things under a private one.
-  const moving = set.visibility && set.visibility !== cur.visibility ? set.visibility : null;
-  if (moving === 'private') await setProjectVisibility(c, cur, 'private');
+  // Does anyone lose access? Then their Claude tasks and the waits on them end first (while they still see it), and what
+  // follows the project moves before the project does, so a failure part-way leaves things placed narrower under a
+  // wider project, never wider under a narrower one. Otherwise the project first, then what follows it, so a refused
+  // update (a unique index) moves nothing.
+  const cut = moving && cutsSomeone(was, next);
+  if (cut) {
+    const keep = next.visibility === 'private' ? [cur.ownerId] : next.sharedWith;
+    await (await import('./dispatcher')).endForeignClaude(c, s, id, keep, next.visibility === 'private' ? 'project made private' : 'no longer shared with them');
+    await setProjectPlacement(c, cur, next);
+  }
   try {
     await c.projects.updateOne({ _id: id }, { $set: set });
   } catch (err) {
     if ((err as { code?: number }).code === 11000) throw new InputError('That change clashes with another project (its name or its Delpat OS import). Nothing was changed.');
     throw err;
   }
-  if (moving === 'org') await setProjectVisibility(c, cur, 'org');
+  if (moving && !cut) await setProjectPlacement(c, cur, next);
   return toProject({ ...cur, ...set });
 }
 
-/** Who a shared project's owner would cut off by making it private: people assigned to its tasks, and people who commented on them. */
-export async function projectSharingImpact(s: Scope, id: string): Promise<{ assignees: string[]; commenters: string[]; claude: string[]; waiting: string[] }> {
+/**
+ * Someone left the organization: take them off every project list they are on (not their own projects), exactly as if
+ * each project's owner had unticked them, so an invitation later does not quietly give the access back. c: the
+ * organization without the visibility rule (lib/data/team.ts). Returns how many projects changed.
+ */
+export async function takeOffLists(c: Collections, orgId: string, userId: string): Promise<number> {
+  const ps = await c.projects.find({ visibility: 'members', sharedWith: userId, ownerId: { $ne: userId } }).toArray();
+  for (const p of ps) {
+    const next: Placement = { ownerId: p.ownerId, visibility: 'members', sharedWith: placeOf(p).sharedWith.filter(u => u !== userId) };
+    await (await import('./dispatcher')).endForeignClaude(c, { orgId, userId: p.ownerId }, p._id, next.sharedWith, 'no longer shared with them');
+    await setProjectPlacement(c, p, next);
+    await c.projects.updateOne({ _id: p._id }, { $set: { sharedWith: next.sharedWith, updatedAt: new Date() } });
+  }
+  return ps.length;
+}
+
+/** Does moving from one placement to another take access away from anyone? */
+function cutsSomeone(was: Placement, next: Placement): boolean {
+  if (was.visibility === 'private') return false;
+  if (was.visibility === 'org') return next.visibility !== 'org';
+  if (next.visibility === 'private') return true;
+  return next.visibility === 'members' && was.sharedWith.some(u => !next.sharedWith.includes(u));
+}
+
+/**
+ * The checks before a project changes visibility, so the cascade never runs for an update the unique indexes would then
+ * refuse. Made shared with everyone: its name must be free among the organization's shared projects (all visible to the
+ * owner already, so this refusal tells them nothing new); someone else's private project of that name does not count.
+ * Made private: the name must be free among the owner's own private projects (all theirs, so nothing leaks). A list
+ * ('members') has no index: its name is only checked among what the person sees. The same for a Delpat OS import.
+ */
+async function assertPlacementFree(c: Collections, cur: ProjectDoc, id: string, visibility: Visibility, nameLower: string): Promise<void> {
+  if (visibility === 'members') return;
+  if (visibility === 'org' && (await c.projects.findOne({ _id: { $ne: id }, nameLower, visibility: 'org' }, { projection: { _id: 1 } }))) {
+    throw new InputError('A shared project with that name already exists');
+  }
+  if (visibility === 'private' && (await c.projects.findOne({ _id: { $ne: id }, nameLower, visibility: 'private', ownerId: cur.ownerId }, { projection: { _id: 1 } }))) {
+    throw new InputError('You already have a private project with that name. Rename one of them first.');
+  }
+  if (cur.delpatOsId) {
+    const clash = await c.projects.findOne(
+      { _id: { $ne: id }, delpatOsId: cur.delpatOsId, ...(visibility === 'org' ? { visibility: 'org' } : { visibility: 'private', ownerId: cur.ownerId }) },
+      { projection: { name: 1 } },
+    );
+    if (clash) {
+      throw new InputError(visibility === 'org' ? `This Delpat OS project is already shared in Work OS as "${clash.name}".` : `You already have a private project imported from this Delpat OS project ("${clash.name}").`);
+    }
+  }
+}
+
+/**
+ * Who a project's owner would cut off by changing who sees it (to Private, or to a list: `keep`): people assigned to its
+ * tasks, people who commented on them, who gave its tasks to Claude, and whom its Claude items wait on.
+ */
+export async function projectSharingImpact(s: Scope, id: string, keep: string[] = []): Promise<{ assignees: string[]; commenters: string[]; claude: string[]; waiting: string[] }> {
   const c = await scoped(s);
   const p = await c.projects.findOne({ _id: id });
   if (!p) throw new NotFoundError(`Project "${id}" not found`);
+  const stays = new Set([p.ownerId, ...keep]);
   const taskIds = [...(await c.tasks.distinct('_id', { projectId: id })), ...(await c.trash.distinct('_id', { 'task.projectId': id }))];
-  const others = (ids: unknown[]) => [...new Set(ids.filter((x): x is string => typeof x === 'string' && !!x && x !== p.ownerId))];
-  const assignees = others([...new Set([...(await c.tasks.distinct('assigneeIds', { projectId: id })), ...(await c.tasks.distinct('assigneeId', { projectId: id }))])]);
+  const others = (ids: unknown[]) => [...new Set(ids.filter((x): x is string => typeof x === 'string' && !!x && !stays.has(x)))];
+  const assignees = others([...(await c.tasks.distinct('assigneeIds', { projectId: id })), ...(await c.tasks.distinct('assigneeId', { projectId: id }))]);
   const commenters = others((await c.activity.distinct('actor.userId', { taskId: { $in: taskIds }, type: 'comment' })) as unknown[]);
   const claude = others(await c.tasks.distinct('claude.markedByUserId', { projectId: id, 'claude.state': { $in: ['queued', 'running'] } }));
   const waiting = others(await c.claudeItems.distinct('waitingOn', { projectId: id }));
@@ -434,29 +538,35 @@ export async function projectSharingImpact(s: Scope, id: string): Promise<{ assi
 }
 
 /**
- * Everything in the project follows it. Made private: its tasks, notes, Claude items, history and trash belong to the
- * project's owner and only they see them. Made shared again: the organization sees them (owners stay).
+ * Everything in the project follows it: its tasks, notes, Claude items, history and trash. Made private: they belong to
+ * the project's owner and only they see them. Shared with chosen people: they carry the list, and anything owned by
+ * someone off the list goes to the project's owner (an owner always sees their own things). Shared with everyone: the
+ * organization sees them (owners stay). Assignees who could not see their task there are removed.
  */
-async function setProjectVisibility(c: Collections, p: ProjectDoc, visibility: Visibility): Promise<void> {
-  const owned = visibility === 'private' ? { ownerId: p.ownerId, visibility } : { visibility };
+async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placement): Promise<void> {
+  const owned = next.visibility === 'private' ? { ownerId: p.ownerId, visibility: next.visibility, sharedWith: [] } : { visibility: next.visibility, sharedWith: next.sharedWith };
+  const offList = next.visibility === 'members' ? { ownerId: { $nin: next.sharedWith } } : null;
+  // Off-list owners first: until the placement lands they are still placed as before (no one gains a way in meanwhile).
+  const move = async (name: 'tasks' | 'activity' | 'notes' | 'claudeItems' | 'trash', filter: Record<string, unknown>) => {
+    const col = c[name] as unknown as Collections['tasks'];
+    if (offList) await col.updateMany({ ...filter, ...offList } as never, { $set: { ownerId: p.ownerId } });
+    await col.updateMany(filter as never, { $set: owned });
+  };
   // Trashed tasks too: their history (the "trashed" line) and notes stay in place while the task is in the trash.
   const taskIds = [...(await c.tasks.distinct('_id', { projectId: p._id })), ...(await c.trash.distinct('_id', { 'task.projectId': p._id }))];
   if (taskIds.length) {
-    await c.tasks.updateMany({ _id: { $in: taskIds } }, { $set: owned });
-    // A private task can be assigned only to its owner (docs/multi-user.md phase 4).
-    if (visibility === 'private') {
-      // Only the owner may stay assigned on a private task: everyone else comes off (old single-assignee tasks too).
-      await c.tasks.updateMany({ _id: { $in: taskIds }, assigneeIds: { $elemMatch: { $ne: p.ownerId } } }, { $pull: { assigneeIds: { $ne: p.ownerId } } });
-      await c.tasks.updateMany({ _id: { $in: taskIds }, assigneeId: { $nin: [null, p.ownerId] } }, { $set: { assigneeIds: [] }, $unset: { assigneeId: '' } });
-    }
-    await c.activity.updateMany({ taskId: { $in: taskIds } }, { $set: owned });
+    // Assignees who could not see their task there come off it (each of them; the others stay).
+    const unassignable = unassignableFilter(next);
+    if (unassignable) await c.tasks.updateMany({ _id: { $in: taskIds }, ...unassignable }, unassignUpdate(next) as never);
+    await move('tasks', { _id: { $in: taskIds } });
+    await move('activity', { taskId: { $in: taskIds } });
     const taskNotes = await c.notes.find({ taskId: { $in: taskIds } }, { projection: { _id: 1 } }).toArray();
-    if (taskNotes.length) await c.notes.updateMany({ _id: { $in: await noteTree(c, taskNotes.map(n => n._id)) } }, { $set: owned });
+    if (taskNotes.length) await move('notes', { _id: { $in: await noteTree(c, taskNotes.map(n => n._id)) } });
   }
   const projNotes = await c.notes.find({ projectId: p._id, taskId: null }, { projection: { _id: 1 } }).toArray();
-  if (projNotes.length) await c.notes.updateMany({ _id: { $in: await noteTree(c, projNotes.map(n => n._id)) } }, { $set: owned });
-  await c.claudeItems.updateMany({ projectId: p._id }, { $set: owned });
-  await c.trash.updateMany({ 'task.projectId': p._id }, { $set: owned });
+  if (projNotes.length) await move('notes', { _id: { $in: await noteTree(c, projNotes.map(n => n._id)) } });
+  await move('claudeItems', { projectId: p._id });
+  await move('trash', { 'task.projectId': p._id });
 }
 
 export type ProjectByCode =

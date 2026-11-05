@@ -188,14 +188,14 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   add_project: {
     title: 'Add project',
-    description: 'Create a project, optionally with code locations (code: [{remote, subdir?, branch?} or {path}]). If one with the same name exists it is returned instead.',
+    description: 'Create a project, optionally with code locations (code: [{remote, subdir?, branch?} or {path}]). Shared with everyone by default; visibility private keeps it to you, visibility members with shared_with (emails) shares it with those people only. If one with the same name exists it is returned instead.',
     writes: true,
     example: 'Create a project for Acme, client is Jane',
   },
   update_project: {
     title: 'Update project',
     description:
-      'Rename a project or change its client, description, status (active, paused, done, archived) or code locations. code: [{remote: "owner/name" or any git URL, subdir?, branch?} or {path}] replaces the list, so include the existing ones you want to keep.',
+      'Rename a project or change its client, description, status (active, paused, done, archived) or code locations. code: [{remote: "owner/name" or any git URL, subdir?, branch?} or {path}] replaces the list, so include the existing ones you want to keep. Its owner can also change who sees it: visibility org (everyone), private, or members with shared_with (the whole list).',
     writes: true,
     example: 'Pause the Swiggy project',
   },

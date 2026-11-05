@@ -11,7 +11,8 @@ import { ConfirmSheet, ResponsiveSheet } from '@/components/responsive-sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { PROJECT_STATUSES, type Project, type ProjectInput } from '@/lib/types';
 import { AddTaskButton } from './add-task-button';
-import { PrivateBadge } from '@/components/private-badge';
+import { PeopleBadge, PrivateBadge } from '@/components/private-badge';
+import { useApp } from '@/components/app-context';
 import { Select } from '@/components/ui/select';
 import { useSynced } from '@/components/use-synced';
 
@@ -30,6 +31,8 @@ export function ProjectTop({ project, tab }: { project: Project; tab: string }) 
   const [archiving, setArchiving] = useState(false);
   const [, start] = useTransition();
   const nameRef = useRef<HTMLInputElement>(null);
+  const { people } = useApp();
+  const shared = (project.sharedWith ?? []).map(u => people[u] ?? 'A former member');
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -92,6 +95,7 @@ export function ProjectTop({ project, tab }: { project: Project; tab: string }) 
       <button type="button" onClick={() => setSheet(true)} data-edit-header aria-label="Edit name, client and status" className="md:hidden block w-full text-left min-w-0 active:opacity-70">
         <span className="block text-2xl font-bold text-foreground truncate">{project.name}</span>
         {project.visibility === 'private' && <PrivateBadge className="mb-1" />}
+        {project.visibility === 'members' && <PeopleBadge className="mb-1" count={shared.length} names={shared} />}
         <span className="block text-[16px] text-muted-foreground truncate">
           {project.client ? `${project.client} · ` : ''}
           <span className="capitalize">{project.status}</span>
@@ -111,6 +115,7 @@ export function ProjectTop({ project, tab }: { project: Project; tab: string }) 
             className="flex-1 min-w-0 bg-transparent text-2xl font-bold outline-none rounded-md px-1 -mx-1 hover:bg-muted/40 focus:bg-muted/40"
           />
           {project.visibility === 'private' && <PrivateBadge />}
+          {project.visibility === 'members' && <PeopleBadge count={shared.length} names={shared} />}
           <Select
             value={status}
             aria-label="Project status"

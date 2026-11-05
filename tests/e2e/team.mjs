@@ -140,11 +140,12 @@ try {
   const lg = await task(A.orgId, legacyRef);
   check('old task: its next change moves it to the list', same(lg?.assigneeIds, [Dee.userId]) && !('assigneeId' in lg), JSON.stringify(lg && [lg.assigneeId, lg.assigneeIds]));
   // the one-off migration (scripts/migrate-assignees.mjs)
-  const oldOnes = [{ ref: 900002, assigneeId: Bu.userId }, { ref: 900003, assigneeId: null }, { ref: 900004, assigneeId: Bu.userId, assigneeIds: [Dee.userId] }];
+  const oldOnes = [{ ref: 900002, assigneeId: Bu.userId }, { ref: 900003, assigneeId: null }, { ref: 900004, assigneeId: Bu.userId, assigneeIds: [Dee.userId] }, { ref: 900006, assigneeId: Bu.userId, place: { visibility: 'members', sharedWith: [A.userId, Dee.userId] } }];
   for (const o of oldOnes) {
     const base = { ...(await task(A.orgId, m3.ref)), _id: randomUUID(), ref: o.ref, title: `Migrate me ${o.ref}`, assigneeId: o.assigneeId };
     delete base.assigneeIds;
     if (o.assigneeIds) base.assigneeIds = o.assigneeIds;
+    if (o.place) Object.assign(base, o.place);
     await rawDb.collection('tasks').insertOne(base);
   }
   await rawDb.collection('trash').insertOne({ _id: 'trash-migrate-e2e', orgId: A.orgId, ownerId: A.userId, visibility: 'org', ref: 900005, deletedAt: new Date(), task: { ...(await task(A.orgId, 900002)), ref: 900005 }, activity: [], purgeOn: '2099-01-01' });
@@ -154,10 +155,11 @@ try {
   check('migration: a dry run counts and changes nothing', /DRY RUN/.test(dry) && (await task(A.orgId, 900002))?.assigneeId === Bu.userId, dry);
   check('migration: prints counts only (no names, ids or titles)', !/Bea|Dee|Migrate me|example\.test/.test(dry) && !dry.includes(Bu.userId), dry);
   const applied = runMig('--apply');
-  const mg = await Promise.all([900002, 900003, 900004].map(r => task(A.orgId, r)));
+  const mg = await Promise.all([900002, 900003, 900004, 900006].map(r => task(A.orgId, r)));
   check('migration: one assignee becomes a list of one', same(mg[0]?.assigneeIds, [Bu.userId]) && !('assigneeId' in mg[0]), applied);
   check('migration: nobody becomes an empty list', same(mg[1]?.assigneeIds, []) && !('assigneeId' in mg[1]));
   check('migration: a list already there is kept and the old one added', same(mg[2]?.assigneeIds, [Dee.userId, Bu.userId]));
+  check('migration: an old assignee off a chosen-people list is dropped, not carried over', same(mg[3]?.assigneeIds, []) && !('assigneeId' in mg[3]) && /1 assignee who could not see the task dropped/.test(applied), applied);
   const tr = await rawDb.collection('trash').findOne({ _id: 'trash-migrate-e2e' });
   check('migration: tasks in the trash too', same(tr?.task?.assigneeIds, [Bu.userId]) && !('assigneeId' in tr.task));
   check('migration: a second run finds nothing to do', /Nothing to do/.test(runMig('--apply')));
@@ -337,6 +339,9 @@ try {
   const rAssigned = (await must(kA, 'add_task', { title: 'Assigned to Rex', project: 'Team Shared', assignee: 'rex@example.test' })).created;
   const rShared = (await must(kA, 'add_task', { title: 'Rex and Bea', project: 'Team Shared', assignees: ['rex@example.test', 'bea@example.test'] })).created;
   const rPriv = (await must(kR, 'add_task', { title: 'Rex private thing' })).created;
+  // a project shared with Rex (and the owner) only, with a task Rex made in it
+  await must(kA, 'add_project', { name: 'Rex Circle', visibility: 'members', shared_with: ['rex@example.test'] });
+  const rCircle = (await must(kR, 'add_task', { title: 'Rex circle task', project: 'Rex Circle' })).created;
   const rPrivBefore = await task(A.orgId, rPriv.ref);
   // an invitation Rex sent (as if he had been an admin) and an alert waiting for him
   const tessInv = await rawDb.collection('invitation').findOne({ email: tess });
@@ -373,6 +378,10 @@ try {
   const aSees = await as(kA, 'get_task', { task: rPriv.ref });
   check('remove: nobody else can reach his private task', aSees.isError, aSees.text.slice(0, 120));
   check('remove: invitations he sent are cancelled', (await rawDb.collection('invitation').findOne({ _id: rexInvId }))?.status === 'canceled');
+  const rcp = await rawDb.collection('projects').findOne({ orgId: A.orgId, name: 'Rex Circle' });
+  const rct = await task(A.orgId, rCircle.ref);
+  check('remove: he is taken off the project lists he was on (an invitation later gives nothing back)', rcp?.visibility === 'members' && !rcp.sharedWith.includes(R.userId) && rcp.sharedWith.includes(A.userId), JSON.stringify(rcp?.sharedWith));
+  check('remove: his task in that project goes to its owner and off his reach', rct?.ownerId === A.userId && rct.visibility === 'members' && !rct.sharedWith.includes(R.userId), JSON.stringify(rct && [rct.ownerId === A.userId, rct.sharedWith]));
   check('remove: alerts waiting for him are dropped', (await rawDb.collection('alertQueue').countDocuments({ userId: R.userId, sentAt: null })) === 0);
   // one queued after the removal (a race) is never sent: a flush skips anyone who is not a member (section 7 flushes)
   await rawDb.collection('alertQueue').insertOne({ _id: `assigned:test:${R.userId}:2`, orgId: A.orgId, userId: R.userId, kind: 'assigned', taskId: (await task(A.orgId, rAssigned.ref))._id, byTaskId: 'none', createdAt: new Date(), sentAt: null, detail: 'test' });

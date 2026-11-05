@@ -1,5 +1,6 @@
 import 'server-only';
 import { orgWide, scoped, forUser } from '../scope';
+import { takeOffLists } from './projects';
 
 // What leaving an organization does to its work data (docs/multi-user.md "As built: phase 4"). lib/members.ts removes
 // the membership, sessions and keys (Better Auth's collections); this is the part in Work OS's own collections, through
@@ -8,7 +9,8 @@ import { orgWide, scoped, forUser } from '../scope';
 
 /**
  * After userId left orgId: their computers there are revoked (pending jobs cancelled), tasks they gave to Claude stop
- * (queued and running claims end as "stopped"), unsent alerts to them are dropped, and shared tasks assigned to them go back to their owners' alerts.
+ * (queued and running claims end as "stopped"), unsent alerts to them are dropped, shared tasks assigned to them go back to their owners' alerts,
+ * and they are taken off every project list they were on (lib/data/projects.ts takeOffLists).
  * Returns counts for the caller's message.
  */
 export async function releaseMember(orgId: string, userId: string): Promise<{ computers: number; claims: number; unassigned: number }> {
@@ -23,6 +25,9 @@ export async function releaseMember(orgId: string, userId: string): Promise<{ co
   await theirs.alertQueue.deleteMany({ sentAt: null });
   // System work over the whole organization: their claims may sit on shared tasks, and assignments are on others' tasks.
   const org = await orgWide(orgId);
+  // Off every project list they were on (its things they owned go to the project's owner), so a new invitation does not
+  // quietly give the access back.
+  await takeOffLists(org, orgId, userId);
   const claims = await org.tasks.updateMany(
     { 'claude.markedByUserId': userId, 'claude.state': { $in: ['queued', 'running'] } },
     { $set: { 'claude.state': 'stopped', 'claude.endedAt': now, 'claude.note': 'the person who gave it left the organization' } },

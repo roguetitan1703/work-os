@@ -168,8 +168,8 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
           <input type="date" value={task.due ?? ''} className={field} onChange={e => patch({ due: e.target.value || null })} />
         </Field>
         <Field label="Assigned to">
-          {task.visibility === 'org' ? (
-            <AssigneePicker value={task.assigneeIds} onSave={ids => patch({ assignees: ids }, ids.length ? `Assigned to ${assigneeLabel(ids, people, me).replace(/^Me(?=,|$)/, 'you')}` : 'Unassigned')}>
+          {task.visibility !== 'private' ? (
+            <AssigneePicker task={task} value={task.assigneeIds} onSave={ids => patch({ assignees: ids }, ids.length ? `Assigned to ${assigneeLabel(ids, people, me).replace(/^Me(?=,|$)/, 'you')}` : 'Unassigned')}>
               {(label, open) => (
                 <button type="button" className={cn(field, 'flex items-center text-left truncate')} data-assignee-picker onClick={open}>
                   {label}

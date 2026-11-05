@@ -1,14 +1,14 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { Filter } from 'mongodb';
-import type { NoteDoc } from '../db';
+import type { NoteDoc, TaskDoc } from '../db';
 import { scoped, usersWithSetting, type Scope, type ScopedCollections as Collections } from '../scope';
 import { asActor, isPerson } from '../actors';
 import { CLOSED_STATUSES, type Actor } from '../types';
 import type { NoteBlock } from '../notes-schema';
 import { blockOutline, blocksToMarkdown, cloneBlocks, findBlock, markdownToBlocks, plainText } from '../notes-convert';
 import { InputError, NotFoundError } from './errors';
-import { placeIn, resolveProject, type Placement } from './projects';
+import { placeIn, placeOf, resolveProject, type Placement } from './projects';
 
 // Notes are Notion-style pages (editor blocks) attached to a task or a project, optionally
 // nested as sub-pages. Blocks are the source of truth; `body` is derived markdown used for
@@ -144,9 +144,9 @@ async function hydrate(c: Collections, docs: ListedNoteDoc[]): Promise<Note[]> {
   });
 }
 
-async function taskIdFor(c: Collections, key: string | number): Promise<{ _id: string; ref: number; title: string; projectId: string | null } & Placement> {
+async function taskIdFor(c: Collections, key: string | number): Promise<{ _id: string; ref: number; title: string; projectId: string | null } & Pick<TaskDoc, 'ownerId' | 'visibility' | 'sharedWith'>> {
   const f = typeof key === 'number' ? { ref: key } : /^#?\d{1,7}$/.test(key.trim()) ? { ref: Number(key.trim().replace('#', '')) } : { _id: key.trim() };
-  const t = await c.tasks.findOne(f, { projection: { ref: 1, title: 1, projectId: 1, ownerId: 1, visibility: 1 } });
+  const t = await c.tasks.findOne(f, { projection: { ref: 1, title: 1, projectId: 1, ownerId: 1, visibility: 1, sharedWith: 1 } });
   if (!t) throw new NotFoundError(`Task ${key} not found`);
   return t;
 }
@@ -389,7 +389,7 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
   } else if (w.task !== undefined) {
     const t = await taskIdFor(c, w.task);
     taskId = t._id;
-    taskPlace = { ownerId: t.ownerId, visibility: t.visibility };
+    taskPlace = placeOf(t);
     cur = await c.notes.findOne({ taskId, ...live });
     if (!cur && !w.title) w.title = t.title;
   } else if (w.parentId) {
@@ -423,7 +423,7 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
   let place: Placement;
   if (parent) {
     projectId = parent.projectId ?? (parent.taskId ? ((await c.tasks.findOne({ _id: parent.taskId }, { projection: { projectId: 1 } }))?.projectId ?? null) : null);
-    place = { ownerId: parent.ownerId, visibility: parent.visibility };
+    place = placeOf(parent);
   } else if (!taskId) {
     const p = await resolveProject(c, s, w.project!, { create: false });
     if (!p) throw new NotFoundError(`Project "${w.project}" not found`);

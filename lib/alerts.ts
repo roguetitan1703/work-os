@@ -64,7 +64,7 @@ function workdaysBetween(from: string, to: string): number {
  */
 export async function queueUnblocked(s: Scope, closed: Pick<TaskDoc, '_id'>): Promise<void> {
   const c = await orgWide(s.orgId);
-  const waiting = await c.tasks.find({ dependsOn: closed._id, status: { $in: OPEN_STATUSES }, archived: false }, { projection: { dependsOn: 1, ownerId: 1, visibility: 1, assigneeIds: 1, assigneeId: 1 } }).toArray();
+  const waiting = await c.tasks.find({ dependsOn: closed._id, status: { $in: OPEN_STATUSES }, archived: false }, { projection: { dependsOn: 1, ownerId: 1, visibility: 1, sharedWith: 1, assigneeIds: 1, assigneeId: 1 } }).toArray();
   for (const t of waiting) {
     const others = t.dependsOn.filter(id => id !== closed._id);
     const stillOpen = others.length ? await c.tasks.countDocuments({ _id: { $in: others }, status: { $in: OPEN_STATUSES } }) : 0;

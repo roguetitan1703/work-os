@@ -238,8 +238,8 @@ export function MobileTaskDetail({
 
       {/* Assigned: the core fields are above; the rest sits under More details. */}
       <div className="mt-5 rounded-2xl border border-border/70 bg-card divide-y divide-border/60">
-        {task.visibility === 'org' ? (
-          <AssigneePicker value={task.assigneeIds} onSave={ids => patch({ assignees: ids }, ids.length ? `Assigned to ${assigneeLabel(ids, people, me).replace(/^Me(?=,|$)/, 'you')}` : 'Unassigned')}>
+        {task.visibility !== 'private' ? (
+          <AssigneePicker task={task} value={task.assigneeIds} onSave={ids => patch({ assignees: ids }, ids.length ? `Assigned to ${assigneeLabel(ids, people, me).replace(/^Me(?=,|$)/, 'you')}` : 'Unassigned')}>
             {(label, open) => (
               <button type="button" onClick={open} data-assignee-picker className="w-full flex items-center gap-3 px-4 h-12 text-left">
                 <span className="text-[16px] text-foreground w-[7.5rem] shrink-0">Assigned</span>

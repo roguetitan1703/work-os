@@ -155,5 +155,7 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Turbo mode: 'scan now' poke so a folder the person clones himself is offered for linking at once (waits on a new push event or a hint field on the jobs poll; today it appears after the next 15-minute scan). Also: nested GitLab group paths are cut to the last two parts, ssh-only hosts clone over https.
 - Open in VS Code: the extension asks once "Allow Claude Code for VS Code to open this URI?" (tick do not ask again); the panel loading the session and a cold start after reboot (25 s wait) are not checked by hand — waits on Om's first use.
 - Leak audit: one run showed 12 notes "not found" mismatches that passed on rerun (builder B, 2026-10-30) — waits on it happening again (then find the race).
-- e2e tenancy: "A settings: the operator sees Usage" failed once in the full run and passed alone (2026-10-30) — waits on it happening again.
+- e2e oauth: "Revoke removes the app" failed once in builder A's full run and passed alone (2026-11-06) — waits on it happening again. (The tenancy Usage flake is fixed: the check now waits for the section.)
+- Sharing with chosen people: a computer folder linked to a project whose owner took someone off the list stays linked on that person's PC (same as Shared → Private today) — waits on Om noticing.
+- Sharing with chosen people: the picker and badges were checked by browser tests only, not by eye on phone and desktop — waits on Om or Akash using it.
 - Turbo: a repo the user clones by hand is offered for Link only after the next 15-min scan (no scan-now push event) — waits on Om or Akash wanting it faster.

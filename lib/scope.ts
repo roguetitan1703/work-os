@@ -3,12 +3,14 @@ import type { Document } from 'mongodb';
 import { afterCommit, collections, type Collections, type SettingsDoc } from './db';
 import { hint, isQuiet, pageUsers, type Topic } from './live';
 import { requestContext } from './request-context';
+import { readable, readableFilter, type Readable } from './visibility';
 
 // The one door to the data (docs/multi-user.md, "One door for data"). Every data function takes the caller's scope
 // ({ userId, orgId }) and reads and writes through scoped(scope), which adds the organization and the visibility rule
 // to every query and stamps them on every insert:
 //
-//   shared   projects, tasks, notes, Claude items, history, trash: orgId, and visibility 'org' or ownerId = the caller
+//   shared   projects, tasks, notes, Claude items, history, trash: orgId, and visibility 'org', or ownerId = the
+//            caller, or visibility 'members' with the caller in sharedWith (readable() below: the one rule)
 //   own      the caller's own: devices, folders, jobs, sessions, weekly reviews, ritual logs (ownerId); inbox,
 //            push devices, alert log and queue (userId, the recipient)
 //   org      counters (one per organization)
@@ -69,17 +71,21 @@ function check(s: Scope): Scope {
   return s;
 }
 
+// The visibility rule itself lives in lib/visibility.ts (readable, readableFilter): the door's filter and canSee below,
+// the push audiences further down, and every check of who may see, be assigned or be waited on use it.
+export { readable, readableFilter };
+
 /** The query part the door adds for one collection. */
 export function scopeFilter(name: ScopedName, m: Mode): Document {
   const rule: Rule = RULES[name];
   if (rule.kind === 'org' || m.userId === null) return { orgId: m.orgId };
   if (rule.kind === 'own') return { orgId: m.orgId, [rule.field]: m.userId };
-  return { orgId: m.orgId, $or: [{ visibility: 'org' }, { ownerId: m.userId }] };
+  return { orgId: m.orgId, ...readableFilter(m.userId) } as Document;
 }
 
 /** Visibility rule for a document held in memory (the same rule as scopeFilter). */
-export function canSee(s: Scope, d: { orgId?: string; ownerId?: string; visibility?: string } | null | undefined): boolean {
-  return !!d && d.orgId === s.orgId && (d.visibility === 'org' || d.ownerId === s.userId);
+export function canSee(s: Scope, d: (Readable & { orgId?: string }) | null | undefined): boolean {
+  return !!d && d.orgId === s.orgId && readable(d, s.userId);
 }
 
 const and = (scope: Document, f: unknown): Document => (f && typeof f === 'object' && Object.keys(f as object).length ? { $and: [scope, f] } : scope);
@@ -98,7 +104,13 @@ function stamp(name: ScopedName, m: Mode, doc: unknown): Document {
   } else if (rule.kind === 'shared') {
     if (d.ownerId === undefined && m.userId !== null) d.ownerId = m.userId;
     if (typeof d.ownerId !== 'string' || !d.ownerId) throw new ScopeError(`${name}: insert needs ownerId`);
-    if (d.visibility !== 'org' && d.visibility !== 'private') throw new ScopeError(`${name}: insert needs visibility`);
+    if (d.visibility !== 'org' && d.visibility !== 'private' && d.visibility !== 'members') throw new ScopeError(`${name}: insert needs visibility`);
+    // A list must name who sees it, and its owner must be on it (else they would see it through ownerId while off the list).
+    if (d.visibility === 'members') {
+      const list = d.sharedWith as unknown;
+      if (!Array.isArray(list) || !list.length || list.some(x => typeof x !== 'string' || !x)) throw new ScopeError(`${name}: insert needs sharedWith`);
+      if (!list.includes(d.ownerId)) throw new ScopeError(`${name}: insert with an owner who is not on its list`);
+    }
   }
   return d;
 }
@@ -199,8 +211,9 @@ function wrap<C extends object>(name: ScopedName, col: C, m: Mode): C {
 
 // ── Push hints (lib/live.ts) ────────────────────────────────────────────────
 // After a write commits, the people who could read what it touched, before or after, get "refresh <topic>". Who that
-// is follows the same rules as the filters above: a shared document placed 'org' is everyone in the organization, a
-// private one its owner; an own document its owner or recipient. Nothing is sent, and nothing extra is read, while
+// is follows the same rules as the filters above: a shared document placed 'org' is everyone in the organization, one
+// placed 'members' its owner and the people on its list, a private one its owner; an own document its owner or
+// recipient. Nothing is sent, and nothing extra is read, while
 // nobody in the organization has a page open; when only the writer has, no read either (they can see everything their
 // write touched). Otherwise one small read before the write finds the placements it touches.
 
@@ -222,13 +235,16 @@ const TOPICS: Partial<Record<ScopedName, Topic>> = {
 const WRITES = new Set(['insertOne', 'insertMany', 'updateOne', 'updateMany', 'findOneAndUpdate', 'replaceOne', 'findOneAndReplace', 'deleteOne', 'deleteMany', 'findOneAndDelete', 'bulkWrite']);
 const EVERYONE = '*';
 
-/** Who can read a document placed like d: EVERYONE in the organization, one person, or unknown (null). */
-function readerOf(name: ScopedName, d: Document | null | undefined): string | null {
-  if (!d) return null;
+/** Who can read a document placed like d: [EVERYONE] in the organization, these people, or unknown ([]). */
+function readersOf(name: ScopedName, d: Document | null | undefined): string[] {
+  if (!d) return [];
   const rule: Rule = RULES[name];
-  if (rule.kind === 'own') return typeof d[rule.field] === 'string' ? (d[rule.field] as string) : null;
-  if (rule.kind === 'shared') return d.visibility === 'org' ? EVERYONE : typeof d.ownerId === 'string' ? (d.ownerId as string) : null;
-  return null;
+  const str = (x: unknown): x is string => typeof x === 'string' && !!x;
+  if (rule.kind === 'own') return str(d[rule.field]) ? [d[rule.field] as string] : [];
+  if (rule.kind !== 'shared') return [];
+  if (d.visibility === 'org') return [EVERYONE];
+  const list = d.visibility === 'members' && Array.isArray(d.sharedWith) ? (d.sharedWith as unknown[]).filter(str) : [];
+  return str(d.ownerId) ? [d.ownerId as string, ...list] : list;
 }
 
 /** The filter of the documents a write touches (before it runs), or undefined for a pure insert. */
@@ -246,7 +262,7 @@ function touched(prop: string, a: unknown[]): Document | undefined {
 function placedAfter(prop: string, a: unknown[]): Document[] {
   const fromUpdate = (u: unknown): Document[] => {
     const set = (u as { $set?: Document } | undefined)?.$set;
-    return set && ('visibility' in set || 'ownerId' in set || 'userId' in set) ? [set] : [];
+    return set && ('visibility' in set || 'sharedWith' in set || 'ownerId' in set || 'userId' in set) ? [set] : [];
   };
   switch (prop) {
     case 'insertOne':
@@ -333,19 +349,24 @@ function pushed(name: ScopedName, m: Mode, target: object, prop: string, base: (
       else {
         // One read: the distinct placements of the documents this write is about to touch (through the door's filter).
         const col = target as { aggregate: (p: Document[]) => { toArray: () => Promise<Document[]> } };
-        const key = rule.kind === 'own' ? `$${rule.field}` : { $cond: [{ $eq: ['$visibility', 'org'] }, EVERYONE, '$ownerId'] };
+        // Shared: EVERYONE, the owner, or (a list) the owner plus the people on it.
+        const key =
+          rule.kind === 'own'
+            ? `$${rule.field}`
+            : { $cond: [{ $eq: ['$visibility', 'org'] }, EVERYONE, { $cond: [{ $eq: ['$visibility', 'members'] }, { $concatArrays: [['$ownerId'], { $ifNull: ['$sharedWith', []] }] }, '$ownerId'] }] };
         // A hint must never fail the write: if this read fails, only the writer is told (never everyone).
         try {
           const rows = await col.aggregate([{ $match: and(scopeFilter(name, m), filter) }, { $group: { _id: key } }, { $limit: 500 }]).toArray();
-          for (const r of rows) if (typeof r._id === 'string') who.add(r._id);
+          for (const r of rows) for (const u of Array.isArray(r._id) ? r._id : [r._id]) if (typeof u === 'string' && u) who.add(u);
         } catch {
           if (m.userId !== null) who.add(m.userId);
         }
       }
     }
     for (const d of placedAfter(prop, a)) {
-      const r = readerOf(name, d) ?? (rule.kind !== 'org' ? m.userId : null);
-      if (r) who.add(r);
+      const rs = readersOf(name, d);
+      if (rs.length) for (const r of rs) who.add(r);
+      else if (rule.kind !== 'org' && m.userId) who.add(m.userId);
     }
     // Worked out before the write: once it has committed, nothing here may throw.
     const alsoClaude = name === 'tasks' && touchesClaudeMark(prop, a);
