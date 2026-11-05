@@ -27,7 +27,7 @@
  },
  "session": {
   "sign-in": { "requests": 6 },
-  "load /today": { "requests": 7 },
+  "load /today": { "requests": 8 },
   "idle on /today": { "requests": 2 },
   "nav Tasks": { "requests": 2 },
   "nav Projects": { "requests": 2 },
