@@ -1,6 +1,7 @@
 // Push (docs/multi-user.md "As built: phase 5 push"): the page stream (/api/stream) and the worker stream
 // (/api/worker/stream). Checks who may connect, that a write reaches exactly the people who can read it (a teammate and
-// the writer for shared work; nobody else for a private task; nobody in another organization), that hints carry no
+// the writer for shared work; nobody else for a private task; for a project shared with chosen people, only the people
+// on its list, and a person taken off or put on hears it; nobody in another organization), that hints carry no
 // titles, that an open Claude page shows a teammate's change without a reload, that a worker gets a job pushed (the
 // real worker/push.mjs client), and that removing a member closes their streams. Ends with the request counts of an
 // idle Claude page for an hour, push off (the old poll) and on (docs/cpu.md). Seed profile: none.
@@ -145,6 +146,35 @@ try {
   const bProj2 = sB.hints('projects').length;
   await as(kA, 'update_project', { project: 'Push Later Private', visibility: 'private' });
   check('shared made private: the teammate who lost it gets "projects"', !!(await until(() => sB.hints('projects').length > bProj2)));
+  // a project shared with chosen people: hints reach the people on its list, never a teammate off it
+  {
+    const Cal = await makeUser({ email: 'cal-push@example.test', name: 'Cal', orgId: ME.orgId, role: 'member' });
+    const kC = await mkKey({ agent: 'claude', userId: Cal.userId, orgId: ME.orgId, name: 'cal chat' });
+    const sC = track(sse('/api/stream', { cookie: await cookieFor('cal-push@example.test') }));
+    await sC.ready;
+    await sC.hello();
+    await as(kA, 'add_project', { name: 'Push Circle', visibility: 'members', shared_with: [bea] });
+    await sleep(800);
+    const c0 = sC.hints().length;
+    const bT = sB.hints('tasks').length;
+    await as(kA, 'add_task', { title: 'Push circle task', project: 'Push Circle' });
+    check('list: someone on it gets "tasks"', !!(await until(() => sB.hints('tasks').length > bT)));
+    await as(kB, 'add_task', { title: 'Push circle task by Bea', project: 'Push Circle' });
+    await as(kA, 'update_claude_items', { ops: [{ op: 'add', project: 'Push Circle', kind: 'bug', title: 'Push circle item for the hint check', why: 'Push check: a teammate off the list of this project must get no hint of it.', done_when: 'Cal got no hint while this item was added.' }] });
+    await sleep(1500);
+    check('list: a teammate off it gets nothing (project, tasks, Claude items)', sC.hints().length === c0, JSON.stringify(sC.hints().slice(c0)));
+    // Cal's own write still reaches only who can read it: her private task tells nobody else
+    const bBefore = sB.hints().length;
+    await as(kC, 'add_task', { title: 'Cal own task' });
+    check('list: Cal hears her own write', !!(await until(() => sC.hints('tasks').length > 0)));
+    await sleep(800);
+    check('list: ...and Bea does not', sB.hints().length === bBefore);
+    // taken off the list: Bea hears it (from where it was before the write); then put on: Cal hears it
+    const bP = sB.hints('projects').length;
+    await as(kA, 'update_project', { project: 'Push Circle', shared_with: ['cal-push@example.test'] });
+    check('list: the person taken off gets "projects"', !!(await until(() => sB.hints('projects').length > bP)));
+    check('list: the person put on gets "projects"', !!(await until(() => sC.hints('projects').length > 0)));
+  }
 
   // ── an open Claude page follows a teammate's change without a reload ──
   await as(kA, 'add_project', { name: 'Push Team' });

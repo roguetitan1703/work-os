@@ -166,10 +166,10 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
           <input type="date" value={task.due ?? ''} className={field} onChange={e => patch({ due: e.target.value || null })} />
         </Field>
         <Field label="Assigned to">
-          {task.visibility === 'org' ? (
+          {task.visibility !== 'private' ? (
             <Select className={field} value={task.assigneeId ?? ''} data-assignee-picker onChange={e => patch({ assignee: e.target.value || null }, e.target.value ? `Assigned to ${e.target.value === me ? 'you' : people[e.target.value] ?? 'them'}` : 'Unassigned')}>
               <option value="">Nobody</option>
-              {assigneeOptions(people, me, task.assigneeId).map(o => (
+              {assigneeOptions(people, me, task.assigneeId, task).map(o => (
                 <option key={o.id} value={o.id}>
                   {o.name}
                 </option>

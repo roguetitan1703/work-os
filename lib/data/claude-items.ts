@@ -8,13 +8,14 @@ import type { Actor, ClaudeItem, ClaudeItemKind, ClaudeItemState } from '../type
 import { CLAUDE_ITEM_KINDS } from '../types';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, resolveProject, type Placement } from './projects';
+import { readable } from '../visibility';
 import { isMember } from '../people';
 
 /** Who an item waits on: a member of the organization who can see it (a private item waits only on its owner). */
-async function waiter(s: Scope, place: Placement, who: string | undefined): Promise<string> {
+async function waiter(s: Scope, place: Pick<Placement, 'ownerId' | 'visibility'> & { sharedWith?: string[] }, who: string | undefined): Promise<string> {
   const id = who ?? s.userId;
   if (!(await isMember(s.orgId, id))) throw new InputError('waiting_on must be a member of this organization');
-  if (place.visibility === 'private' && id !== place.ownerId) throw new InputError('This item is private: it can wait only on its owner');
+  if (!readable(place, id)) throw new InputError(place.visibility === 'private' ? 'This item is private: it can wait only on its owner' : 'This item is in a project shared with chosen people: it can wait only on one of them');
   return id;
 }
 
@@ -61,7 +62,7 @@ function assertNotWaiting(d: ClaudeItemDoc, ctx: ItemCtx): void {
 export const itemRef = (ref: number) => `C${ref}`;
 
 export function toItem(d: ClaudeItemDoc): ClaudeItem {
-  const { _id, keyId: _k, group: _g, orgId: _o, ownerId: _w, visibility: _v, ...rest } = d;
+  const { _id, keyId: _k, group: _g, orgId: _o, ownerId: _w, visibility: _v, sharedWith: _sw, ...rest } = d;
   return {
     ...rest,
     id: _id,

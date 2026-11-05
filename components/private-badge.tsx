@@ -1,4 +1,4 @@
-import { Lock } from 'lucide-react';
+import { Lock, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /** Marks a private project (only its owner sees it). Shared projects get no mark. `compact`: the lock alone, for tight rows. */
@@ -7,6 +7,15 @@ export function PrivateBadge({ compact, className }: { compact?: boolean; classN
   return (
     <span data-private-badge className={cn('inline-flex items-center gap-1 shrink-0 text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground', className)}>
       <Lock className="w-3 h-3" aria-hidden /> Private
+    </span>
+  );
+}
+
+/** Marks a project shared with chosen people (not everyone): how many see it, and who on hover when names are given. */
+export function PeopleBadge({ count, names, className }: { count: number; names?: string[]; className?: string }) {
+  return (
+    <span data-people-badge title={names?.length ? `Shared with ${names.join(', ')}` : undefined} className={cn('inline-flex items-center gap-1 shrink-0 text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground', className)}>
+      <Users className="w-3 h-3" aria-hidden /> {count} {count === 1 ? 'person' : 'people'}
     </span>
   );
 }
