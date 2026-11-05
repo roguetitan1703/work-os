@@ -74,7 +74,7 @@ const settle = p => p.waitForTimeout(700);
   await mh.tap(); await p.locator('[data-mode-help-list]').waitFor();
   check('phone Tasks: What are these? lists the 8 kinds of work with definitions', (await p.locator('[data-mode-help-list] > div').count()) === 8);
   const oh = await overflow(p); check('phone Tasks: no horizontal scroll with the sheet open', okO(oh), JSON.stringify(oh).slice(0, 200));
-  await p.locator('[data-sheet] button[aria-label=Close]').first().tap(); await p.waitForTimeout(300);
+  await p.locator('[data-sheet] [role=dialog] button[aria-label=Close]').first().tap(); await p.waitForTimeout(300);
   // Task page (phone): core fields on top, the rest under More details
   await p.goto(B + '/tasks/1'); await settle(p);
   const mdb = p.locator('[data-more-details]:visible');
