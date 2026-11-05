@@ -1,9 +1,10 @@
 # Work state
 
 ## Now
-- 2026-10-30: Work OS runs at https://work.delpat.in. Master adds turbo mode (Start / Give to Claude clones, links and starts), Open in VS Code and Reopen all after a restart, failure reasons in plain words, recurring tasks findable, Caddy waits through restarts; 33 suites pass (tenancy once flaky, passed on rerun); built and uploaded. Waits on Om: edit /etc/caddy/sites/work-os.caddy (lb_try lines) + reload, `sudo work-os-update`, DELPAT_OS_CLIENT_SECRET, first real turbo Start and Open in VS Code.
+- 2026-11-06: Akash's asks (#165): live refresh and multiple assignees (builder B), share a project with chosen people #173 (builder A, security review before merge), then subtasks with rollup #183. Not building: Google Calendar sync, Antigravity/other AI connections, opening Claude Desktop. Chat backup (design 2 in #168) waits on Om.
 
 ## Next
+- 2026-10-30 build c3b39ed (turbo, Open in VS Code, Reopen all, recurring findable) is built and uploaded. Waits on Om: edit /etc/caddy/sites/work-os.caddy (lb_try lines) + reload, `sudo work-os-update`, DELPAT_OS_CLIENT_SECRET, first real turbo Start and Open in VS Code.
 0d. Chat porting between tools (Antigravity -> Claude): test Antigravity writing a handover note over MCP with Akash; else Import chat into a note (builder S). Add Resume / handover note / /export tips to the colleague guide.
 0. Om: Discord Interactions Endpoint URL = https://work.delpat.in/api/discord/interactions, then Settings › Server › Discord › Register the commands.
 Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
