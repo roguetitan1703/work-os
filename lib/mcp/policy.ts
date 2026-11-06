@@ -306,7 +306,11 @@ export async function notifyChanges(w: Watch | null): Promise<void> {
   if (!w) return;
   const byRecipient = new Map<string, Map<string, Snap>>();
   for (const [id, b] of w.before) {
-    for (const r of tasks.recipientsOf({ ownerId: b.ownerId, visibility: b.visibility, sharedWith: b.sharedWith, assigneeIds: b.assigneeIds })) byRecipient.set(r, (byRecipient.get(r) ?? new Map()).set(id, b));
+    // A restored task is told to whoever gets its alerts now (its placement and assignees as restored), not those of the
+    // trash copy: someone who has lost access since must not hear of it.
+    const at = w.restored.has(id) ? await tasks.getTask(callerScope(w.caller), id).catch(() => null) : b;
+    if (!at) continue;
+    for (const r of tasks.recipientsOf({ ownerId: at.ownerId, visibility: at.visibility, sharedWith: at.sharedWith, assigneeIds: at.assigneeIds })) byRecipient.set(r, (byRecipient.get(r) ?? new Map()).set(id, b));
   }
   for (const [userId, before] of byRecipient) await notifyOne(w, forUser(callerScope(w.caller), userId), before);
 }

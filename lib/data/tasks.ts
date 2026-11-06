@@ -135,17 +135,37 @@ async function resolveAssignees(s: Scope, data: { assignees?: string[] | null; a
   for (const v of raw) {
     const t = (v ?? '').trim();
     if (!t || t.toLowerCase() === 'none') continue;
-    let id: string | null;
-    if (t.toLowerCase() === 'me') id = s.userId;
-    else {
-      const { findMember } = await import('../people');
-      id = await findMember(s.orgId, t);
-    }
-    if (!id) throw new InputError(`assignee: "${t}" is not a member of this organization`);
+    const id = t.toLowerCase() === 'me' ? s.userId : await findAssignee(s.orgId, t);
     if (!out.includes(id)) out.push(id);
   }
   if (out.length > MAX_ASSIGNEES) throw new InputError(`A task can have at most ${MAX_ASSIGNEES} assignees`);
   return out;
+}
+
+/**
+ * One assignee named in an MCP call or the app: a member's user id or email (findMember), else their name: the display
+ * name exactly (any case), else a unique first name. Several matches are refused with their names (use the email).
+ */
+export async function findAssignee(orgId: string, v: string): Promise<string> {
+  const { findMember, forgetMembers, memberNames } = await import('../people');
+  const id = await findMember(orgId, v);
+  if (id) return id;
+  const want = v.trim().toLowerCase().replace(/\s+/g, ' ');
+  const named = (n: string) => n.trim().toLowerCase().replace(/\s+/g, ' ');
+  const match = async () => {
+    const people = Object.entries(await memberNames(orgId));
+    const exact = people.filter(([, n]) => named(n) === want);
+    return exact.length ? exact : want.includes(' ') ? [] : people.filter(([, n]) => named(n).split(' ')[0] === want);
+  };
+  let pool = await match();
+  // No one by that name in the cached list: someone may have joined in the last minute (as findMember does for emails).
+  if (!pool.length) {
+    forgetMembers(orgId);
+    pool = await match();
+  }
+  if (pool.length === 1) return pool[0][0];
+  if (pool.length > 1) throw new InputError(`assignee: "${v.trim()}" matches more than one member (${pool.map(([, n]) => n).join(', ')}); use their email`);
+  throw new InputError(`assignee: "${v.trim()}" is not a member of this organization`);
 }
 
 function assertAssignable(place: Placement, assigneeIds: string[], ref?: number): void {

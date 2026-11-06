@@ -130,6 +130,31 @@ try {
   await cron();
   await sleep(800);
   check('several: someone taken off is not told about it after all', (await assignedN(Dee, m3.ref)) === 0 && (await assignedN(Bu, m3.ref)) === 1);
+  // names work as well as emails and ids: the display name (any case), else a unique first name
+  const Ak1 = await makeUser({ email: 'akash.rao@example.test', name: 'Akash Rao', orgId: A.orgId, role: 'member' });
+  const Ak2 = await makeUser({ email: 'akash.m@example.test', name: 'Akash Mehta', orgId: A.orgId, role: 'member' });
+  const Fay = await makeUser({ email: 'fay@example.test', name: 'Fay Lin', orgId: A.orgId, role: 'member' });
+  const nm = (await must(kA, 'add_task', { title: 'Named people', project: 'Team Shared', assignees: ['bea', 'akash rao', 'Fay'] })).created;
+  check('names: display name (any case) and a unique first name resolve', same((await task(A.orgId, nm.ref))?.assigneeIds, [Bu.userId, Ak1.userId, Fay.userId]));
+  const amb = await as(kA, 'update_task', { task: nm.ref, assignee: 'Akash' });
+  check('names: an ambiguous first name is refused, naming the matches', amb.isError && /more than one member/.test(amb.text) && /Akash Rao/.test(amb.text) && /Akash Mehta/.test(amb.text) && same((await task(A.orgId, nm.ref))?.assigneeIds, [Bu.userId, Ak1.userId, Fay.userId]), amb.text);
+  const nobody = await as(kA, 'update_task', { task: nm.ref, assignee: 'Zed' });
+  check('names: an unknown name is not a member', nobody.isError && /not a member/.test(nobody.text), nobody.text);
+  check('names: list_tasks takes a name too', (await must(kA, 'list_tasks', { assignee: 'akash rao' })).tasks.some(t => t.ref === nm.ref));
+  check('names: someone in another organization is never matched by name', (await as(kA, 'update_task', { task: nm.ref, assignee: 'Cy' })).isError);
+  void Ak2;
+  // a restore told by Claude Code goes to whoever gets the task now, not to someone who lost access meanwhile
+  const kAcode = await mkKey({ agent: 'claude-code', userId: A.userId, orgId: A.orgId, name: 'owner code' });
+  await must(kA, 'add_project', { name: 'Restore Private Later' });
+  const rt = (await must(kA, 'add_task', { title: 'Trash then private', project: 'Restore Private Later', assignees: ['bea@example.test'] })).created;
+  await must(kAcode, 'delete_task', { task: rt.ref, title: 'Trash then private' });
+  await must(kA, 'update_project', { project: 'Restore Private Later', visibility: 'private' });
+  await must(kAcode, 'restore_task', { task: rt.ref });
+  await sleep(800);
+  const told = await rawDb.collection('notifications').countDocuments({ userId: Bu.userId, kind: 'claude_code_changes', body: { $regex: `#${rt.ref} .*restored from trash` } });
+  check('restore notice: not sent to someone who lost access to the task meanwhile', told === 0, String(told));
+  const toldTrash = await rawDb.collection('notifications').countDocuments({ userId: Bu.userId, kind: 'claude_code_changes', body: { $regex: `#${rt.ref} .*moved to trash` } });
+  check('restore notice: (the trashing itself was told to her while she was assigned)', toldTrash === 1, String(toldTrash));
   // a task from before several assignees (the one old field) still works, and moves over at its next change
   const legacyRef = 900001;
   await rawDb.collection('tasks').insertOne({ ...(await task(A.orgId, m3.ref)), _id: randomUUID(), ref: legacyRef, title: 'Old single-assignee task', assigneeId: Dee.userId, assigneeIds: undefined });

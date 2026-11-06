@@ -342,7 +342,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         due_to: z.string().optional().describe('YYYY-MM-DD inclusive'),
         done_since: z.string().optional().describe('YYYY-MM-DD: only tasks completed on/after this date (implies Done)'),
         query: z.string().optional().describe('Text search in title, description and tags'),
-        assignee: z.string().max(200).optional().describe("Only tasks this member is one of the assignees of: 'me', an email or a user id"),
+        assignee: z.string().max(200).optional().describe("Only tasks this member is one of the assignees of: 'me', a name, an email or a user id"),
         archived: z.boolean().optional().describe('true = only archived tasks'),
         sort: z.enum(['priority', 'due', 'updated', 'created', 'done']).optional(),
         limit: z.number().int().min(1).max(200).optional().describe('Default 50'),
@@ -353,9 +353,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       let assignee: string | undefined;
       if (a.assignee) {
         const v = a.assignee.trim();
-        const id = v.toLowerCase() === 'me' ? s.userId : await findMember(s.orgId, v);
-        if (!id) throw new InputError(`assignee: "${v}" is not a member of this organization`);
-        assignee = id;
+        assignee = v.toLowerCase() === 'me' ? s.userId : await tasks.findAssignee(s.orgId, v);
       }
       const all = await tasks.listTasks(s, {
         assignee,
