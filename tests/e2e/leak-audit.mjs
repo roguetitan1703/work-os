@@ -308,7 +308,10 @@ function diff(persona, before, after, allowed = () => false) {
 function norm(text, real, fake) {
   let t = String(text);
   for (const [r, f] of [[real, fake]].flat().length ? zipVals(real, fake) : []) {
-    for (const v of [r, f]) if (v !== undefined && v !== null && !/^\d+$/.test(String(v)) && String(v).length >= 2) t = t.split(String(v)).join('<ID>');
+    // A pair of numbers (task refs) is left to the number rule below; an id that happens to be all digits (a short note
+    // id, about 4% of runs) beside a made-up one with a letter is still an id.
+    const numbers = [r, f].every(v => /^\d+$/.test(String(v)));
+    for (const v of [r, f]) if (v !== undefined && v !== null && !numbers && String(v).length >= 2) t = t.split(String(v)).join('<ID>');
   }
   return t
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<uuid>')
