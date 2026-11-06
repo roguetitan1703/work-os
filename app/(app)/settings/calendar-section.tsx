@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { CalendarDays, Check, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { createCalendarLinkAction, revokeCalendarLinkAction, rotateCalendarLinkAction } from './calendar-actions';
+import { createCalendarLinkAction, getCalendarLinkAction, revokeCalendarLinkAction, rotateCalendarLinkAction } from './calendar-actions';
 import { Row } from './device-settings';
 
 const btn = 'inline-flex items-center justify-center gap-1.5 h-11 md:h-9 px-4 rounded-lg text-sm font-medium whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:opacity-50';
@@ -13,7 +13,7 @@ const loud = cn(btn, 'bg-foreground text-background hover:bg-foreground/90');
 
 /**
  * Settings › Connections › Calendar (docs/calendar.md): a private link that Google Calendar, Outlook or Apple Calendar
- * subscribe to. The link is shown once (only a hash is kept): right after Create or Rotate, with Copy.
+ * subscribe to. The link is read back from the server for its owner (kept sealed there), so Copy works any time.
  */
 export function CalendarSection({ initialOn }: { initialOn: boolean }) {
   const [on, setOn] = useState(initialOn);
@@ -21,6 +21,16 @@ export function CalendarSection({ initialOn }: { initialOn: boolean }) {
   const [copied, setCopied] = useState(false);
   const [confirmOff, setConfirmOff] = useState(false);
   const [pending, start] = useTransition();
+
+  // An active link is read back from the server (sealed there, only for its owner), so Copy works any time, on any device.
+  useEffect(() => {
+    if (!initialOn) return;
+    let live = true;
+    getCalendarLinkAction().then(r => live && r.ok && r.url && setUrl(r.url));
+    return () => {
+      live = false;
+    };
+  }, [initialOn]);
 
   const run = (fn: () => ReturnType<typeof createCalendarLinkAction>, done: string) =>
     start(async () => {
@@ -59,9 +69,12 @@ export function CalendarSection({ initialOn }: { initialOn: boolean }) {
           ) : undefined
         }
       />
+      {on && !url && (
+        <p className="px-4 pt-3 text-[13px] text-muted-foreground" data-calendar-nolink>Loading your link. If it does not appear, press Rotate for a new one.</p>
+      )}
       {on && url && (
         <div className="px-4 py-3 space-y-2" data-calendar-fresh>
-          <p className="text-[13px] text-muted-foreground">Copy this link now: it cannot be shown again (Rotate makes a new one). Anyone with it can see your task titles, so keep it private.</p>
+          <p className="text-[13px] text-muted-foreground">Anyone with this link can see your task titles, so keep it private. Rotate makes a new one and stops this one.</p>
           <div className="flex flex-col sm:flex-row gap-2">
             <input readOnly value={url} data-calendar-url aria-label="Calendar link" onFocus={e => e.currentTarget.select()} className="min-w-0 flex-1 h-11 md:h-9 rounded-lg border border-border bg-background px-3 text-[13px] font-mono" />
             <button type="button" data-calendar-copy onClick={copy} className={quiet}>

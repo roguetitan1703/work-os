@@ -3,15 +3,17 @@ import { createHash, randomBytes } from 'node:crypto';
 import { clientIp } from './auth';
 import { getDb } from './db';
 import { roleOf } from './caller';
+import { seal, unseal } from './delpat-os';
 
 // The private calendar link (docs/calendar.md): one token per person per organization, stored hashed (like API keys),
-// shown once. The feed route finds the person by the token alone; everything it then reads goes through the door.
+// kept sealed so its owner can copy it again. The feed route finds the person by the token alone; everything it then reads goes through the door.
 
-type FeedDoc = { _id: string; orgId: string; userId: string; hash: string; createdAt: Date; rotatedAt: Date | null };
+type FeedDoc = { _id: string; orgId: string; userId: string; hash: string; /** The token sealed (AES-256-GCM, lib/delpat-os.ts seal: key from DELPAT_OS_TOKEN_KEY or derived from BETTER_AUTH_SECRET), so the owner can copy it again. */ sealed?: string; createdAt: Date; rotatedAt: Date | null };
 type Who = { userId: string; orgId: string };
 
 const coll = async () => (await getDb()).collection<FeedDoc>('calendarFeeds'); // scope-ok: the person's own link row, keyed by orgId:userId (calendar feed token)
 const hashOf = (token: string) => createHash('sha256').update(token).digest('hex');
+const aad = (s: Who) => `calendar:${s.orgId}:${s.userId}`;
 const idOf = (s: Who) => `${s.orgId}:${s.userId}`;
 
 /** 32 random bytes as base64url: always 43 characters of [A-Za-z0-9_-]. */
@@ -32,10 +34,16 @@ export async function setFeed(s: Who): Promise<string> {
   const had = await c.findOne({ _id: idOf(s) }, { projection: { _id: 1 } });
   await c.updateOne(
     { _id: idOf(s) },
-    { $set: { orgId: s.orgId, userId: s.userId, hash: hashOf(token), rotatedAt: had ? now : null }, $setOnInsert: { createdAt: now } },
+    { $set: { orgId: s.orgId, userId: s.userId, hash: hashOf(token), sealed: seal(token, aad(s)), rotatedAt: had ? now : null }, $setOnInsert: { createdAt: now } },
     { upsert: true },
   );
   return token;
+}
+
+/** The person's own token again (for Copy), or null when they have no link (or it predates sealing: rotate it). */
+export async function readFeedToken(s: Who): Promise<string | null> {
+  const d = await (await coll()).findOne({ _id: idOf(s) }, { projection: { sealed: 1 } });
+  return d?.sealed ? unseal(d.sealed, aad(s)) : null;
 }
 
 /** Turns the link off. Returns whether there was one. */

@@ -14,7 +14,7 @@ never reads or writes the calendar.
 ## Token handling
 
 - 32 random bytes (43 characters, base64url). Only its SHA-256 is stored (`calendarFeeds`, `_id` = `orgId:userId`,
-  unique index on `hash`), like API keys. The link is shown once, when it is created or rotated; it cannot be shown again.
+  unique index on `hash`), like API keys, used for lookup. The token is also kept **sealed**: AES-256-GCM through the repo's existing `seal`/`unseal` (lib/delpat-os.ts), key derived by HKDF from `DELPAT_OS_TOKEN_KEY` or else `BETTER_AUTH_SECRET`, bound to `calendar:<org>:<user>`. Settings reads it back through `getCalendarLinkAction`, which reads only the caller's own row, so Copy works any time (second device, second calendar app) and nobody else can read it. A database dump alone does not reveal links. Rotate and Turn off are unchanged (rotate replaces both hash and sealed value).
 - Rotate: a new token replaces the hash in one write, so the old link stops at once. Turn off: the row is deleted.
 - Leaving or being removed from the organization deletes the row (`releaseAccess`, lib/members.ts). The feed also
   re-checks membership on every request, so a missed delete still answers 404.

@@ -89,7 +89,12 @@ try {
   await p.click('[data-calendar-copy]');
   check('ui: Copy puts the link on the clipboard', (await p.evaluate(() => navigator.clipboard.readText())) === url1);
   const row1 = await rawDb.collection('calendarFeeds').find({ userId: A.userId }).toArray();
-  check('storage: one row for the person, hash only (the token is nowhere in it)', row1.length === 1 && row1[0].orgId === A.orgId && !JSON.stringify(row1[0]).includes(tok1) && /^[0-9a-f]{64}$/.test(row1[0].hash), JSON.stringify(row1));
+  check('storage: one row, SHA-256 hash and a sealed copy; the token itself is nowhere in it', row1.length === 1 && row1[0].orgId === A.orgId && !JSON.stringify(row1[0]).includes(tok1) && /^[0-9a-f]{64}$/.test(row1[0].hash) && /^v1\./.test(row1[0].sealed ?? ''), JSON.stringify(row1));
+  await p.reload();
+  await p.waitForSelector('[data-calendar-url]', { timeout: 15000 });
+  check('reload: Copy is still there and gives the same working link', (await p.inputValue('[data-calendar-url]')) === url1 && (await fetchFeed(tok1)).status === 200);
+  await p.click('[data-calendar-copy]');
+  check('reload: Copy puts the same link on the clipboard', (await p.evaluate(() => navigator.clipboard.readText())) === url1);
 
   // ---- the feed ----
   const r1 = await fetchFeed(tok1);
@@ -142,6 +147,9 @@ try {
   await pb.click('[data-calendar-create]');
   await pb.waitForSelector('[data-calendar-url]', { timeout: 15000 });
   const tokB = ((await pb.inputValue('[data-calendar-url]')).match(/([A-Za-z0-9_-]{43})\.ics$/) ?? [])[1];
+  await pb.reload();
+  await pb.waitForSelector('[data-calendar-url]', { timeout: 15000 });
+  check('another member: after a reload she reads back only her own link, never the owner link', (await pb.inputValue('[data-calendar-url]')).includes(tokB) && !(await pb.content()).includes(tok2));
   const evB = parse(await (await fetchFeed(tokB)).text()).events.map(e => e.SUMMARY);
   check('Bea: her feed has her own private task and what she owns', evB.some(s => s.includes('Bea PRIVATE mine')) && evB.some(s => s.includes('Bea PRIVATE assigned to me')) && evB.some(s => s.includes('Org task of Bea')), evB.join(' | '));
   check('Bea: her feed never has the owner\'s private or other lists\' tasks', !evB.some(s => s.includes('Own due only') || s.includes('not on it')), evB.join(' | '));
