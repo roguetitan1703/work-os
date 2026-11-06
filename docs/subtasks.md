@@ -52,8 +52,11 @@ change, but subtasks inherit visibility, so the leak-audit and tenancy suites ge
   the average again.
 - **Where it lives:** `placeUnder` = `placeIn(parent's project, owner)`; with no project the subtask is private to the
   parent's owner. A subtask asked to change project is refused; moving the parent runs `moveSubtasks` (each gets a
-  "Moved with #N" history line; an assignee who can't see it there is dropped). The move rules (owner-only out of a
-  shared project) are checked on the parent only: its owner moves the whole group.
+  "Moved with #N" history line; an assignee who can't see it there is dropped). The move rules apply to every subtask
+  that would be placed differently, with that subtask's owner (`assertSubtasksMovable`): someone else's subtask can't be
+  carried out of a project shared with everyone or with chosen people (unless the caller owns that project), a
+  private one can't be moved, and a subtask never changes owner because its parent moved; any refusal stops the whole
+  move. The rollup counts every subtask of the parent, whoever's change it is.
 - **Trash:** the parent's subtasks go with it (`withParent` on their trash entries, hidden from the trash list, purged
   with it); restoring a subtask alone while its parent is in the trash is refused with "restore #N". A subtask trashed
   on its own goes back under its parent if the parent is still there, else on its own.

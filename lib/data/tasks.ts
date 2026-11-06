@@ -357,9 +357,12 @@ async function parentProject(c: Collections, s: Scope, parent: TaskDoc, wanted: 
 /** Recomputes a parent's subtask count and (while it is open) its progress from its subtasks. */
 async function rollUp(c: Collections, parentId: string | null | undefined): Promise<void> {
   if (!parentId) return;
-  const parent = await c.tasks.findOne({ _id: parentId }, { projection: { status: 1, progress: 1, subtaskCount: 1 } });
+  const parent = await c.tasks.findOne({ _id: parentId }, { projection: { orgId: 1, status: 1, progress: 1, subtaskCount: 1 } });
   if (!parent) return;
-  const kids = await c.tasks.find({ parentId }, { projection: { status: 1, progress: 1 } }).toArray();
+  // Every subtask counts, whoever's change this is: the caller sees the parent (found above), and only its count and
+  // progress are written, so nothing of a subtask they can't see reaches them but its share of the number.
+  const org = await orgWide(parent.orgId);
+  const kids = await org.tasks.find({ parentId }, { projection: { status: 1, progress: 1 } }).toArray();
   if (!kids.length) {
     if (parent.subtaskCount) await c.tasks.updateOne({ _id: parentId }, { $unset: { subtaskCount: '' } });
     return;
@@ -377,6 +380,25 @@ export async function listSubtasks(s: Scope, taskId: string, opts: { open?: bool
   const c = await scoped(s);
   const docs = await c.tasks.find({ parentId: taskId, ...(opts.open ? { status: { $in: OPEN_STATUSES } } : {}) }).sort({ ref: 1 }).toArray();
   return docs.map(toTask).sort((a, b) => Number(!isOpen(a.status)) - Number(!isOpen(b.status)) || a.ref - b.ref);
+}
+
+/**
+ * Before a parent moves: each subtask that would be placed differently must be one the caller may move on its own (the
+ * same rules as a task's own move, with the subtask's owner), and it never changes owner because its parent moved. Any
+ * refusal stops the whole move. Read org-wide so a subtask the caller can't see also holds the move.
+ */
+async function assertSubtasksMovable(s: Scope, parent: TaskDoc, project: ProjectDoc | null, parentPlace: Placement, oldProjectOwner: string | undefined): Promise<void> {
+  const org = await orgWide(parent.orgId);
+  const kids = await org.tasks.find({ parentId: parent._id }).toArray();
+  for (const k of kids) {
+    const place = placeUnder(project, parentPlace, k.ownerId);
+    if (samePlace(place, placeOf(k)) || k.ownerId === s.userId) continue;
+    const whose = `#${k.ref} under #${parent.ref} is ${(await peopleNames(s, [k.ownerId])) ?? 'someone else'}'s`;
+    if (k.visibility === 'private') throw new InputError(`${whose}: only they can move it. Nothing was moved.`);
+    if (place.ownerId !== k.ownerId) throw new InputError(`${whose}, and it would no longer be theirs there. Take it out from under #${parent.ref} first, or ask them. Nothing was moved.`);
+    if (k.visibility === 'org' && place.visibility !== 'org') throw new InputError(`${whose}: only they can take it out of a project shared with everyone. Nothing was moved.`);
+    if (k.visibility === 'members' && s.userId !== oldProjectOwner) throw new InputError(`${whose}: only they or the project's owner can move it out of a project shared with chosen people. Nothing was moved.`);
+  }
 }
 
 /** Moves a parent's subtasks to where the parent now is (its project and placement); a moved assignee who can't see it there is dropped. */
@@ -591,6 +613,8 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
       }
       moveTo = place;
     }
+    // A parent's subtasks go with it: each must be one the caller may move too.
+    if (!parentNow && ((p?._id ?? null) !== cur.projectId || moveTo)) await assertSubtasksMovable(s, cur, p, moveTo ?? placeOf(cur), old?.ownerId);
   }
 
   // Assignees: people who can see the task where it ends up. A move drops those who could not.

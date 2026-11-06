@@ -130,6 +130,23 @@ try {
   const nk = nx ? await T.find({ parentId: nx._id }).sort({ ref: 1 }).toArray() : [];
   check('recurring: the next one has the subtasks as new open ones', nk.length === 2 && nk.map(k => k.title).join() === 'Changelog,Deploy' && nk.every(k => k.status === 'Not Started') && nx.subtaskCount?.total === 2, JSON.stringify(nk.map(k => [k.title, k.status])));
 
+  // ---- a teammate's parent can't carry my subtask out of a chosen-people project (security review) ----
+  await must(kA, 'add_project', { name: 'Circle Two', visibility: 'members', shared_with: ['bea@example.test'] });
+  await must(kB, 'add_project', { name: 'Bea Open' });
+  await must(kB, 'add_project', { name: 'Bea Den', visibility: 'private' });
+  const mine = (await must(kA, 'add_task', { title: 'Om circle task', project: 'Circle Two', assignee: 'me' })).created.ref;
+  const beaP = (await must(kB, 'add_task', { title: 'Bea circle parent', project: 'Circle Two' })).created.ref;
+  await must(kB, 'update_task', { task: mine, parent: beaP });
+  check('attach: a teammate on the list can put my task under theirs (it stays where it is)', (await doc(mine)).parentRef === beaP && (await doc(mine)).visibility === 'members');
+  for (const [label, project] of [['to a project shared with everyone', 'Bea Open'], ['to their private project', 'Bea Den'], ['to no project', null]]) {
+    const r = await as(kB, 'update_task', { task: beaP, project });
+    const m = await doc(mine);
+    check(`move ${label}: refused, my subtask stays mine and in place`, r.isError && new RegExp(`#${mine} under #${beaP} is`).test(r.text) && m.ownerId === ME.userId && m.visibility === 'members' && m.assigneeIds?.includes(ME.userId) && (await doc(beaP)).projectId === m.projectId, r.text.slice(0, 200));
+  }
+  await must(kA, 'update_task', { task: mine, parent: null });
+  const freed = await as(kB, 'update_task', { task: beaP, project: 'Bea Open' });
+  check('once my task is out from under it, the teammate moves their own parent', !freed.isError, freed.text.slice(0, 160));
+
   // ---- the app ----
   browser = await launch();
   // desktop 1280: task page section, board chip and line, the close question
