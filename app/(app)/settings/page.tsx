@@ -20,6 +20,7 @@ import { ChecklistCard } from '../today/checklist-card';
 import { QuietHours, ServerAlerts } from './alerts-section';
 import { baseUrl } from './base-url';
 import { Connections } from './connections';
+import { AiTools } from './ai-tools';
 import { AlertsTable, InstallCard, PushCard, Row, ThemeChoice } from './device-settings';
 import { DiscordLinkPanel } from './discord-link-panel';
 import { DiscordSection } from './discord-section';
@@ -75,6 +76,7 @@ export default async function SettingsPage({ searchParams }: Props) {
     account: () => <AccountPanel caller={caller} />,
     notifications: () => <NotificationsPanel caller={caller} />,
     connections: () => <Connections caller={caller} />,
+    'ai-tools': () => <AiTools />,
     started: () => <StartedPanel caller={caller} />,
     team: () => <TeamPanel caller={caller} open={sp.open} />,
     server: () => <ServerPanel caller={caller} range={sp.range} />,
@@ -218,6 +220,7 @@ async function PhoneRows({ caller, sections, operator, level }: { caller: Caller
     account: 'Theme, password, sign out',
     notifications: devices > 0 ? 'Alerts on your phone: on' : 'Alerts on your phone: off',
     connections: claude?.done ? 'Claude: connected' : 'Claude: not connected',
+    'ai-tools': 'Claude Code, Cursor, Antigravity, ChatGPT',
     started: list ? `${list.done} of ${list.total} done` : '',
     team: members ? `${members.members.length} ${members.members.length === 1 ? 'person' : 'people'}` : '',
     server: operator ? (level === 'ok' ? 'Running fine' : 'Needs a look') : 'Discord channels',
