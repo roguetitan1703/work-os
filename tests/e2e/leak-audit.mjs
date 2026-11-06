@@ -873,6 +873,9 @@ function AUDIT() {
   const D_ = 'app/(app)/claude/dispatcher-actions.ts#';
   add(`action ${D_}markOptionsAction`, act(D_ + 'markOptionsAction', t => [t.task], aim(['task'])));
   add(`action ${D_}giveToClaudeAction`, act(D_ + 'giveToClaudeAction', t => [String(t.give), t.folder], aim(['give', 'folder'])));
+  // Open in Claude Code / Claude Desktop: a job on the caller's own computer only; someone else's task or folder must not resolve.
+  add(`action ${D_}openTaskInClaudeCodeAction`, act(D_ + 'openTaskInClaudeCodeAction', t => [t.task, t.folder], aim(['task', 'folder'], { controlOk: r => actOk(r) || /allowPrompts|linked|folder|archived task/i.test(r.text) })));
+  add(`action ${D_}openTaskInClaudeDesktopAction`, act(D_ + 'openTaskInClaudeDesktopAction', t => [t.task, t.folder], aim(['task', 'folder'], { controlOk: r => actOk(r) || /allowPrompts|linked|folder|archived task/i.test(r.text) })));
   add(`action ${D_}takeBackFromClaudeAction`, act(D_ + 'takeBackFromClaudeAction', t => [t.task, true], aim(['task'], { controlOk: r => actOk(r) || /not given|isn.t|not with/i.test(r.text) })));
   add(`action ${D_}dispatcherSettingsAction`, act(D_ + 'dispatcherSettingsAction', t => [{ boilerplateNoteId: t.boiler }], aim(['boiler'], { label: 'their note as my boilerplate' })));
   add(`action ${D_}dispatcherSetupAction`, act(D_ + 'dispatcherSetupAction', []));

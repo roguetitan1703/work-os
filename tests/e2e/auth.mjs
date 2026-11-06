@@ -596,6 +596,13 @@ try {
         apis++;
         continue;
       }
+      if (u.startsWith('/api/calendar/')) {
+        // The calendar feed: no session by design; the token in the path is the key, a wrong one is a bare 404 with no cookie.
+        const r = await fetch(B + u, { redirect: 'manual' });
+        check(`api GET ${u}: bad token -> 404, no cookie`, r.status === 404 && !r.headers.get('set-cookie'), r.status);
+        apis++;
+        continue;
+      }
       if (u === '/worker/work-os-worker.mjs' || u === '/worker/latest.json') {
         // The worker download: public by design (the install command fetches it before any key exists); its source only.
         const r = await fetch(B + u, { redirect: 'manual' });

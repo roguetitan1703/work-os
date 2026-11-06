@@ -1,10 +1,10 @@
 # Work state
 
 ## Now
-- 2026-11-06: Akash's asks (#165) are merged on master, each security-reviewed: share a project with chosen people (#173), live refresh on every page, several assignees per task, subtasks with rolled-up progress and MCP guidance (#183). Not built (Om's call): Google Calendar sync, Antigravity/other AI connections, opening Claude Desktop. Waits on Om: chat backup (design 2 in #168, sends chat text off the PC), and a deploy (below).
+- 2026-11-06: Akash's asks (#165): all merged on master, each security-reviewed: sharing with chosen people (#173), live refresh, several assignees, subtasks (#183), and now a personal calendar link (one-way ICS), Open in Claude Code / Claude Desktop on a task, and Settings › AI tools. The earlier "not building" list was the orchestrator's misreading. Goal: Akash and Om use them daily, so next is getting it live and trying each one on the real build. Waits on Om: chat backup (design 2 in #168).
 
 ## Next
-- Deploy master (waits on Om): build with scripts/build-artifact.sh, upload to manual-builds, `sudo work-os-update`, then on the box `node scripts/migrate-assignees.mjs` (dry run) and `--apply`. After that, remove the old `assigneeId` read paths.
+- Deploy master: built and uploaded to manual-builds by Claude; Om runs `sudo work-os-update`, then the assignee migration (one command, given in chat). Then try each #165 feature on work.delpat.in as Akash would, and remove the old `assigneeId` read paths.
 - 2026-10-30 build c3b39ed (turbo, Open in VS Code, Reopen all, recurring findable) is built and uploaded. Waits on Om: edit /etc/caddy/sites/work-os.caddy (lb_try lines) + reload, `sudo work-os-update`, DELPAT_OS_CLIENT_SECRET, first real turbo Start and Open in VS Code.
 0d. Chat porting between tools (Antigravity -> Claude): test Antigravity writing a handover note over MCP with Akash; else Import chat into a note (builder S). Add Resume / handover note / /export tips to the colleague guide.
 0. Om: Discord Interactions Endpoint URL = https://work.delpat.in/api/discord/interactions, then Settings › Server › Discord › Register the commands.
@@ -18,6 +18,9 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- Open in Claude Desktop: the documented claude://code/new link was handed to Windows in tests, but nobody has looked at what Desktop shows (prefilled prompt, folder confirm) — waits on Om or Akash clicking it once.
+- Open in Claude Code: proven to start in each project's folder (Claude made the folder's project dir), but the interactive session's transcript cwd wasn't checked — waits on first real use.
+- AI tools: Cursor, Antigravity and ChatGPT snippets are from their docs, untested (marked so on screen) — waits on someone with those tools.
 - e2e settings: "alert toggle persisted" failed once in the full run (2026-11-06) and passed 3/3 alone; its toggle() waits for any POST to /settings, so another request may satisfy it before the save lands — waits on it happening again (then wait for the action's own response).
 - Subtasks: "Close the open subtasks too?" is asked only by the tick and Complete / Mark done; the status menu, board drag and day plan leave them open (as MCP) — waits on Om noticing.
 - Subtasks: Claude Code batch limits don't count subtasks created or trashed along with their parent — waits on it mattering.
