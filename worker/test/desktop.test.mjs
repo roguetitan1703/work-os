@@ -82,7 +82,20 @@ test('desktop job: linked folder gets the link; unlinked, unknown, no prompt and
   try { assert.match((await n.core.handleJob({ id: 'j5', kind: 'desktop', folderId: 'f_a', prompt: PROMPT })).error, /not available/); } finally { fs.rmSync(n.dir, { recursive: true, force: true }); }
   const off = mk({ config: { allowPrompts: false } });
   try {
-    await off.core.handleJob({ id: 'j6', kind: 'desktop', folderId: 'f_a', prompt: PROMPT });
-    assert.deepEqual(off.calls, [{ folder: off.dir, prompt: undefined }]);
+    assert.equal(off.calls.length, 0);
+    assert.match((await off.core.handleJob({ id: 'j6', kind: 'desktop', folderId: 'f_a', prompt: PROMPT })).error, /allowPrompts/);
   } finally { fs.rmSync(off.dir, { recursive: true, force: true }); }
+});
+
+test('desktop job: the same job id again opens nothing more; at most 4 opens a minute', async () => {
+  const m = mk();
+  try {
+    assert.equal((await m.core.handleJob({ id: 'a', kind: 'desktop', folderId: 'f_a', prompt: PROMPT })).ok, true);
+    assert.equal((await m.core.handleJob({ id: 'a', kind: 'desktop', folderId: 'f_a', prompt: PROMPT })).ok, true);
+    assert.equal(m.calls.length, 1);
+    for (const i of ['b', 'c', 'd']) assert.equal((await m.core.handleJob({ id: i, kind: 'desktop', folderId: 'f_a', prompt: PROMPT })).ok, true);
+    const over = await m.core.handleJob({ id: 'e', kind: 'desktop', folderId: 'f_a', prompt: PROMPT });
+    assert.equal(over.ok, false); assert.match(over.error, /Too many/);
+    assert.equal(m.calls.length, 4);
+  } finally { fs.rmSync(m.dir, { recursive: true, force: true }); }
 });
