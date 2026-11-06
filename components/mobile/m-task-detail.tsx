@@ -6,7 +6,7 @@ import Link from '@/components/intent-link';
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Archive, ArrowLeft, Bot, Check, ChevronRight, ExternalLink, FileText, MoreHorizontal, Plus, Send, Trash2, TrendingUp, X } from 'lucide-react';
+import { Archive, ArrowLeft, Bot, Check, ChevronRight, ExternalLink, FileText, MoreHorizontal, Plus, Send, SquareTerminal, Trash2, TrendingUp, X } from 'lucide-react';
 import { addCommentAction, checklistAction, completeTaskAction, deleteTaskAction, restoreTaskAction, setArchivedAction, updateTaskAction } from '@/app/actions';
 import { createNoteAction } from '@/app/(app)/notes/actions';
 import { addDays } from '@/lib/dates';
@@ -17,7 +17,7 @@ import { ActivityTimeline } from '../activity-timeline';
 import { ProgressDialog } from '../progress-dialog';
 import { useApp, useModes } from '../app-context';
 import { BottomSheet } from './sheet';
-import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, claudeMenuLabel } from '../give-to-claude';
+import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, OpenInClaudeCodeSheet, claudeMenuLabel } from '../give-to-claude';
 import { AssigneePicker, assigneeLabel } from '@/components/assignee-picker';
 import { useSynced } from '@/components/use-synced';
 import { PartOf, SubtasksSection, useCloseSubtasks } from '../subtasks';
@@ -63,6 +63,7 @@ export function MobileTaskDetail({
   const [newItem, setNewItem] = useState('');
   const [menu, setMenu] = useState(false);
   const [claudeOpen, setClaudeOpen] = useState(false);
+  const [ccOpen, setCcOpen] = useState<'terminal' | 'desktop' | null>(null);
   const [progressOpen, setProgressOpen] = useState(false);
   const [sheet, setSheet] = useState<null | 'estimate' | 'tags' | 'blocked' | 'link' | 'dep' | 'delete'>(null);
   const [delReason, setDelReason] = useState('');
@@ -126,6 +127,16 @@ export function MobileTaskDetail({
                 <Bot className="w-4 h-4" /> {claudeMenuLabel(task)}
               </MenuItem>
             )}
+            {!task.archived && (
+              <>
+                <MenuItem onClick={() => (setMenu(false), setCcOpen('terminal'))}>
+                  <SquareTerminal className="w-4 h-4" /> Open in Claude Code
+                </MenuItem>
+                <MenuItem onClick={() => (setMenu(false), setCcOpen('desktop'))}>
+                  <Bot className="w-4 h-4" /> Open in Claude Desktop
+                </MenuItem>
+              </>
+            )}
             <MenuItem onClick={() => (setMenu(false), run(() => setArchivedAction(task.id, !task.archived), task.archived ? 'Unarchived' : 'Archived'))}>
               <Archive className="w-4 h-4" /> {task.archived ? 'Unarchive' : 'Archive'}
             </MenuItem>
@@ -157,6 +168,7 @@ export function MobileTaskDetail({
       <ClaudeOutcome task={task} className="mt-1" />
       <PartOf task={task} className="mt-1 text-sm text-muted-foreground max-w-full" />
       {claudeOpen && <ClaudeMarkSheet task={task} onClose={() => setClaudeOpen(false)} />}
+      {ccOpen && <OpenInClaudeCodeSheet task={task} mode={ccOpen} onClose={() => setCcOpen(null)} />}
 
       {/* Status */}
       {!closed && (

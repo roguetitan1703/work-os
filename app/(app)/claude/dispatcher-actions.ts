@@ -5,7 +5,7 @@ import { z, ZodError } from 'zod';
 import { SafeError } from '@/lib/auth';
 import { requireCaller, withCaller, type Caller } from '@/lib/caller';
 import { InputError, NotFoundError } from '@/lib/data/errors';
-import { autoEnableDispatcher, getDispatcherSettings, giveToClaude, listNotePicks, markOptions, setDispatcherSettings, takeBackFromClaude, type DispatcherSettings, type MarkOptions, type NotePick } from '@/lib/data/dispatcher';
+import { autoEnableDispatcher, getDispatcherSettings, giveToClaude, openTaskInClaudeCode, openTaskInClaudeDesktop, listNotePicks, markOptions, setDispatcherSettings, takeBackFromClaude, type DispatcherSettings, type MarkOptions, type NotePick } from '@/lib/data/dispatcher';
 
 // Task dispatcher actions (docs/dispatcher.md). These are the ONLY way to mark or unmark a task for
 // Claude: they require a signed-in person (lib/caller.ts), and nothing reachable from MCP, Discord or apply_changes calls them.
@@ -37,6 +37,16 @@ export async function giveToClaudeAction(taskKey: string, folderKey?: string): P
     await giveToClaude(c, Key.parse(taskKey), folderKey === undefined ? undefined : z.string().min(1).max(120).parse(folderKey));
     return null;
   });
+}
+
+/** "Open in Claude Code" on a task: a terminal on the person's PC with Claude Code in the project's folder. Returns the job id (jobOutcomeAction says how it went). */
+export async function openTaskInClaudeCodeAction(taskKey: string, folderKey?: string): Promise<R<string>> {
+  return run(async c => (await openTaskInClaudeCode(c, Key.parse(taskKey), folderKey === undefined ? undefined : z.string().min(1).max(120).parse(folderKey))).jobId, false);
+}
+
+/** "Open in Claude Desktop" on a task: Claude Desktop's Code tab with the task prompt filled in, in the project's folder. Returns the job id. */
+export async function openTaskInClaudeDesktopAction(taskKey: string, folderKey?: string): Promise<R<string>> {
+  return run(async c => (await openTaskInClaudeDesktop(c, Key.parse(taskKey), folderKey === undefined ? undefined : z.string().min(1).max(120).parse(folderKey))).jobId, false);
 }
 
 export async function takeBackFromClaudeAction(taskKey: string, stop?: boolean): Promise<R<null>> {

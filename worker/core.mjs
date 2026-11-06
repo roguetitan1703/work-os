@@ -154,6 +154,15 @@ export function createCore(deps) {
         await deps.openVscode({ folder: l.dir, sessionId: job.sessionId });
         return { id, ok: true };
       }
+      if (job.kind === 'desktop') {
+        // Open Claude Desktop's Code tab on a linked folder with the first message filled in (worker/desktop.mjs). The same
+        // linked-folder check as a start; the person confirms the folder in Claude Desktop and presses Enter.
+        const dl = links.find((l) => l.folderId === job.folderId);
+        if (!dl || !dl.projectId) return { id, ok: false, error: 'folder not linked to a project' };
+        if (!deps.openDesktop) return { id, ok: false, error: 'Opening Claude Desktop is not available on this computer' };
+        await deps.openDesktop({ folder: v.dir, prompt: getConfig().allowPrompts !== false ? job.prompt : undefined });
+        return { id, ok: true };
+      }
       if (job.kind === 'stop') {
         const s = state.sessions[job.sessionId];
         if (!s) return { id, ok: false, error: 'unknown session' };
