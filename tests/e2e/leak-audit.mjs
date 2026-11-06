@@ -997,6 +997,10 @@ function AUDIT() {
   add('route POST /api/discord/interactions', { kind: 'route', ok: r => two(r.status), call: () => req('POST', '/api/discord/interactions', { body: '{"type":1}', headers: { 'x-signature-ed25519': '00'.repeat(64), 'x-signature-timestamp': String(Math.floor(Date.now() / 1000)) } }), label: 'unsigned', control: false });
   add('route GET /worker/work-os-worker.mjs', route('GET', '/worker/work-os-worker.mjs', { public: true }));
   add('route GET /worker/latest.json', route('GET', '/worker/latest.json', { public: true }));
+  // The calendar link (docs/calendar.md): the token is the only credential; anything but a live token is the same bare 404, for everyone.
+  add('route GET /api/calendar/[file]', { kind: 'route', public: true, ok: r => r.status === 404, call: () => req('GET', '/api/calendar/' + 'lkq'.repeat(14) + 'a.ics'), label: 'a token that is not a link', controlOk: r => r.status === 404 });
+  const CAL = 'app/(app)/settings/calendar-actions.ts#';
+  for (const n of ['createCalendarLinkAction', 'rotateCalendarLinkAction', 'revokeCalendarLinkAction']) add(`action ${CAL}${n}`, act(CAL + n, [])); // each acts on the caller's own link only
   add('route GET /api/delpat-os/callback', route('GET', '/api/delpat-os/callback?code=lkqcode&state=lkqstate', { ok: r => r.status === 404, controlOk: r => r.status === 404 }));
   add('route GET /api/live', route('GET', '/api/live', { public: true }));
   add('route HEAD /api/live', route('HEAD', '/api/live', { public: true }));

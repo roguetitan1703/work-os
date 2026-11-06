@@ -166,3 +166,4 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Sharing with chosen people: a computer folder linked to a project whose owner took someone off the list stays linked on that person's PC (same as Shared → Private today) — waits on Om noticing.
 - Sharing with chosen people: the picker and badges were checked by browser tests only, not by eye on phone and desktop — waits on Om or Akash using it.
 - Turbo: a repo the user clones by hand is offered for Link only after the next 15-min scan (no scan-now push event) — waits on Om or Akash wanting it faster.
+- Calendar: two-way Google Calendar sync per person (Sign in with Google, write events) is a separate later ask — waits on a Google Cloud OAuth client from Om. The one-way ICS link (docs/calendar.md) is built; not yet tried in a real Google/Outlook/Apple calendar, and Google refreshes subscribed calendars only every ~12-24 h — waits on Om/Akash adding it.

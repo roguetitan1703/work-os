@@ -48,6 +48,7 @@ team|team.mjs|none|plain
 oauth|oauth.mjs|none|plain
 oauth-limits|oauth-limits.mjs|none|plain
 sharing|sharing.mjs|none|plain
+calendar|calendar.mjs|none|plain
 push|push.mjs|none|plain
 live|live.mjs|none|plain
 budgets|budgets.mjs|none|plain
