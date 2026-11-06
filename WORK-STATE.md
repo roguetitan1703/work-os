@@ -1,9 +1,10 @@
 # Work state
 
 ## Now
-- 2026-11-06: Akash's asks (#165): live refresh and multiple assignees (builder B), share a project with chosen people #173 (builder A, security review before merge), then subtasks with rollup #183. Not building: Google Calendar sync, Antigravity/other AI connections, opening Claude Desktop. Chat backup (design 2 in #168) waits on Om.
+- 2026-11-06: Akash's asks (#165) are merged on master, each security-reviewed: share a project with chosen people (#173), live refresh on every page, several assignees per task, subtasks with rolled-up progress and MCP guidance (#183). Not built (Om's call): Google Calendar sync, Antigravity/other AI connections, opening Claude Desktop. Waits on Om: chat backup (design 2 in #168, sends chat text off the PC), and a deploy (below).
 
 ## Next
+- Deploy master (waits on Om): build with scripts/build-artifact.sh, upload to manual-builds, `sudo work-os-update`, then on the box `node scripts/migrate-assignees.mjs` (dry run) and `--apply`. After that, remove the old `assigneeId` read paths.
 - 2026-10-30 build c3b39ed (turbo, Open in VS Code, Reopen all, recurring findable) is built and uploaded. Waits on Om: edit /etc/caddy/sites/work-os.caddy (lb_try lines) + reload, `sudo work-os-update`, DELPAT_OS_CLIENT_SECRET, first real turbo Start and Open in VS Code.
 0d. Chat porting between tools (Antigravity -> Claude): test Antigravity writing a handover note over MCP with Akash; else Import chat into a note (builder S). Add Resume / handover note / /export tips to the colleague guide.
 0. Om: Discord Interactions Endpoint URL = https://work.delpat.in/api/discord/interactions, then Settings › Server › Discord › Register the commands.
@@ -17,6 +18,13 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- Subtasks: "Close the open subtasks too?" is asked only by the tick and Complete / Mark done; the status menu, board drag and day plan leave them open (as MCP) — waits on Om noticing.
+- Subtasks: Claude Code batch limits don't count subtasks created or trashed along with their parent — waits on it mattering.
+- Subtasks: the page of a subtask trashed with its parent shows "not found" — waits on Om noticing.
+- Subtasks: when a parent's move is refused for a subtask the caller can't see (old data only), the message names that subtask's ref and owner — waits on it mattering.
+- Subtasks: the rollup fix for an old no-project shared parent with private subtasks has no test (hard to set up) — waits on it mattering.
+- Live refresh: checked by browser tests only, not on a real phone; the load simulator models only the Claude page's refreshes — waits on Om or Akash using it.
+- Assignees: list_tasks/MCP accept names; an ambiguous first name is refused with the matches — waits on real use.
 - OAuth: never tried against the real claude.ai or the real Claude Code (the suite is a scripted client following Claude's documented flow: 401 + resource_metadata, dynamic registration, S256, loopback redirects); check the first real connection and the consent screen on the box, and that claude.ai accepts the metadata (resource = APP_URL/api/mcp exactly) — waits on the deploy.
 - OAuth: claude.ai registers a new client on every connection, so Settings › Signed-in apps grows by one entry each time Om re-adds the connector (unused clients with no approval are deleted after 48 h; approved ones stay until revoked) — waits on it annoying (then group by name and redirect, or drop apps unused for 90 days).
 - OAuth: expired access and refresh tokens, used authorization codes and the `oauthConsent` rows of deleted clients are never swept (small rows) — waits on volume (a prune beside the alerts cron).
@@ -59,7 +67,6 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Phase 5: HANDOVER still describes Vercel (live URL, "pushing to master deploys", cron-job.org, Vercel env), and so do Settings › Alerts (setup guide: "add CRON_SECRET in Vercel", cron-job.org) and the status row hint — waits on the move; then point them at the server timer and docs/hosting.md.
 - Phase 5: the alerts cron's 03:00 UTC prune runs only if a run lands in 03:00–03:15 UTC; the timer runs at :00, so it does, but a missed run skips that day's prune — waits on it mattering.
 - Push: the hub (lib/live.ts) is in memory in one process; a second app instance would not hear the first one's writes — waits on running more than one instance (then Redis pub/sub or MongoDB change streams).
-- Push: only the Claude page listens. Today, Tasks, Projects, a task page, Notifications and the layout badges still show changes on the next tap or refresh (one line each: `subscribe` from components/live.ts, as AutoRefresh does) — waits on Om wanting live pages.
 - Push: the preloader still warms Today, Tasks and Projects every 5 min while a tab is in use (36 requests an hour, now all of an in-use Claude page's cost); it could warm only after a hint — waits on docs/cpu.md work.
 - Push: writes outside the door send no hint unless they call hint()/wake() (settings such as the dispatcher switch in another tab, members and roles, computers added or revoked, Discord links) — waits on someone noticing a page not following.
 - Push: a computer going online or offline does not hint the Claude page (shown at its next refresh) — waits on Om noticing.
@@ -81,7 +88,7 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Phase 4: a removed member's computers are revoked, so a Claude session already running on their PC is not stopped by Work OS (no stop job reaches a revoked computer); its key is dead, so it can no longer read or write Work OS — waits on it mattering.
 - Phase 4: `INVITE_LINK_TO_INVITER=0` (links by email only) has no e2e test (the suites share one server started without it); its code path is small — waits on Om choosing it.
 - Phase 4: two owners demoting each other at the same moment is handled (the demotion is checked after the write and undone if it left no owner) but not e2e-tested — waits on it mattering.
-- Phase 4: task rows (lists, board, Today) don't show who is assigned; only the task page, Assigned to me and MCP do. Quick add, Discord /task and import have no assignee syntax — waits on Om wanting them.
+- Phase 4: quick add, Discord /task and import have no assignee syntax (rows show assignee initials since 2026-11-06) — waits on Om wanting them.
 - Phase 4: daily_summary does not split out what is assigned to you (list_tasks assignee:"me" does) — waits on Om's morning brief needing it.
 - Operator by email: an admin who invites an address in OPERATOR_EMAILS that has no account yet makes that invitee an operator (invites set emailVerified) — create operator accounts before inviting anyone (deploy step above).
 - Take back on a legacy running Claude task (no marker) lets anyone mark it stopped; the session keeps running — goes away after the migration (no legacy marks) .
