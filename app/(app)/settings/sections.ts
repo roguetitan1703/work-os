@@ -9,7 +9,7 @@ export type SectionDef = { id: SectionId; label: string; group: GroupId; /** Wha
 export const SECTIONS: SectionDef[] = [
   { id: 'account', label: 'Account', group: 'You', keywords: 'theme dark light appearance password passkey authenticator security sign out email test', about: 'Theme, password, passkeys, sign out' },
   { id: 'notifications', label: 'Notifications', group: 'You', keywords: 'alerts phone push install app discord link quiet hours timezone send test devices', about: 'Alerts on your phone, quiet hours, Discord' },
-  { id: 'connections', label: 'Connections', group: 'You', keywords: 'claude discord computers pc connect status', about: 'Claude, Discord and your computers' },
+  { id: 'connections', label: 'Connections', group: 'You', keywords: 'claude discord computers pc connect status calendar ics subscribe google outlook apple', about: 'Claude, Discord and your computers' },
   { id: 'started', label: 'Get started', group: 'You', keywords: 'checklist first steps setup welcome hide', about: 'The first steps, ticked as you go' },
   { id: 'team', label: 'Team', group: 'Team', keywords: 'members invite roles owner admin people kinds of work modes', about: 'People, roles and invitations' },
   { id: 'server', label: 'Server', group: 'Server', keywords: 'health status usage requests discord server blocked channels sensitive scheduled checks push email', about: 'Health, usage and Discord on the server' },
