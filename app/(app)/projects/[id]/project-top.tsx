@@ -14,6 +14,7 @@ import { AddTaskButton } from './add-task-button';
 import { PeopleBadge, PrivateBadge } from '@/components/private-badge';
 import { useApp } from '@/components/app-context';
 import { Select } from '@/components/ui/select';
+import { useSynced } from '@/components/use-synced';
 
 const field =
   'w-full min-w-0 h-11 md:h-9 rounded-xl md:rounded-md border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
@@ -22,9 +23,9 @@ const field =
 export function ProjectTop({ project, tab }: { project: Project; tab: string }) {
   const router = useRouter();
   const phone = usePhone();
-  const [name, setName] = useState(project.name);
-  const [client, setClient] = useState(project.client);
-  const [status, setStatus] = useState(project.status);
+  const [name, setName] = useSynced(project.name);
+  const [client, setClient] = useSynced(project.client);
+  const [status, setStatus] = useSynced(project.status);
   const [sheet, setSheet] = useState(false);
   const [menu, setMenu] = useState(false);
   const [archiving, setArchiving] = useState(false);

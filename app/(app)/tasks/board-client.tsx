@@ -19,6 +19,7 @@ import { NavIcon, PLACE_ICON } from '@/components/nav-icons';
 import { AddTaskButton } from '@/app/(app)/projects/[id]/add-task-button';
 import { Select } from '@/components/ui/select';
 import { ParentLine, SubtaskChip } from '@/components/subtasks';
+import { AssigneeDots } from '@/components/assignee-picker';
 
 const COLUMNS: { status: Status; label: string; tone: string }[] = [
   { status: 'Not Started', label: 'To do', tone: 'bg-muted-foreground/40' },
@@ -202,6 +203,7 @@ function Card({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
         {task.due && <span className={overdue ? 'text-red-600 dark:text-red-400 font-medium' : ''}>{fmtDue(task.due, today)}</span>}
         {task.recurrence && <Repeat className="w-3 h-3 shrink-0" aria-label="Recurring" />}
         <ClaudeBadge task={task} />
+        <AssigneeDots ids={task.assigneeIds} />
         {task.checklist.length > 0 && (
           <span className="inline-flex items-center gap-0.5">
             <ListChecks className="w-3 h-3" />

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Actor, TextAuthor } from './actors';
+import { MAX_ASSIGNEES } from './assignees';
 
 /** A mode of work: one of the organization's list (lib/org-modes.ts checks it on every write). */
 export const ModeSchema = z.string().trim().max(40);
@@ -91,8 +92,8 @@ export type Task = {
   visibility: Visibility;
   /** Who sees it when visibility is 'members' (the project's list). */
   sharedWith?: string[];
-  /** A member who does it and gets its alerts (shared tasks only; a private task can be assigned only to its owner). */
-  assigneeId: string | null;
+  /** Members who do it and get its alerts; each must be able to see the task (lib/assignees.ts canBeAssigned). */
+  assigneeIds: string[];
   /** The task this one is a subtask of (docs/subtasks.md; one level only), with its number and title for the rows. */
   parentId: string | null;
   parentRef?: number;
@@ -296,7 +297,9 @@ export const TaskInputSchema = z.object({
   blockedReason: z.string().max(2000).optional(),
   dependsOn: z.array(z.union([z.string(), z.number()])).max(50).optional(),
   recurrence: RecurrenceSchema.nullable().optional(),
-  /** Who does it: a member's user id or email, or 'me'; null clears. Shared tasks only (docs/multi-user.md phase 4). */
+  /** Who does it: members' user ids or emails, or 'me'; the whole list (null or [] clears). Shared tasks only (docs/multi-user.md phase 4). */
+  assignees: z.array(z.string().trim().min(1).max(200)).max(MAX_ASSIGNEES).nullable().optional(),
+  /** One assignee: the same as assignees with one name (kept for older callers); null clears. */
   assignee: z.string().trim().min(1).max(200).nullable().optional(),
   /** The task this one is a subtask of (a ref, "#12" or an id); null detaches. One level only (docs/subtasks.md). */
   parent: z.union([z.number().int(), z.string().trim().min(1).max(100)]).nullable().optional(),

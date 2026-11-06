@@ -63,7 +63,11 @@ How:
   clock, with push down and with push up.
 
 A change still costs one page fetch for each open Claude page that can see it, and the job a worker is woken for
-costs one poll. The time from Stop on the page to the job reaching the worker was about 0.3 to 0.4 s in the suite.
+costs one poll. Since Work OS #165 every page listens (components/live-refresh.tsx, HANDOVER §12 "Live pages"):
+an open Today, Tasks, Projects, project or task page costs one page fetch per burst of changes it shows (hints
+within ~0.4 s and refreshes within 2 s are one), none while hidden or while the person types, and no poll when the
+stream is down; every page holds a stream, so "load /today" is 8 requests (was 7). The load sim (tests/load) still
+scripts only the Claude page's listener, so its team-minute numbers leave out these refreshes. The time from Stop on the page to the job reaching the worker was about 0.3 to 0.4 s in the suite.
 
 The preloader still warms Today, Tasks and Projects every 5 minutes while a tab is in use (36 an hour). It now makes
 up all of an in-use Claude page's requests. It could warm only after a hint instead (WORK-STATE Later).

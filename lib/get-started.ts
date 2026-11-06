@@ -11,6 +11,7 @@ import { orgGuildId } from './discord/client';
 import { isOperator } from './operator';
 import { getUserSetting, scoped, setUserSetting } from './scope';
 import type { Caller } from './caller';
+import { assignedTo } from './assignees';
 
 // What the first-run checklist and Claude › Set up read, in one place: is Claude connected, has a computer checked in,
 // is the switch on. Everything is read for the caller only (their keys, their apps, their computers, their settings).
@@ -80,7 +81,7 @@ export async function getChecklist(c: Caller, opts: { hasOpenTask?: boolean; ski
   const col = await scoped(c);
   const [hidden, hasTask, devicesN, profile, guild, setup, members, hasProject, run] = await Promise.all([
     isHidden(c).catch(() => false),
-    opts.hasOpenTask ? Promise.resolve(true) : col.tasks.findOne({ $or: [{ ownerId: c.userId }, { assigneeId: c.userId }] }, { projection: { _id: 1 } }).then(Boolean).catch(() => false),
+    opts.hasOpenTask ? Promise.resolve(true) : col.tasks.findOne({ $or: [{ ownerId: c.userId }, ...assignedTo(c.userId).$or] }, { projection: { _id: 1 } }).then(Boolean).catch(() => false),
     pushDeviceCount(c).catch(() => 0),
     getProfile(c).catch(() => null),
     orgGuildId(c.orgId).catch(() => null),

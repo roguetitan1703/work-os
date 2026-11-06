@@ -45,14 +45,59 @@ export async function write<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+// A pushed refresh waits while the person is busy on the page: typing in a field, an open dialog or sheet, or a
+// component that marks an unsaved edit with data-unsaved. It checks again on leaving the field and every second (no
+// request), so the page catches up as soon as they are done.
+const BUSY_CHECK_MS = 1_000;
+function busy(): boolean {
+  const a = document.activeElement as HTMLElement | null;
+  if (a && (a.isContentEditable || a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|reset|range|color|file)$/.test((a as HTMLInputElement).type)))) return true;
+  return !!document.querySelector('[data-unsaved], [role="dialog"], [role="alertdialog"], [data-sheet]');
+}
+
+// Every server action of this tab counts as a write, also the ones not run through write() (task rows, the task page,
+// Today): the router sends them as a POST with a next-action header through window.fetch, so watching that is
+// enough. While one is in flight and for 2 s after, the person's own hints (marked s) are not one more refresh (the
+// action's response already carries the new page), and its new page is re-rendered until it shows (see write()).
+// Their own change from elsewhere (Claude over MCP, another tab) still refreshes.
+let actWired = false;
+function wireActions() {
+  if (actWired || typeof window === 'undefined') return;
+  actWired = true;
+  const base = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const h = init?.headers;
+    const action = !!h && (h instanceof Headers ? h.has('next-action') : !Array.isArray(h) && 'next-action' in h);
+    if (!action) return base(input, init);
+    writes++;
+    return base(input, init).then(
+      r => {
+        writes--;
+        quietUntil = Date.now() + 2_000;
+        if (r.ok) {
+          landing = { stamp: shown, until: Date.now() + LAND_MS };
+          poke?.();
+        }
+        return r;
+      },
+      e => {
+        writes--;
+        quietUntil = Date.now() + 2_000;
+        throw e;
+      },
+    );
+  };
+}
+
 /**
  * Re-reads the server data when the server pushes a change to one of `topics` (components/live.ts), and, while the
- * push stream is down, when the tab regains focus and every ~30 s while it is visible and in use.
+ * push stream is down, when the tab regains focus and every ~30 s while it is visible and in use (poll: false
+ * turns that off; the stream's catch-up hint after a gap covers it).
  * stamp: changes with every server render of the page (tells when a write's new page is on screen).
  */
 // 'claude' covers Claude items, computers, sessions and tasks given to Claude (lib/scope.ts sends it for a task write
 // that touches the mark); other task edits do not refresh this page.
-export function AutoRefresh({ every = 30_000, stamp, topics = ['claude'] }: { every?: number; stamp: number; topics?: string[] }) {
+export function AutoRefresh({ every = 30_000, stamp, topics = ['claude'], poll = true }: { every?: number; stamp: number; topics?: string[]; poll?: boolean }) {
   const router = useRouter();
   const [pokes, bump] = useReducer((n: number) => n + 1, 0);
   const topicKey = topics.join(',');
@@ -84,8 +129,8 @@ export function AutoRefresh({ every = 30_000, stamp, topics = ['claude'] }: { ev
     const go = (pushed = false) => {
       if (document.visibilityState !== 'visible') return;
       const wait = Math.max(last + 2_000, quietUntil) - Date.now();
-      if (writes > 0 || wait > 0) {
-        if (pushed && !later) later = setTimeout(() => ((later = undefined), go(true)), Math.max(wait, POKE_MS));
+      if (writes > 0 || wait > 0 || (pushed && busy())) {
+        if (pushed && !later) later = setTimeout(() => ((later = undefined), go(true)), Math.max(wait, writes > 0 || wait > 0 ? POKE_MS : BUSY_CHECK_MS));
         return;
       }
       last = Date.now();
@@ -103,12 +148,15 @@ export function AutoRefresh({ every = 30_000, stamp, topics = ['claude'] }: { ev
       if (h.s && (writes > 0 || Date.now() < quietUntil)) return;
       if (!later) later = setTimeout(() => ((later = undefined), go(true)), HINT_DELAY_MS);
     };
+    wireActions();
     const unsubscribe = subscribe(onHint);
     const tick = () => { if (!isUp() && idleFor() < IDLE_MS) go(); };
     const onFocus = () => { if (!isUp()) go(); };
-    const t = setInterval(tick, every);
-    document.addEventListener('visibilitychange', onFocus);
-    window.addEventListener('focus', onFocus);
+    const t = poll ? setInterval(tick, every) : undefined;
+    if (poll) {
+      document.addEventListener('visibilitychange', onFocus);
+      window.addEventListener('focus', onFocus);
+    }
     return () => {
       unsubscribe();
       clearTimeout(later);
@@ -116,6 +164,6 @@ export function AutoRefresh({ every = 30_000, stamp, topics = ['claude'] }: { ev
       document.removeEventListener('visibilitychange', onFocus);
       window.removeEventListener('focus', onFocus);
     };
-  }, [router, every, topicKey]);
+  }, [router, every, topicKey, poll]);
   return null;
 }

@@ -10,6 +10,7 @@ import { SharingChoice, SHARING_HELP, type Sharing } from '../sharing-choice';
 import { PROJECT_STATUSES, type Project, type ProjectInput } from '@/lib/types';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { useSynced } from '@/components/use-synced';
 
 const field =
   'w-full min-w-0 h-11 md:h-9 rounded-xl md:rounded-md border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
@@ -17,10 +18,10 @@ const field =
 /** Info tab: the details form (name, client, status, Description). */
 export function ProjectDetails({ project, isOwner }: { project: Project; isOwner: boolean }) {
   const router = useRouter();
-  const [name, setName] = useState(project.name);
-  const [client, setClient] = useState(project.client);
-  const [description, setDescription] = useState(project.description);
-  const [status, setStatus] = useState(project.status);
+  const [name, setName] = useSynced(project.name);
+  const [client, setClient] = useSynced(project.client);
+  const [description, setDescription] = useSynced(project.description);
+  const [status, setStatus] = useSynced(project.status);
   const [, start] = useTransition();
   const { people, account } = useApp();
   // A change that cuts people off waits for a confirm: what it is, and who loses what.

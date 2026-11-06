@@ -104,7 +104,7 @@ export function SubtasksSection({ task, subtasks, phone }: { task: Task; subtask
   const rows = subtasks.map(k => {
     const done = k.status === 'Done';
     const closed = done || k.status === 'Dropped';
-    const who = k.assigneeId ? (k.assigneeId === me ? 'You' : (people[k.assigneeId] ?? '')) : '';
+    const who = k.assigneeIds.map(id => (id === me ? 'You' : (people[id] ?? ''))).filter(Boolean).join(', ');
     const tick = () => run(() => updateTaskAction(k.id, { status: done ? 'Not Started' : 'Done' }), done ? `#${k.ref} reopened` : `#${k.ref} done`);
     const detach = () => run(() => updateTaskAction(k.id, { parent: null }), `#${k.ref} is now a task on its own`);
     return phone ? (

@@ -31,8 +31,8 @@ import {
 } from '../types';
 import { addDays, addMonths, resolveDate, todayStr, weekday, weekStart } from '../dates';
 import { placeIn, placeNotes, placeOf, placeTasks, resolveProject, samePlace, toProject, type Placement } from './projects';
-import { canBeAssigned } from '../assignees';
 import { InputError, NotFoundError } from './errors';
+import { MAX_ASSIGNEES, assignedTo, assigneesOf, canBeAssigned, unassigned } from '../assignees';
 import { canonicalMode } from '../org-modes';
 import { queueUnblocked } from '../alerts';
 import { onTaskChanged, takeBackOnEdit } from './dispatcher';
@@ -79,7 +79,7 @@ export function toTask(d: TaskDoc): Task {
     ownerId: d.ownerId,
     visibility: d.visibility,
     ...(d.visibility === 'members' ? { sharedWith: placeOf(d).sharedWith } : {}),
-    assigneeId: d.assigneeId ?? null,
+    assigneeIds: assigneesOf(d),
   };
 }
 
@@ -105,52 +105,88 @@ export function isOverdue(t: Pick<Task, 'due' | 'status'>, today: string = today
 }
 
 /**
- * Who gets a task's alerts and notices (docs/multi-user.md "Inbox, push, alerts"): its assignee when set and they can
- * see the task (canBeAssigned), else its owner.
+ * Who gets a task's alerts and notices (docs/multi-user.md "Inbox, push, alerts"): its assignees who can see the task
+ * (canBeAssigned), else its owner.
  */
-export function recipientOf(t: Pick<TaskDoc, 'ownerId' | 'visibility' | 'sharedWith' | 'assigneeId'>): string {
-  return t.assigneeId && canBeAssigned(t, t.assigneeId) ? t.assigneeId : t.ownerId;
+export function recipientsOf(t: Pick<TaskDoc, 'ownerId' | 'visibility' | 'sharedWith' | 'assigneeIds' | 'assigneeId'>): string[] {
+  const a = assigneesOf(t).filter(u => canBeAssigned(t, u));
+  return a.length ? a : [t.ownerId];
 }
 
-/** The query form of recipientOf: tasks whose alerts go to this person. */
+/** The query form of recipientsOf: tasks whose alerts go to this person. */
 export function recipientFilter(userId: string): Filter<TaskDoc> {
-  // An assignee who could not see the task (never left so by the writes, but kept safe) leaves its alerts to the owner.
-  const cannotSee = [{ visibility: 'private' }, { visibility: 'members', $expr: { $not: [{ $in: ['$assigneeId', { $ifNull: ['$sharedWith', []] }] }] } }];
-  return { $or: [{ assigneeId: userId, ...readableFilter(userId) }, { ownerId: userId, $or: [{ assigneeId: null }, { assigneeId: { $exists: false } }, ...cannotSee] }] } as Filter<TaskDoc>;
+  // An assignee who could not see the task (never left so by the writes, but kept safe) leaves its alerts to the owner
+  // when none of its assignees can.
+  const list = { $cond: [{ $isArray: '$assigneeIds' }, '$assigneeIds', { $cond: [{ $eq: [{ $type: '$assigneeId' }, 'string'] }, ['$assigneeId'], []] }] };
+  const cannotSee = [{ visibility: 'private' }, { visibility: 'members', $expr: { $eq: [{ $size: { $setIntersection: [list, { $ifNull: ['$sharedWith', []] }] } }, 0] } }];
+  return { $or: [{ $and: [assignedTo(userId), readableFilter(userId)] }, { ownerId: userId, $or: [unassigned(), ...cannotSee] }] } as Filter<TaskDoc>;
 }
 
-// ── Assignee (docs/multi-user.md phase 4) ──────────────────────────────────
-// An assignee must be able to see the task (canBeAssigned in lib/assignees.ts, the one rule): any member on a task
+// ── Assignees (docs/multi-user.md phase 4) ─────────────────────────────────
+// Every assignee must be able to see the task (canBeAssigned in lib/assignees.ts, the one rule): any member on a task
 // shared with everyone, the people on the list of a project shared with chosen people, only the owner on a private
-// task. Anyone else is refused, and a task moved to where its assignee cannot see it loses them.
+// task. A task can have several. Anyone else is refused, and a task moved to where an assignee cannot see it loses them.
 
-/** assignee input → a member's user id; 'me' is the caller; null (or '' / 'none') clears. undefined = not given. */
-async function resolveAssignee(s: Scope, v: string | null | undefined): Promise<string | null | undefined> {
-  if (v === undefined) return undefined;
-  const t = (v ?? '').trim();
-  if (!t || t.toLowerCase() === 'none') return null;
-  if (t.toLowerCase() === 'me') return s.userId;
-  const { findMember } = await import('../people');
-  const id = await findMember(s.orgId, t);
-  if (!id) throw new InputError(`assignee: "${t}" is not a member of this organization`);
-  return id;
+/**
+ * assignees input -> members' user ids (each once, in the order given); 'me' is the caller; null or [] (or only ''
+ * / 'none') clears. undefined = not given. `assignee` (one name) is the same as a list of one.
+ */
+async function resolveAssignees(s: Scope, data: { assignees?: string[] | null; assignee?: string | null }): Promise<string[] | undefined> {
+  const raw = data.assignees !== undefined ? (data.assignees ?? []) : data.assignee !== undefined ? (data.assignee === null ? [] : [data.assignee]) : undefined;
+  if (raw === undefined) return undefined;
+  const out: string[] = [];
+  for (const v of raw) {
+    const t = (v ?? '').trim();
+    if (!t || t.toLowerCase() === 'none') continue;
+    const id = t.toLowerCase() === 'me' ? s.userId : await findAssignee(s.orgId, t);
+    if (!out.includes(id)) out.push(id);
+  }
+  if (out.length > MAX_ASSIGNEES) throw new InputError(`A task can have at most ${MAX_ASSIGNEES} assignees`);
+  return out;
 }
 
-function assertAssignable(place: Placement, assigneeId: string | null, ref?: number): void {
-  if (!assigneeId || canBeAssigned(place, assigneeId)) return;
+/**
+ * One assignee named in an MCP call or the app: a member's user id or email (findMember), else their name: the display
+ * name exactly (any case), else a unique first name. Several matches are refused with their names (use the email).
+ */
+export async function findAssignee(orgId: string, v: string): Promise<string> {
+  const { findMember, forgetMembers, memberNames } = await import('../people');
+  const id = await findMember(orgId, v);
+  if (id) return id;
+  const want = v.trim().toLowerCase().replace(/\s+/g, ' ');
+  const named = (n: string) => n.trim().toLowerCase().replace(/\s+/g, ' ');
+  const match = async () => {
+    const people = Object.entries(await memberNames(orgId));
+    const exact = people.filter(([, n]) => named(n) === want);
+    return exact.length ? exact : want.includes(' ') ? [] : people.filter(([, n]) => named(n).split(' ')[0] === want);
+  };
+  let pool = await match();
+  // No one by that name in the cached list: someone may have joined in the last minute (as findMember does for emails).
+  if (!pool.length) {
+    forgetMembers(orgId);
+    pool = await match();
+  }
+  if (pool.length === 1) return pool[0][0];
+  if (pool.length > 1) throw new InputError(`assignee: "${v.trim()}" matches more than one member (${pool.map(([, n]) => n).join(', ')}); use their email`);
+  throw new InputError(`assignee: "${v.trim()}" is not a member of this organization`);
+}
+
+function assertAssignable(place: Placement, assigneeIds: string[], ref?: number): void {
+  if (assigneeIds.every(id => canBeAssigned(place, id))) return;
   const what = ref ? `#${ref}` : 'This task';
   if (place.visibility === 'private') throw new InputError(`${what} is private (only its owner sees it), so it can't be assigned to anyone else. Move it to a shared project first.`);
-  throw new InputError(`${what} is in a project shared with chosen people, and they are not one of them. The project's owner can add them first.`);
+  throw new InputError(`${what} is in a project shared with chosen people, and someone you named is not one of them. The project's owner can add them first.`);
 }
 
-/** The assignee kept when a task moves to a placement: only someone who can see it there. */
-export const keptAssignee = (assigneeId: string | null | undefined, place: Placement): string | null =>
-  assigneeId && canBeAssigned(place, assigneeId) ? assigneeId : null;
+/** The assignees kept when a task moves to a placement: only those who can see it there. */
+export const keptAssignees = (assigneeIds: string[], place: Placement): string[] => assigneeIds.filter(id => canBeAssigned(place, id));
 
-async function personName(s: Scope, userId: string | null | undefined): Promise<string | null> {
-  if (!userId) return null;
+/** Names for the history line ("Bea, Cy"), or null for nobody. */
+async function peopleNames(s: Scope, ids: string[]): Promise<string | null> {
+  if (!ids.length) return null;
   const { memberNames } = await import('../people');
-  return (await memberNames(s.orgId))[userId] ?? 'a former member';
+  const names = await memberNames(s.orgId);
+  return ids.map(id => names[id] ?? 'a former member').join(', ');
 }
 
 /**
@@ -354,12 +390,11 @@ async function moveSubtasks(c: Collections, s: Scope, parent: TaskDoc, project: 
       set.projectId = parent.projectId;
       changes.project = { from: k.projectId ? ((await c.projects.findOne({ _id: k.projectId }, { projection: { name: 1 } }))?.name ?? k.projectId) : null, to: project?.name ?? null };
     }
-    const assigneeId = keptAssignee(k.assigneeId, place);
-    if ((k.assigneeId ?? null) !== assigneeId) {
-      set.assigneeId = assigneeId;
-      changes.assignee = { from: await personName(s, k.assigneeId), to: null };
-    }
-    if (Object.keys(set).length) await c.tasks.updateOne({ _id: k._id }, { $set: set });
+    const before = assigneesOf(k);
+    const assigneeIds = keptAssignees(before, place);
+    if (assigneeIds.length !== before.length || k.assigneeId !== undefined) set.assigneeIds = assigneeIds;
+    if (assigneeIds.length !== before.length) changes.assignee = { from: await peopleNames(s, before), to: await peopleNames(s, assigneeIds) };
+    if (Object.keys(set).length) await c.tasks.updateOne({ _id: k._id }, k.assigneeId !== undefined ? { $set: set, $unset: { assigneeId: '' } } : { $set: set });
     if (!samePlace(place, placeOf(k))) await placeTasks(c, [k._id], place);
     if (Object.keys(changes).length) await logActivity(c, { ...k, ...place }, actor, 'edit', { changes, note: `Moved with #${parent.ref}` });
   }
@@ -412,13 +447,13 @@ async function insertTask(
   const done = status === 'Done';
   const id = randomUUID();
   const place = parent ? placeUnder(project, parent, opts.ownerId ?? s.userId) : placeIn(project, opts.ownerId ?? s.userId);
-  const assigneeId = (await resolveAssignee(s, data.assignee)) ?? null;
-  assertAssignable(place, assigneeId);
+  const assigneeIds = (await resolveAssignees(s, data)) ?? [];
+  assertAssignable(place, assigneeIds);
   const doc: TaskDoc = {
     _id: id,
     orgId: s.orgId,
     ...place,
-    assigneeId,
+    assigneeIds,
     ref: await nextSeq(c.counters, taskCounter(s)),
     title: data.title,
     description: data.description ?? '',
@@ -453,7 +488,7 @@ async function insertTask(
   };
   await c.tasks.insertOne(doc);
   await logActivity(c, doc, actor, 'created', { note: opts.note });
-  if (assigneeId) await queueAssigned(s, doc, assigneeId, actor);
+  for (const a of assigneeIds) await queueAssigned(s, doc, a, actor);
   if (parent) await rollUp(c, parent._id);
   return doc;
 }
@@ -558,14 +593,16 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
     }
   }
 
-  // Assignee: someone who can see the task where it ends up. A move drops one who could not.
+  // Assignees: people who can see the task where it ends up. A move drops those who could not.
   const place: Placement = moveTo ?? placeOf(cur);
-  const wanted = await resolveAssignee(s, data.assignee);
+  const wanted = await resolveAssignees(s, data);
   if (wanted !== undefined) assertAssignable(place, wanted, cur.ref);
-  const assigneeId = wanted !== undefined ? wanted : keptAssignee(cur.assigneeId, place);
-  if ((cur.assigneeId ?? null) !== assigneeId) {
-    set.assigneeId = assigneeId;
-    changes.assignee = { from: await personName(s, cur.assigneeId), to: await personName(s, assigneeId) };
+  const before = assigneesOf(cur);
+  const assigneeIds = wanted !== undefined ? wanted : keptAssignees(before, place);
+  const added = assigneeIds.filter(id => !before.includes(id));
+  if (added.length || before.some(id => !assigneeIds.includes(id))) {
+    set.assigneeIds = assigneeIds;
+    changes.assignee = { from: await peopleNames(s, before), to: await peopleNames(s, assigneeIds) };
   }
 
   // Status and its side effects.
@@ -620,9 +657,14 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
 
   set.updatedAt = now;
   if (parentSet) Object.assign(set, { parentId: parentSet._id, parentRef: parentSet.ref, parentTitle: parentSet.title });
-  await c.tasks.updateOne({ _id: cur._id }, { $set: set, ...(parentSet === null ? { $unset: { parentId: '', parentRef: '', parentTitle: '' } } : {}) });
+  // A task from before several assignees moves over to the list with its next change.
+  const legacy = cur.assigneeId !== undefined;
+  if (legacy) set.assigneeIds = assigneeIds;
+  const unset: Record<string, ''> = { ...(legacy ? { assigneeId: '' as const } : {}), ...(parentSet === null ? { parentId: '' as const, parentRef: '' as const, parentTitle: '' as const } : {}) };
+  await c.tasks.updateOne({ _id: cur._id }, Object.keys(unset).length ? { $set: set, $unset: unset } : { $set: set });
   if (moveTo) await placeTasks(c, [cur._id], moveTo);
   const next: TaskDoc = { ...cur, ...set, ...(moveTo ?? {}) };
+  delete next.assigneeId;
   if (parentSet === null) {
     delete next.parentId;
     delete next.parentRef;
@@ -659,7 +701,7 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
   }
 
   if (statusChanged && CLOSED_STATUSES.includes(status) && isOpen(cur.status)) await queueUnblocked(s, next);
-  if (changes.assignee && assigneeId) await queueAssigned(s, next, assigneeId, actor);
+  for (const a of added) await queueAssigned(s, next, a, actor);
   if (tookBack) next.claude = (await c.tasks.findOne({ _id: cur._id }, { projection: { claude: 1 } }))?.claude ?? next.claude;
   // A task someone gave to Claude: Done or Blocked ends the dispatcher's run (docs/dispatcher.md).
   if (statusChanged && next.claude?.state === 'running') await onTaskChanged(c, s, next);
@@ -820,9 +862,10 @@ async function restoreOne(s: Scope, c: Collections, org: Collections, t: TrashDo
     ...rest,
     projectId: project ? project._id : null,
     ...place,
-    assigneeId: keptAssignee(old.assigneeId, place),
+    assigneeIds: keptAssignees(assigneesOf(old), place),
     ...(parent ? { parentId: parent._id, parentRef: parent.ref, parentTitle: parent.title } : {}),
   };
+  delete restored.assigneeId;
   // Someone who could not see the restored task does not get to put it back.
   if (!canSee(s, restored)) throw new NotFoundError(`Task ${typeof key === 'number' ? '#' + key : key} is not in the trash`);
   // Written org-wide: the result may be private to the project's owner (who is then the restorer, see above).
@@ -1069,7 +1112,7 @@ export type TaskFilter = {
   doneFrom?: string; // YYYY-MM-DD, inclusive
   doneTo?: string;
   updatedSince?: Date;
-  /** Only tasks assigned to this member (a user id). */
+  /** Only tasks this member is one of the assignees of (a user id). */
   assignee?: string;
   /** Only the subtasks of this task (a ref, "#12" or an id). */
   parent?: string | number;
@@ -1140,7 +1183,7 @@ export async function listTasks(s: Scope, f: TaskFilter = {}): Promise<Task[]> {
     q.parentId = p._id;
   }
   if (f.mode) q.mode = f.mode;
-  if (f.assignee) q.assigneeId = f.assignee;
+  if (f.assignee) and.push(assignedTo(f.assignee) as Filter<TaskDoc>);
   if (f.tag) q.tags = f.tag.replace(/^#/, '').toLowerCase();
   if (f.priority?.length) q.priority = { $in: f.priority };
 

@@ -32,6 +32,7 @@ export async function releaseMember(orgId: string, userId: string): Promise<{ co
     { 'claude.markedByUserId': userId, 'claude.state': { $in: ['queued', 'running'] } },
     { $set: { 'claude.state': 'stopped', 'claude.endedAt': now, 'claude.note': 'the person who gave it left the organization' } },
   );
-  const unassigned = await org.tasks.updateMany({ assigneeId: userId }, { $set: { assigneeId: null } });
-  return { computers: devices.length, claims: claims.modifiedCount, unassigned: unassigned.modifiedCount };
+  const unassigned = await org.tasks.updateMany({ assigneeIds: userId }, { $pull: { assigneeIds: userId } });
+  const unassignedOld = await org.tasks.updateMany({ assigneeId: userId }, { $set: { assigneeIds: [] }, $unset: { assigneeId: '' } }); // tasks from before several assignees
+  return { computers: devices.length, claims: claims.modifiedCount, unassigned: unassigned.modifiedCount + unassignedOld.modifiedCount };
 }

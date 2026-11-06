@@ -142,7 +142,7 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     ...x,
     progress: d.subtasks[n].progress,
     ...(d.subtasks[n].due ? { due: d.subtasks[n].due } : {}),
-    ...(d.subtasks[n].assigneeId ? { assignee: who(d.subtasks[n].assigneeId!) } : {}),
+    ...(d.subtasks[n].assigneeIds.length ? { assignees: d.subtasks[n].assigneeIds.map(who) } : {}),
   }));
   const noteBy = note ? mark('note', [note.createdBy ?? note.updatedBy, note.updatedBy], `${note.title}${note.firstLine}`) : undefined;
   const activity = d.activity.map(a => {
@@ -186,7 +186,8 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     archived: t.archived,
     createdAt: t.createdAt,
     visibility: t.visibility,
-    assignee: t.assigneeId ? who(t.assigneeId) : null,
+    assignee: t.assigneeIds.length ? t.assigneeIds.map(who).join(', ') : null,
+    assignees: t.assigneeIds.map(who),
     createdBy: by(t.createdBy),
     updatedAt: t.updatedAt,
     doneAt: t.doneAt,
@@ -240,6 +241,7 @@ type FieldArgs = {
   depends_on?: (string | number)[];
   recurrence?: z.infer<typeof RecurrenceSchema> | null;
   assignee?: string | null;
+  assignees?: string[] | null;
   parent?: string | number | null;
 };
 
@@ -261,7 +263,8 @@ function toPatch(a: FieldArgs): TaskPatch {
   if (a.blocked_reason !== undefined) p.blockedReason = a.blocked_reason;
   if (a.depends_on !== undefined) p.dependsOn = a.depends_on;
   if (a.recurrence !== undefined) p.recurrence = a.recurrence;
-  if (a.assignee !== undefined) p.assignee = a.assignee;
+  if (a.assignees !== undefined) p.assignees = a.assignees;
+  else if (a.assignee !== undefined) p.assignee = a.assignee;
   if (a.parent !== undefined) p.parent = a.parent;
   return p;
 }
@@ -280,7 +283,8 @@ const fieldShape = {
   blocked_reason: z.string().optional().describe('Setting this on an open task marks it Blocked'),
   depends_on: z.array(z.union([z.number().int(), z.string()])).optional().describe('Refs of tasks this one waits on'),
   recurrence: RecurrenceSchema.nullable().optional().describe('Repeat after completion: {freq: daily|weekdays|weekly|monthly, interval}'),
-  assignee: z.string().max(200).nullable().optional().describe("Who does it: 'me', or a member's email or user id; null clears. Only on a task in a shared project (a private task can't be assigned to anyone else). They are notified"),
+  assignees: z.array(z.string().max(200)).max(20).nullable().optional().describe("Who does it, the whole list: 'me', members' emails, names or user ids; [] or null clears. Only on a task in a shared project (a private task can't be assigned to anyone else). Each newly added person is notified. To add one person, send the current list plus them"),
+  assignee: z.string().max(200).nullable().optional().describe("One assignee (same as assignees with one entry; replaces the list); null clears. Ignored when assignees is given"),
   parent: z
     .union([z.number().int(), z.string()])
     .nullable()
@@ -301,6 +305,7 @@ const subtaskShape = z
       start: fieldShape.start,
       estimate_mins: fieldShape.estimate_mins,
       checklist: fieldShape.checklist,
+      assignees: fieldShape.assignees,
       assignee: fieldShape.assignee,
       mode: fieldShape.mode,
     }),
@@ -377,7 +382,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         due_to: z.string().optional().describe('YYYY-MM-DD inclusive'),
         done_since: z.string().optional().describe('YYYY-MM-DD: only tasks completed on/after this date (implies Done)'),
         query: z.string().optional().describe('Text search in title, description and tags'),
-        assignee: z.string().max(200).optional().describe("Only tasks assigned to this member: 'me', an email or a user id"),
+        assignee: z.string().max(200).optional().describe("Only tasks this member is one of the assignees of: 'me', a name, an email or a user id"),
         parent: z.union([z.number().int(), z.string()]).optional().describe('Only the subtasks of this task (ref)'),
         archived: z.boolean().optional().describe('true = only archived tasks'),
         sort: z.enum(['priority', 'due', 'updated', 'created', 'done']).optional(),
@@ -389,9 +394,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       let assignee: string | undefined;
       if (a.assignee) {
         const v = a.assignee.trim();
-        const id = v.toLowerCase() === 'me' ? s.userId : await findMember(s.orgId, v);
-        if (!id) throw new InputError(`assignee: "${v}" is not a member of this organization`);
-        assignee = id;
+        assignee = v.toLowerCase() === 'me' ? s.userId : await tasks.findAssignee(s.orgId, v);
       }
       const all = await tasks.listTasks(s, {
         assignee,

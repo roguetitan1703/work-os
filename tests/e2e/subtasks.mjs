@@ -31,7 +31,7 @@ try {
   const pd = await doc(P);
   const kids = await T.find({ parentId: pd._id }).toArray();
   check('subtasks: same project as the parent, its number and title copied', kids.length === 3 && kids.every(k => k.projectId === pd.projectId && k.parentRef === P && k.parentTitle === 'KYC demo' && k.visibility === 'org'), JSON.stringify(kids.map(k => [k.projectId === pd.projectId, k.parentRef, k.visibility])));
-  check('subtasks: each keeps its own fields (assignee, due)', kids.find(k => k.ref === s1)?.assigneeId === Bu.userId && kids.find(k => k.ref === s2)?.due === '2030-01-10');
+  check('subtasks: each keeps its own fields (assignee, due)', kids.find(k => k.ref === s1)?.assigneeIds?.includes(Bu.userId) && kids.find(k => k.ref === s2)?.due === '2030-01-10');
   check('rollup: a new parent is 0 of 3 done', pd.subtaskCount?.done === 0 && pd.subtaskCount.total === 3 && pd.progress === 0, JSON.stringify(pd.subtaskCount));
   check('brief: the parent says "0 of 3 done", a subtask names its parent', made.created.subtasks === '0 of 3 done' && made.subtasks[0].parent === `#${P} KYC demo`, JSON.stringify([made.created.subtasks, made.subtasks[0].parent]));
 
@@ -47,7 +47,7 @@ try {
 
   // ---- reads ----
   const g = await must(kA, 'get_task', { task: P });
-  check('get_task: the parent lists its subtasks with status and progress', g.subtasks?.length === 3 && g.subtasks.some(x => x.ref === s1 && x.progress === 50 && x.assignee === 'Bea') && /1 of 2 done/.test(g.subtaskProgress ?? ''), JSON.stringify([g.subtasks, g.subtaskProgress]).slice(0, 300));
+  check('get_task: the parent lists its subtasks with status and progress', g.subtasks?.length === 3 && g.subtasks.some(x => x.ref === s1 && x.progress === 50 && x.assignees?.includes('Bea')) && /1 of 2 done/.test(g.subtaskProgress ?? ''), JSON.stringify([g.subtasks, g.subtaskProgress]).slice(0, 300));
   const gs = await must(kA, 'get_task', { task: s1 });
   check('get_task: a subtask names its parent', gs.parent?.ref === P && gs.parent.title === 'KYC demo' && !gs.subtasks, JSON.stringify(gs.parent));
   const lo = await must(kA, 'list_tasks', { parent: P });
@@ -169,6 +169,13 @@ try {
     await settle(pg, 500);
   }
   check('desktop: Close them marks the parent and its subtasks done', (await doc(ui)).status === 'Done' && all.length === 3 && all.every(k => k.status === 'Done'), JSON.stringify(all.map(k => k.status)));
+  // live: a subtask changed elsewhere (Claude over MCP) refreshes the open parent page without a reload
+  await pg.goto(`${B}/tasks/${ui}`);
+  await pg.waitForFunction(() => /3\/3/.test(document.querySelector('[data-subtasks] h3')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
+  await pg.waitForTimeout(2000);
+  await must(kA, 'update_task', { task: header, status: 'In Progress', note: 'one more pass' });
+  const liveOk = await pg.waitForFunction(() => /2\/3/.test(document.querySelector('[data-subtasks] h3')?.textContent ?? ''), null, { timeout: 20000 }).then(() => true, () => false);
+  check('live: the parent page shows the new count (2/3) after a subtask changes over MCP', liveOk, await pg.locator('[data-subtasks]:visible h3').innerText());
   await ctx.close();
 
   // phone 390: section, list row, Leave them open

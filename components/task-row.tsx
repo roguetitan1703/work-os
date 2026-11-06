@@ -15,6 +15,7 @@ import { ProgressDialog } from './progress-dialog';
 import { MTaskRow } from './mobile/m-task-row';
 import { ClaudeBadge, ClaudeMarkSheet, claudeMenuLabel } from './give-to-claude';
 import { ParentLine, SubtaskChip, useCloseSubtasks } from './subtasks';
+import { AssigneeDots } from '@/components/assignee-picker';
 
 type Props = {
   task: Task;
@@ -84,6 +85,7 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
             {task.title}
           </Link>
           <ClaudeBadge task={task} />
+          <AssigneeDots ids={task.assigneeIds} />
           {task.recurrence && <Repeat className="w-3 h-3 text-muted-foreground shrink-0" aria-label="Recurring" />}
           {task.dependsOn.length > 0 && <GitBranch className="w-3 h-3 text-muted-foreground shrink-0" aria-label="Has dependencies" />}
         </div>
