@@ -18,6 +18,7 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- e2e settings: "alert toggle persisted" failed once in the full run (2026-11-06) and passed 3/3 alone; its toggle() waits for any POST to /settings, so another request may satisfy it before the save lands — waits on it happening again (then wait for the action's own response).
 - Subtasks: "Close the open subtasks too?" is asked only by the tick and Complete / Mark done; the status menu, board drag and day plan leave them open (as MCP) — waits on Om noticing.
 - Subtasks: Claude Code batch limits don't count subtasks created or trashed along with their parent — waits on it mattering.
 - Subtasks: the page of a subtask trashed with its parent shows "not found" — waits on Om noticing.
