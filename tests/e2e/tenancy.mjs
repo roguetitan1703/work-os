@@ -207,6 +207,10 @@ try {
   check('list: add_project with visibility members makes a list of the owner and Bea', circle?.visibility === 'members' && circle.sharedWith?.length === 2 && circle.sharedWith.includes('me') && circle.sharedWith.includes('Bea'), JSON.stringify(circle));
   const ct = (await must(kA, 'add_task', { title: 'Circle task one', project: 'Circle Room' })).created;
   ct.id = (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: ct.ref }))._id;
+  // A subtask in it (docs/subtasks.md) carries the list too, and is as invisible off the list as its parent.
+  const cSub = (await must(kA, 'add_task', { title: 'Circle subtask one', parent: ct.ref })).created;
+  const cSubDoc = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: cSub.ref });
+  check('list: a subtask in it carries the list', cSubDoc?.projectId === circle.id && cSubDoc.visibility === 'members' && cSubDoc.sharedWith?.includes(Bu.userId) && !cSubDoc.sharedWith.includes(Du.userId), JSON.stringify(cSubDoc && [cSubDoc.visibility, cSubDoc.sharedWith?.length]));
   const ctB = (await must(kB, 'add_task', { title: 'Circle task by Bea', project: 'Circle Room' })).created;
   await must(kB, 'add_comment', { task: ct.ref, note: 'Circle comment text' });
   const cMemo = (await must(kA, 'write_note', { project: 'Circle Room', title: 'Circle memo', body: 'Circle memo body' })).created;
@@ -222,6 +226,7 @@ try {
       ['recent_activity', { since: '7d' }], ['list_trash', {}], ['list_notes', { state: 'all' }], ['get_task', { task: ct.ref }], ['get_task', { task: ct.id }],
       ['get_project', { project: circle.id }], ['get_project', { project: 'Circle Room', depth: 'full' }], ['read_note', { note_id: cMemo.id }], ['read_note', { task: ct.ref }],
       ['read_note', { note_id: cTaskNote.id }], ['list_notes', { query: 'Circle', state: 'all' }], ['list_tasks', { query: 'Circle', include_closed: true }],
+      ['get_task', { task: cSub.ref }], ['list_tasks', { parent: ct.ref, include_closed: true }],
     ]) out.push({ n, a, ...(await as(key, n, a)) });
     return out;
   };
@@ -230,6 +235,9 @@ try {
   check('Dee (off the list): nothing of it in any MCP read tool', !dReads.some(r => /Circle/.test(dEcho(r))), dReads.filter(r => /Circle/.test(dEcho(r))).map(r => `${r.n} ${JSON.stringify(r.a)}`).join(', '));
   const bCircle = (await circleReads(kB)).map(r => r.text).join('\n');
   check('Bea (on the list): sees its task, note, history and item', /Circle task one/.test(bCircle) && /Circle memo/.test(bCircle) && /Circle comment text/.test(bCircle), bCircle.slice(0, 200));
+  check('Bea (on the list): sees the subtask and its parent', /Circle subtask one/.test(bCircle) && /in|parent/.test(bCircle));
+  const dUnder = await as(kD, 'add_task', { title: 'Dee under the circle', parent: ct.ref });
+  check('Dee: adding a subtask under its task is refused as not found', dUnder.isError && /not found/i.test(dUnder.text) && !/Circle/.test(dUnder.text), dUnder.text);
   for (const [n, a] of [['update_task', { task: ct.id, title: 'Dee was here' }], ['add_comment', { task: ct.id, note: 'Dee was here' }], ['write_note', { note_id: cMemo.id, append: 'Dee was here' }], ['restore_task', { task: ctB.ref }], ['add_task', { title: 'Dee into the circle', project: circle.id }]]) {
     const r = await as(kD, n, a);
     check(`Dee: ${n} into it is refused`, r.isError || (n === 'add_task' && (await rawDb.collection('tasks').findOne({ title: 'Dee into the circle' }))?.projectId !== circle.id), r.text.slice(0, 160));

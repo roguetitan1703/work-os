@@ -94,7 +94,15 @@ export type Task = {
   sharedWith?: string[];
   /** Members who do it and get its alerts; each must be able to see the task (lib/assignees.ts canBeAssigned). */
   assigneeIds: string[];
+  /** The task this one is a subtask of (docs/subtasks.md; one level only), with its number and title for the rows. */
+  parentId: string | null;
+  parentRef?: number;
+  parentTitle?: string;
+  /** On a parent: its subtasks done and counted (Dropped ones are left out). */
+  subtaskCount?: SubtaskCount;
 };
+
+export type SubtaskCount = { done: number; total: number };
 
 export const CLAUDE_TASK_STATES = ['queued', 'running', 'finished', 'stopped', 'failed'] as const;
 export type ClaudeTaskState = (typeof CLAUDE_TASK_STATES)[number];
@@ -293,6 +301,8 @@ export const TaskInputSchema = z.object({
   assignees: z.array(z.string().trim().min(1).max(200)).max(MAX_ASSIGNEES).nullable().optional(),
   /** One assignee: the same as assignees with one name (kept for older callers); null clears. */
   assignee: z.string().trim().min(1).max(200).nullable().optional(),
+  /** The task this one is a subtask of (a ref, "#12" or an id); null detaches. One level only (docs/subtasks.md). */
+  parent: z.union([z.number().int(), z.string().trim().min(1).max(100)]).nullable().optional(),
 });
 export type TaskInput = z.input<typeof TaskInputSchema>;
 

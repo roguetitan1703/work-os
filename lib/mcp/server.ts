@@ -137,6 +137,13 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     );
   const dependsOn = await related(d.dependencies, 'dependsOn');
   const blocks = await related(d.dependents, 'blocks');
+  const parent = d.parent ? (await related([d.parent], 'parent'))[0] : null;
+  const subtasks = (await related(d.subtasks, 'subtask')).map((x, n) => ({
+    ...x,
+    progress: d.subtasks[n].progress,
+    ...(d.subtasks[n].due ? { due: d.subtasks[n].due } : {}),
+    ...(d.subtasks[n].assigneeIds.length ? { assignees: d.subtasks[n].assigneeIds.map(who) } : {}),
+  }));
   const noteBy = note ? mark('note', [note.createdBy ?? note.updatedBy, note.updatedBy], `${note.title}${note.firstLine}`) : undefined;
   const activity = d.activity.map(a => {
     const w = a.type === 'comment' ? mark(`comment ${a.id}`, a.actor, '-') : label(a.actor);
@@ -173,6 +180,8 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     links,
     dependsOn,
     blocks,
+    ...(parent ? { parent } : {}),
+    ...(subtasks.length ? { subtasks, subtaskProgress: t.subtaskCount ? `${t.subtaskCount.done} of ${t.subtaskCount.total} done (progress is their average)` : undefined } : {}),
     recurrence: t.recurrence,
     archived: t.archived,
     createdAt: t.createdAt,
@@ -233,6 +242,7 @@ type FieldArgs = {
   recurrence?: z.infer<typeof RecurrenceSchema> | null;
   assignee?: string | null;
   assignees?: string[] | null;
+  parent?: string | number | null;
 };
 
 function toPatch(a: FieldArgs): TaskPatch {
@@ -255,6 +265,7 @@ function toPatch(a: FieldArgs): TaskPatch {
   if (a.recurrence !== undefined) p.recurrence = a.recurrence;
   if (a.assignees !== undefined) p.assignees = a.assignees;
   else if (a.assignee !== undefined) p.assignee = a.assignee;
+  if (a.parent !== undefined) p.parent = a.parent;
   return p;
 }
 
@@ -274,7 +285,36 @@ const fieldShape = {
   recurrence: RecurrenceSchema.nullable().optional().describe('Repeat after completion: {freq: daily|weekdays|weekly|monthly, interval}'),
   assignees: z.array(z.string().max(200)).max(20).nullable().optional().describe("Who does it, the whole list: 'me', members' emails, names or user ids; [] or null clears. Only on a task in a shared project (a private task can't be assigned to anyone else). Each newly added person is notified. To add one person, send the current list plus them"),
   assignee: z.string().max(200).nullable().optional().describe("One assignee (same as assignees with one entry; replaces the list); null clears. Ignored when assignees is given"),
+  parent: z
+    .union([z.number().int(), z.string()])
+    .nullable()
+    .optional()
+    .describe("Make it a subtask of this task (ref). It joins the parent's project and moves with it; one level only. On update, null takes it out from under its parent"),
 };
+
+/** add_task / create_task subtasks: the fields a subtask usually needs (each is a full task; more via update_task). */
+const subtaskShape = z
+  .array(
+    z.object({
+      title: z.string().min(1),
+      description: fieldShape.description,
+      priority: fieldShape.priority,
+      status: StatusSchema.optional(),
+      tags: fieldShape.tags,
+      due: fieldShape.due,
+      start: fieldShape.start,
+      estimate_mins: fieldShape.estimate_mins,
+      checklist: fieldShape.checklist,
+      assignees: fieldShape.assignees,
+      assignee: fieldShape.assignee,
+      mode: fieldShape.mode,
+    }),
+  )
+  .max(50)
+  .optional()
+  .describe("Subtasks to create under this task in the same call: deliverables someone tracks on their own (own assignee, due date, status). Steps the same person does inside the task are checklist items instead");
+
+const subtaskInputs = (list: z.infer<typeof subtaskShape>) => (list ?? []).map(({ title, ...f }) => ({ ...toPatch(f), title }));
 
 const codeShape = z
   .array(
@@ -343,6 +383,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         done_since: z.string().optional().describe('YYYY-MM-DD: only tasks completed on/after this date (implies Done)'),
         query: z.string().optional().describe('Text search in title, description and tags'),
         assignee: z.string().max(200).optional().describe("Only tasks this member is one of the assignees of: 'me', a name, an email or a user id"),
+        parent: z.union([z.number().int(), z.string()]).optional().describe('Only the subtasks of this task (ref)'),
         archived: z.boolean().optional().describe('true = only archived tasks'),
         sort: z.enum(['priority', 'due', 'updated', 'created', 'done']).optional(),
         limit: z.number().int().min(1).max(200).optional().describe('Default 50'),
@@ -357,6 +398,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       }
       const all = await tasks.listTasks(s, {
         assignee,
+        parent: a.parent,
         status: a.done_since ? ['Done'] : a.status,
         open: !a.status?.length && !a.include_closed && !a.done_since,
         project: a.project,
@@ -399,14 +441,15 @@ export function createMcpServer(ctx: Ctx): McpServer {
         title: z.string().min(1),
         ...fieldShape,
         status: StatusSchema.optional(),
+        subtasks: subtaskShape,
         note: z.string().optional().describe('Why/where this came from; stored in the history'),
       },
       annotations: { destructiveHint: false, idempotentHint: false },
     },
     handler(async a => {
-      const { note, ...fields } = a;
-      const t = await tasks.createTask(s, { ...toPatch(fields), title: a.title }, ACTOR, { note });
-      return { created: await brief(t, ctx) };
+      const { note, subtasks, ...fields } = a;
+      const r = await tasks.createTaskWithSubtasks(s, { ...toPatch(fields), title: a.title }, subtaskInputs(subtasks), ACTOR, { note });
+      return { created: await brief(r.task, ctx), ...(r.subtasks.length ? { subtasks: await Promise.all(r.subtasks.map(k => brief(k, ctx))) } : {}) };
     }),
   );
 
@@ -462,7 +505,13 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const t = await tasks.completeTask(s, a.task, a.note, ACTOR);
       await notifyChanges(watch);
       const next = t.nextRef ? await tasks.getTask(s, t.nextRef) : null;
-      return { completed: await brief(t, ctx), ...(next ? { nextOccurrence: await brief(next, ctx) } : {}) };
+      // A parent's open subtasks stay open (docs/subtasks.md): say which, so Claude can close the finished ones.
+      const open = t.subtaskCount ? await tasks.listSubtasks(s, t.id, { open: true }) : [];
+      return {
+        completed: await brief(t, ctx),
+        ...(next ? { nextOccurrence: await brief(next, ctx) } : {}),
+        ...(open.length ? { openSubtasks: await Promise.all(open.map(k => brief(k, ctx))), note: `${open.length} subtask${open.length === 1 ? ' is' : 's are'} still open: they were left as they are. Complete or drop them if they are finished.` } : {}),
+      };
     }),
   );
 
@@ -603,7 +652,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   const key = z.union([z.number().int(), z.string()]).describe('Ref (12, "#12"), task id, or "$name" from an earlier create_task');
   const item = z.union([z.number().int(), z.string()]);
   const OpSchema = z.discriminatedUnion('op', [
-    z.object({ op: z.literal('create_task'), as: z.string().optional().describe('"$name" to refer to this task in later ops'), title: z.string().min(1), ...fieldShape, status: StatusSchema.optional(), note: z.string().optional() }),
+    z.object({ op: z.literal('create_task'), as: z.string().optional().describe('"$name" to refer to this task in later ops'), title: z.string().min(1), ...fieldShape, status: StatusSchema.optional(), subtasks: subtaskShape, note: z.string().optional() }),
     z.object({ op: z.literal('update_task'), task: key, title: z.string().min(1).optional(), ...fieldShape, status: StatusSchema.optional(), note: z.string().optional() }),
     z.object({ op: z.literal('log_progress'), task: key, progress: z.number().int().min(0).max(100), note: z.string().optional(), status: StatusSchema.optional(), blocked_reason: z.string().optional() }),
     z.object({ op: z.literal('complete_task'), task: key, note: z.string().optional() }),
@@ -638,8 +687,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
 
   function toBatchOp(o: z.infer<typeof OpSchema>): BatchOp {
     if (o.op === 'create_task') {
-      const { op, as, note, title, ...fields } = o;
-      return { op, as, note, ...toPatch(fields), title } as BatchOp;
+      const { op, as, note, title, subtasks, ...fields } = o;
+      return { op, as, note, ...toPatch(fields), title, ...(subtasks?.length ? { subtasks: subtaskInputs(subtasks) } : {}) } as BatchOp;
     }
     if (o.op === 'update_task') {
       const { op, task, note, ...fields } = o;
@@ -874,7 +923,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const watch = await watchTasks(caller, [watchTarget('delete_task', a)!]);
       const r = await tasks.trashTask(s, a.task, ACTOR, { reason: a.reason, expectTitle: a.title });
       await notifyChanges(watch);
-      return { deleted: `#${r.ref} ${r.title}`, restorable: `for ${tasks.TRASH_DAYS} days with restore_task` };
+      return { deleted: `#${r.ref} ${r.title}`, ...(r.subtasks ? { withSubtasks: r.subtasks } : {}), restorable: `for ${tasks.TRASH_DAYS} days with restore_task${r.subtasks ? ' (its subtasks come back with it)' : ''}` };
     }),
   );
 

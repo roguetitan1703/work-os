@@ -13,6 +13,7 @@ const LABELS: Record<string, string> = {
   estimateMins: 'estimate',
   blockedReason: 'blocked reason',
   dependsOn: 'dependencies',
+  parent: 'subtask of',
 };
 
 function change(field: string, c: FieldChange): string {

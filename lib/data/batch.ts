@@ -17,7 +17,7 @@ export const MAX_OPS = 100;
 type Key = string | number;
 
 export type BatchOp =
-  | ({ op: 'create_task'; as?: string; note?: string } & TaskInput)
+  | ({ op: 'create_task'; as?: string; note?: string; subtasks?: TaskInput[] } & TaskInput)
   | ({ op: 'update_task'; task: Key; note?: string } & TaskPatch)
   | { op: 'log_progress'; task: Key; progress: number; note?: string; status?: TaskPatch['status']; blockedReason?: string }
   | { op: 'complete_task'; task: Key; note?: string }
@@ -76,19 +76,21 @@ export async function applyChanges(s: Scope, ops: BatchOp[], actor: Actor, opts:
       try {
         switch (o.op) {
           case 'create_task': {
-            const { op: _op, as, note, ...input } = o;
-            const t = await tasks.createTask(s, { ...input, dependsOn: keys(input.dependsOn) }, actor, { note });
+            const { op: _op, as, note, subtasks, ...input } = o;
+            const r = await tasks.createTaskWithSubtasks(s, { ...input, dependsOn: keys(input.dependsOn), ...(input.parent != null ? { parent: key(input.parent) } : {}) }, subtasks ?? [], actor, { note });
+            const t = r.task;
             if (as) {
               if (!as.startsWith('$')) throw new InputError(`"as" must start with $, e.g. "$handover"`);
               if (labels.has(as)) throw new InputError(`${as} is already used`);
               labels.set(as, t.ref);
             }
-            done(i, o.op, t, as);
+            const kids = r.subtasks.length ? `subtasks ${r.subtasks.map(k => `#${k.ref}`).join(', ')}` : '';
+            done(i, o.op, t, [as, kids].filter(Boolean).join('; ') || undefined);
             break;
           }
           case 'update_task': {
             const { op: _op, task, note, ...patch } = o;
-            const t = await tasks.updateTask(s, key(task), { ...patch, ...(patch.dependsOn ? { dependsOn: keys(patch.dependsOn) } : {}) }, actor, { note });
+            const t = await tasks.updateTask(s, key(task), { ...patch, ...(patch.dependsOn ? { dependsOn: keys(patch.dependsOn) } : {}), ...(patch.parent != null ? { parent: key(patch.parent) } : {}) }, actor, { note });
             done(i, o.op, t);
             break;
           }
@@ -123,7 +125,7 @@ export async function applyChanges(s: Scope, ops: BatchOp[], actor: Actor, opts:
             break;
           case 'delete_task': {
             const r = await tasks.trashTask(s, key(o.task), actor, { reason: o.reason, expectTitle: o.title });
-            done(i, o.op, r, `in trash for ${tasks.TRASH_DAYS} days`);
+            done(i, o.op, r, `in trash for ${tasks.TRASH_DAYS} days${r.subtasks ? ` with its ${r.subtasks} subtask${r.subtasks === 1 ? '' : 's'}` : ''}`);
             break;
           }
           case 'restore_task':

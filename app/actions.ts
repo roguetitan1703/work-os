@@ -73,9 +73,10 @@ export async function logProgressAction(id: string, progress: number, note?: str
   return run((s, me) => tasks.logProgress(s, id, progress, note, me, status));
 }
 
-export async function completeTaskAction(id: string, note?: string): Promise<Result<Task>> {
+/** closeSubtasks: also mark a parent's open subtasks done (the app asks first; docs/subtasks.md). */
+export async function completeTaskAction(id: string, note?: string, closeSubtasks?: boolean): Promise<Result<Task>> {
   await flushAlerts();
-  return run((s, me) => tasks.completeTask(s, id, note, me));
+  return run((s, me) => tasks.completeTask(s, id, note, me, { closeSubtasks: closeSubtasks === true }));
 }
 
 export async function addCommentAction(id: string, note: string): Promise<Result<Task>> {

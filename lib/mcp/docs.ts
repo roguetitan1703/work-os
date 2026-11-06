@@ -18,7 +18,8 @@ export function instructions({ name, modes }: InstructionsFor): string {
 - Ending a task, pick one: Dropped (status) = real work that stopped, stays visible in history; archive (apply_changes archive_task) = finished or old work hidden from lists but kept; delete_task = added by mistake, goes to a 30-day trash (restore_task brings it back).
 - Which read: daily_summary = ${who}'s morning brief (what is on them today and what changed); list_tasks = filtered task lists; get_project = one project in depth; recent_activity = the change feed alone (e.g. what Claude Code did, actor claude-code).
 - Notes are pages (markdown) for anything longer than a line or two: problem statements, handovers, drafts, client terms, idea lists. Keep task descriptions short and put the real content in a note. A task has at most one note; projects can have many. Reads (get_task, get_project, list_projects) show each note's id, title and first line: always update an existing note by note_id (or by task for a task's note) before creating a new one, and prefer append or edits over rewriting.
-- Several changes at once (a handover, a cleanup, re-planning): use apply_changes, one atomic call; run it with dry_run first when it deletes or touches many tasks. For a full picture of a project use get_project (depth full) instead of many get_task calls.
+- For 2 or more writes, use apply_changes: one atomic call (a handover, a cleanup, re-planning, several new tasks); run it with dry_run first when it deletes or touches many tasks.
+- Subtask or checklist item: a subtask is a deliverable someone tracks on its own (its own assignee, due date, status or Claude run); a checklist item is a step the same person does inside the task. add_task with subtasks makes a parent and its subtasks in one call; parent puts a task under another (one level only). A subtask is in its parent's project and moves with it, and the parent's progress is the average of its subtasks'. For a full picture of a project use get_project (depth full) instead of many get_task calls.
 - For the morning brief, call daily_summary once; it already contains overdue, due today, in progress, blocked, completions and changes since the previous workday.
 - Discord (the organization's server, read-only; only once ${who} has linked their Discord account in Settings): discord_needs_attention is the one call for "what needs me on Discord". It lists items ${who} flagged for later by tagging the bot (with the message they were replying to), mentions of them or their roles, @everyone, replies to them, and new activity in threads they are in, each marked handled if they posted after it. The bot cannot post, so never claim to have replied on Discord. Use discord_message_to_task to turn a message into a task (it won't duplicate one already tracked).`;
 }
@@ -74,39 +75,40 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   list_tasks: {
     title: 'List tasks',
     description:
-      'List/filter tasks. By default returns open (Not Started / In Progress / Blocked), non-archived tasks sorted by priority. Set include_closed or status to see Done/Dropped. assignee:"me" lists what you are one of the assignees of.',
+      'List/filter tasks. By default returns open (Not Started / In Progress / Blocked), non-archived tasks sorted by priority. Set include_closed or status to see Done/Dropped. assignee:"me" lists what you are one of the assignees of; parent lists a task’s subtasks. A subtask shows its parent, a parent shows "3 of 8 done".',
     writes: false,
     example: 'Show my overdue Grant Leads tasks',
   },
   get_task: {
     title: 'Get task',
-    description: 'Full detail for one task, including checklist, links, dependencies and its recent activity history.',
+    description: 'Full detail for one task, including checklist, links, dependencies, its parent or its subtasks (with status and progress), and its recent activity history.',
     writes: false,
     example: "What's the history on #42?",
   },
   add_task: {
     title: 'Add task',
-    description: 'Create a task. Only title is required. Defaults: priority P2, status Not Started. assignees gives it to members (a list; shared projects only); each is notified. assignee (one) still works.',
+    description:
+      'Create a task. Only title is required. Defaults: priority P2, status Not Started. assignees gives it to members (a list; shared projects only); each is notified. assignee (one) still works. subtasks: [{title, …}] creates its subtasks in the same call; parent (a ref) makes it a subtask of another task, in that task’s project. Use a subtask for a deliverable someone tracks on its own (own assignees, due date, status or Claude run) and a checklist item for a step the same person does inside the task. For 2 or more writes (several separate tasks, or a task plus other changes), use apply_changes instead: one atomic call.',
     writes: true,
     example: 'Add a P1 for Terrah: send the revised quote, due Friday, 30 min',
   },
   update_task: {
     title: 'Update task',
     description:
-      'Change fields on a task (title, description, project, mode, priority, tags, dates, estimate, links, blocked reason, dependencies, recurrence, assignees: the whole list, each newly added person is notified). Only fields you pass change. Changes are diffed into the history with your note. For progress use log_progress, to finish use complete_task; status here is for Dropped or reopening.',
+      'Change fields on a task (title, description, project, mode, priority, tags, dates, estimate, links, blocked reason, dependencies, recurrence, assignees: the whole list, each newly added person is notified, parent). Only fields you pass change. Changes are diffed into the history with your note. For progress use log_progress, to finish use complete_task; status here is for Dropped or reopening. parent puts the task under another as a subtask (null takes it out); a subtask stays in its parent’s project, so move the parent and its subtasks follow.',
     writes: true,
     example: 'Move #31 to next Tuesday and make it P2',
   },
   log_progress: {
     title: 'Log progress',
     description:
-      'Record a progress update: percent complete plus a note on what moved. Moves Not Started → In Progress automatically. Optionally change status (e.g. Blocked, with the reason in the note).',
+      'Record a progress update: percent complete plus a note on what moved. Moves Not Started → In Progress automatically. Optionally change status (e.g. Blocked, with the reason in the note). A parent’s progress follows its subtasks: log progress on the subtasks.',
     writes: true,
     example: '#18 is about 60% done, API is wired, UI left',
   },
   complete_task: {
     title: 'Complete task',
-    description: 'Mark a task Done (progress 100). Recurring tasks automatically get their next occurrence created.',
+    description: 'Mark a task Done (progress 100). Recurring tasks automatically get their next occurrence created (with their subtasks as new open ones). A parent’s open subtasks are left open and listed in the answer (openSubtasks): complete or drop the finished ones yourself.',
     writes: true,
     example: 'Mark #12 done, invoice sent',
   },
@@ -119,7 +121,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   apply_changes: {
     title: 'Apply changes (batch)',
     description:
-      'Many changes in ONE atomic call: all apply or none do. ops (max 100) run in order: create_task, update_task, log_progress, complete_task, add_comment, edit_comment, delete_comment, update_checklist, archive_task, delete_task, restore_task, write_note, delete_note, add_project, update_project. A create_task can set as:"$name" and later ops may use "$name" as the task (also in depends_on). delete_task needs the task title as a safety check and moves the task to a 30-day trash. dry_run:true runs everything then rolls back, so you can check the result first. Claude Code keys: a call that moves more than 10 items to trash or changes more than 50 tasks is refused unless it was dry-run first; the dry run returns a confirm token (10 minutes) to pass as confirm with exactly the same ops.',
+      'Many changes in ONE atomic call: all apply or none do. ops (max 100) run in order: create_task, update_task, log_progress, complete_task, add_comment, edit_comment, delete_comment, update_checklist, archive_task, delete_task, restore_task, write_note, delete_note, add_project, update_project. A create_task can set as:"$name" and later ops may use "$name" as the task (also in depends_on and parent); create_task also takes subtasks and parent, like add_task. delete_task needs the task title as a safety check and moves the task to a 30-day trash. dry_run:true runs everything then rolls back, so you can check the result first. Claude Code keys: a call that moves more than 10 items to trash or changes more than 50 tasks is refused unless it was dry-run first; the dry run returns a confirm token (10 minutes) to pass as confirm with exactly the same ops.',
     writes: true,
     example: 'Set up the Terrah handover: 6 tasks with dependencies and a comment on #31',
   },
@@ -133,7 +135,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   delete_task: {
     title: 'Delete task',
     description:
-      'Move a task (with its history) to the trash for 30 days. Requires the task’s title as confirmation, so a wrong ref can’t delete the wrong task. Use for tasks added by mistake; for real work that stopped, set status Dropped instead. Claude Code keys: at most 10 per 10 minutes.',
+      'Move a task (with its history) to the trash for 30 days. Requires the task’s title as confirmation, so a wrong ref can’t delete the wrong task. Use for tasks added by mistake; for real work that stopped, set status Dropped instead. A parent takes its subtasks to the trash and restoring it brings them back. Claude Code keys: at most 10 per 10 minutes.',
     writes: true,
     example: 'Delete #88, I added it twice',
   },
@@ -176,7 +178,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   update_checklist: {
     title: 'Update checklist',
-    description: 'Add, check, uncheck or remove checklist items. Items are matched by number (1-based), id, or text.',
+    description: 'Add, check, uncheck or remove checklist items. Items are matched by number (1-based), id, or text. A checklist item is a step the same person does inside the task; for a deliverable someone tracks on its own (own assignee, due date, status), make a subtask instead (add_task with parent).',
     writes: true,
     example: 'On #22 tick off "staging deploy" and add "send demo link"',
   },

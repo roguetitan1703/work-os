@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { useApp, useModes } from '../app-context';
 import { TaskActionSheet } from './m-task-actions';
 import { ClaudeBadge, ClaudeMarkSheet } from '../give-to-claude';
+import { ParentLine, SubtaskChip, useCloseSubtasks } from '../subtasks';
 import { useSynced } from '@/components/use-synced';
 import { AssigneeDots } from '@/components/assignee-picker';
 
@@ -39,6 +40,7 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
   const [claudeOpen, setClaudeOpen] = useState(false);
   const press = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
+  const closeAsk = useCloseSubtasks(task);
   const cancelPress = () => {
     if (press.current) clearTimeout(press.current);
     press.current = null;
@@ -46,10 +48,14 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
 
   function toggle() {
     if (closed) return;
+    closeAsk.ask(complete);
+  }
+
+  function complete(closeSubtasks: boolean) {
     navigator.vibrate?.(10);
     setDone(true);
     start(async () => {
-      const res = await completeTaskAction(task.id);
+      const res = await completeTaskAction(task.id, undefined, closeSubtasks);
       if (!res.ok) {
         setDone(false);
         return void toast.error(res.error);
@@ -112,6 +118,7 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
         <div className="flex-1 min-w-0">
           <div className={cn('text-[16px] leading-snug text-foreground', done && 'line-through text-muted-foreground')}>{task.title}</div>
           <div className="mt-1 flex items-center gap-x-2 gap-y-0.5 flex-wrap text-[13px] text-muted-foreground">
+            <ParentLine task={task} link={false} className="max-w-[60vw]" />
             {task.due && <span className={cn(overdue && 'text-red-600 dark:text-red-400 font-medium')}>{fmtDue(task.due, today)}</span>}
             {project && <span className="truncate max-w-[45vw]">{project}{isPrivateProject(task.projectId) && <PrivateBadge compact className="ml-1" />}</span>}
             {task.mode && (
@@ -128,6 +135,7 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
                 {checklistDone}/{task.checklist.length}
               </span>
             )}
+            <SubtaskChip task={task} className="[&_svg]:w-3.5 [&_svg]:h-3.5" />
             <ClaudeBadge task={task} />
             <AssigneeDots ids={task.assigneeIds} />
             {task.recurrence && <Repeat className="w-3.5 h-3.5" aria-label="Recurring" />}
@@ -145,6 +153,7 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
       </button>
       <TaskActionSheet task={task} open={sheet} onClose={() => setSheet(false)} onClaude={() => (setSheet(false), setClaudeOpen(true))} />
       {claudeOpen && <ClaudeMarkSheet task={task} onClose={() => setClaudeOpen(false)} />}
+      {closeAsk.sheet}
     </div>
   );
 }
