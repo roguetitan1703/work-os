@@ -1,5 +1,5 @@
 import { buildIcs } from '@/lib/calendar-ics';
-import { feedOwner, recordMiss, tooManyMisses } from '@/lib/calendar-feed';
+import { feedOwner, recordMiss } from '@/lib/calendar-feed';
 import { feedTasks } from '@/lib/data/calendar';
 import { timezoneOf } from '@/lib/profile';
 
@@ -14,12 +14,10 @@ const HEADERS = { 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-r
 const text = (body: string, status: number) => new Response(body, { status, headers: { ...HEADERS, 'Content-Type': 'text/plain; charset=utf-8' } });
 
 export async function GET(req: Request, ctx: { params: Promise<{ file: string }> }) {
-  if (tooManyMisses(req.headers)) return text('Too many requests', 429);
   const { file } = await ctx.params;
   const owner = file.endsWith('.ics') ? await feedOwner(file.slice(0, -4)).catch(() => null) : null;
   if (!owner) {
-    recordMiss(req.headers);
-    return text('Not found', 404);
+    return recordMiss(req.headers) ? text('Too many requests', 429) : text('Not found', 404);
   }
   try {
     const [tasks, tz] = await Promise.all([feedTasks(owner), timezoneOf(owner)]);

@@ -2,7 +2,7 @@ import 'server-only';
 import { createHash, randomBytes } from 'node:crypto';
 import { clientIp } from './auth';
 import { getDb } from './db';
-import { roleOf } from './caller';
+import { idIn } from './auth-server';
 import { seal, unseal } from './delpat-os';
 
 // The private calendar link (docs/calendar.md): one token per person per organization, stored hashed (like API keys),
@@ -56,25 +56,28 @@ export async function feedOwner(token: string): Promise<Who | null> {
   if (!TOKEN_RE.test(token)) return null;
   const d = await (await coll()).findOne({ hash: hashOf(token) });
   if (!d) return null;
-  if (!(await roleOf(d.userId, d.orgId))) return null;
+  // Membership read straight from the database (not the 60 s role cache): a removed member or deleted organization stops at once.
+  const m = await (await getDb()).collection('member').findOne({ userId: idIn(d.userId), organizationId: idIn(d.orgId) }, { projection: { _id: 1 } }); // scope-ok: Better Auth member row, keyed by this link's own person and organization
+  if (!m) return null;
   return { userId: d.userId, orgId: d.orgId };
 }
 
-// Misses per client address (in memory per process, like /api/worker): over MAX_MISSES in a minute answers 429.
+// Misses per client address (in memory per process, like /api/worker): after MAX_MISSES wrong tokens in a minute, further wrong
+// tokens answer 429. A valid token is never refused. Without TRUST_PROXY the address is unknown, so there is no limit
+// (one shared bucket would let anyone lock everyone out; the token is 256 bits, so guessing is not the risk).
 const MAX_MISSES = 20;
 const misses = new Map<string, number[]>();
-const bucket = (h: Headers) => clientIp(h) ?? 'shared';
 const recent = (k: string, now: number) => (misses.get(k) ?? []).filter(t => now - t < 60_000);
 
-export function tooManyMisses(h: Headers): boolean {
-  return recent(bucket(h), Date.now()).length >= MAX_MISSES;
-}
-
-export function recordMiss(h: Headers): void {
+/** Records a wrong token from this client and says whether it has used up its misses (answer 429 instead of 404). */
+export function recordMiss(h: Headers): boolean {
+  const k = clientIp(h);
+  if (!k) return false;
   const now = Date.now();
-  const k = bucket(h);
   const r = recent(k, now);
-  r.push(now);
+  const over = r.length >= MAX_MISSES;
+  if (!over) r.push(now);
   misses.set(k, r);
   if (misses.size > 500) for (const [key, v] of misses) if (!v.some(t => now - t < 60_000)) misses.delete(key);
+  return over;
 }

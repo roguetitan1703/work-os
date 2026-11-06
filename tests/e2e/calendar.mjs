@@ -2,7 +2,7 @@
 // lists only the person's own open tasks with a date that they may see. Checks: valid ICS (all-day events, a span, escaping,
 // folding, no notes/comments/checklist), scope (someone else's private task, a members-only project they are not on, another
 // organization, done/archived/undated/others' tasks), no cookies and no session, headers, rotate and turn off kill the old
-// link at once, a removed member's link dies, bad tokens all answer the same 404, and the rate limit (last: it waits out the minute).
+// link at once, a removed member's link dies, bad tokens all answer the same 404, and the junk requests never blocking a valid link.
 // Seed profile: none.
 import { randomBytes, randomUUID } from 'node:crypto';
 import { B, ME, check, finish, launch, login, makeUser, okO, overflow, PW, rawDb } from './lib.mjs';
@@ -184,15 +184,11 @@ try {
   check('ui phone: create works, no overflow, buttons are at least 44px tall', !!tokM && okO(await overflow(pm)) && (await pm.locator('[data-calendar-rotate]').evaluate(e => e.getBoundingClientRect().height)) >= 44, JSON.stringify(await overflow(pm)));
   await ctxM.close();
 
-  // ---- the rate limit (last: misses count per client address for a minute) ----
+  // ---- junk never blocks a valid link (no TRUST_PROXY here: the address is unknown, so there is no miss limit at all) ----
   const codes = [];
-  for (let i = 0; i < 26; i++) codes.push((await fetchFeed(randomBytes(32).toString('base64url'))).status);
-  const first429 = codes.indexOf(429); // the misses earlier in this suite (bad tokens, old links) already count towards the 20
-  check('rate limit: 404s, then 429 once 20 misses in a minute are used', first429 > 0 && first429 <= 20 && codes.slice(first429).every(c => c === 429) && codes.slice(0, first429).every(c => c === 404), codes.join(','));
-  const lim = await fetchFeed(tokM);
-  check('rate limit: the 429 is bare and cookie-free', lim.status === 429 && !lim.headers.get('set-cookie'));
-  await sleep(61_000);
-  check('rate limit: lifts after the minute and a valid link works again', (await fetchFeed(tokM)).status === 200);
+  for (let i = 0; i < 25; i++) codes.push((await fetchFeed(randomBytes(32).toString('base64url'))).status);
+  check('junk: 25 wrong tokens from one address are all a bare 404', codes.every(c => c === 404), codes.join(','));
+  check('junk: a valid link still gets 200 afterwards', (await fetchFeed(tokM)).status === 200);
   await rawDb.collection('calendarFeeds').deleteMany({ userId: A.userId });
 } catch (e) {
   check('calendar suite (error)', false, e?.stack || String(e));
