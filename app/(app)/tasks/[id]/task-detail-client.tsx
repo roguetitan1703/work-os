@@ -26,9 +26,10 @@ import { useApp, useModes } from '@/components/app-context';
 import { fmtAgo, fmtDue } from '@/lib/format';
 import type { Mode, Recurrence, Task, TaskPatch } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { assigneeOptions } from '@/lib/assignees';
+import { AssigneePicker, assigneeLabel } from '@/components/assignee-picker';
 import { Select } from '@/components/ui/select';
 import { RECURRENCE_OPTIONS } from '@/lib/recurrence-options';
+import { useSynced } from '@/components/use-synced';
 
 const field =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring dark:bg-input/30';
@@ -44,14 +45,15 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [moreDetails, setMoreDetails] = useState(false);
-  const [title, setTitle] = useState(task.title);
-  const [description, setDescription] = useState(task.description);
+  // Fields follow the server when the page refreshes (useSynced), unless the person is mid-edit.
+  const [title, setTitle] = useSynced(task.title);
+  const [description, setDescription] = useSynced(task.description);
   const [comment, setComment] = useState('');
   const [newItem, setNewItem] = useState('');
   const [newLink, setNewLink] = useState('');
   const [newDep, setNewDep] = useState('');
-  const [tagText, setTagText] = useState(task.tags.join(', '));
-  const [blockedReason, setBlockedReason] = useState(task.blockedReason);
+  const [tagText, setTagText] = useSynced(task.tags.join(', '));
+  const [blockedReason, setBlockedReason] = useSynced(task.blockedReason);
   const closed = task.status === 'Done' || task.status === 'Dropped';
   const overdue = !!task.due && task.due < today && !closed;
 
@@ -167,14 +169,13 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
         </Field>
         <Field label="Assigned to">
           {task.visibility !== 'private' ? (
-            <Select className={field} value={task.assigneeId ?? ''} data-assignee-picker onChange={e => patch({ assignee: e.target.value || null }, e.target.value ? `Assigned to ${e.target.value === me ? 'you' : people[e.target.value] ?? 'them'}` : 'Unassigned')}>
-              <option value="">Nobody</option>
-              {assigneeOptions(people, me, task.assigneeId, task).map(o => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </Select>
+            <AssigneePicker task={task} value={task.assigneeIds} onSave={ids => patch({ assignees: ids }, ids.length ? `Assigned to ${assigneeLabel(ids, people, me).replace(/^Me(?=,|$)/, 'you')}` : 'Unassigned')}>
+              {(label, open) => (
+                <button type="button" className={cn(field, 'flex items-center text-left truncate')} data-assignee-picker onClick={open}>
+                  {label}
+                </button>
+              )}
+            </AssigneePicker>
           ) : (
             <div className={cn(field, 'flex items-center text-muted-foreground')} title="Only shared tasks can be assigned">
               Private: only you
@@ -200,6 +201,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
         <Field label="Project">
           <input
             list="project-options-detail"
+            key={projectName ?? ''}
             defaultValue={projectName ?? ''}
             className={field}
             onBlur={e => {
@@ -225,6 +227,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents }
           <input
             type="number"
             min={0}
+            key={task.estimateMins ?? ''}
             defaultValue={task.estimateMins ?? ''}
             className={field}
             onBlur={e => {

@@ -48,6 +48,7 @@ oauth|oauth.mjs|none|plain
 oauth-limits|oauth-limits.mjs|none|plain
 sharing|sharing.mjs|none|plain
 push|push.mjs|none|plain
+live|live.mjs|none|plain
 budgets|budgets.mjs|none|plain
 headers|headers.mjs|none|plain
 alerts-once|alerts-once.mjs|none|discord

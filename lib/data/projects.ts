@@ -14,7 +14,7 @@ import { todayStr, weekStart } from '../dates';
 import { InputError, NotFoundError } from './errors';
 import { memberNames } from '../people';
 import { cleanCodeLocations, codeCandidates, matchCodeLocation, type CodeQuery } from './code-locations';
-import { unassignableFilter } from '../assignees';
+import { assigneesOf, unassignableFilter, unassignPull } from '../assignees';
 import type { CodeLocation } from '../types';
 
 export function slugify(name: string): string {
@@ -528,7 +528,7 @@ export async function projectSharingImpact(s: Scope, id: string, keep: string[] 
   const stays = new Set([p.ownerId, ...keep]);
   const taskIds = [...(await c.tasks.distinct('_id', { projectId: id })), ...(await c.trash.distinct('_id', { 'task.projectId': id }))];
   const others = (ids: unknown[]) => [...new Set(ids.filter((x): x is string => typeof x === 'string' && !!x && !stays.has(x)))];
-  const assignees = others(await c.tasks.distinct('assigneeId', { projectId: id }));
+  const assignees = others([...(await c.tasks.distinct('assigneeIds', { projectId: id })), ...(await c.tasks.distinct('assigneeId', { projectId: id }))]);
   const commenters = others((await c.activity.distinct('actor.userId', { taskId: { $in: taskIds }, type: 'comment' })) as unknown[]);
   const claude = others(await c.tasks.distinct('claude.markedByUserId', { projectId: id, 'claude.state': { $in: ['queued', 'running'] } }));
   const waiting = others(await c.claudeItems.distinct('waitingOn', { projectId: id }));
@@ -555,8 +555,14 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   // Trashed tasks too: their history (the "trashed" line) and notes stay in place while the task is in the trash.
   const taskIds = [...(await c.tasks.distinct('_id', { projectId: p._id })), ...(await c.trash.distinct('_id', { 'task.projectId': p._id }))];
   if (taskIds.length) {
+    // Assignees who could not see their task there come off it (each of them; the others stay).
     const unassignable = unassignableFilter(next);
-    if (unassignable) await c.tasks.updateMany({ _id: { $in: taskIds }, ...unassignable }, { $set: { assigneeId: null } });
+    if (unassignable) {
+      // Tasks from before several assignees: the one old assignee moves into the list first.
+      const old = await c.tasks.find({ _id: { $in: taskIds }, assigneeId: { $exists: true } }, { projection: { assigneeId: 1, assigneeIds: 1 } }).toArray();
+      for (const t of old) await c.tasks.updateOne({ _id: t._id }, { $set: { assigneeIds: assigneesOf(t) }, $unset: { assigneeId: '' } });
+      await c.tasks.updateMany({ _id: { $in: taskIds }, ...unassignable }, unassignPull(next));
+    }
     await move('tasks', { _id: { $in: taskIds } });
     await move('activity', { taskId: { $in: taskIds } });
     const taskNotes = await c.notes.find({ taskId: { $in: taskIds } }, { projection: { _id: 1 } }).toArray();

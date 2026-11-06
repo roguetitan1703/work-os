@@ -106,7 +106,7 @@ try {
   // ======== 4. back to private: confirm, access and assignment go ========
   await must(kA, 'update_task', { task: t1.ref, assignee: 'bea@example.test' });
   const cm = await as(kB, 'add_comment', { task: t1.ref, note: 'Bea was here' });
-  check('setup: Bea is assigned and has commented', !cm.isError && (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t1.ref }))?.assigneeId === Bu.userId, cm.text);
+  check('setup: Bea is assigned and has commented', !cm.isError && (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t1.ref }))?.assigneeIds?.includes(Bu.userId), cm.text);
   // Bea gives a shared task to Claude (queued), another is running, and a Claude item waits on her. Her computer is linked to the project.
   const t2 = (await must(kA, 'add_task', { title: 'Bea queued for Claude', project: NAME })).created;
   const t3 = (await must(kA, 'add_task', { title: 'Bea running with Claude', project: NAME })).created;
@@ -131,7 +131,7 @@ try {
   await pa.click('[data-confirm]');
   check('private again: the project switches', !!(await until(async () => (await proj())?.visibility === 'private')));
   const tDoc = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t1.ref });
-  check('private again: the task is private to the owner and unassigned', tDoc?.visibility === 'private' && tDoc.ownerId === A.userId && tDoc.assigneeId === null, JSON.stringify(tDoc && [tDoc.visibility, tDoc.assigneeId]));
+  check('private again: the task is private to the owner and unassigned', tDoc?.visibility === 'private' && tDoc.ownerId === A.userId && (tDoc.assigneeIds ?? []).length === 0 && !tDoc.assigneeId, JSON.stringify(tDoc && [tDoc.visibility, tDoc.assigneeIds]));
   seen = await beaSees(kB);
   check('private again: the teammate loses project, task and note', !seen.project && !seen.task && !seen.note, JSON.stringify(seen));
   const q2 = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t2.ref });
@@ -198,7 +198,7 @@ try {
   await pa.click('[data-confirm]');
   check('choose: the project is shared with the owner and Bea', !!(await until(async () => { const p = await team(); return p?.visibility === 'members' && p.sharedWith.length === 2 && p.sharedWith.includes(A.userId) && p.sharedWith.includes(Bu.userId); })), JSON.stringify(await team()));
   const ttDoc = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: tt.ref });
-  check('choose: its task follows (the list) and Cal is unassigned', ttDoc?.visibility === 'members' && ttDoc.sharedWith?.includes(Bu.userId) && !ttDoc.sharedWith.includes(Cal.userId) && ttDoc.assigneeId === null, JSON.stringify(ttDoc && [ttDoc.visibility, ttDoc.sharedWith, ttDoc.assigneeId]));
+  check('choose: its task follows (the list) and Cal is unassigned', ttDoc?.visibility === 'members' && ttDoc.sharedWith?.includes(Bu.userId) && !ttDoc.sharedWith.includes(Cal.userId) && !(ttDoc.assigneeIds ?? []).includes(Cal.userId) && !ttDoc.assigneeId, JSON.stringify(ttDoc && [ttDoc.visibility, ttDoc.sharedWith, ttDoc.assigneeIds]));
   const noteDoc = await rawDb.collection('notes').findOne({ title: 'Team note' });
   const actDocs = await rawDb.collection('activity').find({ taskId: ttDoc._id }).toArray();
   check('choose: its note and history follow', noteDoc?.visibility === 'members' && actDocs.length > 0 && actDocs.every(a => a.visibility === 'members' && !a.sharedWith.includes(Cal.userId)), JSON.stringify(actDocs.map(a => a.visibility)));
@@ -254,8 +254,16 @@ try {
   // assignees must be on the list; only the owner changes it
   const assignCal = await as(kA, 'update_task', { task: tt.ref, assignee: 'cal@example.test' });
   check('assignee: someone off the list is refused', assignCal.isError && /chosen people/.test(assignCal.text), assignCal.text);
-  const assignBea = await as(kA, 'update_task', { task: tt.ref, assignee: 'bea@example.test' });
-  check('assignee: someone on the list is fine', !assignBea.isError && (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: tt.ref }))?.assigneeId === Bu.userId, assignBea.text);
+  const assignMix = await as(kA, 'update_task', { task: tt.ref, assignees: ['bea@example.test', 'cal@example.test'] });
+  check('assignees: one off the list in a list refuses it all', assignMix.isError && /chosen people/.test(assignMix.text), assignMix.text);
+  const assignBea = await as(kA, 'update_task', { task: tt.ref, assignees: ['bea@example.test', 'me'] });
+  const ttIds = async () => (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: tt.ref }))?.assigneeIds ?? [];
+  check('assignee: people on the list are fine (two of them)', !assignBea.isError && (await ttIds()).length === 2 && (await ttIds()).includes(Bu.userId), assignBea.text);
+  // a task from before several assignees (one old field) in the project
+  const ttRaw = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: tt.ref });
+  const oldOne = { ...ttRaw, _id: 'sharing-old-assignee', ref: 900100, title: 'Old single assignee', assigneeId: Bu.userId };
+  delete oldOne.assigneeIds;
+  await rawDb.collection('tasks').insertOne(oldOne);
   const beaList = await as(kB, 'update_project', { project: TEAM, shared_with: ['bea@example.test', 'cal@example.test'] });
   check('list: a non-owner cannot change it (MCP)', beaList.isError && /owner/i.test(beaList.text) && !(await team()).sharedWith.includes(Cal.userId), beaList.text);
   const outsider = await as(kA, 'update_project', { project: TEAM, shared_with: ['nobody@example.test'] });
@@ -266,7 +274,10 @@ try {
   check('list (MCP): swap Bea for Cal', !swap.isError && (await team()).sharedWith.includes(Cal.userId) && !(await team()).sharedWith.includes(Bu.userId), swap.text);
   const btDoc = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: bt.ref });
   check("list: Bea's own task in it now belongs to the owner (she is off the list)", btDoc?.ownerId === A.userId && btDoc.visibility === 'members' && !btDoc.claude, JSON.stringify(btDoc && [btDoc.ownerId === A.userId, btDoc.visibility, btDoc.claude]));
-  check("list: Bea's assignment ended", (await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: tt.ref }))?.assigneeId === null);
+  check("list: Bea's assignment ended, the owner's stays", JSON.stringify(await ttIds()) === JSON.stringify([A.userId]), JSON.stringify(await ttIds()));
+  const oldAfter = await rawDb.collection('tasks').findOne({ _id: 'sharing-old-assignee' });
+  check("list: on a task with the old single field too", !!oldAfter && (oldAfter.assigneeIds ?? []).length === 0 && !('assigneeId' in oldAfter), JSON.stringify(oldAfter && [oldAfter.assigneeId, oldAfter.assigneeIds]));
+  await rawDb.collection('tasks').deleteOne({ _id: 'sharing-old-assignee' });
   bs = await sees(kB, 'Bea team task');
   cs = await sees(kC, 'Team task');
   check('list: Bea now sees nothing of it, not even the task she made', !bs.project && !bs.task && !bs.note, JSON.stringify(bs));

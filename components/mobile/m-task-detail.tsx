@@ -18,7 +18,8 @@ import { ProgressDialog } from '../progress-dialog';
 import { useApp, useModes } from '../app-context';
 import { BottomSheet } from './sheet';
 import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, claudeMenuLabel } from '../give-to-claude';
-import { assigneeOptions } from '@/lib/assignees';
+import { AssigneePicker, assigneeLabel } from '@/components/assignee-picker';
+import { useSynced } from '@/components/use-synced';
 
 const STATUSES: { s: Status; tone: string }[] = [
   { s: 'Not Started', tone: 'bg-foreground text-background' },
@@ -53,8 +54,8 @@ export function MobileTaskDetail({
   const { modes, color } = useModes();
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [title, setTitle] = useState(task.title);
-  const [desc, setDesc] = useState(task.description);
+  const [title, setTitle] = useSynced(task.title);
+  const [desc, setDesc] = useSynced(task.description);
   const [comment, setComment] = useState('');
   const [newItem, setNewItem] = useState('');
   const [menu, setMenu] = useState(false);
@@ -238,14 +239,15 @@ export function MobileTaskDetail({
       {/* Assigned: the core fields are above; the rest sits under More details. */}
       <div className="mt-5 rounded-2xl border border-border/70 bg-card divide-y divide-border/60">
         {task.visibility !== 'private' ? (
-          <SelectRow label="Assigned" value={task.assigneeId ?? ''} onChange={v => patch({ assignee: v || null }, v ? `Assigned to ${v === me ? 'you' : people[v] ?? 'them'}` : 'Unassigned')}>
-            <option value="">Nobody</option>
-            {assigneeOptions(people, me, task.assigneeId, task).map(o => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-          </SelectRow>
+          <AssigneePicker task={task} value={task.assigneeIds} onSave={ids => patch({ assignees: ids }, ids.length ? `Assigned to ${assigneeLabel(ids, people, me).replace(/^Me(?=,|$)/, 'you')}` : 'Unassigned')}>
+            {(label, open) => (
+              <button type="button" onClick={open} data-assignee-picker className="w-full flex items-center gap-3 px-4 h-12 text-left">
+                <span className="text-[16px] text-foreground w-[7.5rem] shrink-0">Assigned</span>
+                <span className="flex-1 truncate text-right text-[16px] text-muted-foreground">{label}</span>
+                <ChevronRight className="w-4 h-4 text-muted-foreground/50" />
+              </button>
+            )}
+          </AssigneePicker>
         ) : (
           <div className="flex items-center gap-3 px-4 h-12">
             <span className="text-[16px] text-foreground w-[7.5rem]">Assigned</span>

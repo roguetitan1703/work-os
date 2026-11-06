@@ -80,7 +80,7 @@ The check: `tests/scope-check.mjs` runs as `prebuild` and in the tenancy suite. 
 
 Comment edits: an agent may edit only entries of the same agent for the same user. A person may edit their own entries and those of their agents.
 
-**Recipients.** `recipientOf(task)` = the assignee of a shared task, else the owner.
+**Recipients.** `recipientsOf(task)` = the assignees of a shared task, else the owner.
 - Alerts are computed per person (`recipientFilter`) with that person's settings.
 - The cron iterates every membership and writes `alerts:<userId>`.
 - Unblocked alerts are queued to the waiting task's recipient. Dispatcher outcomes go to the person who gave the task to Claude.
@@ -189,12 +189,12 @@ The role and member-name caches now live on `globalThis` and are cleared in the 
 
 To erase someone's data, delete it by hand in the database (no tool yet).
 
-**Assignee** (`lib/data/tasks.ts`):
-- Any member can be assigned to a task in a project shared with everyone; in a project shared with chosen people, only the people on its list (`canBeAssigned` in lib/assignees.ts: someone who can see the task).
+**Assignees** (`lib/data/tasks.ts`; several per task since Work OS #165, stored as `assigneeIds`, see HANDOVER §2):
+- Any members can be assigned to a task in a project shared with everyone; in a project shared with chosen people, only people on its list (`canBeAssigned` in lib/assignees.ts: someone who can see the task; checked for every assignee).
 - A private task can be assigned only to its owner. Anyone else is refused ("move it to a shared project first"), in the app, MCP and `apply_changes`.
 - A task that becomes private loses an assignee who is not its owner. This holds when the task moves out of its shared project, when its project is made private, and when it is restored into a private place.
 - History records the change by name ("assignee Bea → —").
-- Input: `assignee` on `TaskInput`/`TaskPatch`: a member's user id or email, `me`, or null to clear. Someone outside the organization is refused. `findMember` falls back to the database for someone who joined in the last minute.
+- Input: `assignees` (the whole list) or `assignee` (one) on `TaskInput`/`TaskPatch`: members' user ids or emails, `me`, or null to clear; each new one is alerted. Someone outside the organization is refused. `findMember` falls back to the database for someone who joined in the last minute.
 
 **Alerts to the assignee.**
 - `recipientOf` was already "the assignee of a shared task, else its owner", and the cron, unblocked alerts and Claude Code notices all use it.

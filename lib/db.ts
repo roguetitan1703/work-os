@@ -18,7 +18,9 @@ export type Placed = { orgId: string; ownerId: string; visibility: Visibility; /
 export type TaskDoc = Placed & {
   _id: string;
   ref: number;
-  /** Gets the task's alerts (when the task is shared); else the owner does. */
+  /** Get the task's alerts (when the task is shared); else the owner does. Read through assigneesOf (lib/assignees.ts). */
+  assigneeIds?: string[];
+  /** Before several assignees: the one assignee. Read only (scripts/migrate-assignees.mjs moves it into assigneeIds). */
   assigneeId?: string | null;
   title: string;
   description: string;

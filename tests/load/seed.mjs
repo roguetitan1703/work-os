@@ -81,7 +81,7 @@ for (let i = 0; i < TASKS; i++) {
   const due = !open ? (rnd() < 0.5 ? day(-Math.floor(rnd() * 60)) : null) : r < 0.12 ? day(-1 - Math.floor(rnd() * 10)) : r < 0.18 ? day(0) : r < 0.5 ? day(1 + Math.floor(rnd() * 20)) : null;
   const t = {
     _id: 'lt' + i, ref: i + 1, orgId, ownerId, visibility: proj ? proj.visibility : rnd() < 0.5 ? 'org' : 'private',
-    assigneeId: shared && rnd() < 0.6 ? pick(people).userId : null,
+    assigneeIds: shared && rnd() < 0.6 ? [pick(people).userId] : [],
     title: `${pick(['Fix', 'Ship', 'Review', 'Write', 'Plan', 'Call', 'Send', 'Check'])} ${pick(['invoice export', 'login page', 'lead list', 'webhook retries', 'pricing page', 'onboarding mail', 'report', 'contract'])} ${i + 1}`,
     description: rnd() < 0.5 ? para.repeat(1 + Math.floor(rnd() * 4)) : '',
     mode: rnd() < 0.8 ? pick(MODES) : null, projectId: proj?._id ?? null,
