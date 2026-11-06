@@ -39,6 +39,7 @@ dispatcher-trust|dispatcher-trust.mjs|none|discord
 launcher-backend|launcher-backend.mjs|none|plain
 turbo|turbo.mjs|none|plain
 vscode-reopen|vscode-reopen.mjs|none|plain
+connect|connect.mjs|none|plain
 recurring|recurring.mjs|none|plain
 subtasks|subtasks.mjs|none|plain
 usage|usage.mjs|none|plain

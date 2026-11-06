@@ -79,7 +79,7 @@ await runAssertSuite('settings', async () => {
       await q.fill('zzzz');
       assert.equal(await p.locator('nav a[data-section]').count(), 0); assert.equal(await p.locator('[data-settings-nomatch]').count(), 1);
       await q.fill('');
-      assert.equal(await p.locator('nav a[data-section]').count(), 6, 'all six sections for the operator');
+      assert.equal(await p.locator('nav a[data-section]').count(), 7, 'all seven sections for the operator');
       await q.fill('server'); await q.press('Enter'); await p.waitForURL(/section=server/);
       console.log('desktop search ok');
     }
@@ -210,7 +210,7 @@ await runAssertSuite('settings', async () => {
     assert.equal(await p.locator('[data-usage]').count(), 0, `${who}: no Usage`);
     assert.equal(await p.locator('text=Setup and registration').count(), 0, `${who}: no Discord registration`);
     if (who === 'member') {
-      assert.deepEqual(secs, ['account', 'notifications', 'connections', 'started', 'team'], 'a member has no Server');
+      assert.deepEqual(secs, ['account', 'notifications', 'connections', 'ai-tools', 'started', 'team'], 'a member has no Server');
       assert.equal(await p.locator('[data-server]').count(), 0, 'member: ?section=server shows the first section instead');
       await p.goto(B + '/settings?section=team'); await p.waitForSelector('[data-members]');
       assert.equal(await p.locator('[data-title-action]').count(), 0, 'member: no Invite');

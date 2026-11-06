@@ -154,6 +154,23 @@ export function createCore(deps) {
         await deps.openVscode({ folder: l.dir, sessionId: job.sessionId });
         return { id, ok: true };
       }
+      if (job.kind === 'desktop') {
+        // Open Claude Desktop's Code tab on a linked folder with the first message filled in (worker/desktop.mjs). The same
+        // linked-folder check as a start; the person confirms the folder in Claude Desktop and presses Enter.
+        const dl = links.find((l) => l.folderId === job.folderId);
+        if (!dl || !dl.projectId) return { id, ok: false, error: 'folder not linked to a project' };
+        if (!deps.openDesktop) return { id, ok: false, error: 'Opening Claude Desktop is not available on this computer' };
+        if (getConfig().allowPrompts === false) return { id, ok: false, error: 'This computer does not pass first messages on (allowPrompts is off), so Claude Desktop would open without the task' };
+        // A job offered again (same id) opens nothing more; and no more than OPEN_MAX_PER_MIN opens a minute, like VS Code.
+        const t = now();
+        const opens = (state.desktopOpens = (state.desktopOpens || []).filter((o) => t - o.at < OPEN_WINDOW_MS));
+        if (opens.some((o) => o.jobId === id)) return { id, ok: true };
+        if (opens.length >= OPEN_MAX_PER_MIN) return { id, ok: false, error: 'Too many opens at once, try again in a minute' };
+        opens.push({ jobId: id, at: t });
+        save();
+        await deps.openDesktop({ folder: v.dir, prompt: job.prompt });
+        return { id, ok: true };
+      }
       if (job.kind === 'stop') {
         const s = state.sessions[job.sessionId];
         if (!s) return { id, ok: false, error: 'unknown session' };

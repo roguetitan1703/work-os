@@ -11,6 +11,7 @@ import { install, uninstall } from './install.mjs';
 import { runSetup, checkPrereqs } from './setup.mjs';
 import { collectActivity, sessionLocal } from './activity.mjs';
 import { openInVscode, resolveCode } from './vscode.mjs';
+import { openInDesktop } from './desktop.mjs';
 import { connectPush } from './push.mjs';
 import { startUpdateCheck } from './update.mjs';
 
@@ -31,8 +32,9 @@ async function run() {
     if (!codePath) codePath = resolveCode(loadConfig().roots);
     return openInVscode({ codePath, folder, sessionId });
   };
+  const openDesktop = ({ folder, prompt }) => openInDesktop({ folder, prompt });
   const onlyRoots = () => { const c = loadConfig(); return c.sessionsInRootsOnly ? c.roots : null; };
-  const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, sessionLocal: (sid) => sessionLocal(sid), openVscode, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots() }) });
+  const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, sessionLocal: (sid) => sessionLocal(sid), openVscode, openDesktop, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots() }) });
   let loop = null;
   const push = connectPush({ getCfg: loadConfig, getToken, onWake: () => loop?.wake(), onUp: (up) => { log(up ? 'push connected' : 'push disconnected'); loop?.wake(); }, log });
   loop = createLoop({ core, getConfig: loadConfig, state, log, pushUp: () => push.up });

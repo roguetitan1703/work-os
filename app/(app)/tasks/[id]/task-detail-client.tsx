@@ -6,7 +6,7 @@ import { ActorName } from '@/components/actor-badge';
 import { BackLink } from '@/components/back-link';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
-import { ArrowLeft, Archive, ArchiveRestore, Bot, CheckCircle2, ChevronRight, ExternalLink, MoreHorizontal, Plus, Trash2, TrendingUp, X } from 'lucide-react';
+import { ArrowLeft, Archive, ArchiveRestore, Bot, CheckCircle2, SquareTerminal, ChevronRight, ExternalLink, MoreHorizontal, Plus, Trash2, TrendingUp, X } from 'lucide-react';
 import {
   addCommentAction,
   checklistAction,
@@ -21,7 +21,7 @@ import { PrioritySelect, StatusSelect } from '@/components/inline-selects';
 import { ProgressDialog } from '@/components/progress-dialog';
 import { DeleteTaskDialog } from '@/components/trash-controls';
 import { ResponsiveSheet } from '@/components/responsive-sheet';
-import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, claudeMenuLabel } from '@/components/give-to-claude';
+import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, OpenInClaudeCodeSheet, claudeMenuLabel } from '@/components/give-to-claude';
 import { useApp, useModes } from '@/components/app-context';
 import { fmtAgo, fmtDue } from '@/lib/format';
 import type { Mode, Recurrence, Task, TaskPatch } from '@/lib/types';
@@ -43,6 +43,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents, 
   const [pending, start] = useTransition();
   const [progressOpen, setProgressOpen] = useState(false);
   const [claudeOpen, setClaudeOpen] = useState(false);
+  const [ccOpen, setCcOpen] = useState<'terminal' | 'desktop' | null>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [moreDetails, setMoreDetails] = useState(false);
@@ -118,12 +119,23 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents, 
             <Bot className="w-3.5 h-3.5" /> {claudeMenuLabel(task)}
           </Button>
         )}
+        {!task.archived && (
+          <>
+            <Button size="sm" variant="outline" className="gap-1.5 h-8" data-cc-open-menu onClick={() => setCcOpen('terminal')}>
+              <SquareTerminal className="w-3.5 h-3.5" /> Open in Claude Code
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5 h-8" data-cd-open-menu onClick={() => setCcOpen('desktop')}>
+              <Bot className="w-3.5 h-3.5" /> Open in Claude Desktop
+            </Button>
+          </>
+        )}
         <Button size="sm" variant="ghost" className="h-8 w-8 p-0 ml-auto text-muted-foreground" aria-label="Task options" data-task-options onClick={() => setOptionsOpen(true)}>
           <MoreHorizontal className="w-4 h-4" />
         </Button>
       </div>
 
       {claudeOpen && <ClaudeMarkSheet task={task} onClose={() => setClaudeOpen(false)} />}
+      {ccOpen && <OpenInClaudeCodeSheet task={task} mode={ccOpen} onClose={() => setCcOpen(null)} />}
       {optionsOpen && (
         <ResponsiveSheet title={`Task #${task.ref}`} onClose={() => setOptionsOpen(false)}>
           <div className="space-y-1 pb-2" data-task-options-menu>
