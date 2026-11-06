@@ -8,6 +8,7 @@ import { getDb } from './db';
 import { mailConfigured, mailErrorMessage, sendMail, takeMailSlot } from './mail';
 import { forgetMembers } from './people';
 import { revokeKeysIn } from './api-keys';
+import { removeFeed } from './calendar-feed';
 import { dropOAuth } from './oauth';
 import { releaseMember } from './data/team';
 import { closeFor } from './live';
@@ -185,6 +186,7 @@ async function releaseAccess(orgId: string, userId: string): Promise<{ computers
   // Invitations they sent and that are still open die with their access (they may hold the links).
   await db.collection('invitation').updateMany({ organizationId: idIn(orgId), inviterId: idIn(userId), status: 'pending' }, { $set: { status: 'canceled' } });
   const keys = (await revokeKeysIn(userId, orgId)) + (await dropOAuth(userId, orgId)); // API keys, and the apps they approved (OAuth tokens)
+  await removeFeed({ userId, orgId }); // their calendar link
   const rest = await releaseMember(orgId, userId);
   // Their open pages and workers lose their push streams now (a reconnect is refused: no session, no membership).
   closeFor(orgId, userId);

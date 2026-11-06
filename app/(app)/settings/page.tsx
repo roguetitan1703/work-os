@@ -6,6 +6,7 @@ import { SubHeader } from '@/components/mobile/sub-header';
 import { logoutAction } from '@/app/actions';
 import { headers } from 'next/headers';
 import { getAuth } from '@/lib/auth-server';
+import { feedStatus } from '@/lib/calendar-feed';
 import { requireCaller, type Caller } from '@/lib/caller';
 import { isOperator } from '@/lib/operator';
 import { inviteLinkToInviter, listMembers } from '@/lib/members';
@@ -19,6 +20,7 @@ import { ui } from '@/lib/ui-tokens';
 import { ChecklistCard } from '../today/checklist-card';
 import { QuietHours, ServerAlerts } from './alerts-section';
 import { baseUrl } from './base-url';
+import { CalendarSection } from './calendar-section';
 import { Connections } from './connections';
 import { AlertsTable, InstallCard, PushCard, Row, ThemeChoice } from './device-settings';
 import { DiscordLinkPanel } from './discord-link-panel';
@@ -74,7 +76,7 @@ export default async function SettingsPage({ searchParams }: Props) {
   const body: Record<SectionId, () => React.ReactNode> = {
     account: () => <AccountPanel caller={caller} />,
     notifications: () => <NotificationsPanel caller={caller} />,
-    connections: () => <Connections caller={caller} />,
+    connections: () => <ConnectionsPanel caller={caller} />,
     started: () => <StartedPanel caller={caller} />,
     team: () => <TeamPanel caller={caller} open={sp.open} />,
     server: () => <ServerPanel caller={caller} range={sp.range} />,
@@ -157,6 +159,21 @@ async function NotificationsPanel({ caller }: { caller: Caller }) {
       <div id="discord" className="scroll-mt-6" data-notifications-discord>
         <Group title="Discord">
           <DiscordLinkPanel caller={caller} />
+        </Group>
+      </div>
+    </div>
+  );
+}
+
+/** The connections table, then the calendar link (docs/calendar.md). */
+async function ConnectionsPanel({ caller }: { caller: Caller }) {
+  const feed = await feedStatus(caller).catch(() => ({ on: false }));
+  return (
+    <div className="space-y-8">
+      <Connections caller={caller} />
+      <div id="calendar" className="scroll-mt-6">
+        <Group title="Calendar">
+          <CalendarSection initialOn={feed.on} />
         </Group>
       </div>
     </div>

@@ -12,8 +12,8 @@ import { recordRequest, requestCaller, requestKind, routePattern } from '@/lib/u
 //
 // Public: /worker/work-os-worker.mjs and /worker/latest.json (exact paths), /login, /login/reset (exact paths), /accept-invitation/<id> and Better Auth's endpoints under /api/auth
 // (app/api/auth/[...all]/route.ts serves only an allowlist of them, each checking its own session).
-// /api/mcp, /api/worker, /api/cron and /api/discord/interactions check their own credentials (API key, device key,
-// cron secret, Discord signature): the proxy lets them through untouched, as before.
+// /api/mcp, /api/worker, /api/cron, /api/calendar and /api/discord/interactions check their own credentials (API key, device key,
+// cron secret, calendar link token, Discord signature): the proxy lets them through untouched, as before.
 // Other /api routes also accept a Claude chat key (`Authorization: Bearer wos_…` or `X-API-Key`), verified here and
 // again by the route. Claude Code keys open /api/mcp only.
 //
@@ -24,7 +24,7 @@ import { recordRequest, requestCaller, requestKind, routePattern } from '@/lib/u
 // after the response (event.waitUntil); counting never changes or delays the answer.
 
 // Paths that skip the session check and check their own credentials (same prefix test the old matcher made).
-const SELF_AUTH_PREFIXES = ['/api/mcp', '/api/discord/interactions', '/api/cron', '/api/worker', '/api/auth'];
+const SELF_AUTH_PREFIXES = ['/api/mcp', '/api/discord/interactions', '/api/cron', '/api/worker', '/api/auth', '/api/calendar'];
 const selfAuth = (pathname: string) => SELF_AUTH_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'));
 // The worker download (lib/worker-bundle.ts): its source only, fetched before any key exists.
 const isPublicPage = (p: string) => p === '/worker/work-os-worker.mjs' || p === '/worker/latest.json' || p === '/login' || p === '/login/reset' || /^\/accept-invitation\/[A-Za-z0-9_-]{1,64}$/.test(p);

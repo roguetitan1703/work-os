@@ -429,6 +429,7 @@ Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings") has
 | Phone notifications | VAPID keys set and how many devices are subscribed |
 | Notes converter | the markdown ↔ blocks converter loads and works |
 
+- **Calendar link:** Settings › Connections › Calendar makes a private link (Create link, Copy, Rotate, Turn off) that Google Calendar, Outlook or Apple Calendar subscribe to: your open tasks with a start or due date, assigned to you or owned by you, all-day, one-way. Design and rules: `docs/calendar.md`.
 - **App:** one Settings page with sections This device (push, theme, test, sign out), Alerts, Security, Connections (Claude chat, Discord; Claude Code keys and computers are in Claude › Setup), Usage and Help; status strip on top.
 - **Usage:** our own request log, requests in the last 24 h and 7 days, per hour, per day, and the top routes by kind (page load, page data, action, API) and caller (browser, worker, Claude, cron, Discord, no sign-in). Static files are not counted. How it works: `docs/usage-log.md` (`proxy.ts` → `lib/usage.ts` → `requestStats`, 35 days).
 

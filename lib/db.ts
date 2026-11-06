@@ -360,6 +360,8 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['policyEvents', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { keyId: 1, kind: 1, at: -1 }, name: 'key_kind_at' }]],
     ['mailLog', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { kind: 1, at: -1 }, name: 'kind_at' }, { key: { kind: 1, to: 1, at: -1 }, name: 'kind_to_at' }]],
     ['requestStats', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 35 * 86_400 }]],
+    // The calendar link (docs/calendar.md): one row per person per organization, found by the hash of its token.
+    ['calendarFeeds', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]],
     ['authLimits', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 3600 }, { key: { key: 1, at: -1 }, name: 'key_at' }]],
     // Better Auth's collections (lib/auth-server.ts): its MongoDB adapter creates no indexes. A session is read by its
     // token whenever the cookie cache runs out (every 2 minutes per person), a member on every role check, an API key on
