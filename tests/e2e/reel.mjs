@@ -12,7 +12,7 @@ const TOKEN = process.env.IG_PAGE_TOKEN;
 const ACCT = process.env.IG_ACCOUNT_ID;
 
 const calls = []; // { method, path, auth, urlHasToken }
-const state = { inProgress: 0, publish5xx: 0 };
+const state = { inProgress: 0, publish5xx: 0, lost: 0 };
 const server = http.createServer((req, res) => {
   let body = '';
   req.on('data', c => (body += c));
@@ -20,11 +20,13 @@ const server = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
     calls.push({ method: req.method, path: u.pathname, auth: req.headers.authorization, urlHasToken: req.url.includes(TOKEN) || body.includes(TOKEN) });
     const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };
-    const m = u.pathname.match(/^\/v23\.0\/(\d+)(\/media_publish)?$/);
+    const m = u.pathname.match(/^\/v23\.0\/(\d+)(\/media_publish|\/media)?$/);
     if (!m) return send(404, { error: { message: 'unknown path' } });
     const id = m[1];
     if (req.headers.authorization !== `Bearer ${TOKEN}` && id !== '10000005') return send(401, { error: { message: 'bad auth' } });
+    if (m[2] === '/media') return send(200, { data: [{ id: '910000008', permalink: 'https://www.instagram.com/reel/910000008/' }] });
     if (m[2]) {
+      if (creation8(body)) return state.lost++ === 0 ? req.socket.destroy() : send(400, { error: { message: 'The media is already published' } });
       const creation = new URLSearchParams(body).get('creation_id');
       if (creation === '10000003' && state.publish5xx++ < 2) return send(503, { error: { message: 'temporarily unavailable' } });
       if (creation === '10000006') return send(400, { error: { message: 'Media ID is not available' } });
@@ -32,6 +34,7 @@ const server = http.createServer((req, res) => {
     }
     if (id === '10000005') return send(400, { error: { message: `Invalid OAuth access token - Cannot parse access token (${TOKEN})`, code: 190 } });
     if (id.startsWith('9')) return send(200, { permalink: `https://www.instagram.com/reel/${id}/`, timestamp: '2030-01-01T00:00:00+0000' });
+    if (id === '10000008') return send(200, { status_code: state.lost ? 'PUBLISHED' : 'FINISHED' });
     if (id === '10000002') return send(200, { status_code: 'ERROR', status: 'Error: Video codec not supported' });
     if (id === '10000007' && state.inProgress++ < 2) return send(200, { status_code: 'IN_PROGRESS' });
     send(200, { status_code: 'FINISHED' });
@@ -39,6 +42,7 @@ const server = http.createServer((req, res) => {
 });
 await new Promise(r => server.listen(PORT, '127.0.0.1', r));
 
+function creation8(body) { return new URLSearchParams(body).get('creation_id') === '10000008'; }
 const now = () => Math.floor(Date.now() / 1000);
 const call = (body, auth = `Bearer ${CRON}`, qs = '') => fetch(`${B}/api/cron/reel${qs}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(auth ? { authorization: auth } : {}) }, body: typeof body === 'string' ? body : JSON.stringify(body) });
 const inbox = post => rawDb.collection('notifications').find({ userId: ME.userId, title: new RegExp(`^Reel ${post} `) }).toArray();
@@ -110,6 +114,31 @@ try {
   const ti = JSON.stringify(await inbox('tok1'));
   check('alert has the reason and not the token', /Invalid OAuth access token/.test(ti) && !ti.includes(TOKEN) && ti.includes('[token]'), ti);
   check('the token is nowhere in the stored notifications', !JSON.stringify(await rawDb.collection('notifications').find({}).toArray()).includes(TOKEN));
+  // ---- a publish that timed out but went out: the retry gets a 4xx, the reel is live, not "NOT posted" ----
+  calls.length = 0;
+  const lost = await call({ post: 'lost1', container: '10000008', slot: now() });
+  const lj = await lost.json();
+  check('lost answer then 4xx, but PUBLISHED -> reported as live', lost.status === 200 && lj.published === true && lj.permalink === 'https://www.instagram.com/reel/910000008/', JSON.stringify(lj));
+  const li = await inbox('lost1');
+  check('the owner got "is live", not "NOT posted"', li.length === 1 && /is live$/.test(li[0].title), JSON.stringify(li));
+  check('it looked before giving up: publish twice, then the container and the latest media', calls.filter(c => c.path.endsWith('/media_publish')).length === 2 && calls.some(c => c.path.endsWith('/media')));
+
+  // ---- nobody can be told: logged and shown in the response ----
+  const owners = await rawDb.collection('member').find({ role: 'owner' }).toArray();
+  await rawDb.collection('member').updateMany({ role: 'owner' }, { $set: { role: 'member' } });
+  try {
+    const na = await call({ post: 'noown1', container: '10000001', slot: now() - 40 * 60 });
+    const nj = await na.json();
+    check('failure with no owner: error and alertError "no owner"', na.status === 502 && /past its slot/.test(nj.error) && nj.alertError === 'no owner', JSON.stringify(nj));
+    const nb = await call({ post: 'noown2', container: '10000001', slot: now() });
+    const nk = await nb.json();
+    check('success with no owner: still published, alertError "no owner"', nb.status === 200 && nk.published === true && nk.alertError === 'no owner', JSON.stringify(nk));
+    check('alertError carries no token', !JSON.stringify([nj, nk]).includes(TOKEN));
+  } finally {
+    for (const o of owners) await rawDb.collection('member').updateOne({ _id: o._id }, { $set: { role: o.role } });
+  }
+  const okAgain = await (await call({ post: 'okagain', container: '10000001', slot: now() })).json();
+  check('owner restored: no alertError', okAgain.published === true && !('alertError' in okAgain), JSON.stringify(okAgain));
 } catch (e) {
   check('reel suite (error)', false, e?.stack || String(e));
 }

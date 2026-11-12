@@ -615,7 +615,7 @@ Not set on the server:
 - Caller: a one-shot systemd timer per post, with `Authorization: Bearer $CRON_SECRET` (the header only) and body `{"post":"<id>","container":"<digits>","slot":<epoch seconds>}`. The call waits for the whole run (up to about 8 minutes).
 - It does not publish more than 30 minutes after the slot; it waits up to 5 minutes for a processing video; it retries a network error or 5xx twice, 20 s apart; a 4xx from Instagram is not retried.
 - Env in `/etc/work-os/env`: `IG_ACCOUNT_ID`, `IG_PAGE_TOKEN` (secret), optional `IG_GRAPH_VERSION` (default `v23.0`). The token is sent only in an Authorization header and never appears in a URL, log, alert or response.
-- Tests only: `IG_GRAPH_BASE` (mock Graph server), `IG_DELAY_SCALE`.
+- Tests only: `IG_GRAPH_BASE` (mock Graph server) and `IG_DELAY_SCALE`; in production they are ignored unless `IG_E2E=1`, which only the e2e runner sets. If the owner cannot be told (no owner, every channel failed) it is logged and the response has `alertError`.
 
 ## 10. Cut-over (once, with Om)
 

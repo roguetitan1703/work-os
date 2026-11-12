@@ -34,5 +34,5 @@ export async function POST(req: Request) {
   if (typeof container !== 'string' || !/^\d{5,30}$/.test(container)) return NextResponse.json({ error: 'container: 5-30 digits' }, { status: 400 });
   if (typeof slot !== 'number' || !Number.isInteger(slot) || slot < 1_000_000_000 || slot > 10_000_000_000) return NextResponse.json({ error: 'slot: epoch seconds' }, { status: 400 });
   const r = await publishReel({ post, container, slot });
-  return r.ok ? NextResponse.json({ published: true, permalink: r.permalink }) : NextResponse.json({ error: r.error }, { status: r.status });
+  return r.ok ? NextResponse.json({ published: true, permalink: r.permalink, ...(r.alertError ? { alertError: r.alertError } : {}) }) : NextResponse.json({ error: r.error, ...(r.alertError ? { alertError: r.alertError } : {}) }, { status: r.status });
 }
