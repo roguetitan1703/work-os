@@ -617,6 +617,27 @@ Not set on the server:
 - Env in `/etc/work-os/env`: `IG_ACCOUNT_ID`, `IG_PAGE_TOKEN` (secret), optional `IG_GRAPH_VERSION` (default `v23.0`). The token is sent only in an Authorization header and never appears in a URL, log, alert or response.
 - Tests only: `IG_GRAPH_BASE` (mock Graph server) and `IG_DELAY_SCALE`; in production they are ignored unless `IG_E2E=1`, which only the e2e runner sets. If the owner cannot be told (no owner, every channel failed) it is logged and the response has `alertError`.
 
+**Scheduling** (`deploy/reel-at.sh`, `deploy/reel-publish.sh`). This uses one timer per post and never polls. `sudo work-os-reel-at <post> <container> "YYYY-MM-DD HH:MM"` (IST, at least 1 minute and at most 23 hours ahead, because a container expires 24 hours after upload) writes `/etc/systemd/system/work-os-reel-<post>.{timer,service}`:
+- **At the slot**, the service runs `work-os-reel-publish` as `workos`, which calls the route on localhost. A refused connection is retried for about 5 minutes in case the app is still starting.
+- **After the run**, the service's `ExecStopPost` (as root) removes both files.
+- **If the route could not be reached**, the app could not alert anyone either. The run is recorded in `/var/log/work-os-reel-failed.log`, and `--list` shows it.
+- **Reboots**: unit files survive a reboot (`Persistent=true`), and transient `systemd-run` timers would not.
+- **Secrets**: the service reads only `/etc/work-os/reel.env`, which holds `CRON_SECRET` and nothing else.
+
+```bash
+# install (once, and again when deploy/reel-*.sh change)
+sudo install -o root -g root -m 0755 /srv/work-os/repo/deploy/reel-at.sh /usr/local/sbin/work-os-reel-at
+sudo install -o root -g root -m 0755 /srv/work-os/repo/deploy/reel-publish.sh /usr/local/sbin/work-os-reel-publish
+sudo grep '^CRON_SECRET=' /etc/work-os/env | sudo install -o root -g workos -m 0640 /dev/stdin /etc/work-os/reel.env
+# Instagram secrets, piped from the laptop's .env, never printed; then restart the app so it reads them
+grep -E '^(IG_ACCOUNT_ID|IG_PAGE_TOKEN)=' .env | ssh <box> 'sudo tee -a /etc/work-os/env >/dev/null && sudo systemctl restart work-os'
+# use
+sudo work-os-reel-at <post> <container> "2026-11-13 19:31"     # prints work-os-reel-<post>
+sudo work-os-reel-at --list
+sudo work-os-reel-at --cancel <post>
+sudo journalctl -u work-os-reel-<post>
+```
+
 ## 10. Cut-over (once, with Om)
 
 Atlas still holds single-user data from before phase 1. `work-os-cutover` (`scripts/cutover.sh`, installed root-owned
