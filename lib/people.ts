@@ -81,3 +81,11 @@ export async function firstOrgId(): Promise<string | null> {
   const org = await db.collection('organization').find({}, { projection: { _id: 1 } }).sort({ createdAt: 1 }).limit(1).next();
   return org ? String(org._id) : null;
 }
+
+/** The owner(s) of the first organization, who run the server (the notify endpoint's recipients). Better Auth keeps the role as a comma list. */
+export async function ownerScopes(): Promise<Scope[]> {
+  const orgId = await firstOrgId();
+  if (!orgId) return [];
+  const ms = await (await getDb()).collection('member').find({ organizationId: idIn(orgId) }, { projection: { userId: 1, role: 1 } }).sort({ createdAt: 1 }).toArray();
+  return ms.filter(m => String(m.role ?? '').split(',').map(r => r.trim()).includes('owner')).map(m => ({ userId: String(m.userId), orgId }));
+}

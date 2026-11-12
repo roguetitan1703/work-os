@@ -576,6 +576,7 @@ chat or tickets.
 | `OPERATOR_EMAILS` | who runs the deployment (comma list): health, Usage, Discord registration and servers. Unset = nobody | |
 | `INVITE_LINK_TO_INVITER` | unset/`1`: the inviter also sees invitation links; `0`: by email only | |
 | `CRON_SECRET` | the alert check's header (`work-os-alerts.timer`); 16+ characters | **yes** |
+| `NOTIFY_SECRET` | the notify endpoint's header (`POST /api/cron/notify`, the reel publisher); 32+ characters, `openssl rand -hex 32`. Section 9a | **yes** |
 | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | SMTP for password reset, invitations, test mail. Without mail nobody can set a password | |
 | `EMAIL_PASSWORD` | SMTP password | **yes** |
 | `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT` | phone push | |
@@ -605,6 +606,14 @@ Not set on the server:
 - tests only: `AUTH_RATE_LIMIT`, `MAIL_CAPTURE_DIR`, `DISCORD_API_BASE` (the Delpat OS suite points `DELPAT_OS_ISSUER` at a stub);
 - build only: `NEXT_BUILD_CPUS`;
 - the worker on each PC: `WORK_OS_WORKER_DIR`, `WORK_OS_CLAUDE_JSON`, `WORK_OS_CLAUDE_PROJECTS`, `DEVICE_KEY`.
+
+### 9a. The notify endpoint
+
+`POST /api/cron/notify` lets a script on this server alert the owner through Work OS: the reel publisher's systemd timer calls it when a publish fails or runs late. It reaches the organization owner(s) only: inbox always, phone push and Discord DM when that person has them on. It ignores quiet hours (these are time-critical), allows 20 calls an hour in all, and answers `{sent, errors}` (counts and channel names).
+
+- Make the secret once: `openssl rand -hex 32` (32+ characters; shorter or unset and the endpoint answers 503).
+- Put it in `NOTIFY_SECRET` in `/etc/work-os/env` and in the publisher's own env file, and nowhere else. It is not `CRON_SECRET`, so the publisher cannot run the alert check.
+- Call: `curl -fsS -X POST http://127.0.0.1:3000/api/cron/notify -H "Authorization: Bearer $NOTIFY_SECRET" -H 'content-type: application/json' -d '{"title":"Reel failed","body":"...","url":"/tasks/12"}'` (`url` optional: a path starting with `/` or an https URL). The header only, never the URL.
 
 ## 10. Cut-over (once, with Om)
 
