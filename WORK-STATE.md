@@ -4,8 +4,8 @@
 - 2026-11-06: Akash's asks (#165): all merged on master, each security-reviewed: sharing with chosen people (#173), live refresh, several assignees, subtasks (#183), and now a personal calendar link (one-way ICS), Open in Claude Code / Claude Desktop on a task, and Settings › AI tools. The earlier "not building" list was the orchestrator's misreading. Goal: Akash and Om use them daily, so next is getting it live and trying each one on the real build. Waits on Om: chat backup (design 2 in #168).
 
 ## Next
-- Deploy master: built and uploaded to manual-builds by Claude; Om runs `sudo work-os-update`, then the assignee migration (one command, given in chat). Then try each #165 feature on work.delpat.in as Akash would, and remove the old `assigneeId` read paths.
-- 2026-10-30 build c3b39ed (turbo, Open in VS Code, Reopen all, recurring findable) is built and uploaded. Waits on Om: edit /etc/caddy/sites/work-os.caddy (lb_try lines) + reload, `sudo work-os-update`, DELPAT_OS_CLIENT_SECRET, first real turbo Start and Open in VS Code.
+- 2026-11-12: b3c4fd8 is live on the box (Akash's #165 asks, calendar link, AI tools, Open in Claude Code/Desktop, Instagram reel publisher with the cutroom laptop's book-only SSH key; assignee migration had nothing to do). Next: try each #165 feature on work.delpat.in as Akash would; first real reel booked by cutroom; remove the old `assigneeId` read paths.
+- Waits on Om: install the new Caddy site (lb_try lines, so a restart is not a 502) and reload Caddy; DELPAT_OS_CLIENT_SECRET; first real turbo Start and Open in VS Code; a reboot (Ubuntu says one is required).
 0d. Chat porting between tools (Antigravity -> Claude): test Antigravity writing a handover note over MCP with Akash; else Import chat into a note (builder S). Add Resume / handover note / /export tips to the colleague guide.
 0. Om: Discord Interactions Endpoint URL = https://work.delpat.in/api/discord/interactions, then Settings › Server › Discord › Register the commands.
 Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
