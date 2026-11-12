@@ -21,7 +21,7 @@ MAX_AHEAD_H=23          # a container expires 24 h after upload; a slot further 
 
 die() { echo "work-os-reel-at: $*" >&2; exit 2; }
 [ "$(id -u)" = 0 ] || die "run with sudo"
-valid_id() { [[ "$1" =~ ^[A-Za-z0-9_-]{1,48}$ ]]; }
+valid_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$ ]]; }
 unit() { echo "work-os-reel-$1"; }
 
 remove_units() {
@@ -67,6 +67,8 @@ NOW="$(date +%s)"
 U="$(unit "$POST")"
 [ ! -e "$UNIT_DIR/$U.timer" ] || die "$POST is already scheduled (work-os-reel-at --cancel $POST first)"
 [ -x "$RUNNER" ] || die "$RUNNER is missing (install it first)"
+n="$(find "$UNIT_DIR" -maxdepth 1 -name 'work-os-reel-*.timer' | wc -l)"
+[ "$n" -lt 50 ] || die "already $n reels scheduled (limit 50); cancel some first"
 
 cat >"$UNIT_DIR/$U.service" <<EOF
 [Unit]

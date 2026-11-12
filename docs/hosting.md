@@ -631,8 +631,12 @@ sudo install -o root -g root -m 0755 /srv/work-os/repo/deploy/reel-publish.sh /u
 sudo grep '^CRON_SECRET=' /etc/work-os/env | sudo install -o root -g workos -m 0640 /dev/stdin /etc/work-os/reel.env
 # Instagram secrets, piped from the laptop's .env, never printed; then restart the app so it reads them
 grep -E '^(IG_ACCOUNT_ID|IG_PAGE_TOKEN)=' .env | ssh <box> 'sudo tee -a /etc/work-os/env >/dev/null && sudo systemctl restart work-os'
-# use
-sudo work-os-reel-at <post> <container> "2026-11-13 19:31"     # prints work-os-reel-<post>
+# booking from the cutroom laptop: one key that can only book, list or cancel (deploy/reel-ssh.sh parses its command)
+sudo install -o root -g root -m 0755 /srv/work-os/repo/deploy/reel-ssh.sh /usr/local/sbin/work-os-reel-ssh
+echo 'restrict,command="/usr/local/sbin/work-os-reel-ssh" <the laptop public key>' >> ~ubuntu/.ssh/authorized_keys
+#   laptop: ssh -i ~/.ssh/kkt_reel ubuntu@<box> book <post> <container> 2026-11-13 19:31 | list | cancel <post>
+# use (on the box)
+sudo work-os-reel-at <post> <container> "2026-11-13 19:31"     # prints work-os-reel-<post>, at most 50 scheduled
 sudo work-os-reel-at --list
 sudo work-os-reel-at --cancel <post>
 sudo journalctl -u work-os-reel-<post>
