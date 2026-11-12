@@ -50,7 +50,7 @@ oauth|oauth.mjs|none|plain
 oauth-limits|oauth-limits.mjs|none|plain
 sharing|sharing.mjs|none|plain
 calendar|calendar.mjs|none|plain
-notify|notify.mjs|none|plain
+reel|reel.mjs|none|reel
 push|push.mjs|none|plain
 live|live.mjs|none|plain
 budgets|budgets.mjs|none|plain
@@ -60,7 +60,6 @@ discord-link|discord-link.mjs|none|discord
 leak-audit|leak-audit.mjs|none|discord
 delpat-os|delpat-os.mjs|none|delpat
 delpat-os-off|delpat-os-off.mjs|none|plain
-notify-off|notify-off.mjs|none|nonotify
 ${E2E_EXTRA:-}
 "
 
@@ -130,7 +129,6 @@ export AUTH_RATE_LIMIT="${E2E_AUTH_RATE_LIMIT:-off}"
 # Mail is written as JSON files here instead of being sent (lib/mail.ts); the auth suite reads reset links from it.
 export MAIL_CAPTURE_DIR="$TMP/mail" E2E_STATE="$TMP/state.json"
 export CRON_SECRET=testcron-e2e-0123456789abcdef
-export NOTIFY_SECRET=testnotify-e2e-0123456789abcdef0123456789abcdef
 # Server actions use a key from the environment, as on the server (docs/hosting.md "The build's secrets"); fresh per run.
 export NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")"
 # The e2e owner runs the deployment (lib/operator.ts): health, Discord registration and servers, Usage.
@@ -177,12 +175,16 @@ start_server() {
   else
     export DELPAT_OS_CLIENT_ID= DELPAT_OS_CLIENT_SECRET= DELPAT_OS_ISSUER= E2E_NO_SINGLE_FLIGHT=
   fi
-  if [ "$1" = nonotify ]; then unset NOTIFY_SECRET; else export NOTIFY_SECRET=testnotify-e2e-0123456789abcdef0123456789abcdef; fi
   if [ "$1" = discord ]; then
     export DISCORD_BOT_TOKEN=test-bot-token DISCORD_APPLICATION_ID=222222222222222222
     export DISCORD_PUBLIC_KEY="$E2E_DISCORD_PUB" DISCORD_API_BASE="http://127.0.0.1:$DPORT"
   else
     export DISCORD_BOT_TOKEN= DISCORD_APPLICATION_ID= DISCORD_PUBLIC_KEY= DISCORD_API_BASE=
+  fi
+  if [ "$1" = reel ]; then
+    export IG_GRAPH_BASE="http://127.0.0.1:$DPORT" IG_ACCOUNT_ID=17841400000000001 IG_PAGE_TOKEN=e2e-ig-token-SECRETVALUE-0123456789 IG_DELAY_SCALE=0.01
+  else
+    export IG_GRAPH_BASE= IG_ACCOUNT_ID= IG_PAGE_TOKEN= IG_DELAY_SCALE=
   fi
   (cd "$ROOT" && exec npx next start -p $APORT) >"$TMP/server.log" 2>&1 &
   SERVER_PID=$!

@@ -17,7 +17,6 @@ if (!/^workos_e2e/.test(DBNAME)) throw new Error('MONGODB_DB must start with wor
 
 export const B = process.env.E2E_BASE || 'http://localhost:3281';
 export const CRON = need('CRON_SECRET');
-export const NOTIFY = process.env.NOTIFY_SECRET ?? '';
 const SECRET = need('BETTER_AUTH_SECRET');
 export const SP = process.env.E2E_SHOTS || path.join(os.tmpdir(), 'wos-e2e-shots');
 fs.mkdirSync(SP, { recursive: true });
