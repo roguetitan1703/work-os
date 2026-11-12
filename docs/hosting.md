@@ -576,6 +576,8 @@ chat or tickets.
 | `OPERATOR_EMAILS` | who runs the deployment (comma list): health, Usage, Discord registration and servers. Unset = nobody | |
 | `INVITE_LINK_TO_INVITER` | unset/`1`: the inviter also sees invitation links; `0`: by email only | |
 | `CRON_SECRET` | the alert check's header (`work-os-alerts.timer`); 16+ characters | **yes** |
+| `IG_ACCOUNT_ID`, `IG_GRAPH_VERSION` | Instagram reels (section 9a): the account id; Graph version (default `v23.0`) | |
+| `IG_PAGE_TOKEN` | Instagram reels: the Page access token, sent only in an Authorization header | **yes** |
 | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | SMTP for password reset, invitations, test mail. Without mail nobody can set a password | |
 | `EMAIL_PASSWORD` | SMTP password | **yes** |
 | `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT` | phone push | |
@@ -605,6 +607,15 @@ Not set on the server:
 - tests only: `AUTH_RATE_LIMIT`, `MAIL_CAPTURE_DIR`, `DISCORD_API_BASE` (the Delpat OS suite points `DELPAT_OS_ISSUER` at a stub);
 - build only: `NEXT_BUILD_CPUS`;
 - the worker on each PC: `WORK_OS_WORKER_DIR`, `WORK_OS_CLAUDE_JSON`, `WORK_OS_CLAUDE_PROJECTS`, `DEVICE_KEY`.
+
+### 9a. Instagram reels
+
+`POST /api/cron/reel` publishes a prepared Instagram reel (a media container made earlier) at its slot, then alerts the owner(s): "Reel <post> is live" with the link, or "Reel <post> was NOT posted: <reason>. Post it from your phone." Alerts go to the inbox, phone push and Discord DM, ignoring quiet hours. Code: `lib/instagram.ts`.
+
+- Caller: a one-shot systemd timer per post, with `Authorization: Bearer $CRON_SECRET` (the header only) and body `{"post":"<id>","container":"<digits>","slot":<epoch seconds>}`. The call waits for the whole run (up to about 8 minutes).
+- It does not publish more than 30 minutes after the slot; it waits up to 5 minutes for a processing video; it retries a network error or 5xx twice, 20 s apart; a 4xx from Instagram is not retried.
+- Env in `/etc/work-os/env`: `IG_ACCOUNT_ID`, `IG_PAGE_TOKEN` (secret), optional `IG_GRAPH_VERSION` (default `v23.0`). The token is sent only in an Authorization header and never appears in a URL, log, alert or response.
+- Tests only: `IG_GRAPH_BASE` (mock Graph server) and `IG_DELAY_SCALE`; in production they are ignored unless `IG_E2E=1`, which only the e2e runner sets. If the owner cannot be told (no owner, every channel failed) it is logged and the response has `alertError`.
 
 ## 10. Cut-over (once, with Om)
 

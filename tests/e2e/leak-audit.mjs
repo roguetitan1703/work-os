@@ -997,6 +997,7 @@ function AUDIT() {
   const cronProbe = m => ({ kind: 'route', ok: r => two(r.status), call: ({ p }) => req(m, '/api/cron/alerts?dry=1', { cookie: p.cookie, bearer: p.chat }), control: false /* the CRON_SECRET holder is the server timer; the alert suites run it */ });
   add('route GET /api/cron/alerts', cronProbe('GET'));
   add('route POST /api/cron/alerts', cronProbe('POST'));
+  add('route POST /api/cron/reel', { kind: 'route', ok: r => two(r.status), call: ({ p }) => req('POST', '/api/cron/reel', { cookie: p.cookie, bearer: p.chat, body: { post: 'lkq', container: '10000001', slot: 1900000000 } }), control: false /* the CRON_SECRET holder is the server timer; the reel suite runs it */ });
   add('route POST /api/discord/interactions', { kind: 'route', ok: r => two(r.status), call: () => req('POST', '/api/discord/interactions', { body: '{"type":1}', headers: { 'x-signature-ed25519': '00'.repeat(64), 'x-signature-timestamp': String(Math.floor(Date.now() / 1000)) } }), label: 'unsigned', control: false });
   add('route GET /worker/work-os-worker.mjs', route('GET', '/worker/work-os-worker.mjs', { public: true }));
   add('route GET /worker/latest.json', route('GET', '/worker/latest.json', { public: true }));
@@ -1165,6 +1166,9 @@ function MISUSE({ A, T, X, R }) {
   L('a chat key on /api/cron/alerts', () => req('GET', '/api/cron/alerts?dry=1', { bearer: A.chat }));
   L('the cron secret in the query', () => req('GET', `/api/cron/alerts?dry=1&key=${CRON}`));
   L('a session cookie on /api/cron/alerts', () => req('GET', '/api/cron/alerts?dry=1', { cookie: A.cookie }));
+  L('a chat key on /api/cron/reel', () => req('POST', '/api/cron/reel', { bearer: A.chat, body: { post: 'lkq', container: '10000001', slot: 1900000000 } }));
+  L('a session cookie on /api/cron/reel', () => req('POST', '/api/cron/reel', { cookie: A.cookie, body: { post: 'lkq', container: '10000001', slot: 1900000000 } }));
+  L('the cron secret in the query on /api/cron/reel', () => req('POST', `/api/cron/reel?key=${CRON}`, { body: { post: 'lkq', container: '10000001', slot: 1900000000 } }));
   L('a chat key on /api/discord/interactions', () => req('POST', '/api/discord/interactions', { bearer: A.chat, body: { type: 2, data: { name: 'today' } } }));
   L('Better Auth API key endpoints (not served)', () => req('POST', '/api/auth/api-key/create', { cookie: A.cookie, body: { name: 'lkq' } }));
   L('Better Auth sign-up (closed)', () => req('POST', '/api/auth/sign-up/email', { body: { email: 'lkqsignup@example.test', password: 'lkq-password-9', name: 'x' } }));
