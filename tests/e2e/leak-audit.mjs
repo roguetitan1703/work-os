@@ -746,6 +746,16 @@ try {
     check('needs: a project made private takes its Needs along (stamped private to its owner)', doc?.visibility === 'private' && doc.ownerId === A.userId && !(doc.sharedWith ?? []).length, JSON.stringify([doc?.visibility, doc?.ownerId === A.userId]));
     check('needs: ...so a member who read them before cannot read, ask on, withdraw or answer them', tBefore === 1 && !tList.ok && !tAll.text.includes(marker) && !tAsk.ok && !tWd.ok && (tAns.value?.ok === false || tAns.error) && after.status === 'open' && !(await rawDb.collection('needs').countDocuments({ projectId: doc.projectId, 'from.actor.userId': T.userId })), JSON.stringify([tBefore, tList.ok, tAll.text.includes(marker), tAsk.ok, tWd.ok, tAns.value, after.status]));
     check('needs: ...and the owner still reads them', (await mustMcp(A.chat, 'needs', { project: q })).needs.length === 1);
+    // Discord may steer, never release: an app-only Need (asked so, or by its words) and a review are refused even to their addressee's own linked account
+    const appNeed = (await mustMcp(A.chat, 'ask', { project: q, to: 'me', kind: 'approve', ask: `${marker} app only`, app_only: true })).need.id;
+    const wordNeed = (await mustMcp(A.chat, 'ask', { project: q, to: 'me', kind: 'do', ask: `${marker} deploy to production` })).need.id;
+    const revNeed = (await mustMcp(A.chat, 'ask', { project: q, to: 'me', kind: 'chase', ask: `${marker} review` })).need.id;
+    await rawDb.collection('needs').updateOne({ _id: revNeed }, { $set: { kind: 'review' } });
+    const dcPress = async (id, opt) => (await interact(null, DA, 3, { custom_id: `wo:need:${id}:${opt}`, component_type: 2 })).text;
+    const pApp = await dcPress(appNeed, 'yes'), pWord = await dcPress(wordNeed, 'done'), pRev = await dcPress(revNeed, 'done');
+    const stillOpen = async id => (await rawDb.collection('needs').findOne({ _id: id }))?.status === 'open';
+    check('needs: an app-only Need, a Need whose words make it app-only and a review are refused when their addressee presses them in Discord', [pApp, pWord, pRev].every(t => /"type":\s*4/.test(t) && !/"type":\s*7[,}]/.test(t)) && (await stillOpen(appNeed)) && (await stillOpen(wordNeed)) && (await stillOpen(revNeed)), JSON.stringify([pApp, pWord, pRev]).slice(0, 400));
+    await rawDb.collection('needs').updateMany({ _id: { $in: [appNeed, wordNeed, revNeed] } }, { $set: { status: 'withdrawn', closedAt: new Date() } }); // so they do not count against the five open Needs per asker
     await sleep(2000); // the alerts these asks queued are flushed (after the response) before the first persona's writes are measured
   }
   const aimedOrScan = probes.filter(pr => !pr.ownerOnly);
