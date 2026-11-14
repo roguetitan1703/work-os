@@ -7,7 +7,9 @@ This covers the "first three to build" of docs/PRODUCT.md section 8. Step 1's de
 What Om can do when all three land:
 - close the laptop mid-work, start a fresh session anywhere, in any AI, and lose nothing;
 - drop an idea or a message from any chat into a project, and the next session picks it up;
-- see one list of what waits on him, answer from the phone or Discord, accept or send back an agent's work;
+- see one list of what waits on him, answer from the phone or Discord, accept or send back an agent's work in the
+  app (reviews release work, so they are not answered from Discord; nor is anything touching production, money or
+  credentials);
 - get one digest each morning, and the team one message;
 - see who is working on what and where, and which projects could be running but aren't.
 
