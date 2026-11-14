@@ -1,19 +1,21 @@
 # Work state
 
 ## Now
-- 2026-11-15: Building steps 1–3 of PRODUCT.md section 8 as seven slices (docs/flows/plan-1-3.md, Fable-reviewed; step 1 detail in docs/flows/step-1.md). Batch 1 in progress: slice 1 (State, Orders, start_work, presence, "for you") in builder B; slice 2 (personal digest) in builder S.
+- 2026-11-15: Steps 1–3 of PRODUCT.md section 8 (docs/flows/plan-1-3.md) are built and merged into local master (09a9227): State, Orders, start_work, presence and "for you", personal and team digests, messages, Needs, results and review, Discord Need buttons, the roster. Each slice was security-reviewed, and so was the merged whole, whose four should-fix items are fixed (d1777a3). The full e2e run passed 56 of 57 suites (budgets "load /today" 10 of 8 is flaky: passed in two of four runs). The touched suites rerun green. Not pushed: waiting on b9f11d3 going live.
 
 ## Next
-1. Deploy b9f11d3 (notes trash, HANDOVER, PRODUCT.md): build uploaded to manual-builds, then Om runs `sudo work-os-update`. Commit nothing to origin/master until it is live.
-2. Batch 1: slices 1 and 2 merged after a security review; slice 1b (SessionStart / Stop hooks, builder S); nightly on-box mongodump; deploy; cutroom and Work OS import their WORK-STATE.
-3. Batch 2: slice 3 (messages, builder B) ∥ slice 4 (Needs, builder A), security review.
-4. Batch 3: slice 5 (results and review) ∥ slice 6 (full digest, team digest, Discord buttons).
-5. Batch 4: slice 7 (the roster).
-6. Om's hands (none block batch 1's build): R2 bucket + token + age key for off-box backups; Send test for alerts (C51); Discord Interactions URL + Register (slice 6 buttons); Caddy lb_try site + reload; reboot after the pm2 check.
-- Agreed 14 Nov: the long-running cloud dispatcher (Sonnet) also listens on the Discord bot (#267, PRODUCT.md 6.5); model routing think → Opus, do → Sonnet, chore → Haiku (6.2a; Om's global "No Haiku" line still to update); the second Claude account is kept for this work only (the dispatcher), not given to interns.
+1. Om: `sudo work-os-update` for b9f11d3 (its build is in manual-builds). Commit nothing to origin/master until it is live.
+2. Then push master (5c088e6..09a9227 and this commit) to origin and delpat (secret check first); build the artifact (`sudo bash scripts/build-artifact.sh origin/master <out>` in WSL), upload to manual-builds; Om runs `sudo work-os-update` again.
+3. After that deploy, one-off: scripts/migrate-orders.mjs and scripts/migrate-digest.mjs (dry run first); install the work-os-backup-local timer (nightly on-box mongodump); cutroom and Work OS import their WORK-STATE (import_state); a Sonnet chore turns the "waits on Om" lines into Needs.
+4. Use it for a week on cutroom and Work OS (step 1's done test), then the next steps of PRODUCT.md section 8.
+5. Om's hands: give the Discord bot Send Messages on the team channel; Discord Interactions URL + Register (Need buttons); R2 bucket + token + age key for off-box backups; Send test for alerts (C51); Caddy lb_try site + reload; reboot after the pm2 check; update the global CLAUDE.md lines ("No Haiku"; the WORK-STATE rule becomes start_work / save_state); #212.
+- Agreed 14 Nov: the long-running cloud dispatcher (Sonnet) also listens on the Discord bot (#267, PRODUCT.md 6.5); model routing think → Opus, do → Sonnet, chore → Haiku (6.2a); the second Claude account is kept for this work only (the dispatcher), not given to interns.
 - Older open items (#165 features to try with Akash, DELPAT_OS_CLIENT_SECRET, first real turbo Start / Open in VS Code, chat porting from Antigravity, C46-C52, AKAR C20/C22/C23 and C7/C8) are folded into the PRODUCT.md steps; still open in Work OS.
 
 ## Later
+- e2e budgets: "load /today" went to 10 requests of 8 in two of four runs on the steps 1-3 branch and passed otherwise; the suite now prints each request of a step over budget — waits on it failing again (then read the named requests).
+- e2e entry-points is not in run.sh's suite list (run directly it exits 0); a builder saw stop_server leave the plain-mode node alive on Windows so a following discord-mode suite hit the plain server — not seen in the full run; waits on it happening again.
+- App-only Need answers are hidden from project readers other than the addressee and the asker's person (default chosen 15 Nov) — waits on Om wanting them visible to all readers.
 - Discord Need press: defer the interaction response when answering is slow (Discord allows 3 s) — waits on seeing a real slow answer.
 - Buttons on the digest's "Needs you" lines (today only the per-Need DM has buttons) — waits on Om wanting answers from the digest.
 - e2e tenancy "B search: finds shared work" failed once in the full run (14 Nov) and passed on the rerun — waits on it happening again.
