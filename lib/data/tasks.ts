@@ -438,6 +438,10 @@ export async function createTask(
   opts: { note?: string; source?: TaskSource; authors?: TextAuthors } = {},
 ): Promise<Task> {
   const data = TaskInputSchema.parse(input);
+  // Decision 4: an agent cannot create code, data or client work already finished (or dropped): that would skip the review Need.
+  if (isAgent(actor) && (data.status === 'Done' || data.status === 'Dropped') && data.resultKind && REVIEW_KINDS.includes(data.resultKind)) {
+    throw new InputError(`A task with result kind ${data.resultKind} cannot be created as ${data.status} by an agent: create it, then hand it in so its owner reviews it.`);
+  }
   const c = await scoped(s);
   return toTask(await insertTask(c, s, data, actor, { note: opts.note, source: opts.source, authors: opts.authors }));
 }
@@ -564,7 +568,7 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
     const c = await scoped(s);
     const cur = await findTaskDoc(c, key);
     const needs = await import('./needs');
-    if (!isAgent(actor) || cur.status === ending || cur.status === 'Done' || cur.status === 'Dropped' || !REVIEW_KINDS.includes(effectiveKind(cur, parsed.resultKind, actor))) {
+    if (!isAgent(actor) || cur.status === ending || !REVIEW_KINDS.includes(effectiveKind(cur, parsed.resultKind, actor))) {
       const t = await updateTaskCore(s, key, parsed, actor, opts);
       // Closed directly: whatever waits on it has nothing left to ask (Dropped: everything; Done: a pending review).
       if (cur.status !== ending) await (ending === 'Dropped' ? needs.closeTaskNeeds(s.orgId, [cur._id], 'task dropped') : needs.closeOpenReviews(s.orgId, cur._id, 'done'));

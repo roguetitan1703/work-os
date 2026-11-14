@@ -101,6 +101,18 @@ try {
   await answer((await must(kA, 'ask', { project: 'N3 Proj', to: 'Bea', kind: 'approve', ask: 'Key B must not see this' })).need);
   const viaB = await must(kB, 'start_work', { project: 'N3 Proj' });
   check('start_work: another key does not', !viaB.needs?.answeredForYou, JSON.stringify(viaB.needs));
+  // ======== an ask to 'me' is not "for you" to the session that made it, and its answer is still told once ========
+  {
+    await rawDb.collection('needs').updateMany({ 'from.actor.userId': ME.userId, to: ME.userId }, { $set: { createdAt: new Date(Date.now() - 2 * 3_600_000) } });
+    const selfAsk = (await must(kB, 'ask', { project: 'N3 Proj', to: 'me', kind: 'approve', ask: 'Self ask probe?' }, H('sess-b-1'))).need;
+    const nx = await must(kB, 'get_state', { project: 'N3 Proj' }, H('sess-b-1'));
+    check('forYou (self ask): the asking session is not told it has a Need for you', !(nx.forYou ?? []).some(x => /Need.* for you/.test(x)), JSON.stringify(nx.forYou));
+    await answer(selfAsk);
+    const nx2 = await must(kB, 'get_state', { project: 'N3 Proj' }, H('sess-b-1'));
+    check('forYou (self ask): the same session hears it was answered', (nx2.forYou ?? []).some(x => new RegExp(`your Need #${selfAsk.ref} was answered`).test(x)), JSON.stringify(nx2.forYou));
+    const nx3 = await must(kB, 'get_state', { project: 'N3 Proj' }, H('sess-b-1'));
+    check('forYou (self ask): ...once', !(nx3.forYou ?? []).some(x => /was answered/.test(x)), JSON.stringify(nx3.forYou));
+  }
 } catch (e) {
   check('flow-n3 ran to the end', false, String(e?.stack ?? e));
 }

@@ -75,6 +75,16 @@ export function toNeed(d: NeedDoc): Need {
   };
 }
 
+/**
+ * An app-only Need's answer is for the addressee and the asker's person (the user the asking key belongs to). Everyone else
+ * who can read the project sees that it was answered, by whom and when, never the choice or the text. Every reader below
+ * goes through this, so the tool and the page agree.
+ */
+export function forViewer(n: Need, viewerId: string): Need {
+  if (!n.appOnly || !n.answer || viewerId === n.to || ('userId' in n.from.actor && viewerId === n.from.actor.userId)) return n;
+  return { ...n, answer: { ...n.answer, option: '', text: '(answer hidden)' } };
+}
+
 /** The ask as a row shows it: one line, about 90 characters. */
 export function shortAsk(ask: string): string {
   const one = ask.replace(/\s+/g, ' ').trim();
@@ -264,7 +274,7 @@ export async function listNeeds(s: Scope, f: NeedFilter = {}): Promise<Need[]> {
   if (f.involving) q.$or = [{ to: f.involving }, { 'from.actor.userId': f.involving }];
   if (f.status?.length) q.status = { $in: f.status };
   const docs = await c.needs.find(q).sort({ createdAt: -1 }).limit(f.limit ?? 200).toArray();
-  return docs.map(toNeed);
+  return docs.map(d => forViewer(toNeed(d), s.userId));
 }
 
 /** One Need by its number (12, "#12") or id, if the caller can read it. */
@@ -272,13 +282,13 @@ export async function findNeed(s: Scope, key: string | number): Promise<Need | n
   const k = String(key).trim();
   const m = k.match(/^(?:need\s*)?#?(\d{1,9})$/i);
   const d = await (await scoped(s)).needs.findOne(m ? { ref: Number(m[1]) } : { _id: k });
-  return d ? toNeed(d) : null;
+  return d ? forViewer(toNeed(d), s.userId) : null;
 }
 
 /** One Need by id, if the caller can read it. */
 export async function getNeed(s: Scope, id: string): Promise<Need | null> {
   const d = await (await scoped(s)).needs.findOne({ _id: id });
-  return d ? toNeed(d) : null;
+  return d ? forViewer(toNeed(d), s.userId) : null;
 }
 
 /** The caller's open Needs across every project they can read: Today's "Needs you". */
@@ -559,5 +569,5 @@ export async function projectNeeds(s: Scope, projectId: string): Promise<Need[]>
     .sort({ createdAt: -1 })
     .limit(100)
     .toArray();
-  return docs.map(toNeed);
+  return docs.map(d => forViewer(toNeed(d), s.userId));
 }

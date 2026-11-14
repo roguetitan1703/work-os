@@ -65,8 +65,8 @@ export async function buildTeamDigest(orgId: string, today: string, tz: string):
   const projects = await c.projects.find({ visibility: 'org' }, { projection: { name: 1, ownerId: 1 } }).sort({ nameLower: 1 }).toArray();
   if (!projects.length) return null;
   const ids = projects.map(p => p._id);
-  const states = new Map((await c.states.find({ projectId: { $in: ids } }).toArray()).map(s => [s.projectId, s]));
-  const openNeeds = await c.needs.find({ projectId: { $in: ids }, status: 'open' }, { projection: { projectId: 1, to: 1, ask: 1, from: 1, appOnly: 1 } }).toArray();
+  const states = new Map((await c.states.find({ projectId: { $in: ids }, visibility: 'org' }).toArray()).map(s => [s.projectId, s]));
+  const openNeeds = await c.needs.find({ projectId: { $in: ids }, visibility: 'org', status: 'open' }, { projection: { projectId: 1, to: 1, ask: 1, from: 1, appOnly: 1 } }).toArray();
   const done = await c.tasks.find({ projectId: { $in: ids }, visibility: 'org', status: 'Done', doneOn: { $gte: from, $lt: today } }, { projection: { projectId: 1, ref: 1, title: 1 } }).sort({ ref: 1 }).toArray();
   const lines: string[] = [];
   for (const p of projects) {

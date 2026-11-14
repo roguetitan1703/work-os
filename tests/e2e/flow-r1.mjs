@@ -81,6 +81,24 @@ try {
     const ar = await mk('Agent archives code', 'code');
     await mcpH(kA, 'apply_changes', { ops: [{ op: 'archive_task', task: ar.ref }] });
     check('an agent archiving code work opens a review instead (not archived)', !(await task(ar.ref)).archived && (await reviewOf(ar.ref))?.closing === 'archived');
+    // Moving between the two closed states is a close too: Dropped -> Done and Done -> Dropped stay gated for an agent.
+    const dd = await mk('Dropped then Done', 'code');
+    await col('tasks').updateOne({ orgId: ME.orgId, ref: dd.ref }, { $set: { status: 'Dropped' } });
+    await mcpH(kA, 'update_task', { task: dd.ref, status: 'Done' });
+    check('an agent cannot move code work from Dropped to Done (stays Dropped, review opened)', (await task(dd.ref)).status === 'Dropped' && !!(await reviewOf(dd.ref)), (await task(dd.ref)).status);
+    const dx = await mk('Done then Dropped', 'data');
+    await col('tasks').updateOne({ orgId: ME.orgId, ref: dx.ref }, { $set: { status: 'Done' } });
+    await mcpH(kA, 'apply_changes', { ops: [{ op: 'update_task', task: dx.ref, status: 'Dropped' }] });
+    check('an agent cannot move data work from Done to Dropped (stays Done, review opened)', (await task(dx.ref)).status === 'Done' && !!(await reviewOf(dx.ref)), (await task(dx.ref)).status);
+    // Born finished is refused: no code, data or client task is created already Done or Dropped by an agent.
+    for (const [kind, status] of [['code', 'Done'], ['client', 'Dropped']]) {
+      const r = await mcpH(kA, 'add_task', { title: `Born ${status}`, project: 'R1 Proj', result_kind: kind, status });
+      check(`an agent cannot add ${kind} work as ${status}`, r.isError && !(await col('tasks').findOne({ orgId: ME.orgId, title: `Born ${status}` })), r.text.slice(0, 160));
+    }
+    const bo = await mcpH(kA, 'apply_changes', { ops: [{ op: 'create_task', title: 'Born Done op', project: 'R1 Proj', result_kind: 'code', status: 'Done' }] });
+    check('an agent cannot create finished code work through apply_changes either', !(await col('tasks').findOne({ orgId: ME.orgId, title: 'Born Done op' })), bo.text.slice(0, 160));
+    const bp = await mcpH(kA, 'add_task', { title: 'Born Done report', project: 'R1 Proj', result_kind: 'report', status: 'Done' });
+    check('...while report work may be added as Done', !bp.isError && (await col('tasks').findOne({ orgId: ME.orgId, title: 'Born Done report' }))?.status === 'Done', bp.text.slice(0, 160));
     const rp = await mk('Agent drops a report');
     await mcpH(kA, 'update_task', { task: rp.ref, status: 'Dropped' });
     check('an agent dropping report work drops it', (await task(rp.ref)).status === 'Dropped');

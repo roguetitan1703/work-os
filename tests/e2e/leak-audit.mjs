@@ -794,6 +794,19 @@ try {
     const stillOpen = async id => (await rawDb.collection('needs').findOne({ _id: id }))?.status === 'open';
     check('needs: an app-only Need, a Need whose words make it app-only and a review are refused when their addressee presses them in Discord', [pApp, pWord, pRev].every(t => /"type":\s*4/.test(t) && !/"type":\s*7[,}]/.test(t)) && (await stillOpen(appNeed)) && (await stillOpen(wordNeed)) && (await stillOpen(revNeed)), JSON.stringify([pApp, pWord, pRev]).slice(0, 400));
     await rawDb.collection('needs').updateMany({ _id: { $in: [appNeed, wordNeed, revNeed] } }, { $set: { status: 'withdrawn', closedAt: new Date() } }); // so they do not count against the five open Needs per asker
+    // An app-only Need's answer text is the addressee's and the asker's person's alone; a teammate who reads the project sees that it was answered.
+    {
+      const secret = `lkqans${hex(5)}`;
+      const ao = (await mustMcp(A.oauthTok, 'ask', { project: S.projectName, to: 'me', kind: 'approve', ask: `lkq answer text probe`, app_only: true })).need;
+      const now = new Date();
+      await rawDb.collection('needs').updateOne({ _id: ao.id }, { $set: { status: 'answered', answer: { option: 'yes', text: secret, by: A.userId, via: 'app', at: now }, answeredAt: now, closedAt: now, waitedMs: 1000 } });
+      const tRead = await mcpCall(T.chat, 'needs', { project: S.projectName, status: 'all' });
+      const aRead = await mcpCall(A.chat, 'needs', { project: S.projectName, status: 'all' });
+      const tNeed = (JSON.parse(tRead.text).needs ?? []).find(n => n.id === ao.id);
+      check('needs: a teammate reading an app-only Need sees it was answered (by whom, when) but not the answer text', tRead.ok && !tRead.text.includes(secret) && tNeed?.status === 'answered' && tNeed.answer?.text === '(answer hidden)' && !!tNeed.answer?.at, JSON.stringify(tNeed)?.slice(0, 250));
+      check('needs: ...and the addressee still reads the answer text', aRead.ok && aRead.text.includes(secret));
+      await rawDb.collection('needs').updateOne({ _id: ao.id }, { $set: { createdAt: new Date(Date.now() - 2 * 3_600_000) } });
+    }
     await sleep(2000); // the alerts these asks queued are flushed (after the response) before the first persona's writes are measured
   }
   const aimedOrScan = probes.filter(pr => !pr.ownerOnly);

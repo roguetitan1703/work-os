@@ -68,6 +68,10 @@ const newMessages: ForYouSource = {
   },
 };
 
+/** A Need this very session asked (or, with no session, this key): it is not "for you" to the one who asked it. */
+const askedHere = (n: { from: { session?: string; keyId?: string } }, row: { session?: string; keyId?: string }) =>
+  row.session ? n.from.session === row.session : !!row.keyId && n.from.keyId === row.keyId && !n.from.session;
+
 // Needs (slice 4): ids and counts only; the answer itself is read through start_work or needs.
 const needs: ForYouSource = {
   id: 'needs',
@@ -75,14 +79,14 @@ const needs: ForYouSource = {
     const lines: string[] = [];
     const ids: string[] = [];
     // The asker hears about its own answered Needs: this session's, or those of the same key when it passes no session id.
-    const done = (await answeredNeedsSince(s, { session: row.session, keyId: row.keyId, projectId: row.projectId }, since)).filter(n => !named.has(n.id));
+    const done = (await answeredNeedsSince(s, { session: row.session, keyId: row.keyId, projectId: row.projectId }, since)).filter(n => !named.has('ans:' + n.id));
     for (const n of done.slice(0, 5)) lines.push(`your Need #${n.ref} was answered`);
     if (done.length > 5) lines.push(`and ${done.length - 5} more of your Needs answered`);
-    ids.push(...done.map(n => n.id));
+    ids.push(...done.map(n => 'ans:' + n.id));
     // The person asked hears that there is one for them (only the first session of theirs on the project is told once per cursor).
-    const mine = (await newNeedsForMe(s, row.projectId, since)).filter(n => !named.has(n.id));
+    const mine = (await newNeedsForMe(s, row.projectId, since)).filter(n => !named.has('ask:' + n.id) && !askedHere(n, row));
     if (mine.length) lines.push(`${mine.length > 20 ? '20+' : mine.length} Need${mine.length === 1 ? '' : 's'} for you: ${mine.slice(0, 5).map(n => '#' + n.ref).join(', ')}`);
-    ids.push(...mine.map(n => n.id));
+    ids.push(...mine.map(n => 'ask:' + n.id));
     return { lines, ids };
   },
 };
