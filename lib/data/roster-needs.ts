@@ -9,7 +9,7 @@ import { scoped, type Scope } from '../scope';
 // presence rows are keyed when no session id is given). Read through the scoped door: a Need the viewer cannot read
 // makes no worker wait on the viewer's screen. Answers only a set of presence row ids, never the Need.
 
-type Row = Pick<PresenceDoc, '_id' | 'session' | 'userId' | 'agent' | 'projectId'>;
+type Row = Pick<PresenceDoc, '_id' | 'session' | 'userId' | 'agent' | 'projectId' | 'keyId'>;
 
 /** The ids of the presence rows that have an open Need. */
 export async function openNeedRows(s: Scope, rows: Row[]): Promise<Set<string>> {
@@ -28,7 +28,7 @@ export async function openNeedRows(s: Scope, rows: Row[]): Promise<Set<string>> 
       if (!uid) continue;
       for (const r of rows) {
         if (r.projectId !== n.projectId || r.userId !== uid) continue;
-        if (n.from.session ? r.session === n.from.session : actor.kind === 'agent' && actor.agent === r.agent) out.add(r._id);
+        if (n.from.session ? r.session === n.from.session : n.from.keyId && r.keyId ? n.from.keyId === r.keyId : actor.kind === 'agent' && actor.agent === r.agent) out.add(r._id);
       }
     }
     return out;

@@ -2,6 +2,7 @@ import 'server-only';
 import { clockInTz, dateInTz, DEFAULT_TZ, previousWorkdayStart } from './dates';
 import { api, DiscordError, discordConfig, orgGuildId } from './discord/client';
 import { shortAsk } from './data/needs';
+import { couldBeRunning } from './data/roster';
 import { plainAlertText } from './data/dispatcher';
 import { memberNames } from './people';
 import { getOrgSetting, orgWide, setOrgSetting } from './scope';
@@ -80,6 +81,10 @@ export async function buildTeamDigest(orgId: string, today: string, tz: string):
     if (waits.length) lines.push(`• Waits on: ${waits.join(', ')}`);
     lines.push('');
   }
+  // Idle with Next work: the roster's couldBeRunning through a scope that belongs to nobody (userId 'team'), so the door lets
+  // through only projects shared with everyone, the same set as the rest of this message; private ones never show.
+  const idle = (await couldBeRunning({ userId: 'team', orgId })).filter(p => ids.includes(p.projectId));
+  if (idle.length) lines.push(`💤 **Could be running, none is**: ${idle.slice(0, 5).map(p => `${plainAlertText(p.projectName)} (${p.unblocked} ready)`).join(', ')}${idle.length > 5 ? ` and ${idle.length - 5} more` : ''}`, '');
   if (!lines.length) return null;
   let text = `📋 **Team digest**\n\n${lines.join('\n')}`.trimEnd();
   if (text.length > 1900) text = text.slice(0, 1890).trimEnd() + '\n…';

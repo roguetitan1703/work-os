@@ -14,6 +14,7 @@ import { assigneesOf } from './assignees';
 import { isMember, memberNames } from './people';
 import { actorLabel } from './actors';
 import { shortAsk } from './data/needs';
+import { couldBeRunning } from './data/roster';
 import { needButtons } from './discord/need-buttons';
 
 // Nudges for each person about the tasks whose alerts go to them (recipientsOf: the assignees of a shared task, else
@@ -173,9 +174,9 @@ export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { on
 
 type OpenTask = Pick<TaskDoc, '_id' | 'ref' | 'title' | 'status' | 'priority' | 'due' | 'progress' | 'updatedAt' | 'ownerId' | 'need'>;
 
-/** Hook: projects where an agent could be running Next work and is not. Returns nothing until the roster exists. */
-export async function idleWithNextWork(_s: Scope): Promise<DigestSection['rows']> {
-  return [];
+/** Projects where an agent could be running Next work and is not: the roster's couldBeRunning with the recipient's own scope (a project they cannot read never shows). */
+export async function idleWithNextWork(s: Scope): Promise<DigestSection['rows']> {
+  return (await couldBeRunning(s)).map(p => ({ text: `**${plainAlertText(p.projectName)}**`, detail: `${p.unblocked} Next line${p.unblocked === 1 ? '' : 's'} ready, none running: ${plainAlertText(p.first).slice(0, 80)}` }));
 }
 
 /**
@@ -192,7 +193,9 @@ async function buildDigest(
   const absorb: Digest['absorb'] = [];
 
   // Needs you: the open Needs addressed to this person, first (they block someone). Through the person's own door.
-  const needs = await c.needs.find({ to: s.userId, status: 'open' }).sort({ createdAt: 1 }).limit(20).toArray();
+  const allNeeds = await c.needs.find({ to: s.userId, status: 'open' }).sort({ createdAt: 1 }).limit(40).toArray();
+  const needs = allNeeds.filter(n => n.kind !== 'review').slice(0, 20);
+  const reviews = allNeeds.filter(n => n.kind === 'review');
   if (needs.length) {
     const people = await memberNames(s.orgId);
     sections.push({
@@ -200,6 +203,17 @@ async function buildDigest(
       rows: needs.map(n => ({ label: `Need #${n.ref}`, url: `/today#need-${n.ref}`, text: plainAlertText(shortAsk(n.ask)), detail: `${plainAlertText(actorLabel(n.from.actor, s.userId, people))}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly ? ' · answer in the app' : ''}` })),
     });
   }
+
+  // Finished, to review: the open review Needs (a hand_in) addressed to this person. Its own section, since it is a finished
+  // piece to look at rather than a question; it is shown right after "Needs you". Their tasks are left out of "What agents finished".
+  if (reviews.length) {
+    const people = await memberNames(s.orgId);
+    sections.push({
+      head: '🔍 **Finished, to review**',
+      rows: reviews.map(n => ({ label: `Need #${n.ref}`, url: `/today#need-${n.ref}`, text: plainAlertText(shortAsk(n.ask)), detail: `${plainAlertText(actorLabel(n.from.actor, s.userId, people))}${n.taskRef ? ` · on #${n.taskRef}` : ''}` })),
+    });
+  }
+  const reviewTasks = new Set(reviews.flatMap(n => (n.taskId ? [n.taskId] : [])));
 
   // What agents finished: queue rows (already sent as alerts) created since the last digest.
   const lastAny = await c.alertLog.findOne({ kind: 'digest' }, { sort: { sentAt: -1 }, projection: { sentAt: 1 } });
@@ -209,7 +223,7 @@ async function buildDigest(
     const byId = new Map((await c.tasks.find({ _id: { $in: outcomes.map(q => q.taskId) } }, { projection: { ref: 1, title: 1 } }).toArray()).map(t => [t._id, t]));
     const rows = outcomes.flatMap(q => {
       const t = byId.get(q.taskId);
-      if (!t) return [];
+      if (!t || reviewTasks.has(q.taskId)) return [];
       const why = plainAlertText(q.detail ?? '');
       return [{ ref: t.ref, text: t.title, detail: q.kind === 'claude_finished' ? 'finished, to review' : `stopped${why ? `: ${why}` : ''}` }];
     });
@@ -239,8 +253,7 @@ async function buildDigest(
   }
   if (quiet.length) sections.push({ head: '🧊 **Gone quiet**, In Progress but untouched', rows: quiet });
 
-  // Idle with Next work ("cutroom could be running and isn't"): the roster builder supplies the real function
-  // (docs/flows/plan-1-3.md slice 6); until then it returns nothing and the section is left out.
+  // Idle with Next work ("cutroom could be running and isn't"): the roster's couldBeRunning, read with this person's own scope.
   const idle = await idleWithNextWork(s);
   if (idle.length) sections.push({ head: '💤 **Idle with Next work**', rows: idle });
 
@@ -267,7 +280,7 @@ async function buildDigest(
   }
 
   const n = (h: string) => sections.find(sec => sec.head.includes(h))?.rows.length ?? 0;
-  const summary = [n('Needs you') && `${n('Needs you')} need${n('Needs you') === 1 ? 's' : ''} you`, n('finished') && `${n('finished')} finished`, n('Due and overdue') && `${n('Due and overdue')} due or overdue`, n('Gone quiet') && `${n('Gone quiet')} quiet`, n('Moved') && `${n('Moved')} project${n('Moved') === 1 ? '' : 's'} moved`].filter(Boolean).join(' · ');
+  const summary = [n('Needs you') && `${n('Needs you')} need${n('Needs you') === 1 ? 's' : ''} you`, n('Finished, to review') && `${n('Finished, to review')} to review`, n('agents finished') && `${n('agents finished')} finished`, n('Due and overdue') && `${n('Due and overdue')} due or overdue`, n('Gone quiet') && `${n('Gone quiet')} quiet`, n('Moved') && `${n('Moved')} project${n('Moved') === 1 ? '' : 's'} moved`].filter(Boolean).join(' · ');
   // The first digest says why the morning alerts changed.
   const first = !(await c.alertLog.findOne({ kind: 'digest', empty: { $ne: true } }, { projection: { _id: 1 } }));
   const empty = !sections.length;
