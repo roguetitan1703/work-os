@@ -481,7 +481,7 @@ Nothing else: no "app only" hand-over, no freezing the machine layer, no waiting
 | 11 | Reel posting off the laptop | **Put the posting token in Dead Drop** so the server timer or another machine can post. |
 | 12 | The worker editing `~/.claude.json` | **Stop.** Trust each folder once by hand; the worker reports "needs trust". |
 | 13 | Model routing | **Agreed 14 Nov (Om):** think → Opus, do → Sonnet, chore → Haiku, else Sonnet; the dispatcher on Sonnet. Om's global rules still say "No Haiku" and need updating to match. |
-| 14 | Which account runs the cloud dispatcher | **A seat dedicated to it**, not an intern's own seat; its holder sees everything it reads. |
+| 14 | Which account runs the cloud dispatcher | **Agreed 14 Nov (Om):** the second account is kept for this work only, not given to interns. |
 
 ---
 

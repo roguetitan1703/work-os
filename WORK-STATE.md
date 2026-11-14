@@ -1,22 +1,16 @@
 # Work state
 
 ## Now
-- 2026-11-14: Step back before building more. docs/PRODUCT.md (draft) says what Work OS is for, how it is really used, what is live / untried / unused, and proposes use cases A to G (Core / Keep / Freeze / Cut). Goal: Om and Claude agree the flows, write each as docs/flows/<id>.md with a test, and from then on every change names the flow it serves. Waits on Om: going through the use cases. Agent fleet (#259) is on hold until the flows are agreed (#260 cleanup is with a cloud session).
+- 2026-11-14: Direction agreed in docs/PRODUCT.md (round 2): Work OS is the control room and shared memory for people and agents (any AI, any machine). Working on step 1 of section 8: project State in Work OS (master; WORK-STATE.md becomes its copy), `start_work` and the brief, Orders served, the "for you" line, and the project inbox (messages). Design first (docs/flows/), then build, then a week of real use on cutroom and Work OS before step 2.
 
 ## Next
-- Must-fix from the 14 Nov review (not features, safety): deleted notes restorable (done, Review › Trash); HANDOVER.md brought up to date (done); backups (waits on Om: R2 bucket, token, age key); worker editing ~/.claude.json (decide in PRODUCT.md D1).
-- 2026-11-12: b3c4fd8 is live on the box (Akash's #165 asks, calendar link, AI tools, Open in Claude Code/Desktop, Instagram reel publisher with the cutroom laptop's book-only SSH key; assignee migration had nothing to do). Next: try each #165 feature on work.delpat.in as Akash would; first real reel booked by cutroom; remove the old `assigneeId` read paths.
-- Waits on Om: install the new Caddy site (lb_try lines, so a restart is not a 502) and reload Caddy; DELPAT_OS_CLIENT_SECRET; first real turbo Start and Open in VS Code; a reboot (Ubuntu says one is required).
-0d. Chat porting between tools (Antigravity -> Claude): test Antigravity writing a handover note over MCP with Akash; else Import chat into a note (builder S). Add Resume / handover note / /export tips to the colleague guide.
-0. Om: Discord Interactions Endpoint URL = https://work.delpat.in/api/discord/interactions, then Settings › Server › Discord › Register the commands.
-Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
-Open work is filed as Claude items on Work OS (Claude page › Queue); this list only orders it.
-1. C46 (Om): first real dispatcher task — Claude › Setup: pick the boilerplate note, turn the dispatcher on, Give to Claude on one small task.
-2. C51 (Om): Settings › This device › Send test; report which channels arrived.
-3. C48 (Om): yes on the ~/.claude/CLAUDE.md text (draft in the item's note), then apply it; then C49 (one line per repo CLAUDE.md).
-4. C50 grammar pass; C52 small fixes and checks.
-5. C47 cloud sessions via a Routine, after C46 works.
-6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
+1. Deploy b9f11d3 (notes trash, HANDOVER, PRODUCT.md): build uploaded to manual-builds, then Om runs `sudo work-os-update`. Commit nothing to origin/master until it is live.
+2. Om's hands: backups (R2 bucket, token, age key; before State moves into Work OS); Send test for alerts (C51); Discord Interactions URL + Register; Caddy lb_try site + reload; reboot after the pm2 check.
+3. Step 1 design: flows S1, S2, S3, H1, MS1-MS4 as docs/flows/<id>.md with their tests; then build (builder B), security review (keys, message trust).
+4. Step 2: Needs and results, push and Discord buttons, the daily digest (B4).
+5. Step 3: the roster (workers, machines, accounts and usage).
+- Agreed 14 Nov: the long-running cloud dispatcher (Sonnet) also listens on the Discord bot (#267, PRODUCT.md 6.5); model routing think → Opus, do → Sonnet, chore → Haiku (6.2a; Om's global "No Haiku" line still to update); the second Claude account is kept for this work only (the dispatcher), not given to interns.
+- Older open items (#165 features to try with Akash, DELPAT_OS_CLIENT_SECRET, first real turbo Start / Open in VS Code, chat porting from Antigravity, C46-C52, AKAR C20/C22/C23 and C7/C8) are folded into the PRODUCT.md steps; still open in Work OS.
 
 ## Later
 - e2e tenancy "B search: finds shared work" failed once in the full run (14 Nov) and passed on the rerun — waits on it happening again.
