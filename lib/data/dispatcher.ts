@@ -177,7 +177,7 @@ async function queueOutcome(s: Scope, t: TaskDoc, kind: 'claude_finished' | 'cla
 type End = { to: 'finished' | 'stopped' | 'failed'; note?: string };
 
 /** Running -> an end state, once (conditional on the task still being "running" under the same claim). Returns true if this call did it. */
-async function endRun(c: Collections, s: Scope, t: TaskDoc, end: End): Promise<boolean> {
+async function endRun(c: Collections, s: Scope, t: TaskDoc, end: End, quiet = false): Promise<boolean> {
   const now = new Date();
   const restore = end.to === 'failed' && t.claude?.prevStatus && t.status === 'In Progress' && t.claude.prevStatus !== 'In Progress';
   const claim = { _id: t._id, 'claude.state': 'running' as const, 'claude.sessionId': t.claude?.sessionId };
@@ -190,9 +190,28 @@ async function endRun(c: Collections, s: Scope, t: TaskDoc, end: End): Promise<b
   if (!r) return false;
   wakeMarker(t); // a slot is free: the next queued task can start
   if (restored) await logTask(c, r, dispatcherActor(t), 'status', { changes: { status: { from: 'In Progress', to: t.claude!.prevStatus } }, note: `Dispatcher: ${end.note ?? 'could not start'}; status restored` });
+  if (quiet) return true; // the review Need's alert says it (one alert, not two)
   if (end.to === 'finished') await queueOutcome(s, t, 'claude_finished', end.note ?? '');
   else await queueOutcome(s, t, 'claude_stopped', end.note ?? (end.to === 'failed' ? 'could not start' : 'session ended'));
   return true;
+}
+
+/**
+ * An agent closed a running task whose work needs review: the run ends as finished ("sent to review") and the
+ * review Need's alert replaces claude_finished. The task itself stays open until the owner decides.
+ */
+export async function endRunForReview(c: Collections, s: Scope, t: TaskDoc): Promise<void> {
+  await endRun(c, s, t, { to: 'finished', note: REVIEW_NOTE }, true);
+}
+const REVIEW_NOTE = 'sent to review';
+
+/** The owner sent a reviewed task back: a dispatched one goes into the queue again (the line is first in its brief). */
+export async function requeueAfterSendBack(c: Collections, t: TaskDoc): Promise<void> {
+  const k = t.claude;
+  if (!k || k.state !== 'finished' || k.note !== REVIEW_NOTE || !k.markedByUserId) return;
+  const mark: ClaudeMark = { state: 'queued', markedAt: new Date(), markedBy: 'user', markedByUserId: k.markedByUserId, markedByOrgId: k.markedByOrgId, ...(k.folderKey ? { folderKey: k.folderKey } : {}) };
+  const r = await c.tasks.updateOne({ _id: t._id, 'claude.state': 'finished', 'claude.note': REVIEW_NOTE }, { $set: { claude: mark } });
+  if (r.modifiedCount) afterCommit(() => wake(t.orgId, k.markedByUserId!));
 }
 
 /** What the task and its session say about a running claim, or null while it is still going. */

@@ -22,6 +22,8 @@ import { FolderLinks } from './folders';
 import { ProjectDetails } from './project-header';
 import { ProjectTop } from './project-top';
 import { ClaudeCard } from './claude-card';
+import { projectNeeds, withNeedWaits } from '@/lib/data/needs';
+import { NeedsTab } from '@/components/needs';
 import { StateCard } from './state-card';
 import { CouldBeRunning } from '../../claude/workers-tab';
 import { projectRoster } from '@/lib/data/roster';
@@ -29,8 +31,6 @@ import { stateOfProject, stateOut } from '@/lib/data/states';
 import { memberNames } from '@/lib/people';
 import { inbox as inboxOf, messageOut } from '@/lib/data/messages';
 import { InboxTab } from './inbox-tab';
-import { projectNeeds } from '@/lib/data/needs';
-import { NeedsTab } from '@/components/needs';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -74,7 +74,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     projectNeeds(sc, project.id),
   ]);
   const projectWorkers = await projectRoster(sc, { id: project.id, name: project.name, status: project.status }, stateDoc, names, open);
-  const stateView = stateDoc ? stateOut(stateDoc, me.userId, names) : null;
+  const stateView = stateDoc ? await withNeedWaits(sc, project.id, stateOut(stateDoc, me.userId, names), names) : null;
   const needsOpenForMe = needs.filter(n => n.status === 'open' && n.to === me.userId).length;
   const turbo = await turboInfo(me, project.id, launcher);
   const projectNotes = notes.notes.filter(n => !n.taskId && !n.archived);
@@ -214,7 +214,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
             data-tab={t.id}
             aria-current={t.id === tab ? 'page' : undefined}
             className={cn(
-              'inline-flex items-center justify-center h-11 md:h-9 px-1 md:px-5 rounded-xl text-[14px] md:text-sm font-medium whitespace-nowrap',
+              'inline-flex items-center justify-center h-11 md:h-9 px-0.5 md:px-5 rounded-xl text-[13px] tracking-tight md:tracking-normal md:text-sm font-medium whitespace-nowrap',
               t.id === tab ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground active:bg-background/60 hover:text-foreground',
             )}
           >

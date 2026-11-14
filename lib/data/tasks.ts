@@ -4,10 +4,11 @@ import type { Filter } from 'mongodb';
 import { requestContext } from '../request-context';
 import { inTransaction, nextSeq, toActivity, type ActivityDoc, type ClaudeMark, type ProjectDoc, type TaskDoc, type TrashDoc } from '../db';
 import { canSee, forUser, orgWide, readableFilter, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
-import { asActor, isPerson, actorUserId, type ActorFilter, type TextAuthor } from '../actors';
+import { asActor, isAgent, isPerson, actorUserId, type ActorFilter, type TextAuthor } from '../actors';
 import {
   CLOSED_STATUSES,
   OPEN_STATUSES,
+  REVIEW_KINDS,
   TaskInputSchema,
   TaskPatchSchema,
   LINK_SCHEME,
@@ -22,6 +23,7 @@ import {
   type Priority,
   type Project,
   type Recurrence,
+  type ResultKind,
   type Status,
   type Task,
   type TaskClaude,
@@ -35,7 +37,7 @@ import { InputError, NotFoundError } from './errors';
 import { MAX_ASSIGNEES, assignedTo, assigneesOf, canBeAssigned, unassigned } from '../assignees';
 import { canonicalMode } from '../org-modes';
 import { queueUnblocked } from '../alerts';
-import { onTaskChanged, takeBackOnEdit } from './dispatcher';
+import { endRunForReview, onTaskChanged, takeBackOnEdit } from './dispatcher';
 
 // ── Conversions & helpers ───────────────────────────────────────────────────
 
@@ -60,6 +62,10 @@ export function toTask(d: TaskDoc): Task {
     dependsOn: d.dependsOn,
     recurrence: d.recurrence,
     nextRef: d.nextRef,
+    ...(d.resultKind ? { resultKind: d.resultKind } : {}),
+    ...(d.handIn ? { handIn: { ...d.handIn, at: d.handIn.at.toISOString() } } : {}),
+    ...(d.sentBack ? { sentBack: { ...d.sentBack, at: d.sentBack.at.toISOString() } } : {}),
+    ...(d.review ? { review: { sentBack: d.review.sentBack, ...(d.review.outcome ? { outcome: d.review.outcome } : {}), ...(d.review.at ? { at: d.review.at.toISOString() } : {}) } } : {}),
     archived: d.archived,
     createdBy: asActor(d.createdBy),
     createdAt: d.createdAt.toISOString(),
@@ -499,6 +505,7 @@ async function insertTask(
     dependsOn: await resolveDependencies(c, data.dependsOn, id),
     recurrence: data.recurrence ?? null,
     nextRef: null,
+    ...(data.resultKind ? { resultKind: data.resultKind } : {}),
     archived: false,
     createdBy: actor,
     ...(requestContext().src ? { src: requestContext().src } : {}),
@@ -542,8 +549,48 @@ type UpdateOpts = {
   kind?: 'progress';
 };
 
+/**
+ * The one door to a task's changes. Decision 4 (docs/flows/plan-1-3.md slice 5) lives here, in the data layer, so every path
+ * to Done goes through it: update_task, log_progress, an apply_changes op, complete_task, hand_in and the dispatcher's
+ * agent all end in a call with status Done. An AGENT closing a task whose result kind is code, data or client does not
+ * close it: its other changes are made, a review Need goes to the task's owner and the task stays open. A person closes
+ * directly; check and report tasks (and tasks with no kind) finish by themselves.
+ */
 export async function updateTask(s: Scope, key: string | number, patch: TaskPatch, actor: Actor, opts: UpdateOpts = {}): Promise<Task> {
-  const data = TaskPatchSchema.parse(patch);
+  const parsed = TaskPatchSchema.parse(patch);
+  if (parsed.status !== 'Done') return updateTaskCore(s, key, parsed, actor, opts);
+  return inTransaction(async () => {
+    const c = await scoped(s);
+    const cur = await findTaskDoc(c, key);
+    const needs = await import('./needs');
+    if (!isAgent(actor) || cur.status === 'Done' || !REVIEW_KINDS.includes(effectiveKind(cur, parsed.resultKind, actor))) {
+      const t = await updateTaskCore(s, key, parsed, actor, opts);
+      // Closed directly: a review still waiting on it has nothing left to ask.
+      if (cur.status !== 'Done') await needs.closeOpenReviews(s.orgId, cur._id, 'done');
+      return t;
+    }
+    const { status: _status, ...rest } = parsed;
+    void _status;
+    await updateTaskCore(s, key, rest, actor, opts);
+    const doc = await findTaskDoc(c, cur._id);
+    await needs.createReviewNeed(s, doc, actor, doc.handIn ?? { changed: opts.note?.trim() ?? '', checked: '', rating: null, where: [], left: [] });
+    if (doc.claude?.state === 'running') await endRunForReview(await scoped(s), s, doc);
+    return toTask((await findTaskDoc(c, cur._id)) ?? doc);
+  });
+}
+
+/** The kind that counts when someone closes the task: the one it has, or the one this call sets. An agent cannot loosen code, data or client. */
+function effectiveKind(cur: Pick<TaskDoc, 'resultKind'>, given: ResultKind | null | undefined, actor: Actor): ResultKind {
+  const now: ResultKind = cur.resultKind ?? 'report';
+  if (given === undefined) return now;
+  const next: ResultKind = given ?? 'report';
+  if (isAgent(actor) && REVIEW_KINDS.includes(now) && !REVIEW_KINDS.includes(next)) {
+    throw new InputError("A task's result kind code, data or client can only be loosened by a person: ask its owner.");
+  }
+  return next;
+}
+
+async function updateTaskCore(s: Scope, key: string | number, data: ReturnType<typeof TaskPatchSchema.parse>, actor: Actor, opts: UpdateOpts = {}): Promise<Task> {
   const c = await scoped(s);
   const cur = await findTaskDoc(c, key);
   const now = new Date();
@@ -569,6 +616,10 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
   if (data.links !== undefined) apply('links', normalizeLinks(data.links, cur.links ?? [], actor));
   if (data.dependsOn !== undefined) apply('dependsOn', await resolveDependencies(c, data.dependsOn, cur._id));
   if (data.recurrence !== undefined) apply('recurrence', data.recurrence ?? null);
+  if (data.resultKind !== undefined) {
+    effectiveKind(cur, data.resultKind, actor); // an agent cannot loosen code, data or client
+    apply('resultKind', data.resultKind ?? null);
+  }
 
   // Subtasks (docs/subtasks.md): `parent` puts the task under another (it joins that task's project) or, null, takes it
   // out. A subtask can't change project on its own: it moves with its parent.
@@ -700,6 +751,11 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
   if (!next.parentId) {
     if (set.projectId !== undefined || moveTo) await moveSubtasks(c, s, next, target ?? null, actor);
     if (changes.title) await c.tasks.updateMany({ parentId: cur._id }, { $set: { parentTitle: next.title } });
+  }
+  // Its Needs follow it to the new project and placement (those whose addressee cannot read it there are withdrawn).
+  if (set.projectId !== undefined || moveTo) {
+    const kids = next.parentId ? [] : await c.tasks.distinct('_id', { parentId: cur._id });
+    await (await import('./needs')).restampTaskNeeds(s.orgId, [cur._id, ...kids]);
   }
   // A subtask: its old and new parent's rollup.
   if (changes.status || changes.progress || parentSet !== undefined) {
@@ -866,7 +922,7 @@ export async function restoreTask(s: Scope, key: string | number, actor: Actor):
   for (const k of await c.trash.find({ withParent: t._id }).toArray()) await restoreOne(s, c, org, k, actor, k.ref, restored);
   await rollUp(org, restored._id);
   await rollUp(org, restored.parentId);
-  await (await import('./needs')).syncTaskNeed(c, restored._id);
+  await (await import('./needs')).syncTaskNeed(org, restored._id);
   const back = await org.tasks.findOne({ _id: restored._id });
   return toTask(back ?? restored);
 }

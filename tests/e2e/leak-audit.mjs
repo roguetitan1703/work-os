@@ -444,7 +444,7 @@ try {
   // Needs (slice 4): asks to A, in the private project (only A reads them) and the shared one (A and T read them, only A may answer).
   // Two per project: one for the answer control and one for the withdraw control (each destroys its Need).
   {
-    const ask = (project, text, o = {}) => mustMcp(A.code, 'ask', { project, to: 'me', kind: 'approve', ask: text, ...o });
+    const ask = (project, text, o = {}) => mustMcp(A.chat, 'ask', { project, to: 'me', kind: 'approve', ask: text, ...o });
     P.needAns = (await ask(P.projectName, can('pvneed', ['A']) + ' may I?')).need.id;
     P.needWd = (await ask(P.projectName, can('pvneed', ['A']) + ' withdraw this one', { kind: 'do' })).need.id;
     S.needAns = (await ask(S.projectName, can('shneed', ['A', 'T']) + ' may I?')).need.id;
@@ -744,6 +744,23 @@ try {
     check('needs: a project made private takes its Needs along (stamped private to its owner)', doc?.visibility === 'private' && doc.ownerId === A.userId && !(doc.sharedWith ?? []).length, JSON.stringify([doc?.visibility, doc?.ownerId === A.userId]));
     check('needs: ...so a member who read them before cannot read, ask on, withdraw or answer them', tBefore === 1 && !tList.ok && !tAll.text.includes(marker) && !tAsk.ok && !tWd.ok && (tAns.value?.ok === false || tAns.error) && after.status === 'open' && !(await rawDb.collection('needs').countDocuments({ projectId: doc.projectId, 'from.actor.userId': T.userId })), JSON.stringify([tBefore, tList.ok, tAll.text.includes(marker), tAsk.ok, tWd.ok, tAns.value, after.status]));
     check('needs: ...and the owner still reads them', (await mustMcp(A.chat, 'needs', { project: q })).needs.length === 1);
+    await mustMcp(A.code, 'withdraw_need', { id: asked.id }); // frees a place: the owner's own control ask below is the 5th, not the 6th
+    // The asker cannot answer its own Need to someone else; a review Need (slice 5) is the owner's alone: a teammate who reads
+    // it cannot answer or withdraw it, and an agent cannot take it back.
+    {
+      const toT = (await mustMcp(A.chat, 'ask', { project: S.projectName, to: T.email, kind: 'approve', ask: 'lkq for T only' })).need;
+      const self = await action('app/(app)/needs/actions.ts#answerNeedAction', [toT.id, 'yes'], { cookie: A.cookie });
+      check('needs: the asker cannot answer its own Need to someone else (refused, still open)', (self.value?.ok === false || self.error) && (await rawDb.collection('needs').findOne({ _id: toT.id })).status === 'open', JSON.stringify(self.value ?? self.error ?? '').slice(0, 160));
+      const rv = (await mustMcp(A.chat, 'add_task', { title: 'lkq review probe', project: S.projectName, result_kind: 'code' })).created;
+      await mustMcp(A.code, 'hand_in', { task: rv.ref, changed: 'lkq review probe done', left: ['lkq more'] });
+      const rn = await rawDb.collection('needs').findOne({ taskRef: rv.ref, kind: 'review', status: 'open' });
+      const tAnsR = await action('app/(app)/needs/actions.ts#answerNeedAction', [rn?._id, 'accept'], { cookie: T.cookie });
+      const tWdR = await mcpCall(T.chat, 'withdraw_need', { id: rn?._id });
+      const aWdR = await mcpCall(A.code, 'withdraw_need', { id: rn?._id });
+      const aDoneR = await mcpCall(A.code, 'update_task', { task: rv.ref, status: 'Done' });
+      const rAfter = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: rv.ref });
+      check('needs: a review Need goes to the task owner, who alone can answer; others and agents cannot answer, withdraw or close past it', !!rn && rn.to === A.userId && (tAnsR.value?.ok === false || tAnsR.error) && !tWdR.ok && !aWdR.ok && rAfter.status !== 'Done' && !!(await rawDb.collection('needs').findOne({ taskRef: rv.ref, kind: 'review', status: 'open' })), JSON.stringify([!!rn, tAnsR.value?.ok, tWdR.ok, aWdR.ok, aDoneR.ok, rAfter?.status]));
+    }
     await sleep(2000); // the alerts these asks queued are flushed (after the response) before the first persona's writes are measured
   }
   const aimedOrScan = probes.filter(pr => !pr.ownerOnly);
@@ -1034,6 +1051,7 @@ function AUDIT() {
   add('mcp update_task', M('update_task', t => ({ task: t.task, title: 'lkq hacked' }), aim(['task'])), M('update_task', t => ({ task: t.ref, assignee: 'me' }), aim(['ref'], { label: 'assign to me' })));
   add('mcp log_progress', M('log_progress', t => ({ task: t.ref, progress: 40 }), aim(['ref'])));
   add('mcp complete_task', M('complete_task', t => ({ task: t.task }), aim(['task'], { stage: 1 })));
+  add('mcp hand_in', M('hand_in', t => ({ task: t.ref, changed: 'lkq probe hand in', checked: 'lkq', rating: 'works', left: ['lkq left'] }), aim(['ref'], { stage: 1, controlOk: r => r.ok || /already Done/.test(r.text) })));
   add('mcp add_comment', M('add_comment', t => ({ task: t.ref, note: 'lkq probe comment' }), aim(['ref'])));
   add('mcp update_checklist', M('update_checklist', t => ({ task: t.task, add: ['lkq probe item'] }), aim(['task'])));
   add('mcp list_projects', M('list_projects', { include_inactive: true }), Mc('list_projects', { include_inactive: true }, { label: 'code key' }));

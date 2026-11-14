@@ -44,6 +44,11 @@ export type TaskDoc = Placed & {
   dependsOn: string[];
   recurrence: Recurrence | null;
   nextRef: number | null;
+  /** Slice 5: the kind of result, the last hand_in, the owner's send-back line and the review record. */
+  resultKind?: import('./types').ResultKind | null;
+  handIn?: Omit<import('./types').HandIn, 'at'> & { at: Date };
+  sentBack?: { line: string; by: string; at: Date };
+  review?: { sentBack: number; outcome?: 'accepted_first_time' | 'accepted_after_send_back'; at?: Date };
   archived: boolean;
   createdBy: Actor;
   /** The session or key that made it (the "for you" line does not tell a session about its own items). */
@@ -151,7 +156,7 @@ export type NeedDoc = Placed & {
   /** The one person asked (a user id). */
   to: string;
   /** Who asked: the actor, the trust word (set by the server from how the call came in) and the session's own label. */
-  from: { actor: Actor; word: NeedWord; session?: string; label?: string };
+  from: { actor: Actor; word: NeedWord; session?: string; /** The API key or OAuth client behind the ask (a later call without a session id is matched by it). */ keyId?: string; label?: string };
   kind: NeedKind;
   ask: string;
   example?: string;
@@ -166,6 +171,16 @@ export type NeedDoc = Placed & {
   waitedMs?: number;
   closedAt?: Date | null;
   replacedBy?: string;
+  /** start_work handed the answer to the asker's session (so a later brief does not repeat it). */
+  briefedAt?: Date;
+  /** A review Need: what the agent handed in (hand_in), or just its summary. */
+  result?: import('./types').HandInResult;
+  /** Accept and file what is left: the numbers of the tasks made from the left lines. */
+  filed?: number[];
+  /** Closed by the system, not by a person: 'moved' (its task moved where the addressee cannot read it) or 'access' (they lost access). */
+  withdrawnReason?: string;
+  /** When an alert for this Need (or the one it replaced) was last queued: a replacement within 10 minutes of it sends none. */
+  alertedAt?: Date;
 };
 
 export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {

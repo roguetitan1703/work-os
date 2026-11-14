@@ -76,7 +76,8 @@ export type ToolName =
   | 'slot'
   | 'ask'
   | 'needs'
-  | 'withdraw_need';
+  | 'withdraw_need'
+  | 'hand_in';
 
 export const TOOLS: Record<ToolName, { title: string; description: string; writes: boolean; example: string }> = {
   start_work: {
@@ -184,6 +185,13 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
       'Record a progress update: percent complete plus a note on what moved. Moves Not Started → In Progress automatically. Optionally change status (e.g. Blocked, with the reason in the note). A parent’s progress follows its subtasks: log progress on the subtasks.',
     writes: true,
     example: '#18 is about 60% done, API is wired, UI left',
+  },
+  hand_in: {
+    title: 'Hand in a result',
+    description:
+      "Say what you did on a task and close it: changed (what changed, plain words), checked (how you checked it), rating (works, awkward or doesn't work: your honest verdict), where (links: the PR, a preview, a note, the Delpat OS page; Work OS stores links, never files), left (lines for what is still open) and kind (code, data, client, check or report: what sort of result this is). Code, data and client work does not close from an agent: it goes to the task's owner as a review Need (Accept, Send back with a line, or Accept and file what is left) and the task stays open; the answer says so. A send-back line comes first in get_task and start_work for that task: do it before anything else. Check and report work closes by itself. Prefer this to complete_task whenever you finished something worth a look.",
+    writes: true,
+    example: 'Hand in #12: changed the quote wording, checked on staging, works, PR link, left: the German copy',
   },
   complete_task: {
     title: 'Complete task',

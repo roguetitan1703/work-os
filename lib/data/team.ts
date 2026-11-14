@@ -28,6 +28,8 @@ export async function releaseMember(orgId: string, userId: string): Promise<{ co
   // Off every project list they were on (its things they owned go to the project's owner), so a new invitation does not
   // quietly give the access back.
   await takeOffLists(org, orgId, userId);
+  // What was asked of them stays open for nobody: those Needs are withdrawn and their tasks' marks rebuilt.
+  await (await import('./needs')).withdrawUnreadableNeeds(org, { to: userId }, 'access', { everyone: true });
   const claims = await org.tasks.updateMany(
     { 'claude.markedByUserId': userId, 'claude.state': { $in: ['queued', 'running'] } },
     { $set: { 'claude.state': 'stopped', 'claude.endedAt': now, 'claude.note': 'the person who gave it left the organization' } },
