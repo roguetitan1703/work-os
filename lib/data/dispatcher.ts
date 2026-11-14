@@ -147,8 +147,8 @@ async function logTask(c: Collections, t: Pick<TaskDoc, '_id' | 'ref' | 'title' 
   });
 }
 
-/** Alert text can contain words written by Claude (a blocked reason): drop mentions and markdown links before it reaches Discord or push. */
-export function plainAlertText(s: string): string {
+/** Words written by someone else with mentions and markdown links dropped, for places that show plain text (button labels). */
+export function neutralAlertText(s: string): string {
   return s
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/<[@#][!&]?\w+>/g, '')
@@ -156,6 +156,11 @@ export function plainAlertText(s: string): string {
     .replace(/@(?=\w)/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** Alert text can contain words written by someone else (an ask, a task title, a blocked reason): mentions dropped, then every Discord markdown character escaped, so it can only read as text. */
+export function plainAlertText(s: string): string {
+  return neutralAlertText(s).replace(/[\\\[\]()*_~`|>#]/g, m => '\\' + m);
 }
 
 /**
@@ -167,7 +172,7 @@ async function queueOutcome(s: Scope, t: TaskDoc, kind: 'claude_finished' | 'cla
   const c = await scoped(forUser(s, t.claude?.markedByUserId ?? t.ownerId));
   await c.alertQueue.updateOne(
     { _id: `claude:${t._id}:${claimedAt}` },
-    { $setOnInsert: { kind, taskId: t._id, byTaskId: t._id, createdAt: new Date(), sentAt: null, detail: plainAlertText(detail).slice(0, 300) } },
+    { $setOnInsert: { kind, taskId: t._id, byTaskId: t._id, createdAt: new Date(), sentAt: null, detail: neutralAlertText(detail).slice(0, 300) } },
     { upsert: true },
   );
 }

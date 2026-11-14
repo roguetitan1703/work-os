@@ -41,17 +41,17 @@ export async function setTeamChannelId(orgId: string, channelId: string | null):
 }
 
 type Line = { text: string; waitsOn?: string };
-type OpenNeed = { to: string; ask: string; asker?: string };
+type OpenNeed = { to: string; ask: string; /** Set only when a person (not an agent) asked. */ asker?: string; appOnly?: boolean };
 /**
  * Who a project's State waits on: the Next and Later lines' `waitsOn`, and the people with an open Need on the project.
  * A Need shows its person's name only, never its ask, unless the asker is the project's owner (the team knows the owner
- * is the one steering the project); then the short ask follows the name.
+ * is the one steering the project, by hand, not through an agent); then the short ask follows the name. Never for an app-only Need.
  */
 function waitsOn(state: { next?: Line[]; later?: Line[] } | undefined, needs: OpenNeed[], ownerId: string, names: Record<string, string>): string[] {
   const w = [...(state?.next ?? []), ...(state?.later ?? [])].map(l => l.waitsOn).filter((x): x is string => !!x).map(x => plainAlertText(names[x] ?? x).slice(0, 40));
   for (const n of needs) {
     const name = plainAlertText(names[n.to] ?? 'a teammate').slice(0, 40);
-    w.push(n.asker === ownerId ? `${name} (${plainAlertText(shortAsk(n.ask))})` : name);
+    w.push(n.asker === ownerId && !n.appOnly ? `${name} (${plainAlertText(shortAsk(n.ask))})` : name);
   }
   return [...new Set(w)];
 }
@@ -66,14 +66,14 @@ export async function buildTeamDigest(orgId: string, today: string, tz: string):
   if (!projects.length) return null;
   const ids = projects.map(p => p._id);
   const states = new Map((await c.states.find({ projectId: { $in: ids } }).toArray()).map(s => [s.projectId, s]));
-  const openNeeds = await c.needs.find({ projectId: { $in: ids }, status: 'open' }, { projection: { projectId: 1, to: 1, ask: 1, from: 1 } }).toArray();
+  const openNeeds = await c.needs.find({ projectId: { $in: ids }, status: 'open' }, { projection: { projectId: 1, to: 1, ask: 1, from: 1, appOnly: 1 } }).toArray();
   const done = await c.tasks.find({ projectId: { $in: ids }, visibility: 'org', status: 'Done', doneOn: { $gte: from, $lt: today } }, { projection: { projectId: 1, ref: 1, title: 1 } }).sort({ ref: 1 }).toArray();
   const lines: string[] = [];
   for (const p of projects) {
     const st = states.get(p._id);
     const d = done.filter(t => t.projectId === p._id);
     const now = st?.now?.text;
-    const waits = waitsOn(st, openNeeds.filter(n => n.projectId === p._id).map(n => ({ to: n.to, ask: n.ask, asker: 'userId' in n.from.actor ? n.from.actor.userId : undefined })), p.ownerId, names);
+    const waits = waitsOn(st, openNeeds.filter(n => n.projectId === p._id).map(n => ({ to: n.to, ask: n.ask, asker: n.from.actor.kind === 'user' ? n.from.actor.userId : undefined, appOnly: n.appOnly })), p.ownerId, names);
     if (!d.length && !now && !waits.length) continue;
     lines.push(`**${plainAlertText(p.name)}**`);
     if (d.length) lines.push(`• Done: ${d.slice(0, 3).map(t => `#${t.ref} ${plainAlertText(t.title)}`).join('; ')}${d.length > 3 ? ` and ${d.length - 3} more` : ''}`);

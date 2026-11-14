@@ -128,6 +128,20 @@ await cron(at('2026-11-24T05:00:00Z'));
 const row3 = await rawDb.collection('notifications').findOne({ userId: ME.userId, kind: 'digest' }, { sort: { createdAt: -1 } });
 check('needs: the digest summary counts it', /1 needs? you/.test(row3?.body ?? ''), JSON.stringify(row3?.body));
 
+// ...and only Needs the person can still act on: not an answered or withdrawn one, not one on a project they can no longer read
+await mcpAs(codeKey, 'ask', { project: 'B4 Alpha', to: 'me', kind: 'do', ask: 'B4-WITHDRAWN-ASK' });
+await mcpAs(codeKey, 'ask', { project: 'B4 Alpha', to: 'me', kind: 'chase', ask: 'B4-ANSWERED-ASK' });
+await mcpAs(codeKey, 'add_project', { name: 'B4 Gone' });
+await mcpAs(codeKey, 'ask', { project: 'B4 Gone', to: 'me', kind: 'approve', ask: 'B4-GONE-ASK' });
+await rawDb.collection('needs').updateOne({ ask: 'B4-WITHDRAWN-ASK' }, { $set: { status: 'withdrawn', closedAt: new Date() } });
+await rawDb.collection('needs').updateOne({ ask: 'B4-ANSWERED-ASK' }, { $set: { status: 'answered', answeredAt: new Date(), closedAt: new Date() } });
+const goneP = await rawDb.collection('projects').findOne({ orgId: ME.orgId, name: 'B4 Gone' });
+await rawDb.collection('projects').updateOne({ _id: goneP._id }, { $set: { visibility: 'private', ownerId: Dee.userId } });
+await rawDb.collection('needs').updateMany({ projectId: goneP._id }, { $set: { visibility: 'private', ownerId: Dee.userId } });
+const dry4 = await cron('&dry=1' + at('2026-11-25T05:00:00Z'));
+const t4 = (dry4.preview ?? []).join('\n');
+check('needs: the digest leaves out answered, withdrawn and unreadable-project Needs, and keeps the open one', /B4 may I ship/.test(t4) && !/B4-WITHDRAWN-ASK|B4-ANSWERED-ASK|B4-GONE-ASK/.test(t4), t4.slice(0, 600));
+
 const prof = await rawDb.collection('settings').findOne({ _id: `profile:${H.userId}` });
 check('digestHour is stored on the profile', prof?.digestHour === 14);
 await finish();

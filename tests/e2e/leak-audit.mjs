@@ -453,7 +453,7 @@ try {
     S.needWd = (await ask(S.projectName, can('shneed', ['A', 'T']) + ' withdraw this one', { kind: 'do' })).need.id;
     // for the Discord DM button (flow DC1): one per project, each answered by the control press
     // asked with the other key (another asker word) so they do not count against the five open Needs the code key may have with A
-    const askChat = (project, text) => mustMcp(A.chat, 'ask', { project, to: 'me', kind: 'approve', ask: text });
+    const askChat = (project, text) => mustMcp(A.oauthTok, 'ask', { project, to: 'me', kind: 'approve', ask: text });
     P.needDc = (await askChat(P.projectName, can('pvneed', ['A']) + ' dm button?')).need.id;
     S.needDc = (await askChat(S.projectName, can('shneed', ['A', 'T']) + ' dm button?')).need.id;
   }
@@ -531,6 +531,8 @@ try {
   A.oauthClientId = 'lkqoauthclient' + hex(6);
   await rawDb.collection('oauthClient').insertOne({ clientId: A.oauthClientId, name: can('aoauthapp', ['A']), redirectUris: ['https://claude.ai/api/mcp/auth_callback'], disabled: false, scopes: ['workos', 'offline_access'], grantTypes: ['authorization_code', 'refresh_token'], tokenEndpointAuthMethod: 'none', createdAt: now, updatedAt: now });
   await rawDb.collection('oauthConsent').insertOne({ clientId: A.oauthClientId, userId: A.userId, referenceId: A.orgId, scopes: ['workos'], resources: [], createdAt: now, updatedAt: now });
+  // A real OAuth caller for A (word 'chat'): static keys, chat-type included, are all 'agent', so Needs asked with it do not count against the five open Needs the code key may have with A.
+  { const raw = randomBytes(24).toString('base64url'); await rawDb.collection('oauthAccessToken').insertOne({ token: createHash('sha256').update(raw, 'utf8').digest('base64url'), clientId: A.oauthClientId, userId: A.userId, referenceId: A.orgId, scopes: ['workos'], resources: [`${B}/api/mcp`], createdAt: now, expiresAt: new Date(Date.now() + 7_200_000), revoked: null }); A.oauthTok = 'wosat_' + raw; }
   await rawDb.collection('passkey').insertOne({ _id: A.passkey, name: can('apasskey', ['A']), publicKey: 'x', userId: uid(A.userId), credentialID: 'lkqcred' + hex(6), counter: 0, deviceType: 'singleDevice', backedUp: false, transports: 'internal', createdAt: now });
   await rawDb.collection('settings').updateOne({ _id: `dispatcher:${A.userId}` }, { $set: { area: 'dispatcher', orgId: A.orgId, userId: A.userId, enabled: false, maxConcurrent: 1, boilerplateNoteId: P.boiler } }, { upsert: true });
 
@@ -778,6 +780,16 @@ try {
       check('needs: a teammate reading get_task sees the agent hand-in labelled writtenBy', !!tHand?.writtenBy, JSON.stringify(tHand)?.slice(0, 200));
       check('needs: a review Need goes to the task owner, who alone can answer; others and agents cannot answer, withdraw or close past it', !!rn && rn.to === A.userId && (tAnsR.value?.ok === false || tAnsR.error) && !tWdR.ok && !aWdR.ok && rAfter.status !== 'Done' && !!(await rawDb.collection('needs').findOne({ taskRef: rv.ref, kind: 'review', status: 'open' })), JSON.stringify([!!rn, tAnsR.value?.ok, tWdR.ok, aWdR.ok, aDoneR.ok, rAfter?.status]));
     }
+    // Discord may steer, never release: an app-only Need (asked so, or by its words) and a review are refused even to their addressee's own linked account
+    const appNeed = (await mustMcp(A.chat, 'ask', { project: q, to: 'me', kind: 'approve', ask: `${marker} app only`, app_only: true })).need.id;
+    const wordNeed = (await mustMcp(A.chat, 'ask', { project: q, to: 'me', kind: 'do', ask: `${marker} deploy to production` })).need.id;
+    const revNeed = (await mustMcp(A.chat, 'ask', { project: q, to: 'me', kind: 'chase', ask: `${marker} review` })).need.id;
+    await rawDb.collection('needs').updateOne({ _id: revNeed }, { $set: { kind: 'review' } });
+    const dcPress = async (id, opt) => (await interact(null, DA, 3, { custom_id: `wo:need:${id}:${opt}`, component_type: 2 })).text;
+    const pApp = await dcPress(appNeed, 'yes'), pWord = await dcPress(wordNeed, 'done'), pRev = await dcPress(revNeed, 'done');
+    const stillOpen = async id => (await rawDb.collection('needs').findOne({ _id: id }))?.status === 'open';
+    check('needs: an app-only Need, a Need whose words make it app-only and a review are refused when their addressee presses them in Discord', [pApp, pWord, pRev].every(t => /"type":\s*4/.test(t) && !/"type":\s*7[,}]/.test(t)) && (await stillOpen(appNeed)) && (await stillOpen(wordNeed)) && (await stillOpen(revNeed)), JSON.stringify([pApp, pWord, pRev]).slice(0, 400));
+    await rawDb.collection('needs').updateMany({ _id: { $in: [appNeed, wordNeed, revNeed] } }, { $set: { status: 'withdrawn', closedAt: new Date() } }); // so they do not count against the five open Needs per asker
     await sleep(2000); // the alerts these asks queued are flushed (after the response) before the first persona's writes are measured
   }
   const aimedOrScan = probes.filter(pr => !pr.ownerOnly);

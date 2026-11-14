@@ -88,7 +88,11 @@ try {
   // Needs: one the project's owner asked (its ask may show), one a teammate asked (name only), one on the private project
   const ownerKey = await mkKey({ agent: 'claude-code', name: 'tt owner' });
   const mateKey = await mkKey({ agent: 'claude-code', name: 'tt mate', userId: mate.userId, orgId: ME.orgId });
-  await must(ownerKey, 'ask', { project: 'TT Shared', to: 'b4t-mate@example.test', kind: 'approve', ask: 'OWNER-ASK pick the colour' });
+  // An ask shows only when the owner asked in person (actor kind 'user'), and not when it is app-only; one asked through an agent shows the name only
+  const ownerAsk = await must(ownerKey, 'ask', { project: 'TT Shared', to: 'b4t-mate@example.test', kind: 'approve', ask: 'OWNER-ASK pick the colour' });
+  const ownerApp = await must(ownerKey, 'ask', { project: 'TT Shared', to: 'b4t-mate@example.test', kind: 'do', ask: 'OWNER-APPONLY-ASK run the thing', app_only: true });
+  await must(ownerKey, 'ask', { project: 'TT Shared', to: 'b4t-mate@example.test', kind: 'chase', ask: 'OWNER-AGENT-ASK chase them' });
+  for (const n of [ownerAsk, ownerApp]) await rawDb.collection('needs').updateOne({ _id: n.need.id }, { $set: { 'from.actor': { kind: 'user', userId: ME.userId } } });
   await must(mateKey, 'ask', { project: 'TT Shared', to: EMAIL, kind: 'approve', ask: 'MATE-ASK-SECRET may I merge' });
   await must(ownerKey, 'ask', { project: 'TT Private', to: 'me', kind: 'approve', ask: 'PRIVATE-NEED-ASK' });
 
@@ -131,7 +135,8 @@ try {
   const text = to(CH1)[0]?.body?.content ?? '';
   check('it names the shared project: done yesterday, Now, and who it waits on', /TT Shared/.test(text) && /Shared finished click here yesterday/.test(text) && /Now: Ship it/.test(text) && /Waits on: .*Dana from the client/.test(text), text);
   check('markdown is neutralised: no masked link, no mention (the link text stays)', !/\]\(/.test(text) && !/evil\.example/.test(text) && /re-login/.test(text) && !/@everyone/.test(text), text);
-  check("open Needs add their person by name: the owner's ask shows, a teammate's does not", /Team Mate \(OWNER-ASK pick the colour\)/.test(text) && !/MATE-ASK-SECRET/.test(text), text);
+  check("open Needs add their person by name: the owner's own ask shows, a teammate's does not", /Team Mate \(OWNER-ASK pick the colour\)/.test(text) && !/MATE-ASK-SECRET/.test(text), text);
+  check("an owner-asked app-only Need's ask is absent, and so is an agent-asked one on the owner's project (names only)", !/OWNER-APPONLY-ASK|OWNER-AGENT-ASK/.test(text) && /Team Mate/.test(text), text);
   check('private and chosen-people projects are absent (names, State lines, done tasks, waits, Need asks)', !/TT Private|TT Chosen|PRIVATE|CHOSEN/.test(text), text);
   check('a shared project with nothing to report is left out', !/TT Quiet/.test(text), text);
   check('mentions are off', JSON.stringify(to(CH1)[0]?.body?.allowed_mentions) === '{"parse":[]}', JSON.stringify(to(CH1)[0]?.body?.allowed_mentions));
