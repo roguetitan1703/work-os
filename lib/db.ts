@@ -179,6 +179,10 @@ export type NeedDoc = Placed & {
   withdrawnReason?: string;
   /** When an alert for this Need (or the one it replaced) was last queued: a replacement within 10 minutes of it sends none. */
   alertedAt?: Date;
+  /** A review Need made past the hourly alert limit: no alert was queued for it. */
+  noAlert?: boolean;
+  /** A review Need made because an agent wanted to drop or archive the task: what Accept then does (default: close it as Done). */
+  closing?: 'Dropped' | 'archived';
 };
 
 export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {

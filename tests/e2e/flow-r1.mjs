@@ -8,7 +8,7 @@
 //   - a dispatched task that goes to review sends the review alert, not "Claude finished";
 //   - an agent cannot loosen a task's kind to get past the gate.
 // Seed profile: none.
-import { B, ME, MCP, check, finish, launch, login, mkKey, rawDb, setProfile } from './lib.mjs';
+import { B, ME, MCP, check, finish, launch, login, makeUser, mkKey, rawDb, setProfile } from './lib.mjs';
 import { mcpH, must, sleep } from './flow-lib.mjs';
 
 const col = n => rawDb.collection(n);
@@ -20,6 +20,8 @@ const browser = await launch();
 try {
   await setProfile(ME, { quietStart: 0, quietEnd: 0, checklistHidden: true });
   const kA = await mkKey({ agent: 'claude-code', name: 'om code' });
+  const bea = await makeUser({ email: 'bea@example.test', name: 'Bea', orgId: ME.orgId, role: 'member' });
+  const kBea = await mkKey({ agent: 'claude-code', userId: bea.userId, orgId: ME.orgId, name: 'bea code' });
   await must(MCP, 'add_project', { name: 'R1 Proj' });
   const mk = async (title, kind, extra = {}) => (await must(MCP, 'add_task', { title, project: 'R1 Proj', ...(kind ? { result_kind: kind } : {}), ...extra })).created;
   const gated = async (label, ref, call) => {
@@ -63,6 +65,27 @@ try {
     check('log_progress at 100 alone does not close it and asks nothing', (await task(t9.ref)).status !== 'Done' && !(await reviewOf(t9.ref)));
   }
 
+  // ======== link safety, no project, drop and archive ========
+  {
+    const t = await mk('Bad link', 'code');
+    const bad = await mcpH(kA, 'hand_in', { task: t.ref, changed: 'x', where: [{ url: 'javascript:alert(1)', label: 'PR' }] });
+    check('hand_in: a javascript: link is refused and nothing is stored or closed', bad.isError && (await task(t.ref)).status !== 'Done' && !(await task(t.ref)).handIn, bad.text.slice(0, 140));
+    const np = (await must(MCP, 'add_task', { title: 'No project code task', result_kind: 'code' })).created;
+    await mcpH(kA, 'complete_task', { task: np.ref, note: 'done without a project' });
+    const npn = await reviewOf(np.ref);
+    check('a task with no project is reviewed too (the Need has no project)', (await task(np.ref)).status !== 'Done' && !!npn && npn.to === ME.userId && npn.projectId === '', JSON.stringify([npn?.projectId]));
+    const d = await mk('Agent drops code', 'code');
+    await mcpH(kA, 'update_task', { task: d.ref, status: 'Dropped' });
+    const dn = await reviewOf(d.ref);
+    check('an agent dropping code work opens a review instead (the task is not Dropped)', (await task(d.ref)).status !== 'Dropped' && dn?.closing === 'Dropped' && /wants to drop/.test(dn.ask), JSON.stringify([dn?.closing]));
+    const ar = await mk('Agent archives code', 'code');
+    await mcpH(kA, 'apply_changes', { ops: [{ op: 'archive_task', task: ar.ref }] });
+    check('an agent archiving code work opens a review instead (not archived)', !(await task(ar.ref)).archived && (await reviewOf(ar.ref))?.closing === 'archived');
+    const rp = await mk('Agent drops a report');
+    await mcpH(kA, 'update_task', { task: rp.ref, status: 'Dropped' });
+    check('an agent dropping report work drops it', (await task(rp.ref)).status === 'Dropped');
+  }
+
   // ======== check, report and no kind finish by themselves ========
   {
     for (const [label, kind] of [['check', 'check'], ['report', 'report'], ['no kind', null]]) {
@@ -88,6 +111,8 @@ try {
 
   // ======== dispatched: one alert, not two ========
   const claim = () => ({ state: 'running', markedAt: new Date(), markedBy: 'user', markedByUserId: ME.userId, markedByOrgId: ME.orgId, sessionId: 'sess-r1', claimedAt: new Date() });
+  // (The tests above made more than ten reviews from one agent in this hour: age them so the hourly alert limit does not hide the one under test.)
+  await col('needs').updateMany({ kind: 'review' }, { $set: { createdAt: new Date(Date.now() - 2 * 3_600_000) } });
   const dCode = await mk('Dispatched code', 'code');
   const dRep = await mk('Dispatched report', null);
   for (const t of [dCode, dRep]) await col('tasks').updateOne({ orgId: ME.orgId, ref: t.ref }, { $set: { claude: claim() } });
@@ -169,6 +194,38 @@ try {
     const made = await col('tasks').find({ orgId: ME.orgId, title: { $in: ['Chase the signature', 'Update the invoice'] } }).toArray();
     check('accept and file: the task is Done and one task per left line is made in its project', (await task(fl.ref)).status === 'Done' && made.length === 2 && (await col('tasks').countDocuments({ orgId: ME.orgId })) === before + 2 && made.every(m => m.projectId === flProj), JSON.stringify(made.map(m => m.title)));
     check('accept and file: the Need records the numbers it filed', filed.filed?.length === 2 && made.every(m => filed.filed.includes(m.ref)), JSON.stringify(filed.filed));
+
+    // Stale evidence: after a send-back, a close with no new hand_in does not reuse the old one
+    const st = await mk('Stale evidence', 'code');
+    await mcpH(kA, 'hand_in', { task: st.ref, changed: 'OLD evidence', checked: 'old check' });
+    await decide(st.ref, 'send_back', 'Redo the footer.');
+    check('send back: the old hand-in is cleared from the task', !(await task(st.ref)).handIn);
+    await mcpH(kA, 'complete_task', { task: st.ref, note: 'quick fix' });
+    const stn = await reviewOf(st.ref);
+    check('a close without a fresh hand_in shows only the new note, not the old evidence', stn.result.changed === 'quick fix' && stn.result.checked === '' && !JSON.stringify(stn.result).includes('OLD'), JSON.stringify(stn.result));
+    await decide(st.ref, 'accept');
+
+    // What the agent wrote is labelled for everyone else
+    const lb = await mk('Labelled hand-in', 'code');
+    await mcpH(kA, 'hand_in', { task: lb.ref, changed: 'Handed in by the agent', left: ['Filed by the agent line'] });
+    const seenByBea = await must(kBea, 'get_task', { task: lb.ref });
+    check('get_task: a teammate sees the hand-in labelled writtenBy', !!seenByBea.handIn?.writtenBy && /Claude Code/.test(seenByBea.handIn.writtenBy), JSON.stringify(seenByBea.handIn));
+    await decide(lb.ref, 'accept_file');
+    const filedLine = await col('tasks').findOne({ orgId: ME.orgId, title: 'Filed by the agent line' });
+    const filedSeen = await must(kBea, 'get_task', { task: filedLine.ref });
+    check('accept and file: the filed title is labelled as the agent\'s text, not the owner\'s', !!filedSeen.titleWrittenBy && /Claude Code/.test(filedSeen.titleWrittenBy), JSON.stringify([filedSeen.titleWrittenBy]));
+
+    // A recurring task keeps its kind in the next occurrence
+    const rc = await mk('Recurring code', 'code', { due: '+1d', recurrence: { freq: 'daily', interval: 1 } });
+    await mcpH(kA, 'hand_in', { task: rc.ref, changed: 'Did today\'s' });
+    await decide(rc.ref, 'accept');
+    const rcd = await task(rc.ref);
+    const nxt = rcd.nextRef ? await task(rcd.nextRef) : null;
+    check('recurring: the next occurrence keeps the result kind', !!nxt && nxt.resultKind === 'code', JSON.stringify([rcd.nextRef, nxt?.resultKind]));
+    const rk = await mk('Recurring check', 'check', { due: '+1d', recurrence: { freq: 'daily', interval: 1 } });
+    await mcpH(kA, 'complete_task', { task: rk.ref });
+    const rkd = await task(rk.ref);
+    check('recurring: a check task finishes and its next keeps "check"', rkd.status === 'Done' && (await task(rkd.nextRef))?.resultKind === 'check');
 
     // A dispatched task that is sent back goes into the queue again
     await p.goto(`${B}/today`);

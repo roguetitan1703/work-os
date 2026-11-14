@@ -152,6 +152,7 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     ...(d.subtasks[n].due ? { due: d.subtasks[n].due } : {}),
     ...(d.subtasks[n].assigneeIds.length ? { assignees: d.subtasks[n].assigneeIds.map(who) } : {}),
   }));
+  const handInBy = t.handIn ? mark('hand-in', t.handIn.by, `${t.handIn.changed}${t.handIn.checked}${t.handIn.left.join('')}`) : undefined;
   const noteBy = note ? mark('note', [note.createdBy ?? note.updatedBy, note.updatedBy], `${note.title}${note.firstLine}`) : undefined;
   const activity = d.activity.map(a => {
     const w = a.type === 'comment' ? mark(`comment ${a.id}`, a.actor, '-') : label(a.actor);
@@ -195,7 +196,7 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     ...(subtasks.length ? { subtasks, subtaskProgress: t.subtaskCount ? `${t.subtaskCount.done} of ${t.subtaskCount.total} done (progress is their average)` : undefined } : {}),
     recurrence: t.recurrence,
     resultKind: t.resultKind ?? null,
-    ...(t.handIn ? { handIn: { changed: t.handIn.changed, checked: t.handIn.checked, rating: t.handIn.rating, where: t.handIn.where, left: t.handIn.left, at: t.handIn.at, by: by(t.handIn.by) } } : {}),
+    ...(t.handIn ? { handIn: { changed: t.handIn.changed, checked: t.handIn.checked, rating: t.handIn.rating, where: t.handIn.where, left: t.handIn.left, at: t.handIn.at, by: by(t.handIn.by), ...(handInBy ? { writtenBy: handInBy } : {}) } } : {}),
     ...(t.review ? { review: t.review } : {}),
     archived: t.archived,
     createdAt: t.createdAt,
@@ -1441,13 +1442,13 @@ export function createMcpServer(ctx: Ctx): McpServer {
   tool(
     'withdraw_need',
     {
-      inputSchema: { id: z.union([z.number().int(), z.string()]).describe('Need number (7 or "#7") or id') },
+      inputSchema: { id: z.union([z.number().int(), z.string()]).describe('Need number (7 or "#7") or id'), session: sessionArg },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     handler(async a => {
       const n = await needsData.findNeed(s, a.id);
       if (!n) throw new NotFoundError('That Need does not exist, or you did not ask it.');
-      return { need: await needOut(await needsData.withdrawNeed(s, n.id, { word: WORD, session: requestContext().sid, keyId: caller.keyId })) };
+      return { need: await needOut(await needsData.withdrawNeed(s, n.id, { word: WORD, session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId })) };
     }),
   );
 

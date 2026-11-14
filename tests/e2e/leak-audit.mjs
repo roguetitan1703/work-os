@@ -750,6 +750,12 @@ try {
       const aWdR = await mcpCall(A.code, 'withdraw_need', { id: rn?._id });
       const aDoneR = await mcpCall(A.code, 'update_task', { task: rv.ref, status: 'Done' });
       const rAfter = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: rv.ref });
+      const xHi = await mcpCall(X.chat, 'hand_in', { task: rv.ref, changed: 'lkq other org hand in' });
+      const tGet = await mcpCall(T.chat, 'get_task', { task: rv.ref });
+      let tHand = null;
+      try { tHand = JSON.parse(tGet.text).handIn; } catch { /* not JSON */ }
+      check('needs: a hand-in on a task of another organization is refused', !xHi.ok && !(await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: rv.ref, 'handIn.changed': 'lkq other org hand in' })), xHi.text.slice(0, 120));
+      check('needs: a teammate reading get_task sees the agent hand-in labelled writtenBy', !!tHand?.writtenBy, JSON.stringify(tHand)?.slice(0, 200));
       check('needs: a review Need goes to the task owner, who alone can answer; others and agents cannot answer, withdraw or close past it', !!rn && rn.to === A.userId && (tAnsR.value?.ok === false || tAnsR.error) && !tWdR.ok && !aWdR.ok && rAfter.status !== 'Done' && !!(await rawDb.collection('needs').findOne({ taskRef: rv.ref, kind: 'review', status: 'open' })), JSON.stringify([!!rn, tAnsR.value?.ok, tWdR.ok, aWdR.ok, aDoneR.ok, rAfter?.status]));
     }
     await sleep(2000); // the alerts these asks queued are flushed (after the response) before the first persona's writes are measured

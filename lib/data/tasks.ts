@@ -557,22 +557,23 @@ type UpdateOpts = {
  */
 export async function updateTask(s: Scope, key: string | number, patch: TaskPatch, actor: Actor, opts: UpdateOpts = {}): Promise<Task> {
   const parsed = TaskPatchSchema.parse(patch);
-  if (parsed.status !== 'Done') return updateTaskCore(s, key, parsed, actor, opts);
+  const ending = parsed.status === 'Done' || parsed.status === 'Dropped' ? parsed.status : null;
+  if (!ending) return updateTaskCore(s, key, parsed, actor, opts);
   return inTransaction(async () => {
     const c = await scoped(s);
     const cur = await findTaskDoc(c, key);
     const needs = await import('./needs');
-    if (!isAgent(actor) || cur.status === 'Done' || !REVIEW_KINDS.includes(effectiveKind(cur, parsed.resultKind, actor))) {
+    if (!isAgent(actor) || cur.status === ending || cur.status === 'Done' || cur.status === 'Dropped' || !REVIEW_KINDS.includes(effectiveKind(cur, parsed.resultKind, actor))) {
       const t = await updateTaskCore(s, key, parsed, actor, opts);
-      // Closed directly: a review still waiting on it has nothing left to ask.
-      if (cur.status !== 'Done') await needs.closeOpenReviews(s.orgId, cur._id, 'done');
+      // Closed directly: whatever waits on it has nothing left to ask (Dropped: everything; Done: a pending review).
+      if (cur.status !== ending) await (ending === 'Dropped' ? needs.closeTaskNeeds(s.orgId, [cur._id], 'task dropped') : needs.closeOpenReviews(s.orgId, cur._id, 'done'));
       return t;
     }
     const { status: _status, ...rest } = parsed;
     void _status;
     await updateTaskCore(s, key, rest, actor, opts);
     const doc = await findTaskDoc(c, cur._id);
-    await needs.createReviewNeed(s, doc, actor, doc.handIn ?? { changed: opts.note?.trim() ?? '', checked: '', rating: null, where: [], left: [] });
+    await needs.createReviewNeed(s, doc, actor, doc.handIn ?? { changed: opts.note?.trim() ?? '', checked: '', rating: null, where: [], left: [] }, ending === 'Dropped' ? 'Dropped' : undefined);
     if (doc.claude?.state === 'running') await endRunForReview(await scoped(s), s, doc);
     return toTask((await findTaskDoc(c, cur._id)) ?? doc);
   });
@@ -837,6 +838,11 @@ export async function setArchived(s: Scope, key: string | number, archived: bool
   const c = await scoped(s);
   const cur = await findTaskDoc(c, key);
   if (cur.archived === archived) return toTask(cur);
+  // An agent archiving unfinished code, data or client work is closing it out: that goes to review too.
+  if (archived && isAgent(actor) && cur.status !== 'Done' && cur.status !== 'Dropped' && REVIEW_KINDS.includes(cur.resultKind ?? 'report')) {
+    await (await import('./needs')).createReviewNeed(s, cur, actor, cur.handIn ?? { changed: '', checked: '', rating: null, where: [], left: [] }, 'archived');
+    return toTask((await findTaskDoc(c, cur._id)) ?? cur);
+  }
   const now = new Date();
   await c.tasks.updateOne({ _id: cur._id }, { $set: { archived, updatedAt: now } });
   await logActivity(c, cur, actor, archived ? 'archived' : 'unarchived');
@@ -872,6 +878,7 @@ export async function trashTask(
   const kids = await c.tasks.find({ parentId: cur._id }).toArray();
   for (const k of kids) await trashOne(c, s, k, actor, at, opts.reason, cur._id);
   await trashOne(c, s, cur, actor, at, opts.reason);
+  await (await import('./needs')).closeTaskNeeds(s.orgId, [cur._id, ...kids.map(k => k._id)], 'task trashed');
   await rollUp(c, cur.parentId);
   return { ref: cur.ref, title: cur.title, ...(kids.length ? { subtasks: kids.length } : {}) };
 }
@@ -1158,6 +1165,7 @@ async function spawnNextOccurrence(c: Collections, s: Scope, done: TaskDoc, acto
       checklist: done.checklist.map(i => i.text),
       links: done.links,
       recurrence: r,
+      ...(done.resultKind ? { resultKind: done.resultKind } : {}),
       ...(done.parentId && (await c.tasks.findOne({ _id: done.parentId }, { projection: { _id: 1 } })) ? { parent: done.parentId } : {}),
     },
     actor,

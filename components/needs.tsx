@@ -56,6 +56,7 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
       </p>
       {need.result && (
         <div data-need-result className={cn('rounded-lg bg-muted/50 px-3 py-2 space-y-1 break-words', phone ? 'text-[14px]' : 'text-xs')}>
+          <p className="italic text-muted-foreground">Written by the agent, not checked.</p>
           <p><span className="font-medium">Changed:</span> {need.result.changed}</p>
           {need.result.checked && <p><span className="font-medium">Checked:</span> {need.result.checked}</p>}
           {need.result.rating && <p><span className="font-medium">Their verdict:</span> {need.result.rating}</p>}
@@ -64,7 +65,7 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
               <span className="font-medium">Where:</span>{' '}
               {need.result.where.map((w, i) => (
                 <a key={i} href={w.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 mr-2 break-all">
-                  {w.label || w.url}
+                  {w.label ? `${w.label} (${hostOf(w.url)})` : w.url}
                 </a>
               ))}
             </p>
@@ -133,6 +134,14 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
       )}
     </article>
   );
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
 }
 
 function fmtWait(ms: number): string {
