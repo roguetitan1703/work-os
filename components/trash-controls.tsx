@@ -5,6 +5,7 @@ import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { deleteTaskAction, purgeTrashItemAction, restoreTaskAction } from '@/app/actions';
+import { purgeNoteAction, restoreNoteAction } from '@/app/(app)/notes/actions';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -110,6 +111,60 @@ export function PurgeTrashButton({ taskRef, title }: { taskRef: number; title: s
             </DialogTitle>
             <DialogDescription className="text-xs">
               <span className="text-foreground">{title}</span> and its history will be removed permanently. This can&apos;t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-end">
+            <Button type="button" variant="outline" size="sm" className="max-md:h-11" onClick={() => setOpen(false)} disabled={pending}>
+              Cancel
+            </Button>
+            <Button variant="destructive" size="sm" className="max-md:h-11" onClick={purge} disabled={pending}>
+              Delete forever
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/** Restore / Delete forever for a note in Review › Trash. */
+export function NoteTrashButtons({ id, title }: { id: string; title: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, start] = useTransition();
+
+  function restore() {
+    start(async () => {
+      const res = await restoreNoteAction(id);
+      if ('error' in res) return void toast.error(res.error);
+      toast.success(`Restored "${title}"`, { action: { label: 'Open', onClick: () => router.push(`/notes/${id}`) } });
+      router.refresh();
+    });
+  }
+  function purge() {
+    start(async () => {
+      const res = await purgeNoteAction(id);
+      if ('error' in res) return void toast.error(res.error);
+      setOpen(false);
+      toast.success(`"${title}" deleted forever`);
+      router.refresh();
+    });
+  }
+
+  return (
+    <>
+      <Button size="xs" variant="outline" className="gap-1 max-md:h-11 max-md:flex-1 max-md:px-4 max-md:text-sm" disabled={pending} onClick={restore}>
+        <RotateCcw className="w-3 h-3" /> Restore
+      </Button>
+      <Button size="xs" variant="ghost" className="max-md:h-11 max-md:flex-1 max-md:px-4 max-md:text-sm text-muted-foreground hover:text-red-600 dark:hover:text-red-400" onClick={() => setOpen(true)}>
+        Delete forever
+      </Button>
+      <Dialog open={open} onOpenChange={v => !pending && setOpen(v)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Delete this note forever?</DialogTitle>
+            <DialogDescription className="text-xs">
+              <span className="text-foreground">{title}</span> and the sub-pages deleted with it will be removed permanently. This can&apos;t be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="sm:justify-end">

@@ -7,7 +7,8 @@ import { requireScope } from '@/lib/caller';
 import { ActorName } from '@/components/actor-badge';
 import { ACTOR_FILTERS, type ActorFilter } from '@/lib/actors';
 import { fmtAgo, fmtDate, fmtDateTime } from '@/lib/format';
-import { PurgeTrashButton, RestoreTrashButton } from '@/components/trash-controls';
+import { NoteTrashButtons, PurgeTrashButton, RestoreTrashButton } from '@/components/trash-controls';
+import { listDeletedNotes, NOTE_TRASH_DAYS } from '@/lib/data/notes';
 import { addDays, dateInTz, startOfDay, todayStr, weekStart } from '@/lib/dates';
 import { ActivityTimeline } from '@/components/activity-timeline';
 import { TaskList, TaskRow } from '@/components/task-row';
@@ -109,8 +110,9 @@ export async function Activity({ actor }: { actor?: string }) {
 
 export async function Trash() {
   const s = await requireScope();
-  const [items, names] = await Promise.all([listTrash(s), projectNameMap(s)]);
+  const [items, notes, names] = await Promise.all([listTrash(s), listDeletedNotes(s), projectNameMap(s)]);
   return (
+    <div className="space-y-6">
     <div className="space-y-2">
       <p className="text-sm md:text-xs text-muted-foreground px-1 md:px-0">
         {`Deleted tasks stay here for ${TRASH_DAYS} days with their history, then they're gone for good.`}
@@ -147,6 +149,48 @@ export async function Trash() {
       ) : (
         <MEmpty icon={<Trash2 className="w-5 h-5" />} title="Trash is empty" hint={`Deleted tasks show up here for ${TRASH_DAYS} days.`} />
       )}
+    </div>
+    <div className="space-y-2" data-testid="note-trash">
+      <h2 className="text-sm md:text-xs font-medium text-foreground px-1 md:px-0">Notes</h2>
+      <p className="text-sm md:text-xs text-muted-foreground px-1 md:px-0">
+        {`Deleted notes stay here for ${NOTE_TRASH_DAYS} days with their sub-pages, then they're gone for good.`}
+      </p>
+      {notes.length ? (
+        <ul className="divide-y divide-border/60 md:divide-border rounded-2xl md:rounded-lg border border-border/70 md:border-border bg-card overflow-hidden">
+          {notes.map(n => {
+            const project = n.projectId ? names.get(n.projectId) : null;
+            return (
+              <li key={n.id} className="flex flex-col md:flex-row items-stretch md:items-start gap-3 px-4 md:px-3 py-3 md:py-2.5">
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <div className="text-[16px] md:text-sm text-foreground md:truncate">{n.title}</div>
+                  <div className="flex items-center gap-1.5 flex-wrap text-xs md:text-[11px] text-muted-foreground">
+                    {project && <span className="text-foreground/80">{project}</span>}
+                    {project && <span>·</span>}
+                    {n.subPages > 0 && <span>{`${n.subPages} sub-page${n.subPages === 1 ? '' : 's'}`}</span>}
+                    {n.subPages > 0 && <span>·</span>}
+                    <span title={fmtDateTime(n.deletedAt)}>
+                      deleted {fmtAgo(n.deletedAt)}
+                      {n.deletedBy && (
+                        <>
+                          {' '}by <ActorName actor={n.deletedBy} />
+                        </>
+                      )}
+                    </span>
+                    <span>·</span>
+                    <span>purged on {fmtDate(n.purgeOn, 'MMM d')}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 md:gap-1 md:shrink-0">
+                  <NoteTrashButtons id={n.id} title={n.title} />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="text-xs text-muted-foreground px-1 md:px-0">No deleted notes.</p>
+      )}
+    </div>
     </div>
   );
 }

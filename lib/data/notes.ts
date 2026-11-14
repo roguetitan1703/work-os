@@ -519,16 +519,37 @@ export async function deleteNote(s: Scope, id: string, actor: Actor, opts: { exp
   return { title: cur.title, subPages: kids.length };
 }
 
+/** The sub-pages deleted in the same action as note `id` (same deletedAt), walking down from it. */
+async function deletedWith(c: Collections, id: string, at: Date): Promise<string[]> {
+  const out: string[] = [];
+  let frontier = [id];
+  for (let depth = 0; depth < 10 && frontier.length; depth++) {
+    const kids = await c.notes.find({ parentId: { $in: frontier }, deletedAt: at }, { projection: { _id: 1 } }).toArray();
+    frontier = kids.map(k => k._id);
+    out.push(...frontier);
+  }
+  return out;
+}
+
+/** A trashed note that can be restored or purged on its own: not one that went with its task (it comes back, and goes
+ * for good, with the task in the task trash) or with its parent page. */
+async function trashedNote(c: Collections, id: string): Promise<NoteDoc & { deletedAt: Date }> {
+  const cur = await c.notes.findOne({ _id: id, deletedAt: { $ne: null } });
+  if (!cur) throw new NotFoundError(`Note ${id} is not in the trash`);
+  if (await c.trash.findOne({ noteIds: id }, { projection: { _id: 1 } })) throw new InputError('This note went to the trash with its task; restore the task (Review › Trash) to bring it back.');
+  if (cur.parentId && (await c.notes.findOne({ _id: cur.parentId, deletedAt: cur.deletedAt }, { projection: { _id: 1 } }))) throw new InputError('This page went to the trash with the page above it; restore or delete that page instead.');
+  return cur as NoteDoc & { deletedAt: Date };
+}
+
 export async function restoreNote(s: Scope, id: string, actor: Actor): Promise<Note> {
   const c = await scoped(s);
-  const cur = await c.notes.findOne({ _id: id, deletedAt: { $ne: null } });
-  if (!cur) throw new NotFoundError(`Note ${id} is not deleted`);
+  const cur = await trashedNote(c, id);
   await guardBoilerplate(s, actor, [cur._id, cur.parentId]);
   if (cur.taskId && (await c.notes.findOne({ taskId: cur.taskId, ...live }))) throw new InputError('That task has a newer note; restore refused.');
   await takeBackTaskOnNoteEdit(s, c, cur, actor);
   // Bring back sub-pages deleted in the same action.
-  const same = await c.notes.find({ deletedAt: cur.deletedAt }, { projection: { _id: 1 } }).toArray();
-  await c.notes.updateMany({ _id: { $in: same.map(s => s._id) } }, { $set: { deletedAt: null }, $unset: { deletedBy: '' } });
+  const same = [id, ...(await deletedWith(c, id, cur.deletedAt))];
+  await c.notes.updateMany({ _id: { $in: same } }, { $set: { deletedAt: null }, $unset: { deletedBy: '' } });
   await c.notes.updateOne({ _id: id }, { $set: { updatedAt: new Date(), updatedBy: actor } });
   if (cur.parentId) {
     const p = await c.notes.findOne({ _id: cur.parentId, ...live });
@@ -537,8 +558,73 @@ export async function restoreNote(s: Scope, id: string, actor: Actor): Promise<N
   return (await getNote(s, id))!;
 }
 
+/** Notes were never purged before the note trash had a view (2026-11-14): anything deleted earlier gets a full
+ * NOTE_TRASH_DAYS from then, so nobody loses an old note without having seen it in Review › Trash. */
+const NOTE_TRASH_SINCE = Date.parse('2026-11-14T00:00:00Z');
+const purgeAt = (deletedAt: Date) => Math.max(deletedAt.getTime(), NOTE_TRASH_SINCE) + NOTE_TRASH_DAYS * 86_400_000;
+
 export async function purgeDeletedNotes(s: Scope): Promise<number> {
   const c = await scoped(s);
+  if (Date.now() < NOTE_TRASH_SINCE + NOTE_TRASH_DAYS * 86_400_000) return 0;
   const r = await c.notes.deleteMany({ deletedAt: { $ne: null, $lt: new Date(Date.now() - NOTE_TRASH_DAYS * 86_400_000) } });
   return r.deletedCount;
+}
+
+export type DeletedNote = {
+  id: string;
+  title: string;
+  projectId: string | null;
+  taskId: string | null;
+  deletedAt: string;
+  deletedBy: Actor | null;
+  /** Sub-pages deleted with it (they come back, and go for good, with it). */
+  subPages: number;
+  purgeOn: string;
+};
+
+/** Notes in the trash the caller can see, newest first. Sub-pages deleted with their parent are folded into it.
+ * Purges notes older than NOTE_TRASH_DAYS first (like the task trash, on list). */
+export async function listDeletedNotes(s: Scope): Promise<DeletedNote[]> {
+  const c = await scoped(s);
+  await purgeDeletedNotes(s);
+  // Notes that went with a task come back with the task (task trash), so they are not listed here.
+  const withTasks = (await c.trash.find({ noteIds: { $exists: true } }, { projection: { noteIds: 1 } }).toArray()).flatMap(t => t.noteIds ?? []);
+  const docs = await c.notes
+    .find({ deletedAt: { $ne: null }, _id: { $nin: withTasks } }, { projection: { title: 1, parentId: 1, taskId: 1, projectId: 1, deletedAt: 1, deletedBy: 1 } })
+    .sort({ deletedAt: -1 })
+    .limit(500)
+    .toArray();
+  const at = new Map(docs.map(d => [d._id, d.deletedAt!.getTime()]));
+  // A root is a deleted note whose parent was not deleted in the same action.
+  const isRoot = (d: (typeof docs)[number]) => !d.parentId || at.get(d.parentId) !== d.deletedAt!.getTime();
+  const subCount = new Map<string, number>();
+  for (const d of docs) {
+    if (isRoot(d)) continue;
+    let p = d.parentId!;
+    for (let i = 0; i < 10; i++) {
+      const parent = docs.find(x => x._id === p);
+      if (!parent || isRoot(parent)) break;
+      p = parent.parentId!;
+    }
+    subCount.set(p, (subCount.get(p) ?? 0) + 1);
+  }
+  return docs.filter(isRoot).map(d => ({
+    id: d._id,
+    title: d.title || 'Untitled',
+    projectId: d.projectId ?? null,
+    taskId: d.taskId ?? null,
+    deletedAt: d.deletedAt!.toISOString(),
+    deletedBy: d.deletedBy ? asActor(d.deletedBy) : null,
+    subPages: subCount.get(d._id) ?? 0,
+    purgeOn: new Date(purgeAt(d.deletedAt!)).toISOString().slice(0, 10),
+  }));
+}
+
+/** Delete a note in the trash for good, with the sub-pages deleted in the same action. */
+export async function purgeNote(s: Scope, id: string, actor: Actor): Promise<number> {
+  const c = await scoped(s);
+  const cur = await trashedNote(c, id);
+  const ids = [id, ...(await deletedWith(c, id, cur.deletedAt))];
+  await guardBoilerplate(s, actor, [cur.parentId, ...ids]);
+  return (await c.notes.deleteMany({ _id: { $in: ids }, deletedAt: { $ne: null } })).deletedCount;
 }

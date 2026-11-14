@@ -1,11 +1,10 @@
 # Work OS: handover
 
-Work OS is Om's task system: tasks, projects, Notion-style notes, Discord and alerts, used from a laptop, a phone and by Claude.
+Work OS is Delpat's task system: tasks, projects, Notion-style notes, Discord and alerts, used by Om and the team from a laptop and a phone, and by Claude sessions through its MCP connector. What it is for, and which flows are agreed: `docs/PRODUCT.md`.
 
-- Live app: https://work-os-puce-delta.vercel.app
-- Code: https://github.com/roguetitan1703/work-os (public; no secrets in it)
-- Hosting: Vercel (Node 22). Database: MongoDB Atlas. Pushing to `master` deploys.
-- Moving to EC2 at work.delpat.in (phase 5): runbook, deploy files and the one-time cut-over in `docs/hosting.md`.
+- Live app: https://work.delpat.in (the old Vercel copy is paused and no longer used)
+- Code: https://github.com/roguetitan1703/work-os (public; no secrets in it), mirrored to Delpat-Tech/work-os
+- Hosting: Delpat's EC2 box (ap-south-1), Caddy in front, the app under systemd (`work-os.service`, port 3100), own Node 22. Database: MongoDB Atlas. Pushing to `master` does **not** deploy: build on a PC (`scripts/build-artifact.sh`, uploaded to the `manual-builds` release) and run `sudo work-os-update` on the box. Runbook: `docs/hosting.md`.
 
 Each section below covers one feature in three parts: **Om** (what you can do in the app or on Discord), **Claude** (what Claude on claude.ai can do through the connector) and **Claude Code** (where the code lives and what to watch out for when changing it).
 
@@ -30,11 +29,11 @@ Each section below covers one feature in three parts: **Om** (what you can do in
 
 ## 1. Setup and environment
 
-All configuration is in Vercel → Project → Settings → Environment Variables. For local development, copy the same variables into `work-os/.env.local`, which is gitignored. `.env.example` lists every variable.
+On the box, configuration is in `/etc/work-os/env` (root:workos, 0640; template `deploy/env.template`); restart `work-os` after a change. For local development, copy the same variables into `.env.local`, which is gitignored. `.env.example` lists every variable.
 
 | Variable | What it is | Required |
 |---|---|---|
-| `MONGO_MONGODB_URI` (or `MONGODB_URI`) | Atlas connection string; the Vercel Atlas integration adds the `MONGO_` prefix and both names work | yes |
+| `MONGO_MONGODB_URI` (or `MONGODB_URI`) | Atlas connection string; both names work | yes |
 | `MONGODB_DB` | database name (`workos`) | default `workos` |
 | `BETTER_AUTH_SECRET` | signs sign-in cookies and hashes tokens (32+ random characters; `SESSION_SECRET` is read if missing). Sign-in is by user: `docs/auth.md` | yes |
 | `APP_TZ` | Default timezone for people who have not set their own (else UTC); each person sets theirs in Settings › Alerts | no |
@@ -43,10 +42,12 @@ All configuration is in Vercel → Project → Settings → Environment Variable
 | `DISCORD_BLOCKED_CHANNELS` | extra channel ids never to read (comma-separated); normally managed in Settings › Connections › Discord instead | optional |
 | `CRON_SECRET` | protects the alert check endpoint | for alerts |
 | `OPERATOR_EMAILS` | who runs the deployment (comma list): health, Discord registration, Settings › Usage, the built-in schedule (`lib/operator.ts`) | yes (Om's email) |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | keys for phone push (a `mailto:` address for the subject). **Must be added on Vercel**; copy the values from `.env.local`. Without them push is off and Settings → Status says so | for phone push |
-| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | SMTP for "Forgot password?" links, invitations, password-change emails and the Settings test email. `EMAIL_SECURE=true` = TLS from the start (port 465); otherwise STARTTLS is required. **Must be added on Vercel**; copy the values from `.env.local` | for password reset |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | keys for phone push (a `mailto:` address for the subject). Without them push is off and the Settings status strip says so | for phone push |
+| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | SMTP for "Forgot password?" links, invitations, password-change emails and the Settings test email. `EMAIL_SECURE=true` = TLS from the start (port 465); otherwise STARTTLS is required. | for password reset |
 | `OWNER_EMAIL`, `OWNER_NAME` | used only by `scripts/migrate-auth.mjs` (the first user) | for the migration |
-| `BLOB_READ_WRITE_TOKEN` | Vercel Blob (private) for images and files in notes | not used yet |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob (private) for images and files in notes (uploads are switched off) | not used |
+| `IG_ACCOUNT_ID`, `IG_PAGE_TOKEN`, `IG_GRAPH_VERSION` | Instagram reel publisher for cutroom (`docs/hosting.md` 9a) | for reels |
+| `DELPAT_OS_CLIENT_ID`, `DELPAT_OS_CLIENT_SECRET` | Delpat OS link and project import; hidden while unset (unset on the box) | optional |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows putting a Claude chat key in the URL (`/api/mcp/<key>`) instead of a header | leave unset |
 | `INVITE_LINK_TO_INVITER` | `0` sends invitation links only by email (the inviter never sees them); unset or `1` also shows the link to whoever invites (docs/auth.md) | default: shown |
 
@@ -65,7 +66,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
   - **Board:** columns by status, with filters.
   - **Projects:** progress per client.
   - **Task page:** edit everything inline, log progress, checklist, comments, history.
-  - **Review** (`/review?view=done|activity|stale|archive|trash`, sidebar and phone Menu): Done, Activity (filter by you, Discord or Claude), Stale (untouched 14+ days), Archive (Restore on each row, with Undo), Trash (Restore, Delete forever). `/history`, `/hidden` and `/archive` redirect here. The weekly review, the daily routine card and per-person help text were one person's setup and were removed (2026-10-26); their old documents (reviews, ritualLogs) stay in the database, unread.
+  - **Review** (`/review?view=done|activity|stale|archive|trash`, sidebar and phone Menu): Done, Activity (filter by you, Discord or Claude), Stale (untouched 7+ days, `lib/untouched.ts`), Archive (Restore on each row, with Undo), Trash (deleted tasks and notes: Restore, Delete forever). `/history`, `/hidden` and `/archive` redirect here. The weekly review, the daily routine card and per-person help text were one person's setup and were removed (2026-10-26); their old documents (reviews, ritualLogs) stay in the database, unread.
 - **Quick add:** press **N** anywhere. You can type it all in one line:
   - `Send invoice @"Grant Leads" !1 #billing due:fri ~20m mode:admin`
   - That reads as: `@project`, `!1`–`!4` for priority, `#tag`, `due:`, `start:`, `~20m` for the estimate, `mode:`.
@@ -124,7 +125,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 - **Endpoint:** `app/api/mcp/[[...key]]/route.ts`. Stateless Streamable HTTP. `Authorization: Bearer` takes an OAuth access token (`wosat_…`, `lib/oauth.ts`) or an API key (`wos_…`, also `X-API-Key`); no or bad credentials get 401 with `WWW-Authenticate` pointing at `/.well-known/oauth-protected-resource`. An OAuth client counts as a Claude chat key only when all its registered redirect addresses are claude.ai's callback; any other client gets the Claude Code rules.
 - **Tool handlers:** `lib/mcp/server.ts`.
 - **Tool titles, descriptions and server instructions:** `lib/mcp/docs.ts`. This one file feeds both MCP and Settings › Connections, so edit descriptions there.
-- **Adding a tool:** add its name to `ToolName` and an entry in `TOOLS` (docs.ts), register it with `tool(...)` in server.ts, and add it to `ORDER` in `app/(app)/connect/page.tsx`.
+- **Adding a tool:** add its name to `ToolName` and an entry in `TOOLS` (docs.ts), register it with `tool(...)` in server.ts, and add it to the tool groups in `app/(app)/settings/data.ts`.
 - **Smoke test:** `node scripts/test-mcp.mjs <url>/api/mcp <Claude chat key> [--write]`.
 
 ### Claude Code keys
@@ -142,7 +143,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 ### Om
 - **Search:** the search icon in phone headers, the sidebar Search button, `/` and `Ctrl+K` (desktop) open one search over tasks (title, `#12`), projects (name, client), notes (title, text) and Claude items (title, `C12`), 6 per group (`lib/data/search.ts`, server action `app/(app)/search-action.ts`, `components/global-search.tsx`). Up/Down/Enter on desktop. The Tasks page keeps its own filter box.
 - **Delete a task:** task page → Delete; on the phone, task → ⋯ → Delete. It goes to the **trash for 30 days**, together with its history and note, and the confirmation has **Undo**.
-- **Trash:** History → **Trash** (on the phone, More → Trash) lets you Restore or Delete forever. Opening a deleted task's link shows "This task is in the trash" with a Restore button.
+- **Trash:** Review → **Trash** (on the phone, Menu → Review → Trash) lets you Restore or Delete forever. Deleted notes are listed there too. Opening a deleted task's link shows "This task is in the trash" with a Restore button.
 - **Comments:** hover a comment in a task's history to Edit or Delete it. You can do this on any comment.
 
 ### Claude
@@ -166,7 +167,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
   - Transactions need a replica set. Atlas is one; a local mongod needs `--replSet rs0`.
 - **Trash:** a separate `trash` collection holding the whole task plus its history (`trashTask` / `restoreTask` / `purgeTrash` in tasks.ts), so no query needs a "not deleted" filter. Items older than 30 days are purged whenever the trash is listed.
 - **Project tree:** `lib/data/tree.ts`.
-- **App side:** `components/trash-controls.tsx`, `components/comment-entry.tsx`, and the Trash tab in `app/(app)/history/page.tsx`.
+- **App side:** `components/trash-controls.tsx`, `components/comment-entry.tsx`, and the Trash view in `app/(app)/review/views.tsx`.
 
 ---
 
@@ -188,7 +189,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
   - A task's note is archived automatically when the task is done or dropped, and stays readable.
   - A project note can be archived by hand.
 - **Saving:** automatic, about 1 second after you stop typing, or Ctrl+S.
-- **Delete:** a page goes to the trash for 30 days, with Undo. Deleting a page also deletes its sub-pages.
+- **Delete:** a page goes to the trash for 30 days, with Undo. Deleting a page also deletes its sub-pages. Review → Trash lists deleted notes (sub-pages fold into the page they went with) with Restore and Delete forever.
 - **If Claude edits a page while you have it open,** your old copy won't overwrite Claude's changes. You get a warning and the page reloads. Anything typed in those few seconds is lost, so copy it first if it matters.
 - **Images, video, audio and files are switched off for now.** They're hidden from the `/` menu, and pasting files does nothing.
 
@@ -210,11 +211,11 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 - **Editor:** BlockNote 0.55 (`@blocknote/react`, `@blocknote/mantine`). Schema: `lib/notes-schema.ts`, with custom `mention` inline content and a `page` block. Plain DOM renderers, so it works in the browser and on the server.
 - **Storage:** blocks are the source of truth (`notes.blocks`). `body` is markdown derived from them, used for search, previews and Claude. Old markdown-only notes convert when loaded.
 - **Converter:** `lib/notes-convert.ts` (server-side markdown ↔ blocks, per-block outline, block surgery). It is loaded **lazily**, because if it fails to load it must not take down other routes. An earlier version did take MCP down.
-  - **Needs jsdom 26:** an npm override in package.json pins it. jsdom 29 uses ES-module `require()`, which Vercel doesn't support.
+  - **Needs jsdom 26:** an npm override in package.json pins it. jsdom 29 uses ES-module `require()`, which broke the build on Vercel; keep the pin until it is re-tested.
   - **Needs `serverExternalPackages`** for BlockNote in `next.config.ts`.
 - **Data:** `lib/data/notes.ts`.
   - **One live note per task:** a partial unique index on `{taskId, deletedAt}`.
-  - **Soft delete:** `deletedAt`; deletion cascades to sub-pages.
+  - **Soft delete:** `deletedAt`; deletion cascades to sub-pages. `listDeletedNotes` (Review › Trash) purges notes older than 30 days first, like the task trash; `purgeNote` deletes one for good with its sub-pages.
   - **Version check:** `expectUpdatedAt` raises `NoteConflictError`.
   - **Task trash:** the note goes to the trash and comes back with its task.
 - **UI:**
@@ -296,7 +297,7 @@ There's no bot server running all the time and no messages are stored.
 | Unblocked | Right away, when the last task it waited on is closed |
 
 - **Where an alert goes:** three channels. Each alert type and each channel has a switch in Settings (section 9).
-  - **In-app inbox:** always on. Bell with an unread badge on the phone's Today header (the laptop sidebar has a Notifications link, no badge); the **Notifications** screen (`/notifications`, also More → Notifications) lists them newest first, and opening it marks all read. Kept 60 days.
+  - **In-app inbox:** always on. Bell with an unread badge on the phone's Today header (the laptop sidebar has a Notifications link, no badge); the **Notifications** screen (`/notifications`, also Menu → Inbox on the phone, Inbox in the laptop sidebar) lists them newest first, and opening it marks all read. Kept 60 days.
   - **Phone push:** a real notification on every device that turned it on in Settings. Tapping it opens the task (or the inbox when several arrived together). **iPhone needs the app added to the Home Screen and iOS 16.4 or later**; it won't offer push in a normal Safari tab.
   - **Discord DM:** as before.
   - **Send test** (Settings → Notifications) sends one through every enabled channel and shows what reached where.
@@ -330,7 +331,6 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
   - **Settings storage:** `settings` doc `_id: 'notify'` (`channels.push`, `channels.discord`, `kinds.*`; everything defaults on). Alert types and their labels: `ALERT_KINDS`.
   - **Collections:** `notifications` (inbox) and `pushSubs` (one per device, keyed by push endpoint; dead ones are deleted when the push service answers 404/410). Both in `lib/db.ts`.
   - **Push:** the `web-push` package; VAPID keys from env. `public/sw.js` handles `push` and `notificationclick`. Push needs a production build (the service worker is production only).
-  - **Last seen:** `markSeen('mcp' | 'discord')` is called from the MCP and Discord routes; the status panel reads it.
   - **UI:** `app/(app)/notifications/`, `components/mobile/bell.tsx` (unread count comes from `useApp()` in `components/app-context.tsx`).
 
 ### Tasks for Claude (dispatcher)
@@ -348,7 +348,7 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 ### Om
 - **Install:** iPhone: Safari → Share → **Add to Home Screen**. Android: Chrome → **Install app**. Long-press the icon for the **New task** and **Notes** shortcuts. On iPhone, sign in once inside the installed app.
 - **Below 768px wide, the app uses the phone interface;** the laptop view doesn't change.
-  - **Tab bar:** Today, Tasks, **+**, Notes, More.
+  - **Tab bar:** Today, Projects, **+**, Claude, Tasks; **Menu** in the header (Inbox, Review, Schedule, Settings). Notes sit under Projects on the phone.
   - **Today:**
     - Counts at the top (overdue, due today, in progress) that jump to their section.
     - Cards for Overdue, Due today, In progress, Blocked/waiting, Up next.
@@ -359,7 +359,7 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
     - "Add task", or "Add & open" to go straight to it.
   - **Tasks:**
     - Search, Open / Due soon / Waiting / Done tabs, project chips, and open tasks grouped by priority.
-    - **Filters** button opens a sheet for project, mode and due. Filters and search live in the URL (`/board?project=…&q=…`), so back works and a filtered view can be bookmarked.
+    - **Filters** button opens a sheet for project, mode and due. Filters and search live in the URL (`/tasks?project=…&q=…`), so back works and a filtered view can be bookmarked.
     - Every task row has a **⋯** that opens an **actions sheet**: status, priority, due (Today / Tomorrow / In a week / pick), mode, and a link to the full task.
   - **Task screen** (full screen):
     - One-tap status and priority.
@@ -371,16 +371,16 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
     - Each comment in history has a **⋯** that opens Edit / Delete (any comment).
   - **Today extras:** the bell with its unread badge, a **Day Plan** button (the day's schedule as a sheet, tick tasks off) and **Import** (paste a markdown table or JSON of tasks).
   - **Notes:** the same editor, sized for the phone. The list has live search and swipeable chips (Active / Archived / All, projects); **New note** opens a sheet (title, project).
-  - **Projects, History & trash, Untouched, Recovery, Timetable, Modes:** each has a phone layout with a back button to More, task rows like the Tasks tab, and no horizontal scrolling at 360–412px.
-  - **More:** projects with open and late counts, plus History & trash, Untouched, Timetable, Recovery, Notifications, Settings, Connect.
+  - **Projects, Review (Done, Activity, Stale, Archive, Trash), Schedule:** each has a phone layout with a back button, task rows like the Tasks tab, and no horizontal scrolling at 360–412px.
+  - **Menu:** Inbox, Review, Schedule, Settings (with the server health dot).
   - **Pull to refresh:** pull down at the top of any screen to reload its data (an installed app has no browser refresh). It's ignored while a sheet is open.
 - **Offline:** shows a "You're offline" screen.
 
 ### Claude Code
 - **Phone components:** `components/mobile/`
-  - `tab-bar.tsx`: tab bar and `MobileHeader`; the More tab stays highlighted on its sub-screens (`match` list)
+  - `tab-bar.tsx`: tab bar and `MobileHeader` (Menu button in the header)
   - `quick-add-sheet.tsx`
-  - screens: `m-today.tsx`, `m-tasks.tsx`, `m-task-row.tsx`, `m-task-actions.tsx` (⋯ sheet), `m-task-detail.tsx`, `m-notes.tsx`, `m-day-plan.tsx`, `m-import.tsx`
+  - screens: `today/today-client.tsx` (Today for both sizes), `m-tasks.tsx`, `m-task-row.tsx`, `m-task-actions.tsx` (⋯ sheet), `m-task-detail.tsx`, `m-notes.tsx`, `m-day-plan.tsx`, `m-import.tsx`
   - **Shared pieces:**
     - `sheet.tsx` → `BottomSheet`: partial-height sheet for menus, pickers, confirmations
     - `full-sheet.tsx` → `FullSheet`: full-height sheet with a pinned footer, for long forms
@@ -393,8 +393,8 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
   - Every sheet or overlay carries the `data-sheet` attribute (the shared sheets already do), or pull to refresh will fire while you scroll it. Portal sheets to `<body>`: sticky/blurred parents trap `fixed`.
   - Prefer the shared components above over new ad-hoc ones. Filter and tab state that should survive back/refresh belongs in the URL.
   - Check at 360, 390 and 412px, light and dark, for horizontal overflow.
-- **How pages switch:** a page renders the phone view inside `md:hidden` and the desktop view inside `hidden md:block`. See `today/page.tsx`, `board/page.tsx` and `tasks/[id]/page.tsx`.
-- **More tab:** `app/(app)/more/page.tsx`.
+- **How pages switch:** a page renders the phone view inside `md:hidden` and the desktop view inside `hidden md:block`. See `today/page.tsx`, `tasks/page.tsx` and `tasks/[id]/page.tsx`.
+- **Menu:** `app/(app)/menu/page.tsx`.
 - **PWA files:**
   - manifest: `app/manifest.ts`
   - icons: `app/icons/[size]/route.tsx`
@@ -411,33 +411,22 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 ## 9. Settings
 
 ### Om
-Settings (`/settings`; phone: More → Settings, laptop: sidebar "Settings") has four groups:
-- **This device:**
-  - **Install app:** one tap on Android/Chrome; on iPhone it shows the steps (Share → Add to Home Screen). Reads "Installed" once you're in the installed app.
-  - **Notifications on this device:** switch to turn phone push on or off for this phone only. On iPhone it asks you to install first. Under it, the list of your own push devices (name, added date, "this browser"), each with Remove, e.g. a phone set up on an old address of Work OS. Only your own appear.
-- **Notifications:** switches for the channels (In-app inbox is always on; Phone notifications; Discord DMs) and for each alert type (Unblocked, Overdue, Due today, Due tomorrow, P1 not started, Stalled), plus **Send test**. Details in section 7.
-- **Security:** passkeys, authenticator app, change password, test email (section 10).
-- **Status (on Connect):** a live list, each row a coloured dot (green ok, amber needs attention, red broken, grey off):
+Settings (`/settings?section=`; phone: Menu → Settings, laptop: sidebar "Settings") is laid out like Claude's own settings: a list on the left grouped **You / Team / Server**, a search box, and a status strip on top (push, alerts, email). On the phone it shows the rows, then the section.
 
-| Row | What it checks |
+| Section | What's there |
 |---|---|
-| Database | pings MongoDB; amber if slower than 150 ms; shows the task count |
-| Server | the release commit (from the `REVISION` file) and Node version |
-| Claude connector | when a Claude chat key was last used on the connector (amber until first use) |
-| Discord bot | token works, channels readable, Message Content Intent on, blocked-channel count, last command; grey if not configured |
-| Scheduled alerts | `CRON_SECRET` set and the alerts timer's last run (amber if never or stale) |
-| Phone notifications | VAPID keys set and how many devices are subscribed |
-| Notes converter | the markdown ↔ blocks converter loads and works |
-
-- **Calendar link:** Settings › Connections › Calendar makes a private link (Create link, Copy, Rotate, Turn off) that Google Calendar, Outlook or Apple Calendar subscribe to: your open tasks with a start or due date, assigned to you or owned by you, all-day, one-way. Design and rules: `docs/calendar.md`.
-- **App:** one Settings page with sections This device (push, theme, test, sign out), Alerts, Security, Connections (Claude chat, Discord; Claude Code keys and computers are in Claude › Setup), Usage and Help; status strip on top.
-- **Usage:** our own request log, requests in the last 24 h and 7 days, per hour, per day, and the top routes by kind (page load, page data, action, API) and caller (browser, worker, Claude, cron, Discord, no sign-in). Static files are not counted. How it works: `docs/usage-log.md` (`proxy.ts` → `lib/usage.ts` → `requestStats`, 35 days).
-
-The live status list (below) is the status strip at the top of Settings.
+| **Account** | Theme; passkeys; authenticator app (QR, backup codes); change password; test email; Sign out (section 10) |
+| **Notifications** | This device: Install app, phone push on/off and your push devices; switches per channel (push, Discord DM) and per alert type; **Send test**; quiet hours and timezone; link or unlink your Discord account (section 7) |
+| **Connections** | Your connections (Claude, Discord, computers, Delpat OS); signed-in apps (OAuth) with Revoke; Delpat OS link (hidden while its env is unset); **Calendar link** (Create, Copy, Rotate, Turn off; one-way ICS of your own dated open tasks, `docs/calendar.md`) |
+| **AI tools** | This server's MCP address and setup steps for Claude Code (tested), Cursor, Antigravity and ChatGPT (from their docs, marked not tested) (`docs/connect.md`) |
+| **Get started** | First-run checklist ticked from real data |
+| **Team** | Members, invite, cancel invitation, change role, remove; the organization's modes of work (read-only) |
+| **Server** | Operators only (owner/admin see Discord): Discord server id, sensitive channels, register commands; when the scheduled alert check last ran; **Usage** (requests 24 h / 7 days by kind, caller and route; `docs/usage-log.md`) |
 
 ### Claude Code
 - **Page:** `app/(app)/settings/page.tsx`; the device card, push and notification switches are client components in `device-settings.tsx`; server actions in `settings/actions.ts` (subscribe, unsubscribe, save switches, send test).
-- **Status:** `lib/status.ts` → `systemStatus()`, run on every page view inside `Suspense`; each probe has a time limit so a dead service can't hang the page. To add a row, push a `Check` (`name`, `level`, `summary`, `detail`) there.
+- **Status strip:** `settings/status-strip.tsx`; the sidebar/menu dot is `systemStatusLevel`. (`lib/status.ts`, the old seven-row panel, is no longer used.)
+- **Sections:** `settings/sections.ts` (names, groups, legacy section names redirected).
 - **Install and push detection:** in `device-settings.tsx` (iOS, standalone, push support). The push device list is `listPushDevices` / `removePushDevice` in `lib/notify.ts` (scoped door; the list id is a hash, the endpoint stays on the server).
 - **Dropdowns:** every `<select>` but the phone task screen's uses `components/ui/select.tsx` (Base UI, same `<option>` children and `onChange`); e2e suites choose with `pick()` in `tests/e2e/lib.mjs`.
 - **Password again:** one modal for every action that needs it (`components/reauth.tsx`: `ask()` for freshness, `askPassword()` when the action needs the password itself: authenticator, password change).
@@ -463,29 +452,29 @@ Full details: **`docs/auth.md`** (sign-in, roles, invitations, keys, the one-tim
   `/api/auth/*` (Better Auth, allowlisted endpoints only). The proxy still counts them for Settings › Usage
   (`docs/usage-log.md`).
 - **Admin endpoints** (`/api/admin/*`): a signed-in owner or admin, or their Claude chat key.
-- **The repo is public.** Secrets live only in Vercel and in the gitignored `.env.local`. Before each push, a scan checks that no secret is being committed.
+- **The repo is public.** Secrets live only in `/etc/work-os/env` on the box and in the gitignored `.env.local`. Before each push, a scan checks that no secret is being committed.
 - **Discord:** only Om's user ID, only in the Delpat server, sensitive channels blocked. The bot's permissions are View Channels and Read Message History only. Discord commands are not tied to a Work OS user yet (no `actorUserId`).
 
 ---
 
 ## 11. Still to do / known limits
 
-**For Om:**
-1. **PC:** move the Windows pagefile from C: to D: and restart. C: keeps filling up because of it.
-2. **Alerts:** add `CRON_SECRET` in Vercel and create the cron-job.org job (section 7).
-   - Also add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in Vercel for phone push.
-3. **Discord:**
-   - Tick sensitive channels in Settings › Connections › Discord.
-   - Change the dev@ and tools@ passwords, which were posted in #our-own-system-automation.
-   - If `/today` says "did not respond", set the Interactions Endpoint URL in the Discord Developer Portal to `https://work-os-puce-delta.vercel.app/api/discord/interactions`.
-4. **Claude:** paste the updated morning-brief prompt from Settings › Connections into the 8am brief.
-5. **Deploy:** notifications, inbox, Settings and the phone screens above are committed or in the working tree but **not deployed yet**; an interaction pass (New note sheet) was still to finish before pushing.
-6. **Phone:** install it and report anything that feels off. It was tested in an emulated iPhone, not on a real device.
+What Work OS is for, and which flows are agreed, is in `docs/PRODUCT.md`; the ordered work list is `WORK-STATE.md`. This section only lists what is set up on the box and what isn't (14 Nov 2026).
+
+**Live on work.delpat.in:** the app, the alert timer (`CRON_SECRET`), the reel publisher (IG keys, timer scripts, the cutroom booking key), the Caddy site with the no-502-on-restart lines.
+
+**Not set up yet (each waits on Om):**
+1. **Backups:** `deploy/backup.sh` and its timer are built but not enabled: needs an R2 bucket, token and age key, then a restore drill. Until then Atlas is the only copy of the data.
+2. **Discord commands:** set the Interactions Endpoint URL in the Discord Developer Portal to `https://work.delpat.in/api/discord/interactions`, then Settings › Server › Discord › Register the commands.
+3. **Delpat OS link:** `DELPAT_OS_CLIENT_SECRET` in `/etc/work-os/env`.
+4. **Alerts on real devices:** Settings › Notifications › Send test has never been checked on the live site (push, Discord DM, email).
+5. **Server reboot** for pending Ubuntu updates (check pm2 apps come back: `systemctl is-enabled pm2-ubuntu`).
 
 **Known limits:**
 - **Simultaneous edits:** if Claude edits a note you have open, your last few seconds of typing are lost when the page reloads (you're warned first).
-- **Pre-existing lint errors** in `today-client.tsx`, `current-block-bar.tsx` and `api/timetable/today` are untouched.
 - **Images and files** in notes are off until Blob storage is set up.
+- **The worker edits `~/.claude.json`** (`worker/trust.mjs`) to trust linked folders; a clash with Claude Code's own write could lose settings. Open question in `docs/PRODUCT.md`.
+- **Single process:** live refresh, some caches and the reel de-duplication are in memory; run one app process only.
 
 ---
 

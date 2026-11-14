@@ -902,6 +902,8 @@ function AUDIT() {
   add(`action ${N_}saveNoteAction`, act(N_ + 'saveNoteAction', t => [t.note, { title: 'lkq hacked' }], aim(['note'])), act(N_ + 'saveNoteAction', t => [t.taskNote, { archived: true }], aim(['taskNote'], { label: 'archive a task note' })));
   add(`action ${N_}deleteNoteAction`, act(N_ + 'deleteNoteAction', t => [t.sub], aim(['sub'], { stage: 1 })));
   add(`action ${N_}restoreNoteAction`, act(N_ + 'restoreNoteAction', t => [t.sub], aim(['sub'], { stage: 2 })));
+  // (sub2 is put in the trash by mcp delete_note earlier in stage 2; this deletes it for good)
+  add(`action ${N_}purgeNoteAction`, act(N_ + 'purgeNoteAction', t => [t.sub2], aim(['sub2'], { stage: 2 })));
   add(`action ${N_}searchMentionsAction`, act(N_ + 'searchMentionsAction', ['lkq'], { ok: r => r.status === 200 && !r.error && Array.isArray(r.value) }));
   const CI = 'app/(app)/projects/[id]/claude-items-actions.ts#';
   add(`action ${CI}updateClaudeItemAction`, act(CI + 'updateClaudeItemAction', t => [t.itemProject, t.item, { note: 'lkq hacked' }], aim(['itemProject', 'item'])));

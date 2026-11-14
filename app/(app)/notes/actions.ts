@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { deleteNote, NoteConflictError, restoreNote, writeNote } from '@/lib/data/notes';
+import { deleteNote, NoteConflictError, purgeNote, restoreNote, writeNote } from '@/lib/data/notes';
 import { listTasks } from '@/lib/data/tasks';
 import { listProjectsBasic } from '@/lib/data/projects';
 import { asCaller } from '@/lib/caller';
@@ -71,6 +71,17 @@ export async function restoreNoteAction(id: string): Promise<{ ok: true } | { er
     return { ok: true };
   } catch (e) {
     return { error: msg(e, 'Could not restore') };
+  }
+}
+
+/** Delete a note in the trash for good (Review › Trash). */
+export async function purgeNoteAction(id: string): Promise<{ ok: true } | { error: string }> {
+  try {
+    await asCaller(c => purgeNote(c, id, userActor(c.userId)));
+    revalidatePath('/review');
+    return { ok: true };
+  } catch (e) {
+    return { error: msg(e, 'Could not delete') };
   }
 }
 
