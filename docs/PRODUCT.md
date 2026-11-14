@@ -71,7 +71,7 @@ Every feature is one of these or a view of one.
 | Open tasks | 118 (31 P1); 30 In Progress, 17 of them at 85% or more |
 | Shown as blocked or waiting in the brief | 26, but only **3** have the status Blocked |
 | Open tasks whose last progress line says they wait on Om (three projects checked) | **18**, invisible to any list |
-| WORK-STATE.md files across the Delpat folders | about 20; cutroom alone has three copies (main and builders' worktrees) of very different lengths |
+| WORK-STATE.md files across the Delpat folders | 71, counting builders' worktree copies; cutroom's main copy and its builders' copies differ by hundreds of lines |
 | Projects marked active | 34; 19 with no open task |
 | Changes made from Discord | 0, while 15 channels were active |
 | Tasks ever given to Claude through the dispatcher on the live site | 0 |
