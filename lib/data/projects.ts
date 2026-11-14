@@ -547,7 +547,7 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   const owned = next.visibility === 'private' ? { ownerId: p.ownerId, visibility: next.visibility, sharedWith: [] } : { visibility: next.visibility, sharedWith: next.sharedWith };
   const offList = next.visibility === 'members' ? { ownerId: { $nin: next.sharedWith } } : null;
   // Off-list owners first: until the placement lands they are still placed as before (no one gains a way in meanwhile).
-  const move = async (name: 'tasks' | 'activity' | 'notes' | 'claudeItems' | 'trash', filter: Record<string, unknown>) => {
+  const move = async (name: 'tasks' | 'activity' | 'notes' | 'claudeItems' | 'trash' | 'states' | 'presence', filter: Record<string, unknown>) => {
     const col = c[name] as unknown as Collections['tasks'];
     if (offList) await col.updateMany({ ...filter, ...offList } as never, { $set: { ownerId: p.ownerId } });
     await col.updateMany(filter as never, { $set: owned });
@@ -572,6 +572,9 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   if (projNotes.length) await move('notes', { _id: { $in: await noteTree(c, projNotes.map(n => n._id)) } });
   await move('claudeItems', { projectId: p._id });
   await move('trash', { 'task.projectId': p._id });
+  // The project's State and the sessions present on it (docs/flows/step-1.md section 1): same placement, so the door shows them to the project's readers only.
+  await move('states', { projectId: p._id });
+  await move('presence', { projectId: p._id });
 }
 
 export type ProjectByCode =
