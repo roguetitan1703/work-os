@@ -6,7 +6,7 @@ import { HandHelping } from 'lucide-react';
 import Link from '@/components/intent-link';
 import { answerNeedAction } from '@/app/(app)/needs/actions';
 import { actorLabel } from '@/lib/actors';
-import { fmtAgo } from '@/lib/format';
+import { Ago } from './ago';
 import type { Need } from '@/lib/data/needs';
 import { cn } from '@/lib/utils';
 import { useApp } from './app-context';
@@ -44,7 +44,7 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
         <span>· {KIND_LABEL[need.kind]}</span>
         {project && <Link href={`/projects/${need.projectId}?tab=needs`} className="truncate max-w-[40vw] hover:text-foreground">· {project}</Link>}
         {need.taskRef && <Link href={`/tasks/${need.taskRef}`} className="hover:text-foreground">· on #{need.taskRef}</Link>}
-        <span className="ml-auto">{fmtAgo(need.createdAt)}</span>
+        <span className="ml-auto"><Ago iso={need.createdAt} /></span>
       </div>
       <p className={cn('text-foreground leading-snug whitespace-pre-wrap break-words', phone ? 'text-[16px]' : 'text-sm')} data-need-ask>
         {need.ask}
