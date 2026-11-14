@@ -1,6 +1,7 @@
 import 'server-only';
 import { collections, type AlertKind, type TaskDoc } from './db';
 import { forUser, getUserSetting, orgWide, scoped, setUserSetting, type Scope, type ScopedCollections as Collections } from './scope';
+import { simulatedStampsAllowed } from './cron-at';
 import { getProfile, inQuietHours, type Profile } from './profile';
 export type { AlertKind };
 import { addDays, clockInTz, dateInTz, previousWorkdayStart, startOfDay, weekday } from './dates';
@@ -399,16 +400,26 @@ export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: str
   if (live) {
     // Scheduled alerts: claim each in alertLog (insert, or conditional re-stamp for an overdue resend) so overlapping runs can't repeat them.
     const won: AlertItem[] = [];
-    const stamp = opts.now ?? new Date(); // the run's time (a test's ?at=), so resend arithmetic uses one clock
+    // The run's time only in the e2e database (a test's ?at=, so resend arithmetic uses one clock); everywhere else the real clock, never a future stamp.
+    const stamp = opts.now && simulatedStampsAllowed() ? opts.now : new Date();
     for (const i of due) {
       if (FROM_QUEUE.has(i.kind)) { won.push(i); continue; }
       try {
         if (i.kind === 'digest') {
           // One per day. Its time is the run's, so "since the last digest" is on the same clock as the queue rows.
           await c0.alertLog.insertOne({ _id: i.key, orgId: s.orgId, userId: s.userId, kind: 'digest', sentAt: stamp, ...(i.digest?.empty ? { empty: true } : {}) });
-          // Won: the alerts it takes over are told by it, so claim their keys too.
-          for (const a of i.digest?.absorb ?? []) await c0.alertLog.updateOne({ _id: a.key }, { $set: { sentAt: stamp }, $setOnInsert: { kind: a.kind, taskId: a.taskId } }, { upsert: true });
+          // Won (the digest key is ours): it goes out whatever happens to the keys below.
           if (!i.digest?.empty) won.push(i);
+          // The alerts it takes over are told by it, so claim their keys too. One key per task and occasion is shared by
+          // everyone with the same form (a task that changed owner may carry the old owner's key): a clash on one key
+          // is skipped, it must never cost the day's digest.
+          for (const a of i.digest?.absorb ?? []) {
+            try {
+              await c0.alertLog.updateOne({ _id: a.key }, { $set: { sentAt: stamp }, $setOnInsert: { kind: a.kind, taskId: a.taskId } }, { upsert: true });
+            } catch (e) {
+              if (!(e && typeof e === 'object' && (e as { code?: number }).code === 11000)) console.error('[alerts] digest claim', e instanceof Error ? e.message : e);
+            }
+          }
           continue;
         }
         if (i.prevSentAt) {

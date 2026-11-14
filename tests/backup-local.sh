@@ -32,8 +32,23 @@ ok "no plaintext-age warning for nightly files" $(grep -q 'warning' "$T/out" && 
 ok "no .partial left" $([ -z "$(ls "$T/dir" | grep partial)" ] && echo 1 || echo 0)
 before="$(n)"; STUB_FAIL=1 bash "$ROOT/deploy/backup.sh" --nightly-local >/dev/null 2>&1; rc=$?
 ok "a failed dump exits non-zero and removes nothing" $([ $rc != 0 ] && [ "$(n)" = "$before" ] && echo 1 || echo 0)
-BACKUP_S3_URI=s3://b/p BACKUP_AGE_RECIPIENT=age1x bash "$ROOT/deploy/backup.sh" --nightly-local >"$T/out2" 2>&1; rc=$?
-ok "R2 configured: exits 0 and dumps nothing" $([ $rc = 0 ] && grep -q 'R2 backup is configured' "$T/out2" && [ "$(n)" = "$before" ] && echo 1 || echo 0)
+R2="BACKUP_S3_URI=s3://b/p BACKUP_AGE_RECIPIENT=age1x"
+before="$(n)"
+# R2 configured, no stamp: warns and dumps
+env $R2 bash "$ROOT/deploy/backup.sh" --nightly-local >"$T/out2" 2>&1
+ok "R2 configured but no good upload on record: warns and dumps" $(grep -q 'warning: R2 backup is configured' "$T/out2" && [ "$(n)" = $((before > 6 ? 7 : before + 1)) ] && echo 1 || echo 0)
+# R2 configured, last upload 2 h ago: stands aside
+date +%s >"$T/dir/.r2-last-ok"; sed -i "s/.*/$(( $(date +%s) - 7200 ))/" "$T/dir/.r2-last-ok"
+c0="$(n)"; env $R2 bash "$ROOT/deploy/backup.sh" --nightly-local >"$T/out3" 2>&1; rc=$?
+ok "R2 configured, last upload 2 h old: exits 0, dumps nothing" $([ $rc = 0 ] && grep -q 'under 26 hours' "$T/out3" && [ "$(n)" = "$c0" ] && echo 1 || echo 0)
+# R2 configured, last upload 30 h ago: warns and dumps
+sed -i "s/.*/$(( $(date +%s) - 108000 ))/" "$T/dir/.r2-last-ok"
+env $R2 bash "$ROOT/deploy/backup.sh" --nightly-local >"$T/out4" 2>&1; rc=$?
+ok "R2 configured, last upload 30 h old: warns and dumps" $([ $rc = 0 ] && grep -q 'warning: R2 backup is configured' "$T/out4" && echo 1 || echo 0)
+# forced
+sed -i "s/.*/$(( $(date +%s) - 60 ))/" "$T/dir/.r2-last-ok"
+env $R2 BACKUP_NIGHTLY_FORCE=1 bash "$ROOT/deploy/backup.sh" --nightly-local >"$T/out5" 2>&1
+ok "BACKUP_NIGHTLY_FORCE=1 dumps even when R2 is fresh" $(grep -q 'dumping database' "$T/out5" && echo 1 || echo 0)
 BACKUP_NIGHTLY_KEEP=3 bash "$ROOT/deploy/backup.sh" --nightly-local >/dev/null 2>&1
 ok "BACKUP_NIGHTLY_KEEP=3 keeps 3" $([ "$(n)" = 3 ] && echo 1 || echo 0)
 bash "$ROOT/deploy/backup.sh" --bogus >/dev/null 2>&1; ok "unknown flag refused" $([ $? = 2 ] && echo 1 || echo 0)

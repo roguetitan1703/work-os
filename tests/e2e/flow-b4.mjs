@@ -100,6 +100,21 @@ check('next day: a digest with Due and overdue, but no first-digest line and no 
 await cron(at('2026-11-19T05:00:00Z'));
 check('next day: ME has two digests in all', (await inbox(ME, 'digest')) === 2, String(await inbox(ME, 'digest')));
 
+// 7. A key clash must not cost the day's digest: the overdue key of a task that changed owner already belongs to the
+// old owner (alertLog ids are shared), so claiming it for ME clashes.
+const moved = await mk('B4 changed owner', { due: '2026-11-10' });
+await rawDb.collection('alertLog').insertOne({ _id: `overdue:${moved.doc._id}:2026-11-10`, orgId: ME.orgId, userId: Dee.userId, kind: 'overdue', taskId: moved.doc._id, sentAt: D('2026-11-12T05:00:00Z') });
+await cron(at('2026-11-20T05:00:00Z'));
+check('key clash: ME still gets the digest of the day (3 in all)', (await inbox(ME, 'digest')) === 3, `${await inbox(ME, 'digest')}`);
+
+// 8. two cron runs at once: exactly one digest
+await Promise.all([cron(at('2026-11-21T05:00:00Z')), cron(at('2026-11-21T05:00:00Z'))]);
+check('two concurrent runs: exactly one digest for the day (4 in all)', (await inbox(ME, 'digest')) === 4, `${await inbox(ME, 'digest')}`);
+
+// 9. ?at= is validated
+const badAt = await cron('&dry=1&at=not-a-date');
+check('an invalid at is refused', !!badAt.error, JSON.stringify(badAt));
+
 const prof = await rawDb.collection('settings').findOne({ _id: `profile:${H.userId}` });
 check('digestHour is stored on the profile', prof?.digestHour === 14);
 await finish();

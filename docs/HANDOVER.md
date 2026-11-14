@@ -338,7 +338,7 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 - **Exactly once, even when runs overlap:** a run claims each alert before delivering it (queue entry: `sentAt: null` → now, conditional update; scheduled alert: insert into `alertLog`, duplicate key = another run has it). Several flushes after a batch plus the cron can no longer send the same alert twice. A claimed alert stays sent even if a channel then fails.
 - **Endpoint:** `app/api/cron/alerts/route.ts`. Without the `CRON_SECRET` header it returns 401 (503 if the secret isn't set at all).
   - `?dry=1` previews without sending.
-  - `?at=<ISO>` simulates a different time; it is ignored in production.
+  - `?at=<ISO>` simulates a different time (400 for an invalid date; clamped to a week either side of now). It is ignored in production, except in the e2e runner's production build: there `CRON_ALLOW_AT=1` honours it only when `MONGODB_DB` starts with `workos_e2e` (lib/cron-at.ts), with a loud warning at boot (`instrumentation.ts`), and only then do alertLog stamps carry the simulated time (elsewhere stamps are always the real clock).
 - **Discord:** DMs are sent by the same bot, which opens a DM channel with the owner.
 - **Delivery:** `lib/notify.ts`. `runAlerts` (alerts.ts) drops alert types switched off, then writes the inbox, sends push, then DMs; a failing channel doesn't block the others.
   - **Settings storage:** `settings` doc `_id: 'notify'` (`channels.push`, `channels.discord`, `kinds.*`; everything defaults on). Alert types and their labels: `ALERT_KINDS`.

@@ -13,8 +13,10 @@
 #   work-os-backup --nightly-local   the on-box nightly copy (work-os-backup-local.timer, 02:30 IST): the same dump as a
 #                                    gzip archive workos-nightly-<UTC time>.archive.gz (0600, no age, no aws), keeping
 #                                    the newest BACKUP_NIGHTLY_KEEP (default 7). Not off-box: it does not replace R2. If
-#                                    R2 is configured here (BACKUP_S3_URI and BACKUP_AGE_RECIPIENT both set) it does
-#                                    nothing, so a night is never dumped twice; BACKUP_NIGHTLY_FORCE=1 overrides.
+#                                    R2 is configured here (BACKUP_S3_URI and BACKUP_AGE_RECIPIENT both set) AND its
+#                                    last good upload (stamp $DIR/.r2-last-ok) is under 26 h old it does nothing, so a
+#                                    night is never dumped twice; a silent R2 gets a warning and the dump.
+#                                    BACKUP_NIGHTLY_FORCE=1 keeps both.
 #
 # Runs as the system user workos-backup, never as the app's user. Environment (/etc/work-os/backup-env under
 # systemd, which the app never loads):
@@ -39,10 +41,6 @@ case "${1:-}" in
   --nightly-local) LOCAL_ONLY=1; NIGHTLY=1 ;;
   *) echo "usage: work-os-backup [--local-only | --nightly-local]" >&2; exit 2 ;;
 esac
-if [ "$NIGHTLY" = 1 ] && [ -n "${BACKUP_S3_URI:-}" ] && [ -n "${BACKUP_AGE_RECIPIENT:-}" ] && [ "${BACKUP_NIGHTLY_FORCE:-0}" != 1 ]; then
-  echo "R2 backup is configured: the off-box timer does tonight's dump, so no on-box nightly copy (BACKUP_NIGHTLY_FORCE=1 to keep both)"
-  exit 0
-fi
 
 if [ -z "${MONGODB_URI:-}" ]; then
   for v in $(compgen -e); do
@@ -54,6 +52,16 @@ DB="${MONGODB_DB:-workos}"
 DIR="${BACKUP_DIR:-/var/backups/work-os}"
 NKEEP="${BACKUP_NIGHTLY_KEEP:-7}"
 [[ "$NKEEP" =~ ^[1-9][0-9]*$ ]] || { echo "BACKUP_NIGHTLY_KEEP must be a number, 1 or more" >&2; exit 2; }
+# The on-box nightly copy stands aside only while the R2 backup is really working: R2 configured AND its last good
+# upload (the stamp the R2 run leaves, below) under 26 hours old. Configured but silent for longer: warn and dump.
+if [ "$NIGHTLY" = 1 ] && [ -n "${BACKUP_S3_URI:-}" ] && [ -n "${BACKUP_AGE_RECIPIENT:-}" ] && [ "${BACKUP_NIGHTLY_FORCE:-0}" != 1 ]; then
+  LASTOK="$(cat "$DIR/.r2-last-ok" 2>/dev/null || true)"
+  if [[ "$LASTOK" =~ ^[0-9]+$ ]] && [ $(( $(date +%s) - LASTOK )) -lt 93600 ]; then
+    echo "R2 backup is configured and its last upload is under 26 hours old: no on-box nightly copy (BACKUP_NIGHTLY_FORCE=1 to keep both)"
+    exit 0
+  fi
+  echo "warning: R2 backup is configured but has no good upload in the last 26 hours: making the on-box copy anyway" >&2
+fi
 KEEP="${BACKUP_KEEP_LOCAL:-0}"
 MINFREE="${BACKUP_MIN_FREE_KB:-1048576}"
 URI="${BACKUP_S3_URI:-}"
@@ -164,6 +172,9 @@ if [ "$REMOTE" != "$SIZE" ]; then
   exit 1
 fi
 echo "  uploaded to ${URI%/}/ and checked ($REMOTE bytes)"
+
+# The on-box nightly copy looks at this stamp (an upload that was checked by size).
+date +%s >"$DIR/.r2-last-ok"
 
 # Local copies: none by default (the disk is short). Keep the newest BACKUP_KEEP_LOCAL encrypted ones.
 ls -1t "$DIR/$DB-"*.archive.gz.age 2>/dev/null | tail -n +"$((KEEP + 1))" | while IFS= read -r old; do

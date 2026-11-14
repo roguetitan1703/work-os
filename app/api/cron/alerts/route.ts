@@ -4,6 +4,7 @@ import { reconcileDispatched } from '@/lib/data/dispatcher';
 import { pruneInbox } from '@/lib/notify';
 import { allMemberships } from '@/lib/people';
 import { timezoneOf } from '@/lib/profile';
+import { parseCronAt } from '@/lib/cron-at';
 import { runTeamDigest } from '@/lib/team-digest';
 import { runWithRequestContext } from '@/lib/request-context';
 
@@ -32,8 +33,9 @@ async function handle(req: Request) {
   if (!authorized(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const url = new URL(req.url);
   const baseUrl = (process.env.APP_URL || url.origin).replace(/\/+$/, '');
-  // ?at=<ISO> simulates another time; ignored in production unless CRON_ALLOW_AT=1 (only the e2e runner sets it).
-  const at = (process.env.NODE_ENV !== 'production' || process.env.CRON_ALLOW_AT === '1') && url.searchParams.get('at') ? new Date(url.searchParams.get('at')!) : undefined;
+  // ?at=<ISO> simulates another time; ignored in production unless CRON_ALLOW_AT=1 on an e2e database; clamped to a week elsewhere (lib/cron-at.ts).
+  const at = parseCronAt(url.searchParams.get('at'));
+  if (at === null) return NextResponse.json({ error: 'at is not a valid date' }, { status: 400 });
   const dry = url.searchParams.get('dry') === '1';
   let quiet = false;
   let sent = 0;
