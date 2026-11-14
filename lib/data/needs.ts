@@ -179,7 +179,8 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
       task = { _id: t._id, ref: t.ref };
     }
     // The same kind on the same task from the same asker is replaced, so it is not counted against the limit.
-    const mine = { status: 'open' as const, 'from.actor.userId': actorId, 'from.word': input.word };
+    // (A review Need is the system's, made when an agent closes work: it counts against no limit.)
+    const mine = { status: 'open' as const, 'from.actor.userId': actorId, 'from.word': input.word, kind: { $ne: 'review' as const } };
     const replaced = task ? await c.needs.find({ ...mine, taskId: task._id, kind: input.kind }).toArray() : [];
     const replacedIds = new Set(replaced.map(n => n._id));
     // The limit holds under a race because the `need:<org>` counter (nextSeq below) is the lock: two asks at once both write
@@ -193,7 +194,7 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
     // The phone is not a mailbox an agent may fill: at most 10 Needs created from one asker to one person in an hour, any
     // status (ask, withdraw, ask again counts each time), and a replacement within 10 minutes of the alert it replaces sends none.
     const now = new Date();
-    const recent = await c.needs.countDocuments({ 'from.actor.userId': actorId, to: input.to, createdAt: { $gt: new Date(now.getTime() - 3_600_000) } });
+    const recent = await c.needs.countDocuments({ 'from.actor.userId': actorId, to: input.to, kind: { $ne: 'review' }, createdAt: { $gt: new Date(now.getTime() - 3_600_000) } });
     if (recent >= NEED_LIMITS.perHour) throw new InputError(`You have already asked that person ${NEED_LIMITS.perHour} times in the last hour. Wait before asking more; they have your open ones.`);
     const lastAlert = replaced.map(n => n.alertedAt?.getTime() ?? 0).reduce((a, b) => Math.max(a, b), 0);
     const quiet = lastAlert > now.getTime() - NEED_LIMITS.replaceAlertMs;
