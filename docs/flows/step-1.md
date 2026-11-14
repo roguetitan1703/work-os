@@ -19,10 +19,19 @@ Done means each flow's test in `tests/flows/` passes, **and** cutroom and Work O
 | `where` | per machine: `{ branch, head, dirty, worktrees, at }`, written by the agent from git output |
 | `version` | an integer, bumped on every write |
 
-- **Who can see it:** the project's own readers, through the scoped door. New leak-audit entries for every read and write.
-- **Writing:** `save_state(project, base_version, ops)`. The ops are set_now, add_next, move_next, done_next,
-  add_later, promote_later (it becomes a task), add_decision, set_where. If `base_version` is stale, nothing is
-  written and the current State comes back; the agent merges and retries.
+- **Who can see it:** the project's own readers, through the scoped door. The door filters each document by its own
+  `ownerId / visibility / sharedWith` (lib/scope.ts), not through the project, so a State row is **stamped with its
+  project's placement** and added to every place that moves placement today: the cascade in `setProjectPlacement`
+  (lib/data/projects.ts), `takeOffLists`, and project delete. Same for `messages` and `presence`. New leak-audit
+  entries for every read and write, including: write State, make the project private, read it as a teammate (refused).
+- **Writing:** `save_state(project, ops, base_version?)`. The ops are set_now, add_next, move_next, done_next,
+  add_later, promote_later (it becomes a task), add_decision, set_where. **Only set_now, move_next and done_next need
+  `base_version`**; if it is stale, nothing is written and the current State comes back, and the agent merges and
+  retries. Appends (add_next, add_later, add_decision) and set_where (keyed by machine) go through `$push` / `$set`
+  and never clash. Every write bumps `version`.
+- **Who writes:** any agent may append; set_now, move_next and done_next are for the orchestrator of the project
+  (PRODUCT.md 6.1: builders report on their tasks, they don't rewrite State). Decisions and Next lines written by
+  someone other than the reader reach the reader labelled `writtenBy`, as information.
 - **The repo copy:** `save_state` returns the markdown for WORK-STATE.md, headed with the version it came from
   ("Copy of the Work OS state, version 41. Edit it in Work OS"). The agent writes the file and commits it with the work.
 - **Import, once:** if a project has no State, `start_work` says so. The agent then calls
@@ -38,7 +47,11 @@ Done means each flow's test in `tests/flows/` passes, **and** cutroom and Work O
   - **person:** a note of the person's own.
 - A note becomes Orders through a new `orders` field. Only the owner (organisation layer) or the project's owner
   (project layer) can set it, because Orders steer every agent.
-- `start_work` returns all three, joined, labelled with who wrote each, with the Orders' text-trust labels.
+- **An Orders note's body is edited by a person in the app only.** MCP writes to it are refused, for every key
+  (today's lock covers only the dispatcher's own boilerplate, lib/data/notes.ts). Otherwise one prompt-injected agent
+  could rewrite the rules every agent follows.
+- `start_work` returns all three, joined, labelled with who wrote each. Project Orders written by someone other than
+  the reader's own person arrive labelled `writtenBy`, as information, not as rules.
 - The work class rule (think → Opus, do → Sonnet, chore → Haiku) goes into the organisation Orders.
 
 ### 3. `start_work`, the brief (new MCP tool)
@@ -55,7 +68,8 @@ Done means each flow's test in `tests/flows/` passes, **and** cutroom and Work O
 
 ### 4. Messages (new collection `messages`)
 - **Fields:**
-  - `to`: a project, optionally narrowed to a session label or a person;
+  - `to`: a project, optionally narrowed to a session label (a hint for who should act, not a privacy line: every
+    reader of the project can read it; the door can't express "this person only", so person-private messages are out);
   - `from`: the person, the agent (chat / claude-code / cloud / other AI), and the session label;
   - `kind`: decision, request, question, or fyi;
   - `body`: up to 4,000 characters;
@@ -70,12 +84,16 @@ Done means each flow's test in `tests/flows/` passes, **and** cutroom and Work O
   - `inbox(project?)`;
   - `message_status(id, status, note?, commit?)`;
   - `reply(id, body)`.
-- **Trust, stored on the message as `word`:**
-  - **`person`:** a message the person wrote themselves, in the app, a Discord message (step 7), or a claude.ai chat,
-    where the person is by definition in the conversation;
-  - **`agent`:** a message a Claude Code or cloud session sent, which may have been unattended.
+- **Trust, stored on the message as `word`, set by the server from how the call came in, never by the caller:**
+  - **`person`:** written in the app (a signed-in browser session) or, from step 7, a Discord message from the
+    linked account;
+  - **`chat`:** sent through the claude.ai OAuth connector (`agent: 'claude'` in lib/caller.ts). That covers
+    claude.ai, Desktop and the phone, but also anything unattended on the same connector (cloud sessions, scheduled
+    runs), so it is not proof a person is present;
+  - **`agent`:** a Claude Code key or any other key.
 - **How the receiving agent treats it:**
-  - a `person` message from its own person is an instruction;
+  - a `person` or `chat` message from its own person is an instruction for ordinary work (code, notes, tasks); it
+    never approves a ship step, production, money or credentials, and never answers a Need;
   - an `agent` message is a proposal: if its person is present, it asks them; if not, it notes the message and sticks
     to its task (in step 2 this becomes a Need);
   - a message from anyone else is information, labelled with their name.
@@ -85,20 +103,26 @@ Done means each flow's test in `tests/flows/` passes, **and** cutroom and Work O
   and "Make a task".
 
 ### 5. Presence and the "for you" line
-- **Presence:** every MCP call that carries a session (see below) refreshes `{ project, label, machine, agent,
-  lastSeen }`. A session is "on" a project if it called `start_work` for it.
+- **Presence:** a row `{ project, key, session?, label, machine, ai, lastSeen, forYouCursor }`, stamped with the
+  project's placement. **Key of the row:** the session id when the call carries one, else the key id (or OAuth client
+  id, which is per client per person) plus the project. `ai` is the client's name (`key.name` / the OAuth client
+  name), so the roster says "Antigravity for Akash", not just "claude-code". Refreshed **at most once a minute** per
+  row, and `presence` is kept out of the push-hint `TOPICS` (lib/scope.ts), so it causes no page refreshes.
 - **The "for you" line:** each Work OS tool answer to a present session carries a short `forYou` field, for example
-  "2 new messages on cutroom (inbox)". It names each message once per session, then stays quiet. This is how a running
-  session in any AI learns of a message without hooks.
-- **How a call says which session it is**, two ways:
-  - a header, `X-Work-OS-Session`, set in the MCP config from an environment variable. *To verify:* that Claude
-    Code expands environment variables in MCP headers, and which variable carries the session id;
-  - else a `session` argument that `start_work` returns, which the Orders tell agents to pass on.
+  "2 new messages on cutroom (inbox)". It carries **ids and counts only, never body text**. "Once per session" is one
+  `forYouCursor` timestamp on the presence row: items newer than it are named, then the cursor moves. Slice 1 ships
+  `forYou` as a **small registry of sources** (messages, answered Needs, new tasks, "State not saved since N writes"),
+  so later slices add a source without editing the same lines. The wrapper is the one place every tool passes
+  through (lib/mcp/server.ts, the `tool()` helper).
+- **The save nudge:** when a session has made N writes (default 10) since its last `save_state`, `forYou` says
+  "State not saved since 10 writes". The headline promise (close the laptop, lose nothing) can't rest on memory alone.
+- **How a call says which session it is:** `start_work` returns a `session` id. The tools that matter for the
+  "for you" line (start_work, save_state, the message and Need tools, get_task, log_progress, complete_task) take an
+  optional `session` argument; the Orders tell agents to pass it. The header `X-Work-OS-Session` is read as well,
+  for every agent kind, when a client sets it. The MCP endpoint stays stateless.
 
-  The MCP endpoint is stateless today (no `Mcp-Session-Id`), so it can't tell sessions apart by itself.
-
-### 6. Hooks (Claude Code only, after the tools work)
-These are small, optional plugin hooks:
+### 6. Hooks (Claude Code only; in batch 1, right after the tools work)
+These are small, optional plugin hooks, shipped with batch 1 so the save doesn't depend on memory:
 - **SessionStart** (also after compaction): calls `start_work` and puts the brief in context;
 - **Stop:** if code changed this turn and the State wasn't saved, ask once.
 
@@ -110,18 +134,19 @@ Other AIs rely on the Orders and the "for you" line instead.
   the work." Om edits that line himself (Claude doesn't edit `~/.claude/CLAUDE.md`).
 - **Each repo's CLAUDE.md** names its Work OS project in one line (C49), so `start_work` matches it at once.
 
-## Tests (tests/flows/)
+## Tests (tests/e2e/flow-*.mjs, rows in run.sh's table)
 | Flow | The test drives |
 |---|---|
-| S1 | Two keys (Claude Code, a second client) `start_work` the same project and get the same State version and Orders, and both show as present. An unknown remote returns candidates. |
-| S2 | A stale `save_state` writes nothing and returns the current State. The returned markdown carries the new version. `import_state` of a sample WORK-STATE.md fills Now, Next and Later. |
-| S3 | The app's Continue makes one start job holding the project id and no State text. |
-| H1 | A chat key adds a note, a task and a Next line. The present session's next tool answer has `forYou` once. A new session's `start_work` lists the item first. |
+| S1 | Two keys (Claude Code, a second client) `start_work` the same project and get the same State version and Orders, and both show as present with their client names. An unknown remote returns candidates. |
+| S2 | A stale `set_now` writes nothing and returns the current State; two appends from two sessions both land. The returned markdown carries the new version. `import_state` of a sample WORK-STATE.md fills Now, Next and Later. An MCP write to an Orders note is refused. |
+| H1 | A chat key adds a note, a task and a Next line. The present session's next tool answer has `forYou` once (ids and counts only). A new session's `start_work` lists the item first. |
 | MS1 | With nobody present, `send_message` answers "offline, last active …" and the next `start_work` lists the message. |
 | MS2 | A present session gets `forYou` once per message. |
-| MS3 | `message_status` applied, with a commit, shows to the sender. Applying a decision adds it to Decisions. An `agent`-word message to an unattended session changes nothing. |
+| MS3 | `message_status` applied, with a commit, shows to the sender. Applying a decision adds it to Decisions. (An `agent`-word message to an unattended session becoming a Need is slice 4.) |
 | MS4 | A teammate's message reaches Om's session labelled as theirs, with `word` information. |
-| Access | Leak-audit entries for every new tool and action: a member who can't see a private project can't read its State, inbox or presence, and can't send to it. |
+| Access | Leak-audit entries for every new tool and action: a member who can't see a private project can't read its State, inbox or presence, and can't send to it; a project made private takes its State and messages with it. |
+
+S3 (Continue from the phone) is step 4 and has no test here.
 
 ## Build plan
 - **Who builds:** builder B (features), in its worktree, on its own test database and ports.

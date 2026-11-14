@@ -1,14 +1,15 @@
 # Work state
 
 ## Now
-- 2026-11-14: Direction agreed in docs/PRODUCT.md (round 2): Work OS is the control room and shared memory for people and agents (any AI, any machine). Working on step 1 of section 8: project State in Work OS (master; WORK-STATE.md becomes its copy), `start_work` and the brief, Orders served, the "for you" line, and the project inbox (messages). Design first (docs/flows/), then build, then a week of real use on cutroom and Work OS before step 2.
+- 2026-11-15: Building steps 1–3 of PRODUCT.md section 8 as seven slices (docs/flows/plan-1-3.md, Fable-reviewed; step 1 detail in docs/flows/step-1.md). Batch 1 in progress: slice 1 (State, Orders, start_work, presence, "for you") in builder B; slice 2 (personal digest) in builder S.
 
 ## Next
 1. Deploy b9f11d3 (notes trash, HANDOVER, PRODUCT.md): build uploaded to manual-builds, then Om runs `sudo work-os-update`. Commit nothing to origin/master until it is live.
-2. Om's hands: backups (R2 bucket, token, age key; before State moves into Work OS); Send test for alerts (C51); Discord Interactions URL + Register; Caddy lb_try site + reload; reboot after the pm2 check.
-3. Step 1 design: flows S1, S2, S3, H1, MS1-MS4 as docs/flows/<id>.md with their tests; then build (builder B), security review (keys, message trust).
-4. Step 2: Needs and results, push and Discord buttons, the daily digest (B4).
-5. Step 3: the roster (workers, machines, accounts and usage).
+2. Batch 1: slices 1 and 2 merged after a security review; slice 1b (SessionStart / Stop hooks, builder S); nightly on-box mongodump; deploy; cutroom and Work OS import their WORK-STATE.
+3. Batch 2: slice 3 (messages, builder B) ∥ slice 4 (Needs, builder A), security review.
+4. Batch 3: slice 5 (results and review) ∥ slice 6 (full digest, team digest, Discord buttons).
+5. Batch 4: slice 7 (the roster).
+6. Om's hands (none block batch 1's build): R2 bucket + token + age key for off-box backups; Send test for alerts (C51); Discord Interactions URL + Register (slice 6 buttons); Caddy lb_try site + reload; reboot after the pm2 check.
 - Agreed 14 Nov: the long-running cloud dispatcher (Sonnet) also listens on the Discord bot (#267, PRODUCT.md 6.5); model routing think → Opus, do → Sonnet, chore → Haiku (6.2a; Om's global "No Haiku" line still to update); the second Claude account is kept for this work only (the dispatcher), not given to interns.
 - Older open items (#165 features to try with Akash, DELPAT_OS_CLIENT_SECRET, first real turbo Start / Open in VS Code, chat porting from Antigravity, C46-C52, AKAR C20/C22/C23 and C7/C8) are folded into the PRODUCT.md steps; still open in Work OS.
 
