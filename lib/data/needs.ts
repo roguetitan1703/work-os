@@ -19,6 +19,10 @@ import { placeIn, resolveProject } from './projects';
 // by the server from how the call came in (lib/mcp/server.ts), never from an argument.
 
 export const NEED_LIMITS = { openPerPair: 5, ask: 500, example: 1000, answerText: 1000, optionLabel: 60, optionMeans: 300 } as const;
+/** Words that force a Need to be answered in the app only, whatever the asker said (HANDOVER: Needs). One list, here. */
+export const SENSITIVE_NEED_WORDS = ['production', 'deploy', 'payment', 'refund', 'invoice', 'money', 'password', 'credential', 'secret', 'token', 'key'] as const;
+const SENSITIVE_NEED = new RegExp(`(^|[^a-z])(${SENSITIVE_NEED_WORDS.join('|')})(s|ed|ing|ments?)?($|[^a-z])|[₹$] ?[0-9]|[0-9] ?[₹$]`, 'i');
+export const isSensitiveNeed = (texts: (string | undefined)[]): boolean => texts.some(t => !!t && SENSITIVE_NEED.test(t));
 const REPEAT_KINDS: NeedKind[] = ['decide', 'approve', 'review', 'do', 'chase'];
 export const ASK_KINDS = ['decide', 'approve', 'do', 'chase'] as const satisfies readonly NeedKind[];
 
@@ -199,7 +203,7 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
       ...(example ? { example } : {}),
       options,
       status: 'open',
-      appOnly: input.appOnly === true,
+      appOnly: input.appOnly === true || isSensitiveNeed([ask, example, ...options.flatMap(o => [o.label, o.means])]),
       createdAt: now,
       answeredAt: null,
     };

@@ -14,6 +14,8 @@
 - Older open items (#165 features to try with Akash, DELPAT_OS_CLIENT_SECRET, first real turbo Start / Open in VS Code, chat porting from Antigravity, C46-C52, AKAR C20/C22/C23 and C7/C8) are folded into the PRODUCT.md steps; still open in Work OS.
 
 ## Later
+- Discord Need press: defer the interaction response when answering is slow (Discord allows 3 s) — waits on seeing a real slow answer.
+- Buttons on the digest's "Needs you" lines (today only the per-Need DM has buttons) — waits on Om wanting answers from the digest.
 - e2e tenancy "B search: finds shared work" failed once in the full run (14 Nov) and passed on the rerun — waits on it happening again.
 - Dead code from the 14 Nov review (lib/status.ts, components/theme-toggle.tsx, dispatcherSetupAction, setOrgModes, /api/timetable/today, react-markdown, remark-gfm, deploy/nginx, 18 legacy redirects) — waits on the PRODUCT.md Cut/Freeze decisions, so features aren't removed twice.
 - MCP has no restore_note although delete_note says "restorable for 30 days" (the app's Review › Trash restores) — waits on PRODUCT.md (does Claude need it).

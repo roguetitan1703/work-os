@@ -197,7 +197,7 @@ async function buildDigest(
     const people = await memberNames(s.orgId);
     sections.push({
       head: '🙋 **Needs you**',
-      rows: needs.map(n => ({ label: `Need #${n.ref}`, url: `/today#need-${n.ref}`, text: plainAlertText(shortAsk(n.ask)), detail: `${plainAlertText(actorLabel(n.from.actor, s.userId, people))}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly ? ' · answer in the app' : ''}` })),
+      rows: needs.map(n => ({ label: `Need #${n.ref}`, url: `/today#need-${n.ref}`, text: plainAlertText(shortAsk(n.ask)), detail: `${plainAlertText(actorLabel(n.from.actor, s.userId, people))}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly || n.kind === 'review' ? ' · answer in the app' : ''}` })),
     });
   }
 
@@ -300,9 +300,9 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
           label: `Need #${n.ref}`,
           url: `/today#need-${n.ref}`,
           title: ask,
-          detail: `${who}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly ? ' · answer in the app' : ''}`,
+          detail: `${who}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly || n.kind === 'review' ? ' · answer in the app' : ''}`,
           headline: `${who} asks you: ${ask}`,
-          ...(n.appOnly ? {} : { needId: n._id, buttons: n.options.map(o => ({ id: o.id, label: o.label })) }),
+          ...(n.appOnly || n.kind === 'review' ? {} : { needId: n._id, buttons: n.options.map(o => ({ id: o.id, label: o.label })) }),
         });
         continue;
       }
