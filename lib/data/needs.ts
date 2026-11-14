@@ -1,12 +1,14 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { Document } from 'mongodb';
-import { inTransaction, nextSeq, type NeedDoc, type NeedKind, type NeedOption, type NeedStatus, type NeedWord } from '../db';
+import { requestContext } from '../request-context';
+import type { HandInResult } from '../types';
+import { inTransaction, nextSeq, type NeedDoc, type TaskDoc, type NeedKind, type NeedOption, type NeedStatus, type NeedWord } from '../db';
 import { orgWide, readable, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
 import type { Actor } from '../actors';
 import { isMember } from '../people';
 import { InputError, NotFoundError } from './errors';
-import { placeIn, resolveProject } from './projects';
+import { placeIn, placeOf, resolveProject } from './projects';
 
 // Needs: one ask to one person (docs/flows/plan-1-3.md, slice 4; flows N1, N2, B1, B2, F2). A Need replaces "waits on
 // Om" in progress text and chat. Stamped with its project's placement (the door filters each document by its own
@@ -40,6 +42,9 @@ export type Need = {
   createdAt: string;
   answeredAt: string | null;
   waitedMs: number | null;
+  /** A review Need: what was handed in, and (once answered with "file what is left") the numbers of the tasks made. */
+  result?: HandInResult;
+  filed?: number[];
 };
 
 export function toNeed(d: NeedDoc): Need {
@@ -61,6 +66,8 @@ export function toNeed(d: NeedDoc): Need {
     createdAt: d.createdAt.toISOString(),
     answeredAt: d.answeredAt ? d.answeredAt.toISOString() : null,
     waitedMs: d.waitedMs ?? null,
+    ...(d.result ? { result: d.result } : {}),
+    ...(d.filed ? { filed: d.filed } : {}),
   };
 }
 
@@ -353,6 +360,7 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
     if (!cur) throw new NotFoundError('That Need does not exist, or it is not addressed to you.');
     if (cur.status !== 'open') throw new InputError(cur.status === 'answered' ? 'This Need is already answered.' : `This Need was ${cur.status}.`);
     if (!cur.options.some(o => o.id === answer.option)) throw new InputError('Choose one of the Need\'s options.');
+    if (cur.kind === 'review' && answer.option === 'send_back' && !text) throw new InputError('Say what to change: your line goes first in the next brief for the task.');
     const now = new Date();
     const done = await c.needs.findOneAndUpdate(
       { _id: id, to: s.userId, status: 'open' },
@@ -361,8 +369,100 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
     );
     if (!done) throw new InputError('This Need is already answered.');
     await syncTaskNeed(await orgWide(s.orgId), done.taskId);
+    if (done.kind === 'review') return toNeed(await applyReview(s, done, answer.option, text));
     return toNeed(done);
   });
+}
+
+// ── Review (slice 5) ────────────────────────────────────────────────────────
+
+/**
+ * An agent closed a task whose work needs a person's eye: one review Need to the task's owner (Accept / Send back / Accept
+ * and file what is left), stamped with the task's placement. A review still open on the task is replaced, and an alert is
+ * sent unless one went out for it in the last 10 minutes. Not counted against the asker's limits: it is the system's.
+ */
+export async function createReviewNeed(s: Scope, t: TaskDoc, actor: Actor, result: HandInResult): Promise<Need> {
+  return inTransaction(async () => {
+    const org = await orgWide(s.orgId);
+    const open = await org.needs.find({ taskId: t._id, kind: 'review', status: 'open' }).toArray();
+    const now = new Date();
+    const last = open.map(n => n.alertedAt?.getTime() ?? 0).reduce((a, b) => Math.max(a, b), 0);
+    const quiet = last > now.getTime() - NEED_LIMITS.replaceAlertMs;
+    const id = randomUUID();
+    const place = placeOf(t);
+    const options = [
+      { id: 'accept', label: 'Accept', means: 'It is good: close the task.' },
+      { id: 'send_back', label: 'Send back', means: 'It needs more work: write what to change.' },
+      ...(result.left.length ? [{ id: 'accept_file', label: 'Accept and file what is left', means: `Close the task and make ${result.left.length === 1 ? 'a task' : result.left.length + ' tasks'} from what is left.` }] : []),
+    ];
+    const doc: NeedDoc = {
+      _id: id,
+      orgId: s.orgId,
+      ownerId: place.ownerId,
+      visibility: place.visibility,
+      ...(place.visibility === 'members' ? { sharedWith: place.sharedWith } : {}),
+      ref: await nextSeq(org.counters, needCounter(s)),
+      projectId: t.projectId ?? '',
+      taskId: t._id,
+      taskRef: t.ref,
+      to: t.ownerId,
+      from: { actor, word: 'agent', ...(requestContext().sid ? { session: requestContext().sid } : {}) },
+      kind: 'review',
+      ask: `Review #${t.ref}: ${t.title}`.slice(0, NEED_LIMITS.ask),
+      options,
+      status: 'open',
+      appOnly: false,
+      createdAt: now,
+      answeredAt: null,
+      result,
+      alertedAt: quiet ? new Date(last) : now,
+    };
+    await org.needs.insertOne(doc);
+    if (open.length) await org.needs.updateMany({ _id: { $in: open.map(n => n._id) }, status: 'open' }, { $set: { status: 'replaced', closedAt: now, replacedBy: id } });
+    await org.tasks.updateOne({ _id: t._id }, { $unset: { sentBack: '' } });
+    await syncTaskNeed(org, t._id);
+    if (!quiet) {
+      await org.alertQueue.updateOne({ _id: `need:${id}` }, { $setOnInsert: { userId: t.ownerId, kind: 'need', taskId: t._id, byTaskId: '', needId: id, createdAt: now, sentAt: null } }, { upsert: true });
+    }
+    return toNeed(doc);
+  });
+}
+
+/** A task was closed another way (a person did it): a review still waiting on it has nothing left to ask. */
+export async function closeOpenReviews(orgId: string, taskId: string, reason: string): Promise<void> {
+  const org = await orgWide(orgId);
+  await closeBySystem(org, await org.needs.find({ taskId, kind: 'review', status: 'open' }).toArray(), reason);
+}
+
+/** The owner answered a review Need (inside answerNeed's transaction): the task follows the answer. */
+async function applyReview(s: Scope, need: NeedDoc, option: string, text: string | undefined): Promise<NeedDoc> {
+  const c = await scoped(s);
+  const t = need.taskId ? await c.tasks.findOne({ _id: need.taskId }) : null;
+  if (!t) return need;
+  const tasks = await import('./tasks');
+  const actor: Actor = { kind: 'user', userId: s.userId };
+  const org = await orgWide(s.orgId);
+  const now = new Date();
+  if (option === 'send_back') {
+    await tasks.updateTask(s, t._id, { status: 'In Progress' }, actor, { note: `Sent back: ${text}` });
+    await org.tasks.updateOne({ _id: t._id }, { $set: { sentBack: { line: text!, by: s.userId, at: now } }, $inc: { 'review.sentBack': 1 } });
+    await (await import('./dispatcher')).requeueAfterSendBack(org, t);
+    return need;
+  }
+  // accept, accept_file
+  const outcome = (t.review?.sentBack ?? 0) > 0 ? 'accepted_after_send_back' : 'accepted_first_time';
+  let filed: number[] | undefined;
+  if (option === 'accept_file') {
+    filed = [];
+    for (const line of need.result?.left ?? []) {
+      const k = await tasks.createTask(s, { title: line.slice(0, 300), ...(t.projectId ? { project: t.projectId } : {}) }, actor, { note: `Left over from #${t.ref}` });
+      filed.push(k.ref);
+    }
+    await org.needs.updateOne({ _id: need._id }, { $set: { filed } });
+  }
+  if (t.status !== 'Done') await tasks.updateTask(s, t._id, { status: 'Done' }, actor, { note: option === 'accept_file' ? 'Accepted; the rest filed as tasks' : 'Accepted' });
+  await org.tasks.updateOne({ _id: t._id }, { $set: { 'review.outcome': outcome, 'review.at': now }, $unset: { sentBack: '' } });
+  return filed ? { ...need, filed } : need;
 }
 
 /** Who is withdrawing: the app (the person), or an MCP call with the word the server gave it and the session / key behind it. */

@@ -85,6 +85,7 @@ export function watchTarget(op: string, a: Record<string, unknown>): WatchTarget
     case 'log_progress':
       return { key, args: a, also: ['status'] };
     case 'complete_task':
+    case 'hand_in':
       return { key, also: ['status'] };
     case 'archive_task':
       return { key, also: ['archived'] };

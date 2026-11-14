@@ -194,7 +194,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
             data-tab={t.id}
             aria-current={t.id === tab ? 'page' : undefined}
             className={cn(
-              'inline-flex items-center justify-center h-11 md:h-9 px-1 md:px-5 rounded-xl text-[14px] md:text-sm font-medium whitespace-nowrap',
+              'inline-flex items-center justify-center h-11 md:h-9 px-0.5 md:px-5 rounded-xl text-[13px] tracking-tight md:tracking-normal md:text-sm font-medium whitespace-nowrap',
               t.id === tab ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground active:bg-background/60 hover:text-foreground',
             )}
           >

@@ -124,6 +124,13 @@ try {
     check('phone: nothing waits any more, so the block is gone', (await V.locator('[data-section="needs-you"]').count()) === 0);
     const sideways = await p.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
     check('phone: no sideways scroll', !sideways);
+    // The project's tab bar now has six tabs (Needs added): at 390px every label must fit its cell, and the cells be tappable.
+    await p.goto(`${B}/projects/${encodeURIComponent(projId)}?tab=tasks`);
+    await p.locator('nav[aria-label="Project sections"] a').first().waitFor({ timeout: 20000 });
+    const tabs = await p.locator('nav[aria-label="Project sections"] a').evaluateAll(els => els.map(e => ({ t: e.textContent.trim(), w: Math.round(e.getBoundingClientRect().width), h: Math.round(e.getBoundingClientRect().height), clipped: e.scrollWidth > e.clientWidth + 1, font: parseFloat(getComputedStyle(e).fontSize) })));
+    await p.screenshot({ path: `${process.env.E2E_SHOTS || '.'}/project-tabs-390.png`, clip: { x: 0, y: 0, width: 390, height: 300 } }).catch(() => {});
+    check('phone: the six project tabs each fit their label at 390px (nothing clipped)', tabs.length === 6 && tabs.every(x => !x.clipped), JSON.stringify(tabs));
+    check('phone: each project tab is at least 44px tall and 12px type or more', tabs.every(x => x.h >= 44 && x.font >= 12), JSON.stringify(tabs.map(x => [x.t, x.w, x.h, x.font])));
     check('phone: no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   }

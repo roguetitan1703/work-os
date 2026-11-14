@@ -10,6 +10,7 @@ import * as notesData from '../data/notes';
 import { authorLabel, isMine, taskAuthors } from '../data/authors';
 import * as items from '../data/claude-items';
 import * as needsData from '../data/needs';
+import * as results from '../data/results';
 import { InputError, NotFoundError } from '../data/errors';
 import { claudeCodeInstructions, instructions as instructionsFor, TOOLS, type InstructionsFor, type ToolName } from './docs';
 import { beforeTool, callerScope, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
@@ -26,7 +27,7 @@ import { forYouAfter, forYouBefore } from './for-you';
 import { randomUUID } from 'node:crypto';
 import { requestContext, sessionHeader } from '../request-context';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
-import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, VisibilitySchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
+import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RATINGS, RESULT_KINDS, RecurrenceSchema, StatusSchema, VisibilitySchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
 
 /**
  * caller: who is calling (a Claude chat key → agent "claude"; a Claude Code key → agent "claude-code"; lib/api-keys.ts).
@@ -156,7 +157,10 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     const w = a.type === 'comment' ? mark(`comment ${a.id}`, a.actor, '-') : label(a.actor);
     return { id: a.id, at: a.at, by: by(a.actor), type: a.type, text: describeActivity(a), ...(w ? { writtenBy: w } : {}) };
   });
+  // A line the owner sent the task back with comes first: do it before anything else (it is the owner's, labelled when it is not the caller's).
+  const sentBack = t.sentBack ? { line: t.sentBack.line, by: who(t.sentBack.by), at: t.sentBack.at, ...(t.sentBack.by !== s.userId ? { writtenBy: who(t.sentBack.by) } : {}) } : null;
   return {
+    ...(sentBack ? { sentBack } : {}),
     textRule: textRule(),
     ...(fromOthers.length ? { fromOthers } : {}),
     ref: t.ref,
@@ -190,6 +194,9 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     ...(parent ? { parent } : {}),
     ...(subtasks.length ? { subtasks, subtaskProgress: t.subtaskCount ? `${t.subtaskCount.done} of ${t.subtaskCount.total} done (progress is their average)` : undefined } : {}),
     recurrence: t.recurrence,
+    resultKind: t.resultKind ?? null,
+    ...(t.handIn ? { handIn: { changed: t.handIn.changed, checked: t.handIn.checked, rating: t.handIn.rating, where: t.handIn.where, left: t.handIn.left, at: t.handIn.at, by: by(t.handIn.by) } } : {}),
+    ...(t.review ? { review: t.review } : {}),
     archived: t.archived,
     createdAt: t.createdAt,
     visibility: t.visibility,
@@ -231,6 +238,7 @@ async function brief(t: Task, ctx: Ctx) {
 
 // snake_case tool args → service input
 type FieldArgs = {
+  result_kind?: (typeof RESULT_KINDS)[number] | null;
   title?: string;
   description?: string;
   project?: string | null;
@@ -273,6 +281,7 @@ function toPatch(a: FieldArgs): TaskPatch {
   if (a.assignees !== undefined) p.assignees = a.assignees;
   else if (a.assignee !== undefined) p.assignee = a.assignee;
   if (a.parent !== undefined) p.parent = a.parent;
+  if (a.result_kind !== undefined) p.resultKind = a.result_kind;
   return p;
 }
 
@@ -292,6 +301,7 @@ const fieldShape = {
   recurrence: RecurrenceSchema.nullable().optional().describe('Repeat after completion: {freq: daily|weekdays|weekly|monthly, interval}'),
   assignees: z.array(z.string().max(200)).max(20).nullable().optional().describe("Who does it, the whole list: 'me', members' emails, names or user ids; [] or null clears. Only on a task in a shared project (a private task can't be assigned to anyone else). Each newly added person is notified. To add one person, send the current list plus them"),
   assignee: z.string().max(200).nullable().optional().describe("One assignee (same as assignees with one entry; replaces the list); null clears. Ignored when assignees is given"),
+  result_kind: z.enum(RESULT_KINDS).nullable().optional().describe('What sort of result: code, data, client (an agent closing one goes to review), check or report (finish by themselves). Set by whoever plans the task; an agent cannot loosen code, data or client'),
   parent: z
     .union([z.number().int(), z.string()])
     .nullable()
@@ -358,8 +368,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
   const server = new McpServer({ name: 'work-os', version: '1.0.0' }, { instructions });
   // Title/description come from docs.ts so the /connect page shows exactly what Claude sees.
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
+  const sessionArg = z.string().max(64).optional().describe("The session id start_work returned (letters, digits and dashes); lets Work OS tell your answers apart from other sessions' of the same key");
   /** Tools that take an optional `session` argument (the session id start_work returned); the others read the X-Work-OS-Session header only (update_claude_items has its own `session`: a branch name). */
-  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'get_task', 'log_progress', 'complete_task']);
+  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'get_task', 'log_progress', 'complete_task', 'hand_in']);
   /** Who is calling, for presence and the "for you" line (lib/mcp/for-you.ts). */
   const identOf = (name: ToolName, a: unknown[]): Ident => {
     const arg = SESSION_ARG.has(name) && a[0] && typeof a[0] === 'object' ? (a[0] as { session?: unknown }).session : undefined;
@@ -487,7 +498,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const watch = await watchTasks(caller, [watchTarget('update_task', a)!]);
       const t = await tasks.updateTask(s, task, toPatch(fields), ACTOR, { note });
       await notifyChanges(watch);
-      return { updated: await brief(t, ctx) };
+      return { updated: await brief(t, ctx), ...(await reviewNote(t, fields.status === 'Done')) };
     }),
   );
 
@@ -507,9 +518,17 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const watch = await watchTasks(caller, [watchTarget('log_progress', a)!]);
       const t = await tasks.logProgress(s, a.task, a.progress, a.note, ACTOR, a.status, a.blocked_reason);
       await notifyChanges(watch);
-      return { updated: await brief(t, ctx) };
+      return { updated: await brief(t, ctx), ...(await reviewNote(t, a.status === 'Done')) };
     }),
   );
+
+  /** When an agent asked for Done and the task went to review instead: say so, with the Need, so it does not guess. */
+  const reviewNote = async (t: Task, askedDone: boolean) => {
+    if (!askedDone || t.status === 'Done') return {};
+    const n = (await needsData.listNeeds(s, { project: t.projectId ?? undefined, status: ['open'], limit: 50 })).find(x => x.taskId === t.id && x.kind === 'review');
+    if (!n) return {};
+    return { notClosed: true, review: await needOut(n), message: `Not closed: this is ${t.resultKind ?? 'report'} work, so #${t.ref} went to its owner as review Need #${n.ref} (Accept, Send back, or Accept and file what is left). The task stays open until they answer. Keep working only on what they send back.` };
+  };
 
   tool(
     'complete_task',
@@ -521,6 +540,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const watch = await watchTasks(caller, [watchTarget('complete_task', a)!]);
       const t = await tasks.completeTask(s, a.task, a.note, ACTOR);
       await notifyChanges(watch);
+      if (t.status !== 'Done') return { completed: false, task: await brief(t, ctx), ...(await reviewNote(t, true)) };
       const next = t.nextRef ? await tasks.getTask(s, t.nextRef) : null;
       // A parent's open subtasks stay open (docs/subtasks.md): say which, so Claude can close the finished ones.
       const open = t.subtaskCount ? await tasks.listSubtasks(s, t.id, { open: true }) : [];
@@ -529,6 +549,29 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ...(next ? { nextOccurrence: await brief(next, ctx) } : {}),
         ...(open.length ? { openSubtasks: await Promise.all(open.map(k => brief(k, ctx))), note: `${open.length} subtask${open.length === 1 ? ' is' : 's are'} still open: they were left as they are. Complete or drop them if they are finished.` } : {}),
       };
+    }),
+  );
+
+  tool(
+    'hand_in',
+    {
+      inputSchema: {
+        task: taskKey,
+        changed: z.string().min(1).max(2000).describe('What changed, in plain words'),
+        checked: z.string().max(1000).optional().describe('How you checked it (tests run, pages opened, who tried it)'),
+        rating: z.enum(RATINGS).optional().describe("Your honest verdict: works, awkward or doesn't work"),
+        where: z.array(z.object({ url: z.string().min(1).max(500), label: z.string().max(100).optional() })).max(10).optional().describe('Links: the PR, a preview, a note, the Delpat OS page. Links only, no files'),
+        left: z.array(z.string().min(1).max(300)).max(20).optional().describe('What is still open, one line each: the owner can file them as tasks'),
+        kind: z.enum(RESULT_KINDS).optional().describe('code, data, client (reviewed by the owner), check or report (closes by itself)'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    handler(async a => {
+      const watch = await watchTasks(caller, [watchTarget('hand_in', a)!]);
+      const r = await results.handIn(s, a.task, { changed: a.changed, checked: a.checked, rating: a.rating, where: a.where, left: a.left, kind: a.kind }, ACTOR);
+      await notifyChanges(watch);
+      return { task: await brief(r.task, ctx), closed: r.closed, ...(r.closed ? {} : await reviewNote(r.task, true)) };
     }),
   );
 
@@ -854,7 +897,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
 
   // ── Starting work and State (docs/flows/step-1.md) ─────────────────────────
 
-  const sessionArg = z.string().max(64).optional().describe("The session id start_work returned (letters, digits and dashes); lets Work OS tell your answers apart from other sessions' of the same key");
   const NO_STATE = 'no State yet: import your WORK-STATE.md (call import_state with the file text)';
 
   tool(

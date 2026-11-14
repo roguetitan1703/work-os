@@ -54,6 +54,33 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
         {need.from.label ? <span className="italic opacity-80" title="Typed by the agent, not checked"> (“{need.from.label}”)</span> : null}
         {need.appOnly ? ' · answer in the app only' : ''}
       </p>
+      {need.result && (
+        <div data-need-result className={cn('rounded-lg bg-muted/50 px-3 py-2 space-y-1 break-words', phone ? 'text-[14px]' : 'text-xs')}>
+          <p><span className="font-medium">Changed:</span> {need.result.changed}</p>
+          {need.result.checked && <p><span className="font-medium">Checked:</span> {need.result.checked}</p>}
+          {need.result.rating && <p><span className="font-medium">Their verdict:</span> {need.result.rating}</p>}
+          {need.result.where.length > 0 && (
+            <p>
+              <span className="font-medium">Where:</span>{' '}
+              {need.result.where.map((w, i) => (
+                <a key={i} href={w.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 mr-2 break-all">
+                  {w.label || w.url}
+                </a>
+              ))}
+            </p>
+          )}
+          {need.result.left.length > 0 && (
+            <div>
+              <span className="font-medium">Left:</span>
+              <ul className="list-disc pl-5">
+                {need.result.left.map((l, i) => (
+                  <li key={i}>{l}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
       {need.example && <p className={cn('rounded-lg bg-muted/50 px-3 py-2 text-muted-foreground whitespace-pre-wrap break-words', phone ? 'text-[14px]' : 'text-xs')}>For example: {need.example}</p>}
       {open && canAnswer && (
         <>
@@ -62,7 +89,7 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
               <button
                 key={o.id}
                 type="button"
-                disabled={pending}
+                disabled={pending || (need.kind === 'review' && o.id === 'send_back' && !text.trim())}
                 data-need-option={o.id}
                 title={o.means}
                 onClick={() => answer(o.id)}
@@ -84,7 +111,7 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
             maxLength={1000}
             rows={2}
             data-need-text
-            placeholder="A note with your answer (optional)"
+            placeholder={need.kind === 'review' ? 'To send it back: what should change? This line comes first in its next brief.' : 'A note with your answer (optional)'}
             aria-label={`Note for Need #${need.ref}`}
             className={cn('w-full rounded-lg border border-border bg-background px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/40', phone ? 'text-[16px]' : 'text-sm')}
           />
@@ -98,7 +125,7 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
       {!open && (
         <p className={cn('text-muted-foreground', phone ? 'text-[14px]' : 'text-xs')} data-need-closed>
           {need.status === 'answered' && need.answer
-            ? `Answered: ${need.options.find(o => o.id === need.answer!.option)?.label ?? need.answer.option}${need.answer.text ? ` · "${need.answer.text}"` : ''}${need.waitedMs !== null ? ` · waited ${fmtWait(need.waitedMs)}` : ''}`
+            ? `Answered: ${need.options.find(o => o.id === need.answer!.option)?.label ?? need.answer.option}${need.filed?.length ? ` · filed ${need.filed.map(r => '#' + r).join(', ')}` : ''}${need.answer.text ? ` · "${need.answer.text}"` : ''}${need.waitedMs !== null ? ` · waited ${fmtWait(need.waitedMs)}` : ''}`
             : need.status === 'withdrawn'
               ? 'Withdrawn by the asker'
               : 'Replaced by a newer ask'}
