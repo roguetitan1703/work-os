@@ -10,12 +10,13 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h);
 const select = 'h-11 md:h-9 rounded-md border border-border bg-background px-2 text-sm';
 
 /** Your timezone (what "today" and alert hours mean for you) and quiet hours (alerts wait until they end). */
-export function TimeSettings({ timezone, quietStart, quietEnd }: { timezone: string; quietStart: number; quietEnd: number }) {
+export function TimeSettings({ timezone, quietStart, quietEnd, digestHour }: { timezone: string; quietStart: number; quietEnd: number; digestHour: number }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [tz, setTz] = useState(timezone);
   const [qs, setQs] = useState(quietStart);
   const [qe, setQe] = useState(quietEnd);
+  const [dh, setDh] = useState(digestHour);
   const zones = useMemo(() => {
     let all: string[] = [];
     try {
@@ -30,7 +31,7 @@ export function TimeSettings({ timezone, quietStart, quietEnd }: { timezone: str
       return '';
     }
   }, []);
-  const dirty = tz !== timezone || qs !== quietStart || qe !== quietEnd;
+  const dirty = tz !== timezone || qs !== quietStart || qe !== quietEnd || dh !== digestHour;
 
   return (
     <form
@@ -39,7 +40,7 @@ export function TimeSettings({ timezone, quietStart, quietEnd }: { timezone: str
       onSubmit={e => {
         e.preventDefault();
         start(async () => {
-          const r = await saveTimeSettingsAction({ timezone: tz, quietStart: qs, quietEnd: qe });
+          const r = await saveTimeSettingsAction({ timezone: tz, quietStart: qs, quietEnd: qe, digestHour: dh });
           if (!r.ok) return void toast.error(r.error);
           toast.success('Saved');
           router.refresh();
@@ -75,6 +76,15 @@ export function TimeSettings({ timezone, quietStart, quietEnd }: { timezone: str
           ))}
         </Select>
         <span className="text-xs text-muted-foreground">{qs === qe ? 'none' : 'nothing is sent; it waits until they end'}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="w-28 text-muted-foreground">Daily digest</span>
+        <Select value={dh} onChange={e => setDh(Number(e.target.value))} className={select} aria-label="Daily digest hour" name="digestHour">
+          {HOURS.map(h => (
+            <option key={h} value={h}>{`${String(h).padStart(2, '0')}:00`}</option>
+          ))}
+        </Select>
+        <span className="text-xs text-muted-foreground">once a day, if the Daily digest alert is on</span>
       </div>
       <button type="submit" disabled={pending || !dirty} className="h-11 md:h-9 px-4 rounded-full text-sm font-semibold border border-border disabled:opacity-50" data-save-time>
         Save

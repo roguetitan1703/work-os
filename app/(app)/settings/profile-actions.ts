@@ -26,7 +26,7 @@ async function run<T>(what: string, fn: () => Promise<T>): Promise<R<T>> {
   }
 }
 
-export async function saveTimeSettingsAction(input: { timezone: string; quietStart: number; quietEnd: number }): Promise<R<null>> {
+export async function saveTimeSettingsAction(input: { timezone: string; quietStart: number; quietEnd: number; digestHour?: number }): Promise<R<null>> {
   return run('time settings', () => asCaller(async c => void (await saveTimeSettings(c, input))).then(() => null));
 }
 

@@ -290,9 +290,10 @@ There's no bot server running all the time and no messages are stored.
 | Alert | When |
 |---|---|
 | Due tomorrow | 18:00 the day before, P1 and P2 |
-| Due today | 09:00, all tasks due that day |
-| Overdue | The morning after the due date, then every 2 days |
-| Stalled | In Progress with no activity for 2 workdays |
+| Daily digest | Once a day at your own hour (Settings › Alerts, default 09:00): what agents finished, due and overdue, gone quiet, what moved yesterday. One message through your channels |
+| Due today | 09:00, all tasks due that day (with the digest on: inside it) |
+| Overdue | The morning after the due date, then every 2 days (with the digest on: inside it) |
+| Stalled | In Progress with no activity for 2 workdays (with the digest on: inside it) |
 | Never started | P1 still Not Started 24 hours after creation |
 | Unblocked | Right away, when the last task it waited on is closed |
 
@@ -301,6 +302,9 @@ There's no bot server running all the time and no messages are stored.
   - **Phone push:** a real notification on every device that turned it on in Settings. Tapping it opens the task (or the inbox when several arrived together). **iPhone needs the app added to the Home Screen and iOS 16.4 or later**; it won't offer push in a normal Safari tab.
   - **Discord DM:** as before.
   - **Send test** (Settings → Notifications) sends one through every enabled channel and shows what reached where.
+- **The daily digest (flow B4, plan-1-3 slice 2):** the person's `digestHour` (profile, default 9) and the alert switch `digest` (on by default; `scripts/migrate-digest.mjs --db <name> [--apply]` saves it on for whoever has Due today on, off for whoever turned it off; idempotent). Sections in order: **What agents finished** (`claude_finished` / `claude_stopped` rows of `alertQueue` created since the last digest, already sent as alerts), **Due and overdue**, **Gone quiet** (In Progress, 2 workdays untouched), **Moved yesterday** (one line per project from `activity`, previous working day up to today, only projects the person can read). An empty digest is claimed and not sent. Needs and "idle with Next work" join in slice 6.
+  - **What it absorbs:** while the digest is on and today's has not gone out, due today, overdue and stalled wait for it (also before its hour) and go into it; their log keys are claimed with it. Once it has gone out, a task that becomes due, overdue or quiet still alerts on its own on the next 15-minute run. Everything else (`due_tomorrow`, `never_started`, `unblocked`, `assigned`, `claude_*`) is unchanged. Switch the digest off and the morning alerts work as before.
+  - **Claimed once a day** by the `alertLog` key `digest:<date>:<userId>` (the person is in the key because alertLog ids are shared by everyone; sentAt = the run's time, so "since the last digest" shares the queue rows' clock; `empty: true` on a day with nothing). The first digest a person gets starts with one line saying the morning alerts are now this digest. Channels: inbox (one row, opens Today), push (opens Today), Discord DM if linked; there is no mail channel for alerts yet.
 - **Rules:** quiet hours 23:00–08:00 IST (anything due then waits until morning), one combined DM per check, and each alert sent only once.
 - **Status:** Settings › Alerts (and the status strip at the top of Settings) shows when the last check ran and what it did.
 - **Setup still to do:**
@@ -320,6 +324,7 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 - **Logic:** `lib/alerts.ts`. The thresholds are in `ALERT_RULES`.
   - `alertLog`: one record per alert sent, so each goes out once.
   - `alertQueue`: unblocked alerts waiting to be sent.
+  - The digest: `buildDigest` in `lib/alerts.ts`; `?at=` on the cron drives its tests (`tests/e2e/flow-b4.mjs`).
 - **Queueing:** `queueUnblocked()` is called from `updateTask` **inside** the same transaction as the write, so a batch that rolls back never queues an alert.
 - **Sending soon after a write:** `flushQueuedAlerts()` runs via `after()` in the MCP route, the Discord interactions route and the app's server actions.
 - **Exactly once, even when runs overlap:** a run claims each alert before delivering it (queue entry: `sentAt: null` → now, conditional update; scheduled alert: insert into `alertLog`, duplicate key = another run has it). Several flushes after a batch plus the cron can no longer send the same alert twice. A claimed alert stays sent even if a channel then fails.

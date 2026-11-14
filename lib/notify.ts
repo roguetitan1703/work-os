@@ -10,10 +10,11 @@ import { getUserSetting, scoped, setUserSetting, type Scope } from './scope';
 // (notify:<userId>), their inbox, their push devices (docs/multi-user.md "Inbox, push, alerts").
 
 export const ALERT_KINDS: { kind: AlertKind; label: string; hint: string }[] = [
+  { kind: 'digest', label: 'Daily digest', hint: 'Once a day at your hour (Settings › Alerts): what agents finished, due and overdue, gone quiet, what moved. Replaces the morning alerts' },
   { kind: 'unblocked', label: 'Unblocked', hint: 'The last task it waited on is done' },
   { kind: 'assigned', label: 'Assigned to you', hint: 'Someone assigned a task to you' },
   { kind: 'overdue', label: 'Overdue', hint: 'Morning after, then every 2 days' },
-  { kind: 'due_today', label: 'Due today', hint: '09:00' },
+  { kind: 'due_today', label: 'Due today', hint: '09:00, or in the digest when that is on' },
   { kind: 'due_tomorrow', label: 'Due tomorrow', hint: '18:00, P1 and P2' },
   { kind: 'never_started', label: 'P1 not started', hint: '24h after it was added' },
   { kind: 'stalled', label: 'Stalled', hint: 'In Progress, untouched 2 workdays' },
@@ -36,7 +37,7 @@ export type NotifySettings = {
 
 const DEFAULTS: NotifySettings = {
   channels: { push: true, discord: true },
-  kinds: { unblocked: true, assigned: true, overdue: true, due_today: true, due_tomorrow: true, never_started: true, stalled: true, claude_finished: true, claude_stopped: true, claude_stuck: true, claude_code_changes: true, claude_waiting: true },
+  kinds: { digest: true, unblocked: true, assigned: true, overdue: true, due_today: true, due_tomorrow: true, never_started: true, stalled: true, claude_finished: true, claude_stopped: true, claude_stuck: true, claude_code_changes: true, claude_waiting: true },
 };
 
 export async function getNotifySettings(s: Scope): Promise<NotifySettings> {

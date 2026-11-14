@@ -160,11 +160,11 @@ export type NoteDoc = Placed & {
   deletedBy?: Actor;
 };
 
-export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'claude_stuck';
+export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'claude_stuck' | 'digest';
 /** Kinds sent from the alertQueue (event alerts) rather than found by the scheduled check. */
 export type QueuedAlertKind = 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped';
 /** One row per alert sent (key encodes task + occasion), so each is sent once. */
-export type AlertLogDoc = { _id: string; orgId: string; /** Who it was sent to. */ userId: string; kind: AlertKind; taskId?: string; sentAt: Date };
+export type AlertLogDoc = { _id: string; orgId: string; /** Who it was sent to. */ userId: string; kind: AlertKind; taskId?: string; sentAt: Date; /** digest rows: the digest had nothing to say (claimed for the day, never sent). */ empty?: boolean };
 /** Event alerts waiting for the next send (queued inside the write's transaction). */
 export type AlertQueueDoc = { _id: string; orgId: string; /** Who gets it: the task's recipient, or the person who gave it to Claude. */ userId: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason; assigned: who assigned it. */ detail?: string };
 
@@ -227,6 +227,8 @@ export type SettingsDoc = {
   timezone?: string;
   quietStart?: number;
   quietEnd?: number;
+  /** The hour (0-23, their zone) their daily digest is sent; missing = 9. */
+  digestHour?: number;
   discordId?: string | null;
   discordLink?: { hash: string; expiresAt: Date } | null;
   /** profile:<userId>: the person hid the first-run checklist on Today. */
