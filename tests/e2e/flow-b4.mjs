@@ -1,7 +1,7 @@
 // Flow B4, the personal daily digest (docs/flows/plan-1-3.md slice 2), driven through the cron's ?at=. Seed profile: none.
 // People (one organization): ME (default 09:00), Q (quiet hours 09-12), H (digest at 14:00), O (digest switched off) and Dee
 // (quiet until 12, owner of a private project). Profiles are saved before the first cron run (the app caches them a minute).
-import { call, check, cron, db, finish, makeUser, ME, rawDb, setProfile } from './lib.mjs';
+import { call, check, cron, db, finish, makeUser, mcpAs, mkKey, ME, rawDb, setProfile } from './lib.mjs';
 
 const mkPerson = async (email, name) => makeUser({ email, name, orgId: ME.orgId, role: 'member' });
 const Q = await mkPerson('b4-q@example.test', 'B4 Quiet');
@@ -114,6 +114,19 @@ check('two concurrent runs: exactly one digest for the day (4 in all)', (await i
 // 9. ?at= is validated
 const badAt = await cron('&dry=1&at=not-a-date');
 check('an invalid at is refused', !!badAt.error, JSON.stringify(badAt));
+
+// 10. Needs you comes first in the digest (slice 6)
+const codeKey = await mkKey({ agent: 'claude-code', name: 'B4 agent' });
+const needR = await mcpAs(codeKey, 'ask', { project: 'B4 Alpha', to: 'me', kind: 'approve', ask: 'B4 may I ship the thing?' });
+check('needs: the ask went through', !needR.isError, needR.text.slice(0, 200));
+const dry3 = await cron('&dry=1' + at('2026-11-24T05:00:00Z'));
+const t3 = (dry3.preview ?? []).join('\n');
+const i3 = ['Needs you', 'Due and overdue'].map(h => t3.indexOf(h));
+check('needs: "Needs you" is the first section of the digest, above Due and overdue', i3[0] >= 0 && i3[1] > i3[0] && /B4 may I ship/.test(t3) && /\/today#need-/.test(t3), t3.slice(0, 500));
+check('needs: no "Idle with Next work" section yet (the roster builder supplies it)', !/Idle with Next work/.test(t3));
+await cron(at('2026-11-24T05:00:00Z'));
+const row3 = await rawDb.collection('notifications').findOne({ userId: ME.userId, kind: 'digest' }, { sort: { createdAt: -1 } });
+check('needs: the digest summary counts it', /1 needs? you/.test(row3?.body ?? ''), JSON.stringify(row3?.body));
 
 const prof = await rawDb.collection('settings').findOne({ _id: `profile:${H.userId}` });
 check('digestHour is stored on the profile', prof?.digestHour === 14);
