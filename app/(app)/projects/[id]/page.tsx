@@ -23,6 +23,8 @@ import { ProjectDetails } from './project-header';
 import { ProjectTop } from './project-top';
 import { ClaudeCard } from './claude-card';
 import { StateCard } from './state-card';
+import { CouldBeRunning } from '../../claude/workers-tab';
+import { projectRoster } from '@/lib/data/roster';
 import { stateOfProject, stateOut } from '@/lib/data/states';
 import { memberNames } from '@/lib/people';
 
@@ -64,6 +66,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     stateOfProject(sc, project.id),
     memberNames(me.orgId),
   ]);
+  const projectWorkers = await projectRoster(sc, project.id);
   const stateView = stateDoc ? stateOut(stateDoc, me.userId, names) : null;
   const turbo = await turboInfo(me, project.id, launcher);
   const projectNotes = notes.notes.filter(n => !n.taskId && !n.archived);
@@ -129,6 +132,20 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,_1.7fr)_minmax(0,_1fr)] gap-4 lg:gap-6 items-start" data-view="overview">
       <div className="space-y-4 min-w-0">
         <StateCard projectId={project.id} initial={stateView} />
+        {projectWorkers.workers.length > 0 && (
+          <section className="space-y-1.5" data-card="workers">
+            <h2 className={H2}>Working on it now</h2>
+            <ul className={cn(CARD, 'divide-y divide-border/60')}>
+              {projectWorkers.workers.map(w => (
+                <li key={w.id} className={cn('px-4 md:px-3 py-2 text-[15px] md:text-sm', w.depth === 1 && 'pl-8 bg-muted/20')} data-project-worker={w.id}>
+                  <span className="font-semibold">{w.person}</span> · {[w.ai, w.model].filter(Boolean).join(' · ')}
+                  <span className="text-muted-foreground text-[13px] md:text-xs"> · {w.state === 'working' ? 'working' : w.state === 'waiting' ? 'waiting on a person' : 'idle'}{w.doing ? ` · #${w.doing.ref}` : ''}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {projectWorkers.couldBeRunning && <CouldBeRunning list={[projectWorkers.couldBeRunning]} compact />}
         <ClaudeCard projectId={project.id} tabHref={tabHref('claude')} waiting={waiting} running={running} next={nextItem ? { ref: nextItem.ref, title: nextItem.title } : null} queued={queuedItems.length} hasComputers={launcher.devices.length > 0} />
         <section className="space-y-1.5" data-card="tasks">
           <div className="flex items-center gap-2 px-1 md:px-0 min-h-11 md:min-h-0 -mb-1 md:mb-0">

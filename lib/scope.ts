@@ -53,6 +53,7 @@ const RULES = {
   alertLog: RECIPIENT,
   alertQueue: RECIPIENT,
   counters: ORG,
+  slots: ORG,
 } satisfies Record<string, Rule>;
 
 export type ScopedName = keyof typeof RULES;

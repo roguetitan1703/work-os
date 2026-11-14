@@ -20,7 +20,8 @@ import { BlockedChannelError, DiscordError, NotVisibleError } from '../discord/c
 import { describeActivity } from '../activity-text';
 import * as stateData from '../data/states';
 import { ordersFor } from '../data/orders';
-import { othersPresent, registerPresence, type Ident } from '../data/presence';
+import { othersPresent, presentRow, registerPresence, resolveMachine, setDoing, type Ident } from '../data/presence';
+import { acquireSlot, holderOf, machineKey, MAX_WAIT_S, releaseSlot } from '../data/slots';
 import { forYouAfter, forYouBefore } from './for-you';
 import { randomUUID } from 'node:crypto';
 import { requestContext, sessionHeader } from '../request-context';
@@ -358,7 +359,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   // Title/description come from docs.ts so the /connect page shows exactly what Claude sees.
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
   /** Tools that take an optional `session` argument (the session id start_work returned); the others read the X-Work-OS-Session header only (update_claude_items has its own `session`: a branch name). */
-  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'get_task', 'log_progress', 'complete_task']);
+  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'get_task', 'log_progress', 'complete_task', 'set_doing', 'slot']);
   /** Who is calling, for presence and the "for you" line (lib/mcp/for-you.ts). */
   const identOf = (name: ToolName, a: unknown[]): Ident => {
     const arg = SESSION_ARG.has(name) && a[0] && typeof a[0] === 'object' ? (a[0] as { session?: unknown }).session : undefined;
@@ -867,6 +868,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
         path: z.string().optional().describe('Absolute path of your working folder'),
         machine: z.string().max(40).optional().describe('A short name for this computer'),
         label: z.string().max(120).optional().describe('Who you are, e.g. "cutroom prime, Opus, main"'),
+        model: z.string().max(60).optional().describe('The model you run on, e.g. "Opus 4.7" (the roster shows it)'),
+        account: z.string().max(80).optional().describe('A label for the account you run under, e.g. "om-max" (the roster shows it; never a key or email)'),
+        parent: z.string().max(64).optional().describe('For a builder: the session id of the orchestrator that started you (the roster shows you under it)'),
+        slot: z.string().max(20).optional().describe('For a builder: your slot name, e.g. "A", "B" or "S"'),
         session: sessionArg,
       },
       annotations: { destructiveHint: false, idempotentHint: true },
@@ -893,7 +898,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const by = await byOf(ctx);
       // The session: the one named (argument or header), else a new one.
       const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? randomUUID();
-      const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: a.machine, label: a.label });
+      const mach = await resolveMachine(s, a.machine);
+      const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, label: a.label, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch });
       // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
       const layerName = { org: 'organisation', project: 'project', person: 'person' } as const;
       const orders = (await ordersFor(s, project)).map(o => {
@@ -909,7 +915,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ai: p.ai,
         for: p.userId === s.userId ? 'me' : names[p.userId] || 'another member',
         ...(p.label ? { label: p.label } : {}),
-        ...(p.machine ? { machine: p.machine } : {}),
+        ...(p.machine ? { machine: p.machineName ?? p.machine } : {}),
+        ...(p.model ? { model: p.model } : {}),
+        ...(p.doing ? { doing: `#${p.doing.ref}` } : {}),
         minutesAgo: Math.round((Date.now() - p.lastSeen.getTime()) / 60_000),
         ...(p.userId === s.userId ? {} : { writtenBy: names[p.userId] || 'another member' }),
       }));
@@ -924,6 +932,53 @@ export function createMcpServer(ctx: Ctx): McpServer {
         alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
         stateVersion: state?.version ?? 0,
       };
+    }),
+  );
+
+  tool(
+    'set_doing',
+    {
+      inputSchema: {
+        task: taskKey.optional().describe('The task you are working on now (ref or id). Omit it to say you are on none'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    handler(async a => {
+      const t = a.task === undefined ? null : await tasks.getTask(s, a.task);
+      if (a.task !== undefined && !t) throw new NotFoundError('Task not found');
+      const row = await setDoing(s, identOf('set_doing', [a]), t ? { taskId: t.id, ref: t.ref, title: t.title } : null);
+      if (!row) throw new InputError('You are not registered as present: call start_work first (and pass its session id)');
+      return { doing: t ? { ref: t.ref, title: t.title } : null, note: 'The roster shows this task as yours while you keep working; if you stop calling Work OS for 30 minutes it shows as unheld.' };
+    }),
+  );
+
+  tool(
+    'slot',
+    {
+      inputSchema: {
+        machine: z.string().max(40).optional().describe('This computer, as you named it in start_work (default: the machine of your present session)'),
+        kind: z.literal('heavy').optional().describe('Only "heavy" exists: builds, test runs, browsers'),
+        action: z.enum(['acquire', 'release']),
+        wait_seconds: z.number().int().min(0).max(MAX_WAIT_S).optional().describe('On acquire: wait up to this long for a free slot (default 0: answer at once with retryAfterSeconds)'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    handler(async a => {
+      const ident = identOf('slot', [a]);
+      let name = a.machine?.trim();
+      if (!name) name = (await presentRow(s, ident))?.machine || '';
+      if (!name) throw new InputError('Say which computer: pass machine (as in start_work), or call start_work first');
+      const key = machineKey(s.userId, await resolveMachine(s, name));
+      const holder = holderOf(ident);
+      if (a.action === 'release') return await releaseSlot(s, key, holder);
+      const until = Date.now() + (a.wait_seconds ?? 0) * 1000;
+      for (;;) {
+        const r = await acquireSlot(s, key, holder);
+        if (r.acquired || Date.now() >= until) return { ...r, leaseMinutes: 30, note: r.acquired ? 'Release it when your build or test run ends; the lease ends by itself in 30 minutes unless you ask again.' : 'Full: wait and ask again, or until a holder releases.' };
+        await new Promise(res => setTimeout(res, Math.min(1000, Math.max(50, until - Date.now()))));
+      }
     }),
   );
 

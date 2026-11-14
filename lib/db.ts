@@ -202,7 +202,22 @@ export type PresenceDoc = Placed & {
   forYouCursor: Date;
   /** Writes made since the last save_state of this session (the save nudge). */
   writesSinceSave: number;
+  // The roster (docs/flows/plan-1-3.md slice 7): what start_work and set_doing report about the worker.
+  model?: string;
+  account?: string;
+  /** The orchestrator's session id (for a builder). */
+  parent?: string;
+  /** The builder slot name (A, B, S ...). */
+  slot?: string;
+  /** The git branch it reported. */
+  branch?: string;
+  /** When machine resolved to one of the person's devices (machine is then its id): that device's name. */
+  machineName?: string;
+  /** The task the worker says it is on (set_doing). */
+  doing?: { taskId: string; ref: number; title: string; at: Date };
 };
+/** Heavy-slot leases on one machine (lib/data/slots.ts): at most `cap` (default 2) holders, each with a lease end. _id = org:machine. Organization-wide on purpose: the cap is per machine across every session on it. */
+export type SlotDoc = { _id: string; orgId: string; machine: string; kind: 'heavy'; cap?: number; holds: { h: string; session: string; userId: string; until: Date }[] };
 
 export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'claude_stuck';
 /** Kinds sent from the alertQueue (event alerts) rather than found by the scheduled check. */
@@ -408,6 +423,7 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['calendarFeeds', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]],
     ['states', [{ key: { orgId: 1, projectId: 1 }, unique: true, name: 'org_project_unique' }]],
     ['presence', [{ key: { orgId: 1, projectId: 1, lastSeen: -1 }, name: 'org_project_seen' }, { key: { lastSeen: 1 }, name: 'seen_ttl', expireAfterSeconds: 7 * 86_400 }]],
+    ['slots', [{ key: { orgId: 1, machine: 1 }, name: 'org_machine' }]],
     ['authLimits', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 3600 }, { key: { key: 1, at: -1 }, name: 'key_at' }]],
     // Better Auth's collections (lib/auth-server.ts): its MongoDB adapter creates no indexes. A session is read by its
     // token whenever the cookie cache runs out (every 2 minutes per person), a member on every role check, an API key on
@@ -479,6 +495,7 @@ export async function collections() {
     workerSessions: db.collection<WorkerSessionDoc>('workerSessions'),
     states: db.collection<StateDoc>('states'),
     presence: db.collection<PresenceDoc>('presence'),
+    slots: db.collection<SlotDoc>('slots'),
   };
   const session = txStore.getStore();
   return session ? (Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, withSession(v, session)])) as typeof cols) : cols;
