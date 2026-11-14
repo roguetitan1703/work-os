@@ -60,6 +60,8 @@ budgets|budgets.mjs|none|plain
 headers|headers.mjs|none|plain
 alerts-once|alerts-once.mjs|none|discord
 flow-b4|flow-b4.mjs|none|plain
+flow-hooks|flow-hooks.mjs|none|plain
+flow-b4-team|flow-b4-team.mjs|none|discord
 discord-link|discord-link.mjs|none|discord
 leak-audit|leak-audit.mjs|none|discord
 delpat-os|delpat-os.mjs|none|delpat

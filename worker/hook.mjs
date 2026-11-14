@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { checkBaseUrl, loadConfig } from './config.mjs';
 
 const TIMEOUT_MS = 5000;
-const MAX_BRIEF = 12000;
+const MAX_BRIEF = 9500; // Claude Code caps a hook context string at 10,000 characters
 const markerDir = () => process.env.WORK_OS_HOOK_DIR || path.join(os.tmpdir(), 'work-os-hooks');
 const markerFile = (sid) => path.join(markerDir(), String(sid).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80) + '.json');
 

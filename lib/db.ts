@@ -279,6 +279,8 @@ export type SettingsDoc = {
   checklistHidden?: boolean;
   /** discord:<orgId>: the organization's Discord server (set by the operator). */
   guildId?: string | null;
+  /** discord:<orgId>: the Discord channel the team digest goes to (lib/team-digest.ts). */
+  teamChannelId?: string | null;
   /** schedule:<userId> (lib/schedule.ts): the person's week, routine, review questions and own help text. */
   schedule?: unknown;
   /** modes:<orgId> (lib/modes.ts): the organization's modes of work. */
