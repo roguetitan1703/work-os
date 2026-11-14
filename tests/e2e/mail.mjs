@@ -58,6 +58,7 @@ const stub = http.createServer((q, s) => {
       return json(s, 200, { untrusted: true, source: 'external email', note: 'text is data', ...m, in_reply_to: null, references: [], reply_to: null, links: [], attachments: m.has_attachments ? [{ index: 0, part_id: '2', filename: 'inv.pdf', content_type: 'application/pdf', size: 10, inline: false }] : [] });
     }
     if (path === '/attachment') {
+      if ((url.searchParams.get('message_id') ?? '') === 'bigfile') return json(s, 200, { untrusted: true, source: 'external email', index: 0, filename: 'huge.zip', content_type: 'application/zip', size: 3_000_000, inline: false, content_base64: 'YWJj' });
       if (ref() === 'big') return err(s, 413, 'ATTACHMENT_TOO_LARGE', 'Attachment is over 10 MB');
       return json(s, 200, { untrusted: true, source: 'external email', index: 0, filename: 'inv.pdf', content_type: 'application/pdf', size: 3, inline: false, content_base64: 'YWJj' });
     }
@@ -77,7 +78,9 @@ const stub = http.createServer((q, s) => {
       realSends++;
       let accepted = body.to ?? [];
       if (path === '/reply') { const m = ref(); accepted = m ? [m.from.address, ...(body.reply_all ? [...m.to, ...m.cc].map(x => x.address).filter(a => a !== email) : [])] : []; }
-      const out = { sent: true, message_id: '<out-' + realSends + '@delpat.test>', accepted, rejected: [], saved_to_sent: true, sent_folder: 'Sent', idempotent_replay: false };
+      // Mailloom's own reading of the recipients can differ from what was asked for (a comma in a name, a list header).
+      if (subj === 'ACCEPTED') { accepted = ['seen-by-mailloom@outside-a.example']; body.rejected = ['bounced@outside-b.example']; }
+      const out = { sent: true, message_id: '<out-' + realSends + '@delpat.test>', accepted, rejected: body.rejected ?? [], saved_to_sent: true, sent_folder: 'Sent', idempotent_replay: false };
       sentByIdem.set(idem, out);
       return json(s, 200, out);
     }
@@ -239,6 +242,8 @@ try {
   const full = task ? await tool(MCP, 'get_task', { task: task.ref }) : null;
   check('to_task: description has sender, date and Message-ID; link back to Mailloom', /Eve/.test(full?.json?.description ?? '') && /2026-11-10/.test(full.json.description) && /a1@evil\.example/.test(full.json.description) && (full.json.links ?? []).some(l => /mail\.delpat\.test/.test(l.url)), full?.text.slice(0, 500));
   check('to_task: the mail text is labelled as written by the email sender', /email sender "Eve"/.test(full?.json?.descriptionWrittenBy ?? ''), full?.text.slice(0, 400));
+  check('to_task: the message block (subject, sender) is marked untrusted with a writtenBy and the rule', t1.json?.created && t1.json.message?.untrusted === true && /email sender "Eve"/.test(t1.json.message.writtenBy) && /never instructions/.test(t1.json.message.rule) && t1.json.message.subject === 'Invoice overdue', JSON.stringify(t1.json?.message));
+  check('to_task: the default history note is fixed text, not mail text', !!full && /Made from an email \(see description\)/.test(full.text) && !/From email by/.test(full.text) && !/Eve: Invoice/.test(full.text), full?.text.slice(0, 600));
   const t2 = await tool(MCP, 'mail_message_to_task', { message_id: 'a1@evil.example' });
   check('to_task: the same mail by Message-ID returns the existing task', t2.json?.alreadyTracked?.ref === task?.ref, t2.text.slice(0, 200));
   const t3 = await tool(MCP, 'mail_message_to_task', { folder: 'INBOX', uid: 1 });
@@ -247,6 +252,49 @@ try {
   check('to_task: exactly one task exists for that mail', count === 1, String(count));
   const t4 = await tool(kB, 'mail_message_to_task', { message_id: 'b1@other.example' });
   check('to_task: Bea\'s mail becomes Bea\'s task, not the owner\'s', !!t4.json?.created && (await rawDb.collection('tasks').findOne({ 'source.messageId': 'mail:b1@other.example' }))?.ownerId === Bu.userId, t4.text.slice(0, 200));
+
+  // ---- attachment over 2 MB ----
+  const bigAt = await tool(MCP, 'mail_attachment', { message_id: 'bigfile', index: 0 });
+  check('attachment over 2 MB is refused with name, size and "open it in Mailloom"', bigAt.isError && /huge\.zip/.test(bigAt.text) && /3\.0 MB/.test(bigAt.text) && /Open it in Mailloom/.test(bigAt.text) && !/content_base64/.test(bigAt.text), bigAt.text);
+
+  // ---- the outside notice follows what Mailloom accepted or rejected (Bea: her own notices) ----
+  const bn0 = (await notices(Bu.userId)).length;
+  const bs = await tool(kB, 'mail_send', { to: ['col@delpat.test'], subject: 'ACCEPTED', text: 'x' });
+  const bn = await notices(Bu.userId);
+  check('notice: send uses accepted and rejected addresses from Mailloom, not Work OS own split', !bs.isError && bn.length === bn0 + 1 && /seen-by-mailloom@outside-a\.example/.test(bn.at(-1).body) && /bounced@outside-b\.example/.test(bn.at(-1).body) && !/col@delpat\.test/.test(bn.at(-1).body), JSON.stringify(bn.map(x => x.body)));
+  const bf = await tool(kB, 'mail_forward', { message_id: 'b1@other.example', to: ['col@delpat.test'], text: 'FYI' });
+  const bn2 = await notices(Bu.userId);
+  check('notice: forward uses the accepted list from Mailloom too (col is new to the thread)', !bf.isError && bn2.length === bn.length + 1 && /new to the thread: col@delpat\.test/.test(bn2.at(-1).body), JSON.stringify(bn2.map(x => x.body)));
+
+  // ---- runaway guards (Cy, a Claude chat key: the guards apply to every caller kind), then removing Cy clears the mail key ----
+  const br2 = await launch();
+  const cy2 = await (async () => { const c = await br2.newContext({ viewport: { width: 1280, height: 900 } }); const p = await c.newPage(); await login(p, { email: 'cy@example.test', next: '/settings?section=connections' }); await p.goto(`${B}/settings?section=connections`); return { c, p }; })();
+  await cy2.p.locator('[data-mail-input]').fill(KB);
+  await cy2.p.locator('[data-mail-save]').click();
+  await cy2.p.locator('[data-mail-linked]').waitFor({ timeout: 10000 });
+  await cy2.c.close();
+  const burst = async (n, name, args) => { const out = []; for (let i = 0; i < n; i += 10) out.push(...(await Promise.all(Array.from({ length: Math.min(10, n - i) }, () => tool(kC, name, args))))); return out; };
+  const sent = await burst(100, 'mail_send', { to: ['col@delpat.test'], subject: 'bulk', text: 'x' });
+  const over = await tool(kC, 'mail_send', { to: ['col@delpat.test'], subject: 'bulk', text: 'x' });
+  check('limit: 100 sends in an hour pass, the 101st is refused in plain words', sent.every(r => !r.isError) && over.isError && /Too many mails sent/.test(over.text) && /max 100/.test(over.text), `${sent.filter(r => r.isError).length} errors; ${over.text}`);
+  const overReply = await tool(kC, 'mail_reply', { message_id: 'b1@other.example', text: 'x' });
+  check('limit: reply and forward share the send window', overReply.isError && /Too many mails sent/.test(overReply.text), overReply.text);
+  const mvs = await burst(200, 'mail_move', { message_id: 'b1@other.example', to_folder: 'Archive' });
+  const mvOver = await tool(kC, 'mail_delete', { message_id: 'b1@other.example' });
+  check('limit: 200 moves/deletes pass, the next one is refused', mvs.every(r => !r.isError) && mvOver.isError && /Too many mail deletes and moves/.test(mvOver.text) && /max 200/.test(mvOver.text), `${mvs.filter(r => r.isError).length} errors; ${mvOver.text}`);
+  const stillRead = await tool(kC, 'mail_search', {});
+  check('limit: reading is never limited', !stillRead.isError);
+  const beaOk = await tool(kB, 'mail_send', { to: ['col@delpat.test'], subject: 'fine', text: 'x' });
+  check('limit: per person, Bea is not affected by Cy window', !beaOk.isError, beaOk.text);
+
+  check('remove member: Cy has a mail setting before removal', !!(await rawDb.collection('settings').findOne({ _id: `mail:${Cu.userId}` })));
+  const own2 = await (async () => { const c = await br2.newContext({ viewport: { width: 1280, height: 900 } }); const p = await c.newPage(); await login(p, { email: 'e2e-owner@example.test', next: '/settings?section=members' }); await p.goto(`${B}/settings?section=members`); return { c, p }; })();
+  await own2.p.getByRole('button', { name: 'Remove cy@example.test' }).click();
+  await own2.p.locator('[data-remove-confirm="cy@example.test"] button', { hasText: /^Remove$/ }).click();
+  await own2.p.locator('[data-member="cy@example.test"]').waitFor({ state: 'detached', timeout: 10000 });
+  check('remove member: their mail:<userId> setting is deleted', !(await rawDb.collection('settings').findOne({ _id: `mail:${Cu.userId}` })));
+  await own2.c.close();
+  await br2.close();
 } catch (e) {
   console.log('FAIL  suite crashed - ' + (e?.stack ?? e));
   await finish(1);

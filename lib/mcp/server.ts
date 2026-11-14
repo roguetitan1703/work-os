@@ -1124,7 +1124,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note },
         ACTOR,
       );
-      return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: mail.markUntrusted(r.message) };
+      return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: r.message };
     }),
   );
 
@@ -1256,7 +1256,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const r = await mail.messageToTask(mailCtx(), a, { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note });
-      return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: r.message };
+      return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: mail.markUntrusted(r.message) };
     }),
   );
 
