@@ -20,7 +20,7 @@ export type Actor =
  * text taken from a Discord message is the message author's, who may not be a member at all; 'unknown' when older
  * history cannot tell (a recurring task's copy keeps that).
  */
-export type TextAuthor = Actor | { kind: 'discord-author'; name: string } | { kind: 'unknown' };
+export type TextAuthor = Actor | { kind: 'discord-author'; name: string } | { kind: 'mail-author'; name: string } | { kind: 'unknown' };
 
 /** Older stored strings (before phase 2): read them as the matching object (the user is unknown). */
 type LegacyActor = 'me' | 'discord' | 'claude' | 'claude-code' | 'system';

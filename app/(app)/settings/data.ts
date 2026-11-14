@@ -16,4 +16,5 @@ export const GROUPS: { title: string; tools: ToolName[] }[] = [
   { title: 'Batch & trash', tools: ['apply_changes', 'delete_task', 'restore_task', 'list_trash'] },
   { title: 'Claude Code work list', tools: ['update_claude_items'] },
   { title: 'Discord', tools: ['discord_needs_attention', 'discord_list_channels', 'discord_read_messages', 'discord_message_to_task'] },
+  { title: 'Mail', tools: ['mail_needs_attention', 'mail_search', 'mail_read', 'mail_attachment', 'mail_send', 'mail_reply', 'mail_forward', 'mail_move', 'mail_flag', 'mail_delete', 'mail_folders', 'mail_message_to_task'] },
 ];

@@ -19,6 +19,8 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
 
 ## Later
+- Mail tools (branch mail-tools, not merged): MCP mail_* tools forward to Mailloom with each member's own key (Settings › Connections › Mail). Needs MAILLOOM_AGENT_URL (+ optional MAILLOOM_WEB_URL, MAIL_KEY_SECRET) on the box and this server's IP in Mailloom AGENT_ALLOWED_IPS — waits on Om's review and merge; auth/money-adjacent, so a review subagent before merge.
+- Mail: Mailloom has no deep link to one message, so a mail task links to Mailloom's home plus the Message-ID in its description — waits on Mailloom adding a message URL.
 - e2e tenancy "B search: finds shared work" failed once in the full run (14 Nov) and passed on the rerun — waits on it happening again.
 - Dead code from the 14 Nov review (lib/status.ts, components/theme-toggle.tsx, dispatcherSetupAction, setOrgModes, /api/timetable/today, react-markdown, remark-gfm, deploy/nginx, 18 legacy redirects) — waits on the PRODUCT.md Cut/Freeze decisions, so features aren't removed twice.
 - MCP has no restore_note although delete_note says "restorable for 30 days" (the app's Review › Trash restores) — waits on PRODUCT.md (does Claude need it).

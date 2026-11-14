@@ -237,7 +237,7 @@ export function PushCard({ vapidKey, devices }: { vapidKey: string | null; devic
   );
 }
 
-const INBOX_ONLY = new Set(['claude_code_changes', 'claude_waiting']);
+const INBOX_ONLY = new Set(['claude_code_changes', 'claude_waiting', 'claude_mail_sent']);
 
 /** Alerts as one labelled table: each alert kind (switch) by where it is delivered. Channel switches sit in the first row. */
 export function AlertsTable({

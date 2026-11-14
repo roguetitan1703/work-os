@@ -1,5 +1,5 @@
 import Link from '@/components/intent-link';
-import { Bot, Laptop, Link2, Sparkles, type LucideIcon } from 'lucide-react';
+import { Bot, Laptop, Link2, Mail, Sparkles, type LucideIcon } from 'lucide-react';
 import { NavIcon } from '@/components/nav-icons';
 import { fmtAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -10,6 +10,9 @@ import { listDevices } from '@/lib/devices';
 import { discordConfig, orgGuildId } from '@/lib/discord/client';
 import { getProfile } from '@/lib/profile';
 import { linkStatus } from '@/lib/delpat-os';
+import { mailConfigured } from '@/lib/mail/client';
+import { mailLinkOf } from '@/lib/mail/keys';
+import { MailKey } from './mail-key';
 import { Dot, type Level } from './ui';
 import { DelpatOsButton, DelpatOsNotice } from './delpat-os-link-buttons';
 
@@ -17,6 +20,7 @@ type Row = { id: string; icon: LucideIcon; name: string; detail: string; level: 
 
 async function rows(caller: Caller): Promise<Row[]> {
   const [claude, devices, profile, guild, delpat] = await Promise.all([claudeConnection(caller), listDevices(caller).catch(() => []), getProfile(caller).catch(() => null), discordConfig() ? orgGuildId(caller.orgId).catch(() => null) : Promise.resolve(null), linkStatus(caller).catch(() => null)]);
+  const mailLink = mailConfigured() ? await mailLinkOf(caller).catch(() => null) : null;
   const online = devices.filter(d => isOnline(d.lastSeenAt));
   const out: Row[] = [];
   out.push(
@@ -42,6 +46,18 @@ async function rows(caller: Caller): Promise<Row[]> {
       ? { id: 'computers', icon: Laptop, name: 'Computers', detail: 'Let Claude work on your own PC.', level: 'off', status: 'None yet', action: { href: '/claude?tab=setup', label: 'Add a PC', primary: true } }
       : { id: 'computers', icon: Laptop, name: 'Computers', detail: devices.map(d => `${d.name} ${isOnline(d.lastSeenAt) ? 'online' : 'offline'}`).join(' · '), level: online.length ? 'ok' : 'warn', status: online.length ? `${online.length} online` : 'Offline', action: { href: '/claude?tab=setup', label: 'Manage', primary: false } },
   );
+  // Mail: only where this Work OS has MAILLOOM_AGENT_URL; each person pastes their own Mailloom key (Claude reads and sends through it).
+  if (mailConfigured()) {
+    out.push({
+      id: 'mail',
+      icon: Mail,
+      name: 'Mail',
+      detail: mailLink ? 'Claude can read, send and organise your mail through this key.' : 'Paste your Mailloom key (Mailloom › Connections › New key) so Claude can use your mailbox.',
+      level: mailLink ? 'ok' : 'off',
+      status: mailLink ? 'Linked' : 'Not linked',
+      note: <MailKey link={mailLink ? { prefix: mailLink.prefix, email: mailLink.email } : null} />,
+    });
+  }
   // Delpat OS: only where this Work OS has a Delpat OS client set; each person links their own account (Link / Unlink here).
   if (delpat?.enabled) {
     out.push({

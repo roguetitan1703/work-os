@@ -169,7 +169,7 @@ export type AlertLogDoc = { _id: string; orgId: string; /** Who it was sent to. 
 export type AlertQueueDoc = { _id: string; orgId: string; /** Who gets it: the task's recipient, or the person who gave it to Claude. */ userId: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason; assigned: who assigned it. */ detail?: string };
 
 /** Inbox-only notices that are not scheduled alerts. */
-export type NoticeKind = 'claude_code_changes' | 'claude_waiting';
+export type NoticeKind = 'claude_code_changes' | 'claude_waiting' | 'claude_mail_sent';
 /** Everything with an on/off switch in Settings → Notifications. */
 export type NotifyKind = AlertKind | NoticeKind;
 /** In-app inbox: every alert delivered (plus test notifications). */
@@ -231,6 +231,8 @@ export type SettingsDoc = {
   discordLink?: { hash: string; expiresAt: Date } | null;
   /** profile:<userId>: the person hid the first-run checklist on Today. */
   checklistHidden?: boolean;
+  /** mail:<userId> (lib/mail/keys.ts): the person's own Mailloom agent key, sealed, with its visible prefix and the mailbox it opens. */
+  mail?: { sealed: string; prefix: string; email: string; savedAt: Date } | null;
   /** discord:<orgId>: the organization's Discord server (set by the operator). */
   guildId?: string | null;
   /** schedule:<userId> (lib/schedule.ts): the person's week, routine, review questions and own help text. */

@@ -59,6 +59,7 @@ alerts-once|alerts-once.mjs|none|discord
 discord-link|discord-link.mjs|none|discord
 leak-audit|leak-audit.mjs|none|discord
 delpat-os|delpat-os.mjs|none|delpat
+mail|mail.mjs|none|mail
 delpat-os-off|delpat-os-off.mjs|none|plain
 ${E2E_EXTRA:-}
 "
@@ -142,6 +143,7 @@ export E2E_MONGO_PORT=$MPORT E2E_DISCORD_PORT=$DPORT
 export E2E_SHOTS="${E2E_SHOTS:-$TMP/shots}"
 export DISCORD_BOT_TOKEN= DISCORD_PUBLIC_KEY= DISCORD_APPLICATION_ID= DISCORD_API_BASE=
 export DELPAT_OS_CLIENT_ID= DELPAT_OS_CLIENT_SECRET= DELPAT_OS_ISSUER= DELPAT_OS_TOKEN_KEY=
+export MAILLOOM_AGENT_URL= MAILLOOM_WEB_URL= MAIL_KEY_SECRET=
 export VAPID_PUBLIC_KEY= VAPID_PRIVATE_KEY= VAPID_SUBJECT=
 export EMAIL_HOST= EMAIL_PORT= EMAIL_SECURE= EMAIL_USER= EMAIL_PASSWORD= EMAIL_FROM= EMAIL_FROM_NAME= OWNER_EMAIL=
 mkdir -p "$MAIL_CAPTURE_DIR"
@@ -180,6 +182,11 @@ start_server() {
     export DISCORD_PUBLIC_KEY="$E2E_DISCORD_PUB" DISCORD_API_BASE="http://127.0.0.1:$DPORT"
   else
     export DISCORD_BOT_TOKEN= DISCORD_APPLICATION_ID= DISCORD_PUBLIC_KEY= DISCORD_API_BASE=
+  fi
+  if [ "$1" = mail ]; then
+    export MAILLOOM_AGENT_URL="http://127.0.0.1:$DPORT/api/agent/v1" MAILLOOM_WEB_URL=https://mail.delpat.test
+  else
+    export MAILLOOM_AGENT_URL= MAILLOOM_WEB_URL=
   fi
   if [ "$1" = reel ]; then
     export IG_GRAPH_BASE="http://127.0.0.1:$DPORT" IG_ACCOUNT_ID=17841400000000001 IG_PAGE_TOKEN=e2e-ig-token-SECRETVALUE-0123456789 IG_DELAY_SCALE=0.01 IG_E2E=1

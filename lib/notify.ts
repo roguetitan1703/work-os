@@ -26,6 +26,7 @@ export const ALERT_KINDS: { kind: AlertKind; label: string; hint: string }[] = [
 export const NOTIFY_KINDS: { kind: NotifyKind; label: string; hint: string }[] = [
   ...ALERT_KINDS,
   { kind: 'claude_code_changes', label: 'Claude Code changes', hint: 'Claude Code changed or deleted a task it did not create (inbox)' },
+  { kind: 'claude_mail_sent', label: 'Claude sent mail outside', hint: 'Claude sent mail to an address outside your company, or to someone new on a thread (inbox)' },
   { kind: 'claude_waiting', label: 'Claude is asking', hint: 'A Claude item is waiting on your decision (inbox)' },
 ];
 
@@ -36,7 +37,7 @@ export type NotifySettings = {
 
 const DEFAULTS: NotifySettings = {
   channels: { push: true, discord: true },
-  kinds: { unblocked: true, assigned: true, overdue: true, due_today: true, due_tomorrow: true, never_started: true, stalled: true, claude_finished: true, claude_stopped: true, claude_stuck: true, claude_code_changes: true, claude_waiting: true },
+  kinds: { unblocked: true, assigned: true, overdue: true, due_today: true, due_tomorrow: true, never_started: true, stalled: true, claude_finished: true, claude_stopped: true, claude_stuck: true, claude_code_changes: true, claude_waiting: true, claude_mail_sent: true },
 };
 
 export async function getNotifySettings(s: Scope): Promise<NotifySettings> {
