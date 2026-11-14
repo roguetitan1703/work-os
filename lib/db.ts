@@ -62,6 +62,8 @@ export type TaskDoc = Placed & {
   parentTitle?: string;
   /** On a parent: its subtasks done and counted, recomputed with its progress whenever one changes. */
   subtaskCount?: import('./types').SubtaskCount;
+  /** The open Need on this task, if any (lib/data/needs.ts keeps it in step; rows show it instead of the percent). */
+  need?: import('./types').TaskNeed;
 };
 
 /** A task a person gave to Claude. */
@@ -131,6 +133,41 @@ export type ReviewDoc = Omit<WeeklyReview, 'id' | 'answers'> & { _id: string; or
 export type RitualDoc = Omit<RoutineLog, 'id' | 'count'> & { _id: string; orgId: string; ownerId: string; count?: number; bidsPlaced?: number };
 /** _id `<name>:<orgId>` (task and Claude item numbers per organization). */
 export type CounterDoc = { _id: string; seq: number; orgId: string };
+/**
+ * One ask to one person (docs/flows/plan-1-3.md slice 4). Stamped with its project's placement like a task (the door
+ * filters by the document's own ownerId / visibility / sharedWith) and moved with the project (setProjectPlacement).
+ */
+export type NeedKind = 'decide' | 'approve' | 'review' | 'do' | 'chase';
+export type NeedWord = 'person' | 'chat' | 'agent';
+export type NeedStatus = 'open' | 'answered' | 'withdrawn' | 'replaced';
+export type NeedOption = { id: string; label: string; means: string };
+export type NeedDoc = Placed & {
+  _id: string;
+  /** Per organization, like a task number. */
+  ref: number;
+  projectId: string;
+  taskId: string | null;
+  taskRef: number | null;
+  /** The one person asked (a user id). */
+  to: string;
+  /** Who asked: the actor, the trust word (set by the server from how the call came in) and the session's own label. */
+  from: { actor: Actor; word: NeedWord; session?: string; label?: string };
+  kind: NeedKind;
+  ask: string;
+  example?: string;
+  options: NeedOption[];
+  status: NeedStatus;
+  /** Answered in the app only (production, money, credentials): never from Discord. */
+  appOnly: boolean;
+  answer?: { option: string; text?: string; by: string; via: 'app' | 'phone' | 'discord' | 'chat'; at: Date };
+  createdAt: Date;
+  /** When it was answered; with waitedMs, how long the person took (the scorecard reads them). */
+  answeredAt: Date | null;
+  waitedMs?: number;
+  closedAt?: Date | null;
+  replacedBy?: string;
+};
+
 export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {
   _id: string;
   createdAt: Date;
@@ -239,15 +276,30 @@ export type PresenceDoc = Placed & {
   named?: string[];
   /** Writes made since the last save_state of this session (the save nudge). */
   writesSinceSave: number;
+  // The roster (docs/flows/plan-1-3.md slice 7): what start_work and set_doing report about the worker.
+  model?: string;
+  account?: string;
+  /** The orchestrator's session id (for a builder). */
+  parent?: string;
+  /** The builder slot name (A, B, S ...). */
+  slot?: string;
+  /** The git branch it reported. */
+  branch?: string;
+  /** When machine resolved to one of the person's devices (machine is then its id): that device's name. */
+  machineName?: string;
+  /** The task the worker says it is on (set_doing): only its id. Its number and title are read through the scoped door when shown, so a viewer who cannot read the task sees nothing of it. */
+  doing?: { taskId: string; at: Date };
 };
+/** Heavy-slot leases on one machine (lib/data/slots.ts): at most `cap` (default 2) holders, each with a lease end. _id = org:machine. Organization-wide on purpose: the cap is per machine across every session on it. */
+export type SlotDoc = { _id: string; orgId: string; machine: string; kind: 'heavy'; /** The person whose machine it is (the device's owner, or whoever named a plain-name machine). Only they write it. */ ownerId: string; /** Last write; a TTL index removes a document untouched for a day. */ touchedAt: Date; cap?: number; holds: { h: string; session: string; userId: string; until: Date }[] };
 
-export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'claude_stuck';
+export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'claude_stuck' | 'need';
 /** Kinds sent from the alertQueue (event alerts) rather than found by the scheduled check. */
-export type QueuedAlertKind = 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped';
+export type QueuedAlertKind = 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'need';
 /** One row per alert sent (key encodes task + occasion), so each is sent once. */
 export type AlertLogDoc = { _id: string; orgId: string; /** Who it was sent to. */ userId: string; kind: AlertKind; taskId?: string; sentAt: Date };
 /** Event alerts waiting for the next send (queued inside the write's transaction). */
-export type AlertQueueDoc = { _id: string; orgId: string; /** Who gets it: the task's recipient, or the person who gave it to Claude. */ userId: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason; assigned: who assigned it. */ detail?: string };
+export type AlertQueueDoc = { _id: string; orgId: string; /** Who gets it: the task's recipient, or the person who gave it to Claude. */ userId: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason; assigned: who assigned it. */ detail?: string; /** kind 'need': the Need (taskId is then the Need's task, or '' when it has none). */ needId?: string };
 
 /** Inbox-only notices that are not scheduled alerts. */
 export type NoticeKind = 'claude_code_changes' | 'claude_waiting';
@@ -427,6 +479,11 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { orgId: 1, updatedAt: -1 }, name: 'org_updated' },
       { key: { parentId: 1 }, name: 'parent', sparse: true },
     ]],
+    ['needs', [
+      { key: { orgId: 1, ref: 1 }, unique: true, name: 'org_ref_unique' },
+      { key: { projectId: 1, status: 1 }, name: 'project_status' },
+      { key: { to: 1, status: 1 }, name: 'to_status' },
+    ]],
     ['trash', [{ key: { deletedAt: -1 }, name: 'deletedAt' }, { key: { orgId: 1, ref: 1 }, name: 'org_ref' }]],
     ['claudeItems', [
       { key: { orgId: 1, ref: 1 }, unique: true, name: 'org_ref_unique' },
@@ -446,6 +503,7 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['messages', [{ key: { orgId: 1, projectId: 1, at: -1 }, name: 'org_project_at' }, { key: { orgId: 1, thread: 1, at: 1 }, name: 'org_thread' }]],
     ['states', [{ key: { orgId: 1, projectId: 1 }, unique: true, name: 'org_project_unique' }]],
     ['presence', [{ key: { orgId: 1, projectId: 1, lastSeen: -1 }, name: 'org_project_seen' }, { key: { lastSeen: 1 }, name: 'seen_ttl', expireAfterSeconds: 7 * 86_400 }]],
+    ['slots', [{ key: { orgId: 1, machine: 1 }, name: 'org_machine' }, { key: { touchedAt: 1 }, name: 'touched_ttl', expireAfterSeconds: 86_400 }]],
     ['authLimits', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 3600 }, { key: { key: 1, at: -1 }, name: 'key_at' }]],
     // Better Auth's collections (lib/auth-server.ts): its MongoDB adapter creates no indexes. A session is read by its
     // token whenever the cookie cache runs out (every 2 minutes per person), a member on every role check, an API key on
@@ -511,6 +569,7 @@ export async function collections() {
     requestStats: db.collection<RequestStatsDoc>('requestStats'),
     policyEvents: db.collection<PolicyEventDoc>('policyEvents'),
     claudeItems: db.collection<ClaudeItemDoc>('claudeItems'),
+    needs: db.collection<NeedDoc>('needs'),
     devices: db.collection<DeviceDoc>('devices'),
     workerFolders: db.collection<WorkerFolderDoc>('workerFolders'),
     workerJobs: db.collection<WorkerJobDoc>('workerJobs'),
@@ -518,6 +577,7 @@ export async function collections() {
     messages: db.collection<MessageDoc>('messages'),
     states: db.collection<StateDoc>('states'),
     presence: db.collection<PresenceDoc>('presence'),
+    slots: db.collection<SlotDoc>('slots'),
   };
   const session = txStore.getStore();
   return session ? (Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, withSession(v, session)])) as typeof cols) : cols;

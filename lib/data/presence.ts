@@ -24,7 +24,10 @@ const NONE_MS = 15_000;
 const noneKey = (i: Ident) => `${i.userId}|${i.session ?? ''}|${i.keyId ?? ''}`;
 
 /** Registers (or refreshes) the session as present on a project. Called by start_work. */
-export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, o: { machine?: string; label?: string }): Promise<PresenceDoc> {
+export type RosterReport = { model?: string; account?: string; parent?: string; slot?: string; machineName?: string; branch?: string };
+const clip = (v: string | undefined, n: number) => (v ?? '').trim().slice(0, n);
+
+export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, o: { machine?: string; label?: string } & RosterReport): Promise<PresenceDoc> {
   const c = await scoped(s);
   const now = new Date();
   const _id = rowId(i, project._id);
@@ -41,6 +44,13 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
         machine: (o.machine ?? '').slice(0, 40),
         ai: (i.keyName || i.agent).slice(0, 80),
         agent: i.agent,
+        // The roster: only what this call reports (a later start_work without a model keeps the earlier one).
+        ...(clip(o.model, 60) ? { model: clip(o.model, 60) } : {}),
+        ...(clip(o.account, 80) ? { account: clip(o.account, 80) } : {}),
+        ...(clip(o.parent, 64) ? { parent: clip(o.parent, 64) } : {}),
+        ...(clip(o.slot, 20) ? { slot: clip(o.slot, 20) } : {}),
+        ...(clip(o.branch, 120) ? { branch: clip(o.branch, 120) } : {}),
+        ...(o.machine && o.machineName ? { machineName: o.machineName } : {}),
         lastSeen: now,
         // start_work hands over everything there is, so what is "new for you" starts here.
         forYouCursor: now,
@@ -48,6 +58,8 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
         writesSinceSave: 0,
         ...placeIn(project, s.userId),
       },
+      // A machine that is no longer one of the person's devices (or a name now reported plain) drops its device name.
+      ...(o.machine && !o.machineName ? { $unset: { machineName: '' } } : {}),
     },
     { upsert: true },
   );
@@ -102,4 +114,25 @@ export async function othersPresent(s: Scope, projectId: string, exceptId?: stri
     .sort({ lastSeen: -1 })
     .limit(30)
     .toArray();
+}
+
+/**
+ * What the caller's machine field means: the id of one of their own computers when the name (or id) matches one (the
+ * worker daemon knows it, and the roster then joins the daemon's report to the session), else the plain name they gave.
+ */
+export async function resolveMachine(s: Scope, reported?: string): Promise<{ machine: string; machineName?: string }> {
+  const name = (reported ?? '').trim().slice(0, 40);
+  if (!name) return { machine: '' };
+  const ds = await (await scoped(s)).devices.find({ revokedAt: null }, { projection: { name: 1 } }).toArray();
+  const d = ds.find(x => x._id === name || x.name.toLowerCase() === name.toLowerCase());
+  return d ? { machine: d._id, machineName: d.name } : { machine: name };
+}
+
+/** set_doing: records the task the session is on (or clears it). Null when the caller is not a present session. */
+export async function setDoing(s: Scope, i: Ident, taskId: string | null): Promise<PresenceDoc | null> {
+  const row = await presentRow(s, i);
+  if (!row) return null;
+  const c = await scoped(s);
+  await c.presence.updateOne({ _id: row._id }, taskId ? { $set: { doing: { taskId, at: new Date() }, lastSeen: new Date() } } : { $unset: { doing: '' }, $set: { lastSeen: new Date() } });
+  return (await c.presence.findOne({ _id: row._id }))!;
 }

@@ -10,7 +10,9 @@ import { addToInbox, getNotifySettings, pushConfigured, sendPush } from './notif
 import { plainAlertText, stuckClaims } from './data/dispatcher';
 import { recipientFilter, recipientsOf } from './data/tasks';
 import { assigneesOf } from './assignees';
-import { isMember } from './people';
+import { isMember, memberNames } from './people';
+import { actorLabel } from './actors';
+import { shortAsk } from './data/needs';
 
 // Nudges for each person about the tasks whose alerts go to them (recipientsOf: the assignees of a shared task, else
 // its owner), to their inbox, their phones and (if they linked Discord) a Discord DM, by their own settings, in their
@@ -37,11 +39,11 @@ export const ALERT_RULES = {
 } as const;
 
 
-export type AlertItem = { key: string; kind: AlertKind; ref: number; title: string; detail?: string; resend?: boolean; taskId?: string; prevSentAt?: Date; /** Inbox and push title, when the default "Kind: #ref title" does not fit. */ headline?: string };
+export type AlertItem = { key: string; kind: AlertKind; ref: number; title: string; detail?: string; resend?: boolean; taskId?: string; prevSentAt?: Date; /** Inbox and push title, when the default "Kind: #ref title" does not fit. */ headline?: string; /** Where inbox, push and Discord links go when it is not the task (a Need opens on Today). */ url?: string; /** The link text when it is not "#ref". */ label?: string };
 
 const CLAUDE_OUTCOMES = ['claude_finished', 'claude_stopped'] as const;
 /** Event alerts that live in alertQueue and are claimed there (not in alertLog). */
-const FROM_QUEUE = new Set<AlertKind>(['unblocked', 'assigned', ...CLAUDE_OUTCOMES]);
+const FROM_QUEUE = new Set<AlertKind>(['unblocked', 'assigned', 'need', ...CLAUDE_OUTCOMES]);
 
 
 /** Is it inside this person's quiet hours (in their timezone)? */
@@ -95,7 +97,7 @@ export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { on
   const hour = clockInTz(now, tz).hour;
   const items: AlertItem[] = [];
   const open = await c.tasks
-    .find({ status: { $in: OPEN_STATUSES }, archived: false, ...recipientFilter(s.userId) }, { projection: { ref: 1, title: 1, status: 1, priority: 1, due: 1, progress: 1, createdAt: 1, updatedAt: 1, ownerId: 1 } })
+    .find({ status: { $in: OPEN_STATUSES }, archived: false, ...recipientFilter(s.userId) }, { projection: { ref: 1, title: 1, status: 1, priority: 1, due: 1, progress: 1, createdAt: 1, updatedAt: 1, ownerId: 1, need: 1 } })
     .toArray();
   const sent = new Map((await c.alertLog.find({ taskId: { $in: open.map(t => t._id) } }).toArray()).map(l => [l._id, l]));
   const was = (key: string) => sent.has(key);
@@ -129,7 +131,8 @@ export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { on
     }
   }
   // stalled: In Progress, untouched for N workdays (re-arms after any activity)
-  for (const t of open.filter(t => t.status === 'In Progress')) {
+  // A task waiting on a Need is never "stalled": it waits on a person, and that has its own alert.
+  for (const t of open.filter(t => t.status === 'In Progress' && !t.need)) {
     const lastDay = dateInTz(t.updatedAt, tz);
     if (workdaysBetween(lastDay, today) < ALERT_RULES.stalledWorkdays) continue;
     const key = keyOf(`stalled:${t._id}:${t.updatedAt.toISOString()}`, t);
@@ -157,8 +160,29 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
   if (queued.length) {
     const taskIds = [...new Set(queued.flatMap(q => [q.taskId, q.byTaskId]))];
     const byId = new Map((await c.tasks.find({ _id: { $in: taskIds } }, { projection: { ref: 1, title: 1, status: 1, archived: 1, assigneeIds: 1, assigneeId: 1 } }).toArray()).map(t => [t._id, t]));
+    const needIds = queued.flatMap(q => (q.kind === 'need' && q.needId ? [q.needId] : []));
+    const needById = new Map((needIds.length ? await c.needs.find({ _id: { $in: needIds } }).toArray() : []).map(n => [n._id, n]));
+    const people = needIds.length ? await memberNames(queued[0].orgId) : {};
     for (const q of queued) {
       const t = byId.get(q.taskId);
+      if (q.kind === 'need') {
+        // Dropped if it was answered, withdrawn or replaced before it went out, or the person can no longer read it.
+        const n = needById.get(q.needId ?? '');
+        if (!n || n.status !== 'open') continue;
+        const who = plainAlertText(actorLabel(n.from.actor, q.userId, people));
+        const ask = plainAlertText(shortAsk(n.ask));
+        items.push({
+          key: q._id,
+          kind: 'need',
+          ref: n.ref,
+          label: `Need #${n.ref}`,
+          url: `/today#need-${n.ref}`,
+          title: ask,
+          detail: `${who}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly ? ' · answer in the app' : ''}`,
+          headline: `${who} asks you: ${ask}`,
+        });
+        continue;
+      }
       if (q.kind === 'assigned') {
         // Dropped if they were taken off it again, or it closed or was archived, before it went out.
         if (!t || !assigneesOf(t).includes(q.userId) || CLOSED_STATUSES.includes(t.status) || t.archived) continue;
@@ -198,6 +222,7 @@ const SECTIONS: { kind: AlertKind; head: string }[] = [
   { kind: 'claude_finished', head: '✅ **Claude finished**' },
   { kind: 'claude_stopped', head: '🛑 **Claude stopped**' },
   { kind: 'claude_stuck', head: '🐢 **Claude may be stuck**' },
+  { kind: 'need', head: '🙋 **Needs you**' },
 ];
 
 export function formatAlerts(items: AlertItem[], baseUrl: string): string[] {
@@ -206,7 +231,7 @@ export function formatAlerts(items: AlertItem[], baseUrl: string): string[] {
     const list = items.filter(i => i.kind === s.kind).sort((a, b) => a.ref - b.ref);
     if (!list.length) continue;
     lines.push(s.head);
-    for (const i of list) lines.push(`• [#${i.ref}](<${baseUrl}/tasks/${i.ref}>) ${i.title}${i.detail ? ` · ${i.detail}` : ''}`);
+    for (const i of list) lines.push(`• [${i.label ?? `#${i.ref}`}](<${baseUrl}${i.url ?? `/tasks/${i.ref}`}>) ${i.title}${i.detail ? ` · ${i.detail}` : ''}`);
     lines.push('');
   }
   // Split into ≤ 1900-char messages on line boundaries.
@@ -266,6 +291,7 @@ const KIND_TITLE: Record<AlertKind, string> = {
   claude_finished: 'Claude finished',
   claude_stopped: 'Claude stopped',
   claude_stuck: 'Claude may be stuck',
+  need: 'Needs you',
 };
 
 /** One person's alerts (s: the recipient), with their own settings and devices. */
@@ -318,13 +344,13 @@ export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: str
   // Deliver: inbox always; push and Discord if enabled. A failing channel doesn't block the others.
   const errors: string[] = [];
   if (items.length) {
-    await addToInbox(s, items.map(i => ({ kind: i.kind, title: i.headline ?? `${KIND_TITLE[i.kind]}: #${i.ref} ${i.title}`, body: i.headline ? i.title : (i.detail ?? ''), url: `/tasks/${i.ref}` })));
+    await addToInbox(s, items.map(i => ({ kind: i.kind, title: i.headline ?? `${KIND_TITLE[i.kind]}: #${i.ref} ${i.title}`, body: i.headline ? i.title : (i.detail ?? ''), url: i.url ?? `/tasks/${i.ref}` })));
     if (settings.channels.push && pushConfigured()) {
       const one = items.length === 1 ? items[0] : null;
       const r = await sendPush(
         s,
         one
-          ? { title: one.headline ?? `${KIND_TITLE[one.kind]} · #${one.ref}`, body: one.title + (one.detail && !one.headline ? ` (${one.detail})` : ''), url: `/tasks/${one.ref}`, tag: one.key }
+          ? { title: one.headline ?? `${KIND_TITLE[one.kind]} · #${one.ref}`, body: one.title + (one.detail && !one.headline ? ` (${one.detail})` : ''), url: one.url ?? `/tasks/${one.ref}`, tag: one.key }
           : { title: `Work OS · ${items.length} alerts`, body: items.slice(0, 4).map(i => `${KIND_TITLE[i.kind]}: ${i.title}`).join('\n'), url: '/notifications', tag: 'alerts' },
       );
       if (r.error) errors.push(`push: ${r.error}`);

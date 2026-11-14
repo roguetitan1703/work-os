@@ -20,6 +20,7 @@ import { BottomSheet } from './sheet';
 import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, OpenInClaudeCodeSheet, claudeMenuLabel } from '../give-to-claude';
 import { AssigneePicker, assigneeLabel } from '@/components/assignee-picker';
 import { useSynced } from '@/components/use-synced';
+import { NeedChip } from '@/components/need-chip';
 import { PartOf, SubtasksSection, useCloseSubtasks } from '../subtasks';
 
 const STATUSES: { s: Status; tone: string }[] = [
@@ -245,7 +246,12 @@ export function MobileTaskDetail({
         </div>
       </Field>
 
-      {!closed && (
+      {!closed && task.need && (
+        <Field label="Waiting on a person">
+          <NeedChip task={task} className="min-h-12 px-4 rounded-xl border border-amber-500/40 text-[15px] w-full" />
+        </Field>
+      )}
+      {!closed && !task.need && (
         <Field label="Progress">
           <button onClick={() => setProgressOpen(true)} className="w-full flex items-center gap-3 h-12 px-4 rounded-xl border border-border active:bg-muted">
             <span className="flex-1 h-2 rounded-full bg-muted overflow-hidden">

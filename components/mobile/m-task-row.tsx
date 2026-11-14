@@ -16,6 +16,7 @@ import { ClaudeBadge, ClaudeMarkSheet } from '../give-to-claude';
 import { ParentLine, SubtaskChip, useCloseSubtasks } from '../subtasks';
 import { useSynced } from '@/components/use-synced';
 import { AssigneeDots } from '@/components/assignee-picker';
+import { NeedChip } from '@/components/need-chip';
 
 const PRIO_RING: Record<Priority, string> = {
   P1: 'border-red-500',
@@ -127,7 +128,7 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
                 <span className="truncate max-w-[38vw]">{task.mode}</span>
               </span>
             )}
-            {task.status === 'In Progress' && <span className="text-blue-600 dark:text-blue-400">{task.progress}%</span>}
+            {task.need && !closed ? <NeedChip task={task} className="max-w-[70vw]" /> : task.status === 'In Progress' && <span className="text-blue-600 dark:text-blue-400">{task.progress}%</span>}
             {task.status === 'Blocked' && <span className="text-red-600 dark:text-red-400 truncate max-w-[60vw]">Blocked{task.blockedReason ? `: ${task.blockedReason}` : ''}</span>}
             {task.checklist.length > 0 && (
               <span className="inline-flex items-center gap-0.5">

@@ -76,6 +76,7 @@ export function toTask(d: TaskDoc): Task {
     parentId: d.parentId ?? null,
     ...(d.parentId ? { parentRef: d.parentRef, parentTitle: d.parentTitle } : {}),
     ...(d.subtaskCount ? { subtaskCount: d.subtaskCount } : {}),
+    ...(d.need ? { need: d.need } : {}),
     ownerId: d.ownerId,
     visibility: d.visibility,
     ...(d.visibility === 'members' ? { sharedWith: placeOf(d).sharedWith } : {}),
@@ -865,6 +866,7 @@ export async function restoreTask(s: Scope, key: string | number, actor: Actor):
   for (const k of await c.trash.find({ withParent: t._id }).toArray()) await restoreOne(s, c, org, k, actor, k.ref, restored);
   await rollUp(org, restored._id);
   await rollUp(org, restored.parentId);
+  await (await import('./needs')).syncTaskNeed(c, restored._id);
   const back = await org.tasks.findOne({ _id: restored._id });
   return toTask(back ?? restored);
 }
@@ -872,8 +874,10 @@ export async function restoreTask(s: Scope, key: string | number, actor: Actor):
 async function restoreOne(s: Scope, c: Collections, org: Collections, t: TrashDoc, actor: Actor, key: string | number, under?: TaskDoc): Promise<TaskDoc> {
   if (await c.tasks.findOne({ ref: t.ref }, { projection: { _id: 1 } })) throw new InputError(`#${t.ref} already exists`);
   // Older trash docs may still carry a claude mark: a restored task is never queued for Claude.
-  const { claude: _claude, ...old } = t.task;
+  // Its Need mark is worked out again from its open Needs (restoreTask), not trusted from the trash.
+  const { claude: _claude, need: _need, ...old } = t.task;
   void _claude;
+  void _need;
   // A subtask goes back under its parent when the parent is still there (and into its project); else on its own.
   const parent = under ?? (old.parentId ? await org.tasks.findOne({ _id: old.parentId }) : null);
   const projectId = parent ? parent.projectId : old.projectId;

@@ -49,6 +49,8 @@ flow-ms1|flow-ms1.mjs|none|plain
 flow-ms2|flow-ms2.mjs|none|plain
 flow-ms3|flow-ms3.mjs|none|plain
 flow-ms4|flow-ms4.mjs|none|plain
+flow-w1|flow-w1.mjs|none|plain
+flow-w3|flow-w3.mjs|none|plain
 usage|usage.mjs|none|plain
 auth|auth.mjs|none|plain
 tenancy|tenancy.mjs|none|plain
@@ -65,6 +67,8 @@ headers|headers.mjs|none|plain
 alerts-once|alerts-once.mjs|none|discord
 discord-link|discord-link.mjs|none|discord
 leak-audit|leak-audit.mjs|none|discord
+flow-n1|flow-n1.mjs|none|plain
+flow-n2|flow-n2.mjs|none|plain
 delpat-os|delpat-os.mjs|none|delpat
 delpat-os-off|delpat-os-off.mjs|none|plain
 ${E2E_EXTRA:-}

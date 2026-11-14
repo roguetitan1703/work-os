@@ -20,6 +20,7 @@ import { AddTaskButton } from '@/app/(app)/projects/[id]/add-task-button';
 import { Select } from '@/components/ui/select';
 import { ParentLine, SubtaskChip } from '@/components/subtasks';
 import { AssigneeDots } from '@/components/assignee-picker';
+import { NeedChip } from '@/components/need-chip';
 
 const COLUMNS: { status: Status; label: string; tone: string }[] = [
   { status: 'Not Started', label: 'To do', tone: 'bg-muted-foreground/40' },
@@ -212,7 +213,8 @@ function Card({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
         )}
         <SubtaskChip task={task} />
       </div>
-      {task.progress > 0 && !closed && (
+      {task.need && !closed && <NeedChip task={task} className="text-[11px] max-w-full" />}
+      {task.progress > 0 && !closed && !task.need && (
         <div className="h-1 rounded-full bg-muted overflow-hidden">
           <div className="h-full bg-blue-500" style={{ width: `${task.progress}%` }} />
         </div>

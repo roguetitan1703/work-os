@@ -246,6 +246,7 @@ async function interact(guild, user, type, data, extra = {}) {
 const SKIP_COLS = new Set(['requestStats', 'policyEvents', 'rateLimit', 'authLimits', 'mailLog', 'verification']);
 const SHARED = new Set(['projects', 'tasks', 'activity', 'notes', 'claudeItems', 'trash']);
 for (const c of ['states', 'presence', 'messages']) SHARED.add(c); // slice 1: a project's State and the sessions present on it carry the project's placement
+SHARED.add('needs'); // slice 4: a Need follows its project's placement like a task
 const OWNED = new Set(['reviews', 'ritualLogs', 'devices', 'workerFolders', 'workerJobs', 'workerSessions']);
 const RECIP = new Set(['notifications', 'pushSubs', 'alertLog', 'alertQueue']);
 let WHO = {}; // user id -> persona
@@ -258,6 +259,7 @@ function writers(col, d) {
   if (OWNED.has(col)) return org.members.includes(pOf(d.ownerId)) ? [pOf(d.ownerId)] : [];
   if (RECIP.has(col)) return org.members.includes(pOf(d.userId)) ? [pOf(d.userId)] : [];
   if (col === 'counters') return org.members;
+  if (col === 'slots') return org.members.includes(pOf(d.ownerId)) ? [pOf(d.ownerId)] : []; // slice 7: heavy-slot leases, written only by the machine's person (the display read keeps the org rule)
   if (col === 'settings') {
     if (d.userId) return org.members.includes(pOf(d.userId)) ? [pOf(d.userId)] : [];
     return org.admins; // discord:<org>, modes:<org>, authMigration
@@ -439,6 +441,15 @@ try {
   const why = 'Fixture for the leak audit on the throwaway app; nothing real happens with this item at all.';
   await mustMcp(A.chat, 'update_claude_items', { ops: [{ op: 'add', project: P.projectName, kind: 'feature', title: can('pvitem', ['A']) + ' item for the audit', why: can('pvitemwhy', ['A']) + ' ' + why, done_when: can('pvitemdone', ['A']), waiting_on_om: can('pvitemwait', ['A']) }] });
   await mustMcp(A.chat, 'update_claude_items', { ops: [{ op: 'add', project: S.projectName, kind: 'feature', title: can('shitem', ['A', 'T']) + ' item for the audit', why: can('shitemwhy', ['A', 'T']) + ' ' + why, done_when: 'The audit passes for this one.' }] });
+  // Needs (slice 4): asks to A, in the private project (only A reads them) and the shared one (A and T read them, only A may answer).
+  // Two per project: one for the answer control and one for the withdraw control (each destroys its Need).
+  {
+    const ask = (project, text, o = {}) => mustMcp(A.code, 'ask', { project, to: 'me', kind: 'approve', ask: text, ...o });
+    P.needAns = (await ask(P.projectName, can('pvneed', ['A']) + ' may I?')).need.id;
+    P.needWd = (await ask(P.projectName, can('pvneed', ['A']) + ' withdraw this one', { kind: 'do' })).need.id;
+    S.needAns = (await ask(S.projectName, can('shneed', ['A', 'T']) + ' may I?')).need.id;
+    S.needWd = (await ask(S.projectName, can('shneed', ['A', 'T']) + ' withdraw this one', { kind: 'do' })).need.id;
+  }
   for (const k of ['trashRef', 'trashRef2', 'trashRef3', 'trashRef4']) await mustMcp(A.chat, 'delete_task', { task: P[k], title: 'lkqpvtrash' });
   await mustMcp(A.chat, 'delete_task', { task: S.trashRef, title: CANARIES.find(c => c.tag === 'shtrash').s });
   await mustMcp(A.chat, 'apply_changes', { ops: [{ op: 'archive_task', task: P.archRef }] });
@@ -573,6 +584,10 @@ try {
   Object.assign(TARGET.T, { ordersNote: P.ordersNote, msg: P.msg, msgReq: P.msgReq });
   Object.assign(TARGET.X, { ordersNote: S.ordersNote, msg: S.msg, msgReq: S.msgReq });
   Object.assign(FAKE, { trashRef2: 92001, trashRef3: 92002, trashRef4: 92003, comment2: fakeUuid(), sub2: mutate(P.subNote2), invite2: oid(), boiler: mutate(P.boiler), give: 94000 });
+  // Needs: T aims at A's private ones (and at the shared ones it can read but may not answer or withdraw); X and R at the shared ones.
+  Object.assign(TARGET.T, { needAns: P.needAns, needAnsS: S.needAns, needWd: P.needWd, needWdS: S.needWd });
+  Object.assign(TARGET.X, { needAns: S.needAns, needAnsS: S.needAns, needWd: S.needWd, needWdS: S.needWd });
+  Object.assign(FAKE, { needAns: fakeUuid(), needAnsS: fakeUuid(), needWd: fakeUuid(), needWdS: fakeUuid() });
   // A's own (the control calls)
   FAKE_REF.v = FAKE;
   const OWN = { task: P.task, ref: P.taskRef, looseRef: P.looseRef, trashRef: P.trashRef, archRef: P.archRef, project: P.project, projectName: P.projectName, note: P.projNote, noteTitle: P.projNoteTitle, taskNote: P.noteId, sub: P.subNote, comment: P.comment, item: P.itemRef, itemProject: P.project, device: A.dev, folder: A.folder, session: A.session, job: A.job, review: A.review, push: A.push, passkey: String(A.passkey), invite: A.invite, member: R.userId, remote: P.remote, trashRef2: P.trashRef2, trashRef3: P.trashRef3, trashRef4: P.trashRef4, comment2: P.comment2, sub2: P.subNote2, invite2: A.invite2, boiler: P.boiler, give: P.giveRef };
@@ -583,6 +598,7 @@ try {
   OWN.msgReq = P.msgReq;
   FAKE.msg = mutate(P.msg);
   FAKE.msgReq = mutate(P.msgReq);
+  Object.assign(OWN, { needAns: P.needAns, needAnsS: S.needAns, needWd: P.needWd, needWdS: S.needWd });
 
   // ── the probes ──
   const ctx = { A, T, X, R, P, S, XO, TP, G1, G2, GEN1, SEC1, GEN2, DA, DT, DX, DR, DU, mid };
@@ -688,6 +704,47 @@ try {
     const extra = (listed ?? []).filter(n => !enumerated.has(n));
     const gone = [...enumerated].filter(n => listed && !listed.includes(n));
     check(`mcp: tools/list as the owner names exactly the ${enumerated.size} enumerated tools`, !!listed && !extra.length && !gone.length, listed ? `not enumerated: ${extra.join(', ') || '-'}; not listed: ${gone.join(', ') || '-'}` : `${r.status} ${r.text.slice(0, 200)}`);
+  }
+  // Needs (slice 4): no MCP path answers a Need, for any key (no tool, no batch op), and a project made private takes its
+  // Needs along (a member who read them before cannot read, answer or ask on them after).
+  {
+    const status = async id => (await rawDb.collection('needs').findOne({ _id: id }))?.status;
+    const before = await status(P.needAns);
+    const names = ['answer_need', 'answer', 'respond_need', 'approve_need', 'resolve_need', 'reply_need', 'complete_need', 'answer_needs'];
+    const worked = [];
+    for (const [who, key] of [['A chat', A.chat], ['A code', A.code], ['T chat', T.chat], ['T code', T.code]]) {
+      for (const n of names) if ((await mcpCall(key, n, { id: P.needAns, need: P.needAns, option: 'yes' })).ok) worked.push(`${who} ${n}`);
+      if ((await mcpCall(key, 'apply_changes', { ops: [{ op: 'answer_need', need: P.needAns, option: 'yes' }] })).ok) worked.push(`${who} apply_changes answer_need`);
+    }
+    for (const [who, key] of [['A chat', A.chat], ['A code', A.code]]) {
+      const r = await mcpCall(key, 'ask', { project: P.projectName, to: 'me', kind: 'approve', ask: 'lkq has this a way to answer', option: 'yes', answer: 'yes' });
+      if (r.ok && /"answer"/.test(r.text)) worked.push(`${who} ask returned an answer`);
+      await mcpCall(key, 'withdraw_need', { id: r.json?.need?.id ?? 'none' });
+    }
+    check('needs: no MCP tool or batch op answers a Need, for any key', before === 'open' && (await status(P.needAns)) === 'open' && worked.length === 0, JSON.stringify(worked));
+    const lr = await req('POST', '/api/mcp', { bearer: A.code, headers: { accept: 'application/json, text/event-stream' }, body: { jsonrpc: '2.0', id: 2, method: 'tools/list' } });
+    let listed = [];
+    try { const line = lr.text.split('\n').find(l => l.startsWith('data:')); listed = JSON.parse(line ? line.slice(5) : lr.text).result.tools.map(t => t.name); } catch { /* not a list */ }
+    check('needs: the tool list holds ask, needs and withdraw_need and nothing that answers', ['ask', 'needs', 'withdraw_need'].every(n => listed.includes(n)) && !listed.some(n => /answer|respond|resolve|approve_need/i.test(n)), listed.filter(n => /need|answer/i.test(n)).join(','));
+
+    const marker = `lkqmv${hex(4)}`;
+    const q = `lkqneedmove${hex(3)}`;
+    await mustMcp(A.chat, 'add_project', { name: q });
+    const asked = (await mustMcp(A.code, 'ask', { project: q, to: 'me', kind: 'approve', ask: `${marker} will it move` })).need;
+    const seen = async key => (await mustMcp(key, 'needs', { project: q, status: 'all' })).needs.length;
+    const tBefore = await seen(T.chat);
+    await mustMcp(A.chat, 'update_project', { project: q, visibility: 'private' });
+    const doc = await rawDb.collection('needs').findOne({ _id: asked.id });
+    const tList = await mcpCall(T.chat, 'needs', { project: q, status: 'all' });
+    const tAll = await mcpCall(T.chat, 'needs', { status: 'all' });
+    const tAsk = await mcpCall(T.chat, 'ask', { project: q, to: 'me', kind: 'approve', ask: 'lkq into a project that went private' });
+    const tWd = await mcpCall(T.chat, 'withdraw_need', { id: asked.id });
+    const tAns = await action('app/(app)/needs/actions.ts#answerNeedAction', [asked.id, 'yes'], { cookie: T.cookie });
+    const after = await rawDb.collection('needs').findOne({ _id: asked.id });
+    check('needs: a project made private takes its Needs along (stamped private to its owner)', doc?.visibility === 'private' && doc.ownerId === A.userId && !(doc.sharedWith ?? []).length, JSON.stringify([doc?.visibility, doc?.ownerId === A.userId]));
+    check('needs: ...so a member who read them before cannot read, ask on, withdraw or answer them', tBefore === 1 && !tList.ok && !tAll.text.includes(marker) && !tAsk.ok && !tWd.ok && (tAns.value?.ok === false || tAns.error) && after.status === 'open' && !(await rawDb.collection('needs').countDocuments({ projectId: doc.projectId, 'from.actor.userId': T.userId })), JSON.stringify([tBefore, tList.ok, tAll.text.includes(marker), tAsk.ok, tWd.ok, tAns.value, after.status]));
+    check('needs: ...and the owner still reads them', (await mustMcp(A.chat, 'needs', { project: q })).needs.length === 1);
+    await sleep(2000); // the alerts these asks queued are flushed (after the response) before the first persona's writes are measured
   }
   const aimedOrScan = probes.filter(pr => !pr.ownerOnly);
   for (const who of ['T', 'X', 'R', 'N']) {
@@ -820,6 +877,70 @@ try {
     check('Orders: the organization Orders reach a teammate’s start_work', start.ok && start.text.includes(CANARIES.find(c => c.tag === 'shordersbody').s), start.text.slice(0, 200));
     const xs = await mcpCall(X.chat, 'start_work', { project: S.projectName });
     check('Orders: the other organization cannot start work on it, so reads none of it', !xs.ok);
+  }
+  // Slice 7: the roster follows the project. A worker row and a project's "could be running" line are seen only by those who can read the project.
+  {
+    const nm = can('rosterproj', ['A']);
+    const idle = can('rosteridle', ['A']);
+    const cn = `lkqrostercanary${hex(4)}`;
+    CANARIES.push({ s: cn, tag: 'roster', allow: new Set(['A']) });
+    await mustMcp(A.chat, 'add_project', { name: nm, visibility: 'private' });
+    await mustMcp(A.chat, 'add_project', { name: idle, visibility: 'private' });
+    await mustMcp(A.chat, 'save_state', { project: idle, ops: [{ op: 'add_next', text: cn + 'next' }] });
+    const tk = await mustMcp(A.chat, 'add_task', { title: cn + 'task', project: nm });
+    await mustMcp(A.code, 'start_work', { project: nm, machine: cn + 'box', label: cn + 'label', model: cn + 'model', account: cn + 'acct', branch: cn + 'br', session: 'lkqrostersess' });
+    await mustMcp(A.code, 'set_doing', { task: tk.created.ref, session: 'lkqrostersess' });
+    const mine = await req('GET', '/claude?tab=workers', { cookie: A.cookie });
+    check('roster: the owner sees their worker and the project that could be running', mine.text.includes(cn + 'model') && mine.text.includes(cn + 'task') && mine.text.includes(idle), mine.text.slice(0, 200));
+    for (const p of [T, X, R]) {
+      const r = await req('GET', '/claude?tab=workers', { cookie: p.cookie });
+      scan(p.name, 'roster Workers tab', r.text);
+      check(`roster: ${p.name} sees no worker and no "could be running" line of a private project`, !r.text.includes(cn) && !r.text.includes(nm) && !r.text.includes(idle), r.text.slice(0, 160));
+      for (const [label, n] of [['worker project', nm], ['idle project', idle]]) {
+        const id = (await rawDb.collection('projects').findOne({ orgId: A.orgId, name: n }))._id;
+        const pr = await req('GET', `/projects/${id}`, { cookie: p.cookie });
+        // (not scanned for the project canaries: a project page echoes the requested id, which is the project name slug)
+        check(`roster: ${p.name} gets no project page (${label}) and so no worker line`, !pr.text.includes(cn), pr.text.slice(0, 120));
+      }
+    }
+    // set_doing stores only a task id and refuses a task of another project, so a private task title never reaches a widely read worker row
+    {
+      const op = can('rosterorgp', ['A', 'T', 'R']);
+      const wl = `lkqrosterorglabel${hex(4)}`;
+      CANARIES.push({ s: wl, tag: 'rosterorg', allow: new Set(['A', 'T', 'R']) });
+      await mustMcp(A.chat, 'add_project', { name: op, visibility: 'org' });
+      await mustMcp(A.code, 'start_work', { project: op, machine: 'lkq-orgbox', label: wl, session: 'lkqorgsess' });
+      const bad = await mcpCall(A.code, 'set_doing', { task: tk.created.ref, session: 'lkqorgsess' });
+      check('roster: set_doing refuses a task of another (private) project', !bad.ok, bad.text.slice(0, 160));
+      for (const p of [T, R, X]) {
+        const r = await req('GET', '/claude?tab=workers', { cookie: p.cookie });
+        scan(p.name, 'roster Workers tab (org project worker)', r.text);
+        const st = await mcpCall(p.chat || T.chat, 'start_work', { project: op });
+        if (st.ok) scan(p.name, 'start_work others list', st.text);
+      }
+      // a chosen-people project: only the people chosen see its worker, and not after it goes private
+      const cp = can('rosterchosen', ['A', 'T']);
+      const cl = `lkqrosterchosenlabel${hex(4)}`;
+      CANARIES.push({ s: cl, tag: 'rosterchosen', allow: new Set(['A', 'T']) });
+      await mustMcp(A.chat, 'add_project', { name: cp, visibility: 'members', shared_with: [T.email] });
+      await mustMcp(A.code, 'start_work', { project: cp, machine: 'lkq-chosenbox', label: cl, session: 'lkqchosensess' });
+      const tSees = await mcpCall(T.chat, 'start_work', { project: cp, session: 'lkqchosentess' });
+      check('roster: a person the project is shared with sees its worker (start_work others list)', tSees.ok && tSees.text.includes(cl), tSees.text.slice(0, 160));
+      for (const p of [R, X]) {
+        const r = await req('GET', '/claude?tab=workers', { cookie: p.cookie });
+        scan(p.name, 'roster Workers tab (chosen project)', r.text);
+        check(`roster: ${p.name} sees no worker of a chosen-people project`, !r.text.includes(cl) && !r.text.includes(cp), r.text.slice(0, 120));
+      }
+      await mustMcp(A.chat, 'update_project', { project: cp, visibility: 'private' });
+      const after = await req('GET', '/claude?tab=workers', { cookie: T.cookie });
+      const afterMcp = await mcpCall(T.chat, 'start_work', { project: cp, session: 'lkqchosentess' });
+      check('roster: a worker whose project went private after start_work disappears for the others', !after.text.includes(cl) && !afterMcp.ok && !afterMcp.text.includes(cl), after.text.slice(0, 100) + afterMcp.text.slice(0, 100));
+    }
+    // a heavy slot is the person's own machine: nobody else sees its holders, and a teammate's same-named machine is theirs
+    const sl = await mcpCall(A.code, 'slot', { action: 'acquire', machine: 'lkq-slotbox', session: 'lkqslotsess' });
+    const tsl = await mcpCall(T.code, 'slot', { action: 'acquire', machine: 'lkq-slotbox', session: 'lkqslotsess' });
+    scan('T', 'slot answer', tsl.text);
+    check('roster: a teammate’s machine of the same name is their own (one holder, theirs)', sl.ok && tsl.ok && JSON.parse(tsl.text).held === 1 && JSON.parse(tsl.text).holders.length === 1, tsl.text.slice(0, 200));
   }
   await sleep(500);
   for (const s of [sX, wT, wX]) s.close();
@@ -983,6 +1104,9 @@ function AUDIT() {
     Mc('message_status', t => ({ id: t.msg, status: 'rejected', note: 'lkq' }), aim(['msg'], { label: 'code key', control: false })),
   );
   add('mcp reply', M('reply', t => ({ id: t.msg, body: 'lkq sneaked reply' }), aim(['msg'])), Mc('reply', t => ({ id: t.msg, body: 'lkq code reply' }), aim(['msg'], { label: 'code key' })));
+  // The roster (slice 7). set_doing names a task, so it is aimed at one the caller cannot see (control off: the owner has no present session in the probe). slot works on the caller's own machines only.
+  add('mcp set_doing', M('set_doing', t => ({ task: t.ref }), aim(['ref'], { control: false })), M('set_doing', t => ({ task: t.task }), aim(['task'], { label: 'by id', control: false })));
+  add('mcp slot', M('slot', { action: 'acquire', machine: 'lkq-slot-box' }, { label: 'acquire' }), M('slot', { action: 'release', machine: 'lkq-slot-box' }, { label: 'release' }));
   const dOk = r => r.ok;
   add('mcp discord_list_channels', M('discord_list_channels', {}, { ok: dOk }));
   add('mcp discord_needs_attention', M('discord_needs_attention', { since: '3d' }, { ok: dOk }));
@@ -995,6 +1119,27 @@ function AUDIT() {
   add('mcp discord_message_to_task',
     M('discord_message_to_task', { message_link: `https://discord.com/channels/${G2}/${GEN2}/8880000000000000${'03'}` }, { label: 'second org message', aim: true, aimKeys: [], only: ['T', 'R', 'N'], control: false }),
     M('discord_message_to_task', { message_link: `https://discord.com/channels/${G1}/${SEC1}/8880000000000000${'02'}` }, { label: '#secret message', aim: true, aimKeys: [], only: ['T', 'X', 'R', 'N'] }),
+  );
+
+  // ── Needs (slice 4): one ask to one person. NO tool answers one (checked above); the app's action does, for the addressee only ──
+  add('mcp ask',
+    M('ask', t => ({ project: t.projectName, to: 'me', kind: 'approve', ask: 'lkq probe ask' }), aim(['projectName'], { label: 'into their project' })),
+    M('ask', (t, ctx) => ({ project: t.projectName, to: ctx.T.email, kind: 'approve', ask: 'lkq ask someone who cannot read the project' }), { label: 'to someone who cannot read the project', ownerOnly: true, ok: r => !r.ok && /cannot see this project/.test(r.text) }),
+  );
+  add('mcp needs',
+    M('needs', { status: 'all' }),
+    Mc('needs', {}, { label: 'code key, my own list' }),
+    M('needs', t => ({ project: t.projectName, status: 'all' }), aim(['projectName'], { label: 'by project' })),
+    M('needs', { to: 'me', status: 'all' }, { label: 'addressed to me' }),
+  );
+  add('mcp withdraw_need',
+    M('withdraw_need', t => ({ id: t.needWd }), aim(['needWd'], { label: 'one I cannot see', stage: 1 })),
+    M('withdraw_need', t => ({ id: t.needWdS }), aim(['needWdS'], { label: 'one I can read but did not ask', stage: 1 })),
+  );
+  const NEED_ACT = 'app/(app)/needs/actions.ts#answerNeedAction';
+  add(`action ${NEED_ACT}`,
+    act(NEED_ACT, t => [t.needAns, 'yes'], aim(['needAns'], { label: 'a Need I cannot see' })),
+    act(NEED_ACT, t => [t.needAnsS, 'yes'], aim(['needAnsS'], { label: 'a Need I can read, addressed to someone else' })),
   );
 
   // ── server actions (session cookie) ──
@@ -1129,13 +1274,14 @@ function AUDIT() {
   add('page /tasks/[id]', pg(t => `/tasks/${t.ref}`, aim(['ref'])), pg(t => `/tasks/${t.task}`, aim(['task'], { label: 'by id' })), pg(t => `/tasks/${t.trashRef}`, aim(['trashRef'], { label: 'in the trash', control: false })), pg('/tasks/constructor', { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add('page /projects', pg('/projects'));
   add('page /projects/[id]', pg(t => `/projects/${t.project}`, aim(['project'])), pg(t => `/projects/${t.project}?tab=claude`, aim(['project'], { label: 'claude tab' })), pg(t => `/projects/${t.project}?tab=sessions`, aim(['project'], { label: 'sessions tab' })), pg('/projects/constructor', { label: 'prototype key', aim: true, aimKeys: [], control: false }));
+  items['page /projects/[id]'].probes.push(pg(t => `/projects/${t.project}?tab=needs`, aim(['project'], { label: 'needs tab' })));
   add('page /notes', pg('/notes?state=all'), pg(t => `/notes?project=${t.project}&state=all`, { label: 'filtered by project' }));
   add('page /notes/[id]', pg(t => `/notes/${t.note}`, aim(['note'])), pg(t => `/notes/${t.sub}`, aim(['sub'], { label: 'sub-page' })), pg(t => `/notes/${t.taskNote}`, aim(['taskNote'], { label: 'task note' })));
   add('page /modes/[mode]', pg('/modes/growth', { ok: r => /^redirect \/tasks\?mode=/.test(pageState(r)) }), pg(() => `/modes/${CANARIES.find(c => c.tag === 'xmode').s}`, { label: 'the second org\'s mode', echo: () => [CANARIES.find(c => c.tag === 'xmode').s], ok: r => /^redirect \/tasks\?mode=/.test(pageState(r)), aim: true, aimKeys: [], control: false }));
   add('page /notifications', pg('/notifications'));
   add('page /review', ...['done', 'activity', 'weekly', 'stale', 'archive', 'trash'].map(v => pg(`/review?view=${v}`, { label: v })));
   add('page /settings', ...['account', 'notifications', 'connections', 'started', 'team', 'server'].map(v => pg(`/settings?section=${v}`, { label: v })));
-  add('page /claude', ...['now', 'queue', 'setup'].map(v => pg(`/claude?tab=${v}`, { label: v })));
+  add('page /claude', ...['now', 'queue', 'workers', 'setup'].map(v => pg(`/claude?tab=${v}`, { label: v })));
   add('page /menu', pg('/menu'));
   add('page /timetable', pg('/timetable'), pg('/timetable?edit=1', { label: 'editor' }));
   add('page /accept-invitation/[id]', pg(t => `/accept-invitation/${t.invite}?t=${'x'.repeat(43)}`, { ...aim(['invite']), public: true, label: 'without the secret', ok: r => r.status === 200 && /join|accept|create your account/i.test(r.text) && !/invalid|expired|no longer/i.test(r.text), control: false }));

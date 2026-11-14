@@ -39,6 +39,7 @@ const RULES = {
   activity: SHARED,
   notes: SHARED,
   claudeItems: SHARED,
+  needs: SHARED,
   trash: SHARED,
   states: SHARED,
   messages: SHARED,
@@ -54,6 +55,7 @@ const RULES = {
   alertLog: RECIPIENT,
   alertQueue: RECIPIENT,
   counters: ORG,
+  slots: ORG,
 } satisfies Record<string, Rule>;
 
 export type ScopedName = keyof typeof RULES;
@@ -229,6 +231,7 @@ const TOPICS: Partial<Record<ScopedName, Topic>> = {
   claudeItems: 'claude',
   messages: 'projects',
   states: 'projects', // a saved State refreshes open project pages (the session rows are deliberately left out: a heartbeat refreshes nobody)
+  needs: 'tasks',
   devices: 'claude',
   workerFolders: 'claude',
   workerJobs: 'claude',
