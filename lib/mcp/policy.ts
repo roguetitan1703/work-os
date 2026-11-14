@@ -13,7 +13,8 @@ import { assigneesOf } from '../assignees';
 // Server-side rules for MCP callers. One place, called by every tool (lib/mcp/server.ts wraps
 // each registered tool with beforeTool) and by apply_changes for its ops (checkBatch).
 //
-// The claude.ai connector (actor "claude", a Claude chat key) is unaffected: every check returns at once.
+// The claude.ai connector (actor "claude", a Claude chat key) is unaffected by the rules below, except the mail runaway guards
+// (MAIL_LIMITS: 200 deletes/moves and 100 sends per hour per person, every caller kind).
 // Claude Code keys (actor "claude-code") get:
 //   - no permanent deletion and no admin operations (BLOCKED; trash stays restorable)
 //   - at most 300 tool calls per rolling hour per key (policyEvents, Mongo)
@@ -97,7 +98,9 @@ export function watchTarget(op: string, a: Record<string, unknown>): WatchTarget
   }
 }
 
-async function countSince(keyId: string, kind: 'call' | 'trash', since: Date): Promise<number> {
+type EventKind = 'call' | 'trash' | 'mail_trash' | 'mail_send';
+
+async function countSince(keyId: string, kind: EventKind, since: Date): Promise<number> {
   const c = await collections(); // scope-ok: rate-limit events per API key
   const r = await c.policyEvents
     .aggregate<{ n: number }>([{ $match: { keyId, kind, at: { $gte: since } } }, { $group: { _id: null, n: { $sum: { $ifNull: ['$n', 1] } } } }])
@@ -105,7 +108,7 @@ async function countSince(keyId: string, kind: 'call' | 'trash', since: Date): P
   return r[0]?.n ?? 0;
 }
 
-async function record(keyId: string, kind: 'call' | 'trash', n = 1): Promise<string> {
+async function record(keyId: string, kind: EventKind, n = 1): Promise<string> {
   const _id = randomUUID();
   await (await collections()).policyEvents.insertOne({ _id, keyId, kind, at: new Date(), ...(n !== 1 ? { n } : {}) }); // scope-ok: rate-limit events per API key
   return _id;
@@ -120,7 +123,7 @@ async function unrecord(id: string | undefined): Promise<void> {
  * over the limit, the event is removed and the call refused, so parallel calls can't all slip
  * under the cap (each one sees the others' events). Returns the event id, or null when refused.
  */
-async function reserve(keyId: string, kind: 'call' | 'trash', n: number, since: Date, limit: number): Promise<{ id: string; total: number } | { id: null; total: number }> {
+async function reserve(keyId: string, kind: EventKind, n: number, since: Date, limit: number): Promise<{ id: string; total: number } | { id: null; total: number }> {
   // Callers that all land at once each see the others' events and would all back out, refusing calls that
   // would fit. So after backing out, wait a random moment and look again: only a count that is still over
   // the limit without this call's own event is a real refusal. Never admits more than `limit`.
@@ -142,8 +145,31 @@ const trashWindowStart = () => new Date(Date.now() - LIMITS.trashWindowMin * 60_
 /** Budgets are per key; an OAuth caller (a new client is registered on each connection) is budgeted per person so a new client is no fresh budget. */
 const budgetKey = (c: Caller): string => (c.keyId?.startsWith('oauth_') ? `oauth_${c.userId}` : c.keyId!);
 
+/**
+ * Runaway guards for mail, generous on purpose, per person (not per key) and for every caller kind, the claude.ai
+ * connector and the `claude` agent included: a loop that deletes or sends mail without end is stopped, real work never is.
+ */
+export const MAIL_LIMITS = { deletePerHour: 200, sendPerHour: 100 } as const;
+const MAIL_TRASH_TOOLS = new Set(['mail_delete', 'mail_move']);
+const MAIL_SEND_TOOLS = new Set(['mail_send', 'mail_reply', 'mail_forward']);
+
+async function mailGuard(caller: Caller, tool: string): Promise<void> {
+  const trash = MAIL_TRASH_TOOLS.has(tool);
+  if (!trash && !MAIL_SEND_TOOLS.has(tool)) return;
+  const limit = trash ? MAIL_LIMITS.deletePerHour : MAIL_LIMITS.sendPerHour;
+  const r = await reserve(`mail:${caller.userId}`, trash ? 'mail_trash' : 'mail_send', 1, new Date(Date.now() - 3_600_000), limit);
+  if (!r.id) {
+    throw new PolicyError(
+      trash
+        ? `Too many mail deletes and moves: ${r.total} in the last hour (max ${limit}). Something may be looping. Wait a while, or do the rest in Mailloom.`
+        : `Too many mails sent: ${r.total} in the last hour (max ${limit}). Something may be looping. Wait a while, or send the rest from Mailloom.`,
+    );
+  }
+}
+
 /** Runs before every tool call. Throws PolicyError to refuse. */
 export async function beforeTool(caller: Caller, tool: string): Promise<void> {
+  await mailGuard(caller, tool);
   if (!isCode(caller)) return;
   const keyId = budgetKey(caller);
   if (BLOCKED.has(tool)) throw new PolicyError(`${tool} is not available to Claude Code keys (permanent deletion and admin stay with you, in the app).`);
