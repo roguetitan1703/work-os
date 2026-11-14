@@ -11,9 +11,13 @@ export const PROJECT_INSTRUCTIONS = `My team tracks work in Work OS (connected a
 export const GROUPS: { title: string; tools: ToolName[] }[] = [
   { title: 'Overview', tools: ['daily_summary', 'recent_activity'] },
   { title: 'Tasks', tools: ['list_tasks', 'get_task', 'add_task', 'update_task', 'log_progress', 'complete_task', 'add_comment', 'update_checklist'] },
+  { title: 'Starting work and State', tools: ['start_work', 'get_state', 'save_state', 'import_state'] },
+  { title: 'Messages', tools: ['send_message', 'inbox', 'message_status', 'reply'] },
+  { title: 'Roster and machines', tools: ['set_doing', 'slot'] },
   { title: 'Projects', tools: ['list_projects', 'get_project', 'add_project', 'update_project'] },
   { title: 'Notes', tools: ['write_note', 'read_note', 'list_notes', 'delete_note'] },
   { title: 'Batch & trash', tools: ['apply_changes', 'delete_task', 'restore_task', 'list_trash'] },
   { title: 'Claude Code work list', tools: ['update_claude_items'] },
+  { title: 'Needs (ask one person)', tools: ['ask', 'needs', 'withdraw_need', 'hand_in'] },
   { title: 'Discord', tools: ['discord_needs_attention', 'discord_list_channels', 'discord_read_messages', 'discord_message_to_task'] },
 ];

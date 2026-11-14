@@ -28,6 +28,23 @@ export const VISIBILITIES = ['org', 'private', 'members'] as const;
 export const VisibilitySchema = z.enum(VISIBILITIES);
 export type Visibility = z.infer<typeof VisibilitySchema>;
 
+/**
+ * What kind of result a task produces (docs/flows/plan-1-3.md slice 5). An agent closing a code, data or client task gets a
+ * review Need to the task's owner instead of Done; check and report finish by themselves. None set = report.
+ */
+export const RESULT_KINDS = ['code', 'data', 'client', 'check', 'report'] as const;
+export type ResultKind = (typeof RESULT_KINDS)[number];
+export const REVIEW_KINDS: readonly ResultKind[] = ['code', 'data', 'client'];
+export const RATINGS = ['works', 'awkward', "doesn't work"] as const;
+export type Rating = (typeof RATINGS)[number];
+/** What an agent handed in (hand_in): Work OS links, it stores no files. */
+export type HandInResult = { changed: string; checked: string; rating: Rating | null; where: { url: string; label?: string }[]; left: string[] };
+export type HandIn = HandInResult & { at: string; by: Actor };
+/** The reviewer's line when a task was sent back: first in the next brief for that task. */
+export type SentBack = { line: string; by: string; at: string };
+/** How reviews of this task went: how many times it was sent back, and how the last one ended. */
+export type TaskReview = { sentBack: number; outcome?: 'accepted_first_time' | 'accepted_after_send_back'; at?: string };
+
 export const ChecklistItemSchema = z.object({
   id: z.string(),
   text: z.string(),
@@ -70,6 +87,13 @@ export type Task = {
   dependsOn: string[]; // task ids
   recurrence: Recurrence | null;
   nextRef: number | null; // set once a recurring task has spawned its next instance
+  /** What kind of result it produces (none = report): code, data and client go to review when an agent closes them. */
+  resultKind?: ResultKind;
+  /** The last hand_in: what changed, how it was checked, a rating, links, what is left. */
+  handIn?: HandIn;
+  /** Set when the owner sent it back from review; cleared when it goes to review again or is done. */
+  sentBack?: SentBack;
+  review?: TaskReview;
   archived: boolean;
   createdBy: Actor;
   createdAt: string; // ISO datetime
@@ -100,7 +124,12 @@ export type Task = {
   parentTitle?: string;
   /** On a parent: its subtasks done and counted (Dropped ones are left out). */
   subtaskCount?: SubtaskCount;
+  /** An open Need (an ask to one person) on this task: rows show "Needs <name>: <ask>" instead of the percent. */
+  need?: TaskNeed;
 };
+
+/** `to` is a user id (names come from the app's member list); `ask` is shortened for a row. */
+export type TaskNeed = { id: string; ref: number; to: string; ask: string };
 
 export type SubtaskCount = { done: number; total: number };
 
@@ -297,6 +326,8 @@ export const TaskInputSchema = z.object({
   blockedReason: z.string().max(2000).optional(),
   dependsOn: z.array(z.union([z.string(), z.number()])).max(50).optional(),
   recurrence: RecurrenceSchema.nullable().optional(),
+  /** The kind of result (code, data, client, check, report); null clears. An agent cannot loosen code / data / client. */
+  resultKind: z.enum(RESULT_KINDS).nullable().optional(),
   /** Who does it: members' user ids or emails, or 'me'; the whole list (null or [] clears). Shared tasks only (docs/multi-user.md phase 4). */
   assignees: z.array(z.string().trim().min(1).max(200)).max(MAX_ASSIGNEES).nullable().optional(),
   /** One assignee: the same as assignees with one name (kept for older callers); null clears. */

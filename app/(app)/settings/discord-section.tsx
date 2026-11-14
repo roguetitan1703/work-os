@@ -5,9 +5,10 @@ import { isOperator } from '@/lib/operator';
 import { getProfile } from '@/lib/profile';
 import { Card, Disclosure, Section, StatusLine } from './ui';
 import { BlockedChannels } from './blocked-channels';
-import { DiscordServerForm } from './discord-link';
+import { DiscordServerForm, TeamChannelForm } from './discord-link';
+import { teamChannelId } from '@/lib/team-digest';
 
-// View Channel (1<<10) + Read Message History (1<<16). Nothing else: the bot never posts.
+// View Channel (1<<10) + Read Message History (1<<16). Nothing else in the invite. The bot posts in one place only: the team digest, in the one channel an owner picks below, where that channel's own permissions must let it Send Messages. Everything else it does is private replies and DMs.
 const PERMISSIONS = String((1 << 10) | (1 << 16));
 
 // One bot for the whole deployment; each organization's server and each person's account are set in the app.
@@ -45,6 +46,7 @@ export async function DiscordSection({ base, caller }: { base: string; caller: C
   const [s, guildId] = await Promise.all([status(caller), orgGuildId(caller.orgId)]);
   const set = Object.fromEntries(ENV.map(k => [k, !!process.env[k]]));
   const operator = isOperator(caller);
+  const teamChannel = await teamChannelId(caller.orgId);
   const manages = caller.role === 'owner' || caller.role === 'admin';
 
   return (
@@ -92,6 +94,17 @@ export async function DiscordSection({ base, caller }: { base: string; caller: C
               Only you, the operator, see this. One server per organization; commands registered there act for whoever linked their account.
             </p>
             <DiscordServerForm guildId={guildId} />
+          </Card>
+        </Section>
+      )}
+
+      {guildId && (operator || caller.role === 'owner') && (
+        <Section title="Team digest">
+          <Card>
+            <p className="text-[13px] text-muted-foreground mb-2">
+              Once a day at 09:00 the bot posts one message in this channel: for each project shared with everyone, what was done yesterday, its Now and who it waits on. Private projects and projects shared with chosen people are never in it. The bot needs permission to send messages there. Empty turns it off.
+            </p>
+            <TeamChannelForm channelId={teamChannel} />
           </Card>
         </Section>
       )}

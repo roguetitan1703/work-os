@@ -1,24 +1,27 @@
 import Link from '@/components/intent-link';
 import { redirect } from 'next/navigation';
 import { getCaller } from '@/lib/caller';
-import { Activity, ListOrdered, Play, SlidersHorizontal } from 'lucide-react';
+import { Activity, ListOrdered, Play, SlidersHorizontal, Users } from 'lucide-react';
 import { NavIcon } from '@/components/nav-icons';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { claudeOverview } from '@/lib/data/claude-overview';
 import { claudeTasks } from '@/lib/data/dispatcher';
 import { deviceMap } from '@/lib/data/launcher';
+import { roster } from '@/lib/data/roster';
 import { cn } from '@/lib/utils';
 import { baseUrl } from '../settings/base-url';
 import { AutoRefresh } from './auto-refresh';
 import { NowTab } from './now-tab';
 import { QueueTab } from './queue-tab';
 import { SetupTab } from './setup-tab';
+import { WorkersTab } from './workers-tab';
 
 export const metadata = { title: 'Claude · Work OS' };
 
 const TABS = [
   { id: 'now', label: 'Now', icon: Activity },
   { id: 'queue', label: 'Queue', icon: ListOrdered },
+  { id: 'workers', label: 'Workers', icon: Users },
   { id: 'setup', label: 'Set up', icon: SlidersHorizontal },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
@@ -30,9 +33,10 @@ export default async function ClaudePage({ searchParams }: Props) {
   const tab: TabId = TABS.find(t => t.id === raw)?.id ?? 'now';
   const me = await getCaller();
   if (!me) redirect('/login');
-  const [data, tasks] = tab === 'setup' ? [null, null] : await Promise.all([claudeOverview(me), tab === 'now' ? claudeTasks(me) : Promise.resolve(null)]);
+  const [data, tasks] = tab === 'setup' || tab === 'workers' ? [null, null] : await Promise.all([claudeOverview(me), tab === 'now' ? claudeTasks(me) : Promise.resolve(null)]);
   // Start Claude has nothing to start on until a computer exists; until then the page offers Set up Claude instead.
   const hasComputers = data ? data.hasComputers : (await deviceMap(me)).size > 0;
+  const workers = tab === 'workers' ? await roster({ userId: me.userId, orgId: me.orgId }) : null;
   const url = tab === 'setup' ? `${await baseUrl()}/api/mcp` : '';
   const startBtn = !hasComputers ? (
     <Link
@@ -75,11 +79,11 @@ export default async function ClaudePage({ searchParams }: Props) {
             aria-current={t.id === tab ? 'page' : undefined}
             data-tab={t.id}
             className={cn(
-              'inline-flex items-center justify-center h-11 md:h-9 px-5 rounded-xl text-sm font-medium whitespace-nowrap',
+              'inline-flex items-center justify-center h-11 md:h-9 px-3.5 sm:px-5 rounded-xl text-sm font-medium whitespace-nowrap',
               t.id === tab ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground active:bg-background/60 hover:text-foreground',
             )}
           >
-            <NavIcon icon={t.icon} size={16} className="mr-2" />
+            <NavIcon icon={t.icon} size={16} className="mr-2 hidden sm:block" />
             {t.label}
           </Link>
         ))}
@@ -90,6 +94,7 @@ export default async function ClaudePage({ searchParams }: Props) {
       <AutoRefresh stamp={Date.now()} />
       {tab === 'now' && data && tasks && <NowTab claudeTasks={tasks} needsYou={data.needsYou} sessions={data.sessions} summary={data.summary} hasComputers={data.hasComputers} reopen={data.reopen} />}
       {tab === 'queue' && data && <QueueTab groups={data.queue} />}
+      {tab === 'workers' && workers && <WorkersTab data={workers} />}
       {tab === 'setup' && <SetupTab url={url} />}
     </div>
   );

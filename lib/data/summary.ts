@@ -90,6 +90,8 @@ export type BriefTask = {
   daysOverdue?: number;
   /** 'me' or the members' names (phase 4), when someone is assigned: "me, Bea". */
   assignee?: string;
+  /** The owner sent it back from review: their line, first (do it before anything else). */
+  sentBack?: { line: string; by: string; writtenBy?: string };
   /** A subtask: "#12 Parent title". A parent: "3 of 8 done" (docs/subtasks.md). */
   parent?: string;
   subtasks?: string;
@@ -99,6 +101,7 @@ export type BriefTask = {
 export function briefTask(t: Task, names: Map<string, string>, opts: { baseUrl?: string; today?: string; who?: (userId: string) => string } = {}): BriefTask {
   const today = opts.today ?? todayStr();
   const out: BriefTask = {
+    ...(t.sentBack ? { sentBack: { line: t.sentBack.line, by: opts.who ? opts.who(t.sentBack.by) : 'the owner', ...(opts.who && opts.who(t.sentBack.by) !== 'me' ? { writtenBy: opts.who(t.sentBack.by) } : {}) } } : {}),
     ref: t.ref,
     title: t.title,
     status: t.status,

@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft, FolderOpen, ListTodo } from 'lucide-react';
 import { getNote, getNoteWithBlocks } from '@/lib/data/notes';
 import { fmtAgo } from '@/lib/format';
-import { requireScope } from '@/lib/caller';
+import { getCaller, requireScope } from '@/lib/caller';
+import { scoped } from '@/lib/scope';
+import { OrdersSwitch } from './orders-switch';
 import { ActorName } from '@/components/actor-badge';
 import { NoteEditor } from './note-editor';
 import { MobileBack } from '@/components/mobile/sub-header';
@@ -21,6 +23,15 @@ export default async function NotePage({ params, searchParams }: Props) {
   const r = await getNoteWithBlocks(await requireScope(), id);
   if (!r) notFound();
   const { note, blocks } = r;
+  // Orders: which layers this person may mark this page as (lib/data/orders.ts setOrders): their own page, their project's page, an owner's organization page.
+  const me = await getCaller();
+  const proj = note.projectId && !note.taskId && !note.parentId ? await (await scoped(await requireScope())).projects.findOne({ _id: note.projectId }, { projection: { ownerId: 1 } }) : null;
+  const ordersOptions: ('person' | 'project' | 'org')[] = [];
+  if (me && !note.taskId && !note.parentId) {
+    if (note.ownerId === me.userId) ordersOptions.push('person');
+    if (proj && proj.ownerId === me.userId) ordersOptions.push('project');
+    if (me.role === 'owner') ordersOptions.push('org');
+  }
   // Back rule: where you came from, else the note's project (a task note: its task; a sub-page: its parent).
   const parent = note.parentId
     ? { href: `/notes/${note.parentId}`, label: note.parentTitle ?? 'Parent' }
@@ -52,6 +63,7 @@ export default async function NotePage({ params, searchParams }: Props) {
           Edited {fmtAgo(note.updatedAt)} by <ActorName actor={note.updatedBy} />
         </span>
         {note.archived && <span className="px-1.5 py-px rounded bg-muted">Archived · {note.archivedBecause}</span>}
+        {(ordersOptions.length > 0 || note.orders) && <OrdersSwitch noteId={note.id} current={note.orders ?? null} options={ordersOptions} updatedAt={new Date(note.updatedAt).getTime()} />}
       </div>
       <NoteEditor
         key={note.id}

@@ -42,6 +42,15 @@ vscode-reopen|vscode-reopen.mjs|none|plain
 connect|connect.mjs|none|plain
 recurring|recurring.mjs|none|plain
 subtasks|subtasks.mjs|none|plain
+flow-s1|flow-s1.mjs|none|plain
+flow-s2|flow-s2.mjs|none|plain
+flow-h1|flow-h1.mjs|none|plain
+flow-ms1|flow-ms1.mjs|none|plain
+flow-ms2|flow-ms2.mjs|none|plain
+flow-ms3|flow-ms3.mjs|none|plain
+flow-ms4|flow-ms4.mjs|none|plain
+flow-w1|flow-w1.mjs|none|plain
+flow-w3|flow-w3.mjs|none|plain
 usage|usage.mjs|none|plain
 auth|auth.mjs|none|plain
 tenancy|tenancy.mjs|none|plain
@@ -56,8 +65,17 @@ live|live.mjs|none|plain
 budgets|budgets.mjs|none|plain
 headers|headers.mjs|none|plain
 alerts-once|alerts-once.mjs|none|discord
+flow-b4|flow-b4.mjs|none|plain
+flow-hooks|flow-hooks.mjs|none|plain
+flow-b4-team|flow-b4-team.mjs|none|discord
+flow-dc1|flow-dc1.mjs|none|discord
 discord-link|discord-link.mjs|none|discord
 leak-audit|leak-audit.mjs|none|discord
+flow-n1|flow-n1.mjs|none|plain
+flow-n2|flow-n2.mjs|none|plain
+flow-n3|flow-n3.mjs|none|plain
+flow-n4|flow-n4.mjs|none|plain
+flow-r1|flow-r1.mjs|none|plain
 delpat-os|delpat-os.mjs|none|delpat
 delpat-os-off|delpat-os-off.mjs|none|plain
 ${E2E_EXTRA:-}
@@ -129,6 +147,7 @@ export AUTH_RATE_LIMIT="${E2E_AUTH_RATE_LIMIT:-off}"
 # Mail is written as JSON files here instead of being sent (lib/mail.ts); the auth suite reads reset links from it.
 export MAIL_CAPTURE_DIR="$TMP/mail" E2E_STATE="$TMP/state.json"
 export CRON_SECRET=testcron-e2e-0123456789abcdef
+export CRON_ALLOW_AT=1 # the e2e build is a production build; this lets the cron take ?at= (app/api/cron/alerts/route.ts)
 # Server actions use a key from the environment, as on the server (docs/hosting.md "The build's secrets"); fresh per run.
 export NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")"
 # The e2e owner runs the deployment (lib/operator.ts): health, Discord registration and servers, Usage.

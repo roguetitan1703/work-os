@@ -14,6 +14,8 @@
 - Older open items (#165 features to try with Akash, DELPAT_OS_CLIENT_SECRET, first real turbo Start / Open in VS Code, chat porting from Antigravity, C46-C52, AKAR C20/C22/C23 and C7/C8) are folded into the PRODUCT.md steps; still open in Work OS.
 
 ## Later
+- Discord Need press: defer the interaction response when answering is slow (Discord allows 3 s) — waits on seeing a real slow answer.
+- Buttons on the digest's "Needs you" lines (today only the per-Need DM has buttons) — waits on Om wanting answers from the digest.
 - e2e tenancy "B search: finds shared work" failed once in the full run (14 Nov) and passed on the rerun — waits on it happening again.
 - Dead code from the 14 Nov review (lib/status.ts, components/theme-toggle.tsx, dispatcherSetupAction, setOrgModes, /api/timetable/today, react-markdown, remark-gfm, deploy/nginx, 18 legacy redirects) — waits on the PRODUCT.md Cut/Freeze decisions, so features aren't removed twice.
 - MCP has no restore_note although delete_note says "restorable for 30 days" (the app's Review › Trash restores) — waits on PRODUCT.md (does Claude need it).
@@ -170,3 +172,5 @@
 - Sharing with chosen people: the picker and badges were checked by browser tests only, not by eye on phone and desktop — waits on Om or Akash using it.
 - Turbo: a repo the user clones by hand is offered for Link only after the next 15-min scan (no scan-now push event) — waits on Om or Akash wanting it faster.
 - Calendar: two-way Google Calendar sync per person (Sign in with Google, write events) is a separate later ask — waits on a Google Cloud OAuth client from Om. The one-way ICS link (docs/calendar.md) is built; not yet tried in a real Google/Outlook/Apple calendar, and Google refreshes subscribed calendars only every ~12-24 h — waits on Om/Akash adding it.
+- Slice 1 leftovers: run the budgets suite (an extra presence read per MCP call may exceed the mcp ops budgets); the old boilerplate note is not auto-converted to org Orders; items others create during a write call are skipped by the forYou cursor (small race); the Orders flag UI is a basic select on the note page; person and org Orders layers have no UI test beyond the leak-audit checks. Waits on: nothing (slice 2).
+- Slice 3 leftovers: an agent-word message becoming a Need waits on slice 4 (builder-a leaves the function); the Inbox tab does not mark messages seen on view; no unread badge on the Inbox tab (budget); messages have no trash or delete; a `message_status` seen from the app is not shown to the sender live (no push topic for the tab beyond 'projects'); MCP restore of an Orders note has no path (checked: none exists).

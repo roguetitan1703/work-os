@@ -1,0 +1,12 @@
+# 02:30 India time (21:00 UTC), an hour before the R2 backup. Enable: sudo systemctl enable --now work-os-backup-local.timer
+# If R2 is configured in /etc/work-os/backup-env the service exits at once (no second dump the same night).
+[Unit]
+Description=Work OS nightly on-box database copy
+
+[Timer]
+OnCalendar=*-*-* 21:00:00 UTC
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
