@@ -172,7 +172,7 @@ running servers). Stored as a versioned page; shown first on the project screen 
   meaning: it starts fresh sessions with the brief, never tries to revive old conversations. Open in Claude Desktop and
   the `~/.claude.json` edit go.
 - **Routing work:** a live worker on the project gets it on its next call; else the daemon starts a fresh session on a
-  ready machine; else a cloud session if the project is cloud-ready; else the task says plainly what it waits for
+  ready machine; else the cloud dispatcher (6.5) if the project is cloud-ready; else the task says plainly what it waits for
   ("needs a machine that can render; the laptop was last seen 9 h ago"). Work is **pushed** where something can start a
   session (Claude Code via the daemon, cloud) and **pulled** everywhere else ("what's mine?" in Antigravity).
 - **Orchestrators** get the Orders served, post one report per merge or stop in Om's format (changed, tested, next,
@@ -202,20 +202,61 @@ running servers). Stored as a versioned page; shown first on the project screen 
 - **Repeating work is a recipe on a schedule:** a reel every other day, a monthly client update before the invoice,
   post-release checks. Each run is a task assigned to "any agent that can".
 
-### 6.5 Discord as a real surface
-The team's talk is there and project channels match Work OS projects. First step: link each project to its channel.
-- **Buttons and commands (no AI):** every Need arrives with its options as buttons (DM, or the channel for shared
-  projects); results and orchestrator reports post to the project's channel; `/state`, `/today`, `/task`, `/hand #N`.
-- **Threads to your agents:** each orchestrator has a thread in its project's channel. Om's message there reaches that
-  agent (next call, or woken by the daemon); its replies come back. Others' messages reach it labelled, as information.
-  Remote Control stays for the full conversation; Discord is for the short steer and for the team to see agents work.
-- **A desk that answers questions** ("where are we on project X?"): a cloud session fired by the question, answering
-  as the asker (only what they may see), on the existing subscription. An API key only if a minute is too slow.
-- **Order:** buttons and commands first, threads second (needs an always-on Discord connection; the server is small,
-  so measure it), the desk third.
-- **Discord may steer, not release:** production, money and a credential pull for a new project are approved only in
-  the app, behind sign-in. A button counts only when the person it is addressed to presses it. Private projects post
-  only to the owner's DM.
+### 6.5 The cloud dispatcher, and Discord through it (agreed with Om, 14 Nov)
+**One long-running cloud Claude Code session, the dispatcher** (fleet plan #259, task #267). It runs one subagent per
+task, at most 2 or 3 at once, and is restarted daily. It has two inputs:
+1. **Tasks handed to Claude** (its existing job).
+2. **Messages to the Discord bot**: a mention in any channel, or a DM.
+
+It also checks in every 30 minutes by itself.
+
+How a Discord message travels:
+```
+Discord ──► bot (Work OS server) ──► Work OS stores it ──► wakes the dispatcher (cloud)
+                                                             │ reads it, decides, acts
+                 reply in Discord ◄── Work OS ◄──────────────┤
+                                                             ├─► work: a task, run by a subagent (branch + PR)
+                                                             ├─► news for a project: that project's inbox (6.6)
+                                                             ├─► a question: answered from Work OS
+                                                             ├─► needs the PC (render, browser): handed to the PC
+                                                             └─► needs Om: a Need
+```
+1. **Om writes in Discord**, e.g. "@WorkOS tell cutroom captions are burned in, and hand #249 to Claude".
+2. **The bot hears it.** *New:* today the bot only gets slash commands and buttons. Plain mentions and DMs need a small
+   always-open Discord connection in the Work OS server (measure memory first; fallback: check for new mentions every
+   10 seconds).
+3. **Work OS stores it** as an inbox item for the dispatcher, with:
+   - the sender, from their linked Discord account; an unlinked person gets "link your account";
+   - the channel, and a link back to the message;
+   - the text, labelled as written by that person.
+4. **Work OS wakes the dispatcher.** The dispatcher keeps one background "anything for me?" call open to Work OS, so
+   the item's arrival wakes it. The call returns the item id only, never its text, and uses no tokens while waiting.
+   Each call also counts as its heartbeat.
+5. **The dispatcher reads the message and acts as the sender.** It reads through the Work OS tools, with permission
+   scoped to the sender: Akash's message sees only what Akash can see. In the example:
+   - it puts "captions are burned in" in cutroom's inbox, and the next cutroom session picks it up;
+   - it takes #249 and runs a subagent on it.
+6. **The reply goes back to Discord** through a reply tool; Work OS posts it with the bot ("Sent to cutroom: offline,
+   it'll pick it up. #249 started."). *New:* today the bot can't post. History records "dispatcher for Om, via
+   Discord".
+7. **Work OS keeps it alive.** No heartbeat for a few minutes, or a full context, means a fresh dispatcher. Nothing is
+   lost: the messages and claims live in Work OS, and claims of a dead dispatcher are re-queued once, then go to Om.
+
+**The rules:**
+- Om's messages are instructions.
+- A teammate's message is an instruction only for their own work.
+- An unlinked person's message is information.
+- Production, money and credentials are approved in the app, never from Discord.
+- A button counts only when the person it is addressed to presses it.
+- Private projects reply only in the owner's DM.
+
+**Also through the bot, without AI:** Needs arrive as messages with buttons, and results post to the sender's DM or
+the project's channel.
+
+**Still open:**
+- how long a cloud session may live;
+- whether a cloud session can reach work.delpat.in with a key (it can't reach os.delpat.in, #269);
+- how much memory the Discord connection costs on the server.
 
 ### 6.6 Messages: Work OS as the messaging service between agents and people
 Om's need (14 Nov): he is talking to Claude chat about cutroom, no cutroom session is running; the chat drops a
@@ -241,9 +282,8 @@ Design draft: the Work OS note "Cross-session messaging: design draft for discus
   Need, and the agent sticks to its task as written. A teammate's message is information for Om's agents and an
   instruction only for the teammate's own agents.
 - **Stale:** a message carries the sender's date and commit; unread after 7 days it shows in the weekly tidy.
-- **The Discord bot is a client of this service, not a separate system:** a project channel's agent thread reads and
-  writes the same inbox, Needs post with buttons, and the bot can answer questions from Work OS. Discord, chat, the
-  app and every AI see one conversation per project.
+- **Discord is a client of this service, not a separate system:** a message to the bot reaches the cloud dispatcher
+  (6.5), which drops news into the right project's inbox. Discord, chat, the app and every AI write to the same inboxes.
 
 ### 6.7 Who owns what
 
@@ -333,9 +373,12 @@ Status words: **used**, **built-unused**, **new**. "Works when" lines become eac
 ### Discord
 - **DC1 Answer a Need, hand over, see the state.** *Commands built and switched off; posting new.* *Works when:* the
   addressed person's button press answers once, anyone else's is refused, a private project's Need never hits a channel.
-- **DC2 Talk to your agent.** *New.* *Works when:* the owner's message becomes one instruction for that worker; the
-  same text from another member arrives labelled and instructs nothing.
-- **DC3 Ask the desk.** *New.* *Works when:* a member who can't see a private project gets nothing from it.
+- **DC2 Message the bot, the cloud dispatcher handles it.** *New (dispatcher designed in #267).* Mention or DM →
+  stored with the sender → dispatcher woken → task and subagent, project inbox, answer, PC hand-off or a Need → reply in
+  Discord. *Works when:* a stub mention from the linked owner wakes the dispatcher once (its wait returns the id, no
+  text) and gets one reply; the same text from another member instructs nothing beyond their own work; a member who
+  can't see a private project gets nothing from it; with the dispatcher dead, the item waits and a fresh dispatcher
+  takes it.
 
 ### Keeping it honest
 - **F1 The weekly tidy.** Projects with no open task, duplicates, overdue, tasks quiet for 14 days; Om says yes or no
@@ -363,9 +406,9 @@ Each step is usable by itself, stands on the one before, and **is used for real 
 | 4 | **Assign to anyone, Continue, lid-open resume** | Hand a task to "any agent that can" from the phone; work restarts when a machine returns. |
 | 5 | **Recipes and ship steps** | A reel as a recipe with three approvals from the phone, posted at the slot; monthly updates drafted on schedule. |
 | 6 | **A second ready machine, the cloud made ready** | No work waits on one laptop. |
-| 7 | **Talking to agents from Discord** | Steer a running agent in one line; the team sees agents work. |
+| 7 | **The cloud dispatcher, listening on Discord** | Message the bot; the dispatcher answers, starts the work, or passes news to the right project. |
 | 8 | **Any AI, proven** | Akash works in Antigravity or ChatGPT with the same State and rules. |
-| 9 | **The desk agent, mail as a door** | Ask Work OS in Discord; client mail drafted, approved, sent. |
+| 9 | **Mail as a door** | Client mail drafted, approved, sent. |
 | 10 | **The scorecard** | Weekly: runs started, accepted first time, sent back, how long Needs waited, which machine was the bottleneck. |
 
 **First three to build:** State, the brief and the inbox (start with cutroom and Work OS itself; messages ride on
@@ -395,7 +438,7 @@ Nothing else: no "app only" hand-over, no freezing the machine layer, no waiting
 | 2 | Orders served by Work OS to every AI? | **Yes**, organisation, project and person layers; CLAUDE.md stays Claude Code's local copy. |
 | 3 | One Need for every kind of waiting? | **Yes**, one list, kinds differ only in buttons. |
 | 4 | May agents mark their own work Done? | **Only read-only checks and reports**; code, data or client-facing work gets a review. |
-| 5 | Discord order and limits | **Buttons and commands first, threads second, the desk third. Discord may steer, not release.** |
+| 5 | Discord | **Agreed 14 Nov: the long-running cloud dispatcher listens on the bot** (6.5). Discord may steer, not release. |
 | 6 | A second ready machine | Akash's PC, a spare, or a bigger server; the current server is too small for sessions. |
 | 7 | Who may hand over outside the app? | **Any agent, for tasks whose text is all Om's or his own agents'**; others' text turns it into a one-tap approve Need. |
 | 8 | Permission mode for unattended sessions | **Edits allowed plus a per-repo allow list** (test, build, git); anything else asks via Remote Control and becomes a "stuck" push after 20 min. |
