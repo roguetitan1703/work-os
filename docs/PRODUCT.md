@@ -179,6 +179,23 @@ running servers). Stored as a versioned page; shown first on the project screen 
   works / awkward / doesn't work), and are kept alive from outside: one nudge if quiet while Next has unblocked work, a
   fresh session if gone. Hand-made keep-alive crons stop being needed.
 
+### 6.2a The right model for the job, and accounts (Om, 14 Nov)
+Planning is done well up front, so most execution is well defined and doesn't need the biggest model. Main sessions and
+Opus should think, not grind.
+- **Every task carries a work class**, set by whoever plans it:
+  - **think:** planning, design, an independent big review, a hard bug → **Opus**;
+  - **do:** a well-defined build or change → **Sonnet**;
+  - **chore:** mechanical work like renames, data moves, filling a template, a read-only check → **Haiku**, else Sonnet.
+- **The cloud dispatcher runs on Sonnet** and starts subagents on the model their task's class asks for. An
+  orchestrator on the PC does the same with its builders.
+- **The class is part of the Orders and of the brief**, so every AI follows it, and the roster shows each worker's model.
+- **Accounts are a resource like machines.** Each worker records which Claude account it runs on, and the roster shows
+  usage per account and model, with one alert when an account nears its limit. Then a limit never stops work silently,
+  and work can move to an account that has room.
+- **A second account for cloud work.** The dispatcher can run on a second Team seat. The account holder can see that
+  seat's sessions, and with them anything the dispatcher reads, including env files pulled through Dead Drop. So use a
+  seat dedicated to the dispatcher, not a person's own seat, and check the plan's terms for automated use.
+
 ### 6.3 Needs and results
 - **Need:** one ask to one person: kind, the ask in plain words, a real example, options, a recommendation. The task
   shows "Needs Om" instead of a percent; one push; answered from the phone, Discord or a chat. Waiting on a client is
@@ -446,6 +463,8 @@ Nothing else: no "app only" hand-over, no freezing the machine layer, no waiting
 | 10 | Unattended outside mail | **Draft and approve Need**; in a session with Om present it sends. |
 | 11 | Reel posting off the laptop | **Put the posting token in Dead Drop** so the server timer or another machine can post. |
 | 12 | The worker editing `~/.claude.json` | **Stop.** Trust each folder once by hand; the worker reports "needs trust". |
+| 13 | Model routing | **Agreed 14 Nov (Om):** think → Opus, do → Sonnet, chore → Haiku, else Sonnet; the dispatcher on Sonnet. Om's global rules still say "No Haiku" and need updating to match. |
+| 14 | Which account runs the cloud dispatcher | **A seat dedicated to it**, not an intern's own seat; its holder sees everything it reads. |
 
 ---
 
