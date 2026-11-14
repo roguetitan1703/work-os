@@ -172,7 +172,7 @@ async function queueOutcome(s: Scope, t: TaskDoc, kind: 'claude_finished' | 'cla
   const c = await scoped(forUser(s, t.claude?.markedByUserId ?? t.ownerId));
   await c.alertQueue.updateOne(
     { _id: `claude:${t._id}:${claimedAt}` },
-    { $setOnInsert: { kind, taskId: t._id, byTaskId: t._id, createdAt: new Date(), sentAt: null, detail: plainAlertText(detail).slice(0, 300) } },
+    { $setOnInsert: { kind, taskId: t._id, byTaskId: t._id, createdAt: new Date(), sentAt: null, detail: neutralAlertText(detail).slice(0, 300) } },
     { upsert: true },
   );
 }

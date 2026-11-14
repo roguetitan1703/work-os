@@ -65,7 +65,8 @@ try {
   const a5 = await must(ownerKey, 'ask', { project: 'DC Shared', to: 'me', kind: 'approve', ask: 'DC1 deploy to production?' });
   const MD_ASK = 'DC1 MD [x](https://evil.example/p) <@&123456789012345678> @everyone *bold* pick one';
   const a7 = await must(mateKey, 'ask', { project: 'DC Shared', to: EMAIL, kind: 'decide', ask: MD_ASK, options: [{ id: 'a', label: '**big** [x](https://evil.example/a)', means: 'first' }, { id: 'b', label: '@everyone <@&123456789012345678>', means: 'second' }] });
-  const [n5, n7] = [a5, a7].map(a => a.need.id);
+  await must(ownerKey, 'ask', { project: 'DC Shared', to: 'me', kind: 'approve', ask: 'DC1 punctuation Fix (v2) *now* ok?' });
+  const [n5, n7] =[a5, a7].map(a => a.need.id);
   // a review Need (no tool asks one): a copy of a plain Need as a review, with its alert queued like the real one, so it is delivered in the same run
   const n6 = 'dc1-review-need-0001';
   const base = await rawDb.collection('needs').findOne({ _id: n5 });
@@ -94,6 +95,14 @@ try {
   check('...and says where to answer it', mine.some(d => /\/today#need-/.test(d.content ?? '') && /rotate the key/.test(d.content ?? '')), mine.map(d => d.content).join(' | ').slice(0, 400));
   check('nobody else got a DM about it', dms.every(d => d.to === D_ME || d.to === D_NEW || !/DC1/.test(d.content ?? '')), JSON.stringify(dms.map(d => d.to)));
 
+  // Escaping happens where Discord renders text: the DM is escaped, the in-app inbox row and the push text are not
+  const punct = mine.find(d => /DC1 punctuation/.test(d.content ?? ''));
+  const inboxRows = await rawDb.collection('notifications').find({ userId: ME.userId }).toArray();
+  const punctRows = inboxRows.filter(r => /DC1 punctuation/.test(`${r.title} ${r.body}`));
+  check('a title like "Fix (v2) *now*" is escaped in the Discord DM...', !!punct && /Fix \\\(v2\\\) \\\*now\\\*/.test(punct.content), punct?.content);
+  check('...but the in-app inbox row has no backslashes (plain text)', punctRows.length > 0 && punctRows.every(r => !/\\/.test(`${r.title} ${r.body}`)) && punctRows.some(r => /Fix \(v2\) \*now\*/.test(`${r.title} ${r.body}`)), JSON.stringify(punctRows.map(r => [r.title, r.body])));
+
+  await rawDb.collection('needs').updateMany({ ask: /DC1 punctuation/ }, { $set: { status: 'withdrawn', closedAt: new Date() } }); // keeps the asker under the five-open limit
   // 2. Refusals
   const rMate = await press(D_MATE, `wo:need:${n1}:yes`);
   check("another member's press is refused (type 4, says it is not theirs)", rMate.type === 4 && /not addressed to you/.test(rMate.content) && (await status(n1)).status === 'open', JSON.stringify(rMate));

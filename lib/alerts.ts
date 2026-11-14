@@ -8,7 +8,7 @@ import { addDays, clockInTz, dateInTz, previousWorkdayStart, startOfDay, weekday
 import { CLOSED_STATUSES, OPEN_STATUSES } from './types';
 import { api, discordConfig, DiscordError } from './discord/client';
 import { addToInbox, getNotifySettings, pushConfigured, sendPush } from './notify';
-import { plainAlertText, stuckClaims } from './data/dispatcher';
+import { neutralAlertText, plainAlertText, stuckClaims } from './data/dispatcher';
 import { recipientFilter, recipientsOf } from './data/tasks';
 import { assigneesOf } from './assignees';
 import { isMember, memberNames } from './people';
@@ -197,7 +197,7 @@ async function buildDigest(
     const people = await memberNames(s.orgId);
     sections.push({
       head: '🙋 **Needs you**',
-      rows: needs.map(n => ({ label: `Need #${n.ref}`, url: `/today#need-${n.ref}`, text: plainAlertText(shortAsk(n.ask)), detail: `${plainAlertText(actorLabel(n.from.actor, s.userId, people))}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly || n.kind === 'review' ? ' · answer in the app' : ''}` })),
+      rows: needs.map(n => ({ label: `Need #${n.ref}`, url: `/today#need-${n.ref}`, text: neutralAlertText(shortAsk(n.ask)), detail: `${neutralAlertText(actorLabel(n.from.actor, s.userId, people))}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly || n.kind === 'review' ? ' · answer in the app' : ''}` })),
     });
   }
 
@@ -210,7 +210,7 @@ async function buildDigest(
     const rows = outcomes.flatMap(q => {
       const t = byId.get(q.taskId);
       if (!t) return [];
-      const why = plainAlertText(q.detail ?? '');
+      const why = neutralAlertText(q.detail ?? '');
       return [{ ref: t.ref, text: t.title, detail: q.kind === 'claude_finished' ? 'finished, to review' : `stopped${why ? `: ${why}` : ''}` }];
     });
     if (rows.length) sections.push({ head: '✅ **What agents finished**', rows });
@@ -291,8 +291,8 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
         // Dropped if it was answered, withdrawn or replaced before it went out, or the person can no longer read it.
         const n = needById.get(q.needId ?? '');
         if (!n || n.status !== 'open') continue;
-        const who = plainAlertText(actorLabel(n.from.actor, q.userId, people));
-        const ask = plainAlertText(shortAsk(n.ask));
+        const who = neutralAlertText(actorLabel(n.from.actor, q.userId, people));
+        const ask = neutralAlertText(shortAsk(n.ask));
         items.push({
           key: q._id,
           kind: 'need',
@@ -309,13 +309,13 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
       if (q.kind === 'assigned') {
         // Dropped if they were taken off it again, or it closed or was archived, before it went out.
         if (!t || !assigneesOf(t).includes(q.userId) || CLOSED_STATUSES.includes(t.status) || t.archived) continue;
-        const by = plainAlertText(q.detail ?? '');
+        const by = neutralAlertText(q.detail ?? '');
         items.push({ key: q._id, kind: 'assigned', ref: t.ref, title: t.title, detail: by ? `by ${by}` : undefined, headline: `#${t.ref} assigned to you${by ? ` by ${by}` : ''}` });
         continue;
       }
       if (q.kind === 'claude_finished' || q.kind === 'claude_stopped') {
         if (!t) continue;
-        q.detail = plainAlertText(q.detail ?? '');
+        q.detail = neutralAlertText(q.detail ?? '');
         items.push(
           q.kind === 'claude_finished'
             ? { key: q._id, kind: q.kind, ref: t.ref, title: t.title, detail: q.detail || undefined, headline: `Claude finished #${t.ref}` }
@@ -362,7 +362,7 @@ export function formatAlerts(items: AlertItem[], baseUrl: string): string[] {
     const list = items.filter(i => i.kind === s.kind).sort((a, b) => a.ref - b.ref);
     if (!list.length) continue;
     lines.push(s.head);
-    for (const i of list) lines.push(`• [${i.label ?? `#${i.ref}`}](<${baseUrl}${i.url ?? `/tasks/${i.ref}`}>) ${i.title}${i.detail ? ` · ${i.detail}` : ''}`);
+    for (const i of list) lines.push(`• [${i.label ?? `#${i.ref}`}](<${baseUrl}${i.url ?? `/tasks/${i.ref}`}>) ${plainAlertText(i.title)}${i.detail ? ` · ${plainAlertText(i.detail)}` : ''}`);
     lines.push('');
   }
   // Split into ≤ 1900-char messages on line boundaries.
@@ -511,7 +511,7 @@ export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: str
         res.sent = messages.length;
         // A Need can be answered right there: one small message per Need with its options as buttons (custom id
         // wo:need:<id>:<option>, answered through the DM path of the interactions route). App-only Needs get none.
-        for (const i of items) if (i.kind === 'need' && i.needId && i.buttons?.length) await sendDm(profile.discordId, `🙋 **${i.label ?? 'Need'}**: ${i.title}`.slice(0, 1900), needButtons(i.needId, i.buttons));
+        for (const i of items) if (i.kind === 'need' && i.needId && i.buttons?.length) await sendDm(profile.discordId, `🙋 **${i.label ?? "Need"}**: ${plainAlertText(i.title)}`.slice(0, 1900), needButtons(i.needId, i.buttons));
       } catch (e) {
         errors.push(`discord: ${e instanceof Error ? e.message : String(e)}`);
       }
