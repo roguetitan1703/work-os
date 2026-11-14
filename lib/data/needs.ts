@@ -382,13 +382,17 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
  * and file what is left), stamped with the task's placement. A review still open on the task is replaced, and an alert is
  * sent unless one went out for it in the last 10 minutes. Not counted against the asker's limits: it is the system's.
  */
-export async function createReviewNeed(s: Scope, t: TaskDoc, actor: Actor, result: HandInResult): Promise<Need> {
+export async function createReviewNeed(s: Scope, t: TaskDoc, actor: Actor, result: HandInResult, closing?: 'Dropped' | 'archived'): Promise<Need> {
   return inTransaction(async () => {
     const org = await orgWide(s.orgId);
     const open = await org.needs.find({ taskId: t._id, kind: 'review', status: 'open' }).toArray();
     const now = new Date();
     const last = open.map(n => n.alertedAt?.getTime() ?? 0).reduce((a, b) => Math.max(a, b), 0);
     const quiet = last > now.getTime() - NEED_LIMITS.replaceAlertMs;
+    // One agent cannot fill an owner's phone with reviews: past 10 alerted reviews an hour from one asker to one owner, the Need is made without an alert.
+    const askerId = actor && 'userId' in actor && actor.userId ? actor.userId : s.userId;
+    const alerted = await org.needs.countDocuments({ kind: 'review', 'from.actor.userId': askerId, to: t.ownerId, createdAt: { $gt: new Date(now.getTime() - 3_600_000) }, noAlert: { $ne: true } });
+    const flood = alerted >= NEED_LIMITS.perHour;
     const id = randomUUID();
     const place = placeOf(t);
     const options = [
@@ -409,7 +413,9 @@ export async function createReviewNeed(s: Scope, t: TaskDoc, actor: Actor, resul
       to: t.ownerId,
       from: { actor, word: 'agent', ...(requestContext().sid ? { session: requestContext().sid } : {}) },
       kind: 'review',
-      ask: `Review #${t.ref}: ${t.title}`.slice(0, NEED_LIMITS.ask),
+      ask: `Review #${t.ref}: ${t.title}${closing === 'Dropped' ? ' (the agent wants to drop it)' : closing === 'archived' ? ' (the agent wants to archive it)' : ''}`.slice(0, NEED_LIMITS.ask),
+      ...(closing ? { closing } : {}),
+      ...(flood ? { noAlert: true } : {}),
       options,
       status: 'open',
       appOnly: false,
@@ -422,11 +428,18 @@ export async function createReviewNeed(s: Scope, t: TaskDoc, actor: Actor, resul
     if (open.length) await org.needs.updateMany({ _id: { $in: open.map(n => n._id) }, status: 'open' }, { $set: { status: 'replaced', closedAt: now, replacedBy: id } });
     await org.tasks.updateOne({ _id: t._id }, { $unset: { sentBack: '' } });
     await syncTaskNeed(org, t._id);
-    if (!quiet) {
+    if (!quiet && !flood) {
       await org.alertQueue.updateOne({ _id: `need:${id}` }, { $setOnInsert: { userId: t.ownerId, kind: 'need', taskId: t._id, byTaskId: '', needId: id, createdAt: now, sentAt: null } }, { upsert: true });
     }
     return toNeed(doc);
   });
+}
+
+/** A task was trashed or dropped: whatever was asked about it has nothing left to ask. */
+export async function closeTaskNeeds(orgId: string, taskIds: string[], reason: string): Promise<void> {
+  if (!taskIds.length) return;
+  const org = await orgWide(orgId);
+  await closeBySystem(org, await org.needs.find({ taskId: { $in: taskIds }, status: 'open' }).toArray(), reason);
 }
 
 /** A task was closed another way (a person did it): a review still waiting on it has nothing left to ask. */
@@ -446,7 +459,8 @@ async function applyReview(s: Scope, need: NeedDoc, option: string, text: string
   const now = new Date();
   if (option === 'send_back') {
     await tasks.updateTask(s, t._id, { status: 'In Progress' }, actor, { note: `Sent back: ${text}` });
-    await org.tasks.updateOne({ _id: t._id }, { $set: { sentBack: { line: text!, by: s.userId, at: now } }, $inc: { 'review.sentBack': 1 } });
+    // The old evidence goes: a later close without a fresh hand_in must not reuse it.
+    await org.tasks.updateOne({ _id: t._id }, { $set: { sentBack: { line: text!, by: s.userId, at: now } }, $inc: { 'review.sentBack': 1 }, $unset: { handIn: '' } });
     await (await import('./dispatcher')).requeueAfterSendBack(org, t);
     return need;
   }
@@ -456,12 +470,15 @@ async function applyReview(s: Scope, need: NeedDoc, option: string, text: string
   if (option === 'accept_file') {
     filed = [];
     for (const line of need.result?.left ?? []) {
-      const k = await tasks.createTask(s, { title: line.slice(0, 300), ...(t.projectId ? { project: t.projectId } : {}) }, actor, { note: `Left over from #${t.ref}` });
+      // The line is the agent's text: filed under the owner's name, but labelled as the agent's wherever it is read.
+      const k = await tasks.createTask(s, { title: line.slice(0, 300), ...(t.projectId ? { project: t.projectId } : {}) }, actor, { note: `Left over from #${t.ref}`, authors: { title: need.from.actor } });
       filed.push(k.ref);
     }
     await org.needs.updateOne({ _id: need._id }, { $set: { filed } });
   }
-  if (t.status !== 'Done') await tasks.updateTask(s, t._id, { status: 'Done' }, actor, { note: option === 'accept_file' ? 'Accepted; the rest filed as tasks' : 'Accepted' });
+  if (t.status === 'Dropped') return filed ? { ...need, filed } : need; // dropped meanwhile: accepting does not bring it back as Done
+  if (need.closing === 'archived') await tasks.setArchived(s, t._id, true, actor);
+  else if (t.status !== (need.closing ?? 'Done')) await tasks.updateTask(s, t._id, { status: need.closing ?? 'Done' }, actor, { note: option === 'accept_file' ? 'Accepted; the rest filed as tasks' : 'Accepted' });
   await org.tasks.updateOne({ _id: t._id }, { $set: { 'review.outcome': outcome, 'review.at': now }, $unset: { sentBack: '' } });
   return filed ? { ...need, filed } : need;
 }

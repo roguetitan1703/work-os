@@ -171,10 +171,28 @@ try {
 
     // a trashed task keeps its open Need, and restoring brings the mark back
     await must(MCP, 'delete_task', { task: t.ref, title: "Mark is the server's (edited)" });
-    check('trash: the Need stays open while the task is in the trash', (await need(real.id)).status === 'open');
+    const trashed = await need(real.id);
+    check('trash: a trashed task\'s open Need is withdrawn (nothing left to ask)', trashed.status === 'withdrawn' && trashed.withdrawnReason === 'task trashed', JSON.stringify([trashed.status, trashed.withdrawnReason]));
     await must(MCP, 'restore_task', { task: t.ref });
-    const back = await mark(t.ref);
-    check('trash: restored, the task shows its open Need again', back?.id === real.id && (await need(real.id)).status === 'open', JSON.stringify(back));
+    check('trash: restored, the task has no stale mark and the Need stays closed', (await mark(t.ref)) === null && (await need(real.id)).status === 'withdrawn');
+    const dr = await task('Dropped with a Need', 'N4 Shared');
+    const nd = await ask(kA, 'Bea', { task: dr.ref, ask: 'Before it was dropped' });
+    await must(MCP, 'update_task', { task: dr.ref, status: 'Dropped' });
+    check('dropped: the task\'s open Need is withdrawn too', (await need(nd.id)).status === 'withdrawn' && (await mark(dr.ref)) === null);
+  }
+
+  // ======== reviews cannot flood an owner either ========
+  {
+    const ids = [];
+    for (let i = 0; i < 50; i++) {
+      const t = (await must(MCP, 'add_task', { title: `Flood ${i}`, project: 'N4 Shared', result_kind: 'code' })).created;
+      await mcpH(kA, 'hand_in', { task: t.ref, changed: 'done' });
+      ids.push(t.ref);
+    }
+    const needsMade = await rawDb.collection('needs').find({ taskRef: { $in: ids }, kind: 'review' }).toArray();
+    const queued = await rawDb.collection('alertQueue').countDocuments({ needId: { $in: needsMade.map(n => n._id) } });
+    check('review flood: one agent handing in 50 tasks of one owner makes 50 reviews but at most 10 alerts', needsMade.length === 50 && queued > 0 && queued <= 10, `needs ${needsMade.length}, alerts ${queued}`);
+    check('review flood: the ones past the limit are marked as made without an alert', needsMade.filter(n => n.noAlert).length === 50 - queued);
   }
 
   // ======== two answers at once: one wins ========
