@@ -22,10 +22,13 @@ export async function openNeedRows(s: Scope, rows: Row[]): Promise<Set<string>> 
       .toArray();
     const out = new Set<string>();
     for (const n of needs) {
-      const asker = n.from.actor.kind === 'agent' ? n.from.actor : null;
+      // Session ids are chosen by the client, so a session only counts together with the person who asked.
+      const actor = n.from.actor;
+      const uid = 'userId' in actor ? actor.userId : undefined;
+      if (!uid) continue;
       for (const r of rows) {
-        if (r.projectId !== n.projectId) continue;
-        if (n.from.session ? r.session === n.from.session && (!asker || asker.userId === r.userId) : !!asker && asker.userId === r.userId && asker.agent === r.agent) out.add(r._id);
+        if (r.projectId !== n.projectId || r.userId !== uid) continue;
+        if (n.from.session ? r.session === n.from.session : actor.kind === 'agent' && actor.agent === r.agent) out.add(r._id);
       }
     }
     return out;

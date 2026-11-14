@@ -5,7 +5,7 @@
 // lines and no live worker. The Workers tab at 390 and 1280. lastSeen is backdated through the raw database.
 // Seed profile: none.
 import { randomUUID } from 'node:crypto';
-import { B, ME, MCP, EMAIL, PW, SP, check, finish, launch, login, mkKey, overflow, okO, rawDb } from './lib.mjs';
+import { B, ME, MCP, EMAIL, PW, SP, check, finish, launch, login, makeUser, mkKey, overflow, okO, rawDb } from './lib.mjs';
 import { mcpH, must, sleep } from './flow-lib.mjs';
 
 const NAME = 'Flow Roster';
@@ -111,6 +111,34 @@ try {
   await must(cc, 'withdraw_need', { id: n2.need.ref });
   await snap();
   check('W1: all work again after it is withdrawn', ['w1-orch', 'w1-ba', 'w1-bs'].every(x => st(x) === 'working'));
+
+  // Security: a session id is chosen by the client, so it never crosses people
+  const tess = await makeUser({ email: 'w1-tess@example.test', name: 'Tess W1', orgId: ME.orgId, role: 'member' });
+  const kT = await mkKey({ agent: 'claude-code', userId: tess.userId, name: 'Tess Claude Code' });
+  await must(kT, 'start_work', { project: NAME, machine: 'tess-box', label: 'tess builder', parent: 'w1-ba', session: 'w1-tb' });
+  await must(kT, 'start_work', { project: NAME, machine: 'tess-box', label: 'tess twin', session: 'w1-orch' });
+  await snap();
+  const tb = workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-tb`);
+  check('W1: a builder whose parent names another person’s orchestrator stays top level', tb?.depth === 0, JSON.stringify(tb)?.slice(0, 300));
+  const nT = await must(kT, 'ask', { project: NAME, to: EMAIL, kind: 'approve', ask: 'Tess asks: ship?', session: 'w1-orch' });
+  await snap();
+  check('W1: another person’s Need with the same session id does not make this person’s worker wait (only their own twin does)', st('w1-orch') === 'working' && workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-orch`)?.state === 'waiting', [st('w1-orch'), workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-orch`)?.state].join());
+  await must(kT, 'withdraw_need', { id: nT.need.ref });
+  await rawDb.collection('presence').deleteMany({ userId: tess.userId }); // her rows must not keep the project busy in the cases below
+
+  // set_doing names only a task of the project the worker started on; account must be a label, not a secret
+  await must(MCP, 'add_project', { name: 'Flow Other Proj' });
+  const otherTask = (await must(MCP, 'add_task', { title: 'Task of another project', project: 'Flow Other Proj' })).created.ref;
+  const cross = await mcpH(cc, 'set_doing', { task: otherTask, session: 'w1-orch' });
+  check('W1: set_doing refuses a task of another project', cross.isError && /project/i.test(cross.text), cross.text.slice(0, 200));
+  await snap();
+  check('W1: and the roster does not show it', !row(workers(htmlNow), 'w1-orch').text.includes('Task of another project'));
+  const doingDoc = (await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-orch` })).doing;
+  check('W1: the worker row stores only the task id (no title)', doingDoc && Object.keys(doingDoc).sort().join() === 'at,taskId', JSON.stringify(doingDoc));
+  for (const account of ['om@example.com', 'sk-ant-abcdef', 'wkr_abcdef', 'wos_abcdef', 'abcdefghijklmnopqrstuvwxyz0123456789']) {
+    const r = await mcpH(cc, 'start_work', { project: NAME, machine: 'om-pc', label: 'x', account, session: 'w1-acct' });
+    check(`W1: an account that looks like a secret (${account.slice(0, 8)}…) is refused`, r.isError, r.text.slice(0, 150));
+  }
 
   // Could be running and isn't
   await must(MCP, 'save_state', { project: NAME, ops: [{ op: 'add_next', text: 'Roster Next line one' }] });

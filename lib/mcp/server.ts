@@ -22,7 +22,8 @@ import { describeActivity } from '../activity-text';
 import * as stateData from '../data/states';
 import { ordersFor } from '../data/orders';
 import { othersPresent, presentRow, registerPresence, resolveMachine, setDoing, type Ident } from '../data/presence';
-import { acquireSlot, holderOf, machineKey, MAX_WAIT_S, releaseSlot } from '../data/slots';
+import { clientWord, taskInfo } from '../data/roster';
+import { holderOf, machineKey, MAX_WAIT_S, POLL_MS, prepareSlot, releaseSlot, tryAcquire } from '../data/slots';
 import { forYouAfter, forYouBefore } from './for-you';
 import { randomUUID } from 'node:crypto';
 import { requestContext, sessionHeader } from '../request-context';
@@ -899,6 +900,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const by = await byOf(ctx);
       // The session: the one named (argument or header), else a new one.
       const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? randomUUID();
+      if (a.account && (/@|^\s*(sk-|wkr_|wos_|ghp_|xox)/i.test(a.account) || /[A-Za-z0-9_-]{32,}/.test(a.account))) throw new InputError('account is a short label such as "om-max": not an email, a key or a token');
       const mach = await resolveMachine(s, a.machine);
       const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, label: a.label, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch });
       // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
@@ -912,13 +914,15 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const pn = await projects.projectNameMap(s);
       const who = await whoOf(ctx);
       // 5. Who else was here in the last 30 minutes.
-      const others = (await othersPresent(s, project._id, row._id)).map(p => ({
-        ai: p.ai,
+      const othersRows = await othersPresent(s, project._id, row._id);
+      const doingInfo = await taskInfo(s, othersRows.flatMap(p => (p.doing ? [p.doing.taskId] : [])));
+      const others = othersRows.map(p => ({
+        ai: p.userId === s.userId ? p.ai : clientWord(p.agent),
         for: p.userId === s.userId ? 'me' : names[p.userId] || 'another member',
         ...(p.label ? { label: p.label } : {}),
         ...(p.machine ? { machine: p.machineName ?? p.machine } : {}),
         ...(p.model ? { model: p.model } : {}),
-        ...(p.doing ? { doing: `#${p.doing.ref}` } : {}),
+        ...(p.doing && doingInfo.get(p.doing.taskId) ? { doing: `#${doingInfo.get(p.doing.taskId)!.ref}` } : {}),
         minutesAgo: Math.round((Date.now() - p.lastSeen.getTime()) / 60_000),
         ...(p.userId === s.userId ? {} : { writtenBy: names[p.userId] || 'another member' }),
       }));
@@ -948,8 +952,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const t = a.task === undefined ? null : await tasks.getTask(s, a.task);
       if (a.task !== undefined && !t) throw new NotFoundError('Task not found');
-      const row = await setDoing(s, identOf('set_doing', [a]), t ? { taskId: t.id, ref: t.ref, title: t.title } : null);
-      if (!row) throw new InputError('You are not registered as present: call start_work first (and pass its session id)');
+      const ident = identOf('set_doing', [a]);
+      const here = await presentRow(s, ident);
+      if (!here) throw new InputError('You are not registered as present: call start_work first (and pass its session id)');
+      // The roster is read by everyone who can read the project: it may only name a task of that project, and it stores only the id.
+      if (t && t.projectId !== here.projectId) throw new InputError('That task is not on the project you started work on: call start_work on its project first');
+      await setDoing(s, ident, t ? t.id : null);
       return { doing: t ? { ref: t.ref, title: t.title } : null, note: 'The roster shows this task as yours while you keep working; if you stop calling Work OS for 30 minutes it shows as unheld.' };
     }),
   );
@@ -975,10 +983,11 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const holder = holderOf(ident);
       if (a.action === 'release') return await releaseSlot(s, key, holder);
       const until = Date.now() + (a.wait_seconds ?? 0) * 1000;
+      const cap = await prepareSlot(s, key); // the document and the expired-lease pull: once, not on every poll
       for (;;) {
-        const r = await acquireSlot(s, key, holder);
+        const r = await tryAcquire(s, key, holder, cap);
         if (r.acquired || Date.now() >= until) return { ...r, leaseMinutes: 30, note: r.acquired ? 'Release it when your build or test run ends; the lease ends by itself in 30 minutes unless you ask again.' : 'Full: wait and ask again, or until a holder releases.' };
-        await new Promise(res => setTimeout(res, Math.min(1000, Math.max(50, until - Date.now()))));
+        await new Promise(res => setTimeout(res, Math.min(POLL_MS, Math.max(50, until - Date.now()))));
       }
     }),
   );

@@ -259,7 +259,7 @@ function writers(col, d) {
   if (OWNED.has(col)) return org.members.includes(pOf(d.ownerId)) ? [pOf(d.ownerId)] : [];
   if (RECIP.has(col)) return org.members.includes(pOf(d.userId)) ? [pOf(d.userId)] : [];
   if (col === 'counters') return org.members;
-  if (col === 'slots') return org.members; // slice 7: heavy-slot leases, per machine (a machine's key holds the person's id or the device id)
+  if (col === 'slots') return org.members.includes(pOf(d.ownerId)) ? [pOf(d.ownerId)] : []; // slice 7: heavy-slot leases, written only by the machine's person (the display read keeps the org rule)
   if (col === 'settings') {
     if (d.userId) return org.members.includes(pOf(d.userId)) ? [pOf(d.userId)] : [];
     return org.admins; // discord:<org>, modes:<org>, authMigration
@@ -856,6 +856,39 @@ try {
         // (not scanned for the project canaries: a project page echoes the requested id, which is the project name slug)
         check(`roster: ${p.name} gets no project page (${label}) and so no worker line`, !pr.text.includes(cn), pr.text.slice(0, 120));
       }
+    }
+    // set_doing stores only a task id and refuses a task of another project, so a private task title never reaches a widely read worker row
+    {
+      const op = can('rosterorgp', ['A', 'T', 'R']);
+      const wl = `lkqrosterorglabel${hex(4)}`;
+      CANARIES.push({ s: wl, tag: 'rosterorg', allow: new Set(['A', 'T', 'R']) });
+      await mustMcp(A.chat, 'add_project', { name: op, visibility: 'org' });
+      await mustMcp(A.code, 'start_work', { project: op, machine: 'lkq-orgbox', label: wl, session: 'lkqorgsess' });
+      const bad = await mcpCall(A.code, 'set_doing', { task: tk.created.ref, session: 'lkqorgsess' });
+      check('roster: set_doing refuses a task of another (private) project', !bad.ok, bad.text.slice(0, 160));
+      for (const p of [T, R, X]) {
+        const r = await req('GET', '/claude?tab=workers', { cookie: p.cookie });
+        scan(p.name, 'roster Workers tab (org project worker)', r.text);
+        const st = await mcpCall(p.chat || T.chat, 'start_work', { project: op });
+        if (st.ok) scan(p.name, 'start_work others list', st.text);
+      }
+      // a chosen-people project: only the people chosen see its worker, and not after it goes private
+      const cp = can('rosterchosen', ['A', 'T']);
+      const cl = `lkqrosterchosenlabel${hex(4)}`;
+      CANARIES.push({ s: cl, tag: 'rosterchosen', allow: new Set(['A', 'T']) });
+      await mustMcp(A.chat, 'add_project', { name: cp, visibility: 'members', shared_with: [T.email] });
+      await mustMcp(A.code, 'start_work', { project: cp, machine: 'lkq-chosenbox', label: cl, session: 'lkqchosensess' });
+      const tSees = await mcpCall(T.chat, 'start_work', { project: cp, session: 'lkqchosentess' });
+      check('roster: a person the project is shared with sees its worker (start_work others list)', tSees.ok && tSees.text.includes(cl), tSees.text.slice(0, 160));
+      for (const p of [R, X]) {
+        const r = await req('GET', '/claude?tab=workers', { cookie: p.cookie });
+        scan(p.name, 'roster Workers tab (chosen project)', r.text);
+        check(`roster: ${p.name} sees no worker of a chosen-people project`, !r.text.includes(cl) && !r.text.includes(cp), r.text.slice(0, 120));
+      }
+      await mustMcp(A.chat, 'update_project', { project: cp, visibility: 'private' });
+      const after = await req('GET', '/claude?tab=workers', { cookie: T.cookie });
+      const afterMcp = await mcpCall(T.chat, 'start_work', { project: cp, session: 'lkqchosentess' });
+      check('roster: a worker whose project went private after start_work disappears for the others', !after.text.includes(cl) && !afterMcp.ok && !afterMcp.text.includes(cl), after.text.slice(0, 100) + afterMcp.text.slice(0, 100));
     }
     // a heavy slot is the person's own machine: nobody else sees its holders, and a teammate's same-named machine is theirs
     const sl = await mcpCall(A.code, 'slot', { action: 'acquire', machine: 'lkq-slotbox', session: 'lkqslotsess' });

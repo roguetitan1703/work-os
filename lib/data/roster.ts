@@ -92,10 +92,11 @@ async function loadRaw(s: Scope, hours: number, projectId?: string): Promise<Raw
   // Where the daemon reports, a session whose process still runs is not gone however quiet it is. The daemon belongs to
   // the worker's own person, so it is read for the whole organization (it answers only "running or not").
   // Only rows quiet for over 30 minutes can be saved by it, so a roster of busy workers costs no extra read.
-  const machineIds = [...new Set(rows.filter(r => r.session && r.machineName && Date.now() - r.lastSeen.getTime() > GONE_MIN * 60_000).map(r => r.machine))];
+  const quiet = rows.filter(r => r.session && r.machineName && Date.now() - r.lastSeen.getTime() > GONE_MIN * 60_000);
   const alive = new Set<string>();
-  if (machineIds.length) {
-    const devs = await (await orgWide(s.orgId)).devices.find({ _id: { $in: machineIds }, revokedAt: null }, { projection: { claudeSessions: 1 } }).toArray();
+  if (quiet.length) {
+    // A device counts only for the person who owns it (a session cannot claim someone else's computer).
+    const devs = await (await orgWide(s.orgId)).devices.find({ $or: quiet.map(r => ({ _id: r.machine, ownerId: r.userId })), revokedAt: null }, { projection: { claudeSessions: 1 } }).toArray();
     const nowMs = Date.now();
     for (const d of devs) {
       const list = d.claudeSessions;
@@ -106,7 +107,18 @@ async function loadRaw(s: Scope, hours: number, projectId?: string): Promise<Raw
   return rows.map(row => ({ row, running: !!row.session && alive.has(`${row.machine}:${row.session}`) }));
 }
 
-type Ctx = { names: Record<string, string>; pname: Map<string, string>; needs: Set<string>; nextCount: (projectId: string) => number };
+/** The kind of client, for people who are not the key's owner (a key's name is its owner's own label). */
+export const clientWord = (agent: string): string => (agent === 'claude-code' ? 'Claude Code' : agent === 'claude' ? 'Claude' : agent);
+
+/** Number and title of tasks, read through the scoped door: a task the viewer cannot read is simply absent. */
+export async function taskInfo(s: Scope, ids: string[]): Promise<Map<string, { ref: number; title: string }>> {
+  const uniq = [...new Set(ids)];
+  if (!uniq.length) return new Map();
+  const ts = await (await scoped(s)).tasks.find({ _id: { $in: uniq } }, { projection: { ref: 1, title: 1 } }).toArray();
+  return new Map(ts.map(t => [t._id, { ref: t.ref, title: t.title }]));
+}
+
+type Ctx = { tasks: Map<string, { ref: number; title: string }>; names: Record<string, string>; pname: Map<string, string>; needs: Set<string>; nextCount: (projectId: string) => number };
 
 /** Rows for the screen: state computed, builders placed under their orchestrators, orchestrators ordered working first. */
 function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
@@ -120,7 +132,7 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
         session: row.session ?? null,
         person: x.names[row.userId] || 'a member',
         mine: row.userId === s.userId,
-        ai: row.ai,
+        ai: row.userId === s.userId ? row.ai : clientWord(row.agent), // a key name is its owner's label: others see the kind of client
         model: row.model ?? '',
         account: row.account ?? '',
         machine: row.machineName ?? row.machine,
@@ -128,7 +140,7 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
         branch: row.branch ?? '',
         label: row.label,
         slot: row.slot ?? '',
-        doing: row.doing ? { ref: row.doing.ref, title: row.doing.title, held: state !== 'gone' } : null,
+        doing: row.doing && x.tasks.get(row.doing.taskId) ? { ...x.tasks.get(row.doing.taskId)!, held: state !== 'gone' } : null,
         state,
         nextWork: state === 'idle' ? x.nextCount(row.projectId) : 0,
         lastSeen: row.lastSeen.toISOString(),
@@ -166,7 +178,8 @@ export async function roster(s: Scope): Promise<Roster> {
   const pname = new Map(projects.map(p => [p._id, p.name]));
   const needs = await openNeedRows(s, raw.map(r => r.row));
   const nextByProject = await unblockedNext(s, projectIds);
-  const workers = buildWorkers(s, raw, { names, pname, needs, nextCount: id => nextByProject.get(id)?.n ?? 0 });
+  const tasks = await taskInfo(s, raw.flatMap(r => (r.row.doing ? [r.row.doing.taskId] : [])));
+  const workers = buildWorkers(s, raw, { tasks, names, pname, needs, nextCount: id => nextByProject.get(id)?.n ?? 0 });
 
   const keyOf = (r: PresenceDoc) => machineKey(r.userId, { machine: r.machine, machineName: r.machineName });
   const machineKeys = [...new Set(raw.filter(r => r.row.machine).map(r => keyOf(r.row)))];
@@ -217,7 +230,8 @@ export async function projectRoster(
   const live = new Set(openTasks.filter(t => t.status !== 'Blocked').map(t => t.ref));
   const lines = (state?.next ?? []).filter(l => !l.waitsOn && !(l.ref && !live.has(l.ref)));
   const needs = raw.length ? await openNeedRows(s, raw.map(r => r.row)) : new Set<string>();
-  const workers = buildWorkers(s, raw, { names, pname: new Map([[project.id, project.name]]), needs, nextCount: () => lines.length }).filter(w => w.state !== 'gone');
+  const tasks = await taskInfo(s, raw.flatMap(r => (r.row.doing ? [r.row.doing.taskId] : [])));
+  const workers = buildWorkers(s, raw, { tasks, names, pname: new Map([[project.id, project.name]]), needs, nextCount: () => lines.length }).filter(w => w.state !== 'gone');
   const now = Date.now();
   const anyLive = raw.some(r => workerState(r.row, { now, running: r.running }) !== 'gone');
   return { workers, couldBeRunning: project.status === 'active' && lines.length && !anyLive ? { projectId: project.id, projectName: project.name, unblocked: lines.length, first: lines[0].text.slice(0, 160) } : null };

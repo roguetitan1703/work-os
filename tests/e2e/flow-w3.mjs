@@ -68,6 +68,18 @@ try {
   const tess = await slot(kT, { machine: box, session: 's1' });
   check('W3: a teammate who calls their machine the same name has their own (not the owner’s full one)', tess.json?.acquired === true && tess.json.held === 1, tess.text.slice(0, 200));
 
+  // Slot writes are the holder's own: another person cannot release (or take over) a hold by quoting its session id
+  {
+    const m = 'w3-own-box';
+    const mine = await slot(cc, { machine: m, session: 'shared-id' });
+    const theirs = await mcpH(kT, 'slot', { action: 'release', machine: m, session: 'shared-id' });
+    check('W3: another person releasing with the same session id leaves the hold alone', mine.json?.acquired === true && theirs.json?.released === false && (await holds(`u:${ME.userId}:${m}`)).length === 1, theirs.text.slice(0, 200));
+    const doc = await rawDb.collection('slots').findOne({ machine: `u:${ME.userId}:${m}` });
+    check('W3: the machine document records its person and when it was last touched', doc?.ownerId === ME.userId && doc.touchedAt instanceof Date, JSON.stringify([doc?.ownerId, doc?.touchedAt]));
+    const ttl = (await rawDb.collection('slots').indexes()).find(i => i.name === 'touched_ttl');
+    check('W3: slot documents expire a day after the last touch (TTL index)', ttl?.expireAfterSeconds === 86400, JSON.stringify(ttl));
+  }
+
   // A device of the person is one machine however it is spelled; the default machine is the one start_work gave
   const devId = randomUUID();
   await rawDb.collection('devices').insertOne({ _id: devId, name: 'W3-PC', ownerId: ME.userId, orgId: ME.orgId, hash: randomUUID(), prefix: 'wkr_w3', createdAt: new Date(), lastSeenAt: new Date(), revokedAt: null });

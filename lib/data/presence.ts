@@ -57,11 +57,11 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
         writesSinceSave: 0,
         ...placeIn(project, s.userId),
       },
+      // A machine that is no longer one of the person's devices (or a name now reported plain) drops its device name.
+      ...(o.machine && !o.machineName ? { $unset: { machineName: '' } } : {}),
     },
     { upsert: true },
   );
-  // A machine that is no longer one of the person's devices (or a name now reported plain) drops its device name.
-  if (o.machine && !o.machineName) await c.presence.updateOne({ _id }, { $unset: { machineName: '' } });
   for (const k of [...none.keys()]) if (k.startsWith(`${i.userId}|`)) none.delete(k);
   return (await c.presence.findOne({ _id }))!;
 }
@@ -128,10 +128,10 @@ export async function resolveMachine(s: Scope, reported?: string): Promise<{ mac
 }
 
 /** set_doing: records the task the session is on (or clears it). Null when the caller is not a present session. */
-export async function setDoing(s: Scope, i: Ident, task: { taskId: string; ref: number; title: string } | null): Promise<PresenceDoc | null> {
+export async function setDoing(s: Scope, i: Ident, taskId: string | null): Promise<PresenceDoc | null> {
   const row = await presentRow(s, i);
   if (!row) return null;
   const c = await scoped(s);
-  await c.presence.updateOne({ _id: row._id }, task ? { $set: { doing: { ...task, title: task.title.slice(0, 200), at: new Date() }, lastSeen: new Date() } } : { $unset: { doing: '' }, $set: { lastSeen: new Date() } });
+  await c.presence.updateOne({ _id: row._id }, taskId ? { $set: { doing: { taskId, at: new Date() }, lastSeen: new Date() } } : { $unset: { doing: '' }, $set: { lastSeen: new Date() } });
   return (await c.presence.findOne({ _id: row._id }))!;
 }

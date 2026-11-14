@@ -250,11 +250,11 @@ export type PresenceDoc = Placed & {
   branch?: string;
   /** When machine resolved to one of the person's devices (machine is then its id): that device's name. */
   machineName?: string;
-  /** The task the worker says it is on (set_doing). */
-  doing?: { taskId: string; ref: number; title: string; at: Date };
+  /** The task the worker says it is on (set_doing): only its id. Its number and title are read through the scoped door when shown, so a viewer who cannot read the task sees nothing of it. */
+  doing?: { taskId: string; at: Date };
 };
 /** Heavy-slot leases on one machine (lib/data/slots.ts): at most `cap` (default 2) holders, each with a lease end. _id = org:machine. Organization-wide on purpose: the cap is per machine across every session on it. */
-export type SlotDoc = { _id: string; orgId: string; machine: string; kind: 'heavy'; cap?: number; holds: { h: string; session: string; userId: string; until: Date }[] };
+export type SlotDoc = { _id: string; orgId: string; machine: string; kind: 'heavy'; /** The person whose machine it is (the device's owner, or whoever named a plain-name machine). Only they write it. */ ownerId: string; /** Last write; a TTL index removes a document untouched for a day. */ touchedAt: Date; cap?: number; holds: { h: string; session: string; userId: string; until: Date }[] };
 
 export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'claude_stuck' | 'need';
 /** Kinds sent from the alertQueue (event alerts) rather than found by the scheduled check. */
@@ -465,7 +465,7 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['calendarFeeds', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]],
     ['states', [{ key: { orgId: 1, projectId: 1 }, unique: true, name: 'org_project_unique' }]],
     ['presence', [{ key: { orgId: 1, projectId: 1, lastSeen: -1 }, name: 'org_project_seen' }, { key: { lastSeen: 1 }, name: 'seen_ttl', expireAfterSeconds: 7 * 86_400 }]],
-    ['slots', [{ key: { orgId: 1, machine: 1 }, name: 'org_machine' }]],
+    ['slots', [{ key: { orgId: 1, machine: 1 }, name: 'org_machine' }, { key: { touchedAt: 1 }, name: 'touched_ttl', expireAfterSeconds: 86_400 }]],
     ['authLimits', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 3600 }, { key: { key: 1, at: -1 }, name: 'key_at' }]],
     // Better Auth's collections (lib/auth-server.ts): its MongoDB adapter creates no indexes. A session is read by its
     // token whenever the cookie cache runs out (every 2 minutes per person), a member on every role check, an API key on
