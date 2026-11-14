@@ -45,6 +45,8 @@ subtasks|subtasks.mjs|none|plain
 flow-s1|flow-s1.mjs|none|plain
 flow-s2|flow-s2.mjs|none|plain
 flow-h1|flow-h1.mjs|none|plain
+flow-w1|flow-w1.mjs|none|plain
+flow-w3|flow-w3.mjs|none|plain
 usage|usage.mjs|none|plain
 auth|auth.mjs|none|plain
 tenancy|tenancy.mjs|none|plain

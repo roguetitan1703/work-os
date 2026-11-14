@@ -258,6 +258,7 @@ function writers(col, d) {
   if (OWNED.has(col)) return org.members.includes(pOf(d.ownerId)) ? [pOf(d.ownerId)] : [];
   if (RECIP.has(col)) return org.members.includes(pOf(d.userId)) ? [pOf(d.userId)] : [];
   if (col === 'counters') return org.members;
+  if (col === 'slots') return org.members; // slice 7: heavy-slot leases, per machine (a machine's key holds the person's id or the device id)
   if (col === 'settings') {
     if (d.userId) return org.members.includes(pOf(d.userId)) ? [pOf(d.userId)] : [];
     return org.admins; // discord:<org>, modes:<org>, authMigration
@@ -775,6 +776,37 @@ try {
     const xs = await mcpCall(X.chat, 'start_work', { project: S.projectName });
     check('Orders: the other organization cannot start work on it, so reads none of it', !xs.ok);
   }
+  // Slice 7: the roster follows the project. A worker row and a project's "could be running" line are seen only by those who can read the project.
+  {
+    const nm = can('rosterproj', ['A']);
+    const idle = can('rosteridle', ['A']);
+    const cn = `lkqrostercanary${hex(4)}`;
+    CANARIES.push({ s: cn, tag: 'roster', allow: new Set(['A']) });
+    await mustMcp(A.chat, 'add_project', { name: nm, visibility: 'private' });
+    await mustMcp(A.chat, 'add_project', { name: idle, visibility: 'private' });
+    await mustMcp(A.chat, 'save_state', { project: idle, ops: [{ op: 'add_next', text: cn + 'next' }] });
+    const tk = await mustMcp(A.chat, 'add_task', { title: cn + 'task', project: nm });
+    await mustMcp(A.code, 'start_work', { project: nm, machine: cn + 'box', label: cn + 'label', model: cn + 'model', account: cn + 'acct', branch: cn + 'br', session: 'lkqrostersess' });
+    await mustMcp(A.code, 'set_doing', { task: tk.created.ref, session: 'lkqrostersess' });
+    const mine = await req('GET', '/claude?tab=workers', { cookie: A.cookie });
+    check('roster: the owner sees their worker and the project that could be running', mine.text.includes(cn + 'model') && mine.text.includes(cn + 'task') && mine.text.includes(idle), mine.text.slice(0, 200));
+    for (const p of [T, X, R]) {
+      const r = await req('GET', '/claude?tab=workers', { cookie: p.cookie });
+      scan(p.name, 'roster Workers tab', r.text);
+      check(`roster: ${p.name} sees no worker and no "could be running" line of a private project`, !r.text.includes(cn) && !r.text.includes(nm) && !r.text.includes(idle), r.text.slice(0, 160));
+      for (const [label, n] of [['worker project', nm], ['idle project', idle]]) {
+        const id = (await rawDb.collection('projects').findOne({ orgId: A.orgId, name: n }))._id;
+        const pr = await req('GET', `/projects/${id}`, { cookie: p.cookie });
+        scan(p.name, `roster project page (${label})`, pr.text);
+        check(`roster: ${p.name} gets no project page (${label}) and so no worker line`, !pr.text.includes(cn), pr.text.slice(0, 120));
+      }
+    }
+    // a heavy slot is the person's own machine: nobody else sees its holders, and a teammate's same-named machine is theirs
+    const sl = await mcpCall(A.code, 'slot', { action: 'acquire', machine: 'lkq-slotbox', session: 'lkqslotsess' });
+    const tsl = await mcpCall(T.code, 'slot', { action: 'acquire', machine: 'lkq-slotbox', session: 'lkqslotsess' });
+    scan('T', 'slot answer', tsl.text);
+    check('roster: a teammate’s machine of the same name is their own (one holder, theirs)', sl.ok && tsl.ok && JSON.parse(tsl.text).held === 1 && JSON.parse(tsl.text).holders.length === 1, tsl.text.slice(0, 200));
+  }
   await sleep(500);
   for (const s of [sX, wT, wX]) s.close();
   // (X's own probes make hints marked as X's own, s:1; anything else came from someone else's write)
@@ -919,6 +951,9 @@ function AUDIT() {
   );
   // (the owner already has a State there, so import is refused for them by design: its refusals must read as the access check)
   add('mcp import_state', M('import_state', t => ({ project: t.project, markdown: '## Now\n- lkq imported goal' }), aim(['project'], { control: false })));
+  // The roster (slice 7). set_doing names a task, so it is aimed at one the caller cannot see (control off: the owner has no present session in the probe). slot works on the caller's own machines only.
+  add('mcp set_doing', M('set_doing', t => ({ task: t.ref }), aim(['ref'], { control: false })), M('set_doing', t => ({ task: t.task }), aim(['task'], { label: 'by id', control: false })));
+  add('mcp slot', M('slot', { action: 'acquire', machine: 'lkq-slot-box' }, { label: 'acquire' }), M('slot', { action: 'release', machine: 'lkq-slot-box' }, { label: 'release' }));
   const dOk = r => r.ok;
   add('mcp discord_list_channels', M('discord_list_channels', {}, { ok: dOk }));
   add('mcp discord_needs_attention', M('discord_needs_attention', { since: '3d' }, { ok: dOk }));
@@ -1067,7 +1102,7 @@ function AUDIT() {
   add('page /notifications', pg('/notifications'));
   add('page /review', ...['done', 'activity', 'weekly', 'stale', 'archive', 'trash'].map(v => pg(`/review?view=${v}`, { label: v })));
   add('page /settings', ...['account', 'notifications', 'connections', 'started', 'team', 'server'].map(v => pg(`/settings?section=${v}`, { label: v })));
-  add('page /claude', ...['now', 'queue', 'setup'].map(v => pg(`/claude?tab=${v}`, { label: v })));
+  add('page /claude', ...['now', 'queue', 'workers', 'setup'].map(v => pg(`/claude?tab=${v}`, { label: v })));
   add('page /menu', pg('/menu'));
   add('page /timetable', pg('/timetable'), pg('/timetable?edit=1', { label: 'editor' }));
   add('page /accept-invitation/[id]', pg(t => `/accept-invitation/${t.invite}?t=${'x'.repeat(43)}`, { ...aim(['invite']), public: true, label: 'without the secret', ok: r => r.status === 200 && /join|accept|create your account/i.test(r.text) && !/invalid|expired|no longer/i.test(r.text), control: false }));
