@@ -9,9 +9,10 @@ import { B, ME, MCP, EMAIL, PW, SP, check, finish, launch, login, makeUser, mkKe
 import { mcpH, must, sleep } from './flow-lib.mjs';
 
 const NAME = 'Flow Roster';
+let PID = ''; // presence rows are keyed user:s:session:project
 const REMOTE = 'acme/flow-roster';
 const ago = min => new Date(Date.now() - min * 60_000);
-const seen = (sid, min) => rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:${sid}` }, { $set: { lastSeen: ago(min) } });
+const seen = (sid, min) => rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:${sid}:${PID}` }, { $set: { lastSeen: ago(min) } });
 
 async function cookie() {
   const r = await fetch(B + '/api/auth/sign-in/email', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ email: EMAIL, password: PW }), redirect: 'manual' });
@@ -30,12 +31,13 @@ function workers(h) {
 }
 // (a long page streams: the rest of a late row arrives after the first flush, so "unheld" is checked in the browser part below, where the page is whole)
 const couldRun = h => [...h.matchAll(/data-could-run-project="([^"]*)"/g)].map(m => m[1]);
-const row = (list, sid) => list.find(w => w.id === `${ME.userId}:s:${sid}`);
+const row = (list, sid) => list.find(w => w.id === `${ME.userId}:s:${sid}:${PID}`);
 
 try {
   const devId = randomUUID();
   await rawDb.collection('devices').insertOne({ _id: devId, name: 'Om-PC', ownerId: ME.userId, orgId: ME.orgId, hash: randomUUID(), prefix: 'wkr_w1', createdAt: new Date(), lastSeenAt: new Date(), revokedAt: null });
   await must(MCP, 'add_project', { name: NAME, code: [{ remote: REMOTE }] });
+  PID = (await rawDb.collection('projects').findOne({ name: NAME }))._id;
   const t1 = (await must(MCP, 'add_task', { title: 'Orchestrate it', project: NAME })).created.ref;
   const t2 = (await must(MCP, 'add_task', { title: 'Build the first part', project: NAME })).created.ref;
   const t3 = (await must(MCP, 'add_task', { title: 'Build the second part', project: NAME })).created.ref;
@@ -50,9 +52,9 @@ try {
   await must(ag, 'start_work', { project: NAME, machine: 'laptop-x', label: 'builder S', model: 'Sonnet 5.5', account: 'om-api', branch: 'builder-s', parent: 'w1-orch', slot: 'S', session: 'w1-bs' });
   for (const [k, sid, t] of [[cc, 'w1-orch', t1], [cc, 'w1-ba', t2], [ag, 'w1-bs', t3]]) await must(k, 'set_doing', { task: t, session: sid });
 
-  const orchRow = await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-orch` });
-  check('W1: machine resolves to the device id when the name is one of the person’s devices, else stays the reported name', orchRow.machine === devId && orchRow.machineName === 'Om-PC' && (await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-bs` })).machine === 'laptop-x', JSON.stringify([orchRow.machine, orchRow.machineName]));
-  check('W1: start_work stores model, account, branch, parent and slot', orchRow.model === 'Opus 4.7' && orchRow.account === 'om-max' && orchRow.branch === 'master' && (await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-ba` })).parent === 'w1-orch');
+  const orchRow = await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-orch:${PID}` });
+  check('W1: machine resolves to the device id when the name is one of the person’s devices, else stays the reported name', orchRow.machine === devId && orchRow.machineName === 'Om-PC' && (await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-bs:${PID}` })).machine === 'laptop-x', JSON.stringify([orchRow.machine, orchRow.machineName]));
+  check('W1: start_work stores model, account, branch, parent and slot', orchRow.model === 'Opus 4.7' && orchRow.account === 'om-max' && orchRow.branch === 'master' && (await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-ba:${PID}` })).parent === 'w1-orch');
 
   let h = await html('/claude?tab=workers');
   let ws = workers(h);
@@ -92,7 +94,7 @@ try {
 
   // A gone worker that calls again is back, and keeps what it reported before
   await must(ag, 'start_work', { project: NAME, machine: 'laptop-x', label: 'builder S', session: 'w1-bs' });
-  const back = await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-bs` });
+  const back = await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-bs:${PID}` });
   check('W1: a gone worker that calls start_work again is working, with its model, account and parent kept', row(workers(await html('/claude?tab=workers')), 'w1-bs').state === 'working' && back.model === 'Sonnet 5.5' && back.account === 'om-api' && back.parent === 'w1-orch', JSON.stringify([back.model, back.account, back.parent]));
 
   // Waiting on a person: a Need the worker asked that is still open (lib/data/needs.ts; matched on its session, else on the client kind plus project)
@@ -118,11 +120,11 @@ try {
   await must(kT, 'start_work', { project: NAME, machine: 'tess-box', label: 'tess builder', parent: 'w1-ba', session: 'w1-tb' });
   await must(kT, 'start_work', { project: NAME, machine: 'tess-box', label: 'tess twin', session: 'w1-orch' });
   await snap();
-  const tb = workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-tb`);
+  const tb = workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-tb:${PID}`);
   check('W1: a builder whose parent names another person’s orchestrator stays top level', tb?.depth === 0, JSON.stringify(tb)?.slice(0, 300));
   const nT = await must(kT, 'ask', { project: NAME, to: EMAIL, kind: 'approve', ask: 'Tess asks: ship?', session: 'w1-orch' });
   await snap();
-  check('W1: another person’s Need with the same session id does not make this person’s worker wait (only their own twin does)', st('w1-orch') === 'working' && workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-orch`)?.state === 'waiting', [st('w1-orch'), workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-orch`)?.state].join());
+  check('W1: another person’s Need with the same session id does not make this person’s worker wait (only their own twin does)', st('w1-orch') === 'working' && workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-orch:${PID}`)?.state === 'waiting', [st('w1-orch'), workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-orch:${PID}`)?.state].join());
   await must(kT, 'withdraw_need', { id: nT.need.ref });
   await rawDb.collection('presence').deleteMany({ userId: tess.userId }); // her rows must not keep the project busy in the cases below
 
@@ -133,7 +135,7 @@ try {
   check('W1: set_doing refuses a task of another project', cross.isError && /project/i.test(cross.text), cross.text.slice(0, 200));
   await snap();
   check('W1: and the roster does not show it', !row(workers(htmlNow), 'w1-orch').text.includes('Task of another project'));
-  const doingDoc = (await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-orch` })).doing;
+  const doingDoc = (await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-orch:${PID}` })).doing;
   check('W1: the worker row stores only the task id (no title)', doingDoc && Object.keys(doingDoc).sort().join() === 'at,taskId', JSON.stringify(doingDoc));
   for (const account of ['om@example.com', 'sk-ant-abcdef', 'wkr_abcdef', 'wos_abcdef', 'abcdefghijklmnopqrstuvwxyz0123456789']) {
     const r = await mcpH(cc, 'start_work', { project: NAME, machine: 'om-pc', label: 'x', account, session: 'w1-acct' });
@@ -179,11 +181,11 @@ try {
       await p.goto(B + '/claude?tab=workers');
       await p.waitForSelector('[data-section="workers"]');
       const T = s => `W1 [${vp}]: ${s}`;
-      await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:w1-bs` }, { $set: { lastSeen: ago(40) } });
+      await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:w1-bs:${PID}` }, { $set: { lastSeen: ago(40) } });
       await p.goto(B + '/claude?tab=workers');
       await p.waitForSelector('[data-section="workers"]');
-      check(T('a gone worker shows "Gone" and its task "unheld"'), (await p.locator(`[data-worker="${ME.userId}:s:w1-bs"][data-state="gone"] [data-unheld]`).count()) === 1 && (await p.locator('[data-unheld]').count()) === 1);
-      await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:w1-bs` }, { $set: { lastSeen: ago(1) } });
+      check(T('a gone worker shows "Gone" and its task "unheld"'), (await p.locator(`[data-worker="${ME.userId}:s:w1-bs:${PID}"][data-state="gone"] [data-unheld]`).count()) === 1 && (await p.locator('[data-unheld]').count()) === 1);
+      await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:w1-bs:${PID}` }, { $set: { lastSeen: ago(1) } });
       await p.goto(B + '/claude?tab=workers');
       await p.waitForSelector('[data-section="workers"]');
       check(T('the Workers tab is in the tab bar and lit'), (await p.locator('a[data-tab="workers"][aria-current="page"]').count()) === 1 && /Workers/.test(await p.locator('a[data-tab="workers"]').innerText()));
@@ -192,8 +194,8 @@ try {
       const first = await p.locator('[data-worker]').first().boundingBox();
       check(T('the could-run list is above the workers'), top.y < first.y, `${top.y} ${first.y}`);
       const px = async l => (await p.locator(l).first().locator('[data-worker-person]').boundingBox()).x;
-      const orchX = await px(`[data-worker="${ME.userId}:s:w1-orch"]`);
-      const bX = await px(`[data-worker="${ME.userId}:s:w1-ba"]`);
+      const orchX = await px(`[data-worker="${ME.userId}:s:w1-orch:${PID}"]`);
+      const bX = await px(`[data-worker="${ME.userId}:s:w1-ba:${PID}"]`);
       check(T('a builder is indented under its orchestrator'), bX > orchX + 8, `${orchX} ${bX}`);
       const o2 = await overflow(p);
       check(T('no horizontal scroll'), okO(o2), JSON.stringify(o2));

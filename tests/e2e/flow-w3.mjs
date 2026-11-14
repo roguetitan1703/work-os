@@ -85,7 +85,7 @@ try {
   await rawDb.collection('devices').insertOne({ _id: devId, name: 'W3-PC', ownerId: ME.userId, orgId: ME.orgId, hash: randomUUID(), prefix: 'wkr_w3', createdAt: new Date(), lastSeenAt: new Date(), revokedAt: null });
   await must(MCP, 'add_project', { name: 'Flow Slots' });
   const sw = await must(cc, 'start_work', { project: 'Flow Slots', machine: 'w3-pc', label: 'slot user' });
-  const row = await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:${sw.session}` });
+  const row = await rawDb.collection('presence').findOne({ userId: ME.userId, session: sw.session });
   check('W3: start_work resolves a machine name that is one of the person’s devices to the device id', row?.machine === devId && row.machineName === 'W3-PC', JSON.stringify([row?.machine, row?.machineName]));
   const d1 = await slot(cc, { session: sw.session }); // machine from the present session
   const d2 = await slot(cc, { machine: 'W3-PC', session: 'd2' });
