@@ -18,7 +18,7 @@ import { placeIn, resolveProject } from './projects';
 // app/(app)/needs/actions.ts), and later the addressed person's own Discord button (slice 6). The asker's word is set
 // by the server from how the call came in (lib/mcp/server.ts), never from an argument.
 
-export const NEED_LIMITS = { openPerPair: 5, ask: 500, example: 1000, answerText: 1000, optionLabel: 60, optionMeans: 300 } as const;
+export const NEED_LIMITS = { openPerPair: 5, perHour: 10, replaceAlertMs: 600_000, ask: 500, example: 1000, answerText: 1000, optionLabel: 60, optionMeans: 300 } as const;
 const REPEAT_KINDS: NeedKind[] = ['decide', 'approve', 'review', 'do', 'chase'];
 export const ASK_KINDS = ['decide', 'approve', 'do', 'chase'] as const satisfies readonly NeedKind[];
 
@@ -141,6 +141,7 @@ export type AskInput = {
   actor: Actor;
   word: NeedWord;
   session?: string;
+  keyId?: string;
   label?: string;
 };
 
@@ -174,12 +175,21 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
     const mine = { status: 'open' as const, 'from.actor.userId': actorId, 'from.word': input.word };
     const replaced = task ? await c.needs.find({ ...mine, taskId: task._id, kind: input.kind }).toArray() : [];
     const replacedIds = new Set(replaced.map(n => n._id));
+    // The limit holds under a race because the `need:<org>` counter (nextSeq below) is the lock: two asks at once both write
+    // that one document in their transactions, the second gets a write conflict, withTransaction retries it, and the retry
+    // counts again and sees the first one's Need (flow-n3: six asks in parallel, exactly five land).
     const open = await c.needs.find({ ...mine, to: input.to }, { projection: { _id: 1 } }).toArray();
     if (open.filter(n => !replacedIds.has(n._id)).length >= NEED_LIMITS.openPerPair) {
       throw new InputError(`You already have ${NEED_LIMITS.openPerPair} open Needs with that person. Wait for answers, or withdraw one (withdraw_need), before asking more.`);
     }
 
+    // The phone is not a mailbox an agent may fill: at most 10 Needs created from one asker to one person in an hour, any
+    // status (ask, withdraw, ask again counts each time), and a replacement within 10 minutes of the alert it replaces sends none.
     const now = new Date();
+    const recent = await c.needs.countDocuments({ 'from.actor.userId': actorId, to: input.to, createdAt: { $gt: new Date(now.getTime() - 3_600_000) } });
+    if (recent >= NEED_LIMITS.perHour) throw new InputError(`You have already asked that person ${NEED_LIMITS.perHour} times in the last hour. Wait before asking more; they have your open ones.`);
+    const lastAlert = replaced.map(n => n.alertedAt?.getTime() ?? 0).reduce((a, b) => Math.max(a, b), 0);
+    const quiet = lastAlert > now.getTime() - NEED_LIMITS.replaceAlertMs;
     const id = randomUUID();
     const place = placeIn(project, s.userId);
     const doc: NeedDoc = {
@@ -193,7 +203,7 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
       taskId: task?._id ?? null,
       taskRef: task?.ref ?? null,
       to: input.to,
-      from: { actor: input.actor, word: input.word, ...(input.session ? { session: input.session.slice(0, 80) } : {}), ...(input.label ? { label: input.label.slice(0, 80) } : {}) },
+      from: { actor: input.actor, word: input.word, ...(input.session ? { session: input.session.slice(0, 80) } : {}), ...(input.keyId ? { keyId: input.keyId.slice(0, 80) } : {}), ...(input.label ? { label: input.label.slice(0, 80) } : {}) },
       kind: input.kind,
       ask,
       ...(example ? { example } : {}),
@@ -202,16 +212,19 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
       appOnly: input.appOnly === true,
       createdAt: now,
       answeredAt: null,
+      ...(quiet ? { alertedAt: new Date(lastAlert) } : { alertedAt: now }),
     };
     await c.needs.insertOne(doc);
     if (replaced.length) await c.needs.updateMany({ _id: { $in: [...replacedIds] }, status: 'open' }, { $set: { status: 'replaced', closedAt: now, replacedBy: id } });
-    await syncTaskNeed(c, doc.taskId);
+    await syncTaskNeed(await orgWide(s.orgId), doc.taskId);
     // One alert per Need, sent at once (like "assigned"): to the addressee, even when they asked themselves through their own agent.
-    await (await orgWide(s.orgId)).alertQueue.updateOne(
-      { _id: `need:${id}` },
-      { $setOnInsert: { userId: input.to, kind: 'need', taskId: task?._id ?? '', byTaskId: '', needId: id, createdAt: now, sentAt: null } },
-      { upsert: true },
-    );
+    if (!quiet) {
+      await (await orgWide(s.orgId)).alertQueue.updateOne(
+        { _id: `need:${id}` },
+        { $setOnInsert: { userId: input.to, kind: 'need', taskId: task?._id ?? '', byTaskId: '', needId: id, createdAt: now, sentAt: null } },
+        { upsert: true },
+      );
+    }
     return { need: toNeed(doc), replaced: replaced.map(n => toNeed({ ...n, status: 'replaced', replacedBy: id })) };
   });
 }
@@ -280,13 +293,50 @@ export async function needsForBrief(s: Scope, projectId: string): Promise<Need[]
  * answered after `since`. `asker.session`, when given, narrows to Needs asked by that session id (or by a call that
  * named none). Ids, refs, options and answer text; the caller words it ("your Need #N was answered: option B").
  */
-export async function answeredNeedsSince(s: Scope, asker: { session?: string; projectId?: string } = {}, since: Date | null = null): Promise<Need[]> {
+export async function answeredNeedsSince(s: Scope, asker: { session?: string; keyId?: string; projectId?: string; unbriefed?: boolean } = {}, since: Date | null = null): Promise<Need[]> {
   const q: Document = { 'from.actor.userId': s.userId, status: 'answered' };
+  if (asker.unbriefed) q.briefedAt = { $exists: false };
   if (since) q.answeredAt = { $gt: since };
   if (asker.projectId) q.projectId = asker.projectId;
+  // A Need goes to the session that asked. A caller with no session id gets only those asked by the same key / OAuth client
+  // (on the project asked about); never another session's, never another key's.
+  // The key must be the asking key in every case: a session id alone is a name any caller may pass.
+  if (asker.keyId) q['from.keyId'] = asker.keyId;
+  else q._id = '';
   if (asker.session) q.$or = [{ 'from.session': asker.session }, { 'from.session': { $exists: false } }];
   const docs = await (await scoped(s)).needs.find(q).sort({ answeredAt: 1 }).limit(50).toArray();
   return docs.map(toNeed);
+}
+
+/** start_work handed these answers over: the next brief leaves them out. */
+export async function markBriefed(s: Scope, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  await (await scoped(s)).needs.updateMany({ _id: { $in: ids }, status: 'answered', briefedAt: { $exists: false } }, { $set: { briefedAt: new Date() } });
+}
+
+/** Open Needs addressed to the caller on one project that arrived after `since` (the forYou line counts them). */
+export async function newNeedsForMe(s: Scope, projectId: string, since: Date): Promise<Need[]> {
+  const docs = await (await scoped(s)).needs.find({ projectId, to: s.userId, status: 'open', createdAt: { $gt: since } }).sort({ createdAt: 1 }).limit(21).toArray();
+  return docs.map(toNeed);
+}
+
+/**
+ * State's Next lines that point at a task (`ref`) carry `waitsOn` from the open Needs on that task: "Need #7 (Om)". The
+ * line's own written waitsOn stays when there is one. Read-side only, nothing is stored; no body text, only the number
+ * and who is asked.
+ */
+export async function withNeedWaits<T extends { next: { ref?: number; waitsOn?: string }[] }>(s: Scope, projectId: string, state: T, names: Record<string, string>): Promise<T> {
+  const refs = [...new Set(state.next.map(l => l.ref).filter((r): r is number => !!r))];
+  if (!refs.length) return state;
+  const open = await (await scoped(s)).needs.find({ projectId, status: 'open', taskRef: { $in: refs } }).sort({ createdAt: 1 }).toArray();
+  if (!open.length) return state;
+  return {
+    ...state,
+    next: state.next.map(l => {
+      const n = l.ref && !l.waitsOn ? open.find(x => x.taskRef === l.ref) : undefined;
+      return n ? { ...l, waitsOn: `Need #${n.ref} (${n.to === s.userId ? 'you' : names[n.to] || 'someone'})` } : l;
+    }),
+  };
 }
 
 /**
@@ -310,24 +360,69 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
       { returnDocument: 'after' },
     );
     if (!done) throw new InputError('This Need is already answered.');
-    await syncTaskNeed(c, done.taskId);
+    await syncTaskNeed(await orgWide(s.orgId), done.taskId);
     return toNeed(done);
   });
 }
 
-/** The asker takes a Need back (only the person who asked, while it is open). */
-export async function withdrawNeed(s: Scope, id: string): Promise<Need> {
+/** Who is withdrawing: the app (the person), or an MCP call with the word the server gave it and the session / key behind it. */
+export type Withdrawer = 'app' | { word: NeedWord; session?: string; keyId?: string };
+
+/**
+ * The asker takes a Need back, while it is open. From the app, the person who asked. From an agent call: only a Need of the
+ * same word and, where recorded, the same session and the same key / OAuth client (a session id alone is only a name); a person's own Needs
+ * are taken back in the app only, and a review Need (slice 5) is never taken back by an agent. Any miss reads as "no such Need".
+ */
+export async function withdrawNeed(s: Scope, id: string, by: Withdrawer = 'app'): Promise<Need> {
   return inTransaction(async () => {
     const c = await scoped(s);
     const cur = await c.needs.findOne({ _id: id, 'from.actor.userId': s.userId });
-    if (!cur) throw new NotFoundError('That Need does not exist, or you did not ask it.');
+    const mine =
+      !!cur &&
+      (by === 'app' ||
+        (cur.from.word !== 'person' && cur.kind !== 'review' && cur.from.word === by.word && (!cur.from.session || cur.from.session === by.session) && (!cur.from.keyId || cur.from.keyId === by.keyId)));
+    if (!cur || !mine) throw new NotFoundError('That Need does not exist, or you did not ask it.');
     if (cur.status !== 'open') throw new InputError(`This Need is already ${cur.status}.`);
     const now = new Date();
     const done = await c.needs.findOneAndUpdate({ _id: id, 'from.actor.userId': s.userId, status: 'open' }, { $set: { status: 'withdrawn', closedAt: now } }, { returnDocument: 'after' });
     if (!done) throw new InputError('This Need is already closed.');
-    await syncTaskNeed(c, done.taskId);
+    await syncTaskNeed(await orgWide(s.orgId), done.taskId);
     return toNeed(done);
   });
+}
+
+async function closeBySystem(c: Collections, dead: NeedDoc[], reason: string): Promise<number> {
+  if (!dead.length) return 0;
+  const now = new Date();
+  await c.needs.updateMany({ _id: { $in: dead.map(n => n._id) }, status: 'open' }, { $set: { status: 'withdrawn', closedAt: now, withdrawnReason: reason } });
+  for (const t of new Set(dead.map(n => n.taskId).filter((x): x is string => !!x))) await syncTaskNeed(c, t);
+  return dead.length;
+}
+
+/**
+ * Withdraws the open Needs (matching `filter`) whose addressee can no longer read them, or all of them (`everyone`: the
+ * addressee left the organization), and resyncs their tasks' marks. c: the organization without the visibility rule.
+ */
+export async function withdrawUnreadableNeeds(c: Collections, filter: Document, reason: string, opts: { everyone?: boolean } = {}): Promise<number> {
+  const open = await c.needs.find({ ...filter, status: 'open' }).toArray();
+  return closeBySystem(c, opts.everyone ? open : open.filter(n => !readable(n, n.to)), reason);
+}
+
+/**
+ * A task (and its subtasks) changed project or placement: its Needs take the task's new project and placement, those whose
+ * addressee cannot read it there are withdrawn, and the task's `need` mark is rebuilt. Org-wide, not through the caller's door.
+ */
+export async function restampTaskNeeds(orgId: string, taskIds: string[]): Promise<void> {
+  const c = await orgWide(orgId);
+  if (!taskIds.length || !(await c.needs.findOne({ taskId: { $in: taskIds } }, { projection: { _id: 1 } }))) return;
+  const tasks = await c.tasks.find({ _id: { $in: taskIds } }, { projection: { projectId: 1, ownerId: 1, visibility: 1, sharedWith: 1 } }).toArray();
+  for (const t of tasks) {
+    const set: Document = { ownerId: t.ownerId, visibility: t.visibility, sharedWith: t.visibility === 'members' ? (t.sharedWith ?? []) : [] };
+    if (t.projectId) set.projectId = t.projectId;
+    await c.needs.updateMany({ taskId: t._id }, { $set: set });
+    await withdrawUnreadableNeeds(c, { taskId: t._id }, 'moved');
+    await syncTaskNeed(c, t._id);
+  }
 }
 
 /** Is this task waiting on an open Need? (The stalled alert and the digest skip such tasks.) Reads the task's own mark. */

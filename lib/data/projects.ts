@@ -572,6 +572,8 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   if (projNotes.length) await move('notes', { _id: { $in: await noteTree(c, projNotes.map(n => n._id)) } });
   await move('claudeItems', { projectId: p._id });
   await move('needs', { projectId: p._id });
+  // Needs whose addressee can no longer read the project (made private, taken off the list) are withdrawn.
+  await (await import('./needs')).withdrawUnreadableNeeds(c, { projectId: p._id }, 'access');
   await move('trash', { 'task.projectId': p._id });
   // The project's State and the sessions present on it (docs/flows/step-1.md section 1): same placement, so the door shows them to the project's readers only.
   await move('states', { projectId: p._id });

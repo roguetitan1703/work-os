@@ -2,6 +2,7 @@ import 'server-only';
 import type { PresenceDoc } from '../db';
 import { scoped, type Scope } from '../scope';
 import { claimCursor, countWrite, presentRow, resetWrites, touchPresence, type Ident } from '../data/presence';
+import { answeredNeedsSince, newNeedsForMe } from '../data/needs';
 import type { ToolName } from './docs';
 
 // The "for you" line (docs/flows/step-1.md section 5). Every Work OS tool answer to a present session (one that called
@@ -46,8 +47,24 @@ const newNext: ForYouSource = {
   },
 };
 
+// Needs (slice 4): ids and counts only; the answer itself is read through start_work or needs.
+const needs: ForYouSource = {
+  id: 'needs',
+  async collect({ s, row, since }) {
+    const out: string[] = [];
+    // The asker hears about its own answered Needs: this session's, or those of the same key when it passes no session id.
+    const done = await answeredNeedsSince(s, { session: row.session, keyId: row.keyId, projectId: row.projectId }, since);
+    for (const n of done.slice(0, 5)) out.push(`your Need #${n.ref} was answered`);
+    if (done.length > 5) out.push(`and ${done.length - 5} more of your Needs answered`);
+    // The person asked hears that there is one for them (only the first session of theirs on the project is told once per cursor).
+    const mine = await newNeedsForMe(s, row.projectId, since);
+    if (mine.length) out.push(`${mine.length > 20 ? '20+' : mine.length} Need${mine.length === 1 ? '' : 's'} for you: ${mine.slice(0, 5).map(n => '#' + n.ref).join(', ')}`);
+    return out;
+  },
+};
+
 /** The sources, in the order their lines appear. */
-export const SOURCES: ForYouSource[] = [newTasks, newNext];
+export const SOURCES: ForYouSource[] = [newTasks, newNext, needs];
 
 /** A session that has made this many writes since its last save_state is reminded (and again at each multiple). */
 export const SAVE_NUDGE = 10;

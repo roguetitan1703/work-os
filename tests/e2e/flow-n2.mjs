@@ -7,8 +7,8 @@
 import { B, ME, MCP, check, finish, launch, login, makeUser, mkKey, rawDb, setProfile } from './lib.mjs';
 
 let rid = 0;
-async function as(key, name, args = {}) {
-  const r = await fetch(B + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${key}` }, body: JSON.stringify({ jsonrpc: '2.0', id: ++rid, method: 'tools/call', params: { name, arguments: args } }) });
+async function as(key, name, args = {}, extraHeaders = {}) {
+  const r = await fetch(B + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${key}`, ...extraHeaders }, body: JSON.stringify({ jsonrpc: '2.0', id: ++rid, method: 'tools/call', params: { name, arguments: args } }) });
   const t = await r.text();
   const line = t.split('\n').find(l => l.startsWith('data:'));
   let b;
@@ -131,7 +131,7 @@ try {
   // ======== the answer happens once ========
   {
     const d = await rawDb.collection('needs').findOne({ _id: n1.id });
-    const r = await as(kCode, 'withdraw_need', { id: n1.ref });
+    const r = await as(kCode, 'withdraw_need', { id: n1.ref }, { 'x-work-os-session': 'sess-A' });
     check('closed: an answered Need cannot be withdrawn afterwards', r.isError && /already answered/.test(r.text), r.text.slice(0, 160));
     const d2 = await rawDb.collection('needs').findOne({ _id: n1.id });
     check('closed: it is unchanged', JSON.stringify(d.answer) === JSON.stringify(d2.answer) && d2.status === 'answered');

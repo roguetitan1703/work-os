@@ -22,7 +22,7 @@ import { FolderLinks } from './folders';
 import { ProjectDetails } from './project-header';
 import { ProjectTop } from './project-top';
 import { ClaudeCard } from './claude-card';
-import { projectNeeds } from '@/lib/data/needs';
+import { projectNeeds, withNeedWaits } from '@/lib/data/needs';
 import { NeedsTab } from '@/components/needs';
 import { StateCard } from './state-card';
 import { stateOfProject, stateOut } from '@/lib/data/states';
@@ -68,7 +68,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     memberNames(me.orgId),
     projectNeeds(sc, project.id),
   ]);
-  const stateView = stateDoc ? stateOut(stateDoc, me.userId, names) : null;
+  const stateView = stateDoc ? await withNeedWaits(sc, project.id, stateOut(stateDoc, me.userId, names), names) : null;
   const needsOpenForMe = needs.filter(n => n.status === 'open' && n.to === me.userId).length;
   const turbo = await turboInfo(me, project.id, launcher);
   const projectNotes = notes.notes.filter(n => !n.taskId && !n.archived);

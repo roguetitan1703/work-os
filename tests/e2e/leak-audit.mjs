@@ -443,7 +443,7 @@ try {
   // Needs (slice 4): asks to A, in the private project (only A reads them) and the shared one (A and T read them, only A may answer).
   // Two per project: one for the answer control and one for the withdraw control (each destroys its Need).
   {
-    const ask = (project, text, o = {}) => mustMcp(A.code, 'ask', { project, to: 'me', kind: 'approve', ask: text, ...o });
+    const ask = (project, text, o = {}) => mustMcp(A.chat, 'ask', { project, to: 'me', kind: 'approve', ask: text, ...o });
     P.needAns = (await ask(P.projectName, can('pvneed', ['A']) + ' may I?')).need.id;
     P.needWd = (await ask(P.projectName, can('pvneed', ['A']) + ' withdraw this one', { kind: 'do' })).need.id;
     S.needAns = (await ask(S.projectName, can('shneed', ['A', 'T']) + ' may I?')).need.id;

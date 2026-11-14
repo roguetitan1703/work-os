@@ -905,6 +905,14 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const open = await tasks.listTasks(s, { project: project._id, open: true, archived: 'exclude', sort: 'priority' });
       const pn = await projects.projectNameMap(s);
       const who = await whoOf(ctx);
+      // 2 (Needs): answers to what this caller asked come first, then what is open for them. Ids, asks and options; answer text is the person's own.
+      const answered = await needsData.answeredNeedsSince(s, { session: sid, keyId: caller.keyId, projectId: project._id, unbriefed: true }, new Date(Date.now() - 14 * 86_400_000));
+      const waiting = await needsData.needsForBrief(s, project._id);
+      await needsData.markBriefed(s, answered.map(n => n.id));
+      const needsBlock = {
+        answered: await Promise.all(answered.map(needOut)),
+        forYou: await Promise.all(waiting.map(needOut)),
+      };
       // 5. Who else was here in the last 30 minutes.
       const others = (await othersPresent(s, project._id, row._id)).map(p => ({
         ai: p.ai,
@@ -920,7 +928,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
         textRule: textRule(),
         sessionNote: 'Pass this session id as session on save_state, get_state, get_task, log_progress and complete_task (and as the X-Work-OS-Session header if your client can).',
         orders: orders.length ? orders : 'no Orders set',
-        state: state ? stateData.stateOut(state, s.userId, names) : NO_STATE,
+        ...(needsBlock.answered.length || needsBlock.forYou.length ? { needs: { ...(needsBlock.answered.length ? { answeredForYou: needsBlock.answered } : {}), ...(needsBlock.forYou.length ? { openForYou: needsBlock.forYou } : {}) } } : {}),
+        state: state ? await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names) : NO_STATE,
         openTasks: { total: open.length, tasks: open.slice(0, 25).map(t => briefTask(t, pn, { baseUrl: ctx.baseUrl, who })), ...(open.length > 25 ? { more: `${open.length - 25} more: list_tasks project:"${project.name}"` } : {}) },
         alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
         stateVersion: state?.version ?? 0,
@@ -935,7 +944,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const { project, state } = await stateData.getState(s, a.project);
       if (!state) return { project: project.name, state: NO_STATE, version: 0 };
       const names = await memberNames(s.orgId);
-      return { textRule: textRule(), project: project.name, version: state.version, state: stateData.stateOut(state, s.userId, names), markdown: stateData.stateMarkdown(state, { projectName: project.name, url: `${ctx.baseUrl}/projects/${project._id}`, reader: s.userId, names }) };
+      return { textRule: textRule(), project: project.name, version: state.version, state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), markdown: stateData.stateMarkdown(state, { projectName: project.name, url: `${ctx.baseUrl}/projects/${project._id}`, reader: s.userId, names }) };
     }),
   );
 
@@ -951,7 +960,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false },
     },
     handler(async a => {
-      const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: caller.agent === 'claude-code' ? 'code' : 'chat' });
+      const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: caller.agent === 'claude' && caller.keyId?.startsWith('oauth_') ? 'chat' : 'code' });
       const names = await memberNames(s.orgId);
       if (r.conflict) {
         return {
@@ -1289,7 +1298,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
 
   // ── Needs (slice 4): ask one person one thing. There is deliberately NO tool that answers one (docs/flows/plan-1-3.md). ──
   /** How this call came in, set by the server: 'chat' = the claude.ai connector (it may be unattended), 'agent' = a Claude Code key. Never an argument. */
-  const WORD = caller.agent === 'claude' ? ('chat' as const) : ('agent' as const);
+  // 'chat' only for a claude.ai app that signed in through OAuth (its key id is oauth_...: it may be unattended). A static API key is 'agent', even a chat-type one.
+  const WORD = caller.agent === 'claude' && caller.keyId?.startsWith('oauth_') ? ('chat' as const) : ('agent' as const);
   const needOut = async (n: needsData.Need) => {
     const people = await memberNames(s.orgId);
     const label = await labeller(ctx);
@@ -1347,7 +1357,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const to = a.to.trim().toLowerCase() === 'me' ? s.userId : await tasks.findAssignee(s.orgId, a.to);
-      const r = await needsData.askNeed(s, { project: a.project, to, kind: a.kind, ask: a.ask, example: a.example, options: a.options, task: a.task, appOnly: a.app_only, actor: ACTOR, word: WORD, session: a.session, label: a.label });
+      const r = await needsData.askNeed(s, { project: a.project, to, kind: a.kind, ask: a.ask, example: a.example, options: a.options, task: a.task, appOnly: a.app_only, actor: ACTOR, word: WORD, session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
       return {
         need: await needOut(r.need),
         ...(r.replaced.length ? { replaced: r.replaced.map(n => ({ id: n.id, ref: n.ref })) } : {}),
@@ -1395,7 +1405,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const n = await needsData.findNeed(s, a.id);
       if (!n) throw new NotFoundError('That Need does not exist, or you did not ask it.');
-      return { need: await needOut(await needsData.withdrawNeed(s, n.id)) };
+      return { need: await needOut(await needsData.withdrawNeed(s, n.id, { word: WORD, session: requestContext().sid, keyId: caller.keyId })) };
     }),
   );
 

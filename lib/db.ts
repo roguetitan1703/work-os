@@ -149,7 +149,7 @@ export type NeedDoc = Placed & {
   /** The one person asked (a user id). */
   to: string;
   /** Who asked: the actor, the trust word (set by the server from how the call came in) and the session's own label. */
-  from: { actor: Actor; word: NeedWord; session?: string; label?: string };
+  from: { actor: Actor; word: NeedWord; session?: string; /** The API key or OAuth client behind the ask (a later call without a session id is matched by it). */ keyId?: string; label?: string };
   kind: NeedKind;
   ask: string;
   example?: string;
@@ -164,6 +164,12 @@ export type NeedDoc = Placed & {
   waitedMs?: number;
   closedAt?: Date | null;
   replacedBy?: string;
+  /** start_work handed the answer to the asker's session (so a later brief does not repeat it). */
+  briefedAt?: Date;
+  /** Closed by the system, not by a person: 'moved' (its task moved where the addressee cannot read it) or 'access' (they lost access). */
+  withdrawnReason?: string;
+  /** When an alert for this Need (or the one it replaced) was last queued: a replacement within 10 minutes of it sends none. */
+  alertedAt?: Date;
 };
 
 export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {

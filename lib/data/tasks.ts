@@ -700,6 +700,11 @@ export async function updateTask(s: Scope, key: string | number, patch: TaskPatc
     if (set.projectId !== undefined || moveTo) await moveSubtasks(c, s, next, target ?? null, actor);
     if (changes.title) await c.tasks.updateMany({ parentId: cur._id }, { $set: { parentTitle: next.title } });
   }
+  // Its Needs follow it to the new project and placement (those whose addressee cannot read it there are withdrawn).
+  if (set.projectId !== undefined || moveTo) {
+    const kids = next.parentId ? [] : await c.tasks.distinct('_id', { parentId: cur._id });
+    await (await import('./needs')).restampTaskNeeds(s.orgId, [cur._id, ...kids]);
+  }
   // A subtask: its old and new parent's rollup.
   if (changes.status || changes.progress || parentSet !== undefined) {
     await rollUp(c, cur.parentId);
@@ -865,7 +870,7 @@ export async function restoreTask(s: Scope, key: string | number, actor: Actor):
   for (const k of await c.trash.find({ withParent: t._id }).toArray()) await restoreOne(s, c, org, k, actor, k.ref, restored);
   await rollUp(org, restored._id);
   await rollUp(org, restored.parentId);
-  await (await import('./needs')).syncTaskNeed(c, restored._id);
+  await (await import('./needs')).syncTaskNeed(org, restored._id);
   const back = await org.tasks.findOne({ _id: restored._id });
   return toTask(back ?? restored);
 }

@@ -50,8 +50,8 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
         {need.ask}
       </p>
       <p className={cn('text-muted-foreground', phone ? 'text-[13px]' : 'text-xs')} data-need-from>
-        Asked by {asker}
-        {need.from.label ? ` (${need.from.label})` : ''}, {need.from.word === 'person' ? 'in the app' : need.from.word === 'chat' ? 'through chat' : 'by an agent'}
+        Asked by {asker}, {need.from.word === 'person' ? 'in the app' : need.from.word === 'chat' ? 'through chat' : 'by an agent'}
+        {need.from.label ? <span className="italic opacity-80" title="Typed by the agent, not checked"> (“{need.from.label}”)</span> : null}
         {need.appOnly ? ' · answer in the app only' : ''}
       </p>
       {need.example && <p className={cn('rounded-lg bg-muted/50 px-3 py-2 text-muted-foreground whitespace-pre-wrap break-words', phone ? 'text-[14px]' : 'text-xs')}>For example: {need.example}</p>}

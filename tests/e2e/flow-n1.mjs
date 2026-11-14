@@ -8,6 +8,7 @@
 //   - there is no tool that answers a Need (tools/list), for any key.
 // Seed profile: none.
 import { B, ME, MCP, check, cron, finish, launch, login, makeUser, mkKey, rawDb, setProfile } from './lib.mjs';
+import { mkOAuth } from './flow-lib.mjs';
 
 let rid = 0;
 async function as(key, name, args = {}, extraHeaders = {}) {
@@ -41,6 +42,7 @@ try {
   const bea = await makeUser({ email: 'bea@example.test', name: 'Bea', orgId: ME.orgId, role: 'member' });
   const kBea = await mkKey({ agent: 'claude', userId: bea.userId, orgId: ME.orgId, name: 'bea chat' });
   const kCode = await mkKey({ agent: 'claude-code', name: 'om code' });
+  const kOAuth = await mkOAuth({ userId: ME.userId, orgId: ME.orgId });
 
   await must(MCP, 'add_project', { name: 'Needs Proj' });
   await must(MCP, 'add_project', { name: 'Needs Private', visibility: 'private' });
@@ -71,8 +73,8 @@ try {
   check('stored: created, no answer yet, appOnly false', !!doc1.createdAt && doc1.answeredAt === null && !doc1.answer && doc1.appOnly === false);
 
   // the claude.ai connector: "chat"; and the word cannot be given as an argument
-  const a2 = await as(MCP, 'ask', { project: 'Needs Proj', to: 'me', kind: 'approve', ask: 'May I rotate the staging key?', word: 'person', app_only: true });
-  check('ask: an unknown argument "word" does not let a caller choose its word (the connector is "chat")', !a2.isError && a2.json.need.word === 'chat', a2.text.slice(0, 200));
+  const a2 = await as(kOAuth, 'ask', { project: 'Needs Proj', to: 'me', kind: 'approve', ask: 'May I rotate the staging key?', word: 'person', app_only: true });
+  check('ask: an unknown argument "word" does not let a caller choose its word (a claude.ai app through OAuth is "chat")', !a2.isError && a2.json.need.word === 'chat', a2.text.slice(0, 200));
   check('ask: app_only is kept (approve gets yes / no)', a2.json.need.appOnly === true && a2.json.need.options.map(o => o.id).join() === 'yes,no', JSON.stringify(a2.json.need));
 
   // ---- one alert per Need ----
@@ -90,8 +92,9 @@ try {
   check('replace: the answer names the Need it replaced', a3.replaced?.length === 1 && a3.replaced[0].id === a1.need.id, JSON.stringify(a3.replaced));
   const old = await rawDb.collection('needs').findOne({ _id: a1.need.id });
   check('replace: the first is "replaced", the second open; one open decide on the task', old.status === 'replaced' && old.replacedBy === a3.need.id && (await rawDb.collection('needs').countDocuments({ taskId: old.taskId, kind: 'decide', status: 'open' })) === 1);
-  const alerts2 = await until(async () => { const a = await needAlerts(); return a.length >= 3 ? a : null; });
-  check('replace: one alert per Need still (three Needs, three alerts)', alerts2?.length === 3, `got ${alerts2?.length}`);
+  await sleep(2500);
+  const alerts2 = await needAlerts();
+  check('replace: a replacement of a Need alerted minutes ago sends no second alert (the person has the first)', alerts2.length === 2 && !(await rawDb.collection('alertQueue').findOne({ _id: `need:${a3.need.id}` })), `got ${alerts2.length}`);
   const doneT = await must(MCP, 'get_task', { task: task.ref });
   check('task: still open, progress untouched by the Need', doneT.status === 'Not Started' && doneT.progress === 0);
 
@@ -125,7 +128,7 @@ try {
   check('limit: five open Needs to one person are accepted', sent.every(r => !r.isError), sent.map(r => r.isError ? r.text.slice(0, 80) : 'ok').join(' | '));
   const sixth = await as(kCode, 'ask', { project: 'Needs Proj', to: 'Bea', kind: 'do', ask: 'A sixth question for Bea' });
   check('limit: the 6th open Need from one asker to one person is refused', sixth.isError && /5 open Needs/.test(sixth.text), sixth.text.slice(0, 200));
-  const other = await as(MCP, 'ask', { project: 'Needs Proj', to: 'Bea', kind: 'do', ask: 'The chat asker has its own five' });
+  const other = await as(kOAuth, 'ask', { project: 'Needs Proj', to: 'Bea', kind: 'do', ask: 'The chat asker has its own five' });
   check('limit: it counts per asker word (the chat asker is not blocked by the key asker)', !other.isError, other.text.slice(0, 200));
   const w = await must(kCode, 'withdraw_need', { id: sent[0].json.need.ref });
   check('withdraw_need: the asker takes one back by number', w.need.status === 'withdrawn');
