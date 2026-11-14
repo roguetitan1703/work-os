@@ -27,11 +27,14 @@ import { CouldBeRunning } from '../../claude/workers-tab';
 import { projectRoster } from '@/lib/data/roster';
 import { stateOfProject, stateOut } from '@/lib/data/states';
 import { memberNames } from '@/lib/people';
+import { projectNeeds } from '@/lib/data/needs';
+import { NeedsTab } from '@/components/needs';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'tasks', label: 'Tasks' },
   { id: 'claude', label: 'Claude' },
+  { id: 'needs', label: 'Needs' },
   { id: 'notes', label: 'Notes' },
   { id: 'info', label: 'Info' },
 ] as const;
@@ -55,7 +58,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const base = `/projects/${encodeURIComponent(project.id)}`;
   const tabHref = (t: TabId) => `${base}?tab=${t}`;
 
-  const [open, done, activity, notes, work, launcher, reopen, stateDoc, names] = await Promise.all([
+  const [open, done, activity, notes, work, launcher, reopen, stateDoc, names, needs] = await Promise.all([
     listTasks(sc, { project: project.id, open: true }),
     listTasks(sc, { project: project.id, status: ['Done', 'Dropped'], sort: 'done', limit: 30 }),
     listActivity(sc, { project: project.id, limit: 40 }),
@@ -65,9 +68,11 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     reopenPrompts(me),
     stateOfProject(sc, project.id),
     memberNames(me.orgId),
+    projectNeeds(sc, project.id),
   ]);
   const projectWorkers = await projectRoster(sc, { id: project.id, name: project.name, status: project.status }, stateDoc, names, open);
   const stateView = stateDoc ? stateOut(stateDoc, me.userId, names) : null;
+  const needsOpenForMe = needs.filter(n => n.status === 'open' && n.to === me.userId).length;
   const turbo = await turboInfo(me, project.id, launcher);
   const projectNotes = notes.notes.filter(n => !n.taskId && !n.archived);
   const otherNotes = notes.notes.length - projectNotes.length;
@@ -196,7 +201,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
       <h1 className="sr-only">{project.name}</h1>
       <ProjectTop project={project} tab={tab} />
 
-      <nav aria-label="Project sections" className="grid grid-cols-5 gap-0.5 md:inline-flex md:gap-1 rounded-2xl bg-muted/60 p-1 md:max-w-full">
+      <nav aria-label="Project sections" className="grid grid-cols-6 gap-0.5 md:inline-flex md:gap-1 rounded-2xl bg-muted/60 p-1 md:max-w-full">
         {TABS.map(t => (
           <Link
             key={t.id}
@@ -211,6 +216,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
             )}
           >
             {t.label}
+            {t.id === 'needs' && needsOpenForMe > 0 && <span aria-label={`${needsOpenForMe} Needs you`} className="ml-1 w-2 h-2 rounded-full bg-amber-500" />}
             {t.id === 'claude' && waiting.length > 0 && <span aria-label={`Claude is asking ${waiting.length}`} className="ml-1 w-2 h-2 rounded-full bg-amber-500" />}
           </Link>
         ))}
@@ -238,6 +244,8 @@ export default async function ProjectPage({ params, searchParams }: Props) {
           <ProjectSessions projectId={project.id} {...launcher} turbo={turbo} reopen={reopen} />
         </div>
       )}
+
+      {tab === 'needs' && <NeedsTab needs={needs} />}
 
       {tab === 'notes' && (
         <section className="space-y-2 max-w-3xl" data-view="notes">

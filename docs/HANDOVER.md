@@ -120,6 +120,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
   - Use `log_progress` and `complete_task`.
   - Use `apply_changes` for multi-step work and `get_project` for overviews.
   - Update an existing note before creating a new one.
+  - **Needs (ask one person one thing):** `ask`, `needs`, `withdraw_need`. An agent that needs ONE person to decide, approve, do or chase something calls `ask` instead of writing "waits on Om" in text. **No tool, key or OAuth client answers a Need**: only the addressed person does, in the app (Today's "Needs you" block on the laptop and the phone, or the project's Needs tab). The asker reads the answer with `needs`. `ask` refuses a `to` who cannot read the project; at most 5 open Needs from one asker to one person; a second open Need of the same kind on the same task replaces the first. The task then shows "Needs <name>: <ask>" instead of its percent, and is never "stalled". The asker's word (`chat` for the claude.ai connector, `agent` for a key) is set by the server, never by an argument.
 
 ### Claude Code
 - **Endpoint:** `app/api/mcp/[[...key]]/route.ts`. Stateless Streamable HTTP. `Authorization: Bearer` takes an OAuth access token (`wosat_…`, `lib/oauth.ts`) or an API key (`wos_…`, also `X-API-Key`); no or bad credentials get 401 with `WWW-Authenticate` pointing at `/.well-known/oauth-protected-resource`. An OAuth client counts as a Claude chat key only when all its registered redirect addresses are claude.ai's callback; any other client gets the Claude Code rules.
@@ -127,6 +128,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 - **Tool titles, descriptions and server instructions:** `lib/mcp/docs.ts`. This one file feeds both MCP and Settings › Connections, so edit descriptions there.
 - **Adding a tool:** add its name to `ToolName` and an entry in `TOOLS` (docs.ts), register it with `tool(...)` in server.ts, and add it to the tool groups in `app/(app)/settings/data.ts`.
 - **Smoke test:** `node scripts/test-mcp.mjs <url>/api/mcp <Claude chat key> [--write]`.
+- **Needs (slice 4 of docs/flows/plan-1-3.md):** data `lib/data/needs.ts` (`askNeed`, `answerNeed`, `withdrawNeed`, `listNeeds`; collection `needs`, stamped with its project's placement and moved by `setProjectPlacement`, so `takeOffLists` and a project made private take Needs along); tools in `lib/mcp/server.ts` (end of `createMcpServer`); `answer_need` is also in policy.ts BLOCKED so adding such a tool cannot open it to Claude Code keys. The only way to answer is the server action `answerNeedAction` (`app/(app)/needs/actions.ts`, session cookie, the addressed person only; not found, not readable and not yours read the same). Each Need records `createdAt`, `answeredAt` and `waitedMs` from day one. The task's open Need is a denormalised `need` mark on the task (`syncTaskNeed`; rows read it through `NeedChip`, `components/need-chip.tsx`); `lib/alerts.ts` skips such tasks for "stalled". UI: `components/needs.tsx` (`NeedsYou` on Today, `NeedsTab` on the project page). Hooks for the brief (slice 1): `needsForBrief(scope, projectId)` (open Needs to the caller) and `answeredNeedsSince(scope, { session?, projectId? }, since)` (answered Needs the caller asked). Tests: `tests/e2e/flow-n1.mjs`, `flow-n2.mjs`, and the Needs entries in `leak-audit.mjs`.
 
 ### Claude Code keys
 - **Om:** `/claude?tab=setup` → **Keys** (Claude area; `/connect?tab=code` redirects there): name a key, **Create**, copy it (shown once) or the ready `claude mcp add --transport http work-os <url> --header "Authorization: Bearer <key>"` command. The list shows prefix, created and last used; **Rotate** (old key dies, new one shown) and **Revoke**. Changes made with a key show as **Claude Code** in history (filter "By Claude Code"), with the `X-Work-OS-Repo` / `X-Work-OS-Session` headers shown small next to them if the session sends them.
@@ -306,6 +308,7 @@ There's no bot server running all the time and no messages are stored.
 | Stalled | In Progress with no activity for 2 workdays |
 | Never started | P1 still Not Started 24 hours after creation |
 | Unblocked | Right away, when the last task it waited on is closed |
+| Needs you | Right away, when someone or an agent asks you one thing (a Need): one alert per Need, labelled with who asked. The push and the Discord link open Today at that Need (`/today#need-<number>`). Switch: Settings › Alerts › Needs you |
 
 - **Where an alert goes:** three channels. Each alert type and each channel has a switch in Settings (section 9).
   - **In-app inbox:** always on. Bell with an unread badge on the phone's Today header (the laptop sidebar has a Notifications link, no badge); the **Notifications** screen (`/notifications`, also Menu → Inbox on the phone, Inbox in the laptop sidebar) lists them newest first, and opening it marks all read. Kept 60 days.
@@ -330,7 +333,7 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 ### Claude Code
 - **Logic:** `lib/alerts.ts`. The thresholds are in `ALERT_RULES`.
   - `alertLog`: one record per alert sent, so each goes out once.
-  - `alertQueue`: unblocked alerts waiting to be sent.
+  - `alertQueue`: event alerts waiting to be sent (unblocked, assigned, Claude finished or stopped, and `need`: a row per Need with `needId`; dropped at send time if the Need was answered, withdrawn or replaced meanwhile).
 - **Queueing:** `queueUnblocked()` is called from `updateTask` **inside** the same transaction as the write, so a batch that rolls back never queues an alert.
 - **Sending soon after a write:** `flushQueuedAlerts()` runs via `after()` in the MCP route, the Discord interactions route and the app's server actions.
 - **Exactly once, even when runs overlap:** a run claims each alert before delivering it (queue entry: `sentAt: null` → now, conditional update; scheduled alert: insert into `alertLog`, duplicate key = another run has it). Several flushes after a batch plus the cron can no longer send the same alert twice. A claimed alert stays sent even if a channel then fails.

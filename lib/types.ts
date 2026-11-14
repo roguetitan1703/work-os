@@ -100,7 +100,12 @@ export type Task = {
   parentTitle?: string;
   /** On a parent: its subtasks done and counted (Dropped ones are left out). */
   subtaskCount?: SubtaskCount;
+  /** An open Need (an ask to one person) on this task: rows show "Needs <name>: <ask>" instead of the percent. */
+  need?: TaskNeed;
 };
+
+/** `to` is a user id (names come from the app's member list); `ask` is shortened for a row. */
+export type TaskNeed = { id: string; ref: number; to: string; ask: string };
 
 export type SubtaskCount = { done: number; total: number };
 

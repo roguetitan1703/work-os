@@ -95,13 +95,22 @@ try {
   const back = await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-bs` });
   check('W1: a gone worker that calls start_work again is working, with its model, account and parent kept', row(workers(await html('/claude?tab=workers')), 'w1-bs').state === 'working' && back.model === 'Sonnet 5.5' && back.account === 'om-api' && back.parent === 'w1-orch', JSON.stringify([back.model, back.account, back.parent]));
 
-  // Waiting on a person: an open Need (slice 4 is built elsewhere: until its collection exists nobody waits)
-  await sleep(3500);
-  await rawDb.collection('needs').insertOne({ _id: randomUUID(), orgId: ME.orgId, status: 'open', from: { session: 'w1-orch' }, ask: 'Which logo?' });
-  check('W1: a worker with an open Need waits on a person', row(workers(await html('/claude?tab=workers')), 'w1-orch').state === 'waiting');
-  await rawDb.collection('needs').updateMany({}, { $set: { status: 'answered' } });
-  check('W1: and works again once the Need is answered', row(workers(await html('/claude?tab=workers')), 'w1-orch').state === 'working');
-  await rawDb.collection('needs').drop();
+  // Waiting on a person: a Need the worker asked that is still open (lib/data/needs.ts; matched on its session, else on the client kind plus project)
+  const st = sid => row(workers(htmlNow), sid)?.state;
+  let htmlNow = '';
+  const snap = async () => (htmlNow = await html('/claude?tab=workers'));
+  const n1 = await must(cc, 'ask', { project: NAME, to: 'me', kind: 'approve', ask: 'Ship it tonight?', session: 'w1-orch' });
+  await snap();
+  check('W1: a worker with an open Need it asked (matched on its session) waits on a person, and its builders do not', st('w1-orch') === 'waiting' && st('w1-ba') === 'working' && st('w1-bs') === 'working', [st('w1-orch'), st('w1-ba'), st('w1-bs')].join());
+  await must(cc, 'withdraw_need', { id: n1.need.ref });
+  await snap();
+  check('W1: and works again once the Need is closed', st('w1-orch') === 'working');
+  const n2 = await must(cc, 'ask', { project: NAME, to: 'me', kind: 'approve', ask: 'Which logo?' });
+  await snap();
+  check('W1: a Need with no session recorded makes the workers of that client kind on that project wait (key or client plus project)', ['w1-orch', 'w1-ba', 'w1-bs'].every(x => st(x) === 'waiting'), [st('w1-orch'), st('w1-ba'), st('w1-bs')].join());
+  await must(cc, 'withdraw_need', { id: n2.need.ref });
+  await snap();
+  check('W1: all work again after it is withdrawn', ['w1-orch', 'w1-ba', 'w1-bs'].every(x => st(x) === 'working'));
 
   // Could be running and isn't
   await must(MCP, 'save_state', { project: NAME, ops: [{ op: 'add_next', text: 'Roster Next line one' }] });
@@ -170,5 +179,4 @@ try {
 } catch (e) {
   check('flow-w1 (error)', false, e?.stack || String(e));
 }
-await rawDb.collection('needs').drop().catch(() => {});
 await finish();

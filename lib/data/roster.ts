@@ -2,7 +2,7 @@ import 'server-only';
 import type { PresenceDoc } from '../db';
 import { orgWide, scoped, type Scope } from '../scope';
 import { memberNames } from '../people';
-import { openNeedSessions } from './roster-needs';
+import { openNeedRows } from './roster-needs';
 import { slotHolders, machineKey } from './slots';
 
 // The roster (docs/flows/plan-1-3.md slice 7): who is working on what, and where. A worker is a present session
@@ -114,7 +114,7 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
   const rows: (WorkerRow & { _parent?: string; _uid: string })[] = raw
     .filter(r => x.pname.has(r.row.projectId))
     .map(({ row, running }) => {
-      const state = workerState(row, { now, running, needs: !!row.session && x.needs.has(row.session) });
+      const state = workerState(row, { now, running, needs: x.needs.has(row._id) });
       return {
         id: row._id,
         session: row.session ?? null,
@@ -164,7 +164,7 @@ export async function roster(s: Scope): Promise<Roster> {
   const projectIds = [...new Set(raw.map(r => r.row.projectId))];
   const projects = projectIds.length ? await c.projects.find({ _id: { $in: projectIds } }, { projection: { name: 1 } }).toArray() : [];
   const pname = new Map(projects.map(p => [p._id, p.name]));
-  const needs = await openNeedSessions(s, raw.map(r => r.row.session).filter((x): x is string => !!x));
+  const needs = await openNeedRows(s, raw.map(r => r.row));
   const nextByProject = await unblockedNext(s, projectIds);
   const workers = buildWorkers(s, raw, { names, pname, needs, nextCount: id => nextByProject.get(id)?.n ?? 0 });
 
@@ -216,7 +216,7 @@ export async function projectRoster(
   const raw = await loadRaw(s, LIST_HOURS, project.id);
   const live = new Set(openTasks.filter(t => t.status !== 'Blocked').map(t => t.ref));
   const lines = (state?.next ?? []).filter(l => !l.waitsOn && !(l.ref && !live.has(l.ref)));
-  const needs = raw.length ? await openNeedSessions(s, raw.map(r => r.row.session).filter((x): x is string => !!x)) : new Set<string>();
+  const needs = raw.length ? await openNeedRows(s, raw.map(r => r.row)) : new Set<string>();
   const workers = buildWorkers(s, raw, { names, pname: new Map([[project.id, project.name]]), needs, nextCount: () => lines.length }).filter(w => w.state !== 'gone');
   const now = Date.now();
   const anyLive = raw.some(r => workerState(r.row, { now, running: r.running }) !== 'gone');
