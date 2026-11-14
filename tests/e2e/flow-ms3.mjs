@@ -14,6 +14,8 @@ try {
 
   // The person's own word (a chat key) as a decision, applied by the person's agent with a commit
   const d = await must(MCP, 'send_message', { project: NAME, kind: 'decision', body: 'Use Postgres for the queue' });
+  check('MS3: a message from a static Claude chat key is stored as agent', (await rawDb.collection('messages').findOne({ _id: d.id })).from.word === 'agent');
+  await rawDb.collection('messages').updateOne({ _id: d.id }, { $set: { 'from.word': 'chat' } }); // as if it came through the claude.ai connector (OAuth)
   const ap = await must(cc, 'message_status', { id: d.id, status: 'applied', commit: 'abc1234', note: 'queue moved' });
   check('MS3: applied with a commit and a note', ap.message.status === 'applied' && ap.message.commit === 'abc1234' && ap.message.note === 'queue moved' && ap.addedToDecisions === true, JSON.stringify(ap).slice(0, 300));
   const seenBySender = (await must(MCP, 'inbox', { project: NAME, status: 'applied' })).messages.find(m => m.id === d.id);

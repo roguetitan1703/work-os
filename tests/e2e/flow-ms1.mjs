@@ -13,7 +13,7 @@ try {
   const first = await must(MCP, 'send_message', { project: NAME, kind: 'request', body: 'Rebuild the client after the API change', word: 'person' });
   check('MS1: with nobody present the answer says so', first.sent === true && /nobody has worked on Flow Mail/.test(first.target) && /^m_/.test(first.id), JSON.stringify(first));
   const d1 = await rawDb.collection('messages').findOne({ _id: first.id });
-  check('MS1: word is set from the call (a chat key: chat), whatever the argument says', d1.from.word === 'chat' && first.word === 'chat', JSON.stringify(d1.from));
+  check('MS1: word is set from the call (a static Claude chat key is an agent), whatever the argument says', d1.from.word === 'agent' && first.word === 'agent', JSON.stringify(d1.from));
   check('MS1: the message carries the project placement and starts unread', d1.projectId === project._id && d1.visibility === 'org' && d1.status === 'unread' && d1.thread === d1._id);
 
   await must(cc, 'start_work', { project: NAME, machine: 'laptop', label: 'cutroom prime' });
@@ -27,7 +27,7 @@ try {
 
   const s2 = await must(cc, 'start_work', { project: NAME, machine: 'desktop', label: 'cutroom again' });
   check('MS1: the next start_work lists the messages, unread first (the first one was seen by the earlier start_work)', s2.inbox?.unread === 3 && s2.inbox.messages.length === 4 && s2.inbox.messages.slice(0, 3).every(m => m.status === 'unread') && s2.inbox.messages[3].status === 'seen', JSON.stringify(s2.inbox).slice(0, 300));
-  check('MS1: each with sender, word, body and what to do with it', s2.inbox.messages.some(m => m.body.startsWith('Rebuild the client') && m.word === 'chat' && m.kind === 'request' && /instruction from your person/.test(m.treat)), JSON.stringify(s2.inbox.messages[0]));
+  check('MS1: each with sender, word, body and what to do with it', s2.inbox.messages.some(m => m.body.startsWith('Rebuild the client') && m.word === 'agent' && m.kind === 'request' && /proposal/.test(m.treat)), JSON.stringify(s2.inbox.messages[0]));
   const keys = Object.keys(s2);
   check('MS1: the inbox comes after the State and before the open tasks', keys.indexOf('state') < keys.indexOf('inbox') && keys.indexOf('inbox') < keys.indexOf('openTasks'), keys.join());
   check('MS1: listed messages became seen (the sender can tell they arrived)', (await rawDb.collection('messages').countDocuments({ projectId: project._id, status: 'seen' })) === 4);

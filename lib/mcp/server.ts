@@ -1011,8 +1011,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
   );
 
   // ── Messages (docs/flows/step-1.md section 4) ──
-  // `word` is set here from how the call came in (a Claude chat key or the claude.ai connector: chat; any other key: agent) and is not an argument.
-  const WORD: messageData.Word = caller.agent === 'claude' ? 'chat' : 'agent';
+  // `word` is set here from how the call came in (OAuth, the claude.ai connector: chat; any static key: agent) and is not an argument.
+  const WORD = messageData.wordOf(caller);
   /** Who is sending: the client name, and the label of the session's presence row when it has one. */
   const fromOf = async (name: ToolName, a: { session?: string }): Promise<messageData.From> => {
     const ident = identOf(name, [a]);

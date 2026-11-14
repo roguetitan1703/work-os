@@ -750,7 +750,7 @@ try {
     const mcn = `lkqmvmsg${hex(4)}`;
     CANARIES.push({ s: mcn, tag: 'mvmsg', allow: new Set(['A', 'T']) });
     const mm = await mustMcp(A.chat, 'send_message', { project: nm, kind: 'fyi', body: mcn, word: 'person' });
-    check('Messages: word is set by the server, an argument for it is ignored', mm.word === 'chat' && (await rawDb.collection('messages').findOne({ _id: mm.id })).from.word === 'chat', JSON.stringify(mm));
+    check('Messages: word is set by the server, an argument for it is ignored', mm.word === 'agent' && (await rawDb.collection('messages').findOne({ _id: mm.id })).from.word === 'agent', JSON.stringify(mm));
     const tm = await mcpCall(T.code, 'send_message', { project: nm, kind: 'fyi', body: 'lkq from T', word: 'person' });
     check('Messages: a teammate can send to a shared project, and their word is agent whatever they pass', tm.ok && JSON.parse(tm.text).word === 'agent', tm.text.slice(0, 200));
     const tib = await mcpCall(T.chat, 'inbox', { project: nm });

@@ -15,6 +15,8 @@ try {
 
   const tm = await must(kT, 'send_message', { project: NAME, kind: 'fyi', body: 'Tess here: the staging key rotated' });
   const own = await must(MCP, 'send_message', { project: NAME, kind: 'request', body: 'My own chat request' });
+  check('MS4: a static Claude chat key message is stored as agent, not chat', (await rawDb.collection('messages').findOne({ _id: own.id })).from.word === 'agent');
+  await rawDb.collection('messages').updateOne({ _id: own.id }, { $set: { 'from.word': 'chat' } }); // as if it came through the claude.ai connector (OAuth)
   const prop = await must(cc, 'send_message', { project: NAME, kind: 'question', body: 'An agent question' });
   const inb = await must(cc, 'inbox', { project: NAME });
   const byId = Object.fromEntries(inb.messages.map(m => [m.id, m]));

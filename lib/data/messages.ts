@@ -15,14 +15,20 @@ import { createTask } from './tasks';
 //
 // `word` is how it came in, set here from the caller and never taken from an argument:
 //   person  written in the app (a signed-in browser session)
-//   chat    sent through the claude.ai connector (it may be unattended, so it is not proof a person is present)
-//   agent   sent with a key (Claude Code or any other)
+//   chat    sent through the claude.ai connector, i.e. OAuth (it may be unattended, so it is not proof a person is present)
+//   agent   sent with a static key (Claude Code, a Claude chat key, or any other)
 // What a reader does with a message is told on each one in `treat`; text from anyone but the reader is labelled writtenBy.
 
 export const MSG_LIMITS = { body: 4000, perHour: 60, list: 30 } as const;
 export const KINDS = ['decision', 'request', 'question', 'fyi'] as const;
 export const STATUSES = ['seen', 'applied', 'rejected'] as const;
 export type Word = MessageDoc['from']['word'];
+
+/**
+ * How an MCP call came in: chat only for a caller that signed in through OAuth (the claude.ai connector; its key id starts
+ * with oauth_, lib/oauth.ts). A static key, whatever its kind (a Claude chat key included), is an agent.
+ */
+export const wordOf = (caller: { keyId?: string }): Word => (caller.keyId?.startsWith('oauth_') ? 'chat' : 'agent');
 
 export const RefsSchema = z
   .object({
