@@ -359,6 +359,23 @@ Status words: **used**, **built-unused**, **new**. "Works when" lines become eac
 - **B1 Om's morning.** *Used in part.* Needs first, then results to review, due and overdue, gone quiet, idle with Next
   work, Discord and mail that need him. Om answers Needs right there.
 - **B2 A teammate's day.** *Used, minus Needs.* Needs first, then assigned and due.
+- **B4 The daily digest, sent, not asked for.** *Partly built:* today the 09:00 alert lists only the tasks due today,
+  and `daily_summary` exists only when someone asks.
+  - **Personal digest:** each person, at their own time (default 09:00), in their channel: a Discord DM, mail, or a push
+    that opens Today. It contains, in order:
+    - **Needs you** (with buttons);
+    - **what agents finished overnight**, to review;
+    - **due and overdue**;
+    - **gone quiet**;
+    - **idle with Next work** ("cutroom could be running and isn't");
+    - **what moved yesterday**, one line per project.
+  - **Team digest:** a team Discord channel gets one message a day: per project, done yesterday, Now, and who it waits on.
+    Private projects are left out.
+  - **How it's written:** the lists come straight from Work OS data, the same for every reader. An optional
+    three-line summary on top is written by the dispatcher as a chore-class job, so it costs little.
+  - *Works when:* with test data holding 1 Need, 1 finished run, 1 overdue task and 1 quiet task, the 09:00 run sends
+    each person exactly one digest with those sections in that order. A private project never appears in the team
+    message. Quiet hours and "off" are respected.
 - **B3 Phone alerts.** *Built-unused live; prove first.* Push for: needs you, a result or a stop, assigned to you, due
   today (one digest). Tap opens the exact Need or task.
 
@@ -418,7 +435,7 @@ Each step is usable by itself, stands on the one before, and **is used for real 
 | # | Capability | What Om can do the day it lands |
 |---|---|---|
 | 1 | **State, the brief and the inbox** (`start_work`, State in Work OS, Orders served, the "for you" line, project messages) | Close the laptop mid-work, open a fresh session anywhere, lose nothing. Drop an idea or a message from chat into a project; the next session picks it up. Read every project's Now and Next on the phone. |
-| 2 | **Needs and results, with push and Discord buttons** | One list of what waits on him; answer from phone or Discord; accept or send back. |
+| 2 | **Needs and results, with push, Discord buttons and the daily digest** | One list of what waits on him; answer from phone or Discord; accept or send back; each morning a digest per person and one for the team. |
 | 3 | **The roster: workers and machines** | Who is working, on what, where; what could be running but isn't; caps that hold. |
 | 4 | **Assign to anyone, Continue, lid-open resume** | Hand a task to "any agent that can" from the phone; work restarts when a machine returns. |
 | 5 | **Recipes and ship steps** | A reel as a recipe with three approvals from the phone, posted at the slot; monthly updates drafted on schedule. |
