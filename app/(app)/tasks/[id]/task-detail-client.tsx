@@ -31,6 +31,7 @@ import { Select } from '@/components/ui/select';
 import { RECURRENCE_OPTIONS } from '@/lib/recurrence-options';
 import { PartOf, SubtasksSection, useCloseSubtasks } from '@/components/subtasks';
 import { useSynced } from '@/components/use-synced';
+import { NeedChip } from '@/components/need-chip';
 
 const field =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring dark:bg-input/30';
@@ -102,7 +103,8 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents, 
       <div className="flex items-center gap-2 flex-wrap">
         <StatusSelect value={task.status} disabled={pending} className="h-8 border-border px-2" onChange={s => patch({ status: s }, `Status → ${s}`)} />
         <PrioritySelect value={task.priority} disabled={pending} className="h-8 border-border px-2" onChange={p => patch({ priority: p }, `Priority → ${p}`)} />
-        <button onClick={() => setProgressOpen(true)} className="flex items-center gap-2 h-8 px-2.5 rounded-lg border border-border hover:bg-muted text-sm" disabled={closed}>
+        {task.need && !closed && <NeedChip task={task} className="h-8 px-2.5 rounded-lg border border-amber-500/40 text-sm max-w-[360px]" />}
+        <button onClick={() => setProgressOpen(true)} className={cn('flex items-center gap-2 h-8 px-2.5 rounded-lg border border-border hover:bg-muted text-sm', task.need && !closed && 'hidden')} disabled={closed}>
           <span className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
             <span className="block h-full bg-blue-500" style={{ width: `${task.progress}%` }} />
           </span>

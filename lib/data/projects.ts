@@ -547,7 +547,7 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   const owned = next.visibility === 'private' ? { ownerId: p.ownerId, visibility: next.visibility, sharedWith: [] } : { visibility: next.visibility, sharedWith: next.sharedWith };
   const offList = next.visibility === 'members' ? { ownerId: { $nin: next.sharedWith } } : null;
   // Off-list owners first: until the placement lands they are still placed as before (no one gains a way in meanwhile).
-  const move = async (name: 'tasks' | 'activity' | 'notes' | 'claudeItems' | 'trash', filter: Record<string, unknown>) => {
+  const move = async (name: 'tasks' | 'activity' | 'notes' | 'claudeItems' | 'needs' | 'trash', filter: Record<string, unknown>) => {
     const col = c[name] as unknown as Collections['tasks'];
     if (offList) await col.updateMany({ ...filter, ...offList } as never, { $set: { ownerId: p.ownerId } });
     await col.updateMany(filter as never, { $set: owned });
@@ -571,6 +571,7 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   const projNotes = await c.notes.find({ projectId: p._id, taskId: null }, { projection: { _id: 1 } }).toArray();
   if (projNotes.length) await move('notes', { _id: { $in: await noteTree(c, projNotes.map(n => n._id)) } });
   await move('claudeItems', { projectId: p._id });
+  await move('needs', { projectId: p._id });
   await move('trash', { 'task.projectId': p._id });
 }
 
