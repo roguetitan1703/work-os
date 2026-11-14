@@ -10,6 +10,12 @@
 #                                    workos-backup: delete it when the cut-over is done; a run warns when one is
 #                                    older than 3 days)
 #
+#   work-os-backup --nightly-local   the on-box nightly copy (work-os-backup-local.timer, 02:30 IST): the same dump as a
+#                                    gzip archive workos-nightly-<UTC time>.archive.gz (0600, no age, no aws), keeping
+#                                    the newest BACKUP_NIGHTLY_KEEP (default 7). Not off-box: it does not replace R2. If
+#                                    R2 is configured here (BACKUP_S3_URI and BACKUP_AGE_RECIPIENT both set) it does
+#                                    nothing, so a night is never dumped twice; BACKUP_NIGHTLY_FORCE=1 overrides.
+#
 # Runs as the system user workos-backup, never as the app's user. Environment (/etc/work-os/backup-env under
 # systemd, which the app never loads):
 #   MONGODB_URI (or a MONGO_*_URI name)  the database server (secret; passed to mongodump in a 0600 file, never argv)
@@ -22,15 +28,21 @@
 #   BACKUP_KEEP_LOCAL                    encrypted copies to keep on this disk after a good upload (default 0)
 #   BACKUP_MIN_FREE_KB                   refuse to start with less free space in /var/backups/work-os (default 1048576 = 1 GB)
 # R2 only: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, in the same file. Never printed, never on a command line.
-# The dump folder is fixed: /var/backups/work-os (the unit's ReadWritePaths), 0700.
+# The dump folder is /var/backups/work-os (the unit's ReadWritePaths), 0700 (BACKUP_DIR only for the tests).
 # Needs mongodump (MongoDB Database Tools), age, and the aws CLI. Prints file names and sizes, never a secret.
 set -euo pipefail
 LOCAL_ONLY=0
+NIGHTLY=0
 case "${1:-}" in
   "") ;;
   --local-only) LOCAL_ONLY=1 ;;
-  *) echo "usage: work-os-backup [--local-only]" >&2; exit 2 ;;
+  --nightly-local) LOCAL_ONLY=1; NIGHTLY=1 ;;
+  *) echo "usage: work-os-backup [--local-only | --nightly-local]" >&2; exit 2 ;;
 esac
+if [ "$NIGHTLY" = 1 ] && [ -n "${BACKUP_S3_URI:-}" ] && [ -n "${BACKUP_AGE_RECIPIENT:-}" ] && [ "${BACKUP_NIGHTLY_FORCE:-0}" != 1 ]; then
+  echo "R2 backup is configured: the off-box timer does tonight's dump, so no on-box nightly copy (BACKUP_NIGHTLY_FORCE=1 to keep both)"
+  exit 0
+fi
 
 if [ -z "${MONGODB_URI:-}" ]; then
   for v in $(compgen -e); do
@@ -39,7 +51,9 @@ if [ -z "${MONGODB_URI:-}" ]; then
 fi
 : "${MONGODB_URI:?MONGODB_URI is not set}"
 DB="${MONGODB_DB:-workos}"
-DIR=/var/backups/work-os
+DIR="${BACKUP_DIR:-/var/backups/work-os}"
+NKEEP="${BACKUP_NIGHTLY_KEEP:-7}"
+[[ "$NKEEP" =~ ^[1-9][0-9]*$ ]] || { echo "BACKUP_NIGHTLY_KEEP must be a number, 1 or more" >&2; exit 2; }
 KEEP="${BACKUP_KEEP_LOCAL:-0}"
 MINFREE="${BACKUP_MIN_FREE_KB:-1048576}"
 URI="${BACKUP_S3_URI:-}"
@@ -70,7 +84,7 @@ umask 077
 mkdir -p "$DIR"
 chmod 0700 "$DIR"
 # A plaintext cut-over dump nobody removed.
-find "$DIR" -maxdepth 1 -name '*.archive.gz' -mtime +3 2>/dev/null | while IFS= read -r old; do
+find "$DIR" -maxdepth 1 -name '*.archive.gz' ! -name '*-nightly-*' -mtime +3 2>/dev/null | while IFS= read -r old; do
   echo "warning: plaintext dump $(basename "$old") is older than 3 days: delete it (docs/hosting.md section 11)" >&2
 done || true
 FREE="$(df -Pk "$DIR" | awk 'NR==2 {print $4}')"
@@ -88,6 +102,22 @@ trap 'rm -f "$CFG" "$PART"; [ "$KEEP" != 0 ] || [ -z "$ENC" ] || rm -f "$ENC"' E
 # storage keys.
 printf 'uri: "%s"\n' "${MONGODB_URI//\"/\\\"}" >"$CFG"
 dump() { env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN mongodump --config="$CFG" --db="$DB" --gzip --quiet "$@"; }
+
+if [ "$NIGHTLY" = 1 ]; then
+  FILE="$DIR/$DB-nightly-$STAMP.archive.gz"
+  PART="$FILE.partial"
+  echo "dumping database $DB to $FILE (on this box only, not encrypted, newest $NKEEP kept)"
+  dump --archive="$PART"
+  [ -s "$PART" ] || { echo "the dump is empty" >&2; exit 1; }
+  mv "$PART" "$FILE"; PART=""
+  echo "  $(du -h "$FILE" | cut -f1)"
+  # Only after a good dump: a failed night never costs an older copy.
+  ls -1t "$DIR/$DB-nightly-"*.archive.gz 2>/dev/null | tail -n +"$((NKEEP + 1))" | while IFS= read -r old; do
+    rm -f -- "$old" && echo "  removed $(basename "$old")"
+  done || true
+  echo "backup done"
+  exit 0
+fi
 
 if [ "$LOCAL_ONLY" = 1 ]; then
   FILE="$DIR/$DB-$STAMP.archive.gz"
