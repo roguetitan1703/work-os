@@ -36,6 +36,7 @@ On the box, configuration is in `/etc/work-os/env` (root:workos, 0640; template 
 | `MONGO_MONGODB_URI` (or `MONGODB_URI`) | Atlas connection string; both names work | yes |
 | `MONGODB_DB` | database name (`workos`) | default `workos` |
 | `BETTER_AUTH_SECRET` | signs sign-in cookies and hashes tokens (32+ random characters; `SESSION_SECRET` is read if missing). Sign-in is by user: `docs/auth.md` | yes |
+| `MAIL_KEY_SECRET` | seals each person's linked Mailloom key; own secret recommended in production (unset = derived from `BETTER_AUTH_SECRET`, whose rotation then breaks every linked mailbox). With `MAILLOOM_AGENT_URL` (docs/hosting.md) | no |
 | `APP_TZ` | Default timezone for people who have not set their own (else UTC); each person sets theirs in Settings › Alerts | no |
 | `APP_URL` | public base URL: sign-in cookies, passkeys, reset and invitation links, links sent to Claude and Discord | yes |
 | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN` | The Discord bot (each organization's server and each person's account are set in the app: docs/multi-user.md phase 3) | for Discord |

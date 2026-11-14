@@ -589,6 +589,8 @@ chat or tickets.
 | `DELPAT_OS_CLIENT_SECRET` | the client secret, shown once in the Delpat OS UI. Put it in this file only | **yes** |
 | `DELPAT_OS_ISSUER` | default `https://os.delpat.in`; https only (http for localhost in tests) | |
 | `DELPAT_OS_TOKEN_KEY` | optional: seals people's stored Delpat OS tokens (AES-256-GCM). Unset = derived from `BETTER_AUTH_SECRET`. Changing it (or that secret) makes everyone link Delpat OS again | **yes** |
+| `MAILLOOM_AGENT_URL`, `MAILLOOM_WEB_URL` | the mail tools: Mailloom's agent API (`https://<host>/api/agent/v1`) and optionally its web address. Unset = mail tools and Settings › Connections › Mail are off | |
+| `MAIL_KEY_SECRET` | recommended in production: seals each person's linked Mailloom key (AES-256-GCM). Unset = derived from `BETTER_AUTH_SECRET`, and then rotating that secret breaks every linked mailbox. Changing this one does the same: everyone pastes their key again | **yes** |
 | `APP_TZ` | timezone for people who have not chosen one | |
 | `WORK_OS_PORT` | the app's port on 127.0.0.1 (default 3100; set it only if another app has 3100, and the Caddy site's ports to match). Leave the line out for 3100: an empty value overrides the unit's default | |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows `/api/mcp/<key>`; leave unset | |
