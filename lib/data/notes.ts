@@ -9,6 +9,7 @@ import type { NoteBlock } from '../notes-schema';
 import { blockOutline, blocksToMarkdown, cloneBlocks, findBlock, markdownToBlocks, plainText } from '../notes-convert';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, placeOf, resolveProject, type Placement } from './projects';
+import { canEditOrders } from './orders';
 
 // Notes are Notion-style pages (editor blocks) attached to a task or a project, optionally
 // nested as sub-pages. Blocks are the source of truth; `body` is derived markdown used for
@@ -46,6 +47,9 @@ export type Note = NoteRef & {
   archivedBecause?: string;
   createdAt: string;
   createdBy: Actor;
+  /** Which layer of Orders this page is, if any (lib/data/orders.ts), and who owns it. */
+  orders?: 'org' | 'project' | 'person';
+  ownerId?: string;
 };
 
 const live: Filter<NoteDoc> = { deletedAt: null };
@@ -140,6 +144,8 @@ async function hydrate(c: Collections, docs: ListedNoteDoc[]): Promise<Note[]> {
       ...(because ? { archivedBecause: because } : {}),
       createdAt: d.createdAt.toISOString(),
       createdBy: asActor(d.createdBy),
+      ...(d.orders ? { orders: d.orders } : {}),
+      ownerId: d.ownerId,
     };
   });
 }
@@ -375,6 +381,21 @@ async function guardBoilerplate(s: Scope, actor: Actor, ids: (string | null | un
   }
 }
 
+/**
+ * A note that carries Orders (lib/data/orders.ts) steers every AI that starts work, so only a person in the app, and only
+ * the one who holds its layer, may change, move to the trash, restore or purge it, or add a sub-page to it: no MCP key,
+ * Discord or anyone else. (The flag itself is set in the app only.)
+ */
+async function guardOrders(s: Scope, actor: Actor, ids: (string | null | undefined)[]): Promise<void> {
+  const list = [...new Set(ids.filter((x): x is string => !!x))];
+  if (!list.length) return;
+  const flagged = await (await scoped(s)).notes.find({ _id: { $in: list }, orders: { $exists: true } }, { projection: { orders: 1, ownerId: 1, projectId: 1 } }).toArray();
+  for (const n of flagged) {
+    if (!isPerson(actor)) throw new InputError('This page holds standing Orders that every AI reads first; a person changes it in the app, not through Claude or any other connection.');
+    if (!(await canEditOrders(s, n))) throw new InputError('This page holds Orders; only the person who holds that layer (the organization owner, the project owner, or its own person) can change it.');
+  }
+}
+
 export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{ note: Note; created: boolean }> {
   const c = await scoped(s);
   const now = new Date();
@@ -400,6 +421,8 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
   }
 
   await guardBoilerplate(s, actor, [cur?._id, cur?.parentId, parent?._id]);
+
+  await guardOrders(s, actor, [cur?._id, cur?.parentId, parent?._id]);
   if (cur) {
     if (w.expectUpdatedAt && cur.updatedAt.toISOString() !== w.expectUpdatedAt) throw new NoteConflictError();
     const next = await applyContent(await noteBlocks(cur), w);
@@ -505,6 +528,7 @@ export async function deleteNote(s: Scope, id: string, actor: Actor, opts: { exp
     throw new InputError(`Note ${id} is "${cur.title}", not "${opts.expectTitle}". Nothing deleted.`);
   }
   await guardBoilerplate(s, actor, [cur._id, cur.parentId]);
+  await guardOrders(s, actor, [cur._id, cur.parentId]);
   await takeBackTaskOnNoteEdit(s, c, cur, actor);
   const kids = await descendants(c, id);
   const at = new Date();
@@ -545,6 +569,7 @@ export async function restoreNote(s: Scope, id: string, actor: Actor): Promise<N
   const c = await scoped(s);
   const cur = await trashedNote(c, id);
   await guardBoilerplate(s, actor, [cur._id, cur.parentId]);
+  await guardOrders(s, actor, [cur._id, cur.parentId]);
   if (cur.taskId && (await c.notes.findOne({ taskId: cur.taskId, ...live }))) throw new InputError('That task has a newer note; restore refused.');
   await takeBackTaskOnNoteEdit(s, c, cur, actor);
   // Bring back sub-pages deleted in the same action.
@@ -626,5 +651,6 @@ export async function purgeNote(s: Scope, id: string, actor: Actor): Promise<num
   const cur = await trashedNote(c, id);
   const ids = [id, ...(await deletedWith(c, id, cur.deletedAt))];
   await guardBoilerplate(s, actor, [cur.parentId, ...ids]);
+  await guardOrders(s, actor, [cur.parentId, ...ids]);
   return (await c.notes.deleteMany({ _id: { $in: ids }, deletedAt: { $ne: null } })).deletedCount;
 }
