@@ -25,12 +25,15 @@ import { ClaudeCard } from './claude-card';
 import { StateCard } from './state-card';
 import { stateOfProject, stateOut } from '@/lib/data/states';
 import { memberNames } from '@/lib/people';
+import { inbox as inboxOf, messageOut } from '@/lib/data/messages';
+import { InboxTab } from './inbox-tab';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'tasks', label: 'Tasks' },
   { id: 'claude', label: 'Claude' },
   { id: 'notes', label: 'Notes' },
+  { id: 'inbox', label: 'Inbox' },
   { id: 'info', label: 'Info' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
@@ -179,7 +182,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
       <h1 className="sr-only">{project.name}</h1>
       <ProjectTop project={project} tab={tab} />
 
-      <nav aria-label="Project sections" className="grid grid-cols-5 gap-0.5 md:inline-flex md:gap-1 rounded-2xl bg-muted/60 p-1 md:max-w-full">
+      <nav aria-label="Project sections" className="grid grid-cols-6 gap-0.5 md:inline-flex md:gap-1 rounded-2xl bg-muted/60 p-1 md:max-w-full">
         {TABS.map(t => (
           <Link
             key={t.id}
@@ -240,6 +243,8 @@ export default async function ProjectPage({ params, searchParams }: Props) {
           )}
         </section>
       )}
+
+      {tab === 'inbox' && <InboxTab projectId={project.id} messages={(await inboxOf(sc, { project: project.id, limit: 60, markSeen: false })).messages.map(m => messageOut(m, me.userId, names))} />}
 
       {tab === 'info' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-6 items-start" data-view="info">

@@ -547,8 +547,13 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   const owned = next.visibility === 'private' ? { ownerId: p.ownerId, visibility: next.visibility, sharedWith: [] } : { visibility: next.visibility, sharedWith: next.sharedWith };
   const offList = next.visibility === 'members' ? { ownerId: { $nin: next.sharedWith } } : null;
   // Off-list owners first: until the placement lands they are still placed as before (no one gains a way in meanwhile).
-  const move = async (name: 'tasks' | 'activity' | 'notes' | 'claudeItems' | 'trash' | 'states' | 'presence', filter: Record<string, unknown>) => {
+  const move = async (name: 'tasks' | 'activity' | 'notes' | 'claudeItems' | 'trash' | 'states' | 'presence' | 'messages', filter: Record<string, unknown>) => {
     const col = c[name] as unknown as Collections['tasks'];
+    // A person's own Orders must not become someone else's when their page changes owner (to the project's owner): the flag goes first.
+    if (name === 'notes') {
+      if (next.visibility === 'private') await c.notes.updateMany({ ...filter, orders: 'person', ownerId: { $ne: p.ownerId } } as never, { $unset: { orders: '', ordersBy: '' } });
+      else if (offList) await c.notes.updateMany({ ...filter, orders: 'person', ...offList } as never, { $unset: { orders: '', ordersBy: '' } });
+    }
     if (offList) await col.updateMany({ ...filter, ...offList } as never, { $set: { ownerId: p.ownerId } });
     await col.updateMany(filter as never, { $set: owned });
   };
@@ -575,6 +580,7 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   // The project's State and the sessions present on it (docs/flows/step-1.md section 1): same placement, so the door shows them to the project's readers only.
   await move('states', { projectId: p._id });
   await move('presence', { projectId: p._id });
+  await move('messages', { projectId: p._id });
 }
 
 export type ProjectByCode =

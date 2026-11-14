@@ -28,9 +28,10 @@ try {
   check('H1: the present session’s next answer has forYou', Array.isArray(fy) && fy.length >= 2, got.text.slice(0, 300));
   check('H1: it names the new task by number and the new Next line by id', fy.some(l => l.includes(`#${task.created.ref}`) && /new task/.test(l)) && fy.some(l => l.includes(nextId) && /Next/.test(l)), JSON.stringify(fy));
   check('H1: forYou carries ids and counts only: no title, note or description text, no canary', !JSON.stringify(fy).includes(CANARY) && !/Task |Next |Idea |Description/.test(JSON.stringify(fy).replace(/new task|new line in Next|Next on/g, '')), JSON.stringify(fy));
+  check('H1: the project is named by id, never by its name', JSON.stringify(fy).includes(project._id) && !JSON.stringify(fy).includes(NAME), JSON.stringify(fy));
   const twice = await mcpH(cc, 'get_state', { project: NAME, session: s1 });
   check('H1: …and only once', twice.json && !('forYou' in twice.json), twice.text.slice(0, 200));
-  check('H1: the cursor moved on the session row', (await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:${s1}` })).forYouCursor.getTime() > Date.now() - 60_000);
+  check('H1: the cursor moved on the session row', (await rawDb.collection('presence').findOne({ userId: ME.userId, session: s1 })).forYouCursor.getTime() > Date.now() - 60_000);
 
   // Works for any tool, not only the State ones
   await must(MCP, 'add_task', { title: 'Second thing', project: NAME });
@@ -79,11 +80,23 @@ try {
   const oseen = await mcpH(cc, 'get_state', { project: NAME, session: s1 });
   check('H1: each present session is told once, separately', tseen.json?.forYou?.some(l => /new task/.test(l)) && oseen.json?.forYou?.some(l => /new task/.test(l)), `${tseen.text.slice(0, 100)} | ${oseen.text.slice(0, 100)}`);
 
+  // A teammate's task made while this session's own write call runs is not skipped by the cursor
+  await mcpH(cc, 'get_state', { project: NAME, session: s1 });
+  await mcpH(kT, 'get_state', { project: NAME, session: ts });
+  let missed = 0;
+  for (let i = 0; i < 6; i++) {
+    const [mine, theirs] = await Promise.all([mcpH(cc, 'add_task', { title: `Race mine ${i}`, project: NAME }, { 'x-work-os-session': s1 }), mcpH(kT, 'add_task', { title: `Race theirs ${i}`, project: NAME })]);
+    const seen = [mine.json?.forYou, (await mcpH(cc, 'get_state', { project: NAME, session: s1 })).json?.forYou].flat().filter(Boolean).join(' ');
+    if (!seen.includes('#' + theirs.json.created.ref)) missed++;
+    await mcpH(kT, 'get_state', { project: NAME, session: ts });
+  }
+  check('H1: a teammate’s task made during the session’s own write call is still named (6 races, none skipped)', missed === 0, String(missed));
+
   // Presence refresh is at most once a minute per row, and presence is not a push topic
   await mcpH(cc, 'get_state', { project: NAME, session: s1 });
-  const row = await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:${s1}` });
+  const row = await rawDb.collection('presence').findOne({ userId: ME.userId, session: s1 });
   for (let i = 0; i < 5; i++) await mcpH(cc, 'get_state', { project: NAME, session: s1 });
-  const row2 = await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:${s1}` });
+  const row2 = await rawDb.collection('presence').findOne({ userId: ME.userId, session: s1 });
   check('H1: lastSeen is refreshed at most once a minute (five quick reads change nothing)', Date.now() - row.lastSeen.getTime() > 55_000 || row2.lastSeen.getTime() === row.lastSeen.getTime(), `${row.lastSeen.toISOString()} ${row2.lastSeen.toISOString()}`);
   const src = (await import('node:fs')).readFileSync(new URL('../../lib/scope.ts', import.meta.url), 'utf8');
   const topics = src.slice(src.indexOf('const TOPICS'), src.indexOf('const WRITES'));

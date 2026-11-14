@@ -17,6 +17,10 @@ export type RequestContext = {
   tz?: string;
   /** X-Work-OS-Session from any kind of MCP client: the session a call belongs to for presence and the "for you" line (lib/mcp/for-you.ts). Not stamped on history. */
   sid?: string;
+  /** The session id, else the key id, of the MCP call: stamped on what it creates (tasks, State lines) so the "for you" line can skip a session's own items. */
+  src?: string;
+  /** The API key or OAuth client behind an MCP call (rate limits are per key). */
+  keyId?: string;
 };
 
 const store = new AsyncLocalStorage<RequestContext>();

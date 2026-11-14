@@ -500,6 +500,7 @@ async function insertTask(
     nextRef: null,
     archived: false,
     createdBy: actor,
+    ...(requestContext().src ? { src: requestContext().src } : {}),
     createdAt: now,
     updatedAt: now,
     doneAt: done ? now : null,

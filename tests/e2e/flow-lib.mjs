@@ -27,4 +27,4 @@ export async function clean() {
   for (const c of ['states', 'presence', 'policyEvents']) await rawDb.collection(c).deleteMany({});
 }
 /** Marks a note as a layer of Orders directly (the app does it through setOrders; there is no MCP tool for it). */
-export const markOrders = (noteId, layer) => rawDb.collection('notes').updateOne({ _id: noteId }, { $set: { orders: layer } });
+export const markOrders = async (noteId, layer, by) => rawDb.collection('notes').updateOne({ _id: noteId }, { $set: { orders: layer, ordersBy: by ?? (await rawDb.collection('notes').findOne({ _id: noteId })).ownerId } });

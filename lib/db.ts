@@ -46,6 +46,8 @@ export type TaskDoc = Placed & {
   nextRef: number | null;
   archived: boolean;
   createdBy: Actor;
+  /** The session or key that made it (the "for you" line does not tell a session about its own items). */
+  src?: string;
   createdAt: Date;
   updatedAt: Date;
   doneAt: Date | null;
@@ -151,6 +153,8 @@ export type NoteDoc = Placed & {
   parentId?: string | null;
   /** Standing rules served to every AI that starts work (lib/data/orders.ts): which layer this note is, if any. Set in the app only. */
   orders?: 'org' | 'project' | 'person';
+  /** Who set the Orders flag (the holder of the layer). A person-layer note is served only when this equals its owner and the reader. */
+  ordersBy?: string;
   taskId: string | null; // task note (at most one live per task)
   projectId: string | null; // project note (when taskId is null)
   archived: boolean;
@@ -163,9 +167,9 @@ export type NoteDoc = Placed & {
 };
 
 /** A line of a project's State (Next, Later): `by` is who wrote it (a user id), shown labelled to everyone else. */
-export type StateLine = { id: string; text: string; ref?: number; waitsOn?: string; by: string; at: Date };
+export type StateLine = { id: string; text: string; ref?: number; waitsOn?: string; by: string; src?: string; at: Date };
 /** A decision recorded on a project (append-only). `by` = who decided (a user id), `via` = chat / code / app / discord. */
-export type StateDecision = { id: string; at: Date; by: string; via: string; text: string };
+export type StateDecision = { id: string; at: Date; by: string; src?: string; via: string; text: string; archivedAt?: Date; /** The message it was applied from. */ msg?: string };
 /** Where the work is on one machine, as the agent reported it from git. */
 export type StateWhere = { branch?: string; head?: string; dirty?: boolean; worktrees?: string[]; at: Date; by: string };
 /** The project's live memory (docs/flows/step-1.md): one per project, `_id` = the project id, stamped with the project's placement. */
@@ -177,11 +181,42 @@ export type StateDoc = Placed & {
   later: StateLine[];
   decisions: StateDecision[];
   where: Record<string, StateWhere>;
+  /** The last 200 ops with who made them (user, key, session): so a changed Now or a done Next line can be traced. Not shown to readers. */
+  log?: { at: Date; by: string; key?: string; src?: string; via: string; op: string; id?: string }[];
   /** Bumped on every write. */
   version: number;
   createdAt: Date;
   updatedAt: Date;
 };
+/**
+ * A message to a project (docs/flows/step-1.md section 4), stamped with the project's placement: every reader of the
+ * project can read it. `word` is how it came in, set by the server and never by the caller: person (the app), chat (the
+ * claude.ai connector, which may be unattended), agent (a key).
+ */
+export type MessageDoc = Placed & {
+  _id: string;
+  projectId: string;
+  /** Narrows who should act (a session label or client name): a hint, not a privacy line. */
+  toSession?: string;
+  from: { userId: string; word: 'person' | 'chat' | 'agent'; ai?: string; session?: string; label?: string; keyId?: string };
+  kind: 'decision' | 'request' | 'question' | 'fyi';
+  body: string;
+  refs: { tasks?: number[]; commits?: string[]; files?: string[] };
+  thread: string;
+  status: 'unread' | 'seen' | 'applied' | 'rejected';
+  note?: string;
+  commit?: string;
+  senderCommit?: string;
+  /** The session or key that sent it (the "for you" line does not name a session's own messages back to it). */
+  src?: string;
+  /** Who set the status, and when. */
+  statusBy?: string;
+  statusAt?: Date;
+  /** The task a request was turned into. */
+  taskRef?: number;
+  at: Date;
+};
+
 /** A session working on a project (docs/flows/step-1.md section 5), stamped with the project's placement. `forYouCursor`: what the "for you" line has already named. */
 export type PresenceDoc = Placed & {
   _id: string;
@@ -200,6 +235,8 @@ export type PresenceDoc = Placed & {
   agent: string;
   lastSeen: Date;
   forYouCursor: Date;
+  /** The last ~20 item ids the "for you" line named (the cursor trails the call by a skew, so the window is read twice). */
+  named?: string[];
   /** Writes made since the last save_state of this session (the save nudge). */
   writesSinceSave: number;
 };
@@ -406,6 +443,7 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['requestStats', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 35 * 86_400 }]],
     // The calendar link (docs/calendar.md): one row per person per organization, found by the hash of its token.
     ['calendarFeeds', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]],
+    ['messages', [{ key: { orgId: 1, projectId: 1, at: -1 }, name: 'org_project_at' }, { key: { orgId: 1, thread: 1, at: 1 }, name: 'org_thread' }]],
     ['states', [{ key: { orgId: 1, projectId: 1 }, unique: true, name: 'org_project_unique' }]],
     ['presence', [{ key: { orgId: 1, projectId: 1, lastSeen: -1 }, name: 'org_project_seen' }, { key: { lastSeen: 1 }, name: 'seen_ttl', expireAfterSeconds: 7 * 86_400 }]],
     ['authLimits', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 3600 }, { key: { key: 1, at: -1 }, name: 'key_at' }]],
@@ -477,6 +515,7 @@ export async function collections() {
     workerFolders: db.collection<WorkerFolderDoc>('workerFolders'),
     workerJobs: db.collection<WorkerJobDoc>('workerJobs'),
     workerSessions: db.collection<WorkerSessionDoc>('workerSessions'),
+    messages: db.collection<MessageDoc>('messages'),
     states: db.collection<StateDoc>('states'),
     presence: db.collection<PresenceDoc>('presence'),
   };

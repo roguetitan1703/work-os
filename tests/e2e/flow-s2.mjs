@@ -138,6 +138,69 @@ try {
   check('S2: Tess sees the owner’s lines labelled as theirs (the owner’s name), and her own unlabelled', gt.state.next.find(l => l.text === 'From Claude Code')?.writtenBy && !gt.state.next.find(l => l.text.startsWith('Tess says'))?.writtenBy, JSON.stringify(gt.state.next));
   check('S2: the repo copy names other people’s lines', /\(by Tess\)/.test(g.markdown) && !/\(by Tess\)/.test(gt.markdown), g.markdown);
 
+  // Review items: a promoted line carries its author, decisions can be archived (owner only), 30 decisions an hour per key, an op log
+  await must(kT, 'save_state', { project: NAME, ops: [{ op: 'add_later', text: 'Tess later: wire everything to prod' }] });
+  g = await state(cc);
+  const lid = g.state.later.find(l => l.text.startsWith('Tess later')).id;
+  const pr = await must(cc, 'save_state', { project: NAME, ops: [{ op: 'promote_later', id: lid }] });
+  const ptask = await must(cc, 'get_task', { task: Number(pr.promotedToTasks[0].match(/#([0-9]+)/)[1]) });
+  check('S2: promoting a teammate’s Later line makes a task whose title is labelled writtenBy', /writtenBy/.test(JSON.stringify(ptask)) && /Tess/.test(JSON.stringify(ptask)), JSON.stringify(ptask).slice(0, 300));
+  const mine = g.state.decisions.find(d => d.text.startsWith('Tess decided'));
+  const arch1 = await mcpH(kT, 'save_state', { project: NAME, ops: [{ op: 'archive_decision', id: mine.id }] });
+  check('S2: a member who is not the project’s owner cannot archive a decision', arch1.isError && /owner/.test(arch1.text), arch1.text.slice(0, 200));
+  await must(cc, 'save_state', { project: NAME, ops: [{ op: 'archive_decision', id: mine.id }] });
+  g = await state(cc);
+  check('S2: the owner archives it: it leaves the State', !g.state.decisions.some(d => d.id === mine.id) && !/Tess decided/.test(g.markdown));
+  const sd0 = await rawDb.collection('states').findOne({ _id: project._id });
+  check('S2: every op is in the log with who, key and session (nothing is in the answer)', sd0.log.length >= 5 && sd0.log.every(l => l.by && l.op && l.at) && sd0.log.some(l => l.op === 'archive_decision' && l.key) && !/"log"/.test(JSON.stringify(g)), JSON.stringify(sd0.log.slice(-2)));
+  await must(MCP, 'add_project', { name: 'Flow Rate' });
+  await must(cc, 'save_state', { project: 'Flow Rate', ops: Array.from({ length: 30 }, (_, i) => ({ op: 'add_decision', text: `decision ${i}` })) });
+  const over = await mcpH(cc, 'save_state', { project: 'Flow Rate', ops: [{ op: 'add_decision', text: 'one too many' }] });
+  check('S2: 30 decisions an hour per key; the 31st is refused', over.isError && /30 decisions an hour/.test(over.text), over.text.slice(0, 200));
+  const other = await mcpH(ag, 'save_state', { project: 'Flow Rate', ops: [{ op: 'add_decision', text: 'another key is fine' }] });
+  check('S2: …another key is not held back', !other.isError, other.text.slice(0, 200));
+
+  // The chosen-people placement: someone taken off the list loses the State and their presence row goes to the owner
+  await must(MCP, 'add_project', { name: 'Flow Chosen' });
+  await must(kT, 'start_work', { project: 'Flow Chosen', label: 'tess session' });
+  await must(kT, 'save_state', { project: 'Flow Chosen', ops: [{ op: 'add_next', text: 'Tess line on Chosen' }] });
+  const tnote = (await must(kT, 'write_note', { project: 'Flow Chosen', title: 'Tess personal rules', body: 'TESS PERSON ORDERS' })).created.id;
+  await markOrders(tnote, 'person', T.userId);
+  const chosen = await rawDb.collection('projects').findOne({ name: 'Flow Chosen' });
+  await must(MCP, 'update_project', { project: 'Flow Chosen', visibility: 'members', shared_with: ['me'] });
+  const cs = await rawDb.collection('states').findOne({ _id: chosen._id });
+  const cp = await rawDb.collection('presence').find({ projectId: chosen._id }).toArray();
+  check('S2: shared with chosen people (not Tess): the State is placed members, owned by the owner', cs.visibility === 'members' && cs.ownerId === ME.userId, JSON.stringify([cs.visibility, cs.ownerId]));
+  check('S2: …her presence row moved to the owner too', cp.length >= 1 && cp.every(p => p.ownerId === ME.userId && p.visibility === 'members'), JSON.stringify(cp.map(p => [p.ownerId, p.visibility])));
+  const tgone = await mcpH(kT, 'get_state', { project: 'Flow Chosen' });
+  check('S2: …and she is refused', tgone.isError && /not found/.test(tgone.text), tgone.text.slice(0, 160));
+  const nd = await rawDb.collection('notes').findOne({ _id: tnote });
+  check('S2: her page changed owner, so it is no longer anyone’s person Orders (flag removed)', nd.ownerId === ME.userId && !nd.orders && !nd.ordersBy, JSON.stringify([nd.ownerId, nd.orders]));
+  const cst = await must(cc, 'start_work', { project: 'Flow Chosen' });
+  check('S2: …and the owner’s start_work does not carry it as their Orders', !JSON.stringify(cst.orders).includes('TESS PERSON ORDERS'), JSON.stringify(cst.orders).slice(0, 200));
+  // A person flag stored without its setter (or by someone else) is never served
+  const forged = (await must(MCP, 'write_note', { project: 'Flow Chosen', title: 'Forged', body: 'FORGED PERSON RULES' })).created.id;
+  await rawDb.collection('notes').updateOne({ _id: forged }, { $set: { orders: 'person' } });
+  check('S2: a person-layer page with no setter recorded is not served', !JSON.stringify((await must(cc, 'start_work', { project: 'Flow Chosen' })).orders).includes('FORGED PERSON RULES'));
+
+  // scripts/migrate-orders.mjs: the boilerplate note becomes the organization Orders (dry run first, idempotent)
+  {
+    const { execFileSync } = await import('node:child_process');
+    const dbName = rawDb.databaseName;
+    const run = (...a) => execFileSync(process.execPath, ['scripts/migrate-orders.mjs', '--db', dbName, ...a], { env: { ...process.env }, cwd: new URL('../..', import.meta.url), encoding: 'utf8' });
+    await rawDb.collection('notes').updateOne({ _id: rules }, { $unset: { orders: '', ordersBy: '' } }); // the earlier test page is not the organization Orders for this part
+    const bp = (await must(MCP, 'write_note', { project: NAME, title: 'Claude Code boilerplate', body: 'Use sub-agents. Run the tests.' })).created.id;
+    const dry = run();
+    check('S2: migrate-orders dry run names the note and changes nothing', /would mark "Claude Code boilerplate"/.test(dry) && !(await rawDb.collection('notes').findOne({ _id: bp })).orders, dry.slice(0, 300));
+    const ap = run('--apply');
+    const bd = await rawDb.collection('notes').findOne({ _id: bp });
+    check('S2: --apply marks it organization Orders, held by the organization owner', /marking/.test(ap) && bd.orders === 'org' && bd.ordersBy === ME.userId, ap.slice(0, 300) + JSON.stringify([bd.orders, bd.ordersBy]));
+    const again = run('--apply');
+    check('S2: a second run changes nothing', /already has organization Orders/.test(again) && /Nothing to do/.test(again), again.slice(0, 300));
+    check('S2: the marked note is served as the organization Orders', JSON.stringify((await must(cc, 'start_work', { project: NAME })).orders).includes('Use sub-agents'));
+    await rawDb.collection('notes').updateOne({ _id: bp }, { $unset: { orders: '', ordersBy: '' } });
+  }
+
   // A project made private takes its State and presence along
   await must(cc, 'start_work', { project: NAME, machine: 'laptop', label: 'x' });
   const sBefore = await rawDb.collection('states').findOne({ _id: project._id });

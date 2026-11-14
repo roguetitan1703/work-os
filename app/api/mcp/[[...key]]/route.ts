@@ -68,8 +68,8 @@ async function handle(req: Request, ctx: Ctx): Promise<Response> {
   await server.connect(transport);
   const rc: RequestContext =
     caller.agent === 'claude-code'
-      ? { userId: caller.userId, tz: caller.tz, session: sessionHeader(req.headers.get('x-work-os-session')), repo: repoHeader(req.headers.get('x-work-os-repo')), sid: sessionHeader(req.headers.get('x-work-os-session')) }
-      : { userId: caller.userId, tz: caller.tz, sid: sessionHeader(req.headers.get('x-work-os-session')) };
+      ? { userId: caller.userId, tz: caller.tz, session: sessionHeader(req.headers.get('x-work-os-session')), repo: repoHeader(req.headers.get('x-work-os-repo')), sid: sessionHeader(req.headers.get('x-work-os-session')), keyId: caller.keyId }
+      : { userId: caller.userId, tz: caller.tz, sid: sessionHeader(req.headers.get('x-work-os-session')), keyId: caller.keyId };
   try {
     return await runWithRequestContext(rc, () => transport.handleRequest(req));
   } finally {

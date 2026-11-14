@@ -245,7 +245,7 @@ async function interact(guild, user, type, data, extra = {}) {
 // ── snapshots: who may write what ───────────────────────────────────────────
 const SKIP_COLS = new Set(['requestStats', 'policyEvents', 'rateLimit', 'authLimits', 'mailLog', 'verification']);
 const SHARED = new Set(['projects', 'tasks', 'activity', 'notes', 'claudeItems', 'trash']);
-for (const c of ['states', 'presence']) SHARED.add(c); // slice 1: a project's State and the sessions present on it carry the project's placement
+for (const c of ['states', 'presence', 'messages']) SHARED.add(c); // slice 1: a project's State and the sessions present on it carry the project's placement
 const OWNED = new Set(['reviews', 'ritualLogs', 'devices', 'workerFolders', 'workerJobs', 'workerSessions']);
 const RECIP = new Set(['notifications', 'pushSubs', 'alertLog', 'alertQueue']);
 let WHO = {}; // user id -> persona
@@ -455,9 +455,13 @@ try {
     await mustMcp(A.chat, 'save_state', { project: o.projectName, base_version: 0, ops: [{ op: 'set_now', text: can(`${tg}statenow`, allow) }, { op: 'add_next', text: o.stateNext }, { op: 'add_later', text: can(`${tg}statelater`, allow), waits_on: can(`${tg}statewait`, allow) }, { op: 'add_decision', text: can(`${tg}statedecision`, allow) }, { op: 'set_where', machine: can(`${tg}statemach`, allow), branch: can(`${tg}statebranch`, allow) }] });
     await mustMcp(A.chat, 'start_work', { project: o.projectName, machine: can(`${tg}presmach`, allow), label: can(`${tg}preslabel`, allow) });
   }
+  for (const [o, tg, allow] of [[P, 'pv', ['A']], [S, 'sh', ['A', 'T']]]) {
+    o.msg = (await mustMcp(A.chat, 'send_message', { project: o.projectName, kind: 'fyi', body: can(`${tg}msgbody`, allow) })).id;
+    o.msgReq = (await mustMcp(A.chat, 'send_message', { project: o.projectName, kind: 'request', body: can(`${tg}msgreq`, allow) })).id;
+  }
   P.ordersNote = (await mustMcp(A.chat, 'write_note', { project: P.projectName, title: can('pvorders', ['A']), body: can('pvordersbody', ['A']) })).created?.id;
   S.ordersNote = (await mustMcp(A.chat, 'write_note', { project: S.projectName, title: can('shorders', ['A', 'T']), body: can('shordersbody', ['A', 'T']) })).created?.id;
-  await rawDb.collection('notes').updateOne({ _id: S.ordersNote }, { $set: { orders: 'org' } }); // the flag is set in the app only; the suite sets it directly
+  await rawDb.collection('notes').updateOne({ _id: S.ordersNote }, { $set: { orders: 'org', ordersBy: A.userId } }); // the flag is set in the app only; the suite sets it directly
 
   // T's private task (A must not read it either), X's organization, R's private task. X's numbers start far above the
   // first organization's (numbers are per organization: X's own #5 is not the first organization's #5).
@@ -566,8 +570,8 @@ try {
   // A second target for owner calls that destroy one (each control needs its own; the attackers aim at the same one)
   Object.assign(TARGET.T, { trashRef2: P.trashRef, trashRef3: P.trashRef, trashRef4: P.trashRef, comment2: P.comment, sub2: P.subNote, invite2: A.invite, boiler: P.projNote, give: P.giveRef });
   Object.assign(TARGET.X, { trashRef2: S.trashRef, trashRef3: S.trashRef, trashRef4: S.trashRef, comment2: S.comment, sub2: P.subNote, invite2: A.invite, boiler: S.note, give: S.taskRef });
-  Object.assign(TARGET.T, { ordersNote: P.ordersNote });
-  Object.assign(TARGET.X, { ordersNote: S.ordersNote });
+  Object.assign(TARGET.T, { ordersNote: P.ordersNote, msg: P.msg, msgReq: P.msgReq });
+  Object.assign(TARGET.X, { ordersNote: S.ordersNote, msg: S.msg, msgReq: S.msgReq });
   Object.assign(FAKE, { trashRef2: 92001, trashRef3: 92002, trashRef4: 92003, comment2: fakeUuid(), sub2: mutate(P.subNote2), invite2: oid(), boiler: mutate(P.boiler), give: 94000 });
   // A's own (the control calls)
   FAKE_REF.v = FAKE;
@@ -575,6 +579,10 @@ try {
 
   OWN.ordersNote = P.ordersNote;
   FAKE.ordersNote = mutate(P.ordersNote);
+  OWN.msg = P.msg;
+  OWN.msgReq = P.msgReq;
+  FAKE.msg = mutate(P.msg);
+  FAKE.msgReq = mutate(P.msgReq);
 
   // ── the probes ──
   const ctx = { A, T, X, R, P, S, XO, TP, G1, G2, GEN1, SEC1, GEN2, DA, DT, DX, DR, DU, mid };
@@ -584,7 +592,7 @@ try {
     for (const pr of [].concat(spec.probes ?? [])) probes.push({ id, ...pr });
   }
   // A persona's credentials for a probe of kind k
-  const ECHO_IDS_MORE = ['ordersNote'];
+  const ECHO_IDS_MORE = ['ordersNote', 'msg', 'msgReq'];
   const ECHO_IDS = ['project', 'itemProject', 'task', 'note', 'taskNote', 'sub', 'comment', 'device', 'folder', 'session', 'job', 'review', 'push', 'passkey', 'invite', 'member', 'comment2', 'sub2', 'invite2', 'boiler'];
   const credOf = (p, k) => (k === 'mcp' ? p.chat : k === 'mcp-code' ? p.code : k === 'worker' ? p.wkr : p.cookie);
   /** Run one probe as persona `who` aimed at `o` (target or fake). */
@@ -734,6 +742,20 @@ try {
     await mustMcp(A.chat, 'add_project', { name: nm });
     await mustMcp(A.chat, 'save_state', { project: nm, ops: [{ op: 'add_next', text: cn }, { op: 'add_decision', text: cn + 'd' }] });
     await mustMcp(A.chat, 'start_work', { project: nm, machine: 'lkqmv', label: cn + 'p' });
+    // T marks a page of the shared project as their own person Orders; when the project goes private the page changes owner and must not become A's Orders
+    const tpn = (await mustMcp(T.code, 'write_note', { project: nm, title: 'lkq T person rules', body: 'lkqpersonrulesbody' })).created?.id;
+    const flag = (who, id, layer) => action('app/(app)/notes/orders-actions.ts#setOrdersAction', [id, layer], { cookie: who.cookie });
+    const fp = await flag(T, tpn, 'person');
+    check('Orders: a member marks their own page as their person Orders', fp.value?.ok === true, JSON.stringify(fp.value));
+    const mcn = `lkqmvmsg${hex(4)}`;
+    CANARIES.push({ s: mcn, tag: 'mvmsg', allow: new Set(['A', 'T']) });
+    const mm = await mustMcp(A.chat, 'send_message', { project: nm, kind: 'fyi', body: mcn, word: 'person' });
+    check('Messages: word is set by the server, an argument for it is ignored', mm.word === 'chat' && (await rawDb.collection('messages').findOne({ _id: mm.id })).from.word === 'chat', JSON.stringify(mm));
+    const tm = await mcpCall(T.code, 'send_message', { project: nm, kind: 'fyi', body: 'lkq from T', word: 'person' });
+    check('Messages: a teammate can send to a shared project, and their word is agent whatever they pass', tm.ok && JSON.parse(tm.text).word === 'agent', tm.text.slice(0, 200));
+    const tib = await mcpCall(T.chat, 'inbox', { project: nm });
+    scan('T', 'mv inbox (before)', tib.text);
+    check('Messages: a teammate reads a shared project’s inbox', tib.ok && tib.text.includes(mcn), tib.text.slice(0, 200));
     const tBefore = await mcpCall(T.chat, 'get_state', { project: nm });
     scan('T', 'mv get_state (before)', tBefore.text);
     check('State: a teammate reads a shared project’s State', tBefore.ok && tBefore.text.includes(cn), tBefore.text.slice(0, 200));
@@ -745,18 +767,32 @@ try {
     const pr = await rawDb.collection('presence').find({ projectId: pid }).toArray();
     check('State: a project made private takes its State along (placed private, owned by its owner)', sd?.visibility === 'private' && sd.ownerId === A.userId, JSON.stringify(sd && [sd.visibility, sd.ownerId]));
     check('State: …and the presence rows (both sessions) with it', pr.length === 2 && pr.every(p => p.visibility === 'private' && p.ownerId === A.userId), JSON.stringify(pr.map(p => [p.visibility, p.ownerId])));
+    const mvd = await rawDb.collection('messages').find({ projectId: pid }).toArray();
+    check('Messages: a project made private takes its messages along (placed private, owned by its owner)', mvd.length === 2 && mvd.every(m => m.visibility === 'private' && m.ownerId === A.userId), JSON.stringify(mvd.map(m => [m.visibility, m.ownerId])));
+    for (const [tool, args] of [['inbox', { project: nm }], ['send_message', { project: nm, kind: 'fyi', body: 'lkq after private' }], ['message_status', { id: mm.id, status: 'seen' }], ['reply', { id: mm.id, body: 'lkq after private' }]]) {
+      const r = await mcpCall(T.chat, tool, args);
+      scan('T', `mv ${tool} (after private)`, r.text);
+      check(`Messages: after the project was made private the teammate is refused (${tool})`, !r.ok && /not found/i.test(r.text) && !r.text.includes(mcn), r.text.slice(0, 200));
+    }
+    const tinb = await mcpCall(T.chat, 'inbox', {});
+    scan('T', 'mv inbox (all, after private)', tinb.text);
+    check('Messages: …and the all-projects inbox carries nothing of it', tinb.ok && !tinb.text.includes(mcn), tinb.text.slice(0, 200));
     for (const [tool, args] of [['get_state', { project: nm }], ['start_work', { project: nm }], ['save_state', { project: nm, ops: [{ op: 'add_next', text: 'lkq after private' }] }], ['import_state', { project: nm, markdown: '## Now\n- x' }], ['get_project', { project: nm }]]) {
       const r = await mcpCall(T.chat, tool, args);
       scan('T', `mv ${tool} (after private)`, r.text);
       check(`State: after it was made private the teammate is refused (${tool})`, !r.ok && /not found/i.test(r.text) && !r.text.includes(cn), r.text.slice(0, 200));
     }
-    // T's session on that project no longer gets a "for you" line, nor anything about it
+    const tpd = await rawDb.collection('notes').findOne({ _id: tpn });
+    check('Orders: the page that changed owner lost its person-Orders flag', tpd.ownerId === A.userId && !tpd.orders && !tpd.ordersBy, JSON.stringify([tpd.ownerId, tpd.orders]));
+    const aStart = await mcpCall(A.chat, 'start_work', { project: nm });
+    check('Orders: the owner’s start_work does not carry it as their Orders', aStart.ok && !aStart.text.includes('lkqpersonrulesbody'), aStart.text.slice(0, 200));
+    // T's session on that project no longer gets a "for you" line, nor anything about it, even for a new task
+    await mustMcp(A.chat, 'add_task', { title: 'lkq task after private', project: nm });
     const tAfter = await mcpCall(T.code, 'list_tasks', {});
     scan('T', 'mv list_tasks (after private)', tAfter.text);
     check('State: …and their present session’s answers carry nothing about it', tAfter.ok && !/forYou/.test(tAfter.text) && !tAfter.text.includes(cn), tAfter.text.slice(0, 200));
     check('State: the owner still reads it', (await mcpCall(A.chat, 'get_state', { project: nm })).text.includes(cn));
     // Orders: who may set the flag and who may change the page
-    const flag = (who, id, layer) => action('app/(app)/notes/orders-actions.ts#setOrdersAction', [id, layer], { cookie: who.cookie });
     let f = await flag(T, S.note, 'org');
     check('Orders: a member who is not an owner cannot make a page the organization’s Orders', /Only an owner/.test(JSON.stringify(f.value)) && !(await rawDb.collection('notes').findOne({ _id: S.note })).orders, JSON.stringify(f.value));
     f = await flag(T, S.note, 'project');
@@ -919,6 +955,24 @@ function AUDIT() {
   );
   // (the owner already has a State there, so import is refused for them by design: its refusals must read as the access check)
   add('mcp import_state', M('import_state', t => ({ project: t.project, markdown: '## Now\n- lkq imported goal' }), aim(['project'], { control: false })));
+  // Messages (slice 3): a reader of the project only
+  add('mcp send_message',
+    M('send_message', t => ({ project: t.project, kind: 'fyi', body: 'lkq sneaked message' }), aim(['project'])),
+    M('send_message', t => ({ project: t.projectName, kind: 'request', body: 'lkq sneaked request', to_session: 'lkq' }), aim(['projectName'], { label: 'by name' })),
+    Mc('send_message', t => ({ project: t.project, kind: 'decision', body: 'lkq sneaked decision' }), aim(['project'], { label: 'code key' })),
+  );
+  add('mcp inbox',
+    M('inbox', t => ({ project: t.project }), aim(['project'])),
+    M('inbox', t => ({ project: t.projectName, status: 'unread' }), aim(['projectName'], { label: 'by name' })),
+    M('inbox', {}, { label: 'every project' }),
+    Mc('inbox', t => ({ project: t.project }), aim(['project'], { label: 'code key' })),
+  );
+  add('mcp message_status',
+    M('message_status', t => ({ id: t.msg, status: 'seen' }), aim(['msg'])),
+    M('message_status', t => ({ id: t.msgReq, status: 'applied', make_task: true, note: 'lkq' }), aim(['msgReq'], { label: 'make a task', control: false })),
+    Mc('message_status', t => ({ id: t.msg, status: 'rejected', note: 'lkq' }), aim(['msg'], { label: 'code key', control: false })),
+  );
+  add('mcp reply', M('reply', t => ({ id: t.msg, body: 'lkq sneaked reply' }), aim(['msg'])), Mc('reply', t => ({ id: t.msg, body: 'lkq code reply' }), aim(['msg'], { label: 'code key' })));
   const dOk = r => r.ok;
   add('mcp discord_list_channels', M('discord_list_channels', {}, { ok: dOk }));
   add('mcp discord_needs_attention', M('discord_needs_attention', { since: '3d' }, { ok: dOk }));
@@ -989,6 +1043,10 @@ function AUDIT() {
   add(`action ${N_}searchMentionsAction`, act(N_ + 'searchMentionsAction', ['lkq'], { ok: r => r.status === 200 && !r.error && Array.isArray(r.value) }));
   const SA = 'app/(app)/projects/[id]/state-actions.ts#';
   const OA = 'app/(app)/notes/orders-actions.ts#';
+  const IA = 'app/(app)/projects/[id]/inbox-actions.ts#';
+  add(`action ${IA}sendMessageAction`, act(IA + 'sendMessageAction', t => [t.project, 'fyi', 'lkq action message'], aim(['project'])), act(IA + 'sendMessageAction', t => [t.project, 'request', 'lkq action request', 'lkq'], aim(['project'], { label: 'for a session' })));
+  add(`action ${IA}messageStatusAction`, act(IA + 'messageStatusAction', t => [t.project, t.msg, 'seen'], aim(['project', 'msg'])), act(IA + 'messageStatusAction', t => [t.project, t.msg, 'rejected', 'lkq'], aim(['project', 'msg'], { label: 'rejected', control: false })));
+  add(`action ${IA}makeTaskFromMessageAction`, act(IA + 'makeTaskFromMessageAction', t => [t.project, t.msgReq], aim(['project', 'msgReq'], { control: false })));
   add(`action ${SA}saveStateAction`, act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_next', text: 'lkq action sneak' }]], aim(['project'])), act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_decision', text: 'lkq action decision' }, { op: 'add_later', text: 'lkq action later' }]], aim(['project'], { label: 'decision and later' })));
   add(`action ${OA}setOrdersAction`, act(OA + 'setOrdersAction', t => [t.ordersNote, 'project'], aim(['ordersNote'])), act(OA + 'setOrdersAction', t => [t.ordersNote, null], aim(['ordersNote'], { label: 'clearing it' })));
   const CI = 'app/(app)/projects/[id]/claude-items-actions.ts#';

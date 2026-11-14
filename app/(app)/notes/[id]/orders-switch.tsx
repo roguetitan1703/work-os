@@ -12,12 +12,12 @@ const NAMES: Record<Layer, string> = { org: 'the organization’s Orders', proje
  * Marks this page as standing Orders: rules every AI reads first when it starts work (start_work). A page marked so is
  * changed here, in the app, by the person who holds that layer, never through Claude.
  */
-export function OrdersSwitch({ noteId, current, options }: { noteId: string; current: Layer | null; options: Layer[] }) {
+export function OrdersSwitch({ noteId, current, options, updatedAt }: { noteId: string; current: Layer | null; options: Layer[]; updatedAt: number }) {
   const [layer, setLayer] = useState<Layer | null>(current);
   const [pending, start] = useTransition();
   const change = (next: Layer | null) =>
     start(async () => {
-      const r = await setOrdersAction(noteId, next);
+      const r = await setOrdersAction(noteId, next, updatedAt);
       if ('error' in r) return void toast.error(r.error);
       setLayer(next);
       toast.success(next ? `Now ${NAMES[next]}` : 'No longer Orders');

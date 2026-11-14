@@ -1,9 +1,10 @@
 import 'server-only';
+import { requestContext } from '../request-context';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { inTransaction, type ProjectDoc, type StateDoc, type StateLine } from '../db';
 import { scoped, type Scope } from '../scope';
-import type { Actor } from '../actors';
+import { userActor, type Actor } from '../actors';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, resolveProject } from './projects';
 import { createTask } from './tasks';
@@ -33,6 +34,8 @@ export const StateOpSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('add_later'), text: text(LIMITS.line), waits_on: waits }),
   z.object({ op: z.literal('promote_later'), id: lineId, priority: z.enum(['P1', 'P2', 'P3', 'P4']).optional() }),
   z.object({ op: z.literal('add_decision'), text: text(LIMITS.decision) }),
+  // Takes a decision off the State's list (it stays in the log): the project's owner or an owner of the organization only.
+  z.object({ op: z.literal('archive_decision'), id: lineId }),
   z.object({
     op: z.literal('set_where'),
     machine: z.string().trim().min(1).max(40),
@@ -68,7 +71,7 @@ export type SaveResult =
   | { conflict: true; state: StateDoc | null; project: ProjectDoc }
   | { conflict?: false; state: StateDoc; project: ProjectDoc; done: string[]; promoted: { ref: number; title: string }[] };
 
-export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o: { baseVersion?: number; actor: Actor; via: Via }): Promise<SaveResult> {
+export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o: { baseVersion?: number; actor: Actor; via: Via; msgId?: string }): Promise<SaveResult> {
   const ops = StateOpsSchema.parse(rawOps);
   return inTransaction(async () => {
     const c = await scoped(s);
@@ -92,6 +95,18 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
       if (!cur) throw new InputError('Could not create the State');
     }
     const by = s.userId;
+    const rc = requestContext();
+    const src = rc.src;
+    const stamp = { by, ...(src ? { src } : {}) };
+    const log: NonNullable<StateDoc['log']> = ops.map(op => ({ at: now, by, ...(rc.keyId ? { key: rc.keyId } : {}), ...(src ? { src } : {}), via: o.via, op: op.op, ...('id' in op ? { id: op.id } : {}) }));
+    // At most 30 decisions an hour from one key: a runaway agent cannot bury the real ones.
+    if (ops.some(x => x.op === 'add_decision')) {
+      const hourAgo = now.getTime() - 3_600_000;
+      const recent = (cur.log ?? []).filter(l => l.op === 'add_decision' && l.at.getTime() > hourAgo && (rc.keyId ? l.key === rc.keyId : l.by === by)).length;
+      if (recent + ops.filter(x => x.op === 'add_decision').length > 30) throw new InputError('That is more than 30 decisions an hour from one key. Wait a while, or record fewer.');
+    }
+    const decisionsAll = [...cur.decisions];
+    let decisionsEdited = false;
     const next = [...cur.next];
     const later = [...cur.later];
     const nextAdds: StateLine[] = [];
@@ -114,7 +129,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           nowSet = { text: op.text, ...(op.holder ? { holder: op.holder } : {}), by, at: now };
           break;
         case 'add_next': {
-          const l: StateLine = { id: lid(), text: op.text, ...(op.ref ? { ref: op.ref } : {}), ...(op.waits_on ? { waitsOn: op.waits_on } : {}), by, at: now };
+          const l: StateLine = { id: lid(), text: op.text, ...(op.ref ? { ref: op.ref } : {}), ...(op.waits_on ? { waitsOn: op.waits_on } : {}), ...stamp, at: now };
           nextAdds.push(l);
           next.push(l);
           break;
@@ -131,7 +146,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           done.push(take(next, op.id, 'Next').text);
           break;
         case 'add_later': {
-          const l: StateLine = { id: lid(), text: op.text, ...(op.waits_on ? { waitsOn: op.waits_on } : {}), by, at: now };
+          const l: StateLine = { id: lid(), text: op.text, ...(op.waits_on ? { waitsOn: op.waits_on } : {}), ...stamp, at: now };
           laterAdds.push(l);
           later.push(l);
           break;
@@ -140,13 +155,22 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           laterEdited = true;
           const l = take(later, op.id, 'Later');
           // It becomes a task in this project, by the caller (the line's words become the title).
-          const t = await createTask(s, { title: l.text.slice(0, 300), project: project._id, priority: (op.priority ?? 'P3') as Priority, ...(l.text.length > 300 ? { description: l.text } : {}) }, o.actor);
+          const t = await createTask(s, { title: l.text.slice(0, 300), project: project._id, priority: (op.priority ?? 'P3') as Priority, ...(l.text.length > 300 ? { description: l.text } : {}) }, o.actor, l.by !== by ? { authors: { title: userActor(l.by), ...(l.text.length > 300 ? { description: userActor(l.by) } : {}) } } : {});
           promoted.push({ ref: t.ref, title: t.title });
           break;
         }
         case 'add_decision':
-          decisions.push({ id: lid(), at: now, by, via: o.via, text: op.text });
+          decisions.push({ id: lid(), at: now, ...stamp, via: o.via, text: op.text, ...(o.msgId ? { msg: o.msgId } : {}) });
           break;
+        case 'archive_decision': {
+          const d = decisionsAll.find(x => x.id === op.id && !x.archivedAt);
+          if (!d) throw new InputError(`Decisions has no open entry ${op.id}`);
+          const may = project.ownerId === s.userId || (await (await import('../caller')).roleOf(s.userId, s.orgId)) === 'owner';
+          if (!may) throw new InputError("Only the project's owner or an owner of the organization can archive a decision.");
+          d.archivedAt = now;
+          decisionsEdited = true;
+          break;
+        }
         case 'set_where':
           where[`where.${machineKey(op.machine)}`] = { ...(op.branch ? { branch: op.branch } : {}), ...(op.head ? { head: op.head } : {}), ...(op.dirty !== undefined ? { dirty: op.dirty } : {}), ...(op.worktrees ? { worktrees: op.worktrees } : {}), at: now, by };
           break;
@@ -154,8 +178,8 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     }
     if (next.length > LIMITS.next) throw new InputError(`Next would hold ${next.length} lines (max ${LIMITS.next}): finish or drop some first.`);
     if (later.length > LIMITS.later) throw new InputError(`Later would hold ${later.length} lines (max ${LIMITS.later}): promote or drop some first.`);
-    if (cur.decisions.length + decisions.length > LIMITS.decisions) throw new InputError(`Decisions would hold more than ${LIMITS.decisions} entries.`);
-    if (Object.keys(cur.where).length + Object.keys(where).length > 40) throw new InputError('Where tracks at most 40 machines.');
+    if (cur.decisions.filter(x => !x.archivedAt).length + decisions.length > LIMITS.decisions) throw new InputError(`Decisions would hold more than ${LIMITS.decisions} entries.`);
+    if (Object.keys(cur.where).length + Object.keys(where).filter(k => !Object.hasOwn(cur.where, k.slice(6))).length > 40) throw new InputError('Where tracks at most 40 machines.');
 
     const set: Record<string, unknown> = { updatedAt: now, ...where };
     const push: Record<string, unknown> = {};
@@ -164,7 +188,9 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     else if (nextAdds.length) push.next = { $each: nextAdds };
     if (laterEdited) set.later = later;
     else if (laterAdds.length) push.later = { $each: laterAdds };
-    if (decisions.length) push.decisions = { $each: decisions };
+    if (decisionsEdited) set.decisions = [...decisionsAll, ...decisions];
+    else if (decisions.length) push.decisions = { $each: decisions };
+    push.log = { $each: log, $slice: -200 };
     const r = await c.states.updateOne({ _id: cur._id, version: cur.version }, { $set: set, $inc: { version: 1 }, ...(Object.keys(push).length ? { $push: push } : {}) } as never);
     if (!r.matchedCount) throw new InputError('The State changed while you saved: read it again and retry.');
     const state = (await c.states.findOne({ _id: cur._id }))!;
@@ -284,7 +310,7 @@ export type StateOut = {
   now: { text: string; holder?: string; at: string; writtenBy?: string } | null;
   next: { id: string; text: string; ref?: number; waitsOn?: string; writtenBy?: string }[];
   later: { id: string; text: string; waitsOn?: string; writtenBy?: string }[];
-  decisions: { id: string; at: string; by: string; via: string; text: string; writtenBy?: string }[];
+  decisions: { id: string; at: string; by: string; via: string; text: string; message?: string; writtenBy?: string }[];
   where: Record<string, { branch?: string; head?: string; dirty?: boolean; worktrees?: string[]; at: string; writtenBy?: string }>;
   updatedAt: string;
 };
@@ -300,7 +326,7 @@ export function stateOut(d: StateDoc, reader: string, names: Names): StateOut {
     now: d.now ? { text: d.now.text, ...(d.now.holder ? { holder: d.now.holder } : {}), at: d.now.at.toISOString(), ...w(d.now.by) } : null,
     next: d.next.map(l => ({ id: l.id, text: l.text, ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...w(l.by) })),
     later: d.later.map(l => ({ id: l.id, text: l.text, ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...w(l.by) })),
-    decisions: d.decisions.map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', via: x.via, text: x.text, ...w(x.by) })),
+    decisions: d.decisions.filter(x => !x.archivedAt).map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', via: x.via, text: x.text, ...(x.msg ? { message: x.msg } : {}), ...w(x.by) })),
     where: Object.fromEntries(Object.entries(d.where ?? {}).map(([m, v]) => [m, { ...(v.branch ? { branch: v.branch } : {}), ...(v.head ? { head: v.head } : {}), ...(v.dirty !== undefined ? { dirty: v.dirty } : {}), ...(v.worktrees?.length ? { worktrees: v.worktrees } : {}), at: v.at.toISOString(), ...w(v.by) }])),
     updatedAt: d.updatedAt.toISOString(),
   };
@@ -318,9 +344,10 @@ export function stateMarkdown(d: StateDoc, o: { projectName: string; url: string
   out.push('', '## Later');
   if (d.later.length) for (const l of d.later) out.push(`- ${l.text}${wait(l)}${by(l.by)}`);
   else out.push('- (empty)');
-  if (d.decisions.length) {
+  const live = d.decisions.filter(x => !x.archivedAt);
+  if (live.length) {
     out.push('', '## Decisions');
-    for (const x of d.decisions.slice(-30)) out.push(`- ${x.at.toISOString().slice(0, 10)}: ${x.text} (${o.names[x.by] || 'a former member'}, ${x.via})`);
+    for (const x of live.slice(-30)) out.push(`- ${x.at.toISOString().slice(0, 10)}: ${x.text} (${o.names[x.by] || 'a former member'}, ${x.via})`);
   }
   const machines = Object.entries(d.where ?? {});
   if (machines.length) {

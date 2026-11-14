@@ -9,10 +9,10 @@ import { setOrders, type OrdersLayer } from '@/lib/data/orders';
 // goes (lib/data/orders.ts setOrders): an owner of the organization for the organization layer, the project's owner for
 // the project layer, anyone for their own pages. There is no MCP tool for this.
 
-export async function setOrdersAction(noteId: string, layer: OrdersLayer | null): Promise<{ ok: true } | { error: string }> {
+export async function setOrdersAction(noteId: string, layer: OrdersLayer | null, updatedAt?: number): Promise<{ ok: true } | { error: string }> {
   try {
     if (layer !== null && layer !== 'org' && layer !== 'project' && layer !== 'person') return { error: 'Unknown layer' };
-    await asCaller(c => setOrders(c, String(noteId).slice(0, 60), layer, userActor(c.userId)));
+    await asCaller(c => setOrders(c, String(noteId).slice(0, 60), layer, userActor(c.userId), typeof updatedAt === 'number' ? updatedAt : undefined));
     revalidatePath(`/notes/${noteId}`);
     return { ok: true };
   } catch (e) {

@@ -17,7 +17,7 @@ import { InputError, NotFoundError } from './errors';
 export type OrdersLayer = 'org' | 'project' | 'person';
 const MAX_TEXT = 20_000;
 
-export type OrdersNote = { layer: OrdersLayer; noteId: string; title: string; text: string; truncated: boolean; createdBy: unknown; updatedBy: unknown; ownerId: string };
+export type OrdersNote = { layer: OrdersLayer; noteId: string; title: string; text: string; truncated: boolean; createdBy: unknown; updatedBy: unknown; ownerId: string; ordersBy?: string };
 
 /** The Orders in force for a person starting work on a project: organization, project, person, in that order. */
 export async function ordersFor(s: Scope, project: Pick<ProjectDoc, '_id'>): Promise<OrdersNote[]> {
@@ -26,10 +26,10 @@ export async function ordersFor(s: Scope, project: Pick<ProjectDoc, '_id'>): Pro
   const [org, proj, mine] = await Promise.all([
     c.notes.find({ orders: 'org', visibility: 'org', ...live }).sort({ createdAt: 1 }).limit(5).toArray(),
     c.notes.find({ orders: 'project', projectId: project._id, taskId: null, ...live }).sort({ createdAt: 1 }).limit(5).toArray(),
-    c.notes.find({ orders: 'person', ownerId: s.userId, ...live }).sort({ createdAt: 1 }).limit(5).toArray(),
+    c.notes.find({ orders: 'person', ownerId: s.userId, ordersBy: s.userId, ...live }).sort({ createdAt: 1 }).limit(5).toArray(),
   ]);
   const out = (layer: OrdersLayer, list: NoteDoc[]): OrdersNote[] =>
-    list.map(n => ({ layer, noteId: n._id, title: n.title, text: n.body.slice(0, MAX_TEXT), truncated: n.body.length > MAX_TEXT, createdBy: n.createdBy, updatedBy: n.updatedBy, ownerId: n.ownerId }));
+    list.map(n => ({ layer, noteId: n._id, title: n.title, text: n.body.slice(0, MAX_TEXT), truncated: n.body.length > MAX_TEXT, createdBy: n.createdBy, updatedBy: n.updatedBy, ownerId: n.ownerId, ordersBy: n.ordersBy }));
   return [...out('org', org), ...out('project', proj), ...out('person', mine)];
 }
 
@@ -46,11 +46,13 @@ export async function canEditOrders(s: Scope, note: Pick<NoteDoc, 'orders' | 'ow
 }
 
 /** Marks a note as a layer of Orders, or clears it (layer null). App only: the actor must be a person. */
-export async function setOrders(s: Scope, noteId: string, layer: OrdersLayer | null, actor: Actor): Promise<{ noteId: string; orders: OrdersLayer | null }> {
+export async function setOrders(s: Scope, noteId: string, layer: OrdersLayer | null, actor: Actor, expectedUpdatedAt?: number): Promise<{ noteId: string; orders: OrdersLayer | null }> {
   if (!isPerson(actor)) throw new InputError('Orders are set by a person in the app only.');
   const c = await scoped(s);
   const n = await c.notes.findOne({ _id: noteId, deletedAt: null });
   if (!n) throw new NotFoundError(`Note ${noteId} not found`);
+  // The switch was shown for a version of the page: if the page changed since (a teammate edited the rules after you looked), nothing is marked.
+  if (expectedUpdatedAt !== undefined && n.updatedAt.getTime() !== expectedUpdatedAt) throw new InputError('This page changed since you opened it. Reload it, read it again, then mark it.');
   if (n.taskId || n.parentId) throw new InputError('Orders must be a top-level page: not a task note or a sub-page.');
   const want = layer ?? n.orders;
   if (want) {
@@ -64,6 +66,6 @@ export async function setOrders(s: Scope, noteId: string, layer: OrdersLayer | n
       if (!(await canEditOrders(s, probe))) throw new InputError("Only the project's owner can set its Orders.");
     } else if (n.ownerId !== s.userId) throw new InputError('Your own Orders must be one of your own pages.');
   }
-  await c.notes.updateOne({ _id: noteId }, layer ? { $set: { orders: layer } } : { $unset: { orders: '' } });
+  await c.notes.updateOne({ _id: noteId }, layer ? { $set: { orders: layer, ordersBy: s.userId } } : { $unset: { orders: '', ordersBy: '' } });
   return { noteId, orders: layer };
 }

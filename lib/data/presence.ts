@@ -16,7 +16,7 @@ const REFRESH_MS = 60_000;
 
 export type Ident = { userId: string; agent: string; keyId?: string; keyName?: string; session?: string };
 
-const rowId = (i: Ident, projectId: string) => (i.session ? `${i.userId}:s:${i.session}` : `${i.userId}:k:${i.keyId ?? i.agent}:${projectId}`);
+const rowId = (i: Ident, projectId: string) => (i.session ? `${i.userId}:s:${i.session}:${projectId}` : `${i.userId}:k:${i.keyId ?? i.agent}:${projectId}`);
 
 // "No row for this caller" is remembered for a few seconds, so a caller who never calls start_work costs no read per tool call.
 const none = new Map<string, number>();
@@ -44,6 +44,7 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
         lastSeen: now,
         // start_work hands over everything there is, so what is "new for you" starts here.
         forYouCursor: now,
+        named: [],
         writesSinceSave: 0,
         ...placeIn(project, s.userId),
       },
@@ -61,7 +62,7 @@ export async function presentRow(s: Scope, i: Ident): Promise<PresenceDoc | null
   if (seen && Date.now() - seen < NONE_MS) return null;
   const c = await scoped(s);
   let row: PresenceDoc | null = null;
-  if (i.session) row = await c.presence.findOne({ _id: `${i.userId}:s:${i.session}` });
+  if (i.session) row = await c.presence.findOne({ userId: i.userId, session: i.session }, { sort: { lastSeen: -1 } });
   if (!row && i.keyId) row = await c.presence.findOne({ userId: i.userId, keyId: i.keyId, lastSeen: { $gt: new Date(Date.now() - PRESENT_MIN * 60_000) } }, { sort: { lastSeen: -1 } });
   if (!row) {
     if (none.size > 2000) none.clear();
@@ -78,8 +79,8 @@ export async function touchPresence(s: Scope, row: PresenceDoc): Promise<void> {
 }
 
 /** Claims "what is new" for this session: moves the cursor from the value read to `to`. False if another call of the session took it first. */
-export async function claimCursor(s: Scope, row: PresenceDoc, to: Date): Promise<boolean> {
-  const r = await (await scoped(s)).presence.updateOne({ _id: row._id, forYouCursor: row.forYouCursor }, { $set: { forYouCursor: to } });
+export async function claimCursor(s: Scope, row: PresenceDoc, to: Date, named: string[]): Promise<boolean> {
+  const r = await (await scoped(s)).presence.updateOne({ _id: row._id, forYouCursor: row.forYouCursor }, { $set: { forYouCursor: to, named: named.slice(-20) } });
   return r.matchedCount > 0;
 }
 

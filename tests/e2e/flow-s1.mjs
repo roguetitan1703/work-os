@@ -51,7 +51,7 @@ try {
 
   // The session header names a session too (any kind of client), and a start made with one keeps that id
   const hdr = await mcpH(MCP, 'start_work', { project: NAME, machine: 'phone', label: 'claude chat' }, { 'x-work-os-session': 'chat-session-77' });
-  check('S1: X-Work-OS-Session is the session id when no argument is given (a chat key too)', hdr.json?.session === 'chat-session-77' && !!(await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:chat-session-77` })), hdr.text.slice(0, 200));
+  check('S1: X-Work-OS-Session is the session id when no argument is given (a chat key too)', hdr.json?.session === 'chat-session-77' && !!(await rawDb.collection('presence').findOne({ userId: ME.userId, session: "chat-session-77" })), hdr.text.slice(0, 200));
 
   // An unknown remote returns candidates
   const un = await must(cc, 'start_work', { remote: 'github.com/nobody/never-heard-of-it', branch: 'main' });

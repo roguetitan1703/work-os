@@ -19,11 +19,12 @@ import * as discord from '../discord/read';
 import { BlockedChannelError, DiscordError, NotVisibleError } from '../discord/client';
 import { describeActivity } from '../activity-text';
 import * as stateData from '../data/states';
+import * as messageData from '../data/messages';
 import { ordersFor } from '../data/orders';
-import { othersPresent, registerPresence, type Ident } from '../data/presence';
+import { othersPresent, presentRow, registerPresence, type Ident } from '../data/presence';
 import { forYouAfter, forYouBefore } from './for-you';
 import { randomUUID } from 'node:crypto';
-import { requestContext, sessionHeader } from '../request-context';
+import { requestContext, runWithRequestContext, sessionHeader } from '../request-context';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
 import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, VisibilitySchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
 
@@ -358,7 +359,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   // Title/description come from docs.ts so the /connect page shows exactly what Claude sees.
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
   /** Tools that take an optional `session` argument (the session id start_work returned); the others read the X-Work-OS-Session header only (update_claude_items has its own `session`: a branch name). */
-  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'get_task', 'log_progress', 'complete_task']);
+  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'send_message', 'inbox', 'message_status', 'reply']);
   /** Who is calling, for presence and the "for you" line (lib/mcp/for-you.ts). */
   const identOf = (name: ToolName, a: unknown[]): Ident => {
     const arg = SESSION_ARG.has(name) && a[0] && typeof a[0] === 'object' ? (a[0] as { session?: unknown }).session : undefined;
@@ -377,8 +378,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
           return fail('Internal error');
         }
         // The "for you" line: who is present, what is new for them (before), and the line added to the answer (after).
-        const pending = await forYouBefore(s, identOf(name, a), name);
-        const res = await cb(...a);
+        const ident = identOf(name, a);
+        const pending = await forYouBefore(s, ident, name);
+        // What this call creates is stamped with its session (else its key), so the line does not name it back to the session.
+        const res = await runWithRequestContext({ ...requestContext(), src: ident.session ?? ident.keyId }, () => cb(...a));
         return forYouAfter(pending, name, TOOLS[name].writes, res);
       }) as never,
     )) as unknown as typeof server.registerTool;
@@ -897,10 +900,17 @@ export function createMcpServer(ctx: Ctx): McpServer {
       // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
       const layerName = { org: 'organisation', project: 'project', person: 'person' } as const;
       const orders = (await ordersFor(s, project)).map(o => {
-        const ws = o.layer === 'project' ? [...new Set([o.createdBy, o.updatedBy].map(label).filter((x): x is string => !!x))] : [];
+        // Text that its layer's holder (who set the flag) did not write, and project rules the reader did not write, are information.
+        const odd = (a: unknown) => {
+          const u = (a as { userId?: string } | null)?.userId;
+          return o.ordersBy && u !== o.ordersBy ? (u && names[u]) || 'another member' : undefined;
+        };
+        const ws = [...new Set([...(o.layer === 'project' ? [o.createdBy, o.updatedBy].map(label) : []), odd(o.createdBy), odd(o.updatedBy)].filter((x): x is string => !!x))];
         return { layer: layerName[o.layer], title: o.title, by: by(o.updatedBy), ...(ws.length ? { writtenBy: ws.join('; ') } : {}), text: o.text, ...(o.truncated ? { truncated: 'read the note for the rest', noteId: o.noteId } : {}) };
       });
-      // 3 (4 after messages): the project's open tasks, in brief.
+      // 3. The inbox: unread messages first (they become seen: the sender can tell they arrived).
+      const inb = await messageData.inbox(s, { project: project._id, limit: 15, src: sid });
+      // 4. The project's open tasks, in brief.
       const open = await tasks.listTasks(s, { project: project._id, open: true, archived: 'exclude', sort: 'priority' });
       const pn = await projects.projectNameMap(s);
       const who = await whoOf(ctx);
@@ -917,9 +927,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
         project: { id: project._id, name: project.name, url: `${ctx.baseUrl}/projects/${project._id}`, ...(matchedBy ? { matchedBy } : {}) },
         session: sid,
         textRule: textRule(),
-        sessionNote: 'Pass this session id as session on save_state, get_state, get_task, log_progress and complete_task (and as the X-Work-OS-Session header if your client can).',
+        sessionNote: 'Pass this session id as session on save_state and get_state (and as the X-Work-OS-Session header on every call, if your client can).',
         orders: orders.length ? orders : 'no Orders set',
         state: state ? stateData.stateOut(state, s.userId, names) : NO_STATE,
+        inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names)) } : 'no messages',
         openTasks: { total: open.length, tasks: open.slice(0, 25).map(t => briefTask(t, pn, { baseUrl: ctx.baseUrl, who })), ...(open.length > 25 ? { more: `${open.length - 25} more: list_tasks project:"${project.name}"` } : {}) },
         alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
         stateVersion: state?.version ?? 0,
@@ -997,6 +1008,88 @@ export function createMcpServer(ctx: Ctx): McpServer {
         markdown: stateData.stateMarkdown(r.state, { projectName: r.project.name, url: `${ctx.baseUrl}/projects/${r.project._id}`, reader: s.userId, names }),
       };
     }),
+  );
+
+  // ── Messages (docs/flows/step-1.md section 4) ──
+  // `word` is set here from how the call came in (a Claude chat key or the claude.ai connector: chat; any other key: agent) and is not an argument.
+  const WORD: messageData.Word = caller.agent === 'claude' ? 'chat' : 'agent';
+  /** Who is sending: the client name, and the label of the session's presence row when it has one. */
+  const fromOf = async (name: ToolName, a: { session?: string }): Promise<messageData.From> => {
+    const ident = identOf(name, [a]);
+    const row = await presentRow(s, ident).catch(() => null);
+    return { word: WORD, ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: ident.session ?? ident.keyId };
+  };
+  const sentOut = async (r: Awaited<ReturnType<typeof messageData.sendMessage>>) => ({
+    sent: true,
+    id: r.message._id,
+    thread: r.message.thread,
+    project: r.project.name,
+    word: r.message.from.word,
+    target: r.target,
+  });
+
+  tool(
+    'send_message',
+    {
+      inputSchema: {
+        project: z.string().describe('Project name or id'),
+        kind: z.enum(messageData.KINDS).describe('decision, request, question or fyi'),
+        body: z.string().min(1).max(messageData.MSG_LIMITS.body),
+        refs: messageData.RefsSchema.optional().describe('{tasks: [task numbers], commits: [...], files: [...]}'),
+        to_session: z.string().max(120).optional().describe('Who should act: a session label or client name (a hint: everyone who reads the project can read the message)'),
+        sender_commit: z.string().max(80).optional(),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => sentOut(await messageData.sendMessage(s, a.project, { kind: a.kind, body: a.body, refs: a.refs, to_session: a.to_session, sender_commit: a.sender_commit }, await fromOf('send_message', a)))),
+  );
+
+  tool(
+    'inbox',
+    {
+      inputSchema: {
+        project: z.string().optional().describe('Project name or id; leave out for every project you can read'),
+        status: z.enum(['unread', 'seen', 'applied', 'rejected']).optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => {
+      const r = await messageData.inbox(s, { project: a.project, status: a.status, limit: a.limit, src: requestContext().src });
+      const names = await memberNames(s.orgId);
+      return { textRule: textRule(), ...(r.project ? { project: r.project.name } : {}), unread: r.unread, messages: r.messages.map(m => messageData.messageOut(m, s.userId, names)) };
+    }),
+  );
+
+  tool(
+    'message_status',
+    {
+      inputSchema: {
+        id: z.string().min(1).max(40).describe('Message id (m_…)'),
+        status: z.enum(messageData.STATUSES).describe('seen, applied or rejected'),
+        note: z.string().max(500).optional().describe('Why (shown to the sender)'),
+        commit: z.string().max(80).optional().describe('The commit that did it'),
+        make_task: z.boolean().optional().describe('A request only: make it a task of the project (marks it applied)'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => {
+      const r = await messageData.setStatus(s, a.id, a.status, { note: a.note, commit: a.commit, actor: ACTOR, makeTask: a.make_task });
+      const names = await memberNames(s.orgId);
+      return { message: messageData.messageOut(r.message, s.userId, names), ...(r.decision ? { addedToDecisions: true } : {}), ...(r.task ? { task: `#${r.task.ref} ${r.task.title}` } : {}) };
+    }),
+  );
+
+  tool(
+    'reply',
+    {
+      inputSchema: { id: z.string().min(1).max(40).describe('Message id (m_…)'), body: z.string().min(1).max(messageData.MSG_LIMITS.body), session: sessionArg },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => sentOut(await messageData.reply(s, a.id, a.body, await fromOf('reply', a)))),
   );
 
   const itemKey = z.union([z.number().int(), z.string()]).describe('Item ref: "C12" or 12');

@@ -9,51 +9,72 @@ import type { ToolName } from './docs';
 // its project since its cursor. IDs and counts only, never body text: what a teammate wrote is read through the tools,
 // where it is labelled, never pushed here.
 //
-// One cursor (`forYouCursor`, a timestamp on the presence row) says what has been named. Items newer than it are named
-// once and the cursor moves. A call that writes also moves it (to the end of the call), so a session is never told about
-// what it just made itself. Calls that carry no session id use the most recent row of their key.
+// One cursor (`forYouCursor`, a timestamp on the presence row) says what has been named. It trails the start of the call
+// by SKEW, never the end of it: a document is stamped before its transaction commits, so something a teammate made while
+// the call ran can show up late. The skew window is read twice, so the row also keeps the last ~20 ids it named, and
+// items are named once. A session is not told about what it made itself: sources skip items stamped with its own session
+// or key (`src`). Calls that carry no session id use the most recent row of their key.
 //
 // Adding a source (a later slice: messages, answered Needs) is one object in SOURCES below: give it an id and a collect()
 // that returns lines. Nothing else in this file or in the tool wrapper changes.
 
-export type ForYouInput = { s: Scope; row: PresenceDoc; since: Date; projectName: string };
+export const SKEW_MS = 2000;
+export type ForYouInput = { s: Scope; row: PresenceDoc; since: Date; projectId: string; src?: string; named: Set<string> };
+export type Named = { lines: string[]; ids: string[] };
 export type ForYouSource = {
   id: string;
-  /** Lines naming what is new since `since` (ids and counts only). */
-  collect(x: ForYouInput): Promise<string[]>;
+  /** Lines naming what is new since `since` (ids and counts only, never text; ids named before are skipped). */
+  collect(x: ForYouInput): Promise<Named>;
 };
 
+const none: Named = { lines: [], ids: [] };
 const refs = (list: number[], total: number) => list.slice(0, 5).map(r => `#${r}`).join(', ') + (total > 5 ? ` and ${total - 5} more` : '');
 
 const newTasks: ForYouSource = {
   id: 'tasks',
-  async collect({ s, row, since, projectName }) {
+  async collect({ s, row, since, projectId, src, named }) {
     const c = await scoped(s);
-    const t = await c.tasks.find({ projectId: row.projectId, createdAt: { $gt: since } }, { projection: { ref: 1 } }).sort({ createdAt: 1 }).limit(21).toArray();
-    if (!t.length) return [];
+    const all = await c.tasks.find({ projectId, createdAt: { $gt: since }, ...(src ? { src: { $ne: src } } : {}) }, { projection: { ref: 1 } }).sort({ createdAt: 1 }).limit(41).toArray();
+    const t = all.filter(x => !named.has(x._id)).slice(0, 21);
+    void row;
+    if (!t.length) return none;
     const n = t.length > 20 ? '20+' : String(t.length);
-    return [`${n} new task${t.length === 1 ? '' : 's'} on ${projectName}: ${refs(t.slice(0, 5).map(x => x.ref), t.length > 5 ? 6 : t.length)}`];
+    return { lines: [`${n} new task${t.length === 1 ? '' : 's'} on project ${projectId}: ${refs(t.slice(0, 5).map(x => x.ref), t.length > 5 ? 6 : t.length)}`], ids: t.map(x => x._id) };
   },
 };
 
 const newNext: ForYouSource = {
   id: 'next',
-  async collect({ s, row, since, projectName }) {
-    const st = await (await scoped(s)).states.findOne({ _id: row.projectId }, { projection: { next: 1 } });
-    const fresh = (st?.next ?? []).filter(l => l.at > since);
-    if (!fresh.length) return [];
-    return [`${fresh.length} new line${fresh.length === 1 ? '' : 's'} in Next on ${projectName} (${fresh.slice(0, 5).map(l => l.id).join(', ')})`];
+  async collect({ s, since, projectId, src, named }) {
+    const st = await (await scoped(s)).states.findOne({ _id: projectId }, { projection: { next: 1 } });
+    const fresh = (st?.next ?? []).filter(l => l.at > since && !named.has(l.id) && !(src && l.src === src));
+    if (!fresh.length) return none;
+    return { lines: [`${fresh.length} new line${fresh.length === 1 ? '' : 's'} in Next on project ${projectId} (${fresh.slice(0, 5).map(l => l.id).join(', ')})`], ids: fresh.map(l => l.id) };
+  },
+};
+
+const newMessages: ForYouSource = {
+  id: 'messages',
+  async collect({ s, since, projectId, src, named }) {
+    const m = await (await scoped(s)).messages
+      .find({ projectId, at: { $gt: since }, ...(src ? { src: { $ne: src } } : {}) }, { projection: { _id: 1 } })
+      .sort({ at: 1 })
+      .limit(41)
+      .toArray();
+    const fresh = m.filter(x => !named.has(x._id));
+    if (!fresh.length) return none;
+    return { lines: [`${fresh.length > 40 ? '40+' : fresh.length} new message${fresh.length === 1 ? '' : 's'} on project ${projectId} (inbox: ${fresh.slice(0, 5).map(x => x._id).join(', ')})`], ids: fresh.map(x => x._id) };
   },
 };
 
 /** The sources, in the order their lines appear. */
-export const SOURCES: ForYouSource[] = [newTasks, newNext];
+export const SOURCES: ForYouSource[] = [newMessages, newTasks, newNext];
 
 /** A session that has made this many writes since its last save_state is reminded (and again at each multiple). */
 export const SAVE_NUDGE = 10;
 const SAVES = new Set<ToolName>(['save_state', 'import_state']);
 
-export type Pending = { s: Scope; row: PresenceDoc; startedAt: Date; lines: string[] };
+export type Pending = { s: Scope; row: PresenceDoc; startedAt: Date; lines: string[]; ids: string[] };
 
 /** Before the tool runs: who is present, and what is new for them. Never throws (a failure here must not fail the tool). */
 export async function forYouBefore(s: Scope, ident: Ident, tool: ToolName): Promise<Pending | null> {
@@ -62,13 +83,18 @@ export async function forYouBefore(s: Scope, ident: Ident, tool: ToolName): Prom
     const row = await presentRow(s, ident);
     if (!row) return null;
     const startedAt = new Date();
-    const since = row.forYouCursor;
     const c = await scoped(s);
-    const project = await c.projects.findOne({ _id: row.projectId }, { projection: { name: 1 } });
-    if (!project) return null;
+    // A project the caller can no longer read (made private, taken off) names nothing.
+    if (!(await c.projects.findOne({ _id: row.projectId }, { projection: { _id: 1 } }))) return null;
+    const named = new Set(row.named ?? []);
     const lines: string[] = [];
-    for (const src of SOURCES) lines.push(...(await src.collect({ s, row, since, projectName: project.name })));
-    return { s, row, startedAt, lines };
+    const ids: string[] = [];
+    for (const src of SOURCES) {
+      const r = await src.collect({ s, row, since: row.forYouCursor, projectId: row.projectId, src: ident.session ?? ident.keyId, named });
+      lines.push(...r.lines);
+      ids.push(...r.ids);
+    }
+    return { s, row, startedAt, lines, ids };
   } catch (e) {
     console.error('[for-you]', e);
     return null;
@@ -85,11 +111,12 @@ export async function forYouAfter(p: Pending | null, tool: ToolName, writes: boo
     const failed = !!r?.isError;
     const write = writes && !failed;
     let lines = p.lines;
-    // Items are named once: the call that moves the cursor from the value it read is the one that names them. A call that
-    // wrote moves it to the end of the call (the session is not told about its own work); one that only read moves it to
-    // where it started (what arrived while it ran is named next time).
-    const to = write ? new Date() : lines.length ? p.startedAt : null;
-    if (to && !(await claimCursor(p.s, p.row, to).catch(() => false))) lines = [];
+    // The cursor moves to just before the start of the call (never to its end), when something was named or it is a minute stale.
+    const back = new Date(p.startedAt.getTime() - SKEW_MS);
+    const to = back > p.row.forYouCursor ? back : p.row.forYouCursor; // never backwards
+    if (lines.length || back.getTime() - p.row.forYouCursor.getTime() > 60_000) {
+      if (!(await claimCursor(p.s, p.row, to, [...(p.row.named ?? []), ...p.ids]).catch(() => false))) lines = [];
+    }
     if (!failed) {
       if (SAVES.has(tool)) await resetWrites(p.s, p.row);
       else if (write) {
