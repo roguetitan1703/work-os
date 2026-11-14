@@ -1,10 +1,11 @@
 // Flow MS1 (docs/flows/step-1.md "Tests"): with nobody present send_message says so, and the next start_work lists the message;
 // a message to a session that was here earlier says "offline, last active 3 h ago"; `word` is set by the server from how the
 // call came in (an argument for it is ignored). Seed profile: none.
-import { MCP, check, finish, mkKey, rawDb } from './lib.mjs';
+import { ME, MCP, check, finish, mkKey, rawDb } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
 
 const NAME = 'Flow Mail';
+const i61Key = (a, b) => b;
 try {
   await must(MCP, 'add_project', { name: NAME, code: [{ remote: 'acme/flow-mail' }] });
   const project = await rawDb.collection('projects').findOne({ name: NAME });
@@ -30,16 +31,21 @@ try {
   check('MS1: each with sender, word, body and what to do with it', s2.inbox.messages.some(m => m.body.startsWith('Rebuild the client') && m.word === 'agent' && m.kind === 'request' && /proposal/.test(m.treat)), JSON.stringify(s2.inbox.messages[0]));
   const keys = Object.keys(s2);
   check('MS1: the inbox comes after the State and before the open tasks', keys.indexOf('state') < keys.indexOf('inbox') && keys.indexOf('inbox') < keys.indexOf('openTasks'), keys.join());
-  check('MS1: listed messages became seen (the sender can tell they arrived)', (await rawDb.collection('messages').countDocuments({ projectId: project._id, status: 'seen' })) === 4);
+  check('MS1: the messages addressed to this person or session became seen; the one for a session nobody has used stays unread', (await rawDb.collection('messages').countDocuments({ projectId: project._id, status: 'seen' })) === 3);
   const s3 = await must(cc, 'start_work', { project: NAME, label: 'cutroom third' });
-  check('MS1: seen ones are still listed, and the unread count is 0', s3.inbox.unread === 0 && s3.inbox.messages.length === 4);
+  check('MS1: seen ones are still listed, and the unread count is 1', s3.inbox.unread === 1 && s3.inbox.messages.length === 4);
 
   const inb = await must(MCP, 'inbox', { project: NAME });
-  check('MS1: inbox lists them for the sender with their status', inb.messages.length === 4 && inb.messages.every(m => m.status === 'seen'), JSON.stringify(inb.messages.map(m => m.status)));
+  check('MS1: inbox lists them for the sender with their status', inb.messages.length === 4 && inb.messages.filter(m => m.status === 'seen').length === 3 && inb.messages.filter(m => m.status === 'unread').length === 1, JSON.stringify(inb.messages.map(m => m.status)));
   const asAgent = await must(cc, 'send_message', { project: NAME, kind: 'question', body: 'Which branch?' });
   check('MS1: a Claude Code key message has word agent', asAgent.word === 'agent' && (await rawDb.collection('messages').findOne({ _id: asAgent.id })).from.word === 'agent');
   const tooLong = await mcpH(MCP, 'send_message', { project: NAME, kind: 'fyi', body: 'x'.repeat(4001) });
   check('MS1: a body over 4,000 characters is refused', tooLong.isError, tooLong.text.slice(0, 120));
+  // 60 messages an hour per person across all their keys, the 61st is refused
+  const sent = await rawDb.collection('messages').countDocuments({ 'from.userId': ME.userId, at: { $gt: new Date(Date.now() - 3_600_000) } });
+  for (let i = sent; i < 60; i++) await must(i % 2 ? MCP : cc, 'send_message', { project: NAME, kind: 'fyi', body: `flood ${i}` });
+  const sixtyOne = await mcpH(i61Key(MCP, cc), 'send_message', { project: NAME, kind: 'fyi', body: 'one more' });
+  check('MS1: the 61st message in an hour is refused, whichever key sends it', sixtyOne.isError && /60 messages/.test(sixtyOne.text), sixtyOne.text.slice(0, 200));
   const none = await mcpH(MCP, 'send_message', { project: 'No Such Project', kind: 'fyi', body: 'x' });
   check('MS1: a project that is not there is refused', none.isError && /not found/.test(none.text));
 } catch (e) {

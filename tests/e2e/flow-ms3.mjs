@@ -44,6 +44,9 @@ try {
 
   // A request becomes a task with one call
   const rq = await must(MCP, 'send_message', { project: NAME, kind: 'request', body: 'Write the migration notes\nInclude the rollback step' });
+  const asAgent = await mcpH(cc, 'message_status', { id: rq.id, status: 'applied', make_task: true });
+  check('MS3: make_task on a request whose word is agent (a static key) is refused through MCP, like applying a decision', asAgent.isError && /in the app|own person/.test(asAgent.text) && !(await rawDb.collection('tasks').findOne({ title: 'Write the migration notes' })), asAgent.text.slice(0, 200));
+  await rawDb.collection('messages').updateOne({ _id: rq.id }, { $set: { 'from.word': 'chat' } }); // as if it came through the claude.ai connector (OAuth)
   const mk = await must(cc, 'message_status', { id: rq.id, status: 'applied', make_task: true });
   const taskRef = Number(mk.task.match(/#(\d+)/)[1]);
   const task = await rawDb.collection('tasks').findOne({ ref: taskRef });
@@ -52,9 +55,44 @@ try {
   const notRq = await mcpH(cc, 'message_status', { id: fyi.id, status: 'applied', make_task: true });
   check('MS3: only a request becomes a task', notRq.isError && /request/.test(notRq.text), notRq.text.slice(0, 200));
   const tq = await must(kT, 'send_message', { project: NAME, kind: 'request', body: 'Tess asks: please add the export button' });
-  const mk2 = await must(cc, 'message_status', { id: tq.id, status: 'applied', make_task: true });
-  const got = await must(cc, 'get_task', { task: Number(mk2.task.match(/#(\d+)/)[1]) });
-  check('MS3: a teammate request becomes a task whose title is labelled with their name', /writtenBy/.test(JSON.stringify(got)) && /Tess/.test(JSON.stringify(got)), JSON.stringify(got).slice(0, 300));
+  const mk2 = await mcpH(cc, 'message_status', { id: tq.id, status: 'applied', make_task: true });
+  check('MS3: a teammate request does not become a task through someone else agent (the app does that: MS4)', mk2.isError, mk2.text.slice(0, 200));
+
+  // Closing another member's message: through MCP only the sender or the one it is addressed to; the note says who wrote it
+  const omMsg = await must(cc, 'send_message', { project: NAME, kind: 'fyi', body: 'For Om only, from Om' });
+  const cross = await mcpH(kT, 'message_status', { id: omMsg.id, status: 'rejected', note: 'Tess closes Om message' });
+  check('MS3: a member who only reads the project cannot reject another member message through MCP', cross.isError && /sender|addressed/.test(cross.text) && (await rawDb.collection('messages').findOne({ _id: omMsg.id })).status !== 'rejected', cross.text.slice(0, 200));
+  const crossSeen = await mcpH(kT, 'message_status', { id: omMsg.id, status: 'seen' });
+  check('MS3: nor mark it seen', crossSeen.isError);
+  const tsent = await must(kT, 'send_message', { project: NAME, kind: 'question', body: 'Tess asks the owner' });
+  const rjT = await must(cc, 'message_status', { id: tsent.id, status: 'rejected', note: 'Om says no', commit: 'def5678' });
+  const tseen = (await must(kT, 'inbox', { project: NAME })).messages.find(m => m.id === tsent.id);
+  check('MS3: the addressee (the project owner) can reject it, and Tess sees who closed it, with the note labelled', rjT.message.status === 'rejected' && tseen.statusBy && tseen.statusBy !== 'me' && tseen.noteWrittenBy === tseen.statusBy && tseen.note === 'Om says no', JSON.stringify(tseen));
+  const ownView = (await must(cc, 'inbox', { project: NAME })).messages.find(m => m.id === tsent.id);
+  check('MS3: the one who closed it sees it as theirs, not labelled', ownView.statusBy === 'me' && !ownView.noteWrittenBy);
+
+  // A decision applied from someone else's message keeps who wrote it and how it came in; by stays the applier
+  await rawDb.collection('messages').updateOne({ _id: td.id }, { $set: { status: 'unread' } });
+  const dstate = (await must(cc, 'get_state', { project: NAME })).state;
+  check('MS3: nothing of the refused teammate decision is in Decisions', !dstate.decisions.some(x => x.message === td.id));
+  const own2 = await must(MCP, 'send_message', { project: NAME, kind: 'decision', body: 'Own decision by chat' });
+  await rawDb.collection('messages').updateOne({ _id: own2.id }, { $set: { 'from.word': 'chat' } });
+  await must(cc, 'message_status', { id: own2.id, status: 'applied' });
+  const dd = (await rawDb.collection('states').findOne({ _id: project._id })).decisions.find(x => x.msg === own2.id);
+  check('MS3: an applied decision stores the message author and word, by is the applier', dd.author === ME.userId && dd.word === 'chat' && dd.by === ME.userId && dd.via === 'chat', JSON.stringify(dd));
+
+  // Chosen-people placement: the messages follow the project; the member taken off the list loses them
+  await must(MCP, 'add_project', { name: 'Flow Chosen Mail' });
+  const cm = await must(kT, 'send_message', { project: 'Flow Chosen Mail', kind: 'fyi', body: 'Tess message before she is taken off' });
+  const omm = await must(MCP, 'send_message', { project: 'Flow Chosen Mail', kind: 'fyi', body: 'Om message' });
+  await must(MCP, 'update_project', { project: 'Flow Chosen Mail', visibility: 'members', shared_with: ['me'] });
+  const placed = await rawDb.collection('messages').find({ _id: { $in: [cm.id, omm.id] } }).toArray();
+  check('MS3: shared with chosen people (not Tess): both messages are placed members and owned by the owner', placed.length === 2 && placed.every(m => m.visibility === 'members' && m.ownerId === ME.userId), JSON.stringify(placed.map(m => [m.visibility, m.ownerId])));
+  const gone = await mcpH(kT, 'inbox', { project: 'Flow Chosen Mail' });
+  const goneAll = await mcpH(kT, 'inbox', {});
+  check('MS3: the removed member is refused, and the all-projects inbox carries nothing of it', gone.isError && /not found/.test(gone.text) && !goneAll.text.includes('Tess message before') && !goneAll.text.includes('Om message'), goneAll.text.slice(0, 200));
+  const sendGone = await mcpH(kT, 'send_message', { project: 'Flow Chosen Mail', kind: 'fyi', body: 'still here?' });
+  check('MS3: and cannot send to it', sendGone.isError && /not found/.test(sendGone.text));
   const nf = await mcpH(cc, 'message_status', { id: 'm_nonexistent', status: 'seen' });
   check('MS3: an unknown message id is refused', nf.isError && /not found/.test(nf.text));
 } catch (e) {

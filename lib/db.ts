@@ -169,7 +169,7 @@ export type NoteDoc = Placed & {
 /** A line of a project's State (Next, Later): `by` is who wrote it (a user id), shown labelled to everyone else. */
 export type StateLine = { id: string; text: string; ref?: number; waitsOn?: string; by: string; src?: string; at: Date };
 /** A decision recorded on a project (append-only). `by` = who decided (a user id), `via` = chat / code / app / discord. */
-export type StateDecision = { id: string; at: Date; by: string; src?: string; via: string; text: string; archivedAt?: Date; /** The message it was applied from. */ msg?: string };
+export type StateDecision = { id: string; at: Date; by: string; src?: string; via: string; text: string; archivedAt?: Date; /** The key that recorded it (the hourly limit counts per key). */ key?: string; /** The message it was applied from, who wrote that message and how it came in; `by` is who applied it. */ msg?: string; author?: string; word?: string };
 /** Where the work is on one machine, as the agent reported it from git. */
 export type StateWhere = { branch?: string; head?: string; dirty?: boolean; worktrees?: string[]; at: Date; by: string };
 /** The project's live memory (docs/flows/step-1.md): one per project, `_id` = the project id, stamped with the project's placement. */
@@ -235,7 +235,7 @@ export type PresenceDoc = Placed & {
   agent: string;
   lastSeen: Date;
   forYouCursor: Date;
-  /** The last ~20 item ids the "for you" line named (the cursor trails the call by a skew, so the window is read twice). */
+  /** The last ~100 item ids the "for you" line named (the cursor trails the call by a skew, so the window is read twice). */
   named?: string[];
   /** Writes made since the last save_state of this session (the save nudge). */
   writesSinceSave: number;

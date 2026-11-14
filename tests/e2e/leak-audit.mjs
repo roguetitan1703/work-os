@@ -742,6 +742,16 @@ try {
     await mustMcp(A.chat, 'add_project', { name: nm });
     await mustMcp(A.chat, 'save_state', { project: nm, ops: [{ op: 'add_next', text: cn }, { op: 'add_decision', text: cn + 'd' }] });
     await mustMcp(A.chat, 'start_work', { project: nm, machine: 'lkqmv', label: cn + 'p' });
+    // Archiving a decision: the app only, and only the project's owner (or an organization owner)
+    const pidNm = (await rawDb.collection('projects').findOne({ orgId: A.orgId, name: nm }))._id;
+    const decId = (await mustMcp(A.chat, 'get_state', { project: nm })).state.decisions[0].id;
+    const viaMcp = await mcpCall(A.chat, 'save_state', { project: nm, ops: [{ op: 'archive_decision', id: decId }] });
+    check('State: archive_decision through MCP is refused, even for the owner', !viaMcp.ok && /in the app/.test(viaMcp.text), viaMcp.text.slice(0, 200));
+    const archAct = (who) => action('app/(app)/projects/[id]/state-actions.ts#saveStateAction', [pidNm, [{ op: 'archive_decision', id: decId }]], { cookie: who.cookie });
+    const tArch = await archAct(T);
+    check('State: a teammate who does not own the project cannot archive a decision in the app', tArch.value?.ok === false && /owner/.test(tArch.value?.error ?? ''), JSON.stringify(tArch.value));
+    const aArch = await archAct(A);
+    check('State: the owner archives it in the app, and it leaves the State', aArch.value?.ok === true && !JSON.stringify((await mustMcp(A.chat, 'get_state', { project: nm })).state.decisions).includes(decId), JSON.stringify(aArch.value));
     // T marks a page of the shared project as their own person Orders; when the project goes private the page changes owner and must not become A's Orders
     const tpn = (await mustMcp(T.code, 'write_note', { project: nm, title: 'lkq T person rules', body: 'lkqpersonrulesbody' })).created?.id;
     const flag = (who, id, layer) => action('app/(app)/notes/orders-actions.ts#setOrdersAction', [id, layer], { cookie: who.cookie });

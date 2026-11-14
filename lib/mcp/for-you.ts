@@ -90,7 +90,7 @@ export async function forYouBefore(s: Scope, ident: Ident, tool: ToolName): Prom
     const lines: string[] = [];
     const ids: string[] = [];
     for (const src of SOURCES) {
-      const r = await src.collect({ s, row, since: row.forYouCursor, projectId: row.projectId, src: ident.session ?? ident.keyId, named });
+      const r = await src.collect({ s, row, since: row.forYouCursor, projectId: row.projectId, src: `${s.userId}:${ident.session ?? ident.keyId}`, named });
       lines.push(...r.lines);
       ids.push(...r.ids);
     }

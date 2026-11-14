@@ -23,6 +23,19 @@ try {
   check('MS4: a teammate message reaches Om with word agent, labelled with their name, as information', byId[tm.id].writtenBy === 'Tess' && byId[tm.id].word === 'agent' && /^Information from Tess/.test(byId[tm.id].treat) && byId[tm.id].from.name === 'Tess', JSON.stringify(byId[tm.id]));
   check('MS4: Om own chat message is an instruction for ordinary work, never an approval', /instruction from your person/.test(byId[own.id].treat) && /never approves/.test(byId[own.id].treat) && !byId[own.id].writtenBy, JSON.stringify(byId[own.id]));
   check('MS4: Om own agent message is a proposal', /^A proposal/.test(byId[prop.id].treat), byId[prop.id].treat);
+  // Seen is for the one it is addressed to: another reader's inbox and start_work leave it alone; a session id is not shown to others
+  const long = 'L'.repeat(1200);
+  const forOm = await must(kT, 'send_message', { project: NAME, kind: 'fyi', body: long, session: 'tess-session-1' });
+  const tessSeesOwn = await must(kT, 'inbox', { project: NAME });
+  const omMsgNote = await must(MCP, 'send_message', { project: NAME, kind: 'fyi', body: 'For Om from Om, not for Tess' });
+  await must(kT, 'start_work', { project: NAME, label: 'tess' });
+  await must(kT, 'inbox', { project: NAME });
+  check('MS4: a message to the project owner stays unread when another member reads the inbox or starts work', (await rawDb.collection('messages').findOne({ _id: omMsgNote.id })).status === 'unread');
+  const omSeesTess = (await must(cc, 'inbox', { project: NAME })).messages.find(m => m.id === forOm.id);
+  check('MS4: the owner reading it marks it seen, and another person’s session id is not shown to them', (await rawDb.collection('messages').findOne({ _id: forOm.id })).status === 'seen' && !omSeesTess.from.session && !!tessSeesOwn.messages.find(m => m.id === forOm.id).from.session, JSON.stringify(omSeesTess.from));
+  const swCut = await must(cc, 'start_work', { project: NAME, label: 'om cut check' });
+  const cutBody = swCut.inbox.messages.find(m => m.id === forOm.id).body;
+  check('MS4: start_work cuts long bodies and says how to read the rest; inbox has all of it', cutBody.length < 600 && /read the rest with inbox/.test(cutBody) && omSeesTess.body.length === 1200, String(cutBody.length));
   const sw = await must(cc, 'start_work', { project: NAME, label: 'om second session' });
   check('MS4: start_work lists the teammate message labelled', sw.inbox.messages.some(m => m.id === tm.id && m.writtenBy === 'Tess'), JSON.stringify(sw.inbox).slice(0, 300));
 

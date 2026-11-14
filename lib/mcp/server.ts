@@ -381,7 +381,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         const ident = identOf(name, a);
         const pending = await forYouBefore(s, ident, name);
         // What this call creates is stamped with its session (else its key), so the line does not name it back to the session.
-        const res = await runWithRequestContext({ ...requestContext(), src: ident.session ?? ident.keyId }, () => cb(...a));
+        const res = await runWithRequestContext({ ...requestContext(), src: `${caller.userId}:${ident.session ?? ident.keyId}` }, () => cb(...a));
         return forYouAfter(pending, name, TOOLS[name].writes, res);
       }) as never,
     )) as unknown as typeof server.registerTool;
@@ -909,7 +909,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         return { layer: layerName[o.layer], title: o.title, by: by(o.updatedBy), ...(ws.length ? { writtenBy: ws.join('; ') } : {}), text: o.text, ...(o.truncated ? { truncated: 'read the note for the rest', noteId: o.noteId } : {}) };
       });
       // 3. The inbox: unread messages first (they become seen: the sender can tell they arrived).
-      const inb = await messageData.inbox(s, { project: project._id, limit: 15, src: sid });
+      const inb = await messageData.inbox(s, { project: project._id, limit: 15, src: `${s.userId}:${sid}` });
       // 4. The project's open tasks, in brief.
       const open = await tasks.listTasks(s, { project: project._id, open: true, archived: 'exclude', sort: 'priority' });
       const pn = await projects.projectNameMap(s);
@@ -930,7 +930,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         sessionNote: 'Pass this session id as session on save_state and get_state (and as the X-Work-OS-Session header on every call, if your client can).',
         orders: orders.length ? orders : 'no Orders set',
         state: state ? stateData.stateOut(state, s.userId, names) : NO_STATE,
-        inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names)) } : 'no messages',
+        inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names, { cut: 500 })) } : 'no messages',
         openTasks: { total: open.length, tasks: open.slice(0, 25).map(t => briefTask(t, pn, { baseUrl: ctx.baseUrl, who })), ...(open.length > 25 ? { more: `${open.length - 25} more: list_tasks project:"${project.name}"` } : {}) },
         alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
         stateVersion: state?.version ?? 0,
@@ -961,7 +961,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false },
     },
     handler(async a => {
-      const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: caller.agent === 'claude-code' ? 'code' : 'chat' });
+      const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller) === 'chat' ? 'chat' : 'code' });
       const names = await memberNames(s.orgId);
       if (r.conflict) {
         return {
@@ -1017,7 +1017,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   const fromOf = async (name: ToolName, a: { session?: string }): Promise<messageData.From> => {
     const ident = identOf(name, [a]);
     const row = await presentRow(s, ident).catch(() => null);
-    return { word: WORD, ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: ident.session ?? ident.keyId };
+    return { word: WORD, ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: `${s.userId}:${ident.session ?? ident.keyId}` };
   };
   const sentOut = async (r: Awaited<ReturnType<typeof messageData.sendMessage>>) => ({
     sent: true,

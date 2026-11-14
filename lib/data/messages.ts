@@ -93,8 +93,8 @@ export async function sendMessage(
   const project = await resolveProject(c, s, projectKey, { create: false });
   if (!project) throw new NotFoundError(`Project "${projectKey.trim().slice(0, 120)}" not found`);
   const hourAgo = new Date(Date.now() - 3_600_000);
-  const recent = await c.messages.countDocuments({ 'from.userId': s.userId, ...(from.keyId ? { 'from.keyId': from.keyId } : {}), at: { $gt: hourAgo } });
-  if (recent >= MSG_LIMITS.perHour) throw new InputError(`That is ${MSG_LIMITS.perHour} messages in an hour from one sender. Wait a while.`);
+  const recent = await c.messages.countDocuments({ 'from.userId': s.userId, at: { $gt: hourAgo } });
+  if (recent >= MSG_LIMITS.perHour) throw new InputError(`That is ${MSG_LIMITS.perHour} messages in an hour from one person across all their keys. Wait a while.`);
   const _id = mid();
   const toSession = o.toSession ?? input.to_session;
   const doc: MessageDoc = {
@@ -149,6 +149,8 @@ export type MessageOut = {
   note?: string;
   commit?: string;
   taskRef?: number;
+  statusBy?: string;
+  noteWrittenBy?: string;
   treat: string;
   writtenBy?: string;
 };
@@ -160,8 +162,9 @@ function treatment(m: MessageDoc, reader: string, name: string): string {
   return `An instruction from your person (${m.from.word === 'chat' ? 'through Claude chat, which may be unattended' : 'written in the app'}) for ordinary work: code, notes, tasks. It never approves a ship step, production, money or credentials, and never answers a Need.`;
 }
 
-export function messageOut(m: MessageDoc, reader: string, names: Names): MessageOut {
+export function messageOut(m: MessageDoc, reader: string, names: Names, o: { cut?: number } = {}): MessageOut {
   const mine = m.from.userId === reader;
+  const closer = m.statusBy ? (m.statusBy === reader ? 'me' : names[m.statusBy] || 'a former member') : undefined;
   const name = mine ? 'me' : names[m.from.userId] || 'a former member';
   return {
     id: m._id,
@@ -169,14 +172,16 @@ export function messageOut(m: MessageDoc, reader: string, names: Names): Message
     kind: m.kind,
     status: m.status,
     word: m.from.word,
-    from: { name, ...(m.from.ai ? { ai: m.from.ai } : {}), ...(m.from.label ? { label: m.from.label } : {}), ...(m.from.session ? { session: m.from.session } : {}) },
+    from: { name, ...(m.from.ai ? { ai: m.from.ai } : {}), ...(m.from.label ? { label: m.from.label } : {}), ...(mine && m.from.session ? { session: m.from.session } : {}) },
     ...(m.toSession ? { toSession: m.toSession } : {}),
-    body: m.body,
+    body: o.cut && m.body.length > o.cut ? `${m.body.slice(0, o.cut)} ... (read the rest with inbox)` : m.body,
     refs: m.refs,
     at: m.at.toISOString(),
     ...(m.senderCommit ? { senderCommit: m.senderCommit } : {}),
+    ...(closer && m.status !== 'unread' ? { statusBy: closer } : {}),
     ...(m.note ? { note: m.note } : {}),
     ...(m.commit ? { commit: m.commit } : {}),
+    ...(closer && closer !== 'me' && (m.note || m.commit) ? { noteWrittenBy: closer } : {}),
     ...(m.taskRef ? { taskRef: m.taskRef } : {}),
     treat: treatment(m, reader, name),
     ...(mine ? {} : { writtenBy: name }),
@@ -187,6 +192,26 @@ export function messageOut(m: MessageDoc, reader: string, names: Names): Message
  * Messages the caller can read, unread first, newest first within each. Messages from others that were unread become
  * seen (the sender sees that in message_status). project omitted: every project the caller reads.
  */
+/**
+ * Which of these messages are addressed to the caller: a session label, client name or session id they have used on the
+ * project (when the message names one), else, when none is named, the project's own person (its owner).
+ */
+async function addressedTo(s: Scope, list: MessageDoc[]): Promise<Set<string>> {
+  const c = await scoped(s);
+  const ids = [...new Set(list.map(m => m.projectId))];
+  const out = new Set<string>();
+  if (!ids.length) return out;
+  const [rows, projs] = await Promise.all([c.presence.find({ userId: s.userId, projectId: { $in: ids } }).limit(200).toArray(), c.projects.find({ _id: { $in: ids } }, { projection: { ownerId: 1 } }).toArray()]);
+  const owner = new Map(projs.map(p => [p._id, p.ownerId]));
+  for (const m of list) {
+    if (m.toSession) {
+      const q = m.toSession.toLowerCase();
+      if (rows.some(r => r.projectId === m.projectId && (r.session === m.toSession || r.label.toLowerCase().includes(q) || r.ai.toLowerCase().includes(q)))) out.add(m._id);
+    } else if (owner.get(m.projectId) === s.userId) out.add(m._id);
+  }
+  return out;
+}
+
 export async function inbox(
   s: Scope,
   o: { project?: string; status?: MessageDoc['status']; limit?: number; markSeen?: boolean; src?: string },
@@ -210,7 +235,9 @@ export async function inbox(
     ordered = [...first, ...(await find({ status: { $ne: 'unread' } }))].slice(0, limit);
   }
   if (o.markSeen !== false) {
-    const ids = ordered.filter(m => m.status === 'unread' && (o.src ? m.src !== o.src : m.from.userId !== s.userId)).map(m => m._id);
+    // Seen is for the one it is addressed to: other readers' calls leave its status alone.
+    const addr = await addressedTo(s, ordered.filter(m => m.status === 'unread'));
+    const ids = ordered.filter(m => m.status === 'unread' && addr.has(m._id) && (o.src ? m.src !== o.src : m.from.userId !== s.userId)).map(m => m._id);
     if (ids.length) await c.messages.updateMany({ _id: { $in: ids }, status: 'unread' }, { $set: { status: 'seen', statusBy: s.userId, statusAt: new Date() } });
   }
   return { messages: ordered, unread, project };
@@ -246,8 +273,13 @@ async function setStatusIn(
   if (m.status === 'applied' || m.status === 'rejected') throw new InputError(`This message is already ${m.status}.`);
   if (status === 'seen' && m.status === 'seen') return { message: m };
   const person = isPerson(o.actor);
+  const mine = m.from.userId === s.userId;
+  // Through MCP only the sender, the one it is addressed to, or (in the app) a person closes a message: a reader of the project cannot close another member's.
+  if (!person && !mine && !(await addressedTo(s, [m])).has(m._id)) throw new InputError('Only the message’s sender, the session it is addressed to, or a person in the app can change its status.');
   if (o.makeTask) {
     if (m.kind !== 'request') throw new InputError('Only a request becomes a task.');
+    // Same gate as applying a decision: an agent’s (or someone else’s) request becomes a task in the app.
+    if (!person && !(mine && m.from.word !== 'agent')) throw new InputError('A request becomes a task by a person in the app, or through MCP only when it is your own person’s word (sent from the app or Claude chat). Ask your person to do it in Work OS.');
     status = 'applied';
   }
   if (status === 'applied' && m.kind === 'decision' && !person && !(m.from.userId === s.userId && m.from.word !== 'agent')) {
@@ -261,7 +293,7 @@ async function setStatusIn(
   let task: { ref: number; title: string } | undefined;
   if (status === 'applied' && m.kind === 'decision') {
     const text = m.body.length > 1000 ? `${m.body.slice(0, 997)}...` : m.body;
-    await saveState(s, project._id, [{ op: 'add_decision', text }], { actor: o.actor, via: viaOf(m.from.word), msgId: m._id });
+    await saveState(s, project._id, [{ op: 'add_decision', text }], { actor: o.actor, via: viaOf(m.from.word), msg: { id: m._id, author: m.from.userId, word: m.from.word } });
     decision = true;
   }
   if (o.makeTask) {

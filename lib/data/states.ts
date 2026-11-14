@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { inTransaction, type ProjectDoc, type StateDoc, type StateLine } from '../db';
 import { scoped, type Scope } from '../scope';
-import { userActor, type Actor } from '../actors';
+import { isPerson, userActor, type Actor } from '../actors';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, resolveProject } from './projects';
 import { createTask } from './tasks';
@@ -71,7 +71,7 @@ export type SaveResult =
   | { conflict: true; state: StateDoc | null; project: ProjectDoc }
   | { conflict?: false; state: StateDoc; project: ProjectDoc; done: string[]; promoted: { ref: number; title: string }[] };
 
-export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o: { baseVersion?: number; actor: Actor; via: Via; msgId?: string }): Promise<SaveResult> {
+export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o: { baseVersion?: number; actor: Actor; via: Via; msg?: { id: string; author: string; word: string } }): Promise<SaveResult> {
   const ops = StateOpsSchema.parse(rawOps);
   return inTransaction(async () => {
     const c = await scoped(s);
@@ -102,7 +102,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     // At most 30 decisions an hour from one key: a runaway agent cannot bury the real ones.
     if (ops.some(x => x.op === 'add_decision')) {
       const hourAgo = now.getTime() - 3_600_000;
-      const recent = (cur.log ?? []).filter(l => l.op === 'add_decision' && l.at.getTime() > hourAgo && (rc.keyId ? l.key === rc.keyId : l.by === by)).length;
+      const recent = cur.decisions.filter(d => d.at.getTime() > hourAgo && (rc.keyId ? d.key === rc.keyId : d.by === by)).length;
       if (recent + ops.filter(x => x.op === 'add_decision').length > 30) throw new InputError('That is more than 30 decisions an hour from one key. Wait a while, or record fewer.');
     }
     const decisionsAll = [...cur.decisions];
@@ -160,9 +160,10 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           break;
         }
         case 'add_decision':
-          decisions.push({ id: lid(), at: now, ...stamp, via: o.via, text: op.text, ...(o.msgId ? { msg: o.msgId } : {}) });
+          decisions.push({ id: lid(), at: now, ...stamp, via: o.via, text: op.text, ...(rc.keyId ? { key: rc.keyId } : {}), ...(o.msg ? { msg: o.msg.id, author: o.msg.author, word: o.msg.word } : {}) });
           break;
         case 'archive_decision': {
+          if (!isPerson(o.actor)) throw new InputError('A decision is archived by a person in the app, not through MCP.');
           const d = decisionsAll.find(x => x.id === op.id && !x.archivedAt);
           if (!d) throw new InputError(`Decisions has no open entry ${op.id}`);
           const may = project.ownerId === s.userId || (await (await import('../caller')).roleOf(s.userId, s.orgId)) === 'owner';
@@ -310,7 +311,7 @@ export type StateOut = {
   now: { text: string; holder?: string; at: string; writtenBy?: string } | null;
   next: { id: string; text: string; ref?: number; waitsOn?: string; writtenBy?: string }[];
   later: { id: string; text: string; waitsOn?: string; writtenBy?: string }[];
-  decisions: { id: string; at: string; by: string; via: string; text: string; message?: string; writtenBy?: string }[];
+  decisions: { id: string; at: string; by: string; via: string; text: string; message?: string; word?: string; writtenBy?: string }[];
   where: Record<string, { branch?: string; head?: string; dirty?: boolean; worktrees?: string[]; at: string; writtenBy?: string }>;
   updatedAt: string;
 };
@@ -326,7 +327,7 @@ export function stateOut(d: StateDoc, reader: string, names: Names): StateOut {
     now: d.now ? { text: d.now.text, ...(d.now.holder ? { holder: d.now.holder } : {}), at: d.now.at.toISOString(), ...w(d.now.by) } : null,
     next: d.next.map(l => ({ id: l.id, text: l.text, ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...w(l.by) })),
     later: d.later.map(l => ({ id: l.id, text: l.text, ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...w(l.by) })),
-    decisions: d.decisions.filter(x => !x.archivedAt).map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', via: x.via, text: x.text, ...(x.msg ? { message: x.msg } : {}), ...w(x.by) })),
+    decisions: d.decisions.filter(x => !x.archivedAt).map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', via: x.via, text: x.text, ...(x.msg ? { message: x.msg } : {}), ...(x.word ? { word: x.word } : {}), ...w(x.author ?? x.by) })),
     where: Object.fromEntries(Object.entries(d.where ?? {}).map(([m, v]) => [m, { ...(v.branch ? { branch: v.branch } : {}), ...(v.head ? { head: v.head } : {}), ...(v.dirty !== undefined ? { dirty: v.dirty } : {}), ...(v.worktrees?.length ? { worktrees: v.worktrees } : {}), at: v.at.toISOString(), ...w(v.by) }])),
     updatedAt: d.updatedAt.toISOString(),
   };

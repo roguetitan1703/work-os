@@ -80,7 +80,7 @@ export async function touchPresence(s: Scope, row: PresenceDoc): Promise<void> {
 
 /** Claims "what is new" for this session: moves the cursor from the value read to `to`. False if another call of the session took it first. */
 export async function claimCursor(s: Scope, row: PresenceDoc, to: Date, named: string[]): Promise<boolean> {
-  const r = await (await scoped(s)).presence.updateOne({ _id: row._id, forYouCursor: row.forYouCursor }, { $set: { forYouCursor: to, named: named.slice(-20) } });
+  const r = await (await scoped(s)).presence.updateOne({ _id: row._id, forYouCursor: row.forYouCursor }, { $set: { forYouCursor: to, named: named.slice(-100) } });
   return r.matchedCount > 0;
 }
 
