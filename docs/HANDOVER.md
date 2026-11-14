@@ -244,7 +244,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 There's no bot server running all the time and no messages are stored.
 - **Reading:** when Claude asks, Work OS calls Discord directly at that moment, using the bot's token.
 - **Commands:** they arrive at `/api/discord/interactions`, which checks Discord's signature on every request.
-- **Posting:** the bot never posts in channels, reacts or changes anything. Its only output is replies that only Om can see, plus DMs to Om (see section 7).
+- **Posting:** the bot posts in a channel only for the team digest (`lib/team-digest.ts`: one message a day to the channel an owner or the operator sets in Settings › Server › Discord; the channel must belong to the organization's server, checked when it is saved and again before each send; project names, tasks, Now and who it waits on go through `plainAlertText`, mentions off). It never reacts or changes anything. Its other output is replies that only the asker can see, plus DMs (see section 7), where a Need arrives with its options as buttons.
 
 ### Om
 - **Right-click a message → Apps → Add to Work OS:**

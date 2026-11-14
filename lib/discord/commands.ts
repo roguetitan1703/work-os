@@ -417,8 +417,11 @@ export function handleInteraction(i: Interaction, c: Ctx): InteractionPlan | Pro
     case InteractionType.COMPONENT:
     case InteractionType.MODAL_SUBMIT: {
       const id = i.data?.custom_id ?? '';
-      const m = id.match(/^wo:(pri|due|edit|editmodal):(\d+)(?::(today|tomorrow|none))?$/);
+      // `need` buttons are answered in the DM they came in (the route's DM path, lib/discord/need-buttons.ts); here, in a server, never.
+      const m = id.match(/^wo:(pri|due|edit|editmodal|need):([A-Za-z0-9_-]+)(?::([A-Za-z0-9_-]+))?$/);
       if (!m) return { response: ephemeral('Unknown action.') };
+      if (m[1] === 'need') return { response: ephemeral('Answer Needs in the direct message they came in.') };
+      if (!/^\d+$/.test(m[2]) || (m[3] !== undefined && !/^(today|tomorrow|none)$/.test(m[3]))) return { response: ephemeral('Unknown action.') };
       if (m[1] === 'edit') return { response: editModal(i, m[2]) };
       return { response: DEFER_UPDATE, work: () => component(i, c, id) };
     }

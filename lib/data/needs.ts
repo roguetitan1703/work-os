@@ -294,7 +294,7 @@ export async function answeredNeedsSince(s: Scope, asker: { session?: string; pr
  * Records who, how ('app'), when and how long it waited. Taken once, atomically: a second answer finds it closed.
  * Not found, not readable and not addressed to the caller read the same.
  */
-export async function answerNeed(s: Scope, id: string, answer: { option: string; text?: string }, via: 'app' | 'phone' = 'app'): Promise<Need> {
+export async function answerNeed(s: Scope, id: string, answer: { option: string; text?: string }, via: 'app' | 'phone' | 'discord' = 'app'): Promise<Need> {
   const text = answer.text?.trim() || undefined;
   if (text && text.length > NEED_LIMITS.answerText) throw new InputError(`The answer text is at most ${NEED_LIMITS.answerText} characters.`);
   return inTransaction(async () => {

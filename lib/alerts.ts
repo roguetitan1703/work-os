@@ -14,6 +14,7 @@ import { assigneesOf } from './assignees';
 import { isMember, memberNames } from './people';
 import { actorLabel } from './actors';
 import { shortAsk } from './data/needs';
+import { needButtons } from './discord/need-buttons';
 
 // Nudges for each person about the tasks whose alerts go to them (recipientsOf: the assignees of a shared task, else
 // its owner), to their inbox, their phones and (if they linked Discord) a Discord DM, by their own settings, in their
@@ -47,10 +48,10 @@ export const ALERT_RULES = {
 
 
 /** A section of the daily digest; rows with a ref link to the task. */
-export type DigestSection = { head: string; rows: { ref?: number; text: string; detail?: string }[] };
+export type DigestSection = { head: string; rows: { ref?: number; text: string; detail?: string; /** A link target that is not the task (a Need opens on Today). */ url?: string; /** Link text when it is not "#ref". */ label?: string }[] };
 export type Digest = { sections: DigestSection[]; /** One line for the inbox and push. */ summary: string; /** Nothing to say: the day is claimed, nothing is sent. */ empty: boolean; /** Log keys the digest takes over (due today, overdue, stalled), claimed with it. */ absorb: { key: string; kind: AlertKind; taskId: string }[] };
 
-export type AlertItem = { key: string; kind: AlertKind; digest?: Digest; /** Where tapping its inbox row or push goes, when not the task. */ url?: string; ref: number; title: string; detail?: string; resend?: boolean; taskId?: string; prevSentAt?: Date; /** Inbox and push title, when the default "Kind: #ref title" does not fit. */ headline?: string; /** The link text when it is not "#ref". */ label?: string };
+export type AlertItem = { key: string; kind: AlertKind; digest?: Digest; /** Where tapping its inbox row or push goes, when not the task. */ url?: string; ref: number; title: string; detail?: string; resend?: boolean; taskId?: string; prevSentAt?: Date; /** Inbox and push title, when the default "Kind: #ref title" does not fit. */ headline?: string; /** The link text when it is not "#ref". */ label?: string; /** need alerts: what Discord shows as buttons under the DM (never for an app-only Need). */ needId?: string; buttons?: { id: string; label: string }[] };
 
 const CLAUDE_OUTCOMES = ['claude_finished', 'claude_stopped'] as const;
 /** Event alerts that live in alertQueue and are claimed there (not in alertLog). */
@@ -165,24 +166,40 @@ export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { on
     const key = `claude_stuck:${t._id}:${t.claude!.claimedAt!.getTime()}`;
     if (!(await c.alertLog.findOne({ _id: key }, { projection: { _id: 1 } }))) items.push({ key, kind: 'claude_stuck', taskId: t._id, ref: t.ref, title: t.title, detail: `quiet for ${quietMins} min`, headline: `Claude may be stuck on #${t.ref}` });
   }
-  if (byDigest && hour >= profile.digestHour) items.push(await buildDigest(c, { tz, today, key: digestKey, open, keyOf }));
+  if (byDigest && hour >= profile.digestHour) items.push(await buildDigest(s, c, { tz, today, key: digestKey, open, keyOf }));
   items.push(...(await queuedItems(c, opts.queuedIds)));
   return { items, quiet: false };
 }
 
-type OpenTask = Pick<TaskDoc, '_id' | 'ref' | 'title' | 'status' | 'priority' | 'due' | 'progress' | 'updatedAt' | 'ownerId'>;
+type OpenTask = Pick<TaskDoc, '_id' | 'ref' | 'title' | 'status' | 'priority' | 'due' | 'progress' | 'updatedAt' | 'ownerId' | 'need'>;
+
+/** Hook: projects where an agent could be running Next work and is not. Returns nothing until the roster exists. */
+export async function idleWithNextWork(_s: Scope): Promise<DigestSection['rows']> {
+  return [];
+}
 
 /**
  * The person's digest for `today`: what agents finished since the last digest, due and overdue, gone quiet, what moved
  * yesterday. Everything comes through the person's own door (their tasks, their queue, the projects they can read).
  */
 async function buildDigest(
+  s: Scope,
   c: Collections,
   x: { tz: string; today: string; key: string; open: OpenTask[]; keyOf: (base: string, t: { ownerId: string }) => string },
 ): Promise<AlertItem> {
   const { tz, today, open } = x;
   const sections: DigestSection[] = [];
   const absorb: Digest['absorb'] = [];
+
+  // Needs you: the open Needs addressed to this person, first (they block someone). Through the person's own door.
+  const needs = await c.needs.find({ to: s.userId, status: 'open' }).sort({ createdAt: 1 }).limit(20).toArray();
+  if (needs.length) {
+    const people = await memberNames(s.orgId);
+    sections.push({
+      head: '🙋 **Needs you**',
+      rows: needs.map(n => ({ label: `Need #${n.ref}`, url: `/today#need-${n.ref}`, text: plainAlertText(shortAsk(n.ask)), detail: `${plainAlertText(actorLabel(n.from.actor, s.userId, people))}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly ? ' · answer in the app' : ''}` })),
+    });
+  }
 
   // What agents finished: queue rows (already sent as alerts) created since the last digest.
   const lastAny = await c.alertLog.findOne({ kind: 'digest' }, { sort: { sentAt: -1 }, projection: { sentAt: 1 } });
@@ -214,13 +231,18 @@ async function buildDigest(
 
   // Gone quiet: In Progress, untouched for the stalled rule's workdays.
   const quiet: DigestSection['rows'] = [];
-  for (const t of open.filter(t => t.status === 'In Progress').sort((a, b) => a.ref - b.ref)) {
+  for (const t of open.filter(t => t.status === 'In Progress' && !t.need).sort((a, b) => a.ref - b.ref)) {
     const lastDay = dateInTz(t.updatedAt, tz);
     if (workdaysBetween(lastDay, today) < ALERT_RULES.stalledWorkdays) continue;
     quiet.push({ ref: t.ref, text: t.title, detail: `no change since ${lastDay}, ${t.progress}%` });
     absorb.push({ key: x.keyOf(`stalled:${t._id}:${t.updatedAt.toISOString()}`, t), kind: 'stalled', taskId: t._id });
   }
   if (quiet.length) sections.push({ head: '🧊 **Gone quiet**, In Progress but untouched', rows: quiet });
+
+  // Idle with Next work ("cutroom could be running and isn't"): the roster builder supplies the real function
+  // (docs/flows/plan-1-3.md slice 6); until then it returns nothing and the section is left out.
+  const idle = await idleWithNextWork(s);
+  if (idle.length) sections.push({ head: '💤 **Idle with Next work**', rows: idle });
 
   // Moved yesterday: one line per project (the previous working day up to today, so Monday covers the weekend). The
   // activity, the tasks and the projects all come through the door, so a project the person cannot read never shows.
@@ -245,7 +267,7 @@ async function buildDigest(
   }
 
   const n = (h: string) => sections.find(sec => sec.head.includes(h))?.rows.length ?? 0;
-  const summary = [n('finished') && `${n('finished')} finished`, n('Due and overdue') && `${n('Due and overdue')} due or overdue`, n('Gone quiet') && `${n('Gone quiet')} quiet`, n('Moved') && `${n('Moved')} project${n('Moved') === 1 ? '' : 's'} moved`].filter(Boolean).join(' · ');
+  const summary = [n('Needs you') && `${n('Needs you')} need${n('Needs you') === 1 ? 's' : ''} you`, n('finished') && `${n('finished')} finished`, n('Due and overdue') && `${n('Due and overdue')} due or overdue`, n('Gone quiet') && `${n('Gone quiet')} quiet`, n('Moved') && `${n('Moved')} project${n('Moved') === 1 ? '' : 's'} moved`].filter(Boolean).join(' · ');
   // The first digest says why the morning alerts changed.
   const first = !(await c.alertLog.findOne({ kind: 'digest', empty: { $ne: true } }, { projection: { _id: 1 } }));
   const empty = !sections.length;
@@ -280,6 +302,7 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
           title: ask,
           detail: `${who}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly ? ' · answer in the app' : ''}`,
           headline: `${who} asks you: ${ask}`,
+          ...(n.appOnly ? {} : { needId: n._id, buttons: n.options.map(o => ({ id: o.id, label: o.label })) }),
         });
         continue;
       }
@@ -331,7 +354,7 @@ export function formatAlerts(items: AlertItem[], baseUrl: string): string[] {
     lines.push('📋 **Your daily digest**', '');
     for (const sec of d.digest!.sections) {
       lines.push(sec.head);
-      for (const r of sec.rows) lines.push(`• ${r.ref ? `[#${r.ref}](<${baseUrl}/tasks/${r.ref}>) ` : ''}${r.text}${r.detail ? ` · ${r.detail}` : ''}`);
+      for (const r of sec.rows) lines.push(`• ${r.url || r.ref ? `[${r.label ?? `#${r.ref}`}](<${baseUrl}${r.url ?? `/tasks/${r.ref}`}>) ` : ''}${plainAlertText(r.text)}${r.detail ? ` · ${plainAlertText(r.detail)}` : ''}`);
       lines.push('');
     }
   }
@@ -374,10 +397,10 @@ async function dmChannel(discordId: string): Promise<string> {
 }
 
 /** A DM to this Discord account (a person's linked one). */
-export async function sendDm(discordId: string, content: string): Promise<void> {
+export async function sendDm(discordId: string, content: string, components?: unknown[]): Promise<void> {
   const ch = await dmChannel(discordId);
   try {
-    await api(`/channels/${ch}/messages`, { method: 'POST', body: { content, allowed_mentions: { parse: [] }, flags: 1 << 2 /* suppress embeds */ } });
+    await api(`/channels/${ch}/messages`, { method: 'POST', body: { content, allowed_mentions: { parse: [] }, flags: 1 << 2 /* suppress embeds */, ...(components ? { components } : {}) } });
   } catch (e) {
     if (e instanceof DiscordError && e.status === 403) {
       throw new Error("Discord refused the DM (403). In Discord: the organization's Discord server → Privacy Settings → allow direct messages from server members.");
@@ -486,6 +509,9 @@ export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: str
       try {
         for (const m of messages) await sendDm(profile.discordId, m);
         res.sent = messages.length;
+        // A Need can be answered right there: one small message per Need with its options as buttons (custom id
+        // wo:need:<id>:<option>, answered through the DM path of the interactions route). App-only Needs get none.
+        for (const i of items) if (i.kind === 'need' && i.needId && i.buttons?.length) await sendDm(profile.discordId, `🙋 **${i.label ?? 'Need'}**: ${i.title}`.slice(0, 1900), needButtons(i.needId, i.buttons));
       } catch (e) {
         errors.push(`discord: ${e instanceof Error ? e.message : String(e)}`);
       }

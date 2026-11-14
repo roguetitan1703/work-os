@@ -8,7 +8,7 @@ import { BlockedChannels } from './blocked-channels';
 import { DiscordServerForm, TeamChannelForm } from './discord-link';
 import { teamChannelId } from '@/lib/team-digest';
 
-// View Channel (1<<10) + Read Message History (1<<16). Nothing else: the bot never posts.
+// View Channel (1<<10) + Read Message History (1<<16). Nothing else in the invite. The bot posts in one place only: the team digest, in the one channel an owner picks below, where that channel's own permissions must let it Send Messages. Everything else it does is private replies and DMs.
 const PERMISSIONS = String((1 << 10) | (1 << 16));
 
 // One bot for the whole deployment; each organization's server and each person's account are set in the app.

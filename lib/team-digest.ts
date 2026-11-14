@@ -1,6 +1,8 @@
 import 'server-only';
 import { clockInTz, dateInTz, DEFAULT_TZ, previousWorkdayStart } from './dates';
-import { api, DiscordError, discordConfig } from './discord/client';
+import { api, DiscordError, discordConfig, orgGuildId } from './discord/client';
+import { shortAsk } from './data/needs';
+import { plainAlertText } from './data/dispatcher';
 import { memberNames } from './people';
 import { getOrgSetting, orgWide, setOrgSetting } from './scope';
 
@@ -20,16 +22,37 @@ export async function teamChannelId(orgId: string): Promise<string | null> {
   return typeof c === 'string' && SNOWFLAKE.test(c) ? c : null;
 }
 
+/** Does this channel belong to the organization's own Discord server? (The bot is in many servers; a pasted id must not post into another.) */
+async function channelInGuild(orgId: string, channelId: string): Promise<boolean> {
+  const guild = await orgGuildId(orgId);
+  if (!guild || !discordConfig()) return false;
+  try {
+    return (await api<{ guild_id?: string }>(`/channels/${channelId}`)).guild_id === guild;
+  } catch {
+    return false;
+  }
+}
+
 export async function setTeamChannelId(orgId: string, channelId: string | null): Promise<void> {
   if (channelId !== null && !SNOWFLAKE.test(channelId)) throw new DiscordError('A channel id is 15 to 22 digits (Discord: right-click the channel, Copy Channel ID).', 0, '');
+  if (channelId !== null && !(await channelInGuild(orgId, channelId))) throw new DiscordError("That channel is not on this organization's Discord server, or the bot cannot see it.", 0, '');
   await setOrgSetting(orgId, 'discord', { teamChannelId: channelId, updatedAt: new Date() });
 }
 
 type Line = { text: string; waitsOn?: string };
-/** Who a project's State waits on: the Next and Later lines' `waitsOn` (a hook: Needs add theirs here in step 2). */
-function waitsOn(state: { next?: Line[]; later?: Line[] } | undefined, names: Record<string, string>): string[] {
-  const w = [...(state?.next ?? []), ...(state?.later ?? [])].map(l => l.waitsOn).filter((x): x is string => !!x);
-  return [...new Set(w.map(x => (names[x] ?? x).slice(0, 40)))];
+type OpenNeed = { to: string; ask: string; asker?: string };
+/**
+ * Who a project's State waits on: the Next and Later lines' `waitsOn`, and the people with an open Need on the project.
+ * A Need shows its person's name only, never its ask, unless the asker is the project's owner (the team knows the owner
+ * is the one steering the project); then the short ask follows the name.
+ */
+function waitsOn(state: { next?: Line[]; later?: Line[] } | undefined, needs: OpenNeed[], ownerId: string, names: Record<string, string>): string[] {
+  const w = [...(state?.next ?? []), ...(state?.later ?? [])].map(l => l.waitsOn).filter((x): x is string => !!x).map(x => plainAlertText(names[x] ?? x).slice(0, 40));
+  for (const n of needs) {
+    const name = plainAlertText(names[n.to] ?? 'a teammate').slice(0, 40);
+    w.push(n.asker === ownerId ? `${name} (${plainAlertText(shortAsk(n.ask))})` : name);
+  }
+  return [...new Set(w)];
 }
 
 /** The message text for `today` (YYYY-MM-DD in the deployment's timezone), or null when there is nothing to say. */
@@ -38,21 +61,22 @@ export async function buildTeamDigest(orgId: string, today: string, tz: string):
   const names = await memberNames(orgId);
   const from = dateInTz(previousWorkdayStart(today, tz), tz);
   // Only projects shared with everyone ('org'): never a private one, never one shared with chosen people.
-  const projects = await c.projects.find({ visibility: 'org' }, { projection: { name: 1 } }).sort({ nameLower: 1 }).toArray();
+  const projects = await c.projects.find({ visibility: 'org' }, { projection: { name: 1, ownerId: 1 } }).sort({ nameLower: 1 }).toArray();
   if (!projects.length) return null;
   const ids = projects.map(p => p._id);
   const states = new Map((await c.states.find({ projectId: { $in: ids } }).toArray()).map(s => [s.projectId, s]));
+  const openNeeds = await c.needs.find({ projectId: { $in: ids }, status: 'open' }, { projection: { projectId: 1, to: 1, ask: 1, from: 1 } }).toArray();
   const done = await c.tasks.find({ projectId: { $in: ids }, visibility: 'org', status: 'Done', doneOn: { $gte: from, $lt: today } }, { projection: { projectId: 1, ref: 1, title: 1 } }).sort({ ref: 1 }).toArray();
   const lines: string[] = [];
   for (const p of projects) {
     const st = states.get(p._id);
     const d = done.filter(t => t.projectId === p._id);
     const now = st?.now?.text;
-    const waits = waitsOn(st, names);
+    const waits = waitsOn(st, openNeeds.filter(n => n.projectId === p._id).map(n => ({ to: n.to, ask: n.ask, asker: 'userId' in n.from.actor ? n.from.actor.userId : undefined })), p.ownerId, names);
     if (!d.length && !now && !waits.length) continue;
-    lines.push(`**${p.name}**`);
-    if (d.length) lines.push(`• Done: ${d.slice(0, 3).map(t => `#${t.ref} ${t.title}`).join('; ')}${d.length > 3 ? ` and ${d.length - 3} more` : ''}`);
-    if (now) lines.push(`• Now: ${now.slice(0, 200)}`);
+    lines.push(`**${plainAlertText(p.name)}**`);
+    if (d.length) lines.push(`• Done: ${d.slice(0, 3).map(t => `#${t.ref} ${plainAlertText(t.title)}`).join('; ')}${d.length > 3 ? ` and ${d.length - 3} more` : ''}`);
+    if (now) lines.push(`• Now: ${plainAlertText(now).slice(0, 200)}`);
     if (waits.length) lines.push(`• Waits on: ${waits.join(', ')}`);
     lines.push('');
   }
@@ -70,6 +94,10 @@ export async function runTeamDigest(orgId: string, opts: { now?: Date } = {}): P
     const now = opts.now ?? new Date();
     const tz = DEFAULT_TZ;
     if (clockInTz(now, tz).hour < HOUR) return false;
+    if (!(await channelInGuild(orgId, channel))) {
+      console.error('[team digest] the channel is not on the organization Discord server: nothing sent');
+      return false;
+    }
     const today = dateInTz(now, tz);
     const c = await orgWide(orgId);
     const key = `team_digest:${orgId}:${today}`;
