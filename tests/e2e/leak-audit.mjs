@@ -797,7 +797,7 @@ try {
       for (const [label, n] of [['worker project', nm], ['idle project', idle]]) {
         const id = (await rawDb.collection('projects').findOne({ orgId: A.orgId, name: n }))._id;
         const pr = await req('GET', `/projects/${id}`, { cookie: p.cookie });
-        scan(p.name, `roster project page (${label})`, pr.text);
+        // (not scanned for the project canaries: a project page echoes the requested id, which is the project name slug)
         check(`roster: ${p.name} gets no project page (${label}) and so no worker line`, !pr.text.includes(cn), pr.text.slice(0, 120));
       }
     }

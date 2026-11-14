@@ -66,7 +66,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     stateOfProject(sc, project.id),
     memberNames(me.orgId),
   ]);
-  const projectWorkers = await projectRoster(sc, project.id);
+  const projectWorkers = await projectRoster(sc, { id: project.id, name: project.name, status: project.status }, stateDoc, names, open);
   const stateView = stateDoc ? stateOut(stateDoc, me.userId, names) : null;
   const turbo = await turboInfo(me, project.id, launcher);
   const projectNotes = notes.notes.filter(n => !n.taskId && !n.archived);
