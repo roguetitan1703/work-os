@@ -52,7 +52,15 @@ export const needsAttention = async (c: MailCtx, a: { since?: Date; limit?: numb
 export const search = async (c: MailCtx, a: { folder?: string; query?: string; from?: string; since?: Date; unread?: boolean; limit?: number; cursor?: string }) =>
   markUntrusted(await get<object>(c, '/search', { folder: a.folder, query: a.query, from: a.from, since: a.since?.toISOString(), unread: a.unread, limit: a.limit, cursor: a.cursor }));
 export const read = async (c: MailCtx, r: MailRef) => markUntrusted(await get<object>(c, '/message', refQuery(r)));
-export const attachment = async (c: MailCtx, r: MailRef, index: number) => markUntrusted(await get<object>(c, '/attachment', { ...refQuery(r), index }));
+const ATTACHMENT_MAX = 2_000_000;
+export async function attachment(c: MailCtx, r: MailRef, index: number) {
+  const a = await get<{ filename?: string; size?: number; content_base64?: string }>(c, '/attachment', { ...refQuery(r), index });
+  const bytes = Math.max(a.size ?? 0, Math.floor(((a.content_base64?.length ?? 0) * 3) / 4));
+  if (bytes > ATTACHMENT_MAX) {
+    throw new InputError(`The attachment "${cleanName(a.filename || '') || 'file'}" is ${(bytes / 1_000_000).toFixed(1)} MB, too big to read here (limit 2 MB). Open it in Mailloom.`);
+  }
+  return markUntrusted(a);
+}
 
 // ── Organising ──────────────────────────────────────────────────────────────
 
@@ -121,7 +129,7 @@ export async function send(c: MailCtx, a: { to: string | string[]; cc?: string |
   const idem = keyFor(a.idempotency_key);
   const body = { to: listOf(a.to), ...(a.cc ? { cc: listOf(a.cc) } : {}), ...(a.bcc ? { bcc: listOf(a.bcc) } : {}), subject: a.subject, text: a.text, ...(a.html ? { html: a.html } : {}), idempotency_key: idem };
   const r = await mailRequest<SendResult>(key, c.ids, 'POST', '/send', { body, idempotencyKey: idem });
-  if (r.sent) await noticeIfOutside(c, email, 'sent', [...body.to, ...(body.cc ?? []), ...(body.bcc ?? [])], a.subject);
+  if (r.sent) await noticeIfOutside(c, email, 'sent', [...(r.accepted ?? []), ...(r.rejected ?? [])], a.subject);
   return { ...r, idempotency_key: idem };
 }
 
@@ -133,7 +141,7 @@ export async function reply(c: MailCtx, a: MailRef & { text: string; html?: stri
   const known = await participants(c, a);
   const body = { message_id: ref.message_id, ...(a.folder ? { folder: a.folder } : {}), text: a.text, ...(a.html ? { html: a.html } : {}), reply_all: !!a.reply_all, ...(a.cc ? { cc: listOf(a.cc) } : {}), ...(a.bcc ? { bcc: listOf(a.bcc) } : {}), ...(a.quote !== undefined ? { quote: a.quote } : {}), idempotency_key: idem };
   const r = await mailRequest<SendResult>(key, c.ids, 'POST', '/reply', { body, idempotencyKey: idem });
-  if (r.sent) await noticeIfOutside(c, email, 'replied', [...(r.accepted ?? []), ...(body.cc ?? []), ...(body.bcc ?? [])], known?.subject ?? '', known?.set);
+  if (r.sent) await noticeIfOutside(c, email, 'replied', [...(r.accepted ?? []), ...(r.rejected ?? [])], known?.subject ?? '', known?.set);
   return { ...r, idempotency_key: idem };
 }
 
@@ -145,7 +153,7 @@ export async function forward(c: MailCtx, a: MailRef & { to: string | string[]; 
   const known = await participants(c, a);
   const body = { message_id: ref.message_id, ...(a.folder ? { folder: a.folder } : {}), to: listOf(a.to), ...(a.cc ? { cc: listOf(a.cc) } : {}), ...(a.bcc ? { bcc: listOf(a.bcc) } : {}), ...(a.text ? { text: a.text } : {}), ...(a.include_attachments !== undefined ? { include_attachments: a.include_attachments } : {}), idempotency_key: idem };
   const r = await mailRequest<SendResult>(key, c.ids, 'POST', '/forward', { body, idempotencyKey: idem });
-  if (r.sent) await noticeIfOutside(c, email, 'forwarded', [...body.to, ...(body.cc ?? []), ...(body.bcc ?? [])], known?.subject ?? '', known?.set);
+  if (r.sent) await noticeIfOutside(c, email, 'forwarded', [...(r.accepted ?? []), ...(r.rejected ?? [])], known?.subject ?? '', known?.set);
   return { ...r, idempotency_key: idem };
 }
 
@@ -156,7 +164,7 @@ export type MailTaskOverrides = { title?: string; project?: string | null; mode?
 const bare = (id: string) => id.trim().replace(/^<|>$/g, '');
 
 /** A task from a mail: subject, sender, date and a link back. A mail already tracked (by Message-ID) returns its task. */
-export async function messageToTask(c: MailCtx, r: MailRef, o: MailTaskOverrides): Promise<{ task: Task; existing: boolean; message: { message_id: string; from: string; subject: string; date: string } }> {
+export async function messageToTask(c: MailCtx, r: MailRef, o: MailTaskOverrides): Promise<{ task: Task; existing: boolean; message: { message_id: string; from: Addr | null; subject: string; date: string } }> {
   let m: MessageFull | null = null;
   let id = r.message_id ? bare(r.message_id) : '';
   const find = async () => (id ? findTaskBySourceMessage(c.s, `mail:${id.toLowerCase()}`) : null);
@@ -165,7 +173,7 @@ export async function messageToTask(c: MailCtx, r: MailRef, o: MailTaskOverrides
     id = bare(m.message_id || '');
     if (!id) throw new InputError('That message has no Message-ID, so it cannot be tracked.');
   }
-  const seen = (mm: MessageFull | null) => ({ message_id: id, from: mm ? who(mm.from) : '', subject: mm?.subject ?? '', date: mm?.date ?? '' });
+  const seen = (mm: MessageFull | null) => ({ message_id: id, from: mm?.from ?? null, subject: cleanName(mm?.subject ?? ''), date: mm?.date ?? '' });
   const hit = await find();
   if (hit) return { task: hit, existing: true, message: seen(m) };
   m ??= await get<MessageFull>(c, '/message', refQuery(r));
@@ -192,7 +200,7 @@ export async function messageToTask(c: MailCtx, r: MailRef, o: MailTaskOverrides
     },
     c.actor,
     {
-      note: o.note ?? `From email by ${from}: ${subject}`,
+      note: o.note ?? 'Made from an email (see description)',
       source: { kind: 'mail', messageId: `mail:${id.toLowerCase()}`, ...(web ? { url: web } : {}), from, subject },
       authors: { title: o.title?.trim() ? c.actor : author, description: author },
     },

@@ -24,7 +24,7 @@ export class MailError extends Error {
 }
 
 const TIMEOUT_MS = 20_000;
-const MAX_BODY = 25_000_000; // an attachment is capped at 10 MB by Mailloom (about 13.5 MB as base64)
+const MAX_BODY = 20_000_000; // an attachment is capped at 10 MB by Mailloom (about 13.5 MB as base64)
 const KEY_SHAPE = /^mlk_[A-Za-z0-9_-]{43}$/;
 
 export const looksLikeKey = (k: string) => KEY_SHAPE.test(k);
@@ -102,9 +102,22 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function readBody(res: Response): Promise<string> {
   const len = Number(res.headers.get('content-length') ?? 0);
   if (len > MAX_BODY) throw new MailError('Mailloom sent too much data.', res.status, 'TOO_BIG');
-  const text = await res.text();
-  if (text.length > MAX_BODY) throw new MailError('Mailloom sent too much data.', res.status, 'TOO_BIG');
-  return text;
+  // Read the stream with a running byte count, so an answer without a content-length cannot fill memory.
+  const reader = res.body?.getReader();
+  if (!reader) return '';
+  const chunks: Uint8Array[] = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > MAX_BODY) {
+      await reader.cancel().catch(() => {});
+      throw new MailError('Mailloom sent too much data.', res.status, 'TOO_BIG');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 /** One call to the agent API with a person's key. Throws MailError with a plain message. */
