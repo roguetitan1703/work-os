@@ -24,6 +24,9 @@ import { ProjectTop } from './project-top';
 import { ClaudeCard } from './claude-card';
 import { projectNeeds } from '@/lib/data/needs';
 import { NeedsTab } from '@/components/needs';
+import { StateCard } from './state-card';
+import { stateOfProject, stateOut } from '@/lib/data/states';
+import { memberNames } from '@/lib/people';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -53,7 +56,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const base = `/projects/${encodeURIComponent(project.id)}`;
   const tabHref = (t: TabId) => `${base}?tab=${t}`;
 
-  const [open, done, activity, notes, work, launcher, reopen, needs] = await Promise.all([
+  const [open, done, activity, notes, work, launcher, reopen, stateDoc, names, needs] = await Promise.all([
     listTasks(sc, { project: project.id, open: true }),
     listTasks(sc, { project: project.id, status: ['Done', 'Dropped'], sort: 'done', limit: 30 }),
     listActivity(sc, { project: project.id, limit: 40 }),
@@ -61,8 +64,11 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     projectItems(sc, project.id, { doneLimit: 30 }),
     projectLauncher(me, project.id),
     reopenPrompts(me),
+    stateOfProject(sc, project.id),
+    memberNames(me.orgId),
     projectNeeds(sc, project.id),
   ]);
+  const stateView = stateDoc ? stateOut(stateDoc, me.userId, names) : null;
   const needsOpenForMe = needs.filter(n => n.status === 'open' && n.to === me.userId).length;
   const turbo = await turboInfo(me, project.id, launcher);
   const projectNotes = notes.notes.filter(n => !n.taskId && !n.archived);
@@ -127,6 +133,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const overview = (
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,_1.7fr)_minmax(0,_1fr)] gap-4 lg:gap-6 items-start" data-view="overview">
       <div className="space-y-4 min-w-0">
+        <StateCard projectId={project.id} initial={stateView} />
         <ClaudeCard projectId={project.id} tabHref={tabHref('claude')} waiting={waiting} running={running} next={nextItem ? { ref: nextItem.ref, title: nextItem.title } : null} queued={queuedItems.length} hasComputers={launcher.devices.length > 0} />
         <section className="space-y-1.5" data-card="tasks">
           <div className="flex items-center gap-2 px-1 md:px-0 min-h-11 md:min-h-0 -mb-1 md:mb-0">

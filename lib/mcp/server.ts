@@ -19,6 +19,12 @@ import { discordLinkOf } from '../profile';
 import * as discord from '../discord/read';
 import { BlockedChannelError, DiscordError, NotVisibleError } from '../discord/client';
 import { describeActivity } from '../activity-text';
+import * as stateData from '../data/states';
+import { ordersFor } from '../data/orders';
+import { othersPresent, registerPresence, type Ident } from '../data/presence';
+import { forYouAfter, forYouBefore } from './for-you';
+import { randomUUID } from 'node:crypto';
+import { requestContext, sessionHeader } from '../request-context';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
 import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, VisibilitySchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
 
@@ -352,6 +358,13 @@ export function createMcpServer(ctx: Ctx): McpServer {
   const server = new McpServer({ name: 'work-os', version: '1.0.0' }, { instructions });
   // Title/description come from docs.ts so the /connect page shows exactly what Claude sees.
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
+  /** Tools that take an optional `session` argument (the session id start_work returned); the others read the X-Work-OS-Session header only (update_claude_items has its own `session`: a branch name). */
+  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'get_task', 'log_progress', 'complete_task']);
+  /** Who is calling, for presence and the "for you" line (lib/mcp/for-you.ts). */
+  const identOf = (name: ToolName, a: unknown[]): Ident => {
+    const arg = SESSION_ARG.has(name) && a[0] && typeof a[0] === 'object' ? (a[0] as { session?: unknown }).session : undefined;
+    return { userId: caller.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sessionHeader(typeof arg === 'string' ? arg : null) ?? requestContext().sid };
+  };
   const tool = ((name: ToolName, config: object, cb: (...a: unknown[]) => unknown) =>
     server.registerTool(
       name,
@@ -364,7 +377,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
           console.error('[mcp policy]', err);
           return fail('Internal error');
         }
-        return cb(...a);
+        // The "for you" line: who is present, what is new for them (before), and the line added to the answer (after).
+        const pending = await forYouBefore(s, identOf(name, a), name);
+        const res = await cb(...a);
+        return forYouAfter(pending, name, TOOLS[name].writes, res);
       }) as never,
     )) as unknown as typeof server.registerTool;
 
@@ -832,6 +848,154 @@ export function createMcpServer(ctx: Ctx): McpServer {
             }
           : {}),
         ...(t.closedOmitted ? { closedOmitted: t.closedOmitted } : {}),
+      };
+    }),
+  );
+
+  // ── Starting work and State (docs/flows/step-1.md) ─────────────────────────
+
+  const sessionArg = z.string().max(64).optional().describe("The session id start_work returned (letters, digits and dashes); lets Work OS tell your answers apart from other sessions' of the same key");
+  const NO_STATE = 'no State yet: import your WORK-STATE.md (call import_state with the file text)';
+
+  tool(
+    'start_work',
+    {
+      inputSchema: {
+        project: z.string().optional().describe('Project name or id. Omit it and pass remote (+ subdir, branch) or path to find the project for a repo'),
+        remote: z.string().optional().describe('Git remote of the repo you are in (any form, e.g. the output of git remote get-url origin)'),
+        subdir: z.string().optional().describe('Your working folder relative to the repo root (git rev-parse --show-prefix)'),
+        branch: z.string().optional().describe('Current git branch'),
+        path: z.string().optional().describe('Absolute path of your working folder'),
+        machine: z.string().max(40).optional().describe('A short name for this computer'),
+        label: z.string().max(120).optional().describe('Who you are, e.g. "cutroom prime, Opus, main"'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    handler(async a => {
+      let key = a.project?.trim();
+      let matchedBy: { how: string; location: unknown } | undefined;
+      if (!key) {
+        if (!a.remote && !a.path) throw new InputError('Give project (name or id), or remote (+ subdir, branch) or path to find it from your repo');
+        const m = await projects.findProjectByCode(s, { remote: a.remote, path: a.path, subdir: a.subdir, branch: a.branch });
+        if (!m.matched) {
+          return {
+            unmatched: true,
+            candidates: m.candidates,
+            hint: 'No project has this repo as a code location. Ask the user which project this is, then call update_project with code: [{ remote, subdir?, branch? }] (or path) and call start_work again.',
+          };
+        }
+        key = m.project.id;
+        matchedBy = { how: m.how, location: m.location };
+      }
+      const { project, state } = await stateData.getState(s, key);
+      const names = await memberNames(s.orgId);
+      const label = await labeller(ctx);
+      const by = await byOf(ctx);
+      // The session: the one named (argument or header), else a new one.
+      const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? randomUUID();
+      const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: a.machine, label: a.label });
+      // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
+      const layerName = { org: 'organisation', project: 'project', person: 'person' } as const;
+      const orders = (await ordersFor(s, project)).map(o => {
+        const ws = o.layer === 'project' ? [...new Set([o.createdBy, o.updatedBy].map(label).filter((x): x is string => !!x))] : [];
+        return { layer: layerName[o.layer], title: o.title, by: by(o.updatedBy), ...(ws.length ? { writtenBy: ws.join('; ') } : {}), text: o.text, ...(o.truncated ? { truncated: 'read the note for the rest', noteId: o.noteId } : {}) };
+      });
+      // 3 (4 after messages): the project's open tasks, in brief.
+      const open = await tasks.listTasks(s, { project: project._id, open: true, archived: 'exclude', sort: 'priority' });
+      const pn = await projects.projectNameMap(s);
+      const who = await whoOf(ctx);
+      // 5. Who else was here in the last 30 minutes.
+      const others = (await othersPresent(s, project._id, row._id)).map(p => ({
+        ai: p.ai,
+        for: p.userId === s.userId ? 'me' : names[p.userId] || 'another member',
+        ...(p.label ? { label: p.label } : {}),
+        ...(p.machine ? { machine: p.machine } : {}),
+        minutesAgo: Math.round((Date.now() - p.lastSeen.getTime()) / 60_000),
+        ...(p.userId === s.userId ? {} : { writtenBy: names[p.userId] || 'another member' }),
+      }));
+      return {
+        project: { id: project._id, name: project.name, url: `${ctx.baseUrl}/projects/${project._id}`, ...(matchedBy ? { matchedBy } : {}) },
+        session: sid,
+        textRule: textRule(),
+        sessionNote: 'Pass this session id as session on save_state, get_state, get_task, log_progress and complete_task (and as the X-Work-OS-Session header if your client can).',
+        orders: orders.length ? orders : 'no Orders set',
+        state: state ? stateData.stateOut(state, s.userId, names) : NO_STATE,
+        openTasks: { total: open.length, tasks: open.slice(0, 25).map(t => briefTask(t, pn, { baseUrl: ctx.baseUrl, who })), ...(open.length > 25 ? { more: `${open.length - 25} more: list_tasks project:"${project.name}"` } : {}) },
+        alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
+        stateVersion: state?.version ?? 0,
+      };
+    }),
+  );
+
+  tool(
+    'get_state',
+    { inputSchema: { project: z.string().describe('Project name or id'), session: sessionArg }, annotations: { readOnlyHint: true } },
+    handler(async a => {
+      const { project, state } = await stateData.getState(s, a.project);
+      if (!state) return { project: project.name, state: NO_STATE, version: 0 };
+      const names = await memberNames(s.orgId);
+      return { textRule: textRule(), project: project.name, version: state.version, state: stateData.stateOut(state, s.userId, names), markdown: stateData.stateMarkdown(state, { projectName: project.name, url: `${ctx.baseUrl}/projects/${project._id}`, reader: s.userId, names }) };
+    }),
+  );
+
+  tool(
+    'save_state',
+    {
+      inputSchema: {
+        project: z.string().describe('Project name or id'),
+        ops: z.array(stateData.StateOpSchema).min(1).max(30).describe('Changes, applied in order'),
+        base_version: z.number().int().min(0).optional().describe('The State version you read. Needed only with set_now, move_next or done_next; stale = nothing written and the current State comes back'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => {
+      const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: caller.agent === 'claude-code' ? 'code' : 'chat' });
+      const names = await memberNames(s.orgId);
+      if (r.conflict) {
+        return {
+          saved: false,
+          conflict: true,
+          message: `base_version was stale: nothing was written. The State is at version ${r.state?.version ?? 0}: merge your change into it and call save_state again with that base_version.`,
+          textRule: textRule(),
+          version: r.state?.version ?? 0,
+          state: r.state ? stateData.stateOut(r.state, s.userId, names) : NO_STATE,
+        };
+      }
+      return {
+        saved: true,
+        version: r.state.version,
+        ...(r.done.length ? { done: r.done } : {}),
+        ...(r.promoted.length ? { promotedToTasks: r.promoted.map(p => `#${p.ref} ${p.title}`) } : {}),
+        textRule: textRule(),
+        state: stateData.stateOut(r.state, s.userId, names),
+        repoCopy: 'Write this to WORK-STATE.md in the repo and commit it with your work:',
+        markdown: stateData.stateMarkdown(r.state, { projectName: r.project.name, url: `${ctx.baseUrl}/projects/${r.project._id}`, reader: s.userId, names }),
+      };
+    }),
+  );
+
+  tool(
+    'import_state',
+    {
+      inputSchema: {
+        project: z.string().describe('Project name or id'),
+        markdown: z.string().min(1).max(200_000).describe("The text of the repo's WORK-STATE.md"),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => {
+      const r = await stateData.importState(s, a.project, a.markdown, { actor: ACTOR });
+      const names = await memberNames(s.orgId);
+      return {
+        imported: { now: r.imported.now, next: r.imported.next, later: r.imported.later },
+        version: r.state.version,
+        textRule: textRule(),
+        state: stateData.stateOut(r.state, s.userId, names),
+        repoCopy: 'WORK-STATE.md now has a copy in Work OS. From here save_state is the way to change it; write this to the file and commit it with your work:',
+        markdown: stateData.stateMarkdown(r.state, { projectName: r.project.name, url: `${ctx.baseUrl}/projects/${r.project._id}`, reader: s.userId, names }),
       };
     }),
   );

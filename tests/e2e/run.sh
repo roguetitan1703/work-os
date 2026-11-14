@@ -42,6 +42,9 @@ vscode-reopen|vscode-reopen.mjs|none|plain
 connect|connect.mjs|none|plain
 recurring|recurring.mjs|none|plain
 subtasks|subtasks.mjs|none|plain
+flow-s1|flow-s1.mjs|none|plain
+flow-s2|flow-s2.mjs|none|plain
+flow-h1|flow-h1.mjs|none|plain
 usage|usage.mjs|none|plain
 auth|auth.mjs|none|plain
 tenancy|tenancy.mjs|none|plain

@@ -186,6 +186,8 @@ export type NoteDoc = Placed & {
   body: string; // markdown, derived from blocks (search, previews, Claude)
   /** Sub-page: the note this page lives in. */
   parentId?: string | null;
+  /** Standing rules served to every AI that starts work (lib/data/orders.ts): which layer this note is, if any. Set in the app only. */
+  orders?: 'org' | 'project' | 'person';
   taskId: string | null; // task note (at most one live per task)
   projectId: string | null; // project note (when taskId is null)
   archived: boolean;
@@ -195,6 +197,48 @@ export type NoteDoc = Placed & {
   updatedAt: Date;
   deletedAt: Date | null;
   deletedBy?: Actor;
+};
+
+/** A line of a project's State (Next, Later): `by` is who wrote it (a user id), shown labelled to everyone else. */
+export type StateLine = { id: string; text: string; ref?: number; waitsOn?: string; by: string; at: Date };
+/** A decision recorded on a project (append-only). `by` = who decided (a user id), `via` = chat / code / app / discord. */
+export type StateDecision = { id: string; at: Date; by: string; via: string; text: string };
+/** Where the work is on one machine, as the agent reported it from git. */
+export type StateWhere = { branch?: string; head?: string; dirty?: boolean; worktrees?: string[]; at: Date; by: string };
+/** The project's live memory (docs/flows/step-1.md): one per project, `_id` = the project id, stamped with the project's placement. */
+export type StateDoc = Placed & {
+  _id: string;
+  projectId: string;
+  now: { text: string; holder?: string; by: string; at: Date } | null;
+  next: StateLine[];
+  later: StateLine[];
+  decisions: StateDecision[];
+  where: Record<string, StateWhere>;
+  /** Bumped on every write. */
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+/** A session working on a project (docs/flows/step-1.md section 5), stamped with the project's placement. `forYouCursor`: what the "for you" line has already named. */
+export type PresenceDoc = Placed & {
+  _id: string;
+  projectId: string;
+  /** The person (user id) the session works for. */
+  userId: string;
+  /** Session id when the call carried one, else the key id (or OAuth client id). */
+  key: string;
+  session?: string;
+  /** The API key or OAuth client behind the calls (a session that passes no id is found again by it). */
+  keyId?: string;
+  label: string;
+  machine: string;
+  /** The client's name (key name / OAuth client name). */
+  ai: string;
+  agent: string;
+  lastSeen: Date;
+  forYouCursor: Date;
+  /** Writes made since the last save_state of this session (the save nudge). */
+  writesSinceSave: number;
 };
 
 export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'claude_stuck' | 'need';
@@ -404,6 +448,8 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['requestStats', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 35 * 86_400 }]],
     // The calendar link (docs/calendar.md): one row per person per organization, found by the hash of its token.
     ['calendarFeeds', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]],
+    ['states', [{ key: { orgId: 1, projectId: 1 }, unique: true, name: 'org_project_unique' }]],
+    ['presence', [{ key: { orgId: 1, projectId: 1, lastSeen: -1 }, name: 'org_project_seen' }, { key: { lastSeen: 1 }, name: 'seen_ttl', expireAfterSeconds: 7 * 86_400 }]],
     ['authLimits', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 3600 }, { key: { key: 1, at: -1 }, name: 'key_at' }]],
     // Better Auth's collections (lib/auth-server.ts): its MongoDB adapter creates no indexes. A session is read by its
     // token whenever the cookie cache runs out (every 2 minutes per person), a member on every role check, an API key on
@@ -474,6 +520,8 @@ export async function collections() {
     workerFolders: db.collection<WorkerFolderDoc>('workerFolders'),
     workerJobs: db.collection<WorkerJobDoc>('workerJobs'),
     workerSessions: db.collection<WorkerSessionDoc>('workerSessions'),
+    states: db.collection<StateDoc>('states'),
+    presence: db.collection<PresenceDoc>('presence'),
   };
   const session = txStore.getStore();
   return session ? (Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, withSession(v, session)])) as typeof cols) : cols;
