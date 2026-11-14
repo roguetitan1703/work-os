@@ -348,6 +348,13 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 
 ---
 
+### Claude Code hooks (slice 1b of docs/flows/plan-1-3.md)
+- **What:** `worker/hook.mjs`, shipped in the worker bundle, is a SessionStart hook (matcher `startup|resume|clear|compact`) and a Stop hook for Claude Code. SessionStart finds the project from the git remote, branch and folder of the cwd, calls `start_work` on the MCP endpoint and prints the brief as `hookSpecificOutput.additionalContext`. Stop blocks once (`{"decision":"block","reason":...}`) when the working tree differs from what SessionStart recorded and the session's transcript shows no `save_state` or `import_state` since.
+- **Fail open:** no key, no network, an error answer, an unmatched project, a non-git folder or a 5 s timeout print nothing and exit 0. Stop never blocks twice in a session (a marker file `<tmp>/work-os-hooks/<session id>.json`), never when `stop_hook_active`, never without a recorded start.
+- **Key:** `WORK_OS_KEY` (a Claude Code `wos_` key; the worker's own `wkr_` device key does not open `/api/mcp`, so it cannot be reused) and `WORK_OS_URL` (default: the worker config's `baseUrl`), both in the `env` block of the person's settings file.
+- **Install:** the person pastes the snippet from Settings › AI tools › Claude Code into `~/.claude/settings.json`, replacing `PATH_TO_WORKER_FOLDER` with the unpacked `worker` folder. The worker and Work OS never edit that file, and never `~/.claude.json`.
+- **Tests:** `worker/test/hook.test.mjs` (stub MCP server and a temp git repo: brief as hook JSON, every fail-open path, the timeout, Stop once, not after a save, baseline kept after compaction). Not yet tested against the real `start_work` (slice 1, builder-b): that waits for its merge.
+
 ## 8. Phone app (PWA)
 
 ### Om
