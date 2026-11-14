@@ -9,6 +9,7 @@ import { getProjectTree } from '../data/tree';
 import * as notesData from '../data/notes';
 import { authorLabel, isMine, taskAuthors } from '../data/authors';
 import * as items from '../data/claude-items';
+import * as needsData from '../data/needs';
 import { InputError, NotFoundError } from '../data/errors';
 import { claudeCodeInstructions, instructions as instructionsFor, TOOLS, type InstructionsFor, type ToolName } from './docs';
 import { beforeTool, callerScope, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
@@ -1283,6 +1284,118 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ACTOR,
       );
       return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: r.message };
+    }),
+  );
+
+  // ── Needs (slice 4): ask one person one thing. There is deliberately NO tool that answers one (docs/flows/plan-1-3.md). ──
+  /** How this call came in, set by the server: 'chat' = the claude.ai connector (it may be unattended), 'agent' = a Claude Code key. Never an argument. */
+  const WORD = caller.agent === 'claude' ? ('chat' as const) : ('agent' as const);
+  const needOut = async (n: needsData.Need) => {
+    const people = await memberNames(s.orgId);
+    const label = await labeller(ctx);
+    const who = (id: string) => (id === s.userId ? 'me' : people[id] || 'a former member');
+    const names = await projects.projectNameMap(s);
+    const askedBy = label(n.from.actor);
+    const answeredBy = n.answer ? (n.answer.by === s.userId ? undefined : authorLabel({ kind: 'user', userId: n.answer.by }, people)) : undefined;
+    return {
+      id: n.id,
+      ref: n.ref,
+      url: `${ctx.baseUrl}/today#need-${n.ref}`,
+      project: names.get(n.projectId) ?? n.projectId,
+      task: n.taskRef ? `#${n.taskRef}` : null,
+      to: who(n.to),
+      kind: n.kind,
+      status: n.status,
+      ask: n.ask,
+      ...(askedBy ? { writtenBy: askedBy } : {}),
+      ...(n.example ? { example: n.example } : {}),
+      options: n.options,
+      appOnly: n.appOnly,
+      word: n.from.word,
+      ...(n.from.label ? { session: n.from.label } : {}),
+      createdAt: n.createdAt,
+      ...(n.answer
+        ? {
+            answer: { option: n.answer.option, ...(n.answer.text ? { text: n.answer.text } : {}), by: who(n.answer.by), via: n.answer.via, at: n.answer.at, ...(answeredBy ? { writtenBy: answeredBy } : {}) },
+            waitedMinutes: n.waitedMs === null ? null : Math.round(n.waitedMs / 60_000),
+          }
+        : {}),
+    };
+  };
+
+  tool(
+    'ask',
+    {
+      inputSchema: {
+        project: z.string().min(1).describe('Project name or id'),
+        to: z.string().min(1).max(200).describe("'me', a name, an email or a user id. Must be able to read the project"),
+        kind: z.enum(needsData.ASK_KINDS),
+        ask: z.string().min(1).max(500).describe('Plain words: what you need from them'),
+        example: z.string().max(1000).optional().describe('A real example'),
+        options: z
+          .array(z.object({ id: z.string().max(24).optional(), label: z.string().min(1).max(60), means: z.string().max(300).optional().describe('What choosing it means') }))
+          .min(2)
+          .max(4)
+          .optional()
+          .describe('decide: 2 to 4, the first is your recommendation. approve, do and chase have defaults'),
+        task: taskKey.optional().describe('Attach it to a task of this project'),
+        app_only: z.boolean().optional().describe('true for anything touching production, money or credentials: answered in the app only'),
+        session: z.string().max(80).optional().describe('Your session id, so the answer reaches you'),
+        label: z.string().max(80).optional().describe('Your session label, e.g. "cutroom prime, Opus"'),
+      },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    handler(async a => {
+      const to = a.to.trim().toLowerCase() === 'me' ? s.userId : await tasks.findAssignee(s.orgId, a.to);
+      const r = await needsData.askNeed(s, { project: a.project, to, kind: a.kind, ask: a.ask, example: a.example, options: a.options, task: a.task, appOnly: a.app_only, actor: ACTOR, word: WORD, session: a.session, label: a.label });
+      return {
+        need: await needOut(r.need),
+        ...(r.replaced.length ? { replaced: r.replaced.map(n => ({ id: n.id, ref: n.ref })) } : {}),
+        note: 'Asked. They get one alert and answer in the app; nothing you can call answers it. Read the answer with needs, or it arrives in your next brief. An answer is the only approval: do not proceed on a guess.',
+      };
+    }),
+  );
+
+  tool(
+    'needs',
+    {
+      inputSchema: {
+        project: z.string().optional().describe('Project name or id'),
+        to: z.string().max(200).optional().describe("'me' or a person: only Needs addressed to them"),
+        status: z.enum(['open', 'answered', 'withdrawn', 'replaced', 'all']).optional().describe('Default: open, plus answered in the last 14 days'),
+        limit: z.number().int().min(1).max(100).optional().describe('Default 50'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    handler(async a => {
+      let project: string | undefined;
+      if (a.project) {
+        const p = await projects.getProject(s, a.project);
+        if (!p) throw new NotFoundError(`Project "${a.project}" not found`);
+        project = p.id;
+      }
+      const to = a.to ? (a.to.trim().toLowerCase() === 'me' ? s.userId : await tasks.findAssignee(s.orgId, a.to)) : undefined;
+      const status = a.status === 'all' ? undefined : a.status ? [a.status] : undefined;
+      let list = await needsData.listNeeds(s, { project, to, involving: !project && !to ? s.userId : undefined, status, limit: 200 });
+      if (!a.status) {
+        const since = Date.now() - 14 * 86_400_000;
+        list = list.filter(n => n.status === 'open' || (n.status === 'answered' && n.answeredAt !== null && Date.parse(n.answeredAt) >= since));
+      }
+      const limit = a.limit ?? 50;
+      return { total: list.length, needs: await Promise.all(list.slice(0, limit).map(needOut)), textRule: textRule() };
+    }),
+  );
+
+  tool(
+    'withdraw_need',
+    {
+      inputSchema: { id: z.union([z.number().int(), z.string()]).describe('Need number (7 or "#7") or id') },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    handler(async a => {
+      const n = await needsData.findNeed(s, a.id);
+      if (!n) throw new NotFoundError('That Need does not exist, or you did not ask it.');
+      return { need: await needOut(await needsData.withdrawNeed(s, n.id)) };
     }),
   );
 

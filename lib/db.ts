@@ -60,6 +60,8 @@ export type TaskDoc = Placed & {
   parentTitle?: string;
   /** On a parent: its subtasks done and counted, recomputed with its progress whenever one changes. */
   subtaskCount?: import('./types').SubtaskCount;
+  /** The open Need on this task, if any (lib/data/needs.ts keeps it in step; rows show it instead of the percent). */
+  need?: import('./types').TaskNeed;
 };
 
 /** A task a person gave to Claude. */
@@ -129,6 +131,41 @@ export type ReviewDoc = Omit<WeeklyReview, 'id' | 'answers'> & { _id: string; or
 export type RitualDoc = Omit<RoutineLog, 'id' | 'count'> & { _id: string; orgId: string; ownerId: string; count?: number; bidsPlaced?: number };
 /** _id `<name>:<orgId>` (task and Claude item numbers per organization). */
 export type CounterDoc = { _id: string; seq: number; orgId: string };
+/**
+ * One ask to one person (docs/flows/plan-1-3.md slice 4). Stamped with its project's placement like a task (the door
+ * filters by the document's own ownerId / visibility / sharedWith) and moved with the project (setProjectPlacement).
+ */
+export type NeedKind = 'decide' | 'approve' | 'review' | 'do' | 'chase';
+export type NeedWord = 'person' | 'chat' | 'agent';
+export type NeedStatus = 'open' | 'answered' | 'withdrawn' | 'replaced';
+export type NeedOption = { id: string; label: string; means: string };
+export type NeedDoc = Placed & {
+  _id: string;
+  /** Per organization, like a task number. */
+  ref: number;
+  projectId: string;
+  taskId: string | null;
+  taskRef: number | null;
+  /** The one person asked (a user id). */
+  to: string;
+  /** Who asked: the actor, the trust word (set by the server from how the call came in) and the session's own label. */
+  from: { actor: Actor; word: NeedWord; session?: string; label?: string };
+  kind: NeedKind;
+  ask: string;
+  example?: string;
+  options: NeedOption[];
+  status: NeedStatus;
+  /** Answered in the app only (production, money, credentials): never from Discord. */
+  appOnly: boolean;
+  answer?: { option: string; text?: string; by: string; via: 'app' | 'phone' | 'discord' | 'chat'; at: Date };
+  createdAt: Date;
+  /** When it was answered; with waitedMs, how long the person took (the scorecard reads them). */
+  answeredAt: Date | null;
+  waitedMs?: number;
+  closedAt?: Date | null;
+  replacedBy?: string;
+};
+
 export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {
   _id: string;
   createdAt: Date;
@@ -204,13 +241,13 @@ export type PresenceDoc = Placed & {
   writesSinceSave: number;
 };
 
-export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'claude_stuck' | 'digest';
+export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'claude_stuck' | 'need' | 'digest';
 /** Kinds sent from the alertQueue (event alerts) rather than found by the scheduled check. */
-export type QueuedAlertKind = 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped';
+export type QueuedAlertKind = 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'need';
 /** One row per alert sent (key encodes task + occasion), so each is sent once. */
 export type AlertLogDoc = { _id: string; orgId: string; /** Who it was sent to. */ userId: string; kind: AlertKind; taskId?: string; sentAt: Date; /** digest rows: the digest had nothing to say (claimed for the day, never sent). */ empty?: boolean };
 /** Event alerts waiting for the next send (queued inside the write's transaction). */
-export type AlertQueueDoc = { _id: string; orgId: string; /** Who gets it: the task's recipient, or the person who gave it to Claude. */ userId: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason; assigned: who assigned it. */ detail?: string };
+export type AlertQueueDoc = { _id: string; orgId: string; /** Who gets it: the task's recipient, or the person who gave it to Claude. */ userId: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason; assigned: who assigned it. */ detail?: string; /** kind 'need': the Need (taskId is then the Need's task, or '' when it has none). */ needId?: string };
 
 /** Inbox-only notices that are not scheduled alerts. */
 export type NoticeKind = 'claude_code_changes' | 'claude_waiting';
@@ -394,6 +431,11 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { orgId: 1, updatedAt: -1 }, name: 'org_updated' },
       { key: { parentId: 1 }, name: 'parent', sparse: true },
     ]],
+    ['needs', [
+      { key: { orgId: 1, ref: 1 }, unique: true, name: 'org_ref_unique' },
+      { key: { projectId: 1, status: 1 }, name: 'project_status' },
+      { key: { to: 1, status: 1 }, name: 'to_status' },
+    ]],
     ['trash', [{ key: { deletedAt: -1 }, name: 'deletedAt' }, { key: { orgId: 1, ref: 1 }, name: 'org_ref' }]],
     ['claudeItems', [
       { key: { orgId: 1, ref: 1 }, unique: true, name: 'org_ref_unique' },
@@ -477,6 +519,7 @@ export async function collections() {
     requestStats: db.collection<RequestStatsDoc>('requestStats'),
     policyEvents: db.collection<PolicyEventDoc>('policyEvents'),
     claudeItems: db.collection<ClaudeItemDoc>('claudeItems'),
+    needs: db.collection<NeedDoc>('needs'),
     devices: db.collection<DeviceDoc>('devices'),
     workerFolders: db.collection<WorkerFolderDoc>('workerFolders'),
     workerJobs: db.collection<WorkerJobDoc>('workerJobs'),

@@ -16,5 +16,6 @@ export const GROUPS: { title: string; tools: ToolName[] }[] = [
   { title: 'Notes', tools: ['write_note', 'read_note', 'list_notes', 'delete_note'] },
   { title: 'Batch & trash', tools: ['apply_changes', 'delete_task', 'restore_task', 'list_trash'] },
   { title: 'Claude Code work list', tools: ['update_claude_items'] },
+  { title: 'Needs (ask one person)', tools: ['ask', 'needs', 'withdraw_need'] },
   { title: 'Discord', tools: ['discord_needs_attention', 'discord_list_channels', 'discord_read_messages', 'discord_message_to_task'] },
 ];

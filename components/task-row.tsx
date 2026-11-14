@@ -15,6 +15,7 @@ import { ProgressDialog } from './progress-dialog';
 import { MTaskRow } from './mobile/m-task-row';
 import { ClaudeBadge, ClaudeMarkSheet, claudeMenuLabel } from './give-to-claude';
 import { ParentLine, SubtaskChip, useCloseSubtasks } from './subtasks';
+import { NeedChip } from './need-chip';
 import { AssigneeDots } from '@/components/assignee-picker';
 
 type Props = {
@@ -114,7 +115,8 @@ export function TaskRow({ task, showProject = true, showMode = true, hint }: Pro
       </div>
 
       <div className="flex items-center gap-1 shrink-0">
-        {!closed && (
+        {!closed && task.need && <NeedChip task={task} className="max-w-[260px] text-[11px]" />}
+        {!closed && !task.need && (
           <button
             onClick={() => setProgressOpen(true)}
             className="flex items-center gap-1 h-6 px-1 rounded-md hover:bg-muted"

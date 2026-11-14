@@ -64,6 +64,8 @@ flow-hooks|flow-hooks.mjs|none|plain
 flow-b4-team|flow-b4-team.mjs|none|discord
 discord-link|discord-link.mjs|none|discord
 leak-audit|leak-audit.mjs|none|discord
+flow-n1|flow-n1.mjs|none|plain
+flow-n2|flow-n2.mjs|none|plain
 delpat-os|delpat-os.mjs|none|delpat
 delpat-os-off|delpat-os-off.mjs|none|plain
 ${E2E_EXTRA:-}

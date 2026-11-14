@@ -17,6 +17,8 @@ import { ResponsiveSheet } from "@/components/responsive-sheet";
 import { cn } from "@/lib/utils";
 import { ClaudeCard, type ClaudeCardData } from "./claude-card";
 import { ChecklistCard } from "./checklist-card";
+import { NeedsYou } from "@/components/needs";
+import type { Need } from "@/lib/data/needs";
 import type { Checklist } from "@/lib/get-started";
 import { useTodayModel, type Wd } from "./today-model";
 
@@ -28,6 +30,7 @@ type Props = {
   waiting: Record<string, string[]>;
   noteTaskIds: string[];
   claude: ClaudeCardData | null;
+  needs: Need[];
   checklist: Checklist | null;
   welcome: string | null;
 };
@@ -53,7 +56,7 @@ export function TodayClient(props: Props) {
   );
 }
 
-function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, waiting, noteTaskIds, claude, checklist, welcome }: Props & { variant: Variant }) {
+function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, waiting, noteTaskIds, claude, needs, checklist, welcome }: Props & { variant: Variant }) {
   const m = useTodayModel({ tasks: openTasks, waiting, isNaturallyWeekend, weekday });
   const phone = variant === "phone";
   const [importOpen, setImportOpen] = useState(false);
@@ -163,6 +166,7 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
         <MobileHeader title="Today" subtitle={dayName} />
         <div className={cn("flex gap-2", !m.hasSchedule && "justify-end")}>{buttons}</div>
         {checklist && <div className="mt-3"><ChecklistCard list={checklist} where="today" welcome={welcome} /></div>}
+        <NeedsYou needs={needs} phone />
         <div className="mt-3 space-y-3">
           <NowLine m={m} row={row} />
           <ClaudeCard data={claude} />
@@ -183,6 +187,7 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
         <div className="flex items-center gap-2">{buttons}</div>
       </div>
       {checklist && <ChecklistCard list={checklist} where="today" welcome={welcome} />}
+      <NeedsYou needs={needs} phone={false} />
       <QuickAddBar defaults={{ mode: (m.nowMode as Mode | null) ?? undefined }} />
       <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5 items-start">
         <div className="min-w-0">{sections}</div>

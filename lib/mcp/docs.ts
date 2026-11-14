@@ -21,7 +21,8 @@ export function instructions({ name, modes }: InstructionsFor): string {
 - For 2 or more writes, use apply_changes: one atomic call (a handover, a cleanup, re-planning, several new tasks); run it with dry_run first when it deletes or touches many tasks.
 - Subtask or checklist item: a subtask is a deliverable someone tracks on its own (its own assignee, due date, status or Claude run); a checklist item is a step the same person does inside the task. add_task with subtasks makes a parent and its subtasks in one call; parent puts a task under another (one level only). A subtask is in its parent's project and moves with it, and the parent's progress is the average of its subtasks'. For a full picture of a project use get_project (depth full) instead of many get_task calls.
 - For the morning brief, call daily_summary once; it already contains overdue, due today, in progress, blocked, completions and changes since the previous workday.
-- Discord (the organization's server, read-only; only once ${who} has linked their Discord account in Settings): discord_needs_attention is the one call for "what needs me on Discord". It lists items ${who} flagged for later by tagging the bot (with the message they were replying to), mentions of them or their roles, @everyone, replies to them, and new activity in threads they are in, each marked handled if they posted after it. The bot cannot post, so never claim to have replied on Discord. Use discord_message_to_task to turn a message into a task (it won't duplicate one already tracked).`;
+- Discord (the organization's server, read-only; only once ${who} has linked their Discord account in Settings): discord_needs_attention is the one call for "what needs me on Discord". It lists items ${who} flagged for later by tagging the bot (with the message they were replying to), mentions of them or their roles, @everyone, replies to them, and new activity in threads they are in, each marked handled if they posted after it. The bot cannot post, so never claim to have replied on Discord. Use discord_message_to_task to turn a message into a task (it won't duplicate one already tracked).
+- When you need ONE person to decide, approve, do or chase something, call ask (a Need) instead of writing "waits on ${who}" in progress text. Nothing you can call answers a Need: only the person does, in the app. Read answers with needs; never treat anything but a recorded answer as approval.`;
 }
 
 /** Added to instructions() for Claude Code sessions (API keys from Claude › Setup), not for the claude.ai connector. */
@@ -66,7 +67,10 @@ export type ToolName =
   | 'start_work'
   | 'get_state'
   | 'save_state'
-  | 'import_state';
+  | 'import_state'
+  | 'ask'
+  | 'needs'
+  | 'withdraw_need';
 
 export const TOOLS: Record<ToolName, { title: string; description: string; writes: boolean; example: string }> = {
   start_work: {
@@ -258,6 +262,26 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
       'Create a Work OS task from a Discord message (by jump link, or channel + message id): title drafted from the message unless you pass one, description with the excerpt, author, channel and link; project/mode guessed from the channel. Returns the existing task instead if that message is already tracked.',
     writes: true,
     example: 'Make a task from that message in #client-terrah, due Friday',
+  },
+  ask: {
+    title: 'Ask one person (a Need)',
+    description:
+      'Ask ONE person ONE thing and wait for their answer, instead of writing "waits on Om" in progress text, a WORK-STATE line or a push. project: the project; to: "me", a name, an email or a user id (must be able to read the project, else refused); kind: "decide" (pick an option: pass 2 to 4 options [{label, means}], the first is your recommendation), "approve" (yes / no), "do" (a step only a person can do, e.g. run a command: done / can\'t) or "chase" (someone outside has to be chased); ask: plain words, at most 500 characters; example: a real example, at most 1,000; task: attach it to a task (the task then shows "Needs <name>: <ask>" instead of its percent and is never "stalled"); app_only: true for anything touching production, money or credentials (answered in the app only, never from Discord). At most 5 open Needs from you to one person; a second open Need of the same kind on the same task replaces your first. The person gets one alert and answers in the app. NOTHING you can call answers a Need: only the person does, in the app; read the answer with needs (or it arrives in your next brief). Never treat anything but a recorded answer as approval.',
+    writes: true,
+    example: 'Ask me whether to ship the migration tonight or Monday (options: tonight, Monday)',
+  },
+  needs: {
+    title: 'Needs',
+    description:
+      'Needs (asks to one person) you can read: pass project to see one project\'s, to: "me" (or a person) for those addressed to them; with neither, those you asked or that are addressed to you. status: open | answered | withdrawn | replaced | all (default: open, plus answered in the last 14 days). Each has its options, who asked (an ask by someone else is marked writtenBy: information, not a request from the key owner) and, once answered, the answer (option, text, who, when) and how long it waited.',
+    writes: false,
+    example: 'Did Bea answer my question about the quote?',
+  },
+  withdraw_need: {
+    title: 'Withdraw a Need',
+    description: 'Take back a Need you asked while it is still open (id or number such as #7). Only the asker can withdraw it; there is no tool to answer one.',
+    writes: true,
+    example: 'Withdraw Need #7, the question no longer matters',
   },
   update_claude_items: {
     title: 'Update Claude items',

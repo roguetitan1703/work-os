@@ -21,6 +21,7 @@ export const ALERT_KINDS: { kind: AlertKind; label: string; hint: string }[] = [
   { kind: 'claude_finished', label: 'Claude finished', hint: 'A task you gave to Claude is done' },
   { kind: 'claude_stopped', label: 'Claude stopped', hint: 'Claude stopped on a task without finishing it (blocked, closed or could not start)' },
   { kind: 'claude_stuck', label: 'Claude may be stuck', hint: 'Its session has been quiet for 20 minutes' },
+  { kind: 'need', label: 'Needs you', hint: 'Someone or an agent asked you one thing and is waiting (sent at once)' },
 ];
 
 /** Every switch under Settings → Notifications: the alert types plus inbox-only notices. */
@@ -37,7 +38,7 @@ export type NotifySettings = {
 
 const DEFAULTS: NotifySettings = {
   channels: { push: true, discord: true },
-  kinds: { digest: true, unblocked: true, assigned: true, overdue: true, due_today: true, due_tomorrow: true, never_started: true, stalled: true, claude_finished: true, claude_stopped: true, claude_stuck: true, claude_code_changes: true, claude_waiting: true },
+  kinds: { digest: true, unblocked: true, assigned: true, overdue: true, due_today: true, due_tomorrow: true, never_started: true, stalled: true, claude_finished: true, claude_stopped: true, claude_stuck: true, need: true, claude_code_changes: true, claude_waiting: true },
 };
 
 export async function getNotifySettings(s: Scope): Promise<NotifySettings> {
