@@ -24,6 +24,26 @@ attention**:
 **Work OS is the one shared place where the work lives:** what is being done, by whom (person or Claude session), what
 state it is in, and what needs Om. Every Claude session and every teammate reads from it and writes back to it.
 
+### Om's view: a platform that lets agents work (14 Nov)
+
+- **Any AI, any device.** Om works in Claude; Akash works in Antigravity and might move to ChatGPT or Claude tomorrow.
+  Work OS must not care which AI or which machine: any agent with a person's key reads and writes the same work under
+  the same rules. MCP is the contract, not Claude.
+- **Not only code.** Claude Code is used as a general agent (cutroom makes and publishes reels). A task can be a
+  video, a client message, research or a deploy.
+- **The PC is a work machine, and nothing should block it.** Work goes on while Om is away. Dead Drop (Delpat OS)
+  exists so credentials never block a session; if the laptop closes VS Code, a new Claude Code session picks up where
+  the last stopped.
+- **Hand-over without files.** An idea discussed in Claude chat becomes a note and a task on the project; the next
+  session in that repo reads it at once. No MD file sent to the PC by hand.
+- **Sessions are orchestrators.** A session runs builder and Sonnet agents, keeps its WORK-STATE and its Work OS tasks
+  true, and has standing directions for how to keep working.
+- **Everything is connected:** Om's PC, his Claude sessions, Discord. Some of the team's context lives in Discord, so
+  the work should be manageable from there too, possibly with Claude in Discord itself.
+
+So Work OS is an **agentic work platform**: the shared memory, hand-over point and control room for people and the
+agents working for them.
+
 ### What Work OS is moving against (the risk to Work OS itself)
 
 Between 12 Oct and 12 Nov about 55,000 lines were written in 16 working days. Each layer was added before the one
@@ -164,6 +184,14 @@ end-to-end test.
 - **A4 From a mail.** *Built on a branch.* Claude turns a mail into a task, its text marked as outside mail, linked to
   Mailloom, no duplicates per Message-ID. Needs Mailloom on the real mail server first.
 
+- **A5 Hand-over from chat to a repo.** *Used.* Om discusses an idea in Claude chat (or any AI); it ends as a note and
+  task(s) on the project; the next session in that repo reads them on start (C1) and works from them. No files carried
+  by hand. *Works when:* a note and a task written by a chat key appear first in `get_project` for that repo's remote,
+  marked new since the last session.
+- **A6 Any AI connects as its person.** *Built, only Claude Code tested.* Akash's Antigravity (or ChatGPT, Cursor,
+  Claude) connects with his own key from Settings › AI tools and gets the same tools and the same rules. *Works when:*
+  each tool's setup steps give a working connection whose writes are recorded as that person and that tool.
+
 ### B. Knowing what is on
 - **B1 Om's morning.** *Used in part.* "What's on?" gives, in order: **Needs you** (with options), **Claude's runs**
   (to review, stopped, stuck), **due and overdue**, **gone quiet** (F2), **Discord and mail that need you**. Om answers
@@ -183,7 +211,9 @@ end-to-end test.
   *Works when:* that order holds; an unknown remote returns "unmatched" with candidates.
 - **C2 The session keeps Work OS true.** *Used, with one hole.* Claim, progress (what changed, what's tested),
   discoveries become tasks, **a Need instead of "waits on Om" in a progress line**, a result at the end (G6). Every
-  write carries a session label (machine, repo, branch) so sessions can be told apart. *Works when:* two sessions on one
+  write carries a session label (machine, repo, branch, and the builder if an orchestrator delegated it) so sessions
+  can be told apart. The session keeps its repo's WORK-STATE and Work OS in step, so a new session on another machine
+  can continue. *Works when:* two sessions on one
   task show as two in the history; a Claude progress line containing "waits on" gets a reminder to raise a Need.
 
 ### N. Needing a person
@@ -264,7 +294,7 @@ remains, from the task. Drop the worker's edit of `~/.claude.json` (D9).
 
 ### Side uses
 - **Keep:** calendar link (one-way), reel publisher (running, no changes), Work OS's own SMTP for resets and invites.
-- **Freeze:** AI tools for Cursor/Antigravity/ChatGPT, chat backup (#168), two-way calendar, cross-session messaging,
+- **Freeze:** chat backup (#168), two-way calendar, cross-session messaging,
   the long-running cloud dispatcher, plugin hooks beyond start and stop.
 - **Cut:** schedule / day plan / page tint / timetable, Claude items as a list, the `claude-code` tag rule, paste
   import, the dead code in WORK-STATE Later.
