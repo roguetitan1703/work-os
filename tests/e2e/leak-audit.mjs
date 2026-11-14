@@ -451,6 +451,10 @@ try {
     P.needWd = (await ask(P.projectName, can('pvneed', ['A']) + ' withdraw this one', { kind: 'do' })).need.id;
     S.needAns = (await ask(S.projectName, can('shneed', ['A', 'T']) + ' may I?')).need.id;
     S.needWd = (await ask(S.projectName, can('shneed', ['A', 'T']) + ' withdraw this one', { kind: 'do' })).need.id;
+    // A real OAuth caller for A (word 'chat'): static keys, chat-type included, are all 'agent', so Needs asked with it do not count against the five open Needs the code key may have with A.
+    { const raw = randomBytes(24).toString('base64url'); const t0 = new Date(); const cid = 'lkqchatclient' + hex(6);
+      await rawDb.collection('oauthClient').insertOne({ clientId: cid, name: 'lkq chat app', redirectUris: ['https://claude.ai/api/mcp/auth_callback'], disabled: false, scopes: ['workos', 'offline_access'], grantTypes: ['authorization_code', 'refresh_token'], tokenEndpointAuthMethod: 'none', createdAt: t0, updatedAt: t0 });
+      await rawDb.collection('oauthAccessToken').insertOne({ token: createHash('sha256').update(raw, 'utf8').digest('base64url'), clientId: cid, userId: A.userId, referenceId: A.orgId, scopes: ['workos'], resources: [`${B}/api/mcp`], createdAt: t0, expiresAt: new Date(Date.now() + 7_200_000), revoked: null }); A.oauthTok = 'wosat_' + raw; }
     // for the Discord DM button (flow DC1): one per project, each answered by the control press
     // asked with the other key (another asker word) so they do not count against the five open Needs the code key may have with A
     const askChat = (project, text) => mustMcp(A.oauthTok, 'ask', { project, to: 'me', kind: 'approve', ask: text });
@@ -531,8 +535,6 @@ try {
   A.oauthClientId = 'lkqoauthclient' + hex(6);
   await rawDb.collection('oauthClient').insertOne({ clientId: A.oauthClientId, name: can('aoauthapp', ['A']), redirectUris: ['https://claude.ai/api/mcp/auth_callback'], disabled: false, scopes: ['workos', 'offline_access'], grantTypes: ['authorization_code', 'refresh_token'], tokenEndpointAuthMethod: 'none', createdAt: now, updatedAt: now });
   await rawDb.collection('oauthConsent').insertOne({ clientId: A.oauthClientId, userId: A.userId, referenceId: A.orgId, scopes: ['workos'], resources: [], createdAt: now, updatedAt: now });
-  // A real OAuth caller for A (word 'chat'): static keys, chat-type included, are all 'agent', so Needs asked with it do not count against the five open Needs the code key may have with A.
-  { const raw = randomBytes(24).toString('base64url'); await rawDb.collection('oauthAccessToken').insertOne({ token: createHash('sha256').update(raw, 'utf8').digest('base64url'), clientId: A.oauthClientId, userId: A.userId, referenceId: A.orgId, scopes: ['workos'], resources: [`${B}/api/mcp`], createdAt: now, expiresAt: new Date(Date.now() + 7_200_000), revoked: null }); A.oauthTok = 'wosat_' + raw; }
   await rawDb.collection('passkey').insertOne({ _id: A.passkey, name: can('apasskey', ['A']), publicKey: 'x', userId: uid(A.userId), credentialID: 'lkqcred' + hex(6), counter: 0, deviceType: 'singleDevice', backedUp: false, transports: 'internal', createdAt: now });
   await rawDb.collection('settings').updateOne({ _id: `dispatcher:${A.userId}` }, { $set: { area: 'dispatcher', orgId: A.orgId, userId: A.userId, enabled: false, maxConcurrent: 1, boilerplateNoteId: P.boiler } }, { upsert: true });
 
@@ -781,9 +783,11 @@ try {
       check('needs: a review Need goes to the task owner, who alone can answer; others and agents cannot answer, withdraw or close past it', !!rn && rn.to === A.userId && (tAnsR.value?.ok === false || tAnsR.error) && !tWdR.ok && !aWdR.ok && rAfter.status !== 'Done' && !!(await rawDb.collection('needs').findOne({ taskRef: rv.ref, kind: 'review', status: 'open' })), JSON.stringify([!!rn, tAnsR.value?.ok, tWdR.ok, aWdR.ok, aDoneR.ok, rAfter?.status]));
     }
     // Discord may steer, never release: an app-only Need (asked so, or by its words) and a review are refused even to their addressee's own linked account
-    const appNeed = (await mustMcp(A.chat, 'ask', { project: q, to: 'me', kind: 'approve', ask: `${marker} app only`, app_only: true })).need.id;
-    const wordNeed = (await mustMcp(A.chat, 'ask', { project: q, to: 'me', kind: 'do', ask: `${marker} deploy to production` })).need.id;
-    const revNeed = (await mustMcp(A.chat, 'ask', { project: q, to: 'me', kind: 'chase', ask: `${marker} review` })).need.id;
+    // The fixtures above already used most of the 10 asks an hour from A to A: age them so the three below are not refused by that limit (not what this audit probes).
+    await rawDb.collection('needs').updateMany({ 'from.actor.userId': A.userId, to: A.userId }, { $set: { createdAt: new Date(Date.now() - 2 * 3_600_000) } });
+    const appNeed = (await mustMcp(A.oauthTok, 'ask', { project: q, to: 'me', kind: 'approve', ask: `${marker} app only`, app_only: true })).need.id;
+    const wordNeed = (await mustMcp(A.oauthTok, 'ask', { project: q, to: 'me', kind: 'do', ask: `${marker} deploy to production` })).need.id;
+    const revNeed = (await mustMcp(A.oauthTok, 'ask', { project: q, to: 'me', kind: 'chase', ask: `${marker} review` })).need.id;
     await rawDb.collection('needs').updateOne({ _id: revNeed }, { $set: { kind: 'review' } });
     const dcPress = async (id, opt) => (await interact(null, DA, 3, { custom_id: `wo:need:${id}:${opt}`, component_type: 2 })).text;
     const pApp = await dcPress(appNeed, 'yes'), pWord = await dcPress(wordNeed, 'done'), pRev = await dcPress(revNeed, 'done');

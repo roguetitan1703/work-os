@@ -59,7 +59,7 @@ try {
   let h = await html('/claude?tab=workers');
   let ws = workers(h);
   check('W1: three workers, all working', ws.length === 3 && ws.every(w => w.state === 'working'), JSON.stringify(ws.map(w => [w.id.slice(-8), w.state])));
-  check('W1: the orchestrator comes first, its two builders right after it, indented (depth 1)', row(ws, 'w1-orch')?.depth === 0 && ws[0].id.endsWith('w1-orch') && ws.slice(1).every(w => w.depth === 1), JSON.stringify(ws.map(w => [w.id.slice(-8), w.depth])));
+  check('W1: the orchestrator comes first, its two builders right after it, indented (depth 1)', row(ws, 'w1-orch')?.depth === 0 && ws[0].id.includes(':w1-orch:') && ws.slice(1).every(w => w.depth === 1), JSON.stringify(ws.map(w => [w.id.slice(-8), w.depth])));
   const o = row(ws, 'w1-orch');
   check('W1: a row has client name, model, account, machine (the device’s name), project, branch, what it is doing', /Claude Code/.test(o.text) && /Opus 4\.7/.test(o.text) && /om-max/.test(o.text) && /Om-PC/.test(o.text) && /Flow Roster/.test(o.text) && /master/.test(o.text) && new RegExp(`#${t1} Orchestrate it`).test(o.text), o.text);
   check('W1: a builder row shows its own client, model, slot and task', /Antigravity/.test(row(ws, 'w1-bs').text) && /Sonnet 5\.5/.test(row(ws, 'w1-bs').text) && /slot S/.test(row(ws, 'w1-bs').text) && new RegExp(`#${t3}`).test(row(ws, 'w1-bs').text));
@@ -104,7 +104,7 @@ try {
   const n1 = await must(cc, 'ask', { project: NAME, to: 'me', kind: 'approve', ask: 'Ship it tonight?', session: 'w1-orch' });
   await snap();
   check('W1: a worker with an open Need it asked (matched on its session) waits on a person, and its builders do not', st('w1-orch') === 'waiting' && st('w1-ba') === 'working' && st('w1-bs') === 'working', [st('w1-orch'), st('w1-ba'), st('w1-bs')].join());
-  await must(cc, 'withdraw_need', { id: n1.need.ref });
+  await must(cc, 'withdraw_need', { id: n1.need.ref, session: 'w1-orch' });
   await snap();
   check('W1: and works again once the Need is closed', st('w1-orch') === 'working');
   const n2 = await must(cc, 'ask', { project: NAME, to: 'me', kind: 'approve', ask: 'Which logo?' });
@@ -125,7 +125,7 @@ try {
   const nT = await must(kT, 'ask', { project: NAME, to: EMAIL, kind: 'approve', ask: 'Tess asks: ship?', session: 'w1-orch' });
   await snap();
   check('W1: another person’s Need with the same session id does not make this person’s worker wait (only their own twin does)', st('w1-orch') === 'working' && workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-orch:${PID}`)?.state === 'waiting', [st('w1-orch'), workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-orch:${PID}`)?.state].join());
-  await must(kT, 'withdraw_need', { id: nT.need.ref });
+  await must(kT, 'withdraw_need', { id: nT.need.ref, session: 'w1-orch' });
   await rawDb.collection('presence').deleteMany({ userId: tess.userId }); // her rows must not keep the project busy in the cases below
 
   // set_doing names only a task of the project the worker started on; account must be a label, not a secret
