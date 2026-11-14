@@ -175,10 +175,15 @@ try {
     await must(kCode, 'ask', { project: 'Needs Proj', to: 'me', kind: 'do', task: waiting.ref, ask: 'Run sudo work-os-update on the box' });
     const old5 = new Date(Date.now() - 6 * 86_400_000);
     await rawDb.collection('tasks').updateMany({ ref: { $in: [waiting.ref, idle.ref] }, orgId: ME.orgId }, { $set: { updatedAt: old5 } });
-    const dry = await cron('&dry=1');
+    // The digest (hour 9 by default) carries the stalled list once it is due; run as of 10:00 IST today so the test does not depend on the clock
+    const ist = new Date(Date.now() + 19_800_000);
+    const tenIst = Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 10) - 19_800_000;
+    const dry = await cron(`&dry=1&at=${new Date(Math.max(Date.now(), tenIst)).toISOString()}`);
     const text = (dry.preview ?? []).join('\n');
-    check('stalled: the control task is reported as stalled', new RegExp(`#${idle.ref}\\]`).test(text) && /Stalled/.test(text), text.slice(0, 300));
-    check('stalled: the task waiting on a Need is not', !new RegExp(`#${waiting.ref}\\]`).test(text), text.slice(0, 300));
+    check('stalled: the control task is reported as stalled', new RegExp(`#${idle.ref}\\]`).test(text) && /Stalled|Gone quiet/.test(text), text.slice(0, 300)); // with the daily digest on, the morning stalled list is the digest section "Gone quiet"
+    // it does show under "Needs you" in the digest, which is right: only the quiet list is under test
+    const quietPart = text.split('\n').reduce((a, l) => (/Gone quiet|Stalled/.test(l) ? { on: true, out: a.out } : /^\s*$/.test(l) ? { on: false, out: a.out } : a.on ? { on: true, out: a.out + l + '\n' } : a), { on: false, out: '' }).out;
+    check('stalled: the task waiting on a Need is not', !new RegExp(`#${waiting.ref}\\]`).test(quietPart), quietPart);
   }
 } catch (e) {
   check('suite ran without an error', false, e?.stack || String(e));

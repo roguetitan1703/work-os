@@ -228,7 +228,9 @@ const dkey = createPrivateKey({ key: Buffer.from(process.env.E2E_DISCORD_PRIV ||
 let dn = 0;
 async function interact(guild, user, type, data, extra = {}) {
   const token = `lktok${++dn}${hex(3)}`;
-  const body = JSON.stringify({ id: String(dn), application_id: '222222222222222222', type, token, guild_id: guild, channel_id: guild === G1 ? GEN1 : GEN2, member: { user: { id: user } }, data, ...extra });
+  // guild null: a direct message (no server, no member, only `user`), as a press on a DM button arrives
+  const where = guild ? { guild_id: guild, channel_id: guild === G1 ? GEN1 : GEN2, member: { user: { id: user } } } : { channel_id: '999000000000000001', user: { id: user } };
+  const body = JSON.stringify({ id: String(dn), application_id: '222222222222222222', type, token, ...where, data, ...extra });
   const ts = String(Math.floor(Date.now() / 1000));
   const sig = sign(null, Buffer.from(ts + body), dkey).toString('hex');
   const r = await fetch(`${B}/api/discord/interactions`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-signature-ed25519': sig, 'x-signature-timestamp': ts }, body });
@@ -449,6 +451,11 @@ try {
     P.needWd = (await ask(P.projectName, can('pvneed', ['A']) + ' withdraw this one', { kind: 'do' })).need.id;
     S.needAns = (await ask(S.projectName, can('shneed', ['A', 'T']) + ' may I?')).need.id;
     S.needWd = (await ask(S.projectName, can('shneed', ['A', 'T']) + ' withdraw this one', { kind: 'do' })).need.id;
+    // for the Discord DM button (flow DC1): one per project, each answered by the control press
+    // asked with the other key (another asker word) so they do not count against the five open Needs the code key may have with A
+    const askChat = (project, text) => mustMcp(A.chat, 'ask', { project, to: 'me', kind: 'approve', ask: text });
+    P.needDc = (await askChat(P.projectName, can('pvneed', ['A']) + ' dm button?')).need.id;
+    S.needDc = (await askChat(S.projectName, can('shneed', ['A', 'T']) + ' dm button?')).need.id;
   }
   for (const k of ['trashRef', 'trashRef2', 'trashRef3', 'trashRef4']) await mustMcp(A.chat, 'delete_task', { task: P[k], title: 'lkqpvtrash' });
   await mustMcp(A.chat, 'delete_task', { task: S.trashRef, title: CANARIES.find(c => c.tag === 'shtrash').s });
@@ -588,6 +595,9 @@ try {
   Object.assign(TARGET.T, { needAns: P.needAns, needAnsS: S.needAns, needWd: P.needWd, needWdS: S.needWd });
   Object.assign(TARGET.X, { needAns: S.needAns, needAnsS: S.needAns, needWd: S.needWd, needWdS: S.needWd });
   Object.assign(FAKE, { needAns: fakeUuid(), needAnsS: fakeUuid(), needWd: fakeUuid(), needWdS: fakeUuid() });
+  Object.assign(TARGET.T, { needDc: P.needDc, needDcS: S.needDc });
+  Object.assign(TARGET.X, { needDc: S.needDc, needDcS: S.needDc });
+  Object.assign(FAKE, { needDc: fakeUuid(), needDcS: fakeUuid() });
   // A's own (the control calls)
   FAKE_REF.v = FAKE;
   const OWN = { task: P.task, ref: P.taskRef, looseRef: P.looseRef, trashRef: P.trashRef, archRef: P.archRef, project: P.project, projectName: P.projectName, note: P.projNote, noteTitle: P.projNoteTitle, taskNote: P.noteId, sub: P.subNote, comment: P.comment, item: P.itemRef, itemProject: P.project, device: A.dev, folder: A.folder, session: A.session, job: A.job, review: A.review, push: A.push, passkey: String(A.passkey), invite: A.invite, member: R.userId, remote: P.remote, trashRef2: P.trashRef2, trashRef3: P.trashRef3, trashRef4: P.trashRef4, comment2: P.comment2, sub2: P.subNote2, invite2: A.invite2, boiler: P.boiler, give: P.giveRef };
@@ -599,6 +609,7 @@ try {
   FAKE.msg = mutate(P.msg);
   FAKE.msgReq = mutate(P.msgReq);
   Object.assign(OWN, { needAns: P.needAns, needAnsS: S.needAns, needWd: P.needWd, needWdS: S.needWd });
+  Object.assign(OWN, { needDc: P.needDc, needDcS: S.needDc });
 
   // ── the probes ──
   const ctx = { A, T, X, R, P, S, XO, TP, G1, G2, GEN1, SEC1, GEN2, DA, DT, DX, DR, DU, mid };
@@ -1261,6 +1272,7 @@ function AUDIT() {
   add(`action ${MB}removeMemberAction`, act(MB + 'removeMemberAction', t => [t.member], aim(['member'], { control: false /* the team suite */, refusal: NOT_THEIRS_MEMBER })));
   const PR = 'app/(app)/settings/profile-actions.ts#';
   add(`action ${PR}saveTimeSettingsAction`, act(PR + 'saveTimeSettingsAction', [{ timezone: 'Asia/Kolkata', quietStart: 0, quietEnd: 0 }]));
+  add(`action ${PR}saveTeamChannelAction`, act(PR + 'saveTeamChannelAction', [''], { mayWork: w => w === 'X' /* X sets the team channel of X's own organization (it clears it here) */ }));
   add(`action ${PR}discordLinkCodeAction`, act(PR + 'discordLinkCodeAction', []));
   add(`action ${PR}unlinkDiscordAction`, act(PR + 'unlinkDiscordAction', [], { only: ['R', 'N'], control: false /* T and X would unlink their own Discord account before their Discord probes run; the owner's for the rest of the run */ }));
   add(`action ${PR}saveDiscordServerAction`, act(PR + 'saveDiscordServerAction', [G2], { label: 'claim the second org\'s server', control: false }), act(PR + 'saveDiscordServerAction', [G1], { label: 'own server again', controlOk: actOk, only: ['R', 'N'] }));
@@ -1402,6 +1414,13 @@ function AUDIT() {
   add('discord component due', disc(3, t => ({ custom_id: `wo:due:${t.ref}:tomorrow`, component_type: 2 }), aim(['ref'], { ok: r => /Added \[/.test(r.text) })));
   add('discord component edit', disc(3, t => ({ custom_id: `wo:edit:${t.ref}`, component_type: 2 }), { ok: r => /"type":\s*9/.test(r.text), public: true, label: 'opens a modal (no read)', extra: () => ({ message: { id: '1', content: 'Added [#1](<x>): lkq shown title (p, P2)' } }) }));
   add('discord component editmodal', disc(5, t => ({ custom_id: `wo:editmodal:${t.ref}`, components: [{ type: 1, components: [{ type: 4, custom_id: 'title', value: 'lkq hacked title' }] }] }), aim(['ref'], { ok: r => /Added \[/.test(r.text) })));
+  // A press on a Need button in a DM: no server, only the user. Only the addressee's own linked account answers (type 7 updates the message);
+  // every other press (another member, another organization, an unknown id) is an ephemeral refusal (type 4).
+  const discDm = (data, o = {}) => ({ kind: 'discord', ok: r => /"type":\s*7[,}]/.test(r.text), call: async ({ p, o: t, ctx }) => interact(null, linkedDiscord(p), 3, typeof data === 'function' ? data(t, ctx, p) : data, {}), ...o });
+  add('discord component need',
+    discDm(t => ({ custom_id: `wo:need:${t.needDc}:yes`, component_type: 2 }), aim(['needDc'], { stage: 1, label: 'a Need I cannot see' })),
+    discDm(t => ({ custom_id: `wo:need:${t.needDcS}:yes`, component_type: 2 }), aim(['needDcS'], { stage: 1, label: 'a Need I can read, addressed to someone else' })),
+  );
   // Actions with no result type (void or a bare value) refuse someone signed out by throwing.
   for (const id of [`action ${N_}searchMentionsAction`, `action ${ST}markAllReadAction`, 'action app/(app)/settings/blocked-actions.ts#saveBlockedChannels', 'action app/(app)/search-action.ts#searchAction']) for (const pr of items[id].probes) pr.throws = true;
   return items;

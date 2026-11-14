@@ -33,6 +33,17 @@ export function tools(mcpUrl: string): Tool[] {
         { label: 'Add the server', where: 'Terminal', text: `claude mcp add --scope user --transport http work-os ${mcpUrl}` },
         { label: 'Or share it with a project (.mcp.json in the project folder)', where: '.mcp.json', text: json({ mcpServers: { 'work-os': { type: 'http', url: mcpUrl } } }) },
         { label: 'If you cannot sign in: use a key (Claude › Setup › Claude Code key)', where: 'Terminal', text: `claude mcp add --scope user --transport http work-os ${mcpUrl} --header "Authorization: Bearer YOUR_KEY"` },
+        {
+          label: 'Optional: start every session with the project brief and ask once to save the State (needs the Work OS worker on this PC and a Claude Code key). Merge the "env" and "hooks" parts into your own settings file; Work OS never edits it',
+          where: '~/.claude/settings.json (not ~/.claude.json)',
+          text: json({
+            env: { WORK_OS_KEY: 'YOUR_KEY', WORK_OS_URL: mcpUrl.replace(/\/api\/mcp$/, '') },
+            hooks: {
+              SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [{ type: 'command', command: 'node "PATH_TO_WORKER_FOLDER/hook.mjs" session-start', timeout: 8 }] }],
+              Stop: [{ hooks: [{ type: 'command', command: 'node "PATH_TO_WORKER_FOLDER/hook.mjs" stop', timeout: 8 }] }],
+            },
+          }),
+        },
       ],
       docs: { label: 'Claude Code: connect to MCP servers', href: 'https://code.claude.com/docs/en/mcp' },
     },

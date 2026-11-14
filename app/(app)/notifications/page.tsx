@@ -12,6 +12,7 @@ export const metadata = { title: 'Inbox · Work OS' };
 const TONE: Record<string, string> = {
   overdue: 'bg-red-500',
   unblocked: 'bg-green-500',
+  digest: 'bg-blue-500',
   due_today: 'bg-blue-500',
   due_tomorrow: 'bg-sky-400',
   never_started: 'bg-orange-500',

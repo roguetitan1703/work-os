@@ -250,7 +250,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 There's no bot server running all the time and no messages are stored.
 - **Reading:** when Claude asks, Work OS calls Discord directly at that moment, using the bot's token.
 - **Commands:** they arrive at `/api/discord/interactions`, which checks Discord's signature on every request.
-- **Posting:** the bot never posts in channels, reacts or changes anything. Its only output is replies that only Om can see, plus DMs to Om (see section 7).
+- **Posting:** the bot posts in a channel only for the team digest (`lib/team-digest.ts`: one message a day to the channel an owner or the operator sets in Settings › Server › Discord; the channel must belong to the organization's server, checked when it is saved and again before each send; project names, tasks, Now and who it waits on go through `plainAlertText`, mentions off). It never reacts or changes anything. Its other output is replies that only the asker can see, plus DMs (see section 7), where a Need arrives with its options as buttons.
 
 ### Om
 - **Right-click a message → Apps → Add to Work OS:**
@@ -306,9 +306,10 @@ There's no bot server running all the time and no messages are stored.
 | Alert | When |
 |---|---|
 | Due tomorrow | 18:00 the day before, P1 and P2 |
-| Due today | 09:00, all tasks due that day |
-| Overdue | The morning after the due date, then every 2 days |
-| Stalled | In Progress with no activity for 2 workdays |
+| Daily digest | Once a day at your own hour (Settings › Alerts, default 09:00): what agents finished, due and overdue, gone quiet, what moved yesterday. One message through your channels |
+| Due today | 09:00, all tasks due that day (with the digest on: inside it) |
+| Overdue | The morning after the due date, then every 2 days (with the digest on: inside it) |
+| Stalled | In Progress with no activity for 2 workdays (with the digest on: inside it) |
 | Never started | P1 still Not Started 24 hours after creation |
 | Unblocked | Right away, when the last task it waited on is closed |
 | Needs you | Right away, when someone or an agent asks you one thing (a Need): one alert per Need, labelled with who asked. The push and the Discord link open Today at that Need (`/today#need-<number>`). Switch: Settings › Alerts › Needs you |
@@ -318,6 +319,9 @@ There's no bot server running all the time and no messages are stored.
   - **Phone push:** a real notification on every device that turned it on in Settings. Tapping it opens the task (or the inbox when several arrived together). **iPhone needs the app added to the Home Screen and iOS 16.4 or later**; it won't offer push in a normal Safari tab.
   - **Discord DM:** as before.
   - **Send test** (Settings → Notifications) sends one through every enabled channel and shows what reached where.
+- **The daily digest (flow B4, plan-1-3 slice 2):** the person's `digestHour` (profile, default 9) and the alert switch `digest` (on by default; `scripts/migrate-digest.mjs --db <name> [--apply]` saves it on for whoever has Due today on, off for whoever turned it off; idempotent). Sections in order: **What agents finished** (`claude_finished` / `claude_stopped` rows of `alertQueue` created since the last digest, already sent as alerts), **Due and overdue**, **Gone quiet** (In Progress, 2 workdays untouched), **Moved yesterday** (one line per project from `activity`, previous working day up to today, only projects the person can read). An empty digest is claimed and not sent. Needs and "idle with Next work" join in slice 6.
+  - **What it absorbs:** while the digest is on and today's has not gone out, due today, overdue and stalled wait for it (also before its hour) and go into it; their log keys are claimed with it. Once it has gone out, a task that becomes due, overdue or quiet still alerts on its own on the next 15-minute run. Everything else (`due_tomorrow`, `never_started`, `unblocked`, `assigned`, `claude_*`) is unchanged. Switch the digest off and the morning alerts work as before.
+  - **Claimed once a day** by the `alertLog` key `digest:<date>:<userId>` (the person is in the key because alertLog ids are shared by everyone; sentAt = the run's time, so "since the last digest" shares the queue rows' clock; `empty: true` on a day with nothing). The first digest a person gets starts with one line saying the morning alerts are now this digest. Channels: inbox (one row, opens Today), push (opens Today), Discord DM if linked; there is no mail channel for alerts yet.
 - **Rules:** quiet hours 23:00–08:00 IST (anything due then waits until morning), one combined DM per check, and each alert sent only once.
 - **Status:** Settings › Alerts (and the status strip at the top of Settings) shows when the last check ran and what it did.
 - **Setup still to do:**
@@ -337,12 +341,13 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 - **Logic:** `lib/alerts.ts`. The thresholds are in `ALERT_RULES`.
   - `alertLog`: one record per alert sent, so each goes out once.
   - `alertQueue`: event alerts waiting to be sent (unblocked, assigned, Claude finished or stopped, and `need`: a row per Need with `needId`; dropped at send time if the Need was answered, withdrawn or replaced meanwhile).
+  - The digest: `buildDigest` in `lib/alerts.ts`; `?at=` on the cron drives its tests (`tests/e2e/flow-b4.mjs`).
 - **Queueing:** `queueUnblocked()` is called from `updateTask` **inside** the same transaction as the write, so a batch that rolls back never queues an alert.
 - **Sending soon after a write:** `flushQueuedAlerts()` runs via `after()` in the MCP route, the Discord interactions route and the app's server actions.
 - **Exactly once, even when runs overlap:** a run claims each alert before delivering it (queue entry: `sentAt: null` → now, conditional update; scheduled alert: insert into `alertLog`, duplicate key = another run has it). Several flushes after a batch plus the cron can no longer send the same alert twice. A claimed alert stays sent even if a channel then fails.
 - **Endpoint:** `app/api/cron/alerts/route.ts`. Without the `CRON_SECRET` header it returns 401 (503 if the secret isn't set at all).
   - `?dry=1` previews without sending.
-  - `?at=<ISO>` simulates a different time; it is ignored in production.
+  - `?at=<ISO>` simulates a different time (400 for an invalid date; clamped to a week either side of now). It is ignored in production, except in the e2e runner's production build: there `CRON_ALLOW_AT=1` honours it only when `MONGODB_DB` starts with `workos_e2e` (lib/cron-at.ts), with a loud warning at boot (`instrumentation.ts`), and only then do alertLog stamps carry the simulated time (elsewhere stamps are always the real clock).
 - **Discord:** DMs are sent by the same bot, which opens a DM channel with the owner.
 - **Delivery:** `lib/notify.ts`. `runAlerts` (alerts.ts) drops alert types switched off, then writes the inbox, sends push, then DMs; a failing channel doesn't block the others.
   - **Settings storage:** `settings` doc `_id: 'notify'` (`channels.push`, `channels.discord`, `kinds.*`; everything defaults on). Alert types and their labels: `ALERT_KINDS`.
@@ -359,6 +364,15 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 **Claude Code:** design, rules and what differs from the plan are in `docs/dispatcher.md` ("As built"). All logic is `lib/data/dispatcher.ts`; `claude` on a task is written only by `app/(app)/claude/dispatcher-actions.ts` (session cookie) and the dispatcher; `updateTask`/`createTask` never touch it. The claim runs in `GET /api/worker/jobs` (`dispatchFor`), outcomes are settled on worker status, task changes and the alerts cron (`reconcileDispatched`). Test with a throwaway mongod replica set and a fake device key (never the real database).
 
 ---
+
+### Claude Code hooks (slice 1b of docs/flows/plan-1-3.md)
+- **What:** `worker/hook.mjs`, shipped in the worker bundle, is a SessionStart hook (matcher `startup|resume|clear|compact`) and a Stop hook for Claude Code. SessionStart finds the project from the git remote, branch and folder of the cwd, calls `start_work` on the MCP endpoint and prints the brief as `hookSpecificOutput.additionalContext`. Stop blocks once (`{"decision":"block","reason":...}`) when the working tree differs from what SessionStart recorded and the session's transcript shows no `save_state` or `import_state` since.
+- **Fail open:** no key, no network, an error answer, an unmatched project, a non-git folder or a 5 s timeout print nothing and exit 0. Stop never blocks twice in a session (a marker file `<tmp>/work-os-hooks/<session id>.json`), never when `stop_hook_active`, never without a recorded start.
+- **Key:** `WORK_OS_KEY` (a Claude Code `wos_` key; the worker's own `wkr_` device key does not open `/api/mcp`, so it cannot be reused) and `WORK_OS_URL` (default: the worker config's `baseUrl`), both in the `env` block of the person's settings file.
+- **Install:** the person pastes the snippet from Settings › AI tools › Claude Code into `~/.claude/settings.json`, replacing `PATH_TO_WORKER_FOLDER` with the unpacked `worker` folder. The worker and Work OS never edit that file, and never `~/.claude.json`.
+- **Key exposure:** `WORK_OS_KEY` in the `env` block of `settings.json` is visible to every command Claude Code runs (the same exposure as the key in the MCP header it already has). Use a dedicated Claude Code key per machine (Claude › Setup › Claude Code key), so it can be revoked on its own in Settings.
+- **Tests:** `worker/test/hook.test.mjs` and, against the real server, `tests/e2e/flow-hooks.mjs` (hook processes with real hook stdin, a seeded `wos_` key, real `start_work` and `save_state`). The output shapes were checked against code.claude.com/docs/en/hooks on 2026-11-15 (SessionStart `hookSpecificOutput.hookEventName` + `additionalContext`, capped at 10,000 characters; Stop `decision: "block"` + `reason`).
+- **Unit tests:** `worker/test/hook.test.mjs` (stub MCP server and a temp git repo: brief as hook JSON, every fail-open path, the timeout, Stop once, not after a save, baseline kept after compaction). 
 
 ## 8. Phone app (PWA)
 

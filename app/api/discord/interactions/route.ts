@@ -1,3 +1,4 @@
+import { handleNeedPress } from '@/lib/discord/need-buttons';
 import { after, NextResponse } from 'next/server';
 import { discordConfig } from '@/lib/discord/client';
 import { flushQueuedAlerts } from '@/lib/alerts';
@@ -64,6 +65,12 @@ export async function POST(req: Request) {
     return new NextResponse('bad request', { status: 400 });
   }
   if (i.type === InteractionType.PING) return NextResponse.json({ type: 1 });
+
+  // A button pressed in a DM (a Need's options): no server, no member, only `user`. The Need names the organization and the
+  // person; the press counts only from the addressee's linked Discord account (lib/discord/need-buttons.ts).
+  if (i.type === InteractionType.COMPONENT && !i.guild_id && i.user?.id && (i.data?.custom_id ?? '').startsWith('wo:need:')) {
+    return NextResponse.json(await handleNeedPress(i, (process.env.APP_URL || new URL(req.url).origin).replace(/\/+$/, '')));
+  }
 
   const cfg = discordConfig();
   const guildId = i.guild_id;

@@ -1,9 +1,10 @@
 import 'server-only';
 import { collections, type AlertKind, type TaskDoc } from './db';
 import { forUser, getUserSetting, orgWide, scoped, setUserSetting, type Scope, type ScopedCollections as Collections } from './scope';
+import { simulatedStampsAllowed } from './cron-at';
 import { getProfile, inQuietHours, type Profile } from './profile';
 export type { AlertKind };
-import { addDays, clockInTz, dateInTz, weekday } from './dates';
+import { addDays, clockInTz, dateInTz, previousWorkdayStart, startOfDay, weekday } from './dates';
 import { CLOSED_STATUSES, OPEN_STATUSES } from './types';
 import { api, discordConfig, DiscordError } from './discord/client';
 import { addToInbox, getNotifySettings, pushConfigured, sendPush } from './notify';
@@ -13,6 +14,7 @@ import { assigneesOf } from './assignees';
 import { isMember, memberNames } from './people';
 import { actorLabel } from './actors';
 import { shortAsk } from './data/needs';
+import { needButtons } from './discord/need-buttons';
 
 // Nudges for each person about the tasks whose alerts go to them (recipientsOf: the assignees of a shared task, else
 // its owner), to their inbox, their phones and (if they linked Discord) a Discord DM, by their own settings, in their
@@ -21,9 +23,15 @@ import { shortAsk } from './data/needs';
 // one flush the queued alerts at once. Every alert is logged by key so it is sent once (overdue: every 2 days).
 //
 //   due_tomorrow   18:00 the day before, P1/P2
-//   due_today      09:00 digest of open tasks due today
-//   overdue        09:00 the day after due, then at most every 2 days
-//   stalled        In Progress, no activity for 2 workdays
+//   digest         once a day at the person's own hour (profile.digestHour, default 9), claimed by alertLog key
+//                  digest:<date>:<userId>: what agents finished (alertQueue rows since the last digest), due and overdue, gone quiet,
+//                  what moved yesterday (one line per project the person can read). While it is on (kinds.digest) the
+//                  three alerts below wait for it and go into it; their log keys are claimed with it. After it has gone
+//                  out, a task that becomes due, overdue or quiet still alerts on its own on the next run. Off = the
+//                  alerts below work as they always did.
+//   due_today      09:00 digest of open tasks due today (with the digest off, or after it went out)
+//   overdue        09:00 the day after due, then at most every 2 days (same)
+//   stalled        In Progress, no activity for 2 workdays (same)
 //   never_started  P1 still Not Started 24h after creation
 //   unblocked      as soon as the last task it waited on is closed
 //   assigned       as soon as someone else assigns a task to you
@@ -39,7 +47,11 @@ export const ALERT_RULES = {
 } as const;
 
 
-export type AlertItem = { key: string; kind: AlertKind; ref: number; title: string; detail?: string; resend?: boolean; taskId?: string; prevSentAt?: Date; /** Inbox and push title, when the default "Kind: #ref title" does not fit. */ headline?: string; /** Where inbox, push and Discord links go when it is not the task (a Need opens on Today). */ url?: string; /** The link text when it is not "#ref". */ label?: string };
+/** A section of the daily digest; rows with a ref link to the task. */
+export type DigestSection = { head: string; rows: { ref?: number; text: string; detail?: string; /** A link target that is not the task (a Need opens on Today). */ url?: string; /** Link text when it is not "#ref". */ label?: string }[] };
+export type Digest = { sections: DigestSection[]; /** One line for the inbox and push. */ summary: string; /** Nothing to say: the day is claimed, nothing is sent. */ empty: boolean; /** Log keys the digest takes over (due today, overdue, stalled), claimed with it. */ absorb: { key: string; kind: AlertKind; taskId: string }[] };
+
+export type AlertItem = { key: string; kind: AlertKind; digest?: Digest; /** Where tapping its inbox row or push goes, when not the task. */ url?: string; ref: number; title: string; detail?: string; resend?: boolean; taskId?: string; prevSentAt?: Date; /** Inbox and push title, when the default "Kind: #ref title" does not fit. */ headline?: string; /** The link text when it is not "#ref". */ label?: string; /** need alerts: what Discord shows as buttons under the DM (never for an app-only Need). */ needId?: string; buttons?: { id: string; label: string }[] };
 
 const CLAUDE_OUTCOMES = ['claude_finished', 'claude_stopped'] as const;
 /** Event alerts that live in alertQueue and are claimed there (not in alertLog). */
@@ -100,13 +112,18 @@ export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { on
     .find({ status: { $in: OPEN_STATUSES }, archived: false, ...recipientFilter(s.userId) }, { projection: { ref: 1, title: 1, status: 1, priority: 1, due: 1, progress: 1, createdAt: 1, updatedAt: 1, ownerId: 1, need: 1 } })
     .toArray();
   const sent = new Map((await c.alertLog.find({ taskId: { $in: open.map(t => t._id) } }).toArray()).map(l => [l._id, l]));
+  // The daily digest takes the morning's due today, overdue and stalled until it has gone out (it then holds them back
+  // before its hour); after it, they alert as before.
+  const digestOn = (await getNotifySettings(s)).kinds.digest !== false;
+  const digestKey = `digest:${today}:${s.userId}`; // alertLog ids are shared by everyone, so the person is in the key
+  const byDigest = digestOn && !(await c.alertLog.findOne({ _id: digestKey }, { projection: { _id: 1 } }));
   const was = (key: string) => sent.has(key);
   // Log keys are per task and occasion; an assignee's carry their user id too, so a task that changes hands still
   // alerts its new recipient (the owner's keep the old form, so nothing already sent goes out again).
   const keyOf = (base: string, t: { ownerId: string }) => (t.ownerId === s.userId ? base : `${base}:${s.userId}`);
 
   // due_today digest (one per day)
-  if (hour >= ALERT_RULES.dueTodayHour) {
+  if (!byDigest && hour >= ALERT_RULES.dueTodayHour) {
     for (const t of open.filter(t => t.due === today)) {
       const key = keyOf(`due_today:${t._id}:${today}`, t);
       if (!was(key)) items.push({ key, kind: 'due_today', taskId: t._id, ref: t.ref, title: t.title, detail: t.priority });
@@ -120,7 +137,7 @@ export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { on
     }
   }
   // overdue: from the morning after, then every N days
-  if (hour >= ALERT_RULES.dueTodayHour) {
+  if (!byDigest && hour >= ALERT_RULES.dueTodayHour) {
     for (const t of open.filter(t => t.due && t.due < today)) {
       const key = keyOf(`overdue:${t._id}:${t.due}`, t);
       const last = sent.get(key);
@@ -132,7 +149,7 @@ export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { on
   }
   // stalled: In Progress, untouched for N workdays (re-arms after any activity)
   // A task waiting on a Need is never "stalled": it waits on a person, and that has its own alert.
-  for (const t of open.filter(t => t.status === 'In Progress' && !t.need)) {
+  for (const t of byDigest ? [] : open.filter(t => t.status === 'In Progress' && !t.need)) {
     const lastDay = dateInTz(t.updatedAt, tz);
     if (workdaysBetween(lastDay, today) < ALERT_RULES.stalledWorkdays) continue;
     const key = keyOf(`stalled:${t._id}:${t.updatedAt.toISOString()}`, t);
@@ -149,8 +166,113 @@ export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { on
     const key = `claude_stuck:${t._id}:${t.claude!.claimedAt!.getTime()}`;
     if (!(await c.alertLog.findOne({ _id: key }, { projection: { _id: 1 } }))) items.push({ key, kind: 'claude_stuck', taskId: t._id, ref: t.ref, title: t.title, detail: `quiet for ${quietMins} min`, headline: `Claude may be stuck on #${t.ref}` });
   }
+  if (byDigest && hour >= profile.digestHour) items.push(await buildDigest(s, c, { tz, today, key: digestKey, open, keyOf }));
   items.push(...(await queuedItems(c, opts.queuedIds)));
   return { items, quiet: false };
+}
+
+type OpenTask = Pick<TaskDoc, '_id' | 'ref' | 'title' | 'status' | 'priority' | 'due' | 'progress' | 'updatedAt' | 'ownerId' | 'need'>;
+
+/** Hook: projects where an agent could be running Next work and is not. Returns nothing until the roster exists. */
+export async function idleWithNextWork(_s: Scope): Promise<DigestSection['rows']> {
+  return [];
+}
+
+/**
+ * The person's digest for `today`: what agents finished since the last digest, due and overdue, gone quiet, what moved
+ * yesterday. Everything comes through the person's own door (their tasks, their queue, the projects they can read).
+ */
+async function buildDigest(
+  s: Scope,
+  c: Collections,
+  x: { tz: string; today: string; key: string; open: OpenTask[]; keyOf: (base: string, t: { ownerId: string }) => string },
+): Promise<AlertItem> {
+  const { tz, today, open } = x;
+  const sections: DigestSection[] = [];
+  const absorb: Digest['absorb'] = [];
+
+  // Needs you: the open Needs addressed to this person, first (they block someone). Through the person's own door.
+  const needs = await c.needs.find({ to: s.userId, status: 'open' }).sort({ createdAt: 1 }).limit(20).toArray();
+  if (needs.length) {
+    const people = await memberNames(s.orgId);
+    sections.push({
+      head: '🙋 **Needs you**',
+      rows: needs.map(n => ({ label: `Need #${n.ref}`, url: `/today#need-${n.ref}`, text: plainAlertText(shortAsk(n.ask)), detail: `${plainAlertText(actorLabel(n.from.actor, s.userId, people))}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly ? ' · answer in the app' : ''}` })),
+    });
+  }
+
+  // What agents finished: queue rows (already sent as alerts) created since the last digest.
+  const lastAny = await c.alertLog.findOne({ kind: 'digest' }, { sort: { sentAt: -1 }, projection: { sentAt: 1 } });
+  const since = lastAny ? lastAny.sentAt : previousWorkdayStart(today, tz);
+  const outcomes = await c.alertQueue.find({ kind: { $in: [...CLAUDE_OUTCOMES] }, createdAt: { $gt: since } }).sort({ createdAt: 1 }).toArray();
+  if (outcomes.length) {
+    const byId = new Map((await c.tasks.find({ _id: { $in: outcomes.map(q => q.taskId) } }, { projection: { ref: 1, title: 1 } }).toArray()).map(t => [t._id, t]));
+    const rows = outcomes.flatMap(q => {
+      const t = byId.get(q.taskId);
+      if (!t) return [];
+      const why = plainAlertText(q.detail ?? '');
+      return [{ ref: t.ref, text: t.title, detail: q.kind === 'claude_finished' ? 'finished, to review' : `stopped${why ? `: ${why}` : ''}` }];
+    });
+    if (rows.length) sections.push({ head: '✅ **What agents finished**', rows });
+  }
+
+  // Due and overdue (all of them, not only the ones not yet told).
+  const due: DigestSection['rows'] = [];
+  for (const t of open.filter(t => t.due && t.due < today).sort((a, b) => a.due!.localeCompare(b.due!) || a.ref - b.ref)) {
+    const days = Math.round((Date.parse(today) - Date.parse(t.due!)) / 86_400_000);
+    due.push({ ref: t.ref, text: t.title, detail: `${days} day${days === 1 ? '' : 's'} late` });
+    absorb.push({ key: x.keyOf(`overdue:${t._id}:${t.due}`, t), kind: 'overdue', taskId: t._id });
+  }
+  for (const t of open.filter(t => t.due === today).sort((a, b) => a.ref - b.ref)) {
+    due.push({ ref: t.ref, text: t.title, detail: `due today, ${t.priority}` });
+    absorb.push({ key: x.keyOf(`due_today:${t._id}:${today}`, t), kind: 'due_today', taskId: t._id });
+  }
+  if (due.length) sections.push({ head: '🔴 **Due and overdue**', rows: due });
+
+  // Gone quiet: In Progress, untouched for the stalled rule's workdays.
+  const quiet: DigestSection['rows'] = [];
+  for (const t of open.filter(t => t.status === 'In Progress' && !t.need).sort((a, b) => a.ref - b.ref)) {
+    const lastDay = dateInTz(t.updatedAt, tz);
+    if (workdaysBetween(lastDay, today) < ALERT_RULES.stalledWorkdays) continue;
+    quiet.push({ ref: t.ref, text: t.title, detail: `no change since ${lastDay}, ${t.progress}%` });
+    absorb.push({ key: x.keyOf(`stalled:${t._id}:${t.updatedAt.toISOString()}`, t), kind: 'stalled', taskId: t._id });
+  }
+  if (quiet.length) sections.push({ head: '🧊 **Gone quiet**, In Progress but untouched', rows: quiet });
+
+  // Idle with Next work ("cutroom could be running and isn't"): the roster builder supplies the real function
+  // (docs/flows/plan-1-3.md slice 6); until then it returns nothing and the section is left out.
+  const idle = await idleWithNextWork(s);
+  if (idle.length) sections.push({ head: '💤 **Idle with Next work**', rows: idle });
+
+  // Moved yesterday: one line per project (the previous working day up to today, so Monday covers the weekend). The
+  // activity, the tasks and the projects all come through the door, so a project the person cannot read never shows.
+  const acts = await c.activity.find({ at: { $gte: previousWorkdayStart(today, tz), $lt: startOfDay(today, tz) } }, { projection: { taskId: 1, type: 1 } }).toArray();
+  if (acts.length) {
+    const taskIds = [...new Set(acts.map(a => a.taskId))];
+    const projOf = new Map((await c.tasks.find({ _id: { $in: taskIds }, projectId: { $ne: null } }, { projection: { projectId: 1 } }).toArray()).map(t => [t._id, t.projectId as string]));
+    const names = new Map((await c.projects.find({ _id: { $in: [...new Set(projOf.values())] } }, { projection: { name: 1 } }).toArray()).map(p => [p._id, p.name]));
+    const per = new Map<string, { moved: Set<string>; done: Set<string> }>();
+    for (const a of acts) {
+      const pid = projOf.get(a.taskId);
+      if (!pid || !names.has(pid)) continue;
+      const e = per.get(pid) ?? { moved: new Set<string>(), done: new Set<string>() };
+      e.moved.add(a.taskId);
+      if (a.type === 'completed') e.done.add(a.taskId);
+      per.set(pid, e);
+    }
+    const rows = [...per.entries()]
+      .map(([pid, e]) => ({ text: `**${names.get(pid)}**`, detail: `${e.moved.size} task${e.moved.size === 1 ? '' : 's'} moved${e.done.size ? `, ${e.done.size} done` : ''}` }))
+      .sort((a, b) => a.text.localeCompare(b.text));
+    if (rows.length) sections.push({ head: '🔄 **Moved yesterday**', rows });
+  }
+
+  const n = (h: string) => sections.find(sec => sec.head.includes(h))?.rows.length ?? 0;
+  const summary = [n('Needs you') && `${n('Needs you')} need${n('Needs you') === 1 ? 's' : ''} you`, n('finished') && `${n('finished')} finished`, n('Due and overdue') && `${n('Due and overdue')} due or overdue`, n('Gone quiet') && `${n('Gone quiet')} quiet`, n('Moved') && `${n('Moved')} project${n('Moved') === 1 ? '' : 's'} moved`].filter(Boolean).join(' · ');
+  // The first digest says why the morning alerts changed.
+  const first = !(await c.alertLog.findOne({ kind: 'digest', empty: { $ne: true } }, { projection: { _id: 1 } }));
+  const empty = !sections.length;
+  if (first && !empty) sections.unshift({ head: 'ℹ️ **New: your daily digest**', rows: [{ text: 'The morning alerts (due today, overdue, stalled) now come in this one message, once a day. Something that turns due, overdue or quiet later still alerts on its own.' }] });
+  return { key: x.key, kind: 'digest', ref: 0, title: 'Your daily digest', headline: 'Your daily digest', url: '/today', detail: summary, digest: { sections, summary, empty, absorb } };
 }
 
 /** ids: only these queue entries (the ones this run claimed); omitted = everything still unsent (dry run). */
@@ -180,6 +302,7 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
           title: ask,
           detail: `${who}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly ? ' · answer in the app' : ''}`,
           headline: `${who} asks you: ${ask}`,
+          ...(n.appOnly ? {} : { needId: n._id, buttons: n.options.map(o => ({ id: o.id, label: o.label })) }),
         });
         continue;
       }
@@ -227,6 +350,14 @@ const SECTIONS: { kind: AlertKind; head: string }[] = [
 
 export function formatAlerts(items: AlertItem[], baseUrl: string): string[] {
   const lines: string[] = [];
+  for (const d of items.filter(i => i.kind === 'digest' && i.digest && !i.digest.empty)) {
+    lines.push('📋 **Your daily digest**', '');
+    for (const sec of d.digest!.sections) {
+      lines.push(sec.head);
+      for (const r of sec.rows) lines.push(`• ${r.url || r.ref ? `[${r.label ?? `#${r.ref}`}](<${baseUrl}${r.url ?? `/tasks/${r.ref}`}>) ` : ''}${plainAlertText(r.text)}${r.detail ? ` · ${plainAlertText(r.detail)}` : ''}`);
+      lines.push('');
+    }
+  }
   for (const s of SECTIONS) {
     const list = items.filter(i => i.kind === s.kind).sort((a, b) => a.ref - b.ref);
     if (!list.length) continue;
@@ -266,10 +397,10 @@ async function dmChannel(discordId: string): Promise<string> {
 }
 
 /** A DM to this Discord account (a person's linked one). */
-export async function sendDm(discordId: string, content: string): Promise<void> {
+export async function sendDm(discordId: string, content: string, components?: unknown[]): Promise<void> {
   const ch = await dmChannel(discordId);
   try {
-    await api(`/channels/${ch}/messages`, { method: 'POST', body: { content, allowed_mentions: { parse: [] }, flags: 1 << 2 /* suppress embeds */ } });
+    await api(`/channels/${ch}/messages`, { method: 'POST', body: { content, allowed_mentions: { parse: [] }, flags: 1 << 2 /* suppress embeds */, ...(components ? { components } : {}) } });
   } catch (e) {
     if (e instanceof DiscordError && e.status === 403) {
       throw new Error("Discord refused the DM (403). In Discord: the organization's Discord server → Privacy Settings → allow direct messages from server members.");
@@ -281,6 +412,7 @@ export async function sendDm(discordId: string, content: string): Promise<void> 
 export type RunResult = { quiet: boolean; dryRun: boolean; sent: number; messages: string[]; items: AlertItem[]; error?: string };
 
 const KIND_TITLE: Record<AlertKind, string> = {
+  digest: 'Daily digest',
   unblocked: 'Unblocked',
   assigned: 'Assigned to you',
   overdue: 'Overdue',
@@ -317,10 +449,28 @@ export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: str
   if (live) {
     // Scheduled alerts: claim each in alertLog (insert, or conditional re-stamp for an overdue resend) so overlapping runs can't repeat them.
     const won: AlertItem[] = [];
-    const stamp = new Date();
+    // The run's time only in the e2e database (a test's ?at=, so resend arithmetic uses one clock); everywhere else the real clock, never a future stamp.
+    const stamp = opts.now && simulatedStampsAllowed() ? opts.now : new Date();
     for (const i of due) {
       if (FROM_QUEUE.has(i.kind)) { won.push(i); continue; }
       try {
+        if (i.kind === 'digest') {
+          // One per day. Its time is the run's, so "since the last digest" is on the same clock as the queue rows.
+          await c0.alertLog.insertOne({ _id: i.key, orgId: s.orgId, userId: s.userId, kind: 'digest', sentAt: stamp, ...(i.digest?.empty ? { empty: true } : {}) });
+          // Won (the digest key is ours): it goes out whatever happens to the keys below.
+          if (!i.digest?.empty) won.push(i);
+          // The alerts it takes over are told by it, so claim their keys too. One key per task and occasion is shared by
+          // everyone with the same form (a task that changed owner may carry the old owner's key): a clash on one key
+          // is skipped, it must never cost the day's digest.
+          for (const a of i.digest?.absorb ?? []) {
+            try {
+              await c0.alertLog.updateOne({ _id: a.key }, { $set: { sentAt: stamp }, $setOnInsert: { kind: a.kind, taskId: a.taskId } }, { upsert: true });
+            } catch (e) {
+              if (!(e && typeof e === 'object' && (e as { code?: number }).code === 11000)) console.error('[alerts] digest claim', e instanceof Error ? e.message : e);
+            }
+          }
+          continue;
+        }
         if (i.prevSentAt) {
           const r = await c0.alertLog.updateOne({ _id: i.key, sentAt: i.prevSentAt }, { $set: { sentAt: stamp } });
           if (r.modifiedCount === 1) won.push(i);
@@ -344,13 +494,13 @@ export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: str
   // Deliver: inbox always; push and Discord if enabled. A failing channel doesn't block the others.
   const errors: string[] = [];
   if (items.length) {
-    await addToInbox(s, items.map(i => ({ kind: i.kind, title: i.headline ?? `${KIND_TITLE[i.kind]}: #${i.ref} ${i.title}`, body: i.headline ? i.title : (i.detail ?? ''), url: i.url ?? `/tasks/${i.ref}` })));
+    await addToInbox(s, items.map(i => ({ kind: i.kind, title: i.headline ?? `${KIND_TITLE[i.kind]}: #${i.ref} ${i.title}`, body: i.kind === 'digest' ? (i.detail ?? '') : i.headline ? i.title : (i.detail ?? ''), url: i.url ?? `/tasks/${i.ref}` })));
     if (settings.channels.push && pushConfigured()) {
       const one = items.length === 1 ? items[0] : null;
       const r = await sendPush(
         s,
         one
-          ? { title: one.headline ?? `${KIND_TITLE[one.kind]} · #${one.ref}`, body: one.title + (one.detail && !one.headline ? ` (${one.detail})` : ''), url: one.url ?? `/tasks/${one.ref}`, tag: one.key }
+          ? { title: one.headline ?? `${KIND_TITLE[one.kind]} · #${one.ref}`, body: one.kind === 'digest' ? (one.detail || one.title) : one.title + (one.detail && !one.headline ? ` (${one.detail})` : ''), url: one.url ?? `/tasks/${one.ref}`, tag: one.key }
           : { title: `Work OS · ${items.length} alerts`, body: items.slice(0, 4).map(i => `${KIND_TITLE[i.kind]}: ${i.title}`).join('\n'), url: '/notifications', tag: 'alerts' },
       );
       if (r.error) errors.push(`push: ${r.error}`);
@@ -359,6 +509,9 @@ export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: str
       try {
         for (const m of messages) await sendDm(profile.discordId, m);
         res.sent = messages.length;
+        // A Need can be answered right there: one small message per Need with its options as buttons (custom id
+        // wo:need:<id>:<option>, answered through the DM path of the interactions route). App-only Needs get none.
+        for (const i of items) if (i.kind === 'need' && i.needId && i.buttons?.length) await sendDm(profile.discordId, `🙋 **${i.label ?? 'Need'}**: ${i.title}`.slice(0, 1900), needButtons(i.needId, i.buttons));
       } catch (e) {
         errors.push(`discord: ${e instanceof Error ? e.message : String(e)}`);
       }

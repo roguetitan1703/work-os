@@ -308,11 +308,11 @@ export type PresenceDoc = Placed & {
 /** Heavy-slot leases on one machine (lib/data/slots.ts): at most `cap` (default 2) holders, each with a lease end. _id = org:machine. Organization-wide on purpose: the cap is per machine across every session on it. */
 export type SlotDoc = { _id: string; orgId: string; machine: string; kind: 'heavy'; /** The person whose machine it is (the device's owner, or whoever named a plain-name machine). Only they write it. */ ownerId: string; /** Last write; a TTL index removes a document untouched for a day. */ touchedAt: Date; cap?: number; holds: { h: string; session: string; userId: string; until: Date }[] };
 
-export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'claude_stuck' | 'need';
+export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'claude_stuck' | 'need' | 'digest';
 /** Kinds sent from the alertQueue (event alerts) rather than found by the scheduled check. */
 export type QueuedAlertKind = 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'need';
 /** One row per alert sent (key encodes task + occasion), so each is sent once. */
-export type AlertLogDoc = { _id: string; orgId: string; /** Who it was sent to. */ userId: string; kind: AlertKind; taskId?: string; sentAt: Date };
+export type AlertLogDoc = { _id: string; orgId: string; /** Who it was sent to. */ userId: string; kind: AlertKind; taskId?: string; sentAt: Date; /** digest rows: the digest had nothing to say (claimed for the day, never sent). */ empty?: boolean };
 /** Event alerts waiting for the next send (queued inside the write's transaction). */
 export type AlertQueueDoc = { _id: string; orgId: string; /** Who gets it: the task's recipient, or the person who gave it to Claude. */ userId: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason; assigned: who assigned it. */ detail?: string; /** kind 'need': the Need (taskId is then the Need's task, or '' when it has none). */ needId?: string };
 
@@ -375,12 +375,16 @@ export type SettingsDoc = {
   timezone?: string;
   quietStart?: number;
   quietEnd?: number;
+  /** The hour (0-23, their zone) their daily digest is sent; missing = 9. */
+  digestHour?: number;
   discordId?: string | null;
   discordLink?: { hash: string; expiresAt: Date } | null;
   /** profile:<userId>: the person hid the first-run checklist on Today. */
   checklistHidden?: boolean;
   /** discord:<orgId>: the organization's Discord server (set by the operator). */
   guildId?: string | null;
+  /** discord:<orgId>: the Discord channel the team digest goes to (lib/team-digest.ts). */
+  teamChannelId?: string | null;
   /** schedule:<userId> (lib/schedule.ts): the person's week, routine, review questions and own help text. */
   schedule?: unknown;
   /** modes:<orgId> (lib/modes.ts): the organization's modes of work. */
