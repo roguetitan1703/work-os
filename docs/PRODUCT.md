@@ -46,7 +46,7 @@ person, and what came out. Any agent on any machine can walk in cold, ask for th
 and steer all of it from the phone or from Discord. It does not hold the code, the conversation, the credentials or the
 files; it holds the state of the work and the right to move it.
 
-### The nine building blocks
+### The ten building blocks
 
 | Block | What it is | Today |
 |---|---|---|
@@ -59,6 +59,7 @@ files; it holds the state of the work and the right to move it.
 | **Machine** | A place work can run: Om's laptop, Akash's PC, the server, the cloud; with what it is ready for | Half: computers with linked folders |
 | **Orders** | The standing rules agents follow (organisation, project, person), served to every AI | Half: one boilerplate note, read if remembered |
 | **Door** | A way in or out: any MCP client, the app, Discord, mail, Delpat OS, phone push | Yes, of varying health |
+| **Message** | Something said to a project, a worker or a person, kept until it is picked up, whoever is online | No: Claude Code sessions can only reach each other inside one account on one machine |
 
 Every feature is one of these or a view of one.
 
@@ -216,7 +217,35 @@ The team's talk is there and project channels match Work OS projects. First step
   the app, behind sign-in. A button counts only when the person it is addressed to presses it. Private projects post
   only to the owner's DM.
 
-### 6.6 Who owns what
+### 6.6 Messages: Work OS as the messaging service between agents and people
+Om's need (14 Nov): he is talking to Claude chat about cutroom, no cutroom session is running; the chat drops a
+message, and when a session comes online it picks it up. Today Claude Code sessions can only message each other inside
+one account on one machine; nothing reaches a session that is offline, in the cloud, on Akash's PC or in another AI.
+Design draft: the Work OS note "Cross-session messaging: design draft for discussion" (#265).
+
+- **Address the project, not the session.** Sessions come and go; each project has a durable inbox. A message can also
+  name a worker (a builder slot) or a person.
+- **Anyone can send:** any AI session (chat, Claude Code, cloud, Antigravity), the app, a Discord thread, Om from his
+  phone. Kinds: decision, request, question, fyi. Refs to tasks, commits, files. Threads and replies.
+- **Delivery, whoever is online:** a session starting on the project gets unread messages in its brief (`start_work`
+  and the start hook, also after compaction); a running session gets them through the "for you" line on its next Work
+  OS call and a cheap hook check every few minutes; on a machine with the daemon, an idle session is woken with a fixed
+  line naming the message (never its text). Nobody online: it waits, and the sender sees "cutroom: offline, last active
+  3 h ago".
+- **Status:** unread → seen → applied (with the commit) or rejected (with a line). The sender sees it land.
+- **Decisions go to the project's State** (Decisions section, dated, who decided), and so into the repo copy. One
+  central log, no separate DECISIONS.md to keep in step.
+- **A request can become a task** with one tap or one call.
+- **Trust:** a message Om wrote himself (typed in the app, Discord, or said in a session he is in) counts as Om's word.
+  A message one agent sends on its own is a proposal: shown to Om if he is present; with nobody present it becomes a
+  Need, and the agent sticks to its task as written. A teammate's message is information for Om's agents and an
+  instruction only for the teammate's own agents.
+- **Stale:** a message carries the sender's date and commit; unread after 7 days it shows in the weekly tidy.
+- **The Discord bot is a client of this service, not a separate system:** a project channel's agent thread reads and
+  writes the same inbox, Needs post with buttons, and the bot can answer questions from Work OS. Discord, chat, the
+  app and every AI see one conversation per project.
+
+### 6.7 Who owns what
 
 | Thing | Owner | The other side |
 |---|---|---|
@@ -250,6 +279,19 @@ Status words: **used**, **built-unused**, **new**. "Works when" lines become eac
   carries the "for you" line once; a new worker's `start_work` lists the item first.
 - **P1 Another AI picks up its work.** *Snippets built, untested.* Akash in Antigravity: "what's mine?" → `start_work`
   → same brief, same Orders → history says "Antigravity for Akash". *Works when:* Akash has done it once for real.
+
+### Messages
+- **MS1 Drop a message for an offline project.** *New.* Om in Claude chat: "tell cutroom captions are burned in" →
+  `send(cutroom, decision, ...)` → the chat says "cutroom is offline, last active 3 h ago; it will get this on start".
+  *Works when:* with no live worker, the message is stored unread; the next `start_work` on cutroom lists it first.
+- **MS2 A running session picks it up.** *New.* *Works when:* a checked-in worker's next Work OS answer carries the
+  "for you" line once; on a stub daemon an idle session gets one wake job whose prompt names the message id only.
+- **MS3 Apply, reply, or reject.** *New.* The receiving session applies Om's message (or asks him, if an agent sent
+  it), records the commit, adds a decision to State, replies. *Works when:* the sender sees "applied" with the commit;
+  an agent-sent message to an unattended worker becomes one Need and changes nothing.
+- **MS4 Across people and tools.** *New.* Akash's agent in Antigravity sends a request to a shared project; Om's
+  session sees it labelled as Akash's. *Works when:* it arrives as information and creates no instruction for Om's
+  agent.
 
 ### Capture and knowing what is on
 - **A1 Om tells an AI, it files it.** *Used.* Tasks with project, who, a done-when, a date if given; long content in a
@@ -315,7 +357,7 @@ Each step is usable by itself, stands on the one before, and **is used for real 
 
 | # | Capability | What Om can do the day it lands |
 |---|---|---|
-| 1 | **State and the brief** (`start_work`, State in Work OS, Orders served, the "for you" line) | Close the laptop mid-work, open a fresh session anywhere, lose nothing. Drop an idea from chat into a project. Read every project's Now and Next on the phone. |
+| 1 | **State, the brief and the inbox** (`start_work`, State in Work OS, Orders served, the "for you" line, project messages) | Close the laptop mid-work, open a fresh session anywhere, lose nothing. Drop an idea or a message from chat into a project; the next session picks it up. Read every project's Now and Next on the phone. |
 | 2 | **Needs and results, with push and Discord buttons** | One list of what waits on him; answer from phone or Discord; accept or send back. |
 | 3 | **The roster: workers and machines** | Who is working, on what, where; what could be running but isn't; caps that hold. |
 | 4 | **Assign to anyone, Continue, lid-open resume** | Hand a task to "any agent that can" from the phone; work restarts when a machine returns. |
@@ -326,7 +368,8 @@ Each step is usable by itself, stands on the one before, and **is used for real 
 | 9 | **The desk agent, mail as a door** | Ask Work OS in Discord; client mail drafted, approved, sent. |
 | 10 | **The scorecard** | Weekly: runs started, accepted first time, sent back, how long Needs waited, which machine was the bottleneck. |
 
-**First three to build:** State and the brief (start with cutroom and Work OS itself); Needs and results with push and
+**First three to build:** State, the brief and the inbox (start with cutroom and Work OS itself; messages ride on
+the same start call, hook and "for you" line, so they cost little once those exist); Needs and results with push and
 Discord buttons (prove alerts live, set the Discord address, turn today's hidden waits into Needs); the roster.
 
 ---
