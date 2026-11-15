@@ -1343,6 +1343,9 @@ function AUDIT() {
   add(`action ${MA}saveMailKeyAction`, act(MA + 'saveMailKeyAction', ['not-a-key'], { ok: () => false, controlOk: r => r.status === 200 && r.value?.ok === false }));
   add(`action ${MA}testMailKeyAction`, act(MA + 'testMailKeyAction', [], { ok: () => false, controlOk: r => r.status === 200 && r.value?.ok === false }));
   add(`action ${MA}removeMailKeyAction`, act(MA + 'removeMailKeyAction', [], { controlOk: r => actOk(r) }));
+  // Connect Mailloom (lib/mail/connect.ts): off in this audit (no Mailloom), so it answers "not set up" to everyone; it takes no input
+  // and acts on the caller's own key only. The mail suite covers the working flow (state bound to person, org and session).
+  add(`action ${MA}startMailConnectAction`, act(MA + 'startMailConnectAction', [], { ok: () => false, controlOk: r => r.status === 200 && r.value?.ok === false && /not set up/i.test(r.value.error) }));
   const SE = 'app/(app)/settings/security-actions.ts#';
   add(`action ${SE}sendTestEmailAction`, act(SE + 'sendTestEmailAction', [], { controlOk: r => actOk(r) || /not set up/i.test(r.text) }));
   add(`action ${SE}dismissMigrationNoticeAction`, act(SE + 'dismissMigrationNoticeAction', [], { mayWork: w => w === 'X' }));
@@ -1395,6 +1398,7 @@ function AUDIT() {
   const CAL = 'app/(app)/settings/calendar-actions.ts#';
   for (const n of ['createCalendarLinkAction', 'rotateCalendarLinkAction', 'revokeCalendarLinkAction', 'getCalendarLinkAction']) add(`action ${CAL}${n}`, act(CAL + n, [])); // each acts on the caller's own link only
   add('route GET /api/delpat-os/callback', route('GET', '/api/delpat-os/callback?code=lkqcode&state=lkqstate', { ok: r => r.status === 404, controlOk: r => r.status === 404 }));
+  add('route GET /api/mail/callback', route('GET', '/api/mail/callback?code=lkqcode&state=lkqstate', { ok: r => r.status === 404, controlOk: r => r.status === 404 }));
   add('route GET /api/live', route('GET', '/api/live', { public: true }));
   add('route HEAD /api/live', route('HEAD', '/api/live', { public: true }));
   const mcpRoute = m => ({ kind: 'mcp', ok: r => two(r.status) && !/Unauthorized/.test(r.text), call: ({ cred }) => req(m, '/api/mcp', { bearer: cred, headers: { accept: 'application/json, text/event-stream' }, body: m === 'POST' ? { jsonrpc: '2.0', id: 1, method: 'tools/list' } : undefined }), controlOk: r => (m === 'POST' ? two(r.status) : r.status !== 401) });

@@ -438,6 +438,15 @@ export async function getUserSetting(s: Scope, area: UserArea): Promise<Settings
   return (await settingsCol()).findOne({ _id: `${area}:${s.userId}`, orgId: s.orgId });
 }
 
+/**
+ * A person's setting document whichever organization last wrote it (_id `<area>:<userId>` is one per person). Only for
+ * a one-per-person secret that must be cleaned up when another organization replaces it (lib/mail/keys.ts).
+ */
+export async function getUserSettingAnyOrg(userId: string, area: UserArea): Promise<SettingsDoc | null> {
+  if (typeof userId !== 'string' || !userId) throw new ScopeError('getUserSettingAnyOrg needs a user');
+  return (await settingsCol()).findOne({ _id: `${area}:${userId}` });
+}
+
 export async function setUserSetting(s: Scope, area: UserArea, set: Record<string, unknown>): Promise<void> {
   check(s);
   if ('orgId' in set || 'userId' in set || 'area' in set) throw new ScopeError('settings: owner fields are set by the door');

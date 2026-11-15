@@ -12,6 +12,7 @@ import { removeFeed } from './calendar-feed';
 import { dropOAuth } from './oauth';
 import { releaseMember } from './data/team';
 import { closeFor } from './live';
+import { dropMailKey } from './mail/connect';
 
 // Members and invitations (docs/auth.md, docs/multi-user.md phase 4). Sign-up is closed: a person gets an account by
 // accepting an invitation. An invitation link is /accept-invitation/<invitation id>?t=<secret>; only the SHA-256 of the
@@ -187,6 +188,8 @@ async function releaseAccess(orgId: string, userId: string): Promise<{ computers
   await db.collection('invitation').updateMany({ organizationId: idIn(orgId), inviterId: idIn(userId), status: 'pending' }, { $set: { status: 'canceled' } });
   const keys = (await revokeKeysIn(userId, orgId)) + (await dropOAuth(userId, orgId)); // API keys, and the apps they approved (OAuth tokens)
   await removeFeed({ userId, orgId }); // their calendar link
+  // Their Mailloom key for this organization revokes itself at Mailloom (best effort), then goes here.
+  await dropMailKey(orgId, userId).catch(e => console.error('revoking a Mailloom key failed:', e instanceof Error ? e.name : 'error'));
   await db.collection('settings').deleteOne({ _id: `mail:${userId}` as never, orgId }); // scope-ok: the leaving member's own linked Mailloom key (sealed)
   const rest = await releaseMember(orgId, userId);
   // Their open pages and workers lose their push streams now (a reconnect is refused: no session, no membership).
