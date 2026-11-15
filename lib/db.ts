@@ -321,7 +321,7 @@ export type AlertLogDoc = { _id: string; orgId: string; /** Who it was sent to. 
 export type AlertQueueDoc = { _id: string; orgId: string; /** Who gets it: the task's recipient, or the person who gave it to Claude. */ userId: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason; assigned: who assigned it. */ detail?: string; /** kind 'need': the Need (taskId is then the Need's task, or '' when it has none). */ needId?: string };
 
 /** Inbox-only notices that are not scheduled alerts. */
-export type NoticeKind = 'claude_code_changes' | 'claude_waiting';
+export type NoticeKind = 'claude_code_changes' | 'claude_waiting' | 'claude_mail_sent';
 /** Everything with an on/off switch in Settings → Notifications. */
 export type NotifyKind = AlertKind | NoticeKind;
 /** In-app inbox: every alert delivered (plus test notifications). */
@@ -385,6 +385,8 @@ export type SettingsDoc = {
   discordLink?: { hash: string; expiresAt: Date } | null;
   /** profile:<userId>: the person hid the first-run checklist on Today. */
   checklistHidden?: boolean;
+  /** mail:<userId> (lib/mail/keys.ts): the person's own Mailloom agent key, sealed, with its visible prefix and the mailbox it opens. */
+  mail?: { sealed: string; prefix: string; email: string; savedAt: Date } | null;
   /** discord:<orgId>: the organization's Discord server (set by the operator). */
   guildId?: string | null;
   /** discord:<orgId>: the Discord channel the team digest goes to (lib/team-digest.ts). */
@@ -408,7 +410,7 @@ export type WorkerFolderDoc = { _id: string; /** The device's owner and organiza
 export type WorkerJobDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; kind: 'start' | 'resume' | 'stop' | 'vscode' | 'desktop' | 'reopen' | 'dismiss'; folderId?: string; projectId?: string; /** Not set for reopen and dismiss (they act on the worker's own remembered set). */ sessionId?: string; prompt?: string; /** Turbo mode: the repo is not on the computer; the worker clones it first (docs/launcher.md). No folderId then. */ clone?: { repo: string; trusted: boolean }; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
 export type WorkerSessionDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; /** '' while its repo is still being cloned (turbo mode). */ folderId: string; projectId: string | null; /** Turbo mode: still cloning `repo` (owner/name). */ cloning?: boolean; repo?: string; /** Turbo mode: cloned but not trusted automatically; Claude Code asks the person on first run. */ needsTrust?: boolean; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Its owner removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string };
 /** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
-export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker'; at: Date; n?: number };
+export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker' | 'mail_trash' | 'mail_send'; at: Date; n?: number };
 
 /** One email sent (for the hourly limits in lib/mail.ts). TTL index keeps 2 hours. */
 export type MailLogDoc = { _id: string; kind: 'reset' | 'changed' | 'test' | 'invite'; at: Date; /** Hash of the recipient, for the per-address limit. */ to?: string };

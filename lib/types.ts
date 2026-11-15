@@ -146,15 +146,24 @@ export type TaskClaude = {
   note?: string;
 };
 
-export type TaskSource = {
-  kind: 'discord';
-  guildId: string;
-  channelId: string;
-  messageId: string;
-  url: string;
-  channelName?: string;
-  author?: string;
-};
+export type TaskSource =
+  | {
+      kind: 'discord';
+      guildId: string;
+      channelId: string;
+      messageId: string;
+      url: string;
+      channelName?: string;
+      author?: string;
+    }
+  | {
+      /** A mail from the person's own mailbox (lib/mail/to-task.ts). messageId is "mail:" + the Message-ID, so it never meets a Discord id. */
+      kind: 'mail';
+      messageId: string;
+      url?: string;
+      from?: string;
+      subject?: string;
+    };
 
 export const ACTIVITY_TYPES = [
   'created',

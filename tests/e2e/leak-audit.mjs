@@ -1321,6 +1321,28 @@ function AUDIT() {
   add(`action ${DP}delpatOsStatusAction`, act(DP + 'delpatOsStatusAction', [], { ok: r => actOk(r) && r.value.data?.enabled === false, controlOk: r => actOk(r) && r.value.data?.enabled === false }));
   add(`action ${DP}listDelpatOsProjectsAction`, act(DP + 'listDelpatOsProjectsAction', [], { ok: notSetUp, controlOk: notSetUp }));
   add(`action ${DP}importDelpatOsProjectAction`, act(DP + 'importDelpatOsProjectAction', ['lkqdp1', 'org'], { ok: notSetUp, controlOk: notSetUp }));
+  // ── Mail (Mailloom, each person's own sealed key). Nobody has a key in this audit, so every tool answers "link your mailbox"
+  // (the control, the owner, answers the same): nothing of anyone else's can come back through a tool with no key to open. ──
+  const noMail = r => r.ok || /Link your mailbox|not set up/i.test(r.text);
+  const MID = { message_id: '<lkq-probe@example.test>' };
+  for (const [tool, args] of [
+    ['mail_folders', {}],
+    ['mail_needs_attention', {}],
+    ['mail_search', { query: 'lkq' }],
+    ['mail_read', MID],
+    ['mail_attachment', { ...MID, index: 0 }],
+    ['mail_send', { to: 'lkq@example.test', subject: 'lkq probe', text: 'lkq probe' }],
+    ['mail_reply', { ...MID, text: 'lkq probe' }],
+    ['mail_forward', { ...MID, to: 'lkq@example.test' }],
+    ['mail_move', { ...MID, to_folder: 'Archive' }],
+    ['mail_flag', { ...MID, flagged: true }],
+    ['mail_delete', MID],
+    ['mail_message_to_task', MID],
+  ]) add(`mcp ${tool}`, M(tool, args, { ok: noMail, controlOk: noMail }));
+  const MA = 'app/(app)/settings/mail-actions.ts#';
+  add(`action ${MA}saveMailKeyAction`, act(MA + 'saveMailKeyAction', ['not-a-key'], { ok: () => false, controlOk: r => r.status === 200 && r.value?.ok === false }));
+  add(`action ${MA}testMailKeyAction`, act(MA + 'testMailKeyAction', [], { ok: () => false, controlOk: r => r.status === 200 && r.value?.ok === false }));
+  add(`action ${MA}removeMailKeyAction`, act(MA + 'removeMailKeyAction', [], { controlOk: r => actOk(r) }));
   const SE = 'app/(app)/settings/security-actions.ts#';
   add(`action ${SE}sendTestEmailAction`, act(SE + 'sendTestEmailAction', [], { controlOk: r => actOk(r) || /not set up/i.test(r.text) }));
   add(`action ${SE}dismissMigrationNoticeAction`, act(SE + 'dismissMigrationNoticeAction', [], { mayWork: w => w === 'X' }));

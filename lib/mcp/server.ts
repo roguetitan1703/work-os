@@ -19,6 +19,9 @@ import { findMember, memberNames } from '../people';
 import { discordLinkOf } from '../profile';
 import * as discord from '../discord/read';
 import { BlockedChannelError, DiscordError, NotVisibleError } from '../discord/client';
+import * as mail from '../mail/tools';
+import { MailError } from '../mail/client';
+import { randomUUID } from 'node:crypto';
 import { describeActivity } from '../activity-text';
 import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
@@ -27,7 +30,6 @@ import { othersPresent, presentRow, registerPresence, resolveMachine, setDoing, 
 import { clientWord, taskInfo } from '../data/roster';
 import { holderOf, machineKey, MAX_WAIT_S, POLL_MS, prepareSlot, releaseSlot, tryAcquire } from '../data/slots';
 import { forYouAfter, forYouBefore } from './for-you';
-import { randomUUID } from 'node:crypto';
 import { requestContext, runWithRequestContext, sessionHeader } from '../request-context';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
 import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RATINGS, RESULT_KINDS, RecurrenceSchema, StatusSchema, VisibilitySchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
@@ -59,7 +61,7 @@ function handler<A>(fn: (args: A) => Promise<unknown>) {
       return ok(await fn(args));
     } catch (err) {
       if (err instanceof ZodError) return fail(err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '));
-      if (err instanceof InputError || err instanceof NotFoundError || err instanceof DiscordError || err instanceof BlockedChannelError || err instanceof NotVisibleError) return fail(err.message);
+      if (err instanceof InputError || err instanceof NotFoundError || err instanceof DiscordError || err instanceof MailError || err instanceof BlockedChannelError || err instanceof NotVisibleError) return fail(err.message);
       console.error('[mcp]', err);
       return fail('Internal error');
     }
@@ -367,6 +369,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     if (!link.discordId) throw new InputError('Link your Discord account first: Work OS Settings › Connections, then /link <code> on the server.');
     return link;
   };
+  /** Mail tools act as the caller only: their scope picks their own Mailloom key. The session id goes into Mailloom's audit log. */
+  const mailSession = `wos-mcp-${randomUUID()}`;
+  const mailCtx = (): mail.MailCtx => ({ s, ids: { user: s.userId, session: mailSession }, actor: ACTOR });
   const base = instructionsFor(ctx.who);
   const instructions = caller.agent === 'claude-code' ? `${base}\n${claudeCodeInstructions(ctx.who)}` : base;
   const server = new McpServer({ name: 'work-os', version: '1.0.0' }, { instructions });
@@ -1493,6 +1498,138 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ACTOR,
       );
       return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: r.message };
+    }),
+  );
+
+  // ── Mail (the person's own mailbox in Mailloom, through their own key) ──────
+
+  const msgRef = {
+    message_id: z.string().max(998).optional().describe('Message-ID, with or without <>: the stable way to name a message'),
+    folder: z.string().max(300).optional().describe('Folder path (with uid), or to narrow a message_id search'),
+    uid: z.number().int().min(1).optional().describe('With folder'),
+  };
+  const addrs = z.union([z.string().max(2000), z.array(z.string().max(320)).max(200)]);
+  const idemArg = z.string().max(200).optional().describe('Leave out for a new mail. To retry a mail whose result you never saw, pass the idempotency_key from the first attempt: it will not send twice');
+
+  tool('mail_folders', { inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: true } }, handler(async () => mail.folders(mailCtx())));
+
+  tool(
+    'mail_needs_attention',
+    {
+      inputSchema: {
+        since: z.string().optional().describe('Default: 7 days. yesterday | 24h | 3d | YYYY-MM-DD | ISO datetime'),
+        limit: z.number().int().min(1).max(200).optional().describe('Default 50'),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    handler(async a => mail.needsAttention(mailCtx(), { since: parseSince(a.since), limit: a.limit })),
+  );
+
+  tool(
+    'mail_search',
+    {
+      inputSchema: {
+        folder: z.string().max(300).optional().describe('Default INBOX'),
+        query: z.string().max(500).optional().describe('Text in headers or body'),
+        from: z.string().max(320).optional(),
+        since: z.string().optional().describe('today | 24h | 3d | YYYY-MM-DD | ISO'),
+        unread: z.boolean().optional(),
+        limit: z.number().int().min(1).max(100).optional().describe('Default 25'),
+        cursor: z.string().max(500).optional().describe('next_cursor of the previous page'),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    handler(async a => mail.search(mailCtx(), { ...a, since: parseSince(a.since) })),
+  );
+
+  tool('mail_read', { inputSchema: msgRef, annotations: { readOnlyHint: true, openWorldHint: true } }, handler(async a => mail.read(mailCtx(), a)));
+
+  tool(
+    'mail_attachment',
+    { inputSchema: { ...msgRef, index: z.number().int().min(0).describe('From the message attachments list') }, annotations: { readOnlyHint: true, openWorldHint: true } },
+    handler(async a => mail.attachment(mailCtx(), a, a.index)),
+  );
+
+  tool(
+    'mail_send',
+    {
+      inputSchema: { to: addrs, cc: addrs.optional(), bcc: addrs.optional(), subject: z.string().min(1).max(998), text: z.string().max(200_000), html: z.string().max(500_000).optional(), idempotency_key: idemArg },
+      annotations: { destructiveHint: false, openWorldHint: true },
+    },
+    handler(async a => mail.send(mailCtx(), a)),
+  );
+
+  tool(
+    'mail_reply',
+    {
+      inputSchema: {
+        message_id: z.string().min(1).max(998),
+        folder: z.string().max(300).optional(),
+        text: z.string().max(200_000),
+        html: z.string().max(500_000).optional(),
+        reply_all: z.boolean().optional().describe('Default false: only the sender'),
+        cc: addrs.optional(),
+        bcc: addrs.optional(),
+        quote: z.boolean().optional().describe('Quote the original (default true)'),
+        idempotency_key: idemArg,
+      },
+      annotations: { destructiveHint: false, openWorldHint: true },
+    },
+    handler(async a => mail.reply(mailCtx(), a)),
+  );
+
+  tool(
+    'mail_forward',
+    {
+      inputSchema: {
+        message_id: z.string().min(1).max(998),
+        folder: z.string().max(300).optional(),
+        to: addrs,
+        cc: addrs.optional(),
+        bcc: addrs.optional(),
+        text: z.string().max(200_000).optional().describe('Your note above the forwarded mail'),
+        include_attachments: z.boolean().optional().describe('Default true'),
+        idempotency_key: idemArg,
+      },
+      annotations: { destructiveHint: false, openWorldHint: true },
+    },
+    handler(async a => mail.forward(mailCtx(), a)),
+  );
+
+  tool(
+    'mail_move',
+    { inputSchema: { ...msgRef, to_folder: z.string().min(1).max(300) }, annotations: { destructiveHint: false, openWorldHint: true } },
+    handler(async a => mail.move(mailCtx(), a, a.to_folder)),
+  );
+
+  tool(
+    'mail_flag',
+    {
+      inputSchema: { ...msgRef, flagged: z.boolean().optional().describe('true = star, false = unstar'), read: z.boolean().optional().describe('true = mark read, false = mark unread') },
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    handler(async a => mail.flag(mailCtx(), a, { flagged: a.flagged, read: a.read })),
+  );
+
+  tool('mail_delete', { inputSchema: msgRef, annotations: { destructiveHint: true, openWorldHint: true } }, handler(async a => mail.del(mailCtx(), a)));
+
+  tool(
+    'mail_message_to_task',
+    {
+      inputSchema: {
+        ...msgRef,
+        title: z.string().optional().describe('Short, verb-first title; from the subject if omitted'),
+        project: z.string().nullable().optional(),
+        mode: ModeSchema.nullable().optional(),
+        priority: PrioritySchema.optional(),
+        due: dateArg.nullable().optional().describe('Only if the mail states a date'),
+        note: z.string().optional().describe('Why this became a task; stored in history'),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    handler(async a => {
+      const r = await mail.messageToTask(mailCtx(), a, { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note });
+      return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: mail.markUntrusted(r.message) };
     }),
   );
 
