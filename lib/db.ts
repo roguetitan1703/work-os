@@ -131,6 +131,8 @@ export type ProjectDoc = Placed & {
 export type DelpatOsLinkDoc = { _id: string; orgId: string; userId: string; refresh: string; access: string | null; accessExpiresAt: Date | null; createdAt: Date; updatedAt: Date; /** Lease: a refresh is in progress until then (lib/delpat-os.ts). */ refreshingUntil?: Date | null };
 /** A link in progress: the state (hashed) with its sealed PKCE verifier; deleted when used, expires after 10 minutes. */
 export type DelpatOsAuthDoc = { _id: string; orgId: string; userId: string; verifier: string; expiresAt: Date };
+/** Connect Mailloom in progress (lib/mail/connect.ts): _id sha256(state), bound to the person, organization and session; PKCE verifier sealed; single use; 10 minutes. */
+export type MailConnectAuthDoc = { _id: string; orgId: string; userId: string; sessionId: string; verifier: string; expiresAt: Date };
 
 /** Reviews from before phase 3 kept their answers as fields (shipped, slipped, …); lib/data/reviews.ts reads both. */
 export type ReviewDoc = Omit<WeeklyReview, 'id' | 'answers'> & { _id: string; orgId: string; ownerId: string; answers?: WeeklyReview['answers'] } & Record<string, unknown>;
@@ -386,7 +388,7 @@ export type SettingsDoc = {
   /** profile:<userId>: the person hid the first-run checklist on Today. */
   checklistHidden?: boolean;
   /** mail:<userId> (lib/mail/keys.ts): the person's own Mailloom agent key, sealed, with its visible prefix and the mailbox it opens. */
-  mail?: { sealed: string; prefix: string; email: string; savedAt: Date } | null;
+  mail?: { sealed: string; prefix: string; email: string; savedAt: Date; /** Granted at Connect (lib/mail/connect.ts); absent for a pasted key. */ scopes?: string[]; keyId?: string; via?: 'connect' | 'paste' } | null;
   /** discord:<orgId>: the organization's Discord server (set by the operator). */
   guildId?: string | null;
   /** discord:<orgId>: the Discord channel the team digest goes to (lib/team-digest.ts). */
@@ -493,6 +495,7 @@ const INDEXES: [string, IndexDescription[]][] = [
     ]],
     ['delpatOsLinks', [{ key: { userId: 1 }, name: 'user' }]],
     ['delpatOsAuth', [{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }]],
+    ['mailConnectAuth', [{ key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }, { key: { orgId: 1, userId: 1 }, name: 'org_user' }]],
     ['ritualLogs', [{ key: { orgId: 1, ownerId: 1, date: 1 }, unique: true, name: 'owner_date_unique' }]],
     ['alertLog', [{ key: { taskId: 1 }, name: 'task' }, { key: { sentAt: 1 }, name: 'sentAt' }]],
     ['alertQueue', [{ key: { sentAt: 1 }, name: 'sentAt' }, { key: { orgId: 1, sentAt: 1 }, name: 'org_sentAt' }]],
@@ -591,6 +594,7 @@ export async function collections() {
     mailLog: db.collection<MailLogDoc>('mailLog'),
     delpatOsLinks: db.collection<DelpatOsLinkDoc>('delpatOsLinks'),
     delpatOsAuth: db.collection<DelpatOsAuthDoc>('delpatOsAuth'),
+    mailConnectAuth: db.collection<MailConnectAuthDoc>('mailConnectAuth'),
     requestStats: db.collection<RequestStatsDoc>('requestStats'),
     policyEvents: db.collection<PolicyEventDoc>('policyEvents'),
     claudeItems: db.collection<ClaudeItemDoc>('claudeItems'),

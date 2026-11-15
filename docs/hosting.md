@@ -590,7 +590,10 @@ chat or tickets.
 | `DELPAT_OS_ISSUER` | default `https://os.delpat.in`; https only (http for localhost in tests) | |
 | `DELPAT_OS_TOKEN_KEY` | optional: seals people's stored Delpat OS tokens (AES-256-GCM). Unset = derived from `BETTER_AUTH_SECRET`. Changing it (or that secret) makes everyone link Delpat OS again | **yes** |
 | `MAILLOOM_AGENT_URL`, `MAILLOOM_WEB_URL` | the mail tools: Mailloom's agent API (`https://<host>/api/agent/v1`) and optionally its web address. Unset = mail tools and Settings › Connections › Mail are off | |
-| `MAIL_KEY_SECRET` | recommended in production: seals each person's linked Mailloom key (AES-256-GCM). Unset = derived from `BETTER_AUTH_SECRET`, and then rotating that secret breaks every linked mailbox. Changing this one does the same: everyone pastes their key again | **yes** |
+| `MAIL_KEY_SECRET` | recommended in production: seals each person's linked Mailloom key (AES-256-GCM). Unset = derived from `BETTER_AUTH_SECRET`, and then rotating that secret breaks every linked mailbox. Changing this one does the same: everyone connects (or pastes their key) again | **yes** |
+| `MAILLOOM_PUBLIC_URL` | Connect Mailloom (docs/flows/mail-connect.md): where browsers open Mailloom, e.g. `https://mail.delpat.in/mail`; its `/oauth/authorize` is under it. https only (http for localhost in tests) | |
+| `MAILLOOM_CLIENT_ID` | Work OS's client id at Mailloom (Mailloom's `AGENT_CLIENT_ID`, e.g. `work-os`; not secret). With `MAILLOOM_AGENT_URL`, `MAILLOOM_PUBLIC_URL` and the secret it switches on the **Connect Mailloom** button; unset = only the paste box. Mailloom's `AGENT_CLIENT_REDIRECT_URIS` must hold `<APP_URL>/api/mail/callback` exactly | |
+| `MAILLOOM_CLIENT_SECRET` | the shared client secret, 32+ random characters, the same value as Mailloom's `AGENT_CLIENT_SECRET`. Sent only server to server on the code-for-key swap | **yes** |
 | `APP_TZ` | timezone for people who have not chosen one | |
 | `WORK_OS_PORT` | the app's port on 127.0.0.1 (default 3100; set it only if another app has 3100, and the Caddy site's ports to match). Leave the line out for 3100: an empty value overrides the unit's default | |
 | `MCP_ALLOW_URL_TOKEN` | `1` allows `/api/mcp/<key>`; leave unset | |

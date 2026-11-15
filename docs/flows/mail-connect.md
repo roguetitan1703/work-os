@@ -1,6 +1,6 @@
 # Connect Mailloom (one click instead of pasting a key)
 
-Status: design, not built. Replaces copying a Mailloom agent key into Settings › Connections › Mail.
+Status: Work OS half built (lib/mail/connect.ts, tests `mail` and `mail-paste`); Mailloom half built separately. Replaces copying a Mailloom agent key into Settings › Connections › Mail.
 
 ## The flow a person sees
 

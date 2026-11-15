@@ -14,7 +14,8 @@
 - Older open items (#165 features to try with Akash, DELPAT_OS_CLIENT_SECRET, first real turbo Start / Open in VS Code, chat porting from Antigravity, C46-C52, AKAR C20/C22/C23 and C7/C8) are folded into the PRODUCT.md steps; still open in Work OS.
 
 ## Later
-- Connect Mailloom with one click (Mailloom consent page, one-time code swapped server to server) instead of pasting a key — design after the mail deploy; Mailloom side is the Mailloom session's.
+- Connect Mailloom, Work OS half built on builder-a (lib/mail/connect.ts, /api/mail/callback, tests mail and mail-paste); switched on by MAILLOOM_PUBLIC_URL + MAILLOOM_CLIENT_ID + MAILLOOM_CLIENT_SECRET — waits on the Mailloom half deployed and confirming: token request form-encoded, the `iss` value (Work OS accepts MAILLOOM_PUBLIC_URL or its origin), the `label` authorize parameter, the revoke reply; a review subagent before merge.
+- Mail key setting `mail:<userId>` is one document per person, not per organization: connecting (or pasting) in a second organization replaces the first one's key without revoking it, so the design's "two orgs keep two keys" does not hold yet — waits on a person in two organizations using mail (then key the setting by org+user).
 - An "Approve and send" button on the Need an agent files for outside mail, so the person need not copy the draft into Mailloom — waits on the mail tools being used.
 - MAIL_KEY_SECRET too-short refusal has no e2e test (needs a server restarted with that env) — waits on it mattering.
 - e2e budgets: "load /today" went to 10 requests of 8 in two of four runs on the steps 1-3 branch and passed otherwise; the suite now prints each request of a step over budget — waits on it failing again (then read the named requests).

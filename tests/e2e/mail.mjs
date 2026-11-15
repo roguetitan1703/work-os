@@ -3,13 +3,41 @@
 // MAILLOOM_AGENT_URL pointing at it. Covers key storage in Settings (paste, Test, Remove, sealed at rest), key
 // isolation between members, a member with no key, KEY_BROKEN, error mapping, a retried send reusing its idempotency
 // key, untrusted labelling, mail_message_to_task de-duplication and the outside-address inbox notice. Seed: none.
+// Connect Mailloom (docs/flows/mail-connect.md): the fake also serves /mail/oauth/authorize, the code-for-key swap
+// (client secret, PKCE verifier, single-use code, exact redirect URI) and a key's self-revoke, and the suite runs the
+// flow through the browser: happy path, wrong state, replayed code, wrong verifier, another person's or session's state,
+// expired, cancel, a refused swap, a lying whoami, a replaced key revoked, disconnect, and member removal revoking.
 import http from 'node:http';
+import fs from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
 import { B, MCP, ME, check, finish, launch, login, makeUser, mkKey, rawDb, mcpAs } from './lib.mjs';
 
 const KA = 'mlk_' + 'A'.repeat(43);
 const KB = 'mlk_' + 'B'.repeat(43);
 const KD = 'mlk_' + 'D'.repeat(43); // Dee: valid for whoami, KEY_BROKEN for everything else
-const MAIL = { [KA]: 'owner@delpat.test', [KB]: 'bea@delpat.test', [KD]: 'dee@delpat.test' };
+const KC = 'mlk_' + 'C'.repeat(43); // Cy, removed again at once (Remove revokes it)
+const KC2 = 'mlk_' + 'E'.repeat(43); // Cy, for the runaway guards and member removal
+const MAIL = { [KA]: 'owner@delpat.test', [KB]: 'bea@delpat.test', [KD]: 'dee@delpat.test', [KC]: 'cy@delpat.test', [KC2]: 'cy@delpat.test' };
+
+// ---- fake Mailloom: Connect (authorize, token swap, self-revoke) ----
+const DPORT = Number(process.env.E2E_DISCORD_PORT || 4401);
+const PUBLIC = `http://127.0.0.1:${DPORT}/mail`;
+const CLIENT = { id: 'work-os-e2e', secret: 'e2e-mailloom-client-secret-0123456789abcdef', redirect: B + '/api/mail/callback' };
+const b64u = b => Buffer.from(b).toString('base64url');
+const oauth = {
+  mode: 'approve', // approve: redirect back with a code; deny: error=access_denied; hold: keep the would-be callback address (oauth.held)
+  mailbox: 'owner@delpat.test',
+  scopes: ['read', 'organise', 'send'],
+  tokenFail: false,
+  whoamiLie: false,
+  authorizes: [], // the query of each authorize request
+  tokens: [], // { ok, why, body }
+  codes: new Map(), // code -> { challenge, redirect, mailbox, scopes, used, key }
+  held: null,
+  minted: [],
+};
+const revoked = new Set();
+const lies = new Set(); // keys whose whoami names another mailbox
 
 // ---- fake Mailloom ----
 const log = []; // { key, method, path, query, body, headers }
@@ -25,23 +53,68 @@ const boxes = {
   [KB]: [{ folder: 'INBOX', uid: 1, message_id: '<b1@other.example>', from: { name: 'Zed', address: 'zed@other.example' }, to: [{ address: 'bea@delpat.test' }], cc: [], subject: 'Bea only', date: '2026-11-12T09:00:00Z', unread: true, flagged: false, answered: false, size: 100, has_attachments: false, text: 'secret for Bea' }],
   [KD]: [],
 };
+boxes[KC] = boxes[KB];
+boxes[KC2] = boxes[KB];
 const json = (s, code, body, headers = {}) => { s.statusCode = code; s.setHeader('content-type', 'application/json'); for (const [k, v] of Object.entries(headers)) s.setHeader(k, v); s.end(JSON.stringify(body)); };
 const err = (s, code, c, error, headers) => json(s, code, { code: c, error }, headers);
 const summary = ({ text, ...m }) => m; // eslint-disable-line no-unused-vars
+function authorize(q, s, url) {
+  const p = Object.fromEntries(url.searchParams);
+  oauth.authorizes.push(p);
+  // A bad client or redirect URI is an error page, never a redirect (the code must not go anywhere unregistered).
+  if (p.client_id !== CLIENT.id || p.redirect_uri !== CLIENT.redirect || p.response_type !== 'code' || p.code_challenge_method !== 'S256' || !/^[A-Za-z0-9_-]{43}$/.test(p.code_challenge ?? '')) { s.statusCode = 400; return s.end('bad request'); }
+  const back = new URL(p.redirect_uri);
+  back.searchParams.set('state', p.state ?? '');
+  back.searchParams.set('iss', PUBLIC);
+  if (oauth.mode === 'deny') back.searchParams.set('error', 'access_denied');
+  else {
+    const code = b64u(randomBytes(32));
+    oauth.codes.set(code, { challenge: p.code_challenge, redirect: p.redirect_uri, mailbox: oauth.mailbox, scopes: [...oauth.scopes], used: false, key: null });
+    back.searchParams.set('code', code);
+  }
+  if (oauth.mode === 'hold') { oauth.held = back.toString(); return json(s, 200, { held: true }); }
+  s.statusCode = 302; s.setHeader('location', back.toString()); s.end();
+}
+function token(s, body) {
+  const no = (why, code = 400) => { oauth.tokens.push({ ok: false, why, body }); return json(s, code, { error: why === 'client' ? 'invalid_client' : 'invalid_grant' }); };
+  if (body.client_id !== CLIENT.id || body.client_secret !== CLIENT.secret) return no('client', 401);
+  if (body.grant_type !== 'authorization_code') return no('grant');
+  const c = oauth.codes.get(body.code);
+  if (!c) return no('code');
+  if (c.used) { if (c.key) { delete MAIL[c.key]; revoked.add(c.key); } return no('reused'); } // a reused code also kills the key the first use minted
+  c.used = true;
+  if (body.redirect_uri !== c.redirect) return no('redirect');
+  if (b64u(createHash('sha256').update(String(body.code_verifier ?? '')).digest()) !== c.challenge) return no('verifier');
+  if (oauth.tokenFail) return no('refused');
+  const key = 'mlk_' + b64u(randomBytes(32));
+  c.key = key;
+  MAIL[key] = c.mailbox;
+  boxes[key] = boxes[KA];
+  if (oauth.whoamiLie) lies.add(key);
+  oauth.minted.push(key);
+  oauth.tokens.push({ ok: true, body });
+  s.setHeader('cache-control', 'no-store');
+  return json(s, 200, { key, key_id: 'k_' + key.slice(4, 12), prefix: key.slice(0, 12), email: c.mailbox, scopes: c.scopes });
+}
+
+const parse = (b, type) => { if (!b) return undefined; if (/x-www-form-urlencoded/.test(type ?? '')) return Object.fromEntries(new URLSearchParams(b)); try { return JSON.parse(b); } catch { return undefined; } };
 const stub = http.createServer((q, s) => {
   let b = '';
   q.on('data', d => (b += d));
   q.on('end', () => {
     const url = new URL(q.url, 'http://x');
+    if (url.pathname === '/mail/oauth/authorize' && q.method === 'GET') return authorize(q, s, url);
     const path = url.pathname.replace(/^\/api\/agent\/v1/, '');
     const key = (q.headers.authorization ?? '').replace(/^Bearer /, '');
-    const body = b ? JSON.parse(b) : undefined;
+    const body = parse(b, q.headers['content-type']);
     log.push({ key, method: q.method, path, query: Object.fromEntries(url.searchParams), body, headers: q.headers });
-    if (!MAIL[key]) return err(s, 401, 'INVALID_KEY', 'Unknown key');
+    if (path === '/oauth/token' && q.method === 'POST') return token(s, body ?? {});
+    if (!MAIL[key]) return revoked.has(key) ? err(s, 401, 'KEY_REVOKED', 'This key was revoked') : err(s, 401, 'INVALID_KEY', 'Unknown key');
     if (q.headers.origin) return err(s, 403, 'ORIGIN_NOT_ALLOWED', 'no browsers');
     const email = MAIL[key];
     const box = boxes[key];
-    if (path === '/whoami') return json(s, 200, { email, key: { id: 'k_' + key.slice(4, 8), prefix: key.slice(0, 8), name: 'e2e', scopes: ['read', 'organise', 'send'], created_at: '2026-11-01T00:00:00Z' }, limits: { sends_per_hour: 200, recipients_per_mail: 100 } });
+    if (path === '/key/revoke' && q.method === 'POST') { delete MAIL[key]; revoked.add(key); return json(s, 200, { revoked: true }); }
+    if (path === '/whoami') return json(s, 200, { email: lies.has(key) ? 'someone-else@delpat.test' : email, key: { id: 'k_' + key.slice(4, 8), prefix: key.slice(0, 8), name: 'e2e', scopes: ['read', 'organise', 'send'], created_at: '2026-11-01T00:00:00Z' }, limits: { sends_per_hour: 200, recipients_per_mail: 100 } });
     if (key === KD) return err(s, 403, 'KEY_BROKEN', 'mail server refused the password');
     const ref = () => {
       const id = url.searchParams.get('message_id') ?? body?.message_id;
@@ -91,7 +164,7 @@ const stub = http.createServer((q, s) => {
     if (path === '/delete') return json(s, 200, { ok: true, from_folder: 'INBOX', folder: 'Trash', uid: 4 });
     err(s, 404, 'NOT_FOUND', 'not stubbed');
   });
-}).listen(Number(process.env.E2E_DISCORD_PORT || 4401), '127.0.0.1');
+}).listen(DPORT, '127.0.0.1');
 
 const tool = (k, name, args = {}) => mcpAs(k, name, args);
 const mark = () => log.length;
@@ -120,9 +193,11 @@ try {
   // ---- Settings: paste, Test, Remove ----
   const br = await launch();
   const page = async who => { const c = await br.newContext({ viewport: { width: 1280, height: 900 } }); const p = await c.newPage(); await login(p, { email: who, next: '/settings?section=connections' }); await p.goto(`${B}/settings?section=connections`); return { c, p }; };
-  const saveKey = async (p, k) => { await p.locator('[data-mail-input]').fill(k); await p.locator('[data-mail-save]').click(); };
+  // The paste box is folded behind "Paste a key instead" when Connect is set up (it is in this suite).
+  const saveKey = async (p, k) => { const d = p.locator('[data-mail-paste]'); if ((await d.count()) && !(await d.evaluate(e => e.open))) await d.locator('summary').click(); await p.locator('[data-mail-input]').fill(k); await p.locator('[data-mail-save]').click(); };
   const own = await page('e2e-owner@example.test');
-  check('settings: Mail row with a paste box when no key', await own.p.locator('[data-connection=mail] [data-mail-unlinked]').waitFor({ timeout: 15000 }).then(() => true, () => false));
+  check('settings: Mail row with Connect Mailloom when no key', await own.p.locator('[data-connection=mail] [data-mail-connect]').waitFor({ timeout: 15000 }).then(() => true, () => false));
+  check('settings: the paste box is folded behind "Paste a key instead"', (await own.p.locator('[data-mail-paste] summary').innerText()).includes('Paste a key instead') && !(await own.p.locator('[data-mail-input]').isVisible()));
   await saveKey(own.p, 'not-a-key');
   check('settings: a wrong-looking key is refused with a plain sentence', await own.p.locator('[data-mail-result]').filter({ hasText: /not a Mailloom key/ }).waitFor({ timeout: 8000 }).then(() => true, () => false));
   await saveKey(own.p, 'mlk_' + 'Z'.repeat(43));
@@ -144,10 +219,11 @@ try {
   check('settings: Dee links hers', await dee.p.locator('[data-mail-mailbox]').waitFor({ timeout: 10000 }).then(() => true, () => false));
   // Remove and re-link a throwaway: Cy
   const cy = await page('cy@example.test');
-  await saveKey(cy.p, KB);
+  await saveKey(cy.p, KC);
   await cy.p.locator('[data-mail-linked]').waitFor({ timeout: 10000 });
   await cy.p.locator('[data-mail-remove]').click();
-  check('settings: Remove brings the paste box back', await cy.p.locator('[data-mail-unlinked]').waitFor({ timeout: 10000 }).then(() => true, () => false));
+  check('settings: Disconnect brings Connect and the folded paste box back', await cy.p.locator('[data-mail-connectable] [data-mail-connect]').waitFor({ timeout: 10000 }).then(() => true, () => false) && await cy.p.locator('[data-mail-paste]').count() === 1);
+  check('settings: Disconnect revoked the pasted key at Mailloom', revoked.has(KC) && log.some(l => l.path === '/key/revoke' && l.key === KC));
   const cyDoc = await rawDb.collection('settings').findOne({ _id: `mail:${Cu.userId}` });
   check('settings: Remove clears the stored key', !cyDoc?.mail);
   const afterRemove = await tool(kC, 'mail_search', {});
@@ -310,7 +386,8 @@ try {
   // ---- runaway guards (Cy, a Claude chat key: the guards apply to every caller kind), then removing Cy clears the mail key ----
   const br2 = await launch();
   const cy2 = await (async () => { const c = await br2.newContext({ viewport: { width: 1280, height: 900 } }); const p = await c.newPage(); await login(p, { email: 'cy@example.test', next: '/settings?section=connections' }); await p.goto(`${B}/settings?section=connections`); return { c, p }; })();
-  await cy2.p.locator('[data-mail-input]').fill(KB);
+  await cy2.p.locator('[data-mail-paste] summary').click();
+  await cy2.p.locator('[data-mail-input]').fill(KC2);
   await cy2.p.locator('[data-mail-save]').click();
   await cy2.p.locator('[data-mail-linked]').waitFor({ timeout: 10000 });
   await cy2.c.close();
@@ -334,8 +411,143 @@ try {
   await own2.p.locator('[data-remove-confirm="cy@example.test"] button', { hasText: /^Remove$/ }).click();
   await own2.p.locator('[data-member="cy@example.test"]').waitFor({ state: 'detached', timeout: 10000 });
   check('remove member: their mail:<userId> setting is deleted', !(await rawDb.collection('settings').findOne({ _id: `mail:${Cu.userId}` })));
+  for (let i = 0; i < 50 && !revoked.has(KC2); i++) await new Promise(r => setTimeout(r, 100));
+  check('remove member: their Mailloom key revoked itself at Mailloom', revoked.has(KC2) && log.some(l => l.path === '/key/revoke' && l.key === KC2));
   await own2.c.close();
   await br2.close();
+
+  // ---- Connect Mailloom (docs/flows/mail-connect.md) ----
+  {
+  const br3 = await launch();
+  const seen = { locations: [], urls: [] }; // every Location header and request address the browsers saw
+  const watch = p => {
+    p.on('response', r => { const l = r.headers().location; if (l) seen.locations.push(l); });
+    p.on('request', r => seen.urls.push(r.url()));
+  };
+  const open = async who => { const c = await br3.newContext({ viewport: { width: 1280, height: 900 } }); const p = await c.newPage(); watch(p); await login(p, { email: who, next: '/settings?section=connections' }); await p.goto(`${B}/settings?section=connections`); return { c, p }; };
+  const flagOf = u => new URL(u).searchParams.get('mail');
+  const press = async (p, mode = 'approve') => {
+    oauth.mode = mode;
+    oauth.held = null;
+    await p.goto(`${B}/settings?section=connections`); // no mail= yet, so the wait below sees the new answer
+    await p.locator('[data-mail-connect]').first().click();
+    if (mode === 'hold') {
+      for (let i = 0; i < 100 && !oauth.held; i++) await new Promise(r => setTimeout(r, 100));
+      return oauth.held;
+    }
+    await p.waitForURL(/[?&]mail=/, { timeout: 20000 });
+    return flagOf(p.url());
+  };
+  // A callback opened with a context's cookies, without following the redirect: the fixed word it answers.
+  const hit = async (c, u) => { const r = await c.request.get(u, { maxRedirects: 0 }); const loc = r.headers().location ?? ''; seen.locations.push(loc); return { status: r.status(), flag: loc ? flagOf(new URL(loc, B).toString()) : null }; };
+  const stored = async who => (await rawDb.collection('settings').findOne({ _id: `mail:${who}` }))?.mail ?? null;
+  const tokensSoFar = () => oauth.tokens.length;
+
+  const ow = await open('e2e-owner@example.test');
+  // Replacing a pasted key: the owner has KA (pasted at the start); Connect again mints a new one and revokes KA.
+  check('connect: a linked mailbox offers Connect again', await ow.p.locator('[data-mail-linked] [data-mail-connect]').isVisible());
+  const f1 = await press(ow.p);
+  const az = oauth.authorizes.at(-1);
+  check('connect: authorize asks with the fixed client, exact redirect URI, all three scopes, S256 and a 256-bit state', az.client_id === CLIENT.id && az.redirect_uri === CLIENT.redirect && az.scope === 'read organise send' && az.code_challenge_method === 'S256' && /^[A-Za-z0-9_-]{43}$/.test(az.state) && !!az.label, JSON.stringify(az));
+  check('connect: back in Settings with "linked"', f1 === 'linked', ow.p.url());
+  const k1 = oauth.minted.at(-1);
+  const tk = oauth.tokens.at(-1);
+  check('connect: the swap sent the client secret, the PKCE verifier and the same redirect URI, form-encoded', tk?.ok && tk.body.client_secret === CLIENT.secret && !!tk.body.code_verifier && tk.body.redirect_uri === CLIENT.redirect);
+  check('connect: shows the mailbox and the granted scopes', await ow.p.locator('[data-mail-mailbox]').filter({ hasText: /owner@delpat\.test/ }).filter({ hasText: /read, organise, send/ }).waitFor({ timeout: 10000 }).then(() => true, () => false));
+  check('connect: says it is connected', await ow.p.locator('[data-mail-notice=linked]').isVisible());
+  const d1 = await stored(A.userId);
+  check('connect: stored sealed, with the scopes, marked as connected', !!d1?.sealed && d1.via === 'connect' && d1.email === 'owner@delpat.test' && d1.scopes.join() === 'read,organise,send' && d1.prefix === k1.slice(0, 8) && !JSON.stringify(d1).includes(k1));
+  check('connect: the replaced pasted key was revoked at Mailloom', revoked.has(KA));
+  n0 = mark();
+  const viaNew = await tool(MCP, 'mail_search', {});
+  check('connect: mail tools now use the new key', !viaNew.isError && since(n0).every(l => l.key === k1), viaNew.text.slice(0, 200));
+  check('connect: the key is not in the page', !(await ow.p.content()).includes(k1));
+
+  // Connect again: the connected key is replaced and revoked.
+  const f2 = await press(ow.p);
+  const k2 = oauth.minted.at(-1);
+  check('reconnect: linked again, the earlier connected key revoked', f2 === 'linked' && k2 !== k1 && revoked.has(k1) && (await stored(A.userId)).prefix === k2.slice(0, 8));
+
+  // Cancel at Mailloom: nothing changes.
+  const before3 = await stored(A.userId);
+  const f3 = await press(ow.p, 'deny');
+  check('cancel: back with "denied", the existing key kept', f3 === 'denied' && (await stored(A.userId)).sealed === before3.sealed && !revoked.has(k2));
+
+  // A state that was never issued: refused before any swap.
+  let t0 = tokensSoFar();
+  const forged = await hit(ow.c, `${CLIENT.redirect}?state=${b64u(randomBytes(32))}&code=${b64u(randomBytes(32))}`);
+  const badShape = await hit(ow.c, `${CLIENT.redirect}?state=short&code=x`);
+  check('wrong state: refused ("error"), no swap attempted', forged.status === 303 && forged.flag === 'error' && badShape.flag === 'error' && tokensSoFar() === t0, JSON.stringify([forged, badShape]));
+
+  // Another person, another session of the same person, and an expired state: each refused, nothing swapped.
+  const bea3 = await open('bea@example.test');
+  const heldO = await press(ow.p, 'hold');
+  t0 = tokensSoFar();
+  const asBea = await hit(bea3.c, heldO);
+  check('another person: the owner\'s state in Bea\'s session is refused, no swap', asBea.flag === 'error' && tokensSoFar() === t0 && (await stored(Bu.userId))?.via !== 'connect');
+  const again = await hit(ow.c, heldO);
+  check('single use: that state cannot be used afterwards, even by its owner', again.flag === 'error' && tokensSoFar() === t0);
+  const o2 = await open('e2e-owner@example.test');
+  const heldS = await press(ow.p, 'hold');
+  const otherSession = await hit(o2.c, heldS);
+  check('another session of the same person: refused, no swap', otherSession.flag === 'error' && tokensSoFar() === t0);
+  const heldX = await press(ow.p, 'hold');
+  await rawDb.collection('mailConnectAuth').updateMany({ userId: A.userId }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+  const expired = await hit(ow.c, heldX);
+  check('expired state: refused, no swap', expired.flag === 'error' && tokensSoFar() === t0);
+  check('state stored hashed, never in clear', !(await rawDb.collection('mailConnectAuth').findOne({ _id: new URL(heldX).searchParams.get('state') })));
+
+  // Wrong verifier: Bea's code (made for Bea's challenge) dropped into the owner's own callback is refused by Mailloom.
+  const heldB = await press(bea3.p, 'hold');
+  const heldO2 = await press(ow.p, 'hold');
+  const inj = new URL(heldO2);
+  inj.searchParams.set('code', new URL(heldB).searchParams.get('code'));
+  const keep = (await stored(A.userId)).sealed;
+  const injected = await hit(ow.c, inj.toString());
+  check('wrong verifier: a code made for another challenge is refused, nothing stored', injected.flag === 'error' && oauth.tokens.at(-1).why === 'verifier' && (await stored(A.userId)).sealed === keep);
+
+  // Replayed code: used once (linked), then the same code with a fresh state is refused and its key revoked by Mailloom.
+  const heldR = await press(ow.p, 'hold');
+  const first = await hit(ow.c, heldR);
+  const kR = oauth.minted.at(-1);
+  const heldR2 = await press(ow.p, 'hold');
+  const rep = new URL(heldR2);
+  rep.searchParams.set('code', new URL(heldR).searchParams.get('code'));
+  const replay = await hit(ow.c, rep.toString());
+  check('replayed code: first use links, the replay is refused and the key from the first use is revoked', first.flag === 'linked' && replay.flag === 'error' && oauth.tokens.at(-1).why === 'reused' && revoked.has(kR));
+
+  // A refused swap and a whoami naming another mailbox: refused; the lying key is revoked.
+  oauth.tokenFail = true;
+  const tf = await press(ow.p);
+  oauth.tokenFail = false;
+  check('token error: back with "error"', tf === 'error');
+  oauth.whoamiLie = true;
+  const wl = await press(ow.p);
+  oauth.whoamiLie = false;
+  const kLie = oauth.minted.at(-1);
+  check('whoami mismatch: refused and the new key revoked', wl === 'error' && revoked.has(kLie) && (await stored(A.userId)).prefix !== kLie.slice(0, 8));
+  check('error notice: plain words', await ow.p.locator('[data-mail-notice=error]').isVisible());
+
+  // Fewer scopes granted: stored as granted.
+  oauth.scopes = ['read', 'send'];
+  const fs1 = await press(ow.p);
+  oauth.scopes = ['read', 'organise', 'send'];
+  check('scopes: what Mailloom granted is stored and shown', fs1 === 'linked' && (await stored(A.userId)).scopes.join() === 'read,send' && await ow.p.locator('[data-mail-scopes]').filter({ hasText: /read, send/ }).isVisible());
+  const kS = oauth.minted.at(-1);
+
+  // Disconnect: the key revokes itself at Mailloom, the setting goes.
+  await ow.p.locator('[data-mail-remove]').click();
+  await ow.p.locator('[data-mail-connectable]').waitFor({ timeout: 10000 });
+  check('disconnect: the key revoked at Mailloom, the setting deleted, Connect shown again', revoked.has(kS) && !(await stored(A.userId)));
+
+  // Nothing of a key or a code ever went through the browser or into the server log.
+  check('no mlk_ in any Location header or address the browser opened', ![...seen.locations, ...seen.urls].some(x => /mlk_/.test(x)), [...seen.locations, ...seen.urls].filter(x => /mlk_/.test(x)).join(' ').slice(0, 200));
+  const slog = process.env.E2E_SERVER_LOG && fs.existsSync(process.env.E2E_SERVER_LOG) ? fs.readFileSync(process.env.E2E_SERVER_LOG, 'utf8') : null;
+  const codes = [...oauth.codes.keys()];
+  check('server log: no key, code, verifier or the client secret', slog !== null && !/mlk_/.test(slog) && !slog.includes(CLIENT.secret) && !codes.some(c => slog.includes(c)) && !oauth.tokens.some(t => t.body?.code_verifier && slog.includes(t.body.code_verifier)), slog === null ? 'no server log (E2E_SERVER_LOG)' : '');
+  for (const x of [ow, o2, bea3]) await x.c.close();
+  await br3.close();
+  }
 } catch (e) {
   console.log('FAIL  suite crashed - ' + (e?.stack ?? e));
   await finish(1);

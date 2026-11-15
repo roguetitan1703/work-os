@@ -11,6 +11,7 @@ import { discordConfig, orgGuildId } from '@/lib/discord/client';
 import { getProfile } from '@/lib/profile';
 import { linkStatus } from '@/lib/delpat-os';
 import { mailConfigured } from '@/lib/mail/client';
+import { connectEnabled } from '@/lib/mail/connect';
 import { mailLinkOf } from '@/lib/mail/keys';
 import { MailKey } from './mail-key';
 import { Dot, type Level } from './ui';
@@ -46,16 +47,22 @@ async function rows(caller: Caller): Promise<Row[]> {
       ? { id: 'computers', icon: Laptop, name: 'Computers', detail: 'Let Claude work on your own PC.', level: 'off', status: 'None yet', action: { href: '/claude?tab=setup', label: 'Add a PC', primary: true } }
       : { id: 'computers', icon: Laptop, name: 'Computers', detail: devices.map(d => `${d.name} ${isOnline(d.lastSeenAt) ? 'online' : 'offline'}`).join(' · '), level: online.length ? 'ok' : 'warn', status: online.length ? `${online.length} online` : 'Offline', action: { href: '/claude?tab=setup', label: 'Manage', primary: false } },
   );
-  // Mail: only where this Work OS has MAILLOOM_AGENT_URL; each person pastes their own Mailloom key (Claude reads and sends through it).
+  // Mail: only where this Work OS has MAILLOOM_AGENT_URL. Each person connects their own mailbox (Connect Mailloom, when the
+  // client is set up: lib/mail/connect.ts) or pastes their own Mailloom key; Claude reads and sends through it.
   if (mailConfigured()) {
+    const connect = connectEnabled();
     out.push({
       id: 'mail',
       icon: Mail,
       name: 'Mail',
-      detail: mailLink ? 'Claude can read, send and organise your mail through this key.' : 'Paste your Mailloom key (Mailloom › Connections › New key) so Claude can use your mailbox.',
+      detail: mailLink
+        ? 'Claude can read, organise and send your mail through this key.'
+        : connect
+          ? 'Connect your Mailloom mailbox so Claude can use it.'
+          : 'Paste your Mailloom key (Mailloom › Connections › New key) so Claude can use your mailbox.',
       level: mailLink ? 'ok' : 'off',
-      status: mailLink ? 'Linked' : 'Not linked',
-      note: <MailKey link={mailLink ? { prefix: mailLink.prefix, email: mailLink.email } : null} />,
+      status: mailLink ? 'Connected' : 'Not connected',
+      note: <MailKey connect={connect} link={mailLink ? { prefix: mailLink.prefix, email: mailLink.email, scopes: mailLink.scopes } : null} />,
     });
   }
   // Delpat OS: only where this Work OS has a Delpat OS client set; each person links their own account (Link / Unlink here).

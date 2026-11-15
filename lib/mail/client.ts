@@ -46,6 +46,57 @@ export function mailBase(): string | null {
 
 export const mailConfigured = () => mailBase() !== null;
 
+// ── Connect Mailloom (docs/flows/mail-connect.md): Mailloom's endpoints and Work OS's env names, in this one place ──
+//   MAILLOOM_PUBLIC_URL     where browsers open Mailloom, e.g. https://mail.delpat.in/mail (authorize lives under it)
+//   MAILLOOM_CLIENT_ID      Work OS's client id at Mailloom (Mailloom's AGENT_CLIENT_ID)
+//   MAILLOOM_CLIENT_SECRET  the shared client secret (Mailloom's AGENT_CLIENT_SECRET), 32+ characters
+// With MAILLOOM_AGENT_URL, all three switch the Connect button on; otherwise only the paste box shows.
+export const MAILLOOM_CONNECT = {
+  /** Under MAILLOOM_PUBLIC_URL, opened by the browser. */
+  authorizePath: '/oauth/authorize',
+  /** Under MAILLOOM_AGENT_URL, called server to server with the client secret and the PKCE verifier. */
+  tokenPath: '/oauth/token',
+  /** Under MAILLOOM_AGENT_URL, `Bearer <key>`: a key revokes itself. */
+  revokePath: '/key/revoke',
+  /** Work OS's own callback, under APP_URL (the exact redirect URI registered in Mailloom's AGENT_CLIENT_REDIRECT_URIS). */
+  callbackPath: '/api/mail/callback',
+  scopes: ['read', 'organise', 'send'] as const,
+  env: { publicUrl: 'MAILLOOM_PUBLIC_URL', clientId: 'MAILLOOM_CLIENT_ID', clientSecret: 'MAILLOOM_CLIENT_SECRET' },
+} as const;
+
+export type ConnectConfig = { publicUrl: string; agentBase: string; clientId: string; clientSecret: string };
+
+/** Connect's settings, or null (Connect off, only the paste box) unless the agent URL, public URL, client id and a 32+ character secret are all set. */
+export function connectConfig(): ConnectConfig | null {
+  const agentBase = mailBase();
+  const e = MAILLOOM_CONNECT.env;
+  const raw = process.env[e.publicUrl]?.trim();
+  const clientId = process.env[e.clientId]?.trim();
+  const clientSecret = process.env[e.clientSecret]?.trim();
+  if (!agentBase || !raw || !clientId || !clientSecret || clientSecret.length < 32 || clientId.length > 200) return null;
+  try {
+    const u = new URL(raw);
+    if ((u.protocol !== 'https:' && !(u.protocol === 'http:' && isLocal(u))) || u.username || u.password || u.search || u.hash) return null;
+  } catch {
+    return null;
+  }
+  return { publicUrl: raw.replace(/\/+$/, ''), agentBase, clientId, clientSecret };
+}
+
+/**
+ * A key revokes itself at Mailloom (Disconnect, a replaced key, a removed member). True when Mailloom says it is revoked,
+ * or no longer knows it (401: already revoked or never valid); false when Mailloom could not be reached or refused.
+ * Never retried, never throws, never logs the key.
+ */
+export async function revokeKey(key: string, ids: Ids): Promise<boolean> {
+  try {
+    await mailRequest(key, ids, 'POST', MAILLOOM_CONNECT.revokePath, { body: {}, retry: false });
+    return true;
+  } catch (e) {
+    return e instanceof MailError && e.status === 401;
+  }
+}
+
 /** Where a person opens Mailloom: MAILLOOM_WEB_URL, else the host of the agent address. */
 export function mailWebUrl(): string | null {
   const web = process.env.MAILLOOM_WEB_URL?.trim();
@@ -74,7 +125,7 @@ export function explain(status: number, code: string, message: string, retryAfte
     case 'MISSING_KEY':
     case 'INVALID_KEY':
     case 'KEY_REVOKED':
-      return `Mailloom does not accept your saved key (${code}). Create a new key in Mailloom › Connections and paste it in Work OS ${SETUP}.`;
+      return `Mailloom does not accept your saved key (${code}): it was revoked or disconnected in Mailloom. Connect your mailbox again in Work OS ${SETUP}.`;
     case 'IN_PROGRESS':
       return 'A send with this idempotency key is still running or ended without a result. Do not send it again: check the Sent folder (mail_search with folder "Sent") first. (IN_PROGRESS)';
     case 'AGENT_API_OFF':

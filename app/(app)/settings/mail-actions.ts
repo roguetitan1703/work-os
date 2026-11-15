@@ -2,13 +2,16 @@
 
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
+import { headers } from 'next/headers';
 import { SafeError } from '@/lib/auth';
 import { asCaller } from '@/lib/caller';
 import { InputError } from '@/lib/data/errors';
 import { MailError } from '@/lib/mail/client';
+import { sessionIdOf, startConnect } from '@/lib/mail/connect';
 import { removeMailKey, saveMailKey, testMailKey, type MailLink } from '@/lib/mail/keys';
 
-// Settings › Connections › Mail: paste your own Mailloom key, test it, remove it. Each acts on the caller's own key.
+// Settings › Connections › Mail: Connect Mailloom (lib/mail/connect.ts), or paste your own Mailloom key; test it; disconnect
+// (revokes it at Mailloom). Each acts on the caller's own key.
 
 type R<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -39,6 +42,12 @@ export async function testMailKeyAction(): Promise<R<{ email: string; prefix: st
   );
 }
 
-export async function removeMailKeyAction(): Promise<R<null>> {
-  return run('mail key remove', () => asCaller(async c => void (await removeMailKey(c))).then(() => null));
+/** Disconnect: the key revokes itself at Mailloom, then is deleted here either way. revoked false: tell the person to revoke it in Mailloom. */
+export async function removeMailKeyAction(): Promise<R<{ revoked: boolean | null }>> {
+  return run('mail key remove', () => asCaller(async c => removeMailKey(c, ids(c.userId))));
+}
+
+/** Connect Mailloom: the address of Mailloom's authorize page (state and PKCE challenge in it); the button navigates there. */
+export async function startMailConnectAction(): Promise<R<{ url: string }>> {
+  return run('mail connect', () => asCaller(async c => ({ url: await startConnect(c, await sessionIdOf(await headers())) })));
 }
