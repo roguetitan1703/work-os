@@ -1340,8 +1340,8 @@ function AUDIT() {
     ['mail_message_to_task', MID],
   ]) add(`mcp ${tool}`, M(tool, args, { ok: noMail, controlOk: noMail }));
   const MA = 'app/(app)/settings/mail-actions.ts#';
-  add(`action ${MA}saveMailKeyAction`, act(MA + 'saveMailKeyAction', ['not-a-key'], { ok: r => r.status === 200 && r.value?.ok === false, controlOk: r => r.status === 200 && r.value?.ok === false }));
-  add(`action ${MA}testMailKeyAction`, act(MA + 'testMailKeyAction', [], { ok: r => r.status === 200 && r.value?.ok === false, controlOk: r => r.status === 200 && r.value?.ok === false }));
+  add(`action ${MA}saveMailKeyAction`, act(MA + 'saveMailKeyAction', ['not-a-key'], { ok: () => false, controlOk: r => r.status === 200 && r.value?.ok === false }));
+  add(`action ${MA}testMailKeyAction`, act(MA + 'testMailKeyAction', [], { ok: () => false, controlOk: r => r.status === 200 && r.value?.ok === false }));
   add(`action ${MA}removeMailKeyAction`, act(MA + 'removeMailKeyAction', [], { controlOk: r => actOk(r) }));
   const SE = 'app/(app)/settings/security-actions.ts#';
   add(`action ${SE}sendTestEmailAction`, act(SE + 'sendTestEmailAction', [], { controlOk: r => actOk(r) || /not set up/i.test(r.text) }));
