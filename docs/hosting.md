@@ -750,6 +750,14 @@ Any failure exits non-zero, so systemd marks the unit failed: `systemctl --faile
 The service prints names and sizes only, never a URI or key. Nothing raises an alert on a failed backup yet: check
 `systemctl status work-os-backup` now and then, and after a deploy.
 
+**On-box nightly copy (until R2 is set up).** `work-os-backup-local.timer` (02:30 IST = 21:00 UTC, up to 10 min random delay) runs `work-os-backup --nightly-local`: the same `mongodump` of Atlas, as a plain gzip archive `/var/backups/work-os/workos-nightly-<UTC time>.archive.gz` (0600, folder 0700, owned by `workos-backup`; no age, no aws), keeping the newest 7 (`BACKUP_NIGHTLY_KEEP`; older ones go only after a good dump). It is **on the same disk as the app: not off-box, not encrypted, and it does not replace the R2 backup**; a lost box loses it. It needs only `MONGODB_URI` and `MONGODB_DB` in `/etc/work-os/backup-env`. If that file also holds `BACKUP_S3_URI` and `BACKUP_AGE_RECIPIENT` (R2 set up), the local run exits without dumping **only while the R2 backup's last good upload is under 26 hours old** (the R2 run writes `/var/backups/work-os/.r2-last-ok` after its size check), so a night is not dumped twice; if R2 is configured but silent for longer, the local run warns and dumps anyway. `BACKUP_NIGHTLY_FORCE=1` keeps both.
+
+1. On the box: `sudo cp deploy/systemd/work-os-backup-local.{service,timer} /etc/systemd/system/` (and, if `work-os-backup` is not yet in `/usr/local/sbin`, `sudo install -m 0755 deploy/backup.sh /usr/local/sbin/work-os-backup`, as in section 4), then `sudo systemctl daemon-reload && sudo systemctl enable --now work-os-backup-local.timer`.
+2. One hand run: `sudo systemctl start work-os-backup-local.service && journalctl -u work-os-backup-local -n 20`, then `sudo ls -l /var/backups/work-os`.
+3. Restore into a throwaway mongod (never over Atlas): `mongod --dbpath /tmp/restore-db --port 28030 --fork --logpath /tmp/restore.log`, then `sudo cat /var/backups/work-os/workos-nightly-<time>.archive.gz | mongorestore --uri mongodb://127.0.0.1:28030 --gzip --archive`, and look at it with `mongosh --port 28030 workos`. Stop that mongod and delete `/tmp/restore-db` afterwards.
+
+Tested with a stubbed `mongodump` only (`bash tests/backup-local.sh`: name, rotation to exactly 7, failed dump, R2 skip); a real dump against Atlas has not been run.
+
 **Setup (once).** Om does the first three steps; none of the values goes in the repo.
 
 1. **age key pair, on Om's PC** (not on the server): `age-keygen -o work-os-backup.key`. It prints the public key

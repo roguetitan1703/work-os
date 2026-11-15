@@ -32,7 +32,8 @@ for (const r of dep) check(`unblocked #${r} in inbox exactly once`, cnt(new RegE
 // Overdue alerts start at 09:00 in the person's zone (lib/alerts.ts); before that none is due, so only the rest is checked.
 const morning = Number(new Intl.DateTimeFormat('en-GB', { timeZone: process.env.APP_TZ || 'Asia/Kolkata', hour: '2-digit', hourCycle: 'h23' }).format(new Date())) >= 9;
 if (!morning) { console.log('(before 09:00: overdue alerts are not due yet; checked unblocked only)'); over.length = 0; }
-for (const r of over) check(`overdue #${r} in inbox exactly once`, cnt(new RegExp(`^Overdue: #${r} `)) === 1, `got ${cnt(new RegExp(`^Overdue: #${r} `))}`);
+// The morning's overdue now arrive in the daily digest (slice 2): one inbox row for all of them, no separate Overdue rows.
+if (over.length) { check('overdue: one daily digest in the inbox, no separate Overdue rows', cnt(/^Your daily digest$/) === 1 && cnt(/^Overdue: /) === 0, `digest ${cnt(/^Your daily digest$/)}, overdue ${cnt(/^Overdue: /)}`); }
 const all = dms.join('\n');
 for (const r of [...dep, ...over]) { const n = all.split(`[#${r}](`).length - 1; check(`Discord mentions #${r} exactly once`, n === 1, `got ${n}`); }
 console.log('discord DMs sent:', dms.length);

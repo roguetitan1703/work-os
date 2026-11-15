@@ -10,12 +10,13 @@ import './request-context';
 // Each person's own settings that are not about one feature (docs/multi-user.md phase 3), in `profile:<userId>`:
 //   timezone      IANA zone; what "today" and alert hours mean for them (default APP_TZ, else UTC)
 //   quiet hours   quietStart–quietEnd (whole hours in their zone): alerts wait until it ends; equal = none
+//   digestHour    the hour their daily digest is sent (default 9)
 //   discordId     their linked Discord account: commands act as them, their alert DMs go there
 //
 // The Discord link is proven, never typed: Settings makes a short code (stored hashed, 10 minutes) and the person
 // runs /link <code> on the organization's Discord server; the signed interaction says which Discord account it was.
 
-export type Profile = { timezone: string; quietStart: number; quietEnd: number; discordId: string | null };
+export type Profile = { timezone: string; quietStart: number; quietEnd: number; /** The hour their daily digest is sent (alerts kind `digest`). */ digestHour: number; discordId: string | null };
 /**
  * Quiet hours for someone who has not set their own: 23:00–08:00, or DEFAULT_QUIET_HOURS ("22-7", or "none"; the e2e
  * runner sets none so alert suites pass at any hour).
@@ -45,6 +46,7 @@ export async function getProfile(s: Scope): Promise<Profile> {
     timezone: isTimeZone(d?.timezone) ? d!.timezone! : DEFAULT_TZ,
     quietStart: hour(d?.quietStart, DEFAULT_QUIET.start),
     quietEnd: hour(d?.quietEnd, DEFAULT_QUIET.end),
+    digestHour: hour(d?.digestHour, 9),
     discordId: typeof d?.discordId === 'string' && d.discordId ? d.discordId : null,
   };
   if (cache.size > 5000) cache.clear();
@@ -57,10 +59,11 @@ export async function timezoneOf(s: Scope): Promise<string> {
   return (await getProfile(s)).timezone;
 }
 
-export async function saveTimeSettings(s: Scope, input: { timezone: string; quietStart: number; quietEnd: number }): Promise<Profile> {
+export async function saveTimeSettings(s: Scope, input: { timezone: string; quietStart: number; quietEnd: number; digestHour?: number }): Promise<Profile> {
   if (!isTimeZone(input.timezone)) throw new InputError('Pick a timezone from the list');
   for (const v of [input.quietStart, input.quietEnd]) if (!Number.isInteger(v) || v < 0 || v > 23) throw new InputError('Quiet hours are whole hours, 0 to 23');
-  await setUserSetting(s, 'profile', { timezone: input.timezone, quietStart: input.quietStart, quietEnd: input.quietEnd, updatedAt: new Date() });
+  if (input.digestHour !== undefined && (!Number.isInteger(input.digestHour) || input.digestHour < 0 || input.digestHour > 23)) throw new InputError('The digest hour is a whole hour, 0 to 23');
+  await setUserSetting(s, 'profile', { timezone: input.timezone, quietStart: input.quietStart, quietEnd: input.quietEnd, ...(input.digestHour !== undefined ? { digestHour: input.digestHour } : {}), updatedAt: new Date() });
   cache.delete(key(s));
   return getProfile(s);
 }

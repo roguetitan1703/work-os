@@ -57,7 +57,7 @@ const byOwnCode = (c: Caller, createdBy: unknown) => {
 };
 
 /** Permanent deletion and admin operations, as tools or apply_changes ops. None exist on MCP today; listed so adding one can't silently open it to Claude Code. */
-const BLOCKED = new Set(['purge_trash', 'purge_task', 'empty_trash', 'delete_forever', 'purge_note', 'register_commands', 'import_tasks', 'admin']);
+const BLOCKED = new Set(['answer_need', 'purge_trash', 'purge_task', 'empty_trash', 'delete_forever', 'purge_note', 'register_commands', 'import_tasks', 'admin']);
 const TRASH_TOOLS = new Set(['delete_task', 'delete_note']);
 const TRASH_OPS = new Set(['delete_task', 'delete_note']);
 /** Ops that change an existing task (create_task and comments don't count toward the 50). */
@@ -86,6 +86,7 @@ export function watchTarget(op: string, a: Record<string, unknown>): WatchTarget
     case 'log_progress':
       return { key, args: a, also: ['status'] };
     case 'complete_task':
+    case 'hand_in':
       return { key, also: ['status'] };
     case 'archive_task':
       return { key, also: ['archived'] };

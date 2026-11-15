@@ -44,8 +44,15 @@ export type TaskDoc = Placed & {
   dependsOn: string[];
   recurrence: Recurrence | null;
   nextRef: number | null;
+  /** Slice 5: the kind of result, the last hand_in, the owner's send-back line and the review record. */
+  resultKind?: import('./types').ResultKind | null;
+  handIn?: Omit<import('./types').HandIn, 'at'> & { at: Date };
+  sentBack?: { line: string; by: string; at: Date };
+  review?: { sentBack: number; outcome?: 'accepted_first_time' | 'accepted_after_send_back'; at?: Date };
   archived: boolean;
   createdBy: Actor;
+  /** The session or key that made it (the "for you" line does not tell a session about its own items). */
+  src?: string;
   createdAt: Date;
   updatedAt: Date;
   doneAt: Date | null;
@@ -60,6 +67,8 @@ export type TaskDoc = Placed & {
   parentTitle?: string;
   /** On a parent: its subtasks done and counted, recomputed with its progress whenever one changes. */
   subtaskCount?: import('./types').SubtaskCount;
+  /** The open Need on this task, if any (lib/data/needs.ts keeps it in step; rows show it instead of the percent). */
+  need?: import('./types').TaskNeed;
 };
 
 /** A task a person gave to Claude. */
@@ -129,6 +138,55 @@ export type ReviewDoc = Omit<WeeklyReview, 'id' | 'answers'> & { _id: string; or
 export type RitualDoc = Omit<RoutineLog, 'id' | 'count'> & { _id: string; orgId: string; ownerId: string; count?: number; bidsPlaced?: number };
 /** _id `<name>:<orgId>` (task and Claude item numbers per organization). */
 export type CounterDoc = { _id: string; seq: number; orgId: string };
+/**
+ * One ask to one person (docs/flows/plan-1-3.md slice 4). Stamped with its project's placement like a task (the door
+ * filters by the document's own ownerId / visibility / sharedWith) and moved with the project (setProjectPlacement).
+ */
+export type NeedKind = 'decide' | 'approve' | 'review' | 'do' | 'chase';
+export type NeedWord = 'person' | 'chat' | 'agent';
+export type NeedStatus = 'open' | 'answered' | 'withdrawn' | 'replaced';
+export type NeedOption = { id: string; label: string; means: string };
+export type NeedDoc = Placed & {
+  _id: string;
+  /** Per organization, like a task number. */
+  ref: number;
+  projectId: string;
+  taskId: string | null;
+  taskRef: number | null;
+  /** The one person asked (a user id). */
+  to: string;
+  /** Who asked: the actor, the trust word (set by the server from how the call came in) and the session's own label. */
+  from: { actor: Actor; word: NeedWord; session?: string; /** The API key or OAuth client behind the ask (a later call without a session id is matched by it). */ keyId?: string; label?: string };
+  kind: NeedKind;
+  ask: string;
+  example?: string;
+  options: NeedOption[];
+  status: NeedStatus;
+  /** Answered in the app only (production, money, credentials): never from Discord. */
+  appOnly: boolean;
+  answer?: { option: string; text?: string; by: string; via: 'app' | 'phone' | 'discord' | 'chat'; at: Date };
+  createdAt: Date;
+  /** When it was answered; with waitedMs, how long the person took (the scorecard reads them). */
+  answeredAt: Date | null;
+  waitedMs?: number;
+  closedAt?: Date | null;
+  replacedBy?: string;
+  /** start_work handed the answer to the asker's session (so a later brief does not repeat it). */
+  briefedAt?: Date;
+  /** A review Need: what the agent handed in (hand_in), or just its summary. */
+  result?: import('./types').HandInResult;
+  /** Accept and file what is left: the numbers of the tasks made from the left lines. */
+  filed?: number[];
+  /** Closed by the system, not by a person: 'moved' (its task moved where the addressee cannot read it) or 'access' (they lost access). */
+  withdrawnReason?: string;
+  /** When an alert for this Need (or the one it replaced) was last queued: a replacement within 10 minutes of it sends none. */
+  alertedAt?: Date;
+  /** A review Need made past the hourly alert limit: no alert was queued for it. */
+  noAlert?: boolean;
+  /** A review Need made because an agent wanted to drop or archive the task: what Accept then does (default: close it as Done). */
+  closing?: 'Dropped' | 'archived';
+};
+
 export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {
   _id: string;
   createdAt: Date;
@@ -149,6 +207,10 @@ export type NoteDoc = Placed & {
   body: string; // markdown, derived from blocks (search, previews, Claude)
   /** Sub-page: the note this page lives in. */
   parentId?: string | null;
+  /** Standing rules served to every AI that starts work (lib/data/orders.ts): which layer this note is, if any. Set in the app only. */
+  orders?: 'org' | 'project' | 'person';
+  /** Who set the Orders flag (the holder of the layer). A person-layer note is served only when this equals its owner and the reader. */
+  ordersBy?: string;
   taskId: string | null; // task note (at most one live per task)
   projectId: string | null; // project note (when taskId is null)
   archived: boolean;
@@ -160,13 +222,103 @@ export type NoteDoc = Placed & {
   deletedBy?: Actor;
 };
 
-export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'claude_stuck';
+/** A line of a project's State (Next, Later): `by` is who wrote it (a user id), shown labelled to everyone else. */
+export type StateLine = { id: string; text: string; ref?: number; waitsOn?: string; by: string; src?: string; at: Date };
+/** A decision recorded on a project (append-only). `by` = who decided (a user id), `via` = chat / code / app / discord. */
+export type StateDecision = { id: string; at: Date; by: string; src?: string; via: string; text: string; archivedAt?: Date; /** The key that recorded it (the hourly limit counts per key). */ key?: string; /** The message it was applied from, who wrote that message and how it came in; `by` is who applied it. */ msg?: string; author?: string; word?: string };
+/** Where the work is on one machine, as the agent reported it from git. */
+export type StateWhere = { branch?: string; head?: string; dirty?: boolean; worktrees?: string[]; at: Date; by: string };
+/** The project's live memory (docs/flows/step-1.md): one per project, `_id` = the project id, stamped with the project's placement. */
+export type StateDoc = Placed & {
+  _id: string;
+  projectId: string;
+  now: { text: string; holder?: string; by: string; at: Date } | null;
+  next: StateLine[];
+  later: StateLine[];
+  decisions: StateDecision[];
+  where: Record<string, StateWhere>;
+  /** The last 200 ops with who made them (user, key, session): so a changed Now or a done Next line can be traced. Not shown to readers. */
+  log?: { at: Date; by: string; key?: string; src?: string; via: string; op: string; id?: string }[];
+  /** Bumped on every write. */
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+/**
+ * A message to a project (docs/flows/step-1.md section 4), stamped with the project's placement: every reader of the
+ * project can read it. `word` is how it came in, set by the server and never by the caller: person (the app), chat (the
+ * claude.ai connector, which may be unattended), agent (a key).
+ */
+export type MessageDoc = Placed & {
+  _id: string;
+  projectId: string;
+  /** Narrows who should act (a session label or client name): a hint, not a privacy line. */
+  toSession?: string;
+  from: { userId: string; word: 'person' | 'chat' | 'agent'; ai?: string; session?: string; label?: string; keyId?: string };
+  kind: 'decision' | 'request' | 'question' | 'fyi';
+  body: string;
+  refs: { tasks?: number[]; commits?: string[]; files?: string[] };
+  thread: string;
+  status: 'unread' | 'seen' | 'applied' | 'rejected';
+  note?: string;
+  commit?: string;
+  senderCommit?: string;
+  /** The session or key that sent it (the "for you" line does not name a session's own messages back to it). */
+  src?: string;
+  /** Who set the status, and when. */
+  statusBy?: string;
+  statusAt?: Date;
+  /** The task a request was turned into. */
+  taskRef?: number;
+  at: Date;
+};
+
+/** A session working on a project (docs/flows/step-1.md section 5), stamped with the project's placement. `forYouCursor`: what the "for you" line has already named. */
+export type PresenceDoc = Placed & {
+  _id: string;
+  projectId: string;
+  /** The person (user id) the session works for. */
+  userId: string;
+  /** Session id when the call carried one, else the key id (or OAuth client id). */
+  key: string;
+  session?: string;
+  /** The API key or OAuth client behind the calls (a session that passes no id is found again by it). */
+  keyId?: string;
+  label: string;
+  machine: string;
+  /** The client's name (key name / OAuth client name). */
+  ai: string;
+  agent: string;
+  lastSeen: Date;
+  forYouCursor: Date;
+  /** The last ~100 item ids the "for you" line named (the cursor trails the call by a skew, so the window is read twice). */
+  named?: string[];
+  /** Writes made since the last save_state of this session (the save nudge). */
+  writesSinceSave: number;
+  // The roster (docs/flows/plan-1-3.md slice 7): what start_work and set_doing report about the worker.
+  model?: string;
+  account?: string;
+  /** The orchestrator's session id (for a builder). */
+  parent?: string;
+  /** The builder slot name (A, B, S ...). */
+  slot?: string;
+  /** The git branch it reported. */
+  branch?: string;
+  /** When machine resolved to one of the person's devices (machine is then its id): that device's name. */
+  machineName?: string;
+  /** The task the worker says it is on (set_doing): only its id. Its number and title are read through the scoped door when shown, so a viewer who cannot read the task sees nothing of it. */
+  doing?: { taskId: string; at: Date };
+};
+/** Heavy-slot leases on one machine (lib/data/slots.ts): at most `cap` (default 2) holders, each with a lease end. _id = org:machine. Organization-wide on purpose: the cap is per machine across every session on it. */
+export type SlotDoc = { _id: string; orgId: string; machine: string; kind: 'heavy'; /** The person whose machine it is (the device's owner, or whoever named a plain-name machine). Only they write it. */ ownerId: string; /** Last write; a TTL index removes a document untouched for a day. */ touchedAt: Date; cap?: number; holds: { h: string; session: string; userId: string; until: Date }[] };
+
+export type AlertKind = 'due_tomorrow' | 'due_today' | 'overdue' | 'stalled' | 'never_started' | 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'claude_stuck' | 'need' | 'digest';
 /** Kinds sent from the alertQueue (event alerts) rather than found by the scheduled check. */
-export type QueuedAlertKind = 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped';
+export type QueuedAlertKind = 'unblocked' | 'assigned' | 'claude_finished' | 'claude_stopped' | 'need';
 /** One row per alert sent (key encodes task + occasion), so each is sent once. */
-export type AlertLogDoc = { _id: string; orgId: string; /** Who it was sent to. */ userId: string; kind: AlertKind; taskId?: string; sentAt: Date };
+export type AlertLogDoc = { _id: string; orgId: string; /** Who it was sent to. */ userId: string; kind: AlertKind; taskId?: string; sentAt: Date; /** digest rows: the digest had nothing to say (claimed for the day, never sent). */ empty?: boolean };
 /** Event alerts waiting for the next send (queued inside the write's transaction). */
-export type AlertQueueDoc = { _id: string; orgId: string; /** Who gets it: the task's recipient, or the person who gave it to Claude. */ userId: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason; assigned: who assigned it. */ detail?: string };
+export type AlertQueueDoc = { _id: string; orgId: string; /** Who gets it: the task's recipient, or the person who gave it to Claude. */ userId: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason; assigned: who assigned it. */ detail?: string; /** kind 'need': the Need (taskId is then the Need's task, or '' when it has none). */ needId?: string };
 
 /** Inbox-only notices that are not scheduled alerts. */
 export type NoticeKind = 'claude_code_changes' | 'claude_waiting' | 'claude_mail_sent';
@@ -227,6 +379,8 @@ export type SettingsDoc = {
   timezone?: string;
   quietStart?: number;
   quietEnd?: number;
+  /** The hour (0-23, their zone) their daily digest is sent; missing = 9. */
+  digestHour?: number;
   discordId?: string | null;
   discordLink?: { hash: string; expiresAt: Date } | null;
   /** profile:<userId>: the person hid the first-run checklist on Today. */
@@ -235,6 +389,8 @@ export type SettingsDoc = {
   mail?: { sealed: string; prefix: string; email: string; savedAt: Date } | null;
   /** discord:<orgId>: the organization's Discord server (set by the operator). */
   guildId?: string | null;
+  /** discord:<orgId>: the Discord channel the team digest goes to (lib/team-digest.ts). */
+  teamChannelId?: string | null;
   /** schedule:<userId> (lib/schedule.ts): the person's week, routine, review questions and own help text. */
   schedule?: unknown;
   /** modes:<orgId> (lib/modes.ts): the organization's modes of work. */
@@ -348,6 +504,11 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { orgId: 1, updatedAt: -1 }, name: 'org_updated' },
       { key: { parentId: 1 }, name: 'parent', sparse: true },
     ]],
+    ['needs', [
+      { key: { orgId: 1, ref: 1 }, unique: true, name: 'org_ref_unique' },
+      { key: { projectId: 1, status: 1 }, name: 'project_status' },
+      { key: { to: 1, status: 1 }, name: 'to_status' },
+    ]],
     ['trash', [{ key: { deletedAt: -1 }, name: 'deletedAt' }, { key: { orgId: 1, ref: 1 }, name: 'org_ref' }]],
     ['claudeItems', [
       { key: { orgId: 1, ref: 1 }, unique: true, name: 'org_ref_unique' },
@@ -364,6 +525,10 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['requestStats', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 35 * 86_400 }]],
     // The calendar link (docs/calendar.md): one row per person per organization, found by the hash of its token.
     ['calendarFeeds', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]],
+    ['messages', [{ key: { orgId: 1, projectId: 1, at: -1 }, name: 'org_project_at' }, { key: { orgId: 1, thread: 1, at: 1 }, name: 'org_thread' }]],
+    ['states', [{ key: { orgId: 1, projectId: 1 }, unique: true, name: 'org_project_unique' }]],
+    ['presence', [{ key: { orgId: 1, projectId: 1, lastSeen: -1 }, name: 'org_project_seen' }, { key: { lastSeen: 1 }, name: 'seen_ttl', expireAfterSeconds: 7 * 86_400 }]],
+    ['slots', [{ key: { orgId: 1, machine: 1 }, name: 'org_machine' }, { key: { touchedAt: 1 }, name: 'touched_ttl', expireAfterSeconds: 86_400 }]],
     ['authLimits', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 3600 }, { key: { key: 1, at: -1 }, name: 'key_at' }]],
     // Better Auth's collections (lib/auth-server.ts): its MongoDB adapter creates no indexes. A session is read by its
     // token whenever the cookie cache runs out (every 2 minutes per person), a member on every role check, an API key on
@@ -429,10 +594,15 @@ export async function collections() {
     requestStats: db.collection<RequestStatsDoc>('requestStats'),
     policyEvents: db.collection<PolicyEventDoc>('policyEvents'),
     claudeItems: db.collection<ClaudeItemDoc>('claudeItems'),
+    needs: db.collection<NeedDoc>('needs'),
     devices: db.collection<DeviceDoc>('devices'),
     workerFolders: db.collection<WorkerFolderDoc>('workerFolders'),
     workerJobs: db.collection<WorkerJobDoc>('workerJobs'),
     workerSessions: db.collection<WorkerSessionDoc>('workerSessions'),
+    messages: db.collection<MessageDoc>('messages'),
+    states: db.collection<StateDoc>('states'),
+    presence: db.collection<PresenceDoc>('presence'),
+    slots: db.collection<SlotDoc>('slots'),
   };
   const session = txStore.getStore();
   return session ? (Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, withSession(v, session)])) as typeof cols) : cols;

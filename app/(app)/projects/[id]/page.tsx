@@ -22,12 +22,23 @@ import { FolderLinks } from './folders';
 import { ProjectDetails } from './project-header';
 import { ProjectTop } from './project-top';
 import { ClaudeCard } from './claude-card';
+import { projectNeeds, withNeedWaits } from '@/lib/data/needs';
+import { NeedsTab } from '@/components/needs';
+import { StateCard } from './state-card';
+import { CouldBeRunning } from '../../claude/workers-tab';
+import { projectRoster } from '@/lib/data/roster';
+import { stateOfProject, stateOut } from '@/lib/data/states';
+import { memberNames } from '@/lib/people';
+import { inbox as inboxOf, messageOut } from '@/lib/data/messages';
+import { InboxTab } from './inbox-tab';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'tasks', label: 'Tasks' },
   { id: 'claude', label: 'Claude' },
+  { id: 'needs', label: 'Needs' },
   { id: 'notes', label: 'Notes' },
+  { id: 'inbox', label: 'Inbox' },
   { id: 'info', label: 'Info' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
@@ -50,7 +61,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const base = `/projects/${encodeURIComponent(project.id)}`;
   const tabHref = (t: TabId) => `${base}?tab=${t}`;
 
-  const [open, done, activity, notes, work, launcher, reopen] = await Promise.all([
+  const [open, done, activity, notes, work, launcher, reopen, stateDoc, names, needs] = await Promise.all([
     listTasks(sc, { project: project.id, open: true }),
     listTasks(sc, { project: project.id, status: ['Done', 'Dropped'], sort: 'done', limit: 30 }),
     listActivity(sc, { project: project.id, limit: 40 }),
@@ -58,7 +69,13 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     projectItems(sc, project.id, { doneLimit: 30 }),
     projectLauncher(me, project.id),
     reopenPrompts(me),
+    stateOfProject(sc, project.id),
+    memberNames(me.orgId),
+    projectNeeds(sc, project.id),
   ]);
+  const projectWorkers = await projectRoster(sc, { id: project.id, name: project.name, status: project.status }, stateDoc, names, open);
+  const stateView = stateDoc ? await withNeedWaits(sc, project.id, stateOut(stateDoc, me.userId, names), names) : null;
+  const needsOpenForMe = needs.filter(n => n.status === 'open' && n.to === me.userId).length;
   const turbo = await turboInfo(me, project.id, launcher);
   const projectNotes = notes.notes.filter(n => !n.taskId && !n.archived);
   const otherNotes = notes.notes.length - projectNotes.length;
@@ -122,6 +139,21 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const overview = (
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,_1.7fr)_minmax(0,_1fr)] gap-4 lg:gap-6 items-start" data-view="overview">
       <div className="space-y-4 min-w-0">
+        <StateCard projectId={project.id} initial={stateView} />
+        {projectWorkers.workers.length > 0 && (
+          <section className="space-y-1.5" data-card="workers">
+            <h2 className={H2}>Working on it now</h2>
+            <ul className={cn(CARD, 'divide-y divide-border/60')}>
+              {projectWorkers.workers.map(w => (
+                <li key={w.id} className={cn('px-4 md:px-3 py-2 text-[15px] md:text-sm', w.depth === 1 && 'pl-8 bg-muted/20')} data-project-worker={w.id}>
+                  <span className="font-semibold">{w.person}</span> · {[w.ai, w.model].filter(Boolean).join(' · ')}
+                  <span className="text-muted-foreground text-[13px] md:text-xs"> · {w.state === 'working' ? 'working' : w.state === 'waiting' ? 'waiting on a person' : 'idle'}{w.doing ? ` · #${w.doing.ref}` : ''}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {projectWorkers.couldBeRunning && <CouldBeRunning list={[projectWorkers.couldBeRunning]} compact />}
         <ClaudeCard projectId={project.id} tabHref={tabHref('claude')} waiting={waiting} running={running} next={nextItem ? { ref: nextItem.ref, title: nextItem.title } : null} queued={queuedItems.length} hasComputers={launcher.devices.length > 0} />
         <section className="space-y-1.5" data-card="tasks">
           <div className="flex items-center gap-2 px-1 md:px-0 min-h-11 md:min-h-0 -mb-1 md:mb-0">
@@ -172,7 +204,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
       <h1 className="sr-only">{project.name}</h1>
       <ProjectTop project={project} tab={tab} />
 
-      <nav aria-label="Project sections" className="grid grid-cols-5 gap-0.5 md:inline-flex md:gap-1 rounded-2xl bg-muted/60 p-1 md:max-w-full">
+      <nav aria-label="Project sections" className="grid grid-cols-6 gap-0.5 md:inline-flex md:gap-1 rounded-2xl bg-muted/60 p-1 md:max-w-full">
         {TABS.map(t => (
           <Link
             key={t.id}
@@ -182,11 +214,12 @@ export default async function ProjectPage({ params, searchParams }: Props) {
             data-tab={t.id}
             aria-current={t.id === tab ? 'page' : undefined}
             className={cn(
-              'inline-flex items-center justify-center h-11 md:h-9 px-1 md:px-5 rounded-xl text-[14px] md:text-sm font-medium whitespace-nowrap',
+              'inline-flex items-center justify-center h-11 md:h-9 px-0.5 md:px-5 rounded-xl text-[13px] tracking-tight md:tracking-normal md:text-sm font-medium whitespace-nowrap',
               t.id === tab ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground active:bg-background/60 hover:text-foreground',
             )}
           >
             {t.label}
+            {t.id === 'needs' && needsOpenForMe > 0 && <span aria-label={`${needsOpenForMe} Needs you`} className="ml-1 w-2 h-2 rounded-full bg-amber-500" />}
             {t.id === 'claude' && waiting.length > 0 && <span aria-label={`Claude is asking ${waiting.length}`} className="ml-1 w-2 h-2 rounded-full bg-amber-500" />}
           </Link>
         ))}
@@ -215,6 +248,8 @@ export default async function ProjectPage({ params, searchParams }: Props) {
         </div>
       )}
 
+      {tab === 'needs' && <NeedsTab needs={needs} />}
+
       {tab === 'notes' && (
         <section className="space-y-2 max-w-3xl" data-view="notes">
           <div className="flex items-center justify-between">
@@ -233,6 +268,8 @@ export default async function ProjectPage({ params, searchParams }: Props) {
           )}
         </section>
       )}
+
+      {tab === 'inbox' && <InboxTab projectId={project.id} messages={(await inboxOf(sc, { project: project.id, limit: 60, markSeen: false })).messages.map(m => messageOut(m, me.userId, names))} />}
 
       {tab === 'info' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-6 items-start" data-view="info">

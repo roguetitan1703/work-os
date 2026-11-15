@@ -47,8 +47,10 @@ try {
   const browser = await launch();
   try {
     const { browserSession } = await import('../load/session.mjs');
-    const { steps } = await browserSession({ browser, team, person: team.people[5], teammate: team.people[0], wait: 4000 });
+    const { steps, log } = await browserSession({ browser, team, person: team.people[5], teammate: team.people[0], wait: 4000 });
     for (const [s, kinds] of Object.entries(steps)) over(`session :: ${s}`, 'requests', kinds.total);
+    // A step over its budget: name each request, so the extra one can be found.
+    for (const [s, kinds] of Object.entries(steps)) if (budgets.session[s] && kinds.total > budgets.session[s].requests) for (const r of log.filter(r => r.step === s)) console.log(`  ${s}: ${r.kind} ${r.method} ${r.path}${r.segment ? ' seg ' + r.segment : ''}${r.action ? ' action ' + r.action.slice(0, 12) : ''}`);
     for (const name of Object.keys(budgets.session)) check(`budget step ran: ${name}`, !!steps[name]);
 
     // 3. idle for an hour

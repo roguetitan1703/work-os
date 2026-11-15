@@ -1,24 +1,23 @@
 # Work state
 
 ## Now
-- 2026-11-14: Step back before building more. docs/PRODUCT.md (draft) says what Work OS is for, how it is really used, what is live / untried / unused, and proposes use cases A to G (Core / Keep / Freeze / Cut). Goal: Om and Claude agree the flows, write each as docs/flows/<id>.md with a test, and from then on every change names the flow it serves. Waits on Om: going through the use cases. Agent fleet (#259) is on hold until the flows are agreed (#260 cleanup is with a cloud session).
+- 2026-11-15: Steps 1–3 of PRODUCT.md section 8 (docs/flows/plan-1-3.md) are built and merged into local master (09a9227): State, Orders, start_work, presence and "for you", personal and team digests, messages, Needs, results and review, Discord Need buttons, the roster. Each slice was security-reviewed, and so was the merged whole, whose four should-fix items are fixed (d1777a3). The full e2e run passed 56 of 57 suites (budgets "load /today" 10 of 8 is flaky: passed in two of four runs). The touched suites rerun green. Not pushed: waiting on b9f11d3 going live.
 
 ## Next
-- Must-fix from the 14 Nov review (not features, safety): deleted notes restorable (done, Review › Trash); HANDOVER.md brought up to date (done); backups (waits on Om: R2 bucket, token, age key); worker editing ~/.claude.json (decide in PRODUCT.md D1).
-- 2026-11-12: b3c4fd8 is live on the box (Akash's #165 asks, calendar link, AI tools, Open in Claude Code/Desktop, Instagram reel publisher with the cutroom laptop's book-only SSH key; assignee migration had nothing to do). Next: try each #165 feature on work.delpat.in as Akash would; first real reel booked by cutroom; remove the old `assigneeId` read paths.
-- Waits on Om: install the new Caddy site (lb_try lines, so a restart is not a 502) and reload Caddy; DELPAT_OS_CLIENT_SECRET; first real turbo Start and Open in VS Code; a reboot (Ubuntu says one is required).
-0d. Chat porting between tools (Antigravity -> Claude): test Antigravity writing a handover note over MCP with Akash; else Import chat into a note (builder S). Add Resume / handover note / /export tips to the colleague guide.
-0. Om: Discord Interactions Endpoint URL = https://work.delpat.in/api/discord/interactions, then Settings › Server › Discord › Register the commands.
-Phases 0 to 5 in docs/multi-user.md, in order. The C46–C52 items below wait until Work OS runs again.
-Open work is filed as Claude items on Work OS (Claude page › Queue); this list only orders it.
-1. C46 (Om): first real dispatcher task — Claude › Setup: pick the boilerplate note, turn the dispatcher on, Give to Claude on one small task.
-2. C51 (Om): Settings › This device › Send test; report which channels arrived.
-3. C48 (Om): yes on the ~/.claude/CLAUDE.md text (draft in the item's note), then apply it; then C49 (one line per repo CLAUDE.md).
-4. C50 grammar pass; C52 small fixes and checks.
-5. C47 cloud sessions via a Routine, after C46 works.
-6. Om's answers on AKAR items C20, C22, C23 and the C7/C8 conflict (below).
+1. fca02df (steps 1-3) is live (15 Nov 17:37; checked by a stylesheet only that build has). The live database is delpat_workos (not workos, which is the old pre-cutover copy). Dry runs there: migrate-digest has nothing to do; migrate-orders applied 15 Nov with Om's OK: the "Claude Code boilerplate" note is the organization Orders. The State imports and the "waits on Om" → Needs chore need the new tools, so they run in the next fresh session on each project (start_work says "no State yet: import"). Om: install the on-box nightly dump (backup user, /etc/work-os/backup-env with MONGODB_DB=delpat_workos, the backup-local units, one hand run), then reboot.
+2. Discord, with Om signed in (built-in browser not signed in; Claude in Chrome asked): Interactions Endpoint URL https://work.delpat.in/api/discord/interactions; bot gets Send Messages on the team channel; then in Work OS Settings: Register commands, pick the team channel, Send test alert.
+3. After that deploy, one-off: scripts/migrate-orders.mjs and scripts/migrate-digest.mjs (dry run first); install the work-os-backup-local timer (nightly on-box mongodump); cutroom and Work OS import their WORK-STATE (import_state); a Sonnet chore turns the "waits on Om" lines into Needs.
+4. Use it for a week on cutroom and Work OS (step 1's done test), then the next steps of PRODUCT.md section 8.
+5. Om's hands: give the Discord bot Send Messages on the team channel; Discord Interactions URL + Register (Need buttons); R2 bucket + token + age key for off-box backups; Send test for alerts (C51); Caddy lb_try site + reload; reboot after the pm2 check; update the global CLAUDE.md lines ("No Haiku"; the WORK-STATE rule becomes start_work / save_state); #212.
+- Agreed 14 Nov: the long-running cloud dispatcher (Sonnet) also listens on the Discord bot (#267, PRODUCT.md 6.5); model routing think → Opus, do → Sonnet, chore → Haiku (6.2a); the second Claude account is kept for this work only (the dispatcher), not given to interns.
+- Older open items (#165 features to try with Akash, DELPAT_OS_CLIENT_SECRET, first real turbo Start / Open in VS Code, chat porting from Antigravity, C46-C52, AKAR C20/C22/C23 and C7/C8) are folded into the PRODUCT.md steps; still open in Work OS.
 
 ## Later
+- e2e budgets: "load /today" went to 10 requests of 8 in two of four runs on the steps 1-3 branch and passed otherwise; the suite now prints each request of a step over budget — waits on it failing again (then read the named requests).
+- e2e entry-points is not in run.sh's suite list (run directly it exits 0); a builder saw stop_server leave the plain-mode node alive on Windows so a following discord-mode suite hit the plain server — not seen in the full run; waits on it happening again.
+- App-only Need answers are hidden from project readers other than the addressee and the asker's person (default chosen 15 Nov) — waits on Om wanting them visible to all readers.
+- Discord Need press: defer the interaction response when answering is slow (Discord allows 3 s) — waits on seeing a real slow answer.
+- Buttons on the digest's "Needs you" lines (today only the per-Need DM has buttons) — waits on Om wanting answers from the digest.
 - Mail tools (branch mail-tools, not merged): MCP mail_* tools forward to Mailloom with each member's own key (Settings › Connections › Mail). Needs MAILLOOM_AGENT_URL (+ optional MAILLOOM_WEB_URL, MAIL_KEY_SECRET) on the box and this server's IP in Mailloom AGENT_ALLOWED_IPS — waits on Om's review and merge; auth/money-adjacent, so a review subagent before merge.
 - Mail: Mailloom has no deep link to one message, so a mail task links to Mailloom's home plus the Message-ID in its description — waits on Mailloom adding a message URL.
 - e2e tenancy "B search: finds shared work" failed once in the full run (14 Nov) and passed on the rerun — waits on it happening again.
@@ -177,3 +176,5 @@ Open work is filed as Claude items on Work OS (Claude page › Queue); this list
 - Sharing with chosen people: the picker and badges were checked by browser tests only, not by eye on phone and desktop — waits on Om or Akash using it.
 - Turbo: a repo the user clones by hand is offered for Link only after the next 15-min scan (no scan-now push event) — waits on Om or Akash wanting it faster.
 - Calendar: two-way Google Calendar sync per person (Sign in with Google, write events) is a separate later ask — waits on a Google Cloud OAuth client from Om. The one-way ICS link (docs/calendar.md) is built; not yet tried in a real Google/Outlook/Apple calendar, and Google refreshes subscribed calendars only every ~12-24 h — waits on Om/Akash adding it.
+- Slice 1 leftovers: run the budgets suite (an extra presence read per MCP call may exceed the mcp ops budgets); the old boilerplate note is not auto-converted to org Orders; items others create during a write call are skipped by the forYou cursor (small race); the Orders flag UI is a basic select on the note page; person and org Orders layers have no UI test beyond the leak-audit checks. Waits on: nothing (slice 2).
+- Slice 3 leftovers: an agent-word message becoming a Need waits on slice 4 (builder-a leaves the function); the Inbox tab does not mark messages seen on view; no unread badge on the Inbox tab (budget); messages have no trash or delete; a `message_status` seen from the app is not shown to the sender live (no push topic for the tab beyond 'projects'); MCP restore of an Orders note has no path (checked: none exists).

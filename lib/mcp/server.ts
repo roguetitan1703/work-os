@@ -9,6 +9,8 @@ import { getProjectTree } from '../data/tree';
 import * as notesData from '../data/notes';
 import { authorLabel, isMine, taskAuthors } from '../data/authors';
 import * as items from '../data/claude-items';
+import * as needsData from '../data/needs';
+import * as results from '../data/results';
 import { InputError, NotFoundError } from '../data/errors';
 import { claudeCodeInstructions, instructions as instructionsFor, TOOLS, type InstructionsFor, type ToolName } from './docs';
 import { beforeTool, callerScope, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
@@ -21,8 +23,16 @@ import * as mail from '../mail/tools';
 import { MailError } from '../mail/client';
 import { randomUUID } from 'node:crypto';
 import { describeActivity } from '../activity-text';
+import * as stateData from '../data/states';
+import * as messageData from '../data/messages';
+import { ordersFor } from '../data/orders';
+import { othersPresent, presentRow, registerPresence, resolveMachine, setDoing, type Ident } from '../data/presence';
+import { clientWord, taskInfo } from '../data/roster';
+import { holderOf, machineKey, MAX_WAIT_S, POLL_MS, prepareSlot, releaseSlot, tryAcquire } from '../data/slots';
+import { forYouAfter, forYouBefore } from './for-you';
+import { requestContext, runWithRequestContext, sessionHeader } from '../request-context';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
-import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RecurrenceSchema, StatusSchema, VisibilitySchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
+import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RATINGS, RESULT_KINDS, RecurrenceSchema, StatusSchema, VisibilitySchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
 
 /**
  * caller: who is calling (a Claude chat key → agent "claude"; a Claude Code key → agent "claude-code"; lib/api-keys.ts).
@@ -147,12 +157,16 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     ...(d.subtasks[n].due ? { due: d.subtasks[n].due } : {}),
     ...(d.subtasks[n].assigneeIds.length ? { assignees: d.subtasks[n].assigneeIds.map(who) } : {}),
   }));
+  const handInBy = t.handIn ? mark('hand-in', t.handIn.by, `${t.handIn.changed}${t.handIn.checked}${t.handIn.left.join('')}`) : undefined;
   const noteBy = note ? mark('note', [note.createdBy ?? note.updatedBy, note.updatedBy], `${note.title}${note.firstLine}`) : undefined;
   const activity = d.activity.map(a => {
     const w = a.type === 'comment' ? mark(`comment ${a.id}`, a.actor, '-') : label(a.actor);
     return { id: a.id, at: a.at, by: by(a.actor), type: a.type, text: describeActivity(a), ...(w ? { writtenBy: w } : {}) };
   });
+  // A line the owner sent the task back with comes first: do it before anything else (it is the owner's, labelled when it is not the caller's).
+  const sentBack = t.sentBack ? { line: t.sentBack.line, by: who(t.sentBack.by), at: t.sentBack.at, ...(t.sentBack.by !== s.userId ? { writtenBy: who(t.sentBack.by) } : {}) } : null;
   return {
+    ...(sentBack ? { sentBack } : {}),
     textRule: textRule(),
     ...(fromOthers.length ? { fromOthers } : {}),
     ref: t.ref,
@@ -186,6 +200,9 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     ...(parent ? { parent } : {}),
     ...(subtasks.length ? { subtasks, subtaskProgress: t.subtaskCount ? `${t.subtaskCount.done} of ${t.subtaskCount.total} done (progress is their average)` : undefined } : {}),
     recurrence: t.recurrence,
+    resultKind: t.resultKind ?? null,
+    ...(t.handIn ? { handIn: { changed: t.handIn.changed, checked: t.handIn.checked, rating: t.handIn.rating, where: t.handIn.where, left: t.handIn.left, at: t.handIn.at, by: by(t.handIn.by), ...(handInBy ? { writtenBy: handInBy } : {}) } } : {}),
+    ...(t.review ? { review: t.review } : {}),
     archived: t.archived,
     createdAt: t.createdAt,
     visibility: t.visibility,
@@ -227,6 +244,7 @@ async function brief(t: Task, ctx: Ctx) {
 
 // snake_case tool args → service input
 type FieldArgs = {
+  result_kind?: (typeof RESULT_KINDS)[number] | null;
   title?: string;
   description?: string;
   project?: string | null;
@@ -269,6 +287,7 @@ function toPatch(a: FieldArgs): TaskPatch {
   if (a.assignees !== undefined) p.assignees = a.assignees;
   else if (a.assignee !== undefined) p.assignee = a.assignee;
   if (a.parent !== undefined) p.parent = a.parent;
+  if (a.result_kind !== undefined) p.resultKind = a.result_kind;
   return p;
 }
 
@@ -288,6 +307,7 @@ const fieldShape = {
   recurrence: RecurrenceSchema.nullable().optional().describe('Repeat after completion: {freq: daily|weekdays|weekly|monthly, interval}'),
   assignees: z.array(z.string().max(200)).max(20).nullable().optional().describe("Who does it, the whole list: 'me', members' emails, names or user ids; [] or null clears. Only on a task in a shared project (a private task can't be assigned to anyone else). Each newly added person is notified. To add one person, send the current list plus them"),
   assignee: z.string().max(200).nullable().optional().describe("One assignee (same as assignees with one entry; replaces the list); null clears. Ignored when assignees is given"),
+  result_kind: z.enum(RESULT_KINDS).nullable().optional().describe('What sort of result: code, data, client (an agent closing one goes to review), check or report (finish by themselves). Set by whoever plans the task; an agent cannot loosen code, data or client'),
   parent: z
     .union([z.number().int(), z.string()])
     .nullable()
@@ -357,6 +377,14 @@ export function createMcpServer(ctx: Ctx): McpServer {
   const server = new McpServer({ name: 'work-os', version: '1.0.0' }, { instructions });
   // Title/description come from docs.ts so the /connect page shows exactly what Claude sees.
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
+  const sessionArg = z.string().max(64).optional().describe("The session id start_work returned (letters, digits and dashes); lets Work OS tell your answers apart from other sessions' of the same key");
+  /** Tools that take an optional `session` argument (the session id start_work returned); the others read the X-Work-OS-Session header only (update_claude_items has its own `session`: a branch name). */
+  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'send_message', 'inbox', 'message_status', 'reply', 'get_task', 'log_progress', 'complete_task', 'set_doing', 'slot', 'hand_in']);
+  /** Who is calling, for presence and the "for you" line (lib/mcp/for-you.ts). */
+  const identOf = (name: ToolName, a: unknown[]): Ident => {
+    const arg = SESSION_ARG.has(name) && a[0] && typeof a[0] === 'object' ? (a[0] as { session?: unknown }).session : undefined;
+    return { userId: caller.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sessionHeader(typeof arg === 'string' ? arg : null) ?? requestContext().sid };
+  };
   const tool = ((name: ToolName, config: object, cb: (...a: unknown[]) => unknown) =>
     server.registerTool(
       name,
@@ -369,7 +397,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
           console.error('[mcp policy]', err);
           return fail('Internal error');
         }
-        return cb(...a);
+        // The "for you" line: who is present, what is new for them (before), and the line added to the answer (after).
+        const ident = identOf(name, a);
+        const pending = await forYouBefore(s, ident, name);
+        // What this call creates is stamped with its session (else its key), so the line does not name it back to the session.
+        const res = await runWithRequestContext({ ...requestContext(), src: `${caller.userId}:${ident.session ?? ident.keyId}` }, () => cb(...a));
+        return forYouAfter(pending, name, TOOLS[name].writes, res);
       }) as never,
     )) as unknown as typeof server.registerTool;
 
@@ -476,7 +509,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const watch = await watchTasks(caller, [watchTarget('update_task', a)!]);
       const t = await tasks.updateTask(s, task, toPatch(fields), ACTOR, { note });
       await notifyChanges(watch);
-      return { updated: await brief(t, ctx) };
+      return { updated: await brief(t, ctx), ...(await reviewNote(t, fields.status === 'Done')) };
     }),
   );
 
@@ -496,9 +529,17 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const watch = await watchTasks(caller, [watchTarget('log_progress', a)!]);
       const t = await tasks.logProgress(s, a.task, a.progress, a.note, ACTOR, a.status, a.blocked_reason);
       await notifyChanges(watch);
-      return { updated: await brief(t, ctx) };
+      return { updated: await brief(t, ctx), ...(await reviewNote(t, a.status === 'Done')) };
     }),
   );
+
+  /** When an agent asked for Done and the task went to review instead: say so, with the Need, so it does not guess. */
+  const reviewNote = async (t: Task, askedDone: boolean) => {
+    if (!askedDone || t.status === 'Done') return {};
+    const n = (await needsData.listNeeds(s, { project: t.projectId ?? undefined, status: ['open'], limit: 50 })).find(x => x.taskId === t.id && x.kind === 'review');
+    if (!n) return {};
+    return { notClosed: true, review: await needOut(n), message: `Not closed: this is ${t.resultKind ?? 'report'} work, so #${t.ref} went to its owner as review Need #${n.ref} (Accept, Send back, or Accept and file what is left). The task stays open until they answer. Keep working only on what they send back.` };
+  };
 
   tool(
     'complete_task',
@@ -510,6 +551,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const watch = await watchTasks(caller, [watchTarget('complete_task', a)!]);
       const t = await tasks.completeTask(s, a.task, a.note, ACTOR);
       await notifyChanges(watch);
+      if (t.status !== 'Done') return { completed: false, task: await brief(t, ctx), ...(await reviewNote(t, true)) };
       const next = t.nextRef ? await tasks.getTask(s, t.nextRef) : null;
       // A parent's open subtasks stay open (docs/subtasks.md): say which, so Claude can close the finished ones.
       const open = t.subtaskCount ? await tasks.listSubtasks(s, t.id, { open: true }) : [];
@@ -518,6 +560,29 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ...(next ? { nextOccurrence: await brief(next, ctx) } : {}),
         ...(open.length ? { openSubtasks: await Promise.all(open.map(k => brief(k, ctx))), note: `${open.length} subtask${open.length === 1 ? ' is' : 's are'} still open: they were left as they are. Complete or drop them if they are finished.` } : {}),
       };
+    }),
+  );
+
+  tool(
+    'hand_in',
+    {
+      inputSchema: {
+        task: taskKey,
+        changed: z.string().min(1).max(2000).describe('What changed, in plain words'),
+        checked: z.string().max(1000).optional().describe('How you checked it (tests run, pages opened, who tried it)'),
+        rating: z.enum(RATINGS).optional().describe("Your honest verdict: works, awkward or doesn't work"),
+        where: z.array(z.object({ url: z.string().min(1).max(500), label: z.string().max(100).optional() })).max(10).optional().describe('Links: the PR, a preview, a note, the Delpat OS page. Links only, no files'),
+        left: z.array(z.string().min(1).max(300)).max(20).optional().describe('What is still open, one line each: the owner can file them as tasks'),
+        kind: z.enum(RESULT_KINDS).optional().describe('code, data, client (reviewed by the owner), check or report (closes by itself)'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    handler(async a => {
+      const watch = await watchTasks(caller, [watchTarget('hand_in', a)!]);
+      const r = await results.handIn(s, a.task, { changed: a.changed, checked: a.checked, rating: a.rating, where: a.where, left: a.left, kind: a.kind }, ACTOR);
+      await notifyChanges(watch);
+      return { task: await brief(r.task, ctx), closed: r.closed, ...(r.closed ? {} : await reviewNote(r.task, true)) };
     }),
   );
 
@@ -839,6 +904,314 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ...(t.closedOmitted ? { closedOmitted: t.closedOmitted } : {}),
       };
     }),
+  );
+
+  // ── Starting work and State (docs/flows/step-1.md) ─────────────────────────
+
+  const NO_STATE = 'no State yet: import your WORK-STATE.md (call import_state with the file text)';
+
+  tool(
+    'start_work',
+    {
+      inputSchema: {
+        project: z.string().optional().describe('Project name or id. Omit it and pass remote (+ subdir, branch) or path to find the project for a repo'),
+        remote: z.string().optional().describe('Git remote of the repo you are in (any form, e.g. the output of git remote get-url origin)'),
+        subdir: z.string().optional().describe('Your working folder relative to the repo root (git rev-parse --show-prefix)'),
+        branch: z.string().optional().describe('Current git branch'),
+        path: z.string().optional().describe('Absolute path of your working folder'),
+        machine: z.string().max(40).optional().describe('A short name for this computer'),
+        label: z.string().max(120).optional().describe('Who you are, e.g. "cutroom prime, Opus, main"'),
+        model: z.string().max(60).optional().describe('The model you run on, e.g. "Opus 4.7" (the roster shows it)'),
+        account: z.string().max(80).optional().describe('A label for the account you run under, e.g. "om-max" (the roster shows it; never a key or email)'),
+        parent: z.string().max(64).optional().describe('For a builder: the session id of the orchestrator that started you (the roster shows you under it)'),
+        slot: z.string().max(20).optional().describe('For a builder: your slot name, e.g. "A", "B" or "S"'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    handler(async a => {
+      let key = a.project?.trim();
+      let matchedBy: { how: string; location: unknown } | undefined;
+      if (!key) {
+        if (!a.remote && !a.path) throw new InputError('Give project (name or id), or remote (+ subdir, branch) or path to find it from your repo');
+        const m = await projects.findProjectByCode(s, { remote: a.remote, path: a.path, subdir: a.subdir, branch: a.branch });
+        if (!m.matched) {
+          return {
+            unmatched: true,
+            candidates: m.candidates,
+            hint: 'No project has this repo as a code location. Ask the user which project this is, then call update_project with code: [{ remote, subdir?, branch? }] (or path) and call start_work again.',
+          };
+        }
+        key = m.project.id;
+        matchedBy = { how: m.how, location: m.location };
+      }
+      const { project, state } = await stateData.getState(s, key);
+      const names = await memberNames(s.orgId);
+      const label = await labeller(ctx);
+      const by = await byOf(ctx);
+      // The session: the one named (argument or header), else a new one.
+      const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? randomUUID();
+      if (a.account && (/@|^\s*(sk-|wkr_|wos_|ghp_|xox)/i.test(a.account) || /[A-Za-z0-9_-]{32,}/.test(a.account))) throw new InputError('account is a short label such as "om-max": not an email, a key or a token');
+      const mach = await resolveMachine(s, a.machine);
+      const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, label: a.label, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch });
+      // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
+      const layerName = { org: 'organisation', project: 'project', person: 'person' } as const;
+      const orders = (await ordersFor(s, project)).map(o => {
+        // Text that its layer's holder (who set the flag) did not write, and project rules the reader did not write, are information.
+        const odd = (a: unknown) => {
+          const u = (a as { userId?: string } | null)?.userId;
+          return o.ordersBy && u !== o.ordersBy ? (u && names[u]) || 'another member' : undefined;
+        };
+        const ws = [...new Set([...(o.layer === 'project' ? [o.createdBy, o.updatedBy].map(label) : []), odd(o.createdBy), odd(o.updatedBy)].filter((x): x is string => !!x))];
+        return { layer: layerName[o.layer], title: o.title, by: by(o.updatedBy), ...(ws.length ? { writtenBy: ws.join('; ') } : {}), text: o.text, ...(o.truncated ? { truncated: 'read the note for the rest', noteId: o.noteId } : {}) };
+      });
+      // 3. The inbox: unread messages first (they become seen: the sender can tell they arrived).
+      const inb = await messageData.inbox(s, { project: project._id, limit: 15, src: `${s.userId}:${sid}` });
+      // 4. The project's open tasks, in brief.
+      const open = await tasks.listTasks(s, { project: project._id, open: true, archived: 'exclude', sort: 'priority' });
+      const pn = await projects.projectNameMap(s);
+      const who = await whoOf(ctx);
+      // 2 (Needs): answers to what this caller asked come first, then what is open for them. Ids, asks and options; answer text is the person's own.
+      const answered = await needsData.answeredNeedsSince(s, { session: sid, keyId: caller.keyId, projectId: project._id, unbriefed: true }, new Date(Date.now() - 14 * 86_400_000));
+      const waiting = await needsData.needsForBrief(s, project._id);
+      await needsData.markBriefed(s, answered.map(n => n.id));
+      const needsBlock = {
+        answered: await Promise.all(answered.map(needOut)),
+        forYou: await Promise.all(waiting.map(needOut)),
+      };
+      // 5. Who else was here in the last 30 minutes.
+      const othersRows = await othersPresent(s, project._id, row._id);
+      const doingInfo = await taskInfo(s, othersRows.flatMap(p => (p.doing ? [p.doing.taskId] : [])));
+      const others = othersRows.map(p => ({
+        ai: p.userId === s.userId ? p.ai : clientWord(p.agent),
+        for: p.userId === s.userId ? 'me' : names[p.userId] || 'another member',
+        ...(p.label ? { label: p.label } : {}),
+        ...(p.machine ? { machine: p.machineName ?? p.machine } : {}),
+        ...(p.model ? { model: p.model } : {}),
+        ...(p.doing && doingInfo.get(p.doing.taskId) ? { doing: `#${doingInfo.get(p.doing.taskId)!.ref}` } : {}),
+        minutesAgo: Math.round((Date.now() - p.lastSeen.getTime()) / 60_000),
+        ...(p.userId === s.userId ? {} : { writtenBy: names[p.userId] || 'another member' }),
+      }));
+      return {
+        project: { id: project._id, name: project.name, url: `${ctx.baseUrl}/projects/${project._id}`, ...(matchedBy ? { matchedBy } : {}) },
+        session: sid,
+        textRule: textRule(),
+        sessionNote: 'Pass this session id as session on save_state and get_state (and as the X-Work-OS-Session header on every call, if your client can).',
+        orders: orders.length ? orders : 'no Orders set',
+        ...(needsBlock.answered.length || needsBlock.forYou.length ? { needs: { ...(needsBlock.answered.length ? { answeredForYou: needsBlock.answered } : {}), ...(needsBlock.forYou.length ? { openForYou: needsBlock.forYou } : {}) } } : {}),
+        state: state ? await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names) : NO_STATE,
+        inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names, { cut: 500 })) } : 'no messages',
+        openTasks: { total: open.length, tasks: open.slice(0, 25).map(t => briefTask(t, pn, { baseUrl: ctx.baseUrl, who })), ...(open.length > 25 ? { more: `${open.length - 25} more: list_tasks project:"${project.name}"` } : {}) },
+        alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
+        stateVersion: state?.version ?? 0,
+      };
+    }),
+  );
+
+  tool(
+    'set_doing',
+    {
+      inputSchema: {
+        task: taskKey.optional().describe('The task you are working on now (ref or id). Omit it to say you are on none'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    handler(async a => {
+      const t = a.task === undefined ? null : await tasks.getTask(s, a.task);
+      if (a.task !== undefined && !t) throw new NotFoundError('Task not found');
+      const ident = identOf('set_doing', [a]);
+      const here = await presentRow(s, ident);
+      if (!here) throw new InputError('You are not registered as present: call start_work first (and pass its session id)');
+      // The roster is read by everyone who can read the project: it may only name a task of that project, and it stores only the id.
+      if (t && t.projectId !== here.projectId) throw new InputError('That task is not on the project you started work on: call start_work on its project first');
+      await setDoing(s, ident, t ? t.id : null);
+      return { doing: t ? { ref: t.ref, title: t.title } : null, note: 'The roster shows this task as yours while you keep working; if you stop calling Work OS for 30 minutes it shows as unheld.' };
+    }),
+  );
+
+  tool(
+    'slot',
+    {
+      inputSchema: {
+        machine: z.string().max(40).optional().describe('This computer, as you named it in start_work (default: the machine of your present session)'),
+        kind: z.literal('heavy').optional().describe('Only "heavy" exists: builds, test runs, browsers'),
+        action: z.enum(['acquire', 'release']),
+        wait_seconds: z.number().int().min(0).max(MAX_WAIT_S).optional().describe('On acquire: wait up to this long for a free slot (default 0: answer at once with retryAfterSeconds)'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    handler(async a => {
+      const ident = identOf('slot', [a]);
+      let name = a.machine?.trim();
+      if (!name) name = (await presentRow(s, ident))?.machine || '';
+      if (!name) throw new InputError('Say which computer: pass machine (as in start_work), or call start_work first');
+      const key = machineKey(s.userId, await resolveMachine(s, name));
+      const holder = holderOf(ident);
+      if (a.action === 'release') return await releaseSlot(s, key, holder);
+      const until = Date.now() + (a.wait_seconds ?? 0) * 1000;
+      const cap = await prepareSlot(s, key); // the document and the expired-lease pull: once, not on every poll
+      for (;;) {
+        const r = await tryAcquire(s, key, holder, cap);
+        if (r.acquired || Date.now() >= until) return { ...r, leaseMinutes: 30, note: r.acquired ? 'Release it when your build or test run ends; the lease ends by itself in 30 minutes unless you ask again.' : 'Full: wait and ask again, or until a holder releases.' };
+        await new Promise(res => setTimeout(res, Math.min(POLL_MS, Math.max(50, until - Date.now()))));
+      }
+    }),
+  );
+
+  tool(
+    'get_state',
+    { inputSchema: { project: z.string().describe('Project name or id'), session: sessionArg }, annotations: { readOnlyHint: true } },
+    handler(async a => {
+      const { project, state } = await stateData.getState(s, a.project);
+      if (!state) return { project: project.name, state: NO_STATE, version: 0 };
+      const names = await memberNames(s.orgId);
+      return { textRule: textRule(), project: project.name, version: state.version, state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), markdown: stateData.stateMarkdown(state, { projectName: project.name, url: `${ctx.baseUrl}/projects/${project._id}`, reader: s.userId, names }) };
+    }),
+  );
+
+  tool(
+    'save_state',
+    {
+      inputSchema: {
+        project: z.string().describe('Project name or id'),
+        ops: z.array(stateData.StateOpSchema).min(1).max(30).describe('Changes, applied in order'),
+        base_version: z.number().int().min(0).optional().describe('The State version you read. Needed only with set_now, move_next or done_next; stale = nothing written and the current State comes back'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => {
+      const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller) === 'chat' ? 'chat' : 'code' });
+      const names = await memberNames(s.orgId);
+      if (r.conflict) {
+        return {
+          saved: false,
+          conflict: true,
+          message: `base_version was stale: nothing was written. The State is at version ${r.state?.version ?? 0}: merge your change into it and call save_state again with that base_version.`,
+          textRule: textRule(),
+          version: r.state?.version ?? 0,
+          state: r.state ? stateData.stateOut(r.state, s.userId, names) : NO_STATE,
+        };
+      }
+      return {
+        saved: true,
+        version: r.state.version,
+        ...(r.done.length ? { done: r.done } : {}),
+        ...(r.promoted.length ? { promotedToTasks: r.promoted.map(p => `#${p.ref} ${p.title}`) } : {}),
+        textRule: textRule(),
+        state: stateData.stateOut(r.state, s.userId, names),
+        repoCopy: 'Write this to WORK-STATE.md in the repo and commit it with your work:',
+        markdown: stateData.stateMarkdown(r.state, { projectName: r.project.name, url: `${ctx.baseUrl}/projects/${r.project._id}`, reader: s.userId, names }),
+      };
+    }),
+  );
+
+  tool(
+    'import_state',
+    {
+      inputSchema: {
+        project: z.string().describe('Project name or id'),
+        markdown: z.string().min(1).max(200_000).describe("The text of the repo's WORK-STATE.md"),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => {
+      const r = await stateData.importState(s, a.project, a.markdown, { actor: ACTOR });
+      const names = await memberNames(s.orgId);
+      return {
+        imported: { now: r.imported.now, next: r.imported.next, later: r.imported.later },
+        version: r.state.version,
+        textRule: textRule(),
+        state: stateData.stateOut(r.state, s.userId, names),
+        repoCopy: 'WORK-STATE.md now has a copy in Work OS. From here save_state is the way to change it; write this to the file and commit it with your work:',
+        markdown: stateData.stateMarkdown(r.state, { projectName: r.project.name, url: `${ctx.baseUrl}/projects/${r.project._id}`, reader: s.userId, names }),
+      };
+    }),
+  );
+
+  // ── Messages (docs/flows/step-1.md section 4) ──
+  // `word` is set here from how the call came in (OAuth, the claude.ai connector: chat; any static key: agent) and is not an argument.
+  const WORD = messageData.wordOf(caller);
+  /** Who is sending: the client name, and the label of the session's presence row when it has one. */
+  const fromOf = async (name: ToolName, a: { session?: string }): Promise<messageData.From> => {
+    const ident = identOf(name, [a]);
+    const row = await presentRow(s, ident).catch(() => null);
+    return { word: WORD, ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: `${s.userId}:${ident.session ?? ident.keyId}` };
+  };
+  const sentOut = async (r: Awaited<ReturnType<typeof messageData.sendMessage>>) => ({
+    sent: true,
+    id: r.message._id,
+    thread: r.message.thread,
+    project: r.project.name,
+    word: r.message.from.word,
+    target: r.target,
+  });
+
+  tool(
+    'send_message',
+    {
+      inputSchema: {
+        project: z.string().describe('Project name or id'),
+        kind: z.enum(messageData.KINDS).describe('decision, request, question or fyi'),
+        body: z.string().min(1).max(messageData.MSG_LIMITS.body),
+        refs: messageData.RefsSchema.optional().describe('{tasks: [task numbers], commits: [...], files: [...]}'),
+        to_session: z.string().max(120).optional().describe('Who should act: a session label or client name (a hint: everyone who reads the project can read the message)'),
+        sender_commit: z.string().max(80).optional(),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => sentOut(await messageData.sendMessage(s, a.project, { kind: a.kind, body: a.body, refs: a.refs, to_session: a.to_session, sender_commit: a.sender_commit }, await fromOf('send_message', a)))),
+  );
+
+  tool(
+    'inbox',
+    {
+      inputSchema: {
+        project: z.string().optional().describe('Project name or id; leave out for every project you can read'),
+        status: z.enum(['unread', 'seen', 'applied', 'rejected']).optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => {
+      const r = await messageData.inbox(s, { project: a.project, status: a.status, limit: a.limit, src: requestContext().src });
+      const names = await memberNames(s.orgId);
+      return { textRule: textRule(), ...(r.project ? { project: r.project.name } : {}), unread: r.unread, messages: r.messages.map(m => messageData.messageOut(m, s.userId, names)) };
+    }),
+  );
+
+  tool(
+    'message_status',
+    {
+      inputSchema: {
+        id: z.string().min(1).max(40).describe('Message id (m_…)'),
+        status: z.enum(messageData.STATUSES).describe('seen, applied or rejected'),
+        note: z.string().max(500).optional().describe('Why (shown to the sender)'),
+        commit: z.string().max(80).optional().describe('The commit that did it'),
+        make_task: z.boolean().optional().describe('A request only: make it a task of the project (marks it applied)'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => {
+      const r = await messageData.setStatus(s, a.id, a.status, { note: a.note, commit: a.commit, actor: ACTOR, makeTask: a.make_task });
+      const names = await memberNames(s.orgId);
+      return { message: messageData.messageOut(r.message, s.userId, names), ...(r.decision ? { addedToDecisions: true } : {}), ...(r.task ? { task: `#${r.task.ref} ${r.task.title}` } : {}) };
+    }),
+  );
+
+  tool(
+    'reply',
+    {
+      inputSchema: { id: z.string().min(1).max(40).describe('Message id (m_…)'), body: z.string().min(1).max(messageData.MSG_LIMITS.body), session: sessionArg },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => sentOut(await messageData.reply(s, a.id, a.body, await fromOf('reply', a)))),
   );
 
   const itemKey = z.union([z.number().int(), z.string()]).describe('Item ref: "C12" or 12');
@@ -1257,6 +1630,116 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const r = await mail.messageToTask(mailCtx(), a, { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note });
       return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: mail.markUntrusted(r.message) };
+    }),
+  );
+
+  // ── Needs (slice 4): ask one person one thing. There is deliberately NO tool that answers one (docs/flows/plan-1-3.md). ──
+  const needOut = async (n: needsData.Need) => {
+    const people = await memberNames(s.orgId);
+    const label = await labeller(ctx);
+    const who = (id: string) => (id === s.userId ? 'me' : people[id] || 'a former member');
+    const names = await projects.projectNameMap(s);
+    const askedBy = label(n.from.actor);
+    const answeredBy = n.answer ? (n.answer.by === s.userId ? undefined : authorLabel({ kind: 'user', userId: n.answer.by }, people)) : undefined;
+    return {
+      id: n.id,
+      ref: n.ref,
+      url: `${ctx.baseUrl}/today#need-${n.ref}`,
+      project: names.get(n.projectId) ?? n.projectId,
+      task: n.taskRef ? `#${n.taskRef}` : null,
+      to: who(n.to),
+      kind: n.kind,
+      status: n.status,
+      ask: n.ask,
+      ...(askedBy ? { writtenBy: askedBy } : {}),
+      ...(n.example ? { example: n.example } : {}),
+      options: n.options,
+      appOnly: n.appOnly,
+      word: n.from.word,
+      ...(n.from.label ? { session: n.from.label } : {}),
+      createdAt: n.createdAt,
+      ...(n.answer
+        ? {
+            answer: { option: n.answer.option, ...(n.answer.text ? { text: n.answer.text } : {}), by: who(n.answer.by), via: n.answer.via, at: n.answer.at, ...(answeredBy ? { writtenBy: answeredBy } : {}) },
+            waitedMinutes: n.waitedMs === null ? null : Math.round(n.waitedMs / 60_000),
+          }
+        : {}),
+    };
+  };
+
+  tool(
+    'ask',
+    {
+      inputSchema: {
+        project: z.string().min(1).describe('Project name or id'),
+        to: z.string().min(1).max(200).describe("'me', a name, an email or a user id. Must be able to read the project"),
+        kind: z.enum(needsData.ASK_KINDS),
+        ask: z.string().min(1).max(500).describe('Plain words: what you need from them'),
+        example: z.string().max(1000).optional().describe('A real example'),
+        options: z
+          .array(z.object({ id: z.string().max(24).optional(), label: z.string().min(1).max(60), means: z.string().max(300).optional().describe('What choosing it means') }))
+          .min(2)
+          .max(4)
+          .optional()
+          .describe('decide: 2 to 4, the first is your recommendation. approve, do and chase have defaults'),
+        task: taskKey.optional().describe('Attach it to a task of this project'),
+        app_only: z.boolean().optional().describe('true for anything touching production, money or credentials: answered in the app only'),
+        session: z.string().max(80).optional().describe('Your session id, so the answer reaches you'),
+        label: z.string().max(80).optional().describe('Your session label, e.g. "cutroom prime, Opus"'),
+      },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    handler(async a => {
+      const to = a.to.trim().toLowerCase() === 'me' ? s.userId : await tasks.findAssignee(s.orgId, a.to);
+      const r = await needsData.askNeed(s, { project: a.project, to, kind: a.kind, ask: a.ask, example: a.example, options: a.options, task: a.task, appOnly: a.app_only, actor: ACTOR, word: WORD, session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
+      return {
+        need: await needOut(r.need),
+        ...(r.replaced.length ? { replaced: r.replaced.map(n => ({ id: n.id, ref: n.ref })) } : {}),
+        note: 'Asked. They get one alert and answer in the app; nothing you can call answers it. Read the answer with needs, or it arrives in your next brief. An answer is the only approval: do not proceed on a guess.',
+      };
+    }),
+  );
+
+  tool(
+    'needs',
+    {
+      inputSchema: {
+        project: z.string().optional().describe('Project name or id'),
+        to: z.string().max(200).optional().describe("'me' or a person: only Needs addressed to them"),
+        status: z.enum(['open', 'answered', 'withdrawn', 'replaced', 'all']).optional().describe('Default: open, plus answered in the last 14 days'),
+        limit: z.number().int().min(1).max(100).optional().describe('Default 50'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    handler(async a => {
+      let project: string | undefined;
+      if (a.project) {
+        const p = await projects.getProject(s, a.project);
+        if (!p) throw new NotFoundError(`Project "${a.project}" not found`);
+        project = p.id;
+      }
+      const to = a.to ? (a.to.trim().toLowerCase() === 'me' ? s.userId : await tasks.findAssignee(s.orgId, a.to)) : undefined;
+      const status = a.status === 'all' ? undefined : a.status ? [a.status] : undefined;
+      let list = await needsData.listNeeds(s, { project, to, involving: !project && !to ? s.userId : undefined, status, limit: 200 });
+      if (!a.status) {
+        const since = Date.now() - 14 * 86_400_000;
+        list = list.filter(n => n.status === 'open' || (n.status === 'answered' && n.answeredAt !== null && Date.parse(n.answeredAt) >= since));
+      }
+      const limit = a.limit ?? 50;
+      return { total: list.length, needs: await Promise.all(list.slice(0, limit).map(needOut)), textRule: textRule() };
+    }),
+  );
+
+  tool(
+    'withdraw_need',
+    {
+      inputSchema: { id: z.union([z.number().int(), z.string()]).describe('Need number (7 or "#7") or id'), session: sessionArg },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    handler(async a => {
+      const n = await needsData.findNeed(s, a.id);
+      if (!n) throw new NotFoundError('That Need does not exist, or you did not ask it.');
+      return { need: await needOut(await needsData.withdrawNeed(s, n.id, { word: WORD, session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId })) };
     }),
   );
 

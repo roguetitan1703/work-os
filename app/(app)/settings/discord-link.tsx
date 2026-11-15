@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { CopyBox } from '@/components/copy-box';
-import { discordLinkCodeAction, saveDiscordServerAction, unlinkDiscordAction } from './profile-actions';
+import { discordLinkCodeAction, saveDiscordServerAction, saveTeamChannelAction, unlinkDiscordAction } from './profile-actions';
 
 const btn = 'h-11 md:h-9 px-4 rounded-full text-sm font-semibold border border-border disabled:opacity-50';
 
@@ -97,6 +97,40 @@ export function DiscordServerForm({ guildId }: { guildId: string | null }) {
         className="h-11 md:h-9 w-56 rounded-md border border-border bg-background px-3 text-sm"
       />
       <button type="submit" className={btn} disabled={pending || value.trim() === (guildId ?? '')}>
+        Save
+      </button>
+    </form>
+  );
+}
+
+/** The Discord channel that gets the team digest each morning (empty: no team digest). Owner or operator. */
+export function TeamChannelForm({ channelId }: { channelId: string | null }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [value, setValue] = useState(channelId ?? '');
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2"
+      data-team-channel
+      onSubmit={e => {
+        e.preventDefault();
+        start(async () => {
+          const r = await saveTeamChannelAction(value);
+          if (!r.ok) return void toast.error(r.error);
+          toast.success(value.trim() ? 'Team digest channel saved' : 'Team digest turned off');
+          router.refresh();
+        });
+      }}
+    >
+      <input
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        inputMode="numeric"
+        placeholder="Channel ID"
+        aria-label="Discord channel ID for the team digest"
+        className="h-11 md:h-9 w-56 rounded-md border border-border bg-background px-3 text-sm"
+      />
+      <button type="submit" className={btn} disabled={pending || value.trim() === (channelId ?? '')}>
         Save
       </button>
     </form>
