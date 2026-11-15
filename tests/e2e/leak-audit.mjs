@@ -1377,8 +1377,8 @@ function AUDIT() {
   add('route HEAD /api/live', route('HEAD', '/api/live', { public: true }));
   const mcpRoute = m => ({ kind: 'mcp', ok: r => two(r.status) && !/Unauthorized/.test(r.text), call: ({ cred }) => req(m, '/api/mcp', { bearer: cred, headers: { accept: 'application/json, text/event-stream' }, body: m === 'POST' ? { jsonrpc: '2.0', id: 1, method: 'tools/list' } : undefined }), controlOk: r => (m === 'POST' ? two(r.status) : r.status !== 401) });
   add('route POST /api/mcp/[[...key]]', mcpRoute('POST'), { kind: 'route', label: 'key in the URL (off)', ok: r => two(r.status), call: ({ p }) => req('POST', `/api/mcp/${p.chat || 'wos_none'}`, { headers: { accept: 'application/json, text/event-stream' }, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } }), control: false });
-  add('route GET /api/mcp/[[...key]]', { ...mcpRoute('GET'), ok: r => two(r.status) && /lkq/.test(r.text) });
-  add('route DELETE /api/mcp/[[...key]]', { ...mcpRoute('DELETE'), ok: r => two(r.status) && /lkq/.test(r.text) });
+  add('route GET /api/mcp/[[...key]]', { ...mcpRoute('GET'), ok: r => two(r.status) && /lkq/.test(r.text), controlOk: r => r.status === 405 /* no stream, no sessions: 405 for every credential, and never any data */ });
+  add('route DELETE /api/mcp/[[...key]]', { ...mcpRoute('DELETE'), ok: r => two(r.status) && /lkq/.test(r.text), controlOk: r => r.status === 405 /* no stream, no sessions: 405 for every credential, and never any data */ });
   add('route GET /api/notes/file', route('GET', t => `/api/notes/file?p=${encodeURIComponent(`notes/${A.orgId}/${t.note}/x.png`)}`, aim(['note'], { ok: r => r.status === 503, controlOk: r => r.status === 503 })));
   add('route POST /api/notes/upload', route('POST', '/api/notes/upload', aim(['note'], { body: t => ({ type: 'blob.generate-client-token', payload: { pathname: `notes/${A.orgId}/${t.note}/x.png`, callbackUrl: B, clientPayload: null, multipart: false } }), ok: r => r.status === 503, controlOk: r => r.status === 503 })));
   add('route GET /api/stream', { kind: 'route', ok: r => r.status === 200, call: ({ p }) => streamPeek('/api/stream', p.cookie ? { cookie: p.cookie } : {}) });

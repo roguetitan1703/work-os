@@ -23,6 +23,7 @@ DPORT=${E2E_DPORT:-4401}
 SUITES="
 today|today.mjs|today|plain
 claude-page|claude-page.mjs|none|plain
+mcp-get|mcp-get.mjs|none|plain
 nav|nav.mjs|nav|plain
 nav-cross|nav-cross.mjs|nav|plain
 nav-preload-1|nav-preload-1.mjs|nav|plain
