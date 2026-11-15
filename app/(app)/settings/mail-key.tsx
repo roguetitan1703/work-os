@@ -46,7 +46,8 @@ function ConnectButton({ label, kind }: { label: string; kind: 'primary' | 'ghos
 /**
  * Your own Mailloom key. With Connect set up: Connect Mailloom (Mailloom mints the key, it never passes the browser), and
  * the paste box folded behind "Paste a key instead". Linked: mailbox, prefix, scopes, Test, Connect again, Disconnect
- * (revokes the key at Mailloom). The key is never shown again, only its prefix.
+ * (revokes a key Work OS minted at Mailloom; a pasted key is only forgotten). One key per person across organizations:
+ * a new one replaces the one from another organization. The key is never shown again, only its prefix.
  */
 export function MailKey({ link, connect }: { link: Link | null; connect: boolean }) {
   const router = useRouter();
@@ -149,6 +150,9 @@ export function MailKey({ link, connect }: { link: Link | null; connect: boolean
     <div className="mt-2 space-y-2" data-mail-connectable>
       <ConnectNotice linked={false} />
       <ConnectButton label="Connect Mailloom" kind="primary" />
+      <p className="text-[12px] text-muted-foreground" data-mail-one-key>
+        One Mailloom key per person: connecting here replaces a key you connected in another organization (that key is revoked).
+      </p>
       <details data-mail-paste>
         <summary className="cursor-pointer text-[13px] text-muted-foreground">Paste a key instead</summary>
         {form}

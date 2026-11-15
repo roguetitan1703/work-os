@@ -114,8 +114,8 @@ Both are access and security work: builder A, Mailloom first; a review subagent 
 | Mailloom | `AGENT_CLIENT_SECRET` | 32+ random characters, same as Work OS's `MAILLOOM_CLIENT_SECRET` |
 | Mailloom | `AGENT_CLIENT_REDIRECT_URIS` | comma list, exact, https (http only for localhost): `https://<work os>/api/mail/callback` |
 | Mailloom | `AGENT_ALLOWED_IPS`, `MAILLOOM_PUBLIC_URL` | unchanged |
-| Work OS | `MAILLOOM_PUBLIC_URL` | where browsers open Mailloom, e.g. `https://mail.delpat.in/mail` (authorize lives under it) |
-| Work OS | `MAILLOOM_CLIENT_ID`, `MAILLOOM_CLIENT_SECRET` | as above. With `MAILLOOM_AGENT_URL` set, all three switch Connect on; otherwise only the paste box shows |
+| Work OS | `MAILLOOM_WEB_URL` (existing, now set explicitly) | where browsers open Mailloom, e.g. `https://mail.delpat.in/mail` (authorize lives under it; must equal Mailloom's `MAILLOOM_PUBLIC_URL`, which comes back as `iss`). Built: one name instead of a second `MAILLOOM_PUBLIC_URL` on Work OS |
+| Work OS | `MAILLOOM_CLIENT_ID`, `MAILLOOM_CLIENT_SECRET` | as above. With `MAILLOOM_AGENT_URL` and an explicit `MAILLOOM_WEB_URL`, they switch Connect on; otherwise only the paste box shows |
 | Work OS | `MAILLOOM_AGENT_URL`, `MAIL_KEY_SECRET` | unchanged (token and self-revoke are under the agent URL) |
 
 ## Open questions for Om

@@ -7,7 +7,7 @@ import { collections } from '../db';
 import { orgName } from '../people';
 import { setUserSetting, type Scope } from '../scope';
 import { MAILLOOM_CONNECT, connectConfig, looksLikeKey, revokeKey, whoami, type ConnectConfig, type Ids } from './client';
-import { sealMailKey, sealText, storedKeyOf, unsealText } from './keys';
+import { mintedKeyOf, replacedMintedKey, sealMailKey, sealText, unsealText } from './keys';
 
 // Connect Mailloom (docs/flows/mail-connect.md): instead of pasting a key, a person allows Work OS in Mailloom and
 // Mailloom mints the key, handed over server to server. OAuth authorization code + PKCE S256 + state + client secret,
@@ -140,12 +140,8 @@ async function swap(cfg: ConnectConfig, code: string, verifier: string, ids: Ids
   return { key, keyId, email, scopes: MAILLOOM_CONNECT.scopes.filter(x => scopes.includes(x)) };
 }
 
-/** Checks Mailloom's `iss` (RFC 9207) when it sends one: it must name Mailloom's public address. */
-function issOk(cfg: ConnectConfig, iss: string | null): boolean {
-  if (iss === null) return true;
-  const v = iss.replace(/\/+$/, '');
-  return v === cfg.publicUrl || v === new URL(cfg.publicUrl).origin;
-}
+/** Mailloom's `iss` (RFC 9207), always sent, must be exactly its public address (MAILLOOM_WEB_URL, no trailing slash). */
+const issOk = (cfg: ConnectConfig, iss: string | null) => iss !== null && iss.replace(/\/+$/, '') === cfg.publicUrl;
 
 /**
  * The callback: the state must be this person's, in this organization and this session, unused and not expired;
@@ -173,19 +169,26 @@ export async function completeConnect(c: Caller, sessionId: string | null, q: { 
     await revokeKey(minted.key, ids);
     throw new ConnectError('error');
   }
-  const old = await storedKeyOf(c);
+  // One key per person across organizations: the key Work OS minted that this replaces (here or in another organization).
+  const old = await replacedMintedKey(c.userId);
   const now = new Date();
-  await setUserSetting(c, 'mail', { mail: { sealed: sealMailKey(minted.key, c), prefix: minted.key.slice(0, 8), email: minted.email, savedAt: now, scopes: minted.scopes, keyId: minted.keyId, via: 'connect' }, updatedAt: now });
+  try {
+    await setUserSetting(c, 'mail', { mail: { sealed: sealMailKey(minted.key, c), prefix: minted.key.slice(0, 8), email: minted.email, savedAt: now, scopes: minted.scopes, keyId: minted.keyId, via: 'connect' }, updatedAt: now });
+  } catch (e) {
+    await revokeKey(minted.key, ids); // not stored: no live key may be left behind
+    throw e;
+  }
   return { oldRevoked: old && old !== minted.key ? await revokeKey(old, ids) : null };
 }
 
 /**
- * A member leaves an organization (lib/members.ts): their Mailloom key for it revokes itself at Mailloom (best effort,
- * not waited for) and their Connect requests there go. The caller deletes the setting itself.
+ * A member leaves an organization (lib/members.ts): their Mailloom key for it, when Work OS minted it, revokes itself at
+ * Mailloom (best effort, not waited for; a pasted key is only forgotten) and their Connect requests there go. The
+ * caller deletes the setting itself.
  */
 export async function dropMailKey(orgId: string, userId: string): Promise<void> {
   const s: Scope = { orgId, userId };
   await (await pending()).deleteMany({ orgId, userId });
-  const key = await storedKeyOf(s);
+  const key = await mintedKeyOf(s);
   if (key) void revokeKey(key, { user: userId, session: `wos-member-removed-${randomUUID()}` });
 }

@@ -1,4 +1,4 @@
-// Mail with no Connect client (MAILLOOM_AGENT_URL set, MAILLOOM_PUBLIC_URL / MAILLOOM_CLIENT_ID / MAILLOOM_CLIENT_SECRET
+// Mail with no Connect client (MAILLOOM_AGENT_URL set, MAILLOOM_CLIENT_ID / MAILLOOM_CLIENT_SECRET
 // unset; run.sh mode "mailpaste"): Settings › Connections › Mail shows the paste box, open, and no Connect button; the
 // Connect callback answers 404; pasting a key still works. A small fake Mailloom (whoami only) on the discord stub's port.
 import http from 'node:http';

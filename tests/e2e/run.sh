@@ -164,7 +164,7 @@ export E2E_MONGO_PORT=$MPORT E2E_DISCORD_PORT=$DPORT
 export E2E_SHOTS="${E2E_SHOTS:-$TMP/shots}"
 export DISCORD_BOT_TOKEN= DISCORD_PUBLIC_KEY= DISCORD_APPLICATION_ID= DISCORD_API_BASE=
 export DELPAT_OS_CLIENT_ID= DELPAT_OS_CLIENT_SECRET= DELPAT_OS_ISSUER= DELPAT_OS_TOKEN_KEY=
-export MAILLOOM_AGENT_URL= MAILLOOM_WEB_URL= MAIL_KEY_SECRET= MAILLOOM_PUBLIC_URL= MAILLOOM_CLIENT_ID= MAILLOOM_CLIENT_SECRET=
+export MAILLOOM_AGENT_URL= MAILLOOM_WEB_URL= MAIL_KEY_SECRET= MAILLOOM_CLIENT_ID= MAILLOOM_CLIENT_SECRET=
 # The app server's log: the mail suite checks no Mailloom key or code ever reaches it.
 export E2E_SERVER_LOG="$TMP/server.log"
 export VAPID_PUBLIC_KEY= VAPID_PRIVATE_KEY= VAPID_SUBJECT=
@@ -207,15 +207,13 @@ start_server() {
     export DISCORD_BOT_TOKEN= DISCORD_APPLICATION_ID= DISCORD_PUBLIC_KEY= DISCORD_API_BASE=
   fi
   # mail: a fake Mailloom on the discord stub's port, with Connect (its client id and secret); mailpaste: no Connect client.
-  if [ "$1" = mail ] || [ "$1" = mailpaste ]; then
-    export MAILLOOM_AGENT_URL="http://127.0.0.1:$DPORT/api/agent/v1" MAILLOOM_WEB_URL=https://mail.delpat.test
-  else
-    export MAILLOOM_AGENT_URL= MAILLOOM_WEB_URL=
-  fi
   if [ "$1" = mail ]; then
-    export MAILLOOM_PUBLIC_URL="http://127.0.0.1:$DPORT/mail" MAILLOOM_CLIENT_ID=work-os-e2e MAILLOOM_CLIENT_SECRET=e2e-mailloom-client-secret-0123456789abcdef
+    export MAILLOOM_AGENT_URL="http://127.0.0.1:$DPORT/api/agent/v1" MAILLOOM_WEB_URL="http://127.0.0.1:$DPORT/mail"
+    export MAILLOOM_CLIENT_ID=work-os-e2e MAILLOOM_CLIENT_SECRET=e2e-mailloom-client-secret-0123456789abcdef
+  elif [ "$1" = mailpaste ]; then
+    export MAILLOOM_AGENT_URL="http://127.0.0.1:$DPORT/api/agent/v1" MAILLOOM_WEB_URL=https://mail.delpat.test MAILLOOM_CLIENT_ID= MAILLOOM_CLIENT_SECRET=
   else
-    export MAILLOOM_PUBLIC_URL= MAILLOOM_CLIENT_ID= MAILLOOM_CLIENT_SECRET=
+    export MAILLOOM_AGENT_URL= MAILLOOM_WEB_URL= MAILLOOM_CLIENT_ID= MAILLOOM_CLIENT_SECRET=
   fi
   if [ "$1" = reel ]; then
     export IG_GRAPH_BASE="http://127.0.0.1:$DPORT" IG_ACCOUNT_ID=17841400000000001 IG_PAGE_TOKEN=e2e-ig-token-SECRETVALUE-0123456789 IG_DELAY_SCALE=0.01 IG_E2E=1

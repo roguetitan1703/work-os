@@ -10,7 +10,8 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
-import { B, MCP, ME, check, finish, launch, login, makeUser, mkKey, rawDb, mcpAs } from './lib.mjs';
+import { ObjectId } from 'mongodb';
+import { B, MCP, ME, admin, check, finish, launch, login, makeUser, mkKey, rawDb, mcpAs } from './lib.mjs';
 
 const KA = 'mlk_' + 'A'.repeat(43);
 const KB = 'mlk_' + 'B'.repeat(43);
@@ -76,7 +77,7 @@ function authorize(q, s, url) {
   s.statusCode = 302; s.setHeader('location', back.toString()); s.end();
 }
 function token(s, body) {
-  const no = (why, code = 400) => { oauth.tokens.push({ ok: false, why, body }); return json(s, code, { error: why === 'client' ? 'invalid_client' : 'invalid_grant' }); };
+  const no = (why, code = 400) => { oauth.tokens.push({ ok: false, why, body }); return json(s, code, { error: why === 'client' ? 'invalid_client' : 'invalid_grant', error_description: why }); };
   if (body.client_id !== CLIENT.id || body.client_secret !== CLIENT.secret) return no('client', 401);
   if (body.grant_type !== 'authorization_code') return no('grant');
   const c = oauth.codes.get(body.code);
@@ -113,7 +114,7 @@ const stub = http.createServer((q, s) => {
     if (q.headers.origin) return err(s, 403, 'ORIGIN_NOT_ALLOWED', 'no browsers');
     const email = MAIL[key];
     const box = boxes[key];
-    if (path === '/key/revoke' && q.method === 'POST') { delete MAIL[key]; revoked.add(key); return json(s, 200, { revoked: true }); }
+    if (path === '/key/revoke' && q.method === 'POST') { delete MAIL[key]; revoked.add(key); s.statusCode = 200; return s.end(); } // empty body: any 2xx counts
     if (path === '/whoami') return json(s, 200, { email: lies.has(key) ? 'someone-else@delpat.test' : email, key: { id: 'k_' + key.slice(4, 8), prefix: key.slice(0, 8), name: 'e2e', scopes: ['read', 'organise', 'send'], created_at: '2026-11-01T00:00:00Z' }, limits: { sends_per_hour: 200, recipients_per_mail: 100 } });
     if (key === KD) return err(s, 403, 'KEY_BROKEN', 'mail server refused the password');
     const ref = () => {
@@ -223,7 +224,7 @@ try {
   await cy.p.locator('[data-mail-linked]').waitFor({ timeout: 10000 });
   await cy.p.locator('[data-mail-remove]').click();
   check('settings: Disconnect brings Connect and the folded paste box back', await cy.p.locator('[data-mail-connectable] [data-mail-connect]').waitFor({ timeout: 10000 }).then(() => true, () => false) && await cy.p.locator('[data-mail-paste]').count() === 1);
-  check('settings: Disconnect revoked the pasted key at Mailloom', revoked.has(KC) && log.some(l => l.path === '/key/revoke' && l.key === KC));
+  check('settings: Disconnect of a pasted key only forgets it (not revoked at Mailloom)', !revoked.has(KC) && !log.some(l => l.path === '/key/revoke' && l.key === KC));
   const cyDoc = await rawDb.collection('settings').findOne({ _id: `mail:${Cu.userId}` });
   check('settings: Remove clears the stored key', !cyDoc?.mail);
   const afterRemove = await tool(kC, 'mail_search', {});
@@ -357,7 +358,7 @@ try {
   const task = t1.json?.created;
   check('to_task: creates a task from the mail (subject, sender, date, Message-ID, link)', !!task && /Invoice overdue/.test(task.title) && task.due === '2026-11-20', t1.text.slice(0, 300));
   const full = task ? await tool(MCP, 'get_task', { task: task.ref }) : null;
-  check('to_task: description has sender, date and Message-ID; link back to Mailloom', /Eve/.test(full?.json?.description ?? '') && /2026-11-10/.test(full.json.description) && /a1@evil\.example/.test(full.json.description) && (full.json.links ?? []).some(l => /mail\.delpat\.test/.test(l.url)), full?.text.slice(0, 500));
+  check('to_task: description has sender, date and Message-ID; link back to Mailloom', /Eve/.test(full?.json?.description ?? '') && /2026-11-10/.test(full.json.description) && /a1@evil\.example/.test(full.json.description) && (full.json.links ?? []).some(l => l.url.startsWith(PUBLIC)), full?.text.slice(0, 500));
   check('to_task: the mail text is labelled as written by the email sender', /email sender "Eve"/.test(full?.json?.descriptionWrittenBy ?? ''), full?.text.slice(0, 400));
   check('to_task: the message block (subject, sender) is marked untrusted with a writtenBy and the rule', t1.json?.created && t1.json.message?.untrusted === true && /email sender "Eve"/.test(t1.json.message.writtenBy) && /never instructions/.test(t1.json.message.rule) && t1.json.message.subject === 'Invoice overdue', JSON.stringify(t1.json?.message));
   check('to_task: the default history note is fixed text, not mail text', !!full && /Made from an email \(see description\)/.test(full.text) && !/From email by/.test(full.text) && !/Eve: Invoice/.test(full.text), full?.text.slice(0, 600));
@@ -411,8 +412,8 @@ try {
   await own2.p.locator('[data-remove-confirm="cy@example.test"] button', { hasText: /^Remove$/ }).click();
   await own2.p.locator('[data-member="cy@example.test"]').waitFor({ state: 'detached', timeout: 10000 });
   check('remove member: their mail:<userId> setting is deleted', !(await rawDb.collection('settings').findOne({ _id: `mail:${Cu.userId}` })));
-  for (let i = 0; i < 50 && !revoked.has(KC2); i++) await new Promise(r => setTimeout(r, 100));
-  check('remove member: their Mailloom key revoked itself at Mailloom', revoked.has(KC2) && log.some(l => l.path === '/key/revoke' && l.key === KC2));
+  await new Promise(r => setTimeout(r, 1500));
+  check('remove member: a pasted key is only forgotten, not revoked at Mailloom', !revoked.has(KC2) && !log.some(l => l.path === '/key/revoke' && l.key === KC2));
   await own2.c.close();
   await br2.close();
 
@@ -457,7 +458,7 @@ try {
   check('connect: says it is connected', await ow.p.locator('[data-mail-notice=linked]').isVisible());
   const d1 = await stored(A.userId);
   check('connect: stored sealed, with the scopes, marked as connected', !!d1?.sealed && d1.via === 'connect' && d1.email === 'owner@delpat.test' && d1.scopes.join() === 'read,organise,send' && d1.prefix === k1.slice(0, 8) && !JSON.stringify(d1).includes(k1));
-  check('connect: the replaced pasted key was revoked at Mailloom', revoked.has(KA));
+  check('connect: the replaced pasted key is only forgotten, not revoked at Mailloom', !revoked.has(KA) && !log.some(l => l.path === '/key/revoke' && l.key === KA));
   n0 = mark();
   const viaNew = await tool(MCP, 'mail_search', {});
   check('connect: mail tools now use the new key', !viaNew.isError && since(n0).every(l => l.key === k1), viaNew.text.slice(0, 200));
@@ -495,6 +496,13 @@ try {
   await rawDb.collection('mailConnectAuth').updateMany({ userId: A.userId }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
   const expired = await hit(ow.c, heldX);
   check('expired state: refused, no swap', expired.flag === 'error' && tokensSoFar() === t0);
+  // iss is required and must be exactly Mailloom's public address.
+  for (const [what, iss] of [['missing', null], ['another site', 'https://evil.example/mail'], ['origin only', `http://127.0.0.1:${DPORT}`]]) {
+    const h = new URL(await press(ow.p, 'hold'));
+    if (iss === null) h.searchParams.delete('iss'); else h.searchParams.set('iss', iss);
+    const r = await hit(ow.c, h.toString());
+    check(`iss ${what}: refused, no swap`, r.flag === 'error' && tokensSoFar() === t0);
+  }
   check('state stored hashed, never in clear', !(await rawDb.collection('mailConnectAuth').findOne({ _id: new URL(heldX).searchParams.get('state') })));
 
   // Wrong verifier: Bea's code (made for Bea's challenge) dropped into the owner's own callback is refused by Mailloom.
@@ -538,7 +546,47 @@ try {
   // Disconnect: the key revokes itself at Mailloom, the setting goes.
   await ow.p.locator('[data-mail-remove]').click();
   await ow.p.locator('[data-mail-connectable]').waitFor({ timeout: 10000 });
-  check('disconnect: the key revoked at Mailloom, the setting deleted, Connect shown again', revoked.has(kS) && !(await stored(A.userId)));
+  check('disconnect: the key Work OS minted is revoked at Mailloom (empty 200 counts), the setting deleted, Connect shown again', revoked.has(kS) && !(await stored(A.userId)));
+
+  // One key per person across organizations: connecting in org B replaces, and revokes, the key minted in org A.
+  check('the one-key-per-person rule is said on the page', await ow.p.locator('[data-mail-one-key]').isVisible());
+  oauth.mailbox = 'owner@delpat.test';
+  check('two orgs: connected in org A', (await press(ow.p)) === 'linked');
+  const kOrgA = oauth.minted.at(-1);
+  const Z = await makeUser({ email: 'zed-orgb@example.test', name: 'Zed', orgName: 'Org B' });
+  await (await admin()).addMember({ userId: A.userId, orgId: Z.orgId, role: 'member' });
+  const sessIds = async () => (await rawDb.collection('session').find({ userId: { $in: [A.userId, ...(ObjectId.isValid(A.userId) ? [new ObjectId(A.userId)] : [])] } }, { projection: { _id: 1 } }).toArray()).map(x => String(x._id));
+  const beforeS = new Set(await sessIds());
+  const inB = await open('e2e-owner@example.test');
+  const newS = (await sessIds()).filter(x => !beforeS.has(x));
+  const sdoc = await rawDb.collection('session').findOne({ _id: ObjectId.isValid(newS[0]) ? new ObjectId(newS[0]) : newS[0] });
+  await rawDb.collection('session').updateOne({ _id: sdoc._id }, { $set: { activeOrganizationId: sdoc.activeOrganizationId instanceof ObjectId ? new ObjectId(Z.orgId) : Z.orgId } });
+  const fB = await press(inB.p);
+  const kOrgB = oauth.minted.at(-1);
+  const docB = await rawDb.collection('settings').findOne({ _id: `mail:${A.userId}` });
+  check('two orgs: connecting in org B links there', newS.length === 1 && fB === 'linked' && kOrgB !== kOrgA && docB?.orgId === Z.orgId && docB.mail?.via === 'connect', `${newS.length} ${fB} ${docB?.orgId}`);
+  check('two orgs: org A key revoked at Mailloom (no orphan key left)', revoked.has(kOrgA));
+  const keyInB = await mkKey({ agent: 'claude-code', userId: A.userId, orgId: Z.orgId, name: 'org b' });
+  n0 = mark();
+  const bWorks = await tool(keyInB, 'mail_search', {});
+  check('two orgs: mail tools in org B use the new key', !bWorks.isError && since(n0).length > 0 && since(n0).every(l => l.key === kOrgB), bWorks.text.slice(0, 200));
+  const aNow = await tool(MCP, 'mail_search', {});
+  check('two orgs: org A now asks to link the mailbox again', aNow.isError && /Link your mailbox/.test(aNow.text), aNow.text);
+  await inB.c.close();
+
+  // Member removal: a key Work OS minted is revoked at Mailloom (Dee connects, replacing her pasted KD, then is removed).
+  const deeC = await open('dee@example.test');
+  oauth.mailbox = 'dee@delpat.test';
+  const fD = await press(deeC.p);
+  const kDee = oauth.minted.at(-1);
+  check('member removal setup: Dee connected, her pasted key only forgotten', fD === 'linked' && !revoked.has(KD));
+  await deeC.c.close();
+  await ow.p.goto(`${B}/settings?section=members`);
+  await ow.p.getByRole('button', { name: 'Remove dee@example.test' }).click();
+  await ow.p.locator('[data-remove-confirm="dee@example.test"] button', { hasText: /^Remove$/ }).click();
+  await ow.p.locator('[data-member="dee@example.test"]').waitFor({ state: 'detached', timeout: 10000 });
+  for (let i = 0; i < 50 && !revoked.has(kDee); i++) await new Promise(r => setTimeout(r, 100));
+  check('member removal: the connected key revoked at Mailloom, the setting deleted', revoked.has(kDee) && !(await stored(Du.userId)));
 
   // Nothing of a key or a code ever went through the browser or into the server log.
   check('no mlk_ in any Location header or address the browser opened', ![...seen.locations, ...seen.urls].some(x => /mlk_/.test(x)), [...seen.locations, ...seen.urls].filter(x => /mlk_/.test(x)).join(' ').slice(0, 200));

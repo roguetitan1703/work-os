@@ -47,53 +47,56 @@ export function mailBase(): string | null {
 export const mailConfigured = () => mailBase() !== null;
 
 // ── Connect Mailloom (docs/flows/mail-connect.md): Mailloom's endpoints and Work OS's env names, in this one place ──
-//   MAILLOOM_PUBLIC_URL     where browsers open Mailloom, e.g. https://mail.delpat.in/mail (authorize lives under it)
+//   MAILLOOM_WEB_URL        where browsers open Mailloom, e.g. https://mail.delpat.in/mail (authorize lives under it; it is
+//                           also the `iss` Mailloom sends back, compared exactly). Must be set explicitly for Connect.
 //   MAILLOOM_CLIENT_ID      Work OS's client id at Mailloom (Mailloom's AGENT_CLIENT_ID)
 //   MAILLOOM_CLIENT_SECRET  the shared client secret (Mailloom's AGENT_CLIENT_SECRET), 32+ characters
 // With MAILLOOM_AGENT_URL, all three switch the Connect button on; otherwise only the paste box shows.
 export const MAILLOOM_CONNECT = {
-  /** Under MAILLOOM_PUBLIC_URL, opened by the browser. */
+  /** Under MAILLOOM_WEB_URL, opened by the browser. */
   authorizePath: '/oauth/authorize',
-  /** Under MAILLOOM_AGENT_URL, called server to server with the client secret and the PKCE verifier. */
+  /** Under MAILLOOM_AGENT_URL, called server to server with the client secret and the PKCE verifier (form, no Origin header). */
   tokenPath: '/oauth/token',
   /** Under MAILLOOM_AGENT_URL, `Bearer <key>`: a key revokes itself. */
   revokePath: '/key/revoke',
   /** Work OS's own callback, under APP_URL (the exact redirect URI registered in Mailloom's AGENT_CLIENT_REDIRECT_URIS). */
   callbackPath: '/api/mail/callback',
   scopes: ['read', 'organise', 'send'] as const,
-  env: { publicUrl: 'MAILLOOM_PUBLIC_URL', clientId: 'MAILLOOM_CLIENT_ID', clientSecret: 'MAILLOOM_CLIENT_SECRET' },
+  env: { webUrl: 'MAILLOOM_WEB_URL', clientId: 'MAILLOOM_CLIENT_ID', clientSecret: 'MAILLOOM_CLIENT_SECRET' },
 } as const;
 
 export type ConnectConfig = { publicUrl: string; agentBase: string; clientId: string; clientSecret: string };
 
-/** Connect's settings, or null (Connect off, only the paste box) unless the agent URL, public URL, client id and a 32+ character secret are all set. */
+/**
+ * Connect's settings, or null (Connect off, only the paste box) unless the agent URL, an explicit MAILLOOM_WEB_URL (not
+ * the fallback to the agent's host), the client id and a 32+ character secret are all set.
+ */
 export function connectConfig(): ConnectConfig | null {
   const agentBase = mailBase();
   const e = MAILLOOM_CONNECT.env;
-  const raw = process.env[e.publicUrl]?.trim();
+  const raw = process.env[e.webUrl]?.trim();
   const clientId = process.env[e.clientId]?.trim();
   const clientSecret = process.env[e.clientSecret]?.trim();
   if (!agentBase || !raw || !clientId || !clientSecret || clientSecret.length < 32 || clientId.length > 200) return null;
-  try {
-    const u = new URL(raw);
-    if ((u.protocol !== 'https:' && !(u.protocol === 'http:' && isLocal(u))) || u.username || u.password || u.search || u.hash) return null;
-  } catch {
-    return null;
-  }
-  return { publicUrl: raw.replace(/\/+$/, ''), agentBase, clientId, clientSecret };
+  const publicUrl = mailWebUrl();
+  if (!publicUrl) return null;
+  const u = new URL(publicUrl);
+  if (u.username || u.password || u.search || u.hash) return null;
+  return { publicUrl, agentBase, clientId, clientSecret };
 }
 
 /**
- * A key revokes itself at Mailloom (Disconnect, a replaced key, a removed member). True when Mailloom says it is revoked,
- * or no longer knows it (401: already revoked or never valid); false when Mailloom could not be reached or refused.
- * Never retried, never throws, never logs the key.
+ * A key revokes itself at Mailloom (Disconnect, a replaced key, a removed member). True on any 2xx (whatever the body)
+ * or 401 KEY_REVOKED (already revoked); false when Mailloom could not be reached or refused. Never retried, never
+ * throws, never logs the key.
  */
 export async function revokeKey(key: string, ids: Ids): Promise<boolean> {
   try {
     await mailRequest(key, ids, 'POST', MAILLOOM_CONNECT.revokePath, { body: {}, retry: false });
     return true;
   } catch (e) {
-    return e instanceof MailError && e.status === 401;
+    if (!(e instanceof MailError)) return false;
+    return (e.status >= 200 && e.status < 300) || (e.status === 401 && e.code === 'KEY_REVOKED');
   }
 }
 

@@ -2,7 +2,7 @@ import 'server-only';
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
 import { authSecret, MIN_SECRET } from '../auth';
 import { InputError } from '../data/errors';
-import { getUserSetting, setUserSetting, type Scope } from '../scope';
+import { getUserSetting, getUserSettingAnyOrg, setUserSetting, type Scope } from '../scope';
 import { looksLikeKey, MailError, revokeKey, whoami, type Ids, type Whoami } from './client';
 
 // Each person's own Mailloom agent key (Mailloom › Connections › New key), stored sealed in `settings` `mail:<userId>`.
@@ -57,15 +57,32 @@ export async function mailLinkOf(s: Scope): Promise<MailLink | null> {
   return m?.sealed ? { prefix: m.prefix, email: m.email, savedAt: m.savedAt.toISOString(), scopes: m.scopes ?? null, via: m.via === 'connect' ? 'connect' : 'paste' } : null;
 }
 
-/** The person's saved key in clear, or null (none, or it cannot be opened). Only for revoking it at Mailloom. */
-export async function storedKeyOf(s: Scope): Promise<string | null> {
-  const m = (await getUserSetting(s, 'mail'))?.mail;
-  if (!m?.sealed) return null;
+// Only keys Work OS minted (Connect, `via: 'connect'`) are ever revoked at Mailloom: on Disconnect, when a new key
+// replaces them, and when the person leaves the organization. A pasted key is just forgotten here (the person made it
+// in Mailloom and may use it elsewhere).
+
+function openMinted(m: { sealed?: string; via?: string } | null | undefined, s: Scope): string | null {
+  if (!m?.sealed || m.via !== 'connect') return null;
   try {
     return unsealMailKey(m.sealed, s);
   } catch {
     return null; // no usable secret: nothing to revoke with
   }
+}
+
+/** This organization's key in clear, only when Work OS minted it (Connect); else null. Only for revoking it. */
+export async function mintedKeyOf(s: Scope): Promise<string | null> {
+  return openMinted((await getUserSetting(s, 'mail'))?.mail, s);
+}
+
+/**
+ * One Mailloom key per person, across organizations: `mail:<userId>` is one document per person, held by whichever
+ * organization wrote it last, so a new key (here or in another organization) replaces it. This is the key it replaces
+ * when Work OS minted it (opened with the organization it was sealed for), to revoke; else null.
+ */
+export async function replacedMintedKey(userId: string): Promise<string | null> {
+  const d = await getUserSettingAnyOrg(userId, 'mail');
+  return d?.orgId ? openMinted(d.mail, { orgId: d.orgId, userId }) : null;
 }
 
 /** The person's own key (and mailbox address), or the plain "link your mailbox" message. */
@@ -84,19 +101,20 @@ export async function saveMailKey(s: Scope, pasted: string, ids: Ids): Promise<M
   if (!looksLikeKey(key)) throw new InputError('That is not a Mailloom key. It starts with mlk_ and is 47 characters long.');
   const me = await whoami(key, ids);
   if (!me?.email || typeof me.email !== 'string') throw new MailError('Mailloom did not say which mailbox the key opens.', 0, 'BAD_RESPONSE');
-  const old = await storedKeyOf(s);
+  const old = await replacedMintedKey(s.userId);
   const link = { sealed: sealMailKey(key, s), prefix: key.slice(0, 8), email: me.email.toLowerCase(), savedAt: new Date(), via: 'paste' as const };
   await setUserSetting(s, 'mail', { mail: link, updatedAt: new Date() });
-  if (old && old !== key) await revokeKey(old, ids); // the replaced key; best effort
+  if (old && old !== key) await revokeKey(old, ids); // the key Work OS minted that this one replaces; best effort
   return { prefix: link.prefix, email: link.email, savedAt: link.savedAt.toISOString(), scopes: null, via: 'paste' };
 }
 
 /**
- * Disconnect: the key revokes itself at Mailloom, then the setting is deleted either way. revoked is null when there
- * was no key, false when Mailloom could not be reached (the person is told to revoke it in Mailloom › Connections).
+ * Disconnect: a key Work OS minted revokes itself at Mailloom, then the setting is deleted either way (a pasted key is
+ * only forgotten). revoked is null when nothing was revoked (no key, or a pasted one), false when Mailloom could not
+ * be reached (the person is told to revoke it in Mailloom › Connections).
  */
 export async function removeMailKey(s: Scope, ids: Ids): Promise<{ revoked: boolean | null }> {
-  const key = await storedKeyOf(s);
+  const key = await mintedKeyOf(s);
   const revoked = key ? await revokeKey(key, ids) : null;
   await setUserSetting(s, 'mail', { mail: null, updatedAt: new Date() });
   return { revoked };
