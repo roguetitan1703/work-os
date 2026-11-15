@@ -49,14 +49,16 @@ function baseUrl(req: Request): string {
   return (process.env.APP_URL || new URL(req.url).origin).replace(/\/+$/, '');
 }
 
+function unauthorized(req: Request): Response {
+  const sent = bearerToken(req);
+  // RFC 9728 / RFC 6750: where the protected-resource metadata is, and (for a token that was sent) that it was no good.
+  const challenge = `Bearer resource_metadata="${new URL(mcpResource()).origin}/.well-known/oauth-protected-resource/api/mcp", scope="workos"${sent ? ', error="invalid_token"' : ''}`;
+  return Response.json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized' }, id: null }, { status: 401, headers: { 'WWW-Authenticate': challenge, 'Cache-Control': 'no-store' } });
+}
+
 async function handle(req: Request, ctx: Ctx): Promise<Response> {
   const caller = await authorize(req, ctx);
-  if (!caller) {
-    const sent = bearerToken(req);
-    // RFC 9728 / RFC 6750: where the protected-resource metadata is, and (for a token that was sent) that it was no good.
-    const challenge = `Bearer resource_metadata="${new URL(mcpResource()).origin}/.well-known/oauth-protected-resource/api/mcp", scope="workos"${sent ? ', error="invalid_token"' : ''}`;
-    return Response.json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized' }, id: null }, { status: 401, headers: { 'WWW-Authenticate': challenge, 'Cache-Control': 'no-store' } });
-  }
+  if (!caller) return unauthorized(req);
   const base = baseUrl(req);
   const { server, release } = await acquireMcpServer(base, caller);
   const scope = { userId: caller.userId, orgId: caller.orgId };
@@ -78,4 +80,14 @@ async function handle(req: Request, ctx: Ctx): Promise<Response> {
   }
 }
 
-export { handle as GET, handle as POST, handle as DELETE };
+// No standalone SSE stream and no sessions (stateless, JSON responses): GET and DELETE are 405 with Allow: POST, with no
+// database work. Handing GET a stream that closed at once made MCP clients reconnect about once a second, forever; the SDK
+// client treats 405 on GET as "this server has no stream" and stops. A request with no credential at all still gets the 401
+// challenge (OAuth discovery), which costs nothing either; POST is the only method that does the credential check.
+async function notAllowed(req: Request, ctx: Ctx): Promise<Response> {
+  const { key } = await ctx.params;
+  if (!key?.length && !bearerToken(req)) return unauthorized(req);
+  return Response.json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed: this server answers POST only (no SSE stream, no sessions)' }, id: null }, { status: 405, headers: { Allow: 'POST', 'Cache-Control': 'no-store' } });
+}
+
+export { notAllowed as GET, handle as POST, notAllowed as DELETE };
