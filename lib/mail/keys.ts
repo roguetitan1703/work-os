@@ -1,6 +1,6 @@
 import 'server-only';
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
-import { authSecret } from '../auth';
+import { authSecret, MIN_SECRET } from '../auth';
 import { InputError } from '../data/errors';
 import { getUserSetting, setUserSetting, type Scope } from '../scope';
 import { looksLikeKey, MailError, whoami, type Ids, type Whoami } from './client';
@@ -13,7 +13,9 @@ import { looksLikeKey, MailError, whoami, type Ids, type Whoami } from './client
 const SETUP = 'Link your mailbox in Settings › Connections › Mail.';
 
 function sealKey(): Buffer {
-  const ikm = process.env.MAIL_KEY_SECRET?.trim() || authSecret();
+  const own = process.env.MAIL_KEY_SECRET?.trim();
+  if (own && own.length < MIN_SECRET) throw new InputError('MAIL_KEY_SECRET is too short');
+  const ikm = own || authSecret();
   if (!ikm) throw new InputError('Mail is not set up on this Work OS (no secret to protect keys with).');
   return Buffer.from(hkdfSync('sha256', ikm, 'work-os', 'mailloom-agent-keys-v1', 32));
 }
@@ -22,7 +24,7 @@ const aad = (s: Pick<Scope, 'orgId' | 'userId'>) => Buffer.from(`mail-key:${s.or
 
 export function sealMailKey(plain: string, s: Scope): string {
   const iv = randomBytes(12);
-  const c = createCipheriv('aes-256-gcm', sealKey(), iv);
+  const c = createCipheriv('aes-256-gcm', sealKey(), iv, { authTagLength: 16 });
   c.setAAD(aad(s));
   const ct = Buffer.concat([c.update(plain, 'utf8'), c.final()]);
   return ['v1', iv.toString('base64url'), c.getAuthTag().toString('base64url'), ct.toString('base64url')].join('.');
@@ -32,9 +34,11 @@ export function unsealMailKey(sealed: string, s: Scope): string | null {
   try {
     const [v, iv, tag, ct] = sealed.split('.');
     if (v !== 'v1' || !iv || !tag || !ct) return null;
-    const d = createDecipheriv('aes-256-gcm', sealKey(), Buffer.from(iv, 'base64url'));
+    const d = createDecipheriv('aes-256-gcm', sealKey(), Buffer.from(iv, 'base64url'), { authTagLength: 16 });
+    const t = Buffer.from(tag, 'base64url');
+    if (t.length !== 16) return null;
     d.setAAD(aad(s));
-    d.setAuthTag(Buffer.from(tag, 'base64url'));
+    d.setAuthTag(t);
     return Buffer.concat([d.update(Buffer.from(ct, 'base64url')), d.final()]).toString('utf8');
   } catch {
     return null;
@@ -53,6 +57,7 @@ export async function mailLinkOf(s: Scope): Promise<MailLink | null> {
 export async function mailKeyOf(s: Scope): Promise<{ key: string; email: string }> {
   const m = (await getUserSetting(s, 'mail'))?.mail;
   if (!m?.sealed) throw new InputError(SETUP);
+  sealKey(); // a too-short MAIL_KEY_SECRET says so, instead of looking like a broken key
   const key = unsealMailKey(m.sealed, s);
   if (!key) throw new InputError(`Your saved Mailloom key could not be opened. ${SETUP}`);
   return { key, email: m.email };

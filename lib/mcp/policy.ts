@@ -170,8 +170,7 @@ async function mailGuard(caller: Caller, tool: string): Promise<void> {
 
 /** Runs before every tool call. Throws PolicyError to refuse. */
 export async function beforeTool(caller: Caller, tool: string): Promise<void> {
-  await mailGuard(caller, tool);
-  if (!isCode(caller)) return;
+  if (!isCode(caller)) return mailGuard(caller, tool);
   const keyId = budgetKey(caller);
   if (BLOCKED.has(tool)) throw new PolicyError(`${tool} is not available to Claude Code keys (permanent deletion and admin stay with you, in the app).`);
   const call = await reserve(keyId, 'call', 1, new Date(Date.now() - 3_600_000), LIMITS.callsPerHour);
@@ -186,6 +185,7 @@ export async function beforeTool(caller: Caller, tool: string): Promise<void> {
       );
     }
   }
+  await mailGuard(caller, tool); // last, so a call refused above spends no mail slot
 }
 
 // ── apply_changes ───────────────────────────────────────────────────────────
