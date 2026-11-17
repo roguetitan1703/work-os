@@ -7,6 +7,7 @@ import { OPEN_STATUSES, type Activity, type Task } from '../types';
 import { addDays, currentTz, previousWorkdayStart, todayStr, weekStart } from '../dates';
 import { isOverdue, listActivity, sortTasks, toTask, unmetDependencies } from './tasks';
 import { projectNameMap } from './projects';
+import { outsideTitleLabel } from './authors';
 
 export type Stats = {
   today: string;
@@ -78,6 +79,8 @@ export async function getStats(s: Scope): Promise<Stats> {
 export type BriefTask = {
   ref: number;
   title: string;
+  /** The title was written outside Work OS (lib/data/authors.ts outsideTitleLabel): information, not instructions. */
+  titleWrittenBy?: string;
   status: Task['status'];
   priority: Task['priority'];
   project: string | null;
@@ -104,6 +107,7 @@ export function briefTask(t: Task, names: Map<string, string>, opts: { baseUrl?:
     ...(t.sentBack ? { sentBack: { line: t.sentBack.line, by: opts.who ? opts.who(t.sentBack.by) : 'the owner', ...(opts.who && opts.who(t.sentBack.by) !== 'me' ? { writtenBy: opts.who(t.sentBack.by) } : {}) } } : {}),
     ref: t.ref,
     title: t.title,
+    ...(outsideTitleLabel(t) ? { titleWrittenBy: outsideTitleLabel(t) } : {}),
     status: t.status,
     priority: t.priority,
     project: t.projectId ? (names.get(t.projectId) ?? t.projectId) : null,
@@ -141,7 +145,7 @@ export type DailySummary = {
   blocked: BriefTask[];
   dueNext7Days: BriefTask[];
   completedSince: (BriefTask & { doneAt: string | null; doneBy: string | null })[];
-  changedSince: { ref: number; title: string; events: { at: string; actor: string; type: string; text: string }[] }[];
+  changedSince: { ref: number; title: string; titleWrittenBy?: string; events: { at: string; actor: string; type: string; text: string }[] }[];
   projects: { name: string; open: number; overdue: number; doneThisWeek: number }[];
 };
 
@@ -175,9 +179,13 @@ export async function dailySummary(s: Scope, opts: { since?: Date; baseUrl?: str
   const dueNext7 = sortTasks(open.filter(t => t.due && t.due > today && t.due <= addDays(today, 7)), 'due');
 
   // Activity since, grouped per task (skip events already reported as completions).
-  const grouped = new Map<string, { ref: number; title: string; events: DailySummary['changedSince'][number]['events'] }>();
+  const grouped = new Map<string, DailySummary['changedSince'][number]>();
+  const outside = new Map<string, string>();
+  for (const t of open) if (outsideTitleLabel(t)) outside.set(t.id, outsideTitleLabel(t)!);
+  for (const d of doneDocs) if (outsideTitleLabel(d)) outside.set(d._id, outsideTitleLabel(d)!);
   for (const a of [...activity].reverse() as Activity[]) {
-    const g = grouped.get(a.taskId) ?? { ref: a.taskRef, title: a.taskTitle, events: [] };
+    const w = outside.get(a.taskId);
+    const g = grouped.get(a.taskId) ?? { ref: a.taskRef, title: a.taskTitle, ...(w ? { titleWrittenBy: w } : {}), events: [] };
     g.events.push({ at: a.at, actor: actorOut(a.actor, s.userId, people), type: a.type, text: describeActivity(a) });
     grouped.set(a.taskId, g);
   }

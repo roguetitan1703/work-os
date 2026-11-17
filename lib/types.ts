@@ -163,6 +163,11 @@ export type TaskSource =
       url?: string;
       from?: string;
       subject?: string;
+    }
+  | {
+      /** A report sent in through an intake (lib/intake.ts). messageId is "intake:mailloom:" + the sender's report id. */
+      kind: 'intake';
+      messageId: string;
     };
 
 export const ACTIVITY_TYPES = [

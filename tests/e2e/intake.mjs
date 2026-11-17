@@ -166,6 +166,22 @@ try {
   check('get_task: fromOthers lists title and description', (g.json?.fromOthers ?? []).some(x => x.startsWith('title:')) && (g.json?.fromOthers ?? []).some(x => x.startsWith('description:')));
   check('get_task: createdBy reads as the report form, not me or Claude', g.json?.createdBy === 'system (Mailloom report form)', g.json?.createdBy);
   check('get_task: tags not labelled (Work OS set them)', !g.json?.tagsWrittenBy);
+  check('task: the report id stored as its source', t?.source?.kind === 'intake' && t?.source?.messageId === 'intake:mailloom:first-report', JSON.stringify(t?.source));
+
+  // List outputs label the report's title too (and carry the text rule only when a listed title needs it).
+  await mcpAs(MCP, 'add_task', { title: 'Plain owner task' });
+  const lt = await mcpAs(MCP, 'list_tasks', {});
+  const row = lt.json?.tasks?.find(x => x.ref === ref);
+  const plain = lt.json?.tasks?.find(x => x.title === 'Plain owner task');
+  check('list_tasks: the report title labelled writtenBy, with the text rule', !!row?.titleWrittenBy?.includes(want) && !!lt.json?.textRule, lt.text.slice(0, 300));
+  check("list_tasks: the owner's own task carries no label", !!plain && !plain.titleWrittenBy);
+  const lp = await mcpAs(MCP, 'list_tasks', { query: 'Plain owner task' });
+  check('list_tasks: no text rule when no listed title needs it', lp.json?.tasks?.length === 1 && !lp.json?.textRule, lp.text.slice(0, 200));
+  const ds = await mcpAs(MCP, 'daily_summary', {});
+  const ch = ds.json?.changedSince?.find(x => x.ref === ref);
+  check('daily_summary: the report title labelled in changedSince, with the text rule', !!ch?.titleWrittenBy?.includes(want) && !!ds.json?.textRule, ds.text.slice(0, 300));
+  const gp = await mcpAs(MCP, 'get_project', { project: 'Mailloom' });
+  check('get_project: the report title labelled, with the text rule', !!gp.json?.tasks?.find(x => x.ref === ref)?.titleWrittenBy?.includes(want) && !!gp.json?.textRule, gp.text.slice(0, 200));
 
   // The owner's notice ("assigned to you by the Mailloom report form").
   let note = null;
@@ -181,6 +197,12 @@ try {
   r = await post({ ...first, title: 'Changed title' });
   check('200: same report_id with other text still the same task, unchanged', r.status === 200 && r.body?.ref === ref && (await rawDb.collection('tasks').findOne({ _id: t?._id }))?.title === t?.title);
   check('one task for the report', (await rawDb.collection('tasks').countDocuments({ projectId: PROJECT })) === 1);
+  // A claim that lost track of its task (a crash between making the task and recording it, then gone stale): the task is
+  // found by its stored report id, not made again.
+  await rawDb.collection('intake').updateOne({ reportId: 'first-report' }, { $set: { taskId: null, ref: null, claimedAt: new Date(Date.now() - 120_000) } });
+  r = await post(first);
+  const claim = await rawDb.collection('intake').findOne({ reportId: 'first-report' });
+  check('stale claim, task exists: found by its report id, not duplicated', r.status === 200 && r.body?.ref === ref && (await rawDb.collection('tasks').countDocuments({ projectId: PROJECT })) === 1 && claim?.ref === ref, `${r.status} ${JSON.stringify(r.body)} claim ${claim?.ref}`);
 
   // ---- 10 copies at once ----
   const same = report({ report_id: 'parallel-report', title: 'Parallel' });

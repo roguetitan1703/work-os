@@ -3,7 +3,7 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { collections } from './db';
 import { MAILLOOM_INTAKE, type TextAuthor } from './actors';
-import { createTask } from './data/tasks';
+import { createTask, findTaskBySourceMessage } from './data/tasks';
 import { isMember } from './people';
 import { reserveIntake } from './mcp/policy';
 import { DiscordError, api, budget, discordConfig } from './discord/client';
@@ -36,13 +36,20 @@ const DESCRIPTION_MAX = 20_000;
 
 export type IntakeConfig = { token: string; projectId: string };
 
-/** Both variables set and the token long enough, else null (the route answers 503). */
+/** Secrets the intake token must never equal (one value doing two jobs would let either holder do both). */
+const OTHER_SECRETS = ['MAILLOOM_CLIENT_SECRET', 'CRON_SECRET', 'BETTER_AUTH_SECRET', 'MAIL_KEY_SECRET'];
+
+/** Both variables set, the token long enough and not another secret's value, else null (the routes answer 503). */
 export function intakeConfig(): IntakeConfig | null {
-  const token = process.env.MAILLOOM_INTAKE_TOKEN ?? '';
+  const token = (process.env.MAILLOOM_INTAKE_TOKEN ?? '').trim();
   const projectId = (process.env.MAILLOOM_INTAKE_PROJECT ?? '').trim();
   if (token.length < MIN_TOKEN || !projectId) return null;
+  if (OTHER_SECRETS.some(k => (process.env[k] ?? '').trim() === token)) return null;
   return { token, projectId };
 }
+
+/** APP_URL without a trailing slash: the reply's link. Never taken from the request's Host. */
+export const intakeAppUrl = (): string | null => (process.env.APP_URL ?? '').trim().replace(/\/+$/, '') || null;
 
 /** Constant time whatever the lengths: both sides are hashed first. */
 export function tokenMatches(sent: string | null, want: string): boolean {
@@ -180,6 +187,9 @@ export async function takeReport(cfg: IntakeConfig, r: Report): Promise<IntakeRe
   const scope = { userId: project.ownerId, orgId: project.orgId };
   const c = await collections(); // scope-ok: the intake project (id from the environment only) and intake ids; tasks go through createTask
   const key = { source: SOURCE, reportId: r.report_id };
+  // Stored on the task too, so the task is found even when its claim lost track of it (a crash between making the task
+  // and recording it, or a claim taken over while a slow request was still making it).
+  const sourceId = `intake:${SOURCE}:${r.report_id}`;
 
   // Claim the id (insert first), or wait for whoever holds it. A repeat costs no rate-limit slot.
   const claimId = randomUUID();
@@ -207,6 +217,12 @@ export async function takeReport(cfg: IntakeConfig, r: Report): Promise<IntakeRe
     }
   }
 
+  const made = await findTaskBySourceMessage(scope, sourceId);
+  if (made) {
+    await c.intake.updateOne({ _id: claimId, taskId: null }, { $set: { taskId: made.id, ref: made.ref } }); // scope-ok: intake ids per source, no work data
+    return { status: 200, ref: made.ref };
+  }
+
   const slot = await reserveIntake(SOURCE);
   if (!slot.ok) {
     await c.intake.deleteOne({ _id: claimId, taskId: null }); // scope-ok: intake ids per source, no work data
@@ -226,14 +242,33 @@ export async function takeReport(cfg: IntakeConfig, r: Report): Promise<IntakeRe
         assignees: [project.ownerId],
       },
       MAILLOOM_INTAKE,
-      { note: 'Filed from a Mailloom problem report', authors: { title: author, description: author } },
+      { note: 'Filed from a Mailloom problem report', source: { kind: 'intake', messageId: sourceId }, authors: { title: author, description: author } },
     );
-    await c.intake.updateOne({ _id: claimId }, { $set: { taskId: task.id, ref: task.ref } }); // scope-ok: intake ids per source, no work data
+    const done = { $set: { taskId: task.id, ref: task.ref } };
+    const mine = await c.intake.updateOne({ _id: claimId, taskId: null }, done); // scope-ok: intake ids per source, no work data
+    if (!mine.matchedCount) await recordLate(c, key, task, project);
     return { status: 201, ref: task.ref, scope };
   } catch (e) {
     await c.intake.deleteOne({ _id: claimId, taskId: null }).catch(() => {}); // scope-ok: intake ids per source, no work data
     await slot.release().catch(() => {});
     throw e;
+  }
+}
+
+/**
+ * Our claim was taken over while createTask ran (it took longer than STALE_CLAIM_MS): put the task on whichever claim
+ * holds the report id now, or a new one. If that claim already names another task, a duplicate was made: say so in the
+ * log (numbers only); nothing is deleted.
+ */
+async function recordLate(c: Awaited<ReturnType<typeof collections>>, key: { source: typeof SOURCE; reportId: string }, task: { id: string; ref: number }, project: Project): Promise<void> {
+  const r = await c.intake.updateOne({ ...key, taskId: null }, { $set: { taskId: task.id, ref: task.ref } }); // scope-ok: intake ids per source, no work data
+  if (r.matchedCount) return;
+  const other = await c.intake.findOne(key); // scope-ok: intake ids per source, no work data
+  if (!other) {
+    const now = new Date();
+    await c.intake.insertOne({ _id: randomUUID(), ...key, orgId: project.orgId, projectId: project._id, taskId: task.id, ref: task.ref, claimedAt: now, createdAt: now }).catch(e => { if (!isDup(e)) throw e; }); // scope-ok: intake ids per source, no work data
+  } else if (other.ref !== task.ref) {
+    console.warn(`[intake] mailloom duplicate #${task.ref} of #${other.ref}`);
   }
 }
 

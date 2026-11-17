@@ -1,6 +1,6 @@
 import { after } from 'next/server';
 import { flushQueuedAlerts } from '@/lib/alerts';
-import { MAX_BODY, ReportSchema, bearerOf, intakeConfig, readCapped, reportProblem, takeReport, tokenMatches } from '@/lib/intake';
+import { MAX_BODY, ReportSchema, bearerOf, intakeAppUrl, intakeConfig, readCapped, reportProblem, takeReport, tokenMatches } from '@/lib/intake';
 
 // Mailloom's "Report a problem" form, server to server: POST /api/intake/mailloom (lib/intake.ts, docs/HANDOVER.md
 // "Intake"). Authorization: Bearer <MAILLOOM_INTAKE_TOKEN>; the token can only make a report task in the one project
@@ -18,11 +18,10 @@ const reply = (status: number, body: object, extra: Record<string, string> = {})
   return Response.json(body, { status, headers: { ...HEADERS, ...extra } });
 };
 
-const appUrl = (req: Request) => (process.env.APP_URL || new URL(req.url).origin).replace(/\/+$/, '');
-
 export async function POST(req: Request): Promise<Response> {
   const cfg = intakeConfig();
-  if (!cfg) return reply(503, { error: 'The Mailloom intake is not configured on this server.' });
+  const base = intakeAppUrl(); // the reply's link: never from the request's Host
+  if (!cfg || !base) return reply(503, { error: 'The Mailloom intake is not configured on this server.' });
   if (!tokenMatches(bearerOf(req), cfg.token)) return reply(401, { error: 'unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
   const text = await readCapped(req, MAX_BODY);
   if (text === null) return reply(413, { error: `The report is larger than ${MAX_BODY / 1024} KB.` });
@@ -38,7 +37,6 @@ export async function POST(req: Request): Promise<Response> {
     const r = await takeReport(cfg, parsed.data);
     if (r.status === 503) return reply(503, { error: r.error });
     if (r.status === 429) return reply(429, { error: 'Too many reports in the last hour; try again later.' }, { 'Retry-After': String(r.retryAfter) });
-    const base = appUrl(req);
     if (r.status === 201 && r.scope) {
       const s = r.scope;
       after(() => flushQueuedAlerts(s, base)); // the owner's "assigned to you" notice

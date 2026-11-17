@@ -63,6 +63,20 @@ export function authorLabel(a: unknown, people: Record<string, string>): string 
   }
 }
 
+/**
+ * For list outputs (list_tasks, daily_summary, start_work, get_project): the label of a title written outside Work OS
+ * (a Discord message, an email, an intake report), from the stored titleBy; older tasks without one fall back to their
+ * Discord or mail source. Undefined for everything else, so the label is only on the tasks that have one.
+ */
+export function outsideTitleLabel(t: { titleBy?: TextAuthor; source?: TaskSource }): string | undefined {
+  const sp = special(t.titleBy);
+  if (sp && sp.kind !== 'unknown') return authorLabel(sp, {});
+  if (t.titleBy) return undefined;
+  if (t.source?.kind === 'discord') return authorLabel({ kind: 'discord-author', name: t.source.author ?? '' }, {});
+  if (t.source?.kind === 'mail') return authorLabel({ kind: 'mail-author', name: t.source.from ?? '' }, {});
+  return undefined;
+}
+
 /** The short name the Give to Claude sheet shows the giver: "Bea", "Discord user x", "someone (unknown)". */
 export function authorName(a: unknown, people: Record<string, string>): string {
   const sp = special(a);
