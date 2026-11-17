@@ -99,7 +99,7 @@ export function watchTarget(op: string, a: Record<string, unknown>): WatchTarget
   }
 }
 
-type EventKind = 'call' | 'trash' | 'mail_trash' | 'mail_send';
+type EventKind = 'call' | 'trash' | 'mail_trash' | 'mail_send' | 'intake';
 
 async function countSince(keyId: string, kind: EventKind, since: Date): Promise<number> {
   const c = await collections(); // scope-ok: rate-limit events per API key
@@ -139,6 +139,27 @@ async function reserve(keyId: string, kind: EventKind, n: number, since: Date, l
     if (settled + n > limit) return { id: null, total: settled };
   }
   return { id: null, total: total - n };
+}
+
+/** Reports an intake source may send per rolling hour (lib/intake.ts). */
+export const INTAKE_PER_HOUR = 60;
+
+/**
+ * One slot of an intake source's hourly budget (the same race-safe reserve as the key budgets above). Refused: how many
+ * seconds until the oldest report in the window ages out (for Retry-After). `release` gives the slot back when the
+ * report then made no task.
+ */
+export async function reserveIntake(source: string): Promise<{ ok: true; release: () => Promise<void> } | { ok: false; retryAfter: number }> {
+  const keyId = `intake:${source}`;
+  const since = new Date(Date.now() - 3_600_000);
+  const r = await reserve(keyId, 'intake', 1, since, INTAKE_PER_HOUR);
+  if (r.id) {
+    const id = r.id;
+    return { ok: true, release: () => unrecord(id) };
+  }
+  const oldest = await (await collections()).policyEvents.find({ keyId, kind: 'intake', at: { $gte: since } }).sort({ at: 1 }).limit(1).next(); // scope-ok: rate-limit events per intake source
+  const wait = oldest ? Math.ceil((oldest.at.getTime() + 3_600_000 - Date.now()) / 1000) : 60;
+  return { ok: false, retryAfter: Math.min(3600, Math.max(1, wait)) };
 }
 
 const trashWindowStart = () => new Date(Date.now() - LIMITS.trashWindowMin * 60_000);

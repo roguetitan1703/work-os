@@ -17,7 +17,7 @@ import { scoped, type Scope } from '../scope';
 
 /** True when the reader (`me`) wrote it: they, their Claude, their Discord link, or the system. */
 export function isMine(a: unknown, me: string): boolean {
-  if (a && typeof a === 'object' && 'kind' in a && (a.kind === 'discord-author' || a.kind === 'mail-author' || a.kind === 'unknown')) return false;
+  if (special(a)) return false;
   const x = asActor(a);
   if (x.kind === 'system') return true;
   return !('userId' in x) || !x.userId || x.userId === me;
@@ -30,9 +30,12 @@ export function cleanName(name: string): string {
   return [...name.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '').replace(/"/g, "'").replace(/\s+/g, ' ').trim()].slice(0, 40).join('');
 }
 
-type Special = { kind: 'unknown' } | { kind: 'discord-author'; name: string } | { kind: 'mail-author'; name: string };
-const special = (a: unknown): Special | null =>
-  a && typeof a === 'object' && 'kind' in a && (a.kind === 'unknown' || a.kind === 'discord-author' || a.kind === 'mail-author') ? (a as Special) : null;
+type Special = { kind: 'unknown' } | { kind: 'discord-author'; name: string } | { kind: 'mail-author'; name: string } | { kind: 'report-author'; source: string; name: string };
+function special(a: unknown): Special | null {
+  return a && typeof a === 'object' && 'kind' in a && (a.kind === 'unknown' || a.kind === 'discord-author' || a.kind === 'mail-author' || a.kind === 'report-author') ? (a as Special) : null;
+}
+/** Where an intake report came from, as Claude and people read it (only Mailloom today). */
+const reportSource = (source: string) => (source === 'mailloom' ? 'Mailloom' : 'Outside');
 
 /** How Claude sees an author who is not the reader: `a teammate named "Bea"`, `Discord user "x"`, `author unknown`. */
 export function authorLabel(a: unknown, people: Record<string, string>): string {
@@ -40,6 +43,7 @@ export function authorLabel(a: unknown, people: Record<string, string>): string 
   if (sp?.kind === 'unknown') return 'author unknown';
   if (sp?.kind === 'discord-author') return `Discord user "${cleanName(String(sp.name ?? '')) || 'unknown'}"`;
   if (sp?.kind === 'mail-author') return `email sender "${cleanName(String(sp.name ?? '')) || 'unknown'}"`;
+  if (sp?.kind === 'report-author') return `${reportSource(sp.source)} report from "${cleanName(String(sp.name ?? '')) || 'unknown'}" (outside Work OS)`;
   const x = asActor(a);
   const teammate = (id: string) => {
     const n = people[id];
@@ -65,6 +69,7 @@ export function authorName(a: unknown, people: Record<string, string>): string {
   if (sp?.kind === 'unknown') return 'someone (unknown)';
   if (sp?.kind === 'discord-author') return `Discord user ${cleanName(String(sp.name ?? '')) || 'unknown'}`;
   if (sp?.kind === 'mail-author') return `email sender ${cleanName(String(sp.name ?? '')) || 'unknown'}`;
+  if (sp?.kind === 'report-author') return `${reportSource(sp.source)} report from ${cleanName(String(sp.name ?? '')) || 'unknown'}`;
   const x = asActor(a);
   const id = 'userId' in x ? x.userId : undefined;
   if (!id) return 'Discord';

@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { Card, Section } from './ui';
 
 const KIND_LABEL: Record<string, string> = { page: 'Page load', rsc: 'Page data', action: 'Action', api: 'API' };
-const CALLER_LABEL: Record<string, string> = { browser: 'Browser', worker: 'Worker', mcp: 'Claude (MCP)', cron: 'Cron', discord: 'Discord', anonymous: 'No sign-in' };
+const CALLER_LABEL: Record<string, string> = { browser: 'Browser', worker: 'Worker', mcp: 'Claude (MCP)', cron: 'Cron', discord: 'Discord', intake: 'Intake', anonymous: 'No sign-in' };
 const fmt = (n: number) => n.toLocaleString('en-US');
 
 /** Settings › Usage: the request log (lib/usage.ts, docs/usage-log.md). */

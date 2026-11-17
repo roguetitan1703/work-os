@@ -412,7 +412,13 @@ export type WorkerFolderDoc = { _id: string; /** The device's owner and organiza
 export type WorkerJobDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; kind: 'start' | 'resume' | 'stop' | 'vscode' | 'desktop' | 'reopen' | 'dismiss'; folderId?: string; projectId?: string; /** Not set for reopen and dismiss (they act on the worker's own remembered set). */ sessionId?: string; prompt?: string; /** Turbo mode: the repo is not on the computer; the worker clones it first (docs/launcher.md). No folderId then. */ clone?: { repo: string; trusted: boolean }; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
 export type WorkerSessionDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; /** '' while its repo is still being cloned (turbo mode). */ folderId: string; projectId: string | null; /** Turbo mode: still cloning `repo` (owner/name). */ cloning?: boolean; repo?: string; /** Turbo mode: cloned but not trusted automatically; Claude Code asks the person on first run. */ needsTrust?: boolean; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Its owner removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string };
 /** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
-export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker' | 'mail_trash' | 'mail_send'; at: Date; n?: number };
+export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker' | 'mail_trash' | 'mail_send' | 'intake'; at: Date; n?: number };
+/**
+ * One report sent in through an intake (lib/intake.ts): the sender's own id, so the same report sent again finds its task.
+ * Unique on (source, reportId). taskId and ref are null while the task is being made (`claimedAt` says since when).
+ * Holds no report text: only ids.
+ */
+export type IntakeDoc = { _id: string; source: 'mailloom'; reportId: string; orgId: string; projectId: string; taskId: string | null; ref: number | null; claimedAt: Date; createdAt: Date };
 
 /** One email sent (for the hourly limits in lib/mail.ts). TTL index keeps 2 hours. */
 export type MailLogDoc = { _id: string; kind: 'reset' | 'changed' | 'test' | 'invite'; at: Date; /** Hash of the recipient, for the per-address limit. */ to?: string };
@@ -524,6 +530,7 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['workerJobs', [{ key: { deviceId: 1, doneAt: 1, createdAt: 1 }, name: 'device_pending' }, { key: { createdAt: 1 }, name: 'created_ttl', expireAfterSeconds: 30 * 86_400 }]],
     ['workerSessions', [{ key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' }, { key: { deviceId: 1, state: 1 }, name: 'device_state' }]],
     ['policyEvents', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { keyId: 1, kind: 1, at: -1 }, name: 'key_kind_at' }]],
+    ['intake', [{ key: { source: 1, reportId: 1 }, unique: true, name: 'source_report_unique' }]],
     ['mailLog', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { kind: 1, at: -1 }, name: 'kind_at' }, { key: { kind: 1, to: 1, at: -1 }, name: 'kind_to_at' }]],
     ['requestStats', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 35 * 86_400 }]],
     // The calendar link (docs/calendar.md): one row per person per organization, found by the hash of its token.
@@ -597,6 +604,7 @@ export async function collections() {
     mailConnectAuth: db.collection<MailConnectAuthDoc>('mailConnectAuth'),
     requestStats: db.collection<RequestStatsDoc>('requestStats'),
     policyEvents: db.collection<PolicyEventDoc>('policyEvents'),
+    intake: db.collection<IntakeDoc>('intake'),
     claudeItems: db.collection<ClaudeItemDoc>('claudeItems'),
     needs: db.collection<NeedDoc>('needs'),
     devices: db.collection<DeviceDoc>('devices'),

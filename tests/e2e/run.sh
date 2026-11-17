@@ -80,6 +80,8 @@ flow-r1|flow-r1.mjs|none|plain
 delpat-os|delpat-os.mjs|none|delpat
 mail|mail.mjs|none|mail
 mail-paste|mail-paste.mjs|none|mailpaste
+intake|intake.mjs|none|intake
+intake-off|intake-off.mjs|none|plain
 delpat-os-off|delpat-os-off.mjs|none|plain
 ${E2E_EXTRA:-}
 "
@@ -165,7 +167,8 @@ export E2E_SHOTS="${E2E_SHOTS:-$TMP/shots}"
 export DISCORD_BOT_TOKEN= DISCORD_PUBLIC_KEY= DISCORD_APPLICATION_ID= DISCORD_API_BASE=
 export DELPAT_OS_CLIENT_ID= DELPAT_OS_CLIENT_SECRET= DELPAT_OS_ISSUER= DELPAT_OS_TOKEN_KEY=
 export MAILLOOM_AGENT_URL= MAILLOOM_WEB_URL= MAIL_KEY_SECRET= MAILLOOM_CLIENT_ID= MAILLOOM_CLIENT_SECRET=
-# The app server's log: the mail suite checks no Mailloom key or code ever reaches it.
+export MAILLOOM_INTAKE_TOKEN= MAILLOOM_INTAKE_PROJECT=
+# The app server's log: the mail suite checks no Mailloom key or code ever reaches it, the intake suite no token or report text.
 export E2E_SERVER_LOG="$TMP/server.log"
 export VAPID_PUBLIC_KEY= VAPID_PRIVATE_KEY= VAPID_SUBJECT=
 export EMAIL_HOST= EMAIL_PORT= EMAIL_SECURE= EMAIL_USER= EMAIL_PASSWORD= EMAIL_FROM= EMAIL_FROM_NAME= OWNER_EMAIL=
@@ -214,6 +217,12 @@ start_server() {
     export MAILLOOM_AGENT_URL="http://127.0.0.1:$DPORT/api/agent/v1" MAILLOOM_WEB_URL=https://mail.delpat.test MAILLOOM_CLIENT_ID= MAILLOOM_CLIENT_SECRET=
   else
     export MAILLOOM_AGENT_URL= MAILLOOM_WEB_URL= MAILLOOM_CLIENT_ID= MAILLOOM_CLIENT_SECRET=
+  fi
+  # intake: the Mailloom report intake on, for one project the intake suite creates (its id is fixed here).
+  if [ "$1" = intake ]; then
+    export MAILLOOM_INTAKE_TOKEN=e2e-intake-token-0123456789abcdefghijklmnopqrstuv MAILLOOM_INTAKE_PROJECT=e2e-intake-project
+  else
+    export MAILLOOM_INTAKE_TOKEN= MAILLOOM_INTAKE_PROJECT=
   fi
   if [ "$1" = reel ]; then
     export IG_GRAPH_BASE="http://127.0.0.1:$DPORT" IG_ACCOUNT_ID=17841400000000001 IG_PAGE_TOKEN=e2e-ig-token-SECRETVALUE-0123456789 IG_DELAY_SCALE=0.01 IG_E2E=1

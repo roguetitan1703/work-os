@@ -5,7 +5,7 @@ import { forUser, getUserSetting, scoped, setUserSetting, takeUserSetting, type 
 import { afterCommit } from '../db';
 import { wake } from '../live';
 import { requestContext } from '../request-context';
-import { actorUserId, agentActor, userActor, type Actor } from '../actors';
+import { actorUserId, agentActor, userActor, viaLabel, type Actor } from '../actors';
 import type { Status } from '../types';
 import { InputError, NotFoundError } from './errors';
 import { placeOf } from './projects';
@@ -576,6 +576,8 @@ export async function takeBackFromClaude(scope: DeviceScope, key: string, opts: 
 
 /** "Claude for Bea", "Bea via Discord", "Bea". */
 export async function whoDid(s: Scope, actor: Actor): Promise<string> {
+  const via = viaLabel(actor);
+  if (via) return `the ${via}`;
   const { memberNames } = await import('../people');
   const id = actorUserId(actor);
   const name = (id && (await memberNames(s.orgId))[id]) || 'someone';
