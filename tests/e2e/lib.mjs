@@ -174,12 +174,12 @@ export async function mkKey({ agent = 'claude-code', userId = ME.userId, orgId =
 // ---- playwright ----
 const req = createRequire(import.meta.url);
 function loadPlaywright() {
-  const cands = [process.env.PLAYWRIGHT_CORE, 'playwright-core', 'C:/Users/VICTUS/AppData/Roaming/npm/node_modules/@delpat/tutorial-videos/node_modules/playwright-core'].filter(Boolean);
+  const cands = [process.env.PLAYWRIGHT_CORE, 'playwright-core', 'C:/Users/VICTUS/AppData/Roaming/npm/node_modules/@delpat/tutorial-videos/node_modules/playwright-core', 'D:/Work/Delpat/projects/cutroom/node_modules/playwright-core'].filter(Boolean);
   for (const c of cands) { try { return req(c); } catch { /* next */ } }
   throw new Error('playwright-core not found; set PLAYWRIGHT_CORE to its folder');
 }
 export const { chromium } = loadPlaywright();
-const CHROME = process.env.CHROME_EXE || (process.env.LOCALAPPDATA ? process.env.LOCALAPPDATA + '/ms-playwright/chromium-1243/chrome-win64/chrome.exe' : '');
+const CHROME = process.env.CHROME_EXE || [process.env.LOCALAPPDATA && process.env.LOCALAPPDATA + '/ms-playwright/chromium-1243/chrome-win64/chrome.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(p => p && fs.existsSync(p)) || '';
 export const launch = (opts = {}) => chromium.launch({ ...(CHROME && fs.existsSync(CHROME) ? { executablePath: CHROME } : {}), ...opts });
 
 // ---- results ----

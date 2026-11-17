@@ -290,7 +290,9 @@ try {
   check('settings: access keys are under Advanced', (await advanced.count()) === 1 && /Access keys/i.test(await advanced.first().textContent()));
   await ps.screenshot({ path: SP + '/oauth-settings-desktop.png', fullPage: true });
   await ps.setViewportSize({ width: 390, height: 800 });
-  check('settings: phone: no sideways scroll', okO(await overflow(ps)), JSON.stringify(await overflow(ps)));
+  let po = await overflow(ps); // measured right after the resize it can catch a half-finished reflow: settle up to 2 s
+  for (let i = 0; i < 10 && !okO(po); i++) { await ps.waitForTimeout(200); po = await overflow(ps); }
+  check('settings: phone: no sideways scroll', okO(po), JSON.stringify(po));
   await ps.screenshot({ path: SP + '/oauth-settings-phone.png', fullPage: true });
   await ps.setViewportSize({ width: 1280, height: 900 });
   await ps.click(`button[aria-label="Revoke Claude Desktop (test)"]`);
