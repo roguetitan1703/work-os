@@ -1,6 +1,6 @@
 import { after } from 'next/server';
 import { flushQueuedAlerts } from '@/lib/alerts';
-import { MAX_BODY, ReportSchema, bearerOf, intakeConfig, reportProblem, takeReport, tokenMatches } from '@/lib/intake';
+import { MAX_BODY, ReportSchema, bearerOf, intakeConfig, readCapped, reportProblem, takeReport, tokenMatches } from '@/lib/intake';
 
 // Mailloom's "Report a problem" form, server to server: POST /api/intake/mailloom (lib/intake.ts, docs/HANDOVER.md
 // "Intake"). Authorization: Bearer <MAILLOOM_INTAKE_TOKEN>; the token can only make a report task in the one project
@@ -20,32 +20,11 @@ const reply = (status: number, body: object, extra: Record<string, string> = {})
 
 const appUrl = (req: Request) => (process.env.APP_URL || new URL(req.url).origin).replace(/\/+$/, '');
 
-/** The body as text, or null once it passes MAX_BODY (read no further). */
-async function readCapped(req: Request): Promise<string | null> {
-  const declared = Number(req.headers.get('content-length') ?? '');
-  if (Number.isFinite(declared) && declared > MAX_BODY) return null;
-  if (!req.body) return '';
-  const reader = req.body.getReader();
-  const parts: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_BODY) {
-      await reader.cancel().catch(() => {});
-      return null;
-    }
-    parts.push(value);
-  }
-  return new TextDecoder().decode(Buffer.concat(parts));
-}
-
 export async function POST(req: Request): Promise<Response> {
   const cfg = intakeConfig();
   if (!cfg) return reply(503, { error: 'The Mailloom intake is not configured on this server.' });
   if (!tokenMatches(bearerOf(req), cfg.token)) return reply(401, { error: 'unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
-  const text = await readCapped(req);
+  const text = await readCapped(req, MAX_BODY);
   if (text === null) return reply(413, { error: `The report is larger than ${MAX_BODY / 1024} KB.` });
   let raw: unknown;
   try {

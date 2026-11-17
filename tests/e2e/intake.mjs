@@ -4,8 +4,12 @@
 // 400s; unknown fields dropped; 201 makes the task in the right project and organization (tag, P3, owner, actor,
 // writtenBy through MCP get_task, the description's structure); the owner's notice; 200 for a repeated report_id;
 // 10 parallel copies make one task; 429 after 60 new reports an hour (Retry-After); 405; no token or report text in the
-// server log. Seed: none.
+// server log. Notices (POST /api/intake/mailloom/notice) against a stub Discord API on E2E_DISCORD_PORT (run.sh's intake
+// mode points the bot at it, MAILLOOM_NOTICE_CHANNEL=333333333333333333): 401, 413, 400s, 204 posts exactly the text to
+// the env channel with no mentions (the request's own channel ignored), @everyone / @here neutralised, 502 when Discord
+// refuses, 429 after 20 an hour (a counter apart from the reports'). Seed: none.
 import fs from 'node:fs';
+import http from 'node:http';
 import { B, ME, MCP, check, db, finish, makeUser, mcpAs, rawDb } from './lib.mjs';
 
 const TOKEN = process.env.MAILLOOM_INTAKE_TOKEN;
@@ -24,6 +28,41 @@ const post = async (body, { token = TOKEN, auth, headers = {} } = {}) => {
   return { status: r.status, headers: r.headers, body: await r.json().catch(() => null) };
 };
 const without = (o, k) => Object.fromEntries(Object.entries(o).filter(([x]) => x !== k));
+// ---- stub Discord: records channel messages; `discordMode` deny answers 403 Missing Permissions ----
+const CHANNEL = process.env.MAILLOOM_NOTICE_CHANNEL;
+const posted = [];
+let discordMode = 'ok';
+const stub = http
+  .createServer((q, s) => {
+    let b = '';
+    q.on('data', c => (b += c));
+    q.on('end', () => {
+      s.setHeader('content-type', 'application/json');
+      const m = /\/channels\/(\d+)\/messages$/.exec(q.url ?? '');
+      if (q.method === 'POST' && m) {
+        if (discordMode === 'deny') {
+          s.statusCode = 403;
+          return s.end(JSON.stringify({ message: 'Missing Permissions', code: 50013 }));
+        }
+        posted.push({ channel: m[1], body: JSON.parse(b || '{}'), auth: q.headers.authorization });
+        return s.end(JSON.stringify({ id: String(posted.length) }));
+      }
+      s.statusCode = 404;
+      s.end(JSON.stringify({ message: 'Unknown', code: 0 }));
+    });
+  })
+  .listen(Number(process.env.E2E_DISCORD_PORT || 4401), '127.0.0.1');
+const NOTICE = B + '/api/intake/mailloom/notice';
+const notice = async (body, { token = TOKEN, auth } = {}) => {
+  const r = await fetch(NOTICE, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(auth !== undefined ? (auth ? { authorization: auth } : {}) : { authorization: `Bearer ${token}` }) },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+    redirect: 'manual',
+  });
+  return { status: r.status, headers: r.headers, text: await r.text() };
+};
+
 const report = (o = {}) => ({ report_id: 'r-' + Math.random().toString(36).slice(2), reporter: REPORTER, title: `Inbox does not load ${MARK}`, description_markdown: `Steps: open the inbox. ${MARK}`, ...o });
 
 try {
@@ -169,12 +208,52 @@ try {
   const pm = await fetch(URL_, { method: 'PUT', headers: { authorization: `Bearer ${TOKEN}` }, body: '{}' });
   check('PUT: 405', pm.status === 405);
 
+  // ---- notices ----
+  const NMARK = 'zq7731-notice-text';
+  let n = await notice({ text: `x ${NMARK}` }, { token: wrongSame });
+  check('notice 401: wrong token', n.status === 401 && n.headers.get('www-authenticate') === 'Bearer', String(n.status));
+  n = await notice({ text: `x ${NMARK}` }, { auth: null });
+  check('notice 401: missing token', n.status === 401, String(n.status));
+  n = await notice({ text: 'x'.repeat(5000) });
+  check('notice 413: body over 4 KB', n.status === 413, String(n.status));
+  for (const [label, body] of [['empty text', { text: '' }], ['blank text', { text: '   ' }], ['1901 characters', { text: 'x'.repeat(1901) }], ['no text', {}], ['text not a string', { text: 5 }], ['not JSON', '{"text":']]) {
+    n = await notice(body);
+    check(`notice 400: ${label}`, n.status === 400 && /"error"/.test(n.text), `${n.status} ${n.text.slice(0, 120)}`);
+  }
+  check('notice: nothing posted yet', posted.length === 0, String(posted.length));
+  await rawDb.collection('policyEvents').deleteMany({ keyId: 'intake:mailloom-notice' });
+  n = await notice({ text: `Nightly update done ${NMARK}`, channel: '999999999999999999', allowed_mentions: { parse: ['everyone'] } });
+  const p0 = posted[0];
+  check('notice 204: posted', n.status === 204 && n.text === '' && posted.length === 1, `${n.status} ${n.text}`);
+  check("notice: to the env channel only (the request's channel ignored)", p0?.channel === CHANNEL, p0?.channel);
+  check('notice: exactly the text, no mentions, embeds suppressed, the bot token', p0?.body?.content === `Nightly update done ${NMARK}` && JSON.stringify(p0?.body?.allowed_mentions) === '{"parse":[]}' && p0?.body?.flags === 4 && p0?.auth === 'Bot test-bot-token', JSON.stringify(p0));
+  n = await notice({ text: 'Hi @everyone and @here, also @Everyone' });
+  check('notice: @everyone and @here neutralised', n.status === 204 && posted[1]?.body?.content === 'Hi @\u200beveryone and @\u200bhere, also @\u200bEveryone', JSON.stringify(posted[1]?.body?.content));
+  n = await notice({ text: 'y'.repeat(1900) });
+  check('notice: 1900 characters accepted', n.status === 204 && posted[2]?.body?.content?.length === 1900);
+  discordMode = 'deny';
+  n = await notice({ text: 'refused' });
+  check('notice 502: Discord refuses, said plainly', n.status === 502 && /Send Messages/.test(JSON.parse(n.text || '{}').error ?? ''), `${n.status} ${n.text}`);
+  discordMode = 'ok';
+  await rawDb.collection('policyEvents').deleteMany({ keyId: 'intake:mailloom-notice' });
+  const ns = await Promise.all(Array.from({ length: 20 }, (_, i) => notice({ text: `rate ${i}` })));
+  check('notice rate: 20 in an hour posted', ns.every(x => x.status === 204), ns.map(x => x.status).join(','));
+  n = await notice({ text: 'the 21st' });
+  const nra = Number(n.headers.get('retry-after'));
+  check('notice rate: the 21st is 429 with Retry-After', n.status === 429 && Number.isInteger(nra) && nra >= 1 && nra <= 3600, `${n.status} ${n.headers.get('retry-after')}`);
+  check('notice: the 21st was not posted', !posted.some(x => x.body?.content === 'the 21st'));
+  check("notice rate: a counter apart from the reports'", (await rawDb.collection('policyEvents').countDocuments({ keyId: 'intake:mailloom' })) === 60 && (await rawDb.collection('policyEvents').countDocuments({ keyId: 'intake:mailloom-notice' })) === 20);
+  const ng = await fetch(NOTICE, { redirect: 'manual' });
+  check('notice GET: 405 with Allow: POST', ng.status === 405 && ng.headers.get('allow') === 'POST', String(ng.status));
+
   // ---- the server log ----
   await new Promise(res => setTimeout(res, 500));
   const slog = process.env.E2E_SERVER_LOG && fs.existsSync(process.env.E2E_SERVER_LOG) ? fs.readFileSync(process.env.E2E_SERVER_LOG, 'utf8') : null;
   check('server log: intake lines carry status and ref only', slog !== null && /\[intake\] mailloom 201 #\d+/.test(slog), slog === null ? 'no server log (E2E_SERVER_LOG)' : '');
-  check('server log: no token, report text or reporter', slog !== null && !slog.includes(TOKEN) && !slog.includes(TOKEN.slice(0, 20)) && !slog.includes(MARK) && !slog.includes('zq7731'), slog === null ? 'no server log' : '');
+  check('server log: no token, report text, reporter or notice text', slog !== null && !slog.includes(TOKEN) && !slog.includes(TOKEN.slice(0, 20)) && !slog.includes(MARK) && !slog.includes('zq7731'), slog === null ? 'no server log' : '');
+  check('server log: notice lines carry the status only', slog !== null && /\[intake\] mailloom notice 204/.test(slog));
 } catch (e) {
   check('suite error', false, e?.stack || String(e));
 }
+stub.close();
 await finish();

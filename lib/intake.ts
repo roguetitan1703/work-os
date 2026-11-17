@@ -6,9 +6,10 @@ import { MAILLOOM_INTAKE, type TextAuthor } from './actors';
 import { createTask } from './data/tasks';
 import { isMember } from './people';
 import { reserveIntake } from './mcp/policy';
+import { DiscordError, api, budget, discordConfig } from './discord/client';
 
 // Intake: Mailloom's "Report a problem" form, server to server (app/api/intake/mailloom/route.ts, docs/HANDOVER.md
-// "Intake"). Least privilege: the token can do exactly one thing, create a task in one fixed project. The project comes
+// "Intake"). Least privilege: the token can do exactly two things: create a task in one fixed project, and post a notice to one fixed Discord channel. The project comes
 // only from the environment (MAILLOOM_INTAKE_PROJECT); its organization and owner come from the project document.
 //
 // The task is made through the data layer as the project's owner (their scope), by the MAILLOOM_INTAKE actor (history
@@ -19,6 +20,9 @@ import { reserveIntake } from './mcp/policy';
 // The same report_id again answers with the same task (the `intake` collection, unique on source + reportId; the first
 // request claims the id before it makes the task, so parallel copies wait for it instead of making their own). At most
 // INTAKE_PER_HOUR new reports an hour (lib/mcp/policy.ts reserveIntake); a repeat of a known report costs nothing.
+//
+// Notices (app/api/intake/mailloom/notice/route.ts): the same token posts a short line to one Discord channel
+// (MAILLOOM_NOTICE_CHANNEL, never from the request) through the Work OS bot, no mentions, at most 20 an hour.
 
 export const MAX_BODY = 64 * 1024;
 const SOURCE = 'mailloom' as const;
@@ -46,6 +50,27 @@ export function tokenMatches(sent: string | null, want: string): boolean {
   const a = createHash('sha256').update(sent).digest();
   const b = createHash('sha256').update(want).digest();
   return timingSafeEqual(a, b);
+}
+
+/** The body as text, or null once it passes `max` bytes (declared or streamed; read no further). */
+export async function readCapped(req: Request, max: number): Promise<string | null> {
+  const declared = Number(req.headers.get('content-length') ?? '');
+  if (Number.isFinite(declared) && declared > max) return null;
+  if (!req.body) return '';
+  const reader = req.body.getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    parts.push(value);
+  }
+  return new TextDecoder().decode(Buffer.concat(parts));
 }
 
 /** `Authorization: Bearer <token>` only (no other header, no query string). */
@@ -209,5 +234,64 @@ export async function takeReport(cfg: IntakeConfig, r: Report): Promise<IntakeRe
     await c.intake.deleteOne({ _id: claimId, taskId: null }).catch(() => {}); // scope-ok: intake ids per source, no work data
     await slot.release().catch(() => {});
     throw e;
+  }
+}
+
+// ── Notices ─────────────────────────────────────────────────────────────────
+
+export const MAX_NOTICE_BODY = 4 * 1024;
+const DISCORD_MAX = 2000;
+
+export const NoticeSchema = z.object({
+  text: z
+    .string()
+    .max(1900, 'text is longer than 1900 characters')
+    .refine(t => t.trim().length > 0, 'text is empty'),
+});
+
+/** The channel notices go to: MAILLOOM_NOTICE_CHANNEL when it is a Discord id (digits), else null. */
+export function noticeChannel(): string | null {
+  const v = (process.env.MAILLOOM_NOTICE_CHANNEL ?? '').trim();
+  return /^\d{15,22}$/.test(v) ? v : null;
+}
+
+/** Notices are on: the token, the bot and the channel are all set. */
+export const noticesConfigured = (): boolean => !!intakeConfig() && !!discordConfig() && !!noticeChannel();
+
+/** A second guard beside allowed_mentions: @everyone and @here get a zero-width space after the @, so they never ping. */
+export const neutralise = (text: string) => text.replace(/@(everyone|here)/gi, '@\u200b$1');
+
+export type NoticeResult = { status: 204 } | { status: 400 | 502 | 503; error: string } | { status: 429; retryAfter: number };
+
+/** Post one notice (the caller is authenticated and the text checked). */
+export async function postNotice(text: string): Promise<NoticeResult> {
+  const channel = noticeChannel();
+  if (!channel || !discordConfig()) return { status: 503, error: 'Mailloom notices are not configured on this server.' };
+  const content = neutralise(text);
+  if (content.length > DISCORD_MAX) return { status: 400, error: 'text has too many @everyone or @here to fit once they are made harmless.' };
+  const slot = await reserveIntake('mailloom-notice');
+  if (!slot.ok) return { status: 429, retryAfter: slot.retryAfter };
+  try {
+    await api(`/channels/${channel}/messages`, { method: 'POST', body: { content, allowed_mentions: { parse: [] }, flags: 1 << 2 /* suppress embeds */ }, budget: budget(15_000) });
+    return { status: 204 };
+  } catch (e) {
+    // The slot stays spent: a refusal repeated every minute must still hit the hourly limit.
+    return { status: 502, error: discordRefusal(e) };
+  }
+}
+
+function discordRefusal(e: unknown): string {
+  if (!(e instanceof DiscordError)) return 'Discord could not be reached.';
+  switch (e.status) {
+    case 403:
+      return 'Discord refused: the bot lacks View Channel or Send Messages in the notice channel.';
+    case 404:
+      return 'Discord refused: the notice channel does not exist, or the bot is not in its server.';
+    case 401:
+      return "Discord refused the bot's token.";
+    case 429:
+      return 'Discord is rate limiting the bot; try again later.';
+    default:
+      return `Discord refused the notice${e.status ? ` (${e.status})` : ''}.`;
   }
 }

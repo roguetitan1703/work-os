@@ -141,18 +141,19 @@ async function reserve(keyId: string, kind: EventKind, n: number, since: Date, l
   return { id: null, total: total - n };
 }
 
-/** Reports an intake source may send per rolling hour (lib/intake.ts). */
-export const INTAKE_PER_HOUR = 60;
+/** What an intake source may send per rolling hour (lib/intake.ts): each has its own counter. */
+export const INTAKE_PER_HOUR = { mailloom: 60, 'mailloom-notice': 20 } as const;
+export type IntakeSource = keyof typeof INTAKE_PER_HOUR;
 
 /**
  * One slot of an intake source's hourly budget (the same race-safe reserve as the key budgets above). Refused: how many
- * seconds until the oldest report in the window ages out (for Retry-After). `release` gives the slot back when the
- * report then made no task.
+ * seconds until the oldest one in the window ages out (for Retry-After). `release` gives the slot back when the
+ * request then made nothing.
  */
-export async function reserveIntake(source: string): Promise<{ ok: true; release: () => Promise<void> } | { ok: false; retryAfter: number }> {
+export async function reserveIntake(source: IntakeSource): Promise<{ ok: true; release: () => Promise<void> } | { ok: false; retryAfter: number }> {
   const keyId = `intake:${source}`;
   const since = new Date(Date.now() - 3_600_000);
-  const r = await reserve(keyId, 'intake', 1, since, INTAKE_PER_HOUR);
+  const r = await reserve(keyId, 'intake', 1, since, INTAKE_PER_HOUR[source]);
   if (r.id) {
     const id = r.id;
     return { ok: true, release: () => unrecord(id) };

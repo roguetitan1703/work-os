@@ -11,6 +11,11 @@ try {
     check(`unset, ${label}: 503 with a plain error`, r.status === 503 && /not configured/i.test(j?.error ?? ''), `${r.status} ${JSON.stringify(j)}`);
     check(`unset, ${label}: no-store`, /no-store/.test(r.headers.get('cache-control') ?? ''));
   }
+  for (const [label, auth] of [['no token', null], ['a token', 'Bearer ' + 'x'.repeat(48)]]) {
+    const r = await fetch(URL_ + '/notice', { method: 'POST', headers: { 'content-type': 'application/json', ...(auth ? { authorization: auth } : {}) }, body: JSON.stringify({ text: 'off' }), redirect: 'manual' });
+    const j = await r.json().catch(() => null);
+    check(`notice unset, ${label}: 503 with a plain error`, r.status === 503 && /not configured/i.test(j?.error ?? ''), `${r.status} ${JSON.stringify(j)}`);
+  }
   const g = await fetch(URL_, { redirect: 'manual' });
   check('GET: 405 with Allow: POST (not a login redirect)', g.status === 405 && g.headers.get('allow') === 'POST', String(g.status));
   check('unset: no task made', (await rawDb.collection('tasks').countDocuments({})) === 0);

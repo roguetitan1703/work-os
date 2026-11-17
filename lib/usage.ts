@@ -52,6 +52,7 @@ const ROUTE_LIST: [string, string][] = [
   ['/api/timetable/today', '/api/timetable/today'],
   [`/api/calendar/${S}`, '/api/calendar/[file]'],
   ['/api/intake/mailloom', '/api/intake/mailloom'],
+  ['/api/intake/mailloom/notice', '/api/intake/mailloom/notice'],
 ];
 const ROUTES = ROUTE_LIST.map(([re, p]) => [new RegExp(`^${re}/?$`), p] as const);
 
