@@ -1391,6 +1391,13 @@ function AUDIT() {
   add('route POST /api/cron/alerts', cronProbe('POST'));
   add('route POST /api/cron/reel', { kind: 'route', ok: r => two(r.status), call: ({ p }) => req('POST', '/api/cron/reel', { cookie: p.cookie, bearer: p.chat, body: { post: 'lkq', container: '10000001', slot: 1900000000 } }), control: false /* the CRON_SECRET holder is the server timer; the reel suite runs it */ });
   add('route POST /api/discord/interactions', { kind: 'route', ok: r => two(r.status), call: () => req('POST', '/api/discord/interactions', { body: '{"type":1}', headers: { 'x-signature-ed25519': '00'.repeat(64), 'x-signature-timestamp': String(Math.floor(Date.now() / 1000)) } }), label: 'unsigned', control: false });
+  // Mailloom's intake (lib/intake.ts): only the intake token opens it, never a session or a Work OS key (in this suite's
+  // server mode it is not configured at all: 503; other methods 405).
+  const intakeProbe = (m, path, body) => ({ kind: 'route', ok: r => two(r.status), call: ({ p }) => req(m, path, { cookie: p.cookie, bearer: p.chat, ...(['POST', 'PUT', 'PATCH', 'DELETE'].includes(m) ? { body } : {}) }), control: false /* only Mailloom holds the intake token; the intake suite runs it */ });
+  for (const m of ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE']) {
+    add(`route ${m} /api/intake/mailloom`, intakeProbe(m, '/api/intake/mailloom', { report_id: 'lkq', reporter: 'lkq@example.test', title: 'lkq probe report', description_markdown: 'lkq' }));
+    add(`route ${m} /api/intake/mailloom/notice`, intakeProbe(m, '/api/intake/mailloom/notice', { text: 'lkq probe notice' }));
+  }
   add('route GET /worker/work-os-worker.mjs', route('GET', '/worker/work-os-worker.mjs', { public: true }));
   add('route GET /worker/latest.json', route('GET', '/worker/latest.json', { public: true }));
   // The calendar link (docs/calendar.md): the token is the only credential; anything but a live token is the same bare 404, for everyone.
@@ -1569,6 +1576,8 @@ function MISUSE({ A, T, X, R }) {
   L('a chat key on /api/cron/reel', () => req('POST', '/api/cron/reel', { bearer: A.chat, body: { post: 'lkq', container: '10000001', slot: 1900000000 } }));
   L('a session cookie on /api/cron/reel', () => req('POST', '/api/cron/reel', { cookie: A.cookie, body: { post: 'lkq', container: '10000001', slot: 1900000000 } }));
   L('the cron secret in the query on /api/cron/reel', () => req('POST', `/api/cron/reel?key=${CRON}`, { body: { post: 'lkq', container: '10000001', slot: 1900000000 } }));
+  L('a chat key on /api/intake/mailloom', () => req('POST', '/api/intake/mailloom', { bearer: A.chat, body: { report_id: 'lkq', reporter: 'lkq@example.test', title: 'lkq', description_markdown: 'lkq' } }), r => r.status === 401 || r.status === 503); // 503 while the intake is not configured (this suite's mode)
+  L('a session cookie on /api/intake/mailloom/notice', () => req('POST', '/api/intake/mailloom/notice', { cookie: A.cookie, body: { text: 'lkq' } }), r => r.status === 401 || r.status === 503);
   L('a chat key on /api/discord/interactions', () => req('POST', '/api/discord/interactions', { bearer: A.chat, body: { type: 2, data: { name: 'today' } } }));
   L('Better Auth API key endpoints (not served)', () => req('POST', '/api/auth/api-key/create', { cookie: A.cookie, body: { name: 'lkq' } }));
   L('Better Auth sign-up (closed)', () => req('POST', '/api/auth/sign-up/email', { body: { email: 'lkqsignup@example.test', password: 'lkq-password-9', name: 'x' } }));
