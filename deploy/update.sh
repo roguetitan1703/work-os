@@ -64,4 +64,5 @@ fi
 echo "no build for $SHORT yet: nothing changed."
 echo "  GitHub Actions builds every push to master (when it runs); otherwise build on a PC and upload to manual-builds"
 echo "  (scripts/build-artifact.sh, docs/hosting.md \"Building on a PC\"), then run this again."
-exit 1
+# The nightly run (work-os-update.service) sets NO_BUILD_EXIT=0: a push with no build yet is a quiet night, not a failure.
+exit "${NO_BUILD_EXIT:-1}"

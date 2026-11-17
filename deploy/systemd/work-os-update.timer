@@ -1,0 +1,12 @@
+# Every night at 03:00 India time. Enable: sudo systemctl enable --now work-os-update.timer
+[Unit]
+Description=Work OS nightly update at 03:00 IST
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Asia/Kolkata
+AccuracySec=1min
+# A night the server was off is not made up at boot: updates happen at 03:00, never in the middle of a working day.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -457,6 +457,8 @@ One command on the server brings it to the latest `master`:
 sudo work-os-update
 ```
 
+**Nightly at 03:00 IST** (`deploy/systemd/work-os-update.{service,timer}`): the same `work-os-update`, so master is live by morning whenever its build exists; a push with no build yet changes nothing that night (`NO_BUILD_EXIT=0`). Install once: `sudo cp /srv/work-os/current/deploy/systemd/work-os-update.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now work-os-update.timer`; check with `systemctl list-timers work-os-update.timer` and `journalctl -u work-os-update`. Rule that follows: push to master only what may go live that night.
+
 `work-os-update` (`deploy/update.sh`) fetches `origin/master`; if that commit is already live it stops. Otherwise it
 looks for its build in the `builds` release (GitHub Actions; `work-os-deploy` checks the attestation), then in the
 `manual-builds` release (a PC build, checked against the `.sha256` uploaded with it), and hands it to

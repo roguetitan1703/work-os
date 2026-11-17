@@ -1,0 +1,13 @@
+# The nightly update: runs the root-owned work-os-update (deploy/update.sh), which deploys origin/master only when a
+# checked build of it exists (GitHub Actions or manual-builds), and work-os-deploy rolls back if the new release does
+# not start. Already live or no build yet: nothing changes. Last runs: journalctl -u work-os-update
+[Unit]
+Description=Work OS nightly update to the latest master build
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=NO_BUILD_EXIT=0
+ExecStart=/usr/local/sbin/work-os-update
+TimeoutStartSec=30min
