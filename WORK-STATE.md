@@ -15,6 +15,7 @@
 - Older open items (#165 features to try with Akash, DELPAT_OS_CLIENT_SECRET, first real turbo Start / Open in VS Code, chat porting from Antigravity, C46-C52, AKAR C20/C22/C23 and C7/C8) are folded into the PRODUCT.md steps; still open in Work OS.
 
 ## Later
+- e2e oauth "settings: phone: no sideways scroll" fails in 2 of 3 multi-suite runs since the tests use the installed Chrome (the ms-playwright chromium was deleted): the Add this PC / Create key input rows on Claude › Set up sit past 390 px after a 1280→390 resize, with no page scroll; passes alone and does not reproduce in a probe (fresh 390 or resized, Claude used) — waits on it showing on a real phone, or a pinned test browser.
 - Phone UI pass: walk every phone screen (Today, project, Needs, task) on the live build, screenshots + an awkward-list for Om to pick from — waits on the 18 Nov release being live and Om's yes.
 - Connect Mailloom, Work OS half built on builder-a (lib/mail/connect.ts, /api/mail/callback, tests mail and mail-paste), review fixes in; switched on by an explicit MAILLOOM_WEB_URL + MAILLOOM_CLIENT_ID + MAILLOOM_CLIENT_SECRET — waits on the merge and the Mailloom half deployed (Om sets MAILLOOM_WEB_URL=https://mail.delpat.in/mail and the client pair on both sides).
 - Mail: one Mailloom key per person across organizations (`mail:<userId>` is one document per person; a new key in one organization replaces, and if minted revokes, the other's), not the design's "two orgs keep two keys" — waits on a person in two organizations wanting both (then key the setting by org+user).

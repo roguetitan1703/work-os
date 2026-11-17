@@ -13,7 +13,7 @@ import { linkStatus } from '@/lib/delpat-os';
 import { mailConfigured } from '@/lib/mail/client';
 import { connectEnabled } from '@/lib/mail/connect';
 import { mailLinkOf } from '@/lib/mail/keys';
-import { MailKey } from './mail-key';
+import { MailConnect, MailManage, MailNotice, MailPaste } from './mail-key';
 import { Dot, type Level } from './ui';
 import { DelpatOsButton, DelpatOsNotice } from './delpat-os-link-buttons';
 
@@ -56,13 +56,25 @@ async function rows(caller: Caller): Promise<Row[]> {
       icon: Mail,
       name: 'Mail',
       detail: mailLink
-        ? 'Claude can read, organise and send your mail through this key.'
+        ? `${mailLink.email}: Claude can ${canDo(mailLink.scopes)} your mail.`
         : connect
           ? 'Connect your Mailloom mailbox so Claude can use it.'
-          : 'Paste your Mailloom key (Mailloom › Connections › New key) so Claude can use your mailbox.',
+          : 'Add your Mailloom key so Claude can use your mailbox.',
       level: mailLink ? 'ok' : 'off',
       status: mailLink ? 'Connected' : 'Not connected',
-      note: <MailKey connect={connect} link={mailLink ? { prefix: mailLink.prefix, email: mailLink.email, scopes: mailLink.scopes } : null} />,
+      control: mailLink ? (
+        <MailManage connect={connect} link={{ prefix: mailLink.prefix, email: mailLink.email, scopes: mailLink.scopes }} />
+      ) : connect ? (
+        <MailConnect />
+      ) : (
+        <MailPaste connect={false} />
+      ),
+      note: connect ? (
+        <>
+          <MailNotice linked={!!mailLink} />
+          {!mailLink && <MailPaste connect />}
+        </>
+      ) : undefined,
     });
   }
   // Delpat OS: only where this Work OS has a Delpat OS client set; each person links their own account (Link / Unlink here).
@@ -79,6 +91,12 @@ async function rows(caller: Caller): Promise<Row[]> {
     });
   }
   return out;
+}
+
+/** "read, organise and send" from the scopes Mailloom granted (all three when it did not say). */
+function canDo(scopes: string[] | null): string {
+  const words = (scopes?.length ? scopes : ['read', 'organise', 'send']).map(s => (s === 'organize' ? 'organise' : s));
+  return words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}` : words[0];
 }
 
 const btn = 'inline-flex items-center justify-center h-11 md:h-9 px-4 rounded-lg text-sm font-medium whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring/60';

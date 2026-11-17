@@ -194,16 +194,22 @@ try {
   // ---- Settings: paste, Test, Remove ----
   const br = await launch();
   const page = async who => { const c = await br.newContext({ viewport: { width: 1280, height: 900 } }); const p = await c.newPage(); await login(p, { email: who, next: '/settings?section=connections' }); await p.goto(`${B}/settings?section=connections`); return { c, p }; };
-  // The paste box is folded behind "Paste a key instead" when Connect is set up (it is in this suite).
-  const saveKey = async (p, k) => { const d = p.locator('[data-mail-paste]'); if ((await d.count()) && !(await d.evaluate(e => e.open))) await d.locator('summary').click(); await p.locator('[data-mail-input]').fill(k); await p.locator('[data-mail-save]').click(); };
+  // The paste box is a dialog behind "Paste a key instead" when Connect is set up (it is in this suite).
+  const saveKey = async (p, k) => { if (!(await p.locator('[data-mail-input]').isVisible())) await p.locator('[data-mail-paste]').click(); await p.locator('[data-mail-input]').fill(k); await p.locator('[data-mail-save]').click(); };
+  // A linked row has one Manage button, like every other row; Test, Connect again and Disconnect are in its dialog.
+  const manage = async p => { if (!(await p.locator('[data-mail-linked]').isVisible())) { await p.locator('[data-mail-manage]').click(); await p.locator('[data-mail-linked]').waitFor({ timeout: 8000 }); } };
+  const rowSays = (p, re) => p.locator('[data-connection=mail] [data-detail]').filter({ hasText: re }).waitFor({ timeout: 10000 }).then(() => true, () => false);
   const own = await page('e2e-owner@example.test');
   check('settings: Mail row with Connect Mailloom when no key', await own.p.locator('[data-connection=mail] [data-mail-connect]').waitFor({ timeout: 15000 }).then(() => true, () => false));
-  check('settings: the paste box is folded behind "Paste a key instead"', (await own.p.locator('[data-mail-paste] summary').innerText()).includes('Paste a key instead') && !(await own.p.locator('[data-mail-input]').isVisible()));
+  check('settings: the paste box is folded behind "Paste a key instead"', (await own.p.locator('[data-mail-paste]').innerText()).includes('Paste a key instead') && !(await own.p.locator('[data-mail-input]').isVisible()));
   await saveKey(own.p, 'not-a-key');
   check('settings: a wrong-looking key is refused with a plain sentence', await own.p.locator('[data-mail-result]').filter({ hasText: /not a Mailloom key/ }).waitFor({ timeout: 8000 }).then(() => true, () => false));
   await saveKey(own.p, 'mlk_' + 'Z'.repeat(43));
   check('settings: a key Mailloom does not know is refused', await own.p.locator('[data-mail-result]').filter({ hasText: /does not accept your saved key|Mailloom/ }).waitFor({ timeout: 8000 }).then(() => true, () => false));
   await saveKey(own.p, KA);
+  check('settings: the linked row names the mailbox and what Claude may do', await rowSays(own.p, /owner@delpat\.test: Claude can read, organise and send/));
+  check('settings: the linked row has one button (Manage), like the other rows', (await own.p.locator('[data-connection=mail] td:last-child button, [data-connection=mail] td:last-child a').count()) === 1 && !(await own.p.locator('[data-mail-test]').isVisible()));
+  await manage(own.p);
   check('settings: saved key shows mailbox and prefix', await own.p.locator('[data-mail-mailbox]').filter({ hasText: /owner@delpat\.test/ }).filter({ hasText: /mlk_AAAA/ }).waitFor({ timeout: 10000 }).then(() => true, () => false));
   const html = await own.p.content();
   check('settings: the full key is never on the page', !html.includes(KA));
@@ -214,16 +220,17 @@ try {
   check('stored sealed: bound to the person (v1 AES-GCM format)', /^v1\.[\w-]+\.[\w-]+\.[\w-]+$/.test(doc?.mail?.sealed ?? ''));
   const bea = await page('bea@example.test');
   await saveKey(bea.p, KB);
-  check('settings: Bea links her own key', await bea.p.locator('[data-mail-mailbox]').filter({ hasText: /bea@delpat\.test/ }).waitFor({ timeout: 10000 }).then(() => true, () => false));
+  check('settings: Bea links her own key', await rowSays(bea.p, /bea@delpat\.test/));
   const dee = await page('dee@example.test');
   await saveKey(dee.p, KD);
-  check('settings: Dee links hers', await dee.p.locator('[data-mail-mailbox]').waitFor({ timeout: 10000 }).then(() => true, () => false));
+  check('settings: Dee links hers', await rowSays(dee.p, /@delpat\.test/));
   // Remove and re-link a throwaway: Cy
   const cy = await page('cy@example.test');
   await saveKey(cy.p, KC);
-  await cy.p.locator('[data-mail-linked]').waitFor({ timeout: 10000 });
+  await cy.p.locator('[data-mail-manage]').waitFor({ timeout: 10000 });
+  await manage(cy.p);
   await cy.p.locator('[data-mail-remove]').click();
-  check('settings: Disconnect brings Connect and the folded paste box back', await cy.p.locator('[data-mail-connectable] [data-mail-connect]').waitFor({ timeout: 10000 }).then(() => true, () => false) && await cy.p.locator('[data-mail-paste]').count() === 1);
+  check('settings: Disconnect brings Connect and "Paste a key instead" back', await cy.p.locator('[data-connection=mail] [data-mail-connect]').waitFor({ timeout: 10000 }).then(() => true, () => false) && await cy.p.locator('[data-mail-paste]').count() === 1);
   check('settings: Disconnect of a pasted key only forgets it (not revoked at Mailloom)', !revoked.has(KC) && !log.some(l => l.path === '/key/revoke' && l.key === KC));
   const cyDoc = await rawDb.collection('settings').findOne({ _id: `mail:${Cu.userId}` });
   check('settings: Remove clears the stored key', !cyDoc?.mail);
@@ -387,10 +394,10 @@ try {
   // ---- runaway guards (Cy, a Claude chat key: the guards apply to every caller kind), then removing Cy clears the mail key ----
   const br2 = await launch();
   const cy2 = await (async () => { const c = await br2.newContext({ viewport: { width: 1280, height: 900 } }); const p = await c.newPage(); await login(p, { email: 'cy@example.test', next: '/settings?section=connections' }); await p.goto(`${B}/settings?section=connections`); return { c, p }; })();
-  await cy2.p.locator('[data-mail-paste] summary').click();
+  await cy2.p.locator('[data-mail-paste]').click();
   await cy2.p.locator('[data-mail-input]').fill(KC2);
   await cy2.p.locator('[data-mail-save]').click();
-  await cy2.p.locator('[data-mail-linked]').waitFor({ timeout: 10000 });
+  await cy2.p.locator('[data-mail-manage]').waitFor({ timeout: 10000 });
   await cy2.c.close();
   const burst = async (n, name, args) => { const out = []; for (let i = 0; i < n; i += 10) out.push(...(await Promise.all(Array.from({ length: Math.min(10, n - i) }, () => tool(kC, name, args))))); return out; };
   const sent = await burst(100, 'mail_send', { to: ['col@delpat.test'], subject: 'bulk', text: 'x' });
@@ -431,6 +438,8 @@ try {
     oauth.mode = mode;
     oauth.held = null;
     await p.goto(`${B}/settings?section=connections`); // no mail= yet, so the wait below sees the new answer
+    await p.locator('[data-mail-manage], [data-connection=mail] [data-mail-connect]').first().waitFor({ timeout: 15000 });
+    if (await p.locator('[data-mail-manage]').count()) await manage(p); // linked: Connect again is in the Manage dialog
     await p.locator('[data-mail-connect]').first().click();
     if (mode === 'hold') {
       for (let i = 0; i < 100 && !oauth.held; i++) await new Promise(r => setTimeout(r, 100));
@@ -446,6 +455,7 @@ try {
 
   const ow = await open('e2e-owner@example.test');
   // Replacing a pasted key: the owner has KA (pasted at the start); Connect again mints a new one and revokes KA.
+  await manage(ow.p);
   check('connect: a linked mailbox offers Connect again', await ow.p.locator('[data-mail-linked] [data-mail-connect]').isVisible());
   const f1 = await press(ow.p);
   const az = oauth.authorizes.at(-1);
@@ -454,6 +464,8 @@ try {
   const k1 = oauth.minted.at(-1);
   const tk = oauth.tokens.at(-1);
   check('connect: the swap sent the client secret, the PKCE verifier and the same redirect URI, form-encoded', tk?.ok && tk.body.client_secret === CLIENT.secret && !!tk.body.code_verifier && tk.body.redirect_uri === CLIENT.redirect);
+  await ow.p.locator('[data-mail-manage]').waitFor({ timeout: 10000 });
+  await manage(ow.p);
   check('connect: shows the mailbox and the granted scopes', await ow.p.locator('[data-mail-mailbox]').filter({ hasText: /owner@delpat\.test/ }).filter({ hasText: /read, organise, send/ }).waitFor({ timeout: 10000 }).then(() => true, () => false));
   check('connect: says it is connected', await ow.p.locator('[data-mail-notice=linked]').isVisible());
   const d1 = await stored(A.userId);
@@ -540,16 +552,20 @@ try {
   oauth.scopes = ['read', 'send'];
   const fs1 = await press(ow.p);
   oauth.scopes = ['read', 'organise', 'send'];
+  check('scopes: the row says what Mailloom granted', fs1 === 'linked' && await rowSays(ow.p, /Claude can read and send your mail/));
+  await manage(ow.p);
   check('scopes: what Mailloom granted is stored and shown', fs1 === 'linked' && (await stored(A.userId)).scopes.join() === 'read,send' && await ow.p.locator('[data-mail-scopes]').filter({ hasText: /read, send/ }).isVisible());
   const kS = oauth.minted.at(-1);
 
   // Disconnect: the key revokes itself at Mailloom, the setting goes.
   await ow.p.locator('[data-mail-remove]').click();
-  await ow.p.locator('[data-mail-connectable]').waitFor({ timeout: 10000 });
+  await ow.p.locator('[data-connection=mail] [data-mail-connect]').waitFor({ timeout: 10000 });
   check('disconnect: the key Work OS minted is revoked at Mailloom (empty 200 counts), the setting deleted, Connect shown again', revoked.has(kS) && !(await stored(A.userId)));
 
   // One key per person across organizations: connecting in org B replaces, and revokes, the key minted in org A.
+  await ow.p.locator('[data-mail-paste]').click();
   check('the one-key-per-person rule is said on the page', await ow.p.locator('[data-mail-one-key]').isVisible());
+  await ow.p.keyboard.press('Escape');
   oauth.mailbox = 'owner@delpat.test';
   check('two orgs: connected in org A', (await press(ow.p)) === 'linked');
   const kOrgA = oauth.minted.at(-1);
