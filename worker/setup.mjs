@@ -139,7 +139,7 @@ export async function runSetup({ argv, deps }) {
   try { install(); console.log('autostart installed'); }
   catch (e) { console.log(`autostart not set: ${String(e.message || e).split('\n')[0].slice(0, 300)}`); }
   if (installHooks) {
-    try { installHooks(); console.log('Work OS hooks installed (start brief, stop check, WORK-STATE.md guard)'); }
+    try { installHooks(); console.log('Work OS hooks installed (start brief, stop check, the WORK-STATE.md copy)'); }
     catch (e) { console.log(`hooks not installed: ${String(e.message || e).split('\n')[0].slice(0, 300)} (retry: node worker.mjs hooks install)`); }
   }
   console.log('Done: open a project in Work OS → Sessions to link a folder');

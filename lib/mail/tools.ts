@@ -97,7 +97,7 @@ function addressesIn(v: string | string[] | undefined, field: string): string[] 
 function refuseOutside(mailbox: string, recipients: string[]) {
   const mine = domainOf(mailbox);
   if (recipients.some(a => domainOf(a) !== mine)) {
-    throw new InputError(`Mail to addresses outside ${mine} is sent by a person. Call ask with the draft (to, subject, text) addressed to the person whose mailbox this is; they send it from Mailloom.`);
+    throw new InputError(`Mail to addresses outside ${mine} is sent by a person. Show the draft (to, subject, text) in chat if the owner is in the conversation, else call ask with it; they send it from Mailloom.`);
   }
 }
 
