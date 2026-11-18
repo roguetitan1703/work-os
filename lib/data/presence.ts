@@ -115,6 +115,11 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
   return { ...(await c.presence.findOne({ _id }))!, fresh: up.upsertedCount > 0 };
 }
 
+/** The caller's own presence row on one project (end_work: a session may have rows on several projects), or null. */
+export async function rowFor(s: Scope, i: Ident, projectId: string): Promise<PresenceDoc | null> {
+  return (await scoped(s)).presence.findOne({ _id: rowId(i, projectId), userId: i.userId });
+}
+
 /** The present row of this caller (by session id, else the most recent one of their key), or null. */
 export async function presentRow(s: Scope, i: Ident): Promise<PresenceDoc | null> {
   const nk = noneKey(i);

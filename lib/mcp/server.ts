@@ -30,8 +30,10 @@ import { ACTIVITY_WHAT } from '../types';
 import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
 import { ordersFor } from '../data/orders';
-import { othersPresent, presentRow, readerRow, registerPresence, resolveMachine, sessionKey, setDoing, type Ident } from '../data/presence';
-import { clientWord, taskInfo } from '../data/roster';
+import { endPresence, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
+import { clientWord, roster, taskInfo } from '../data/roster';
+import * as handovers from '../data/handovers';
+import type { HandoverFields } from '../db';
 import { holderOf, machineKey, MAX_WAIT_S, POLL_MS, prepareSlot, releaseSlot, tryAcquire } from '../data/slots';
 import { forYouAfter, forYouBefore } from './for-you';
 import { requestContext, runWithRequestContext, sessionHeader } from '../request-context';
@@ -402,6 +404,18 @@ export function savedAnswer(
   };
 }
 
+/** The answer to a save that found the State at another version: nothing was written, the current State comes back. */
+function conflictOut(r: { state: Parameters<typeof stateData.stateOut>[0] | null }, reader: string, names: Parameters<typeof stateData.stateOut>[2], tool: 'save_state' | 'end_work') {
+  return {
+    saved: false,
+    conflict: true,
+    message: `base_version was stale: nothing was written. The State is at version ${r.state?.version ?? 0}: merge your change into it and call ${tool} again with that base_version.`,
+    textRule: textRule(),
+    version: r.state?.version ?? 0,
+    state: r.state ? stateData.stateOut(r.state, reader, names) : NO_STATE,
+  };
+}
+
 /** start_work's arguments after the project is found (the session id is decided by the caller). */
 export type StartWorkArgs = { hook?: number; branch?: string; machine?: string; label?: string; model?: string; account?: string; parent?: string; slot?: string };
 
@@ -421,6 +435,8 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   if (a.account && (/@|^\s*(sk-|wkr_|wos_|ghp_|xox)/i.test(a.account) || /[A-Za-z0-9_-]{32,}/.test(a.account))) throw new InputError('account is a short label such as "om-max": not an email, a key or a token');
   const mach = await resolveMachine(s, a.machine);
   const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, label: a.label, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch, hook: a.hook });
+  // The handovers left for this person (a fresh session takes the newest first; a re-call after compaction shows its own again).
+  const hv = await handovers.handoversForBrief(s, project._id, { me: row.key, label: row.label, fresh: row.fresh, parent: row.parent, actor: agentActor(caller.agent, caller.userId) });
   // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
   const layerName = { org: 'organisation', project: 'project', person: 'person' } as const;
   const orders = (await ordersFor(s, project)).map(o => {
@@ -464,8 +480,21 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   return {
     project: { id: project._id, name: project.name, url: `${ctx.baseUrl}/projects/${project._id}`, ...(matchedBy ? { matchedBy } : {}) },
     ...(sid ? { session: sid } : {}),
+    ...(hv.shown.length
+      ? {
+          handover: hv.shown.map(h => ({
+            id: h.id,
+            title: h.title,
+            from: h.label || 'a session',
+            at: h.at.toISOString(),
+            markdown: h.markdown,
+            ...(h.by !== s.userId ? { writtenBy: names[h.by] || 'another member' } : {}),
+          })),
+          ...(hv.more.length ? { moreHandovers: hv.more.map(m => `${m.id}, ${m.title}`) } : {}),
+        }
+      : {}),
     textRule: textRule(),
-    sessionNote: !sid ? 'This connector is your session: no id to pass. Messages for you and the unread count follow it on every call.' : 'Pass this session id as session on save_state, get_state, inbox, send_message, reply and message_status (and as the X-Work-OS-Session header on every call, if your client can).',
+    sessionNote: !sid ? 'This connector is your session: no id to pass. Messages for you and the unread count follow it on every call.' : 'Pass this session id as session on save_state, end_work, get_state, inbox, send_message, reply and message_status (and as the X-Work-OS-Session header on every call, if your client can).',
     orders: orders.length ? orders : 'no Orders set',
     ...(needsBlock.answered.length || needsBlock.forYou.length ? { needs: { ...(needsBlock.answered.length ? { answeredForYou: needsBlock.answered } : {}), ...(needsBlock.forYou.length ? { openForYou: needsBlock.forYou } : {}) } } : {}),
     state: state ? await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names) : NO_STATE,
@@ -511,6 +540,8 @@ async function needOutOf(ctx: BriefCtx, n: needsData.Need) {
   };
 }
 
+const HANDOVER_LIST = z.array(z.string().trim().min(1).max(handovers.HANDOVER_CAPS.item)).max(handovers.HANDOVER_CAPS.items);
+
 export function createMcpServer(ctx: Ctx): McpServer {
   const caller = ctx.caller;
   const s = callerScope(caller);
@@ -536,7 +567,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
   const sessionArg = z.string().max(64).optional().describe("The session id start_work returned (letters, digits and dashes); lets Work OS tell your answers apart from other sessions' of the same key");
   /** Tools that take an optional `session` argument (the session id start_work returned); the others read the X-Work-OS-Session header only (update_claude_items has its own `session`: a branch name). */
-  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'send_message', 'inbox', 'message_status', 'reply', 'get_task', 'log_progress', 'complete_task', 'set_doing', 'slot', 'hand_in']);
+  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'send_message', 'inbox', 'message_status', 'reply', 'get_task', 'log_progress', 'complete_task', 'set_doing', 'slot', 'hand_in', 'end_work']);
   /** Who is calling, for presence and the "for you" line (lib/mcp/for-you.ts). */
   const identOf = (name: ToolName, a: unknown[]): Ident => {
     const arg = SESSION_ARG.has(name) && a[0] && typeof a[0] === 'object' ? (a[0] as { session?: unknown }).session : undefined;
@@ -1207,17 +1238,152 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller) === 'chat' ? 'chat' : 'code' });
       const names = await memberNames(s.orgId);
-      if (r.conflict) {
-        return {
-          saved: false,
-          conflict: true,
-          message: `base_version was stale: nothing was written. The State is at version ${r.state?.version ?? 0}: merge your change into it and call save_state again with that base_version.`,
-          textRule: textRule(),
-          version: r.state?.version ?? 0,
-          state: r.state ? stateData.stateOut(r.state, s.userId, names) : NO_STATE,
-        };
-      }
+      if (r.conflict) return conflictOut(r, s.userId, names, 'save_state');
       return savedAnswer(r, { markdown: await legacyCopy(a, r.project, r.state) });
+    }),
+  );
+
+  tool(
+    'end_work',
+    {
+      inputSchema: {
+        project: z.string().describe('Project name or id'),
+        state: z.array(stateData.StateOpSchema).min(1).max(30).describe('save_state ops, applied first (if nothing changed, a set_where). A project with no State yet needs a set_now'),
+        base_version: z.number().int().min(0).optional().describe('The State version you read. Needed only with set_now; stale = nothing happens and the current State comes back'),
+        friction: z.string().trim().min(1).max(300).describe('One line: what slowed you down or went wrong in Work OS ("none" is allowed)'),
+        handover: z
+          .object({
+            step: z.string().trim().min(1).max(handovers.HANDOVER_CAPS.step).describe('Where the next session continues, in plain words (at most 600 characters)'),
+            in_flight: HANDOVER_LIST.optional().describe('Work still running or started that the State does not show (an agent, a build): what to look for'),
+            tried: HANDOVER_LIST.optional().describe('What you tried that did not work, so the next session does not repeat it'),
+            rules: HANDOVER_LIST.optional().describe('Rules your person gave in this conversation that the Orders do not hold'),
+            check: HANDOVER_LIST.optional().describe('Commands that show the work is as you left it'),
+            for: z.string().max(200).optional().describe('"me" (default), a member (name, email or id) or "anyone"'),
+            title: z.string().trim().max(handovers.HANDOVER_CAPS.title).optional().describe('Default: "Handover: " and your session label'),
+          })
+          .strict()
+          .optional(),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => {
+      const ident = identOf('end_work', [a]);
+      const { project, state } = await stateData.getState(s, a.project);
+      if (!state && !a.state.some(o => o.op === 'set_now')) throw new InputError(`Nothing was written: ${NO_STATE} Or include set_now (with base_version 0) in state of this end_work call.`);
+      const row = await rowFor(s, ident, project._id);
+      const me = row?.key ?? ident.session ?? ident.keyId ?? ident.agent;
+      const label = row?.label ?? '';
+      // The handover is checked before anything is written: a refused handover leaves the State and the slots as they were.
+      let ho: { fields: HandoverFields; forId: string; title: string } | null = null;
+      if (a.handover) {
+        const { for: forWho, title, ...fields } = a.handover;
+        const lines = [...(state?.next ?? []), ...(state?.later ?? [])].map(l => l.text).concat(a.state.flatMap(o => (o.op === 'add_next' || o.op === 'add_later' ? [o.text] : [])));
+        handovers.checkHandover(fields, lines);
+        ho = { fields, forId: await handovers.resolveFor(s, project, forWho), title: title || (label && label !== 'Claude Code' ? `Handover: ${label}` : 'Handover:') };
+      }
+      const r = await stateData.saveState(s, a.project, a.state, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller) === 'chat' ? 'chat' : 'code' });
+      const names = await memberNames(s.orgId);
+      if (r.conflict) return { ended: false, ...conflictOut(r, s.userId, names, 'end_work') };
+
+      // What this session held: its heavy slots and its task; what it leaves open is named, never closed.
+      const released: { slots?: string[]; doing?: string } = {};
+      const leftovers: string[] = [];
+      const auto: handovers.HandoverAuto = {};
+      if (row) {
+        const machine = row.machineName ?? row.machine;
+        if (row.machine) {
+          try {
+            const rel = await releaseSlot(s, machineKey(s.userId, { machine: row.machine, machineName: row.machineName }), holderOf(ident));
+            if (rel.released) released.slots = [machine];
+          } catch (e) {
+            console.error('[end_work slot]', e);
+          }
+        }
+        const open = await handovers.openNeedsOf(s, project._id, row);
+        const whom = (id: string) => (id === s.userId ? 'me' : names[id] || 'a member');
+        for (const n of open) leftovers.push(`Need #${n.ref} to ${whom(n.to)} (${n.kind}) is open: ${n.ask.slice(0, 160)}`);
+        auto.waiting = open.map(n => `Need #${n.ref} (${n.kind}) to ${whom(n.to)}`);
+        const w = machine ? r.state.where?.[machine.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 40)] : undefined;
+        const where = [machine, row.branch ? `branch ${row.branch}` : ''].filter(Boolean).join(', ');
+        auto.where = [...(where ? [where] : []), ...(w ? [`State Where: ${[w.branch ? `branch ${w.branch}` : '', w.head ? `head ${w.head}` : '', w.dirty === undefined ? '' : w.dirty ? 'dirty' : 'clean'].filter(Boolean).join(', ')}`] : [])];
+        if (row.doing) {
+          const t = await tasks.getTask(s, row.doing.taskId).catch(() => null);
+          if (t) {
+            released.doing = `#${t.ref}`;
+            auto.task = `#${t.ref} ${t.title} (${t.status})`;
+            if (t.status !== 'Done' && t.status !== 'Dropped') leftovers.push(`Task #${t.ref} is still ${t.status}`);
+          }
+        }
+        await endPresence(s, row);
+      }
+
+      let handover: Record<string, unknown> | undefined;
+      let handoverError: string | undefined;
+      let handoverId: string | undefined;
+      if (ho) {
+        try {
+          const w = await handovers.writeHandover(s, { project, me, label, title: ho.title, fields: ho.fields, auto, for: ho.forId }, ACTOR);
+          handoverId = w.id;
+          handover = { id: w.id, title: w.title, url: `${ctx.baseUrl}/notes/${w.id}`, for: ho.forId === 'anyone' ? 'anyone' : ho.forId === s.userId ? 'me' : names[ho.forId] || 'a member', pickUp: `/transfer pick up ${w.id}`, chat: `Continue from Work OS handover ${w.id}` };
+        } catch (e) {
+          handoverError = `The State is saved, but the handover was not written: ${e instanceof Error ? e.message : 'unknown error'}`;
+        }
+      }
+      let archivedHandovers: string[] = [];
+      try {
+        archivedHandovers = await handovers.archivePickedUp(s, project._id, me, handoverId, ACTOR);
+        await handovers.logSessionEnded(s, project, ACTOR, a.friction, handoverId);
+      } catch (e) {
+        console.error('[end_work after]', e);
+      }
+      const out: Record<string, unknown> = { ended: true, ...savedAnswer(r, { markdown: await legacyCopy(a, r.project, r.state) }) };
+      delete out.saved;
+      return {
+        ...out,
+        ...(released.slots || released.doing ? { released } : {}),
+        ...(leftovers.length ? { leftovers } : {}),
+        ...(archivedHandovers.length ? { archivedHandovers } : {}),
+        ...(handover ? { handover } : {}),
+        ...(handoverError ? { handoverError } : {}),
+      };
+    }),
+  );
+
+  tool(
+    'list_sessions',
+    {
+      inputSchema: {
+        project: z.string().optional().describe('Project name or id: only its sessions'),
+        include_gone: z.boolean().optional().describe('Also list sessions that stopped (default: only live ones)'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    handler(async a => {
+      const r = await roster(s);
+      const q = a.project?.trim();
+      let ws = r.workers;
+      if (q) ws = ws.filter(w => w.project.id === q || w.project.name.toLowerCase() === q.toLowerCase());
+      if (!a.include_gone) ws = ws.filter(w => w.state !== 'gone');
+      const now = Date.now();
+      return {
+        sessions: ws.slice(0, 30).map(w => ({
+          // Session ids are shown for your own sessions only (a session id addresses a message).
+          ...(w.mine && w.session ? { session: w.session } : {}),
+          name: w.label,
+          person: w.mine ? 'me' : w.person,
+          tool: w.ai,
+          model: w.model,
+          machine: w.machine,
+          project: w.project.name,
+          branch: w.branch,
+          doing: w.doing ? `#${w.doing.ref}` : null,
+          state: w.state,
+          minutesAgo: Math.round((now - new Date(w.lastSeen).getTime()) / 60_000),
+          ...(w.parent ? { parent: w.parent } : {}),
+        })),
+        machines: r.machines,
+      };
     }),
   );
 

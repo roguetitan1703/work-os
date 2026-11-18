@@ -134,3 +134,16 @@ export async function archivePickedUp(s: Scope, projectId: string, me: string, k
   }
   return out;
 }
+
+/** Open Needs this session asked on the project (what end_work lists as left over; it withdraws none). */
+export async function openNeedsOf(s: Scope, projectId: string, row: { session?: string; agent: string }): Promise<{ ref: number; to: string; kind: string; ask: string }[]> {
+  const q = { status: 'open' as const, projectId, 'from.actor.userId': s.userId, ...(row.session ? { 'from.session': row.session } : { 'from.session': { $exists: false }, 'from.actor.agent': row.agent }) };
+  const docs = await (await scoped(s)).needs.find(q as never, { projection: { ref: 1, to: 1, kind: 1, ask: 1 } }).sort({ createdAt: 1 }).limit(10).toArray();
+  return docs.map(d => ({ ref: d.ref, to: d.to, kind: d.kind, ask: d.ask }));
+}
+
+/** The feed row of an ended session: the friction line (and the handover id) on the project's State. */
+export async function logSessionEnded(s: Scope, project: ProjectDoc, actor: Actor, friction: string, handoverId?: string): Promise<void> {
+  const { logChange } = await import('./tasks');
+  await logChange(await scoped(s), project, actor, 'session_ended', { subject: { kind: 'state', id: project._id, title: 'State' }, projectId: project._id, note: `${friction}${handoverId ? ` · handover ${handoverId}` : ''}` });
+}

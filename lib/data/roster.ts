@@ -45,6 +45,8 @@ export type WorkerRow = {
   lastSeen: string;
   /** 0, or 1 for a builder shown under its orchestrator. */
   depth: 0 | 1;
+  /** A builder's orchestrator session id: only on the viewer's own rows (another person's session ids are not shown). */
+  parent?: string;
 };
 
 export type CouldBeRunning = { projectId: string; projectName: string; unblocked: number; first: string };
@@ -146,6 +148,7 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
         nextWork: state === 'idle' ? x.nextCount(row.projectId) : 0,
         lastSeen: row.lastSeen.toISOString(),
         depth: 0 as const,
+        ...(row.userId === s.userId && row.parent ? { parent: row.parent } : {}),
         _parent: row.parent,
         _uid: row.userId,
       };
