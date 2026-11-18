@@ -109,6 +109,16 @@ try {
   await rawDb.collection('projects').updateOne({ name: A }, { $set: { repoPublic: true } });
   const pub = await stateOf(A, true);
   check('H4 copy: with a public verdict the Decisions are left out again', !pub.markdown.includes('Secret pricing decision'), pub.markdown);
+  // How long each verdict is kept (lib/data/repo-visibility.ts): private 1 h, unknown 10 min, public 7 days; an expired one asks again
+  // (no network in the e2e run, so asking again means "unknown": no Decisions)
+  const verdictAge = async (repoPublic, ageMs) => {
+    await rawDb.collection('projects').updateOne({ name: A }, { $set: { repoPublic, repoPublicAt: new Date(Date.now() - ageMs) } });
+    return (await stateOf(A, true)).markdown.includes('Secret pricing decision');
+  };
+  const MIN = 60_000;
+  check('H4 copy: a private verdict 30 minutes old still lists Decisions; at 90 minutes it is asked again (no net: left out)', (await verdictAge(false, 30 * MIN)) === true && (await verdictAge(false, 90 * MIN)) === false);
+  check('H4 copy: an unknown verdict (null) leaves Decisions out, fresh or not', (await verdictAge(null, 2 * MIN)) === false && (await verdictAge(null, 20 * MIN)) === false);
+  check('H4 copy: a public verdict stays out for 7 days', (await verdictAge(true, 5 * 86_400_000)) === false);
   void ME;
 } catch (e) {
   check('flow-h4 (error)', false, e?.stack || String(e));

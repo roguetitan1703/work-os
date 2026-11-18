@@ -8,7 +8,9 @@ import type { ProjectDoc } from '../db';
 // remote, a remote on another host, no answer or any public remote means the Decisions are left out. Nothing about the
 // project is sent: only owner/name, which is already public if the answer is "public".
 
-const DAYS = 7;
+const PUBLIC_TTL = 7 * 86_400_000;
+const PRIVATE_TTL = 3_600_000;
+const UNKNOWN_TTL = 600_000;
 const NAME = /^[\w.-]+$/;
 
 type Visibility = 'public' | 'private' | 'unknown';
@@ -36,8 +38,12 @@ async function askGithub(remote: string): Promise<Visibility> {
 export async function decisionsInCopy(s: Scope, project: ProjectDoc): Promise<boolean> {
   const remotes = (project.code ?? []).filter(l => l.remote);
   if (!remotes.length) return false;
-  const fresh = project.repoPublicAt && Date.now() - project.repoPublicAt.getTime() < DAYS * 86_400_000;
-  if (fresh && project.repoPublic !== undefined) return project.repoPublic === false;
+  // A verdict is kept as long as it is safe to: "public" 7 days (a repo rarely goes private), "private" 1 hour (a repo that
+  // goes public must not keep its Decisions in the copy for long), "unknown" (null) 10 minutes (no new GitHub call per read).
+  if (project.repoPublicAt && project.repoPublic !== undefined) {
+    const ttl = project.repoPublic === true ? PUBLIC_TTL : project.repoPublic === false ? PRIVATE_TTL : UNKNOWN_TTL;
+    if (Date.now() - project.repoPublicAt.getTime() < ttl) return project.repoPublic === false;
+  }
   if (process.env.E2E_NO_NET === '1') return false;
   let verdict: Visibility = 'private';
   for (const l of remotes) {
@@ -48,9 +54,8 @@ export async function decisionsInCopy(s: Scope, project: ProjectDoc): Promise<bo
     }
     if (v === 'unknown') verdict = 'unknown';
   }
-  if (verdict === 'unknown') return false;
   try {
-    await (await scoped(s)).projects.updateOne({ _id: project._id }, { $set: { repoPublic: verdict === 'public', repoPublicAt: new Date() } });
+    await (await scoped(s)).projects.updateOne({ _id: project._id }, { $set: { repoPublic: verdict === 'unknown' ? null : verdict === 'public', repoPublicAt: new Date() } });
   } catch {
     // A reader who may not write the project still gets the answer; it is just not kept.
   }
