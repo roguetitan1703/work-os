@@ -20,7 +20,9 @@ import { placeIn, placeOf, resolveProject } from './projects';
 // app/(app)/needs/actions.ts), and later the addressed person's own Discord button (slice 6). The asker's word is set
 // by the server from how the call came in (lib/mcp/server.ts), never from an argument.
 
-export const NEED_LIMITS = { openPerPair: 5, perHour: 10, replaceAlertMs: 600_000, ask: 500, example: 1000, answerText: 1000, optionLabel: 60, optionMeans: 300 } as const;
+// openPerProject: open Needs from one asker to one person IN ONE PROJECT (Om 19 Nov: a busy project must not block
+// asks in another). perHour: Needs from one asker to one person in an hour, all projects together (keeps the phone sane).
+export const NEED_LIMITS = { openPerProject: 10, perHour: 20, replaceAlertMs: 600_000, ask: 500, example: 1000, answerText: 1000, optionLabel: 60, optionMeans: 300 } as const;
 /** Words that force a Need to be answered in the app only, whatever the asker said (HANDOVER: Needs). One list, here. */
 export const SENSITIVE_NEED_WORDS = ['production', 'deploy', 'payment', 'refund', 'invoice', 'money', 'password', 'credential', 'secret', 'token', 'key'] as const;
 const SENSITIVE_NEED = new RegExp(`(^|[^a-z])(${SENSITIVE_NEED_WORDS.join('|')})(s|ed|ing|ments?)?($|[^a-z])|[₹$] ?[0-9]|[0-9] ?[₹$]`, 'i');
@@ -210,13 +212,13 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
     const replacedIds = new Set(replaced.map(n => n._id));
     // The limit holds under a race because the `need:<org>` counter (nextSeq below) is the lock: two asks at once both write
     // that one document in their transactions, the second gets a write conflict, withTransaction retries it, and the retry
-    // counts again and sees the first one's Need (flow-n3: six asks in parallel, exactly five land).
-    const open = await c.needs.find({ ...mine, to: input.to }, { projection: { _id: 1 } }).toArray();
-    if (open.filter(n => !replacedIds.has(n._id)).length >= NEED_LIMITS.openPerPair) {
-      throw new InputError(`You already have ${NEED_LIMITS.openPerPair} open Needs with that person. Wait for answers, or withdraw one (withdraw_need), before asking more.`);
+    // counts again and sees the first one's Need (flow-n3: eleven asks in parallel, exactly ten land).
+    const open = await c.needs.find({ ...mine, to: input.to, projectId: project._id }, { projection: { _id: 1 } }).toArray();
+    if (open.filter(n => !replacedIds.has(n._id)).length >= NEED_LIMITS.openPerProject) {
+      throw new InputError(`You already have ${NEED_LIMITS.openPerProject} open Needs with that person in this project. Wait for answers, or withdraw one (withdraw_need), before asking more.`);
     }
 
-    // The phone is not a mailbox an agent may fill: at most 10 Needs created from one asker to one person in an hour, any
+    // The phone is not a mailbox an agent may fill: at most 20 Needs created from one asker to one person in an hour (all projects), any
     // status (ask, withdraw, ask again counts each time), and a replacement within 10 minutes of the alert it replaces sends none.
     const now = new Date();
     const recent = await c.needs.countDocuments({ 'from.actor.userId': actorId, to: input.to, kind: { $ne: 'review' }, createdAt: { $gt: new Date(now.getTime() - 3_600_000) } });
@@ -416,7 +418,7 @@ export async function createReviewNeed(s: Scope, t: TaskDoc, actor: Actor, resul
     const now = new Date();
     const last = open.map(n => n.alertedAt?.getTime() ?? 0).reduce((a, b) => Math.max(a, b), 0);
     const quiet = last > now.getTime() - NEED_LIMITS.replaceAlertMs;
-    // One agent cannot fill an owner's phone with reviews: past 10 alerted reviews an hour from one asker to one owner, the Need is made without an alert.
+    // One agent cannot fill an owner's phone with reviews: past 20 alerted reviews an hour from one asker to one owner, the Need is made without an alert.
     const askerId = actor && 'userId' in actor && actor.userId ? actor.userId : s.userId;
     const alerted = await org.needs.countDocuments({ kind: 'review', 'from.actor.userId': askerId, to: t.ownerId, createdAt: { $gt: new Date(now.getTime() - 3_600_000) }, noAlert: { $ne: true } });
     const flood = alerted >= NEED_LIMITS.perHour;

@@ -3,7 +3,8 @@
 //   - the forYou line says "your Need #N was answered" to the asker's session and "1 Need for you" to the addressee, ids only;
 //   - a session finds only its own answers; a caller with no session id finds those of the same key, never another key's;
 //   - State's Next lines get waitsOn from the open Need on their task;
-//   - the 5-open limit holds when asks race (eight at once: five land, three are refused).
+//   - the 10-open limit per project holds when asks race (eleven at once: ten land, one is refused);
+//   - the limit counts each project on its own: the full pair can still ask in another project.
 // Seed profile: none.
 import { ME, MCP, check, finish, makeUser, mkKey, rawDb } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
@@ -27,12 +28,14 @@ try {
 
   // ======== the limit holds under a race ========
   {
-    const asks = await Promise.all(Array.from({ length: 6 }, (_, i) => mcpH(kA, 'ask', { project: 'N3 Proj', to: 'Cara', kind: 'do', ask: `Race ${i}` })));
+    const asks = await Promise.all(Array.from({ length: 11 }, (_, i) => mcpH(kA, 'ask', { project: 'N3 Proj', to: 'Cara', kind: 'do', ask: `Race ${i}` })));
     const ok = asks.filter(r => !r.isError).length;
     const open = await rawDb.collection('needs').countDocuments({ 'to': cara.userId, status: 'open' });
-    check('limit: six asks at once to one person: exactly five land', ok === 5 && open === 5, `ok ${ok}, open ${open}`);
-    check('limit: the refusals say why', asks.filter(r => r.isError).every(r => /5 open Needs/.test(r.text)), asks.filter(r => r.isError)[0]?.text.slice(0, 150));
-  }
+    check('limit: eleven asks at once to one person in one project: exactly ten land', ok === 10 && open === 10, `ok ${ok}, open ${open}`);
+    check('limit: the refusals say why', asks.filter(r => r.isError).every(r => /10 open Needs with that person in this project/.test(r.text)), asks.filter(r => r.isError)[0]?.text.slice(0, 150));
+    await must(MCP, 'add_project', { name: 'N3 Other' });
+    const other = await mcpH(kA, 'ask', { project: 'N3 Other', to: 'Cara', kind: 'do', ask: 'Another project' });
+    check('limit: each project counts on its own (the same pair asks in another project)', !other.isError, other.text?.slice(0, 150));  }
 
   // ======== start_work: answers first, then what is open for the caller ========
   const sA1 = (await must(kA, 'start_work', { project: 'N3 Proj', label: 'A one' }, H('sess-a-1'))).session;
