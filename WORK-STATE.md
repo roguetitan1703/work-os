@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 15. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 16. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -37,5 +37,5 @@ Copy of the Work OS state, version 15. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 18 Nov, Om: Claude items retired from the instructions (work list = State and tasks). Global Claude Code settings on Om's PC: the 4 Work OS hooks, WORK_OS_KEY made from the database by scripts/make-key.mjs (key "Hooks · Victus-Knight"), Work OS reads and own-work writes allowed, .env.test.local readable, ~/.claude.json edits denied, two auto-mode notes; project-specific rules (grant-leads Supabase, Vercel) stay out. Recorded in docs/setup-pc.md. (Om, chat)
 
 ## Where
-- Victus-Knight: dev ba91152 clean (2026-11-18 18:02)
-<!-- work-os-copy sha1:37dbf200302afb2ac154f14473a11b532b122125 -->
+- Victus-Knight: dev ba91152 clean (2026-11-18 18:09)
+<!-- work-os-copy sha1:c710519265d59384457dbfde4580e70241e499c1 -->
