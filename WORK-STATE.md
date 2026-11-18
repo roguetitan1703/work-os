@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 43. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 44. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -54,8 +54,9 @@ Copy of the Work OS state, version 43. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov, Om (relayed by the account-switch session): "Give the task to work os only to change the wording or orders, global claude md too and any other place ... so that when I go away and give permissions to do stuff that is planned it can do that work correctly." Done: Orders (DB, note 785391c151) Long work gains a bullet: a go for planned work while away covers every planned merge, test, push and release in Next and the plans after; record it, keep working, reviews still apply, a Need only for unplanned or irreversible-outside-the-plan, morning report in State. 'Ask before anything irreversible' points to it. /transfer skill pick-up step 5 says the go carries over. ~/.claude/CLAUDE.md not edited on a relayed request: its Start here already defers to the Orders; Om to say if he wants a line there too. Words to fold into H1/H9 (#278/#286). (Om, chat)
 - 2026-11-18: 19 Nov correction to the decision above: the /transfer skill line was NOT added (Claude Code's permission check refused the edit as a change to agent oversight). Only the Orders change landed. Om to add the skill line (pick-up step 5: a go for planned work while away carries over) himself or allow it. (Om, chat)
 - 2026-11-18: 19 Nov: H4 phase 2 merged into dev (68175c2): lib/agent-auth.ts, POST /api/agent/state, Where from the start route, short save answers, copy lines. Opus security review: no high/medium; two lows fixed in a1a7285 (repo visibility: private cached 1 h, unknown 10 min) and re-checked by the lead. (Om, chat)
+- 2026-11-18: 19 Nov, Om (chat): "don't only add it, edit the instructions and the whole way we discipline ... I don't want to keep adding points." Orders rewritten whole (DB, note 785391c151; backup ~/orders-backup-19nov.json on the server): a new section 'Asking and approvals' merges the Needs rule, ask-before-irreversible with the away-go exception, and never-end-on-a-question plus the morning report; usage folded into 'Models, subagents and usage'; 5,673 -> 5,510 chars, 25 -> 22 bullets. /transfer skill step 5 and note ac2026fedb pick-up step 4 rewritten in place to point at it. ~/.claude/CLAUDE.md unchanged: it already defers to the Orders, so no line is needed. Supersedes the two decisions above about the appended bullet. (Om, chat)
 
 ## Where
 - Victus-Knight: dev 324ecb7 clean (2026-11-18 22:49)
 - victus: dev 324ecb7 clean (2026-11-18 22:48)
-<!-- work-os-copy sha1:13b698b6a92a9dc36bea11fac2c11c596b2acb93 -->
+<!-- work-os-copy sha1:720e211c6552f9ee82bdda613aafe775a6cce8bd -->
