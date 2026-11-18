@@ -1,13 +1,13 @@
 // State line editing (docs/flows/agent-system.md section 16 item 2): save_state op edit_line {find, new}, and `find` in
 // place of `id` for move_next, done_next and promote_later. Seed profile: none.
-import { ME, MCP, check, makeUser, mkKey, rawDb } from './lib.mjs';
+import { ME, MCP, check, finish, makeUser, mkKey, rawDb } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
 
 const NAME = 'Flow Edit';
 const texts = l => l.map(x => x.text);
 try {
+  const T = await makeUser({ email: 'edith@example.test', name: 'Edith', orgId: ME.orgId, role: 'member' }); // before the first call: the server caches member names for a minute
   await must(MCP, 'add_project', { name: NAME });
-  const T = await makeUser({ email: 'edith@example.test', name: 'Edith', orgId: ME.orgId, role: 'member' });
   const kT = await mkKey({ agent: 'claude-code', userId: T.userId, name: 'Edith Claude Code' });
 
   const seed = await must(MCP, 'save_state', {
@@ -55,9 +55,24 @@ try {
   const cs = await mcpH(MCP, 'save_state', { project: NAME, base_version: v, ops: [{ op: 'edit_line', find: 'DATA MIGRATION', new: 'x' }] });
   check('edit_line: find is case-sensitive', cs.isError && /no line/.test(cs.text), cs.text.slice(0, 200));
 
-  // A stale base_version writes nothing
-  const stale = await must(MCP, 'save_state', { project: NAME, base_version: v - 1, ops: [{ op: 'edit_line', find: 'Try the new', new: 'Try' }] });
-  check('edit_line: a stale base_version is a conflict and nothing is written', stale.conflict === true && stale.state.later.some(l => l.text === 'Try the new chart library'), JSON.stringify(stale).slice(0, 200));
+  // base_version is only for set_now: a stale one writes nothing there, and is not needed (or checked) for line edits
+  const stale = await must(MCP, 'save_state', { project: NAME, base_version: v - 1, ops: [{ op: 'set_now', text: 'Stale goal' }] });
+  check('set_now: a stale base_version is a conflict and nothing is written', stale.conflict === true && stale.state.now.text === 'Building the State editor', JSON.stringify(stale).slice(0, 200));
+  const noBase = await must(MCP, 'save_state', { project: NAME, ops: [{ op: 'edit_line', find: 'Try the new chart library', new: 'Try the new chart lib' }] });
+  v = noBase.version;
+  check('edit_line: needs no base_version, and the edit lands', noBase.saved === true && texts(noBase.state.later).includes('Try the new chart lib') && v === stale.version + 1, JSON.stringify(noBase).slice(0, 200));
+  const behind = await must(MCP, 'save_state', { project: NAME, base_version: 1, ops: [{ op: 'edit_line', find: 'Try the new chart lib', new: 'Try the new chart library' }] });
+  v = behind.version;
+  check('edit_line: a stale base_version is ignored (the line is checked, not the version)', behind.saved === true && texts(behind.state.later).includes('Try the new chart library'), JSON.stringify(behind).slice(0, 200));
+  const nextBefore = (await must(MCP, 'get_state', { project: NAME })).state.next;
+  const idLine = nextBefore.find(l => l.text.includes('Review the billing page'));
+  const wrongId = await mcpH(MCP, 'save_state', { project: NAME, ops: [{ op: 'edit_line', id: nextBefore.find(l => l.text.includes('settings page')).id, find: 'billing', new: 'x' }] });
+  check('edit_line: id narrows the search; the line with that id must hold find', wrongId.isError && /no line/.test(wrongId.text), wrongId.text.slice(0, 200));
+  const byId = await must(MCP, 'save_state', { project: NAME, ops: [{ op: 'edit_line', id: idLine.id, find: 'Review the', new: 'Check the' }] });
+  v = byId.version;
+  check('edit_line: id + find edits one of two lines that both match find', byId.state.next.find(l => l.id === idLine.id)?.text === 'Check the billing page' && byId.state.next.some(l => l.text === 'Review the settings page'), JSON.stringify(texts(byId.state.next)));
+  const back = await must(MCP, 'save_state', { project: NAME, ops: [{ op: 'edit_line', id: idLine.id, find: 'Check the', new: 'Review the' }] });
+  v = back.version;
 
   // Remove from Next: counts as done
   const rN = await must(MCP, 'save_state', { project: NAME, base_version: v, ops: [{ op: 'edit_line', find: 'Stale line to remove from Next', new: '' }] });
@@ -115,3 +130,4 @@ try {
 } catch (e) {
   check('flow-state-edit (error)', false, e?.stack || String(e));
 }
+await finish();
