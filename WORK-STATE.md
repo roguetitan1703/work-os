@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 27. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 28. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -10,8 +10,7 @@ Copy of the Work OS state, version 27. Edit it in Work OS (https://work.delpat.i
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
 3. Live sessions and messaging design (docs/flows/session-messaging.md): global Work OS plugin with hooks for on/working/idle/waiting/off at zero tokens, a channel to push messages in, every session lives in a project (Lobby for strays), notes on fixed shelves with drift rules. Waits on Om's two notes answers, then a Fable review, then builder B.
 4. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
-5. Ship the 18-19 Nov batch, merged on dev locally (cd92b40, not pushed): recurrence, What's new + Needs, State edit_line, worker installs hooks, hook device-key sign-in, digest redesign, Activity shows everything (each security-reviewed and re-checked), Needs cap per project. Left: full e2e + build on dev, UI by eye at 390/1280 light/dark, push dev, merge to master with Om's go. — waits on C: freed to 15 GB (Claude app VM image 9.9 GB is the only item big enough)
-6. Deploy the no-State hotfix to production: branch hotfix/no-state 3596c54 (worktree D:/Work/Delpat/projects/Om/wos-hotfix, on master 865c699; dev has it as f264737). start_work/get_state tell a session with no State to make it now; import_state skips History/log/Done. Typechecked, parser checked; e2e not run. Needs an arm64 build: Actions locked (billing), Delpat mirror fails at attestation (private), so WSL build here (C: 8 GB) or box build (OOM risk). — waits on Om: free C: (delete the Claude VM image) or say build anyway
+5. Ship R1 (the 18-19 Nov batch, dev ad99b8c, master merged in): recurrence, What's new + Needs, State edit_line, worker installs hooks, hook device-key sign-in, digest redesign, Activity shows everything, Needs cap per project, typed Need answers. Left: full e2e + build on dev, UI by eye at 390/1280 light/dark, push dev, then master + deploy with Om's go.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -41,7 +40,8 @@ Copy of the Work OS state, version 27. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov, Om: a session on a project with no State makes it at once, without asking. start_work/get_state say so (f264737 dev, 3596c54 hotfix); /transfer and note ac2026fedb check get_state first. AKAR made its State (v2, History in docs/history.md, AKAR 81cfa8aa) on Om's go. Also fixed: the WORK-STATE edit hook refused commands that only quote the name (reinstalled on this PC). (Om, chat)
 - 2026-11-18: 19 Nov, Om: the 15 GB free-disk rule is dropped (removed from ~/.claude/CLAUDE.md); keep temp and large files on D:. The Claude VM image stays. Hotfix 3596c54 pushed to master (origin and delpat); building in WSL for a manual deploy over SSH. (Om, chat)
 - 2026-11-18: 19 Nov, Om asked for a name: the 18-19 Nov batch (State Next 5, 44 commits on dev not on master) is called R1. Releases are numbered from here (R2 next). The no-State hotfix 3596c54 is not part of R1; it goes live on its own first. (Om, chat)
+- 2026-11-18: 19 Nov: no-State hotfix 3596c54 live (WSL build, deployed over SSH; previous 865c699 removed). Checked live: get_state on PMS (no State) gives the make-it-now text; import_state on a throwaway project left History and Done out and named them (project archived). Master merged into dev (ad99b8c, no code change). AKAR's Later trim waits on R1's edit_line. (Om, chat)
 
 ## Where
-- Victus-Knight: dev f264737 (2026-11-18 20:38)
-<!-- work-os-copy sha1:3b30379c2d8fa5ef0797732d49d9fdda2790d19c -->
+- Victus-Knight: dev ad99b8c (2026-11-18 20:46)
+<!-- work-os-copy sha1:43b8509e44b30ace0d62da1dc933a96f6b254d59 -->
