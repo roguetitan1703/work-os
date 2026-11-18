@@ -1,5 +1,6 @@
-// What's new and the Needs page (docs/HANDOVER.md "What's new", "Needs page"). run.sh pins "today" to 2026-11-20
-// (mode whatsnew), five days after the four entries of 2026-11-15 (Mail and the report intake are not set up here):
+// What's new and the Needs page (docs/HANDOVER.md "What's new", "Needs page"). run.sh pins "today" to 2026-11-18
+// (mode whatsnew), three days after the four entries of 2026-11-15, before later entries go live (Mail and the report
+// intake are not set up here):
 //   - Today's "New in Work OS" card (phone and desktop): three entries and "1 more"; Try it marks one seen; Dismiss all;
 //   - the Menu row and the sidebar entry carry a dot while something is unseen; opening /whats-new clears it;
 //   - /whats-new lists every entry newest first, one line and where to find it, "New" while new;

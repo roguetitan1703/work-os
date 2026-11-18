@@ -891,8 +891,20 @@ try {
     check('State: a teammate reads a shared project’s State', tBefore.ok && tBefore.text.includes(cn), tBefore.text.slice(0, 200));
     const tStart = await mcpCall(T.code, 'start_work', { project: nm, machine: 'lkqmvt', label: 'tess' });
     check('State: a teammate can start work on it (presence is theirs)', tStart.ok, tStart.text.slice(0, 200));
+    // Activity (note e56029b458): the State and message rows of a shared project reach the teammate's feed until it goes private
+    const tActBefore = await mcpCall(T.chat, 'recent_activity', { since: '1d', limit: 300 });
+    check('Activity: a teammate’s feed has the shared project’s State and message rows', tActBefore.ok && tActBefore.text.includes(cn) && (tActBefore.json?.events ?? []).some(e => e.project === nm && e.type === 'message_sent'), tActBefore.text.slice(0, 200));
     await mustMcp(A.chat, 'update_project', { project: nm, visibility: 'private' });
     const pid = (await rawDb.collection('projects').findOne({ orgId: A.orgId, name: nm }))._id;
+    const actd = await rawDb.collection('activity').find({ projectId: pid, taskId: { $exists: false } }).toArray();
+    check('Activity: a project made private takes its State, message and project rows along (placed private, owned by its owner)', actd.length >= 4 && actd.every(a => a.visibility === 'private' && a.ownerId === A.userId), JSON.stringify(actd.map(a => [a.type, a.visibility, a.ownerId])));
+    for (const what of ['all', 'state', 'messages', 'projects']) {
+      const r = await mcpCall(T.chat, 'recent_activity', { since: '1d', limit: 300, what });
+      scan('T', `mv recent_activity what=${what} (after private)`, r.text);
+      check(`Activity: after it was made private the teammate’s feed carries none of it (what=${what})`, r.ok && !r.text.includes(cn) && !r.text.includes(nm), r.text.slice(0, 200));
+    }
+    const tRev = await req('GET', '/review?view=activity', { cookie: T.cookie });
+    check('Activity: …nor the teammate’s Review › Activity page', tRev.status === 200 && !tRev.text.includes(cn) && !tRev.text.includes(nm), String(tRev.status));
     const sd = await rawDb.collection('states').findOne({ _id: pid });
     const pr = await rawDb.collection('presence').find({ projectId: pid }).toArray();
     check('State: a project made private takes its State along (placed private, owned by its owner)', sd?.visibility === 'private' && sd.ownerId === A.userId, JSON.stringify(sd && [sd.visibility, sd.ownerId]));
@@ -1104,7 +1116,9 @@ function AUDIT() {
   add('mcp add_project', M('add_project', t => ({ name: t.projectName }), { label: 'a name someone else uses', ok: r => r.ok, control: false /* the owner gets "already exists" by design */ }));
   add('mcp update_project', M('update_project', t => ({ project: t.project, description: 'lkq hacked' }), aim(['project'])), M('update_project', t => ({ project: t.projectName, visibility: 'org' }), aim(['projectName'], { label: 'by name, make shared', control: false })));
   add('mcp daily_summary', M('daily_summary', { since: '30d' }), Mc('daily_summary', { since: '30d' }, { label: 'code key' }));
-  add('mcp recent_activity', M('recent_activity', { since: '30d', limit: 300 }), M('recent_activity', t => ({ since: '30d', project: t.project }), aim(['project'], { label: 'by project', ok: r => r.ok && r.json?.count > 0 })));
+  add('mcp recent_activity', M('recent_activity', { since: '30d', limit: 300 }), M('recent_activity', t => ({ since: '30d', project: t.project }), aim(['project'], { label: 'by project', ok: r => r.ok && r.json?.count > 0 })),
+    // the What filter (note e56029b458): State, notes, messages, Needs and project rows, each read through its subject
+    ...['state', 'notes', 'messages', 'needs', 'projects'].flatMap(what => [M('recent_activity', { since: '30d', limit: 300, what }, { label: `what=${what}` }), M('recent_activity', t => ({ since: '30d', project: t.project, what }), aim(['project'], { label: `by project, what=${what}`, ok: r => r.ok && r.json?.count > 0 }))]));
   add('mcp apply_changes',
     M('apply_changes', t => ({ ops: [{ op: 'create_task', title: 'lkq batch own' }, { op: 'update_task', task: t.task, priority: 'P1' }] }), aim(['task'], { label: 'mixed: own create + their task' })),
     M('apply_changes', t => ({ dry_run: true, ops: [{ op: 'update_task', task: t.ref, title: 'lkq dry' }] }), aim(['ref'], { label: 'dry run' })),
@@ -1369,7 +1383,7 @@ function AUDIT() {
   add('page /notes/[id]', pg(t => `/notes/${t.note}`, aim(['note'])), pg(t => `/notes/${t.sub}`, aim(['sub'], { label: 'sub-page' })), pg(t => `/notes/${t.taskNote}`, aim(['taskNote'], { label: 'task note' })));
   add('page /modes/[mode]', pg('/modes/growth', { ok: r => /^redirect \/tasks\?mode=/.test(pageState(r)) }), pg(() => `/modes/${CANARIES.find(c => c.tag === 'xmode').s}`, { label: 'the second org\'s mode', echo: () => [CANARIES.find(c => c.tag === 'xmode').s], ok: r => /^redirect \/tasks\?mode=/.test(pageState(r)), aim: true, aimKeys: [], control: false }));
   add('page /notifications', pg('/notifications'));
-  add('page /review', ...['done', 'activity', 'weekly', 'stale', 'archive', 'trash'].map(v => pg(`/review?view=${v}`, { label: v })));
+  add('page /review', ...['done', 'activity', 'activity&what=state', 'activity&what=notes', 'activity&what=needs', 'activity&what=messages', 'weekly', 'stale', 'archive', 'trash'].map(v => pg(`/review?view=${v}`, { label: v })));
   add('page /settings', ...['account', 'notifications', 'connections', 'started', 'team', 'server'].map(v => pg(`/settings?section=${v}`, { label: v })));
   add('page /claude', ...['now', 'queue', 'workers', 'setup'].map(v => pg(`/claude?tab=${v}`, { label: v })));
   add('page /menu', pg('/menu'));
