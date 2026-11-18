@@ -41,7 +41,8 @@ export function hooksVersion(dir = here) {
 export function installedVersion() {
   try { return fs.readFileSync(path.join(hooksDir(), VERSION_FILE), 'utf8').trim() || null; } catch { return null; }
 }
-const MARK = 'work-os-worker'; // every entry we write runs a hook.mjs inside the worker config dir
+// Every entry we write runs <some folder>/hooks/hook.mjs <event>; the folder's name is not ours to rely on (WORK_OS_WORKER_DIR).
+const OURS_RE = new RegExp('[\\\\/]hooks[\\\\/]hook\\.mjs"\\s+(' + EVENTS.map((e) => e.event).join('|') + ')(\\s|$)');
 
 /** The hook entries, by Claude Code event. `hook` is the absolute path of the installed hook.mjs; `flags` is appended to each command (a repo's: ` --cloud --server <url>`). */
 export function entries(hook, flags = '') {
@@ -52,7 +53,7 @@ export function entries(hook, flags = '') {
   return out;
 }
 
-const ours = (group) => (group?.hooks || []).some((x) => String(x.command || '').includes(MARK) && /hook\.mjs/.test(String(x.command || '')));
+const ours = (group) => (group?.hooks || []).some((x) => OURS_RE.test(String(x.command || '')));
 const read = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return {}; throw new Error(`${f} is not valid JSON; fix it first (${e.message})`); } };
 
 /** The settings object with our entries removed (and empty events dropped). */
@@ -78,7 +79,9 @@ export function merge(settings, hook) {
 function write(f, obj) {
   if (fs.existsSync(f)) fs.copyFileSync(f, `${f}.bak-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`);
   fs.mkdirSync(path.dirname(f), { recursive: true });
-  fs.writeFileSync(f, JSON.stringify(obj, null, 2) + '\n');
+  const tmp = `${f}.${process.pid}.tmp`; // same folder, then a rename: a reader never sees half a file
+  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n');
+  fs.renameSync(tmp, f);
 }
 
 /** The installed hook.mjs of this worker, in the form the settings commands use (forward slashes). */
@@ -182,17 +185,29 @@ export function repo(folder = process.cwd(), { server } = {}) {
   if (!top) throw new Error(`${folder} is not inside a git repo`);
   const base = server || loadConfig().baseUrl;
   if (!base) throw new Error('no Work OS address: set up this worker first (node worker.mjs setup) or pass --server https://...');
-  checkBaseUrl(base);
+  const origin = checkBaseUrl(base);
   const dir = path.join(top, '.claude', 'work-os');
+  refuseLinks(top, ['.claude', 'work-os']);
   fs.mkdirSync(dir, { recursive: true });
+  refuseLinks(top, ['.claude', 'work-os']);
   copyFiles(dir);
   const file = path.join(top, '.claude', 'settings.json');
   const s = read(file);
   const hooks = {};
   for (const [ev, groups] of Object.entries(s.hooks || {})) { const keep = (groups || []).filter((g) => !repoOurs(g)); if (keep.length) hooks[ev] = keep; }
-  for (const [ev, groups] of Object.entries(entries(`$CLAUDE_PROJECT_DIR/${REPO_MARK}`, ` --cloud --server ${base}`))) hooks[ev] = [...(hooks[ev] || []), ...groups];
+  for (const [ev, groups] of Object.entries(entries(`$CLAUDE_PROJECT_DIR/${REPO_MARK}`, ` --cloud --server "${origin}"`))) hooks[ev] = [...(hooks[ev] || []), ...groups];
   fs.writeFileSync(file, JSON.stringify({ ...s, hooks }, null, 2) + '\n');
-  return { dir, settings: file, server: base };
+  return { dir, settings: file, server: origin };
+}
+/** A symlink or junction at .claude or .claude/work-os would let a hostile repo aim our writes and the stale-file cleanup elsewhere. */
+function refuseLinks(top, parts) {
+  let p = top;
+  for (const part of parts) {
+    p = path.join(p, part);
+    let st = null;
+    try { st = fs.lstatSync(p); } catch { /* not there yet */ }
+    if (st && (st.isSymbolicLink() || !st.isDirectory())) throw new Error(`${p} is a link or not a folder; refusing to write hooks through it`);
+  }
 }
 function gitTop(cwd) {
   try { return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null; } catch { return null; }

@@ -122,15 +122,50 @@ test('hooks repo: files under .claude/work-os, four cloud entries, other setting
     assert.deepEqual(s.permissions, { allow: ['Bash(ls)'] }, 'permissions untouched');
     assert.deepEqual(Object.keys(s.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'Stop']);
     assert.equal(s.hooks.Stop.length, 2);
-    assert.equal(s.hooks.SessionStart[0].hooks[0].command, 'node "$CLAUDE_PROJECT_DIR/.claude/work-os/hook.mjs" session-start --cloud --server https://work.example');
+    assert.equal(s.hooks.SessionStart[0].hooks[0].command, 'node "$CLAUDE_PROJECT_DIR/.claude/work-os/hook.mjs" session-start --cloud --server \"https://work.example\"');
     assert.equal(s.hooks.PostToolUse[0].hooks[0].timeout, 20);
     m.repo(repoDir, { server: 'https://work.example' });
     assert.equal(fs.readFileSync(r.settings, 'utf8'), first, 'rerun changes nothing');
     m.repo(path.join(repoDir, '.claude'), { server: 'https://other.example' });
     s = read();
     assert.equal(s.hooks.Stop.length, 2);
-    assert.match(s.hooks.Stop[1].hooks[0].command, /--server https:\/\/other\.example$/, 'a rerun from a subfolder finds the repo top and replaces the entries');
+    assert.match(s.hooks.Stop[1].hooks[0].command, /--server "https:\/\/other\.example"$/, 'a rerun from a subfolder finds the repo top and replaces the entries');
     assert.throws(() => m.repo(os.tmpdir(), { server: 'https://x.example' }), /not inside a git repo/);
     assert.throws(() => m.repo(repoDir, { server: 'http://example.com' }), /https/);
   } finally { fs.rmSync(repoDir, { recursive: true, force: true }); }
+});
+
+test('a worker folder not named work-os-worker: two installs leave no duplicates, and status and remove see the entries', () => {
+  const t2 = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-odd-'));
+  const keepS = process.env.CLAUDE_SETTINGS_PATH; const keepD = process.env.WORK_OS_WORKER_DIR;
+  try {
+    process.env.CLAUDE_SETTINGS_PATH = path.join(t2, 'settings.json');
+    process.env.WORK_OS_WORKER_DIR = path.join(t2, 'elsewhere');
+    m.install({ force: true });
+    m.install({ force: true });
+    const s = JSON.parse(fs.readFileSync(process.env.CLAUDE_SETTINGS_PATH, 'utf8'));
+    assert.equal(s.hooks.Stop.length, 1);
+    assert.equal(s.hooks.SessionStart.length, 1);
+    assert.equal(m.status().events.length, 4);
+    assert.equal(m.refreshIfStale(), null);
+    assert.equal(m.remove(), true);
+    assert.equal(m.status().events.length, 0);
+  } finally { process.env.CLAUDE_SETTINGS_PATH = keepS; process.env.WORK_OS_WORKER_DIR = keepD; fs.rmSync(t2, { recursive: true, force: true }); }
+});
+
+test('hooks repo quotes the server origin and refuses a linked .claude/work-os', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-repo-link-'));
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-repo-target-'));
+  try {
+    awaitedChildProcess.execFileSync('git', ['init', '-q'], { cwd: dir });
+    const r = m.repo(dir, { server: 'https://work.example/path?x=1;rm' });
+    assert.equal(r.server, 'https://work.example');
+    assert.match(fs.readFileSync(r.settings, 'utf8'), /--server \\"https:\/\/work\.example\\"/);
+    fs.rmSync(path.join(dir, '.claude', 'work-os'), { recursive: true, force: true });
+    fs.writeFileSync(path.join(target, 'keep.txt'), 'x');
+    try { fs.symlinkSync(target, path.join(dir, '.claude', 'work-os'), 'junction'); } catch { return; } // the OS refused the link
+    assert.throws(() => m.repo(dir, { server: 'https://work.example' }), /link or not a folder/);
+    assert.ok(fs.existsSync(path.join(target, 'keep.txt')));
+    assert.equal(fs.readdirSync(target).length, 1, 'nothing was written through the link');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(target, { recursive: true, force: true }); }
 });
