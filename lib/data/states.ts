@@ -267,7 +267,10 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
 
 // ── Import: a repo's WORK-STATE.md, once ────────────────────────────────────
 
-export type ParsedWorkState = { now: string; next: { text: string; waitsOn?: string }[]; later: { text: string; waitsOn?: string }[] };
+export type ParsedWorkState = { now: string; next: { text: string; waitsOn?: string }[]; later: { text: string; waitsOn?: string }[]; skipped: { section: string; lines: number }[] };
+
+/** Sections that are a record of the past, not the plan: never imported (they would flood Later). They belong in docs/history.md. */
+const PAST = /^(history|log|changelog|change log|changes|done|completed|shipped|archive|journal|timeline|session log|progress log|releases?)\b/i;
 
 const BULLET = /^\s{0,3}(?:[-*+]|\d+[.)])\s+(.*)$/;
 const HEADING = /^#{1,6}\s+(.*?)\s*#*\s*$/;
@@ -286,11 +289,13 @@ function chunk(t: string): string[] {
   return out;
 }
 
-/** Now / Next / Later sections of a WORK-STATE.md. Lines that fit nowhere (other sections, text before the first heading) come back as Later lines, so nothing is lost. */
+/** Now / Next / Later sections of a WORK-STATE.md. Lines that fit nowhere (other sections, text before the first heading) come back as Later lines, so nothing is lost; History, log and similar sections (PAST) are skipped and counted. */
 export function parseWorkState(md: string): ParsedWorkState {
-  type Sec = 'pre' | 'now' | 'next' | 'later' | 'other';
+  type Sec = 'pre' | 'now' | 'next' | 'later' | 'other' | 'past';
   let sec: Sec = 'pre';
   let other = '';
+  const skipped: { section: string; lines: number }[] = [];
+  let level = 0; // heading level of the skipped section: deeper headings stay inside it
   const items: Record<'now' | 'next' | 'later' | 'stray', string[]> = { now: [], next: [], later: [], stray: [] };
   const last: { at: { into: keyof typeof items; i: number } | null } = { at: null };
   const add = (into: keyof typeof items, t: string) => {
@@ -303,10 +308,19 @@ export function parseWorkState(md: string): ParsedWorkState {
       continue;
     }
     const h = raw.match(HEADING);
+    const depth = h ? raw.match(/^#+/)![0].length : 0;
+    if (sec === 'past' && (!h || depth > level)) {
+      if (!h) skipped[skipped.length - 1].lines++;
+      continue;
+    }
     if (h) {
       const name = h[1].trim().toLowerCase();
       last.at = null;
-      if (name === 'now' || name === 'next' || name === 'later') sec = name;
+      if (PAST.test(name)) {
+        sec = 'past';
+        level = depth;
+        skipped.push({ section: h[1].trim().slice(0, 80), lines: 0 });
+      } else if (name === 'now' || name === 'next' || name === 'later') sec = name;
       else if (/^work[ -]state\b/.test(name)) sec = 'pre';
       else {
         sec = 'other';
@@ -330,10 +344,11 @@ export function parseWorkState(md: string): ParsedWorkState {
     // What does not fit stays: the rest of Now's text, then Next lines past the cap, then stray lines, all as Later.
     next: lines(items.next).slice(0, LIMITS.next),
     later: [...lines(nowChunks.slice(1)), ...lines(items.next).slice(LIMITS.next), ...lines(items.later), ...lines(items.stray)].slice(0, LIMITS.later),
+    skipped,
   };
 }
 
-export async function importState(s: Scope, projectKey: string, markdown: string, o: { actor: Actor }): Promise<{ state: StateDoc; project: ProjectDoc; imported: { now: boolean; next: number; later: number } }> {
+export async function importState(s: Scope, projectKey: string, markdown: string, o: { actor: Actor }): Promise<{ state: StateDoc; project: ProjectDoc; imported: { now: boolean; next: number; later: number }; skipped: ParsedWorkState['skipped'] }> {
   if (!markdown.trim()) throw new InputError('markdown is empty');
   if (markdown.length > 200_000) throw new InputError('markdown is over 200,000 characters');
   void o;
@@ -362,7 +377,7 @@ export async function importState(s: Scope, projectKey: string, markdown: string
       updatedAt: now,
     };
     await c.states.insertOne(doc);
-    return { state: doc, project, imported: { now: !!p.now, next: doc.next.length, later: doc.later.length } };
+    return { state: doc, project, imported: { now: !!p.now, next: doc.next.length, later: doc.later.length }, skipped: p.skipped };
   });
 }
 

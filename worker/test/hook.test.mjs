@@ -281,13 +281,15 @@ const pre = (tool_name, tool_input) => main('pre-tool', JSON.stringify({ tool_na
 test('PreToolUse refuses hand edits of WORK-STATE.md and lets everything else through', async () => {
   for (const [t, i] of [['Edit', { file_path: path.join(repo, 'WORK-STATE.md') }], ['Write', { file_path: 'C:/x/work-state.md' }],
     ['Bash', { command: 'echo hi >> WORK-STATE.md' }], ['Bash', { command: "sed -i 's/a/b/' WORK-STATE.md" }], ['Bash', { command: 'cat x | tee WORK-STATE.md' }],
-    ['PowerShell', { command: 'Set-Content -Path WORK-STATE.md -Value x' }], ['Bash', { command: 'cp /tmp/s.md ./WORK-STATE.md' }]]) {
+    ['PowerShell', { command: 'Set-Content -Path WORK-STATE.md -Value x' }], ['Bash', { command: 'cp /tmp/s.md ./WORK-STATE.md' }],
+    ['Bash', { command: "sed -i 's/a/b/' 'docs/WORK-STATE.md'" }]]) {
     const out = JSON.parse(await pre(t, i));
     assert.equal(out.hookSpecificOutput.permissionDecision, 'deny', JSON.stringify(i));
     assert.match(out.hookSpecificOutput.permissionDecisionReason, /save_state/);
   }
   for (const [t, i] of [['Edit', { file_path: path.join(repo, 'a.txt') }], ['Read', { file_path: 'WORK-STATE.md' }], ['Bash', { command: 'cat WORK-STATE.md' }],
-    ['Bash', { command: 'git add WORK-STATE.md && git commit -m x' }], ['Bash', { command: 'grep Now WORK-STATE.md > /tmp/x' }], ['Bash', { command: 'git diff WORK-STATE.md' }]])
+    ['Bash', { command: 'git add WORK-STATE.md && git commit -m x' }], ['Bash', { command: 'grep Now WORK-STATE.md > /tmp/x' }], ['Bash', { command: 'git diff WORK-STATE.md' }],
+    ['Bash', { command: "sed -i 's/import it/import your WORK-STATE.md once/' lib/mcp/docs.ts && wc -l docs/WORK-STATE.md" }]])
     assert.equal(await pre(t, i), '', JSON.stringify(i));
 });
 

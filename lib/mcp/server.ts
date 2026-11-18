@@ -362,7 +362,9 @@ const codeShape = z
   .optional()
   .describe("Where the project's code lives. Replaces the whole list; [] or null clears it");
 
-const NO_STATE = 'no State yet: import your WORK-STATE.md (call import_state with the file text)';
+// Every session on a project with no State is told to make it now, not to ask first (Om, 19 Nov: AKAR's sessions kept
+// working with status only in a hand-kept file, and a transfer saved nothing).
+const NO_STATE = 'no State yet. Make it now, before other work, without asking your person: if the repo has a WORK-STATE.md (root or docs/), move any History, log or changelog section as is to docs/history.md, then call import_state with the rest (make it true today first); with no such file, call save_state with set_now (the goal of the work), add_next for each next step and add_later for the rest. Check with get_state. From then on the Work OS hook writes WORK-STATE.md at the repo root after every save: remove any other copy (docs/WORK-STATE.md) in the same commit as docs/history.md.';
 
 /** start_work's arguments after the project is found (the session id is decided by the caller). */
 export type StartWorkArgs = { branch?: string; machine?: string; label?: string; model?: string; account?: string; parent?: string; slot?: string };
@@ -1197,6 +1199,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const names = await memberNames(s.orgId);
       return {
         imported: { now: r.imported.now, next: r.imported.next, later: r.imported.later },
+        ...(r.skipped.length ? { notImported: `${r.skipped.map(k => `${k.section} (${k.lines} lines)`).join(', ')}: a record of the past, not the plan. Keep it in docs/history.md, not in the State.` } : {}),
         version: r.state.version,
         textRule: textRule(),
         state: stateData.stateOut(r.state, s.userId, names),

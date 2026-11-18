@@ -226,6 +226,10 @@ const COPY_REASON = 'WORK-STATE.md is a copy of the Work OS State, written by th
 /** True when a Bash or PowerShell command writes to WORK-STATE.md (redirect, tee, sed -i, Set-Content, cp/mv onto it). */
 export function writesCopy(cmd) {
   if (!/WORK-STATE\.md/i.test(cmd)) return false;
+  // Text inside single quotes (a sed script, a commit message) is not a path unless it is only a path: `sed -i 's/x/see
+  // WORK-STATE.md/' docs.ts` edits docs.ts (19 Nov: this refused a docs edit).
+  cmd = cmd.replace(/'([^'\n]*)'/g, (_, s) => (/^[\w.:/\\ -]*WORK-STATE\.md$/i.test(s) && !/^s\//.test(s) ? s : "''"));
+  if (!/WORK-STATE\.md/i.test(cmd)) return false;
   return /(>>?|\btee\b|\bsed\s+(-\w*\s+)*-i|\bperl\s+-\w*i|Set-Content|Add-Content|Out-File|\bcp\b|\bmv\b|Copy-Item|Move-Item|WriteAllText|writeFileSync)[^|;&\n]*WORK-STATE\.md/i.test(cmd)
     || /WORK-STATE\.md[^|;&\n]*\|\s*(Set-Content|Out-File)/i.test(cmd);
 }
