@@ -143,3 +143,68 @@ test('run as a command: JSON on stdout, exit 0, even with nothing to say', async
   assert.equal(r2.status, 0);
   assert.equal(JSON.parse(r2.out).hookSpecificOutput.hookEventName, 'SessionStart');
 });
+
+// ---- WORK-STATE.md copy: refuse hand edits, write and commit after save_state (Om 18 Nov) ----
+const pre = (tool_name, tool_input) => main('pre-tool', JSON.stringify({ tool_name, tool_input, cwd: repo }));
+test('PreToolUse refuses hand edits of WORK-STATE.md and lets everything else through', async () => {
+  for (const [t, i] of [['Edit', { file_path: path.join(repo, 'WORK-STATE.md') }], ['Write', { file_path: 'C:/x/work-state.md' }],
+    ['Bash', { command: 'echo hi >> WORK-STATE.md' }], ['Bash', { command: "sed -i 's/a/b/' WORK-STATE.md" }], ['Bash', { command: 'cat x | tee WORK-STATE.md' }],
+    ['PowerShell', { command: 'Set-Content -Path WORK-STATE.md -Value x' }], ['Bash', { command: 'cp /tmp/s.md ./WORK-STATE.md' }]]) {
+    const out = JSON.parse(await pre(t, i));
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny', JSON.stringify(i));
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /save_state/);
+  }
+  for (const [t, i] of [['Edit', { file_path: path.join(repo, 'a.txt') }], ['Read', { file_path: 'WORK-STATE.md' }], ['Bash', { command: 'cat WORK-STATE.md' }],
+    ['Bash', { command: 'git add WORK-STATE.md && git commit -m x' }], ['Bash', { command: 'grep Now WORK-STATE.md > /tmp/x' }], ['Bash', { command: 'git diff WORK-STATE.md' }]])
+    assert.equal(await pre(t, i), '', JSON.stringify(i));
+});
+
+const md = (v, extra = '', name = 'Demo') => `Copy of the Work OS state, version ${v}. Edit it in Work OS (https://x/projects/p1); this file is its copy.\n\n# Work state: ${name}\n\n## Now\n- ship it\n${extra}`;
+const answer = (m) => [{ type: 'text', text: JSON.stringify({ saved: true, markdown: m }) }];
+const post = (m, cwd = repo, sid = 'scopy') => main('post-tool', JSON.stringify({ session_id: sid, cwd, tool_name: 'mcp__work-os__save_state', tool_input: {}, tool_response: answer(m) }));
+const copyFile = path.join(repo, 'WORK-STATE.md');
+const lastMsg = (cwd = repo) => execFileSync('git', ['log', '-1', '--format=%s'], { cwd, encoding: 'utf8' }).trim();
+test('PostToolUse writes WORK-STATE.md from save_state and commits that file alone', async () => {
+  mode = 'ok';
+  assert.equal(await post(md(4)), '', 'no start and no file: the project is unknown, nothing written');
+  assert.ok(await start({ sid: 'copy' })); // start_work says the project is Demo
+  fs.writeFileSync(path.join(repo, 'staged.txt'), 'mine'); sh(repo, 'add', 'staged.txt');
+  const out = JSON.parse(await post(md(4)));
+  assert.match(out.hookSpecificOutput.additionalContext, /v4, committed/);
+  assert.match(fs.readFileSync(copyFile, 'utf8'), /^Copy of the Work OS state, version 4\.[\s\S]*<!-- work-os-copy sha1:[0-9a-f]{40} -->\n$/);
+  assert.equal(lastMsg(), 'WORK-STATE.md: copy of the Work OS State v4');
+  assert.match(execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: repo, encoding: 'utf8' }), /staged\.txt/, "the agent's staged work stays staged");
+  assert.equal(await post(md(4)), '', 'same State again: nothing to do');
+  assert.equal(await post(md(3)), '', 'an older version never overwrites a newer one');
+  assert.equal(await post(md(5, '', 'Other')), '', "another project's State is not written here");
+  assert.equal(await main('post-tool', JSON.stringify({ session_id: 'scopy', cwd: repo, tool_response: [{ type: 'text', text: '{"saved":true}' }] })), '', 'no markdown');
+  assert.match(fs.readFileSync(copyFile, 'utf8'), /version 4\./);
+  // without a session marker, the project comes from the copy already in the repo
+  assert.match(JSON.parse(await post(md(5), repo, 'nostart')).hookSpecificOutput.additionalContext, /v5/);
+});
+
+test('a hand-kept WORK-STATE.md is replaced, kept outside the repo, and its extra lines listed', async () => {
+  fs.writeFileSync(copyFile, md(5, '\n## Later (not in Work OS)\n- a line only in the file\n'));
+  const ctx = JSON.parse(await post(md(6), repo, 'scopy')).hookSpecificOutput.additionalContext;
+  assert.match(ctx, /1 line\(s\) that are not in the Work OS State/);
+  assert.match(ctx, /a line only in the file/);
+  const bak = ctx.match(/kept at (.+?) \(/)[1];
+  assert.match(fs.readFileSync(bak, 'utf8'), /a line only in the file/);
+  assert.doesNotMatch(fs.readFileSync(copyFile, 'utf8'), /only in the file/);
+  // the next save of a clean copy lists nothing
+  assert.doesNotMatch(JSON.parse(await post(md(7), repo, 'scopy')).hookSpecificOutput.additionalContext, /not in the Work OS State/);
+});
+
+test('builder worktrees and merges in progress: no copy in a worktree, no commit during a merge', async () => {
+  const wt = path.join(tmp, 'wt');
+  sh(repo, 'worktree', 'add', '-q', '-b', 'b1', wt);
+  assert.equal(await post(md(8), wt, 'scopy'), '');
+  assert.equal(fs.existsSync(path.join(wt, 'WORK-STATE.md')) && /version 8/.test(fs.readFileSync(path.join(wt, 'WORK-STATE.md'), 'utf8')), false);
+  const gitDir = path.join(repo, '.git');
+  fs.writeFileSync(path.join(gitDir, 'MERGE_HEAD'), 'x');
+  try {
+    const before = lastMsg();
+    assert.match(JSON.parse(await post(md(9), repo, 'scopy')).hookSpecificOutput.additionalContext, /not committed/);
+    assert.equal(lastMsg(), before);
+  } finally { fs.rmSync(path.join(gitDir, 'MERGE_HEAD')); }
+});
