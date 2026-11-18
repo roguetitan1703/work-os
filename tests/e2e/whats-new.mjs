@@ -18,7 +18,7 @@ const settle = (p, ms = 700) => p.waitForTimeout(ms);
 const seenOf = async () => (await rawDb.collection('settings').findOne({ _id: `profile:${ME.userId}` }))?.whatsNewSeen ?? [];
 const resetSeen = () => rawDb.collection('settings').updateOne({ _id: `profile:${ME.userId}` }, { $unset: { whatsNewSeen: '' } });
 const shot = (p, name) => p.screenshot({ path: `${SP}/whats-new-${name}.png`, fullPage: true });
-const ALL = ['activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
+const ALL = ['needs-typed-answer', 'activity-everything','digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
 
 const b = await launch();
 try {
@@ -72,7 +72,8 @@ try {
 
     // The bar: Needs in place of Claude, with the open count
     const bar = p.locator('nav[aria-label=Main]:visible');
-    const labels = await bar.locator('a, button').evaluateAll(els => els.map(e => (e.getAttribute('aria-label') || e.textContent.trim()).replace(/\d+$/, '').trim()));
+    // A tab's count sits on its icon, before its label in the text ("4Needs"): the label is what is left.
+    const labels = await bar.locator('a, button').evaluateAll(els => els.map(e => (e.getAttribute('aria-label') || e.textContent.trim()).replace(/^\d+\+?|\d+\+?$/g, '').trim()));
     check(`bar ${tag}: Today, Projects, Add, Needs, Tasks`, JSON.stringify(labels) === JSON.stringify(['Today', 'Projects', 'Add', 'Needs', 'Tasks']), JSON.stringify(labels));
     check(`bar ${tag}: Needs counts the open Needs (4)`, (await bar.locator('[data-badge=needs]').innerText()).trim() === '4');
 
@@ -120,12 +121,14 @@ try {
     await p.goto(B + '/whats-new'); await settle(p);
     const listed = await p.locator('[data-whats-new-entry]').evaluateAll(els => els.map(e => e.getAttribute('data-whats-new-entry')));
     check(`whats-new ${tag}: every entry listed`, JSON.stringify(listed) === JSON.stringify(ALL), JSON.stringify(listed));
-    check(`whats-new ${tag}: each says where to find it`, (await p.locator('[data-whats-new-where]').count()) === ALL.length && /Settings|Menu|project|Claude/i.test(await p.locator('[data-whats-new-where]').first().innerText()));
+    const wheres = await p.locator('[data-whats-new-where]').allInnerTexts();
+    check(`whats-new ${tag}: each says where to find it`, wheres.length === ALL.length && wheres.every(w => /^Where: \S/.test(w.trim())), JSON.stringify(wheres));
     check(`whats-new ${tag}: "New" on each while new`, (await p.locator('[data-whats-new-entry] [data-new-badge]').count()) === ALL.length);
     await shot(p, `page-${tag}`);
     o = await overflow(p); check(`no horizontal scroll /whats-new ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
     await p.waitForTimeout(2500);
-    check(`whats-new ${tag}: opening it marks everything seen`, JSON.stringify((await seenOf()).sort()) === JSON.stringify([...ALL].sort()), JSON.stringify(await seenOf()));
+    // Every entry of the list, the ones this server does not show (mail, intake) too, like Dismiss below.
+    check(`whats-new ${tag}: opening it marks everything seen`, JSON.stringify((await seenOf()).sort()) === JSON.stringify([...ALL, 'mail-connect', 'mailloom-reports'].sort()), JSON.stringify(await seenOf()));
     await p.goto(B + '/menu'); await settle(p);
     check(`menu ${tag}: the dot is gone once seen`, (await p.locator('main a[href="/whats-new"] [data-new-dot]').count()) === 0);
     await p.goto(B + '/today'); await settle(p);
