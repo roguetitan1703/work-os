@@ -7,7 +7,7 @@ import { mcpH, must } from './flow-lib.mjs';
 
 const A = 'H4 Alpha';
 const Bn = 'H4 Beta';
-const stateOf = async name => must(MCP, 'get_state', { project: name });
+const stateOf = async (name, copy = false) => must(MCP, 'get_state', { project: name, ...(copy ? { copy: true } : {}) });
 const nextTexts = s => s.state.next.map(l => l.text);
 const task = async (title, project, extra = {}) => (await must(MCP, 'add_task', { title, project, ...extra })).created;
 const status = async ref => (await rawDb.collection('tasks').findOne({ ref })).status;
@@ -33,6 +33,25 @@ try {
     ],
   });
   await must(MCP, 'save_state', { project: Bn, ops: [{ op: 'add_next', text: 'Beta waits for linked three', ref: t3.ref }, { op: 'add_next', text: 'Beta other' }] });
+
+  // Short answers and the hook marking (H4 item 1, D1)
+  check('H4 short: a save answers with a message and no state, textRule, markdown or repoCopy', !('state' in seedA) && !('textRule' in seedA) && !('markdown' in seedA) && !('repoCopy' in seedA) && /^Saved v\d+\. Next 6/.test(seedA.message) && JSON.stringify(seedA).length < 250, JSON.stringify(seedA));
+  check('H4 short: get_state without copy has no markdown', !('markdown' in (await stateOf(A))));
+  const hookOf = async sess => (await rawDb.collection('presence').findOne({ session: sess }))?.hook;
+  const ccH = await mkKey({ agent: 'claude-code', name: 'H4 hook marks' });
+  const hdr = (sess, hook) => ({ 'X-Work-OS-Session': sess, ...(hook ? { 'X-Work-OS-Hook': String(hook) } : {}) });
+  await must(ccH, 'start_work', { project: A, label: 'Claude Code', session: 'h4oldhook' }, hdr('h4oldhook'));
+  await must(ccH, 'start_work', { project: A, label: 'Claude Code', session: 'h4newhook' }, hdr('h4newhook', 2));
+  check('H4 hook: a start_work labelled "Claude Code" with no header is marked hook 1; with X-Work-OS-Hook: 2 it is marked 2', (await hookOf('h4oldhook')) === 1 && (await hookOf('h4newhook')) === 2, JSON.stringify([await hookOf('h4oldhook'), await hookOf('h4newhook')]));
+  const sv = (sess, h) => must(ccH, 'save_state', { project: A, session: sess, ops: [{ op: 'add_later', text: `Later for ${sess}` }] }, h);
+  const oldSave = await sv('h4oldhook', hdr('h4oldhook'));
+  check('H4 hook: a session marked hook 1 still gets the copy in a save answer', typeof oldSave.markdown === 'string' && oldSave.markdown.startsWith('Copy of the Work OS state, version '), JSON.stringify(oldSave).slice(0, 200));
+  const newSave = await sv('h4newhook', hdr('h4newhook', 2));
+  check('H4 hook: with the hook 2 header the save answer has no markdown', !('markdown' in newSave), JSON.stringify(newSave).slice(0, 200));
+  const oldByRow = await sv('h4oldhook', { 'X-Work-OS-Session': 'h4oldhook' });
+  check('H4 hook: hook 1 is remembered per session (the next call without a header still gets the copy)', typeof oldByRow.markdown === 'string');
+  const newHeaderWins = await sv('h4oldhook', hdr('h4oldhook', 2));
+  check('H4 hook: a header 2 on a call wins over a hook 1 row', !('markdown' in newHeaderWins));
 
   // Task to line
   const v0 = seedA.version;
@@ -69,7 +88,9 @@ try {
   const md = `Stray text above everything.\n\n# Work state\n\nAnother stray line.\n\n## Now\n- ${long}\n\n## Next\n1. ${long}\n2. Short line\n\n## Later\n- Later one\n`;
   await must(MCP, 'add_project', { name: 'H4 Import' });
   const cc = await mkKey({ agent: 'claude-code', name: 'H4 Claude Code' });
-  const imp = await must(cc, 'import_state', { project: 'H4 Import', markdown: md });
+  const impAns = await must(cc, 'import_state', { project: 'H4 Import', markdown: md });
+  check('H4 short: an import answers short (message, imported, shortened, no state or markdown)', !('state' in impAns) && !('markdown' in impAns) && /^Imported v1\./.test(impAns.message) && impAns.shortened >= 1, JSON.stringify(impAns).slice(0, 300));
+  const imp = { ...impAns, state: (await must(cc, 'get_state', { project: 'H4 Import' })).state };
   const n0 = imp.state.next[0].text;
   check('H4 import: a 700+ character line is cut after a sentence end, within 500 characters', long.length > 700 && n0.length <= 500 && n0.endsWith('here.') && long.startsWith(n0), `${long.length} -> ${n0.length}: ${n0.slice(-40)}`);
   check('H4 import: no fragment Later lines (Later holds only what it was given)', imp.state.later.length === 1 && imp.state.later[0].text === 'Later one', JSON.stringify(imp.state.later.map(l => l.text.slice(0, 40))));
@@ -78,9 +99,16 @@ try {
 
   // Decisions stay out of the repo copy when the repo is not known to be private (here: no remote, and no network in the e2e run)
   await must(MCP, 'save_state', { project: A, ops: [{ op: 'add_decision', text: 'Secret pricing decision' }] });
-  const g = await stateOf(A);
+  const g = await stateOf(A, true);
   check('H4 copy: Decisions are not in the repo copy when the repo is unknown, but are in the State', !g.markdown.includes('Secret pricing decision') && !g.markdown.includes('## Decisions') && g.state.decisions.some(d => d.text === 'Secret pricing decision'), g.markdown);
   check('H4 copy: no Where section and no author labels in the copy', !g.markdown.includes('## Where') && !/\(by /.test(g.markdown), g.markdown);
+  // …and they are in it once the repo is known private (cached answer, as the 7-day cache would hold it)
+  await rawDb.collection('projects').updateOne({ name: A }, { $set: { code: [{ remote: 'acme/h4-alpha' }], repoPublic: false, repoPublicAt: new Date() } });
+  const priv = await stateOf(A, true);
+  check('H4 copy: with a cached private verdict the copy lists Decisions', priv.markdown.includes('## Decisions') && priv.markdown.includes('Secret pricing decision'), priv.markdown);
+  await rawDb.collection('projects').updateOne({ name: A }, { $set: { repoPublic: true } });
+  const pub = await stateOf(A, true);
+  check('H4 copy: with a public verdict the Decisions are left out again', !pub.markdown.includes('Secret pricing decision'), pub.markdown);
   void ME;
 } catch (e) {
   check('flow-h4 (error)', false, e?.stack || String(e));

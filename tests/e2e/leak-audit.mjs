@@ -1442,6 +1442,15 @@ function AUDIT() {
   // The hook's sign-in (device key): A's private project by its remote. A's computer has a folder linked to it (the
   // control); anyone else's computer gets the same 404 as for a remote no project has, or 401.
   add('route POST /api/agent/start', worker('POST', '/api/agent/start', t => ({ remote: t.remote, branch: 'main' }), { ok: r => r.status === 200, aim: true, aimKeys: ['remote'], label: 'a project by its remote', controlOk: r => r.status === 200 && /"token":"wst_/.test(r.text) }));
+  // The hook's State route (session token only): each person's computer first signs in for A's project by its remote (the
+  // token exists only for A, whose computer has the folder), then asks for the copy with that token or, where there is none,
+  // with a made-up one. Nobody but A gets the copy, and nobody's other credential opens it (misuse list below).
+  add('route POST /api/agent/state', worker('POST', '/api/agent/state', {}, { ok: r => r.status === 200, label: 'the copy of A's project by a token', call: async ({ p, o: t }) => {
+    const s = await req('POST', '/api/agent/start', { bearer: p.wkr, body: { remote: t.remote, branch: 'main' } });
+    let token = 'wst_' + 'a'.repeat(43);
+    try { token = JSON.parse(s.text).token ?? token; } catch { /* no token: the made-up one is refused */ }
+    return req('POST', '/api/agent/state', { bearer: token, body: {} });
+  }, controlOk: r => r.status === 200 && /Copy of the Work OS state/.test(r.text) }));
   add('route GET /icons/[size]', route('GET', '/icons/192', { public: true }));
   // OAuth discovery documents (RFC 9728, RFC 8414): public by design, the same for everyone, nothing about any organization.
   for (const [name, has] of [['oauth-protected-resource', /authorization_servers/], ['oauth-authorization-server', /code_challenge_methods_supported/]]) {
@@ -1581,8 +1590,10 @@ function MISUSE({ A, T, X, R }) {
     L(`${label} on /api/worker/folders`, () => req('POST', '/api/worker/folders', { bearer, cookie, body: { folders: [] } }));
     L(`${label} on /api/worker/stream`, () => streamPeek('/api/worker/stream', { ...(bearer ? { authorization: `Bearer ${bearer}` } : {}), ...(cookie ? { cookie } : {}) }));
     L(`${label} on /api/agent/start`, () => req('POST', '/api/agent/start', { bearer, cookie, body: { remote: 'lkqmisuse/repo' } }), r => r.status === 401);
+    L(`${label} on /api/agent/state`, () => req('POST', '/api/agent/state', { bearer, cookie, body: {} }), r => r.status === 401);
   }
   L('the device key in X-API-Key on /api/agent/start', () => req('POST', '/api/agent/start', { headers: { 'x-api-key': A.wkr }, body: { remote: 'lkqmisuse/repo' } }), r => r.status === 401);
+  L('a wst_ token in X-API-Key on /api/agent/state', () => req('POST', '/api/agent/state', { headers: { 'x-api-key': 'wst_' + 'a'.repeat(43) }, body: {} }), r => r.status === 401);
   for (const [label, bearer] of [['a Claude Code key', A.code], ['a wkr_ key', A.wkr], ['a removed member\'s chat key', R.chat]]) {
     L(`${label} on /api/admin/health`, () => req('GET', '/api/admin/health', { bearer }));
     L(`${label} on /api/admin/discord/register`, () => req('GET', '/api/admin/discord/register', { bearer }));
