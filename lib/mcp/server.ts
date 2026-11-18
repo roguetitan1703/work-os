@@ -364,7 +364,7 @@ const codeShape = z
 
 // Every session on a project with no State is told to make it now, not to ask first (Om, 19 Nov: AKAR's sessions kept
 // working with status only in a hand-kept file, and a transfer saved nothing).
-const NO_STATE = 'no State yet. Make it now, before other work, without asking your person: if the repo has one, move any History, log or changelog section as is to docs/history.md, then call import_state with the text of the repo\'s WORK-STATE.md (root or docs/) (make it true today first); with no such file, call save_state with set_now (the goal of the work), add_next for each next step and add_later for the rest. Check with get_state. From then on ' + STATE_COPY + ' at the repo root: git rm any docs/ copy in the same commit as docs/history.md.';
+const NO_STATE = 'no State yet. Make it now, before other work, without asking your person: if the repo has a state file (root or docs/), move any History, log or changelog section as is to docs/history.md, then call import_state with the text of the repo\'s WORK-STATE.md (make it true today first); with no such file, call save_state with set_now (the goal of the work), add_next for each next step and add_later for the rest. Check with get_state. From then on ' + STATE_COPY + ' at the repo root: git rm any docs/ copy in the same commit as docs/history.md.';
 
 /** start_work's arguments after the project is found (the session id is decided by the caller). */
 export type StartWorkArgs = { branch?: string; machine?: string; label?: string; model?: string; account?: string; parent?: string; slot?: string };
