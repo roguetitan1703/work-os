@@ -1,4 +1,4 @@
-import type { Activity, FieldChange } from './types';
+import type { Activity, ActivityWhat, FieldChange, SubjectKind } from './types';
 
 // Human-readable lines for activity entries. Shared by the UI timeline and the MCP tools.
 
@@ -26,7 +26,78 @@ function change(field: string, c: FieldChange): string {
   return `${label} ${fmt(c.from)} → ${fmt(c.to)}`;
 }
 
-export function describeActivity(a: Pick<Activity, 'type' | 'changes' | 'note'>): string {
+/** The What filter's names (Review › Activity, recent_activity `what`). */
+export const WHAT_LABEL: Record<ActivityWhat, string> = { tasks: 'Tasks', state: 'State', notes: 'Notes', messages: 'Messages', needs: 'Needs', projects: 'Projects' };
+const KIND_WHAT: Record<SubjectKind, ActivityWhat> = { task: 'tasks', state: 'state', note: 'notes', message: 'messages', need: 'needs', project: 'projects' };
+
+/** What a row is about: tasks for task rows (older ones carry no subject). */
+export const whatOf = (a: Pick<Activity, 'subject'>): ActivityWhat => KIND_WHAT[a.subject?.kind ?? 'task'] ?? 'tasks';
+
+/** Where a row links to in the app: the task, the note, or the project's tab that shows it. */
+export function activityHref(a: Pick<Activity, 'subject' | 'taskRef' | 'projectId'>): string | null {
+  const p = (tab?: string) => (a.projectId ? `/projects/${encodeURIComponent(a.projectId)}${tab ? `?tab=${tab}` : ''}` : null);
+  switch (a.subject?.kind) {
+    case 'note':
+      return `/notes/${encodeURIComponent(a.subject.id)}`;
+    case 'message':
+      return p('inbox');
+    case 'need':
+      return p('needs');
+    case 'state':
+    case 'project':
+      return p();
+    default:
+      return a.taskRef ? `/tasks/${a.taskRef}` : null;
+  }
+}
+
+/**
+ * A row about something other than a task (State, a note, a message, a Need, a project), in words; null for a task row.
+ * Only the subject's own text is shown: a message's body and a Need's answer text are never in a row.
+ */
+export function describeChange(a: Pick<Activity, 'type' | 'changes' | 'note' | 'subject'>): string | null {
+  const t = a.subject?.title ?? '';
+  const n = a.note ?? '';
+  const need = `Need${a.subject?.ref ? ` #${a.subject.ref}` : ''}`;
+  const c = a.changes ?? {};
+  switch (a.type) {
+    // (Rows converted from the State's log may have no text left: the line was done or dropped before the feed had it.)
+    case 'state_now':
+      return n ? `Now: ${n}` : 'Now changed';
+    case 'next_added':
+      return n ? `Next + ${n}` : 'Next line added';
+    case 'next_done':
+      return n ? `Next done: ${n}` : 'Next line done';
+    case 'later_added':
+      return n ? `Later + ${n}` : 'Later line added';
+    case 'decision':
+      return n ? `Decision: ${n}` : 'Decision recorded';
+    case 'note_created':
+      return `Created note "${t}"`;
+    case 'note_edited':
+      return `Edited note "${t}"`;
+    case 'message_sent':
+      return `Sent a message${t ? ` (${t})` : ''}`;
+    case 'need_asked':
+      return `${need} asked: "${t}"`;
+    case 'need_answered':
+      return `${need} answered: ${n || 'answered'}`;
+    case 'need_withdrawn':
+      return `${need} withdrawn`;
+    case 'project_created':
+      return `Created project "${t}"`;
+    case 'project_renamed':
+      return `Renamed project "${fmt(c.name?.from)}" → "${fmt(c.name?.to)}"`;
+    case 'visibility_changed':
+      return `Who sees it: ${fmt(c.visibility?.from)} → ${fmt(c.visibility?.to)}`;
+    default:
+      return null;
+  }
+}
+
+export function describeActivity(a: Pick<Activity, 'type' | 'changes' | 'note'> & Partial<Pick<Activity, 'subject'>>): string {
+  const other = describeChange(a);
+  if (other !== null) return other;
   const parts: string[] = [];
   const changes = a.changes ?? {};
   switch (a.type) {

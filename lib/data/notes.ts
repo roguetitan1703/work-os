@@ -436,6 +436,7 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     if (set.blocks || set.title) await takeBackTaskOnNoteEdit(s, c, cur, actor);
     if (set.title && cur.parentId) await renamePageBlock(c, cur.parentId, cur._id, set.title);
     await c.notes.updateOne({ _id: cur._id }, { $set: set });
+    if (set.blocks || set.title) await logNote(c, { ...cur, ...set }, actor, 'note_edited');
     return { note: (await hydrate(c, [{ ...cur, ...set }]))[0], created: false };
   }
 
@@ -482,7 +483,27 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     throw err;
   }
   if (parent && w.linkInParent !== false) await addPageBlock(c, parent, doc._id, doc.title, actor);
+  await logNote(c, doc, actor, 'note_created');
   return { note: (await hydrate(c, [doc]))[0], created: true };
+}
+
+/**
+ * The activity feed: a row about this note, placed like the note. A task's note (or a page inside one) carries the task,
+ * so its rows move, go to the trash and come back with the task; a project's note carries the project and moves with
+ * it. Edits make one row per editor per hour. A person's own Orders page makes none (nobody else may read about it).
+ */
+async function logNote(c: Collections, n: NoteDoc, actor: Actor, type: 'note_created' | 'note_edited'): Promise<void> {
+  if (n.orders === 'person') return;
+  const { logChange, actorQueryOf } = await import('./tasks');
+  if (type === 'note_edited') {
+    const recent = await c.activity.findOne({ 'subject.id': n._id, type: { $in: ['note_created', 'note_edited'] }, at: { $gt: new Date(Date.now() - 3_600_000) }, ...actorQueryOf(actor) }, { projection: { _id: 1 } });
+    if (recent) return;
+  }
+  const taskId = await rootTaskId(c, n);
+  const task = taskId ? await c.tasks.findOne({ _id: taskId }, { projection: { ref: 1, title: 1 } }) : null;
+  // A task's page whose task cannot be found (never expected: such pages are in the trash with it) makes no row, rather than one that would not move with it.
+  if (taskId && !task) return;
+  await logChange(c, n, actor, type, { subject: { kind: 'note', id: n._id, title: n.title }, task, projectId: task ? null : n.projectId });
 }
 
 async function addPageBlock(c: Collections, parent: NoteDoc, childId: string, title: string, actor: Actor) {
@@ -591,7 +612,12 @@ const purgeAt = (deletedAt: Date) => Math.max(deletedAt.getTime(), NOTE_TRASH_SI
 export async function purgeDeletedNotes(s: Scope): Promise<number> {
   const c = await scoped(s);
   if (Date.now() < NOTE_TRASH_SINCE + NOTE_TRASH_DAYS * 86_400_000) return 0;
-  const r = await c.notes.deleteMany({ deletedAt: { $ne: null, $lt: new Date(Date.now() - NOTE_TRASH_DAYS * 86_400_000) } });
+  const old = { deletedAt: { $ne: null, $lt: new Date(Date.now() - NOTE_TRASH_DAYS * 86_400_000) } };
+  const ids = await c.notes.distinct('_id', old);
+  if (!ids.length) return 0;
+  const r = await c.notes.deleteMany({ ...old, _id: { $in: ids } });
+  // Their feed rows go with them (they were hidden while the notes were in the trash).
+  await c.activity.deleteMany({ 'subject.kind': 'note', 'subject.id': { $in: ids } });
   return r.deletedCount;
 }
 
@@ -652,5 +678,7 @@ export async function purgeNote(s: Scope, id: string, actor: Actor): Promise<num
   const ids = [id, ...(await deletedWith(c, id, cur.deletedAt))];
   await guardBoilerplate(s, actor, [cur.parentId, ...ids]);
   await guardOrders(s, actor, [cur.parentId, ...ids]);
-  return (await c.notes.deleteMany({ _id: { $in: ids }, deletedAt: { $ne: null } })).deletedCount;
+  const n = (await c.notes.deleteMany({ _id: { $in: ids }, deletedAt: { $ne: null } })).deletedCount;
+  await c.activity.deleteMany({ 'subject.kind': 'note', 'subject.id': { $in: ids } });
+  return n;
 }

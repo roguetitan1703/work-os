@@ -51,9 +51,10 @@ export async function getProjectTree(
       .toArray();
     perTask = new Map();
     for (const r of rows) {
-      const list = perTask.get(r.taskId) ?? [];
+      const k = r.taskId as string; // found by taskId
+      const list = perTask.get(k) ?? [];
       if (list.length < n) list.push(toActivity(r));
-      perTask.set(r.taskId, list);
+      perTask.set(k, list);
     }
   }
   tree.tasks = shown.map(t => ({

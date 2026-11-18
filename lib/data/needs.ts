@@ -167,6 +167,17 @@ export type AskInput = {
 };
 
 /**
+ * The activity feed: a row about this Need, placed like the Need (so its project's readers only) and moved with it
+ * (setProjectPlacement by projectId, restampTaskNeeds by id). The ask is the asker's own text; an answer's text is
+ * never copied, only the option chosen.
+ */
+async function logNeed(c: Collections, n: NeedDoc, actor: Actor, type: 'need_asked' | 'need_answered' | 'need_withdrawn', note?: string): Promise<void> {
+  const { logChange } = await import('./tasks');
+  const asker = 'userId' in n.from.actor && n.from.actor.userId ? n.from.actor.userId : undefined;
+  await logChange(c, n, actor, type, { subject: { kind: 'need', id: n._id, ref: n.ref, title: n.ask }, projectId: n.projectId || null, ...(note ? { note, ...(asker ? { textBy: asker } : {}) } : {}) });
+}
+
+/**
  * Ask one person one thing. `to` must be able to read the project; at most 5 open Needs from one asker (same word) to
  * one person; a second open Need of the same kind on the same task from the same asker replaces the first. Queues one
  * alert (kind 'need') for the addressee in the same transaction.
@@ -239,6 +250,7 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
     await c.needs.insertOne(doc);
     if (replaced.length) await c.needs.updateMany({ _id: { $in: [...replacedIds] }, status: 'open' }, { $set: { status: 'replaced', closedAt: now, replacedBy: id } });
     await syncTaskNeed(await orgWide(s.orgId), doc.taskId);
+    await logNeed(c, doc, input.actor, 'need_asked');
     // One alert per Need, sent at once (like "assigned"): to the addressee, even when they asked themselves through their own agent.
     if (!quiet) {
       await (await orgWide(s.orgId)).alertQueue.updateOne(
@@ -384,6 +396,7 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
     );
     if (!done) throw new InputError('This Need is already answered.');
     await syncTaskNeed(await orgWide(s.orgId), done.taskId);
+    await logNeed(c, done, via === 'discord' ? { kind: 'discord', userId: s.userId } : { kind: 'user', userId: s.userId }, 'need_answered', done.options.find(o => o.id === answer.option)?.label ?? answer.option);
     if (done.kind === 'review') return toNeed(await applyReview(s, done, answer.option, text));
     return toNeed(done);
   });
@@ -440,6 +453,7 @@ export async function createReviewNeed(s: Scope, t: TaskDoc, actor: Actor, resul
     };
     await org.needs.insertOne(doc);
     if (open.length) await org.needs.updateMany({ _id: { $in: open.map(n => n._id) }, status: 'open' }, { $set: { status: 'replaced', closedAt: now, replacedBy: id } });
+    await logNeed(org, doc, actor, 'need_asked');
     await org.tasks.updateOne({ _id: t._id }, { $unset: { sentBack: '' } });
     await syncTaskNeed(org, t._id);
     if (!quiet && !flood) {
@@ -519,6 +533,8 @@ export async function withdrawNeed(s: Scope, id: string, by: Withdrawer = 'app')
     const done = await c.needs.findOneAndUpdate({ _id: id, 'from.actor.userId': s.userId, status: 'open' }, { $set: { status: 'withdrawn', closedAt: now } }, { returnDocument: 'after' });
     if (!done) throw new InputError('This Need is already closed.');
     await syncTaskNeed(await orgWide(s.orgId), done.taskId);
+    // From the app the person; through MCP the asker itself (only the same word, session and key may withdraw it).
+    await logNeed(c, done, by === 'app' ? { kind: 'user', userId: s.userId } : done.from.actor, 'need_withdrawn');
     return toNeed(done);
   });
 }
@@ -552,6 +568,9 @@ export async function restampTaskNeeds(orgId: string, taskIds: string[]): Promis
     const set: Document = { ownerId: t.ownerId, visibility: t.visibility, sharedWith: t.visibility === 'members' ? (t.sharedWith ?? []) : [] };
     if (t.projectId) set.projectId = t.projectId;
     await c.needs.updateMany({ taskId: t._id }, { $set: set });
+    // Their feed rows follow them: the same placement and project (rows are found by the Need, the one subject id).
+    const ids = await c.needs.distinct('_id', { taskId: t._id });
+    if (ids.length) await c.activity.updateMany({ 'subject.kind': 'need', 'subject.id': { $in: ids } }, { $set: set });
     await withdrawUnreadableNeeds(c, { taskId: t._id }, 'moved');
     await syncTaskNeed(c, t._id);
   }

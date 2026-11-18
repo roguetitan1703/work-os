@@ -259,7 +259,7 @@ async function buildDigest(
 
   // Moved yesterday: one line per project (the previous working day up to today, so Monday covers the weekend). The
   // activity, the tasks and the projects all come through the door, so a project the person cannot read never shows.
-  const acts = await c.activity.find({ at: { $gte: previousWorkdayStart(today, tz), $lt: startOfDay(today, tz) } }, { projection: { taskId: 1, type: 1 } }).toArray();
+  const acts = (await c.activity.find({ at: { $gte: previousWorkdayStart(today, tz), $lt: startOfDay(today, tz) }, taskId: { $type: 'string' } }, { projection: { taskId: 1, type: 1 } }).toArray()) as { taskId: string; type: string }[];
   if (acts.length) {
     const taskIds = [...new Set(acts.map(a => a.taskId))];
     const projOf = new Map((await c.tasks.find({ _id: { $in: taskIds }, projectId: { $ne: null } }, { projection: { projectId: 1 } }).toArray()).map(t => [t._id, t.projectId as string]));

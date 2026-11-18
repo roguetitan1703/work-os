@@ -11,6 +11,8 @@ import { NoteTrashButtons, PurgeTrashButton, RestoreTrashButton } from '@/compon
 import { listDeletedNotes, NOTE_TRASH_DAYS } from '@/lib/data/notes';
 import { addDays, dateInTz, startOfDay, todayStr, weekStart } from '@/lib/dates';
 import { ActivityTimeline } from '@/components/activity-timeline';
+import { WHAT_LABEL } from '@/lib/activity-text';
+import { ACTIVITY_WHAT, type ActivityWhat } from '@/lib/types';
 import { TaskList, TaskRow } from '@/components/task-row';
 import { MTaskRow } from '@/components/mobile/m-task-row';
 import { UNTOUCHED_DAYS, isUntouched } from '@/lib/untouched';
@@ -69,32 +71,42 @@ export async function Completed({ weeks }: { weeks: number }) {
   );
 }
 
-export async function Activity({ actor }: { actor?: string }) {
+export async function Activity({ actor, what }: { actor?: string; what?: string }) {
   const a = (ACTOR_FILTERS as readonly string[]).includes(actor ?? '') ? (actor as ActorFilter) : undefined;
+  const w = (ACTIVITY_WHAT as readonly string[]).includes(what ?? '') ? (what as ActivityWhat) : undefined;
   const since = startOfDay(addDays(todayStr(), -14));
-  const items = await listActivity(await requireScope(), { since, actor: a, limit: 400 });
+  const items = await listActivity(await requireScope(), { since, actor: a, ...(w ? { what: [w] } : {}), limit: 400 });
   const byDay = new Map<string, typeof items>();
   for (const i of items) {
     const d = dateInTz(new Date(i.at));
     byDay.set(d, [...(byDay.get(d) ?? []), i]);
   }
+  // Who (actor) and What (the kind of thing that changed) are two rows of the same chips; each keeps the other's choice.
+  const href = (x: { actor?: string; what?: string }) => `/review?view=activity${x.actor ? `&actor=${x.actor}` : ''}${x.what ? `&what=${x.what}` : ''}`;
+  const chip = (on: boolean) =>
+    cn(
+      'shrink-0 whitespace-nowrap h-11 md:h-auto px-4 md:px-2 md:py-1 inline-flex items-center rounded-full md:rounded border',
+      on ? 'bg-foreground text-background border-foreground md:bg-muted md:text-foreground md:border-border' : 'border-border text-muted-foreground bg-card md:bg-transparent',
+    );
+  const row = 'flex gap-2 text-sm md:text-xs overflow-x-auto md:overflow-visible -mx-4 px-4 md:mx-0 md:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
   return (
     <div className="space-y-5">
-      <div className="flex gap-2 text-sm md:text-xs overflow-x-auto md:overflow-visible -mx-4 px-4 md:mx-0 md:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {[undefined, 'me', 'discord', 'claude', 'claude-code'].map(x => (
-          <Link
-            key={x ?? 'all'}
-            href={`/review?view=activity${x ? `&actor=${x}` : ''}`}
-            replace
-            className={cn(
-              'shrink-0 whitespace-nowrap h-11 md:h-auto px-4 md:px-2 md:py-1 inline-flex items-center rounded-full md:rounded border',
-              a === x ? 'bg-foreground text-background border-foreground md:bg-muted md:text-foreground md:border-border' : 'border-border text-muted-foreground bg-card md:bg-transparent',
-            )}
-          >
-            {x === 'me' ? 'By me (app)' : x === 'discord' ? 'By me (Discord)' : x === 'claude' ? 'By Claude' : x === 'claude-code' ? 'By Claude Code' : 'Everyone'}
-          </Link>
-        ))}
-        <span className="hidden md:inline text-muted-foreground self-center">Last 14 days</span>
+      <div className="space-y-2">
+        <div className={row}>
+          {[undefined, 'me', 'discord', 'claude', 'claude-code'].map(x => (
+            <Link key={x ?? 'all'} href={href({ actor: x, what: w })} replace className={chip(a === x)}>
+              {x === 'me' ? 'By me (app)' : x === 'discord' ? 'By me (Discord)' : x === 'claude' ? 'By Claude' : x === 'claude-code' ? 'By Claude Code' : 'Everyone'}
+            </Link>
+          ))}
+          <span className="hidden md:inline text-muted-foreground self-center">Last 14 days</span>
+        </div>
+        <div className={row} data-activity-what>
+          {[undefined, ...ACTIVITY_WHAT].map(x => (
+            <Link key={x ?? 'all'} href={href({ actor: a, what: x })} replace className={chip(w === x)}>
+              {x ? WHAT_LABEL[x] : 'All'}
+            </Link>
+          ))}
+        </div>
       </div>
       <p className="md:hidden -mt-2 px-1 text-xs text-muted-foreground">Last 14 days</p>
       {[...byDay].map(([d, list]) => (

@@ -239,7 +239,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   daily_summary: {
     title: 'Daily summary',
     description:
-      'One call for the morning brief: counts plus overdue, due today, in progress, blocked (incl. waiting on dependencies), due in the next 7 days, tasks completed since, all task changes since (with who made them), and per-project open/overdue counts. "since" defaults to the start of the previous workday (Monday → Friday).',
+      'One call for the morning brief: counts plus overdue, due today, in progress, blocked (incl. waiting on dependencies), due in the next 7 days, tasks completed since, all task changes since (with who made them), the other changes since (otherChanges: State, notes, messages, Needs, projects), and per-project open/overdue counts. "since" defaults to the start of the previous workday (Monday → Friday).',
     writes: false,
     example: 'What changed since yesterday and what is on me today?',
   },
@@ -436,8 +436,9 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   recent_activity: {
     title: 'Recent activity',
-    description: 'The change feed on its own across all tasks (created, status, progress, edits, comments, completions, archive, trash and restore), newest first, filterable by who made it (e.g. actor claude-code) and project. For the user’s day use daily_summary instead.',
+    description:
+      'The change feed on its own, newest first: tasks (created, status, progress, edits, comments, completions, archive, trash and restore), State (Now set, Next lines added and done, Later lines, decisions), notes created and edited, messages sent (who sent one, never its text: read it with inbox), Needs asked, answered (the option chosen, never the answer’s text) and withdrawn, projects created, renamed or changing who sees them. Filter by who made it (e.g. actor claude-code), project, and what (tasks, state, notes, messages, needs, projects). Text someone other than the user wrote is labelled writtenBy. For the user’s day use daily_summary instead.',
     writes: false,
-    example: 'What did I get done this week?',
+    example: 'What did my agents change in Work OS today?',
   },
 };

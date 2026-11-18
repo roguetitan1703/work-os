@@ -23,6 +23,10 @@ import * as mail from '../mail/tools';
 import { MailError } from '../mail/client';
 import { randomUUID } from 'node:crypto';
 import { describeActivity } from '../activity-text';
+// The activity feed beyond tasks (recent_activity `what`).
+import { whatOf } from '../activity-text';
+import { otherChangeOut } from '../data/summary';
+import { ACTIVITY_WHAT } from '../types';
 import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
 import { ordersFor } from '../data/orders';
@@ -659,7 +663,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
-    handler(async ({ shared_with, ...a }) => projects.createProject(s, { ...a, ...(shared_with !== undefined ? { sharedWith: shared_with } : {}) })),
+    handler(async ({ shared_with, ...a }) => projects.createProject(s, { ...a, ...(shared_with !== undefined ? { sharedWith: shared_with } : {}) }, ACTOR)),
   );
 
   tool(
@@ -685,7 +689,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const { project, shared_with, ...patch } = a;
       const p = await projects.getProject(s, project);
       if (!p) throw new NotFoundError(`Project "${project}" not found`);
-      return projects.updateProject(s, p.id, { ...patch, ...(shared_with !== undefined ? { sharedWith: shared_with } : {}) });
+      return projects.updateProject(s, p.id, { ...patch, ...(shared_with !== undefined ? { sharedWith: shared_with } : {}) }, ACTOR);
     }),
   );
 
@@ -699,7 +703,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const d = await dailySummary(s, { since: parseSince(a.since), baseUrl: ctx.baseUrl });
-      return { ...ruleIfOutside([...d.overdue, ...d.dueToday, ...d.inProgress, ...d.blocked, ...d.dueNext7Days, ...d.completedSince, ...d.changedSince]), ...d };
+      return { ...ruleIfOutside([...d.overdue, ...d.dueToday, ...d.inProgress, ...d.blocked, ...d.dueNext7Days, ...d.completedSince, ...d.changedSince, ...d.otherChanges.map(x => ({ titleWrittenBy: x.writtenBy }))]), ...d };
     }),
   );
 
@@ -710,18 +714,26 @@ export function createMcpServer(ctx: Ctx): McpServer {
         since: z.string().optional().describe('Default 24h. yesterday | 48h | 7d | YYYY-MM-DD | ISO datetime'),
         actor: z.enum(['me', 'discord', 'claude', 'claude-code', 'system']).optional().describe('me = you in the app, discord = via Discord commands, claude = claude.ai, claude-code = Claude Code sessions (yours)'),
         project: z.string().optional(),
+        what: z.enum(['all', ...ACTIVITY_WHAT]).optional().describe('Default all. tasks | state | notes | messages | needs | projects'),
         limit: z.number().int().min(1).max(300).optional().describe('Default 100'),
       },
       annotations: { readOnlyHint: true },
     },
     handler(async a => {
       const since = parseSince(a.since ?? '24h');
-      const list = await tasks.listActivity(s, { since, actor: a.actor, project: a.project, limit: a.limit ?? 100 });
+      const what = a.what && a.what !== 'all' ? [a.what] : undefined;
+      const list = await tasks.listActivity(s, { since, actor: a.actor, project: a.project, what, limit: a.limit ?? 100 });
       const by = await byOf(ctx);
+      const people = await memberNames(ctx.caller.orgId);
+      // Task rows as before; every other row says what it is about and labels text someone else wrote (writtenBy).
+      const events = list.map(e =>
+        whatOf(e) === 'tasks' ? { at: e.at, by: by(e.actor), task: `#${e.taskRef} ${e.taskTitle}`, type: e.type, text: describeActivity(e) } : (({ actor, ...x }) => ({ ...x, by: actor }))(otherChangeOut(e, s.userId, people)),
+      );
       return {
+        ...(events.some(e => 'writtenBy' in e && e.writtenBy) ? { textRule: textRule() } : {}),
         since: since?.toISOString(),
         count: list.length,
-        events: list.map(e => ({ at: e.at, by: by(e.actor), task: `#${e.taskRef} ${e.taskTitle}`, type: e.type, text: describeActivity(e) })),
+        events,
       };
     }),
   );
@@ -870,7 +882,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const nref = (n: notesData.NoteRef) => ({ id: n.id, title: n.title, firstLine: n.firstLine, chars: n.chars, updatedAt: n.updatedAt });
       const by = await byOf(ctx);
       const who = await whoIs();
-      const act = (x: { id: string; at: string; actor: unknown; type: string; taskRef: number }, text: string) => ({ id: x.id, at: x.at, by: by(x.actor), type: x.type, ref: x.taskRef, text });
+      const act = (x: { id: string; at: string; actor: unknown; type: string; taskRef?: number }, text: string) => ({ id: x.id, at: x.at, by: by(x.actor), type: x.type, ref: x.taskRef, text });
       return {
         project: { id: t.project.id, name: t.project.name, client: t.project.client || undefined, status: t.project.status, visibility: t.project.visibility, ...(t.project.sharedWith ? { sharedWith: t.project.sharedWith.map(who) } : {}), description: t.project.description || undefined, code: t.project.code, url: `${ctx.baseUrl}/projects/${t.project.id}`, ...t.project.stats },
         ...(matchedBy ? { matchedBy } : {}),
@@ -1149,7 +1161,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   const fromOf = async (name: ToolName, a: { session?: string }): Promise<messageData.From> => {
     const ident = identOf(name, [a]);
     const row = await presentRow(s, ident).catch(() => null);
-    return { word: WORD, ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: `${s.userId}:${ident.session ?? ident.keyId}` };
+    return { word: WORD, ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: `${s.userId}:${ident.session ?? ident.keyId}`, actor: ACTOR };
   };
   const sentOut = async (r: Awaited<ReturnType<typeof messageData.sendMessage>>) => ({
     sent: true,
