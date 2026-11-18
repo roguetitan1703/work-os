@@ -221,7 +221,7 @@ const COPY = 'WORK-STATE.md';
 const COPY_HEAD = /^Copy of the Work OS state, version (\d+)\./;
 const STAMP = /\n?<!-- work-os-copy sha1:([0-9a-f]{40}) -->\s*$/;
 const sha1 = (s) => createHash('sha1').update(s).digest('hex');
-const COPY_REASON = 'WORK-STATE.md is a copy of the Work OS State, written by the Work OS hook after every save_state. Do not edit it: change the State with save_state (set_now, add_next, done_next, add_later, add_decision, set_where) and the file updates and commits itself.';
+const COPY_REASON = 'WORK-STATE.md is a copy of the Work OS State, written by the Work OS hook after every save_state. Do not edit it: change the State with save_state (set_now, add_next, done_next, add_later, add_decision, set_where) and the file updates and commits itself. If get_state says "no State yet", make it now without asking: move any History or log section to docs/history.md, import_state the rest (19 Nov: AKAR was refused here with no State and stopped).';
 
 /** True when a Bash or PowerShell command writes to WORK-STATE.md (redirect, tee, sed -i, Set-Content, cp/mv onto it). */
 export function writesCopy(cmd) {
