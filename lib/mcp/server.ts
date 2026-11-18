@@ -1086,7 +1086,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       inputSchema: {
         project: z.string().describe('Project name or id'),
         ops: z.array(stateData.StateOpSchema).min(1).max(30).describe('Changes, applied in order'),
-        base_version: z.number().int().min(0).optional().describe('The State version you read. Needed only with set_now, move_next or done_next; stale = nothing written and the current State comes back'),
+        base_version: z.number().int().min(0).optional().describe('The State version you read. Needed only with set_now, move_next, done_next or edit_line; stale = nothing written and the current State comes back'),
         session: sessionArg,
       },
       annotations: { destructiveHint: false },
@@ -1108,6 +1108,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         saved: true,
         version: r.state.version,
         ...(r.done.length ? { done: r.done } : {}),
+        ...(r.dropped.length ? { dropped: r.dropped } : {}),
         ...(r.promoted.length ? { promotedToTasks: r.promoted.map(p => `#${p.ref} ${p.title}`) } : {}),
         textRule: textRule(),
         state: stateData.stateOut(r.state, s.userId, names),
