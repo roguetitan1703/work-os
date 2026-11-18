@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 41. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 42. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -51,8 +51,9 @@ Copy of the Work OS state, version 41. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov, Om: usage rule added to the org Orders (Long work): at 90% of the 5-hour limit or context, finish the step, start no new subagents or heavy jobs, keep State and handover current; at 95%, stop, run the transfer and tell your person. Done in the database like the 19 Nov Orders edit. The lead transferred at 97% of the 5-hour limit. (Om, chat)
 - 2026-11-18: 19 Nov, Om (chat): resume the Harness and R1 after the account switch. Lead restarted: R1 full e2e in wos-r1 (Sonnet), H4 phase 2 in slot B (Sonnet), H2 in slot S (Sonnet, light work only: two heavy jobs max on this PC). (Om, chat)
 - 2026-11-18: 19 Nov ~04:30 IST, Om (chat, before sleeping): lead may finish overnight on its own: merge, release to production (R1 and later Harness parts), test; use Om's Chrome profile where needed; create accounts by Google sign-in (Om's own Gmail) and API keys, kept via the clipboard. Wants a lot of progress by morning. (Om, chat)
+- 2026-11-18: 19 Nov, Om (relayed by the account-switch session): "Give the task to work os only to change the wording or orders, global claude md too and any other place ... so that when I go away and give permissions to do stuff that is planned it can do that work correctly." Done: Orders (DB, note 785391c151) Long work gains a bullet: a go for planned work while away covers every planned merge, test, push and release in Next and the plans after; record it, keep working, reviews still apply, a Need only for unplanned or irreversible-outside-the-plan, morning report in State. 'Ask before anything irreversible' points to it. /transfer skill pick-up step 5 says the go carries over. ~/.claude/CLAUDE.md not edited on a relayed request: its Start here already defers to the Orders; Om to say if he wants a line there too. Words to fold into H1/H9 (#278/#286). (Om, chat)
 
 ## Where
 - Victus-Knight: dev 324ecb7 clean (2026-11-18 22:49)
 - victus: dev 324ecb7 clean (2026-11-18 22:48)
-<!-- work-os-copy sha1:f597e9b0f287e85ae63632d2fac4199dbe1eb969 -->
+<!-- work-os-copy sha1:8b54c9ccdb13b81c9a5fc684d15fd57c16992ddf -->
