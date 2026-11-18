@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { B, EMAIL, MCP, PW, api, check, finish, launch, login, makeUser, mkDevice, okO, overflow, rawDb } from './lib.mjs';
+import { B, EMAIL, MCP, ME, PW, SP, api, check, finish, launch, login, makeUser, mkDevice, okO, overflow, rawDb } from './lib.mjs';
 import { must } from './flow-lib.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -37,7 +37,7 @@ async function act(cookie, name, ...args) {
   const text = await r.text();
   return { ok: /"ok":true/.test(text), text, linked: Number((/"linked":(\d+)/.exec(text) ?? [])[1] ?? NaN) };
 }
-const folder = (dev, fid, remote, projectId = null, extra = {}) => ({ _id: `${dev.id}:${fid}`, deviceId: dev.id, folderId: fid, name: fid, git: true, remote, branch: 'main', projectId, linkedAt: projectId ? new Date() : null, seenAt: new Date(), missing: false, ...extra });
+const folder = (dev, fid, remote, projectId = null, extra = {}) => ({ _id: `${dev.id}:${fid}`, deviceId: dev.id, folderId: fid, name: fid, git: true, remote, branch: 'main', projectId, linkedAt: projectId ? new Date() : null, seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId, ...extra });
 const status = (dev, hooks) => api(dev.key, 'POST', '/api/worker/status', { worker: { version: '0.4.0', os: 'win32', allowPrompts: true, ...(hooks === undefined ? {} : { hooks }) }, jobs: [], sessions: [] });
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-h2-'));
 
@@ -138,6 +138,7 @@ try {
       check(`[${vp}] no hooks`, /no hooks/.test(await t('h2-bare')), await t('h2-bare'));
       await p.locator('[data-device="h2-pc"] button[aria-label="Folders on h2-pc"]').click();
       await p.waitForSelector('[data-match-folders]');
+      await p.screenshot({ path: `${SP}/h2-setup-${vp}.png` });
       check(`[${vp}] the Link them line names the count`, /1 folder here matches/.test(await p.locator('[data-match-folders]').innerText()));
       check(`[${vp}] the Folders panel has no horizontal overflow`, okO(await overflow(p)));
       await p.locator('[data-match-folders] button', { hasText: 'Link them' }).click();

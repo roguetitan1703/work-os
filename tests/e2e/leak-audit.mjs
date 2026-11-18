@@ -1292,6 +1292,9 @@ function AUDIT() {
   add(`action ${CI}moveClaudeItemAction`, act(CI + 'moveClaudeItemAction', t => [t.itemProject, t.item, 'top'], aim(['itemProject', 'item'])));
   const L_ = 'app/(app)/projects/[id]/launcher-actions.ts#';
   add(`action ${L_}searchFoldersAction`, act(L_ + 'searchFoldersAction', t => [t.device, ''], aim(['device'], { ok: r => actOk(r) && r.value.data?.length > 0 })));
+  // Another person's computer (same organization or another) is 'not found' for both, exactly as a made-up id; the owner's own call works (nothing matches the canary remotes, so nothing is linked).
+  add(`action ${L_}matchingFoldersAction`, act(L_ + 'matchingFoldersAction', t => [t.device], aim(['device'], { ok: r => actOk(r) && Array.isArray(r.value.data?.matches) })));
+  add(`action ${L_}linkMatchingFoldersAction`, act(L_ + 'linkMatchingFoldersAction', t => [t.device], aim(['device'], { ok: r => actOk(r) && r.value.data?.linked === 0 })));
   add(`action ${L_}folderPickerAction`, act(L_ + 'folderPickerAction', t => [t.device, ''], aim(['device', 'project'], { ok: r => actOk(r) && r.value.data?.folders?.length > 0 })));
   add(`action ${L_}relinkFolderAction`, act(L_ + 'relinkFolderAction', t => [t.folder, t.project], aim(['project', 'folder'], { stage: 2 })));
   add(`action ${L_}linkFolderAction`, act(L_ + 'linkFolderAction', t => [t.project, t.folder], aim(['project', 'folder'])));
