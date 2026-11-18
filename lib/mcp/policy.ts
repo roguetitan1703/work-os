@@ -99,7 +99,7 @@ export function watchTarget(op: string, a: Record<string, unknown>): WatchTarget
   }
 }
 
-type EventKind = 'call' | 'trash' | 'mail_trash' | 'mail_send' | 'intake';
+type EventKind = 'call' | 'trash' | 'mail_trash' | 'mail_send' | 'intake' | 'agent';
 
 async function countSince(keyId: string, kind: EventKind, since: Date): Promise<number> {
   const c = await collections(); // scope-ok: rate-limit events per API key
@@ -161,6 +161,19 @@ export async function reserveIntake(source: IntakeSource): Promise<{ ok: true; r
   const oldest = await (await collections()).policyEvents.find({ keyId, kind: 'intake', at: { $gte: since } }).sort({ at: 1 }).limit(1).next(); // scope-ok: rate-limit events per intake source
   const wait = oldest ? Math.ceil((oldest.at.getTime() + 3_600_000 - Date.now()) / 1000) : 60;
   return { ok: false, retryAfter: Math.min(3600, Math.max(1, wait)) };
+}
+
+/**
+ * The Work OS hook's route (POST /api/agent/start, lib/agent-sessions.ts), per rolling hour: new sessions a computer's
+ * device key may open, and briefs one session token may fetch (start and every compaction). Its own counters, apart
+ * from the key budgets above and the worker routes' per-minute limit.
+ */
+export const AGENT_PER_HOUR = { device: 30, session: 20 } as const;
+
+/** One slot of that budget (the same race-safe reserve as the key budgets); false when it is used up. */
+export async function reserveAgent(kind: keyof typeof AGENT_PER_HOUR, id: string): Promise<boolean> {
+  const r = await reserve(`agent-${kind}:${id}`, 'agent', 1, new Date(Date.now() - 3_600_000), AGENT_PER_HOUR[kind]);
+  return !!r.id;
 }
 
 const trashWindowStart = () => new Date(Date.now() - LIMITS.trashWindowMin * 60_000);

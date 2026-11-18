@@ -4,6 +4,7 @@ import { collections, type DeviceDoc } from './db';
 import { SafeError } from './auth';
 import type { Caller } from './caller';
 import { closeDevice } from './live';
+import { endDeviceSessions } from './agent-sessions';
 
 // Device keys for the session launcher's worker (docs/launcher.md). A separate kind of credential from Work OS API
 // keys (wos_…, lib/api-keys.ts): accepted ONLY by /api/worker/*, and those routes accept nothing else. Only the
@@ -64,6 +65,7 @@ export async function replaceDeviceKey(caller: Caller, id: string): Promise<{ ke
   );
   if (!doc) throw new SafeError('That computer does not exist or was revoked.');
   closeDevice(id); // the old key's stream ends now; the worker reconnects only with the new key
+  await endDeviceSessions(id); // and the hook's session tokens made with the old key
   return { key, info: toInfo(doc) };
 }
 
@@ -74,6 +76,7 @@ export async function revokeDevice(caller: Caller, id: string): Promise<void> {
   if (!r.matchedCount) throw new SafeError('That device is already revoked or does not exist.');
   await c.workerJobs.updateMany({ deviceId: id, doneAt: null }, { $set: { doneAt: new Date(), ok: false, error: 'device revoked' } });
   closeDevice(id); // its push stream ends now; a reconnect is refused (revoked key)
+  await endDeviceSessions(id); // the hook's session tokens too (they are also refused for a revoked computer)
 }
 
 /** The device for a presented key, or null. Hash lookup, then constant-time compare. */

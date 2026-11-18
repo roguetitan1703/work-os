@@ -408,11 +408,17 @@ export type ReportedClaudeSession = { sessionId: string; folder: string; title: 
 export type ReopenItem = { sessionId: string; folder: string; title: string; origin: SessionOrigin };
 export type DeviceActivity = { sessions: number; sessionsWorkOs: number; sessionsOther: number; sessionsActive: number; subagents: number; at: Date };
 /** A folder a worker reported. _id = deviceId:folderId. Never a path. */
+/**
+ * A Claude Code session token (lib/agent-sessions.ts): what the Work OS hook gets from POST /api/agent/start for one
+ * session on one project, signed in with its PC's device key. `_id` is the session id (the first 32 hex of the token's
+ * SHA-256); only the full SHA-256 is stored, never the token. TTL index on `expiresAt`.
+ */
+export type AgentSessionDoc = { _id: string; hash: string; deviceId: string; orgId: string; ownerId: string; projectId: string; createdAt: Date; expiresAt: Date };
 export type WorkerFolderDoc = { _id: string; /** The device's owner and organization. */ orgId: string; ownerId: string; deviceId: string; folderId: string; name: string; git: boolean; remote?: string; branch?: string; projectId: string | null; linkedAt: Date | null; seenAt: Date; missing: boolean };
 export type WorkerJobDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; kind: 'start' | 'resume' | 'stop' | 'vscode' | 'desktop' | 'reopen' | 'dismiss'; folderId?: string; projectId?: string; /** Not set for reopen and dismiss (they act on the worker's own remembered set). */ sessionId?: string; prompt?: string; /** Turbo mode: the repo is not on the computer; the worker clones it first (docs/launcher.md). No folderId then. */ clone?: { repo: string; trusted: boolean }; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
 export type WorkerSessionDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; /** '' while its repo is still being cloned (turbo mode). */ folderId: string; projectId: string | null; /** Turbo mode: still cloning `repo` (owner/name). */ cloning?: boolean; repo?: string; /** Turbo mode: cloned but not trusted automatically; Claude Code asks the person on first run. */ needsTrust?: boolean; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Its owner removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string };
 /** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
-export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker' | 'mail_trash' | 'mail_send' | 'intake'; at: Date; n?: number };
+export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker' | 'mail_trash' | 'mail_send' | 'intake' | 'agent'; at: Date; n?: number };
 /**
  * One report sent in through an intake (lib/intake.ts): the sender's own id, so the same report sent again finds its task.
  * Unique on (source, reportId). taskId and ref are null while the task is being made (`claimedAt` says since when).
@@ -526,6 +532,7 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { blockedBy: 1 }, name: 'blockedBy' },
     ]],
     ['devices', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }, { key: { orgId: 1, ownerId: 1 }, name: 'org_owner' }]],
+    ['agentSessions', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }, { key: { deviceId: 1, createdAt: -1 }, name: 'device_created' }, { key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }]],
     ['workerFolders', [{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }]],
     ['workerJobs', [{ key: { deviceId: 1, doneAt: 1, createdAt: 1 }, name: 'device_pending' }, { key: { createdAt: 1 }, name: 'created_ttl', expireAfterSeconds: 30 * 86_400 }]],
     ['workerSessions', [{ key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' }, { key: { deviceId: 1, state: 1 }, name: 'device_state' }]],
@@ -608,6 +615,7 @@ export async function collections() {
     claudeItems: db.collection<ClaudeItemDoc>('claudeItems'),
     needs: db.collection<NeedDoc>('needs'),
     devices: db.collection<DeviceDoc>('devices'),
+    agentSessions: db.collection<AgentSessionDoc>('agentSessions'),
     workerFolders: db.collection<WorkerFolderDoc>('workerFolders'),
     workerJobs: db.collection<WorkerJobDoc>('workerJobs'),
     workerSessions: db.collection<WorkerSessionDoc>('workerSessions'),

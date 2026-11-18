@@ -40,9 +40,11 @@ import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RAT
  */
 /** who: the key owner's name and their organization's modes, for the server instructions (lib/mcp/pool.ts reads them). */
 type Ctx = { baseUrl: string; caller: Caller; who: InstructionsFor };
-const sOf = (ctx: Ctx) => callerScope(ctx.caller);
+/** What the brief needs of a context: the hook's route (app/api/agent/start) has no server instructions. */
+type BriefCtx = Pick<Ctx, 'baseUrl' | 'caller'>;
+const sOf = (ctx: BriefCtx) => callerScope(ctx.caller);
 /** "by" fields: 'me' / 'claude' / 'claude-code' / … for the key's owner, a name for anyone else (lib/actors.ts actorOut). */
-async function byOf(ctx: Ctx): Promise<(a: unknown) => string> {
+async function byOf(ctx: BriefCtx): Promise<(a: unknown) => string> {
   const people = await memberNames(ctx.caller.orgId);
   return a => actorOut(a, ctx.caller.userId, people);
 }
@@ -91,7 +93,7 @@ function parseSince(s: string | undefined): Date | undefined {
 }
 
 /** A member id as MCP output: 'me' for the key's owner, else their name. */
-async function whoOf(ctx: Ctx): Promise<(id: string) => string> {
+async function whoOf(ctx: BriefCtx): Promise<(id: string) => string> {
   const people = await memberNames(ctx.caller.orgId);
   return id => (id === ctx.caller.userId ? 'me' : people[id] || 'a former member');
 }
@@ -104,7 +106,7 @@ const textRule = () =>
 const ruleIfOutside = (list: { titleWrittenBy?: string }[]) => (list.some(x => x.titleWrittenBy) ? { textRule: textRule() } : {});
 
 /** Labels for text Claude reads: undefined for the owner's own text, else `a teammate named "Bea"` and the like. */
-async function labeller(ctx: Ctx) {
+async function labeller(ctx: BriefCtx) {
   const people = await memberNames(ctx.caller.orgId);
   return (a: unknown) => (isMine(a, ctx.caller.userId) ? undefined : authorLabel(a, people));
 }
@@ -355,6 +357,115 @@ const codeShape = z
   .nullable()
   .optional()
   .describe("Where the project's code lives. Replaces the whole list; [] or null clears it");
+
+const NO_STATE = 'no State yet: import your WORK-STATE.md (call import_state with the file text)';
+
+/** start_work's arguments after the project is found (the session id is decided by the caller). */
+export type StartWorkArgs = { branch?: string; machine?: string; label?: string; model?: string; account?: string; parent?: string; slot?: string };
+
+/**
+ * The start brief for one project and session: registers the session as present, marks the unread messages it hands
+ * over as seen and the answered Needs as briefed, and returns Orders, Needs, State, inbox, open tasks and who else is
+ * here. Used by the start_work tool and by the hook's route (POST /api/agent/start, lib/agent-sessions.ts). `key` is a
+ * project name or id the caller can read.
+ */
+export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string, a: StartWorkArgs, matchedBy?: { how: string; location: unknown }) {
+  const caller = ctx.caller;
+  const s = sOf(ctx);
+  const { project, state } = await stateData.getState(s, key);
+  const names = await memberNames(s.orgId);
+  const label = await labeller(ctx);
+  const by = await byOf(ctx);
+  if (a.account && (/@|^\s*(sk-|wkr_|wos_|ghp_|xox)/i.test(a.account) || /[A-Za-z0-9_-]{32,}/.test(a.account))) throw new InputError('account is a short label such as "om-max": not an email, a key or a token');
+  const mach = await resolveMachine(s, a.machine);
+  const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, label: a.label, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch });
+  // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
+  const layerName = { org: 'organisation', project: 'project', person: 'person' } as const;
+  const orders = (await ordersFor(s, project)).map(o => {
+    // Text that its layer's holder (who set the flag) did not write, and project rules the reader did not write, are information.
+    const odd = (a: unknown) => {
+      const u = (a as { userId?: string } | null)?.userId;
+      return o.ordersBy && u !== o.ordersBy ? (u && names[u]) || 'another member' : undefined;
+    };
+    const ws = [...new Set([...(o.layer === 'project' ? [o.createdBy, o.updatedBy].map(label) : []), odd(o.createdBy), odd(o.updatedBy)].filter((x): x is string => !!x))];
+    return { layer: layerName[o.layer], title: o.title, by: by(o.updatedBy), ...(ws.length ? { writtenBy: ws.join('; ') } : {}), text: o.text, ...(o.truncated ? { truncated: 'read the note for the rest', noteId: o.noteId } : {}) };
+  });
+  // 3. The inbox: unread messages first (they become seen: the sender can tell they arrived).
+  const inb = await messageData.inbox(s, { project: project._id, limit: 15, src: `${s.userId}:${sid}` });
+  // 4. The project's open tasks, in brief.
+  const open = await tasks.listTasks(s, { project: project._id, open: true, archived: 'exclude', sort: 'priority' });
+  const pn = await projects.projectNameMap(s);
+  const who = await whoOf(ctx);
+  // 2 (Needs): answers to what this caller asked come first, then what is open for them. Ids, asks and options; answer text is the person's own.
+  const answered = await needsData.answeredNeedsSince(s, { session: sid, keyId: caller.keyId, projectId: project._id, unbriefed: true }, new Date(Date.now() - 14 * 86_400_000));
+  const waiting = await needsData.needsForBrief(s, project._id);
+  await needsData.markBriefed(s, answered.map(n => n.id));
+  const needsBlock = {
+    answered: await Promise.all(answered.map(n => needOutOf(ctx, n))),
+    forYou: await Promise.all(waiting.map(n => needOutOf(ctx, n))),
+  };
+  // 5. Who else was here in the last 30 minutes.
+  const othersRows = await othersPresent(s, project._id, row._id);
+  const doingInfo = await taskInfo(s, othersRows.flatMap(p => (p.doing ? [p.doing.taskId] : [])));
+  const others = othersRows.map(p => ({
+    ai: p.userId === s.userId ? p.ai : clientWord(p.agent),
+    for: p.userId === s.userId ? 'me' : names[p.userId] || 'another member',
+    ...(p.label ? { label: p.label } : {}),
+    ...(p.machine ? { machine: p.machineName ?? p.machine } : {}),
+    ...(p.model ? { model: p.model } : {}),
+    ...(p.doing && doingInfo.get(p.doing.taskId) ? { doing: `#${doingInfo.get(p.doing.taskId)!.ref}` } : {}),
+    minutesAgo: Math.round((Date.now() - p.lastSeen.getTime()) / 60_000),
+    ...(p.userId === s.userId ? {} : { writtenBy: names[p.userId] || 'another member' }),
+  }));
+  return {
+    project: { id: project._id, name: project.name, url: `${ctx.baseUrl}/projects/${project._id}`, ...(matchedBy ? { matchedBy } : {}) },
+    session: sid,
+    textRule: textRule(),
+    sessionNote: 'Pass this session id as session on save_state and get_state (and as the X-Work-OS-Session header on every call, if your client can).',
+    orders: orders.length ? orders : 'no Orders set',
+    ...(needsBlock.answered.length || needsBlock.forYou.length ? { needs: { ...(needsBlock.answered.length ? { answeredForYou: needsBlock.answered } : {}), ...(needsBlock.forYou.length ? { openForYou: needsBlock.forYou } : {}) } } : {}),
+    state: state ? await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names) : NO_STATE,
+    inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names, { cut: 500 })) } : 'no messages',
+    openTasks: { total: open.length, tasks: open.slice(0, 25).map(t => briefTask(t, pn, { baseUrl: ctx.baseUrl, who })), ...(open.length > 25 ? { more: `${open.length - 25} more: list_tasks project:"${project.name}"` } : {}) },
+    alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
+    stateVersion: state?.version ?? 0,
+  };
+}
+
+/** A Need as tool output (ask, needs, withdraw_need, start_work and the hook's brief). */
+async function needOutOf(ctx: BriefCtx, n: needsData.Need) {
+  const s = sOf(ctx);
+  const people = await memberNames(s.orgId);
+  const label = await labeller(ctx);
+  const who = (id: string) => (id === s.userId ? 'me' : people[id] || 'a former member');
+  const names = await projects.projectNameMap(s);
+  const askedBy = label(n.from.actor);
+  const answeredBy = n.answer ? (n.answer.by === s.userId ? undefined : authorLabel({ kind: 'user', userId: n.answer.by }, people)) : undefined;
+  return {
+    id: n.id,
+    ref: n.ref,
+    url: `${ctx.baseUrl}/today#need-${n.ref}`,
+    project: names.get(n.projectId) ?? n.projectId,
+    task: n.taskRef ? `#${n.taskRef}` : null,
+    to: who(n.to),
+    kind: n.kind,
+    status: n.status,
+    ask: n.ask,
+    ...(askedBy ? { writtenBy: askedBy } : {}),
+    ...(n.example ? { example: n.example } : {}),
+    options: n.options,
+    appOnly: n.appOnly,
+    word: n.from.word,
+    ...(n.from.label ? { session: n.from.label } : {}),
+    createdAt: n.createdAt,
+    ...(n.answer
+      ? {
+          answer: { option: n.answer.option, ...(n.answer.text ? { text: n.answer.text } : {}), by: who(n.answer.by), via: n.answer.via, at: n.answer.at, ...(answeredBy ? { writtenBy: answeredBy } : {}) },
+          waitedMinutes: n.waitedMs === null ? null : Math.round(n.waitedMs / 60_000),
+        }
+      : {}),
+  };
+}
 
 export function createMcpServer(ctx: Ctx): McpServer {
   const caller = ctx.caller;
@@ -917,8 +1028,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
 
   // ── Starting work and State (docs/flows/step-1.md) ─────────────────────────
 
-  const NO_STATE = 'no State yet: import your WORK-STATE.md (call import_state with the file text)';
-
   tool(
     'start_work',
     {
@@ -954,66 +1063,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
         key = m.project.id;
         matchedBy = { how: m.how, location: m.location };
       }
-      const { project, state } = await stateData.getState(s, key);
-      const names = await memberNames(s.orgId);
-      const label = await labeller(ctx);
-      const by = await byOf(ctx);
       // The session: the one named (argument or header), else a new one.
       const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? randomUUID();
-      if (a.account && (/@|^\s*(sk-|wkr_|wos_|ghp_|xox)/i.test(a.account) || /[A-Za-z0-9_-]{32,}/.test(a.account))) throw new InputError('account is a short label such as "om-max": not an email, a key or a token');
-      const mach = await resolveMachine(s, a.machine);
-      const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, label: a.label, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch });
-      // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
-      const layerName = { org: 'organisation', project: 'project', person: 'person' } as const;
-      const orders = (await ordersFor(s, project)).map(o => {
-        // Text that its layer's holder (who set the flag) did not write, and project rules the reader did not write, are information.
-        const odd = (a: unknown) => {
-          const u = (a as { userId?: string } | null)?.userId;
-          return o.ordersBy && u !== o.ordersBy ? (u && names[u]) || 'another member' : undefined;
-        };
-        const ws = [...new Set([...(o.layer === 'project' ? [o.createdBy, o.updatedBy].map(label) : []), odd(o.createdBy), odd(o.updatedBy)].filter((x): x is string => !!x))];
-        return { layer: layerName[o.layer], title: o.title, by: by(o.updatedBy), ...(ws.length ? { writtenBy: ws.join('; ') } : {}), text: o.text, ...(o.truncated ? { truncated: 'read the note for the rest', noteId: o.noteId } : {}) };
-      });
-      // 3. The inbox: unread messages first (they become seen: the sender can tell they arrived).
-      const inb = await messageData.inbox(s, { project: project._id, limit: 15, src: `${s.userId}:${sid}` });
-      // 4. The project's open tasks, in brief.
-      const open = await tasks.listTasks(s, { project: project._id, open: true, archived: 'exclude', sort: 'priority' });
-      const pn = await projects.projectNameMap(s);
-      const who = await whoOf(ctx);
-      // 2 (Needs): answers to what this caller asked come first, then what is open for them. Ids, asks and options; answer text is the person's own.
-      const answered = await needsData.answeredNeedsSince(s, { session: sid, keyId: caller.keyId, projectId: project._id, unbriefed: true }, new Date(Date.now() - 14 * 86_400_000));
-      const waiting = await needsData.needsForBrief(s, project._id);
-      await needsData.markBriefed(s, answered.map(n => n.id));
-      const needsBlock = {
-        answered: await Promise.all(answered.map(needOut)),
-        forYou: await Promise.all(waiting.map(needOut)),
-      };
-      // 5. Who else was here in the last 30 minutes.
-      const othersRows = await othersPresent(s, project._id, row._id);
-      const doingInfo = await taskInfo(s, othersRows.flatMap(p => (p.doing ? [p.doing.taskId] : [])));
-      const others = othersRows.map(p => ({
-        ai: p.userId === s.userId ? p.ai : clientWord(p.agent),
-        for: p.userId === s.userId ? 'me' : names[p.userId] || 'another member',
-        ...(p.label ? { label: p.label } : {}),
-        ...(p.machine ? { machine: p.machineName ?? p.machine } : {}),
-        ...(p.model ? { model: p.model } : {}),
-        ...(p.doing && doingInfo.get(p.doing.taskId) ? { doing: `#${doingInfo.get(p.doing.taskId)!.ref}` } : {}),
-        minutesAgo: Math.round((Date.now() - p.lastSeen.getTime()) / 60_000),
-        ...(p.userId === s.userId ? {} : { writtenBy: names[p.userId] || 'another member' }),
-      }));
-      return {
-        project: { id: project._id, name: project.name, url: `${ctx.baseUrl}/projects/${project._id}`, ...(matchedBy ? { matchedBy } : {}) },
-        session: sid,
-        textRule: textRule(),
-        sessionNote: 'Pass this session id as session on save_state and get_state (and as the X-Work-OS-Session header on every call, if your client can).',
-        orders: orders.length ? orders : 'no Orders set',
-        ...(needsBlock.answered.length || needsBlock.forYou.length ? { needs: { ...(needsBlock.answered.length ? { answeredForYou: needsBlock.answered } : {}), ...(needsBlock.forYou.length ? { openForYou: needsBlock.forYou } : {}) } } : {}),
-        state: state ? await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names) : NO_STATE,
-        inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names, { cut: 500 })) } : 'no messages',
-        openTasks: { total: open.length, tasks: open.slice(0, 25).map(t => briefTask(t, pn, { baseUrl: ctx.baseUrl, who })), ...(open.length > 25 ? { more: `${open.length - 25} more: list_tasks project:"${project.name}"` } : {}) },
-        alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
-        stateVersion: state?.version ?? 0,
-      };
+      return startWorkBrief(ctx, key, sid, a, matchedBy);
     }),
   );
 
@@ -1643,38 +1695,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   );
 
   // ── Needs (slice 4): ask one person one thing. There is deliberately NO tool that answers one (docs/flows/plan-1-3.md). ──
-  const needOut = async (n: needsData.Need) => {
-    const people = await memberNames(s.orgId);
-    const label = await labeller(ctx);
-    const who = (id: string) => (id === s.userId ? 'me' : people[id] || 'a former member');
-    const names = await projects.projectNameMap(s);
-    const askedBy = label(n.from.actor);
-    const answeredBy = n.answer ? (n.answer.by === s.userId ? undefined : authorLabel({ kind: 'user', userId: n.answer.by }, people)) : undefined;
-    return {
-      id: n.id,
-      ref: n.ref,
-      url: `${ctx.baseUrl}/today#need-${n.ref}`,
-      project: names.get(n.projectId) ?? n.projectId,
-      task: n.taskRef ? `#${n.taskRef}` : null,
-      to: who(n.to),
-      kind: n.kind,
-      status: n.status,
-      ask: n.ask,
-      ...(askedBy ? { writtenBy: askedBy } : {}),
-      ...(n.example ? { example: n.example } : {}),
-      options: n.options,
-      appOnly: n.appOnly,
-      word: n.from.word,
-      ...(n.from.label ? { session: n.from.label } : {}),
-      createdAt: n.createdAt,
-      ...(n.answer
-        ? {
-            answer: { option: n.answer.option, ...(n.answer.text ? { text: n.answer.text } : {}), by: who(n.answer.by), via: n.answer.via, at: n.answer.at, ...(answeredBy ? { writtenBy: answeredBy } : {}) },
-            waitedMinutes: n.waitedMs === null ? null : Math.round(n.waitedMs / 60_000),
-          }
-        : {}),
-    };
-  };
+  const needOut = (n: needsData.Need) => needOutOf(ctx, n);
 
   tool(
     'ask',
