@@ -13,7 +13,7 @@ import { slotHolders, machineKey } from './slots';
 //   working   seen in the last 10 minutes
 //   waiting   has an open Need (asked a person something; slice 4, read through roster-needs.ts)
 //   idle      seen 10 to 30 minutes ago; "with Next work" when its project's State has unblocked Next lines
-//   gone      not seen for 30 minutes and, where the daemon reports, its process is gone. Its task is shown unheld.
+//   gone      not seen for 30 minutes and, where the daemon reports, its process is gone; or it called end_work. Its task is shown unheld.
 // Waiting wins over working (it is why it is quiet); gone wins over everything.
 
 export const WORKING_MIN = 10;
@@ -53,7 +53,8 @@ export type Roster = { workers: WorkerRow[]; couldBeRunning: CouldBeRunning[]; m
 type Raw = { row: PresenceDoc; running: boolean };
 
 /** Pure: the state of one worker at `now`. `running` = the daemon reports its process alive; `needs` = it has an open Need. */
-export function workerState(row: Pick<PresenceDoc, 'lastSeen'>, o: { now: number; running?: boolean; needs?: boolean }): WorkerState {
+export function workerState(row: Pick<PresenceDoc, 'lastSeen' | 'endedAt'>, o: { now: number; running?: boolean; needs?: boolean }): WorkerState {
+  if (row.endedAt) return 'gone';
   const ageMin = (o.now - row.lastSeen.getTime()) / 60_000;
   if (ageMin > GONE_MIN && !o.running) return 'gone';
   if (o.needs) return 'waiting';
