@@ -297,9 +297,9 @@ async function buildDigest(
       } else if (l.op === 'add_decision') bump(st.projectId).decisions++;
     }
   }
-  const doneActs = await c.activity.find({ at: { $gt: since }, type: 'completed' }, { projection: { taskId: 1 } }).toArray();
+  const doneActs = await c.activity.find({ at: { $gt: since }, type: 'completed', taskId: { $type: 'string' } }, { projection: { taskId: 1 } }).toArray();
   if (doneActs.length) {
-    const ids = [...new Set(doneActs.map(a => a.taskId))];
+    const ids = [...new Set(doneActs.flatMap(a => (a.taskId ? [a.taskId] : [])))];
     for (const t of await c.tasks.find({ _id: { $in: ids }, projectId: { $ne: null } }, { projection: { projectId: 1 } }).toArray()) bump(t.projectId as string).done++;
   }
   for (const n of await c.needs.find({ $or: [{ createdAt: { $gt: since } }, { answeredAt: { $gt: since } }] }, { projection: { projectId: 1, createdAt: 1, answeredAt: 1 } }).toArray()) {
