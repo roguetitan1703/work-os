@@ -20,10 +20,10 @@ export function placeOf(path: string): Place | null {
   return null;
 }
 
-/** The phone tab a page lights. Notes belong to Projects; Inbox, Needs, What's new, Review, Schedule, Settings and Menu light nothing. */
-export function phoneTabOf(path: string): 'today' | 'projects' | 'claude' | 'tasks' | null {
+/** The phone tab a page lights. Notes belong to Projects; Claude, Inbox, What's new, Review, Schedule, Settings and Menu light nothing. */
+export function phoneTabOf(path: string): 'today' | 'projects' | 'needs' | 'tasks' | null {
   const p = placeOf(path);
-  if (p === 'today' || p === 'claude' || p === 'tasks' || p === 'projects') return p;
+  if (p === 'today' || p === 'needs' || p === 'tasks' || p === 'projects') return p;
   if (p === 'notes') return 'projects';
   return null;
 }

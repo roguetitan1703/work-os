@@ -40,7 +40,7 @@ const PRIO_LABEL: Record<Priority, string> = { P1: 'P1 · must ship', P2: 'P2', 
  * /tasks?due=overdue works); segments and the search box filter instantly on the device.
  * Every row has a status / priority / due / mode sheet (long-press or the ... button).
  */
-export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch = false }: { tasks: Task[]; projects: Proj[]; noteTaskIds: string[]; filters: Filters; focusSearch?: boolean }) {
+export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch = false, top }: { tasks: Task[]; projects: Proj[]; noteTaskIds: string[]; filters: Filters; focusSearch?: boolean; /** Above the search (Needs you). */ top?: React.ReactNode }) {
   const { today } = useApp();
   const { modes, color } = useModes();
   const router = useRouter();
@@ -107,6 +107,7 @@ export function MobileTasks({ tasks, projects, noteTaskIds, filters, focusSearch
   return (
     <div>
       <MobileHeader title="Tasks" subtitle={`${list.length} ${seg === 'done' ? 'done this week' : 'shown'}`} />
+      {top && <div className="mb-3">{top}</div>}
 
       <div className="flex gap-2">
         <div className="relative flex-1">

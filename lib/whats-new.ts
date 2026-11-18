@@ -1,8 +1,9 @@
 // What's new in Work OS: one list, newest first. Today's "New in Work OS" card, the /whats-new page, the nav dot and the
 // small "New" badges all read it (docs/HANDOVER.md "What's new").
 //
-// Each new feature adds its own entry here in its own change (and a `badge` key where it lives), once it is merged.
-// Do not add entries for work still being built elsewhere.
+// Shipping a user-facing feature = adding one entry here, in the same change (AGENTS.md "Adding or changing UI"), and a
+// `badge` when the feature has its own entry in the sidebar. Do not add entries for work still being
+// built elsewhere.
 //
 // Client-safe: no server imports. What a person has seen is server-side (lib/whats-new-seen.ts).
 
@@ -13,68 +14,78 @@ export type WhatsNewEntry = {
   date: string;
   /** At most 50 characters. */
   title: string;
-  /** One sentence, plain words. */
+  /** One sentence, plain words: what it does for you. */
   line: string;
-  /** Where to try it: an in-app path. */
+  /** Where to find it, as a person would say it ("Menu › Needs on the phone, Needs in the sidebar"). */
+  where: string;
+  /** Where "Try it" goes: an in-app path. */
   href: string;
-  /** Where a small "New" badge goes for BADGE_DAYS (see BADGE_PLACES). */
+  /** Where a small "New" badge goes for NEW_DAYS (see BADGE_PLACES). */
   badge?: BadgePlace;
-  /** Only on a Work OS that has this set up. */
-  requires?: 'mail';
+  /** Only on a Work OS that has this set up: `mail` Mailloom Connect, `intake` the Mailloom report intake. */
+  requires?: 'mail' | 'intake';
 };
 
 /** Every place a "New" badge can sit. Add a place here and render `<NewBadge>` there. */
 export const BADGE_PLACES = {
-  'nav:needs': 'The Needs row in the sidebar and the phone Menu',
-  'claude:workers': 'The Workers tab on the Claude page',
-  'settings:mail': 'The Mail row in Settings › Connections',
+  'nav:needs': 'The Needs entry in the desktop sidebar',
 } as const;
 export type BadgePlace = keyof typeof BADGE_PLACES;
 
-/** Today shows unseen entries up to this many days after their date. */
-export const TODAY_DAYS = 30;
-/** A "New" badge shows this many days, counting the entry's own date. */
-export const BADGE_DAYS = 14;
+/** An entry is new (Today's card, the nav dot, its "New" badge) this many days, counting its own date. */
+export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
-    id: 'mail',
+    id: 'mailloom-reports',
     date: '2026-11-18',
-    title: 'Mail in Claude',
-    line: 'Claude reads, sorts and drafts your mail through your own Mailloom mailbox.',
+    title: 'Mailloom problem reports become tasks',
+    line: "A problem someone reports with Mailloom's Report a problem form arrives as a task, tagged mailloom-report.",
+    where: "In the Mailloom project's tasks, assigned to its owner",
+    href: '/projects',
+    requires: 'intake',
+  },
+  {
+    id: 'mail-connect',
+    date: '2026-11-16',
+    title: 'Connect Mailloom',
+    line: 'One click links your Mailloom mailbox, so Claude can read, sort and draft your mail.',
+    where: 'Settings › Connections › Mail',
     href: '/settings?section=connections',
-    badge: 'settings:mail',
     requires: 'mail',
   },
   {
     id: 'needs',
     date: '2026-11-15',
     title: 'Needs',
-    line: 'One list of what waits on you. Answer with a tap.',
+    line: 'One list of what waits on you: decisions, approvals and asks from teammates and Claude. Answer with a tap.',
+    where: 'The Needs tab on the phone, Needs in the sidebar, and on top of Today and Tasks',
     href: '/needs',
     badge: 'nav:needs',
-  },
-  {
-    id: 'state',
-    date: '2026-11-15',
-    title: 'Project State',
-    line: "Each project's Now, Next and Later. A new Claude session picks up where the last one stopped.",
-    href: '/projects',
-  },
-  {
-    id: 'workers',
-    date: '2026-11-15',
-    title: 'Workers',
-    line: 'Who, and which agent, is working on what right now.',
-    href: '/claude?tab=workers',
-    badge: 'claude:workers',
   },
   {
     id: 'results',
     date: '2026-11-15',
     title: 'Results and review',
-    line: 'Work an agent finishes comes to you to accept or send back.',
-    href: '/today',
+    line: 'Work a Claude session hands in comes to you to accept, send back, or accept and file what is left.',
+    where: 'As a Review Need on Today and on the Needs page',
+    href: '/needs',
+  },
+  {
+    id: 'state',
+    date: '2026-11-15',
+    title: 'Project State',
+    line: "Each project's Now, Next and Later, so a new Claude session picks up where the last one stopped.",
+    where: 'A project › Overview › State',
+    href: '/projects',
+  },
+  {
+    id: 'messages',
+    date: '2026-11-15',
+    title: 'Project messages',
+    line: "Send a project's Claude sessions a decision, request or question, and read what they send back.",
+    where: 'A project › Inbox tab',
+    href: '/projects',
   },
 ];
 
@@ -85,25 +96,31 @@ export function daysSince(date: string, today: string): number {
   return Math.round((Date.parse(today + 'T00:00:00Z') - Date.parse(date + 'T00:00:00Z')) / DAY_MS);
 }
 
-/** The entries for this Work OS (drops those needing something it has not set up). */
-export function entriesFor(has: { mail: boolean }): WhatsNewEntry[] {
-  return WHATS_NEW.filter(e => e.requires !== 'mail' || has.mail);
+/** Live on `today` and still new: from its own date for NEW_DAYS days. */
+export const isRecent = (e: WhatsNewEntry, today: string): boolean => {
+  const d = daysSince(e.date, today);
+  return d >= 0 && d < NEW_DAYS;
+};
+
+/** The entries for this Work OS (drops those needing something it has not set up), newest first. */
+export function entriesFor(has: { mail: boolean; intake: boolean }): WhatsNewEntry[] {
+  return WHATS_NEW.filter(e => !e.requires || has[e.requires]).sort((a, b) => b.date.localeCompare(a.date));
 }
 
 /** Unseen entries recent enough for Today and the nav dot, newest first. */
 export function recentUnseen(entries: readonly WhatsNewEntry[], seen: ReadonlySet<string>, today: string): WhatsNewEntry[] {
-  return entries.filter(e => !seen.has(e.id) && daysSince(e.date, today) <= TODAY_DAYS);
+  return entries.filter(e => !seen.has(e.id) && isRecent(e, today));
 }
 
 /** Badge places that are "New" today. */
 export function activeBadges(entries: readonly WhatsNewEntry[], today: string): BadgePlace[] {
-  return entries.filter(e => e.badge && daysSince(e.date, today) < BADGE_DAYS).map(e => e.badge!);
+  return entries.filter(e => e.badge && isRecent(e, today)).map(e => e.badge!);
 }
 
-/** The list grouped by date, newest first (the /whats-new page). */
-export function byDate(entries: readonly WhatsNewEntry[]): { date: string; entries: WhatsNewEntry[] }[] {
+/** The entries live on `today`, grouped by date, newest first (the /whats-new page). */
+export function byDate(entries: readonly WhatsNewEntry[], today: string): { date: string; entries: WhatsNewEntry[] }[] {
   const out: { date: string; entries: WhatsNewEntry[] }[] = [];
-  for (const e of [...entries].sort((a, b) => b.date.localeCompare(a.date))) {
+  for (const e of [...entries].filter(e => daysSince(e.date, today) >= 0).sort((a, b) => b.date.localeCompare(a.date))) {
     const last = out[out.length - 1];
     if (last?.date === e.date) last.entries.push(e);
     else out.push({ date: e.date, entries: [e] });

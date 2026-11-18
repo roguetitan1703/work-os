@@ -23,15 +23,19 @@ console.log('alpha id', A);
   const p = await mk(390, 844, true); const bar = p.locator('nav[aria-label=Main]:visible');
   await p.goto(B + '/claude'); await p.waitForTimeout(800);
   const cur = await bar.locator('a[aria-current=page]').evaluateAll(e => e.map(x => (x.getAttribute('aria-label') || x.textContent).trim()));
-  check('phone: Claude tab lit on /claude', cur.length === 1 && /Claude/.test(cur[0]), JSON.stringify(cur));
-  const badge = (await bar.locator('[data-badge=claude]').count()) ? await bar.locator('[data-badge=claude]').innerText() : '0';
+  // Claude is in the Menu now (the bar has Needs): no tab is lit on it, and the Menu's Claude row counts what asks.
+  check('phone: no tab lit on /claude', cur.length === 0, JSON.stringify(cur));
+  check('phone: no Claude tab in the bar', (await bar.locator('a[href="/claude"]').count()) === 0);
   const head = await p.locator('[data-section=needs-you] h2').innerText();
   const n = Number((head.match(/(\d+)\s*$/) || [])[1] ?? 0);
-  check('phone: badge matches Claude is asking count', badge === String(n) && n > 0, `badge ${badge}, heading "${head}"`);
+  check('phone: the header Menu button carries the amber dot while Claude asks', n > 0 && (await p.locator('header:visible [data-menu-dot]').count()) === 1, `heading "${head}"`);
+  await p.goto(B + '/menu'); await p.waitForTimeout(600);
+  const mc = (await p.locator('main a[href="/claude"] [data-claude-count]').count()) ? await p.locator('main a[href="/claude"] [data-claude-count]').innerText() : '0';
+  check('phone: the Menu Claude row count matches Claude is asking count', mc === String(n), `menu ${mc}, heading "${head}"`);
   for (const u of ['/claude?tab=queue', '/claude?tab=setup']) {
     await p.goto(B + u); await p.waitForTimeout(500);
     const lit = await bar.locator('a[aria-current=page]').evaluateAll(e => e.map(x => (x.getAttribute('aria-label') || x.textContent).trim()));
-    check(`phone: Claude tab lit on ${u}`, lit.length === 1 && /Claude/.test(lit[0]), JSON.stringify(lit));
+    check(`phone: no tab lit on ${u}`, lit.length === 0, JSON.stringify(lit));
   }
   for (const u of ['/today', '/tasks', `/projects/${A}`, '/claude']) {
     await p.goto(B + u); await p.waitForTimeout(700);

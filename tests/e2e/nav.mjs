@@ -15,17 +15,19 @@ const settle = p => p.waitForTimeout(700);
   await login(p); await settle(p);
   const bar = p.locator('nav[aria-label=Main]:visible');
   const labels = await bar.locator('a, button').evaluateAll(els => els.map(e => (e.getAttribute('aria-label') || e.textContent.trim()).replace(/^\d+/, '').trim()));
-  check('phone bar order', JSON.stringify(labels) === JSON.stringify(['Today', 'Projects', 'Add', 'Claude', 'Tasks']), JSON.stringify(labels));
+  check('phone bar order', JSON.stringify(labels) === JSON.stringify(['Today', 'Projects', 'Add', 'Needs', 'Tasks']), JSON.stringify(labels));
   const badge = async k => (await bar.locator(`[data-badge=${k}]`).count()) ? (await bar.locator(`[data-badge=${k}]`).innerText()) : '0';
   check('Today badge = overdue (2)', (await badge('today')) === '2', await badge('today'));
-  check('Claude badge = waiting (2)', (await badge('claude')) === '2', await badge('claude'));
+  check('no Claude tab: Claude lives in the Menu', (await bar.locator('a[href="/claude"]').count()) === 0);
+  check('Needs badge = open Needs for me (none in this seed)', (await badge('needs')) === '0', await badge('needs'));
+  check('header Menu dot: Claude waits (2)', (await p.locator('header:visible [data-menu-dot]').count()) === 1);
   const sizes = await bar.locator('a, button').evaluateAll(els => els.map(e => { const r = e.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }));
   check('bar targets >= 44px', sizes.every(([w, h]) => w >= 44 && h >= 44), JSON.stringify(sizes));
   const litOn = async url => { await p.goto(B + url); await settle(p); return bar.locator('a[aria-current=page]').evaluateAll(els => els.map(e => e.textContent.trim().replace(/^\d+/, ''))); };
   await p.goto(B + '/notes'); const noteHref = await p.locator('main a[href^="/notes/"]').first().getAttribute('href');
   const lit = {
     '/today': ['Today'], '/tasks': ['Tasks'], '/tasks/1': ['Tasks'], '/projects': ['Projects'], '/projects/alpha-client': ['Projects'],
-    '/notes': ['Projects'], [noteHref]: ['Projects'], '/notifications': [], '/history': [], '/review': [], '/hidden': [], '/timetable': [], '/settings': [], '/menu': [], '/connect': [], '/recovery': [],
+    '/notes': ['Projects'], [noteHref]: ['Projects'], '/notifications': [], '/history': [], '/review': [], '/hidden': [], '/timetable': [], '/settings': [], '/menu': [], '/connect': [], '/recovery': [], '/needs': ['Needs'], '/claude': [], '/whats-new': [],
   };
   for (const [u, exp] of Object.entries(lit)) { const got = await litOn(u); check(`lit tab ${u} -> ${exp.join('') || 'nothing'}`, JSON.stringify(got) === JSON.stringify(exp), JSON.stringify(got)); }
   for (const u of ['/today', '/tasks', '/projects', '/notes', '/menu']) {
@@ -61,11 +63,12 @@ const settle = p => p.waitForTimeout(700);
   // Menu
   await p.goto(B + '/menu'); await settle(p);
   const hrefs = await p.locator('main a').evaluateAll(els => els.map(e => e.getAttribute('href')));
-  const want = ['/notifications', '/review', '/timetable', '/settings']; // Inbox, Review, Schedule, Settings; Connect lives in Settings
+  const want = ['/claude', '/notifications', '/review', '/timetable', '/whats-new', '/settings']; // Claude, Inbox, Review, Schedule, What's new, Settings; Connect lives in Settings
   for (const w of want) check(`menu links ${w}`, hrefs.includes(w));
   const mc = hrefs.filter(h => h?.startsWith('/tasks?mode='));
   check('menu has no mode chips and no Modes of work row', mc.length === 0 && !hrefs.includes('/settings?section=help'), String(mc.length));
-  check('menu has exactly Inbox, Review, Schedule, Settings', JSON.stringify([...new Set(hrefs)].sort()) === JSON.stringify(['/notifications', '/review', '/settings', '/timetable']), JSON.stringify(hrefs));
+  check('menu has exactly Claude, Inbox, Review, Schedule, What's new, Settings', JSON.stringify([...new Set(hrefs)].sort()) === JSON.stringify(['/claude', '/notifications', '/review', '/settings', '/timetable', '/whats-new']), JSON.stringify(hrefs));
+  check('menu Claude row counts what waits (2)', (await p.locator('main a[href="/claude"] [data-claude-count]').innerText()).trim() === '2');
   check('menu Settings status dot', (await p.locator('main a[href="/settings"] [role=img]').count()) === 1);
   await p.goto(B + '/tasks'); await settle(p);
   const mh = p.locator('[data-mode-help]:visible').first();
@@ -134,7 +137,7 @@ const settle = p => p.waitForTimeout(700);
   const p = await ctx.newPage(); p.setDefaultTimeout(8000); const errs = []; p.on('pageerror', e => errs.push(e.message));
   await login(p); await settle(p);
   const aside = p.locator('aside');
-  const geo = async () => aside.evaluate(a => { const r = a.getBoundingClientRect(); const nav = a.querySelector('nav'); return { bottom: r.bottom, h: r.height, navScroll: (() => { const l = nav.querySelector('a[href="/timetable"]'); return !l || l.getBoundingClientRect().bottom > nav.getBoundingClientRect().bottom + 1; })() }; });
+  const geo = async () => aside.evaluate(a => { const r = a.getBoundingClientRect(); const nav = a.querySelector('nav'); return { bottom: r.bottom, h: r.height, navScroll: (() => { const l = nav.querySelector('a[href="/whats-new"]'); return !l || l.getBoundingClientRect().bottom > nav.getBoundingClientRect().bottom + 1; })() }; });
   let g = await geo();
   check('sidebar ends above the 40px time bar (<=760)', g.bottom <= 760.5, JSON.stringify(g));
   check('sidebar: all places are visible without scrolling (Recent may scroll)', !g.navScroll, JSON.stringify(g));
@@ -143,7 +146,7 @@ const settle = p => p.waitForTimeout(700);
   check('top: collapse toggle clickable', (await hit('aside [data-sidebar-toggle]')) === 'ok', await hit('aside [data-sidebar-toggle]'));
   const order = await aside.locator('a, button').evaluateAll(els => els.map(e => e.textContent.replace(/\s+/g, ' ').trim().replace(/\s*[NS1-5\/]$/, '').replace(/\d+$/, '').trim()).filter(Boolean));
   console.log('sidebar order:', JSON.stringify(order));
-  check('sidebar order', JSON.stringify(order.slice(0, 11)) === JSON.stringify(['New task', 'Search', 'Start Claude', 'Today', 'Tasks', 'Projects', 'Notes', 'Claude', 'Inbox', 'Review', 'Schedule']), JSON.stringify(order));
+  check('sidebar order', JSON.stringify(order.slice(0, 13)) === JSON.stringify(['New task', 'Search', 'Start Claude', 'Today', 'Tasks', 'Projects', 'Notes', 'Claude', 'Inbox', 'Needs', 'Review', 'Schedule', "What's new"]), JSON.stringify(order));
   check('sidebar has no Modes group or mode links', (await aside.locator('a[href^="/tasks?mode="]').count()) === 0 && (await aside.locator('button:has-text("Modes")').count()) === 0);
   const dbadge = t => aside.locator(`a:has-text("${t}") span.rounded-full`).first().innerText({ timeout: 1000 }).catch(() => '0');
   check('Today badge 2, Claude badge 2', (await dbadge('Today')) === '2' && (await dbadge('Claude')) === '2', `${await dbadge('Today')} ${await dbadge('Claude')}`);

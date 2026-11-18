@@ -70,7 +70,11 @@ export function InboxTab({ projectId, messages }: { projectId: string; messages:
         </div>
       </form>
 
-      {ordered.length === 0 && <p className="text-sm text-muted-foreground px-1">No messages yet. Agents and teammates leave decisions, requests and questions here.</p>}
+      {ordered.length === 0 && (
+        <p className="text-sm text-muted-foreground px-1" data-inbox-empty>
+          No messages yet. Claude sessions and teammates send this project decisions, requests and questions here; you can send one above.
+        </p>
+      )}
 
       {ordered.map(thread => (
         <div key={thread[0].thread} className="rounded-2xl md:rounded-lg border border-border/70 md:border-border bg-card divide-y divide-border/60 overflow-hidden" data-thread={thread[0].thread}>

@@ -13,8 +13,8 @@ export type WhatsNewCardData = { entries: WhatsNewEntry[]; more: number };
 const btn = 'h-11 md:h-9 px-4 rounded-lg text-sm font-medium shrink-0 inline-flex items-center justify-center whitespace-nowrap border border-border bg-card text-foreground hover:bg-muted/60 active:bg-muted disabled:opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-ring/60';
 
 /**
- * "New in Work OS" on Today: up to three entries from lib/whats-new.ts the person has not seen (30 days at most), each
- * with Try it; "N more" goes to /whats-new. Try it marks that one seen, Dismiss marks them all. Hidden when none.
+ * "New in Work OS" on Today: up to three entries from lib/whats-new.ts the person has not seen, shipped in the last
+ * NEW_DAYS (14) days, each with Try it; "N more" goes to /whats-new. Try it marks that one seen, Dismiss marks them all. Hidden when none.
  * Looks like Today's other side cards (Now & next on the desktop, the Claude card on the phone).
  */
 export function WhatsNewCard({ data, phone }: { data: WhatsNewCardData | null; phone: boolean }) {
