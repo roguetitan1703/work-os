@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 
 /**
- * A small "New" mark next to a feature for its first days (lib/whats-new.ts BADGE_DAYS). Not dismissible. The caller
+ * A small "New" mark next to a feature for its first days (lib/whats-new.ts NEW_DAYS). Not dismissible. The caller
  * decides whether it shows (`on`: the place is in whatsNewState().badges, or the app context's `newBadges`).
  */
 export function NewBadge({ on = true, className }: { on?: boolean; className?: string }) {
