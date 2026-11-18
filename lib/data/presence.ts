@@ -16,6 +16,48 @@ const REFRESH_MS = 60_000;
 
 export type Ident = { userId: string; agent: string; keyId?: string; keyName?: string; session?: string };
 
+/** The key of a session in messages (src, seenBy, toSids): the person's id and the session id, else the key id. The person's id always comes from the verified caller. */
+export const sessionKey = (i: Ident) => `${i.userId}:${i.session ?? i.keyId ?? i.agent}`;
+/** The same key, from a presence row. */
+export const rowKey = (r: Pick<PresenceDoc, 'userId' | 'key'>) => `${r.userId}:${r.key}`;
+
+/**
+ * Which presence rows a to_session names: an exact session id (only among the caller's own rows), else an exact label
+ * (case-insensitive, trimmed), else an exact client name. Never a substring. Several matches all count.
+ */
+export function matchSessions(allRows: PresenceDoc[], to: string, userId?: string): PresenceDoc[] {
+  // Only the sender's own sessions are named by a label or id: a label with no live row of the sender's waits on the sender's own key.
+  const rows = userId ? allRows.filter(r => r.userId === userId) : allRows;
+  const raw = to.trim();
+  const q = raw.toLowerCase();
+  if (!q) return [];
+  const byId = rows.filter(r => r.session === raw);
+  if (byId.length) return byId;
+  // The sender's own sessions come first: another person's rows match only when the sender has none that match.
+  const pick = (hit: (r: PresenceDoc) => boolean) => {
+    const all = rows.filter(hit);
+    const own = userId ? all.filter(r => r.userId === userId) : [];
+    return own.length ? own : all;
+  };
+  const byLabel = pick(r => (r.label ?? '').trim().toLowerCase() === q);
+  if (byLabel.length) return byLabel;
+  return pick(r => (r.ai ?? '').trim().toLowerCase() === q);
+}
+
+/** Does this look like a session id (a UUID, or the 32 hex of a hook session) rather than a label? Such a value is never kept as a label. */
+export const idShaped = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.trim()) || /^[0-9a-f]{32}$/i.test(v.trim());
+
+/**
+ * The presence row of a reading session, for messages: by session id; with no id only a row that start_work made with no
+ * id (never a sibling session's row of the same key), with no time limit.
+ */
+export async function readerRow(s: Scope, i: Ident): Promise<PresenceDoc | null> {
+  const c = await scoped(s);
+  if (i.session) return c.presence.findOne({ userId: i.userId, session: i.session }, { sort: { lastSeen: -1 } });
+  if (i.keyId) return c.presence.findOne({ userId: i.userId, keyId: i.keyId, session: { $exists: false } }, { sort: { lastSeen: -1 } });
+  return null;
+}
+
 const rowId = (i: Ident, projectId: string) => (i.session ? `${i.userId}:s:${i.session}:${projectId}` : `${i.userId}:k:${i.keyId ?? i.agent}:${projectId}`);
 
 // "No row for this caller" is remembered for a few seconds, so a caller who never calls start_work costs no read per tool call.
@@ -40,7 +82,8 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
         key: i.session ?? i.keyId ?? i.agent,
         ...(i.session ? { session: i.session } : {}),
         ...(i.keyId ? { keyId: i.keyId } : {}),
-        label: (o.label ?? '').slice(0, 120),
+        // A later start_work without a label keeps the earlier one (label addressing depends on it).
+        ...((o.label ?? '').trim() ? { label: (o.label ?? '').trim().slice(0, 120) } : {}),
         machine: (o.machine ?? '').slice(0, 40),
         ai: (i.keyName || i.agent).slice(0, 80),
         agent: i.agent,
@@ -58,6 +101,7 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
         writesSinceSave: 0,
         ...placeIn(project, s.userId),
       },
+      $setOnInsert: { createdAt: now, ...((o.label ?? '').trim() ? {} : { label: '' }) },
       // A machine that is no longer one of the person's devices (or a name now reported plain) drops its device name.
       ...(o.machine && !o.machineName ? { $unset: { machineName: '' } } : {}),
     },

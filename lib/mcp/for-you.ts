@@ -1,7 +1,8 @@
 import 'server-only';
 import type { PresenceDoc } from '../db';
 import { scoped, type Scope } from '../scope';
-import { claimCursor, countWrite, presentRow, resetWrites, touchPresence, type Ident } from '../data/presence';
+import { claimCursor, countWrite, presentRow, resetWrites, rowKey, sessionKey, touchPresence, type Ident } from '../data/presence';
+import { unreadFor } from '../data/messages';
 import { answeredNeedsSince, newNeedsForMe } from '../data/needs';
 import type { ToolName } from './docs';
 
@@ -56,12 +57,9 @@ const newNext: ForYouSource = {
 
 const newMessages: ForYouSource = {
   id: 'messages',
-  async collect({ s, since, projectId, src, named }) {
-    const m = await (await scoped(s)).messages
-      .find({ projectId, at: { $gt: since }, ...(src ? { src: { $ne: src } } : {}) }, { projection: { _id: 1 } })
-      .sort({ at: 1 })
-      .limit(41)
-      .toArray();
+  async collect({ s, row, since, projectId, src, named }) {
+    // Only what is unread for this session (the same rule as inbox and the brief), oldest first.
+    const m = (await unreadFor(s, { key: src ?? rowKey(row), userId: s.userId, row: !row.session || (src && src === rowKey(row)) ? row : null }, { projectId, since })).reverse().slice(0, 41);
     const fresh = m.filter(x => !named.has(x._id));
     if (!fresh.length) return none;
     return { lines: [`${fresh.length > 40 ? '40+' : fresh.length} new message${fresh.length === 1 ? '' : 's'} on project ${projectId} (inbox: ${fresh.slice(0, 5).map(x => x._id).join(', ')})`], ids: fresh.map(x => x._id) };
@@ -114,7 +112,7 @@ export async function forYouBefore(s: Scope, ident: Ident, tool: ToolName): Prom
     const lines: string[] = [];
     const ids: string[] = [];
     for (const src of SOURCES) {
-      const r = await src.collect({ s, row, since: row.forYouCursor, projectId: row.projectId, src: `${s.userId}:${ident.session ?? ident.keyId}`, named });
+      const r = await src.collect({ s, row, since: row.forYouCursor, projectId: row.projectId, src: sessionKey(ident), named });
       lines.push(...r.lines);
       ids.push(...r.ids);
     }

@@ -170,8 +170,9 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
 - **The folder decides the project.** Code locations are `{path, host}`; the longest match wins; the git remote is
   information. Unknown folder: the session sorts itself out (asks once, links or creates). `claude -p`, workers and
   subagents stay quiet.
-- **Every session has its own id** (Claude Code's session_id, or one from start_work). Seen state, presence and
-  to_session key on it. This fixes the "same person, unread forever" bug.
+- **Every session has its own id** (the session token's id, section 16.8, or one from start_work; not Claude Code's
+  session_id). Seen state, presence and to_session key on it. This fixes the "same person, unread forever" bug.
+  **Built (H3, 19 Nov):** `seenBy`, `toSids`, `sessionKey`, `isUnreadFor`; see docs/HANDOVER.md section 3, Messages.
 - **Presence at zero tokens from hooks:**
   - On: SessionStart.
   - Working: UserPromptSubmit.

@@ -30,7 +30,7 @@ import { ACTIVITY_WHAT } from '../types';
 import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
 import { ordersFor } from '../data/orders';
-import { othersPresent, presentRow, registerPresence, resolveMachine, setDoing, type Ident } from '../data/presence';
+import { othersPresent, presentRow, readerRow, registerPresence, resolveMachine, sessionKey, setDoing, type Ident } from '../data/presence';
 import { clientWord, taskInfo } from '../data/roster';
 import { holderOf, machineKey, MAX_WAIT_S, POLL_MS, prepareSlot, releaseSlot, tryAcquire } from '../data/slots';
 import { forYouAfter, forYouBefore } from './for-you';
@@ -375,7 +375,7 @@ export type StartWorkArgs = { branch?: string; machine?: string; label?: string;
  * here. Used by the start_work tool and by the hook's route (POST /api/agent/start, lib/agent-sessions.ts). `key` is a
  * project name or id the caller can read.
  */
-export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string, a: StartWorkArgs, matchedBy?: { how: string; location: unknown }) {
+export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | undefined, a: StartWorkArgs, matchedBy?: { how: string; location: unknown }) {
   const caller = ctx.caller;
   const s = sOf(ctx);
   const { project, state } = await stateData.getState(s, key);
@@ -397,7 +397,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string, a:
     return { layer: layerName[o.layer], title: o.title, by: by(o.updatedBy), ...(ws.length ? { writtenBy: ws.join('; ') } : {}), text: o.text, ...(o.truncated ? { truncated: 'read the note for the rest', noteId: o.noteId } : {}) };
   });
   // 3. The inbox: unread messages first (they become seen: the sender can tell they arrived).
-  const inb = await messageData.inbox(s, { project: project._id, limit: 15, src: `${s.userId}:${sid}` });
+  const inb = await messageData.inbox(s, { project: project._id, limit: 15, reader: { key: sessionKey({ userId: s.userId, agent: caller.agent, keyId: caller.keyId, session: sid }), userId: s.userId, row } });
   // 4. The project's open tasks, in brief.
   const open = await tasks.listTasks(s, { project: project._id, open: true, archived: 'exclude', sort: 'priority' });
   const pn = await projects.projectNameMap(s);
@@ -417,6 +417,8 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string, a:
     ai: p.userId === s.userId ? p.ai : clientWord(p.agent),
     for: p.userId === s.userId ? 'me' : names[p.userId] || 'another member',
     ...(p.label ? { label: p.label } : {}),
+    // Your own other sessions' ids, so a session can address a sibling; never another person's.
+    ...(p.userId === s.userId && p.session ? { session: p.session } : {}),
     ...(p.machine ? { machine: p.machineName ?? p.machine } : {}),
     ...(p.model ? { model: p.model } : {}),
     ...(p.doing && doingInfo.get(p.doing.taskId) ? { doing: `#${doingInfo.get(p.doing.taskId)!.ref}` } : {}),
@@ -425,13 +427,13 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string, a:
   }));
   return {
     project: { id: project._id, name: project.name, url: `${ctx.baseUrl}/projects/${project._id}`, ...(matchedBy ? { matchedBy } : {}) },
-    session: sid,
+    ...(sid ? { session: sid } : {}),
     textRule: textRule(),
-    sessionNote: 'Pass this session id as session on save_state and get_state (and as the X-Work-OS-Session header on every call, if your client can).',
+    sessionNote: !sid ? 'This connector is your session: no id to pass. Messages for you and the unread count follow it on every call.' : 'Pass this session id as session on save_state, get_state, inbox, send_message, reply and message_status (and as the X-Work-OS-Session header on every call, if your client can).',
     orders: orders.length ? orders : 'no Orders set',
     ...(needsBlock.answered.length || needsBlock.forYou.length ? { needs: { ...(needsBlock.answered.length ? { answeredForYou: needsBlock.answered } : {}), ...(needsBlock.forYou.length ? { openForYou: needsBlock.forYou } : {}) } } : {}),
     state: state ? await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names) : NO_STATE,
-    inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names, { cut: 500 })) } : 'no messages',
+    inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names, { cut: 500, unread: inb.unreadIds.has(m._id) })) } : 'no messages',
     openTasks: { total: open.length, tasks: open.slice(0, 25).map(t => briefTask(t, pn, { baseUrl: ctx.baseUrl, who })), ...(open.length > 25 ? { more: `${open.length - 25} more: list_tasks project:"${project.name}"` } : {}) },
     alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
     stateVersion: state?.version ?? 0,
@@ -520,7 +522,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         const ident = identOf(name, a);
         const pending = await forYouBefore(s, ident, name);
         // What this call creates is stamped with its session (else its key), so the line does not name it back to the session.
-        const res = await runWithRequestContext({ ...requestContext(), src: `${caller.userId}:${ident.session ?? ident.keyId}` }, () => cb(...a));
+        const res = await runWithRequestContext({ ...requestContext(), src: sessionKey(ident) }, () => cb(...a));
         return forYouAfter(pending, name, TOOLS[name].writes, res);
       }) as never,
     )) as unknown as typeof server.registerTool;
@@ -1077,7 +1079,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
         matchedBy = { how: m.how, location: m.location };
       }
       // The session: the one named (argument or header), else a new one.
-      const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? randomUUID();
+      // A claude.ai chat (OAuth) passes no id: its connector is its session (userId:keyId), so its row has no session id and its later calls find it. Other callers are handed an id.
+      const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? (caller.keyId?.startsWith('oauth_') ? undefined : randomUUID());
       return startWorkBrief(ctx, key, sid, a, matchedBy);
     }),
   );
@@ -1214,8 +1217,13 @@ export function createMcpServer(ctx: Ctx): McpServer {
   /** Who is sending: the client name, and the label of the session's presence row when it has one. */
   const fromOf = async (name: ToolName, a: { session?: string }): Promise<messageData.From> => {
     const ident = identOf(name, [a]);
-    const row = await presentRow(s, ident).catch(() => null);
-    return { word: WORD, ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: `${s.userId}:${ident.session ?? ident.keyId}`, actor: ACTOR };
+    const row = await readerRow(s, ident).catch(() => null);
+    return { word: WORD, ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: sessionKey(ident), actor: ACTOR };
+  };
+  /** The calling session as a reader: its key and its presence row. */
+  const readerOf = async (name: ToolName, a: { session?: string }): Promise<messageData.Reader> => {
+    const ident = identOf(name, [a]);
+    return { key: sessionKey(ident), userId: s.userId, row: await readerRow(s, ident).catch(() => null) };
   };
   const sentOut = async (r: Awaited<ReturnType<typeof messageData.sendMessage>>) => ({
     sent: true,
@@ -1234,7 +1242,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         kind: z.enum(messageData.KINDS).describe('decision, request, question or fyi'),
         body: z.string().min(1).max(messageData.MSG_LIMITS.body),
         refs: messageData.RefsSchema.optional().describe('{tasks: [task numbers], commits: [...], files: [...]}'),
-        to_session: z.string().max(120).optional().describe('Who should act: a session label or client name (a hint: everyone who reads the project can read the message)'),
+        to_session: z.string().max(120).optional().describe('Who should act: a session id (start_work, alsoHere) or a session label (a hint: everyone who reads the project can read the message)'),
         sender_commit: z.string().max(80).optional(),
         session: sessionArg,
       },
@@ -1255,9 +1263,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false },
     },
     handler(async a => {
-      const r = await messageData.inbox(s, { project: a.project, status: a.status, limit: a.limit, src: requestContext().src });
+      const r = await messageData.inbox(s, { project: a.project, status: a.status, limit: a.limit, reader: await readerOf('inbox', a) });
       const names = await memberNames(s.orgId);
-      return { textRule: textRule(), ...(r.project ? { project: r.project.name } : {}), unread: r.unread, messages: r.messages.map(m => messageData.messageOut(m, s.userId, names)) };
+      return { textRule: textRule(), ...(r.project ? { project: r.project.name } : {}), unread: r.unread, messages: r.messages.map(m => messageData.messageOut(m, s.userId, names, { unread: r.unreadIds.has(m._id) })) };
     }),
   );
 
@@ -1275,7 +1283,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false },
     },
     handler(async a => {
-      const r = await messageData.setStatus(s, a.id, a.status, { note: a.note, commit: a.commit, actor: ACTOR, makeTask: a.make_task });
+      const r = await messageData.setStatus(s, a.id, a.status, { note: a.note, commit: a.commit, actor: ACTOR, makeTask: a.make_task, reader: await readerOf('message_status', a) });
       const names = await memberNames(s.orgId);
       return { message: messageData.messageOut(r.message, s.userId, names), ...(r.decision ? { addedToDecisions: true } : {}), ...(r.task ? { task: `#${r.task.ref} ${r.task.title}` } : {}) };
     }),

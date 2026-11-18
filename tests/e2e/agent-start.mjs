@@ -13,7 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ObjectId } from 'mongodb';
 import { B, EMAIL, MCP, ME, PW, check, finish, makeUser, mkDevice, mkKey, rawDb } from './lib.mjs';
-import { must } from './flow-lib.mjs';
+import { mcpH, must } from './flow-lib.mjs';
 
 const URL_ = B + '/api/agent/start';
 const idIn = id => ({ $in: [new ObjectId(id), String(id)] });
@@ -92,6 +92,13 @@ try {
   const row = await rawDb.collection('agentSessions').findOne({ _id: sid });
   check('agentSessions row: hash only, one project, about 24 h', !!row && row.projectId === one && row.deviceId === pc1.id && /^[0-9a-f]{64}$/.test(row.hash) && Math.abs(row.expiresAt - row.createdAt - 24 * 3600e3) < 5000);
   check('agentSessions row: the hash of the key it was made with', row?.keyHash === (await rawDb.collection('devices').findOne({ _id: pc1.id }))?.hash);
+
+  // The hook's session id, passed as `session` on an MCP call with a wos_ key of the same owner, is the same session (H3).
+  const kSame = await mkKey({ agent: 'claude-code', name: 'agent-start same owner' });
+  const toHook = await must(MCP, 'send_message', { project: 'Agent One', kind: 'fyi', body: 'to the hook session', to_session: sid });
+  const viaKey = await mcpH(kSame, 'list_tasks', { project: 'Agent One' }, { 'X-Work-OS-Session': sid });
+  check('the brief session id on an MCP call finds the same presence row (one row) and forYou names the message', (await rawDb.collection('presence').countDocuments({ session: sid, projectId: one })) === 1 && viaKey.json?.forYou?.some(l => /1 new message/.test(l)), JSON.stringify(viaKey.json?.forYou));
+  check('…and the message is addressed to that session by its key', (await rawDb.collection('messages').findOne({ _id: toHook.id }))?.toSids?.[0] === `${A.userId}:${sid}`);
 
   // ---- the token again (after a compaction) ----
   const r2 = await post(T1, at('acme/agent-one'));

@@ -271,8 +271,12 @@ export type StateDoc = Placed & {
 export type MessageDoc = Placed & {
   _id: string;
   projectId: string;
-  /** Narrows who should act (a session label or client name): a hint, not a privacy line. */
+  /** Who should act, for display: a session label or client name (a pending label when no session matched at send time): a hint, not a privacy line. Never a raw session id. */
   toSession?: string;
+  /** The session keys (userId:session) the message was addressed to at send time (at most 10). Never shown. */
+  toSids?: string[];
+  /** The session keys that have read it (at most 50); absent on messages from before per-session read state. Never shown. */
+  seenBy?: string[];
   from: { userId: string; word: 'person' | 'chat' | 'agent'; ai?: string; session?: string; label?: string; keyId?: string };
   kind: 'decision' | 'request' | 'question' | 'fyi';
   body: string;
@@ -309,6 +313,8 @@ export type PresenceDoc = Placed & {
   ai: string;
   agent: string;
   lastSeen: Date;
+  /** When the row was first made (absent on older rows). Untargeted messages older than this are not unread for the session. */
+  createdAt?: Date;
   forYouCursor: Date;
   /** The last ~100 item ids the "for you" line named (the cursor trails the call by a skew, so the window is read twice). */
   named?: string[];

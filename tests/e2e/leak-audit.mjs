@@ -891,6 +891,11 @@ try {
     check('State: a teammate reads a shared project’s State', tBefore.ok && tBefore.text.includes(cn), tBefore.text.slice(0, 200));
     const tStart = await mcpCall(T.code, 'start_work', { project: nm, machine: 'lkqmvt', label: 'tess' });
     check('State: a teammate can start work on it (presence is theirs)', tStart.ok, tStart.text.slice(0, 200));
+    // H3: read state and addressing never leave the server, and nobody else's session id reaches a teammate (alsoHere, target, messages)
+    const aSessions = (await rawDb.collection('presence').find({ userId: A.userId, projectId: (await rawDb.collection('projects').findOne({ orgId: A.orgId, name: nm }))._id }).toArray()).map(p => p.session).filter(Boolean);
+    const tAll3 = tib.text + tStart.text + (await mcpCall(T.code, 'inbox', { project: nm })).text;
+    check('Messages: seenBy and toSids are never in an output', !/seenBy|toSids/.test(tAll3) && !/seenBy|toSids/.test(tib.text), '');
+    check('Messages: no other person’s session id in alsoHere, the target or a message', aSessions.length > 0 && aSessions.every(sid => !tAll3.includes(sid)), String(aSessions.length));
     // Activity (note e56029b458): the State and message rows of a shared project reach the teammate's feed until it goes private
     const tActBefore = await mcpCall(T.chat, 'recent_activity', { since: '1d', limit: 300 });
     check('Activity: a teammate’s feed has the shared project’s State and message rows', tActBefore.ok && tActBefore.text.includes(cn) && (tActBefore.json?.events ?? []).some(e => e.project === nm && e.type === 'message_sent'), tActBefore.text.slice(0, 200));
