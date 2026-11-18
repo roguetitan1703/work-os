@@ -73,6 +73,7 @@ flow-b4-team|flow-b4-team.mjs|none|discord
 flow-dc1|flow-dc1.mjs|none|discord
 discord-link|discord-link.mjs|none|discord
 leak-audit|leak-audit.mjs|none|discord
+activity-all|activity-all.mjs|none|plain
 flow-n1|flow-n1.mjs|none|plain
 flow-n2|flow-n2.mjs|none|plain
 flow-n3|flow-n3.mjs|none|plain
@@ -231,8 +232,10 @@ start_server() {
   # What's new (lib/whats-new-seen.ts): every other suite runs on a day long after every entry, so nothing in
   # lib/whats-new.ts shows and adding an entry never changes them; the whats-new suites pin days around the seeded entries.
   case "$1" in
+    # 2026-11-20: every entry up to 2026-11-19 is live and still new.
     whatsnew) export E2E_WHATS_NEW_TODAY=2026-11-20 ;;
-    whatsnewlate) export E2E_WHATS_NEW_TODAY=2026-12-02 ;;
+    # 2026-12-03: 14 days after the newest entry (2026-11-19), so nothing is new any more.
+    whatsnewlate) export E2E_WHATS_NEW_TODAY=2026-12-03 ;;
     *) export E2E_WHATS_NEW_TODAY=2099-01-01 ;;
   esac
   if [ "$1" = reel ]; then

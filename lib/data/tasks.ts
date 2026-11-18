@@ -2,7 +2,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { Filter } from 'mongodb';
 import { requestContext, runWithRequestContext } from '../request-context';
-import { inTransaction, nextSeq, toActivity, type ActivityDoc, type ClaudeMark, type ProjectDoc, type TaskDoc, type TrashDoc } from '../db';
+import { inTransaction, nextSeq, toActivity, type ActivityDoc, type ClaudeMark, type Placed, type ProjectDoc, type TaskDoc, type TrashDoc } from '../db';
 import { canSee, forUser, orgWide, readableFilter, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
 import { SYSTEM, asActor, isAgent, isPerson, actorUserId, type ActorFilter, type TextAuthor } from '../actors';
 import {
@@ -14,7 +14,9 @@ import {
   LINK_SCHEME,
   linkSchemeAllowed,
   type Activity,
+  type ActivitySubject,
   type ActivityType,
+  type ActivityWhat,
   type Actor,
   type ChecklistItem,
   type FieldChange,
@@ -330,6 +332,102 @@ async function logActivity(
   return doc;
 }
 
+// ── The feed beyond tasks (State, notes, messages, Needs, projects) ─────────
+// Every change writes a row into `activity`, stamped with its subject's placement (orgId, ownerId, visibility,
+// sharedWith) so the door filters it like a task row: a row is readable by exactly the people who can read its
+// subject. It must stay that way when the subject moves (docs/HANDOVER.md, "Activity"):
+//   - a row with a taskId (about a task's note) moves with the task (placeTasks, setProjectPlacement, the task trash);
+//   - a row without one moves with its project (setProjectPlacement, `projectId`), and a Need's with the Need
+//     (restampTaskNeeds);
+//   - readableRows() below drops, at read time, any row whose subject the reader cannot read now (or that is in the
+//     trash), so a missed move can hide a row but never show one.
+// Text in a row is the subject's own text at the time, at most 140 characters. Message bodies and Need answers are
+// never copied.
+
+export type ChangeRow = {
+  subject: ActivitySubject;
+  /** A row about a task's note: the task (the row then lives with the task: it moves, goes to the trash and comes back with it). */
+  task?: Pick<TaskDoc, '_id' | 'ref' | 'title'> | null;
+  /** Rows not about a task: the project (the row follows its placement). */
+  projectId?: string | null;
+  note?: string;
+  changes?: Record<string, FieldChange>;
+  /** Who wrote `note`, when it is not the actor (a user id). */
+  textBy?: string;
+  /** Who wrote the subject's title (a renamed project: its old name), when it is not the actor (a user id). */
+  titleBy?: string;
+  at?: Date;
+};
+
+/** The first 140 characters of a line, on one line. */
+export const clip = (t: string, n = 140): string => {
+  const x = t.replace(/\s+/g, ' ').trim();
+  return x.length > n ? x.slice(0, n - 1) + '…' : x;
+};
+
+/**
+ * Writes one feed row about something other than a task. `placed`: the subject document as it is now (its placement
+ * is copied). c may be the caller's door or the organization's (system work); the door stamps orgId either way.
+ */
+export async function logChange(c: Collections, placed: Pick<Placed, 'orgId' | 'ownerId' | 'visibility' | 'sharedWith'>, actor: Actor, type: ActivityType, row: ChangeRow): Promise<ActivityDoc> {
+  const doc: ActivityDoc = {
+    _id: randomUUID(),
+    orgId: placed.orgId,
+    ...placeOf(placed),
+    ...(row.task ? { taskId: row.task._id, taskRef: row.task.ref, taskTitle: row.task.title } : {}),
+    ...(!row.task && row.projectId ? { projectId: row.projectId } : {}),
+    subject: { kind: row.subject.kind, id: row.subject.id, ...(row.subject.ref ? { ref: row.subject.ref } : {}), title: clip(row.subject.title || '') },
+    at: row.at ?? new Date(),
+    actor,
+    type,
+  };
+  if (row.changes && Object.keys(row.changes).length) doc.changes = row.changes;
+  if (row.note?.trim()) doc.note = clip(row.note);
+  if (row.textBy && row.textBy !== actorUserId(actor)) doc.textBy = row.textBy;
+  if (row.titleBy && row.titleBy !== actorUserId(actor)) doc.titleBy = row.titleBy;
+  const rc = requestContext();
+  if (rc.session) doc.session = rc.session;
+  if (rc.repo) doc.repo = rc.repo;
+  await c.activity.insertOne(doc);
+  return doc;
+}
+
+/** Same actor, for "one row per editor per hour". */
+export function actorQueryOf(actor: Actor): Filter<ActivityDoc> {
+  const a = actor as { kind: string; userId?: string; agent?: string };
+  return { 'actor.kind': a.kind, ...(a.userId ? { 'actor.userId': a.userId } : {}), ...(a.agent ? { 'actor.agent': a.agent } : {}) } as Filter<ActivityDoc>;
+}
+
+/**
+ * Rows the reader may see now: task rows as they are (they move with their task), and of every other row only those
+ * whose subject the reader can read through their own door at this moment (a note in the trash, a project made
+ * private since, a person's own Orders page: dropped). Also the project names of the rows that are not about a task.
+ */
+export async function readableRows(c: Collections, s: Scope, docs: ActivityDoc[]): Promise<{ rows: ActivityDoc[]; names: Map<string, string> }> {
+  const ids = (k: string) => [...new Set(docs.filter(d => d.subject?.kind === k).map(d => d.subject!.id))];
+  const projectIds = [...new Set(docs.filter(d => d.subject && !d.taskId).map(d => d.projectId ?? (d.subject!.kind === 'project' ? d.subject!.id : '')).filter(Boolean))];
+  const [notes, messages, needs, projects] = await Promise.all([
+    ids('note').length ? c.notes.find({ _id: { $in: ids('note') }, deletedAt: null }, { projection: { orders: 1, ownerId: 1 } }).toArray() : [],
+    ids('message').length ? c.messages.find({ _id: { $in: ids('message') } }, { projection: { _id: 1 } }).toArray() : [],
+    ids('need').length ? c.needs.find({ _id: { $in: ids('need') } }, { projection: { _id: 1 } }).toArray() : [],
+    projectIds.length ? c.projects.find({ _id: { $in: projectIds } }, { projection: { name: 1 } }).toArray() : [],
+  ]);
+  const ok = new Set<string>([
+    ...notes.filter(n => n.orders !== 'person' || n.ownerId === s.userId).map(n => `note:${n._id}`),
+    ...messages.map(m => `message:${m._id}`),
+    ...needs.map(n => `need:${n._id}`),
+    ...projects.flatMap(p => [`state:${p._id}`, `project:${p._id}`]),
+  ]);
+  const names = new Map(projects.map(p => [p._id, p.name]));
+  const rows = docs.filter(d => {
+    if (!d.subject || d.subject.kind === 'task') return true;
+    if (!ok.has(`${d.subject.kind}:${d.subject.id}`)) return false;
+    // A row that is not about a task belongs to a project the reader can read (rows about a task's note live with the task).
+    return !!d.taskId || !d.projectId || names.has(d.projectId);
+  });
+  return { rows, names };
+}
+
 // ── Subtasks (docs/subtasks.md) ─────────────────────────────────────────────
 // A subtask is a real task with parentId, one level deep (a subtask has no subtasks). It lives where its parent lives:
 // the same project, so the same visibility and list; moving the parent moves it. The parent's progress is the average
@@ -475,7 +573,7 @@ async function insertTask(
   const mode = (await canonicalMode(s, data.mode)) ?? null;
   // A subtask goes in its parent's project (docs/subtasks.md).
   const parent = data.parent != null ? await parentFor(c, data.parent) : null;
-  const project = parent ? await parentProject(c, s, parent, data.project) : data.project ? await resolveProject(c, s, data.project, { create: true }) : null;
+  const project = parent ? await parentProject(c, s, parent, data.project) : data.project ? await resolveProject(c, s, data.project, { create: true, actor }) : null;
   const status: Status = data.status ?? (data.blockedReason?.trim() ? 'Blocked' : 'Not Started');
   const done = status === 'Done';
   const id = randomUUID();
@@ -646,7 +744,7 @@ async function updateTaskCore(s: Scope, key: string | number, data: ReturnType<t
     if (parentSet) target = p;
   } else if (data.project !== undefined) {
     // (Taken out from under its parent, a task stays in the project it is in unless one is given.)
-    target = data.project ? await resolveProject(c, s, data.project, { create: true }) : null;
+    target = data.project ? await resolveProject(c, s, data.project, { create: true, actor }) : null;
   }
 
   let moveTo: Placement | null = null;
@@ -1012,9 +1110,11 @@ export async function purgeTrash(s: Scope, ref?: number): Promise<number> {
 // their agents' entries. Only comments can be removed (other entries record what changed, so only their note text can
 // be edited).
 
-async function ownedEntry(c: Collections, id: string, actor: Actor): Promise<ActivityDoc> {
+async function ownedEntry(c: Collections, id: string, actor: Actor): Promise<ActivityDoc & { taskId: string; taskRef: number }> {
   const a = await c.activity.findOne({ _id: id });
   if (!a) throw new NotFoundError(`History entry ${id} not found`);
+  // Rows about State, notes, messages, Needs and projects record what changed; they are not comments.
+  if (a.subject || !a.taskId) throw new InputError('That entry records a change to something other than a task; it cannot be edited or deleted.');
   const by = asActor(a.actor);
   if (actor.kind === 'agent') {
     if (!(by.kind === 'agent' && by.agent === actor.agent && by.userId === actor.userId)) throw new InputError(`${actor.agent === 'claude' ? 'Claude' : 'Claude Code'} can only edit or delete its own history entries.`);
@@ -1023,7 +1123,7 @@ async function ownedEntry(c: Collections, id: string, actor: Actor): Promise<Act
   } else {
     throw new InputError('Only a person or their Claude can edit history entries.');
   }
-  return a;
+  return a as ActivityDoc & { taskId: string; taskRef: number };
 }
 
 export async function editComment(s: Scope, id: string, text: string, actor: Actor): Promise<Activity> {
@@ -1440,7 +1540,8 @@ export async function getTaskDetail(s: Scope, key: string | number, opts: { acti
   return {
     task: toTask(doc),
     project: project ? toProject(project) : null,
-    activity: activity.map(toActivity),
+    // Rows about the task's note: only while the note is readable and not in the trash.
+    activity: (activity.some(a => a.subject) ? (await readableRows(c, s, activity)).rows : activity).map(toActivity),
     dependencies: deps.map(toTask),
     dependents: dependents.map(toTask),
     parent: parent ? toTask(parent) : null,
@@ -1456,8 +1557,18 @@ export type ActivityFilter = {
   taskId?: string;
   project?: string;
   types?: ActivityType[];
+  /** What the rows are about (Review › Activity's What filter, recent_activity `what`); none = everything. */
+  what?: ActivityWhat[];
   limit?: number;
 };
+
+const WHAT_KIND: Record<ActivityWhat, string> = { tasks: 'task', state: 'state', notes: 'note', messages: 'message', needs: 'need', projects: 'project' };
+
+/** Mongo filter for "what it is about": task rows carry no subject (older ones) or kind task. */
+export function whatQuery(what: ActivityWhat[]): Filter<ActivityDoc> {
+  const kinds = what.map(w => WHAT_KIND[w]);
+  return { 'subject.kind': { $in: kinds.includes('task') ? [null, ...kinds] : kinds } } as Filter<ActivityDoc>;
+}
 
 /** Mongo filter for "who did it". */
 export function actorQuery(s: Scope, a: ActorFilter): Filter<ActivityDoc> {
@@ -1478,19 +1589,41 @@ export async function listActivity(s: Scope, f: ActivityFilter = {}): Promise<Ac
   if (f.since || f.until) q.at = { ...(f.since ? { $gte: f.since } : {}), ...(f.until ? { $lt: f.until } : {}) };
   if (f.actor) Object.assign(q, actorQuery(s, f.actor));
   if (f.types?.length) q.type = { $in: f.types };
+  const and: Filter<ActivityDoc>[] = [];
+  if (f.what?.length) and.push(whatQuery(f.what));
   if (f.taskId) q.taskId = f.taskId;
   else if (f.project) {
     const p = await resolveProject(c, s, f.project, { create: false });
     if (!p) return [];
+    // The project's own rows (State, notes, messages, Needs, the project) by projectId; its tasks' rows (and their notes') by task.
     const ids = await c.tasks.distinct('_id', { projectId: p._id });
-    q.taskId = { $in: ids };
+    and.push({ $or: [{ projectId: p._id, taskId: { $exists: false } }, { taskId: { $in: ids } }] } as Filter<ActivityDoc>);
   }
-  const docs = await c.activity
-    .find(q)
-    .sort({ at: -1 })
-    .limit(f.limit ?? 200)
-    .toArray();
-  return docs.map(toActivity);
+  if (and.length) q.$and = and;
+  // Rows the reader may not read drop out after the query (readableRows), so a page is filled from up to three reads:
+  // each next one starts after the last row read (time, then id) and asks for what is still missing, at least 50.
+  const limit = f.limit ?? 200;
+  const rows: ActivityDoc[] = [];
+  const names = new Map<string, string>();
+  let after: ActivityDoc | null = null;
+  for (let round = 0; round < 3 && rows.length < limit; round++) {
+    const want = round === 0 ? limit : Math.max(limit - rows.length, 50);
+    const page = after ? { $and: [q, { $or: [{ at: { $lt: after.at } }, { at: after.at, _id: { $lt: after._id } }] }] } : q;
+    const docs: ActivityDoc[] = await c.activity
+      .find(page as Filter<ActivityDoc>)
+      .sort({ at: -1, _id: -1 })
+      .limit(want)
+      .toArray();
+    const got = await readableRows(c, s, docs);
+    rows.push(...got.rows);
+    for (const [k, v] of got.names) names.set(k, v);
+    if (docs.length < want) break;
+    after = docs[docs.length - 1];
+  }
+  return rows.slice(0, limit).map(d => {
+    const a = toActivity(d);
+    return a.projectId && names.has(a.projectId) ? { ...a, projectName: names.get(a.projectId) } : a;
+  });
 }
 
 /** Open tasks whose dependencies are not all closed. */

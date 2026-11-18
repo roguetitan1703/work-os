@@ -183,16 +183,49 @@ export const ACTIVITY_TYPES = [
   'unarchived',
   'trashed',
   'restored',
+  // Changes to things other than tasks (the activity feed shows everything that changed): State, notes, messages, Needs, projects.
+  'state_now',
+  'next_added',
+  'next_done',
+  'later_added',
+  'decision',
+  'note_created',
+  'note_edited',
+  'message_sent',
+  'need_asked',
+  'need_answered',
+  'need_withdrawn',
+  'project_created',
+  'project_renamed',
+  'visibility_changed',
 ] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
+
+/** What a feed row is about. Task rows from before carry none (taskId says it); every other row carries one. */
+export const SUBJECT_KINDS = ['task', 'state', 'note', 'message', 'need', 'project'] as const;
+export type SubjectKind = (typeof SUBJECT_KINDS)[number];
+/** title: the subject's own words at the time (a note's title, a project's name, a Need's ask: at most 140 characters). */
+export type ActivitySubject = { kind: SubjectKind; id: string; ref?: number; title: string };
+/** The What filter of the feed (Review › Activity, recent_activity): one per kind of subject. */
+export const ACTIVITY_WHAT = ['tasks', 'state', 'notes', 'messages', 'needs', 'projects'] as const;
+export type ActivityWhat = (typeof ACTIVITY_WHAT)[number];
 
 export type FieldChange = { from: unknown; to: unknown };
 
 export type Activity = {
   id: string;
-  taskId: string;
-  taskRef: number;
-  taskTitle: string;
+  /** The task the row is about (task rows, and rows about a task's note); absent on rows about a project's State, notes, messages, Needs or the project. */
+  taskId?: string;
+  taskRef?: number;
+  taskTitle?: string;
+  /** Rows that are not about a task: the project they belong to, and its name when the reader can read it. */
+  projectId?: string;
+  projectName?: string;
+  subject?: ActivitySubject;
+  /** Who wrote the text in `note` when it is not the actor (a Next line someone else wrote, a decision applied from a message): a user id. */
+  textBy?: string;
+  /** Who wrote the subject's title (or a renamed project's old name) when it is not the actor: a user id. */
+  titleBy?: string;
   at: string; // ISO datetime
   actor: Actor;
   type: ActivityType;

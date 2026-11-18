@@ -1,6 +1,5 @@
-// What's new, 14 days on (docs/HANDOVER.md "What's new"). run.sh pins "today" to 2026-12-02 (mode whatsnewlate): the
-// five entries shown here (the newest of 2026-11-18) are 14 days old or more, so nothing is new any more even though
-// nobody has seen them:
+// What's new, 14 days on (docs/HANDOVER.md "What's new"). run.sh pins "today" to 2026-12-03 (mode whatsnewlate): the
+// newest entry (2026-11-19) is 14 days old, so nothing is new any more even though nobody has seen them:
 //   - no card on Today, no dot on the Menu row, the Menu button or the sidebar, no "New" badge on Needs;
 //   - /whats-new still lists every entry, without "New". Seed profile: none.
 import { B, check, finish, launch, login } from './lib.mjs';
@@ -17,7 +16,9 @@ try {
     await p.goto(B + '/menu'); await settle(p);
     check("menu: no dot on What's new", (await p.locator('main a[href="/whats-new"] [data-new-dot]').count()) === 0);
     await p.goto(B + '/whats-new'); await settle(p);
-    check("whats-new: still lists every entry", (await p.locator('[data-whats-new-entry]').count()) === 5);
+    // The four of 2026-11-15, the hook sign-in and digest (2026-11-18) and Activity (2026-11-19); Mail and the report
+    // intake are not set up here.
+    check("whats-new: still lists every entry", (await p.locator('[data-whats-new-entry]').count()) === 7);
     check('whats-new: none marked "New"', (await p.locator('[data-new-badge]').count()) === 0);
     await ctx.close();
   }

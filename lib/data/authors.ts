@@ -158,20 +158,22 @@ export async function taskAuthors(s: Scope, t: TaskText): Promise<TaskAuthors> {
   for (const i of t.checklist) if (!i.by) ors.push(...itemConds(i.text));
   for (const l of links) if (!l.by) ors.push(linkCond(l.label || l.url));
   const proj = { actor: 1, type: 1, note: 1, 'changes.title': 1, 'changes.description': 1, 'changes.blockedReason.to': 1, 'changes.tags': 1, 'changes.checklist': 1, 'changes.links': 1 };
-  const rows = (await c.activity.find({ taskId, $or: ors }, { projection: proj }).sort({ at: -1 }).limit(LIMIT).toArray()) as unknown as H[];
+  // Only the task's own rows: a teammate editing the task's note (a feed row with a subject) did not write its title.
+  const own = { taskId, subject: { $exists: false } };
+  const rows = (await c.activity.find({ ...own, $or: ors }, { projection: proj }).sort({ at: -1 }).limit(LIMIT).toArray()) as unknown as H[];
   const complete = rows.length < LIMIT;
   const isForeign = (h: H) => {
     const a = asActor(h.actor);
     return 'userId' in a && !!a.userId && a.userId !== s.userId;
   };
   const pick = async (inRows: (h: H) => boolean, query: Document): Promise<H | null> =>
-    complete ? (rows.find(inRows) ?? null) : ((await c.activity.find({ taskId, ...query }, { projection: proj }).sort({ at: -1 }).limit(20).toArray()) as unknown as H[]).find(inRows) ?? null;
+    complete ? (rows.find(inRows) ?? null) : ((await c.activity.find({ ...own, ...query }, { projection: proj }).sort({ at: -1 }).limit(20).toArray()) as unknown as H[]).find(inRows) ?? null;
   let others: Promise<boolean> | null = null;
   // Nothing in the history set it: a Discord message's author (title and description of a task made from one), else
   // the creator, unless someone other than the reader shows up in the history.
   const fallback = async (discord = false): Promise<TextAuthor> => {
     if (discord && fromDiscord) return fromDiscord;
-    others ??= complete ? Promise.resolve(rows.some(isForeign)) : c.activity.findOne({ taskId, ...foreign }, { projection: { _id: 1 } }).then(x => !!x);
+    others ??= complete ? Promise.resolve(rows.some(isForeign)) : c.activity.findOne({ ...own, ...foreign }, { projection: { _id: 1 } }).then(x => !!x);
     return (await others) ? UNKNOWN : creator;
   };
   // The newest entry that changed this field; its author counts only if it set the value the task has now.

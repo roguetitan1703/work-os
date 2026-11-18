@@ -5,7 +5,7 @@ import { OPEN_STATUSES, type Activity, type Task } from '../types';
 import { NotFoundError } from './errors';
 import { getProjectWithStats } from './projects';
 import type { ProjectWithStats } from '../types';
-import { sortTasks, toTask, unmetDependencies } from './tasks';
+import { readableRows, sortTasks, toTask, unmetDependencies } from './tasks';
 
 // One read for "the whole picture of a project", at a chosen depth:
 //   project → + project-wide recent activity
@@ -34,7 +34,7 @@ export async function getProjectTree(
   const all = (await c.tasks.find({ projectId: project.id, archived: false }).toArray()).map(toTask);
   const ids = all.map(t => t.id);
   const recent = ids.length
-    ? (await c.activity.find({ taskId: { $in: ids } }).sort({ at: -1 }).limit(opts.recentActivity ?? 15).toArray()).map(toActivity)
+    ? (await readableRows(c, s, await c.activity.find({ taskId: { $in: ids } }).sort({ at: -1 }).limit(opts.recentActivity ?? 15).toArray())).rows.map(toActivity)
     : [];
   const tree: ProjectTree = { project, recentActivity: recent };
   if (depth === 'project') return tree;
@@ -44,16 +44,22 @@ export async function getProjectTree(
   let perTask = new Map<string, Activity[]>();
   if (depth === 'full' && shown.length) {
     const n = Math.min(Math.max(opts.activityPerTask ?? 5, 1), 30);
-    const rows = await c.activity
-      .find({ taskId: { $in: shown.map(t => t.id) } })
-      .sort({ at: -1 })
-      .limit(n * shown.length)
-      .toArray();
+    // A task's note rows are read through the note too (a note in the trash, a person's own Orders page: dropped).
+    const { rows } = await readableRows(
+      c,
+      s,
+      await c.activity
+        .find({ taskId: { $in: shown.map(t => t.id) } })
+        .sort({ at: -1 })
+        .limit(n * shown.length)
+        .toArray(),
+    );
     perTask = new Map();
     for (const r of rows) {
-      const list = perTask.get(r.taskId) ?? [];
+      const k = r.taskId as string; // found by taskId
+      const list = perTask.get(k) ?? [];
       if (list.length < n) list.push(toActivity(r));
-      perTask.set(r.taskId, list);
+      perTask.set(k, list);
     }
   }
   tree.tasks = shown.map(t => ({

@@ -3,11 +3,11 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { inTransaction, type MessageDoc, type ProjectDoc } from '../db';
 import { scoped, type Scope } from '../scope';
-import { isPerson, userActor, type Actor } from '../actors';
+import { agentActor, isPerson, userActor, type Actor } from '../actors';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, resolveProject } from './projects';
 import { saveState } from './states';
-import { createTask } from './tasks';
+import { createTask, logChange } from './tasks';
 
 // Messages to a project (docs/flows/step-1.md section 4). A message is stamped with the project's placement, so the door
 // shows it to the project's readers only and the placement cascade moves it with the project (lib/data/projects.ts).
@@ -46,7 +46,7 @@ export const SendSchema = z.object({
   sender_commit: z.string().trim().min(1).max(80).optional(),
 });
 
-export type From = { word: Word; ai?: string; session?: string; label?: string; keyId?: string; src?: string };
+export type From = { word: Word; ai?: string; session?: string; label?: string; keyId?: string; src?: string; /** Who sent it, for the activity feed (default: the person in the app, or Claude for a chat or agent word). */ actor?: Actor };
 
 const mid = () => `m_${randomBytes(6).toString('hex')}`;
 
@@ -121,6 +121,9 @@ export async function sendMessage(
     at: new Date(),
   };
   await c.messages.insertOne(doc);
+  // The feed says a message came, never what it says (the body stays in the inbox): placed like the message.
+  const actor = from.actor ?? (from.word === 'person' ? userActor(s.userId) : agentActor('claude', s.userId));
+  await logChange(c, doc, actor, 'message_sent', { subject: { kind: 'message', id: _id, title: input.kind }, projectId: project._id, at: doc.at });
   return { message: doc, project, target: await targetNote(s, project, toSession) };
 }
 

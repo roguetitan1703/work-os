@@ -93,11 +93,25 @@ export type ClaudeMark = {
   attempts?: number;
 };
 
+/**
+ * One row of the change feed. A task row carries taskId (and moves with its task: placeTasks, setProjectPlacement, the
+ * trash). Every other row carries `subject` and the subject's own placement, copied when it is written, and moves with
+ * it: rows with a taskId (a task's note) with the task; rows without one with their project (setProjectPlacement, by
+ * projectId) or, for Needs, with the Need (restampTaskNeeds). listActivity also drops any row whose subject the reader
+ * cannot read now (readableRows in lib/data/tasks.ts).
+ */
 export type ActivityDoc = Placed & {
   _id: string;
-  taskId: string;
-  taskRef: number;
-  taskTitle: string;
+  taskId?: string;
+  taskRef?: number;
+  taskTitle?: string;
+  /** Rows without a taskId: the project they belong to (their placement follows it). */
+  projectId?: string;
+  subject?: import('./types').ActivitySubject;
+  /** The author of `note` when it is not the actor (a user id). */
+  textBy?: string;
+  /** The author of the subject's title (a renamed project: of its old name) when it is not the actor (a user id). */
+  titleBy?: string;
   at: Date;
   actor: Actor;
   type: ActivityType;
@@ -498,6 +512,10 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['activity', [
       { key: { taskId: 1, at: -1 }, name: 'task_at' },
       { key: { orgId: 1, at: -1 }, name: 'org_at' },
+      // The project page's feed and the placement cascade (rows that are not about a task follow their project).
+      { key: { orgId: 1, projectId: 1, at: -1 }, name: 'org_project_at', partialFilterExpression: { projectId: { $type: 'string' } } },
+      // A subject's own rows (a Need restamped, a note purged, one note_edited row per editor per hour).
+      { key: { 'subject.id': 1, at: -1 }, name: 'subject_at', partialFilterExpression: { 'subject.id': { $type: 'string' } } },
     ]],
     ['projects', [
       // Names: one per organization among shared projects, one per owner among private ones (docs/multi-user.md).
@@ -726,9 +744,11 @@ export async function nextSeq(counters: Collection<CounterDoc>, name: string): P
 export function toActivity(d: ActivityDoc): Activity {
   return {
     id: d._id,
-    taskId: d.taskId,
-    taskRef: d.taskRef,
-    taskTitle: d.taskTitle,
+    ...(d.taskId ? { taskId: d.taskId, taskRef: d.taskRef, taskTitle: d.taskTitle } : {}),
+    ...(d.projectId ? { projectId: d.projectId } : {}),
+    ...(d.subject ? { subject: { kind: d.subject.kind, id: d.subject.id, ...(d.subject.ref ? { ref: d.subject.ref } : {}), title: d.subject.title } } : {}),
+    ...(d.textBy ? { textBy: d.textBy } : {}),
+    ...(d.titleBy ? { titleBy: d.titleBy } : {}),
     at: d.at.toISOString(),
     actor: asActor(d.actor),
     type: d.type,

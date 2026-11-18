@@ -4,7 +4,7 @@ import { Activity, Archived, Completed, Stale, Trash } from './views';
 
 export const metadata = { title: 'Review · Work OS' };
 
-type Props = { searchParams: Promise<{ view?: string; actor?: string; weeks?: string }> };
+type Props = { searchParams: Promise<{ view?: string; actor?: string; what?: string; weeks?: string }> };
 
 /** The Review hub: one place for look-back jobs. The segment is in the URL (?view=). */
 export default async function ReviewPage({ searchParams }: Props) {
@@ -20,7 +20,7 @@ export default async function ReviewPage({ searchParams }: Props) {
       </div>
       <ReviewNav active={view} />
       {view === 'done' && <Completed weeks={weeks} />}
-      {view === 'activity' && <Activity actor={sp.actor} />}
+      {view === 'activity' && <Activity actor={sp.actor} what={sp.what} />}
       {view === 'stale' && <Stale />}
       {view === 'archive' && <Archived />}
       {view === 'trash' && <Trash />}

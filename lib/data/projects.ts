@@ -16,6 +16,7 @@ import { memberNames } from '../people';
 import { cleanCodeLocations, codeCandidates, matchCodeLocation, type CodeQuery } from './code-locations';
 import { assigneesOf, unassignableFilter, unassignPull } from '../assignees';
 import type { CodeLocation } from '../types';
+import { userActor, type Actor } from '../actors';
 
 export function slugify(name: string): string {
   return (
@@ -163,6 +164,7 @@ async function insertProject(
   c: Collections,
   s: Scope,
   data: { name: string; client?: string; description?: string; status?: ProjectDoc['status']; code?: CodeLocation[] | null; visibility?: Visibility; sharedWith?: string[]; delpatOsId?: string },
+  actor: Actor = userActor(s.userId),
 ): Promise<ProjectDoc> {
   const now = new Date();
   const nameLower = data.name.trim().toLowerCase();
@@ -193,6 +195,8 @@ async function insertProject(
     };
     try {
       await c.projects.insertOne(doc);
+      // The feed: placed like the project itself.
+      await (await import('./tasks')).logChange(c, doc, actor, 'project_created', { subject: { kind: 'project', id: doc._id, title: doc.name }, projectId: doc._id });
       return doc;
     } catch (err) {
       if ((err as { code?: number }).code !== 11000) throw err;
@@ -213,11 +217,11 @@ export async function resolveProject(
   c: Collections,
   s: Scope,
   nameOrId: string,
-  opts: { create: boolean },
+  opts: { create: boolean; actor?: Actor },
 ): Promise<ProjectDoc | null> {
   const found = await findProjectDoc(c, nameOrId);
   if (found || !opts.create) return found;
-  return insertProject(c, s, { name: nameOrId });
+  return insertProject(c, s, { name: nameOrId }, opts.actor);
 }
 
 export async function getProject(s: Scope, nameOrId: string): Promise<Project | null> {
@@ -364,12 +368,12 @@ export async function getProjectWithStats(s: Scope, nameOrId: string): Promise<P
 }
 
 /** Creates a project; if one the caller sees has that name, returns it with created=false. */
-export async function createProject(s: Scope, input: ProjectInput): Promise<{ project: Project; created: boolean }> {
+export async function createProject(s: Scope, input: ProjectInput, actor: Actor = userActor(s.userId)): Promise<{ project: Project; created: boolean }> {
   const data = ProjectInputSchema.parse(input);
   const c = await scoped(s);
   const existing = await projectNamed(c, data.name.toLowerCase());
   if (existing) return { project: toProject(existing), created: false };
-  const doc = await insertProject(c, s, data);
+  const doc = await insertProject(c, s, data, actor);
   return { project: toProject(doc), created: true };
 }
 
@@ -396,6 +400,7 @@ export async function importedProjects(s: Scope, delpatOsIds: string[]): Promise
 export async function createImportedProject(
   s: Scope,
   data: { delpatOsId: string; name: string; client: string; description: string; status: ProjectDoc['status']; visibility: Visibility },
+  actor: Actor = userActor(s.userId),
 ): Promise<{ project: Project; created: boolean }> {
   const c = await scoped(s);
   const seen = await c.projects.findOne({ delpatOsId: data.delpatOsId });
@@ -404,11 +409,11 @@ export async function createImportedProject(
   const name = data.name.trim().slice(0, 120) || 'Delpat OS project';
   const clash = async (n: string) => !!(await c.projects.findOne({ nameLower: n.toLowerCase() }, { projection: { _id: 1 } }));
   const finalName = (await clash(name)) ? `${name.slice(0, 100)} (Delpat OS)` : name;
-  const doc = await insertProject(c, s, { ...base, name: finalName });
+  const doc = await insertProject(c, s, { ...base, name: finalName }, actor);
   return { project: toProject(doc), created: true };
 }
 
-export async function updateProject(s: Scope, id: string, patch: Partial<ProjectInput>): Promise<Project> {
+export async function updateProject(s: Scope, id: string, patch: Partial<ProjectInput>, actor: Actor = userActor(s.userId)): Promise<Project> {
   const data = ProjectInputSchema.partial().parse(patch);
   const c = await scoped(s);
   const cur = await c.projects.findOne({ _id: id });
@@ -464,8 +469,18 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
     throw err;
   }
   if (moving && !cut) await setProjectPlacement(c, cur, next);
-  return toProject({ ...cur, ...set });
+  // The feed: written after everything moved, placed like the project is now (someone who lost access never sees it).
+  const now = { ...cur, ...set };
+  const feed = await import('./tasks');
+  const subject = { kind: 'project' as const, id, title: now.name };
+  // titleBy: who wrote the name in the row (a rename: the old name's author), labelled when it is not the actor.
+  if (set.name !== undefined) await feed.logChange(c, now, actor, 'project_renamed', { subject, projectId: id, changes: { name: { from: cur.name, to: now.name } }, titleBy: cur.nameBy ?? cur.ownerId });
+  if (moving) await feed.logChange(c, now, actor, 'visibility_changed', { subject, projectId: id, changes: { visibility: { from: whoSeesLabel(was), to: whoSeesLabel(next) } }, titleBy: now.nameBy ?? now.ownerId });
+  return toProject(now);
 }
+
+/** "Shared", "Private" or "Shared with 3 people", for the feed. */
+const whoSeesLabel = (p: Placement): string => (p.visibility === 'org' ? 'Shared' : p.visibility === 'private' ? 'Private' : `Shared with ${p.sharedWith.length} ${p.sharedWith.length === 1 ? 'person' : 'people'}`);
 
 /**
  * Someone left the organization: take them off every project list they are on (not their own projects), exactly as if
@@ -576,6 +591,9 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   const projNotes = await c.notes.find({ projectId: p._id, taskId: null }, { projection: { _id: 1 } }).toArray();
   if (projNotes.length) await move('notes', { _id: { $in: await noteTree(c, projNotes.map(n => n._id)) } });
   await move('claudeItems', { projectId: p._id });
+  // The feed rows that are not about a task (State, project notes, messages, Needs, the project itself): by project, so
+  // a row is never readable by someone who cannot read the project. (Rows about a task's note moved with the task above.)
+  await move('activity', { projectId: p._id, taskId: { $exists: false } });
   await move('needs', { projectId: p._id });
   // Needs whose addressee can no longer read the project (made private, taken off the list) are withdrawn.
   await (await import('./needs')).withdrawUnreadableNeeds(c, { projectId: p._id }, 'access');

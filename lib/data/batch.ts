@@ -109,7 +109,7 @@ export async function applyChanges(s: Scope, ops: BatchOp[], actor: Actor, opts:
             break;
           case 'edit_comment': {
             const a = await tasks.editComment(s, o.comment_id, o.text, actor);
-            done(i, o.op, { ref: a.taskRef, title: a.taskTitle });
+            done(i, o.op, { ref: a.taskRef ?? 0, title: a.taskTitle ?? '' });
             break;
           }
           case 'delete_comment': {
@@ -143,7 +143,7 @@ export async function applyChanges(s: Scope, ops: BatchOp[], actor: Actor, opts:
             break;
           }
           case 'add_project': {
-            const r = await projects.createProject(s, { name: o.name, client: o.client, description: o.description, status: o.status, visibility: o.visibility, sharedWith: o.sharedWith, code: o.code });
+            const r = await projects.createProject(s, { name: o.name, client: o.client, description: o.description, status: o.status, visibility: o.visibility, sharedWith: o.sharedWith, code: o.code }, actor);
             done(i, o.op, undefined, `${r.project.name}${r.created ? '' : ' (already existed)'}`);
             break;
           }
@@ -151,7 +151,7 @@ export async function applyChanges(s: Scope, ops: BatchOp[], actor: Actor, opts:
             const p = await projects.getProject(s, o.project);
             if (!p) throw new NotFoundError(`Project "${o.project}" not found`);
             const { op: _op, project: _p, ...patch } = o;
-            const r = await projects.updateProject(s, p.id, patch);
+            const r = await projects.updateProject(s, p.id, patch, actor);
             done(i, o.op, undefined, r.name);
             break;
           }

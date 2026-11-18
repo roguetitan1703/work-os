@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'activity-everything',
+    date: '2026-11-19',
+    title: 'Activity shows everything that changed',
+    line: 'Besides tasks, Activity now lists State changes, notes, messages, Needs and projects, with a What filter.',
+    where: 'Review › Activity, and the Activity card on a project',
+    href: '/review?view=activity',
+  },
+  {
     id: 'digest-redesign',
     date: '2026-11-18',
     title: 'A shorter morning digest',

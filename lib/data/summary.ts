@@ -1,7 +1,7 @@
 import 'server-only';
 import { scoped, type Scope } from '../scope';
-import { describeActivity } from '../activity-text';
-import { actorOut } from '../actors';
+import { describeActivity, whatOf } from '../activity-text';
+import { actorOut, actorUserId } from '../actors';
 import { memberNames } from '../people';
 import { OPEN_STATUSES, type Activity, type Task } from '../types';
 import { addDays, currentTz, previousWorkdayStart, todayStr, weekStart } from '../dates';
@@ -125,6 +125,27 @@ export function briefTask(t: Task, names: Map<string, string>, opts: { baseUrl?:
   return out;
 }
 
+export type OtherChange = { at: string; actor: string; project?: string; /** A task's note: the task ("#12 Title"). */ task?: string; what: string; type: string; text: string; writtenBy?: string; /** Who wrote the note title, Need ask or old project name in `text`, when not the reader. */ titleWrittenBy?: string };
+
+/**
+ * A feed row that is not about a task, for an agent to read: who wrote its text is said (writtenBy) when it is not the
+ * reader, like every other text by someone else (the author of a State line, the asker of a Need, whoever named a note).
+ */
+export function otherChangeOut(a: Activity, reader: string, people: Record<string, string>): OtherChange {
+  const author = a.textBy ?? actorUserId(a.actor);
+  return {
+    at: a.at,
+    actor: actorOut(a.actor, reader, people),
+    ...(a.projectName ? { project: a.projectName } : {}),
+    ...(a.taskRef ? { task: `#${a.taskRef} ${a.taskTitle ?? ''}`.trim() } : {}),
+    what: whatOf(a),
+    type: a.type,
+    text: describeActivity(a),
+    ...(author && author !== reader ? { writtenBy: people[author] || 'a former member' } : {}),
+    ...(a.titleBy && a.titleBy !== reader ? { titleWrittenBy: people[a.titleBy] || 'a former member' } : {}),
+  };
+}
+
 export type DailySummary = {
   date: string;
   timezone: string;
@@ -146,6 +167,8 @@ export type DailySummary = {
   dueNext7Days: BriefTask[];
   completedSince: (BriefTask & { doneAt: string | null; doneBy: string | null })[];
   changedSince: { ref: number; title: string; titleWrittenBy?: string; events: { at: string; actor: string; type: string; text: string }[] }[];
+  /** Everything else that changed since (State, notes, messages, Needs, projects), newest first; text by anyone but the reader is labelled writtenBy. */
+  otherChanges: OtherChange[];
   projects: { name: string; open: number; overdue: number; doneThisWeek: number }[];
 };
 
@@ -157,11 +180,13 @@ export async function dailySummary(s: Scope, opts: { since?: Date; baseUrl?: str
   const [names, people] = await Promise.all([projectNameMap(s, c), memberNames(s.orgId)]);
 
   // Done counts include archived tasks (the work was done); open lists exclude them.
-  const [openDocs, doneDocs, doneThisWeek, activity] = await Promise.all([
+  const [openDocs, doneDocs, doneThisWeek, activity, others] = await Promise.all([
     c.tasks.find({ archived: false, status: { $in: OPEN_STATUSES } }).toArray(),
     c.tasks.find({ status: 'Done', doneAt: { $gte: since } }).sort({ doneAt: -1 }).toArray(),
     c.tasks.find({ status: 'Done', doneOn: { $gte: ws } }, { projection: { projectId: 1 } }).toArray(),
-    listActivity(s, { since, limit: 300 }),
+    listActivity(s, { since, limit: 300, what: ['tasks'] }),
+    // State, notes, messages, Needs and projects: read apart, so a busy State does not crowd the tasks out.
+    listActivity(s, { since, limit: 60, what: ['state', 'notes', 'messages', 'needs', 'projects'] }),
   ]);
   const open = sortTasks(openDocs.map(toTask));
   const waiting = await unmetDependencies(s, open);
@@ -183,9 +208,11 @@ export async function dailySummary(s: Scope, opts: { since?: Date; baseUrl?: str
   const outside = new Map<string, string>();
   for (const t of open) if (outsideTitleLabel(t)) outside.set(t.id, outsideTitleLabel(t)!);
   for (const d of doneDocs) if (outsideTitleLabel(d)) outside.set(d._id, outsideTitleLabel(d)!);
+  const otherChanges = others.map(a => otherChangeOut(a, s.userId, people));
   for (const a of [...activity].reverse() as Activity[]) {
+    if (!a.taskId) continue;
     const w = outside.get(a.taskId);
-    const g = grouped.get(a.taskId) ?? { ref: a.taskRef, title: a.taskTitle, ...(w ? { titleWrittenBy: w } : {}), events: [] };
+    const g = grouped.get(a.taskId) ?? { ref: a.taskRef ?? 0, title: a.taskTitle ?? '', ...(w ? { titleWrittenBy: w } : {}), events: [] };
     g.events.push({ at: a.at, actor: actorOut(a.actor, s.userId, people), type: a.type, text: describeActivity(a) });
     grouped.set(a.taskId, g);
   }
@@ -227,6 +254,7 @@ export async function dailySummary(s: Scope, opts: { since?: Date; baseUrl?: str
       return { ...briefTask(t, names, { baseUrl: opts.baseUrl, today }), doneAt: t.doneAt, doneBy: t.doneBy ? actorOut(t.doneBy, s.userId, people) : null };
     }),
     changedSince: [...grouped.values()].slice(0, 60),
+    otherChanges: otherChanges.slice(0, 60),
     projects: [...projects.values()].sort((a, b) => b.open - a.open),
   };
 }

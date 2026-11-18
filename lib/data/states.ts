@@ -7,7 +7,7 @@ import { scoped, type Scope } from '../scope';
 import { isPerson, userActor, type Actor } from '../actors';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, resolveProject } from './projects';
-import { createTask } from './tasks';
+import { createTask, logChange } from './tasks';
 import type { Priority } from '../types';
 
 // The project's State (docs/flows/step-1.md section 1): Now (one goal), Next (ordered), Later (one line each, with what it
@@ -124,6 +124,8 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     const done: string[] = [];
     const dropped: string[] = [];
     const promoted: { ref: number; title: string }[] = [];
+    // The activity feed: one row per change worth reading (Now, a Next line added or done, a Later line, a decision).
+    const feed: { type: 'state_now' | 'next_added' | 'next_done' | 'later_added' | 'decision'; text: string; by?: string }[] = [];
     const take = (list: StateLine[], id: string, what: string): StateLine => {
       const i = list.findIndex(l => l.id === id);
       if (i < 0) throw new InputError(`${what} has no line ${id} (read the State again for current ids)`);
@@ -151,11 +153,13 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
       switch (op.op) {
         case 'set_now':
           nowSet = { text: op.text, ...(op.holder ? { holder: op.holder } : {}), by, at: now };
+          feed.push({ type: 'state_now', text: op.text });
           break;
         case 'add_next': {
           const l: StateLine = { id: lid(), text: op.text, ...(op.ref ? { ref: op.ref } : {}), ...(op.waits_on ? { waitsOn: op.waits_on } : {}), ...stamp, at: now };
           nextAdds.push(l);
           next.push(l);
+          feed.push({ type: 'next_added', text: op.text });
           break;
         }
         case 'move_next': {
@@ -171,12 +175,14 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           const l = take(next, op.find !== undefined ? findLine(op.find, ['Next']).id! : op.id!, 'Next');
           log[oi].id = l.id;
           done.push(l.text);
+          feed.push({ type: 'next_done', text: l.text, by: l.by });
           break;
         }
         case 'add_later': {
           const l: StateLine = { id: lid(), text: op.text, ...(op.waits_on ? { waitsOn: op.waits_on } : {}), ...stamp, at: now };
           laterAdds.push(l);
           later.push(l);
+          feed.push({ type: 'later_added', text: op.text });
           break;
         }
         case 'promote_later': {
@@ -190,6 +196,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
         }
         case 'add_decision':
           decisions.push({ id: lid(), at: now, ...stamp, via: o.via, text: op.text, ...(rc.keyId ? { key: rc.keyId } : {}), ...(o.msg ? { msg: o.msg.id, author: o.msg.author, word: o.msg.word } : {}) });
+          feed.push({ type: 'decision', text: op.text, ...(o.msg ? { by: o.msg.author } : {}) });
           break;
         case 'archive_decision': {
           if (!isPerson(o.actor)) throw new InputError('A decision is archived by a person in the app, not through MCP.');
@@ -210,6 +217,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
             if (!replaced) throw new InputError('Now cannot be removed: replace it with set_now.');
             if (replaced.length > LIMITS.now) throw new InputError(`Now would be ${replaced.length} characters (max ${LIMITS.now}).`);
             nowSet = { ...(nowSet ?? cur.now!), text: replaced, by, at: now };
+            feed.push({ type: 'state_now', text: replaced });
             break;
           }
           if (replaced.length > LIMITS.line) throw new InputError(`The line would be ${replaced.length} characters (max ${LIMITS.line}).`);
@@ -220,6 +228,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           if (!replaced) {
             list.splice(h.i, 1);
             (h.where === 'Next' ? done : dropped).push(h.text);
+            if (h.where === 'Next') feed.push({ type: 'next_done', text: h.text, by: h.line!.by });
           } else {
             const { src: oldSrc, ...rest } = h.line!;
             void oldSrc;
@@ -249,6 +258,8 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     push.log = { $each: log, $slice: -200 };
     const r = await c.states.updateOne({ _id: cur._id, version: cur.version }, { $set: set, $inc: { version: 1 }, ...(Object.keys(push).length ? { $push: push } : {}) } as never);
     if (!r.matchedCount) throw new InputError('The State changed while you saved: read it again and retry.');
+    // Placed like the State (its project's readers), and moved with the project (setProjectPlacement, by projectId).
+    for (const f of feed) await logChange(c, cur, o.actor, f.type, { subject: { kind: 'state', id: project._id, title: 'State' }, projectId: project._id, note: f.text, ...(f.by ? { textBy: f.by } : {}), at: now });
     const state = (await c.states.findOne({ _id: cur._id }))!;
     return { state, project, done, dropped, promoted };
   });
