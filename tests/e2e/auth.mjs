@@ -596,6 +596,16 @@ try {
         apis++;
         continue;
       }
+      if (u.startsWith('/api/intake/')) {
+        // Mailloom's intake (lib/intake.ts): checks its own token, not a session. Unset in this mode: POST is the route's
+        // own 503 (not the proxy's login gate), any other method 405; never a cookie.
+        const r = await fetch(B + u, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json' }, body: '{}' });
+        check(`api POST ${u}: no key -> the route's own 401/503, no cookie`, (r.status === 401 || r.status === 503) && !r.headers.get('set-cookie'), r.status);
+        const g = await fetch(B + u, { redirect: 'manual' });
+        check(`api GET ${u}: 405, not a login redirect`, g.status === 405 && g.headers.get('allow') === 'POST', g.status);
+        apis++;
+        continue;
+      }
       if (u.startsWith('/api/calendar/')) {
         // The calendar feed: no session by design; the token in the path is the key, a wrong one is a bare 404 with no cookie.
         const r = await fetch(B + u, { redirect: 'manual' });

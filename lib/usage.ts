@@ -5,11 +5,11 @@
 // callers are a fixed word (no keys, key ids or IPs).
 
 export type UsageKind = 'page' | 'rsc' | 'action' | 'api';
-export type UsageCaller = 'browser' | 'worker' | 'mcp' | 'cron' | 'discord' | 'anonymous';
+export type UsageCaller = 'browser' | 'worker' | 'mcp' | 'cron' | 'discord' | 'intake' | 'anonymous';
 export type UsageHit = { kind: UsageKind; caller: UsageCaller; route: string };
 
 export const USAGE_KINDS: UsageKind[] = ['page', 'rsc', 'action', 'api'];
-export const USAGE_CALLERS: UsageCaller[] = ['browser', 'worker', 'mcp', 'cron', 'discord', 'anonymous'];
+export const USAGE_CALLERS: UsageCaller[] = ['browser', 'worker', 'mcp', 'cron', 'discord', 'intake', 'anonymous'];
 export const USAGE_KEEP_DAYS = 35;
 
 // Every route the app serves, as [regex, pattern]. A path that matches none is counted as (other) / /api/(other),
@@ -53,6 +53,8 @@ const ROUTE_LIST: [string, string][] = [
   ['/api/notes/upload', '/api/notes/upload'],
   ['/api/timetable/today', '/api/timetable/today'],
   [`/api/calendar/${S}`, '/api/calendar/[file]'],
+  ['/api/intake/mailloom', '/api/intake/mailloom'],
+  ['/api/intake/mailloom/notice', '/api/intake/mailloom/notice'],
 ];
 const ROUTES = ROUTE_LIST.map(([re, p]) => [new RegExp(`^${re}/?$`), p] as const);
 
@@ -94,6 +96,7 @@ export function requestCaller(pathname: string, h: Headers, url: URL, auth: { se
   if (pathname.startsWith('/api/worker')) return hasKey(h) ? 'worker' : 'anonymous';
   if (pathname.startsWith('/api/cron')) return hasKey(h) ? 'cron' : 'anonymous';
   if (pathname.startsWith('/api/discord/interactions')) return h.has('x-signature-ed25519') ? 'discord' : 'anonymous';
+  if (pathname.startsWith('/api/intake/')) return hasKey(h) ? 'intake' : 'anonymous';
   if (auth.session) return 'browser';
   if (auth.token) return 'mcp';
   return 'anonymous';

@@ -138,7 +138,7 @@ check('static files not counted (sw.js, manifest, icons, _next)', !/sw\.js|webma
 const docs = await db.collection('requestStats').find().toArray();
 check('hour buckets: _id YYYY-MM-DDTHH, at = start of that UTC hour', docs.length > 0 && docs.every(d => /^\d{4}-\d\d-\d\dT\d\d$/.test(d._id) && d.at instanceof Date && d.at.toISOString().startsWith(d._id + ':00:00')));
 check('total = sum of counts', docs.every(d => d.total === Object.values(d.counts).reduce((a, n) => a + n, 0)));
-check('keys are kind|caller|route', docs.every(d => Object.keys(d.counts).every(k => /^(page|rsc|action|api)\|(browser|worker|mcp|cron|discord|anonymous)\|(\/|\()/.test(k))));
+check('keys are kind|caller|route', docs.every(d => Object.keys(d.counts).every(k => /^(page|rsc|action|api)\|(browser|worker|mcp|cron|discord|intake|anonymous)\|(\/|\()/.test(k))));
 const ix = (await db.collection('requestStats').indexes()).find(i => i.name === 'at_ttl');
 check('TTL index keeps 35 days', ix?.expireAfterSeconds === 35 * 86400, JSON.stringify(ix));
 

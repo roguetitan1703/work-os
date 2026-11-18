@@ -1,20 +1,35 @@
-# Work state
+Copy of the Work OS state, version 5. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+
+# Work state: Work OS
 
 ## Now
-- 2026-11-15: Steps 1–3 of PRODUCT.md section 8 (docs/flows/plan-1-3.md) are built and merged into local master (09a9227): State, Orders, start_work, presence and "for you", personal and team digests, messages, Needs, results and review, Discord Need buttons, the roster. Each slice was security-reviewed, and so was the merged whole, whose four should-fix items are fixed (d1777a3). The full e2e run passed 56 of 57 suites (budgets "load /today" 10 of 8 is flaky: passed in two of four runs). The touched suites rerun green. Not pushed: waiting on b9f11d3 going live.
+- Make the steps 1-3 features visible and used (Needs, State, project messages, results and review, digest), and ship the 18 Nov batch.
 
 ## Next
-- 18 Nov: release 49230fb on master (Connect Mailloom 08bff66, Next.js 16.4.6 + nodemailer 10.6.0, nightly work-os-update.timer at 03:00 IST, e2e fixes); full e2e green over two runs (the first lost playwright-core mid-run). Branches: master = production (auto-deploys nightly once the timer is installed), dev = development. Om: `sudo work-os-update`, install update.sh + the timer units, enable the timer; Mailloom's five AGENT_* / MAILLOOM_PUBLIC_URL settings and mailloom-update; then Settings > Connections > Mail > Connect Mailloom. Live checks after: GET /api/mcp with a bearer answers 405; usage chart drops from ~14k an hour; inbox list; a test mail only on Om's yes. step-4.md: four questions and timing wait on Om (recommend a week on steps 1-3 first).
-0. 15 Nov evening: mail tools (Mailloom agent API, each member's own sealed key, outside-domain mail refused so a person sends) and the /api/mcp GET 405 fix (stops ~14k calls an hour from clients reconnecting) merged into master and pushed; Om runs `sudo work-os-update`. Om's settings: Work OS /etc/work-os/env MAILLOOM_AGENT_URL=https://mail.delpat.in/mail/api/agent/v1 and MAIL_KEY_SECRET; Mailloom /opt/www/mailloom/.env AGENT_ALLOWED_IPS=<Work OS IP> and MAILLOOM_PUBLIC_URL; his key in Settings > Connections > Mail. Then: live smoke (inbox list; one test mail only on his yes); check the usage chart drops. Also: `sudo systemctl enable --now work-os-alerts.timer` (alerts stopped 28 days, blocks the digest); Discord sign-in in his browser for the Interactions URL and bot Send Messages; team digest channel pick.
-1. fca02df (steps 1-3) is live (15 Nov 17:37; checked by a stylesheet only that build has). The live database is delpat_workos (not workos, which is the old pre-cutover copy). Dry runs there: migrate-digest has nothing to do; migrate-orders applied 15 Nov with Om's OK: the "Claude Code boilerplate" note is the organization Orders. The State imports and the "waits on Om" → Needs chore need the new tools, so they run in the next fresh session on each project (start_work says "no State yet: import"). Om: install the on-box nightly dump (backup user, /etc/work-os/backup-env with MONGODB_DB=delpat_workos, the backup-local units, one hand run), then reboot.
-2. Discord, with Om signed in (built-in browser not signed in; Claude in Chrome asked): Interactions Endpoint URL https://work.delpat.in/api/discord/interactions; bot gets Send Messages on the team channel; then in Work OS Settings: Register commands, pick the team channel, Send test alert.
-3. After that deploy, one-off: scripts/migrate-orders.mjs and scripts/migrate-digest.mjs (dry run first); install the work-os-backup-local timer (nightly on-box mongodump); cutroom and Work OS import their WORK-STATE (import_state); a Sonnet chore turns the "waits on Om" lines into Needs.
-4. Use it for a week on cutroom and Work OS (step 1's done test), then the next steps of PRODUCT.md section 8.
-5. Om's hands: give the Discord bot Send Messages on the team channel; Discord Interactions URL + Register (Need buttons); R2 bucket + token + age key for off-box backups; Send test for alerts (C51); Caddy lb_try site + reload; reboot after the pm2 check; update the global CLAUDE.md lines ("No Haiku"; the WORK-STATE rule becomes start_work / save_state); #212.
-- Agreed 14 Nov: the long-running cloud dispatcher (Sonnet) also listens on the Discord bot (#267, PRODUCT.md 6.5); model routing think → Opus, do → Sonnet, chore → Haiku (6.2a); the second Claude account is kept for this work only (the dispatcher), not given to interns.
-- Older open items (#165 features to try with Akash, DELPAT_OS_CLIENT_SECRET, first real turbo Start / Open in VS Code, chat porting from Antigravity, C46-C52, AKAR C20/C22/C23 and C7/C8) are folded into the PRODUCT.md steps; still open in Work OS.
+1. Recurring tasks on the calendar: the next copy appears on the current copy's due date, done or not (builder B).
+2. "What's new": a card on Today, a What's new page with a dot, and "New" badges for 14 days; a Needs page in the menu and sidebar; empty states that say what will appear (builder A).
+3. Redesign the morning digest: Needs you with buttons, top 3 for today, one line per project since yesterday, agents running or stalled; not a task list.
+4. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel.
+5. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
+6. Activity shows everything that changed: State, notes, messages, Needs and projects next to tasks, read through the visibility rule, with a What filter, in Review › Activity, the project page, recent_activity and the summary (builder B after recurrence; security review before merge).
+7. Live sessions and messaging design (docs/flows/session-messaging.md): global Work OS plugin with hooks for on/working/idle/waiting/off at zero tokens, a channel to push messages in, every session lives in a project (Lobby for strays), notes on fixed shelves with drift rules. Waits on Om's two notes answers, then a Fable review, then builder B.
 
 ## Later
+- Off-box backups to R2 (bucket, token, age key) — waits on Om.
+- Cut / Freeze list from PRODUCT.md and the dead code it frees — waits on Om's approval.
+- An "Approve and send" button for mail an agent drafted to an outside address — waits on the mail tools being used.
+- Post new Mailloom reports in #mailloom too — waits on Om's yes.
+- e2e oauth phone overflow check flaky with the installed Chrome — waits on it showing on a real phone.
+- The full long list stays in the repo's WORK-STATE.md Later section — waits on a cleanup pass.
+- import_state cuts lines over 500 characters: the overflow becomes a Later line, a text line above Now became a Later line, and MCP has no op to edit or delete a line (cutroom's import 18 Nov left two fragment lines in Later) — waits on a fix slot (keep long lines whole or cut on a sentence; skip header text; an edit/remove op)
+- Messages between two sessions of the same person stay unread forever (each sees the other as "me", so inbox never marks them seen); seen by Om's chat test 18 Nov. Fix with the live-sessions work (mark seen per session, not per person). — waits on the live-sessions design (Fable review, then builder B)
+
+## Decisions
+- 2026-11-18: 18 Nov, Om: SSH is plain ubuntu login with host names workos and mailserver in ~/.ssh/config (key delpat_ed25519), from VS Code and the terminal; no separate agent user, no sudoers changes. (Om, chat)
+- 2026-11-18: 18 Nov, Om: Mailloom intake keys set in /etc/work-os/env on the Work OS server (token copied server to server, never shown; project mailloom-f60ee666; channel #mailloom). Not restarted: they take effect when the intake build goes live. Bot already has Send Messages in #mailloom. (Om, chat)
+- 2026-11-18: 18 Nov: build 865c699 live (Mailloom intake + Inbox Select). Intake checked end to end: test notice in #mailloom (204), test report became #274 in Mailloom (201). (Om, chat)
+
+## Later (older, kept from before the 18 Nov import; not in Work OS)
 - e2e oauth "settings: phone: no sideways scroll" fails in 2 of 3 multi-suite runs since the tests use the installed Chrome (the ms-playwright chromium was deleted): the Add this PC / Create key input rows on Claude › Set up sit past 390 px after a 1280→390 resize, with no page scroll; passes alone and does not reproduce in a probe (fresh 390 or resized, Claude used) — waits on it showing on a real phone, or a pinned test browser.
 - Phone UI pass: walk every phone screen (Today, project, Needs, task) on the live build, screenshots + an awkward-list for Om to pick from — waits on the 18 Nov release being live and Om's yes.
 - Connect Mailloom, Work OS half built on builder-a (lib/mail/connect.ts, /api/mail/callback, tests mail and mail-paste), review fixes in; switched on by an explicit MAILLOOM_WEB_URL + MAILLOOM_CLIENT_ID + MAILLOOM_CLIENT_SECRET — waits on the merge and the Mailloom half deployed (Om sets MAILLOOM_WEB_URL=https://mail.delpat.in/mail and the client pair on both sides).
