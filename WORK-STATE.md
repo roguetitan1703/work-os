@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 20. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 21. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -35,7 +35,8 @@ Copy of the Work OS state, version 20. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 18 Nov, Om: status lives in Work OS. WORK-STATE.md in the repo is a copy so the last State can be read when Work OS is down; agents never edit it. The Work OS hook writes and commits it after every save_state and refuses hand edits (installed on Om's PC 18 Nov; Akash's PC and cloud later). Fable review agreed (docs/flows/working-system-review.md): three exact blocks only, actions as Work OS tools (wrap_up, hand_over, declutter), propose_order, 40-line Orders. (Om, chat)
 - 2026-11-18: 18 Nov, Om: Claude items retired from the instructions (work list = State and tasks). Global Claude Code settings on Om's PC: the 4 Work OS hooks, WORK_OS_KEY made from the database by scripts/make-key.mjs (key "Hooks · Victus-Knight"), Work OS reads and own-work writes allowed, .env.test.local readable, ~/.claude.json edits denied, two auto-mode notes; project-specific rules (grant-leads Supabase, Vercel) stay out. Recorded in docs/setup-pc.md. (Om, chat)
 - 2026-11-18: 19 Nov, Om: the open-Needs cap must not count all projects together. Now 10 open Needs per asker, person and project; 20 asks an hour from one asker to one person across all projects (cd92b40 on dev). This settles Later line l_47ae2aa1. (Om, chat)
+- 2026-11-18: 19 Nov, Om: a transfer must leave Work OS up to date. The /transfer skill and note ac2026fedb now make both hand over and pick up save State (pick up step 4), and make a State when a project has none (import WORK-STATE.md, History moved to docs/history.md). Cause: AKAR had no State, so its transfer saved nothing. (Om, chat)
 
 ## Where
-- Victus-Knight: dev cd92b40 clean (2026-11-18 20:03)
-<!-- work-os-copy sha1:b73bb3445f7d191a33ac5dc11572a4a60e12b120 -->
+- Victus-Knight: dev cd92b40 clean (2026-11-18 20:05)
+<!-- work-os-copy sha1:afe9e07a97b585990aabd60800e8bd7838b0dc31 -->
