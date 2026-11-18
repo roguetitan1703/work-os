@@ -262,3 +262,19 @@ Each piece ships through dev, a full test run, then master. Security review befo
     split into one file per event, packaging: the worker's update refreshes the hooks and reports their version). Then A
     (session token, per-session ids, the hook files) and B (line edit with `find`, remove, short answers in states.ts and
     the State tools) in parallel. Then A: blocks, propose_order, delivery; B: end_work, declutter, the migration.
+
+## 17. The dispatcher (fleet plan of 14 Nov, task #259 and note 71d785b03c, folded in here)
+- **What it is:** a session with role `dispatcher` that takes tasks marked "Give to Claude" and runs one worker per
+  task (claim, readiness check, build, branch and PR, end). It works on **tasks**, not Claude items, so retiring
+  Claude items does not touch it.
+- **Two inputs:** tasks given to Claude in the app, and messages to the Discord bot (a mention or a DM), stored in Work
+  OS and woken through the same wait call as idle sessions (section 11). The sender's permissions apply; production,
+  money and credentials are approved in the app only.
+- **Where it runs:** on a PC through the worker today (Claude › Setup step 3, "Claude starts tasks I give it", now off;
+  task #266 checks it end to end), in the cloud later (#267, #268: cloud-ready repos, a project key per cloud
+  environment).
+- **How it fits this design:** it starts and ends every worker with start_work and end_work, names them
+  `<Project> · worker · #ref`, and is supervised by Work OS through presence (section 11): no heartbeat means a fresh
+  dispatcher, a dead worker's task is re-queued once, then goes to Om as a Need.
+- **Order:** after builder A's session tokens and per-session ids and builder B's end_work, because the dispatcher
+  needs both. #259's subtasks 2 (Needs) and parts of 4 and 5 are built already; Declutter brings that task up to date.
