@@ -46,6 +46,8 @@ subtasks|subtasks.mjs|none|plain
 flow-s1|flow-s1.mjs|none|plain
 flow-s2|flow-s2.mjs|none|plain
 flow-h1|flow-h1.mjs|none|plain
+flow-h4|flow-h4.mjs|none|plain
+flow-state-edit|flow-state-edit.mjs|none|plain
 flow-ms1|flow-ms1.mjs|none|plain
 flow-ms2|flow-ms2.mjs|none|plain
 flow-ms3|flow-ms3.mjs|none|plain
@@ -155,6 +157,7 @@ export OAUTH_PRUNE_EVERY_MS=0 # the oauth suite checks the unused-client prune a
 export AUTH_RATE_LIMIT="${E2E_AUTH_RATE_LIMIT:-off}"
 # Mail is written as JSON files here instead of being sent (lib/mail.ts); the auth suite reads reset links from it.
 export MAIL_CAPTURE_DIR="$TMP/mail" E2E_STATE="$TMP/state.json"
+export E2E_NO_NET=1 # the server makes no outbound calls (lib/data/repo-visibility.ts asks GitHub whether a repo is public)
 export CRON_SECRET=testcron-e2e-0123456789abcdef
 export CRON_ALLOW_AT=1 # the e2e build is a production build; this lets the cron take ?at= (app/api/cron/alerts/route.ts)
 # Server actions use a key from the environment, as on the server (docs/hosting.md "The build's secrets"); fresh per run.

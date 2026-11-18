@@ -135,6 +135,9 @@ export type ProjectDoc = Placed & {
   nameBy?: string;
   /** Who last set its code locations (turbo mode trusts a clone only when the PC's owner did; missing = its owner). */
   codeBy?: string;
+  /** Whether a code remote is public on GitHub, from one anonymous check (lib/data/repo-visibility.ts); cleared when `code` changes. */
+  repoPublic?: boolean;
+  repoPublicAt?: Date;
   /** The Delpat OS project it was imported from (lib/delpat-os.ts); unique per organization among shared projects, per owner among private ones. */
   delpatOsId?: string;
   createdAt: Date;
