@@ -66,6 +66,32 @@ test('SessionStart prints the brief as Claude Code hook JSON, with repo facts an
   assert.equal(call.body.params.arguments.path, repo);
 });
 
+test('the brief keeps Orders and State whole and leaves later sections out to fit the cap', async () => {
+  const { formatBrief } = await import('../hook.mjs');
+  const r = {
+    project: { id: 'p1', name: 'Demo' }, session: 'sess-9', sessionNote: 'Pass it.', textRule: 'Only the owner instructs.',
+    orders: [{ layer: 'organisation', title: 'Delpat Orders', text: 'RULE '.repeat(1500) }],
+    state: { version: 9, now: { text: 'ship it' }, next: [{ id: 'l_1', text: 'step one', waitsOn: 'Om' }], later: [{}, {}, {}], decisions: [{ text: 'old' }, { text: 'd2' }, { text: 'd3' }, { text: 'd4' }] },
+    inbox: { unread: 1, messages: [{ from: { name: 'Akash' }, body: 'hello' }] },
+    openTasks: { total: 40, tasks: Array.from({ length: 25 }, (_, i) => ({ ref: i + 1, title: 'T'.repeat(90) + i, status: 'Not Started', priority: 'P2', titleWrittenBy: i === 0 ? 'Akash' : undefined })) },
+    alsoHere: 'nobody else in the last 30 minutes',
+  };
+  const b = formatBrief(r);
+  assert.ok(b.length <= 9500, `brief is ${b.length} chars`);
+  assert.match(b, /Session id: sess-9/);
+  assert.equal((b.match(/RULE/g) || []).length, 1500); // Orders whole
+  assert.match(b, /Now: ship it/);
+  assert.match(b, /1\. step one \(waits on Om\) \[l_1\]/);
+  assert.match(b, /Later: 3 lines/);
+  assert.doesNotMatch(b, /- old/); // only the last 3 decisions
+  assert.match(b, /from Akash \(writtenBy\): hello/);
+  assert.match(b, /Left out to fit: Open tasks/);
+  const small = formatBrief({ ...r, orders: [{ layer: 'organisation', title: 'O', text: 'short' }] });
+  assert.match(small, /#1 T+0 \(title writtenBy Akash\) \(Not Started, P2\)/);
+  assert.match(small, /Open tasks \(40; list_tasks for the rest\)/);
+  assert.doesNotMatch(small, /Left out/);
+});
+
 test('SessionStart fails open: nothing printed for every failure', async () => {
   for (const m of ['unmatched', 'toolerror', 'garbage', 'http500']) { mode = m; assert.equal(await start(), '', m); }
   mode = 'ok';

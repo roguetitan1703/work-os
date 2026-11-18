@@ -7,6 +7,7 @@ import path from 'node:path';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-hooks-install-'));
 process.env.WORK_OS_WORKER_DIR = path.join(tmp, 'work-os-worker');
 process.env.CLAUDE_SETTINGS_PATH = path.join(tmp, 'claude', 'settings.json');
+delete process.env.WORK_OS_KEY; // a PC with the key set in Claude Code settings passes it to every child process
 const m = await import('../hooks-install.mjs');
 const settings = () => JSON.parse(fs.readFileSync(process.env.CLAUDE_SETTINGS_PATH, 'utf8'));
 
