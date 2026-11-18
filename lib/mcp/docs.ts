@@ -34,7 +34,7 @@ export function claudeCodeInstructions({ name }: Pick<InstructionsFor, 'name'>):
 - You can create and edit projects, tasks and notes, and move tasks and notes to trash (restorable). Permanent deletion and admin are not available.
 - Limits per key: 300 tool calls per hour; 10 items moved to trash per 10 minutes. An apply_changes that trashes more than 10 items or changes more than 50 tasks must be run with dry_run: true first; the dry run returns a confirm token (valid 10 minutes) to pass as confirm with exactly the same ops.
 - When you change the title, priority, due date, project or status of a task you did not create, archive it or trash it, the person it belongs to gets an inbox notice. Say why in the note.
-- Your work list is Claude items, not tasks: get_project shows them (claudeItems.takeNext is the one to take when nothing is active for you). Call update_claude_items once at start (start), when blocked (block) and when merged (done, with the commit). When you need a person, block with waiting_on_om and go on with other work; they answer in the app. Call get_project again before each new piece of work and when you finish one: claudeItems.answered lists the answers to your questions (each item also has answer), so act on them then. File what you discover as an item (small: true for small things) and don't chase it. Tasks belong to people: create one only when ${who} asks.`;
+- Your work list is the project's State (Now, Next) and its tasks. File what you discover as a State Later line (save_state add_later) and don't chase it; when you need a person, ask them with ask (a Need).`;
 }
 
 export type ToolName =
