@@ -92,7 +92,7 @@ try {
   check('S2: import_state fills Next in order', imp.state.next.map(l => l.text).join('|').startsWith('Deploy the build') && imp.state.next.length === 3, JSON.stringify(imp.state.next));
   check('S2: a trailing "waits on" becomes the line’s waitsOn (the text stays whole)', imp.state.next[0].waitsOn === 'Om' && imp.state.next[0].text.includes('waits on Om') && imp.state.later[0].waitsOn === 'the bucket', JSON.stringify([imp.state.next[0], imp.state.later[0]]));
   const later = imp.state.later.map(l => l.text);
-  check('S2: Later lines come in, and what did not parse (the Done section) lands in Later as plain lines', later.some(t => t.startsWith('Backups to R2')) && later.some(t => t.includes('second line of it')) && later.some(t => /Shipped the notes trash/.test(t)) && later.some(t => /Fixed the sidebar/.test(t)), later.join(' | '));
+  check('S2: Later lines come in; a Done / History section is not imported and is named in notImported (Om 19 Nov)', later.some(t => t.startsWith('Backups to R2')) && later.some(t => t.includes('second line of it')) && !later.some(t => /Shipped the notes trash|Fixed the sidebar/.test(t)) && /Done \(2 lines\)/.test(imp.notImported ?? ''), later.join(' | ') + ' / ' + imp.notImported);
   check('S2: the import reports what it took and the version is 1', imp.imported.next === 3 && imp.imported.now === true && imp.version === 1, JSON.stringify(imp.imported));
   const imp2 = await mcpH(cc, 'import_state', { project: 'Flow Import', markdown: SAMPLE });
   check('S2: a second import is refused (it is for a project with no State)', imp2.isError && /already has a State/.test(imp2.text), imp2.text.slice(0, 200));
