@@ -24,18 +24,23 @@ export const LIMITS = { line: 500, now: 1000, decision: 1000, next: 100, later: 
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const waits = z.string().trim().min(1).max(200).optional();
-const lineId = z.string().trim().min(1).max(40);
+const lineId = z.string().trim().min(1).max(40).optional();
+// `find`: text inside exactly one line (case-sensitive substring), in place of `id`.
+const findText = z.string().min(1).max(LIMITS.line).optional();
 
 export const StateOpSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('set_now'), text: text(LIMITS.now), holder: z.string().trim().max(120).optional() }),
   z.object({ op: z.literal('add_next'), text: text(LIMITS.line), ref: z.number().int().min(1).max(10_000_000).optional(), waits_on: waits }),
-  z.object({ op: z.literal('move_next'), id: lineId, to: z.union([z.literal('top'), z.literal('bottom'), z.number().int().min(1).max(LIMITS.next)]) }),
-  z.object({ op: z.literal('done_next'), id: lineId }),
+  z.object({ op: z.literal('move_next'), id: lineId, find: findText, to: z.union([z.literal('top'), z.literal('bottom'), z.number().int().min(1).max(LIMITS.next)]) }),
+  z.object({ op: z.literal('done_next'), id: lineId, find: findText }),
   z.object({ op: z.literal('add_later'), text: text(LIMITS.line), waits_on: waits }),
-  z.object({ op: z.literal('promote_later'), id: lineId, priority: z.enum(['P1', 'P2', 'P3', 'P4']).optional() }),
+  z.object({ op: z.literal('promote_later'), id: lineId, find: findText, priority: z.enum(['P1', 'P2', 'P3', 'P4']).optional() }),
   z.object({ op: z.literal('add_decision'), text: text(LIMITS.decision) }),
   // Takes a decision off the State's list (it stays in the log): the project's owner or an owner of the organization only.
-  z.object({ op: z.literal('archive_decision'), id: lineId }),
+  z.object({ op: z.literal('archive_decision'), id: lineId, find: findText }),
+  // Replaces `find` with `new` inside the one Now, Next or Later line that holds it. An empty `new` removes the line
+  // (Next: done, Later: dropped; both stay in the history). The edited line becomes the caller's.
+  z.object({ op: z.literal('edit_line'), find: z.string().min(1).max(LIMITS.line), new: z.string().max(LIMITS.line) }),
   z.object({
     op: z.literal('set_where'),
     machine: z.string().trim().min(1).max(40),
@@ -48,7 +53,7 @@ export const StateOpSchema = z.discriminatedUnion('op', [
 export type StateOp = z.infer<typeof StateOpSchema>;
 export const StateOpsSchema = z.array(StateOpSchema).min(1).max(30);
 /** The ops that need base_version: they overwrite what a teammate may have just changed. */
-const VERSIONED = new Set(['set_now', 'move_next', 'done_next']);
+const VERSIONED = new Set(['set_now', 'move_next', 'done_next', 'edit_line']);
 
 export type Via = 'chat' | 'code' | 'app' | 'discord';
 
@@ -69,7 +74,7 @@ export async function stateOfProject(s: Scope, projectId: string): Promise<State
 
 export type SaveResult =
   | { conflict: true; state: StateDoc | null; project: ProjectDoc }
-  | { conflict?: false; state: StateDoc; project: ProjectDoc; done: string[]; promoted: { ref: number; title: string }[] };
+  | { conflict?: false; state: StateDoc; project: ProjectDoc; done: string[]; dropped: string[]; promoted: { ref: number; title: string }[] };
 
 export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o: { baseVersion?: number; actor: Actor; via: Via; msg?: { id: string; author: string; word: string } }): Promise<SaveResult> {
   const ops = StateOpsSchema.parse(rawOps);
@@ -79,7 +84,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     if (!project) throw new NotFoundError(`Project "${projectKey.trim().slice(0, 120)}" not found`);
     let cur = await c.states.findOne({ _id: project._id });
     if (ops.some(x => VERSIONED.has(x.op))) {
-      if (o.baseVersion === undefined) throw new InputError('set_now, move_next and done_next need base_version: the version of the State you read (start_work, get_state and every save_state answer carry it).');
+      if (o.baseVersion === undefined) throw new InputError('set_now, move_next, done_next and edit_line need base_version: the version of the State you read (start_work, get_state and every save_state answer carry it).');
       // Nothing is written; the caller merges and retries.
       if ((cur?.version ?? 0) !== o.baseVersion) return { conflict: true as const, state: cur, project };
     }
@@ -98,7 +103,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     const rc = requestContext();
     const src = rc.src;
     const stamp = { by, ...(src ? { src } : {}) };
-    const log: NonNullable<StateDoc['log']> = ops.map(op => ({ at: now, by, ...(rc.keyId ? { key: rc.keyId } : {}), ...(src ? { src } : {}), via: o.via, op: op.op, ...('id' in op ? { id: op.id } : {}) }));
+    const log: NonNullable<StateDoc['log']> = ops.map(op => ({ at: now, by, ...(rc.keyId ? { key: rc.keyId } : {}), ...(src ? { src } : {}), via: o.via, op: op.op, ...('id' in op && op.id ? { id: op.id } : {}) }));
     // At most 30 decisions an hour from one key: a runaway agent cannot bury the real ones.
     if (ops.some(x => x.op === 'add_decision')) {
       const hourAgo = now.getTime() - 3_600_000;
@@ -117,13 +122,32 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     let nextEdited = false;
     let laterEdited = false;
     const done: string[] = [];
+    const dropped: string[] = [];
     const promoted: { ref: number; title: string }[] = [];
     const take = (list: StateLine[], id: string, what: string): StateLine => {
       const i = list.findIndex(l => l.id === id);
       if (i < 0) throw new InputError(`${what} has no line ${id} (read the State again for current ids)`);
       return list.splice(i, 1)[0];
     };
-    for (const op of ops) {
+    type Hit = { where: string; line?: StateLine; i: number; id?: string; text: string };
+    // The one line holding `find` (case-sensitive substring) among the given lists; zero or several matches throw, naming the candidates.
+    const findLine = (find: string, where: ('Now' | 'Next' | 'Later' | 'Decisions')[]): Hit => {
+      const hits: Hit[] = [];
+      const cn = nowSet ?? cur!.now;
+      if (where.includes('Now') && cn && cn.text.includes(find)) hits.push({ where: 'Now', i: 0, text: cn.text });
+      if (where.includes('Next')) next.forEach((l, i) => l.text.includes(find) && hits.push({ where: 'Next', line: l, i, id: l.id, text: l.text }));
+      if (where.includes('Later')) later.forEach((l, i) => l.text.includes(find) && hits.push({ where: 'Later', line: l, i, id: l.id, text: l.text }));
+      if (where.includes('Decisions')) decisionsAll.forEach((d, i) => !d.archivedAt && d.text.includes(find) && hits.push({ where: 'Decisions', i, id: d.id, text: d.text }));
+      const quote = (t: string) => `"${t.length > 80 ? t.slice(0, 77) + '...' : t}"`;
+      if (!hits.length) throw new InputError(`find ${quote(find)} matches no line in ${where.join(', ')} (case-sensitive; read the State again). Nothing was written.`);
+      if (hits.length > 1) throw new InputError(`find ${quote(find)} matches ${hits.length} lines: ${hits.slice(0, 6).map(h => `${h.where} ${quote(h.text)}`).join('; ')}. Use more of the line's text so it matches one. Nothing was written.`);
+      return hits[0];
+    };
+    for (const [oi, op] of ops.entries()) {
+      if (op.op !== 'edit_line' && 'find' in op) {
+        if (op.find !== undefined && op.id) throw new InputError(`${op.op}: give id or find, not both.`);
+        if (op.find === undefined && !op.id) throw new InputError(`${op.op} needs id or find.`);
+      }
       switch (op.op) {
         case 'set_now':
           nowSet = { text: op.text, ...(op.holder ? { holder: op.holder } : {}), by, at: now };
@@ -136,15 +160,19 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
         }
         case 'move_next': {
           nextEdited = true;
-          const l = take(next, op.id, 'Next');
+          const l = take(next, op.find !== undefined ? findLine(op.find, ['Next']).id! : op.id!, 'Next');
+          log[oi].id = l.id;
           const at = op.to === 'top' ? 0 : op.to === 'bottom' ? next.length : Math.min(op.to - 1, next.length);
           next.splice(at, 0, l);
           break;
         }
-        case 'done_next':
+        case 'done_next': {
           nextEdited = true;
-          done.push(take(next, op.id, 'Next').text);
+          const l = take(next, op.find !== undefined ? findLine(op.find, ['Next']).id! : op.id!, 'Next');
+          log[oi].id = l.id;
+          done.push(l.text);
           break;
+        }
         case 'add_later': {
           const l: StateLine = { id: lid(), text: op.text, ...(op.waits_on ? { waitsOn: op.waits_on } : {}), ...stamp, at: now };
           laterAdds.push(l);
@@ -153,7 +181,8 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
         }
         case 'promote_later': {
           laterEdited = true;
-          const l = take(later, op.id, 'Later');
+          const l = take(later, op.find !== undefined ? findLine(op.find, ['Later']).id! : op.id!, 'Later');
+          log[oi].id = l.id;
           // It becomes a task in this project, by the caller (the line's words become the title).
           const t = await createTask(s, { title: l.text.slice(0, 300), project: project._id, priority: (op.priority ?? 'P3') as Priority, ...(l.text.length > 300 ? { description: l.text } : {}) }, o.actor, l.by !== by ? { authors: { title: userActor(l.by), ...(l.text.length > 300 ? { description: userActor(l.by) } : {}) } } : {});
           promoted.push({ ref: t.ref, title: t.title });
@@ -164,12 +193,38 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           break;
         case 'archive_decision': {
           if (!isPerson(o.actor)) throw new InputError('A decision is archived by a person in the app, not through MCP.');
-          const d = decisionsAll.find(x => x.id === op.id && !x.archivedAt);
-          if (!d) throw new InputError(`Decisions has no open entry ${op.id}`);
+          const did = op.find !== undefined ? findLine(op.find, ['Decisions']).id : op.id;
+          const d = decisionsAll.find(x => x.id === did && !x.archivedAt);
+          if (!d) throw new InputError(`Decisions has no open entry ${did}`);
+          log[oi].id = d.id;
           const may = project.ownerId === s.userId || (await (await import('../caller')).roleOf(s.userId, s.orgId)) === 'owner';
           if (!may) throw new InputError("Only the project's owner or an owner of the organization can archive a decision.");
           d.archivedAt = now;
           decisionsEdited = true;
+          break;
+        }
+        case 'edit_line': {
+          const h = findLine(op.find, ['Now', 'Next', 'Later']);
+          const replaced = h.text.replace(op.find, () => op.new).trim();
+          if (h.where === 'Now') {
+            if (!replaced) throw new InputError('Now cannot be removed: replace it with set_now.');
+            if (replaced.length > LIMITS.now) throw new InputError(`Now would be ${replaced.length} characters (max ${LIMITS.now}).`);
+            nowSet = { ...(nowSet ?? cur.now!), text: replaced, by, at: now };
+            break;
+          }
+          if (replaced.length > LIMITS.line) throw new InputError(`The line would be ${replaced.length} characters (max ${LIMITS.line}).`);
+          const list = h.where === 'Next' ? next : later;
+          if (h.where === 'Next') nextEdited = true;
+          else laterEdited = true;
+          log[oi].id = h.id;
+          if (!replaced) {
+            list.splice(h.i, 1);
+            (h.where === 'Next' ? done : dropped).push(h.text);
+          } else {
+            const { src: oldSrc, ...rest } = h.line!;
+            void oldSrc;
+            list[h.i] = { ...rest, ...stamp, text: replaced, at: now };
+          }
           break;
         }
         case 'set_where':
@@ -195,7 +250,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     const r = await c.states.updateOne({ _id: cur._id, version: cur.version }, { $set: set, $inc: { version: 1 }, ...(Object.keys(push).length ? { $push: push } : {}) } as never);
     if (!r.matchedCount) throw new InputError('The State changed while you saved: read it again and retry.');
     const state = (await c.states.findOne({ _id: cur._id }))!;
-    return { state, project, done, promoted };
+    return { state, project, done, dropped, promoted };
   });
 }
 
