@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 25. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 26. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -39,7 +39,8 @@ Copy of the Work OS state, version 25. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov, Om: a transfer must leave Work OS up to date. The /transfer skill and note ac2026fedb now make both hand over and pick up save State (pick up step 4), and make a State when a project has none (import WORK-STATE.md, History moved to docs/history.md). Cause: AKAR had no State, so its transfer saved nothing. (Om, chat)
 - 2026-11-18: 19 Nov, Om: a Need can be answered by typing alone. 'Send my answer' (and Ctrl+Enter) under the text box saves option 'other' with the text, all kinds but review. On dev, joins the 18-19 Nov batch (Next 5); e2e check written in flow-n1, not run (C: space). (Om, chat)
 - 2026-11-18: 19 Nov, Om: a session on a project with no State makes it at once, without asking. start_work/get_state say so (f264737 dev, 3596c54 hotfix); /transfer and note ac2026fedb check get_state first. AKAR made its State (v2, History in docs/history.md, AKAR 81cfa8aa) on Om's go. Also fixed: the WORK-STATE edit hook refused commands that only quote the name (reinstalled on this PC). (Om, chat)
+- 2026-11-18: 19 Nov, Om: the 15 GB free-disk rule is dropped (removed from ~/.claude/CLAUDE.md); keep temp and large files on D:. The Claude VM image stays. Hotfix 3596c54 pushed to master (origin and delpat); building in WSL for a manual deploy over SSH. (Om, chat)
 
 ## Where
 - Victus-Knight: dev f264737 (2026-11-18 20:38)
-<!-- work-os-copy sha1:dd6d9de102643dc50a29751cb2ab54d6e6d9eb35 -->
+<!-- work-os-copy sha1:6296633594576e880b39b7000a59ffc18bd18242 -->
