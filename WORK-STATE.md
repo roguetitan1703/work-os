@@ -1,16 +1,16 @@
-Copy of the Work OS state, version 29. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 30. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
 ## Now
-- Make the steps 1-3 features visible and used (Needs, State, project messages, results and review, digest), and ship the 18 Nov batch.
+- Ship Harness end to end (#276, docs/flows/agent-system.md): parts H0-H16 as subtasks #277-#293. Per part: Opus writes the implementation plan, Sonnet builds in its slot, Opus reviews, dev, tests; production per release with Om's go. Stop and ask Om on drift or duplication.
 
 ## Next
 1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel.
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
-3. Live sessions and messaging design (docs/flows/session-messaging.md): global Work OS plugin with hooks for on/working/idle/waiting/off at zero tokens, a channel to push messages in, every session lives in a project (Lobby for strays), notes on fixed shelves with drift rules. Waits on Om's two notes answers, then a Fable review, then builder B.
-4. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
-5. Ship R1 (the 18-19 Nov batch, dev ad99b8c, master merged in): recurrence, What's new + Needs, State edit_line, worker installs hooks, hook device-key sign-in, digest redesign, Activity shows everything, Needs cap per project, typed Need answers. Left: full e2e + build on dev, UI by eye at 390/1280 light/dark, push dev, then master + deploy with Om's go.
+3. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
+4. H0: ship R1 (e2e + build running on dev ad99b8c; then UI by eye 390/1280 light/dark, push dev, release with Om's go). (#277)
+5. Wave 1, in parallel after R1's tests: H1 words + drift test (S), H3 per-session ids (A), H4 State polish (B); then H2 plugin (S), H5 end_work (B). Each: Opus plan note first, Sonnet build. (#276)
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -42,7 +42,8 @@ Copy of the Work OS state, version 29. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov, Om asked for a name: the 18-19 Nov batch (State Next 5, 44 commits on dev not on master) is called R1. Releases are numbered from here (R2 next). The no-State hotfix 3596c54 is not part of R1; it goes live on its own first. (Om, chat)
 - 2026-11-18: 19 Nov: no-State hotfix 3596c54 live (WSL build, deployed over SSH; previous 865c699 removed). Checked live: get_state on PMS (no State) gives the make-it-now text; import_state on a throwaway project left History and Done out and named them (project archived). Master merged into dev (ad99b8c, no code change). AKAR's Later trim waits on R1's edit_line. (Om, chat)
 - 2026-11-18: 19 Nov, Om: the agents-and-Work-OS plan (docs/flows/agent-system.md, from the 18 Nov Fable review: hooks, rules, State, Needs, transfer, wrap_up/hand_over/declutter, live sessions) is named Harness. R1 is only the release that carries Harness part 1 plus other features. (Om, chat)
+- 2026-11-18: 19 Nov, Om: ship Harness end to end and verify it; Opus writes each part's implementation plan, Sonnet builds from it; ask Om when a part drifts, duplicates or could be done better. Checklist #276 (H0-H16). The 'live sessions and messaging design' Next line is now H3, H6, H7 (closed as covered). (Om, chat)
 
 ## Where
 - Victus-Knight: dev ad99b8c (2026-11-18 20:46)
-<!-- work-os-copy sha1:d5ca65c8a9de3705a793fb75d3418a80ed63019c -->
+<!-- work-os-copy sha1:d06e2fc24df702e0ba2b5974023f0a2c34b5ac90 -->
