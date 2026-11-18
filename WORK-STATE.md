@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 37. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 38. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -52,4 +52,5 @@ Copy of the Work OS state, version 37. Edit it in Work OS (https://work.delpat.i
 
 ## Where
 - Victus-Knight: dev 685ebe0 (2026-11-18 22:06)
-<!-- work-os-copy sha1:8a900b1a5ea861b74c2cf5ad08225219403ec2f0 -->
+- victus: dev 324ecb7 clean (2026-11-18 22:48)
+<!-- work-os-copy sha1:025bfa04a6d3d6746edf0882b6d3df7d57d4bd20 -->
