@@ -1,7 +1,7 @@
 // Flow N4 (security review of Needs): what must hold when things move, when an agent pushes, and when someone loses access.
 //   - a task that moves takes its Needs along (project and placement), the ones whose addressee cannot read it there are
 //     withdrawn, and the task's `need` mark follows (shared to private, private to shared, to a list without the addressee, subtasks);
-//   - an agent cannot flood a phone: the 11th Need to one person in an hour is refused whatever happened to the first ten,
+//   - an agent cannot flood a phone: the 21st Need to one person in an hour is refused whatever happened to the first twenty (Om 19 Nov),
 //     and a replacement of a Need alerted minutes ago sends no second alert;
 //   - withdraw_need: same word, and the same session (else the same key); a person's Needs and review Needs are not withdrawn by agents;
 //   - "chat" is only a claude.ai app that signed in through OAuth; a static chat key is "agent";
@@ -76,16 +76,16 @@ try {
   // ======== an agent cannot flood a phone ========
   {
     const made = [];
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 22; i++) {
       const r = await mcpH(kA, 'ask', { project: 'N4 Shared', to: 'Cara', kind: 'do', ask: `Loop ${i}` });
       made.push(r);
       if (!r.isError) await must(kA, 'withdraw_need', { id: r.json.need.ref });
     }
     const ok = made.filter(r => !r.isError).length;
-    check('flood: ask, withdraw, ask again: ten land in an hour, the rest are refused', ok === 10 && made.slice(10).every(r => r.isError && /last hour/.test(r.text)), made.map(r => (r.isError ? 'x' : 'ok')).join(''));
+    check('flood: ask, withdraw, ask again: twenty land in an hour, the rest are refused', ok === 20 && made.slice(20).every(r => r.isError && /last hour/.test(r.text)), made.map(r => (r.isError ? 'x' : 'ok')).join(''));
     await sleep(2500);
     const alerts = await rawDb.collection('notifications').countDocuments({ userId: cara.userId, kind: 'need' });
-    check('flood: at most ten alerts reached the person', alerts <= 10, String(alerts));
+    check('flood: at most twenty alerts reached the person', alerts <= 20, String(alerts));
 
     const t = await task('Replaced over and over', 'N4 Shared');
     const first = await ask(kA, 'Dan', { task: t.ref, ask: 'First wording' });
@@ -191,7 +191,7 @@ try {
     }
     const needsMade = await rawDb.collection('needs').find({ taskRef: { $in: ids }, kind: 'review' }).toArray();
     const queued = await rawDb.collection('alertQueue').countDocuments({ needId: { $in: needsMade.map(n => n._id) } });
-    check('review flood: one agent handing in 50 tasks of one owner makes 50 reviews but at most 10 alerts', needsMade.length === 50 && queued > 0 && queued <= 10, `needs ${needsMade.length}, alerts ${queued}`);
+    check('review flood: one agent handing in 50 tasks of one owner makes 50 reviews but at most 20 alerts', needsMade.length === 50 && queued > 0 && queued <= 20, `needs ${needsMade.length}, alerts ${queued}`);
     check('review flood: the ones past the limit are marked as made without an alert', needsMade.filter(n => n.noAlert).length === 50 - queued);
   }
 
