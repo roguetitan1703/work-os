@@ -443,6 +443,8 @@ try {
     await p.locator('[data-mail-connect]').first().click();
     if (mode === 'hold') {
       for (let i = 0; i < 100 && !oauth.held; i++) await new Promise(r => setTimeout(r, 100));
+      // The stub answered, but the tab is still landing on its page: let it, or the next goto is cut off by it.
+      await p.waitForURL(/\/mail\/oauth\/authorize/, { timeout: 10000 }).catch(() => {});
       return oauth.held;
     }
     await p.waitForURL(/[?&]mail=/, { timeout: 20000 });
