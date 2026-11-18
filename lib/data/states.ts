@@ -418,7 +418,7 @@ export function stateOut(d: StateDoc, reader: string, names: Names): StateOut {
 export function stateMarkdown(d: StateDoc, o: { projectName: string; url: string; reader: string; names: Names }): string {
   const by = (id: string) => (id === o.reader ? '' : ` (by ${o.names[id] || 'a former member'})`);
   const wait = (l: StateLine) => (l.waitsOn && !l.text.toLowerCase().includes(l.waitsOn.toLowerCase()) ? ` — waits on ${l.waitsOn}` : '');
-  const out: string[] = [`Copy of the Work OS state, version ${d.version}. Edit it in Work OS (${o.url}); this file is its copy.`, '', `# Work state: ${o.projectName}`, '', '## Now'];
+  const out: string[] = [`Copy of the Work OS state, version ${d.version}. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (${o.url}).`, '', `# Work state: ${o.projectName}`, '', '## Now'];
   out.push(d.now ? `- ${d.now.text}${d.now.holder ? ` (${d.now.holder})` : ''}${by(d.now.by)}` : '- (nothing set)');
   out.push('', '## Next');
   if (d.next.length) d.next.forEach((l, i) => out.push(`${i + 1}. ${l.text}${l.ref ? ` (#${l.ref})` : ''}${wait(l)}${by(l.by)}`));

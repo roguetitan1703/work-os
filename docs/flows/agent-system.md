@@ -149,6 +149,7 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
   - the global CLAUDE.md;
   - AGENTS.md and HANDOVER;
   - the orchestrator's transfer protocol note.
+- **Built in H1:** the glossary is "Words" in docs/HANDOVER.md section 3; `tests/words-check.mjs` (`npm run check:words`, run by `prebuild`) is the drift test below.
 - **A test keeps it from drifting back.** It fails the build if any agent-facing text says "write it to WORK-STATE",
   "keep WORK-STATE", "Claude items" or another retired phrase, or if the instructions grow past their budget.
 

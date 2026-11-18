@@ -21,13 +21,13 @@ await status(D1);
 // 1. boilerplate note protection
 const n1before = await db.collection('notes').findOne({ _id: 'n1' });
 let m = await mcp('write_note', { note_id: 'n1', append: 'INJECTED' });
-check('MCP write_note on the boilerplate refused', m.isError && /boilerplate/.test(m.text), m.text.slice(0, 200));
+check('MCP write_note on the boilerplate refused', m.isError && /sessions read first/.test(m.text), m.text.slice(0, 200));
 m = await mcp('write_note', { parent_id: 'n1', title: 'child', body: 'x' });
-check('MCP sub-page under the boilerplate refused', m.isError && /boilerplate/.test(m.text), m.text.slice(0, 200));
+check('MCP sub-page under the boilerplate refused', m.isError && /sessions read first/.test(m.text), m.text.slice(0, 200));
 m = await mcp('delete_note', { note_id: 'n1', title: n1before.title });
-check('MCP delete_note on the boilerplate refused', m.isError && /boilerplate/.test(m.text), m.text.slice(0, 200));
+check('MCP delete_note on the boilerplate refused', m.isError && /sessions read first/.test(m.text), m.text.slice(0, 200));
 m = await mcp('apply_changes', { ops: [{ op: 'write_note', note_id: 'n1', append: 'INJECTED2' }] });
-check('apply_changes note op on the boilerplate refused', /boilerplate/.test(m.text), m.text.slice(0, 300));
+check('apply_changes note op on the boilerplate refused', /sessions read first/.test(m.text), m.text.slice(0, 300));
 const n1after = await db.collection('notes').findOne({ _id: 'n1' });
 check('boilerplate note unchanged', n1after.body === n1before.body && !n1after.deletedAt && n1after.updatedAt.getTime() === n1before.updatedAt.getTime());
 m = await mcp('write_note', { note_id: 'n2', append: 'fine' });

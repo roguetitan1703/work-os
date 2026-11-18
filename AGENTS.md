@@ -14,3 +14,5 @@ you looked at.
 
 A user-facing feature adds one What's new entry to `lib/whats-new.ts` in the same change (docs/HANDOVER.md section 8,
 "What's new").
+
+Agent-facing text (lib/mcp/docs.ts, MCP answers, worker hooks) uses the Words in docs/HANDOVER.md section 3; `npm run check:words` must pass.
