@@ -66,7 +66,7 @@ const NONE_MS = 15_000;
 const noneKey = (i: Ident) => `${i.userId}|${i.session ?? ''}|${i.keyId ?? ''}`;
 
 /** Registers (or refreshes) the session as present on a project. Called by start_work. */
-export type RosterReport = { model?: string; account?: string; parent?: string; slot?: string; machineName?: string; branch?: string };
+export type RosterReport = { hook?: number; model?: string; account?: string; parent?: string; slot?: string; machineName?: string; branch?: string };
 const clip = (v: string | undefined, n: number) => (v ?? '').trim().slice(0, n);
 
 export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, o: { machine?: string; label?: string } & RosterReport): Promise<PresenceDoc> {
@@ -87,6 +87,8 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
         machine: (o.machine ?? '').slice(0, 40),
         ai: (i.keyName || i.agent).slice(0, 80),
         agent: i.agent,
+        // The hook protocol: only when this call says (an old hook's row stays 1 until a new hook starts it again).
+        ...(o.hook ? { hook: o.hook } : {}),
         // The roster: only what this call reports (a later start_work without a model keeps the earlier one).
         ...(clip(o.model, 60) ? { model: clip(o.model, 60) } : {}),
         ...(clip(o.account, 80) ? { account: clip(o.account, 80) } : {}),

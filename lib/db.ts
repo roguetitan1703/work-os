@@ -307,6 +307,8 @@ export type PresenceDoc = Placed & {
   session?: string;
   /** The API key or OAuth client behind the calls (a session that passes no id is found again by it). */
   keyId?: string;
+  /** The Work OS hook protocol the session signed in with: 1 = an old hook (still sent the copy in every save answer), 2 and up = the new hook. Unset for other clients. */
+  hook?: number;
   label: string;
   machine: string;
   /** The client's name (key name / OAuth client name). */
