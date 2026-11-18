@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 36. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 37. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -48,7 +48,8 @@ Copy of the Work OS state, version 36. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov, Om (chat): the Work OS lead fixes and improves the Orders, hooks and words itself, directly, not by proposing text for Om to paste. H9 reshaped: the holder's own Claude edits the Orders layer its person holds; each change keeps a version and shows old and new in the person's next brief and in the app, with one-click undo. propose_order stays for agents of someone who does not hold that layer. (Om, chat)
 - 2026-11-18: 19 Nov, Om: Orders changed directly in the database (Om: 'use database'): the Needs line now says ask in chat when your person is here, a Need only when they are away, quiet on a blocker, or for someone else; Long work says 'ask each blocker (in chat if your person is here, else as a Need)'. Done by a node script over SSH on note 785391c151, updatedBy claude-code; checked with read_note. Until H9 ships, Orders changes go this way. (Om, chat)
 - 2026-11-18: 19 Nov: /transfer skill and note ac2026fedb follow the new Orders on asking: waiting questions go to the person in chat when they are here, a Need only when they are away (found by the H5 planner). (Om, chat)
+- 2026-11-18: 19 Nov, Om: usage rule added to the org Orders (Long work): at 90% of the 5-hour limit or context, finish the step, start no new subagents or heavy jobs, keep State and handover current; at 95%, stop, run the transfer and tell your person. Done in the database like the 19 Nov Orders edit. The lead transferred at 97% of the 5-hour limit. (Om, chat)
 
 ## Where
 - Victus-Knight: dev 685ebe0 (2026-11-18 22:06)
-<!-- work-os-copy sha1:f0f9a28309f12cdf1eb889e93a06275150e00e3a -->
+<!-- work-os-copy sha1:8a900b1a5ea861b74c2cf5ad08225219403ec2f0 -->
