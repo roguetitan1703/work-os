@@ -1361,9 +1361,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const r = await roster(s);
-      const q = a.project?.trim();
       let ws = r.workers;
-      if (q) ws = ws.filter(w => w.project.id === q || w.project.name.toLowerCase() === q.toLowerCase());
+      // A project you cannot read is "not found", as everywhere else (same answer for one that does not exist).
+      if (a.project?.trim()) {
+        const { project } = await stateData.getState(s, a.project);
+        ws = ws.filter(w => w.project.id === project._id);
+      }
       if (!a.include_gone) ws = ws.filter(w => w.state !== 'gone');
       const now = Date.now();
       return {
