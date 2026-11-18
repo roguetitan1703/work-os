@@ -31,12 +31,26 @@ Today's presence (from tool calls) stays for clients without the plugin (claude.
 
 ## 4. Messaging, any surface to any surface
 Work OS is the post office: identity, projects, threads, the labelling rule. Each plugin keeps one live connection.
+
+**Every session has its own id (Om).** The id is Claude Code's own session_id from the hook input (claude.ai chat and
+API clients get one from `start_work`). Read/seen state, presence and `to_session` all key on it, never on the person:
+two sessions of the same person are two parties. (Bug seen 18 Nov: chat -> Code messages between Om's own sessions stay
+"unread" forever because both sides are "me".) `to_session` resolves against live sessions by id or label; a miss says
+who is live instead of "no session like that".
+
 1. `who`: live sessions in the project or org (name, machine, surface, state, current task).
 2. `send_message` to a session, a project (every session on it) or a person (their sessions + phone).
-3. Work OS stores it in the thread and pushes it down the recipient's connection; the plugin delivers it:
-   channel (`notifications/claude/channel`, at once, terminal; dev flag until allowlisted; org setting on Team) ->
-   else a PostToolUse hook attaches it after the current tool call (seconds while working) ->
-   else, idle, the wait line (step-4.md section 6) wakes the session. claude.ai chat and API: `forYou` on the next call.
+3. Work OS stores it in the thread and pushes it down the recipient's connection; the plugin delivers it through our
+   own channel, three doors that need no flag or org setting:
+   - **Watcher:** the start hook launches a small Work OS watcher as a background task (Claude Code's Monitor /
+     background command). Each line it prints becomes an event in the session: at once, even when idle.
+   - **After any tool call** (PostToolUse, every tool, not only Work OS ones): new messages attached to context,
+     seconds while working.
+   - **At turn end** (Stop): if messages came during the turn, the hook tells the model to continue and read them.
+   - While a permission prompt is open: delivered right after the person answers it.
+   Anthropic's channels (`notifications/claude/channel`) are optional: used where a session was started with them,
+   never required (they need a launch flag, a dev confirmation for our plugin, and an org setting on Team).
+   claude.ai chat, the phone app, API agents: no local process, so `forYou` on the next call; people get push/Discord.
 4. `reply` returns the same way. Text from others arrives labelled as information; an agent's message never approves
    shipping, money or credentials.
 Gap: an idle cloud session with nothing running cannot be woken; the message waits for its next start.
@@ -61,5 +75,16 @@ sessions save State on stop, not new notes; a Sunday tidy pass proposes merges a
 Same discipline for worktrees: fixed builder slots only, a cleanup check at every merge.
 
 ## 7. First, checked by hand (about an hour)
-Hooks fire and inject context in the desktop Code tab, VS Code and a cloud session; a channel pushes in the terminal;
-a background wait runs in a cloud session. The results set which surface gets which speed.
+Hooks fire and inject context in the desktop Code tab, VS Code and a cloud session; the background watcher wakes an
+idle session on each surface and runs for hours; the Stop hook delivers; a channel pushes in the terminal. The results
+set which surface gets which speed.
+
+## 8. Build order (after the Fable review)
+1. Hand check (section 7).
+2. Session identity: per-session id, seen state per session, `to_session` by id or label (fixes the same-person bug).
+3. Plugin v1: global install; SessionStart check-in + Lobby; presence hooks; delivery after any tool call and at turn
+   end; `who`.
+4. Watcher (idle wake); optional Anthropic channel where enabled.
+5. Feedback: friendlier refusals, friction detection, `feedback`, per-rule pushback Need.
+6. Notes shelves and drift rules.
+Each step ships on its own through dev, a full test run, then master.
