@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 44. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 45. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -9,8 +9,7 @@ Copy of the Work OS state, version 44. Edit it in Work OS (https://work.delpat.i
 1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel.
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
 3. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
-4. H0: ship R1. Paused 19 Nov (Om: let other sessions finish). r1-fixes in ../wos-r1 (13 commits a607c2d..321b2fa): each of the 14 failed suites passes alone; real bugs fixed: write_note crash on string authors (298c4b4), Today budget (519a999); fixer says nothing leaked (activity-all, push): lead to check before release. Next: one full e2e of r1-fixes, Needs tab by eye at 390, merge to dev, release with Om's go. (#277)
-5. Harness paused 19 Nov (Om). On dev 685ebe0: H1, H3, H4 phase 1. H4 phase 2: WIP f0be56b on builder-b (no tests yet); next lib/agent-auth.ts and POST /api/agent/state, then tests, leak-audit, security review. H2: not started on builder-s (dev 91ad63b); next plan step 1, split hook.mjs; hooks-setup test hang found (key typed before the prompt). Then H5 (plan 0bf42ce458). (#276)
+4. Harness R2: on dev 121f436 (pushed): H4 phase 2 (68175c2) and H2 (121f436), both security-reviewed with lows fixed, their suites green. H5 building in slot B (plan 0bf42ce458), then Opus review, merge, one full e2e of dev, release R2 (WSL build, deploy over SSH), check live. Then H6 onward per #276. (#276)
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -55,8 +54,9 @@ Copy of the Work OS state, version 44. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov correction to the decision above: the /transfer skill line was NOT added (Claude Code's permission check refused the edit as a change to agent oversight). Only the Orders change landed. Om to add the skill line (pick-up step 5: a go for planned work while away carries over) himself or allow it. (Om, chat)
 - 2026-11-18: 19 Nov: H4 phase 2 merged into dev (68175c2): lib/agent-auth.ts, POST /api/agent/state, Where from the start route, short save answers, copy lines. Opus security review: no high/medium; two lows fixed in a1a7285 (repo visibility: private cached 1 h, unknown 10 min) and re-checked by the lead. (Om, chat)
 - 2026-11-18: 19 Nov, Om (chat): "don't only add it, edit the instructions and the whole way we discipline ... I don't want to keep adding points." Orders rewritten whole (DB, note 785391c151; backup ~/orders-backup-19nov.json on the server): a new section 'Asking and approvals' merges the Needs rule, ask-before-irreversible with the away-go exception, and never-end-on-a-question plus the morning report; usage folded into 'Models, subagents and usage'; 5,673 -> 5,510 chars, 25 -> 22 bullets. /transfer skill step 5 and note ac2026fedb pick-up step 4 rewritten in place to point at it. ~/.claude/CLAUDE.md unchanged: it already defers to the Orders, so no line is needed. Supersedes the two decisions above about the appended bullet. (Om, chat)
+- 2026-11-18: 19 Nov ~05:30 IST: R1 live, c4381cf02edc (master on origin and delpat; WSL build, deployed over SSH under Om's overnight go). Full e2e of r1-fixes 67/67, tsc and eslint clean; fixer's no-leak claims checked by the lead; Needs page checked by eye at 390/1280 light/dark, no overflow (awkward: the first option always shows filled, so it reads as already picked; placeholder 'also sent as a note with a button' is unclear). Live: / 307, /login 200, service active, no errors. (Om, chat)
 
 ## Where
-- Victus-Knight: dev 324ecb7 clean (2026-11-18 22:49)
+- Victus-Knight: dev 121f436 clean (2026-11-18 23:58)
 - victus: dev 324ecb7 clean (2026-11-18 22:48)
-<!-- work-os-copy sha1:720e211c6552f9ee82bdda613aafe775a6cce8bd -->
+<!-- work-os-copy sha1:968679d6dd459eef8861e4d511afc779cd4fc81b -->
