@@ -72,6 +72,7 @@ alerts-once|alerts-once.mjs|none|discord
 flow-b4|flow-b4.mjs|none|plain
 flow-hooks|flow-hooks.mjs|none|plain
 agent-start|agent-start.mjs|none|plain
+flow-h2|flow-h2.mjs|none|plain
 flow-b4-team|flow-b4-team.mjs|none|discord
 flow-dc1|flow-dc1.mjs|none|discord
 discord-link|discord-link.mjs|none|discord
