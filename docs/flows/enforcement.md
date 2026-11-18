@@ -82,3 +82,23 @@ CLAUDE.md keeps judgment only. Every refusal says what to do instead. All of it 
 2. Plugin "rules" hooks, tested in D:\wos-hookcheck first: A1, A2, C1, C2, D1, G1 (E1, E2 as nudges).
 3. Repo hooks: D2, D3, H1.
 4. With the live-sessions plugin: A4, B3, F1, E4.
+
+## How rules improve over time (Om 18 Nov: "a set of practices we can improve over time")
+- **One rulebook:** the Orders in Work OS (org, project, person), edited by Om in the app. Every rule has a short id
+  (A1, C2...). The global CLAUDE.md only says "start_work, follow the Orders"; the SessionStart hook injects the Orders
+  at start and after every compaction, so no session works from a summary's copy.
+- **Three strengths per rule:** written (the Orders say it) -> nudge (a hook reminds once) -> block (a hook or Work OS
+  refuses and says what to do instead). Every nudge, block and `feedback` is counted per rule id and project.
+- **Weekly rules review (one Need for Om):** "A1 was broken 6 times in 3 projects: make it a block?" and "C2 got 4
+  pushbacks from Grant Leads: loosen it?". Om taps keep / tighten / loosen; the Orders and hooks change in one place.
+  A correction Om gives twice in chat becomes a rule with an id the same day.
+- **Adoption card per project:** State age, sessions that started without checking in, blocked WORK-STATE edits,
+  stale notes, strays. Shown on the project page and in the weekly review.
+
+## Declutter (Om 18 Nov)
+A `declutter` action per project: a button (project ⋯ menu) and an MCP tool. Work OS returns what has grown: Later
+lines that are done, duplicated or older than 30 days; Next lines with no task or a finished one; notes with matching
+titles or untouched for 30 days; tasks done but open; Needs nobody answered. The session adds what it sees on disk
+(extra worktrees and branches, stray files at the repo root, WORK-STATE.md that differs from State). It proposes one
+batch (merge, archive, drop, delete-from-disk) as a single Need; on Om's yes it applies the batch and saves State.
+Runs on demand and as the Sunday tidy for every active project.
