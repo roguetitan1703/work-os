@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-hook-'));
 process.env.WORK_OS_HOOK_DIR = path.join(tmp, 'markers');
@@ -17,11 +17,27 @@ const HOOK = fileURLToPath(new URL('../hook.mjs', import.meta.url));
 // A stub of the MCP endpoint: start_work answers per `mode`.
 const seen = [];
 let mode = 'ok';
+// POST /api/agent/start (the device-key path): a device key gets a new session and TOKEN; TOKEN gets the brief again.
+const WKR = 'wkr_' + 'D'.repeat(43);
+const TOKEN = 'wst_' + 't'.repeat(43);
+let agentMode = 'ok';
+const agentBrief = { project: { id: 'p1', name: 'Demo' }, session: 'ag-sess-1', orders: 'no Orders set', state: { now: { text: 'device brief' } }, stateVersion: 2 };
+function agentStart(req, res) {
+  const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+  if (agentMode === 'hang') return;
+  if (agentMode === 'http429') return json(429, { error: 'too many' });
+  if (agentMode === 'http500') return json(500, { error: 'x' });
+  const auth = req.headers.authorization;
+  if (auth === `Bearer ${TOKEN}`) return agentMode === 'tokenDead' ? json(401, { error: 'unauthorized' }) : json(200, { brief: agentBrief, expiresAt: new Date(Date.now() + 3600e3).toISOString() });
+  if (auth === `Bearer ${WKR}`) return json(200, { brief: agentBrief, token: TOKEN, expiresAt: new Date(Date.now() + 3600e3).toISOString() });
+  return json(401, { error: 'unauthorized' });
+}
 const server = http.createServer((req, res) => {
   let b = '';
   req.on('data', (d) => (b += d));
   req.on('end', () => {
-    seen.push({ auth: req.headers.authorization, body: JSON.parse(b || '{}') });
+    seen.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(b || '{}') });
+    if (req.url === '/api/agent/start') return agentStart(req, res);
     if (mode === 'hang') return; // never answers
     if (mode === 'http500') { res.writeHead(500); return res.end('x'); }
     const send = (text, isError = false) => {
@@ -151,6 +167,96 @@ test('after compaction the start baseline stays', async () => {
   assert.ok(await start({ sid: 'cmp' })); // compact: start_work again
   const out = JSON.parse(await main('stop', JSON.stringify({ session_id: 'scmp', cwd: repo, transcript_path: transcript })));
   assert.equal(out.decision, 'block');
+});
+
+// ---- the device-key path: an installed copy beside a worker config, no WORK_OS_KEY ----
+const home = path.join(tmp, 'w');
+fs.mkdirSync(path.join(home, 'hooks'), { recursive: true });
+for (const f of ['hook.mjs', 'config.mjs', 'secret.mjs']) fs.copyFileSync(fileURLToPath(new URL(`../${f}`, import.meta.url)), path.join(home, 'hooks', f));
+const cfgFile = path.join(home, 'config.json');
+fs.writeFileSync(cfgFile, JSON.stringify({ baseUrl: URL_ }));
+const dev = await import(pathToFileURL(path.join(home, 'hooks', 'hook.mjs')).href);
+let devKey = WKR;
+dev.deps.deviceKey = (dir) => (dir === home ? devKey : null); // the worker's key store, read for the config folder it was installed in
+const devStart = (sid) => dev.main('session-start', JSON.stringify({ session_id: sid, cwd: repo, transcript_path: transcript }));
+const markerOf = (sid) => fs.readFileSync(path.join(process.env.WORK_OS_HOOK_DIR, `${sid}.json`), 'utf8');
+const withoutKey = async (fn) => { const k = process.env.WORK_OS_KEY; delete process.env.WORK_OS_KEY; try { return await fn(); } finally { process.env.WORK_OS_KEY = k; } };
+
+test('no WORK_OS_KEY: the installed hook signs in with the device key, keeps the session token, and shows it after compaction', () => withoutKey(async () => {
+  agentMode = 'ok'; seen.length = 0; devKey = WKR;
+  const out = await devStart('dev1');
+  const ctx = JSON.parse(out).hookSpecificOutput.additionalContext;
+  assert.match(ctx, /device brief/);
+  assert.match(ctx, /Session id: ag-sess-1/);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].url, '/api/agent/start');
+  assert.equal(seen[0].auth, `Bearer ${WKR}`);
+  assert.equal(seen[0].body.remote, 'https://github.com/acme/demo.git');
+  assert.equal(seen[0].body.branch, 'main');
+  assert.equal(seen[0].body.path, repo);
+  assert.ok(!out.includes(WKR) && !out.includes(TOKEN), 'neither the key nor the token is printed');
+  const kept = fs.readFileSync(path.join(home, 'hooks', 'sessions', 'dev1.json'), 'utf8');
+  assert.ok(kept.includes(TOKEN), 'the token is kept for this session, beside the installed hook');
+  assert.ok(!markerOf('dev1').includes(TOKEN), 'never in the marker folder (WORK_OS_HOOK_DIR could point into a repo)');
+  assert.ok(!markerOf('dev1').includes(WKR) && !kept.includes(WKR), 'the device key is never written down');
+  // compaction: the same session shows its token, not the device key
+  const again = await devStart('dev1');
+  assert.match(JSON.parse(again).hookSpecificOutput.additionalContext, /device brief/);
+  assert.equal(seen.length, 2);
+  assert.equal(seen[1].auth, `Bearer ${TOKEN}`);
+  assert.ok(!again.includes(TOKEN));
+  // another session starts its own: the device key again
+  await devStart('dev2');
+  assert.equal(seen[2].auth, `Bearer ${WKR}`);
+}));
+
+test('a refused session token (expired, revoked, another project): the device key opens a new session', () => withoutKey(async () => {
+  agentMode = 'ok'; devKey = WKR;
+  assert.ok(await devStart('dev3'));
+  agentMode = 'tokenDead'; seen.length = 0;
+  assert.ok(await devStart('dev3'));
+  assert.deepEqual(seen.map((x) => x.auth), [`Bearer ${TOKEN}`, `Bearer ${WKR}`]);
+  agentMode = 'ok';
+}));
+
+test('the device-key path fails open and never sends the key anywhere but the worker config server', () => withoutKey(async () => {
+  agentMode = 'ok'; devKey = WKR;
+  // WORK_OS_URL and WORK_OS_WORKER_DIR from the environment do not move the device key
+  const url = process.env.WORK_OS_URL;
+  process.env.WORK_OS_URL = 'http://127.0.0.1:1';
+  try { seen.length = 0; assert.ok(await devStart('dev4'), 'the worker config server, not WORK_OS_URL'); assert.equal(seen[0].auth, `Bearer ${WKR}`); } finally { process.env.WORK_OS_URL = url; }
+  // the copy in the repo (not installed beside a worker config) has no device-key path
+  seen.length = 0;
+  assert.equal(await start(), '', 'repo copy, no WORK_OS_KEY: no brief');
+  assert.equal(seen.length, 0, 'and no request');
+  for (const m of ['http429', 'http500']) { agentMode = m; seen.length = 0; assert.equal(await devStart('dev5' + m), '', m); assert.equal(seen.length, 1, `${m}: one call`); }
+  // over the limit with a kept token: no brief this time, and the device key is not spent on a new session
+  agentMode = 'ok'; assert.ok(await devStart('dev6'));
+  agentMode = 'http429'; seen.length = 0;
+  assert.equal(await devStart('dev6'), '');
+  assert.deepEqual(seen.map((x) => x.auth), [`Bearer ${TOKEN}`]);
+  agentMode = 'ok';
+  devKey = null; assert.equal(await devStart('dev7'), '', 'no device key stored');
+  devKey = 'wos_' + 'k'.repeat(40); assert.equal(await devStart('dev8'), '', 'not a device key');
+  devKey = WKR;
+  fs.writeFileSync(cfgFile, JSON.stringify({ baseUrl: 'http://example.com' }));
+  assert.equal(await devStart('dev9'), '', 'plain http to a non-local server');
+  fs.rmSync(cfgFile);
+  seen.length = 0;
+  assert.equal(await devStart('dev10'), '', 'no worker config');
+  assert.equal(seen.length, 0);
+  fs.writeFileSync(cfgFile, JSON.stringify({ baseUrl: URL_ }));
+  agentMode = 'garbage-auth'; devKey = 'wkr_' + 'X'.repeat(43);
+  assert.equal(await devStart('dev11'), '', 'a refused device key');
+  agentMode = 'ok'; devKey = WKR;
+}));
+
+test('WORK_OS_KEY, when set, is still used before the device key', async () => {
+  mode = 'ok'; agentMode = 'ok'; seen.length = 0;
+  assert.ok(await devStart('dev12'));
+  assert.equal(seen[0].url, '/api/mcp');
+  assert.equal(seen[0].auth, `Bearer ${KEY}`);
+  assert.equal(seen.filter((x) => x.url === '/api/agent/start').length, 0);
 });
 
 const run = (arg, input) => new Promise((resolve) => {

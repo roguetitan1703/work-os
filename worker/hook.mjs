@@ -9,12 +9,17 @@
 //                                 key. Skips builder worktrees, other projects, older versions, merges and rebases.
 // Both read Claude Code's hook JSON on stdin and answer in its hook JSON on stdout. They FAIL OPEN: no key, no network,
 // no matching project, a timeout of 5 s or anything unexpected prints nothing and exits 0, so a hook can never stop a
-// session. The worker never installs these: the person pastes the snippet from Settings > AI tools into their own
-// ~/.claude/settings.json.
-// Environment (put in the "env" block of that settings.json, the snippet shows how):
-//   WORK_OS_KEY   a Work OS Claude Code key (wos_...): the same kind as the MCP connection's. A worker device key
-//                 (wkr_) does not open the MCP endpoint, so it cannot be used here.
-//   WORK_OS_URL   the server address (default: baseUrl of this PC's worker config)
+// session. `node worker.mjs hooks install` (worker/hooks-install.mjs) copies this file, config.mjs and secret.mjs to
+// <worker config dir>/hooks and adds the entries to ~/.claude/settings.json.
+// Signing in for the start brief, the first that applies:
+//   WORK_OS_KEY   (in the "env" block of settings.json) a Work OS Claude Code key (wos_...): start_work on /api/mcp at
+//                 WORK_OS_URL (default: the worker config's baseUrl). Only for a PC without the worker.
+//   the worker    this PC's worker device key (wkr_, kept by the worker in DPAPI / Keychain) and the baseUrl of the
+//                 worker config this copy was installed beside: POST /api/agent/start answers the brief and a session
+//                 token (wst_) for this one session and project. The token is kept in <hooks folder>/sessions and
+//                 shown instead of the device key after a compaction. Only the installed copy takes this path: its own
+//                 folder decides which config and key it reads (WORK_OS_URL and WORK_OS_WORKER_DIR are ignored here,
+//                 so a repo's settings cannot send the device key elsewhere). Neither key nor token is ever printed.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -22,6 +27,26 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkBaseUrl, loadConfig } from './config.mjs';
+import { getToken } from './secret.mjs';
+
+/** What the device-key path reads the key with; tests replace it (in process only, never from the environment). */
+export const deps = { deviceKey: (dir) => getToken(dir) };
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+/** The worker config folder this copy was installed into (<dir>/hooks/hook.mjs), or null when it runs from elsewhere. */
+const workerHome = () => (path.basename(HERE) === 'hooks' && fs.existsSync(path.join(path.dirname(HERE), 'config.json')) ? path.dirname(HERE) : null);
+const SESSION_TOKEN_RE = /^wst_[A-Za-z0-9_-]{43}$/;
+// Session tokens are kept beside the installed hook (<worker config dir>/hooks/sessions), never in the marker folder:
+// WORK_OS_HOOK_DIR (and the temp folder) come from the environment, which a repo's settings could point into the repo.
+// This folder is fixed by where the hook was installed: per user, outside every repo. Files older than two days are
+// deleted on each write.
+const tokenFile = (sid) => path.join(HERE, 'sessions', String(sid).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80) + '.json');
+const readKept = (sid) => { try { const k = JSON.parse(fs.readFileSync(tokenFile(sid), 'utf8')); return SESSION_TOKEN_RE.test(k.token) && k.until > Date.now() ? k.token : null; } catch { return null; } };
+function keepToken(sid, token, until) {
+  const dir = path.dirname(tokenFile(sid));
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(tokenFile(sid), JSON.stringify({ token, until: until || Date.now() + 24 * 3600e3 }), { mode: 0o600 });
+  try { for (const f of fs.readdirSync(dir)) { const p = path.join(dir, f); if (Date.now() - fs.statSync(p).mtimeMs > 2 * 86_400_000) fs.rmSync(p, { force: true }); } } catch {}
+}
 
 const TIMEOUT_MS = 5000;
 const MAX_BRIEF = 9500; // Claude Code caps a hook context string at 10,000 characters
@@ -53,6 +78,39 @@ async function mcpCall(name, args) {
   return typeof text === 'string' ? text : null;
 }
 
+/**
+ * The brief through the worker's device key (POST /api/agent/start), or null. A session token kept from this session's
+ * start is shown first; when it is refused (expired, revoked, another project) the device key opens a new session.
+ * Returns { brief, token?, until? } (token and until only when a new session was made).
+ */
+async function agentStart(body, kept) {
+  const home = workerHome();
+  if (!home) return null;
+  const base = checkBaseUrl(loadConfig(home).baseUrl);
+  const post = async (cred) => {
+    const res = await fetch(base + '/api/agent/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${cred}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      redirect: 'error', // never follow the credential to another address
+    });
+    return { status: res.status, b: res.ok ? await res.json() : null };
+  };
+  if (kept && SESSION_TOKEN_RE.test(kept)) {
+    const r = await post(kept);
+    if (r.status === 200 && r.b?.brief) return { brief: r.b.brief };
+    if (r.status !== 401 && r.status !== 403) return null; // over the limit, server trouble: no brief this time
+  }
+  const key = deps.deviceKey(home);
+  if (!key || !/^wkr_[A-Za-z0-9_-]{43}$/.test(key)) return null;
+  const r = await post(key);
+  if (r.status !== 200 || !r.b?.brief) return null;
+  const token = SESSION_TOKEN_RE.test(r.b.token || '') ? r.b.token : undefined;
+  const until = Date.parse(r.b.expiresAt || '') || undefined;
+  return { brief: r.b.brief, token, until };
+}
+
 /** SessionStart: the hook's JSON answer (or null for "print nothing"). */
 export async function sessionStart(input) {
   const cwd = input.cwd || process.cwd();
@@ -60,13 +118,21 @@ export async function sessionStart(input) {
   const remote = git(cwd, ['remote', 'get-url', 'origin']);
   const branch = git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (!remote && !branch) return null; // not a git folder
-  const text = await mcpCall('start_work', { ...(remote ? { remote } : {}), subdir: git(cwd, ['rev-parse', '--show-prefix']), branch, path: cwd, machine: os.hostname().slice(0, 40), label: 'Claude Code' });
-  if (!text) return null;
+  const where = { ...(remote ? { remote } : {}), subdir: git(cwd, ['rev-parse', '--show-prefix']), branch, path: cwd, machine: os.hostname().slice(0, 40), label: 'Claude Code' };
+  const old = sid ? readMarker(sid) : null; // after compaction the baseline stays the one from the real start
   let r;
-  try { r = JSON.parse(text); } catch { return null; }
+  if (process.env.WORK_OS_KEY) {
+    const text = await mcpCall('start_work', where);
+    if (!text) return null;
+    try { r = JSON.parse(text); } catch { return null; }
+  } else {
+    const a = await agentStart(where, sid ? readKept(sid) : null);
+    if (!a) return null;
+    r = a.brief;
+    if (a.token && sid) keepToken(sid, a.token, a.until);
+  }
   if (!r || r.unmatched || !r.project) return null;
   if (sid) {
-    const old = readMarker(sid); // after compaction the baseline stays the one from the real start
     writeMarker(sid, { status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project });
   }
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: formatBrief(r) } };

@@ -1,38 +1,45 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { configDir } from './config.mjs';
 
 export const TOKEN_RE = /^wkr_[A-Za-z0-9_-]{43}$/;
 const SERVICE = 'work-os-worker';
-const tokenFile = () => path.join(configDir(), 'token.dpapi');
+const tokenFile = (dir = configDir()) => path.join(dir, 'token.dpapi');
+// Full paths and this folder as the working directory: the hook runs inside a repo, where a bare name could resolve
+// to a program in that repo.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const POWERSHELL = path.join(process.env.SystemRoot || 'C:/Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+const SECURITY = '/usr/bin/security';
 
 export function setToken(token) {
   if (!TOKEN_RE.test(token)) throw new Error('token must look like wkr_ followed by 43 characters');
   fs.mkdirSync(configDir(), { recursive: true });
   if (process.platform === 'win32') {
     const script = '$t=[Console]::In.ReadLine(); ConvertTo-SecureString $t -AsPlainText -Force | ConvertFrom-SecureString | Set-Content -Path $env:WOS_TOKEN_FILE -Encoding ascii';
-    const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
-      { input: token + '\n', env: { ...process.env, WOS_TOKEN_FILE: tokenFile() }, encoding: 'utf8' });
+    const r = spawnSync(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', script],
+      { input: token + '\n', env: { ...process.env, WOS_TOKEN_FILE: tokenFile() }, encoding: 'utf8', cwd: HERE });
     if (r.status !== 0) throw new Error('could not store token (DPAPI)');
   } else if (process.platform === 'darwin') {
     // `security -i` reads the command from stdin so the token is not in argv.
-    const r = spawnSync('security', ['-i'], { input: `add-generic-password -U -s ${SERVICE} -a ${SERVICE} -w ${token}\n`, encoding: 'utf8' });
+    const r = spawnSync(SECURITY, ['-i'], { input: `add-generic-password -U -s ${SERVICE} -a ${SERVICE} -w ${token}\n`, encoding: 'utf8', cwd: HERE });
     if (r.status !== 0) throw new Error('could not store token (Keychain)');
   } else throw new Error('unsupported platform');
 }
 
-export function getToken() {
+/** The device key, or null. `dir`: the worker's config folder (the hook passes the one it was installed into). */
+export function getToken(dir = configDir()) {
   try {
     if (process.platform === 'win32') {
       const script = 'Get-Content -Path $env:WOS_TOKEN_FILE | ConvertTo-SecureString | ForEach-Object { [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($_)) }';
-      const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
-        { env: { ...process.env, WOS_TOKEN_FILE: tokenFile() }, encoding: 'utf8' });
+      const r = spawnSync(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', script],
+        { env: { ...process.env, WOS_TOKEN_FILE: tokenFile(dir) }, encoding: 'utf8', timeout: 4000, cwd: HERE });
       const t = (r.stdout || '').trim();
       return r.status === 0 && TOKEN_RE.test(t) ? t : null;
     }
     if (process.platform === 'darwin') {
-      const r = spawnSync('security', ['find-generic-password', '-s', SERVICE, '-w'], { encoding: 'utf8' });
+      const r = spawnSync(SECURITY, ['find-generic-password', '-s', SERVICE, '-w'], { encoding: 'utf8', cwd: HERE });
       const t = (r.stdout || '').trim();
       return r.status === 0 && TOKEN_RE.test(t) ? t : null;
     }

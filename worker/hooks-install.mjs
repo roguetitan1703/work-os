@@ -9,14 +9,20 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { configDir } from './config.mjs';
+import { configDir, loadConfig } from './config.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const settingsPath = () => process.env.CLAUDE_SETTINGS_PATH || path.join(os.homedir(), '.claude', 'settings.json');
 export const hooksDir = () => path.join(configDir(), 'hooks');
-const FILES = ['hook.mjs', 'config.mjs'];
+// secret.mjs: the start hook reads this PC's device key with it (the worker's own code, so the key stays in DPAPI / Keychain).
+const FILES = ['hook.mjs', 'config.mjs', 'secret.mjs'];
 const VERSION_FILE = 'hooks.version';
-/** The hooks version: a short hash of the hook files this worker carries (changes whenever hook.mjs or config.mjs does). */
+/** How the start brief signs in on this PC: 'key' (WORK_OS_KEY set), 'worker' (the worker is set up), or null. */
+function signIn(settings) {
+  if (settings.env?.WORK_OS_KEY || process.env.WORK_OS_KEY) return 'key';
+  try { return loadConfig().baseUrl ? 'worker' : null; } catch { return null; }
+}
+/** The hooks version: a short hash of the hook files this worker carries (changes whenever any of them does). */
 export function hooksVersion(dir = here) {
   const h = crypto.createHash('sha256');
   for (const f of FILES) h.update(fs.readFileSync(path.join(dir, f)));
@@ -33,7 +39,8 @@ export function entries(hook) {
   const h = hook.split(path.sep).join('/');
   const c = (e, t) => ({ type: 'command', command: `node "${h}" ${e}`, timeout: t });
   return {
-    // The brief (Orders, State, tasks) at start and after every compaction. Needs WORK_OS_KEY (see docs/setup-pc.md).
+    // The brief (Orders, State, tasks) at start and after every compaction. Signs in with this PC's worker device key
+    // (or WORK_OS_KEY on a PC without the worker; docs/setup-pc.md).
     SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [c('session-start', 8)] }],
     // Files changed and State not saved: hold the session once and ask for save_state.
     Stop: [{ hooks: [c('stop', 8)] }],
@@ -82,7 +89,7 @@ export function install() {
   const hook = path.join(dir, 'hook.mjs');
   const f = settingsPath();
   write(f, merge(read(f), hook));
-  return { hook, version, settings: f, key: !!(read(f).env?.WORK_OS_KEY || process.env.WORK_OS_KEY) };
+  return { hook, version, settings: f, signIn: signIn(read(f)) };
 }
 
 export function remove() {
@@ -107,14 +114,20 @@ export function refreshIfStale() {
 export function status() {
   const s = read(settingsPath());
   const events = Object.entries(s.hooks || {}).filter(([, g]) => (g || []).some(ours)).map(([ev]) => ev);
-  return { settings: settingsPath(), events, hookFile: fs.existsSync(path.join(hooksDir(), 'hook.mjs')), version: installedVersion(), current: hooksVersion(), stale: isStale(), key: !!s.env?.WORK_OS_KEY };
+  return { settings: settingsPath(), events, hookFile: fs.existsSync(path.join(hooksDir(), 'hook.mjs')), version: installedVersion(), current: hooksVersion(), stale: isStale(), signIn: signIn(s) };
 }
+
+const SIGN_IN = {
+  worker: "The start brief and the stop check sign in with this PC's worker key, for projects with a folder linked to them on this PC (Claude › Setup or the project's Code tab).",
+  key: 'WORK_OS_KEY is set: the start brief and the stop check use it (a PC with the worker does not need it).',
+  none: 'The WORK-STATE.md copy and edit guard work now; the start brief and the stop check turn on once the worker is set up here (node worker.mjs setup).',
+};
 
 export function cli(sub) {
   if (sub === 'install') {
     const r = install();
     console.log(`Work OS hooks installed in ${r.settings} (hook: ${r.hook}, version ${r.version}).`);
-    console.log(r.key ? 'WORK_OS_KEY is set: the start brief and the stop check are on.' : 'No WORK_OS_KEY yet: the WORK-STATE.md copy and edit guard work now; the start brief and the stop check turn on when you add a Claude Code key (docs/setup-pc.md).');
+    console.log(SIGN_IN[r.signIn ?? 'none']);
     console.log('Open Claude Code sessions pick this up on their next tool call; restart them to get the start brief.');
   } else if (sub === 'remove') console.log(remove() ? 'Work OS hooks removed.' : 'No Work OS hooks were installed.');
   else if (sub === 'status') console.log(JSON.stringify(status(), null, 2));

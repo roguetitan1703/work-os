@@ -9,14 +9,15 @@ export function configDir() {
   if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'work-os-worker');
   return path.join(os.homedir(), '.config', 'work-os-worker');
 }
-export const configPath = () => path.join(configDir(), 'config.json');
+export const configPath = (dir = configDir()) => path.join(dir, 'config.json');
 export const statePath = () => path.join(configDir(), 'state.json');
 
 const DEFAULTS = { baseUrl: '', deviceName: os.hostname(), roots: [], enabled: true, allowPrompts: true, allowClone: true, scanEveryMinutes: 15, maxDepth: 6 };
 
-export function loadConfig() {
+/** `dir`: the worker's config folder (default configDir(); the hook passes the one it was installed into). */
+export function loadConfig(dir) {
   let c = {};
-  try { c = JSON.parse(fs.readFileSync(configPath(), 'utf8')); } catch {}
+  try { c = JSON.parse(fs.readFileSync(configPath(dir), 'utf8')); } catch {}
   const cfg = { ...DEFAULTS, ...c };
   cfg.roots = Array.isArray(cfg.roots) ? cfg.roots.filter((r) => typeof r === 'string' && r) : [];
   return cfg;

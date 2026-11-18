@@ -55,6 +55,7 @@ const ROUTE_LIST: [string, string][] = [
   [`/api/calendar/${S}`, '/api/calendar/[file]'],
   ['/api/intake/mailloom', '/api/intake/mailloom'],
   ['/api/intake/mailloom/notice', '/api/intake/mailloom/notice'],
+  ['/api/agent/start', '/api/agent/start'],
 ];
 const ROUTES = ROUTE_LIST.map(([re, p]) => [new RegExp(`^${re}/?$`), p] as const);
 
@@ -93,7 +94,7 @@ function hasKey(h: Headers): boolean {
  */
 export function requestCaller(pathname: string, h: Headers, url: URL, auth: { session: boolean; token: boolean }): UsageCaller {
   if (pathname.startsWith('/api/mcp')) return hasKey(h) || pathname.startsWith('/api/mcp/') ? 'mcp' : 'anonymous';
-  if (pathname.startsWith('/api/worker')) return hasKey(h) ? 'worker' : 'anonymous';
+  if (pathname.startsWith('/api/worker') || pathname === '/api/agent/start') return hasKey(h) ? 'worker' : 'anonymous'; // the hook signs in with the worker's key
   if (pathname.startsWith('/api/cron')) return hasKey(h) ? 'cron' : 'anonymous';
   if (pathname.startsWith('/api/discord/interactions')) return h.has('x-signature-ed25519') ? 'discord' : 'anonymous';
   if (pathname.startsWith('/api/intake/')) return hasKey(h) ? 'intake' : 'anonymous';

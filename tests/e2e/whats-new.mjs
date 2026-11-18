@@ -1,6 +1,7 @@
 // What's new and the Needs page (docs/HANDOVER.md "What's new", "Needs page"). run.sh pins "today" to 2026-11-20
-// (mode whatsnew), five days after the four entries of 2026-11-15 (Mail and the report intake are not set up here):
-//   - Today's "New in Work OS" card (phone and desktop): three entries and "1 more"; Try it marks one seen; Dismiss all;
+// (mode whatsnew), five days after the four entries of 2026-11-15 and two after the hook sign-in entry of 2026-11-18
+// (Mail and the report intake are not set up here):
+//   - Today's "New in Work OS" card (phone and desktop): three entries and "2 more"; Try it marks one seen; Dismiss all;
 //   - the Menu row and the sidebar entry carry a dot while something is unseen; opening /whats-new clears it;
 //   - /whats-new lists every entry newest first, one line and where to find it, "New" while new;
 //   - the Needs row (Menu, sidebar) has a "New" badge and the open count; /needs lists the open Need, answers it with a
@@ -17,7 +18,7 @@ const settle = (p, ms = 700) => p.waitForTimeout(ms);
 const seenOf = async () => (await rawDb.collection('settings').findOne({ _id: `profile:${ME.userId}` }))?.whatsNewSeen ?? [];
 const resetSeen = () => rawDb.collection('settings').updateOne({ _id: `profile:${ME.userId}` }, { $unset: { whatsNewSeen: '' } });
 const shot = (p, name) => p.screenshot({ path: `${SP}/whats-new-${name}.png`, fullPage: true });
-const ALL = ['needs', 'results', 'state', 'messages'];
+const ALL = ['digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
 
 const b = await launch();
 try {
@@ -47,8 +48,8 @@ try {
       const card = p.locator('[data-section="whats-new"]:visible');
       check('phone Today: the New in Work OS card shows', (await card.count()) === 1);
       const ids = await card.locator('[data-whats-new]').evaluateAll(els => els.map(e => e.getAttribute('data-whats-new')));
-      check('phone Today card: three entries, newest first in list order', JSON.stringify(ids) === JSON.stringify(['needs', 'results', 'state']), JSON.stringify(ids));
-      check('phone Today card: "and 1 more" links to /whats-new', /and 1 more/.test(await card.locator('[data-whats-new-more]').innerText()) && (await card.locator('[data-whats-new-more]').getAttribute('href')) === '/whats-new');
+      check('phone Today card: three entries, newest first in list order', JSON.stringify(ids) === JSON.stringify(ALL.slice(0, 3)), JSON.stringify(ids));
+      check(`phone Today card: "and ${ALL.length - 3} more" links to /whats-new`, new RegExp(`and ${ALL.length - 3} more`).test(await card.locator('[data-whats-new-more]').innerText()) && (await card.locator('[data-whats-new-more]').getAttribute('href')) === '/whats-new');
       const tryBox = await card.locator('[data-whats-new-try]').first().boundingBox();
       const disBox = await card.locator('[data-whats-new-dismiss]').boundingBox();
       check('phone Today card: Try it and Dismiss at 44px', tryBox.height >= 43.5 && disBox.height >= 43.5, JSON.stringify([tryBox, disBox]));
@@ -65,7 +66,7 @@ try {
       check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['needs']), JSON.stringify(await seenOf()));
       await p.goto(B + '/today'); await settle(p);
       const ids2 = await p.locator('[data-section="whats-new"]:visible [data-whats-new]').evaluateAll(els => els.map(e => e.getAttribute('data-whats-new')));
-      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(['results', 'state', 'messages']), JSON.stringify(ids2));
+      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'needs').slice(0, 3)), JSON.stringify(ids2));
       await resetSeen();
     }
 
@@ -118,9 +119,9 @@ try {
     // What's new page: lists every entry, newest first, with where; opening it clears the dot
     await p.goto(B + '/whats-new'); await settle(p);
     const listed = await p.locator('[data-whats-new-entry]').evaluateAll(els => els.map(e => e.getAttribute('data-whats-new-entry')));
-    check(`whats-new ${tag}: every entry listed`, JSON.stringify(listed) === JSON.stringify(['needs', 'results', 'state', 'messages']), JSON.stringify(listed));
-    check(`whats-new ${tag}: each says where to find it`, (await p.locator('[data-whats-new-where]').count()) === 4 && /Settings|Menu|project/i.test(await p.locator('[data-whats-new-where]').first().innerText()));
-    check(`whats-new ${tag}: "New" on each while new`, (await p.locator('[data-whats-new-entry] [data-new-badge]').count()) === 4);
+    check(`whats-new ${tag}: every entry listed`, JSON.stringify(listed) === JSON.stringify(ALL), JSON.stringify(listed));
+    check(`whats-new ${tag}: each says where to find it`, (await p.locator('[data-whats-new-where]').count()) === ALL.length && /Settings|Menu|project|Claude/i.test(await p.locator('[data-whats-new-where]').first().innerText()));
+    check(`whats-new ${tag}: "New" on each while new`, (await p.locator('[data-whats-new-entry] [data-new-badge]').count()) === ALL.length);
     await shot(p, `page-${tag}`);
     o = await overflow(p); check(`no horizontal scroll /whats-new ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
     await p.waitForTimeout(2500);
@@ -192,7 +193,7 @@ try {
     o = await overflow(p); check(`no horizontal scroll /needs ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
 
     await aside.locator('a[href="/whats-new"]').click(); await p.waitForURL(u => u.pathname === '/whats-new'); await settle(p);
-    check(`desktop whats-new ${tag}: every entry listed`, (await p.locator('[data-whats-new-entry]').count()) === 4);
+    check(`desktop whats-new ${tag}: every entry listed`, (await p.locator('[data-whats-new-entry]').count()) === ALL.length);
     await shot(p, `page-${tag}`);
     await p.waitForTimeout(2500);
     await p.goto(B + '/notes'); await settle(p);

@@ -41,8 +41,16 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
     date: '2026-11-18',
     title: 'A shorter morning digest',
     line: 'One message: what needs you (answer from Discord), your top 3 for today, what moved per project and which agents run or stall.',
-    where: 'Your Discord DM and the inbox, once a day',
+    where: 'Your Discord DM and the inbox, once a day (Settings › Alerts)',
     href: '/settings?section=alerts',
+  },
+  {
+    id: 'hook-device-key',
+    date: '2026-11-18',
+    title: 'Session briefs with no extra key',
+    line: "Claude Code sessions get the project brief using your PC's Work OS worker, so there is no Claude Code key to paste.",
+    where: 'Claude › Setup › Computers (set up the worker on your PC)',
+    href: '/claude',
   },
   {
     id: 'mailloom-reports',

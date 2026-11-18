@@ -34,7 +34,7 @@ export function tools(mcpUrl: string): Tool[] {
         { label: 'Or share it with a project (.mcp.json in the project folder)', where: '.mcp.json', text: json({ mcpServers: { 'work-os': { type: 'http', url: mcpUrl } } }) },
         { label: 'If you cannot sign in: use a key (Claude › Setup › Claude Code key)', where: 'Terminal', text: `claude mcp add --scope user --transport http work-os ${mcpUrl} --header "Authorization: Bearer YOUR_KEY"` },
         {
-          label: 'Optional: start every session with the project brief and ask once to save the State (needs the Work OS worker on this PC and a Claude Code key). Merge the "env" and "hooks" parts into your own settings file; Work OS never edits it',
+          label: 'Start every session with the project brief and ask once to save the State: with the Work OS worker on this PC there is nothing to paste (its setup installs the hooks, and they sign in with its key for projects with a folder linked to them on that PC). Only a PC without the worker needs this, with a Claude Code key. Merge the "env" and "hooks" parts into your own settings file; Work OS never edits it',
           where: '~/.claude/settings.json (not ~/.claude.json)',
           text: json({
             env: { WORK_OS_KEY: 'YOUR_KEY', WORK_OS_URL: mcpUrl.replace(/\/api\/mcp$/, '') },
