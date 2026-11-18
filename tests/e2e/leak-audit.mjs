@@ -1388,6 +1388,12 @@ function AUDIT() {
   add('page /notes/[id]', pg(t => `/notes/${t.note}`, aim(['note'])), pg(t => `/notes/${t.sub}`, aim(['sub'], { label: 'sub-page' })), pg(t => `/notes/${t.taskNote}`, aim(['taskNote'], { label: 'task note' })));
   add('page /modes/[mode]', pg('/modes/growth', { ok: r => /^redirect \/tasks\?mode=/.test(pageState(r)) }), pg(() => `/modes/${CANARIES.find(c => c.tag === 'xmode').s}`, { label: 'the second org\'s mode', echo: () => [CANARIES.find(c => c.tag === 'xmode').s], ok: r => /^redirect \/tasks\?mode=/.test(pageState(r)), aim: true, aimKeys: [], control: false }));
   add('page /notifications', pg('/notifications'));
+  // Needs: the open Needs addressed to the caller and those they answered lately, read through the door (lib/data/needs.ts listNeeds, to = the caller).
+  add('page /needs', pg('/needs'));
+  // What's new: the fixed list (lib/whats-new.ts) and the caller's own seen list; the action writes only the caller's own profile.
+  add('page /whats-new', pg('/whats-new'));
+  const WN = 'app/(app)/whats-new/actions.ts#markWhatsNewSeenAction';
+  add(`action ${WN}`, act(WN, []), act(WN, ['needs'], { label: 'one entry' }), act(WN, ['lkqnotanentry'], { label: 'an unknown id' }));
   add('page /review', ...['done', 'activity', 'activity&what=state', 'activity&what=notes', 'activity&what=needs', 'activity&what=messages', 'weekly', 'stale', 'archive', 'trash'].map(v => pg(`/review?view=${v}`, { label: v })));
   add('page /settings', ...['account', 'notifications', 'connections', 'started', 'team', 'server'].map(v => pg(`/settings?section=${v}`, { label: v })));
   add('page /claude', ...['now', 'queue', 'workers', 'setup'].map(v => pg(`/claude?tab=${v}`, { label: v })));

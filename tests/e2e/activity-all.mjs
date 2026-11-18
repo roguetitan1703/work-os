@@ -167,7 +167,9 @@ try {
     const aEdit = f.events.find(e => e.type === 'note_edited');
     check('titleWrittenBy: …and for A, whose title it is, it is unlabelled', !!aEdit && !aEdit.titleWrittenBy, JSON.stringify(aEdit));
     const tRen = tf.events.find(e => e.type === 'project_renamed');
-    check('titleWrittenBy: a rename shows T who wrote the old name', !!tRen?.titleWrittenBy, JSON.stringify(tRen));
+    // A wrote the old name and renamed it: the row's writtenBy (A) covers its whole text, so no separate titleWrittenBy
+    // (logChange stores titleBy only when it is not the actor's; T renaming A's name would carry it).
+    check('titleWrittenBy: a rename shows T who wrote the old name', (tRen?.titleWrittenBy ?? tRen?.writtenBy) === 'E2E Owner', JSON.stringify(tRen));
     // Pages
     const rv = await page('/review?view=activity', A.cookie);
     check('Review › Activity: the owner’s page shows the new kinds', rv.status === 200 && ['state_now', 'note_created', 'message_sent', 'need_asked', 'project_renamed'].every(t => rv.text.includes(`data-activity-type="${t}"`)), String(rv.status));
@@ -198,7 +200,11 @@ try {
     check(`private: ${who} asking for the project by id gets nothing of it`, pvAll.every(s => !byId.text.includes(s)), byId.text.slice(0, 200));
     for (const path_ of ['/review?view=activity', '/review?view=activity&what=state', '/review?view=activity&what=notes', '/review?view=activity&what=needs', `/projects/${PP}?tab=info`]) {
       const r = await page(path_, p.cookie);
-      check(`private: ${who}’s page ${path_} carries none of it`, pvAll.every(s => !r.text.includes(s)), String(r.status));
+      // The project's id is made from its name (actqprivate…-1d9224e2), and a page echoes the address it was asked for:
+      // that echo is the reader's own input, not something read from the project.
+      const text = path_.startsWith('/projects/') ? r.text.split(PP).join('') : r.text;
+      const hits = pvAll.filter(s => text.includes(s)).map(s => text.slice(Math.max(0, text.indexOf(s) - 80), text.indexOf(s) + s.length + 40));
+      check(`private: ${who}’s page ${path_} carries none of it`, hits.length === 0, `${r.status} ${JSON.stringify(hits).slice(0, 400)}`);
     }
     const ds = await mcpH(p.chat, 'daily_summary', { since: '1d' });
     check(`private: ${who}’s daily_summary carries none of it`, pvAll.every(s => !ds.text.includes(s)), ds.text.slice(0, 200));
@@ -286,8 +292,9 @@ try {
     await must(A.chat, 'write_note', { task: t2.ref, title: t2NoteTitle, body: 'x' });
     check('trash: T reads the task note row first', (await feed(T.chat, { what: 'notes' })).text.includes(t2NoteTitle));
     await must(A.chat, 'delete_task', { task: t2.ref, title: t2.title });
-    const left = await rawDb.collection('activity').countDocuments({ taskId: t2.id });
-    check('trash: a deleted task takes its rows (its note’s too) out of the feed', left === 0, String(left));
+    // One row stays on purpose: "trashed", so who deleted what shows in History and recent_activity (tasks.ts trashOne).
+    const left = (await rawDb.collection('activity').find({ taskId: t2.id }).toArray()).map(r => r.type);
+    check('trash: a deleted task takes its rows (its note’s too) out of the feed, all but the "trashed" row', JSON.stringify(left) === '["trashed"]', JSON.stringify(left));
     for (const [who, p] of [['A', A], ['T', T]]) check(`trash: …so ${who}’s feed no longer has the note row`, !(await feed(p.chat, { what: 'notes' })).text.includes(t2NoteTitle));
     await must(A.chat, 'restore_task', { task: t2.ref });
     const back = await rawDb.collection('activity').find({ taskId: t2.id }).toArray();

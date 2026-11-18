@@ -3,7 +3,7 @@
 //   - exactly one alert per Need (inbox), even across overlapping flushes and cron runs; a second open Need of the same kind
 //     on the same task replaces the first (and the first's alert is not sent twice);
 //   - the asker's word is set by the server (chat for the claude.ai connector, agent for a key), never by an argument;
-//   - limits: a `to` who cannot read the project is refused; the 6th open Need from one asker to one person is refused;
+//   - limits: a `to` who cannot read the project is refused; the 11th open Need from one asker to one person in one project is refused;
 //   - a task waiting on a Need is never "stalled" (a control task that is, still is);
 //   - there is no tool that answers a Need (tools/list), for any key.
 // Seed profile: none.
@@ -119,23 +119,24 @@ try {
   check('limit: `to` who cannot read the project is refused', priv.isError && /cannot see this project/.test(priv.text), priv.text.slice(0, 200));
   const stranger = await as(kCode, 'ask', { project: 'Needs Proj', to: 'nobody-of-that-name', kind: 'approve', ask: 'May I?' });
   check('limit: `to` who is not a member is refused', stranger.isError, stranger.text.slice(0, 200));
-  const kinds = ['decide', 'approve', 'do', 'chase', 'approve'];
+  // Om 19 Nov: 10 open Needs per asker, person and project (and 20 asks an hour to one person, flow-n4).
+  const kinds = ['decide', 'approve', 'do', 'chase', 'approve', 'do', 'chase', 'approve', 'do', 'chase'];
   const sent = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 10; i++) {
     const r = await as(kCode, 'ask', { project: 'Needs Proj', to: 'Bea', kind: kinds[i], ask: `Question ${i + 1} for Bea`, ...(kinds[i] === 'decide' ? { options: [{ label: 'One' }, { label: 'Two' }] } : {}) });
     sent.push(r);
   }
-  check('limit: five open Needs to one person are accepted', sent.every(r => !r.isError), sent.map(r => r.isError ? r.text.slice(0, 80) : 'ok').join(' | '));
-  const sixth = await as(kCode, 'ask', { project: 'Needs Proj', to: 'Bea', kind: 'do', ask: 'A sixth question for Bea' });
-  check('limit: the 6th open Need from one asker to one person is refused', sixth.isError && /5 open Needs/.test(sixth.text), sixth.text.slice(0, 200));
-  const other = await as(kOAuth, 'ask', { project: 'Needs Proj', to: 'Bea', kind: 'do', ask: 'The chat asker has its own five' });
+  check('limit: ten open Needs to one person in one project are accepted', sent.every(r => !r.isError), sent.map(r => r.isError ? r.text.slice(0, 80) : 'ok').join(' | '));
+  const eleventh = await as(kCode, 'ask', { project: 'Needs Proj', to: 'Bea', kind: 'do', ask: 'An eleventh question for Bea' });
+  check('limit: the 11th open Need from one asker to one person in one project is refused', eleventh.isError && /10 open Needs/.test(eleventh.text), eleventh.text.slice(0, 200));
+  const other = await as(kOAuth, 'ask', { project: 'Needs Proj', to: 'Bea', kind: 'do', ask: 'The chat asker has its own ten' });
   check('limit: it counts per asker word (the chat asker is not blocked by the key asker)', !other.isError, other.text.slice(0, 200));
   const w = await must(kCode, 'withdraw_need', { id: sent[0].json.need.ref });
   check('withdraw_need: the asker takes one back by number', w.need.status === 'withdrawn');
   const again = await as(kCode, 'ask', { project: 'Needs Proj', to: 'Bea', kind: 'do', ask: 'Now there is room again' });
   check('limit: withdrawing frees a place', !again.isError, again.text.slice(0, 200));
-  const beaAlerts = await until(async () => { const a = await needAlerts(bea.userId); return a.length >= 7 ? a : null; });
-  check('alert: Bea got one alert per Need addressed to her (5 + 1 chat + 1 again)', beaAlerts?.length === 7, `got ${beaAlerts?.length}`);
+  const beaAlerts = await until(async () => { const a = await needAlerts(bea.userId); return a.length >= 12 ? a : null; });
+  check('alert: Bea got one alert per Need addressed to her (10 + 1 chat + 1 again)', beaAlerts?.length === 12, `got ${beaAlerts?.length}`);
 
   // ======== Today: "Needs you" and the task row, desktop and phone ========
   for (const phone of [false, true]) {
@@ -192,12 +193,14 @@ try {
     await must(kCode, 'ask', { project: 'Needs Proj', to: 'me', kind: 'do', task: waiting.ref, ask: 'Run sudo work-os-update on the box' });
     const old5 = new Date(Date.now() - 6 * 86_400_000);
     await rawDb.collection('tasks').updateMany({ ref: { $in: [waiting.ref, idle.ref] }, orgId: ME.orgId }, { $set: { updatedAt: old5 } });
-    // The digest (hour 9 by default) carries the stalled list once it is due; run as of 10:00 IST today so the test does not depend on the clock
+    // The redesigned digest (18 Nov) lists no stalled tasks (it absorbs their alerts), so the stalled alert is checked with
+    // the digest off, as the morning alerts work then; run as of 10:00 IST today so the test does not depend on the clock
+    await rawDb.collection('settings').updateOne({ _id: `notify:${ME.userId}` }, { $set: { 'notify.kinds.digest': false }, $setOnInsert: { area: 'notify', orgId: ME.orgId, userId: ME.userId } }, { upsert: true });
     const ist = new Date(Date.now() + 19_800_000);
     const tenIst = Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 10) - 19_800_000;
     const dry = await cron(`&dry=1&at=${new Date(Math.max(Date.now(), tenIst)).toISOString()}`);
     const text = (dry.preview ?? []).join('\n');
-    check('stalled: the control task is reported as stalled', new RegExp(`#${idle.ref}\\]`).test(text) && /Stalled|Gone quiet/.test(text), text.slice(0, 300)); // with the daily digest on, the morning stalled list is the digest section "Gone quiet"
+    check('stalled: the control task is reported as stalled', new RegExp(`#${idle.ref}\\]`).test(text) && /Stalled/.test(text), text.slice(0, 300));
     // it does show under "Needs you" in the digest, which is right: only the quiet list is under test
     const quietPart = text.split('\n').reduce((a, l) => (/Gone quiet|Stalled/.test(l) ? { on: true, out: a.out } : /^\s*$/.test(l) ? { on: false, out: a.out } : a.on ? { on: true, out: a.out + l + '\n' } : a), { on: false, out: '' }).out;
     check('stalled: the task waiting on a Need is not', !new RegExp(`#${waiting.ref}\\]`).test(quietPart), quietPart);
