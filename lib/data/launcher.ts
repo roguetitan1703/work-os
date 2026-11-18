@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import type { DeviceActivity, ReopenItem, ReportedClaudeSession, SessionOrigin, WorkerFolderDoc, WorkerJobDoc, WorkerSessionDoc } from '../db';
+import type { DeviceActivity, DeviceHooks, ReopenItem, ReportedClaudeSession, SessionOrigin, WorkerFolderDoc, WorkerJobDoc, WorkerSessionDoc } from '../db';
 import { friendlyError } from '../worker-errors';
 import { scoped, type Scope } from '../scope';
 import { afterCommit } from '../db';
@@ -200,8 +200,20 @@ export function cleanClaudeSessions(raw: unknown): ReportedClaudeSession[] {
   });
 }
 
+/** The hooks state a worker reports: kept only when every field is valid, else dropped (the page then says nothing about hooks). */
+export function cleanHooks(v: unknown): DeviceHooks | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const h = v as Record<string, unknown>;
+  const version = h.version === null ? null : typeof h.version === 'string' && /^[0-9a-f]{12}$/.test(h.version) ? h.version : undefined;
+  if (version === undefined) return undefined;
+  if (typeof h.events !== 'number' || !Number.isInteger(h.events) || h.events < 0 || h.events > 8) return undefined;
+  if (typeof h.stale !== 'boolean') return undefined;
+  if (h.signIn !== null && h.signIn !== 'worker' && h.signIn !== 'key') return undefined;
+  return { version, events: h.events, stale: h.stale, signIn: h.signIn };
+}
+
 export async function reportStatus(s: Scope, deviceId: string, body: unknown): Promise<void> {
-  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; bundle?: unknown; allowPrompts?: unknown; allowClone?: unknown; projectsDir?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown; reopen?: unknown };
+  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; bundle?: unknown; allowPrompts?: unknown; allowClone?: unknown; projectsDir?: unknown; hooks?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown; reopen?: unknown };
   const activity = b.activity === undefined ? null : cleanActivity(b.activity); // validate before any write
   const claudeSessions = b.claudeSessions === undefined ? null : cleanClaudeSessions(b.claudeSessions);
   const reopen = b.reopen === undefined ? undefined : cleanReopen(b.reopen);
@@ -222,7 +234,8 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
       const bundle = typeof b.worker.bundle === 'string' && /^[0-9a-f]{12}$/.test(b.worker.bundle) ? b.worker.bundle : undefined;
       // allowClone / projectsDir: turbo mode (lib/data/turbo.ts). The projects folder is the one path a worker sends, so the page can say where a clone will go.
       const dir = typeof b.worker.projectsDir === 'string' ? b.worker.projectsDir.replace(/[\u0000-\u001f]+/g, '').trim().slice(0, 200) : '';
-      set.worker = { version, os, ...(bundle ? { bundle } : {}), allowPrompts: b.worker.allowPrompts === true, ...(typeof b.worker.allowClone === 'boolean' ? { allowClone: b.worker.allowClone && !!dir } : {}), ...(dir ? { projectsDir: dir } : {}) };
+      const hooks = cleanHooks(b.worker.hooks);
+      set.worker = { version, os, ...(bundle ? { bundle } : {}), allowPrompts: b.worker.allowPrompts === true, ...(typeof b.worker.allowClone === 'boolean' ? { allowClone: b.worker.allowClone && !!dir } : {}), ...(dir ? { projectsDir: dir } : {}), ...(hooks ? { hooks } : {}) };
       set.lastSeenAt = now;
     }
     if (Object.keys(set).length || (reopen && !reopen.length)) {
