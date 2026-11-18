@@ -46,8 +46,8 @@ CLAUDE.md keeps judgment only. Every refusal says what to do instead. All of it 
 ## E. Subagents and models
 | # | Rule | Seen | Enforcement |
 |---|---|---|---|
-| E1 | At most 2 subagents at once unless Om says more | Cutroom ran 3 + judges; this session ran 3 | PreToolUse on Agent counts running subagents; the 3rd is refused with "ask Om or wait" |
-| E2 | Opus to think, review and do ambitious or unplanned work; Sonnet when a plan and docs exist (implementation, scanning, mechanical); no Haiku | Cutroom all-Opus builders; Mailloom didn't set a model; AKAR review scan could be Sonnet | Agent-launch check: a model must be named; Haiku refused; a brief that links a plan/design doc and asks for Opus gets a "Sonnet?" nudge |
+| E1 | Subagent count is Om's call; he allows more than 2 most of the time (Om 18 Nov) | Cutroom ran 3 + judges; this session ran 3 | No refusal. The Agent launch shows the running count in its answer so the session says it in its report |
+| E2 | Opus to think, review and do ambitious or unplanned work; Sonnet when a plan and docs exist; Haiku for chores when useful (Om 18 Nov: don't refuse it) | Cutroom all-Opus builders; Mailloom didn't set a model | No refusal. A launch with no model named gets a one-line nudge naming the routing rule |
 | E3 | Builders' self-scores and claims are checked by measurement or a judge | Cutroom: self-scores 1-3 above the judge; two disproved claims | The dispatcher's report template requires the evidence (test output, measurement) per claim |
 | E4 | Briefs list the assets, libraries and tools to use | Cutroom SFX, Kenney | Brief template field "use these" filled from the project's tool index (B3) |
 
@@ -79,6 +79,6 @@ CLAUDE.md keeps judgment only. Every refusal says what to do instead. All of it 
 
 ## Build order
 1. Om edits the global CLAUDE.md lines (A1, A3).
-2. Plugin "rules" hooks, tested in D:\wos-hookcheck first: A1, A2, C1, C2, D1, E1, E2, G1.
+2. Plugin "rules" hooks, tested in D:\wos-hookcheck first: A1, A2, C1, C2, D1, G1 (E1, E2 as nudges).
 3. Repo hooks: D2, D3, H1.
 4. With the live-sessions plugin: A4, B3, F1, E4.
