@@ -375,7 +375,7 @@ export type StartWorkArgs = { branch?: string; machine?: string; label?: string;
  * here. Used by the start_work tool and by the hook's route (POST /api/agent/start, lib/agent-sessions.ts). `key` is a
  * project name or id the caller can read.
  */
-export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string, a: StartWorkArgs, matchedBy?: { how: string; location: unknown }) {
+export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | undefined, a: StartWorkArgs, matchedBy?: { how: string; location: unknown }) {
   const caller = ctx.caller;
   const s = sOf(ctx);
   const { project, state } = await stateData.getState(s, key);
@@ -397,7 +397,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string, a:
     return { layer: layerName[o.layer], title: o.title, by: by(o.updatedBy), ...(ws.length ? { writtenBy: ws.join('; ') } : {}), text: o.text, ...(o.truncated ? { truncated: 'read the note for the rest', noteId: o.noteId } : {}) };
   });
   // 3. The inbox: unread messages first (they become seen: the sender can tell they arrived).
-  const inb = await messageData.inbox(s, { project: project._id, limit: 15, reader: { key: `${s.userId}:${sid}`, userId: s.userId, row } });
+  const inb = await messageData.inbox(s, { project: project._id, limit: 15, reader: { key: sessionKey({ userId: s.userId, agent: caller.agent, keyId: caller.keyId, session: sid }), userId: s.userId, row } });
   // 4. The project's open tasks, in brief.
   const open = await tasks.listTasks(s, { project: project._id, open: true, archived: 'exclude', sort: 'priority' });
   const pn = await projects.projectNameMap(s);
@@ -427,9 +427,9 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string, a:
   }));
   return {
     project: { id: project._id, name: project.name, url: `${ctx.baseUrl}/projects/${project._id}`, ...(matchedBy ? { matchedBy } : {}) },
-    session: sid,
+    ...(sid ? { session: sid } : {}),
     textRule: textRule(),
-    sessionNote: 'Pass this session id as session on save_state, get_state, inbox, send_message, reply and message_status (and as the X-Work-OS-Session header on every call, if your client can).',
+    sessionNote: !sid ? 'This connector is your session: no id to pass. Messages for you and the unread count follow it on every call.' : 'Pass this session id as session on save_state, get_state, inbox, send_message, reply and message_status (and as the X-Work-OS-Session header on every call, if your client can).',
     orders: orders.length ? orders : 'no Orders set',
     ...(needsBlock.answered.length || needsBlock.forYou.length ? { needs: { ...(needsBlock.answered.length ? { answeredForYou: needsBlock.answered } : {}), ...(needsBlock.forYou.length ? { openForYou: needsBlock.forYou } : {}) } } : {}),
     state: state ? await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names) : NO_STATE,
@@ -1079,7 +1079,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
         matchedBy = { how: m.how, location: m.location };
       }
       // The session: the one named (argument or header), else a new one.
-      const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? randomUUID();
+      // A claude.ai chat (OAuth) passes no id: its connector is its session (userId:keyId), so its row has no session id and its later calls find it. Other callers are handed an id.
+      const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? (caller.keyId?.startsWith('oauth_') ? undefined : randomUUID());
       return startWorkBrief(ctx, key, sid, a, matchedBy);
     }),
   );

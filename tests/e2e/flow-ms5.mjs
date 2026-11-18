@@ -175,6 +175,29 @@ try {
   check('MS5 g4: an inbox call with no session id does not read a sibling’s message', noId.unread === 0 && !(await rawDb.collection('messages').findOne({ _id: toI.id })).seenBy.length, JSON.stringify(noId.unread));
   await mcpH(kA, 'message_status', { id: toI.id, status: 'seen' }); // the sender may set it; it is not a read by the sibling
   check('MS5 g4: the session it is for still has it unread', (await unreadOf(kA, PI, i1.session)) === 1);
+
+  // j) a chat that runs start_work without a session id: its brief and its later calls agree on one key
+  const PJ = 'Flow Sessions J';
+  await proj(PJ);
+  const kO2 = await mkOAuth({ userId: ME.userId, orgId: ME.orgId });
+  const jc = await must(kA, 'start_work', { project: PJ, label: 'j code' });
+  const jq = await must(kO2, 'send_message', { project: PJ, kind: 'question', body: 'Chat asks something' });
+  const r1 = await must(kA, 'reply', { id: jq.id, body: 'first answer', session: jc.session });
+  const sw1 = await must(kO2, 'start_work', { project: PJ });
+  check('MS5 j: start_work without a session id from a chat stores a row without one and hands out no id', !('session' in sw1) && !(await rawDb.collection('presence').findOne({ userId: ME.userId, projectId: (await rawDb.collection('projects').findOne({ name: PJ }))._id, keyId: { $regex: '^oauth_' }, session: { $exists: true } })));
+  check('MS5 j: its brief shows the reply unread', sw1.inbox?.unread === 1 && sw1.inbox.messages.find(m => m.id === r1.id)?.unread === true, JSON.stringify(sw1.inbox).slice(0, 200));
+  check('MS5 j: its next inbox call has it read (the brief and the call agree on the key)', (await must(kO2, 'inbox', { project: PJ })).unread === 0);
+  const r2 = await must(kA, 'reply', { id: jq.id, body: 'second answer', session: jc.session });
+  const sw2 = await must(kO2, 'start_work', { project: PJ });
+  check('MS5 j: a new message arrives in its next brief and the earlier one stays read', sw2.inbox?.unread === 1 && sw2.inbox.messages.find(m => m.id === r2.id)?.unread === true && !sw2.inbox.messages.find(m => m.id === r1.id)?.unread, JSON.stringify(sw2.inbox).slice(0, 300));
+
+  // k) another member's label match: with no live session of her own with that label, it waits on her own key
+  const PK = 'Flow Sessions K';
+  await proj(PK);
+  const k1 = await must(kA, 'start_work', { project: PK, label: 'K Label' });
+  const kt = await must(kT, 'send_message', { project: PK, kind: 'request', body: 'tess to a label she has no session for', to_session: 'k label' });
+  const dk = await rawDb.collection('messages').findOne({ _id: kt.id });
+  check('MS5 k: a label only another member’s session has is not matched: the message waits on the sender’s own key', !dk.toSids && dk.toSession === 'k label' && (await unreadOf(kA, PK, k1.session)) === 0, JSON.stringify([dk.toSids, dk.toSession]));
 } catch (e) {
   console.error(e);
   await finish(1);

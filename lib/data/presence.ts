@@ -25,11 +25,13 @@ export const rowKey = (r: Pick<PresenceDoc, 'userId' | 'key'>) => `${r.userId}:$
  * Which presence rows a to_session names: an exact session id (only among the caller's own rows), else an exact label
  * (case-insensitive, trimmed), else an exact client name. Never a substring. Several matches all count.
  */
-export function matchSessions(rows: PresenceDoc[], to: string, userId?: string): PresenceDoc[] {
+export function matchSessions(allRows: PresenceDoc[], to: string, userId?: string): PresenceDoc[] {
+  // Only the sender's own sessions are named by a label or id: a label with no live row of the sender's waits on the sender's own key.
+  const rows = userId ? allRows.filter(r => r.userId === userId) : allRows;
   const raw = to.trim();
   const q = raw.toLowerCase();
   if (!q) return [];
-  const byId = rows.filter(r => r.session === raw && (!userId || r.userId === userId));
+  const byId = rows.filter(r => r.session === raw);
   if (byId.length) return byId;
   // The sender's own sessions come first: another person's rows match only when the sender has none that match.
   const pick = (hit: (r: PresenceDoc) => boolean) => {
