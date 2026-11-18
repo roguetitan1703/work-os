@@ -105,7 +105,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         console.log(JSON.stringify(found.map(publicFolder), null, 2));
         console.log(`${found.length} folders (dry run, nothing sent)`);
       } else console.log(`sent ${await scanAndSend()} folders`);
-    } else { console.error('usage: node worker.mjs [run|setup|set-token|install|uninstall|status|scan [--dry]|activity|hooks install [--force]|hooks remove|hooks status|hooks check [folder]]'); process.exit(2); }
+    } else { console.error('usage: node worker.mjs [run|setup [--no-autostart]|set-token|install|uninstall|status|scan [--dry]|activity|hooks install [--force]|hooks remove|hooks status|hooks check [folder]]'); process.exit(2); }
   } catch (e) { console.error(String(e.message || e)); process.exit(1); }
   if (cmd !== 'run') process.exit(0);
 }

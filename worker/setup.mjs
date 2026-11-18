@@ -26,11 +26,12 @@ export function parseSetupArgs(argv) {
     else if (a === '--name') out.name = argv[++i];
     else if (a === '--root') { if (argv[i + 1]) out.roots.push(argv[++i]); }
     else if (a === '--projects') out.projects = argv[++i];
+    else if (a === '--no-autostart') out.noAutostart = true; // for tests and a second worker: leave this PC's autostart alone
   }
   return out;
 }
 
-export const rootHint = () => (process.platform === 'win32' ? 'D:\Work' : '~/Work');
+export const rootHint = () => (process.platform === 'win32' ? 'D:\\Work' : '~/Work');
 
 export function expandHome(p) {
   return p === '~' || p.startsWith('~/') ? os.homedir() + p.slice(1) : p;
@@ -136,11 +137,20 @@ export async function runSetup({ argv, deps }) {
 
   const n = await scanAndReport();
   console.log(`${n} folders reported`);
-  try { install(); console.log('autostart installed'); }
-  catch (e) { console.log(`autostart not set: ${String(e.message || e).split('\n')[0].slice(0, 300)}`); }
+  if (args.noAutostart) console.log('autostart skipped (--no-autostart)');
+  else {
+    try { install(); console.log('autostart installed'); }
+    catch (e) { console.log(`autostart not set: ${String(e.message || e).split('\n')[0].slice(0, 300)}`); }
+  }
+  let hooksOn = false;
   if (installHooks) {
-    try { installHooks(); console.log('Work OS hooks installed (start brief, stop check, the WORK-STATE.md copy)'); }
+    try {
+      const r = installHooks();
+      hooksOn = true;
+      console.log(`Work OS hooks installed${r?.version ? ` (version ${r.version})` : ''}: start brief, stop check, the WORK-STATE.md copy`);
+    }
     catch (e) { console.log(`hooks not installed: ${String(e.message || e).split('\n')[0].slice(0, 300)} (retry: node worker.mjs hooks install)`); }
   }
-  console.log('Done: open a project in Work OS → Sessions to link a folder');
+  console.log(`Done: in Work OS, Claude › Setup › Computers › ${deviceName} › Folders, press Link matching folders.`);
+  if (hooksOn) console.log('Then check with: node worker.mjs hooks check <a project folder>');
 }
