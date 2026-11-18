@@ -78,17 +78,28 @@ export async function stop(input) {
   const sid = input.session_id;
   if (!sid || input.stop_hook_active) return null;
   const m = readMarker(sid);
-  if (!m || m.stopped) return null;
+  if (!m || m.stopped) return null; // asked already since the last save
   const cwd = input.cwd || process.cwd();
-  if (statusHash(cwd) === m.status) return null; // nothing changed
+  const now = statusHash(cwd);
+  if (now === m.status) return null; // nothing changed since the start or the last save
+  // A save the post-tool hook did not see (installed mid-session): a real tool call in the transcript, not the word
+  // "save_state" (the injected brief contains that word and the transcript keeps hook text).
   let saved = false;
+  const f = input.transcript_path;
   try {
-    const f = input.transcript_path;
-    if (f) { const fd = fs.openSync(f, 'r'); try { const size = fs.fstatSync(fd).size; const buf = Buffer.alloc(Math.max(0, size - (m.offset || 0))); fs.readSync(fd, buf, 0, buf.length, m.offset || 0); saved = /save_state|import_state/.test(buf.toString('utf8')); } finally { fs.closeSync(fd); } }
+    if (f) { const fd = fs.openSync(f, 'r'); try { const size = fs.fstatSync(fd).size; const buf = Buffer.alloc(Math.max(0, size - (m.offset || 0))); fs.readSync(fd, buf, 0, buf.length, m.offset || 0); saved = SAVE_CALL.test(buf.toString('utf8')); } finally { fs.closeSync(fd); } }
   } catch {}
-  if (saved) return null;
-  writeMarker(sid, { ...m, stopped: true });
-  return { decision: 'block', reason: 'Files changed in this session and the Work OS State was not saved. Call save_state (pass the session id from start_work) with what is now true: Now, Next, Later, any decision, and where this machine is. Then finish. This is asked once.' };
+  if (saved) { writeMarker(sid, { ...m, status: now, offset: sizeOf(f) }); return null; }
+  writeMarker(sid, { ...m, stopped: true, offset: sizeOf(f) });
+  return { decision: 'block', reason: 'Files changed in this session and the Work OS State was not saved since. Call save_state (pass the session id from start_work) with what is now true: Now, Next, Later, any decision. Then finish. Asked once until the next save.' };
+}
+const SAVE_CALL = /"name"\s*:\s*"mcp__[^"]+__(save_state|import_state)"/;
+
+/** After a save seen by post-tool: the next stop compares against this point, and may ask again after later changes. */
+function markSaved(input, cwd) {
+  const sid = input.session_id;
+  const m = sid && readMarker(sid);
+  if (m) writeMarker(sid, { ...m, status: statusHash(cwd), stopped: false, offset: sizeOf(input.transcript_path) });
 }
 
 // ---- WORK-STATE.md is a copy of the Work OS State, written only by this hook (Om 18 Nov) ----
@@ -128,9 +139,14 @@ const projectOf = (md) => (md.match(/^# Work state: (.+)$/m) || [])[1]?.trim() |
 
 /** PostToolUse on save_state / import_state / get_state: write WORK-STATE.md from the answer and commit that file alone. */
 export function postTool(input) {
+  const cwd = input.cwd || process.cwd();
+  const saving = /__(save_state|import_state)$/.test(input.tool_name || '');
+  try { return copyState(input, cwd); } finally { if (saving && stateMarkdown(input.tool_response)) markSaved(input, cwd); }
+}
+
+function copyState(input, cwd) {
   const md = stateMarkdown(input.tool_response);
   if (!md) return null;
-  const cwd = input.cwd || process.cwd();
   const top = git(cwd, ['rev-parse', '--show-toplevel']);
   if (!top) return null;
   // Builder worktrees are skipped: a generated file on two branches conflicts at every merge.
@@ -150,6 +166,9 @@ export function postTool(input) {
   const next = `${body}<!-- work-os-copy sha1:${sha1(body)} -->\n`;
   const notes = [];
   if (old !== null && old === next) return null;
+  // Only the version line differs: no write, no commit (a save every few minutes for weeks would be hundreds of commits).
+  const lines = (s) => s.replace(STAMP, '').replace(/\r\n/g, '\n').split('\n').filter((l) => !COPY_HEAD.test(l)).join('\n').trimEnd();
+  if (old !== null && lines(old) === lines(body)) return null;
   if (old !== null) {
     const m = old.match(STAMP);
     const clean = m && sha1(old.replace(STAMP, '').trimEnd() + '\n') === m[1];

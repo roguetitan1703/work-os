@@ -1111,7 +1111,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ...(r.promoted.length ? { promotedToTasks: r.promoted.map(p => `#${p.ref} ${p.title}`) } : {}),
         textRule: textRule(),
         state: stateData.stateOut(r.state, s.userId, names),
-        repoCopy: 'Write this to WORK-STATE.md in the repo and commit it with your work:',
+        repoCopy: 'The Work OS hook writes this to WORK-STATE.md and commits it. Where the hook is not installed (cloud, chat), write it to WORK-STATE.md unchanged. Never edit that file by hand:',
         markdown: stateData.stateMarkdown(r.state, { projectName: r.project.name, url: `${ctx.baseUrl}/projects/${r.project._id}`, reader: s.userId, names }),
       };
     }),
@@ -1135,7 +1135,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         version: r.state.version,
         textRule: textRule(),
         state: stateData.stateOut(r.state, s.userId, names),
-        repoCopy: 'WORK-STATE.md now has a copy in Work OS. From here save_state is the way to change it; write this to the file and commit it with your work:',
+        repoCopy: 'The State now lives in Work OS: change it only with save_state. The Work OS hook writes this to WORK-STATE.md and commits it. Where the hook is not installed (cloud, chat), write it to WORK-STATE.md unchanged. Never edit that file by hand:',
         markdown: stateData.stateMarkdown(r.state, { projectName: r.project.name, url: `${ctx.baseUrl}/projects/${r.project._id}`, reader: s.userId, names }),
       };
     }),

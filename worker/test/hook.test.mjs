@@ -108,7 +108,7 @@ test('Stop does not block after a save_state, with stop_hook_active, or without 
   mode = 'ok';
   assert.ok(await start({ sid: 'stop2' }));
   fs.writeFileSync(path.join(repo, 'd.txt'), '4');
-  fs.appendFileSync(transcript, '{"type":"assistant","tool":"mcp__work-os__save_state"}\n');
+  fs.appendFileSync(transcript, '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"mcp__work-os__save_state","input":{}}]}}\n');
   assert.equal(await main('stop', JSON.stringify({ session_id: 'sstop2', cwd: repo, transcript_path: transcript })), '', 'saved');
   fs.writeFileSync(transcript, '{"type":"user"}\n'); // a fresh transcript for the next sessions
   assert.ok(await start({ sid: 'stop3' }));
@@ -180,7 +180,8 @@ test('PostToolUse writes WORK-STATE.md from save_state and commits that file alo
   assert.equal(await main('post-tool', JSON.stringify({ session_id: 'scopy', cwd: repo, tool_response: [{ type: 'text', text: '{"saved":true}' }] })), '', 'no markdown');
   assert.match(fs.readFileSync(copyFile, 'utf8'), /version 4\./);
   // without a session marker, the project comes from the copy already in the repo
-  assert.match(JSON.parse(await post(md(5), repo, 'nostart')).hookSpecificOutput.additionalContext, /v5/);
+  assert.equal(await post(md(5), repo, 'nostart'), '', 'only the version line changed: no write, no commit');
+  assert.match(JSON.parse(await post(md(5, '- a new line\n'), repo, 'nostart')).hookSpecificOutput.additionalContext, /v5/);
 });
 
 test('a hand-kept WORK-STATE.md is replaced, kept outside the repo, and its extra lines listed', async () => {
@@ -192,7 +193,7 @@ test('a hand-kept WORK-STATE.md is replaced, kept outside the repo, and its extr
   assert.match(fs.readFileSync(bak, 'utf8'), /a line only in the file/);
   assert.doesNotMatch(fs.readFileSync(copyFile, 'utf8'), /only in the file/);
   // the next save of a clean copy lists nothing
-  assert.doesNotMatch(JSON.parse(await post(md(7), repo, 'scopy')).hookSpecificOutput.additionalContext, /not in the Work OS State/);
+  assert.doesNotMatch(JSON.parse(await post(md(7, '- seven\n'), repo, 'scopy')).hookSpecificOutput.additionalContext, /not in the Work OS State/);
 });
 
 test('builder worktrees and merges in progress: no copy in a worktree, no commit during a merge', async () => {
@@ -204,7 +205,25 @@ test('builder worktrees and merges in progress: no copy in a worktree, no commit
   fs.writeFileSync(path.join(gitDir, 'MERGE_HEAD'), 'x');
   try {
     const before = lastMsg();
-    assert.match(JSON.parse(await post(md(9), repo, 'scopy')).hookSpecificOutput.additionalContext, /not committed/);
+    assert.match(JSON.parse(await post(md(9, '- nine\n'), repo, 'scopy')).hookSpecificOutput.additionalContext, /not committed/);
     assert.equal(lastMsg(), before);
   } finally { fs.rmSync(path.join(gitDir, 'MERGE_HEAD')); }
+});
+
+test("Stop: the brief's own text is not a save; a save resets the check, and later changes are asked about again", async () => {
+  mode = 'ok';
+  sh(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A');
+  sh(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'clean');
+  fs.writeFileSync(transcript, '{"type":"user"}\n');
+  assert.ok(await start({ sid: 'again' }));
+  fs.appendFileSync(transcript, '{"type":"attachment","hook_additional_context":"Call save_state on stop"}\n');
+  fs.writeFileSync(path.join(repo, 'g.txt'), '7');
+  const stop = () => main('stop', JSON.stringify({ session_id: 'sagain', cwd: repo, transcript_path: transcript }));
+  assert.equal(JSON.parse(await stop()).decision, 'block', 'the word save_state in hook text does not count');
+  assert.equal(await stop(), '', 'asked once until the next save');
+  // a save seen by post-tool (another project here, so no copy) resets the check
+  await main('post-tool', JSON.stringify({ session_id: 'sagain', cwd: repo, transcript_path: transcript, tool_name: 'mcp__work-os__save_state', tool_response: answer(md(20, '', 'Other')) }));
+  assert.equal(await stop(), '', 'nothing changed since the save');
+  fs.writeFileSync(path.join(repo, 'h.txt'), '8');
+  assert.equal(JSON.parse(await stop()).decision, 'block', 'changes after the save are asked about again');
 });
