@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import type { MessageOut } from '@/lib/data/messages';
+import { Select } from '@/components/ui/select';
 import { makeTaskFromMessageAction, messageStatusAction, sendMessageAction } from './inbox-actions';
 
 const field =
@@ -52,13 +53,13 @@ export function InboxTab({ projectId, messages }: { projectId: string; messages:
           });
         }}
       >
-        <div className="flex gap-2">
-          <select aria-label="Kind" value={kind} onChange={e => setKind(e.target.value)} className={`${field} h-11 md:h-9 w-auto`} data-inbox-kind>
+        <div className="flex flex-col md:flex-row gap-2">
+          <Select aria-label="Kind" value={kind} onChange={e => setKind(e.target.value)} className={`${field} h-11 md:h-9 md:w-[11.5rem] md:shrink-0`} data-inbox-kind>
             <option value="fyi">For your information</option>
             <option value="request">Request</option>
             <option value="decision">Decision</option>
             <option value="question">Question</option>
-          </select>
+          </Select>
           <input value={toSession} onChange={e => setToSession(e.target.value)} placeholder="For session (optional)" aria-label="For session" className={`${field} h-11 md:h-9`} maxLength={120} data-inbox-to />
         </div>
         <textarea value={body} onChange={e => setBody(e.target.value)} placeholder="Message to the project’s sessions" aria-label="Message" rows={3} maxLength={4000} className={`${field} py-2`} data-inbox-body />

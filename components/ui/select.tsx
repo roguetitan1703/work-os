@@ -55,6 +55,7 @@ type Props = {
   compact?: boolean
   "aria-label"?: string
   "data-assignee-picker"?: boolean
+  "data-inbox-kind"?: boolean
 }
 
 function Select({ value, defaultValue, onChange, name, id, disabled, required, className, children, onClick, compact, "aria-label": ariaLabel, ...rest }: Props) {
