@@ -1,10 +1,10 @@
 // Claude Code hooks for Work OS (docs/flows/step-1.md section 6; docs/HANDOVER.md "Claude Code hooks").
 //   node hook.mjs session-start   SessionStart (also after compaction): start_work for the repo in the cwd; the brief goes
-//                                 into the session's context.
-//   node hook.mjs stop            Stop: files changed since the session started and no save_state since: block once.
+//                                 into the session's context, a Handover (left by end_work) first.
+//   node hook.mjs stop            Stop: files changed since the session started and no save_state (or end_work) since: block once.
 //   node hook.mjs pre-tool        PreToolUse (Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell): refuse hand edits of
 //                                 WORK-STATE.md, naming save_state.
-//   node hook.mjs post-tool       PostToolUse (mcp__.*__(save_state|import_state|get_state)): write WORK-STATE.md from
+//   node hook.mjs post-tool       PostToolUse (mcp__.*__(save_state|import_state|get_state|end_work)): write WORK-STATE.md from
 //                                 the answer's markdown in the repo's main folder and commit that file alone. Needs no
 //                                 key. Skips builder worktrees, other projects, older versions, merges and rebases.
 // Both read Claude Code's hook JSON on stdin and answer in its hook JSON on stdout. They FAIL OPEN: no key, no network,
@@ -148,6 +148,14 @@ export function formatBrief(r) {
     r.textRule ? `Text rule: ${r.textRule}` : '',
   ].filter(Boolean).join('\n');
   const sections = [];
+  // A handover from the last session on this project (end_work) comes first: it says where to continue.
+  const hv = Array.isArray(r.handover) ? r.handover : r.handover && typeof r.handover === 'object' ? [r.handover] : [];
+  for (const h of hv) {
+    const at = Date.parse(h.at || '');
+    const time = at ? new Date(at).toTimeString().slice(0, 5) : '';
+    sections.push(`## Handover (note ${h.id}, from ${cut(h.from || 'a session', 60)}${time ? `, ${time}` : ''}${h.writtenBy ? `, writtenBy ${cut(h.writtenBy, 40)}` : ''})\n${str(h.markdown).trim()}`);
+  }
+  if (Array.isArray(r.moreHandovers) && r.moreHandovers.length) sections.push(`## More handovers\n${r.moreHandovers.slice(0, 5).map(m => `- ${cut(m, 160)}`).join('\n')}\nRead one with read_note.`);
   const orders = Array.isArray(r.orders) ? r.orders : [];
   sections.push(orders.length
     ? orders.map(o => `## Orders (${o.layer}: ${o.title}${o.writtenBy ? `, writtenBy ${o.writtenBy}` : ''})\n${str(o.text).trim()}`).join('\n\n')
@@ -207,7 +215,7 @@ export async function stop(input) {
   writeMarker(sid, { ...m, stopped: true, offset: sizeOf(f) });
   return { decision: 'block', reason: 'Files changed in this session and the State was not saved since. Call save_state (with the session id from start_work) with what is now true: Now, Next, Later and any decision. Then finish. Asked once until the next save.' };
 }
-const SAVE_CALL = /"name"\s*:\s*"mcp__[^"]+__(save_state|import_state)"/;
+const SAVE_CALL = /"name"\s*:\s*"mcp__[^"]+__(save_state|import_state|end_work)"/;
 
 /** After a save seen by post-tool: the next stop compares against this point, and may ask again after later changes. */
 function markSaved(input, cwd) {
@@ -255,10 +263,10 @@ function stateMarkdown(resp) {
 }
 const projectOf = (md) => (md.match(/^# Work state: (.+)$/m) || [])[1]?.trim() || '';
 
-/** PostToolUse on save_state / import_state / get_state: write WORK-STATE.md from the answer and commit that file alone. */
+/** PostToolUse on save_state / import_state / get_state / end_work: write WORK-STATE.md from the answer and commit that file alone. */
 export function postTool(input) {
   const cwd = input.cwd || process.cwd();
-  const saving = /__(save_state|import_state)$/.test(input.tool_name || '');
+  const saving = /__(save_state|import_state|end_work)$/.test(input.tool_name || '');
   try { return copyState(input, cwd); } finally { if (saving && stateMarkdown(input.tool_response)) markSaved(input, cwd); }
 }
 

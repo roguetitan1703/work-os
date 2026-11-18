@@ -31,7 +31,7 @@ export function checkHandover(f: HandoverFields, lines: string[]): void {
     if (l.some(x => x.length > HANDOVER_CAPS.item)) throw new InputError(`Each ${k} item is at most ${HANDOVER_CAPS.item} characters.`);
   }
   const total = all.reduce((n, x) => n + x.length, 0);
-  if (total > HANDOVER_CAPS.total) throw new InputError(`A handover is at most ${HANDOVER_CAPS.total} characters in all (this one has ${total}). Keep only what the State, git and notes do not hold.`);
+  if (total > HANDOVER_CAPS.total) throw new InputError(`A handover is at most ${HANDOVER_CAPS.total.toLocaleString('en-US')} characters in all (this one has ${total}). Keep only what the State, git and notes do not hold.`);
   const text = squash(all.join(' \n '));
   const copied = [...new Set(lines.map(squash).filter(l => l.length >= 20 && text.includes(l)))];
   if (copied.length >= 2) throw new InputError('That is in the State already: this handover repeats Next or Later lines. Leave them out (the next session reads the State) and keep only what the State, git and notes do not hold.');

@@ -47,7 +47,7 @@ export function entries(hook) {
     // Refuse hand edits of WORK-STATE.md (it is a copy of the Work OS State).
     PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', hooks: [c('pre-tool', 5)] }],
     // After a State save or read: write WORK-STATE.md from the answer and commit that file alone.
-    PostToolUse: [{ matcher: 'mcp__.*__(save_state|import_state|get_state)', hooks: [c('post-tool', 20)] }],
+    PostToolUse: [{ matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', hooks: [c('post-tool', 20)] }],
   };
 }
 
