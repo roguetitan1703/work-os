@@ -1,7 +1,8 @@
 import 'server-only';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { inTransaction, type MessageDoc, type ProjectDoc } from '../db';
+import { inTransaction, type MessageDoc, type PresenceDoc, type ProjectDoc } from '../db';
+import { matchSessions, rowKey } from './presence';
 import { scoped, type Scope } from '../scope';
 import { agentActor, isPerson, userActor, type Actor } from '../actors';
 import { InputError, NotFoundError } from './errors';
@@ -58,15 +59,12 @@ const ago = (ms: number) => {
 };
 
 /** Who is on the receiving end, in words: "cutroom: offline, last active 3 h ago; it will get this on start". */
-export async function targetNote(s: Scope, project: Pick<ProjectDoc, '_id' | 'name'>, toSession?: string): Promise<string> {
+export async function targetNote(s: Scope, project: Pick<ProjectDoc, '_id' | 'name'>, toSession?: string, matched?: PresenceDoc[]): Promise<string> {
   const c = await scoped(s);
-  let rows = await c.presence.find({ projectId: project._id }).sort({ lastSeen: -1 }).limit(40).toArray();
-  if (toSession) {
-    const q = toSession.toLowerCase();
-    rows = rows.filter(r => r.label.toLowerCase().includes(q) || r.ai.toLowerCase().includes(q) || r.session === toSession);
-  }
+  let rows = matched ?? (await c.presence.find({ projectId: project._id }).sort({ lastSeen: -1 }).limit(40).toArray());
+  if (toSession && !matched) rows = matchSessions(rows, toSession, s.userId);
   if (!rows.length) {
-    return toSession ? `${toSession}: no session like that has worked on ${project.name}; it will get this when one starts` : `nobody has worked on ${project.name} yet; the message waits for the first session`;
+    return toSession ? `${toSession.slice(0, 60)}: no session like that has worked on ${project.name}; it will get this when one starts` : `nobody has worked on ${project.name} yet; the message waits for the first session`;
   }
   const seen = new Set<string>();
   const out: string[] = [];
@@ -86,7 +84,7 @@ export async function sendMessage(
   projectKey: string,
   raw: unknown,
   from: From,
-  o: { thread?: string; toSession?: string } = {},
+  o: { thread?: string; toSession?: string; toSids?: string[] } = {},
 ): Promise<{ message: MessageDoc; project: ProjectDoc; target: string }> {
   const input = SendSchema.parse(raw);
   const c = await scoped(s);
@@ -96,13 +94,28 @@ export async function sendMessage(
   const recent = await c.messages.countDocuments({ 'from.userId': s.userId, at: { $gt: hourAgo } });
   if (recent >= MSG_LIMITS.perHour) throw new InputError(`That is ${MSG_LIMITS.perHour} messages in an hour from one person across all their keys. Wait a while.`);
   const _id = mid();
-  const toSession = o.toSession ?? input.to_session;
+  let toSession = o.toSession ?? input.to_session;
+  // Addressing is decided now: the sessions that have worked on the project in the last 7 days and that the name picks out exactly.
+  let matched: PresenceDoc[] | undefined;
+  let toSids: string[] = [];
+  if (o.toSids?.length) {
+    toSids = [...new Set(o.toSids)].slice(0, 10);
+  } else if (toSession) {
+    const asked: string = toSession;
+    const rows = await c.presence.find({ projectId: project._id, lastSeen: { $gt: new Date(Date.now() - 7 * 86_400_000) } }).sort({ lastSeen: -1 }).limit(200).toArray();
+    matched = matchSessions(rows, toSession, s.userId).slice(0, 10);
+    toSids = [...new Set(matched.map(rowKey))];
+    // Resolved by id: show the target's label, never the raw id.
+    if (matched.length && matched.every(r => r.session === asked.trim())) toSession = matched[0].label || 'a session';
+  }
   const doc: MessageDoc = {
     _id,
     orgId: s.orgId,
     ...placeIn(project, s.userId),
     projectId: project._id,
     ...(toSession ? { toSession } : {}),
+    ...(toSids.length ? { toSids } : {}),
+    seenBy: [],
     from: {
       userId: s.userId,
       word: from.word,
@@ -124,16 +137,26 @@ export async function sendMessage(
   // The feed says a message came, never what it says (the body stays in the inbox): placed like the message.
   const actor = from.actor ?? (from.word === 'person' ? userActor(s.userId) : agentActor('claude', s.userId));
   await logChange(c, doc, actor, 'message_sent', { subject: { kind: 'message', id: _id, title: input.kind }, projectId: project._id, at: doc.at });
-  return { message: doc, project, target: await targetNote(s, project, toSession) };
+  let target: string;
+  if (o.toSids?.length) {
+    // A reply: the rows of the sessions it goes back to (labels only).
+    const rows = await c.presence.find({ projectId: project._id }).sort({ lastSeen: -1 }).limit(200).toArray();
+    const back = rows.filter(r => toSids.includes(rowKey(r)));
+    target = back.length ? await targetNote(s, project, toSession, back) : await targetNote(s, project, toSession);
+  } else {
+    target = await targetNote(s, project, toSession, matched?.length ? matched : undefined);
+    if (matched && matched.length > 1) target = `reaches ${matched.length} sessions: ${target}`;
+  }
+  return { message: doc, project, target };
 }
 
 export async function reply(s: Scope, id: string, body: string, from: From): Promise<{ message: MessageDoc; project: ProjectDoc; target: string }> {
   const c = await scoped(s);
   const parent = await c.messages.findOne({ _id: String(id).slice(0, 40) });
   if (!parent) throw new NotFoundError(`Message ${String(id).slice(0, 40)} not found`);
-  // A reply goes back to the sender's session (a hint), in the same thread.
+  // A reply goes back to the sender's session, in the same thread: addressed by the session key when the parent has one, the label is for display.
   const to = parent.from.label || parent.from.ai;
-  return sendMessage(s, parent.projectId, { kind: 'fyi', body }, from, { thread: parent.thread, ...(to ? { toSession: to } : {}) });
+  return sendMessage(s, parent.projectId, { kind: 'fyi', body }, from, { thread: parent.thread, ...(to ? { toSession: to } : {}), ...(parent.src ? { toSids: [parent.src] } : {}) });
 }
 
 export type Names = Record<string, string>;
@@ -153,6 +176,8 @@ export type MessageOut = {
   commit?: string;
   taskRef?: number;
   statusBy?: string;
+  /** Only with a reader: this message was unread for the reading session. */
+  unread?: boolean;
   noteWrittenBy?: string;
   treat: string;
   writtenBy?: string;
@@ -165,7 +190,7 @@ function treatment(m: MessageDoc, reader: string, name: string): string {
   return `An instruction from your person (${m.from.word === 'chat' ? 'through Claude chat, which may be unattended' : 'written in the app'}) for ordinary work: code, notes, tasks. It never approves a ship step, production, money or credentials, and never answers a Need.`;
 }
 
-export function messageOut(m: MessageDoc, reader: string, names: Names, o: { cut?: number } = {}): MessageOut {
+export function messageOut(m: MessageDoc, reader: string, names: Names, o: { cut?: number; unread?: boolean } = {}): MessageOut {
   const mine = m.from.userId === reader;
   const closer = m.statusBy ? (m.statusBy === reader ? 'me' : names[m.statusBy] || 'a former member') : undefined;
   const name = mine ? 'me' : names[m.from.userId] || 'a former member';
@@ -181,6 +206,7 @@ export function messageOut(m: MessageDoc, reader: string, names: Names, o: { cut
     refs: m.refs,
     at: m.at.toISOString(),
     ...(m.senderCommit ? { senderCommit: m.senderCommit } : {}),
+    ...(o.unread ? { unread: true } : {}),
     ...(closer && m.status !== 'unread' ? { statusBy: closer } : {}),
     ...(m.note ? { note: m.note } : {}),
     ...(m.commit ? { commit: m.commit } : {}),
@@ -192,58 +218,106 @@ export function messageOut(m: MessageDoc, reader: string, names: Names, o: { cut
 }
 
 /**
- * Messages the caller can read, unread first, newest first within each. Messages from others that were unread become
- * seen (the sender sees that in message_status). project omitted: every project the caller reads.
+ * A reading session: its key (userId:session, lib/data/presence.ts sessionKey), the person, and its presence row on the
+ * project when it has one. A session that calls without an id but has a row is also known by the row's key.
  */
+export type Reader = { key: string; userId: string; row: PresenceDoc | null };
+const keysOf = (r: Reader): string[] => (r.row && rowKey(r.row) !== r.key ? [r.key, rowKey(r.row)] : [r.key]);
+
 /**
- * Which of these messages are addressed to the caller: a session label, client name or session id they have used on the
- * project (when the message names one), else, when none is named, the project's own person (its owner).
+ * Is this message addressed to the reader: its session key was picked at send time (toSids); else, with no key but a
+ * pending label, the label or session id of the reader's own row on the project; else, with no one named, the project's owner.
  */
-async function addressedTo(s: Scope, list: MessageDoc[]): Promise<Set<string>> {
-  const c = await scoped(s);
-  const ids = [...new Set(list.map(m => m.projectId))];
-  const out = new Set<string>();
-  if (!ids.length) return out;
-  const [rows, projs] = await Promise.all([c.presence.find({ userId: s.userId, projectId: { $in: ids } }).limit(200).toArray(), c.projects.find({ _id: { $in: ids } }, { projection: { ownerId: 1 } }).toArray()]);
-  const owner = new Map(projs.map(p => [p._id, p.ownerId]));
-  for (const m of list) {
-    if (m.toSession) {
-      const q = m.toSession.toLowerCase();
-      if (rows.some(r => r.projectId === m.projectId && (r.session === m.toSession || r.label.toLowerCase().includes(q) || r.ai.toLowerCase().includes(q)))) out.add(m._id);
-    } else if (owner.get(m.projectId) === s.userId) out.add(m._id);
+export function addressed(m: MessageDoc, reader: Reader, ownerId: string | undefined): boolean {
+  if (m.toSids?.length) return m.toSids.some(k => keysOf(reader).includes(k));
+  if (m.toSession) {
+    const r = reader.row;
+    if (!r || r.projectId !== m.projectId) return false;
+    return r.session === m.toSession.trim() || (r.label ?? '').trim().toLowerCase() === m.toSession.trim().toLowerCase();
   }
-  return out;
+  return !!ownerId && ownerId === reader.userId;
 }
 
+/** Unread for the reader: addressed to it, not sent by it, not closed, and not read by its session yet. Messages from before per-session read state (no seenBy) are unread while their status is. */
+export function isUnreadFor(m: MessageDoc, reader: Reader, ownerId: string | undefined): boolean {
+  const keys = keysOf(reader);
+  if (m.src && keys.includes(m.src)) return false;
+  if (m.status === 'applied' || m.status === 'rejected') return false;
+  if (!addressed(m, reader, ownerId)) return false;
+  return m.seenBy ? !m.seenBy.some(k => keys.includes(k)) : m.status === 'unread';
+}
+
+/** The Mongo part of "unread for the reader" (the rest is isUnreadFor): the candidates are read newest first, at most 200. */
+export function unreadCandidates(reader: Reader): Record<string, unknown> {
+  const keys = keysOf(reader);
+  return {
+    status: { $in: ['unread', 'seen'] },
+    src: { $nin: keys },
+    $and: [
+      { $or: [{ toSids: { $exists: false } }, { toSids: { $size: 0 } }, { toSids: { $in: keys } }] },
+      { $or: [{ seenBy: { $exists: false }, status: 'unread' }, { seenBy: { $exists: true, $nin: keys } }] },
+    ],
+  };
+}
+
+/** The project owners of these projects (the one an untargeted message is for). */
+async function ownersOf(s: Scope, ids: string[]): Promise<Map<string, string>> {
+  const c = await scoped(s);
+  const projs = ids.length ? await c.projects.find({ _id: { $in: ids } }, { projection: { ownerId: 1 } }).toArray() : [];
+  return new Map(projs.map(p => [p._id, p.ownerId]));
+}
+
+/** The unread messages for a reader (newest first, at most 200 looked at), optionally on one project or after a time. */
+export async function unreadFor(s: Scope, reader: Reader, o: { projectId?: string; since?: Date } = {}): Promise<MessageDoc[]> {
+  const c = await scoped(s);
+  const list = await c.messages
+    .find({ ...(o.projectId ? { projectId: o.projectId } : {}), ...(o.since ? { at: { $gt: o.since } } : {}), ...unreadCandidates(reader) } as never)
+    .sort({ at: -1 })
+    .limit(200)
+    .toArray();
+  const owner = await ownersOf(s, [...new Set(list.map(m => m.projectId))]);
+  return list.filter(m => isUnreadFor(m, reader, owner.get(m.projectId)));
+}
+
+/**
+ * Messages the caller can read, unread first, newest first within each. What the reader session had not read becomes
+ * read by it (seenBy), and the status of a message that was unread becomes seen (the sender sees that in message_status).
+ * project omitted: every project the caller reads. `reader` is the calling session; without it (the app) nothing is
+ * marked and `unread` counts what is addressed to the person.
+ */
 export async function inbox(
   s: Scope,
-  o: { project?: string; status?: MessageDoc['status']; limit?: number; markSeen?: boolean; src?: string },
-): Promise<{ messages: MessageDoc[]; unread: number; project?: ProjectDoc }> {
+  o: { project?: string; status?: MessageDoc['status']; limit?: number; markSeen?: boolean; reader?: Reader },
+): Promise<{ messages: MessageDoc[]; unread: number; unreadIds: Set<string>; project?: ProjectDoc }> {
   const c = await scoped(s);
   let project: ProjectDoc | undefined;
   if (o.project) {
     project = (await resolveProject(c, s, o.project, { create: false })) ?? undefined;
     if (!project) throw new NotFoundError(`Project "${o.project.trim().slice(0, 120)}" not found`);
   }
+  const reader: Reader = o.reader ?? { key: s.userId, userId: s.userId, row: null };
   const base = project ? { projectId: project._id } : {};
   const limit = Math.min(o.limit ?? MSG_LIMITS.list, 100);
   const find = (extra: Record<string, unknown>) => c.messages.find({ ...base, ...extra } as never).sort({ at: -1 }).limit(limit).toArray();
-  // Unread means: sent by someone else, or by another of your own sessions (the one reading is not told about what it sent).
-  const notMine = o.src ? { src: { $ne: o.src } } : { 'from.userId': { $ne: s.userId } };
-  const unread = await c.messages.countDocuments({ ...base, status: 'unread', ...notMine } as never);
+  // Unread is per session: addressed to this one, sent by another, and not read by it yet.
+  const unreadList = await unreadFor(s, reader, { projectId: project?._id });
+  const unreadIds = new Set(unreadList.map(m => m._id));
   let ordered: MessageDoc[];
   if (o.status) ordered = await find({ status: o.status });
   else {
-    const first = await find({ status: 'unread' });
-    ordered = [...first, ...(await find({ status: { $ne: 'unread' } }))].slice(0, limit);
+    const rest = await find({ _id: { $nin: unreadList.slice(0, limit).map(m => m._id) } });
+    ordered = [...unreadList.slice(0, limit), ...rest].slice(0, limit);
   }
-  if (o.markSeen !== false) {
-    // Seen is for the one it is addressed to: other readers' calls leave its status alone.
-    const addr = await addressedTo(s, ordered.filter(m => m.status === 'unread'));
-    const ids = ordered.filter(m => m.status === 'unread' && addr.has(m._id) && (o.src ? m.src !== o.src : m.from.userId !== s.userId)).map(m => m._id);
-    if (ids.length) await c.messages.updateMany({ _id: { $in: ids }, status: 'unread' }, { $set: { status: 'seen', statusBy: s.userId, statusAt: new Date() } });
+  if (o.markSeen !== false && o.reader) {
+    const mine = ordered.filter(m => unreadIds.has(m._id));
+    const ids = mine.map(m => m._id);
+    if (ids.length) {
+      await c.messages.updateMany({ _id: { $in: ids }, seenBy: { $nin: [reader.key] } } as never, { $push: { seenBy: { $each: [reader.key], $slice: -50 } } } as never);
+      // Legacy messages have no list to push to: they are closed by status alone.
+      await c.messages.updateMany({ _id: { $in: ids }, status: 'unread' }, { $set: { status: 'seen', statusBy: s.userId, statusAt: new Date() } });
+    }
   }
-  return { messages: ordered, unread, project };
+  return { messages: ordered, unread: unreadIds.size, unreadIds, project };
 }
 
 const viaOf = (w: Word) => (w === 'person' ? 'app' : w === 'chat' ? 'chat' : 'code');
@@ -258,7 +332,7 @@ export function setStatus(
   s: Scope,
   id: string,
   status: (typeof STATUSES)[number],
-  o: { note?: string; commit?: string; actor: Actor; makeTask?: boolean },
+  o: { note?: string; commit?: string; actor: Actor; makeTask?: boolean; reader?: Reader },
 ): Promise<{ message: MessageDoc; decision?: boolean; task?: { ref: number; title: string } }> {
   // One transaction: the decision lands in the State, or the task is made, together with the status change.
   return inTransaction(() => setStatusIn(s, id, status, o));
@@ -268,17 +342,27 @@ async function setStatusIn(
   s: Scope,
   id: string,
   status: (typeof STATUSES)[number],
-  o: { note?: string; commit?: string; actor: Actor; makeTask?: boolean },
+  o: { note?: string; commit?: string; actor: Actor; makeTask?: boolean; reader?: Reader },
 ): Promise<{ message: MessageDoc; decision?: boolean; task?: { ref: number; title: string } }> {
   const c = await scoped(s);
   const m = await c.messages.findOne({ _id: String(id).slice(0, 40) });
   if (!m) throw new NotFoundError(`Message ${String(id).slice(0, 40)} not found`);
   if (m.status === 'applied' || m.status === 'rejected') throw new InputError(`This message is already ${m.status}.`);
-  if (status === 'seen' && m.status === 'seen') return { message: m };
   const person = isPerson(o.actor);
   const mine = m.from.userId === s.userId;
+  const owner = (await c.projects.findOne({ _id: m.projectId }, { projection: { ownerId: 1 } }))?.ownerId;
+  const reader: Reader = o.reader ?? { key: s.userId, userId: s.userId, row: null };
+  const toMe = !person && addressed(m, reader, owner);
+  const markRead = async () => {
+    // Seen through MCP is read by this session only (not by the session that sent it).
+    if (toMe && !(m.src && keysOf(reader).includes(m.src))) await c.messages.updateOne({ _id: m._id, seenBy: { $nin: [reader.key] } } as never, { $push: { seenBy: { $each: [reader.key], $slice: -50 } } } as never);
+  };
+  if (status === 'seen' && m.status === 'seen') {
+    await markRead();
+    return { message: m };
+  }
   // Through MCP only the sender, the one it is addressed to, or (in the app) a person closes a message: a reader of the project cannot close another member's.
-  if (!person && !mine && !(await addressedTo(s, [m])).has(m._id)) throw new InputError('Only the message’s sender, the session it is addressed to, or a person in the app can change its status.');
+  if (!person && !mine && !toMe) throw new InputError('Only the message’s sender, the session it is addressed to, or a person in the app can change its status.');
   if (o.makeTask) {
     if (m.kind !== 'request') throw new InputError('Only a request becomes a task.');
     // Same gate as applying a decision: an agent’s (or someone else’s) request becomes a task in the app.
@@ -290,6 +374,7 @@ async function setStatusIn(
   }
   const project = await c.projects.findOne({ _id: m.projectId });
   if (!project) throw new NotFoundError('Project not found');
+  if (status === 'seen') await markRead();
   const note = o.note?.trim().slice(0, 500);
   const set: Record<string, unknown> = { status, statusBy: s.userId, statusAt: new Date(), ...(note ? { note } : {}), ...(o.commit ? { commit: o.commit.trim().slice(0, 80) } : {}) };
   let decision = false;

@@ -16,6 +16,26 @@ const REFRESH_MS = 60_000;
 
 export type Ident = { userId: string; agent: string; keyId?: string; keyName?: string; session?: string };
 
+/** The key of a session in messages (src, seenBy, toSids): the person's id and the session id, else the key id. The person's id always comes from the verified caller. */
+export const sessionKey = (i: Ident) => `${i.userId}:${i.session ?? i.keyId ?? i.agent}`;
+/** The same key, from a presence row. */
+export const rowKey = (r: Pick<PresenceDoc, 'userId' | 'key'>) => `${r.userId}:${r.key}`;
+
+/**
+ * Which presence rows a to_session names: an exact session id (only among the caller's own rows), else an exact label
+ * (case-insensitive, trimmed), else an exact client name. Never a substring. Several matches all count.
+ */
+export function matchSessions(rows: PresenceDoc[], to: string, userId?: string): PresenceDoc[] {
+  const raw = to.trim();
+  const q = raw.toLowerCase();
+  if (!q) return [];
+  const byId = rows.filter(r => r.session === raw && (!userId || r.userId === userId));
+  if (byId.length) return byId;
+  const byLabel = rows.filter(r => (r.label ?? '').trim().toLowerCase() === q);
+  if (byLabel.length) return byLabel;
+  return rows.filter(r => (r.ai ?? '').trim().toLowerCase() === q);
+}
+
 const rowId = (i: Ident, projectId: string) => (i.session ? `${i.userId}:s:${i.session}:${projectId}` : `${i.userId}:k:${i.keyId ?? i.agent}:${projectId}`);
 
 // "No row for this caller" is remembered for a few seconds, so a caller who never calls start_work costs no read per tool call.
@@ -40,7 +60,8 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
         key: i.session ?? i.keyId ?? i.agent,
         ...(i.session ? { session: i.session } : {}),
         ...(i.keyId ? { keyId: i.keyId } : {}),
-        label: (o.label ?? '').slice(0, 120),
+        // A later start_work without a label keeps the earlier one (label addressing depends on it).
+        ...((o.label ?? '').trim() ? { label: (o.label ?? '').trim().slice(0, 120) } : {}),
         machine: (o.machine ?? '').slice(0, 40),
         ai: (i.keyName || i.agent).slice(0, 80),
         agent: i.agent,
@@ -60,6 +81,7 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
       },
       // A machine that is no longer one of the person's devices (or a name now reported plain) drops its device name.
       ...(o.machine && !o.machineName ? { $unset: { machineName: '' } } : {}),
+      ...((o.label ?? '').trim() ? {} : { $setOnInsert: { label: '' } }),
     },
     { upsert: true },
   );
