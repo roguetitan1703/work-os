@@ -82,6 +82,8 @@ mail|mail.mjs|none|mail
 mail-paste|mail-paste.mjs|none|mailpaste
 intake|intake.mjs|none|intake
 intake-off|intake-off.mjs|none|plain
+whats-new|whats-new.mjs|none|whatsnew
+whats-new-late|whats-new-late.mjs|none|whatsnewlate
 delpat-os-off|delpat-os-off.mjs|none|plain
 ${E2E_EXTRA:-}
 "
@@ -225,6 +227,13 @@ start_server() {
   else
     export MAILLOOM_INTAKE_TOKEN= MAILLOOM_INTAKE_PROJECT= MAILLOOM_NOTICE_CHANNEL=
   fi
+  # What's new (lib/whats-new-seen.ts): every other suite runs on a day long after every entry, so nothing in
+  # lib/whats-new.ts shows and adding an entry never changes them; the whats-new suites pin days around the seeded entries.
+  case "$1" in
+    whatsnew) export E2E_WHATS_NEW_TODAY=2026-11-20 ;;
+    whatsnewlate) export E2E_WHATS_NEW_TODAY=2026-11-29 ;;
+    *) export E2E_WHATS_NEW_TODAY=2099-01-01 ;;
+  esac
   if [ "$1" = reel ]; then
     export IG_GRAPH_BASE="http://127.0.0.1:$DPORT" IG_ACCOUNT_ID=17841400000000001 IG_PAGE_TOKEN=e2e-ig-token-SECRETVALUE-0123456789 IG_DELAY_SCALE=0.01 IG_E2E=1
   else
