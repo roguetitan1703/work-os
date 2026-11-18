@@ -77,11 +77,16 @@ Only rules that hold in every repo go here; a project's own test hosts, cloud pr
   - Each written as `mcp__work-os__<tool>`. Not allowed, so they still ask: deletes, `update_task`,
     `apply_changes`, `send_message`, every mail tool.
   - Test env files: `Read(**/.env.test.local)`, `Bash(grep * .env.test.local)`, `Bash(cut * .env.test.local)`,
-    `Bash(cat .env.test.local)`.
+    `Bash(cat .env.test.local)`, and the same with a path in front (`Bash(grep *.env.test.local)`,
+    `Bash(cut *.env.test.local)`, `Bash(cat *.env.test.local)`, `PowerShell(Get-Content *.env.test.local)`,
+    `PowerShell(Select-String *.env.test.local)`).
 - `permissions.deny`: `Edit(~/.claude.json)`.
+- `env`: `TEMP` and `TMP` in a folder nested on D: (on Om's PC `D:\Work\Delpat\builds\tmp\claude`), never directly
+  under a drive root: Claude Code won't delete a root folder without a person (Om, 19 Nov).
 - `autoMode.environment`: `$defaults` plus two lines. One says Work OS (work.delpat.in) is Om's own task system,
   where agents write their own status. The other says `.env.test.local` files hold test-only credentials for their
-  repo's local and test hosts.
+  repo's local and test hosts, which the lead and its test subagents may read and type into that project's own
+  sign-in page there.
 - Check: `node -e "console.log(Object.keys(require(require('os').homedir()+'/.claude/settings.json').permissions))"`
   prints `allow` and `deny`.
 
