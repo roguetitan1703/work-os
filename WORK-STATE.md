@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 28. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 29. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -41,7 +41,8 @@ Copy of the Work OS state, version 28. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov, Om: the 15 GB free-disk rule is dropped (removed from ~/.claude/CLAUDE.md); keep temp and large files on D:. The Claude VM image stays. Hotfix 3596c54 pushed to master (origin and delpat); building in WSL for a manual deploy over SSH. (Om, chat)
 - 2026-11-18: 19 Nov, Om asked for a name: the 18-19 Nov batch (State Next 5, 44 commits on dev not on master) is called R1. Releases are numbered from here (R2 next). The no-State hotfix 3596c54 is not part of R1; it goes live on its own first. (Om, chat)
 - 2026-11-18: 19 Nov: no-State hotfix 3596c54 live (WSL build, deployed over SSH; previous 865c699 removed). Checked live: get_state on PMS (no State) gives the make-it-now text; import_state on a throwaway project left History and Done out and named them (project archived). Master merged into dev (ad99b8c, no code change). AKAR's Later trim waits on R1's edit_line. (Om, chat)
+- 2026-11-18: 19 Nov, Om: the agents-and-Work-OS plan (docs/flows/agent-system.md, from the 18 Nov Fable review: hooks, rules, State, Needs, transfer, wrap_up/hand_over/declutter, live sessions) is named Harness. R1 is only the release that carries Harness part 1 plus other features. (Om, chat)
 
 ## Where
 - Victus-Knight: dev ad99b8c (2026-11-18 20:46)
-<!-- work-os-copy sha1:43b8509e44b30ace0d62da1dc933a96f6b254d59 -->
+<!-- work-os-copy sha1:d5ca65c8a9de3705a793fb75d3418a80ed63019c -->
