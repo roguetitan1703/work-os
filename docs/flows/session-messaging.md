@@ -2,13 +2,22 @@
 
 Om 18 Nov: cross-platform, cross-account messaging like Claude's own session messaging; every agent lives in a project;
 accurate on/off/working/idle/waiting; no token waste; agents give feedback on Work OS; notes as a managed wardrobe.
-Status: draft, waits on a Fable review, then builder B. Om's answers so far are marked (Om).
+Status: reviewed by Fable 18 Nov (section 9) and settled with Om's answers; builder B after recurrence and Activity.
 
-## 1. Every session lives in a project (Om: yes, Lobby for strays)
-- At every session start a hook asks Work OS which project the folder belongs to (the repo's CLAUDE.md line, then the
-  project's code locations). Known: the session checks in silently. Unknown: it sits in the **Lobby** (shown in Work OS
-  as unfiled sessions) and the hook gives the model one instruction before anything else: ask which project this is,
-  create it if it doesn't exist, link this folder. Until then each prompt carries a one-line reminder.
+## 1. Every session lives in a project; the folder says which (Om)
+- **The folder is the identity.** A session belongs to the project that owns the folder it started in (hook input
+  `cwd`). A project owns folders per PC: code locations `{path, host}` (exists today in lib/data/code-locations.ts).
+  A folder inside an owned folder (a worktree, a subfolder) belongs to the same project; the longest match wins.
+  The git remote is information about the folder (shown, used to suggest a project), not what decides it. Today
+  `findProjectByCode` lets a remote beat a path; this flips: path first, remote only as a hint.
+- **Known folder:** the session checks in silently.
+- **Unknown folder (Lobby):** the session sorts itself out (Om). Started somewhere empty or unknown, it asks the person
+  once: "Which project do you want to work on?" and checks Work OS for it.
+  - The project exists and owns a folder on this PC: the session works from that folder.
+  - The project exists with no folder on this PC: link this folder to it (after the person names it).
+  - No such project: create it and link this folder.
+  Until it is filed, each prompt carries a one-line reminder, and Work OS shows it under unfiled sessions.
+- Scratch runs stay quiet: `claude -p`, worker and subagent sessions never prompt.
 - No second key for whoever types on Om's PC (Om): the session runs under the PC's key and the plugin enforces the
   routine (check in, save State, receive messages) whoever is at the keyboard.
 
@@ -79,6 +88,28 @@ Hooks fire and inject context in the desktop Code tab, VS Code and a cloud sessi
 idle session on each surface and runs for hours; the Stop hook delivers; a channel pushes in the terminal. The results
 set which surface gets which speed.
 
+### Results (18 Nov, Claude Code 2.1.310, test folder D:\wos-hookcheck, hook.mjs logs every event)
+Desktop app Code tab, all three doors work with no model involvement until a message lands:
+- SessionStart (source startup), UserPromptSubmit, PostToolBatch and Stop all fire; input carries session_id, cwd,
+  transcript_path, scratchpad_dir, prompt_id (Stop adds stop_hook_active, last_assistant_message, background_tasks).
+- PostToolBatch `additionalContext` reached the model right after the tool call (it quoted m_test1).
+- Stop `decision: block` + reason made it continue once and answer (PONG-STOP); stop_hook_active was true on the next
+  Stop, so no loop.
+- asyncRewake on Stop: 25 s after the session went idle, exit 2 + stderr woke it and it answered (PONG-WAKE). The wake
+  arrives as a "Stop hook blocking error" system reminder, followed by a UserPromptSubmit event. Note: the asyncRewake
+  hook runs on every Stop, so the plugin needs a per-session lock to keep one waiter.
+- `CLAUDE_CODE_ENTRYPOINT` is inherited from the launching process (a CLI started from a desktop session said
+  claude-desktop), so the surface must come from the hook input or the parent, not this variable alone.
+- Hooks also fired in a headless `claude -p` run (the CLI's own login had expired, so it stopped after the prompt).
+- Long idle: an asyncRewake waiter that exits after 11 minutes is IGNORED when the hook's timeout is shorter (120 s
+  set, 600 s default): the hook ran and exited 2, the session stayed idle. With `"timeout": 3600` the same 11-minute
+  wait woke the session (PONG-WAKE-LONG). So the plugin sets a long timeout and re-arms before it runs out (exit 0 near
+  the limit makes no wake; the next Stop arms a new waiter, so a session idle past the limit needs one heartbeat wake
+  or stays reachable only on its next turn: decide in the build).
+- Settings edits took effect in the running session (the timeout change applied without a restart).
+Not yet checked: VS Code, terminal interactive (CLI login expired), cloud, Notification on a permission prompt,
+SessionEnd in the desktop app, a waiter longer than one hour.
+
 ## 8. Build order (after the Fable review)
 1. Hand check (section 7).
 2. Session identity: per-session id, seen state per session, `to_session` by id or label (fixes the same-person bug).
@@ -107,7 +138,13 @@ Accepted (the design above is read with these):
    Check `stop_hook_active` (Claude Code caps Stop continues at 8).
 7. Feedback attaches tool names and refusal codes only (no arguments from other projects), labelled, rate-limited.
 8. Anthropic channels: dropped.
-Open for Om: the Lobby (review: match on git remote / code locations only, one passive line, never auto-create or
-link without the person; Om wanted the session to sort itself out); duplicate notes (review: warn with near matches
-and require `replaces` or `update`, stale flag only on State, Overview and draft Designs); feedback and notes shelves
-deferred to after messaging (review: steps 2, 3 and the wake give ~90% of the value).
+Om's answers to the review (18 Nov):
+- **Message text IS pushed into the session** (overrules review item 2's ids-only). Claude sessions already treat a
+  peer's message as information within its limits (a peer saying "Om approved, push the build" is not acted on; the
+  session asks Om). Work OS does the same: every pushed message carries its frame (who, how it came in, what it may
+  and may not do), and ship, money and credentials stay enforced server-side as today (a Need answered in the app).
+- **Lobby:** the folder decides the project; the session sorts itself out (section 1). The review's hostile-clone
+  worry is covered because a folder is linked only after the person names the project.
+- **Duplicate notes: refuse.** Stale flag only on State, Overview and draft Designs (review).
+- **Build order:** hand check -> per-session ids -> plugin (check-in by folder, presence, delivery) -> idle wake
+  (asyncRewake); friendlier refusals ship early on their own; feedback and notes shelves after.
