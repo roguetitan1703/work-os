@@ -17,11 +17,16 @@ async function setup(deps) {
   const root = fs.mkdtempSync(path.join(tmp, 'root-'));
   const out = []; const log = console.log; console.log = (...a) => out.push(a.join(' '));
   const input = new PassThrough(); input.isTTY = false;
-  (async () => { await new Promise((x) => setTimeout(x, 40)); input.write('k-test-device-key\n'); })();
+  // readline drops a line typed before the question is asked: type the key only once the prompt has been written.
+  const write = process.stdout.write;
+  process.stdout.write = function (chunk, ...rest) {
+    if (String(chunk).includes('Device key: ')) { process.stdout.write = write; setImmediate(() => input.write('k-test-device-key\n')); }
+    return write.call(this, chunk, ...rest);
+  };
   let error = null;
   try {
     await runSetup({ argv: ['--server', 'https://x.example', '--name', 'n', '--root', root], deps: { input, verify: async () => ({ ok: true, status: 200 }), getToken: () => null, setToken() {}, readSecret: async () => '', scanAndReport: async () => 1, install() {}, ...deps } });
-  } catch (e) { error = e; } finally { console.log = log; }
+  } catch (e) { error = e; } finally { console.log = log; process.stdout.write = write; }
   return { out: out.join('\n'), error };
 }
 

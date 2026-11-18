@@ -101,9 +101,11 @@ export function remove() {
   return true;
 }
 
+const ourEvents = (s) => Object.entries(s.hooks || {}).filter(([, g]) => (g || []).some(ours)).map(([ev]) => ev);
+
 /** True when hooks are installed here but the installed copy is not the one this worker carries. */
 export function isStale() {
-  try { return status().events.length > 0 && installedVersion() !== hooksVersion(); } catch { return false; }
+  try { return ourEvents(read(settingsPath())).length > 0 && installedVersion() !== hooksVersion(); } catch { return false; }
 }
 
 /** Re-run install when the installed hooks are out of date (after a worker update). Never throws. Returns the new version or null. */
@@ -113,7 +115,7 @@ export function refreshIfStale() {
 
 export function status() {
   const s = read(settingsPath());
-  const events = Object.entries(s.hooks || {}).filter(([, g]) => (g || []).some(ours)).map(([ev]) => ev);
+  const events = ourEvents(s);
   return { settings: settingsPath(), events, hookFile: fs.existsSync(path.join(hooksDir(), 'hook.mjs')), version: installedVersion(), current: hooksVersion(), stale: isStale(), signIn: signIn(s) };
 }
 
