@@ -63,7 +63,7 @@ export function workerState(row: Pick<PresenceDoc, 'lastSeen'>, o: { now: number
 const OPEN_LINE_STATUS: ('Done' | 'Dropped' | 'Blocked')[] = ['Done', 'Dropped', 'Blocked'];
 
 /** Projects of `ids` with unblocked Next lines in their State (no waitsOn; a line pointing at a closed or blocked task does not count). */
-async function unblockedNext(s: Scope, ids?: string[]): Promise<Map<string, { n: number; first: string }>> {
+export async function unblockedNext(s: Scope, ids?: string[]): Promise<Map<string, { n: number; first: string; firstRef?: number }>> {
   const c = await scoped(s);
   const states = await c.states.find(ids ? { projectId: { $in: ids } } : {}, { projection: { projectId: 1, next: 1 } }).toArray();
   const refs: number[] = [];
@@ -77,10 +77,10 @@ async function unblockedNext(s: Scope, ids?: string[]): Promise<Map<string, { n:
     const ts = await c.tasks.find({ projectId: { $in: pids }, ref: { $in: refs }, status: { $in: OPEN_LINE_STATUS } }, { projection: { projectId: 1, ref: 1 } }).toArray();
     for (const t of ts) closed.add(`${t.projectId}:${t.ref}`);
   }
-  const out = new Map<string, { n: number; first: string }>();
+  const out = new Map<string, { n: number; first: string; firstRef?: number }>();
   for (const st of states) {
     const live = st.next.filter(l => !l.waitsOn && !(l.ref && closed.has(`${st.projectId}:${l.ref}`)));
-    if (live.length) out.set(st.projectId, { n: live.length, first: live[0].text.slice(0, 160) });
+    if (live.length) out.set(st.projectId, { n: live.length, first: live[0].text.slice(0, 160), ...(live[0].ref ? { firstRef: live[0].ref } : {}) });
   }
   return out;
 }

@@ -14,7 +14,7 @@ import { assigneesOf } from './assignees';
 import { isMember, memberNames } from './people';
 import { actorLabel } from './actors';
 import { shortAsk } from './data/needs';
-import { couldBeRunning } from './data/roster';
+import { roster, unblockedNext } from './data/roster';
 import { needButtons } from './discord/need-buttons';
 
 // Nudges for each person about the tasks whose alerts go to them (recipientsOf: the assignees of a shared task, else
@@ -25,8 +25,8 @@ import { needButtons } from './discord/need-buttons';
 //
 //   due_tomorrow   18:00 the day before, P1/P2
 //   digest         once a day at the person's own hour (profile.digestHour, default 9), claimed by alertLog key
-//                  digest:<date>:<userId>: what agents finished (alertQueue rows since the last digest), due and overdue, gone quiet,
-//                  what moved yesterday (one line per project the person can read). While it is on (kinds.digest) the
+//                  digest:<date>:<userId>: Needs you (answerable from Discord), Today (top 3 by rule), Since yesterday (one line per
+//                  project that changed), Agents (running, stalled, could run). While it is on (kinds.digest) the
 //                  three alerts below wait for it and go into it; their log keys are claimed with it. After it has gone
 //                  out, a task that becomes due, overdue or quiet still alerts on its own on the next run. Off = the
 //                  alerts below work as they always did.
@@ -49,8 +49,8 @@ export const ALERT_RULES = {
 
 
 /** A section of the daily digest; rows with a ref link to the task. */
-export type DigestSection = { head: string; rows: { ref?: number; text: string; detail?: string; /** A link target that is not the task (a Need opens on Today). */ url?: string; /** Link text when it is not "#ref". */ label?: string }[] };
-export type Digest = { sections: DigestSection[]; /** One line for the inbox and push. */ summary: string; /** Nothing to say: the day is claimed, nothing is sent. */ empty: boolean; /** Log keys the digest takes over (due today, overdue, stalled), claimed with it. */ absorb: { key: string; kind: AlertKind; taskId: string }[] };
+export type DigestSection = { head: string; /** Rows are numbered 1. 2. 3. instead of bulleted. */ numbered?: boolean; rows: { ref?: number; text: string; detail?: string; /** A link target that is not the task (a Need opens on Today). */ url?: string; /** Link text when it is not "#ref". */ label?: string }[] };
+export type Digest = { sections: DigestSection[]; /** One line for the inbox and push. */ summary: string; /** Nothing to say: the day is claimed, nothing is sent. */ empty: boolean; /** Log keys the digest takes over (due today, overdue, stalled), claimed with it. */ absorb: { key: string; kind: AlertKind; taskId: string }[]; /** The Needs that may be answered from Discord (never app-only or review ones): one small message each with its options as buttons, oldest first, at most 5. */ needs?: { needId: string; label: string; title: string; buttons: { id: string; label: string }[] }[] };
 
 export type AlertItem = { key: string; kind: AlertKind; digest?: Digest; /** Where tapping its inbox row or push goes, when not the task. */ url?: string; ref: number; title: string; detail?: string; resend?: boolean; taskId?: string; prevSentAt?: Date; /** Inbox and push title, when the default "Kind: #ref title" does not fit. */ headline?: string; /** The link text when it is not "#ref". */ label?: string; /** need alerts: what Discord shows as buttons under the DM (never for an app-only Need). */ needId?: string; buttons?: { id: string; label: string }[] };
 
@@ -174,14 +174,31 @@ export async function computeAlerts(s: Scope, now: Date = new Date(), opts: { on
 
 type OpenTask = Pick<TaskDoc, '_id' | 'ref' | 'title' | 'status' | 'priority' | 'due' | 'progress' | 'updatedAt' | 'ownerId' | 'need'>;
 
-/** Projects where an agent could be running Next work and is not: the roster's couldBeRunning with the recipient's own scope (a project they cannot read never shows). */
-export async function idleWithNextWork(s: Scope): Promise<DigestSection['rows']> {
-  return (await couldBeRunning(s)).map(p => ({ text: `**${plainAlertText(p.projectName)}**`, detail: `${p.unblocked} Next line${p.unblocked === 1 ? '' : 's'} ready, none running: ${plainAlertText(p.first).slice(0, 80)}` }));
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/** "Wed 18 Nov" for a YYYY-MM-DD. */
+function dayLabel(d: string): string {
+  return `${DAYS[weekday(d)]} ${Number(d.slice(8, 10))} ${MONTHS[Number(d.slice(5, 7)) - 1]}`;
+}
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** "12 min", "3 h", "2 days": how long ago, for a quiet worker. */
+function quietFor(ms: number): string {
+  const min = Math.max(1, Math.round(ms / 60_000));
+  if (min < 60) return `${min} min`;
+  const h = Math.round(min / 60);
+  return h < 48 ? `${h} h` : `${Math.round(h / 24)} days`;
 }
 
+const MAX_NEED_LINES = 8;
+const MAX_NEED_BUTTONS = 5;
+const MAX_TODAY = 3;
+const MAX_AGENT_LINES = 5;
+
 /**
- * The person's digest for `today`: what agents finished since the last digest, due and overdue, gone quiet, what moved
- * yesterday. Everything comes through the person's own door (their tasks, their queue, the projects they can read).
+ * The person's digest for `today` (docs/HANDOVER.md, alerts): what needs them (answerable from Discord), what to do
+ * today (the top 3 by rule), what happened per project since the last digest, and which agents run or stall. Everything
+ * comes through the person's own door (their tasks, needs, State, projects, presence), so a project they cannot read
+ * never shows. It still takes over the morning's due today, overdue and stalled alerts (`absorb`).
  */
 async function buildDigest(
   s: Scope,
@@ -191,101 +208,169 @@ async function buildDigest(
   const { tz, today, open } = x;
   const sections: DigestSection[] = [];
   const absorb: Digest['absorb'] = [];
+  const needAsks: NonNullable<Digest['needs']> = [];
 
-  // Needs you: the open Needs addressed to this person, first (they block someone). Through the person's own door.
-  const allNeeds = await c.needs.find({ to: s.userId, status: 'open' }).sort({ createdAt: 1 }).limit(40).toArray();
-  const needs = allNeeds.filter(n => n.kind !== 'review').slice(0, 20);
-  const reviews = allNeeds.filter(n => n.kind === 'review');
-  if (needs.length) {
-    const people = await memberNames(s.orgId);
-    sections.push({
-      head: '🙋 **Needs you**',
-      rows: needs.map(n => ({ label: `Need #${n.ref}`, url: `/today#need-${n.ref}`, text: neutralAlertText(shortAsk(n.ask)), detail: `${neutralAlertText(actorLabel(n.from.actor, s.userId, people))}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly || n.kind === 'review' ? ' · answer in the app' : ''}` })),
-    });
-  }
-
-  // Finished, to review: the open review Needs (a hand_in) addressed to this person. Its own section, since it is a finished
-  // piece to look at rather than a question; it is shown right after "Needs you". Their tasks are left out of "What agents finished".
-  if (reviews.length) {
-    const people = await memberNames(s.orgId);
-    sections.push({
-      head: '🔍 **Finished, to review**',
-      rows: reviews.map(n => ({ label: `Need #${n.ref}`, url: `/today#need-${n.ref}`, text: plainAlertText(shortAsk(n.ask)), detail: `${plainAlertText(actorLabel(n.from.actor, s.userId, people))}${n.taskRef ? ` · on #${n.taskRef}` : ''}` })),
-    });
-  }
-  const reviewTasks = new Set(reviews.flatMap(n => (n.taskId ? [n.taskId] : [])));
-
-  // What agents finished: queue rows (already sent as alerts) created since the last digest.
   const lastAny = await c.alertLog.findOne({ kind: 'digest' }, { sort: { sentAt: -1 }, projection: { sentAt: 1 } });
   const since = lastAny ? lastAny.sentAt : previousWorkdayStart(today, tz);
-  const outcomes = await c.alertQueue.find({ kind: { $in: [...CLAUDE_OUTCOMES] }, createdAt: { $gt: since } }).sort({ createdAt: 1 }).toArray();
-  if (outcomes.length) {
-    const byId = new Map((await c.tasks.find({ _id: { $in: outcomes.map(q => q.taskId) } }, { projection: { ref: 1, title: 1 } }).toArray()).map(t => [t._id, t]));
-    const rows = outcomes.flatMap(q => {
-      const t = byId.get(q.taskId);
-      if (!t || reviewTasks.has(q.taskId)) return [];
-      const why = neutralAlertText(q.detail ?? '');
-      return [{ ref: t.ref, text: t.title, detail: q.kind === 'claude_finished' ? 'finished, to review' : `stopped${why ? `: ${why}` : ''}` }];
+  const projectNames = new Map((await c.projects.find({}, { projection: { name: 1 } }).toArray()).map(p => [p._id, p.name]));
+
+  // 1. Needs you: the open Needs addressed to this person, oldest first. Review Needs are folded in. Through their own door.
+  const allNeeds = await c.needs.find({ to: s.userId, status: 'open' }).sort({ createdAt: 1 }).limit(60).toArray();
+  if (allNeeds.length) {
+    const people = await memberNames(s.orgId);
+    const rows: DigestSection['rows'] = allNeeds.slice(0, MAX_NEED_LINES).map(n => {
+      const review = n.kind === 'review';
+      const who = neutralAlertText(actorLabel(n.from.actor, s.userId, people));
+      return {
+        label: review ? `Review #${n.ref}` : `Need #${n.ref}`,
+        url: `/today#need-${n.ref}`,
+        text: `${projectNames.has(n.projectId) ? `${neutralAlertText(projectNames.get(n.projectId)!)}: ` : ''}${neutralAlertText(shortAsk(n.ask))}`,
+        detail: `${who}${n.taskRef ? ` · on #${n.taskRef}` : ''}${n.appOnly || review ? ' · answer in the app' : ''}`,
+      };
     });
-    if (rows.length) sections.push({ head: '✅ **What agents finished**', rows });
+    if (allNeeds.length > MAX_NEED_LINES) rows.push({ label: `+${allNeeds.length - MAX_NEED_LINES} more`, url: '/needs', text: 'in the app' });
+    // Buttons never for an app-only or review Need (Discord may steer, never release).
+    const answerable = allNeeds.filter(n => !n.appOnly && n.kind !== 'review' && n.options.length).slice(0, MAX_NEED_BUTTONS);
+    for (const n of answerable) needAsks.push({ needId: n._id, label: `Need #${n.ref}`, title: neutralAlertText(shortAsk(n.ask)), buttons: n.options.map(o => ({ id: o.id, label: o.label })) });
+    sections.push({ head: `🙋 **Needs you** (${allNeeds.length}, oldest first${needAsks.length ? '; buttons below' : ''})`, rows });
   }
 
-  // Due and overdue (all of them, not only the ones not yet told).
-  const due: DigestSection['rows'] = [];
-  for (const t of open.filter(t => t.due && t.due < today).sort((a, b) => a.due!.localeCompare(b.due!) || a.ref - b.ref)) {
+  // The morning's due today, overdue and stalled alerts are taken over (claimed with the digest), listed or not.
+  const overdue = open.filter(t => t.due && t.due < today).sort((a, b) => a.due!.localeCompare(b.due!) || a.ref - b.ref);
+  const dueToday = open.filter(t => t.due === today).sort((a, b) => a.priority.localeCompare(b.priority) || a.ref - b.ref);
+  for (const t of overdue) absorb.push({ key: x.keyOf(`overdue:${t._id}:${t.due}`, t), kind: 'overdue', taskId: t._id });
+  for (const t of dueToday) absorb.push({ key: x.keyOf(`due_today:${t._id}:${today}`, t), kind: 'due_today', taskId: t._id });
+  for (const t of open.filter(t => t.status === 'In Progress' && !t.need)) {
+    if (workdaysBetween(dateInTz(t.updatedAt, tz), today) >= ALERT_RULES.stalledWorkdays) absorb.push({ key: x.keyOf(`stalled:${t._id}:${t.updatedAt.toISOString()}`, t), kind: 'stalled', taskId: t._id });
+  }
+
+  // 2. Today, top 3, picked by rule: overdue P1/P2, then due today, then Next line 1 of each active project they own.
+  const picks: DigestSection['rows'] = [];
+  const picked = new Set<string>();
+  for (const t of overdue.filter(t => t.priority === 'P1' || t.priority === 'P2')) {
+    if (picks.length >= MAX_TODAY) break;
     const days = Math.round((Date.parse(today) - Date.parse(t.due!)) / 86_400_000);
-    due.push({ ref: t.ref, text: t.title, detail: `${days} day${days === 1 ? '' : 's'} late` });
-    absorb.push({ key: x.keyOf(`overdue:${t._id}:${t.due}`, t), kind: 'overdue', taskId: t._id });
+    picks.push({ ref: t.ref, text: t.title, detail: `${plural(days, 'day')} late, ${t.priority}` });
+    picked.add(t._id);
   }
-  for (const t of open.filter(t => t.due === today).sort((a, b) => a.ref - b.ref)) {
-    due.push({ ref: t.ref, text: t.title, detail: `due today, ${t.priority}` });
-    absorb.push({ key: x.keyOf(`due_today:${t._id}:${today}`, t), kind: 'due_today', taskId: t._id });
+  for (const t of dueToday) {
+    if (picks.length >= MAX_TODAY) break;
+    picks.push({ ref: t.ref, text: t.title, detail: `due today, ${t.priority}` });
+    picked.add(t._id);
   }
-  if (due.length) sections.push({ head: '🔴 **Due and overdue**', rows: due });
-
-  // Gone quiet: In Progress, untouched for the stalled rule's workdays.
-  const quiet: DigestSection['rows'] = [];
-  for (const t of open.filter(t => t.status === 'In Progress' && !t.need).sort((a, b) => a.ref - b.ref)) {
-    const lastDay = dateInTz(t.updatedAt, tz);
-    if (workdaysBetween(lastDay, today) < ALERT_RULES.stalledWorkdays) continue;
-    quiet.push({ ref: t.ref, text: t.title, detail: `no change since ${lastDay}, ${t.progress}%` });
-    absorb.push({ key: x.keyOf(`stalled:${t._id}:${t.updatedAt.toISOString()}`, t), kind: 'stalled', taskId: t._id });
-  }
-  if (quiet.length) sections.push({ head: '🧊 **Gone quiet**, In Progress but untouched', rows: quiet });
-
-  // Idle with Next work ("cutroom could be running and isn't"): the roster's couldBeRunning, read with this person's own scope.
-  const idle = await idleWithNextWork(s);
-  if (idle.length) sections.push({ head: '💤 **Idle with Next work**', rows: idle });
-
-  // Moved yesterday: one line per project (the previous working day up to today, so Monday covers the weekend). The
-  // activity, the tasks and the projects all come through the door, so a project the person cannot read never shows.
-  const acts = await c.activity.find({ at: { $gte: previousWorkdayStart(today, tz), $lt: startOfDay(today, tz) } }, { projection: { taskId: 1, type: 1 } }).toArray();
-  if (acts.length) {
-    const taskIds = [...new Set(acts.map(a => a.taskId))];
-    const projOf = new Map((await c.tasks.find({ _id: { $in: taskIds }, projectId: { $ne: null } }, { projection: { projectId: 1 } }).toArray()).map(t => [t._id, t.projectId as string]));
-    const names = new Map((await c.projects.find({ _id: { $in: [...new Set(projOf.values())] } }, { projection: { name: 1 } }).toArray()).map(p => [p._id, p.name]));
-    const per = new Map<string, { moved: Set<string>; done: Set<string> }>();
-    for (const a of acts) {
-      const pid = projOf.get(a.taskId);
-      if (!pid || !names.has(pid)) continue;
-      const e = per.get(pid) ?? { moved: new Set<string>(), done: new Set<string>() };
-      e.moved.add(a.taskId);
-      if (a.type === 'completed') e.done.add(a.taskId);
-      per.set(pid, e);
+  if (picks.length < MAX_TODAY) {
+    const mine = await c.projects.find({ status: 'active', ownerId: s.userId }, { projection: { name: 1 } }).toArray();
+    const next = await unblockedNext(s, mine.map(p => p._id));
+    const states = next.size ? await c.states.find({ projectId: { $in: [...next.keys()] } }, { projection: { projectId: 1, updatedAt: 1 } }).toArray() : [];
+    const last = new Map(states.map(st => [st.projectId, st.updatedAt.getTime()]));
+    // Projects have no priority field: the one touched most recently comes first.
+    for (const p of mine.filter(p => next.has(p._id)).sort((a, b) => (last.get(b._id) ?? 0) - (last.get(a._id) ?? 0) || a.name.localeCompare(b.name))) {
+      if (picks.length >= MAX_TODAY) break;
+      const n = next.get(p._id)!;
+      picks.push({ ...(n.firstRef ? { ref: n.firstRef } : {}), text: `${neutralAlertText(p.name)}: ${neutralAlertText(n.first).slice(0, 110)}`, detail: 'Next 1' });
     }
-    const rows = [...per.entries()]
-      .map(([pid, e]) => ({ text: `**${names.get(pid)}**`, detail: `${e.moved.size} task${e.moved.size === 1 ? '' : 's'} moved${e.done.size ? `, ${e.done.size} done` : ''}` }))
-      .sort((a, b) => a.text.localeCompare(b.text));
-    if (rows.length) sections.push({ head: '🔄 **Moved yesterday**', rows });
+  }
+  const lateLeft = overdue.filter(t => !picked.has(t._id)).length;
+  if (picks.length) {
+    const rows = picks.map(r => ({ ...r }));
+    if (lateLeft) rows.push({ text: `+${lateLeft} overdue, on Today` });
+    sections.push({ head: '🎯 **Today**', numbered: true, rows });
   }
 
-  const n = (h: string) => sections.find(sec => sec.head.includes(h))?.rows.length ?? 0;
-  const summary = [n('Needs you') && `${n('Needs you')} need${n('Needs you') === 1 ? 's' : ''} you`, n('Finished, to review') && `${n('Finished, to review')} to review`, n('agents finished') && `${n('agents finished')} finished`, n('Due and overdue') && `${n('Due and overdue')} due or overdue`, n('Gone quiet') && `${n('Gone quiet')} quiet`, n('Moved') && `${n('Moved')} project${n('Moved') === 1 ? '' : 's'} moved`].filter(Boolean).join(' · ');
+  // 3. Since the last digest: one line per project they can read with something changed (State log, tasks done, Needs, messages).
+  type Moved = { nextDone: number; nextAdded: number; now: boolean; decisions: number; done: number; asked: number; answered: number; msgs: number };
+  const per = new Map<string, Moved>();
+  const bump = (pid: string): Moved => {
+    let e = per.get(pid);
+    if (!e) per.set(pid, (e = { nextDone: 0, nextAdded: 0, now: false, decisions: 0, done: 0, asked: 0, answered: 0, msgs: 0 }));
+    return e;
+  };
+  const nowText = new Map<string, string>();
+  for (const st of await c.states.find({ 'log.at': { $gt: since } }, { projection: { projectId: 1, log: 1, now: 1 } }).toArray()) {
+    for (const l of st.log ?? []) {
+      if (l.at <= since) continue;
+      if (l.op === 'done_next') bump(st.projectId).nextDone++;
+      else if (l.op === 'add_next') bump(st.projectId).nextAdded++;
+      else if (l.op === 'set_now') {
+        bump(st.projectId).now = true;
+        if (st.now?.text) nowText.set(st.projectId, st.now.text);
+      } else if (l.op === 'add_decision') bump(st.projectId).decisions++;
+    }
+  }
+  const doneActs = await c.activity.find({ at: { $gt: since }, type: 'completed' }, { projection: { taskId: 1 } }).toArray();
+  if (doneActs.length) {
+    const ids = [...new Set(doneActs.map(a => a.taskId))];
+    for (const t of await c.tasks.find({ _id: { $in: ids }, projectId: { $ne: null } }, { projection: { projectId: 1 } }).toArray()) bump(t.projectId as string).done++;
+  }
+  for (const n of await c.needs.find({ $or: [{ createdAt: { $gt: since } }, { answeredAt: { $gt: since } }] }, { projection: { projectId: 1, createdAt: 1, answeredAt: 1 } }).toArray()) {
+    if (n.createdAt > since) bump(n.projectId).asked++;
+    if (n.answeredAt && n.answeredAt > since) bump(n.projectId).answered++;
+  }
+  for (const m of await c.messages.find({ at: { $gt: since } }, { projection: { projectId: 1 } }).toArray()) bump(m.projectId).msgs++;
+  const moved = [...per.entries()]
+    .filter(([pid]) => projectNames.has(pid))
+    .map(([pid, e]) => {
+      const bits = [
+        e.nextDone && `${plural(e.nextDone, 'Next line')} done`,
+        e.nextAdded && `${e.nextAdded} added`,
+        e.now && `Now changed${nowText.has(pid) ? `: "${neutralAlertText(nowText.get(pid)!).slice(0, 60)}"` : ''}`,
+        e.decisions && plural(e.decisions, 'decision'),
+        e.done && `${plural(e.done, 'task')} done`,
+        e.asked && `${plural(e.asked, 'Need')} asked`,
+        e.answered && `${e.answered} answered`,
+        e.msgs && plural(e.msgs, 'message'),
+      ].filter(Boolean);
+      return { text: neutralAlertText(projectNames.get(pid)!), detail: bits.join(', ') };
+    })
+    .filter(r => r.detail)
+    .sort((a, b) => a.text.localeCompare(b.text));
+  if (moved.length) sections.push({ head: '🔄 **Since yesterday**', rows: moved });
+
+  // 4. Agents: working and waiting sessions, stalled ones (idle or gone while their project has unblocked Next lines), stops,
+  // and projects that could be running and are not. The roster comes through the person's own door.
+  const r = await roster(s);
+  const nextByProject = await unblockedNext(s, [...new Set(r.workers.map(w => w.project.id))]);
+  const agents: { rank: number; text: string; detail?: string }[] = [];
+  const workerName = (w: (typeof r.workers)[number]) => `${neutralAlertText(w.project.name)} · ${neutralAlertText(w.label || w.ai)}${w.model ? ` (${neutralAlertText(w.model)})` : ''}`;
+  let running = 0;
+  let stalled = 0;
+  for (const w of r.workers) {
+    const left = nextByProject.get(w.project.id)?.n ?? 0;
+    if (w.state === 'working') {
+      running++;
+      agents.push({ rank: 0, text: `Running: ${workerName(w)}`, detail: w.machine ? `on ${neutralAlertText(w.machine)}` : undefined });
+    } else if (w.state === 'waiting') agents.push({ rank: 1, text: `Waiting on a Need: ${workerName(w)}` });
+    else if (left) {
+      stalled++;
+      agents.push({ rank: 2, text: `Stalled: ${workerName(w)}`, detail: `quiet ${quietFor(Date.now() - Date.parse(w.lastSeen))}, ${plural(left, 'Next line')} ready` });
+    }
+  }
+  const stops = await c.alertQueue.find({ kind: 'claude_stopped', createdAt: { $gt: since } }).sort({ createdAt: 1 }).toArray();
+  if (stops.length) {
+    const byId = new Map((await c.tasks.find({ _id: { $in: stops.map(q => q.taskId) } }, { projection: { ref: 1, title: 1 } }).toArray()).map(t => [t._id, t]));
+    for (const q of stops) {
+      const t = byId.get(q.taskId);
+      if (t) agents.push({ rank: 3, text: `Stopped: #${t.ref} ${neutralAlertText(t.title)}`, detail: q.detail ? neutralAlertText(q.detail) : undefined });
+    }
+  }
+  for (const p of r.couldBeRunning) agents.push({ rank: 4, text: `Could run: ${neutralAlertText(p.projectName)}`, detail: `${plural(p.unblocked, 'Next line')} ready, none running` });
+  agents.sort((a, b) => a.rank - b.rank);
+  const shown = agents.slice(0, MAX_AGENT_LINES);
+  if (shown.length) sections.push({ head: '🤖 **Agents**', rows: shown.map(a => ({ text: a.text, detail: a.detail })) });
+
+  // The header line, also the inbox body and the push text.
+  const summary = [
+    dayLabel(today),
+    allNeeds.length && `${allNeeds.length} need${allNeeds.length === 1 ? 's' : ''} you`,
+    picks.length && `${picks.length} for today`,
+    moved.length && `${plural(moved.length, 'project')} moved`,
+    (running || stalled) && [running && `${running} running`, stalled && `${stalled} stalled`].filter(Boolean).join(', '),
+  ].filter(Boolean).join(' · ');
   // The first digest says why the morning alerts changed.
   const first = !(await c.alertLog.findOne({ kind: 'digest', empty: { $ne: true } }, { projection: { _id: 1 } }));
   const empty = !sections.length;
   if (first && !empty) sections.unshift({ head: 'ℹ️ **New: your daily digest**', rows: [{ text: 'The morning alerts (due today, overdue, stalled) now come in this one message, once a day. Something that turns due, overdue or quiet later still alerts on its own.' }] });
-  return { key: x.key, kind: 'digest', ref: 0, title: 'Your daily digest', headline: 'Your daily digest', url: '/today', detail: summary, digest: { sections, summary, empty, absorb } };
+  return { key: x.key, kind: 'digest', ref: 0, title: 'Your daily digest', headline: 'Your daily digest', url: '/today', detail: summary, digest: { sections, summary, empty, absorb, needs: needAsks } };
 }
 
 /** ids: only these queue entries (the ones this run claimed); omitted = everything still unsent (dry run). */
@@ -364,10 +449,10 @@ const SECTIONS: { kind: AlertKind; head: string }[] = [
 export function formatAlerts(items: AlertItem[], baseUrl: string): string[] {
   const lines: string[] = [];
   for (const d of items.filter(i => i.kind === 'digest' && i.digest && !i.digest.empty)) {
-    lines.push('📋 **Your daily digest**', '');
+    lines.push(`📋 **${plainAlertText(d.digest!.summary)}**`, '');
     for (const sec of d.digest!.sections) {
       lines.push(sec.head);
-      for (const r of sec.rows) lines.push(`• ${r.url || r.ref ? `[${r.label ?? `#${r.ref}`}](<${baseUrl}${r.url ?? `/tasks/${r.ref}`}>) ` : ''}${plainAlertText(r.text)}${r.detail ? ` · ${plainAlertText(r.detail)}` : ''}`);
+      sec.rows.forEach((r, n) => lines.push(`${sec.numbered && (r.ref || r.url || !r.text.startsWith('+')) ? `${n + 1}.` : '•'} ${r.url || r.ref ? `[${r.label ?? `#${r.ref}`}](<${baseUrl}${r.url ?? `/tasks/${r.ref}`}>) ` : ''}${plainAlertText(r.text)}${r.detail ? ` · ${plainAlertText(r.detail)}` : ''}`));
       lines.push('');
     }
   }
@@ -525,6 +610,8 @@ export async function runAlerts(s: Scope, opts: { dryRun?: boolean; baseUrl: str
         // A Need can be answered right there: one small message per Need with its options as buttons (custom id
         // wo:need:<id>:<option>, answered through the DM path of the interactions route). App-only Needs get none.
         for (const i of items) if (i.kind === 'need' && i.needId && i.buttons?.length) await sendDm(profile.discordId, `🙋 **${i.label ?? "Need"}**: ${plainAlertText(i.title)}`.slice(0, 1900), needButtons(i.needId, i.buttons));
+        // The digest's own Needs (oldest first, at most 5; never app-only or review ones) get the same message and buttons.
+        for (const i of items) for (const n of i.digest?.needs ?? []) await sendDm(profile.discordId, `🙋 **${n.label}**: ${plainAlertText(n.title)}`.slice(0, 1900), needButtons(n.needId, n.buttons));
       } catch (e) {
         errors.push(`discord: ${e instanceof Error ? e.message : String(e)}`);
       }

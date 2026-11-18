@@ -1,4 +1,4 @@
-// Flow B4, the personal daily digest (docs/flows/plan-1-3.md slice 2), driven through the cron's ?at=. Seed profile: none.
+// Flow B4, the personal daily digest (docs/flows/plan-1-3.md slice 2; redesigned 18 Nov: Needs you, Today, Since yesterday, Agents), driven through the cron's ?at=. Seed profile: none.
 // People (one organization): ME (default 09:00), Q (quiet hours 09-12), H (digest at 14:00), O (digest switched off) and Dee
 // (quiet until 12, owner of a private project). Profiles are saved before the first cron run (the app caches them a minute).
 import { call, check, cron, db, finish, makeUser, mcpAs, mkKey, ME, rawDb, setProfile } from './lib.mjs';
@@ -29,6 +29,18 @@ const over = await mk('B4 overdue one', { project: 'B4 Alpha', due: '2026-11-10'
 const today = await mk('B4 due today one', { due: '2026-11-18' });
 const quiet = await mk('B4 gone quiet one', { project: 'B4 Alpha' });
 await tasks.updateOne({ _id: quiet.doc._id }, { $set: { status: 'In Progress', updatedAt: D('2026-11-10T06:00:00Z') } });
+const overP1 = await mk('B4 overdue P1', { project: 'B4 Alpha', due: '2026-11-10', priority: 'P1' });
+// A fixture day: two projects whose State changed yesterday, a running worker on one and a stalled (gone) one on the other.
+await call('add_project', { name: 'B4 Beta' });
+await call('save_state', { project: 'B4 Alpha', ops: [{ op: 'set_now', text: 'B4 ship the alpha' }, { op: 'add_decision', text: 'B4 go with plan A' }] });
+await call('save_state', { project: 'B4 Beta', ops: [{ op: 'add_next', text: 'B4 beta first' }, { op: 'add_next', text: 'B4 beta second' }] });
+await call('save_state', { project: 'B4 Beta', ops: [{ op: 'done_next', find: 'B4 beta first' }] });
+const projId = async name => (await rawDb.collection('projects').findOne({ orgId: ME.orgId, name }))._id;
+await rawDb.collection('states').updateMany({ projectId: { $in: [await projId('B4 Alpha'), await projId('B4 Beta')] } }, { $set: { 'log.$[].at': new Date('2026-11-17T08:00:00Z') } });
+const wKey = await mkKey({ agent: 'claude-code', name: 'B4 worker' });
+await mcpAs(wKey, 'start_work', { project: 'B4 Alpha', label: 'builder A', model: 'Opus', session: 'b4-run' });
+await mcpAs(wKey, 'start_work', { project: 'B4 Beta', label: 'builder S', model: 'Sonnet', session: 'b4-stall' });
+await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:b4-stall:${await projId('B4 Beta')}` }, { $set: { lastSeen: new Date(Date.now() - 40 * 60_000) } });
 await db.collection('alertQueue').insertOne({ _id: `claude_finished:${fin.doc._id}:b4`, userId: ME.userId, kind: 'claude_finished', taskId: fin.doc._id, byTaskId: fin.doc._id, createdAt: D('2026-11-17T20:00:00Z'), sentAt: D('2026-11-17T20:00:01Z'), detail: 'tests pass' });
 const act = (task, type, at) => db.collection('activity').insertOne({ _id: `b4-${task.ref}-${type}`, taskId: task.doc._id, taskRef: task.ref, taskTitle: task.doc.title, at: D(at), actor: { type: 'user', userId: ME.userId, name: 'E2E' }, type });
 await act(fin, 'completed', '2026-11-17T06:00:00Z');
@@ -37,7 +49,7 @@ await act(quiet, 'edit', '2026-11-17T07:00:00Z');
 // Dee's private project that moved yesterday: nobody else may see it.
 await rawDb.collection('projects').insertOne({ _id: 'b4-dee-proj', orgId: ME.orgId, ownerId: Dee.userId, visibility: 'private', name: 'B4 DEE SECRET', nameLower: 'b4 dee secret', client: '', description: '', status: 'Active' });
 await tasks.insertOne({ _id: 'b4-dee-task', ref: 9001, orgId: ME.orgId, ownerId: Dee.userId, visibility: 'private', projectId: 'b4-dee-proj', title: 'B4 secret work', status: 'In Progress', archived: false, priority: 'P3', due: null, progress: 0, createdAt: D('2026-11-17T05:00:00Z'), updatedAt: D('2026-11-17T06:00:00Z'), assigneeIds: [] });
-await rawDb.collection('activity').insertOne({ _id: 'b4-dee-act', orgId: ME.orgId, ownerId: Dee.userId, visibility: 'private', taskId: 'b4-dee-task', taskRef: 9001, taskTitle: 'B4 secret work', at: D('2026-11-17T06:00:00Z'), actor: { type: 'user', userId: Dee.userId, name: 'Dee' }, type: 'status' });
+await rawDb.collection('activity').insertOne({ _id: 'b4-dee-act', orgId: ME.orgId, ownerId: Dee.userId, visibility: 'private', taskId: 'b4-dee-task', taskRef: 9001, taskTitle: 'B4 secret work', at: D('2026-11-17T06:00:00Z'), actor: { type: 'user', userId: Dee.userId, name: 'Dee' }, type: 'completed' });
 
 // Q, H and O each have one overdue task of their own.
 const qT = await mk('B4 Q overdue', { due: '2026-11-10' }); await give(qT, Q);
@@ -51,10 +63,14 @@ const at = iso => `&at=${iso}`;
 // 1. dry run at 10:30: exactly one digest for ME, the four sections in order, first-digest line, nothing of Dee's project
 const dry = await cron('&dry=1' + at(AT));
 const text = (dry.preview ?? []).join('\n');
-const ix = ['What agents finished', 'Due and overdue', 'Gone quiet', 'Moved yesterday'].map(h => text.indexOf(h));
-check('dry: the four sections are all there, in order', ix.every(i => i >= 0) && ix.every((v, i) => i === 0 || v > ix[i - 1]), JSON.stringify(ix) + text.slice(0, 600));
+const ix = ['Today', 'Since yesterday', 'Agents'].map(h => text.indexOf(h));
+check('dry: Today, Since yesterday and Agents are there, in order (no Needs yet)', ix.every(i => i >= 0) && ix.every((v, i) => i === 0 || v > ix[i - 1]) && !/Needs you/.test(text), JSON.stringify(ix) + text.slice(0, 900));
+check('dry: the old sections are gone', !/Due and overdue|Gone quiet|What agents finished|Moved yesterday|Idle with Next work/.test(text), text.slice(0, 600));
+check('dry: the header line has the date and the counts', /📋 \*\*Wed 18 Nov · 3 for today/.test(text) && /2 projects moved/.test(text) && /1 running, 1 stalled/.test(text), text.slice(0, 300));
 check('dry: one digest for ME (Q and Dee are quiet, H waits for 14:00, O has it off)', (text.match(/Your daily digest/g) ?? []).length === 1, String((text.match(/Your daily digest/g) ?? []).length));
-check('dry: finished, overdue, due today, quiet and the project are named', [fin, over, today, quiet].every(t => text.includes(`/tasks/${t.ref}>`)) && /B4 Alpha/.test(text), text.slice(0, 600));
+check('dry: Today names the overdue P1 and the due-today task, and counts the other overdue one', [overP1, today].every(t => text.includes(`/tasks/${t.ref}>`)) && /\+1 overdue, on Today/.test(text) && !text.includes(`/tasks/${over.ref}>`), text.slice(0, 900));
+check('dry: Since yesterday has one line per project that changed (Next lines, Now, decision, tasks done)', /B4 Alpha · .*Now changed.*1 decision.*1 task done/.test(text) && /B4 Beta · .*1 Next line done.*2 added/.test(text), text.slice(0, 900));
+check('dry: Agents has the running and the stalled worker', /Running: B4 Alpha · builder A/.test(text) && /Stalled: B4 Beta · builder S .*quiet 4\d min, 1 Next line ready/.test(text), text.slice(0, 900));
 check('dry: the first digest says the morning alerts are now this digest', /New: your daily digest/.test(text));
 check("dry: another person's private project is not in it", !/DEE SECRET/.test(text));
 check('dry: nothing was claimed', (await rawDb.collection('alertLog').countDocuments({ kind: 'digest' })) === 0);
@@ -64,7 +80,7 @@ await cron(at(AT));
 check('run: ME has exactly one digest in the inbox', (await inbox(ME, 'digest')) === 1, String(await inbox(ME, 'digest')));
 check('run: no separate overdue / due today / stalled alert for ME', (await inbox(ME, 'overdue')) + (await inbox(ME, 'due_today')) + (await inbox(ME, 'stalled')) === 0);
 const row = await rawDb.collection('notifications').findOne({ userId: ME.userId, kind: 'digest' });
-check('run: the digest opens Today and has a one-line summary', row?.url === '/today' && /1 finished/.test(row.body) && /due or overdue/.test(row.body) && /quiet/.test(row.body) && /1 project moved/.test(row.body), JSON.stringify(row));
+check('run: the digest opens Today and has a one-line summary', row?.url === '/today' && /^Wed 18 Nov · /.test(row.body) && /for today/.test(row.body) && /2 projects moved/.test(row.body) && /1 running, 1 stalled/.test(row.body), JSON.stringify(row));
 check('run: the digest is claimed once for the day', (await rawDb.collection('alertLog').countDocuments({ userId: ME.userId, _id: `digest:2026-11-18:${ME.userId}` })) === 1);
 check('run: Q (quiet 09-12), H (14:00) and Dee (quiet) have nothing yet', (await inbox(Q)) === 0 && (await inbox(H)) === 0 && (await inbox(Dee)) === 0, `${await inbox(Q)} ${await inbox(H)} ${await inbox(Dee)}`);
 check('run: O has the digest off: no digest, and the old morning alert (overdue) as before', (await inbox(O, 'digest')) === 0 && (await inbox(O, 'overdue')) === 1, `${await inbox(O, 'digest')} ${await inbox(O, 'overdue')}`);
@@ -88,7 +104,7 @@ check('quiet hours: Q (09-12) at 11:45 still holds the digest', (await inbox(Q))
 await cron(at('2026-11-18T08:00:00Z'));
 check('quiet hours held it: Q gets one digest after 12:00', (await inbox(Q, 'digest')) === 1 && (await inbox(Q, 'overdue')) === 0, await titles(Q));
 const deeRow = await rawDb.collection('notifications').findOne({ userId: Dee.userId, kind: 'digest' });
-check('the owner of the private project sees it moved in her own digest (2 projects: the shared one and hers)', /2 projects moved/.test(deeRow?.body ?? ''), JSON.stringify(deeRow));
+check('the owner of the private project sees it moved in her own digest (3 projects: the two shared ones and hers)', /3 projects moved/.test(deeRow?.body ?? ''), JSON.stringify(deeRow));
 check('digestHour: H (14:00) still has nothing at 13:30', (await inbox(H)) === 0);
 await cron(at('2026-11-18T09:00:00Z'));
 check('digestHour: H gets one digest at 14:30, no separate overdue', (await inbox(H, 'digest')) === 1 && (await inbox(H, 'overdue')) === 0, `${await titles(H)}`);
@@ -96,7 +112,7 @@ check('digestHour: H gets one digest at 14:30, no separate overdue', (await inbo
 // 6. next day: a new digest, without the first-digest line and without yesterday's finished run
 const dry2 = await cron('&dry=1' + at('2026-11-19T05:00:00Z'));
 const t2 = (dry2.preview ?? []).join('\n');
-check('next day: a digest with Due and overdue, but no first-digest line and no finished section', /Due and overdue/.test(t2) && !/New: your daily digest/.test(t2) && !/What agents finished/.test(t2), t2.slice(0, 500));
+check('next day: a digest with Today, but no first-digest line and nothing moved since the last one', /Today/.test(t2) && /Thu 19 Nov/.test(t2) && !/New: your daily digest/.test(t2) && !/Since yesterday/.test(t2), t2.slice(0, 500));
 await cron(at('2026-11-19T05:00:00Z'));
 check('next day: ME has two digests in all', (await inbox(ME, 'digest')) === 2, String(await inbox(ME, 'digest')));
 
@@ -121,9 +137,8 @@ const needR = await mcpAs(codeKey, 'ask', { project: 'B4 Alpha', to: 'me', kind:
 check('needs: the ask went through', !needR.isError, needR.text.slice(0, 200));
 const dry3 = await cron('&dry=1' + at('2026-11-24T05:00:00Z'));
 const t3 = (dry3.preview ?? []).join('\n');
-const i3 = ['Needs you', 'Due and overdue'].map(h => t3.indexOf(h));
-check('needs: "Needs you" is the first section of the digest, above Due and overdue', i3[0] >= 0 && i3[1] > i3[0] && /B4 may I ship/.test(t3) && /\/today#need-/.test(t3), t3.slice(0, 500));
-check('needs: no "Idle with Next work" section yet (the roster builder supplies it)', !/Idle with Next work/.test(t3));
+const i3 = ['Needs you', 'Today'].map(h => t3.indexOf(h));
+check('needs: "Needs you" is the first section of the digest, above Today, with its project and the buttons hint', i3[0] >= 0 && i3[1] > i3[0] && /B4 Alpha: B4 may I ship/.test(t3) && /\/today#need-/.test(t3) && /buttons below/.test(t3), t3.slice(0, 500));
 await cron(at('2026-11-24T05:00:00Z'));
 const row3 = await rawDb.collection('notifications').findOne({ userId: ME.userId, kind: 'digest' }, { sort: { createdAt: -1 } });
 check('needs: the digest summary counts it', /1 needs? you/.test(row3?.body ?? ''), JSON.stringify(row3?.body));
