@@ -16,9 +16,9 @@ try {
     await p.goto(B + '/menu'); await settle(p);
     check("menu: no dot on What's new", (await p.locator('main a[href="/whats-new"] [data-new-dot]').count()) === 0);
     await p.goto(B + '/whats-new'); await settle(p);
-    // The four of 2026-11-15, the hook sign-in and digest (2026-11-18) and Activity (2026-11-19); Mail and the report
+    // The four of 2026-11-15, the hook sign-in and digest (2026-11-18) and Activity, typed Needs answers and end_work (2026-11-19); Mail and the report
     // intake are not set up here.
-    check("whats-new: still lists every entry", (await p.locator('[data-whats-new-entry]').count()) === 7);
+    check("whats-new: still lists every entry", (await p.locator('[data-whats-new-entry]').count()) === 9);
     check('whats-new: none marked "New"', (await p.locator('[data-new-badge]').count()) === 0);
     await ctx.close();
   }
