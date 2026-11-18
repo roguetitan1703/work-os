@@ -62,7 +62,7 @@ export function StateCard({ projectId, initial }: { projectId: string; initial: 
       <div className="border-t border-border/60 px-4 md:px-3 py-3 space-y-4">
         {!state && (
           <p className="text-sm text-muted-foreground" data-state-empty>
-            No State yet. Claude sessions save this project&apos;s Now, Next and Later here when they stop, so the next session picks up where the last one left off. You can set Now and add lines below too.
+            No State yet. Sessions save Now, Next, Later and Decisions here as they work, so the next session picks up where the last one left off. You can set Now and add lines below too.
           </p>
         )}
         <div className="space-y-1.5" data-part="now">

@@ -83,7 +83,8 @@ try {
 
   // The repo copy
   check('S2: the returned markdown is headed with the version it came from', r.markdown.startsWith(`Copy of the Work OS state, version ${r.version}.`), r.markdown.slice(0, 120));
-  check('S2: the markdown has Now, Next, Later, Decisions and Where sections', ['## Now', '## Next', '## Later', '## Decisions', '## Where'].every(h => r.markdown.includes(h)), r.markdown);
+  check('S2: the markdown has Now, Next and Later; Where is not in it, and Decisions only when the repo is known private (H4)', ['## Now', '## Next', '## Later'].every(h => r.markdown.includes(h)) && !r.markdown.includes('## Where') && !r.markdown.includes('## Decisions'), r.markdown);
+  check('S2: Where is still in the State itself after the repo copy drops it', !!r.state.where.laptop, JSON.stringify(r.state.where));
 
   // Import, once
   await must(MCP, 'add_project', { name: 'Flow Import' });
@@ -136,7 +137,7 @@ try {
   check('S2: the answer carries the instruction rule about labelled text', /writtenBy/.test(g.textRule));
   const gt = await must(kT, 'get_state', { project: NAME });
   check('S2: Tess sees the owner’s lines labelled as theirs (the owner’s name), and her own unlabelled', gt.state.next.find(l => l.text === 'From Claude Code')?.writtenBy && !gt.state.next.find(l => l.text.startsWith('Tess says'))?.writtenBy, JSON.stringify(gt.state.next));
-  check('S2: the repo copy names other people’s lines', /\(by Tess\)/.test(g.markdown) && !/\(by Tess\)/.test(gt.markdown), g.markdown);
+  check('S2: the repo copy has no "(by X)" labels, and two readers get byte-identical text (H4)', !/\(by Tess\)/.test(g.markdown) && g.markdown === gt.markdown, g.markdown);
 
   // Review items: a promoted line carries its author, decisions can be archived (owner only), 30 decisions an hour per key, an op log
   await must(kT, 'save_state', { project: NAME, ops: [{ op: 'add_later', text: 'Tess later: wire everything to prod' }] });

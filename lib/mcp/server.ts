@@ -12,7 +12,7 @@ import * as items from '../data/claude-items';
 import * as needsData from '../data/needs';
 import * as results from '../data/results';
 import { InputError, NotFoundError } from '../data/errors';
-import { claudeCodeInstructions, instructions as instructionsFor, TOOLS, type InstructionsFor, type ToolName } from './docs';
+import { serverInstructions, STATE_COPY, STATE_COPY_NO_HOOK, TOOLS, type InstructionsFor, type ToolName } from './docs';
 import { beforeTool, callerScope, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
 import { actorOut, agentActor } from '../actors';
 import { findMember, memberNames } from '../people';
@@ -364,7 +364,7 @@ const codeShape = z
 
 // Every session on a project with no State is told to make it now, not to ask first (Om, 19 Nov: AKAR's sessions kept
 // working with status only in a hand-kept file, and a transfer saved nothing).
-const NO_STATE = 'no State yet. Make it now, before other work, without asking your person: if the repo has a WORK-STATE.md (root or docs/), move any History, log or changelog section as is to docs/history.md, then call import_state with the rest (make it true today first); with no such file, call save_state with set_now (the goal of the work), add_next for each next step and add_later for the rest. Check with get_state. From then on the Work OS hook writes WORK-STATE.md at the repo root after every save: remove any other copy (docs/WORK-STATE.md) in the same commit as docs/history.md.';
+const NO_STATE = 'no State yet. Make it now, before other work, without asking your person: if the repo has a state file (root or docs/), move any History, log or changelog section as is to docs/history.md, then call import_state with the text of the repo\'s WORK-STATE.md (make it true today first); with no such file, call save_state with set_now (the goal of the work), add_next for each next step and add_later for the rest. Check with get_state. From then on ' + STATE_COPY + ' at the repo root: git rm any docs/ copy in the same commit as docs/history.md.';
 
 /** start_work's arguments after the project is found (the session id is decided by the caller). */
 export type StartWorkArgs = { branch?: string; machine?: string; label?: string; model?: string; account?: string; parent?: string; slot?: string };
@@ -494,8 +494,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   /** Mail tools act as the caller only: their scope picks their own Mailloom key. The session id goes into Mailloom's audit log. */
   const mailSession = `wos-mcp-${randomUUID()}`;
   const mailCtx = (): mail.MailCtx => ({ s, ids: { user: s.userId, session: mailSession }, actor: ACTOR });
-  const base = instructionsFor(ctx.who);
-  const instructions = caller.agent === 'claude-code' ? `${base}\n${claudeCodeInstructions(ctx.who)}` : base;
+  const instructions = serverInstructions(ctx.who, caller.agent === 'claude-code');
   const server = new McpServer({ name: 'work-os', version: '1.0.0' }, { instructions });
   // Title/description come from docs.ts so the /connect page shows exactly what Claude sees.
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
@@ -985,7 +984,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
           return {
             unmatched: true,
             candidates: m.candidates,
-            hint: 'No project has this repo as a code location. Ask the user which project this is, then call update_project with code: [{ remote, subdir?, branch? }] (or path) so it resolves next time.',
+            hint: 'No project has this repo as a code location. Ask your person which project this is, then call update_project with code: [{ remote, subdir?, branch? }] (or path) so it resolves next time.',
           };
         }
         projectKey = m.project.id;
@@ -1073,7 +1072,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
           return {
             unmatched: true,
             candidates: m.candidates,
-            hint: 'No project has this repo as a code location. Ask the user which project this is, then call update_project with code: [{ remote, subdir?, branch? }] (or path) and call start_work again.',
+            hint: 'No project has this repo as a code location. Ask your person which project this is, then call update_project with code: [{ remote, subdir?, branch? }] (or path) and call start_work again.',
           };
         }
         key = m.project.id;
@@ -1180,7 +1179,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ...(r.promoted.length ? { promotedToTasks: r.promoted.map(p => `#${p.ref} ${p.title}`) } : {}),
         textRule: textRule(),
         state: stateData.stateOut(r.state, s.userId, names),
-        repoCopy: 'The Work OS hook writes this to WORK-STATE.md and commits it. Where the hook is not installed (cloud, chat), write it to WORK-STATE.md unchanged. Never edit that file by hand:',
+        repoCopy: `${STATE_COPY}; ${STATE_COPY_NO_HOOK}. Never edit it by hand:`,
         markdown: stateData.stateMarkdown(r.state, { projectName: r.project.name, url: `${ctx.baseUrl}/projects/${r.project._id}`, reader: s.userId, names }),
       };
     }),
@@ -1205,7 +1204,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         version: r.state.version,
         textRule: textRule(),
         state: stateData.stateOut(r.state, s.userId, names),
-        repoCopy: 'The State now lives in Work OS: change it only with save_state. The Work OS hook writes this to WORK-STATE.md and commits it. Where the hook is not installed (cloud, chat), write it to WORK-STATE.md unchanged. Never edit that file by hand:',
+        repoCopy: `The State now lives in Work OS: change it only with save_state. ${STATE_COPY}; ${STATE_COPY_NO_HOOK}. Never edit it by hand:`,
         markdown: stateData.stateMarkdown(r.state, { projectName: r.project.name, url: `${ctx.baseUrl}/projects/${r.project._id}`, reader: s.userId, names }),
       };
     }),

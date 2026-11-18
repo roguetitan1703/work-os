@@ -886,6 +886,8 @@ async function updateTaskCore(s: Scope, key: string | number, data: ReturnType<t
   }
 
   if (statusChanged && CLOSED_STATUSES.includes(status) && isOpen(cur.status)) await queueUnblocked(s, next);
+  // Its line on a State's Next list finishes with it (dynamic import: states.ts imports this file).
+  if (statusChanged && CLOSED_STATUSES.includes(status) && isOpen(cur.status)) await (await import('./states')).closeNextForTask(c, s, next.ref, status as 'Done' | 'Dropped', actor);
   for (const a of added) await queueAssigned(s, next, a, actor);
   if (tookBack) next.claude = (await c.tasks.findOne({ _id: cur._id }, { projection: { claude: 1 } }))?.claude ?? next.claude;
   // A task someone gave to Claude: Done or Blocked ends the dispatcher's run (docs/dispatcher.md).

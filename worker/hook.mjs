@@ -205,7 +205,7 @@ export async function stop(input) {
   } catch {}
   if (saved) { writeMarker(sid, { ...m, status: now, offset: sizeOf(f) }); return null; }
   writeMarker(sid, { ...m, stopped: true, offset: sizeOf(f) });
-  return { decision: 'block', reason: 'Files changed in this session and the Work OS State was not saved since. Call save_state (pass the session id from start_work) with what is now true: Now, Next, Later, any decision. Then finish. Asked once until the next save.' };
+  return { decision: 'block', reason: 'Files changed in this session and the State was not saved since. Call save_state (with the session id from start_work) with what is now true: Now, Next, Later and any decision. Then finish. Asked once until the next save.' };
 }
 const SAVE_CALL = /"name"\s*:\s*"mcp__[^"]+__(save_state|import_state)"/;
 
@@ -221,7 +221,7 @@ const COPY = 'WORK-STATE.md';
 const COPY_HEAD = /^Copy of the Work OS state, version (\d+)\./;
 const STAMP = /\n?<!-- work-os-copy sha1:([0-9a-f]{40}) -->\s*$/;
 const sha1 = (s) => createHash('sha1').update(s).digest('hex');
-const COPY_REASON = 'WORK-STATE.md is a copy of the Work OS State, written by the Work OS hook after every save_state. Do not edit it: change the State with save_state (set_now, add_next, done_next, add_later, add_decision, set_where) and the file updates and commits itself. If get_state says "no State yet", make it now without asking: move any History or log section to docs/history.md, import_state the rest (19 Nov: AKAR was refused here with no State and stopped).';
+const COPY_REASON = 'WORK-STATE.md is a copy of the State, written by the Work OS hook after every save_state; never edit it. Change the State with save_state (set_now, add_next, done_next, edit_line, add_later, add_decision) and the file follows. If get_state says "no State yet", make it now as its answer says.';
 
 /** True when a Bash or PowerShell command writes to WORK-STATE.md (redirect, tee, sed -i, Set-Content, cp/mv onto it). */
 export function writesCopy(cmd) {
@@ -296,7 +296,7 @@ function copyState(input, cwd) {
       const only = old.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#') && !COPY_HEAD.test(l) && !have.has(l) && !STAMP.test(l));
       const bak = path.join(markerDir(), 'copies', `${path.basename(top).replace(/[^\w.-]/g, '_')}-${Date.now()}.md`);
       try { fs.mkdirSync(path.dirname(bak), { recursive: true }); fs.writeFileSync(bak, old); } catch {}
-      if (only.length) notes.push(`WORK-STATE.md had ${only.length} line(s) that are not in the Work OS State. The old file is kept at ${bak} (and in git history). Add the ones still true with save_state; do not edit the file:\n` + only.slice(0, 40).map((l) => '  ' + l.slice(0, 300)).join('\n') + (only.length > 40 ? `\n  ...and ${only.length - 40} more in the kept file` : ''));
+      if (only.length) notes.push(`The old WORK-STATE.md had ${only.length} line(s) that are not in the State. It is kept at ${bak} (and in git history). Add the ones still true with save_state:\n` + only.slice(0, 40).map((l) => '  ' + l.slice(0, 300)).join('\n') + (only.length > 40 ? `\n  ...and ${only.length - 40} more in the kept file` : ''));
     }
   }
   fs.writeFileSync(file, next);

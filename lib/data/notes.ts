@@ -377,7 +377,7 @@ async function guardBoilerplate(s: Scope, actor: Actor, ids: (string | null | un
   const notes = await (await scoped(s)).notes.find({ _id: { $in: list } }, { projection: { ownerId: 1 } }).toArray();
   for (const n of notes) {
     const chosen = await usersWithSetting(s.orgId, 'dispatcher', { userId: n.ownerId, boilerplateNoteId: n._id });
-    if (chosen.length && !(isPerson(actor) && actor.userId === n.ownerId)) throw new InputError("This note is a dispatcher's boilerplate; only the person who chose it can change it, in the app");
+    if (chosen.length && !(isPerson(actor) && actor.userId === n.ownerId)) throw new InputError("This note is the one a dispatcher's sessions read first; only the person who chose it can change it, in the app");
   }
 }
 

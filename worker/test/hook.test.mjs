@@ -321,13 +321,13 @@ test('PostToolUse writes WORK-STATE.md from save_state and commits that file alo
 test('a hand-kept WORK-STATE.md is replaced, kept outside the repo, and its extra lines listed', async () => {
   fs.writeFileSync(copyFile, md(5, '\n## Later (not in Work OS)\n- a line only in the file\n'));
   const ctx = JSON.parse(await post(md(6), repo, 'scopy')).hookSpecificOutput.additionalContext;
-  assert.match(ctx, /1 line\(s\) that are not in the Work OS State/);
+  assert.match(ctx, /1 line\(s\) that are not in the State/);
   assert.match(ctx, /a line only in the file/);
   const bak = ctx.match(/kept at (.+?) \(/)[1];
   assert.match(fs.readFileSync(bak, 'utf8'), /a line only in the file/);
   assert.doesNotMatch(fs.readFileSync(copyFile, 'utf8'), /only in the file/);
   // the next save of a clean copy lists nothing
-  assert.doesNotMatch(JSON.parse(await post(md(7, '- seven\n'), repo, 'scopy')).hookSpecificOutput.additionalContext, /not in the Work OS State/);
+  assert.doesNotMatch(JSON.parse(await post(md(7, '- seven\n'), repo, 'scopy')).hookSpecificOutput.additionalContext, /not in the State/);
 });
 
 test('builder worktrees and merges in progress: no copy in a worktree, no commit during a merge', async () => {

@@ -7,7 +7,7 @@ import { scoped, type Scope } from '../scope';
 import { isPerson, userActor, type Actor } from '../actors';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, resolveProject } from './projects';
-import { createTask, logChange } from './tasks';
+import { completeTask, createTask, getTask, logChange } from './tasks';
 import type { Priority } from '../types';
 
 // The project's State (docs/flows/step-1.md section 1): Now (one goal), Next (ordered), Later (one line each, with what it
@@ -15,8 +15,8 @@ import type { Priority } from '../types';
 // (`_id` = the project id) stamped with the project's placement, so the door shows it to the project's readers only
 // (and lib/data/projects.ts setProjectPlacement moves it with the project).
 //
-// Writes: set_now, move_next and done_next need base_version (the version the writer read); if it is stale nothing is
-// written and the current State comes back. Appends (add_next, add_later, add_decision) and set_where are $push / $set
+// Writes: set_now needs base_version (the version the writer read); if it is stale nothing is written and the current State
+// comes back. Every other op names its line (id or find) and is checked per line: the text or id must still be there. Appends (add_next, add_later, add_decision) and set_where are $push / $set
 // on their own field, so two sessions' appends both land. The whole call is one transaction: of two calls that meet,
 // one is retried by the driver.
 
@@ -40,7 +40,8 @@ export const StateOpSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('archive_decision'), id: lineId, find: findText }),
   // Replaces `find` with `new` inside the one Now, Next or Later line that holds it. An empty `new` removes the line
   // (Next: done, Later: dropped; both stay in the history). The edited line becomes the caller's.
-  z.object({ op: z.literal('edit_line'), find: z.string().min(1).max(LIMITS.line), new: z.string().max(LIMITS.line) }),
+  // `id` (optional) narrows the search to that Next or Later line, which must hold `find`.
+  z.object({ op: z.literal('edit_line'), find: z.string().min(1).max(LIMITS.line), new: z.string().max(LIMITS.line), id: lineId }),
   z.object({
     op: z.literal('set_where'),
     machine: z.string().trim().min(1).max(40),
@@ -52,8 +53,8 @@ export const StateOpSchema = z.discriminatedUnion('op', [
 ]);
 export type StateOp = z.infer<typeof StateOpSchema>;
 export const StateOpsSchema = z.array(StateOpSchema).min(1).max(30);
-/** The ops that need base_version: they overwrite what a teammate may have just changed. */
-const VERSIONED = new Set(['set_now', 'move_next', 'done_next', 'edit_line']);
+/** The ops that need base_version: set_now overwrites what a teammate may have just changed. The others are checked per line. */
+const VERSIONED = new Set(['set_now']);
 
 export type Via = 'chat' | 'code' | 'app' | 'discord';
 
@@ -74,17 +75,33 @@ export async function stateOfProject(s: Scope, projectId: string): Promise<State
 
 export type SaveResult =
   | { conflict: true; state: StateDoc | null; project: ProjectDoc }
-  | { conflict?: false; state: StateDoc; project: ProjectDoc; done: string[]; dropped: string[]; promoted: { ref: number; title: string }[] };
+  | {
+      conflict?: false;
+      state: StateDoc;
+      project: ProjectDoc;
+      done: string[];
+      dropped: string[];
+      promoted: { ref: number; title: string }[];
+      /** Tasks whose Next line was finished here and that are now Done. */
+      closedTasks: number[];
+      /** Tasks whose Next line was finished here but that went to review (an agent finishing code, data or client work). */
+      sentForReview: number[];
+      /** Tasks that could not be closed: "#13: reason". */
+      leftOpen: string[];
+    };
 
 export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o: { baseVersion?: number; actor: Actor; via: Via; msg?: { id: string; author: string; word: string } }): Promise<SaveResult> {
   const ops = StateOpsSchema.parse(rawOps);
-  return inTransaction(async () => {
+  // Refs of Next lines finished by this call: their tasks finish after the transaction (the line is gone already, so there is no loop back).
+  const doneRefs: number[] = [];
+  const r = await inTransaction(async () => {
+    doneRefs.length = 0;
     const c = await scoped(s);
     const project = await resolveProject(c, s, projectKey, { create: false });
     if (!project) throw new NotFoundError(`Project "${projectKey.trim().slice(0, 120)}" not found`);
     let cur = await c.states.findOne({ _id: project._id });
     if (ops.some(x => VERSIONED.has(x.op))) {
-      if (o.baseVersion === undefined) throw new InputError('set_now, move_next, done_next and edit_line need base_version: the version of the State you read (start_work, get_state and every save_state answer carry it).');
+      if (o.baseVersion === undefined) throw new InputError('set_now needs base_version: the version of the State you read (start_work, get_state and every save_state answer carry it).');
       // Nothing is written; the caller merges and retries.
       if ((cur?.version ?? 0) !== o.baseVersion) return { conflict: true as const, state: cur, project };
     }
@@ -133,20 +150,20 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     };
     type Hit = { where: string; line?: StateLine; i: number; id?: string; text: string };
     // The one line holding `find` (case-sensitive substring) among the given lists; zero or several matches throw, naming the candidates.
-    const findLine = (find: string, where: ('Now' | 'Next' | 'Later' | 'Decisions')[]): Hit => {
+    const findLine = (find: string, where: ('Now' | 'Next' | 'Later' | 'Decisions')[], onlyId?: string): Hit => {
       const hits: Hit[] = [];
       const cn = nowSet ?? cur!.now;
-      if (where.includes('Now') && cn && cn.text.includes(find)) hits.push({ where: 'Now', i: 0, text: cn.text });
-      if (where.includes('Next')) next.forEach((l, i) => l.text.includes(find) && hits.push({ where: 'Next', line: l, i, id: l.id, text: l.text }));
-      if (where.includes('Later')) later.forEach((l, i) => l.text.includes(find) && hits.push({ where: 'Later', line: l, i, id: l.id, text: l.text }));
+      if (where.includes('Now') && !onlyId && cn && cn.text.includes(find)) hits.push({ where: 'Now', i: 0, text: cn.text });
+      if (where.includes('Next')) next.forEach((l, i) => l.text.includes(find) && (!onlyId || l.id === onlyId) && hits.push({ where: 'Next', line: l, i, id: l.id, text: l.text }));
+      if (where.includes('Later')) later.forEach((l, i) => l.text.includes(find) && (!onlyId || l.id === onlyId) && hits.push({ where: 'Later', line: l, i, id: l.id, text: l.text }));
       if (where.includes('Decisions')) decisionsAll.forEach((d, i) => !d.archivedAt && d.text.includes(find) && hits.push({ where: 'Decisions', i, id: d.id, text: d.text }));
       const quote = (t: string) => `"${t.length > 80 ? t.slice(0, 77) + '...' : t}"`;
-      if (!hits.length) throw new InputError(`find ${quote(find)} matches no line in ${where.join(', ')} (case-sensitive; read the State again). Nothing was written.`);
+      if (!hits.length) throw new InputError(`find ${quote(find)} matches no line in ${onlyId ? `line ${onlyId}` : where.join(', ')} (case-sensitive; read the State again). Nothing was written.`);
       if (hits.length > 1) throw new InputError(`find ${quote(find)} matches ${hits.length} lines: ${hits.slice(0, 6).map(h => `${h.where} ${quote(h.text)}`).join('; ')}. Use more of the line's text so it matches one. Nothing was written.`);
       return hits[0];
     };
     for (const [oi, op] of ops.entries()) {
-      if (op.op !== 'edit_line' && 'find' in op) {
+      if (op.op === 'move_next' || op.op === 'done_next' || op.op === 'promote_later' || op.op === 'archive_decision') {
         if (op.find !== undefined && op.id) throw new InputError(`${op.op}: give id or find, not both.`);
         if (op.find === undefined && !op.id) throw new InputError(`${op.op} needs id or find.`);
       }
@@ -174,6 +191,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           nextEdited = true;
           const l = take(next, op.find !== undefined ? findLine(op.find, ['Next']).id! : op.id!, 'Next');
           log[oi].id = l.id;
+          if (l.ref) doneRefs.push(l.ref);
           done.push(l.text);
           feed.push({ type: 'next_done', text: l.text, by: l.by });
           break;
@@ -211,7 +229,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           break;
         }
         case 'edit_line': {
-          const h = findLine(op.find, ['Now', 'Next', 'Later']);
+          const h = findLine(op.find, ['Now', 'Next', 'Later'], op.id);
           const replaced = h.text.replace(op.find, () => op.new).trim();
           if (h.where === 'Now') {
             if (!replaced) throw new InputError('Now cannot be removed: replace it with set_now.');
@@ -228,6 +246,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           if (!replaced) {
             list.splice(h.i, 1);
             (h.where === 'Next' ? done : dropped).push(h.text);
+            if (h.where === 'Next' && h.line!.ref) doneRefs.push(h.line!.ref);
             if (h.where === 'Next') feed.push({ type: 'next_done', text: h.text, by: h.line!.by });
           } else {
             const { src: oldSrc, ...rest } = h.line!;
@@ -261,13 +280,62 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     // Placed like the State (its project's readers), and moved with the project (setProjectPlacement, by projectId).
     for (const f of feed) await logChange(c, cur, o.actor, f.type, { subject: { kind: 'state', id: project._id, title: 'State' }, projectId: project._id, note: f.text, ...(f.by ? { textBy: f.by } : {}), at: now });
     const state = (await c.states.findOne({ _id: cur._id }))!;
-    return { state, project, done, dropped, promoted };
+    return { state, project, done, dropped, promoted, closedTasks: [] as number[], sentForReview: [] as number[], leftOpen: [] as string[] };
   });
+  if (r.conflict || !doneRefs.length) return r;
+  // A Next line with a task ref finishes its task. A person closes it; an agent closing code, data or client work opens a review instead.
+  for (const ref of [...new Set(doneRefs)]) {
+    try {
+      const t = await getTask(s, ref);
+      if (!t || t.status === 'Done' || t.status === 'Dropped') continue;
+      const closed = await completeTask(s, ref, 'Its Next line was finished in the State', o.actor);
+      (closed.status === 'Done' ? r.closedTasks : r.sentForReview).push(ref);
+    } catch (e) {
+      r.leftOpen.push(`#${ref}: ${e instanceof Error ? e.message : 'could not be closed'}`);
+    }
+  }
+  return r;
+}
+
+/**
+ * A task ended (Done or Dropped): its Next lines come off every State the caller can read, whatever the project. One version
+ * bump, a log entry and a feed row per State. Runs in the caller's transaction (tasks.ts updateTaskCore). A State the
+ * closer cannot read is left alone.
+ */
+export async function closeNextForTask(c: Awaited<ReturnType<typeof scoped>>, s: Scope, ref: number, status: 'Done' | 'Dropped', actor: Actor): Promise<void> {
+  const states = await c.states.find({ 'next.ref': ref }).toArray();
+  const rc = requestContext();
+  for (const st of states) {
+    const gone = st.next.filter(l => l.ref === ref);
+    if (!gone.length) continue;
+    const now = new Date();
+    const log = gone.map(l => ({ at: now, by: s.userId, ...(rc.keyId ? { key: rc.keyId } : {}), ...(rc.src ? { src: rc.src } : {}), via: isPerson(actor) ? 'app' : 'code', op: 'task_closed', id: l.id }));
+    const u = await c.states.updateOne(
+      { _id: st._id, version: st.version },
+      { $set: { next: st.next.filter(l => l.ref !== ref), updatedAt: now }, $inc: { version: 1 }, $push: { log: { $each: log, $slice: -200 } } } as never,
+    );
+    if (!u.matchedCount) continue;
+    for (const l of gone) await logChange(c, st, actor, 'next_done', { subject: { kind: 'state', id: st.projectId, title: 'State' }, projectId: st.projectId, note: `Closed with #${ref} (${status}): ${l.text}`, at: now });
+  }
+}
+
+/**
+ * Where a session works: branch, head, uncommitted changes, worktrees. Written by the start hook, not by a save: no version
+ * bump, no log, no feed (so a start never makes another session's version stale). At most 40 machines.
+ */
+export async function setWhere(s: Scope, projectId: string, machine: string, w: { branch?: string; head?: string; dirty?: boolean; worktrees?: string[] }): Promise<void> {
+  const c = await scoped(s);
+  const key = machineKey(machine);
+  const cur = await c.states.findOne({ _id: projectId }, { projection: { where: 1 } });
+  if (!cur) return; // no State yet: nothing to attach it to
+  if (!Object.hasOwn(cur.where ?? {}, key) && Object.keys(cur.where ?? {}).length >= 40) return;
+  const entry = { ...(w.branch ? { branch: w.branch.slice(0, 200) } : {}), ...(w.head ? { head: w.head.slice(0, 80) } : {}), ...(w.dirty !== undefined ? { dirty: w.dirty } : {}), ...(w.worktrees ? { worktrees: w.worktrees.slice(0, 20).map(x => x.slice(0, 200)) } : {}), at: new Date(), by: s.userId };
+  await c.states.updateOne({ _id: projectId }, { $set: { [`where.${key}`]: entry } } as never);
 }
 
 // ── Import: a repo's WORK-STATE.md, once ────────────────────────────────────
 
-export type ParsedWorkState = { now: string; next: { text: string; waitsOn?: string }[]; later: { text: string; waitsOn?: string }[]; skipped: { section: string; lines: number }[] };
+export type ParsedWorkState = { now: string; next: { text: string; waitsOn?: string }[]; later: { text: string; waitsOn?: string }[]; skipped: { section: string; lines: number }[]; /** Lines (and Now) that were over the limit and cut. */ shortened: number };
 
 /** Sections that are a record of the past, not the plan: never imported (they would flood Later). They belong in docs/history.md. */
 const PAST = /^(history|log|changelog|change log|changes|done|completed|shipped|archive|journal|timeline|session log|progress log|releases?)\b/i;
@@ -276,27 +344,29 @@ const BULLET = /^\s{0,3}(?:[-*+]|\d+[.)])\s+(.*)$/;
 const HEADING = /^#{1,6}\s+(.*?)\s*#*\s*$/;
 const WAITS = /\s+[—–-]{1,2}\s+(?:waits|waiting) on\s+(.+?)\.?\s*$/i;
 
-function chunk(t: string): string[] {
-  const out: string[] = [];
-  let rest = t.trim();
-  while (rest.length > LIMITS.line) {
-    let cut = rest.lastIndexOf(' ', LIMITS.line);
-    if (cut < LIMITS.line / 2) cut = LIMITS.line;
-    out.push(rest.slice(0, cut).trim());
-    rest = rest.slice(cut).trim();
-  }
-  if (rest) out.push(rest);
-  return out;
+/**
+ * A line within the limit is kept whole. A longer one is cut after the last sentence end (. ! ? or ; before a space) that
+ * fits, if that keeps at least 40% of the limit; else at the last space, with an ellipsis. The rest is dropped, never made
+ * into a new line.
+ */
+export function fitLine(raw: string, max: number): { text: string; cut: boolean } {
+  const s = raw.trim();
+  if (s.length <= max) return { text: s, cut: false };
+  let end = -1;
+  for (const m of s.slice(0, max + 1).matchAll(/[.!?;](?=\s)/g)) end = m.index! + 1;
+  if (end >= max * 0.4) return { text: s.slice(0, end).trim(), cut: true };
+  const sp = s.lastIndexOf(' ', max - 1);
+  return { text: (s.slice(0, sp > 0 ? sp : max - 1).trimEnd() + '\u2026').slice(0, max), cut: true };
 }
 
-/** Now / Next / Later sections of a WORK-STATE.md. Lines that fit nowhere (other sections, text before the first heading) come back as Later lines, so nothing is lost; History, log and similar sections (PAST) are skipped and counted. */
+/** Now / Next / Later sections of a WORK-STATE.md. Lines in other sections come back as Later lines, so nothing is lost; text above Now is skipped and counted; History, log and similar sections (PAST) are skipped and counted. */
 export function parseWorkState(md: string): ParsedWorkState {
   type Sec = 'pre' | 'now' | 'next' | 'later' | 'other' | 'past';
   let sec: Sec = 'pre';
   let other = '';
   const skipped: { section: string; lines: number }[] = [];
   let level = 0; // heading level of the skipped section: deeper headings stay inside it
-  const items: Record<'now' | 'next' | 'later' | 'stray', string[]> = { now: [], next: [], later: [], stray: [] };
+  const items: Record<'now' | 'next' | 'later' | 'stray' | 'above', string[]> = { now: [], next: [], later: [], stray: [], above: [] };
   const last: { at: { into: keyof typeof items; i: number } | null } = { at: null };
   const add = (into: keyof typeof items, t: string) => {
     items[into].push(t.trim());
@@ -329,26 +399,33 @@ export function parseWorkState(md: string): ParsedWorkState {
       continue;
     }
     if (/^[>_*\s]*Copy of the Work OS state/i.test(raw)) continue; // the header save_state writes
-    const target: keyof typeof items = sec === 'now' ? 'now' : sec === 'next' ? 'next' : sec === 'later' ? 'later' : 'stray';
+    const target: keyof typeof items = sec === 'now' ? 'now' : sec === 'next' ? 'next' : sec === 'later' ? 'later' : sec === 'pre' ? 'above' : 'stray';
     const prefix = sec === 'other' && other ? `[${other}] ` : '';
     const b = raw.match(BULLET);
     if (b && !/^\s{2,}/.test(raw)) add(target, prefix + b[1]);
     else if (last.at && last.at.into === target) items[last.at.into][last.at.i] += ' ' + raw.trim().replace(BULLET, '$1'); // an indented or wrapped line belongs to the item above
     else add(target, prefix + raw.trim());
   }
-  const lines = (list: string[]) => list.flatMap(chunk).map(t => ({ text: t, ...(WAITS.exec(t) ? { waitsOn: WAITS.exec(t)![1].slice(0, 200) } : {}) }));
-  const nowText = items.now.join(' ');
-  const nowChunks = chunk(nowText);
+  let shortened = 0;
+  const fit = (text: string, max: number) => {
+    const f = fitLine(text, max);
+    if (f.cut) shortened++;
+    return f.text;
+  };
+  const lines = (list: string[]) => list.map(x => fit(x, LIMITS.line)).map(x => ({ text: x, ...(WAITS.exec(x) ? { waitsOn: WAITS.exec(x)![1].slice(0, 200) } : {}) }));
+  if (items.above.length) skipped.push({ section: 'Text above Now', lines: items.above.length });
+  // What does not fit stays whole: Next lines past the cap and stray lines go to Later. A cut line's rest is dropped, never a new line.
+  const nextAll = lines(items.next);
   return {
-    now: nowChunks[0]?.slice(0, LIMITS.now) ?? '',
-    // What does not fit stays: the rest of Now's text, then Next lines past the cap, then stray lines, all as Later.
-    next: lines(items.next).slice(0, LIMITS.next),
-    later: [...lines(nowChunks.slice(1)), ...lines(items.next).slice(LIMITS.next), ...lines(items.later), ...lines(items.stray)].slice(0, LIMITS.later),
+    now: fit(items.now.join(' '), LIMITS.now),
+    next: nextAll.slice(0, LIMITS.next),
+    later: [...nextAll.slice(LIMITS.next), ...lines(items.later), ...lines(items.stray)].slice(0, LIMITS.later),
     skipped,
+    shortened,
   };
 }
 
-export async function importState(s: Scope, projectKey: string, markdown: string, o: { actor: Actor }): Promise<{ state: StateDoc; project: ProjectDoc; imported: { now: boolean; next: number; later: number }; skipped: ParsedWorkState['skipped'] }> {
+export async function importState(s: Scope, projectKey: string, markdown: string, o: { actor: Actor }): Promise<{ state: StateDoc; project: ProjectDoc; imported: { now: boolean; next: number; later: number }; skipped: ParsedWorkState['skipped']; shortened: number }> {
   if (!markdown.trim()) throw new InputError('markdown is empty');
   if (markdown.length > 200_000) throw new InputError('markdown is over 200,000 characters');
   void o;
@@ -377,7 +454,7 @@ export async function importState(s: Scope, projectKey: string, markdown: string
       updatedAt: now,
     };
     await c.states.insertOne(doc);
-    return { state: doc, project, imported: { now: !!p.now, next: doc.next.length, later: doc.later.length }, skipped: p.skipped };
+    return { state: doc, project, imported: { now: !!p.now, next: doc.next.length, later: doc.later.length }, skipped: p.skipped, shortened: p.shortened };
   });
 }
 
@@ -414,28 +491,27 @@ export function stateOut(d: StateDoc, reader: string, names: Names): StateOut {
   };
 }
 
-/** WORK-STATE.md as the repo copy of the State, headed with the version it came from. */
-export function stateMarkdown(d: StateDoc, o: { projectName: string; url: string; reader: string; names: Names }): string {
-  const by = (id: string) => (id === o.reader ? '' : ` (by ${o.names[id] || 'a former member'})`);
-  const wait = (l: StateLine) => (l.waitsOn && !l.text.toLowerCase().includes(l.waitsOn.toLowerCase()) ? ` — waits on ${l.waitsOn}` : '');
-  const out: string[] = [`Copy of the Work OS state, version ${d.version}. Edit it in Work OS (${o.url}); this file is its copy.`, '', `# Work state: ${o.projectName}`, '', '## Now'];
-  out.push(d.now ? `- ${d.now.text}${d.now.holder ? ` (${d.now.holder})` : ''}${by(d.now.by)}` : '- (nothing set)');
+
+/**
+ * WORK-STATE.md as the repo copy of the State, headed with the version it came from. The same text for every reader (no
+ * "(by X)"), so two PCs never commit different copies, and no Where (it changes with every session's head). Decisions are
+ * listed only when `decisions` is true: leave them out for a public repo (lib/data/repo-visibility.ts).
+ */
+export function stateMarkdown(d: StateDoc, o: { projectName: string; url: string; names: Names; decisions?: boolean; /** Ignored: kept so older callers still compile. */ reader?: string }): string {
+  const wait = (l: StateLine) => (l.waitsOn && !l.text.toLowerCase().includes(l.waitsOn.toLowerCase()) ? ` \u2014 waits on ${l.waitsOn}` : '');
+  const out: string[] = [`Copy of the Work OS state, version ${d.version}. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (${o.url}).`, '', `# Work state: ${o.projectName}`, '', '## Now'];
+  out.push(d.now ? `- ${d.now.text}${d.now.holder ? ` (${d.now.holder})` : ''}` : '- (nothing set)');
+
   out.push('', '## Next');
-  if (d.next.length) d.next.forEach((l, i) => out.push(`${i + 1}. ${l.text}${l.ref ? ` (#${l.ref})` : ''}${wait(l)}${by(l.by)}`));
+  if (d.next.length) d.next.forEach((l, i) => out.push(`${i + 1}. ${l.text}${l.ref ? ` (#${l.ref})` : ''}${wait(l)}`));
   else out.push('- (empty)');
   out.push('', '## Later');
-  if (d.later.length) for (const l of d.later) out.push(`- ${l.text}${wait(l)}${by(l.by)}`);
+  if (d.later.length) for (const l of d.later) out.push(`- ${l.text}${wait(l)}`);
   else out.push('- (empty)');
-  const live = d.decisions.filter(x => !x.archivedAt);
+  const live = o.decisions ? d.decisions.filter(x => !x.archivedAt) : [];
   if (live.length) {
     out.push('', '## Decisions');
     for (const x of live.slice(-30)) out.push(`- ${x.at.toISOString().slice(0, 10)}: ${x.text} (${o.names[x.by] || 'a former member'}, ${x.via})`);
   }
-  const machines = Object.entries(d.where ?? {});
-  if (machines.length) {
-    out.push('', '## Where');
-    for (const [m, v] of machines) out.push(`- ${m}: ${[v.branch, v.head, v.dirty ? 'dirty' : v.dirty === false ? 'clean' : ''].filter(Boolean).join(' ')} (${v.at.toISOString().slice(0, 16).replace('T', ' ')})`);
-  }
   return out.join('\n') + '\n';
 }
-

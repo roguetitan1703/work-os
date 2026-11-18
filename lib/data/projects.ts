@@ -429,10 +429,14 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
   if (data.client !== undefined) set.client = data.client;
   if (data.description !== undefined) set.description = data.description;
   if (data.status !== undefined) set.status = data.status;
+  let codeChanged = false;
   if (data.code !== undefined) {
     set.code = cleanCodeLocations(data.code);
     // Who set the repo: a PC clones it, and trusts the clone only when its owner set it (lib/data/turbo.ts).
-    if (JSON.stringify(set.code) !== JSON.stringify(cur.code ?? [])) set.codeBy = s.userId;
+    if (JSON.stringify(set.code) !== JSON.stringify(cur.code ?? [])) {
+      set.codeBy = s.userId;
+      codeChanged = true;
+    }
   }
   // Who sees it: Shared with everyone ('org'), Shared with chosen people ('members' + sharedWith), Private. A list given
   // alone means "shared with these people"; 'members' alone keeps the current list.
@@ -463,7 +467,7 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
     await setProjectPlacement(c, cur, next);
   }
   try {
-    await c.projects.updateOne({ _id: id }, { $set: set });
+    await c.projects.updateOne({ _id: id }, { $set: set, ...(codeChanged ? { $unset: { repoPublic: '', repoPublicAt: '' } } : {}) });
   } catch (err) {
     if ((err as { code?: number }).code === 11000) throw new InputError('That change clashes with another project (its name or its Delpat OS import). Nothing was changed.');
     throw err;
