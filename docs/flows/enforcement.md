@@ -1,7 +1,7 @@
 # Rules that are enforced, not remembered (draft, 18 Nov 2026)
 
 Om 18 Nov: "I want our enforcement of certain things and directives to get enforced, not drifted." Built from a survey
-of the 8 sessions open on Om's PC on 18 Nov (answers in the side-session notes, drift-survey.md), this session's own
+of the 8 sessions (7 answered) open on Om's PC on 18 Nov (answers in the side-session notes, drift-survey.md), this session's own
 mistakes, Om's global CLAUDE.md and the memory rules.
 
 **Principle.** A written rule is advice: it fades in long sessions and after compaction (five of eight sessions named
@@ -25,7 +25,7 @@ CLAUDE.md keeps judgment only. Every refusal says what to do instead. All of it 
 | # | Rule | Seen | Enforcement |
 |---|---|---|---|
 | B1 | Never report a guess as a diagnosis ("probably environmental", "CLI not signed in", "it was settling") | AKAR, Phase 3, Mailloom, this session (said builders were working when they had died) | Judgment, plus Stop hook: a final message with "probably/likely/should be/I think" next to "fail/broken/flaky" gets one nudge: "checked?" |
-| B2 | Re-run a failure before calling it flaky; name the evidence | Mailloom (34/34 load failure accepted), Grant Leads (stale cache) | Test runner prints "first run failed; rerun passed" so a report cannot hide it |
+| B2 | Re-run a failure before calling it flaky; name the evidence | Mailloom (34/34 load failure accepted), Grant Leads (stale cache), Phase 3 (shared cookie read as a 401 bug) | Test runner prints "first run failed; rerun passed" so a report cannot hide it |
 | B3 | Check what exists before making something new (keys, configs, tools) | Mailloom made an SSH key before reading ~/.ssh/config; Cutroom rebuilt SFX | SessionStart injects the project's tool index (one Work OS note per project: scripts, libraries, assets); builder briefs must link it |
 | B4 | Use the browser before declaring a download impossible; don't hand chores to Om | Cutroom (CC0 packs, Kenney 403), Grant Leads ("you come too easy to me") | Judgment; feedback tool counts "asked Om for X" so repeats show |
 
@@ -33,7 +33,7 @@ CLAUDE.md keeps judgment only. Every refusal says what to do instead. All of it 
 | # | Rule | Seen | Enforcement |
 |---|---|---|---|
 | C1 | Never print a secret, even into tool output | Phase 3 grepped test passwords; Mailloom relies on discipline | PreToolUse refuses commands that cat/grep/echo *_PASSWORD, *_KEY, *_SECRET, *_TOKEN, WEBHOOK values from .env files or remote envs unmasked; suggests the masked or piped form |
-| C2 | Production-linked CLIs need an explicit target | Grant Leads nearly ran Supabase against production | PreToolUse refuses `supabase` without --project-ref, `vercel --prod`, deploy pushes, without an approval marker |
+| C2 | Production-linked CLIs need an explicit target; read a value before overwriting it | Grant Leads nearly ran Supabase against production; Phase 3 `vercel env add --force` overwrote two branch-scoped secrets unread | PreToolUse refuses `supabase` without --project-ref, `vercel --prod`, `vercel env add/rm` and `supabase secrets set/unset` unless the target is the test branch/ref, any command naming the production ref, deploy pushes, without an approval marker |
 
 ## D. Git, release, production
 | # | Rule | Seen | Enforcement |
