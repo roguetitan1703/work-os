@@ -59,7 +59,7 @@ const newMessages: ForYouSource = {
   id: 'messages',
   async collect({ s, row, since, projectId, src, named }) {
     // Only what is unread for this session (the same rule as inbox and the brief), oldest first.
-    const m = (await unreadFor(s, { key: src ?? rowKey(row), userId: s.userId, row }, { projectId, since })).reverse().slice(0, 41);
+    const m = (await unreadFor(s, { key: src ?? rowKey(row), userId: s.userId, row: !row.session || (src && src === rowKey(row)) ? row : null }, { projectId, since })).reverse().slice(0, 41);
     const fresh = m.filter(x => !named.has(x._id));
     if (!fresh.length) return none;
     return { lines: [`${fresh.length > 40 ? '40+' : fresh.length} new message${fresh.length === 1 ? '' : 's'} on project ${projectId} (inbox: ${fresh.slice(0, 5).map(x => x._id).join(', ')})`], ids: fresh.map(x => x._id) };

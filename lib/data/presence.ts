@@ -31,9 +31,29 @@ export function matchSessions(rows: PresenceDoc[], to: string, userId?: string):
   if (!q) return [];
   const byId = rows.filter(r => r.session === raw && (!userId || r.userId === userId));
   if (byId.length) return byId;
-  const byLabel = rows.filter(r => (r.label ?? '').trim().toLowerCase() === q);
+  // The sender's own sessions come first: another person's rows match only when the sender has none that match.
+  const pick = (hit: (r: PresenceDoc) => boolean) => {
+    const all = rows.filter(hit);
+    const own = userId ? all.filter(r => r.userId === userId) : [];
+    return own.length ? own : all;
+  };
+  const byLabel = pick(r => (r.label ?? '').trim().toLowerCase() === q);
   if (byLabel.length) return byLabel;
-  return rows.filter(r => (r.ai ?? '').trim().toLowerCase() === q);
+  return pick(r => (r.ai ?? '').trim().toLowerCase() === q);
+}
+
+/** Does this look like a session id (a UUID, or the 32 hex of a hook session) rather than a label? Such a value is never kept as a label. */
+export const idShaped = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.trim()) || /^[0-9a-f]{32}$/i.test(v.trim());
+
+/**
+ * The presence row of a reading session, for messages: by session id; with no id only a row that start_work made with no
+ * id (never a sibling session's row of the same key), with no time limit.
+ */
+export async function readerRow(s: Scope, i: Ident): Promise<PresenceDoc | null> {
+  const c = await scoped(s);
+  if (i.session) return c.presence.findOne({ userId: i.userId, session: i.session }, { sort: { lastSeen: -1 } });
+  if (i.keyId) return c.presence.findOne({ userId: i.userId, keyId: i.keyId, session: { $exists: false } }, { sort: { lastSeen: -1 } });
+  return null;
 }
 
 const rowId = (i: Ident, projectId: string) => (i.session ? `${i.userId}:s:${i.session}:${projectId}` : `${i.userId}:k:${i.keyId ?? i.agent}:${projectId}`);
@@ -79,9 +99,9 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
         writesSinceSave: 0,
         ...placeIn(project, s.userId),
       },
+      $setOnInsert: { createdAt: now, ...((o.label ?? '').trim() ? {} : { label: '' }) },
       // A machine that is no longer one of the person's devices (or a name now reported plain) drops its device name.
       ...(o.machine && !o.machineName ? { $unset: { machineName: '' } } : {}),
-      ...((o.label ?? '').trim() ? {} : { $setOnInsert: { label: '' } }),
     },
     { upsert: true },
   );

@@ -27,16 +27,16 @@ try {
   check('MS1: a label nobody has used says so', /no session like that/.test(nobody.target), nobody.target);
 
   const s2 = await must(cc, 'start_work', { project: NAME, machine: 'desktop', label: 'cutroom again' });
-  check('MS1: the next start_work lists the messages, unread first (read state is per session: the first one was read by the earlier session, this one has not; the one for that session is not for this one)', s2.inbox?.unread === 2 && s2.inbox.messages.length === 4 && s2.inbox.messages.slice(0, 2).every(m => m.unread === true) && s2.inbox.messages.slice(2).every(m => !m.unread), JSON.stringify(s2.inbox).slice(0, 300));
+  check('MS1: the next start_work lists the messages, unread first (an untargeted message from before a session started is not unread for it; the one for the earlier session is not for this one)', s2.inbox?.unread === 0 && s2.inbox.messages.length === 4 && s2.inbox.messages.every(m => !m.unread), JSON.stringify(s2.inbox).slice(0, 300));
   check('MS1: each with sender, word, body and what to do with it', s2.inbox.messages.some(m => m.body.startsWith('Rebuild the client') && m.word === 'agent' && m.kind === 'request' && /proposal/.test(m.treat)), JSON.stringify(s2.inbox.messages[0]));
   const keys = Object.keys(s2);
   check('MS1: the inbox comes after the State and before the open tasks', keys.indexOf('state') < keys.indexOf('inbox') && keys.indexOf('inbox') < keys.indexOf('openTasks'), keys.join());
-  check('MS1: the messages addressed to this person became seen; the one for the earlier session and the one for a session nobody has used stay unread', (await rawDb.collection('messages').countDocuments({ projectId: project._id, status: 'seen' })) === 2);
+  check('MS1: a session that starts later marks nothing seen; all four stay unread', (await rawDb.collection('messages').countDocuments({ projectId: project._id, status: 'seen' })) === 0);
   const s3 = await must(cc, 'start_work', { project: NAME, label: 'cutroom third' });
-  check('MS1: seen ones are still listed, and a third session has the 2 untargeted ones unread', s3.inbox.unread === 2 && s3.inbox.messages.length === 4);
+  check('MS1: seen ones are still listed, and a third session has none unread (no backlog)', s3.inbox.unread === 0 && s3.inbox.messages.length === 4);
 
   const inb = await must(MCP, 'inbox', { project: NAME });
-  check('MS1: inbox lists them for the sender with their status', inb.messages.length === 4 && inb.messages.filter(m => m.status === 'seen').length === 2 && inb.messages.filter(m => m.status === 'unread').length === 2, JSON.stringify(inb.messages.map(m => m.status)));
+  check('MS1: inbox lists them for the sender with their status', inb.messages.length === 4 && inb.messages.filter(m => m.status === 'seen').length === 0 && inb.messages.filter(m => m.status === 'unread').length === 4, JSON.stringify(inb.messages.map(m => m.status)));
   const asAgent = await must(cc, 'send_message', { project: NAME, kind: 'question', body: 'Which branch?' });
   check('MS1: a Claude Code key message has word agent', asAgent.word === 'agent' && (await rawDb.collection('messages').findOne({ _id: asAgent.id })).from.word === 'agent');
   const tooLong = await mcpH(MCP, 'send_message', { project: NAME, kind: 'fyi', body: 'x'.repeat(4001) });

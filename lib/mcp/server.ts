@@ -30,7 +30,7 @@ import { ACTIVITY_WHAT } from '../types';
 import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
 import { ordersFor } from '../data/orders';
-import { othersPresent, presentRow, registerPresence, resolveMachine, sessionKey, setDoing, type Ident } from '../data/presence';
+import { othersPresent, presentRow, readerRow, registerPresence, resolveMachine, sessionKey, setDoing, type Ident } from '../data/presence';
 import { clientWord, taskInfo } from '../data/roster';
 import { holderOf, machineKey, MAX_WAIT_S, POLL_MS, prepareSlot, releaseSlot, tryAcquire } from '../data/slots';
 import { forYouAfter, forYouBefore } from './for-you';
@@ -1217,13 +1217,13 @@ export function createMcpServer(ctx: Ctx): McpServer {
   /** Who is sending: the client name, and the label of the session's presence row when it has one. */
   const fromOf = async (name: ToolName, a: { session?: string }): Promise<messageData.From> => {
     const ident = identOf(name, [a]);
-    const row = await presentRow(s, ident).catch(() => null);
+    const row = await readerRow(s, ident).catch(() => null);
     return { word: WORD, ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: sessionKey(ident), actor: ACTOR };
   };
   /** The calling session as a reader: its key and its presence row. */
   const readerOf = async (name: ToolName, a: { session?: string }): Promise<messageData.Reader> => {
     const ident = identOf(name, [a]);
-    return { key: sessionKey(ident), userId: s.userId, row: await presentRow(s, ident).catch(() => null) };
+    return { key: sessionKey(ident), userId: s.userId, row: await readerRow(s, ident).catch(() => null) };
   };
   const sentOut = async (r: Awaited<ReturnType<typeof messageData.sendMessage>>) => ({
     sent: true,

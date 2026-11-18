@@ -116,6 +116,7 @@ try {
   const li = await must(kA, 'inbox', { project: PE, session: ls.session });
   check('MS5 e: a legacy seen message is unread for nobody; an untargeted legacy unread one is unread once', li.unread === 1 && li.messages.find(m => m.id === l2.id)?.unread === true && !li.messages.find(m => m.id === l1.id)?.unread, JSON.stringify(li.messages.map(m => [m.id, m.unread])));
   check('MS5 e: after reading it is 0', (await unreadOf(kA, PE, ls.session)) === 0);
+  check('MS5 e: reading a legacy message does not give it a seenBy list', !('seenBy' in (await rawDb.collection('messages').findOne({ _id: l2.id }))));
 
   // f) start_work again without a label keeps the label
   const PF = 'Flow Sessions F';
@@ -124,6 +125,56 @@ try {
   await must(kA, 'start_work', { project: PF, session: f1.session });
   const row = await rawDb.collection('presence').findOne({ userId: ME.userId, session: 'ms5-keep-label' });
   check('MS5 f: start_work again without a label keeps the label', row?.label === 'keep me', JSON.stringify(row?.label));
+
+  // g) review fixes: label spoofing, id-shaped waits, no backlog, no borrowed sibling row
+  const PG = 'Flow Sessions G';
+  await proj(PG);
+  const g1 = await must(kA, 'start_work', { project: PG, label: 'Secret Label' });
+  const g2 = await must(kA, 'start_work', { project: PG, label: 'Other One' });
+  const gt = await must(kT, 'start_work', { project: PG, label: 'Secret Label' });
+  const toLabel = await must(kA, 'send_message', { project: PG, kind: 'request', body: 'for the secret label', to_session: 'Secret Label', session: g2.session });
+  const dl = await rawDb.collection('messages').findOne({ _id: toLabel.id });
+  check('MS5 g1: a label copied by another member does not receive it: only the sender’s own rows match', dl.toSids?.length === 1 && dl.toSids[0] === `${ME.userId}:${g1.session}`, JSON.stringify(dl.toSids));
+  check('MS5 g1: her session has nothing unread and cannot close it', (await unreadOf(kT, PG, gt.session)) === 0 && (await mcpH(kT, 'message_status', { id: toLabel.id, status: 'rejected', session: gt.session })).isError);
+  const fromT = await must(kT, 'send_message', { project: PG, kind: 'fyi', body: 'tess to her own label', to_session: 'Secret Label', session: gt.session });
+  const dt = await rawDb.collection('messages').findOne({ _id: fromT.id });
+  check('MS5 g1: her message to that label reaches her own session only, not Om’s', dt.toSids?.length === 1 && dt.toSids[0] === `${T.userId}:${gt.session}` && (await unreadOf(kA, PG, g1.session)) === 1);
+
+  const ghostId = 'a1b2c3d4-e5f6-4789-a0b1-c2d3e4f5a6b7';
+  const toGhost = await must(kA, 'send_message', { project: PG, kind: 'fyi', body: 'to a session that is not there yet', to_session: ghostId, session: g2.session });
+  const dg = await rawDb.collection('messages').findOne({ _id: toGhost.id });
+  check('MS5 g2: an unresolved id is never stored or shown as a label', !dg.toSession && !JSON.stringify(toGhost).includes(ghostId) && dg.toSids?.[0] === `${ME.userId}:${ghostId}`, JSON.stringify([dg.toSession, dg.toSids]));
+  const ghostIn = JSON.stringify(await must(kA, 'inbox', { project: PG, session: g2.session }));
+  check('MS5 g2: …nor in an inbox output', !ghostIn.includes(ghostId));
+  const tg = await must(kT, 'start_work', { project: PG, session: ghostId });
+  check('MS5 g2: another member starting with that session id gets her own key: unread 0, cannot close it', tg.inbox === 'no messages' || tg.inbox.unread === 0 ? (await mcpH(kT, 'message_status', { id: toGhost.id, status: 'seen', session: ghostId })).isError : false);
+  const og = await must(kA, 'start_work', { project: PG, session: ghostId });
+  check('MS5 g2: Om starting a session with that id gets it', og.inbox?.messages?.some(m => m.id === toGhost.id && m.unread === true), JSON.stringify(og.inbox).slice(0, 200));
+  await must(kA, 'send_message', { project: PG, kind: 'fyi', body: 'to ghost label', to_session: 'ghost', session: g2.session });
+  const tl = await must(kT, 'start_work', { project: PG, label: 'ghost' });
+  check('MS5 g2: a waiting label is matched only against the sender’s own sessions: Tess taking it gets nothing', tl.inbox === 'no messages' || !tl.inbox.messages?.some(m => m.unread));
+  const ol = await must(kA, 'start_work', { project: PG, label: 'ghost' });
+  check('MS5 g2: …Om taking it does', ol.inbox?.messages?.some(m => m.body === 'to ghost label' && m.unread === true));
+
+  // g3: no backlog for a new session; two sessions of one person both see a new message
+  const PH = 'Flow Sessions H';
+  await proj(PH);
+  const h1 = await must(kA, 'start_work', { project: PH, label: 'h one' });
+  const h2 = await must(kA, 'start_work', { project: PH, label: 'h two' });
+  await must(kT, 'send_message', { project: PH, kind: 'fyi', body: 'for the project owner' });
+  const h3 = await must(kA, 'start_work', { project: PH, label: 'h three (late)' });
+  check('MS5 g3: a session that starts after an untargeted message has no backlog', h3.inbox.unread === 0, JSON.stringify(h3.inbox).slice(0, 160));
+  check('MS5 g3: both earlier sessions of the person still see it, each once', (await unreadOf(kA, PH, h1.session)) === 1 && (await unreadOf(kA, PH, h2.session)) === 1 && (await unreadOf(kA, PH, h1.session)) === 0);
+
+  // g4: a call with no session id does not borrow a sibling's row
+  const PI = 'Flow Sessions I';
+  await proj(PI);
+  const i1 = await must(kA, 'start_work', { project: PI, label: 'i one' });
+  const toI = await must(kA, 'send_message', { project: PI, kind: 'request', body: 'for i one', to_session: i1.session });
+  const noId = await must(kA, 'inbox', { project: PI });
+  check('MS5 g4: an inbox call with no session id does not read a sibling’s message', noId.unread === 0 && !(await rawDb.collection('messages').findOne({ _id: toI.id })).seenBy.length, JSON.stringify(noId.unread));
+  await mcpH(kA, 'message_status', { id: toI.id, status: 'seen' }); // the sender may set it; it is not a read by the sibling
+  check('MS5 g4: the session it is for still has it unread', (await unreadOf(kA, PI, i1.session)) === 1);
 } catch (e) {
   console.error(e);
   await finish(1);

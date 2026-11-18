@@ -2,7 +2,7 @@ import 'server-only';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { inTransaction, type MessageDoc, type PresenceDoc, type ProjectDoc } from '../db';
-import { matchSessions, rowKey } from './presence';
+import { idShaped, matchSessions, rowKey } from './presence';
 import { scoped, type Scope } from '../scope';
 import { agentActor, isPerson, userActor, type Actor } from '../actors';
 import { InputError, NotFoundError } from './errors';
@@ -64,7 +64,7 @@ export async function targetNote(s: Scope, project: Pick<ProjectDoc, '_id' | 'na
   let rows = matched ?? (await c.presence.find({ projectId: project._id }).sort({ lastSeen: -1 }).limit(40).toArray());
   if (toSession && !matched) rows = matchSessions(rows, toSession, s.userId);
   if (!rows.length) {
-    return toSession ? `${toSession.slice(0, 60)}: no session like that has worked on ${project.name}; it will get this when one starts` : `nobody has worked on ${project.name} yet; the message waits for the first session`;
+    return toSession ? `${idShaped(toSession) ? 'that session id' : toSession.slice(0, 60)}: no session like that has worked on ${project.name}; it will get this when one starts` : `nobody has worked on ${project.name} yet; the message waits for the first session`;
   }
   const seen = new Set<string>();
   const out: string[] = [];
@@ -97,16 +97,22 @@ export async function sendMessage(
   let toSession = o.toSession ?? input.to_session;
   // Addressing is decided now: the sessions that have worked on the project in the last 7 days and that the name picks out exactly.
   let matched: PresenceDoc[] | undefined;
+  let asked: string | undefined;
   let toSids: string[] = [];
   if (o.toSids?.length) {
     toSids = [...new Set(o.toSids)].slice(0, 10);
   } else if (toSession) {
-    const asked: string = toSession;
+    asked = toSession;
     const rows = await c.presence.find({ projectId: project._id, lastSeen: { $gt: new Date(Date.now() - 7 * 86_400_000) } }).sort({ lastSeen: -1 }).limit(200).toArray();
     matched = matchSessions(rows, toSession, s.userId).slice(0, 10);
     toSids = [...new Set(matched.map(rowKey))];
-    // Resolved by id: show the target's label, never the raw id.
-    if (matched.length && matched.every(r => r.session === asked.trim())) toSession = matched[0].label || 'a session';
+    // An id is never kept as a label: resolved, the target's label shows; unresolved, it waits for that session of the sender's own (the key starts with the sender's id).
+    const byId = matched.length > 0 && matched.every(r => r.session === asked!.trim());
+    if (byId) toSession = matched[0].label || 'a session';
+    else if (!matched.length && idShaped(asked)) {
+      toSids = [`${s.userId}:${asked.trim()}`];
+      toSession = undefined;
+    }
   }
   const doc: MessageDoc = {
     _id,
@@ -144,7 +150,7 @@ export async function sendMessage(
     const back = rows.filter(r => toSids.includes(rowKey(r)));
     target = back.length ? await targetNote(s, project, toSession, back) : await targetNote(s, project, toSession);
   } else {
-    target = await targetNote(s, project, toSession, matched?.length ? matched : undefined);
+    target = await targetNote(s, project, toSession ?? asked, matched?.length ? matched : undefined);
     if (matched && matched.length > 1) target = `reaches ${matched.length} sessions: ${target}`;
   }
   return { message: doc, project, target };
@@ -201,7 +207,7 @@ export function messageOut(m: MessageDoc, reader: string, names: Names, o: { cut
     status: m.status,
     word: m.from.word,
     from: { name, ...(m.from.ai ? { ai: m.from.ai } : {}), ...(m.from.label ? { label: m.from.label } : {}), ...(mine && m.from.session ? { session: m.from.session } : {}) },
-    ...(m.toSession ? { toSession: m.toSession } : {}),
+    ...(m.toSession && !idShaped(m.toSession) ? { toSession: m.toSession } : {}),
     body: o.cut && m.body.length > o.cut ? `${m.body.slice(0, o.cut)} ... (read the rest with inbox)` : m.body,
     refs: m.refs,
     at: m.at.toISOString(),
@@ -232,7 +238,8 @@ export function addressed(m: MessageDoc, reader: Reader, ownerId: string | undef
   if (m.toSids?.length) return m.toSids.some(k => keysOf(reader).includes(k));
   if (m.toSession) {
     const r = reader.row;
-    if (!r || r.projectId !== m.projectId) return false;
+    // A waiting label or id is matched against the sender's own sessions only.
+    if (!r || r.projectId !== m.projectId || reader.userId !== m.from.userId) return false;
     return r.session === m.toSession.trim() || (r.label ?? '').trim().toLowerCase() === m.toSession.trim().toLowerCase();
   }
   return !!ownerId && ownerId === reader.userId;
@@ -244,7 +251,14 @@ export function isUnreadFor(m: MessageDoc, reader: Reader, ownerId: string | und
   if (m.src && keys.includes(m.src)) return false;
   if (m.status === 'applied' || m.status === 'rejected') return false;
   if (!addressed(m, reader, ownerId)) return false;
-  return m.seenBy ? !m.seenBy.some(k => keys.includes(k)) : m.status === 'unread';
+  if (!m.seenBy) return m.status === 'unread';
+  if (m.seenBy.some(k => keys.includes(k))) return false;
+  // Nobody named: it is for the owner's sessions that were there when it came (a session that starts later is not given the backlog); with no row to tell, the status says.
+  if (!m.toSids?.length && !m.toSession) {
+    const made = reader.row && reader.row.projectId === m.projectId ? reader.row.createdAt : undefined;
+    return made ? m.at > made : m.status === 'unread';
+  }
+  return true;
 }
 
 /** The Mongo part of "unread for the reader" (the rest is isUnreadFor): the candidates are read newest first, at most 200. */
@@ -312,7 +326,7 @@ export async function inbox(
     const mine = ordered.filter(m => unreadIds.has(m._id));
     const ids = mine.map(m => m._id);
     if (ids.length) {
-      await c.messages.updateMany({ _id: { $in: ids }, seenBy: { $nin: [reader.key] } } as never, { $push: { seenBy: { $each: [reader.key], $slice: -50 } } } as never);
+      await c.messages.updateMany({ _id: { $in: ids }, seenBy: { $exists: true, $nin: [reader.key] } } as never, { $push: { seenBy: { $each: [reader.key], $slice: -50 } } } as never);
       // Legacy messages have no list to push to: they are closed by status alone.
       await c.messages.updateMany({ _id: { $in: ids }, status: 'unread' }, { $set: { status: 'seen', statusBy: s.userId, statusAt: new Date() } });
     }
@@ -355,7 +369,7 @@ async function setStatusIn(
   const toMe = !person && addressed(m, reader, owner);
   const markRead = async () => {
     // Seen through MCP is read by this session only (not by the session that sent it).
-    if (toMe && !(m.src && keysOf(reader).includes(m.src))) await c.messages.updateOne({ _id: m._id, seenBy: { $nin: [reader.key] } } as never, { $push: { seenBy: { $each: [reader.key], $slice: -50 } } } as never);
+    if (toMe && !(m.src && keysOf(reader).includes(m.src))) await c.messages.updateOne({ _id: m._id, seenBy: { $exists: true, $nin: [reader.key] } } as never, { $push: { seenBy: { $each: [reader.key], $slice: -50 } } } as never);
   };
   if (status === 'seen' && m.status === 'seen') {
     await markRead();

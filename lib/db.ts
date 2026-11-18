@@ -310,6 +310,8 @@ export type PresenceDoc = Placed & {
   ai: string;
   agent: string;
   lastSeen: Date;
+  /** When the row was first made (absent on older rows). Untargeted messages older than this are not unread for the session. */
+  createdAt?: Date;
   forYouCursor: Date;
   /** The last ~100 item ids the "for you" line named (the cursor trails the call by a skew, so the window is read twice). */
   named?: string[];
