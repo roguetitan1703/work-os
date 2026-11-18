@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 35. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 36. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -9,8 +9,8 @@ Copy of the Work OS state, version 35. Edit it in Work OS (https://work.delpat.i
 1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel.
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
 3. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
-4. H0: ship R1. Full e2e on dev failed 14/66 suites (possible privacy leaks in push and activity-all, MCP write_note internal error, stale tests after the Needs cap, digest and What's new changes); Opus fixer on branch r1-fixes in ../wos-r1. Then UI by eye 390/1280 light/dark, push dev, release with Om's go. (#277)
-5. Harness on dev: H1 words, H3 per-session ids (security review passed after fixes), H4 phase 1 merged (dev 685ebe0). Building: H2 hooks on any PC (slot S), H4 phase 2 server side (slot B), then H5 end_work (slot B, plan note 0bf42ce458) and the H4 hook side after H2. Plans for H2 111fa6dd60, H5 0bf42ce458. (#276)
+4. H0: ship R1. Paused 19 Nov (Om: let other sessions finish). r1-fixes in ../wos-r1 (13 commits a607c2d..321b2fa): each of the 14 failed suites passes alone; real bugs fixed: write_note crash on string authors (298c4b4), Today budget (519a999); fixer says nothing leaked (activity-all, push): lead to check before release. Next: one full e2e of r1-fixes, Needs tab by eye at 390, merge to dev, release with Om's go. (#277)
+5. Harness paused 19 Nov (Om). On dev 685ebe0: H1, H3, H4 phase 1. H4 phase 2: WIP f0be56b on builder-b (no tests yet); next lib/agent-auth.ts and POST /api/agent/state, then tests, leak-audit, security review. H2: not started on builder-s (dev 91ad63b); next plan step 1, split hook.mjs; hooks-setup test hang found (key typed before the prompt). Then H5 (plan 0bf42ce458). (#276)
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -50,5 +50,5 @@ Copy of the Work OS state, version 35. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov: /transfer skill and note ac2026fedb follow the new Orders on asking: waiting questions go to the person in chat when they are here, a Need only when they are away (found by the H5 planner). (Om, chat)
 
 ## Where
-- Victus-Knight: dev 685ebe0 (2026-11-18 21:54)
-<!-- work-os-copy sha1:66f5e0cbdee7bd00728cf9fd03c070a8c847c52a -->
+- Victus-Knight: dev 685ebe0 (2026-11-18 22:06)
+<!-- work-os-copy sha1:f0f9a28309f12cdf1eb889e93a06275150e00e3a -->
