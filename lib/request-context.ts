@@ -19,6 +19,8 @@ export type RequestContext = {
   sid?: string;
   /** The session id, else the key id, of the MCP call: stamped on what it creates (tasks, State lines) so the "for you" line can skip a session's own items. */
   src?: string;
+  /** X-Work-OS-Hook: the Work OS hook's protocol version (1 to 9), sent by new hooks on every call. Absent from old hooks and other clients. */
+  hook?: number;
   /** The API key or OAuth client behind an MCP call (rate limits are per key). */
   keyId?: string;
 };
@@ -61,6 +63,12 @@ export function requestContext(): RequestContext {
 export function sessionHeader(v: string | null): string | undefined {
   const s = v?.trim();
   return s && /^[A-Za-z0-9-]{1,64}$/.test(s) ? s : undefined;
+}
+
+/** `X-Work-OS-Hook`: a whole number from 1 to 9. Anything else is ignored. */
+export function hookHeader(v: string | null): number | undefined {
+  const s = v?.trim();
+  return s && /^[1-9]$/.test(s) ? Number(s) : undefined;
 }
 
 /** `X-Work-OS-Repo`: up to 80 chars of [A-Za-z0-9._/-] (e.g. "roguetitan1703/work-os"). Anything else is ignored. */

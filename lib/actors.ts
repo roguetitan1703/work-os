@@ -64,8 +64,12 @@ export function asActor(a: unknown): Actor {
 /** True for a person acting in the app (not an agent, Discord or the system). */
 export const isPerson = (a: Actor | null | undefined): a is { kind: 'user'; userId: string } => a?.kind === 'user';
 export const isAgent = (a: Actor | null | undefined, agent?: AgentName): boolean => a?.kind === 'agent' && (!agent || a.agent === agent);
-/** The user an actor acts for, if any. */
-export const actorUserId = (a: Actor | null | undefined): string | null => (a && 'userId' in a && a.userId ? a.userId : null);
+/** The user an actor acts for, if any. A stored actor may still be an old string ('me', 'claude'): that names nobody. */
+export const actorUserId = (a: Actor | LegacyActor | null | undefined): string | null => {
+  if (!a) return null;
+  const x = asActor(a);
+  return 'userId' in x && x.userId ? x.userId : null;
+};
 
 /**
  * One word per kind of actor, the way the old strings read: 'me' (you, in the app), 'user' (another person),

@@ -5,11 +5,9 @@
 export type InstructionsFor = { name: string; modes: string[] };
 
 export const STATE_COPY = 'WORK-STATE.md is a copy of the State, written by the Work OS hook';
-export const STATE_COPY_NO_HOOK = 'where no hook runs (cloud, chat), write it to WORK-STATE.md unchanged';
 /** Phrases that may contain "WORK-STATE" in agent-facing text (tests/words-check.mjs removes these, then fails on any left). */
 export const STATE_FILE_OK = [
   STATE_COPY,
-  STATE_COPY_NO_HOOK,
   "the text of the repo's WORK-STATE.md",
   'WORK-STATE.md: copy of the Work OS State v',
   'WORK-STATE.md now holds the Work OS State v',
@@ -205,14 +203,14 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   get_state: {
     title: 'Get State',
-    description: 'The project’s State: Now (one goal), Next (ordered lines with ids), Later (one line each, with what it waits on), Decisions, Where (per machine) and its version. Lines someone other than you wrote carry writtenBy. start_work already includes it; use this to re-read.',
+    description: 'The project’s State: Now (one goal), Next (ordered lines with ids), Later (one line each, with what it waits on), Decisions, Where (per machine) and its version. Lines someone other than you wrote carry writtenBy. start_work already includes it; use this to re-read. copy: true is for the Work OS hook: it also answers the WORK-STATE.md copy.',
     writes: false,
     example: 'What is the State of Grant Leads?',
   },
   save_state: {
     title: 'Save State',
     description:
-      'Change the project’s State with ops, in one call: set_now {text, holder?}; add_next {text, ref?, waits_on?}; move_next {id|find, to: top|bottom|a position}; done_next {id|find}; add_later {text, waits_on?}; promote_later {id|find, priority?} (the line becomes a task); add_decision {text}; archive_decision {id|find} (app only: not available through MCP); edit_line {find, new} (replaces find with new inside the one Now, Next or Later line that holds it; an empty new removes the line: a Next line counts as done, a Later line as dropped, both kept in the history; the edited line becomes yours). find is text inside exactly one line, case-sensitive; no match or several = an error naming the candidates and nothing written, so use more of the line. Decisions are never edited. set_where {machine, branch?, head?, dirty?, worktrees?}. set_now, move_next, done_next and edit_line need base_version (the State version you read): if it is stale nothing is written and the current State comes back, so merge and retry. Appends (add_next, add_later, add_decision, set_where) never clash. Every write bumps the version. The answer holds the State and its markdown: ' + STATE_COPY + '; ' + STATE_COPY_NO_HOOK + '. Never edit it by hand. Call it on stop and at every merge; any agent may append, but only the project’s orchestrator rewrites Now or reorders Next.',
+      'Change the project’s State with ops, in one call: set_now {text, holder?}; add_next {text, ref?, waits_on?}; move_next {id|find, to: top|bottom|a position}; done_next {id|find}; add_later {text, waits_on?}; promote_later {id|find, priority?} (the line becomes a task); add_decision {text}; archive_decision {id|find} (app only: not available through MCP); edit_line {find, new} (replaces find with new inside the one Now, Next or Later line that holds it; an empty new removes the line: a Next line counts as done, a Later line as dropped, both kept in the history; the edited line becomes yours). find is text inside exactly one line, case-sensitive; no match or several = an error naming the candidates and nothing written, so use more of the line. Decisions are never edited. set_where {machine, branch?, head?, dirty?, worktrees?}. only set_now needs base_version (the State version you read): if it is stale nothing is written and the current State comes back, so merge and retry. The other ops are checked line by line. Every write bumps the version. The answer is short: the new version, a message, and any Next lines whose tasks finished or went to review. ' + STATE_COPY + '; never edit it by hand. Call it on stop and at every merge; any agent may append, but only the project’s orchestrator rewrites Now or reorders Next.',
     writes: true,
     example: 'Add "wire the webhook" to Next and note that we chose Mongo',
   },

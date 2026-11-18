@@ -55,7 +55,7 @@ export async function ServerAlerts() {
         <div className="space-y-3">
           <Disclosure title="When alerts fire" hint="The six alert types">
       <ul className="text-sm text-foreground/90 space-y-1 list-disc pl-5">
-        <li><b>Daily digest</b>: once a day at your hour (default 9:00): what agents finished, due and overdue, gone quiet, what moved yesterday. While it is on, due today, overdue and stalled arrive in it; a task that turns due, overdue or quiet later in the day still alerts on its own</li>
+        <li><b>Daily digest</b>: once a day at your hour (default 9:00): what needs you, your top 3 for today, what moved per project and which agents run or stall. While it is on, the morning&apos;s due today, overdue and stalled alerts are folded into it; a task that turns due, overdue or quiet later in the day still alerts on its own</li>
         <li><b>Due tomorrow</b>: {r.dueTomorrowHour}:00 the day before, P1 and P2</li>
         <li><b>Due today</b>: {r.dueTodayHour}:00, everything due that day</li>
         <li><b>Overdue</b>: the morning after, then every {r.overdueEveryDays} days</li>

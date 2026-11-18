@@ -136,7 +136,8 @@ export type ProjectDoc = Placed & {
   /** Who last set its code locations (turbo mode trusts a clone only when the PC's owner did; missing = its owner). */
   codeBy?: string;
   /** Whether a code remote is public on GitHub, from one anonymous check (lib/data/repo-visibility.ts); cleared when `code` changes. */
-  repoPublic?: boolean;
+  /** true public, false private, null unknown (GitHub did not answer); see lib/data/repo-visibility.ts for how long each is kept. */
+  repoPublic?: boolean | null;
   repoPublicAt?: Date;
   /** The Delpat OS project it was imported from (lib/delpat-os.ts); unique per organization among shared projects, per owner among private ones. */
   delpatOsId?: string;
@@ -307,6 +308,8 @@ export type PresenceDoc = Placed & {
   session?: string;
   /** The API key or OAuth client behind the calls (a session that passes no id is found again by it). */
   keyId?: string;
+  /** The Work OS hook protocol the session signed in with: 1 = an old hook (still sent the copy in every save answer), 2 and up = the new hook. Unset for other clients. */
+  hook?: number;
   label: string;
   machine: string;
   /** The client's name (key name / OAuth client name). */

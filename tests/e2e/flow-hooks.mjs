@@ -41,7 +41,7 @@ try {
   const o1 = s1.status === 0 && s1.stdout ? JSON.parse(s1.stdout) : null;
   const ctx = o1?.hookSpecificOutput?.additionalContext ?? '';
   check('session-start: exit 0 and Claude Code hook JSON (hookEventName SessionStart)', s1.status === 0 && o1?.hookSpecificOutput?.hookEventName === 'SessionStart', s1.stdout + s1.stderr);
-  check('session-start: the brief names the project, the State line and a session id', ctx.includes(NAME) && ctx.includes('Hooked brief line') && /"session":\s*"[0-9a-f-]{8,}"/.test(ctx), ctx.slice(0, 300));
+  check('session-start: the brief names the project, the State line and a session id', ctx.includes(NAME) && ctx.includes('Hooked brief line') && /Session id: [0-9a-f-]{8,}\./.test(ctx), ctx.slice(0, 300));
   check('session-start: within the 10,000 character cap', ctx.length <= 10000, String(ctx.length));
   const presence = await rawDb.collection('presence').countDocuments({ label: 'Claude Code' });
   check('session-start: the session is registered as present', presence === 1, String(presence));
@@ -70,7 +70,7 @@ try {
   // A session that saved: really call save_state, and the transcript shows the tool use
   fresh();
   const s2 = hook('session-start', { session_id: 'hk5', transcript_path: transcript, cwd: repo });
-  const sess = /"session":\s*"([0-9a-f-]{8,})"/.exec(JSON.parse(s2.stdout).hookSpecificOutput.additionalContext)?.[1];
+  const sess = /Session id: ([0-9a-f-]{8,})\./.exec(JSON.parse(s2.stdout).hookSpecificOutput.additionalContext)?.[1];
   fs.writeFileSync(path.join(repo, 'c.txt'), '3');
   const saved = await must(key, 'save_state', { project: NAME, session: sess, ops: [{ op: 'add_later', text: 'Saved by the hooked session', waitsOn: 'nobody' }] }).catch(() => null);
   fs.appendFileSync(transcript, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__work-os__save_state', input: {} }] } }) + '\n');

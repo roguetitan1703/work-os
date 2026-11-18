@@ -67,7 +67,7 @@ const settle = p => p.waitForTimeout(700);
   for (const w of want) check(`menu links ${w}`, hrefs.includes(w));
   const mc = hrefs.filter(h => h?.startsWith('/tasks?mode='));
   check('menu has no mode chips and no Modes of work row', mc.length === 0 && !hrefs.includes('/settings?section=help'), String(mc.length));
-  check('menu has exactly Claude, Inbox, Review, Schedule, What's new, Settings', JSON.stringify([...new Set(hrefs)].sort()) === JSON.stringify(['/claude', '/notifications', '/review', '/settings', '/timetable', '/whats-new']), JSON.stringify(hrefs));
+  check("menu has exactly Claude, Inbox, Review, Schedule, What's new, Settings", JSON.stringify([...new Set(hrefs)].sort()) === JSON.stringify(['/claude', '/notifications', '/review', '/settings', '/timetable', '/whats-new']), JSON.stringify(hrefs));
   check('menu Claude row counts what waits (2)', (await p.locator('main a[href="/claude"] [data-claude-count]').innerText()).trim() === '2');
   check('menu Settings status dot', (await p.locator('main a[href="/settings"] [role=img]').count()) === 1);
   await p.goto(B + '/tasks'); await settle(p);

@@ -12,7 +12,7 @@ import * as items from '../data/claude-items';
 import * as needsData from '../data/needs';
 import * as results from '../data/results';
 import { InputError, NotFoundError } from '../data/errors';
-import { serverInstructions, STATE_COPY, STATE_COPY_NO_HOOK, TOOLS, type InstructionsFor, type ToolName } from './docs';
+import { serverInstructions, STATE_COPY, TOOLS, type InstructionsFor, type ToolName } from './docs';
 import { beforeTool, callerScope, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
 import { actorOut, agentActor } from '../actors';
 import { findMember, memberNames } from '../people';
@@ -366,8 +366,44 @@ const codeShape = z
 // working with status only in a hand-kept file, and a transfer saved nothing).
 const NO_STATE = 'no State yet. Make it now, before other work, without asking your person: if the repo has a state file (root or docs/), move any History, log or changelog section as is to docs/history.md, then call import_state with the text of the repo\'s WORK-STATE.md (make it true today first); with no such file, call save_state with set_now (the goal of the work), add_next for each next step and add_later for the rest. Check with get_state. From then on ' + STATE_COPY + ' at the repo root: git rm any docs/ copy in the same commit as docs/history.md.';
 
+/** Skipped parts of an import, named for the agent: a record of the past is one thing, text above Now another. */
+function notImportedText(skipped: { section: string; lines: number }[]): string {
+  const above = skipped.find(k => k.section === 'Text above Now');
+  const past = skipped.filter(k => k !== above);
+  const parts: string[] = [];
+  if (past.length) parts.push(`${past.map(k => `${k.section} (${k.lines} lines)`).join(', ')}: a record of the past, not the plan. Keep it in docs/history.md, not in the State.`);
+  if (above) parts.push(`Text above Now (${above.lines} lines) was left out: it is not a Now, Next or Later line. Add what belongs to the plan with save_state.`);
+  return parts.join(' ');
+}
+
+/**
+ * The answer to a save (save_state, import_state, and the coming end_work): short, with the new version, one sentence and
+ * what finished. `markdown` (the copy) goes in only for an old hook (protocol 1) that still writes it from the answer; every
+ * other client gets the copy from get_state with copy: true or from the hook's own route.
+ */
+export function savedAnswer(
+  r: { state: { version: number; next: unknown[]; later: unknown[] }; project: { name: string }; done?: string[]; dropped?: string[]; promoted?: { ref: number; title: string }[]; closedTasks?: number[]; sentForReview?: number[]; leftOpen?: string[] },
+  o: { verb?: 'Saved' | 'Imported'; markdown?: string; extra?: Record<string, unknown> } = {},
+) {
+  const st = r.state;
+  return {
+    saved: true,
+    project: r.project.name,
+    version: st.version,
+    message: `${o.verb ?? 'Saved'} v${st.version}. Next ${st.next.length}, Later ${st.later.length}.`,
+    ...(r.done?.length ? { done: r.done } : {}),
+    ...(r.dropped?.length ? { dropped: r.dropped } : {}),
+    ...(r.promoted?.length ? { promotedToTasks: r.promoted.map(p => `#${p.ref} ${p.title}`) } : {}),
+    ...(r.closedTasks?.length ? { closedTasks: r.closedTasks.map(n => `#${n}`) } : {}),
+    ...(r.sentForReview?.length ? { sentForReview: r.sentForReview.map(n => `#${n}`) } : {}),
+    ...(r.leftOpen?.length ? { leftOpen: r.leftOpen } : {}),
+    ...(o.extra ?? {}),
+    ...(o.markdown ? { markdown: o.markdown } : {}),
+  };
+}
+
 /** start_work's arguments after the project is found (the session id is decided by the caller). */
-export type StartWorkArgs = { branch?: string; machine?: string; label?: string; model?: string; account?: string; parent?: string; slot?: string };
+export type StartWorkArgs = { hook?: number; branch?: string; machine?: string; label?: string; model?: string; account?: string; parent?: string; slot?: string };
 
 /**
  * The start brief for one project and session: registers the session as present, marks the unread messages it hands
@@ -384,7 +420,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   const by = await byOf(ctx);
   if (a.account && (/@|^\s*(sk-|wkr_|wos_|ghp_|xox)/i.test(a.account) || /[A-Za-z0-9_-]{32,}/.test(a.account))) throw new InputError('account is a short label such as "om-max": not an email, a key or a token');
   const mach = await resolveMachine(s, a.machine);
-  const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, label: a.label, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch });
+  const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, label: a.label, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch, hook: a.hook });
   // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
   const layerName = { org: 'organisation', project: 'project', person: 'person' } as const;
   const orders = (await ordersFor(s, project)).map(o => {
@@ -505,6 +541,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
   const identOf = (name: ToolName, a: unknown[]): Ident => {
     const arg = SESSION_ARG.has(name) && a[0] && typeof a[0] === 'object' ? (a[0] as { session?: unknown }).session : undefined;
     return { userId: caller.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sessionHeader(typeof arg === 'string' ? arg : null) ?? requestContext().sid };
+  };
+  /** The copy (WORK-STATE.md text) for this caller when it still needs it in the answer: an old hook (protocol 1, marked at sign-in), else nothing. */
+  const legacyCopy = async (a: unknown, project: Parameters<typeof stateData.stateCopy>[1], state: Parameters<typeof stateData.stateCopy>[2]): Promise<string | undefined> => {
+    const h = requestContext().hook;
+    const old = h ? h < 2 : (await readerRow(s, identOf('save_state', [a])))?.hook === 1;
+    return old ? stateData.stateCopy(s, project, state, ctx.baseUrl) : undefined;
   };
   const tool = ((name: ToolName, config: object, cb: (...a: unknown[]) => unknown) =>
     server.registerTool(
@@ -1081,7 +1123,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
       // The session: the one named (argument or header), else a new one.
       // A claude.ai chat (OAuth) passes no id: its connector is its session (userId:keyId), so its row has no session id and its later calls find it. Other callers are handed an id.
       const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? (caller.keyId?.startsWith('oauth_') ? undefined : randomUUID());
-      return startWorkBrief(ctx, key, sid, a, matchedBy);
+      // The hook protocol: the header; a call without it from the old hook (key label "Claude Code") counts as protocol 1.
+      const hook = requestContext().hook ?? (a.label === 'Claude Code' ? 1 : undefined);
+      return startWorkBrief(ctx, key, sid, { ...a, hook }, matchedBy);
     }),
   );
 
@@ -1139,12 +1183,13 @@ export function createMcpServer(ctx: Ctx): McpServer {
 
   tool(
     'get_state',
-    { inputSchema: { project: z.string().describe('Project name or id'), session: sessionArg }, annotations: { readOnlyHint: true } },
+    { inputSchema: { project: z.string().describe('Project name or id'), copy: z.boolean().optional().describe('For the Work OS hook: also answer the WORK-STATE.md copy'), session: sessionArg }, annotations: { readOnlyHint: true } },
     handler(async a => {
       const { project, state } = await stateData.getState(s, a.project);
       if (!state) return { project: project.name, state: NO_STATE, version: 0 };
       const names = await memberNames(s.orgId);
-      return { textRule: textRule(), project: project.name, version: state.version, state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), markdown: stateData.stateMarkdown(state, { projectName: project.name, url: `${ctx.baseUrl}/projects/${project._id}`, reader: s.userId, names }) };
+      const markdown = a.copy ? await stateData.stateCopy(s, project, state, ctx.baseUrl) : await legacyCopy(a, project, state);
+      return { textRule: textRule(), project: project.name, version: state.version, state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), ...(markdown ? { markdown } : {}) };
     }),
   );
 
@@ -1154,7 +1199,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       inputSchema: {
         project: z.string().describe('Project name or id'),
         ops: z.array(stateData.StateOpSchema).min(1).max(30).describe('Changes, applied in order'),
-        base_version: z.number().int().min(0).optional().describe('The State version you read. Needed only with set_now, move_next, done_next or edit_line; stale = nothing written and the current State comes back'),
+        base_version: z.number().int().min(0).optional().describe('The State version you read. Needed only with set_now; stale = nothing written and the current State comes back'),
         session: sessionArg,
       },
       annotations: { destructiveHint: false },
@@ -1172,17 +1217,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
           state: r.state ? stateData.stateOut(r.state, s.userId, names) : NO_STATE,
         };
       }
-      return {
-        saved: true,
-        version: r.state.version,
-        ...(r.done.length ? { done: r.done } : {}),
-        ...(r.dropped.length ? { dropped: r.dropped } : {}),
-        ...(r.promoted.length ? { promotedToTasks: r.promoted.map(p => `#${p.ref} ${p.title}`) } : {}),
-        textRule: textRule(),
-        state: stateData.stateOut(r.state, s.userId, names),
-        repoCopy: `${STATE_COPY}; ${STATE_COPY_NO_HOOK}. Never edit it by hand:`,
-        markdown: stateData.stateMarkdown(r.state, { projectName: r.project.name, url: `${ctx.baseUrl}/projects/${r.project._id}`, reader: s.userId, names }),
-      };
+      return savedAnswer(r, { markdown: await legacyCopy(a, r.project, r.state) });
     }),
   );
 
@@ -1198,16 +1233,15 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const r = await stateData.importState(s, a.project, a.markdown, { actor: ACTOR });
-      const names = await memberNames(s.orgId);
-      return {
-        imported: { now: r.imported.now, next: r.imported.next, later: r.imported.later },
-        ...(r.skipped.length ? { notImported: `${r.skipped.map(k => `${k.section} (${k.lines} lines)`).join(', ')}: a record of the past, not the plan. Keep it in docs/history.md, not in the State.` } : {}),
-        version: r.state.version,
-        textRule: textRule(),
-        state: stateData.stateOut(r.state, s.userId, names),
-        repoCopy: `The State now lives in Work OS: change it only with save_state. ${STATE_COPY}; ${STATE_COPY_NO_HOOK}. Never edit it by hand:`,
-        markdown: stateData.stateMarkdown(r.state, { projectName: r.project.name, url: `${ctx.baseUrl}/projects/${r.project._id}`, reader: s.userId, names }),
-      };
+      return savedAnswer(r, {
+        verb: 'Imported',
+        markdown: await legacyCopy(a, r.project, r.state),
+        extra: {
+          imported: { now: r.imported.now, next: r.imported.next, later: r.imported.later },
+          ...(r.skipped.length ? { notImported: notImportedText(r.skipped) } : {}),
+          ...(r.shortened ? { shortened: `${r.shortened} lines were longer than 500 characters and were cut at a sentence; put the rest in a note.` } : {}),
+        },
+      });
     }),
   );
 
