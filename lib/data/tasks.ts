@@ -354,6 +354,8 @@ export type ChangeRow = {
   changes?: Record<string, FieldChange>;
   /** Who wrote `note`, when it is not the actor (a user id). */
   textBy?: string;
+  /** Who wrote the subject's title (a renamed project: its old name), when it is not the actor (a user id). */
+  titleBy?: string;
   at?: Date;
 };
 
@@ -382,6 +384,7 @@ export async function logChange(c: Collections, placed: Pick<Placed, 'orgId' | '
   if (row.changes && Object.keys(row.changes).length) doc.changes = row.changes;
   if (row.note?.trim()) doc.note = clip(row.note);
   if (row.textBy && row.textBy !== actorUserId(actor)) doc.textBy = row.textBy;
+  if (row.titleBy && row.titleBy !== actorUserId(actor)) doc.titleBy = row.titleBy;
   const rc = requestContext();
   if (rc.session) doc.session = rc.session;
   if (rc.repo) doc.repo = rc.repo;
@@ -400,7 +403,7 @@ export function actorQueryOf(actor: Actor): Filter<ActivityDoc> {
  * whose subject the reader can read through their own door at this moment (a note in the trash, a project made
  * private since, a person's own Orders page: dropped). Also the project names of the rows that are not about a task.
  */
-async function readableRows(c: Collections, s: Scope, docs: ActivityDoc[]): Promise<{ rows: ActivityDoc[]; names: Map<string, string> }> {
+export async function readableRows(c: Collections, s: Scope, docs: ActivityDoc[]): Promise<{ rows: ActivityDoc[]; names: Map<string, string> }> {
   const ids = (k: string) => [...new Set(docs.filter(d => d.subject?.kind === k).map(d => d.subject!.id))];
   const projectIds = [...new Set(docs.filter(d => d.subject && !d.taskId).map(d => d.projectId ?? (d.subject!.kind === 'project' ? d.subject!.id : '')).filter(Boolean))];
   const [notes, messages, needs, projects] = await Promise.all([
@@ -1597,13 +1600,27 @@ export async function listActivity(s: Scope, f: ActivityFilter = {}): Promise<Ac
     and.push({ $or: [{ projectId: p._id, taskId: { $exists: false } }, { taskId: { $in: ids } }] } as Filter<ActivityDoc>);
   }
   if (and.length) q.$and = and;
-  const docs = await c.activity
-    .find(q)
-    .sort({ at: -1 })
-    .limit(f.limit ?? 200)
-    .toArray();
-  const { rows, names } = await readableRows(c, s, docs);
-  return rows.map(d => {
+  // Rows the reader may not read drop out after the query (readableRows), so a page is filled from up to three reads:
+  // each next one starts after the last row read (time, then id) and asks for what is still missing, at least 50.
+  const limit = f.limit ?? 200;
+  const rows: ActivityDoc[] = [];
+  const names = new Map<string, string>();
+  let after: ActivityDoc | null = null;
+  for (let round = 0; round < 3 && rows.length < limit; round++) {
+    const want = round === 0 ? limit : Math.max(limit - rows.length, 50);
+    const page = after ? { $and: [q, { $or: [{ at: { $lt: after.at } }, { at: after.at, _id: { $lt: after._id } }] }] } : q;
+    const docs: ActivityDoc[] = await c.activity
+      .find(page as Filter<ActivityDoc>)
+      .sort({ at: -1, _id: -1 })
+      .limit(want)
+      .toArray();
+    const got = await readableRows(c, s, docs);
+    rows.push(...got.rows);
+    for (const [k, v] of got.names) names.set(k, v);
+    if (docs.length < want) break;
+    after = docs[docs.length - 1];
+  }
+  return rows.slice(0, limit).map(d => {
     const a = toActivity(d);
     return a.projectId && names.has(a.projectId) ? { ...a, projectName: names.get(a.projectId) } : a;
   });

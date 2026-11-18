@@ -174,7 +174,7 @@ export type AskInput = {
 async function logNeed(c: Collections, n: NeedDoc, actor: Actor, type: 'need_asked' | 'need_answered' | 'need_withdrawn', note?: string): Promise<void> {
   const { logChange } = await import('./tasks');
   const asker = 'userId' in n.from.actor && n.from.actor.userId ? n.from.actor.userId : undefined;
-  await logChange(c, n, actor, type, { subject: { kind: 'need', id: n._id, ref: n.ref, title: n.ask }, projectId: n.projectId || null, ...(note ? { note, ...(asker ? { textBy: asker } : {}) } : {}) });
+  await logChange(c, n, actor, type, { subject: { kind: 'need', id: n._id, ref: n.ref, title: n.ask }, projectId: n.projectId || null, titleBy: asker, ...(note ? { note, ...(asker ? { textBy: asker } : {}) } : {}) });
 }
 
 /**
@@ -566,11 +566,12 @@ export async function restampTaskNeeds(orgId: string, taskIds: string[]): Promis
   const tasks = await c.tasks.find({ _id: { $in: taskIds } }, { projection: { projectId: 1, ownerId: 1, visibility: 1, sharedWith: 1 } }).toArray();
   for (const t of tasks) {
     const set: Document = { ownerId: t.ownerId, visibility: t.visibility, sharedWith: t.visibility === 'members' ? (t.sharedWith ?? []) : [] };
-    if (t.projectId) set.projectId = t.projectId;
-    await c.needs.updateMany({ taskId: t._id }, { $set: set });
+    // A task taken out of every project leaves its old project behind: a Need (or its row) still naming that project
+    // would be moved with it, and shown to its readers, the next time the project's placement changes.
+    await c.needs.updateMany({ taskId: t._id }, { $set: { ...set, projectId: t.projectId || '' } });
     // Their feed rows follow them: the same placement and project (rows are found by the Need, the one subject id).
     const ids = await c.needs.distinct('_id', { taskId: t._id });
-    if (ids.length) await c.activity.updateMany({ 'subject.kind': 'need', 'subject.id': { $in: ids } }, { $set: set });
+    if (ids.length) await c.activity.updateMany({ 'subject.kind': 'need', 'subject.id': { $in: ids } }, t.projectId ? { $set: { ...set, projectId: t.projectId } } : { $set: set, $unset: { projectId: '' } });
     await withdrawUnreadableNeeds(c, { taskId: t._id }, 'moved');
     await syncTaskNeed(c, t._id);
   }

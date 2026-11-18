@@ -224,6 +224,8 @@ export type Activity = {
   subject?: ActivitySubject;
   /** Who wrote the text in `note` when it is not the actor (a Next line someone else wrote, a decision applied from a message): a user id. */
   textBy?: string;
+  /** Who wrote the subject's title (or a renamed project's old name) when it is not the actor: a user id. */
+  titleBy?: string;
   at: string; // ISO datetime
   actor: Actor;
   type: ActivityType;

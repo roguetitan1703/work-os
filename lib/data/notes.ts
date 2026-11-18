@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Filter } from 'mongodb';
 import type { NoteDoc, TaskDoc } from '../db';
 import { scoped, usersWithSetting, type Scope, type ScopedCollections as Collections } from '../scope';
-import { asActor, isPerson } from '../actors';
+import { actorUserId, asActor, isPerson } from '../actors';
 import { CLOSED_STATUSES, type Actor } from '../types';
 import type { NoteBlock } from '../notes-schema';
 import { blockOutline, blocksToMarkdown, cloneBlocks, findBlock, markdownToBlocks, plainText } from '../notes-convert';
@@ -436,7 +436,7 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     if (set.blocks || set.title) await takeBackTaskOnNoteEdit(s, c, cur, actor);
     if (set.title && cur.parentId) await renamePageBlock(c, cur.parentId, cur._id, set.title);
     await c.notes.updateOne({ _id: cur._id }, { $set: set });
-    if (set.blocks || set.title) await logNote(c, { ...cur, ...set }, actor, 'note_edited');
+    if (set.blocks || set.title) await logNote(c, { ...cur, ...set }, actor, 'note_edited', set.title !== undefined && set.title !== cur.title);
     return { note: (await hydrate(c, [{ ...cur, ...set }]))[0], created: false };
   }
 
@@ -492,7 +492,7 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
  * so its rows move, go to the trash and come back with the task; a project's note carries the project and moves with
  * it. Edits make one row per editor per hour. A person's own Orders page makes none (nobody else may read about it).
  */
-async function logNote(c: Collections, n: NoteDoc, actor: Actor, type: 'note_created' | 'note_edited'): Promise<void> {
+async function logNote(c: Collections, n: NoteDoc, actor: Actor, type: 'note_created' | 'note_edited', renamed = false): Promise<void> {
   if (n.orders === 'person') return;
   const { logChange, actorQueryOf } = await import('./tasks');
   if (type === 'note_edited') {
@@ -503,7 +503,10 @@ async function logNote(c: Collections, n: NoteDoc, actor: Actor, type: 'note_cre
   const task = taskId ? await c.tasks.findOne({ _id: taskId }, { projection: { ref: 1, title: 1 } }) : null;
   // A task's page whose task cannot be found (never expected: such pages are in the trash with it) makes no row, rather than one that would not move with it.
   if (taskId && !task) return;
-  await logChange(c, n, actor, type, { subject: { kind: 'note', id: n._id, title: n.title }, task, projectId: task ? null : n.projectId });
+  // The title is the editor's own when this edit renamed it; otherwise it is labelled as its creator's (notes keep no
+  // separate title author, so a title someone else renamed since is still labelled as the creator's: never unlabelled).
+  const titleBy = renamed || type === 'note_created' ? undefined : (actorUserId(n.createdBy) ?? undefined);
+  await logChange(c, n, actor, type, { subject: { kind: 'note', id: n._id, title: n.title }, task, projectId: task ? null : n.projectId, titleBy });
 }
 
 async function addPageBlock(c: Collections, parent: NoteDoc, childId: string, title: string, actor: Actor) {

@@ -125,7 +125,7 @@ export function briefTask(t: Task, names: Map<string, string>, opts: { baseUrl?:
   return out;
 }
 
-export type OtherChange = { at: string; actor: string; project?: string; /** A task's note: the task ("#12 Title"). */ task?: string; what: string; type: string; text: string; writtenBy?: string };
+export type OtherChange = { at: string; actor: string; project?: string; /** A task's note: the task ("#12 Title"). */ task?: string; what: string; type: string; text: string; writtenBy?: string; /** Who wrote the note title, Need ask or old project name in `text`, when not the reader. */ titleWrittenBy?: string };
 
 /**
  * A feed row that is not about a task, for an agent to read: who wrote its text is said (writtenBy) when it is not the
@@ -142,6 +142,7 @@ export function otherChangeOut(a: Activity, reader: string, people: Record<strin
     type: a.type,
     text: describeActivity(a),
     ...(author && author !== reader ? { writtenBy: people[author] || 'a former member' } : {}),
+    ...(a.titleBy && a.titleBy !== reader ? { titleWrittenBy: people[a.titleBy] || 'a former member' } : {}),
   };
 }
 

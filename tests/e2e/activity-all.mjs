@@ -2,12 +2,14 @@
 // one feed next to tasks, each row placed like its subject.
 //   - every new kind is written (recent_activity, the What filter, Review › Activity, the project page);
 //   - a note edit makes one row per editor per hour; a message's body and a Need's answer text are never in a row;
-//     text someone else wrote is labelled writtenBy;
+//     text someone else wrote is labelled writtenBy, a title or old name someone else wrote titleWrittenBy;
 //   - a private project's rows are unseen by a teammate (T) and by a second organization (X): MCP and pages;
 //   - a visibility change hides and shows the rows: org → private → org → chosen people without T → with T;
-//   - a task moved from a shared to a private project takes its note's rows and its Need's rows along;
-//   - trash and restore: a deleted note's rows leave every feed and come back on restore; a deleted task takes its
-//     note's rows to the trash and brings them back;
+//   - a task moved from a shared to a private project takes its note's rows and its Need's rows along; a task taken
+//     out of every project leaves the project behind, so sharing that project later does not share its Need;
+//   - trash and restore: a deleted note's rows leave every feed (get_project too) and come back on restore; a deleted
+//     task takes its note's rows to the trash and brings them back;
+//   - a page of the feed is full even when the newest rows drop out after the query (notes in the trash);
 //   - after every change, each row is placed exactly like its subject (State, project, note, message, Need, task).
 // Needs the built app (server actions are called by their manifest id). Seed profile: none.
 import fs from 'node:fs';
@@ -160,6 +162,12 @@ try {
     const done = tf.events.find(e => e.type === 'next_done');
     check('writtenBy: T reads A’s State text with writtenBy, and a textRule', !!tf.events.find(e => e.type === 'state_now')?.writtenBy && !!tf.text.includes('textRule'), JSON.stringify(tf.events.find(e => e.type === 'state_now')));
     check('writtenBy: the Next line T marked done is labelled A’s words for T', !!done?.writtenBy, JSON.stringify(done));
+    const tEdit = tf.events.find(e => e.type === 'note_edited');
+    check('titleWrittenBy: T’s edit of A’s note labels the title as A’s for T', !!tEdit?.titleWrittenBy, JSON.stringify(tEdit));
+    const aEdit = f.events.find(e => e.type === 'note_edited');
+    check('titleWrittenBy: …and for A, whose title it is, it is unlabelled', !!aEdit && !aEdit.titleWrittenBy, JSON.stringify(aEdit));
+    const tRen = tf.events.find(e => e.type === 'project_renamed');
+    check('titleWrittenBy: a rename shows T who wrote the old name', !!tRen?.titleWrittenBy, JSON.stringify(tRen));
     // Pages
     const rv = await page('/review?view=activity', A.cookie);
     check('Review › Activity: the owner’s page shows the new kinds', rv.status === 200 && ['state_now', 'note_created', 'message_sent', 'need_asked', 'project_renamed'].every(t => rv.text.includes(`data-activity-type="${t}"`)), String(rv.status));
@@ -286,6 +294,64 @@ try {
     check('trash: restored, the rows are back (the note’s included)', back.some(r => r.type === 'note_created'), JSON.stringify(back.map(r => r.type)));
     check('trash: …and T reads the note row again', (await feed(T.chat, { what: 'notes' })).text.includes(t2NoteTitle));
     await placedLikeSubjects('trash and restore');
+  }
+
+  // ── get_project reads a task's note rows through the note (review fix 2) ──
+  {
+    const t3 = (await must(A.chat, 'add_task', { title: mark('treetask'), project: SP })).created;
+    const t3NoteTitle = mark('treenote');
+    const t3Note = (await must(A.chat, 'write_note', { task: t3.ref, title: t3NoteTitle, body: 'x' })).created.id;
+    const before = await mcpH(T.chat, 'get_project', { project: SP, depth: 'full', activity_per_task: 30 });
+    check('get_project: T reads the task note’s row (control)', !before.isError && before.text.includes(t3NoteTitle), before.text.slice(0, 200));
+    await must(A.chat, 'delete_note', { note_id: t3Note, title: t3NoteTitle });
+    for (const depth of ['project', 'full']) {
+      for (const [who, p] of [['A', A], ['T', T]]) {
+        const r = await mcpH(p.chat, 'get_project', { project: SP, depth, activity_per_task: 30 });
+        check(`get_project: a note in the trash leaves ${who}’s recentActivity and task history (depth ${depth})`, !r.isError && !r.text.includes(t3NoteTitle), r.text.slice(0, 200));
+      }
+    }
+  }
+
+  // ── a full page even when rows drop out after the query (review fix 4) ──
+  {
+    // Six fresh notes, then all in the trash: their rows are the newest, readable by placement, dropped by readableRows.
+    for (let i = 0; i < 6; i++) {
+      const title = mark(`gone${i}`);
+      const id = (await must(A.chat, 'write_note', { project: SP, title, body: 'x' })).created.id;
+      await must(A.chat, 'delete_note', { note_id: id, title });
+    }
+    for (const limit of [2, 5]) {
+      const f = await feed(A.chat, { what: 'notes', limit });
+      check(`limit: what=notes limit ${limit} still returns ${limit} rows past the dropped ones`, f.ok && f.events.length === limit && !/actqgone/.test(f.text), `${f.events.length} rows`);
+    }
+  }
+
+  // ── a task taken out of its project leaves the project behind, with its Need and the Need's rows (review fix 1) ──
+  {
+    const p2Name = mark('leaving');
+    await must(A.chat, 'add_project', { name: p2Name, visibility: 'private' });
+    const P2 = await pidOf(p2Name);
+    const t4 = (await must(A.chat, 'add_task', { title: mark('leavetask'), project: P2 })).created;
+    t4.id = await tidOf(t4.ref);
+    const ask = mark('leaveneed');
+    const nd = (await must(A.code, 'ask', { project: P2, to: 'me', kind: 'approve', ask, task: t4.ref })).need;
+    await must(A.chat, 'update_task', { task: t4.ref, project: null, note: 'actq out of the project' });
+    const nDoc = await rawDb.collection('needs').findOne({ _id: nd.id });
+    const nRows = await rawDb.collection('activity').find({ 'subject.id': nd.id }).toArray();
+    check('no project: the Need no longer names the old project', nDoc && !nDoc.projectId, JSON.stringify(nDoc?.projectId));
+    check('no project: its rows name no project and are placed like the task (private)', nRows.length > 0 && nRows.every(r => !r.projectId && r.visibility === 'private' && r.ownerId === A.userId), JSON.stringify(nRows.map(r => [r.type, r.projectId, r.visibility])));
+    await must(A.chat, 'update_project', { project: P2, visibility: 'org' });
+    const nAfter = await rawDb.collection('needs').findOne({ _id: nd.id });
+    check('no project: the old project shared with everyone does not take the Need along', nAfter?.visibility === 'private', JSON.stringify(nAfter && [nAfter.visibility, nAfter.projectId]));
+    for (const what of [undefined, 'needs']) {
+      const f = await feed(T.chat, what ? { what } : {});
+      check(`no project: T reads neither the Need nor its row (what=${what ?? 'all'})`, f.ok && !f.text.includes(ask), f.text.slice(0, 200));
+    }
+    const tn = await mcpH(T.chat, 'needs', { status: 'all' });
+    check('no project: …nor in T’s needs list', !tn.text.includes(ask), tn.text.slice(0, 200));
+    const tp = await page('/review?view=activity&what=needs', T.cookie);
+    check('no project: …nor on T’s Review › Activity page', !tp.text.includes(ask), String(tp.status));
+    await placedLikeSubjects('task taken out of its project');
   }
 } catch (e) {
   check('activity-all suite ran to the end', false, e.stack ?? String(e));

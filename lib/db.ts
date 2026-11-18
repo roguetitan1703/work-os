@@ -110,6 +110,8 @@ export type ActivityDoc = Placed & {
   subject?: import('./types').ActivitySubject;
   /** The author of `note` when it is not the actor (a user id). */
   textBy?: string;
+  /** The author of the subject's title (a renamed project: of its old name) when it is not the actor (a user id). */
+  titleBy?: string;
   at: Date;
   actor: Actor;
   type: ActivityType;
@@ -737,6 +739,7 @@ export function toActivity(d: ActivityDoc): Activity {
     ...(d.projectId ? { projectId: d.projectId } : {}),
     ...(d.subject ? { subject: { kind: d.subject.kind, id: d.subject.id, ...(d.subject.ref ? { ref: d.subject.ref } : {}), title: d.subject.title } } : {}),
     ...(d.textBy ? { textBy: d.textBy } : {}),
+    ...(d.titleBy ? { titleBy: d.titleBy } : {}),
     at: d.at.toISOString(),
     actor: asActor(d.actor),
     type: d.type,

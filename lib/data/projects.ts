@@ -473,8 +473,9 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
   const now = { ...cur, ...set };
   const feed = await import('./tasks');
   const subject = { kind: 'project' as const, id, title: now.name };
-  if (set.name !== undefined) await feed.logChange(c, now, actor, 'project_renamed', { subject, projectId: id, changes: { name: { from: cur.name, to: now.name } } });
-  if (moving) await feed.logChange(c, now, actor, 'visibility_changed', { subject, projectId: id, changes: { visibility: { from: whoSeesLabel(was), to: whoSeesLabel(next) } } });
+  // titleBy: who wrote the name in the row (a rename: the old name's author), labelled when it is not the actor.
+  if (set.name !== undefined) await feed.logChange(c, now, actor, 'project_renamed', { subject, projectId: id, changes: { name: { from: cur.name, to: now.name } }, titleBy: cur.nameBy ?? cur.ownerId });
+  if (moving) await feed.logChange(c, now, actor, 'visibility_changed', { subject, projectId: id, changes: { visibility: { from: whoSeesLabel(was), to: whoSeesLabel(next) } }, titleBy: now.nameBy ?? now.ownerId });
   return toProject(now);
 }
 

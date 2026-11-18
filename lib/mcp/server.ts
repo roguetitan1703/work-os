@@ -703,7 +703,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const d = await dailySummary(s, { since: parseSince(a.since), baseUrl: ctx.baseUrl });
-      return { ...ruleIfOutside([...d.overdue, ...d.dueToday, ...d.inProgress, ...d.blocked, ...d.dueNext7Days, ...d.completedSince, ...d.changedSince, ...d.otherChanges.map(x => ({ titleWrittenBy: x.writtenBy }))]), ...d };
+      return { ...ruleIfOutside([...d.overdue, ...d.dueToday, ...d.inProgress, ...d.blocked, ...d.dueNext7Days, ...d.completedSince, ...d.changedSince, ...d.otherChanges.map(x => ({ titleWrittenBy: x.writtenBy ?? x.titleWrittenBy }))]), ...d };
     }),
   );
 
@@ -730,7 +730,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         whatOf(e) === 'tasks' ? { at: e.at, by: by(e.actor), task: `#${e.taskRef} ${e.taskTitle}`, type: e.type, text: describeActivity(e) } : (({ actor, ...x }) => ({ ...x, by: actor }))(otherChangeOut(e, s.userId, people)),
       );
       return {
-        ...(events.some(e => 'writtenBy' in e && e.writtenBy) ? { textRule: textRule() } : {}),
+        ...(events.some(e => ('writtenBy' in e && e.writtenBy) || ('titleWrittenBy' in e && e.titleWrittenBy)) ? { textRule: textRule() } : {}),
         since: since?.toISOString(),
         count: list.length,
         events,

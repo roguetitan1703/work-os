@@ -83,10 +83,15 @@ try {
         continue;
       }
       let text = '';
+      let textBy = null; // a decision applied from a message: the message's author wrote its words, as the app records it
       if (e.op === 'set_now' && st.now && st.now.at?.getTime() === e.at.getTime() && st.now.by === e.by) text = st.now.text;
       else if (e.op === 'add_next') text = take(st.next, e.at, e.by)?.text ?? '';
       else if (e.op === 'add_later') text = take(st.later, e.at, e.by)?.text ?? '';
-      else if (e.op === 'add_decision') text = take(st.decisions, e.at, e.by)?.text ?? '';
+      else if (e.op === 'add_decision') {
+        const d = take(st.decisions, e.at, e.by);
+        text = d?.text ?? '';
+        if (d?.author && d.author !== e.by) textBy = d.author;
+      }
       if (text) counts.withText++;
       const _id = `statelog:${st._id}:${e.at.getTime()}:${i}`;
       ops.push({
@@ -101,7 +106,7 @@ try {
               at: e.at,
               actor: actorOf(e),
               type,
-              ...(text ? { note: clip(text) } : {}),
+              ...(text ? { note: clip(text), ...(textBy ? { textBy } : {}) } : {}),
               ...(e.src ? { session: String(e.src).slice(0, 80) } : {}),
               migratedFrom: 'state-log',
             },
