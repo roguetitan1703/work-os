@@ -311,7 +311,7 @@ try {
   check('notice: the owner can switch it off (the mail still goes)', (await notices(A.userId)).length === 2 && realSends >= 5, String(realSends));
 
   // ---- outside mail is drafted by Claude (ask), sent by a person ----
-  const outMsg = /Mail to addresses outside delpat\.test is sent by a person\. Call ask with the draft/;
+  const outMsg = /Mail to addresses outside delpat\.test is sent by a person\. Show the draft/;
   for (const [what, args] of [['to', { to: ['x@outside.example'] }], ['cc', { to: ['col@delpat.test'], cc: ['x@outside.example'] }], ['bcc', { to: ['col@delpat.test'], bcc: 'Name <x@outside.example>' }], ['subdomain', { to: ['x@sub.delpat.test'] }], ['display-name trick', { to: ['"col@delpat.test" <x@outside.example>'] }]]) {
     n0 = mark();
     const sb = realSends;
