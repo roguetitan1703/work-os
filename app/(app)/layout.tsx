@@ -18,6 +18,8 @@ import { isOperator } from '@/lib/operator';
 import { deviceMap } from '@/lib/data/launcher';
 import { getOrgModes } from '@/lib/org-modes';
 import { getSchedule } from '@/lib/user-schedule';
+import { openNeedCount } from '@/lib/data/needs';
+import { whatsNewState } from '@/lib/whats-new-seen';
 import { NavTracker } from '@/components/nav-tracker';
 import { GlobalShortcuts } from '@/components/shortcuts';
 import { GlobalSearch } from '@/components/global-search';
@@ -32,7 +34,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!caller) redirect('/login');
   const s = { userId: caller.userId, orgId: caller.orgId };
   const operator = isOperator(caller);
-  const [projects, overdue, unread, claudeWaiting, status, people, modes, schedule, recent, org, computers] = await Promise.all([
+  const [projects, overdue, unread, claudeWaiting, status, people, modes, schedule, recent, org, computers, needs, news] = await Promise.all([
     listProjectsNav(s),
     overdueCount(s),
     unreadCount(s),
@@ -44,6 +46,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     listRecentProjects(s, 5).catch(() => []),
     orgName(s.orgId).catch(() => ''),
     deviceMap(caller).then(m => m.size > 0).catch(() => false),
+    openNeedCount(s).catch(() => 0),
+    whatsNewState(caller).catch(() => null),
   ]);
   return (
     <AppContextProvider
@@ -58,7 +62,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       account={{ name: caller.name || caller.email, email: caller.email, org, operator }}
       hasComputers={computers}
       recent={recent.map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }))}
-      badges={{ overdue, claudeWaiting, status }}
+      badges={{ overdue, claudeWaiting, status, needs, whatsNew: !!news?.unseen.length, newBadges: news?.badges ?? [] }}
       projects={projects.map(p => ({ id: p.id, name: p.name, status: p.status, visibility: p.visibility }))}
     >
       <PageTint />

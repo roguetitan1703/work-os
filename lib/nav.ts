@@ -1,5 +1,5 @@
 
-export type Place = 'today' | 'tasks' | 'projects' | 'notes' | 'claude' | 'inbox' | 'review' | 'schedule' | 'settings' | 'menu';
+export type Place = 'today' | 'tasks' | 'projects' | 'notes' | 'claude' | 'inbox' | 'needs' | 'whatsnew' | 'review' | 'schedule' | 'settings' | 'menu';
 
 const under = (path: string, base: string) => path === base || path.startsWith(base + '/');
 
@@ -11,6 +11,8 @@ export function placeOf(path: string): Place | null {
   if (under(path, '/notes')) return 'notes';
   if (under(path, '/claude')) return 'claude';
   if (under(path, '/notifications')) return 'inbox';
+  if (under(path, '/needs')) return 'needs';
+  if (under(path, '/whats-new')) return 'whatsnew';
   if (['/review'].some(b => under(path, b))) return 'review';
   if (under(path, '/timetable')) return 'schedule';
   if (['/settings', '/connect', '/recovery'].some(b => under(path, b))) return 'settings';
@@ -18,7 +20,7 @@ export function placeOf(path: string): Place | null {
   return null;
 }
 
-/** The phone tab a page lights. Notes belong to Projects; Inbox, Review, Schedule, Settings and Menu light nothing. */
+/** The phone tab a page lights. Notes belong to Projects; Inbox, Needs, What's new, Review, Schedule, Settings and Menu light nothing. */
 export function phoneTabOf(path: string): 'today' | 'projects' | 'claude' | 'tasks' | null {
   const p = placeOf(path);
   if (p === 'today' || p === 'claude' || p === 'tasks' || p === 'projects') return p;

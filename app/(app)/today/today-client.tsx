@@ -17,6 +17,7 @@ import { ResponsiveSheet } from "@/components/responsive-sheet";
 import { cn } from "@/lib/utils";
 import { ClaudeCard, type ClaudeCardData } from "./claude-card";
 import { ChecklistCard } from "./checklist-card";
+import { WhatsNewCard, type WhatsNewCardData } from "./whats-new-card";
 import { NeedsYou } from "@/components/needs";
 import type { Need } from "@/lib/data/needs";
 import type { Checklist } from "@/lib/get-started";
@@ -32,6 +33,8 @@ type Props = {
   claude: ClaudeCardData | null;
   needs: Need[];
   checklist: Checklist | null;
+  /** Unseen entries from lib/whats-new.ts (null: none). */
+  whatsNew: WhatsNewCardData | null;
   welcome: string | null;
 };
 
@@ -56,7 +59,7 @@ export function TodayClient(props: Props) {
   );
 }
 
-function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, waiting, noteTaskIds, claude, needs, checklist, welcome }: Props & { variant: Variant }) {
+function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, waiting, noteTaskIds, claude, needs, checklist, whatsNew, welcome }: Props & { variant: Variant }) {
   const m = useTodayModel({ tasks: openTasks, waiting, isNaturallyWeekend, weekday });
   const phone = variant === "phone";
   const [importOpen, setImportOpen] = useState(false);
@@ -172,6 +175,8 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
           <ClaudeCard data={claude} />
         </div>
         {sections}
+        {/* Last on the phone: tasks keep the first screen; the Menu button carries a dot while something is new. */}
+        <WhatsNewCard data={whatsNew} phone />
         {dialogs}
       </div>
     );
@@ -194,6 +199,7 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
         <div className="space-y-4 min-w-0">
           <ClaudeCard data={claude} />
           <NowNext m={m} row={row} />
+          <WhatsNewCard data={whatsNew} phone={false} />
         </div>
       </div>
       {dialogs}

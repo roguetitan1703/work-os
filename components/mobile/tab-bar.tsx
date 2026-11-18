@@ -119,6 +119,9 @@ export function MobileHeader({
   nav?: boolean;
 }) {
   const path = usePathname();
+  const { badges } = useApp();
+  // Something inside the Menu wants a look: Needs waiting on you (amber) or something new (blue).
+  const menuDot = badges.needs ? 'bg-amber-500' : badges.whatsNew ? 'bg-blue-500' : null;
   return (
     <header
       className="md:hidden sticky -top-3 z-30 -mx-4 -mt-3 px-4 pb-3 pt-3 bg-background/85 backdrop-blur-xl"
@@ -139,8 +142,9 @@ export function MobileHeader({
             )}
             {bell && <BellButton />}
             {nav && path !== '/menu' && (
-              <Link href="/menu" aria-label="Menu" className="w-11 h-11 -mr-2 flex items-center justify-center rounded-full active:bg-muted">
+              <Link href="/menu" aria-label={menuDot ? (badges.needs ? 'Menu, Needs wait on you' : 'Menu, something new') : 'Menu'} className="relative w-11 h-11 -mr-2 flex items-center justify-center rounded-full active:bg-muted">
                 <Menu className="w-[22px] h-[22px]" />
+                {menuDot && <span data-menu-dot className={cn('absolute right-2 top-2.5 w-2 h-2 rounded-full ring-2 ring-background', menuDot)} aria-hidden />}
               </Link>
             )}
           </div>

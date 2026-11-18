@@ -12,6 +12,7 @@ import { ui } from '@/lib/ui-tokens';
 import { useApp } from './app-context';
 import { NavIcon, PLACE_ICON } from './nav-icons';
 import { PrivateBadge } from './private-badge';
+import { NewBadge } from './new-badge';
 import { RailTip } from './rail-tip';
 import { QuickAddLauncher } from './quick-add';
 import { openSearch } from './global-search';
@@ -173,8 +174,10 @@ export function Sidebar({ showSignOut = true }: { showSignOut?: boolean }) {
         </Group>
         <Group>
           <NavItem rail={rail} href="/notifications" icon={PLACE_ICON.inbox} on={place === 'inbox'} count={unread} tone="red">Inbox</NavItem>
+          <NavItem rail={rail} href="/needs" icon={PLACE_ICON.needs} on={place === 'needs'} count={badges.needs} tone="amber" isNew={badges.newBadges?.includes('nav:needs')}>Needs</NavItem>
           <NavItem rail={rail} href="/review" icon={PLACE_ICON.review} on={place === 'review'}>Review</NavItem>
           <NavItem rail={rail} href="/timetable" icon={PLACE_ICON.schedule} on={place === 'schedule'}>Schedule</NavItem>
+          <NavItem rail={rail} href="/whats-new" icon={PLACE_ICON.whatsnew} on={place === 'whatsnew'} dot={badges.whatsNew}>What&apos;s new</NavItem>
         </Group>
         {!rail && recent.length > 0 && (
           <section className="pt-3" data-recent>
@@ -351,6 +354,8 @@ function NavItem({
   tone,
   keyHint,
   rail,
+  dot,
+  isNew,
 }: {
   href: string;
   children: string;
@@ -360,6 +365,10 @@ function NavItem({
   tone?: 'red' | 'amber';
   keyHint?: string;
   rail: boolean;
+  /** A small blue dot instead of a count (something new to look at). */
+  dot?: boolean;
+  /** A "New" badge (lib/whats-new.ts) after the label. */
+  isNew?: boolean;
 }) {
   const toneCls =
     tone === 'red'
@@ -373,14 +382,17 @@ function NavItem({
       <Link
         href={href}
         aria-current={on ? 'page' : undefined}
-        aria-label={rail ? (count ? `${children}, ${count}` : children) : undefined}
+        aria-label={rail ? (count ? `${children}, ${count}` : dot ? `${children}, something new` : children) : undefined}
         title={!rail && keyHint ? `${children} (${keyHint})` : undefined}
         className={cn('relative', ui.row, on ? ui.rowOn : ui.rowOff, rail && 'justify-center px-0')}
       >
         <NavIcon icon={icon} className="text-muted-foreground" />
         {!rail && children}
+        {!rail && isNew && <NewBadge className={count || dot ? '' : 'ml-auto'} />}
         {!rail && count ? <span className={cn(ui.badge, toneCls)}>{count}</span> : null}
+        {!rail && !count && dot ? <span data-new-dot role="img" aria-label="Something new" className="ml-auto mr-1 w-2 h-2 rounded-full bg-blue-500" /> : null}
         {rail && count ? <span data-badge-dot className={cn('absolute right-2 top-1.5 w-2 h-2 rounded-full', dotCls)} aria-hidden /> : null}
+        {rail && !count && dot ? <span data-new-dot className="absolute right-2 top-1.5 w-2 h-2 rounded-full bg-blue-500" aria-hidden /> : null}
       </Link>
     </RailTip>
   );

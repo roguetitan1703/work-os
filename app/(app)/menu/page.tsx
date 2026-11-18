@@ -6,6 +6,9 @@ import { systemStatusLevel } from '@/lib/data/nav-counts';
 import { unreadCount } from '@/lib/notify';
 import { requireCaller } from '@/lib/caller';
 import { isOperator } from '@/lib/operator';
+import { openNeedCount } from '@/lib/data/needs';
+import { whatsNewState } from '@/lib/whats-new-seen';
+import { NewBadge } from '@/components/new-badge';
 
 export const metadata = { title: 'Menu · Work OS' };
 
@@ -17,7 +20,7 @@ export default async function MenuPage() {
   const s = await requireCaller();
   // Server health is the operator's: everyone else gets no dot.
   const operator = isOperator(s);
-  const [status, unread] = await Promise.all([operator ? systemStatusLevel(s).catch(() => 'ok' as const) : Promise.resolve('ok' as const), unreadCount(s).catch(() => 0)]);
+  const [status, unread, needs, news] = await Promise.all([operator ? systemStatusLevel(s).catch(() => 'ok' as const) : Promise.resolve('ok' as const), unreadCount(s).catch(() => 0), openNeedCount(s).catch(() => 0), whatsNewState(s).catch(() => null)]);
   return (
     <div className="max-w-xl mx-auto">
       <MobileHeader title="Menu" />
@@ -27,12 +30,30 @@ export default async function MenuPage() {
         <Row href="/notifications" icon={PLACE_ICON.inbox} label="Inbox" dot={unread > 0 ? <span className="text-xs rounded-full px-1.5 py-0.5 font-medium bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-300">{unread}</span> : undefined} />
       </Group>
 
+      <Group title="Needs">
+        <Row
+          href="/needs"
+          icon={PLACE_ICON.needs}
+          label="What waits on you"
+          dot={
+            <>
+              <NewBadge on={!!news?.badges.includes('nav:needs')} />
+              {needs > 0 && <span data-needs-count className="text-xs rounded-full px-1.5 py-0.5 font-medium bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">{needs}</span>}
+            </>
+          }
+        />
+      </Group>
+
       <Group title="Review">
         <Row href="/review" icon={PLACE_ICON.review} label="Done · Activity · Stale · Archive · Trash" />
       </Group>
 
       <Group title="Schedule">
         <Row href="/timetable" icon={PLACE_ICON.schedule} label="Today's blocks and the week" />
+      </Group>
+
+      <Group title="What's new">
+        <Row href="/whats-new" icon={PLACE_ICON.whatsnew} label="New in Work OS" dot={news?.unseen.length ? <span data-new-dot role="img" aria-label="Something new" className="w-2.5 h-2.5 rounded-full bg-blue-500" /> : undefined} />
       </Group>
 
       <Group title="Settings">
