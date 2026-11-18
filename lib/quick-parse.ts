@@ -5,7 +5,7 @@ import type { Mode, Priority, Recurrence, TaskInput } from './types';
 //   @"Grant Leads"  → project with spaces
 //   !1 / !p1        → priority      #tag → tag      ~1h30m → estimate
 //   due:today|tomorrow|fri|+3d|2026-10-20   start:… same
-//   every:day|weekday|week|2w|month (or daily / weekly)  → repeats after completion
+//   every:day|weekday|week|2w|month (or daily / weekly)  → repeats on the calendar (a new copy on each due date)
 
 /** Short words for the default modes (lib/modes.ts DEFAULT_MODES); used only when the organization has that mode. */
 const MODE_ALIASES: Record<string, Mode> = {

@@ -483,6 +483,8 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { dependsOn: 1 }, name: 'depends_on' },
       // A parent's subtasks (rollup, the task page, list_tasks parent).
       { key: { parentId: 1 }, name: 'parent', sparse: true },
+      // The heads of recurring series the alerts cron looks at every 15 minutes (spawnDueOccurrences): only repeating tasks are in it.
+      { key: { orgId: 1, nextRef: 1, due: 1 }, name: 'recurring_heads', partialFilterExpression: { recurrence: { $type: 'object' } } },
     ]],
     ['activity', [
       { key: { taskId: 1, at: -1 }, name: 'task_at' },

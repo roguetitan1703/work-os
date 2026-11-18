@@ -307,7 +307,7 @@ const fieldShape = {
   links: z.array(z.string()).optional().describe('URLs (http, https or mailto; a bare example.com gets https://)'),
   blocked_reason: z.string().optional().describe('Setting this on an open task marks it Blocked'),
   depends_on: z.array(z.union([z.number().int(), z.string()])).optional().describe('Refs of tasks this one waits on'),
-  recurrence: RecurrenceSchema.nullable().optional().describe('Repeat after completion: {freq: daily|weekdays|weekly|monthly, interval}'),
+  recurrence: RecurrenceSchema.nullable().optional().describe('Repeat on the calendar: {freq: daily|weekdays|weekly|monthly, interval}. A new copy (subtasks, checklist unticked, assignees) appears on each due date, done or not; null stops it'),
   assignees: z.array(z.string().max(200)).max(20).nullable().optional().describe("Who does it, the whole list: 'me', members' emails, names or user ids; [] or null clears. Only on a task in a shared project (a private task can't be assigned to anyone else). Each newly added person is notified. To add one person, send the current list plus them"),
   assignee: z.string().max(200).nullable().optional().describe("One assignee (same as assignees with one entry; replaces the list); null clears. Ignored when assignees is given"),
   result_kind: z.enum(RESULT_KINDS).nullable().optional().describe('What sort of result: code, data, client (an agent closing one goes to review), check or report (finish by themselves). Set by whoever plans the task; an agent cannot loosen code, data or client'),

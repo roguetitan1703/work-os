@@ -286,7 +286,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   complete_task: {
     title: 'Complete task',
-    description: 'Mark a task Done (progress 100). Recurring tasks automatically get their next occurrence created (with their subtasks as new open ones). A parent’s open subtasks are left open and listed in the answer (openSubtasks): complete or drop the finished ones yourself.',
+    description: 'Mark a task Done (progress 100). Completing a recurring task makes no copy: its next occurrence appears on its due date, done or not (nextOccurrence in the answer, once it exists). A parent’s open subtasks are left open and listed in the answer (openSubtasks): complete or drop the finished ones yourself.',
     writes: true,
     example: 'Mark #12 done, invoice sent',
   },

@@ -91,7 +91,7 @@ export const commandsFor = (modes: readonly string[]) => [
       { type: STRING, name: 'title', description: 'What needs doing', required: true, max_length: 300 },
       { type: STRING, name: 'priority', description: 'Priority (default P2)', choices: PRIORITIES.map(p => ({ name: p, value: p })) },
       { type: STRING, name: 'due', description: 'today, tomorrow, fri, +3d or YYYY-MM-DD', max_length: 40 },
-      { type: STRING, name: 'repeat', description: 'Repeat after completion', choices: REPEAT_CHOICES.map(r => ({ name: r.label, value: r.value })) },
+      { type: STRING, name: 'repeat', description: 'Repeat: a new copy on each due date', choices: REPEAT_CHOICES.map(r => ({ name: r.label, value: r.value })) },
       { type: STRING, name: 'project', description: 'Project', autocomplete: true, max_length: 120 },
       { type: STRING, name: 'mode', description: 'Work mode', ...(modes.length ? { choices: modes.slice(0, 25).map(m => ({ name: m.slice(0, 100), value: m.slice(0, 100) })) } : { max_length: 40 }) },
     ],
