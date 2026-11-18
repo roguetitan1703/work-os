@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 8. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 9. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -13,8 +13,8 @@ Copy of the Work OS state, version 8. Edit it in Work OS (https://work.delpat.in
 5. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
 6. Activity shows everything that changed: State, notes, messages, Needs and projects next to tasks, read through the visibility rule, with a What filter, in Review › Activity, the project page, recent_activity and the summary (builder B after recurrence; security review before merge).
 7. Live sessions and messaging design (docs/flows/session-messaging.md): global Work OS plugin with hooks for on/working/idle/waiting/off at zero tokens, a channel to push messages in, every session lives in a project (Lobby for strays), notes on fixed shelves with drift rules. Waits on Om's two notes answers, then a Fable review, then builder B.
-8. Agents and Work OS (docs/flows/agent-system.md, one design for sessions, State editing, actions as tools, wording, rules, messaging, builders): Fable review of the whole doc, then Om's three answers (retire Claude items, hook forwards WORK-STATE.md edits, hooks on the worker key), then builders A, B and S.
-9. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
+8. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
+9. Agents and Work OS build (docs/flows/agent-system.md, Fable-reviewed): builder S alone first (wording pass, start brief that fits its 9,500-char cap, hook split and packaging), then builders A (session token from the worker key, per-session ids) and B (edit or remove one State line found by text, short answers). — waits on Om's go to start the builders
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -34,4 +34,5 @@ Copy of the Work OS state, version 8. Edit it in Work OS (https://work.delpat.in
 - 2026-11-18: 18 Nov: build 865c699 live (Mailloom intake + Inbox Select). Intake checked end to end: test notice in #mailloom (204), test report became #274 in Mailloom (201). (Om, chat)
 - 2026-11-18: 18 Nov, Om (after the Fable review of docs/flows/session-messaging.md): the folder a session starts in decides its project (git remote is information only); a session in an unknown folder sorts itself out (asks which project, uses its folder on this PC, links or creates it); message text is pushed into sessions with its frame, ship/money/credentials stay enforced server-side; duplicate notes are refused. Build order: hand check, per-session ids, plugin, idle wake; feedback and notes shelves after. (Om, chat)
 - 2026-11-18: 18 Nov, Om: status lives in Work OS. WORK-STATE.md in the repo is a copy so the last State can be read when Work OS is down; agents never edit it. The Work OS hook writes and commits it after every save_state and refuses hand edits (installed on Om's PC 18 Nov; Akash's PC and cloud later). Fable review agreed (docs/flows/working-system-review.md): three exact blocks only, actions as Work OS tools (wrap_up, hand_over, declutter), propose_order, 40-line Orders. (Om, chat)
-<!-- work-os-copy sha1:2327c7960f16d304252a1312946463e523206ac8 -->
+- 2026-11-18: 18 Nov, Om: Claude items retired from the instructions (work list = State and tasks). Global Claude Code settings on Om's PC: the 4 Work OS hooks, WORK_OS_KEY made from the database by scripts/make-key.mjs (key "Hooks · Victus-Knight"), Work OS reads and own-work writes allowed, .env.test.local readable, ~/.claude.json edits denied, two auto-mode notes; project-specific rules (grant-leads Supabase, Vercel) stay out. Recorded in docs/setup-pc.md. (Om, chat)
+<!-- work-os-copy sha1:245cea12de5c37c3e19a7787c3f61d3eefbd9495 -->
