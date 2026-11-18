@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 18. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 19. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -6,13 +6,11 @@ Copy of the Work OS state, version 18. Edit it in Work OS (https://work.delpat.i
 - Make the steps 1-3 features visible and used (Needs, State, project messages, results and review, digest), and ship the 18 Nov batch.
 
 ## Next
-1. Redesign the morning digest: Needs you with buttons, top 3 for today, one line per project since yesterday, agents running or stalled; not a task list.
-2. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel.
-3. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
-4. Activity shows everything that changed: State, notes, messages, Needs and projects next to tasks, read through the visibility rule, with a What filter, in Review › Activity, the project page, recent_activity and the summary (builder B after recurrence; security review before merge).
-5. Live sessions and messaging design (docs/flows/session-messaging.md): global Work OS plugin with hooks for on/working/idle/waiting/off at zero tokens, a channel to push messages in, every session lives in a project (Lobby for strays), notes on fixed shelves with drift rules. Waits on Om's two notes answers, then a Fable review, then builder B.
-6. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
-7. Finish builder A (hooks sign in with the worker device key; WIP 00c1f2a on builder-a), security review, merge; then full e2e + build on dev (merged locally, not pushed: recurrence, What's new + Needs, State edit_line, worker installs hooks), UI by eye, deploy. Transfer note aab1ad0477. — waits on C: freed to 15 GB for the e2e run
+1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel.
+2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
+3. Live sessions and messaging design (docs/flows/session-messaging.md): global Work OS plugin with hooks for on/working/idle/waiting/off at zero tokens, a channel to push messages in, every session lives in a project (Lobby for strays), notes on fixed shelves with drift rules. Waits on Om's two notes answers, then a Fable review, then builder B.
+4. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
+5. Ship the 18-19 Nov batch, merged on dev locally (a650d95, not pushed): recurrence, What's new + Needs, State edit_line, worker installs hooks, hook device-key sign-in, digest redesign, Activity shows everything (each security-reviewed and re-checked). Left: full e2e + build on dev, UI by eye at 390/1280 light/dark, push dev, merge to master with Om's go. — waits on C: freed to 15 GB (Claude app VM image 9.9 GB is the only item big enough)
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -27,6 +25,7 @@ Copy of the Work OS state, version 18. Edit it in Work OS (https://work.delpat.i
 - Set up Akash's PC with docs/setup-pc.md (MCP connection, worker, `node worker.mjs hooks install`, key). — waits on Akash and Om together
 - Sub-agent State lanes: orchestrator keeps Now/Next; each builder or side session gets a lane line; stable slots keep theirs, strays are archived when gone; the turn-end hook asks workers to update their lane, not Next (note 'Sub-agent State: lanes', Om 18 Nov). — waits on per-session ids (builder A), then a short design and builder B
 - ask's cap of 5 open Needs per person counts every project from the same key: 5 Grant Leads Needs blocked a Work OS ask (18 Nov). Count per project, or per asking session. — waits on Om's view on the cap
+- Digest Since yesterday reads the State log, tasks done and Needs itself; switch it to the Activity feed now that it holds everything (design note a8f0fe709a, rule 4). — waits on the batch shipping
 
 ## Decisions
 - 2026-11-18: 18 Nov, Om: SSH is plain ubuntu login with host names workos and mailserver in ~/.ssh/config (key delpat_ed25519), from VS Code and the terminal; no separate agent user, no sudoers changes. (Om, chat)
@@ -37,5 +36,5 @@ Copy of the Work OS state, version 18. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 18 Nov, Om: Claude items retired from the instructions (work list = State and tasks). Global Claude Code settings on Om's PC: the 4 Work OS hooks, WORK_OS_KEY made from the database by scripts/make-key.mjs (key "Hooks · Victus-Knight"), Work OS reads and own-work writes allowed, .env.test.local readable, ~/.claude.json edits denied, two auto-mode notes; project-specific rules (grant-leads Supabase, Vercel) stay out. Recorded in docs/setup-pc.md. (Om, chat)
 
 ## Where
-- Victus-Knight: dev 5150e10 clean (2026-11-18 18:30)
-<!-- work-os-copy sha1:a76c445557e3262a08f45604b30b1657d4694420 -->
+- Victus-Knight: dev a650d95 clean (2026-11-18 18:43)
+<!-- work-os-copy sha1:b58a3cf1a1bb4a4df81ca37aa4fbe084e4bc1c99 -->
