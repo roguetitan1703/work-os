@@ -88,3 +88,26 @@ set which surface gets which speed.
 5. Feedback: friendlier refusals, friction detection, `feedback`, per-rule pushback Need.
 6. Notes shelves and drift rules.
 Each step ships on its own through dev, a full test run, then master.
+
+## 9. Fable review (18 Nov): go with changes
+Accepted (the design above is read with these):
+1. Idle wake is an `asyncRewake` hook (exit 2 wakes Claude even when idle), armed on SessionStart and Stop, long-polling
+   `/api/agent/wait`, one per session (lockfile). A hook cannot start Monitor or a background task. Timeout limits per
+   surface: hand check.
+2. Hooks deliver sender, kind and id only, never the body (keeps the "ids and counts only" rule of for-you.ts and the
+   wait line); the session reads the body through `inbox`, where it is labelled. Ship, money and credentials stay
+   server-side (a Need answered in the app), never a label the model reads.
+3. Keys: a hook-only key type (event and wait routes, never MCP: the MCP has mail send/delete); a project-scoped key
+   for cloud environments.
+4. Subagents share the parent's session_id (hook input adds agent_id): skip delivery and presence for them.
+5. Presence: clear "waiting" on PostToolUse; Stop does not fire on interrupt; Notification cannot inject; SessionEnd
+   has 1.5 s, so the heartbeat decides Off; heartbeat "On" stays separate from step 4's liveness.
+6. Cost: `PostToolBatch` (once per batch) as an `http` hook with a 2 s timeout, not a process per tool call. Wake an
+   idle session only for a direct request/question/decision; fyi and project broadcasts wait for its next call.
+   Check `stop_hook_active` (Claude Code caps Stop continues at 8).
+7. Feedback attaches tool names and refusal codes only (no arguments from other projects), labelled, rate-limited.
+8. Anthropic channels: dropped.
+Open for Om: the Lobby (review: match on git remote / code locations only, one passive line, never auto-create or
+link without the person; Om wanted the session to sort itself out); duplicate notes (review: warn with near matches
+and require `replaces` or `update`, stale flag only on State, Overview and draft Designs); feedback and notes shelves
+deferred to after messaging (review: steps 2, 3 and the wake give ~90% of the value).
