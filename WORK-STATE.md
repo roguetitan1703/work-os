@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 31. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 32. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -44,7 +44,8 @@ Copy of the Work OS state, version 31. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov, Om: the agents-and-Work-OS plan (docs/flows/agent-system.md, from the 18 Nov Fable review: hooks, rules, State, Needs, transfer, wrap_up/hand_over/declutter, live sessions) is named Harness. R1 is only the release that carries Harness part 1 plus other features. (Om, chat)
 - 2026-11-18: 19 Nov, Om: ship Harness end to end and verify it; Opus writes each part's implementation plan, Sonnet builds from it; ask Om when a part drifts, duplicates or could be done better. Checklist #276 (H0-H16). The 'live sessions and messaging design' Next line is now H3, H6, H7 (closed as covered). (Om, chat)
 - 2026-11-18: 19 Nov, Om (chat): #259 Agent fleet folded into Harness (#261 Done, the rest Dropped naming the part that covers them). H17 added: Fable reviews the whole Harness after H16. H2 reshaped: hooks on any new PC with one command via the worker setup, cloud repos one line, a plugin only if a PC must run without the worker. Needs: when Om is in the conversation, ask in chat; a Need only when he is away or it's for someone else (proposed Orders change; H1 rewrites the texts). (Om, chat)
+- 2026-11-18: 19 Nov, Om (chat): the Work OS lead fixes and improves the Orders, hooks and words itself, directly, not by proposing text for Om to paste. H9 reshaped: the holder's own Claude edits the Orders layer its person holds; each change keeps a version and shows old and new in the person's next brief and in the app, with one-click undo. propose_order stays for agents of someone who does not hold that layer. (Om, chat)
 
 ## Where
 - Victus-Knight: dev ad99b8c (2026-11-18 20:46)
-<!-- work-os-copy sha1:369af7ee9bc0fff1787cdd860fa4ad8eab7fa639 -->
+<!-- work-os-copy sha1:4d2654aee3606f79752d96d10d8bd7731c08e29a -->
