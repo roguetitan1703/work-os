@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 38. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 39. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -51,6 +51,6 @@ Copy of the Work OS state, version 38. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov, Om: usage rule added to the org Orders (Long work): at 90% of the 5-hour limit or context, finish the step, start no new subagents or heavy jobs, keep State and handover current; at 95%, stop, run the transfer and tell your person. Done in the database like the 19 Nov Orders edit. The lead transferred at 97% of the 5-hour limit. (Om, chat)
 
 ## Where
-- Victus-Knight: dev 685ebe0 (2026-11-18 22:06)
+- Victus-Knight: dev 324ecb7 clean (2026-11-18 22:49)
 - victus: dev 324ecb7 clean (2026-11-18 22:48)
-<!-- work-os-copy sha1:025bfa04a6d3d6746edf0882b6d3df7d57d4bd20 -->
+<!-- work-os-copy sha1:dfd7d0791b7283e0390cf2a23c4799fd092f986f -->
