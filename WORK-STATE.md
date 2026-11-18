@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 23. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 24. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -37,7 +37,8 @@ Copy of the Work OS state, version 23. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 18 Nov, Om: Claude items retired from the instructions (work list = State and tasks). Global Claude Code settings on Om's PC: the 4 Work OS hooks, WORK_OS_KEY made from the database by scripts/make-key.mjs (key "Hooks · Victus-Knight"), Work OS reads and own-work writes allowed, .env.test.local readable, ~/.claude.json edits denied, two auto-mode notes; project-specific rules (grant-leads Supabase, Vercel) stay out. Recorded in docs/setup-pc.md. (Om, chat)
 - 2026-11-18: 19 Nov, Om: the open-Needs cap must not count all projects together. Now 10 open Needs per asker, person and project; 20 asks an hour from one asker to one person across all projects (cd92b40 on dev). This settles Later line l_47ae2aa1. (Om, chat)
 - 2026-11-18: 19 Nov, Om: a transfer must leave Work OS up to date. The /transfer skill and note ac2026fedb now make both hand over and pick up save State (pick up step 4), and make a State when a project has none (import WORK-STATE.md, History moved to docs/history.md). Cause: AKAR had no State, so its transfer saved nothing. (Om, chat)
+- 2026-11-18: 19 Nov, Om: a Need can be answered by typing alone. 'Send my answer' (and Ctrl+Enter) under the text box saves option 'other' with the text, all kinds but review. On dev, joins the 18-19 Nov batch (Next 5); e2e check written in flow-n1, not run (C: space). (Om, chat)
 
 ## Where
 - Victus-Knight: dev 167dd28 clean (2026-11-18 20:12)
-<!-- work-os-copy sha1:b5c3b834393fc7e96ea1c32230c2576e14f68862 -->
+<!-- work-os-copy sha1:c4d292a058014c78654e97c100bd3484d876f839 -->
