@@ -1,5 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
+import { cache } from 'react';
 import type { Document } from 'mongodb';
 import { requestContext } from '../request-context';
 import type { HandInResult } from '../types';
@@ -305,14 +306,17 @@ export async function getNeed(s: Scope, id: string): Promise<Need | null> {
   return d ? forViewer(toNeed(d), s.userId) : null;
 }
 
+// One read per request: the layout's badge and the page (Today, Tasks, Needs) both ask (tests/load/budgets.json).
+const openToMe = cache((userId: string, orgId: string): Promise<Need[]> => listNeeds({ userId, orgId }, { to: userId, status: ['open'] }));
+
 /** The caller's open Needs across every project they can read: Today's "Needs you". */
 export async function openNeedsToMe(s: Scope): Promise<Need[]> {
-  return listNeeds(s, { to: s.userId, status: ['open'] });
+  return [...(await openToMe(s.userId, s.orgId))];
 }
 
 /** How many open Needs wait on the caller (a badge). */
 export async function openNeedCount(s: Scope): Promise<number> {
-  return (await scoped(s)).needs.countDocuments({ to: s.userId, status: 'open' });
+  return (await openToMe(s.userId, s.orgId)).length;
 }
 
 /**
