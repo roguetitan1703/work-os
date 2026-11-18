@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 24. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 25. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -11,7 +11,7 @@ Copy of the Work OS state, version 24. Edit it in Work OS (https://work.delpat.i
 3. Live sessions and messaging design (docs/flows/session-messaging.md): global Work OS plugin with hooks for on/working/idle/waiting/off at zero tokens, a channel to push messages in, every session lives in a project (Lobby for strays), notes on fixed shelves with drift rules. Waits on Om's two notes answers, then a Fable review, then builder B.
 4. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
 5. Ship the 18-19 Nov batch, merged on dev locally (cd92b40, not pushed): recurrence, What's new + Needs, State edit_line, worker installs hooks, hook device-key sign-in, digest redesign, Activity shows everything (each security-reviewed and re-checked), Needs cap per project. Left: full e2e + build on dev, UI by eye at 390/1280 light/dark, push dev, merge to master with Om's go. — waits on C: freed to 15 GB (Claude app VM image 9.9 GB is the only item big enough)
-6. AKAR has no Work OS State (docs/WORK-STATE.md hand-edited, ~200-line History), so its transfer saved nothing. Tell the AKAR session (AKAR · lead · 0.22.1 release, D:/Work/Delpat/projects/AKAR) to make its State per the new /transfer 'Make the State' step. Asked in chat 19 Nov; the ask Need was refused by production's 5-Need cap. — waits on Om's yes
+6. Deploy the no-State hotfix to production: branch hotfix/no-state 3596c54 (worktree D:/Work/Delpat/projects/Om/wos-hotfix, on master 865c699; dev has it as f264737). start_work/get_state tell a session with no State to make it now; import_state skips History/log/Done. Typechecked, parser checked; e2e not run. Needs an arm64 build: Actions locked (billing), Delpat mirror fails at attestation (private), so WSL build here (C: 8 GB) or box build (OOM risk). — waits on Om: free C: (delete the Claude VM image) or say build anyway
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -38,7 +38,8 @@ Copy of the Work OS state, version 24. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov, Om: the open-Needs cap must not count all projects together. Now 10 open Needs per asker, person and project; 20 asks an hour from one asker to one person across all projects (cd92b40 on dev). This settles Later line l_47ae2aa1. (Om, chat)
 - 2026-11-18: 19 Nov, Om: a transfer must leave Work OS up to date. The /transfer skill and note ac2026fedb now make both hand over and pick up save State (pick up step 4), and make a State when a project has none (import WORK-STATE.md, History moved to docs/history.md). Cause: AKAR had no State, so its transfer saved nothing. (Om, chat)
 - 2026-11-18: 19 Nov, Om: a Need can be answered by typing alone. 'Send my answer' (and Ctrl+Enter) under the text box saves option 'other' with the text, all kinds but review. On dev, joins the 18-19 Nov batch (Next 5); e2e check written in flow-n1, not run (C: space). (Om, chat)
+- 2026-11-18: 19 Nov, Om: a session on a project with no State makes it at once, without asking. start_work/get_state say so (f264737 dev, 3596c54 hotfix); /transfer and note ac2026fedb check get_state first. AKAR made its State (v2, History in docs/history.md, AKAR 81cfa8aa) on Om's go. Also fixed: the WORK-STATE edit hook refused commands that only quote the name (reinstalled on this PC). (Om, chat)
 
 ## Where
-- Victus-Knight: dev 167dd28 clean (2026-11-18 20:12)
-<!-- work-os-copy sha1:c4d292a058014c78654e97c100bd3484d876f839 -->
+- Victus-Knight: dev f264737 (2026-11-18 20:38)
+<!-- work-os-copy sha1:dd6d9de102643dc50a29751cb2ab54d6e6d9eb35 -->
