@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 22. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 23. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -39,5 +39,5 @@ Copy of the Work OS state, version 22. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov, Om: a transfer must leave Work OS up to date. The /transfer skill and note ac2026fedb now make both hand over and pick up save State (pick up step 4), and make a State when a project has none (import WORK-STATE.md, History moved to docs/history.md). Cause: AKAR had no State, so its transfer saved nothing. (Om, chat)
 
 ## Where
-- Victus-Knight: dev cd92b40 clean (2026-11-18 20:05)
-<!-- work-os-copy sha1:77c4681bff537b5ff6839569cc3b53b0a85fc30b -->
+- Victus-Knight: dev 167dd28 clean (2026-11-18 20:12)
+<!-- work-os-copy sha1:b5c3b834393fc7e96ea1c32230c2576e14f68862 -->
