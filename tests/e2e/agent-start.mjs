@@ -93,6 +93,20 @@ try {
   check('agentSessions row: hash only, one project, about 24 h', !!row && row.projectId === one && row.deviceId === pc1.id && /^[0-9a-f]{64}$/.test(row.hash) && Math.abs(row.expiresAt - row.createdAt - 24 * 3600e3) < 5000);
   check('agentSessions row: the hash of the key it was made with', row?.keyHash === (await rawDb.collection('devices').findOne({ _id: pc1.id }))?.hash);
 
+  // Where fills itself (H4): head, dirty and worktrees in the start body are kept per machine without a State version bump,
+  // and the X-Work-OS-Hook header marks the hook protocol of the session (none = 1, the old hook).
+  check('a start with no X-Work-OS-Hook header marks the session hook 1 (the old hook)', (await rawDb.collection('presence').findOne({ session: sid }))?.hook === 1);
+  const vWhere = (await rawDb.collection('states').findOne({ _id: one })).version;
+  const rw = await post(T1, { ...at('acme/agent-one'), machine: 'where-pc', head: 'a1b2c3d', dirty: true, worktrees: ['C:/code/agent-one [main]', 'C:/code/agent-one-b [builder-b]'] }, { headers: { 'x-work-os-hook': '2' } });
+  const sdoc = await rawDb.collection('states').findOne({ _id: one });
+  const wp = sdoc.where?.['where-pc'];
+  check('head, dirty and worktrees in the start body fill Where for the machine, and the State version does not change', rw.status === 200 && wp?.head === 'a1b2c3d' && wp?.dirty === true && wp?.branch === 'main' && wp?.worktrees?.length === 2 && sdoc.version === vWhere && !sdoc.log.some(x => x.op === 'set_where'), JSON.stringify([rw.status, wp, sdoc.version, vWhere]));
+  check('the X-Work-OS-Hook: 2 header marks the session hook 2', (await rawDb.collection('presence').findOne({ session: sid }))?.hook === 2);
+  check('a header that is not a version (x) is ignored, like no header: hook 1', (await post(T1, {}, { headers: { 'x-work-os-hook': 'x' } })).status === 200 && (await rawDb.collection('presence').findOne({ session: sid }))?.hook === 1);
+  check('more than 20 worktrees: 400', (await post(T1, { worktrees: Array.from({ length: 21 }, (_, i) => `w${i}`) })).status === 400);
+  check('a head over 80 characters: 400', (await post(T1, { head: 'h'.repeat(81) })).status === 400);
+  check('dirty must be a boolean: 400', (await post(T1, { dirty: 'yes' })).status === 400);
+
   // The hook's session id, passed as `session` on an MCP call with a wos_ key of the same owner, is the same session (H3).
   const kSame = await mkKey({ agent: 'claude-code', name: 'agent-start same owner' });
   const toHook = await must(MCP, 'send_message', { project: 'Agent One', kind: 'fyi', body: 'to the hook session', to_session: sid });

@@ -12,7 +12,7 @@ import { recordRequest, requestCaller, requestKind, routePattern } from '@/lib/u
 //
 // Public: /worker/work-os-worker.mjs and /worker/latest.json (exact paths), /login, /login/reset (exact paths), /accept-invitation/<id> and Better Auth's endpoints under /api/auth
 // (app/api/auth/[...all]/route.ts serves only an allowlist of them, each checking its own session).
-// /api/mcp, /api/worker, /api/cron, /api/calendar, the two intake routes, /api/agent/start (the hook's sign-in) and
+// /api/mcp, /api/worker, /api/cron, /api/calendar, the two intake routes, /api/agent/start (the hook's sign-in), /api/agent/state and
 // /api/discord/interactions check their own credentials (API key, device key, cron secret, calendar link token, intake
 // token, device key or hook session token, Discord signature): the proxy lets them through untouched.
 // Other /api routes also accept a Claude chat key (`Authorization: Bearer wos_…` or `X-API-Key`), verified here and
@@ -27,7 +27,7 @@ import { recordRequest, requestCaller, requestKind, routePattern } from '@/lib/u
 // Paths that skip the session check and check their own credentials (same prefix test the old matcher made).
 const SELF_AUTH_PREFIXES = ['/api/mcp', '/api/discord/interactions', '/api/cron', '/api/worker', '/api/auth', '/api/calendar'];
 // Exact paths only: a later route under /api/intake is guarded like any other until it is listed here.
-const SELF_AUTH_EXACT = new Set(['/api/intake/mailloom', '/api/intake/mailloom/notice', '/api/agent/start']);
+const SELF_AUTH_EXACT = new Set(['/api/intake/mailloom', '/api/intake/mailloom/notice', '/api/agent/start', '/api/agent/state']);
 const selfAuth = (pathname: string) => SELF_AUTH_EXACT.has(pathname) || SELF_AUTH_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'));
 // The worker download (lib/worker-bundle.ts): its source only, fetched before any key exists.
 const isPublicPage = (p: string) => p === '/worker/work-os-worker.mjs' || p === '/worker/latest.json' || p === '/login' || p === '/login/reset' || /^\/accept-invitation\/[A-Za-z0-9_-]{1,64}$/.test(p);

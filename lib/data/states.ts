@@ -7,6 +7,8 @@ import { scoped, type Scope } from '../scope';
 import { isPerson, userActor, type Actor } from '../actors';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, resolveProject } from './projects';
+import { decisionsInCopy } from './repo-visibility';
+import { memberNames } from '../people';
 import { completeTask, createTask, getTask, logChange } from './tasks';
 import type { Priority } from '../types';
 
@@ -492,21 +494,38 @@ export function stateOut(d: StateDoc, reader: string, names: Names): StateOut {
 }
 
 
+/** One line of the copy: the file shows prefix + text + suffix; only text is the line's own words. */
+export type CopyLine = { section: 'Now' | 'Next' | 'Later'; id?: string; line: string; prefix: string; text: string; suffix: string };
+
+const waitSuffix = (l: StateLine) => (l.waitsOn && !l.text.toLowerCase().includes(l.waitsOn.toLowerCase()) ? ` \u2014 waits on ${l.waitsOn}` : '');
+
+/** The Now, Next and Later lines of the copy, as the file shows them (no placeholder rows). */
+export function copyLines(d: StateDoc): CopyLine[] {
+  const out: CopyLine[] = [];
+  const row = (section: CopyLine['section'], prefix: string, text: string, suffix: string, id?: string) => out.push({ section, ...(id ? { id } : {}), line: prefix + text + suffix, prefix, text, suffix });
+  if (d.now) row('Now', '- ', d.now.text, d.now.holder ? ` (${d.now.holder})` : '');
+  d.next.forEach((l, i) => row('Next', `${i + 1}. `, l.text, `${l.ref ? ` (#${l.ref})` : ''}${waitSuffix(l)}`, l.id));
+  for (const l of d.later) row('Later', '- ', l.text, waitSuffix(l), l.id);
+  return out;
+}
+
 /**
  * WORK-STATE.md as the repo copy of the State, headed with the version it came from. The same text for every reader (no
  * "(by X)"), so two PCs never commit different copies, and no Where (it changes with every session's head). Decisions are
  * listed only when `decisions` is true: leave them out for a public repo (lib/data/repo-visibility.ts).
  */
 export function stateMarkdown(d: StateDoc, o: { projectName: string; url: string; names: Names; decisions?: boolean; /** Ignored: kept so older callers still compile. */ reader?: string }): string {
-  const wait = (l: StateLine) => (l.waitsOn && !l.text.toLowerCase().includes(l.waitsOn.toLowerCase()) ? ` \u2014 waits on ${l.waitsOn}` : '');
+  const rows = copyLines(d);
   const out: string[] = [`Copy of the Work OS state, version ${d.version}. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (${o.url}).`, '', `# Work state: ${o.projectName}`, '', '## Now'];
-  out.push(d.now ? `- ${d.now.text}${d.now.holder ? ` (${d.now.holder})` : ''}` : '- (nothing set)');
-
+  const now = rows.find(r => r.section === 'Now');
+  out.push(now ? now.line : '- (nothing set)');
   out.push('', '## Next');
-  if (d.next.length) d.next.forEach((l, i) => out.push(`${i + 1}. ${l.text}${l.ref ? ` (#${l.ref})` : ''}${wait(l)}`));
+  const next = rows.filter(r => r.section === 'Next');
+  if (next.length) for (const r of next) out.push(r.line);
   else out.push('- (empty)');
   out.push('', '## Later');
-  if (d.later.length) for (const l of d.later) out.push(`- ${l.text}${wait(l)}`);
+  const later = rows.filter(r => r.section === 'Later');
+  if (later.length) for (const r of later) out.push(r.line);
   else out.push('- (empty)');
   const live = o.decisions ? d.decisions.filter(x => !x.archivedAt) : [];
   if (live.length) {
@@ -514,4 +533,39 @@ export function stateMarkdown(d: StateDoc, o: { projectName: string; url: string
     for (const x of live.slice(-30)) out.push(`- ${x.at.toISOString().slice(0, 10)}: ${x.text} (${o.names[x.by] || 'a former member'}, ${x.via})`);
   }
   return out.join('\n') + '\n';
+}
+
+/** The copy of a project's State for a reader: the same text for everyone, Decisions only for a repo known to be private. */
+export async function stateCopy(s: Scope, project: ProjectDoc, d: StateDoc, baseUrl: string): Promise<string> {
+  const [names, decisions] = await Promise.all([memberNames(s.orgId), decisionsInCopy(s, project)]);
+  return stateMarkdown(d, { projectName: project.name, url: `${baseUrl}/projects/${project._id}`, names, decisions });
+}
+
+/**
+ * An Edit of one line of WORK-STATE.md, applied to the State. `oldText` and `newText` are one line each (an Edit of
+ * several lines, the header, Decisions, or the number, task and waits-on marks is refused). `oldText` is text inside exactly
+ * one Now, Next or Later line as the file shows it; an empty result removes the line (a Next line counts as done, so its
+ * task finishes). It goes through saveState as an edit_line, so every rule of that op holds.
+ */
+export async function editCopyLine(s: Scope, projectKey: string, oldText: string, newText: string, o: { actor: Actor; via: Via }): Promise<SaveResult> {
+  const one = (v: string) => v.replace(/\r\n?/g, '\n').replace(/^\n+|\n+$/g, '');
+  const from = one(oldText);
+  const to = one(newText);
+  if (!from.trim()) throw new InputError('The Edit has no old text.');
+  if (from.includes('\n') || to.includes('\n')) throw new InputError('Change one line at a time: an Edit of several lines of the WORK-STATE.md copy is not applied. Use save_state in Work OS (add_next, add_later, edit_line, done_next).');
+  const { project, state } = await getState(s, projectKey);
+  if (!state) throw new InputError('The project has no State yet.');
+  const hits = copyLines(state).filter(r => r.line.includes(from));
+  if (hits.length !== 1) {
+    if (!hits.length) throw new InputError("No Now, Next or Later line holds that text. The copy's header and Decisions are not edited here; add a decision with save_state (add_decision), and add lines with add_next or add_later.");
+    throw new InputError(`That text is in ${hits.length} lines (${hits.slice(0, 4).map(h => `"${h.line.length > 60 ? h.line.slice(0, 57) + '...' : h.line}"`).join(', ')}): use more of the line.`);
+  }
+  const hit = hits[0];
+  if (hit.line.split(from).length > 2) throw new InputError('That text is in the line more than once: use more of the line.');
+  const edited = hit.line.replace(from, () => to);
+  let middle: string;
+  if (!edited.trim() || edited.trim() === hit.prefix.trim()) middle = '';
+  else if (edited.startsWith(hit.prefix) && edited.endsWith(hit.suffix) && edited.length >= hit.prefix.length + hit.suffix.length) middle = edited.slice(hit.prefix.length, edited.length - hit.suffix.length).trim();
+  else throw new InputError('Change only the words of the line. The number, the task (#12), the waits-on and the holder change with save_state.');
+  return saveState(s, project._id, [{ op: 'edit_line', find: hit.text, new: middle, ...(hit.id ? { id: hit.id } : {}) }], { actor: o.actor, via: o.via });
 }

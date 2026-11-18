@@ -1,7 +1,13 @@
 // State line editing (docs/flows/agent-system.md section 16 item 2): save_state op edit_line {find, new}, and `find` in
 // place of `id` for move_next, done_next and promote_later. Seed profile: none.
 import { ME, MCP, check, finish, makeUser, mkKey, rawDb } from './lib.mjs';
-import { mcpH, must } from './flow-lib.mjs';
+import { mcpH, must as mustRaw } from './flow-lib.mjs';
+
+// A save answers short (H4: no State in it): a saved answer gets the State from get_state, so the checks below read it as before.
+const must = async (key, name, args = {}, headers = {}) => {
+  const r = await mustRaw(key, name, args, headers);
+  return name === 'save_state' && r.saved ? { ...r, state: (await mustRaw(key, 'get_state', { project: args.project })).state } : r;
+};
 
 const NAME = 'Flow Edit';
 const texts = l => l.map(x => x.text);

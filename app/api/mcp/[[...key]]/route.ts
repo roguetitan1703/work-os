@@ -8,7 +8,7 @@ import { markSeen } from '@/lib/notify';
 import { verifyKey } from '@/lib/caller';
 import { callerFromOAuthToken, OAUTH_ACCESS_PREFIX } from '@/lib/oauth';
 import { mcpResource } from '@/lib/oauth-config';
-import { repoHeader, runWithRequestContext, sessionHeader, type RequestContext } from '@/lib/request-context';
+import { hookHeader, repoHeader, runWithRequestContext, sessionHeader, type RequestContext } from '@/lib/request-context';
 
 // MCP endpoint (Streamable HTTP, stateless). Signs in with OAuth (the MCP authorization flow: lib/oauth.ts, docs/auth.md) or a
 // Work OS API key (lib/api-keys.ts, "Advanced: API keys"), sent in a header. A request without a valid token gets 401 and a
@@ -70,8 +70,8 @@ async function handle(req: Request, ctx: Ctx): Promise<Response> {
   await server.connect(transport);
   const rc: RequestContext =
     caller.agent === 'claude-code'
-      ? { userId: caller.userId, tz: caller.tz, session: sessionHeader(req.headers.get('x-work-os-session')), repo: repoHeader(req.headers.get('x-work-os-repo')), sid: sessionHeader(req.headers.get('x-work-os-session')), keyId: caller.keyId }
-      : { userId: caller.userId, tz: caller.tz, sid: sessionHeader(req.headers.get('x-work-os-session')), keyId: caller.keyId };
+      ? { userId: caller.userId, tz: caller.tz, session: sessionHeader(req.headers.get('x-work-os-session')), repo: repoHeader(req.headers.get('x-work-os-repo')), sid: sessionHeader(req.headers.get('x-work-os-session')), hook: hookHeader(req.headers.get('x-work-os-hook')), keyId: caller.keyId }
+      : { userId: caller.userId, tz: caller.tz, sid: sessionHeader(req.headers.get('x-work-os-session')), hook: hookHeader(req.headers.get('x-work-os-hook')), keyId: caller.keyId };
   try {
     return await runWithRequestContext(rc, () => transport.handleRequest(req));
   } finally {
