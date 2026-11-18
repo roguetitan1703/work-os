@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 19. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 20. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -10,7 +10,7 @@ Copy of the Work OS state, version 19. Edit it in Work OS (https://work.delpat.i
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
 3. Live sessions and messaging design (docs/flows/session-messaging.md): global Work OS plugin with hooks for on/working/idle/waiting/off at zero tokens, a channel to push messages in, every session lives in a project (Lobby for strays), notes on fixed shelves with drift rules. Waits on Om's two notes answers, then a Fable review, then builder B.
 4. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
-5. Ship the 18-19 Nov batch, merged on dev locally (a650d95, not pushed): recurrence, What's new + Needs, State edit_line, worker installs hooks, hook device-key sign-in, digest redesign, Activity shows everything (each security-reviewed and re-checked). Left: full e2e + build on dev, UI by eye at 390/1280 light/dark, push dev, merge to master with Om's go. — waits on C: freed to 15 GB (Claude app VM image 9.9 GB is the only item big enough)
+5. Ship the 18-19 Nov batch, merged on dev locally (cd92b40, not pushed): recurrence, What's new + Needs, State edit_line, worker installs hooks, hook device-key sign-in, digest redesign, Activity shows everything (each security-reviewed and re-checked), Needs cap per project. Left: full e2e + build on dev, UI by eye at 390/1280 light/dark, push dev, merge to master with Om's go. — waits on C: freed to 15 GB (Claude app VM image 9.9 GB is the only item big enough)
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -34,7 +34,8 @@ Copy of the Work OS state, version 19. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 18 Nov, Om (after the Fable review of docs/flows/session-messaging.md): the folder a session starts in decides its project (git remote is information only); a session in an unknown folder sorts itself out (asks which project, uses its folder on this PC, links or creates it); message text is pushed into sessions with its frame, ship/money/credentials stay enforced server-side; duplicate notes are refused. Build order: hand check, per-session ids, plugin, idle wake; feedback and notes shelves after. (Om, chat)
 - 2026-11-18: 18 Nov, Om: status lives in Work OS. WORK-STATE.md in the repo is a copy so the last State can be read when Work OS is down; agents never edit it. The Work OS hook writes and commits it after every save_state and refuses hand edits (installed on Om's PC 18 Nov; Akash's PC and cloud later). Fable review agreed (docs/flows/working-system-review.md): three exact blocks only, actions as Work OS tools (wrap_up, hand_over, declutter), propose_order, 40-line Orders. (Om, chat)
 - 2026-11-18: 18 Nov, Om: Claude items retired from the instructions (work list = State and tasks). Global Claude Code settings on Om's PC: the 4 Work OS hooks, WORK_OS_KEY made from the database by scripts/make-key.mjs (key "Hooks · Victus-Knight"), Work OS reads and own-work writes allowed, .env.test.local readable, ~/.claude.json edits denied, two auto-mode notes; project-specific rules (grant-leads Supabase, Vercel) stay out. Recorded in docs/setup-pc.md. (Om, chat)
+- 2026-11-18: 19 Nov, Om: the open-Needs cap must not count all projects together. Now 10 open Needs per asker, person and project; 20 asks an hour from one asker to one person across all projects (cd92b40 on dev). This settles Later line l_47ae2aa1. (Om, chat)
 
 ## Where
-- Victus-Knight: dev a650d95 clean (2026-11-18 18:43)
-<!-- work-os-copy sha1:b58a3cf1a1bb4a4df81ca37aa4fbe084e4bc1c99 -->
+- Victus-Knight: dev cd92b40 clean (2026-11-18 20:03)
+<!-- work-os-copy sha1:b73bb3445f7d191a33ac5dc11572a4a60e12b120 -->
