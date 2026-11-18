@@ -3,9 +3,10 @@
 import { useEffect, useState, useTransition } from 'react';
 import { FolderGit2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
-import type { FolderView } from '@/lib/data/launcher';
-import { folderPickerAction, relinkFolderAction } from '../projects/[id]/launcher-actions';
+import type { FolderView, MatchingFolders } from '@/lib/data/launcher';
+import { folderPickerAction, linkMatchingFoldersAction, matchingFoldersAction, relinkFolderAction } from '../projects/[id]/launcher-actions';
 
 const NONE = '';
 
@@ -16,6 +17,7 @@ const NONE = '';
 export function ComputerFolders({ deviceId }: { deviceId: string }) {
   const [folders, setFolders] = useState<FolderView[] | null>(null);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const [match, setMatch] = useState<MatchingFolders | null>(null);
   const [q, setQ] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -26,6 +28,7 @@ export function ComputerFolders({ deviceId }: { deviceId: string }) {
       setError(null);
       setFolders(r.data.folders);
       setProjects(r.data.projects);
+      void matchingFoldersAction(deviceId).then(m => m.ok && setMatch(m.data));
     });
   useEffect(() => {
     let alive = true;
@@ -34,6 +37,7 @@ export function ComputerFolders({ deviceId }: { deviceId: string }) {
       if (!r.ok) return setError(r.error);
       setFolders(r.data.folders);
       setProjects(r.data.projects);
+      matchingFoldersAction(deviceId).then(m => alive && m.ok && setMatch(m.data));
     });
     return () => {
       alive = false;
@@ -48,9 +52,32 @@ export function ComputerFolders({ deviceId }: { deviceId: string }) {
       await load(q);
     });
 
+  const linkThem = () =>
+    start(async () => {
+      const r = await linkMatchingFoldersAction(deviceId);
+      if (!r.ok) return void toast.error(r.error);
+      toast(r.data.linked === 1 ? 'Linked 1 folder' : `Linked ${r.data.linked} folders`);
+      await load(q);
+    });
+
   return (
     <div className="px-4 pb-3 pt-1 space-y-2" data-computer-folders={deviceId}>
       <p className="text-[13px] text-muted-foreground">Folders this computer reported (names only). Pick the project a folder belongs to, so Claude can open sessions for it.</p>
+      {match && match.matches.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 px-3 py-2" data-match-folders={match.matches.length}>
+          <p className="flex-1 basis-48 min-w-0 text-[14px] text-foreground">
+            {match.matches.length === 1 ? '1 folder here matches' : `${match.matches.length} folders here match`} your projects&apos; repos
+          </p>
+          <Button type="button" size="lg" onClick={linkThem} disabled={pending}>
+            Link them
+          </Button>
+        </div>
+      )}
+      {match && match.ambiguous.length > 0 && (
+        <p className="text-[13px] text-muted-foreground" data-match-ambiguous>
+          {match.ambiguous.map(a => a.name).join(', ')} matches several projects: pick below.
+        </p>
+      )}
       <input
         className="w-full h-10 rounded-xl border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm outline-none focus-visible:border-ring"
         value={q}

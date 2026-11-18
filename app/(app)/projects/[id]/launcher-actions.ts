@@ -5,7 +5,7 @@ import { z, ZodError } from 'zod';
 import { SafeError } from '@/lib/auth';
 import { requireCaller, withCaller, type Caller } from '@/lib/caller';
 import { InputError, NotFoundError } from '@/lib/data/errors';
-import { dismissReopen, jobOutcome, linkFolder, openSessionInVscode, projectLauncher, relinkFolder, reopenAll, removeSession, resumeSession, searchFolders, startSession, stopSession, unhideSession, unlinkFolder, type FolderView } from '@/lib/data/launcher';
+import { dismissReopen, jobOutcome, linkFolder, linkMatchingFolders, matchingFolders, type MatchingFolders, openSessionInVscode, projectLauncher, relinkFolder, reopenAll, removeSession, resumeSession, searchFolders, startSession, stopSession, unhideSession, unlinkFolder, type FolderView } from '@/lib/data/launcher';
 import { listProjectsNav } from '@/lib/data/projects';
 import { startProjects, type StartProject } from '@/lib/data/claude-overview';
 import { turboInfo, turboStart, type TurboInfo } from '@/lib/data/turbo';
@@ -33,6 +33,16 @@ const Uuid = z.string().uuid();
 
 export async function searchFoldersAction(deviceId: string, q: string): Promise<R<FolderView[]>> {
   return run(null, c => searchFolders(c, Id.parse(deviceId), z.string().max(60).parse(q ?? '')));
+}
+
+/** The computer page's "N folders match your projects' repos": what Link them would link, and what needs a choice. */
+export async function matchingFoldersAction(deviceId: string): Promise<R<MatchingFolders>> {
+  return run(null, c => matchingFolders(c, Id.parse(deviceId)));
+}
+
+/** "Link them": every folder on this computer whose repo is exactly one project's. */
+export async function linkMatchingFoldersAction(deviceId: string): Promise<R<{ linked: number; skipped: { name: string; reason: string }[] }>> {
+  return run(null, c => linkMatchingFolders(c, Id.parse(deviceId)));
 }
 
 export async function linkFolderAction(projectId: string, key: string): Promise<R<null>> {

@@ -417,6 +417,57 @@ export async function linkFolder(scope: DeviceScope, projectId: string, key: str
   afterCommit(() => wake(scope.orgId, scope.userId, f.deviceId)); // its worker writes the folder's marker
 }
 
+export type MatchingFolders = {
+  /** Unlinked folders whose git remote is a code location of exactly one project the caller can read. */
+  matches: { key: string; name: string; projectId: string; projectName: string }[];
+  /** Unlinked folders whose remote is a code location of several projects: the person picks. */
+  ambiguous: { key: string; name: string; projects: string[] }[];
+};
+
+/**
+ * The folders on one of the caller's computers that can be linked without a choice (Claude › Setup › Computers: "Link
+ * them"). Same rule as the suggestions on a project's Code tab: an unlinked, present folder whose remote is one of a
+ * non-archived project's code locations. Anyone else's computer is "not found".
+ */
+export async function matchingFolders(scope: DeviceScope, deviceId: string): Promise<MatchingFolders> {
+  const c = await scoped(scope);
+  const devices = await deviceMap(scope);
+  if (!devices.has(deviceId)) throw new NotFoundError('Device not found');
+  const [folders, projects] = await Promise.all([
+    c.workerFolders.find({ deviceId, projectId: null, missing: false, remote: { $exists: true, $ne: '' } }).sort({ name: 1 }).limit(500).toArray(),
+    c.projects.find({ status: { $ne: 'archived' }, 'code.remote': { $exists: true } }, { projection: { name: 1, code: 1 } }).toArray(),
+  ]);
+  const byRemote = new Map<string, { id: string; name: string }[]>();
+  for (const p of projects) {
+    for (const r of new Set((p.code ?? []).map(l => l.remote).filter((x): x is string => !!x))) byRemote.set(r, [...(byRemote.get(r) ?? []), { id: p._id, name: p.name }]);
+  }
+  const out: MatchingFolders = { matches: [], ambiguous: [] };
+  for (const f of folders) {
+    const hit = f.remote ? byRemote.get(f.remote) : undefined;
+    if (!hit) continue;
+    if (hit.length === 1) out.matches.push({ key: f._id, name: f.name, projectId: hit[0].id, projectName: hit[0].name });
+    else out.ambiguous.push({ key: f._id, name: f.name, projects: hit.map(h => h.name) });
+  }
+  return out;
+}
+
+/** Links every unambiguous matching folder (linkFolder per folder, so its checks apply). A folder that fails is skipped with the reason. */
+export async function linkMatchingFolders(scope: DeviceScope, deviceId: string): Promise<{ linked: number; skipped: { name: string; reason: string }[] }> {
+  const { matches, ambiguous } = await matchingFolders(scope, deviceId);
+  const skipped = ambiguous.map(a => ({ name: a.name, reason: 'matches several projects' }));
+  let linked = 0;
+  for (const m of matches) {
+    try {
+      await linkFolder(scope, m.projectId, m.key);
+      linked++;
+    } catch (e) {
+      if (!(e instanceof InputError || e instanceof NotFoundError)) throw e;
+      skipped.push({ name: m.name, reason: e.message });
+    }
+  }
+  return { linked, skipped };
+}
+
 /**
  * Moves a folder to another project (or off any project when `projectId` is null): the computer page's "Link to project"
  * picker. Same checks as link and unlink: the folder is on one of the caller's own computers and the project is one the
