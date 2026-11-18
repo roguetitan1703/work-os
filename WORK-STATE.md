@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 5. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 6. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -28,6 +28,7 @@ Copy of the Work OS state, version 5. Edit it in Work OS (https://work.delpat.in
 - 2026-11-18: 18 Nov, Om: SSH is plain ubuntu login with host names workos and mailserver in ~/.ssh/config (key delpat_ed25519), from VS Code and the terminal; no separate agent user, no sudoers changes. (Om, chat)
 - 2026-11-18: 18 Nov, Om: Mailloom intake keys set in /etc/work-os/env on the Work OS server (token copied server to server, never shown; project mailloom-f60ee666; channel #mailloom). Not restarted: they take effect when the intake build goes live. Bot already has Send Messages in #mailloom. (Om, chat)
 - 2026-11-18: 18 Nov: build 865c699 live (Mailloom intake + Inbox Select). Intake checked end to end: test notice in #mailloom (204), test report became #274 in Mailloom (201). (Om, chat)
+- 2026-11-18: 18 Nov, Om (after the Fable review of docs/flows/session-messaging.md): the folder a session starts in decides its project (git remote is information only); a session in an unknown folder sorts itself out (asks which project, uses its folder on this PC, links or creates it); message text is pushed into sessions with its frame, ship/money/credentials stay enforced server-side; duplicate notes are refused. Build order: hand check, per-session ids, plugin, idle wake; feedback and notes shelves after. (Om, chat)
 
 ## Later (older, kept from before the 18 Nov import; not in Work OS)
 - e2e oauth "settings: phone: no sideways scroll" fails in 2 of 3 multi-suite runs since the tests use the installed Chrome (the ms-playwright chromium was deleted): the Add this PC / Create key input rows on Claude › Set up sit past 390 px after a 1280→390 resize, with no page scroll; passes alone and does not reproduce in a probe (fresh 390 or resized, Claude used) — waits on it showing on a real phone, or a pinned test browser.
