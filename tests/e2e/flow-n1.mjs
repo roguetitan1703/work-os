@@ -167,6 +167,23 @@ try {
     await ctx.close();
   }
 
+  // ======== a typed answer is sent without pressing an option (Om, 19 Nov) ========
+  {
+    const typed = (await must(kCode, 'ask', { project: 'Needs Proj', to: 'me', kind: 'decide', ask: 'Typed answer check', options: [{ id: 'a', label: 'Yes' }, { id: 'b', label: 'No' }] })).need;
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const p = await ctx.newPage();
+    await login(p, { phone: false, next: '/today' });
+    const card = p.locator(`[data-variant=desk] [data-need="${typed.ref}"]`);
+    await card.waitFor({ timeout: 20000 });
+    check('typed: no Send button while the box is empty', (await card.locator('[data-need-send]').count()) === 0);
+    await card.locator('[data-need-text]').fill('Neither: wait until Friday');
+    await card.locator('[data-need-send]').click();
+    await p.waitForTimeout(1500);
+    const doc = await rawDb.collection('needs').findOne({ orgId: ME.orgId, ref: typed.ref });
+    check('typed: the Need is answered with the typed text', doc?.status === 'answered' && doc?.answer?.option === 'other' && doc?.answer?.text === 'Neither: wait until Friday', JSON.stringify(doc?.answer));
+    await ctx.close();
+  }
+
   // ======== a task waiting on a Need is never "stalled" ========
   {
     const waiting = (await must(MCP, 'add_task', { title: 'Waiting on a person', project: 'Needs Proj' })).created;

@@ -388,7 +388,10 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
     const cur = await c.needs.findOne({ _id: id, to: s.userId });
     if (!cur) throw new NotFoundError('That Need does not exist, or it is not addressed to you.');
     if (cur.status !== 'open') throw new InputError(cur.status === 'answered' ? 'This Need is already answered.' : `This Need was ${cur.status}.`);
-    if (!cur.options.some(o => o.id === answer.option)) throw new InputError('Choose one of the Need\'s options.');
+    // 'other' = the person typed their own answer instead of pressing an option (not for reviews: they have send_back).
+    const own = answer.option === 'other' && !cur.options.some(o => o.id === 'other');
+    if (own && (cur.kind === 'review' || !text)) throw new InputError(cur.kind === 'review' ? 'Choose Approve or Send back.' : 'Type your answer first.');
+    if (!own && !cur.options.some(o => o.id === answer.option)) throw new InputError('Choose one of the Need\'s options, or type your own answer.');
     if (cur.kind === 'review' && answer.option === 'send_back' && !text) throw new InputError('Say what to change: your line goes first in the next brief for the task.');
     const now = new Date();
     const done = await c.needs.findOneAndUpdate(
@@ -398,7 +401,7 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
     );
     if (!done) throw new InputError('This Need is already answered.');
     await syncTaskNeed(await orgWide(s.orgId), done.taskId);
-    await logNeed(c, done, via === 'discord' ? { kind: 'discord', userId: s.userId } : { kind: 'user', userId: s.userId }, 'need_answered', done.options.find(o => o.id === answer.option)?.label ?? answer.option);
+    await logNeed(c, done, via === 'discord' ? { kind: 'discord', userId: s.userId } : { kind: 'user', userId: s.userId }, 'need_answered', done.options.find(o => o.id === answer.option)?.label ?? (answer.option === 'other' ? 'Own answer' : answer.option));
     if (done.kind === 'review') return toNeed(await applyReview(s, done, answer.option, text));
     return toNeed(done);
   });

@@ -110,13 +110,35 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
           <textarea
             value={text}
             onChange={e => setText(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && need.kind !== 'review' && text.trim() && !pending) {
+                e.preventDefault();
+                answer('other');
+              }
+            }}
             maxLength={1000}
             rows={2}
             data-need-text
-            placeholder={need.kind === 'review' ? 'To send it back: what should change? This line comes first in its next brief.' : 'A note with your answer (optional)'}
+            placeholder={need.kind === 'review' ? 'To send it back: what should change? This line comes first in its next brief.' : 'Or type your own answer (also sent as a note with a button)'}
             aria-label={`Note for Need #${need.ref}`}
             className={cn('w-full rounded-lg border border-border bg-background px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/40', phone ? 'text-[16px]' : 'text-sm')}
           />
+          {need.kind !== 'review' && text.trim() && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={pending}
+                data-need-send
+                onClick={() => answer('other')}
+                className={cn(
+                  'rounded-lg border border-border bg-background hover:bg-muted transition-colors disabled:opacity-60 font-medium',
+                  phone ? 'min-h-11 w-full px-4 py-2 text-[15px]' : 'px-3 py-1.5 text-sm',
+                )}
+              >
+                Send my answer
+              </button>
+            </div>
+          )}
         </>
       )}
       {open && !canAnswer && (
@@ -127,7 +149,7 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
       {!open && (
         <p className={cn('text-muted-foreground', phone ? 'text-[14px]' : 'text-xs')} data-need-closed>
           {need.status === 'answered' && need.answer
-            ? `Answered${need.answer.option ? ': ' + (need.options.find(o => o.id === need.answer!.option)?.label ?? need.answer.option) : ''}${need.filed?.length ? ` · filed ${need.filed.map(r => '#' + r).join(', ')}` : ''}${need.answer.text ? ` · "${need.answer.text}"` : ''}${need.waitedMs !== null ? ` · waited ${fmtWait(need.waitedMs)}` : ''}`
+            ? `Answered${need.answer.option ? ': ' + (need.options.find(o => o.id === need.answer!.option)?.label ?? (need.answer.option === 'other' ? 'own answer' : need.answer.option)) : ''}${need.filed?.length ? ` · filed ${need.filed.map(r => '#' + r).join(', ')}` : ''}${need.answer.text ? ` · "${need.answer.text}"` : ''}${need.waitedMs !== null ? ` · waited ${fmtWait(need.waitedMs)}` : ''}`
             : need.status === 'withdrawn'
               ? 'Withdrawn by the asker'
               : 'Replaced by a newer ask'}

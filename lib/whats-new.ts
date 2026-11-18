@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'needs-typed-answer',
+    date: '2026-11-19',
+    title: 'Answer a Need in your own words',
+    line: 'Type your answer under a Need and press Send my answer (or Ctrl+Enter); no option button needed.',
+    where: 'Needs you on Today, and Needs',
+    href: '/needs',
+  },
+  {
     id: 'activity-everything',
     date: '2026-11-19',
     title: 'Activity shows everything that changed',
