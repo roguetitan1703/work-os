@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 34. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 35. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -10,7 +10,7 @@ Copy of the Work OS state, version 34. Edit it in Work OS (https://work.delpat.i
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
 3. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
 4. H0: ship R1. Full e2e on dev failed 14/66 suites (possible privacy leaks in push and activity-all, MCP write_note internal error, stale tests after the Needs cap, digest and What's new changes); Opus fixer on branch r1-fixes in ../wos-r1. Then UI by eye 390/1280 light/dark, push dev, release with Om's go. (#277)
-5. Wave 1: H1 words building (slot S); H3 built, review fixes building (slot A); H4 phase 1 built on builder-b (flow-s1/s2/h4/state-edit pass). Merge order H1, H4, H3 onto dev; then H4 phase 2, H2, H5. (#276)
+5. Harness on dev: H1 words, H3 per-session ids (security review passed after fixes), H4 phase 1 merged (dev 685ebe0). Building: H2 hooks on any PC (slot S), H4 phase 2 server side (slot B), then H5 end_work (slot B, plan note 0bf42ce458) and the H4 hook side after H2. Plans for H2 111fa6dd60, H5 0bf42ce458. (#276)
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -47,7 +47,8 @@ Copy of the Work OS state, version 34. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov, Om (chat): #259 Agent fleet folded into Harness (#261 Done, the rest Dropped naming the part that covers them). H17 added: Fable reviews the whole Harness after H16. H2 reshaped: hooks on any new PC with one command via the worker setup, cloud repos one line, a plugin only if a PC must run without the worker. Needs: when Om is in the conversation, ask in chat; a Need only when he is away or it's for someone else (proposed Orders change; H1 rewrites the texts). (Om, chat)
 - 2026-11-18: 19 Nov, Om (chat): the Work OS lead fixes and improves the Orders, hooks and words itself, directly, not by proposing text for Om to paste. H9 reshaped: the holder's own Claude edits the Orders layer its person holds; each change keeps a version and shows old and new in the person's next brief and in the app, with one-click undo. propose_order stays for agents of someone who does not hold that layer. (Om, chat)
 - 2026-11-18: 19 Nov, Om: Orders changed directly in the database (Om: 'use database'): the Needs line now says ask in chat when your person is here, a Need only when they are away, quiet on a blocker, or for someone else; Long work says 'ask each blocker (in chat if your person is here, else as a Need)'. Done by a node script over SSH on note 785391c151, updatedBy claude-code; checked with read_note. Until H9 ships, Orders changes go this way. (Om, chat)
+- 2026-11-18: 19 Nov: /transfer skill and note ac2026fedb follow the new Orders on asking: waiting questions go to the person in chat when they are here, a Need only when they are away (found by the H5 planner). (Om, chat)
 
 ## Where
-- Victus-Knight: dev 0d3b062 (2026-11-18 21:33)
-<!-- work-os-copy sha1:5acab828dee48cddd629f419bb510ded6ea3fc7e -->
+- Victus-Knight: dev 685ebe0 (2026-11-18 21:54)
+<!-- work-os-copy sha1:66f5e0cbdee7bd00728cf9fd03c070a8c847c52a -->
