@@ -54,7 +54,7 @@ try {
   check('H4 hook: a header 2 on a call wins over a hook 1 row', !('markdown' in newHeaderWins));
 
   // Task to line
-  const v0 = seedA.version;
+  const v0 = (await stateOf(A)).version;
   await must(MCP, 'complete_task', { task: t1.ref, note: 'done' });
   let sa = await stateOf(A);
   check('H4 link: completing a task takes its Next line off the State and bumps the version once', !nextTexts(sa).includes('Do linked one') && sa.version === v0 + 1 && nextTexts(sa).includes('A line with no task'), JSON.stringify({ v: sa.version, n: nextTexts(sa) }));
@@ -89,7 +89,7 @@ try {
   await must(MCP, 'add_project', { name: 'H4 Import' });
   const cc = await mkKey({ agent: 'claude-code', name: 'H4 Claude Code' });
   const impAns = await must(cc, 'import_state', { project: 'H4 Import', markdown: md });
-  check('H4 short: an import answers short (message, imported, shortened, no state or markdown)', !('state' in impAns) && !('markdown' in impAns) && /^Imported v1\./.test(impAns.message) && impAns.shortened >= 1, JSON.stringify(impAns).slice(0, 300));
+  check('H4 short: an import answers short (message, imported, shortened, no state or markdown)', !('state' in impAns) && !('markdown' in impAns) && /^Imported v1\./.test(impAns.message) && /cut at a sentence/.test(String(impAns.shortened)), JSON.stringify(impAns).slice(0, 300));
   const imp = { ...impAns, state: (await must(cc, 'get_state', { project: 'H4 Import' })).state };
   const n0 = imp.state.next[0].text;
   check('H4 import: a 700+ character line is cut after a sentence end, within 500 characters', long.length > 700 && n0.length <= 500 && n0.endsWith('here.') && long.startsWith(n0), `${long.length} -> ${n0.length}: ${n0.slice(-40)}`);

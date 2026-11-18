@@ -90,9 +90,9 @@ try {
   check('S2: set_where is kept per machine', r.state.where.laptop?.branch === 'builder-b' && r.state.where.laptop.dirty === true && r.state.where.desktop?.branch === 'main', JSON.stringify(r.state.where));
 
   // The repo copy
-  const cp = await must(cc, 'get_state', { project: NAME, copy: true });
-  check('S2: the copy (get_state copy:true) is headed with the version it came from', cp.markdown.startsWith(`Copy of the Work OS state, version ${r.version}.`), cp.markdown.slice(0, 120));
-  check('S2: the markdown has Now, Next and Later; Where is not in it, and Decisions only when the repo is known private (H4)', ['## Now', '## Next', '## Later'].every(h => cp.markdown.includes(h)) && !cp.markdown.includes('## Where') && !cp.markdown.includes('## Decisions'), cp.markdown);
+  const copyNow = await must(cc, 'get_state', { project: NAME, copy: true });
+  check('S2: the copy (get_state copy:true) is headed with the version it came from', copyNow.markdown.startsWith(`Copy of the Work OS state, version ${r.version}.`), copyNow.markdown.slice(0, 120));
+  check('S2: the markdown has Now, Next and Later; Where is not in it, and Decisions only when the repo is known private (H4)', ['## Now', '## Next', '## Later'].every(h => copyNow.markdown.includes(h)) && !copyNow.markdown.includes('## Where') && !copyNow.markdown.includes('## Decisions'), copyNow.markdown);
   check('S2: Where is still in the State itself after the repo copy drops it', !!r.state.where.laptop, JSON.stringify(r.state.where));
 
   // Import, once

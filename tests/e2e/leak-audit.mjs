@@ -1445,7 +1445,7 @@ function AUDIT() {
   // The hook's State route (session token only): each person's computer first signs in for A's project by its remote (the
   // token exists only for A, whose computer has the folder), then asks for the copy with that token or, where there is none,
   // with a made-up one. Nobody but A gets the copy, and nobody's other credential opens it (misuse list below).
-  add('route POST /api/agent/state', worker('POST', '/api/agent/state', {}, { ok: r => r.status === 200, label: 'the copy of A's project by a token', call: async ({ p, o: t }) => {
+  add('route POST /api/agent/state', worker('POST', '/api/agent/state', {}, { ok: r => r.status === 200, label: 'the copy of a project by a token', call: async ({ p, o: t }) => {
     const s = await req('POST', '/api/agent/start', { bearer: p.wkr, body: { remote: t.remote, branch: 'main' } });
     let token = 'wst_' + 'a'.repeat(43);
     try { token = JSON.parse(s.text).token ?? token; } catch { /* no token: the made-up one is refused */ }
