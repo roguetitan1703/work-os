@@ -18,7 +18,12 @@ test('install copies the hook, merges four events, keeps other settings and hook
   const r = m.install();
   assert.ok(fs.existsSync(path.join(process.env.WORK_OS_WORKER_DIR, 'hooks', 'hook.mjs')));
   assert.ok(fs.existsSync(path.join(process.env.WORK_OS_WORKER_DIR, 'hooks', 'config.mjs')));
-  assert.equal(r.key, false);
+  assert.ok(fs.existsSync(path.join(process.env.WORK_OS_WORKER_DIR, 'hooks', 'secret.mjs')), 'the start hook reads the device key with it');
+  assert.equal(r.signIn, null, 'no worker config and no WORK_OS_KEY: nothing to sign in with yet');
+  fs.writeFileSync(path.join(process.env.WORK_OS_WORKER_DIR, 'config.json'), JSON.stringify({ baseUrl: 'https://x.example' }));
+  assert.equal(m.install().signIn, 'worker', 'with the worker set up the hooks need no key');
+  assert.equal(m.status().signIn, 'worker');
+  fs.rmSync(path.join(process.env.WORK_OS_WORKER_DIR, 'config.json'));
   let s = settings();
   assert.equal(s.model, 'opus');
   assert.deepEqual(s.env, { A: '1' });

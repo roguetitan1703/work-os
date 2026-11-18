@@ -249,7 +249,7 @@ const SKIP_COLS = new Set(['requestStats', 'policyEvents', 'rateLimit', 'authLim
 const SHARED = new Set(['projects', 'tasks', 'activity', 'notes', 'claudeItems', 'trash']);
 for (const c of ['states', 'presence', 'messages']) SHARED.add(c); // slice 1: a project's State and the sessions present on it carry the project's placement
 SHARED.add('needs'); // slice 4: a Need follows its project's placement like a task
-const OWNED = new Set(['reviews', 'ritualLogs', 'devices', 'workerFolders', 'workerJobs', 'workerSessions']);
+const OWNED = new Set(['reviews', 'ritualLogs', 'devices', 'workerFolders', 'workerJobs', 'workerSessions', 'agentSessions']); // agentSessions: the hook's session tokens (hash only), its computer owner's
 const RECIP = new Set(['notifications', 'pushSubs', 'alertLog', 'alertQueue']);
 let WHO = {}; // user id -> persona
 let ORG = {}; // org id -> { members: [personas], admins: [personas] }
@@ -1420,6 +1420,9 @@ function AUDIT() {
   add('route GET /api/worker/jobs', worker('GET', '/api/worker/jobs'));
   add('route POST /api/worker/status', worker('POST', '/api/worker/status', t => ({ worker: { version: '0.1.0', os: 'win32', allowPrompts: false }, jobs: [{ id: t.job, ok: false, error: 'lkq' }], sessions: [{ sessionId: t.session, state: 'dead' }] }), { label: 'their job and session ids', controlOk: r => two(r.status), stage: 1 }));
   add('route GET /api/worker/stream', { kind: 'worker', ok: r => r.status === 200, call: ({ p }) => streamPeek('/api/worker/stream', p.wkr ? { authorization: `Bearer ${p.wkr}` } : {}) });
+  // The hook's sign-in (device key): A's private project by its remote. A's computer has a folder linked to it (the
+  // control); anyone else's computer gets the same 404 as for a remote no project has, or 401.
+  add('route POST /api/agent/start', worker('POST', '/api/agent/start', t => ({ remote: t.remote, branch: 'main' }), { ok: r => r.status === 200, aim: true, aimKeys: ['remote'], label: 'a project by its remote', controlOk: r => r.status === 200 && /"token":"wst_/.test(r.text) }));
   add('route GET /icons/[size]', route('GET', '/icons/192', { public: true }));
   // OAuth discovery documents (RFC 9728, RFC 8414): public by design, the same for everyone, nothing about any organization.
   for (const [name, has] of [['oauth-protected-resource', /authorization_servers/], ['oauth-authorization-server', /code_challenge_methods_supported/]]) {
@@ -1558,7 +1561,9 @@ function MISUSE({ A, T, X, R }) {
     L(`${label} on /api/worker/status`, () => req('POST', '/api/worker/status', { bearer, cookie, body: { jobs: [] } }));
     L(`${label} on /api/worker/folders`, () => req('POST', '/api/worker/folders', { bearer, cookie, body: { folders: [] } }));
     L(`${label} on /api/worker/stream`, () => streamPeek('/api/worker/stream', { ...(bearer ? { authorization: `Bearer ${bearer}` } : {}), ...(cookie ? { cookie } : {}) }));
+    L(`${label} on /api/agent/start`, () => req('POST', '/api/agent/start', { bearer, cookie, body: { remote: 'lkqmisuse/repo' } }), r => r.status === 401);
   }
+  L('the device key in X-API-Key on /api/agent/start', () => req('POST', '/api/agent/start', { headers: { 'x-api-key': A.wkr }, body: { remote: 'lkqmisuse/repo' } }), r => r.status === 401);
   for (const [label, bearer] of [['a Claude Code key', A.code], ['a wkr_ key', A.wkr], ['a removed member\'s chat key', R.chat]]) {
     L(`${label} on /api/admin/health`, () => req('GET', '/api/admin/health', { bearer }));
     L(`${label} on /api/admin/discord/register`, () => req('GET', '/api/admin/discord/register', { bearer }));

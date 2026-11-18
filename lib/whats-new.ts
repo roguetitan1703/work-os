@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'hook-device-key',
+    date: '2026-11-18',
+    title: 'Session briefs with no extra key',
+    line: "Claude Code sessions get the project brief using your PC's Work OS worker, so there is no Claude Code key to paste.",
+    where: 'Claude › Setup › Computers (set up the worker on your PC)',
+    href: '/claude',
+  },
+  {
     id: 'mailloom-reports',
     date: '2026-11-18',
     title: 'Mailloom problem reports become tasks',

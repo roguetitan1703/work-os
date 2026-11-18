@@ -33,25 +33,32 @@ Details: worker/README.md.
 
 ## 4. (merged into step 3)
 
-| Event | What it does | Needs a key |
+| Event | What it does | Signs in |
 |---|---|---|
-| SessionStart (start, resume, clear, compact) | Calls start_work for the folder and puts the Orders, State and tasks into the session | Yes |
-| Stop | Files changed and State not saved: holds the session once and asks for save_state | Yes (uses the start record) |
+| SessionStart (start, resume, clear, compact) | Gets the start brief for the folder (the start_work content) and puts the Orders, State and tasks into the session | Yes: the worker's device key, then a session token |
+| Stop | Files changed and State not saved: holds the session once and asks for save_state | No (uses the start record) |
 | PreToolUse (Edit, Write, MultiEdit, NotebookEdit, Bash, PowerShell) | Refuses hand edits of WORK-STATE.md and says to use save_state | No |
 | PostToolUse (save_state, import_state, get_state of any Work OS connection) | Writes WORK-STATE.md from the answer in the repo's main folder and commits that file alone (not in builder worktrees, not during a merge) | No |
 
+The start hook needs no key of its own: it signs in with this PC's worker device key (from the worker's DPAPI /
+Keychain store, never written anywhere else) and gets a session token for that one Claude Code session and project,
+good for a day; after a compaction it shows the token instead. The device key opens a project only when that project
+has a folder on this PC: a folder linked to it (Claude › Setup or the project's Code tab), or an unlinked folder with
+one of the project's git remotes, as the worker last reported (a new clone counts after the worker's next scan).
 All four fail open: no key, no network or an error means they print nothing and the session carries on.
 
-## 5. The key for the start brief (until the hooks use the worker's key)
-In Work OS: Claude › Setup › Claude Code key. Add it to the `env` block of `~/.claude/settings.json` yourself:
+## 5. A key for the start brief: only for a PC without the worker
+A PC with the worker (step 3) skips this. On a PC without it, make a Claude Code key in Work OS (Claude › Setup ›
+Claude Code key) and add it to the `env` block of `~/.claude/settings.json` yourself:
 ```json
 "env": { "WORK_OS_KEY": "wos_..." }
 ```
-Never paste the key into a chat, and never into `~/.claude.json`.
-Without the browser (the owner on a PC that has the database credentials in `.env.local`): `node scripts/make-key.mjs --db <database> --email <you> --name "Hooks · <pc>" --apply` creates the key the way the app does and writes it into the settings file without showing it (Om's PC, 18 Nov: "Hooks · Victus-Knight"). (Planned: the hooks sign in with the worker's device
-key, and this step goes away; agent-system.md section 4.)
-- Check: start a new session in a repo that has a Work OS project; its first context says "Work OS brief for this
-  project".
+Never paste the key into a chat, and never into `~/.claude.json`. When `WORK_OS_KEY` is set the hook uses it in place
+of the worker's key, so a PC that has the worker and an old `WORK_OS_KEY` should take that line out (and revoke the
+key in Settings) to move to the worker's key.
+Without the browser (the owner on a PC that has the database credentials in `.env.local`): `node scripts/make-key.mjs --db <database> --email <you> --name "Hooks · <pc>" --apply` creates the key the way the app does and writes it into the settings file without showing it.
+- Check (either way): start a new session in a repo that has a Work OS project; its first context says "Work OS brief
+  for project".
 
 ## 6. Global CLAUDE.md (`~/.claude/CLAUDE.md`)
 A few lines only: call start_work and follow the Orders; status lives in Work OS State; WORK-STATE.md is a copy;
@@ -79,7 +86,7 @@ Only rules that hold in every repo go here; a project's own test hosts, cloud pr
 
 ## 7. Check the whole setup
 In a repo with a Work OS project:
-1. A new session starts with the Work OS brief (step 5 done).
+1. A new session starts with the Work OS brief (step 3 done, or step 5 on a PC without the worker).
 2. Ask it to append a line to WORK-STATE.md: refused, naming save_state.
 3. Ask it to save State with any small change: WORK-STATE.md updates and a commit "WORK-STATE.md: copy of the Work
    OS State vN" appears.

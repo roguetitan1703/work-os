@@ -5,7 +5,7 @@ import { configDir } from './config.mjs';
 
 export const TOKEN_RE = /^wkr_[A-Za-z0-9_-]{43}$/;
 const SERVICE = 'work-os-worker';
-const tokenFile = () => path.join(configDir(), 'token.dpapi');
+const tokenFile = (dir = configDir()) => path.join(dir, 'token.dpapi');
 
 export function setToken(token) {
   if (!TOKEN_RE.test(token)) throw new Error('token must look like wkr_ followed by 43 characters');
@@ -22,12 +22,13 @@ export function setToken(token) {
   } else throw new Error('unsupported platform');
 }
 
-export function getToken() {
+/** The device key, or null. `dir`: the worker's config folder (the hook passes the one it was installed into). */
+export function getToken(dir = configDir()) {
   try {
     if (process.platform === 'win32') {
       const script = 'Get-Content -Path $env:WOS_TOKEN_FILE | ConvertTo-SecureString | ForEach-Object { [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($_)) }';
       const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
-        { env: { ...process.env, WOS_TOKEN_FILE: tokenFile() }, encoding: 'utf8' });
+        { env: { ...process.env, WOS_TOKEN_FILE: tokenFile(dir) }, encoding: 'utf8', timeout: 4000 });
       const t = (r.stdout || '').trim();
       return r.status === 0 && TOKEN_RE.test(t) ? t : null;
     }

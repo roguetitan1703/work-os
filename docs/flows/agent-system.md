@@ -57,12 +57,13 @@ update_claude_items goes away (and its lines in the server instructions).
 
 ## 4. Keys and connections
 - **Why the hook needs its own key.** Claude Code's Work OS connection keeps its sign-in inside Claude Code's own
-  config. Hooks are separate programs and don't get it (and we never touch that file). Today the hook reads
-  WORK_OS_KEY from the PC's Claude Code settings.
+  config. Hooks are separate programs and don't get it (and we never touch that file). Until 18 Nov the hook read
+  WORK_OS_KEY from the PC's Claude Code settings (still used first when it is set: a PC without the worker).
 - **Change (builder A): no extra key.** The worker already runs on the PC with a device key. The hook signs in with
   that key on new hook-only routes (`/api/agent/start`, `/api/agent/event`, `/api/agent/wait`), which can do only what
   a hook needs: brief, State, presence, messages. They can't do mail or deletes. A PC with no worker (cloud) gets a
-  project-scoped hook key in its environment.
+  project-scoped hook key in its environment. Built 18 Nov: `/api/agent/start` (the start brief and the session token
+  of section 16 item 8; docs/HANDOVER.md "Claude Code hooks"). `/api/agent/event` and `/api/agent/wait` are not built.
 - **Two Work OS connections in a session.** The PC's connection (Claude Code, user level) and the claude.ai connector
   (from the account) reach the same server. Both work (checked 18 Nov). Having both lists every tool twice and costs
   tokens on each turn. Rule: Claude Code uses the PC connection; the claude.ai connector stays off in Code sessions
