@@ -4,6 +4,7 @@
 //   node worker.mjs hooks remove    take the Work OS entries out again
 //   node worker.mjs hooks status    say what is installed
 // Never touches ~/.claude.json. Safe to run again (it replaces its own entries only).
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,6 +14,18 @@ import { configDir } from './config.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const settingsPath = () => process.env.CLAUDE_SETTINGS_PATH || path.join(os.homedir(), '.claude', 'settings.json');
 export const hooksDir = () => path.join(configDir(), 'hooks');
+const FILES = ['hook.mjs', 'config.mjs'];
+const VERSION_FILE = 'hooks.version';
+/** The hooks version: a short hash of the hook files this worker carries (changes whenever hook.mjs or config.mjs does). */
+export function hooksVersion(dir = here) {
+  const h = crypto.createHash('sha256');
+  for (const f of FILES) h.update(fs.readFileSync(path.join(dir, f)));
+  return h.digest('hex').slice(0, 12);
+}
+/** The version of the installed copy (what was written at install), or null. */
+export function installedVersion() {
+  try { return fs.readFileSync(path.join(hooksDir(), VERSION_FILE), 'utf8').trim() || null; } catch { return null; }
+}
 const MARK = 'work-os-worker'; // every entry we write runs a hook.mjs inside the worker config dir
 
 /** The hook entries, by Claude Code event. `hook` is the absolute path of the installed hook.mjs. */
@@ -63,31 +76,44 @@ function write(f, obj) {
 export function install() {
   const dir = hooksDir();
   fs.mkdirSync(dir, { recursive: true });
-  for (const f of ['hook.mjs', 'config.mjs']) fs.copyFileSync(path.join(here, f), path.join(dir, f));
+  for (const f of FILES) fs.copyFileSync(path.join(here, f), path.join(dir, f));
+  const version = hooksVersion();
+  fs.writeFileSync(path.join(dir, VERSION_FILE), version + '\n');
   const hook = path.join(dir, 'hook.mjs');
   const f = settingsPath();
   write(f, merge(read(f), hook));
-  return { hook, settings: f, key: !!(read(f).env?.WORK_OS_KEY || process.env.WORK_OS_KEY) };
+  return { hook, version, settings: f, key: !!(read(f).env?.WORK_OS_KEY || process.env.WORK_OS_KEY) };
 }
 
 export function remove() {
   const f = settingsPath();
   const s = read(f);
+  try { fs.rmSync(path.join(hooksDir(), VERSION_FILE), { force: true }); } catch {}
   if (!s.hooks || !Object.values(s.hooks).flat().some(ours)) return false;
   write(f, withoutOurs(s));
   return true;
 }
 
+/** True when hooks are installed here but the installed copy is not the one this worker carries. */
+export function isStale() {
+  try { return status().events.length > 0 && installedVersion() !== hooksVersion(); } catch { return false; }
+}
+
+/** Re-run install when the installed hooks are out of date (after a worker update). Never throws. Returns the new version or null. */
+export function refreshIfStale() {
+  try { return isStale() ? install().version : null; } catch { return null; }
+}
+
 export function status() {
   const s = read(settingsPath());
   const events = Object.entries(s.hooks || {}).filter(([, g]) => (g || []).some(ours)).map(([ev]) => ev);
-  return { settings: settingsPath(), events, hookFile: fs.existsSync(path.join(hooksDir(), 'hook.mjs')), key: !!s.env?.WORK_OS_KEY };
+  return { settings: settingsPath(), events, hookFile: fs.existsSync(path.join(hooksDir(), 'hook.mjs')), version: installedVersion(), current: hooksVersion(), stale: isStale(), key: !!s.env?.WORK_OS_KEY };
 }
 
 export function cli(sub) {
   if (sub === 'install') {
     const r = install();
-    console.log(`Work OS hooks installed in ${r.settings} (hook: ${r.hook}).`);
+    console.log(`Work OS hooks installed in ${r.settings} (hook: ${r.hook}, version ${r.version}).`);
     console.log(r.key ? 'WORK_OS_KEY is set: the start brief and the stop check are on.' : 'No WORK_OS_KEY yet: the WORK-STATE.md copy and edit guard work now; the start brief and the stop check turn on when you add a Claude Code key (docs/setup-pc.md).');
     console.log('Open Claude Code sessions pick this up on their next tool call; restart them to get the start brief.');
   } else if (sub === 'remove') console.log(remove() ? 'Work OS hooks removed.' : 'No Work OS hooks were installed.');
