@@ -12,6 +12,8 @@ process.env.WORK_OS_HOOK_DIR = path.join(tmp, 'markers');
 process.env.WORK_OS_WORKER_DIR = path.join(tmp, 'cfg'); // no worker config: the URL comes from WORK_OS_URL
 const KEY = 'wos_' + 'k'.repeat(40);
 const { main } = await import('../hook.mjs');
+const { FILES } = await import('../hooks-install.mjs');
+const { run: libRun } = await import('../hook-lib.mjs');
 const HOOK = fileURLToPath(new URL('../hook.mjs', import.meta.url));
 
 // A stub of the MCP endpoint: start_work answers per `mode`.
@@ -27,6 +29,7 @@ function agentStart(req, res) {
   if (agentMode === 'hang') return;
   if (agentMode === 'http429') return json(429, { error: 'too many' });
   if (agentMode === 'http500') return json(500, { error: 'x' });
+  if (agentMode === 'http404') return json(404, { error: 'no project' });
   const auth = req.headers.authorization;
   if (auth === `Bearer ${TOKEN}`) return agentMode === 'tokenDead' ? json(401, { error: 'unauthorized' }) : json(200, { brief: agentBrief, expiresAt: new Date(Date.now() + 3600e3).toISOString() });
   if (auth === `Bearer ${WKR}`) return json(200, { brief: agentBrief, token: TOKEN, expiresAt: new Date(Date.now() + 3600e3).toISOString() });
@@ -50,6 +53,7 @@ const server = http.createServer((req, res) => {
     send(JSON.stringify({ project: { id: 'p1', name: 'Demo' }, session: 'sess-123', orders: 'no Orders set', state: { now: { text: 'ship it' } }, stateVersion: 3 }));
   });
 });
+server.keepAliveTimeout = 1; // an idle socket reused by the next fetch can be reset by the stub (flaky on Windows)
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const URL_ = `http://127.0.0.1:${server.address().port}`;
 after(() => { server.closeAllConnections?.(); server.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
@@ -172,7 +176,7 @@ test('after compaction the start baseline stays', async () => {
 // ---- the device-key path: an installed copy beside a worker config, no WORK_OS_KEY ----
 const home = path.join(tmp, 'w');
 fs.mkdirSync(path.join(home, 'hooks'), { recursive: true });
-for (const f of ['hook.mjs', 'config.mjs', 'secret.mjs']) fs.copyFileSync(fileURLToPath(new URL(`../${f}`, import.meta.url)), path.join(home, 'hooks', f));
+for (const f of FILES) fs.copyFileSync(fileURLToPath(new URL(`../${f}`, import.meta.url)), path.join(home, 'hooks', f));
 const cfgFile = path.join(home, 'config.json');
 fs.writeFileSync(cfgFile, JSON.stringify({ baseUrl: URL_ }));
 const dev = await import(pathToFileURL(path.join(home, 'hooks', 'hook.mjs')).href);
@@ -360,4 +364,57 @@ test("Stop: the brief's own text is not a save; a save resets the check, and lat
   assert.equal(await stop(), '', 'nothing changed since the save');
   fs.writeFileSync(path.join(repo, 'h.txt'), '8');
   assert.equal(JSON.parse(await stop()).decision, 'block', 'changes after the save are asked about again');
+});
+
+// ---- the router ----
+test('router: an unknown event prints nothing; an async handler is awaited; the exit guard follows EVENTS', async () => {
+  assert.equal(await main('nope', JSON.stringify({})), '');
+  assert.equal(await main('../hooks-install', JSON.stringify({})), '', 'only rows of EVENTS are imported');
+  const dir = path.join(tmp, 'router');
+  fs.mkdirSync(dir);
+  for (const f of FILES) fs.copyFileSync(fileURLToPath(new URL(`../${f}`, import.meta.url)), path.join(dir, f));
+  fs.writeFileSync(path.join(dir, 'hook-zz-async.mjs'), "export const handle = async (i) => { await new Promise((r) => setTimeout(r, 30)); return { echoed: i.x }; };\n");
+  const lib = await import(pathToFileURL(path.join(dir, 'hook-lib.mjs')).href);
+  lib.EVENTS.push({ event: 'zz-async', claudeEvent: 'ZzAsync', matcher: null, timeoutS: 3 });
+  const router = await import(pathToFileURL(path.join(dir, 'hook.mjs')).href);
+  assert.equal(await router.main('zz-async', JSON.stringify({ x: 7 })), '{"echoed":7}');
+  assert.deepEqual(lib.EVENTS.slice(0, 4).map((e) => [e.event, e.timeoutS]), [['session-start', 8], ['stop', 8], ['pre-tool', 5], ['post-tool', 20]]);
+});
+
+test('startCheck: the reason a folder gets no brief, and the project and sign-in when it does', () => withoutKey(async () => {
+  const { startCheck } = await import(pathToFileURL(path.join(home, 'hooks', 'hook-session-start.mjs')).href);
+  agentMode = 'ok'; devKey = WKR;
+  assert.deepEqual(await startCheck(repo), { ok: true, via: 'worker', project: 'Demo' });
+  agentMode = 'http404';
+  const nl = await startCheck(repo);
+  assert.equal(nl.ok, false);
+  assert.match(nl.reason, /not linked on this PC/);
+  agentMode = 'http500';
+  assert.match((await startCheck(repo)).reason, /HTTP 500/);
+  agentMode = 'ok'; devKey = null;
+  assert.match((await startCheck(repo)).reason, /no device key/);
+  devKey = WKR;
+  assert.match((await startCheck(tmp)).reason, /not a git folder/);
+  process.env.WORK_OS_URL = URL_; // the key path is the one with WORK_OS_KEY set
+  process.env.WORK_OS_KEY = KEY; mode = 'ok';
+  assert.deepEqual(await startCheck(repo), { ok: true, via: 'key', project: 'Demo' });
+  delete process.env.WORK_OS_KEY;
+}));
+
+test('--cloud: silent unless CLAUDE_CODE_REMOTE=true; then --server is the address and WORK_OS_KEY signs in', async () => {
+  mode = 'ok';
+  const url = process.env.WORK_OS_URL;
+  const input = JSON.stringify({ session_id: 'scloud', cwd: repo, transcript_path: transcript });
+  try {
+    delete process.env.CLAUDE_CODE_REMOTE;
+    seen.length = 0;
+    assert.equal(await main('session-start', input, { cloud: true, server: URL_ }), '', 'a PC: only the global hooks run');
+    assert.equal(seen.length, 0, 'and no request');
+    process.env.CLAUDE_CODE_REMOTE = 'true';
+    delete process.env.WORK_OS_URL;
+    const out = JSON.parse(await main('session-start', input, { cloud: true, server: URL_ }));
+    assert.match(out.hookSpecificOutput.additionalContext, /sess-123/);
+    assert.equal(seen.at(-1).auth, `Bearer ${KEY}`);
+    assert.equal(await main('session-start', input, { cloud: true, server: 'http://example.com' }), '', 'plain http to a non-local server is refused');
+  } finally { delete process.env.CLAUDE_CODE_REMOTE; process.env.WORK_OS_URL = url; libRun.server = null; }
 });

@@ -12,7 +12,7 @@ Small Node program (Node 22+, no npm dependencies) that lets Work OS start, resu
    ```
    node worker/worker.mjs setup
    ```
-   It asks only for what is missing (server, device name, folder to scan, then the key, hidden), checks the key with one real call (a refused key stops it with "key refused"), stores the key with DPAPI or the Keychain (never in config.json), writes config.json, scans and reports folders, installs autostart, and installs the Work OS hooks into `~/.claude/settings.json` (one line says so; if that fails it says why and setup still finishes; see docs/setup-pc.md). Optional flags: `--server URL --name NAME --root DIR` (repeat `--root`) `--projects DIR` (where Work OS clones new repos; default: the first `--root`). Safe to rerun; existing settings such as `allowPrompts` are kept.
+   It asks only for what is missing (server, device name, folder to scan, then the key, hidden), checks the key with one real call (a refused key stops it with "key refused"), stores the key with DPAPI or the Keychain (never in config.json), writes config.json, scans and reports folders, installs autostart, and installs the Work OS hooks into `~/.claude/settings.json` (one line says so; if that fails it says why and setup still finishes; see docs/setup-pc.md). Optional flags: `--server URL --name NAME --root DIR` (repeat `--root`) `--projects DIR` (where Work OS clones new repos; default: the first `--root`), `--no-autostart` (do not touch this PC's autostart: for tests and a second worker). Safe to rerun; existing settings such as `allowPrompts` are kept.
 2. Open a project in Work OS, Sessions, and link a folder.
 
 ## Manual setup
@@ -21,7 +21,7 @@ Only if you do not want `setup`.
 
 ### Windows
 
-1. Install Node 20+ and Windows Terminal (required; wt.exe).
+1. Install Node 22+ and Windows Terminal (required; wt.exe).
 2. Create `%APPDATA%\work-os-worker\config.json`:
    ```json
    { "baseUrl": "https://your-work-os.example", "deviceName": "my-pc", "roots": ["D:\\Work"], "enabled": true, "scanEveryMinutes": 15, "maxDepth": 6 }
@@ -57,7 +57,7 @@ The worker keeps one stream open to Work OS (`GET /api/worker/stream`, `push.mjs
 
 ## Commands
 
-`run` (default), `setup`, `set-token`, `install`, `uninstall` (also removes the hooks), `status` (shows the hooks version), `hooks install|remove|status`, `scan [--dry]`, `activity [--titles]`.
+`run` (default), `setup`, `set-token`, `install`, `uninstall` (also removes the hooks), `status` (shows the hooks version), `hooks install [--force]|remove|status|check [folder]|repo [folder] [--server URL]` (`check` says whether a session in a folder gets the Work OS brief; `repo` puts the hooks into a repo for Claude Code on the web: docs/setup-pc.md "Cloud repos"), `scan [--dry]`, `activity [--titles]`.
 
 The scan offers git repos, folders with a project file (package.json, pyproject.toml, …) and every parent folder above them (below the root), so a client folder that holds several repos can be linked too.
 

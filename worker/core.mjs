@@ -11,7 +11,7 @@ import { handleCloneJob, projectsDirOf } from './clone.mjs';
 
 import { bundleId } from './config.mjs';
 
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 const MISS_MS = 20000; // claude must be missing this long before the session counts as closed
 const OPEN_WINDOW_MS = 60_000;
 const OPEN_MAX_PER_MIN = 4;
@@ -223,6 +223,8 @@ export function createCore(deps) {
     const sessions = Object.entries(state.sessions).map(([sessionId, s]) => ({ sessionId, folderId: s.folderId, state: s.state }));
     // allowPrompts: tells the server whether a first message reaches Claude here. The task dispatcher only sends tasks to a worker that says true.
     const body = { worker: { version: VERSION, os: process.platform, ...(bundleId() ? { bundle: bundleId().slice(0, 12) } : {}), allowPrompts: getConfig().allowPrompts !== false, ...cloneInfo() }, jobs: pendingResults, sessions };
+    // Whether this PC's Claude Code hooks are installed and current (Computers shows it). A failure leaves it out.
+    if (deps.hooksStatus) { try { const h = deps.hooksStatus(); if (h) body.worker.hooks = h; } catch (e) { log('hooks status failed: ' + errMsg(e)); } }
     // Counts only (docs/launcher.md "Activity counts"); a failed count never blocks the heartbeat.
     if (deps.activity) {
       try {

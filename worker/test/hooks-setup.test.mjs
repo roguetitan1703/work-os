@@ -13,15 +13,20 @@ const m = await import('../hooks-install.mjs');
 const { runSetup } = await import('../setup.mjs');
 const vfile = () => path.join(process.env.WORK_OS_WORKER_DIR, 'hooks', 'hooks.version');
 
-async function setup(deps) {
+async function setup(deps, extra = []) {
   const root = fs.mkdtempSync(path.join(tmp, 'root-'));
   const out = []; const log = console.log; console.log = (...a) => out.push(a.join(' '));
   const input = new PassThrough(); input.isTTY = false;
-  (async () => { await new Promise((x) => setTimeout(x, 40)); input.write('k-test-device-key\n'); })();
+  // readline drops a line typed before the question is asked: type the key only once the prompt has been written.
+  const write = process.stdout.write;
+  process.stdout.write = function (chunk, ...rest) {
+    if (String(chunk).includes('Device key: ')) { process.stdout.write = write; setImmediate(() => input.write('k-test-device-key\n')); }
+    return write.call(this, chunk, ...rest);
+  };
   let error = null;
   try {
-    await runSetup({ argv: ['--server', 'https://x.example', '--name', 'n', '--root', root], deps: { input, verify: async () => ({ ok: true, status: 200 }), getToken: () => null, setToken() {}, readSecret: async () => '', scanAndReport: async () => 1, install() {}, ...deps } });
-  } catch (e) { error = e; } finally { console.log = log; }
+    await runSetup({ argv: ['--server', 'https://x.example', '--name', 'n', '--root', root, ...extra], deps: { input, verify: async () => ({ ok: true, status: 200 }), getToken: () => null, setToken() {}, readSecret: async () => '', scanAndReport: async () => 1, install() {}, ...deps } });
+  } catch (e) { error = e; } finally { console.log = log; process.stdout.write = write; }
   return { out: out.join('\n'), error };
 }
 
@@ -57,5 +62,23 @@ test('refresh does nothing when no hooks are installed', () => {
   assert.equal(fs.existsSync(vfile()), false, 'remove deletes the version file');
   assert.equal(m.refreshIfStale(), null);
   assert.equal(m.status().events.length, 0);
+});
+
+test('--no-autostart leaves autostart alone; the ending names the hooks version and the next step', async () => {
+  let installs = 0;
+  const r = await setup({ install: () => { installs++; }, installHooks: () => ({ version: 'abc123def456' }) }, ['--no-autostart']);
+  assert.equal(r.error, null);
+  assert.equal(installs, 0);
+  assert.match(r.out, /autostart skipped/);
+  assert.match(r.out, /Work OS hooks installed \(version abc123def456\)/);
+  assert.match(r.out, /Done: in Work OS, Claude › Setup › Computers › n › Folders, press Link matching folders\./);
+  assert.match(r.out, /node worker\.mjs hooks check/);
+  const r2 = await setup({ install: () => { installs++; }, installHooks: () => ({ version: 'abc123def456' }) });
+  assert.equal(installs, 1, 'without the flag autostart is installed');
+});
+
+test('the folder hint keeps its backslash on Windows', async () => {
+  const { rootHint } = await import('../setup.mjs');
+  assert.equal(rootHint(), process.platform === 'win32' ? 'D:\\Work' : '~/Work');
   fs.rmSync(tmp, { recursive: true, force: true });
 });

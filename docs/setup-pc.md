@@ -20,8 +20,8 @@ Then in Claude Code type `/mcp`, pick work-os, Authenticate, and press Allow on 
 ## 3. The Work OS worker and hooks (one step)
 In Work OS open Claude › Setup › Computers, type a name for this PC, press Add, and run the command it shows (it
 downloads the worker, checks its checksum and runs `setup`; paste the device key when asked, it is never part of the
-command). At its end `setup` also installs the Work OS hooks (global, every folder): it copies `hook.mjs` to the
-worker's config folder (`%APPDATA%work-os-workerhooks` on Windows) and adds four entries to
+command). At its end `setup` also installs the Work OS hooks (global, every folder): it copies the hook files (`hook.mjs` and the files it runs) to the
+worker's config folder (`%APPDATA%work-os-workerhooks` on Windows, `~/.work-os/worker/hooks` on macOS) and adds four entries to
 `~/.claude/settings.json`, keeping a dated backup and every other setting. It never touches `~/.claude.json`. If the
 hook install fails, setup says why and still finishes; retry with `node worker.mjs hooks install` from the worker
 folder (`%LOCALAPPDATA%WorkOSworker` on Windows, `~/.work-os/worker` on macOS; from the repo: `worker/`).
@@ -29,7 +29,12 @@ After a worker update (run the same command again) setup refreshes the hooks too
 newer code than the installed hooks refreshes them itself, so `hook.mjs` never goes stale. `hooks status` and
 `worker.mjs status` show the installed hooks version; `hooks remove` (or `worker.mjs uninstall`) takes them out.
 Details: worker/README.md.
-- Check: Claude › Setup › Computers shows this PC as online; `node worker.mjs hooks status` lists four events.
+Then link the PC's folders: Claude › Setup › Computers › this PC › Folders says "N folders here match your projects'
+repos" with **Link them**; press it (the device key opens a project only through a linked folder, and the worker never
+links by itself). Within two minutes the PC's row shows "hooks on".
+- Check: Claude › Setup › Computers shows this PC as online and "hooks on"; `node worker.mjs hooks status` lists four
+  events; `node worker.mjs hooks check <a project folder>` prints "Brief for project <name>, signed in with this PC's
+  worker key" (or says why not).
 
 ## 4. (merged into step 3)
 
@@ -49,7 +54,9 @@ The token is kept beside the installed hook (`<worker config dir>/hooks/sessions
 All four fail open: no key, no network or an error means they print nothing and the session carries on.
 
 ## 5. A key for the start brief: only for a PC without the worker
-A PC with the worker (step 3) skips this. On a PC without it, make a Claude Code key in Work OS (Claude › Setup ›
+A PC with the worker (step 3) skips this. Linux has no worker (it has no key store, launcher or autostart there), so a
+Linux PC uses this step: copy the hook files with `node worker.mjs hooks install` from a checkout, or use the cloud
+repo copy below. On a PC without the worker, make a Claude Code key in Work OS (Claude › Setup ›
 Claude Code key) and add it to the `env` block of `~/.claude/settings.json` yourself:
 ```json
 "env": { "WORK_OS_KEY": "wos_..." }
@@ -97,7 +104,19 @@ In a repo with a Work OS project:
 3. Ask it to save State with any small change: WORK-STATE.md updates and a commit "WORK-STATE.md: copy of the Work
    OS State vN" appears.
 
+## Cloud repos (Claude Code on the web)
+A cloud session has no worker, so the repo carries the hooks. From a PC with the worker, in the repo:
+```bash
+node worker.mjs hooks repo [folder] [--server https://work.delpat.in]
+```
+It copies the hook files to `.claude/work-os/` and merges four entries into `.claude/settings.json` (hooks only, never
+permissions; other settings and hooks stay; rerun to update). Commit both. The entries carry `--cloud`, so they do
+nothing on a PC (the global hooks run there) and run only when `CLAUDE_CODE_REMOTE=true`. In the cloud environment:
+set `WORK_OS_KEY` in its variables to a Claude Code key made for that environment (Claude › Setup › Claude Code key),
+and allow `work.delpat.in` in its network settings.
+- Check: one cloud session on the repo starts with "Work OS brief for project".
+
 ## Not covered yet
-- Cloud Claude Code sessions: one line per repo in `.claude/settings.json` plus a project key in the cloud
-  environment (agent-system.md section 11).
-- The Work OS plugin (one install for hooks, presence and messages) replaces step 4 when it ships.
+- A project-scoped key for cloud sessions (agent-system.md section 4; tasks #267 and #268): until then a cloud
+  environment uses its own Claude Code key.
+- A Claude Code plugin is only for a PC that must run without the worker, when such a PC exists (Om, 19 Nov).
