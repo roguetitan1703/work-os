@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 21. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 22. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -11,6 +11,7 @@ Copy of the Work OS state, version 21. Edit it in Work OS (https://work.delpat.i
 3. Live sessions and messaging design (docs/flows/session-messaging.md): global Work OS plugin with hooks for on/working/idle/waiting/off at zero tokens, a channel to push messages in, every session lives in a project (Lobby for strays), notes on fixed shelves with drift rules. Waits on Om's two notes answers, then a Fable review, then builder B.
 4. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
 5. Ship the 18-19 Nov batch, merged on dev locally (cd92b40, not pushed): recurrence, What's new + Needs, State edit_line, worker installs hooks, hook device-key sign-in, digest redesign, Activity shows everything (each security-reviewed and re-checked), Needs cap per project. Left: full e2e + build on dev, UI by eye at 390/1280 light/dark, push dev, merge to master with Om's go. — waits on C: freed to 15 GB (Claude app VM image 9.9 GB is the only item big enough)
+6. AKAR has no Work OS State (docs/WORK-STATE.md hand-edited, ~200-line History), so its transfer saved nothing. Tell the AKAR session (AKAR · lead · 0.22.1 release, D:/Work/Delpat/projects/AKAR) to make its State per the new /transfer 'Make the State' step. Asked in chat 19 Nov; the ask Need was refused by production's 5-Need cap. — waits on Om's yes
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -39,4 +40,4 @@ Copy of the Work OS state, version 21. Edit it in Work OS (https://work.delpat.i
 
 ## Where
 - Victus-Knight: dev cd92b40 clean (2026-11-18 20:05)
-<!-- work-os-copy sha1:afe9e07a97b585990aabd60800e8bd7838b0dc31 -->
+<!-- work-os-copy sha1:77c4681bff537b5ff6839569cc3b53b0a85fc30b -->
