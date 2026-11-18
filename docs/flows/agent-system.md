@@ -214,3 +214,13 @@ Each piece ships through dev, a full test run, then master. Security review befo
 1. Retire Claude items (C12) into State, tasks and Needs? Recommended: yes.
 2. Hook forwards WORK-STATE.md edits to Work OS (old habit works) instead of only refusing them? Recommended: yes.
 3. The worker's device key for hooks (no copy-paste) instead of a Claude Code key? Recommended: yes.
+
+## 15. Naming sessions (Om 18 Nov: "your name is outdated and it confuses me")
+- **Pattern:** `<Project> · <role> · <what now>`. Project is the Work OS project name. Role is one of `lead` (the main
+  session for a project, the one that talks to Om), `builder A|B|S`, `review`, `test`, `chat`. What now is two to six
+  words, the State Now or a task ref. Examples: "Work OS · lead · agents and Work OS design", "Work OS · builder B ·
+  recurring tasks", "Cutroom · lead · launch film", "Mailloom · review · mail frontend".
+- **One name everywhere:** the session title in the app, the `label` given to start_work (so Workers, `who` and
+  messages show the same name), and the name in builder briefs.
+- **Kept current:** a session renames itself when its Now or task changes (in the desktop app, its rename tool; else
+  the start_work label). wrap_up and start_work say "your name says X, your work is Y: rename" when they differ.
