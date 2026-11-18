@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'pc-setup-one-go',
+    date: '2026-11-19',
+    title: 'Set up a new PC in one go',
+    line: 'Link matching folders on a computer, and each computer shows whether its Work OS hooks are on.',
+    where: 'Claude › Setup › Computers',
+    href: '/claude',
+  },
+  {
     id: 'needs-typed-answer',
     date: '2026-11-19',
     title: 'Answer a Need in your own words',
