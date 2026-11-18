@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 2. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 3. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -12,6 +12,8 @@ Copy of the Work OS state, version 2. Edit it in Work OS (https://work.delpat.in
 4. Redesign the morning digest: Needs you with buttons, top 3 for today, one line per project since yesterday, agents running or stalled; not a task list.
 5. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel.
 6. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
+7. Activity shows everything that changed: State, notes, messages, Needs and projects next to tasks, read through the visibility rule, with a What filter, in Review › Activity, the project page, recent_activity and the summary (builder B after recurrence; security review before merge).
+8. Inbox Kind uses the app's Select (Om 18 Nov) and the nav test waits for the /modes redirect: on dev, commit after flow-ms4 and nav pass.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -21,6 +23,10 @@ Copy of the Work OS state, version 2. Edit it in Work OS (https://work.delpat.in
 - e2e oauth phone overflow check flaky with the installed Chrome — waits on it showing on a real phone.
 - The full long list stays in the repo's WORK-STATE.md Later section — waits on a cleanup pass.
 - import_state cuts lines over 500 characters: the overflow becomes a Later line, a text line above Now became a Later line, and MCP has no op to edit or delete a line (cutroom's import 18 Nov left two fragment lines in Later) — waits on a fix slot (keep long lines whole or cut on a sentence; skip header text; an edit/remove op)
+
+## Decisions
+- 2026-11-18: 18 Nov, Om: SSH is plain ubuntu login with host names workos and mailserver in ~/.ssh/config (key delpat_ed25519), from VS Code and the terminal; no separate agent user, no sudoers changes. (Om, chat)
+- 2026-11-18: 18 Nov, Om: Mailloom intake keys set in /etc/work-os/env on the Work OS server (token copied server to server, never shown; project mailloom-f60ee666; channel #mailloom). Not restarted: they take effect when the intake build goes live. Bot already has Send Messages in #mailloom. (Om, chat)
 
 ## Later (older, kept from before the 18 Nov import; not in Work OS)
 - e2e oauth "settings: phone: no sideways scroll" fails in 2 of 3 multi-suite runs since the tests use the installed Chrome (the ms-playwright chromium was deleted): the Add this PC / Create key input rows on Claude › Set up sit past 390 px after a 1280→390 resize, with no page scroll; passes alone and does not reproduce in a probe (fresh 390 or resized, Claude used) — waits on it showing on a real phone, or a pinned test browser.
