@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'digest-redesign',
+    date: '2026-11-18',
+    title: 'A shorter morning digest',
+    line: 'One message: what needs you (answer from Discord), your top 3 for today, what moved per project and which agents run or stall.',
+    where: 'Your Discord DM and the inbox, once a day',
+    href: '/settings?section=alerts',
+  },
+  {
     id: 'mailloom-reports',
     date: '2026-11-18',
     title: 'Mailloom problem reports become tasks',
