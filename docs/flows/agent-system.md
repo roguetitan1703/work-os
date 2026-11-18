@@ -224,3 +224,41 @@ Each piece ships through dev, a full test run, then master. Security review befo
   messages show the same name), and the name in builder briefs.
 - **Kept current:** a session renames itself when its Now or task changes (in the desktop app, its rename tool; else
   the start_work label). wrap_up and start_work say "your name says X, your work is Y: rename" when they differ.
+
+## 16. Changes after the Fable review (agent-system-review.md, 18 Nov; these override the sections above)
+1. **Done already (a9412e3):** the turn-end check counts real save calls only (the brief's own text fooled it) and asks
+   again after later changes, not once per session; no commit when only the version changed; the save_state and
+   import_state answers and the server instructions no longer tell agents to write WORK-STATE.md (live after the next
+   deploy).
+2. **State editing (replaces section 6's edit on the whole markdown):** edit one line found by its text. `old` must sit
+   in exactly one line of Now, Next or Later; Work OS replaces it inside that line; an empty `new` removes the line
+   (Next: done, Later: dropped, kept in history). Every op takes `find` in place of `id`. An edited line becomes the
+   editor's (no rewriting someone else's line under their name). Whole-file rewrites are dropped. The hook forwards the
+   Edit tool only; Write and shell writes stay refused. No offline queue.
+3. **Short answers wait for the hook:** the installed hook reads `markdown` from the answer, so the hook changes first,
+   then the answer gets short.
+4. **The copy is the same for every reader** (no "(by Akash)"), so two PCs never commit different versions. Public
+   repos: leave Decisions out of the copy.
+5. **end_work** replaces wrap_up and hand_over (one tool that pairs with start_work, with an optional handover part).
+   "changed, checked, left" stay in hand_in only. `who` becomes `list_sessions`. Leftovers promise only what Work OS
+   knows (slots, Needs, a task still doing).
+6. **The brief fits in priority order** as plain text: handover, answers and messages, Now and Next, Orders, then counts
+   ("Later 10: get_state"). The instructions budget (2,500 characters) counts both parts Claude Code keys get.
+7. **Claude items retire in two steps:** remove the instructions paragraph now (S); migrate later (B) through a
+   Declutter Need per project (an item with "done when" becomes a task, an idea a Later line).
+8. **Keys:** at session start the hook swaps the device key for a session token (one session, one project, a day, its
+   own rate limit), which is also the per-session id. The device key is only allowed for projects with a folder on that
+   PC, and Setup's text says so. Until then a normal Claude Code key in settings.
+9. **Declutter:** a line that waits on someone never counts as stale; after an answer, quiet for 14 days; the Work OS
+   half of the batch applies on the server when Om says yes.
+10. **Block 1** needs "production" per project (remote and branch): a new project field.
+11. **Wording test** works the other way: every agent-facing string that names WORK-STATE.md must be on a short approved
+    list; the app warns when Orders are saved with a retired phrase; the start hook reports a PC's CLAUDE.md drift as a
+    number. "Claude items" joins the test when the migration lands.
+12. **Phone:** only Needs a session is waiting on reach the phone; Declutter, rule proposals and the rest go in the Monday
+    digest. A push Need offers "yes, and for 24 hours on this project". Wakes are capped per session per hour.
+13. **Akash's other folders:** the Lobby question gets a "not Work OS" answer, remembered per folder.
+14. **Build order:** tonight (Om: Orders, CLAUDE.md, key). Then S alone first (wording pass, instructions paragraph, hook
+    split into one file per event, packaging: the worker's update refreshes the hooks and reports their version). Then A
+    (session token, per-session ids, the hook files) and B (line edit with `find`, remove, short answers in states.ts and
+    the State tools) in parallel. Then A: blocks, propose_order, delivery; B: end_work, declutter, the migration.
