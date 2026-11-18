@@ -29,6 +29,7 @@ test('install copies the hook, merges four events, keeps other settings and hook
   assert.deepEqual(s.env, { A: '1' });
   assert.deepEqual(Object.keys(s.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'Stop']);
   assert.equal(s.hooks.Stop.length, 2, 'the other Stop hook is kept');
+  assert.match(s.hooks.PostToolUse.find(h => /hook\.mjs" post-tool$/.test(h.hooks[0].command)).matcher, /\(save_state\|import_state\|get_state\|end_work\)$/, 'end_work is a save the copy follows');
   assert.match(s.hooks.PreToolUse[0].hooks[0].command, /hook\.mjs" pre-tool$/);
   assert.doesNotMatch(s.hooks.PreToolUse[0].hooks[0].command, /\\/, 'forward slashes only');
   m.install();

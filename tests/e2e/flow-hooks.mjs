@@ -46,6 +46,13 @@ try {
   const presence = await rawDb.collection('presence').countDocuments({ label: 'Claude Code' });
   check('session-start: the session is registered as present', presence === 1, String(presence));
 
+  // H5: a handover left with end_work comes first in the next session's brief
+  const hov = await must(MCP, 'end_work', { project: NAME, state: [{ op: 'set_where', machine: 'hk-box', branch: 'main' }], friction: 'none', handover: { step: 'hooked handover step' } });
+  fresh();
+  const sH = hook('session-start', { session_id: 'hk-ho', transcript_path: transcript, cwd: repo, hook_event_name: 'SessionStart', source: 'startup' });
+  const ctxH = JSON.parse(sH.stdout || '{}')?.hookSpecificOutput?.additionalContext ?? '';
+  check('session-start: a handover is the first section of the brief, before Orders and State', ctxH.includes(`## Handover (note ${hov.handover.id}`) && ctxH.includes('hooked handover step') && ctxH.indexOf('## Handover') < ctxH.indexOf('## Orders') && ctxH.indexOf('## Handover') < ctxH.indexOf('## State'), ctxH.slice(0, 400));
+
   // Fail open, for real
   fresh();
   const bad = hook('session-start', { session_id: 'hk2', transcript_path: transcript, cwd: repo }, { ...env, WORK_OS_KEY: 'wos_' + 'x'.repeat(40) });

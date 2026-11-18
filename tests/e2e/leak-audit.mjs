@@ -1022,6 +1022,37 @@ try {
     scan('T', 'slot answer', tsl.text);
     check('roster: a teammate’s machine of the same name is their own (one holder, theirs)', sl.ok && tsl.ok && JSON.parse(tsl.text).held === 1 && JSON.parse(tsl.text).holders.length === 1, tsl.text.slice(0, 200));
   }
+  // H5: list_sessions and a handover stay inside their readers (the private project's people, the same organization)
+  {
+    const nm = can('h5priv', ['A']);
+    const cn = `lkqh5canary${hex(4)}`;
+    CANARIES.push({ s: cn, tag: 'h5', allow: new Set(['A']) });
+    await mustMcp(A.chat, 'add_project', { name: nm, visibility: 'private' });
+    await mustMcp(A.code, 'start_work', { project: nm, machine: cn + 'box', label: cn + 'label', branch: cn + 'br', session: 'lkqh5sess' });
+    const ended = await mustMcp(A.code, 'end_work', { project: nm, base_version: 0, state: [{ op: 'set_now', text: cn + 'now' }], friction: cn + 'friction', handover: { step: cn + 'step', in_flight: [cn + 'flight'] }, session: 'lkqh5sess' });
+    await mustMcp(A.code, 'start_work', { project: nm, machine: cn + 'box', label: cn + 'label2', session: 'lkqh5live' });
+    const mine = await mcpCall(A.code, 'list_sessions', { include_gone: true });
+    check('h5: the owner sees their sessions in list_sessions (live and gone)', mine.ok && mine.text.includes(cn + 'label') && mine.text.includes(cn + 'label2'), mine.text.slice(0, 200));
+    for (const p of [T, R, X]) {
+      const k = p.code || p.chat;
+      const r = await mcpCall(k, 'list_sessions', { include_gone: true });
+      scan(p.name, 'list_sessions', r.text);
+      const byProject = await mcpCall(k, 'list_sessions', { project: nm, include_gone: true });
+      scan(p.name, 'list_sessions (project)', byProject.text);
+      check(`h5: ${p.name}'s list_sessions names no session of a private project`, (!r.ok || (!r.text.includes(nm) && !r.text.includes(cn))), r.text.slice(0, 160));
+      const st = await mcpCall(k, 'start_work', { project: nm });
+      scan(p.name, 'start_work (private project with a handover)', st.text);
+      check(`h5: ${p.name} cannot start work on the private project and so gets no handover`, !st.ok, st.text.slice(0, 120));
+      const rn = await mcpCall(k, 'read_note', { note_id: ended.handover.id });
+      scan(p.name, 'read_note (handover)', rn.text);
+      check(`h5: ${p.name} cannot read the handover note`, !rn.ok || !rn.text.includes(cn), rn.text.slice(0, 120));
+      const fd = await mcpCall(k, 'recent_activity', { limit: 50 });
+      scan(p.name, 'recent_activity (session_ended)', fd.text);
+      const ew = await mcpCall(k, 'end_work', { project: nm, state: [{ op: 'set_where', machine: 'x', branch: 'y' }], friction: 'probe', handover: { step: 'probe' } });
+      scan(p.name, 'end_work (private project)', ew.text);
+      check(`h5: ${p.name} cannot end work on, or leave a handover in, the private project`, !ew.ok, ew.text.slice(0, 120));
+    }
+  }
   await sleep(500);
   for (const s of [sX, wT, wX]) s.close();
   // (X's own probes make hints marked as X's own, s:1; anything else came from someone else's write)
