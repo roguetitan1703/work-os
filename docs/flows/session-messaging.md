@@ -88,6 +88,28 @@ Hooks fire and inject context in the desktop Code tab, VS Code and a cloud sessi
 idle session on each surface and runs for hours; the Stop hook delivers; a channel pushes in the terminal. The results
 set which surface gets which speed.
 
+### Results (18 Nov, Claude Code 2.1.310, test folder D:\wos-hookcheck, hook.mjs logs every event)
+Desktop app Code tab, all three doors work with no model involvement until a message lands:
+- SessionStart (source startup), UserPromptSubmit, PostToolBatch and Stop all fire; input carries session_id, cwd,
+  transcript_path, scratchpad_dir, prompt_id (Stop adds stop_hook_active, last_assistant_message, background_tasks).
+- PostToolBatch `additionalContext` reached the model right after the tool call (it quoted m_test1).
+- Stop `decision: block` + reason made it continue once and answer (PONG-STOP); stop_hook_active was true on the next
+  Stop, so no loop.
+- asyncRewake on Stop: 25 s after the session went idle, exit 2 + stderr woke it and it answered (PONG-WAKE). The wake
+  arrives as a "Stop hook blocking error" system reminder, followed by a UserPromptSubmit event. Note: the asyncRewake
+  hook runs on every Stop, so the plugin needs a per-session lock to keep one waiter.
+- `CLAUDE_CODE_ENTRYPOINT` is inherited from the launching process (a CLI started from a desktop session said
+  claude-desktop), so the surface must come from the hook input or the parent, not this variable alone.
+- Hooks also fired in a headless `claude -p` run (the CLI's own login had expired, so it stopped after the prompt).
+- Long idle: an asyncRewake waiter that exits after 11 minutes is IGNORED when the hook's timeout is shorter (120 s
+  set, 600 s default): the hook ran and exited 2, the session stayed idle. With `"timeout": 3600` the same 11-minute
+  wait woke the session (PONG-WAKE-LONG). So the plugin sets a long timeout and re-arms before it runs out (exit 0 near
+  the limit makes no wake; the next Stop arms a new waiter, so a session idle past the limit needs one heartbeat wake
+  or stays reachable only on its next turn: decide in the build).
+- Settings edits took effect in the running session (the timeout change applied without a restart).
+Not yet checked: VS Code, terminal interactive (CLI login expired), cloud, Notification on a permission prompt,
+SessionEnd in the desktop app, a waiter longer than one hour.
+
 ## 8. Build order (after the Fable review)
 1. Hand check (section 7).
 2. Session identity: per-session id, seen state per session, `to_session` by id or label (fixes the same-person bug).
