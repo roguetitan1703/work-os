@@ -5,6 +5,7 @@
 //   pre-tool       PreToolUse: refuse hand edits of WORK-STATE.md, naming save_state.
 //   post-tool      PostToolUse (save_state|import_state|get_state): write WORK-STATE.md from the answer's markdown and
 //                  commit that file alone.
+//   Flags: --cloud (do nothing unless CLAUDE_CODE_REMOTE=true) and --server <url>, written by `hooks repo`.
 // Each reads Claude Code's hook JSON on stdin and answers in its hook JSON on stdout. They FAIL OPEN: no key, no network,
 // no matching project, a timeout or anything unexpected prints nothing and exits 0, so a hook can never stop a session.
 // `node worker.mjs hooks install` (worker/hooks-install.mjs) copies this file and the files it needs (FILES there) to
@@ -12,7 +13,7 @@
 // hook-session-start.mjs.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EVENTS } from './hook-lib.mjs';
+import { EVENTS, run } from './hook-lib.mjs';
 
 // What tests and flows import from here.
 export { deps } from './hook-lib.mjs';
@@ -21,10 +22,17 @@ export { stop } from './hook-stop.mjs';
 export { preTool, writesCopy } from './hook-pre-tool.mjs';
 export { postTool } from './hook-post-tool.mjs';
 
-/** Runs the event's handler and awaits it (sync or async). Returns the JSON text to print, or '' for nothing. */
-export async function main(event, stdinText) {
+/**
+ * Runs the event's handler and awaits it (sync or async). Returns the JSON text to print, or '' for nothing.
+ * `cloud` (the --cloud flag of a repo's settings, see hooks-install.mjs "repo"): do nothing unless this is a Claude Code
+ * cloud session (CLAUDE_CODE_REMOTE=true), so a repo's hooks stay silent on a PC, where the global hooks run.
+ * `server` (--server): the Work OS address when WORK_OS_URL is not set.
+ */
+export async function main(event, stdinText, { cloud = false, server = null } = {}) {
   try {
     if (!EVENTS.some((e) => e.event === event)) return '';
+    if (cloud && process.env.CLAUDE_CODE_REMOTE !== 'true') return '';
+    run.server = server;
     let input = {};
     try { input = JSON.parse(stdinText || '{}'); } catch {}
     const out = await (await import(`./hook-${event}.mjs`)).handle(input);
@@ -37,11 +45,14 @@ export async function main(event, stdinText) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const row = EVENTS.find((e) => e.event === process.argv[2]);
   if (!row) process.exit(0);
+  const flags = process.argv.slice(3);
+  const opts = { cloud: flags.includes('--cloud'), server: flags.includes('--server') ? flags[flags.indexOf('--server') + 1] || null : null };
+  if (opts.cloud && process.env.CLAUDE_CODE_REMOTE !== 'true') process.exit(0);
   let buf = '';
   process.stdin.setEncoding('utf8');
   const t = setTimeout(() => process.exit(0), row.timeoutS * 1000 - 500); // never hold a session
   process.stdin.on('end', async () => {
-    const out = await main(row.event, buf);
+    const out = await main(row.event, buf, opts);
     if (out) process.stdout.write(out + '\n');
     clearTimeout(t);
     process.exit(0);

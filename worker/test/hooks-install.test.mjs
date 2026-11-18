@@ -9,6 +9,7 @@ process.env.WORK_OS_WORKER_DIR = path.join(tmp, 'work-os-worker');
 process.env.CLAUDE_SETTINGS_PATH = path.join(tmp, 'claude', 'settings.json');
 delete process.env.WORK_OS_KEY; // a PC with the key set in Claude Code settings passes it to every child process
 const m = await import('../hooks-install.mjs');
+const awaitedChildProcess = await import('node:child_process');
 const settings = () => JSON.parse(fs.readFileSync(process.env.CLAUDE_SETTINGS_PATH, 'utf8'));
 
 test('install copies the hook, merges four events, keeps other settings and hooks, and is safe to rerun', () => {
@@ -103,4 +104,33 @@ test('a second worker folder does not take over the global hooks, and its refres
   assert.equal(m.refreshIfStale(), null, 'now b owns the entries: a leaves them alone');
   m.remove();
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('hooks repo: files under .claude/work-os, four cloud entries, other settings kept, safe to rerun', () => {
+  const { execFileSync } = awaitedChildProcess;
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-hooks-repo-'));
+  try {
+    execFileSync('git', ['init', '-q'], { cwd: repoDir });
+    fs.mkdirSync(path.join(repoDir, '.claude'));
+    const other = { type: 'command', command: 'node other.mjs' };
+    fs.writeFileSync(path.join(repoDir, '.claude', 'settings.json'), JSON.stringify({ permissions: { allow: ['Bash(ls)'] }, hooks: { Stop: [{ hooks: [other] }] } }));
+    const r = m.repo(repoDir, { server: 'https://work.example' });
+    for (const f of m.FILES) assert.ok(fs.existsSync(path.join(repoDir, '.claude', 'work-os', f)), f);
+    const read = () => JSON.parse(fs.readFileSync(path.join(repoDir, '.claude', 'settings.json'), 'utf8'));
+    const first = fs.readFileSync(r.settings, 'utf8');
+    let s = read();
+    assert.deepEqual(s.permissions, { allow: ['Bash(ls)'] }, 'permissions untouched');
+    assert.deepEqual(Object.keys(s.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'Stop']);
+    assert.equal(s.hooks.Stop.length, 2);
+    assert.equal(s.hooks.SessionStart[0].hooks[0].command, 'node "$CLAUDE_PROJECT_DIR/.claude/work-os/hook.mjs" session-start --cloud --server https://work.example');
+    assert.equal(s.hooks.PostToolUse[0].hooks[0].timeout, 20);
+    m.repo(repoDir, { server: 'https://work.example' });
+    assert.equal(fs.readFileSync(r.settings, 'utf8'), first, 'rerun changes nothing');
+    m.repo(path.join(repoDir, '.claude'), { server: 'https://other.example' });
+    s = read();
+    assert.equal(s.hooks.Stop.length, 2);
+    assert.match(s.hooks.Stop[1].hooks[0].command, /--server https:\/\/other\.example$/, 'a rerun from a subfolder finds the repo top and replaces the entries');
+    assert.throws(() => m.repo(os.tmpdir(), { server: 'https://x.example' }), /not inside a git repo/);
+    assert.throws(() => m.repo(repoDir, { server: 'http://example.com' }), /https/);
+  } finally { fs.rmSync(repoDir, { recursive: true, force: true }); }
 });

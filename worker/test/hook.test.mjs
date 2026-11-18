@@ -13,6 +13,7 @@ process.env.WORK_OS_WORKER_DIR = path.join(tmp, 'cfg'); // no worker config: the
 const KEY = 'wos_' + 'k'.repeat(40);
 const { main } = await import('../hook.mjs');
 const { FILES } = await import('../hooks-install.mjs');
+const { run: libRun } = await import('../hook-lib.mjs');
 const HOOK = fileURLToPath(new URL('../hook.mjs', import.meta.url));
 
 // A stub of the MCP endpoint: start_work answers per `mode`.
@@ -399,3 +400,21 @@ test('startCheck: the reason a folder gets no brief, and the project and sign-in
   assert.deepEqual(await startCheck(repo), { ok: true, via: 'key', project: 'Demo' });
   delete process.env.WORK_OS_KEY;
 }));
+
+test('--cloud: silent unless CLAUDE_CODE_REMOTE=true; then --server is the address and WORK_OS_KEY signs in', async () => {
+  mode = 'ok';
+  const url = process.env.WORK_OS_URL;
+  const input = JSON.stringify({ session_id: 'scloud', cwd: repo, transcript_path: transcript });
+  try {
+    delete process.env.CLAUDE_CODE_REMOTE;
+    seen.length = 0;
+    assert.equal(await main('session-start', input, { cloud: true, server: URL_ }), '', 'a PC: only the global hooks run');
+    assert.equal(seen.length, 0, 'and no request');
+    process.env.CLAUDE_CODE_REMOTE = 'true';
+    delete process.env.WORK_OS_URL;
+    const out = JSON.parse(await main('session-start', input, { cloud: true, server: URL_ }));
+    assert.match(out.hookSpecificOutput.additionalContext, /sess-123/);
+    assert.equal(seen.at(-1).auth, `Bearer ${KEY}`);
+    assert.equal(await main('session-start', input, { cloud: true, server: 'http://example.com' }), '', 'plain http to a non-local server is refused');
+  } finally { delete process.env.CLAUDE_CODE_REMOTE; process.env.WORK_OS_URL = url; libRun.server = null; }
+});

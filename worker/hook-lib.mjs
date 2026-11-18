@@ -45,6 +45,9 @@ export function keepToken(sid, token, until) {
   try { for (const f of fs.readdirSync(dir)) { const p = path.join(dir, f); if (Date.now() - fs.statSync(p).mtimeMs > 2 * 86_400_000) fs.rmSync(p, { force: true }); } } catch {}
 }
 
+/** Set by hook.mjs from the command line: the server address a cloud repo's settings name (--server), used when WORK_OS_URL is not set. */
+export const run = { server: null };
+
 export const TIMEOUT_MS = 5000;
 export const MAX_BRIEF = 9500; // Claude Code caps a hook context string at 10,000 characters
 export const markerDir = () => process.env.WORK_OS_HOOK_DIR || path.join(os.tmpdir(), 'work-os-hooks');
@@ -64,7 +67,7 @@ export const hookHeaders = () => ({});
 export async function mcpCall(name, args) {
   const key = process.env.WORK_OS_KEY || '';
   if (!/^wos_[A-Za-z0-9_-]{8,}$/.test(key)) return null;
-  const base = checkBaseUrl(process.env.WORK_OS_URL || loadConfig().baseUrl);
+  const base = checkBaseUrl(process.env.WORK_OS_URL || run.server || loadConfig().baseUrl);
   const res = await fetch(base + '/api/mcp', {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${key}`, ...hookHeaders() },

@@ -5,6 +5,9 @@
 //                                   another folder unless --force.
 //   node worker.mjs hooks remove    take the Work OS entries out again
 //   node worker.mjs hooks status    say what is installed
+//   node worker.mjs hooks repo [folder] [--server URL]   for a cloud repo (Claude Code on the web): copy the hook files to
+//                                   <repo>/.claude/work-os/ and merge four entries into <repo>/.claude/settings.json that
+//                                   run only in a cloud session and sign in with WORK_OS_KEY. Hooks only, never permissions.
 //   node worker.mjs hooks check [folder]   would a Claude Code session in the folder (default: here) get the Work OS brief?
 // Never touches ~/.claude.json. Safe to run again (it replaces its own entries only).
 import crypto from 'node:crypto';
@@ -12,7 +15,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { configDir, loadConfig } from './config.mjs';
+import { execFileSync } from 'node:child_process';
+import { checkBaseUrl, configDir, loadConfig } from './config.mjs';
 import { EVENTS } from './hook-lib.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -39,10 +43,10 @@ export function installedVersion() {
 }
 const MARK = 'work-os-worker'; // every entry we write runs a hook.mjs inside the worker config dir
 
-/** The hook entries, by Claude Code event. `hook` is the absolute path of the installed hook.mjs. */
-export function entries(hook) {
+/** The hook entries, by Claude Code event. `hook` is the absolute path of the installed hook.mjs; `flags` is appended to each command (a repo's: ` --cloud --server <url>`). */
+export function entries(hook, flags = '') {
   const h = hook.split(path.sep).join('/');
-  const c = (e, t) => ({ type: 'command', command: `node "${h}" ${e}`, timeout: t });
+  const c = (e, t) => ({ type: 'command', command: `node "${h}" ${e}${flags}`, timeout: t });
   const out = {};
   for (const e of EVENTS) out[e.claudeEvent] = [{ ...(e.matcher ? { matcher: e.matcher } : {}), hooks: [c(e.event, e.timeoutS)] }];
   return out;
@@ -164,6 +168,36 @@ const SIGN_IN = {
   none: 'The WORK-STATE.md copy and its edit guard work now; the start brief and the stop check turn on once the worker is set up here (node worker.mjs setup).',
 };
 
+const REPO_MARK = '.claude/work-os/hook.mjs';
+const repoOurs = (group) => (group?.hooks || []).some((x) => String(x.command || '').includes(REPO_MARK));
+
+/**
+ * Puts the hooks into a repo for cloud sessions (Claude Code on the web has no worker): the files under .claude/work-os/ and
+ * four entries in .claude/settings.json (its other settings and hooks kept; rerun replaces only these entries). The entries
+ * carry --cloud, so the hooks run nothing on a PC (the global hooks do), and --server, the address a cloud session has no
+ * worker config for. The session signs in with WORK_OS_KEY from the cloud environment's variables.
+ */
+export function repo(folder = process.cwd(), { server } = {}) {
+  const top = gitTop(path.resolve(folder));
+  if (!top) throw new Error(`${folder} is not inside a git repo`);
+  const base = server || loadConfig().baseUrl;
+  if (!base) throw new Error('no Work OS address: set up this worker first (node worker.mjs setup) or pass --server https://...');
+  checkBaseUrl(base);
+  const dir = path.join(top, '.claude', 'work-os');
+  fs.mkdirSync(dir, { recursive: true });
+  copyFiles(dir);
+  const file = path.join(top, '.claude', 'settings.json');
+  const s = read(file);
+  const hooks = {};
+  for (const [ev, groups] of Object.entries(s.hooks || {})) { const keep = (groups || []).filter((g) => !repoOurs(g)); if (keep.length) hooks[ev] = keep; }
+  for (const [ev, groups] of Object.entries(entries(`$CLAUDE_PROJECT_DIR/${REPO_MARK}`, ` --cloud --server ${base}`))) hooks[ev] = [...(hooks[ev] || []), ...groups];
+  fs.writeFileSync(file, JSON.stringify({ ...s, hooks }, null, 2) + '\n');
+  return { dir, settings: file, server: base };
+}
+function gitTop(cwd) {
+  try { return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null; } catch { return null; }
+}
+
 /** The line `hooks check` prints. */
 export const describeCheck = (r) => (r.ok
   ? `Brief for project ${r.project}, signed in with ${r.via === 'key' ? 'WORK_OS_KEY' : "this PC's worker key"}`
@@ -184,9 +218,15 @@ export async function cli(sub, rest = []) {
     console.log('Open Claude Code sessions pick this up on their next tool call; restart them to get the start brief.');
   } else if (sub === 'remove') console.log(remove() ? 'Work OS hooks removed.' : 'No Work OS hooks were installed.');
   else if (sub === 'status') console.log(JSON.stringify(status(), null, 2));
-  else if (sub === 'check') {
+  else if (sub === 'repo') {
+    const i = rest.indexOf('--server');
+    const folder = rest.find((x, j) => !x.startsWith('--') && j !== i + 1);
+    const r = repo(folder, { server: i >= 0 ? rest[i + 1] : undefined });
+    console.log(`Work OS hooks for cloud sessions written to ${r.dir} and ${r.settings} (server ${r.server}). Commit both.`);
+    console.log('In the cloud environment: set WORK_OS_KEY to a Claude Code key made for it (Work OS › Settings › Keys), and allow the Work OS address in its network settings.');
+  } else if (sub === 'check') {
     const r = await check(rest.find((x) => !x.startsWith('--')));
     console.log(describeCheck(r));
     if (!r.ok) process.exitCode = 1;
-  } else { console.error('usage: node worker.mjs hooks [install [--force]|remove|status|check [folder]]'); process.exitCode = 2; }
+  } else { console.error('usage: node worker.mjs hooks [install [--force]|remove|status|check [folder]|repo [folder] [--server URL]]'); process.exitCode = 2; }
 }
