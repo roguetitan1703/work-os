@@ -1,4 +1,7 @@
-# Agents and Work OS: one design (18 Nov 2026, for review)
+# Harness: agents and Work OS, one design (18 Nov 2026)
+
+"Harness" is the name for this plan (Om, 19 Nov): the hooks, rules, State, Needs, transfer and actions that make every
+agent work the same way through Work OS. Its parts ship in releases (R1 = the 18-19 Nov batch).
 
 This doc replaces three overlapping designs: session-messaging.md (live sessions and messaging), enforcement.md (rules
 and hooks) and working-system-review.md (Fable's review). Those stay as background; this one is what gets built.
