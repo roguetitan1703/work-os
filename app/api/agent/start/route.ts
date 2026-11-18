@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import { verifyDeviceKey, DEVICE_KEY_PREFIX } from '@/lib/devices';
-import { AGENT_TOKEN_PREFIX, createAgentSession, projectOnDevice, verifyAgentToken } from '@/lib/agent-sessions';
+import { AGENT_TOKEN_PREFIX, createAgentSession, projectOnDevice } from '@/lib/agent-sessions';
+import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf as bearer, readCapped } from '@/lib/agent-auth';
 import { roleOf } from '@/lib/caller';
 import { reserveAgent } from '@/lib/mcp/policy';
 import { startWorkBrief } from '@/lib/mcp/server';
 import { findProjectByCode } from '@/lib/data/projects';
-import { runWithRequestContext } from '@/lib/request-context';
+import { setWhere } from '@/lib/data/states';
+import { hookHeader, runWithRequestContext } from '@/lib/request-context';
 import { timezoneOf } from '@/lib/profile';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 import type { Scope } from '@/lib/scope';
@@ -22,6 +24,8 @@ import type { Scope } from '@/lib/scope';
 // Nothing else opens it: no Work OS API key, no OAuth token, no session cookie, no X-API-Key. The device's owner must
 // still be a member of its organization on every call. Rate limited per computer (new sessions) and per session (briefs),
 // lib/mcp/policy.ts AGENT_PER_HOUR. The token never goes into the brief, the database or the log.
+// Body also takes head, dirty and worktrees (Where, written without a State version bump). The X-Work-OS-Hook header marks the
+// hook's protocol (new hooks send 2; none means 1, which still gets the copy in save answers).
 //   200 { brief, token?, expiresAt } · 400 bad body · 401 no or bad credential · 403 a token for another project
 //   404 no project with a folder on this computer matches · 413 body too large · 429 over the hourly limit
 // proxy.ts lets this exact path through untouched: this route checks its own credential.
@@ -30,9 +34,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MAX_BODY = 8 * 1024;
-const HEADERS = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
-const reply = (status: number, body: object, extra: Record<string, string> = {}) => Response.json(body, { status, headers: { ...HEADERS, ...extra } });
-const unauthorized = () => reply(401, { error: 'unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
 // One answer for "no project matches" and "that project has no folder on this PC": the two must not be told apart.
 const NO_PROJECT = 'No project linked to a folder on this computer matches this folder. Link the folder to its project in Work OS (Claude › Setup, or the project\'s Code tab).';
 
@@ -45,42 +46,18 @@ const Body = z
     machine: z.string().max(40).optional(),
     label: z.string().max(120).optional(),
     model: z.string().max(60).optional(),
+    head: z.string().max(80).optional(),
+    dirty: z.boolean().optional(),
+    worktrees: z.array(z.string().max(200)).max(20).optional(),
   })
   .strict();
 type Body = z.infer<typeof Body>;
-
-/** Authorization: Bearer only (an X-API-Key or a cookie is not a credential here). */
-function bearer(req: Request): string | null {
-  const m = req.headers.get('authorization')?.match(/^Bearer\s+(\S+)\s*$/i);
-  return m ? m[1] : null;
-}
 
 /** The project the body's folder belongs to, as the device owner sees it, or null. */
 async function lookup(s: Scope, b: Body): Promise<string | null> {
   if (!b.remote && !b.path) return null;
   const m = await findProjectByCode(s, { remote: b.remote, path: b.path, subdir: b.subdir, branch: b.branch });
   return m.matched ? m.project.id : null;
-}
-
-/** The body as text, or null when it is larger than `max` bytes (stops reading there). */
-async function readCapped(req: Request, max: number): Promise<string | null> {
-  const declared = Number(req.headers.get('content-length') ?? '');
-  if (Number.isFinite(declared) && declared > max) return null;
-  if (!req.body) return '';
-  const reader = req.body.getReader();
-  const parts: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > max) {
-      await reader.cancel().catch(() => {});
-      return null;
-    }
-    parts.push(value);
-  }
-  return Buffer.concat(parts).toString('utf8');
 }
 
 function baseUrl(req: Request): string {
@@ -96,11 +73,11 @@ export async function POST(req: Request): Promise<Response> {
     let device: { id: string; name: string };
     let session: { id: string; projectId: string; expiresAt: Date } | null = null;
     if (cred.startsWith(AGENT_TOKEN_PREFIX)) {
-      const t = await verifyAgentToken(cred);
+      const t = await authAgentToken(cred); // also checks the owner's membership
       if (!t) return unauthorized();
-      s = { userId: t.ownerId, orgId: t.orgId };
-      device = { id: t.deviceId, name: t.deviceName };
-      session = { id: t.id, projectId: t.projectId, expiresAt: t.expiresAt };
+      s = t.s;
+      device = t.device;
+      session = t.session;
     } else if (cred.startsWith(DEVICE_KEY_PREFIX)) {
       const d = await verifyDeviceKey(cred);
       if (!d?.ownerId || !d.orgId) return unauthorized();
@@ -127,8 +104,9 @@ export async function POST(req: Request): Promise<Response> {
     if (!parsed.success) return reply(400, { error: 'The body has fields this route does not take, or values that are too long.' });
     const b = parsed.data;
 
+    const hook = hookHeader(req.headers.get('x-work-os-hook'));
     const tz = await timezoneOf(s);
-    return await runWithRequestContext({ userId: s.userId, tz }, async () => {
+    return await runWithRequestContext({ userId: s.userId, tz, hook }, async () => {
       let projectId: string;
       if (session) {
         // A token is for its own project only: a folder that belongs to another project gets a new session (device key).
@@ -150,7 +128,10 @@ export async function POST(req: Request): Promise<Response> {
       }
       const ctx = { baseUrl: baseUrl(req), caller: { agent: 'claude-code' as const, keyName: `Claude Code on ${device.name}`.slice(0, 80), userId: s.userId, orgId: s.orgId } };
       // The session id is the token row's id (the first 32 hex of the token's SHA-256), never the token.
-      const brief = await startWorkBrief(ctx, projectId, session.id, { branch: b.branch, machine: b.machine, label: b.label, model: b.model });
+      // Where this session works: no version bump (lib/data/states.ts setWhere). Only when the hook sent something to show.
+      if (b.head || b.dirty !== undefined || b.worktrees || b.branch) await setWhere(s, projectId, b.machine || device.name, { branch: b.branch, head: b.head, dirty: b.dirty, worktrees: b.worktrees });
+      // Hook protocol: the X-Work-OS-Hook header; a start without it is the old hook (1, still gets the copy in answers).
+      const brief = await startWorkBrief(ctx, projectId, session.id, { hook: hook ?? 1, branch: b.branch, machine: b.machine, label: b.label, model: b.model });
       return reply(200, { brief, ...(token ? { token } : {}), expiresAt: session.expiresAt.toISOString() });
     });
   } catch (err) {
