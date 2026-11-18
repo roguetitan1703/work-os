@@ -552,7 +552,7 @@ export async function editCopyLine(s: Scope, projectKey: string, oldText: string
   const from = one(oldText);
   const to = one(newText);
   if (!from.trim()) throw new InputError('The Edit has no old text.');
-  if (from.includes('\n') || to.includes('\n')) throw new InputError('Change one line at a time: an Edit of several lines of WORK-STATE.md is not applied. Use save_state in Work OS (add_next, add_later, edit_line, done_next).');
+  if (from.includes('\n') || to.includes('\n')) throw new InputError('Change one line at a time: an Edit of several lines of the WORK-STATE.md copy is not applied. Use save_state in Work OS (add_next, add_later, edit_line, done_next).');
   const { project, state } = await getState(s, projectKey);
   if (!state) throw new InputError('The project has no State yet.');
   const hits = copyLines(state).filter(r => r.line.includes(from));
