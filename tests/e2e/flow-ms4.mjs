@@ -1,7 +1,7 @@
 // Flow MS4 (docs/flows/step-1.md "Tests"): a teammate's message reaches Om's session labelled as theirs, with word and what to do
 // with it; the Inbox tab in the app (1280 and 390): the thread, Send (word person), Apply a decision (it lands in Decisions),
 // Reject with a note, Make a task from a request. Seed profile: none.
-import { ME, MCP, B, check, finish, launch, login, makeUser, mkKey, rawDb } from './lib.mjs';
+import { ME, MCP, B, check, finish, launch, login, makeUser, mkKey, pick, rawDb } from './lib.mjs';
 import { must } from './flow-lib.mjs';
 
 const NAME = 'Flow Inbox UI';
@@ -56,7 +56,7 @@ try {
 
     // Send a decision from the app: word person
     const text = `Decision from the app at ${tag}`;
-    await view.locator('[data-inbox-kind]').selectOption('decision');
+    await pick(view, '[data-inbox-kind]', 'decision');
     await view.locator('[data-inbox-body]').fill(text);
     await view.locator('[data-inbox-send]').click();
     await view.locator('[data-msg-id]', { hasText: text }).waitFor({ timeout: 15000 });

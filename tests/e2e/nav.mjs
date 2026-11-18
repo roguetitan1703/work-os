@@ -85,14 +85,16 @@ const settle = p => p.waitForTimeout(700);
   check('phone task: More details holds project, Kind of work, start, estimate, repeats, tags (no "Mode")', /Project/.test(mdtext) && /Kind of work/.test(mdtext) && /Start/.test(mdtext) && /Estimate/.test(mdtext) && /Repeats/.test(mdtext) && /Tags/.test(mdtext) && !/Mode/.test(mdtext), mdtext.replace(/\n/g, ' | ').slice(0, 160));
   const ho = await overflow(p); check('phone task: no horizontal scroll with More details open', okO(ho), JSON.stringify(ho).slice(0, 200));
   const olds = ['/projects', '/projects?all=1', '/projects/alpha-client', '/modes/code-dev', '/history', '/hidden', '/review', '/timetable', '/recovery', '/notifications', '/settings', '/connect', '/archive'];
-  for (const u of olds) { const r = await p.goto(B + u); await settle(p); check(`old More destination ${u} loads (${r.status()}) -> ${path(p)}`, r.status() === 200 && (await p.locator('h1:visible').count()) > 0); }
+  // /modes/* redirects to /tasks inside a streamed page, so wait for the redirect to land before reading the page.
+  const go = async u => { const r = await p.goto(B + u); await p.waitForURL(x => !x.pathname.startsWith('/modes/'), { timeout: 10000 }).catch(() => {}); await p.waitForLoadState('load'); await settle(p); return r; };
+  for (const u of olds) { const r = await go(u); check(`old More destination ${u} loads (${r.status()}) -> ${path(p)}`, r.status() === 200 && (await p.locator('h1:visible').count()) > 0); }
   await p.goto(B + '/projects'); await settle(p);
   check('Projects lists all 3 projects', (await p.locator('main a[href^="/projects/"]').count()) >= 3);
   check('Projects: Active/All chips', (await p.locator('main a[href="/projects?all=1"]').count()) >= 1);
   for (const [from, to] of [['/more', '/menu'], ['/board?due=overdue', '/tasks?due=overdue'], ['/modes/code-dev', '/tasks?mode=Code%20%26%20Dev'], ['/modes/business-admin', '/tasks?mode=Business%20Admin']]) {
-    await p.goto(B + from); await settle(p); check(`redirect ${from} -> ${to}`, path(p) === to, path(p));
+    await go(from); check(`redirect ${from} -> ${to}`, path(p) === to, path(p));
   }
-  await p.goto(B + '/modes/code-dev'); await settle(p);
+  await go('/modes/code-dev');
   const rows = await p.locator('main a[href^="/tasks/"]:visible').allInnerTexts();
   check('mode filter shows Code & Dev tasks only', rows.some(r => /ship build/.test(r)) && !rows.some(r => /Admin taxes/.test(r)), JSON.stringify(rows.map(r => r.slice(0, 30))));
   await p.goto(B + '/tasks'); await settle(p);
