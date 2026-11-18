@@ -108,3 +108,34 @@ export function formatBrief(r) {
 }
 
 export const handle = sessionStart;
+
+/**
+ * What `node worker.mjs hooks check [folder]` runs (the installed copy's): would a session started in `cwd` get a brief,
+ * and signed in how? Returns { ok, via: 'key'|'worker'|null, project?, reason? }. Makes the same call as SessionStart.
+ */
+export async function startCheck(cwd) {
+  const no = (reason, via = null) => ({ ok: false, via, reason });
+  const remote = git(cwd, ['remote', 'get-url', 'origin']);
+  const branch = git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  if (!remote && !branch) return no('not a git folder');
+  const where = { ...(remote ? { remote } : {}), subdir: git(cwd, ['rev-parse', '--show-prefix']), branch, path: cwd, machine: os.hostname().slice(0, 40), label: 'Claude Code' };
+  try {
+    if (process.env.WORK_OS_KEY) {
+      const text = await mcpCall('start_work', where);
+      if (!text) return no('WORK_OS_KEY did not get a brief (key refused or not valid, or no network)', 'key');
+      let r; try { r = JSON.parse(text); } catch { return no('start_work answered something unreadable', 'key'); }
+      return r?.project ? { ok: true, via: 'key', project: r.project.name } : no('no project matches this folder', 'key');
+    }
+    const home = workerHome();
+    if (!home) return no('this copy is not installed beside a worker (run: node worker.mjs hooks install)');
+    const key = deps.deviceKey(home);
+    if (!key || !/^wkr_[A-Za-z0-9_-]{43}$/.test(key)) return no('no device key on this PC (run: node worker.mjs setup)');
+    const r = await postAgent('/api/agent/start', key, where);
+    if (r.status === 404) return no('this folder is not linked on this PC (Work OS: Claude › Setup › Computers › Folders)', 'worker');
+    if (r.status === 401 || r.status === 403) return no(`the server refused this PC's worker key (HTTP ${r.status})`, 'worker');
+    if (r.status !== 200 || !r.b?.brief?.project) return no(`the server answered HTTP ${r.status}`, 'worker');
+    return { ok: true, via: 'worker', project: r.b.brief.project.name };
+  } catch (e) {
+    return no(`network: ${String(e.message || e).slice(0, 120)}`);
+  }
+}

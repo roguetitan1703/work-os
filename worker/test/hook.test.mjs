@@ -28,6 +28,7 @@ function agentStart(req, res) {
   if (agentMode === 'hang') return;
   if (agentMode === 'http429') return json(429, { error: 'too many' });
   if (agentMode === 'http500') return json(500, { error: 'x' });
+  if (agentMode === 'http404') return json(404, { error: 'no project' });
   const auth = req.headers.authorization;
   if (auth === `Bearer ${TOKEN}`) return agentMode === 'tokenDead' ? json(401, { error: 'unauthorized' }) : json(200, { brief: agentBrief, expiresAt: new Date(Date.now() + 3600e3).toISOString() });
   if (auth === `Bearer ${WKR}`) return json(200, { brief: agentBrief, token: TOKEN, expiresAt: new Date(Date.now() + 3600e3).toISOString() });
@@ -378,3 +379,23 @@ test('router: an unknown event prints nothing; an async handler is awaited; the 
   assert.equal(await router.main('zz-async', JSON.stringify({ x: 7 })), '{"echoed":7}');
   assert.deepEqual(lib.EVENTS.slice(0, 4).map((e) => [e.event, e.timeoutS]), [['session-start', 8], ['stop', 8], ['pre-tool', 5], ['post-tool', 20]]);
 });
+
+test('startCheck: the reason a folder gets no brief, and the project and sign-in when it does', () => withoutKey(async () => {
+  const { startCheck } = await import(pathToFileURL(path.join(home, 'hooks', 'hook-session-start.mjs')).href);
+  agentMode = 'ok'; devKey = WKR;
+  assert.deepEqual(await startCheck(repo), { ok: true, via: 'worker', project: 'Demo' });
+  agentMode = 'http404';
+  const nl = await startCheck(repo);
+  assert.equal(nl.ok, false);
+  assert.match(nl.reason, /not linked on this PC/);
+  agentMode = 'http500';
+  assert.match((await startCheck(repo)).reason, /HTTP 500/);
+  agentMode = 'ok'; devKey = null;
+  assert.match((await startCheck(repo)).reason, /no device key/);
+  devKey = WKR;
+  assert.match((await startCheck(tmp)).reason, /not a git folder/);
+  process.env.WORK_OS_URL = URL_; // the key path is the one with WORK_OS_KEY set
+  process.env.WORK_OS_KEY = KEY; mode = 'ok';
+  assert.deepEqual(await startCheck(repo), { ok: true, via: 'key', project: 'Demo' });
+  delete process.env.WORK_OS_KEY;
+}));

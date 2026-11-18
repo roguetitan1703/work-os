@@ -45,5 +45,62 @@ test('remove takes out only the Work OS entries', () => {
   assert.deepEqual(Object.keys(s.hooks), ['Stop']);
   assert.equal(s.hooks.Stop[0].hooks[0].command, 'node other.mjs');
   assert.equal(m.remove(), false);
+});
+
+const hooksOf = (dir) => path.join(dir, 'hooks');
+
+test('install copies every FILES entry, removes a stray hook-*.mjs, and writes the entry commands as before', () => {
+  const dir = path.join(tmp, 'work-os-worker-files');
+  process.env.WORK_OS_WORKER_DIR = dir;
+  m.install();
+  for (const f of m.FILES) assert.ok(fs.existsSync(path.join(hooksOf(dir), f)), f);
+  assert.equal(fs.readdirSync(hooksOf(dir)).filter((f) => f.endsWith('.tmp')).length, 0, 'no temp files left');
+  fs.writeFileSync(path.join(hooksOf(dir), 'hook-old.mjs'), 'export {};');
+  fs.writeFileSync(path.join(hooksOf(dir), 'notes.txt'), 'keep');
+  m.install();
+  assert.equal(fs.existsSync(path.join(hooksOf(dir), 'hook-old.mjs')), false);
+  assert.ok(fs.existsSync(path.join(hooksOf(dir), 'notes.txt')));
+});
+
+test('the entries equal the strings older workers wrote', () => {
+  const h = 'C:/Users/x/AppData/Roaming/work-os-worker/hooks/hook.mjs';
+  const c = (e, t) => ({ type: 'command', command: `node "${h}" ${e}`, timeout: t });
+  assert.deepEqual(m.entries(h), {
+    SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [c('session-start', 8)] }],
+    Stop: [{ hooks: [c('stop', 8)] }],
+    PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', hooks: [c('pre-tool', 5)] }],
+    PostToolUse: [{ matcher: 'mcp__.*__(save_state|import_state|get_state)', hooks: [c('post-tool', 20)] }],
+  });
+});
+
+test('the hooks version changes when any file changes', () => {
+  const dir = path.join(tmp, 'copy-of-worker');
+  fs.mkdirSync(dir);
+  for (const f of m.FILES) fs.copyFileSync(new URL(`../${f}`, import.meta.url), path.join(dir, f));
+  const v = m.hooksVersion(dir);
+  assert.equal(v, m.hooksVersion());
+  for (const f of m.FILES) {
+    fs.appendFileSync(path.join(dir, f), '// x');
+    assert.notEqual(m.hooksVersion(dir), v, f);
+    fs.copyFileSync(new URL(`../${f}`, import.meta.url), path.join(dir, f));
+  }
+});
+
+test('a second worker folder does not take over the global hooks, and its refresh skips them', () => {
+  const a = path.join(tmp, 'work-os-worker-a'); const b = path.join(tmp, 'work-os-worker-b');
+  process.env.WORK_OS_WORKER_DIR = a;
+  m.install({ force: true });
+  const before = fs.readFileSync(process.env.CLAUDE_SETTINGS_PATH, 'utf8');
+  process.env.WORK_OS_WORKER_DIR = b;
+  assert.throws(() => m.install(), /not this worker folder/);
+  assert.equal(m.refreshIfStale(), null, 'b has no installed version, so it looks stale, but the entries are in folder a');
+  assert.equal(fs.existsSync(path.join(b, 'hooks')), false);
+  assert.equal(fs.readFileSync(process.env.CLAUDE_SETTINGS_PATH, 'utf8'), before);
+  m.install({ force: true });
+  assert.ok(JSON.stringify(settings().hooks).includes('work-os-worker-b/hooks/hook.mjs'));
+  assert.ok(fs.existsSync(path.join(b, 'hooks', 'hook-lib.mjs')));
+  process.env.WORK_OS_WORKER_DIR = a;
+  assert.equal(m.refreshIfStale(), null, 'now b owns the entries: a leaves them alone');
+  m.remove();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
