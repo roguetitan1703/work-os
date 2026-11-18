@@ -1,5 +1,18 @@
 # Rules that are enforced, not remembered (draft, 18 Nov 2026)
 
+## How a session works (agreed with Om 18 Nov, after the Fable review in working-system-review.md)
+1. **Start / after compaction:** the Work OS hook calls start_work for the folder and puts the Orders and State into the
+   session (needs WORK_OS_KEY in the PC's Claude Code settings). The session works from that, not its summary.
+2. **While working:** status changes go to Work OS (save_state, tasks, notes). WORK-STATE.md is a copy: the hook
+   refuses any hand edit and says to use save_state.
+3. **After every save_state / get_state:** the hook writes WORK-STATE.md from the answer in the repo's main folder and
+   commits that file alone (not in builder worktrees, not during a merge). So the last State is readable when Work OS
+   is down.
+4. **Stop:** if files changed and State was not saved, the hook holds the session once and asks for save_state.
+5. **Later (step 2+):** `wrap_up`, `hand_over`, `declutter` and `propose_order` as Work OS tools; three exact blocks
+   (production push/tag/release without an answered Need, production CLIs not aimed at the test target, WORK-STATE.md).
+   The rest of the table below is reference, not a build list (Fable: most of it guesses at shell text).
+
 Om 18 Nov: "I want our enforcement of certain things and directives to get enforced, not drifted." Built from a survey
 of the 8 sessions (7 answered) open on Om's PC on 18 Nov (answers in the side-session notes, drift-survey.md), this session's own
 mistakes, Om's global CLAUDE.md and the memory rules.
@@ -101,4 +114,4 @@ lines that are done, duplicated or older than 30 days; Next lines with no task o
 titles or untouched for 30 days; tasks done but open; Needs nobody answered. The session adds what it sees on disk
 (extra worktrees and branches, stray files at the repo root, WORK-STATE.md that differs from State). It proposes one
 batch (merge, archive, drop, delete-from-disk) as a single Need; on Om's yes it applies the batch and saves State.
-Runs on demand and as the Sunday tidy for every active project.
+Runs on demand, and is triggered by growth, not the calendar (Om 18 Nov: one session working non-stop for 1-3 weeks fills State up): start_work and wrap_up say "Declutter due" when Later passes 25 lines, Next passes 10, a Next line has been done or untouched for 14 days, or the project has notes with matching titles.
