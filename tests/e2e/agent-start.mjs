@@ -88,7 +88,7 @@ try {
   check('the session id is not the token and the token is not in the brief', !!sid && sid !== T1 && !JSON.stringify(r1.json?.brief).includes(T1) && !JSON.stringify(r1.json?.brief).includes(T1.slice(4)));
   check('the device key is not in the answer', !r1.text.includes(pc1.key));
   // H5: a handover left with end_work is carried in the brief of a fresh session, once.
-  const ho = await must(MCP, 'end_work', { project: 'Agent One', state: [{ op: 'set_where', machine: 'ho-box', branch: 'main' }], friction: 'none', handover: { step: 'agent-start handover step', title: 'Handover: agent-start' } });
+  const ho = await must(MCP, 'end_work', { project: 'Agent One', state: [{ op: 'add_later', text: 'agent-start later line' }], friction: 'none', handover: { step: 'agent-start handover step', title: 'Handover: agent-start' } });
   const rH = await post(pc1.key, at('acme/agent-one'));
   check('H5: the /api/agent/start brief carries the handover (id, from, markdown)', rH.status === 200 && rH.json?.brief?.handover?.some(h => h.id === ho.handover.id && h.markdown.includes('agent-start handover step')), `${rH.status} ${rH.text.slice(0, 300)}`);
   const rH2 = await post(pc1.key, at('acme/agent-one'));

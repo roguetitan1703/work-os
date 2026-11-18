@@ -1041,7 +1041,6 @@ try {
       scan(p.name, 'list_sessions (project)', byProject.text);
       check(`h5: ${p.name}'s list_sessions names no session of a private project`, (!r.ok || (!r.text.includes(nm) && !r.text.includes(cn))), r.text.slice(0, 160));
       const st = await mcpCall(k, 'start_work', { project: nm });
-      scan(p.name, 'start_work (private project with a handover)', st.text);
       check(`h5: ${p.name} cannot start work on the private project and so gets no handover`, !st.ok, st.text.slice(0, 120));
       const rn = await mcpCall(k, 'read_note', { note_id: ended.handover.id });
       scan(p.name, 'read_note (handover)', rn.text);
@@ -1049,7 +1048,6 @@ try {
       const fd = await mcpCall(k, 'recent_activity', { limit: 50 });
       scan(p.name, 'recent_activity (session_ended)', fd.text);
       const ew = await mcpCall(k, 'end_work', { project: nm, state: [{ op: 'set_where', machine: 'x', branch: 'y' }], friction: 'probe', handover: { step: 'probe' } });
-      scan(p.name, 'end_work (private project)', ew.text);
       check(`h5: ${p.name} cannot end work on, or leave a handover in, the private project`, !ew.ok, ew.text.slice(0, 120));
     }
   }
@@ -1220,6 +1218,12 @@ function AUDIT() {
   add('mcp reply', M('reply', t => ({ id: t.msg, body: 'lkq sneaked reply' }), aim(['msg'])), Mc('reply', t => ({ id: t.msg, body: 'lkq code reply' }), aim(['msg'], { label: 'code key' })));
   // The roster (slice 7). set_doing names a task, so it is aimed at one the caller cannot see (control off: the owner has no present session in the probe). slot works on the caller's own machines only.
   add('mcp set_doing', M('set_doing', t => ({ task: t.ref }), aim(['ref'], { control: false })), M('set_doing', t => ({ task: t.task }), aim(['task'], { label: 'by id', control: false })));
+  // H5: end_work writes State, a handover note and a feed row, so each probe is aimed at a project the caller cannot read; list_sessions lists only readable projects' sessions
+  add('mcp end_work',
+    M('end_work', t => ({ project: t.project, state: [{ op: 'add_next', text: 'lkq sneaked end line' }], friction: 'lkq probe', handover: { step: 'lkq sneaked handover' } }), aim(['project'])),
+    M('end_work', t => ({ project: t.projectName, base_version: 0, state: [{ op: 'set_now', text: 'lkq sneaked end goal' }], friction: 'lkq probe', handover: { step: 'lkq by name', for: 'anyone' } }), aim(['projectName'], { label: 'set_now, by name' })),
+  );
+  add('mcp list_sessions', M('list_sessions', { include_gone: true }), M('list_sessions', t => ({ project: t.project, include_gone: true }), aim(['project'], { label: 'by project', control: false, ok: r => r.ok && r.json?.sessions?.length > 0 })));
   add('mcp slot', M('slot', { action: 'acquire', machine: 'lkq-slot-box' }, { label: 'acquire' }), M('slot', { action: 'release', machine: 'lkq-slot-box' }, { label: 'release' }));
   const dOk = r => r.ok;
   add('mcp discord_list_channels', M('discord_list_channels', {}, { ok: dOk }));
