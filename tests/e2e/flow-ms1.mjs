@@ -21,22 +21,22 @@ try {
   await rawDb.collection('presence').updateMany({ projectId: project._id }, { $set: { lastSeen: new Date(Date.now() - 3 * 3600_000) } });
   const second = await must(MCP, 'send_message', { project: NAME, kind: 'fyi', body: 'The API now returns ids as strings' });
   check('MS1: a session that was here 3 h ago: offline, last active 3 h ago, it will get this on start', /cutroom prime: offline, last active 3 h ago; it will get this on start/.test(second.target), second.target);
-  const narrow = await must(MCP, 'send_message', { project: NAME, kind: 'fyi', body: 'Only for cutroom', to_session: 'cutroom' });
-  check('MS1: to_session narrows the target note', /^cutroom prime: offline/.test(narrow.target) && (narrow.target.match(/offline/g) || []).length === 1, narrow.target);
+  const narrow = await must(MCP, 'send_message', { project: NAME, kind: 'fyi', body: 'Only for cutroom', to_session: 'Cutroom Prime' });
+  check('MS1: to_session (an exact label, any case) narrows the target note', /^cutroom prime: offline/.test(narrow.target) && (narrow.target.match(/offline/g) || []).length === 1, narrow.target);
   const nobody = await must(MCP, 'send_message', { project: NAME, kind: 'fyi', body: 'For a session that never was', to_session: 'antigravity' });
   check('MS1: a label nobody has used says so', /no session like that/.test(nobody.target), nobody.target);
 
   const s2 = await must(cc, 'start_work', { project: NAME, machine: 'desktop', label: 'cutroom again' });
-  check('MS1: the next start_work lists the messages, unread first (the first one was seen by the earlier start_work)', s2.inbox?.unread === 3 && s2.inbox.messages.length === 4 && s2.inbox.messages.slice(0, 3).every(m => m.status === 'unread') && s2.inbox.messages[3].status === 'seen', JSON.stringify(s2.inbox).slice(0, 300));
+  check('MS1: the next start_work lists the messages, unread first (read state is per session: the first one was read by the earlier session, this one has not; the one for that session is not for this one)', s2.inbox?.unread === 2 && s2.inbox.messages.length === 4 && s2.inbox.messages.slice(0, 2).every(m => m.unread === true) && s2.inbox.messages.slice(2).every(m => !m.unread), JSON.stringify(s2.inbox).slice(0, 300));
   check('MS1: each with sender, word, body and what to do with it', s2.inbox.messages.some(m => m.body.startsWith('Rebuild the client') && m.word === 'agent' && m.kind === 'request' && /proposal/.test(m.treat)), JSON.stringify(s2.inbox.messages[0]));
   const keys = Object.keys(s2);
   check('MS1: the inbox comes after the State and before the open tasks', keys.indexOf('state') < keys.indexOf('inbox') && keys.indexOf('inbox') < keys.indexOf('openTasks'), keys.join());
-  check('MS1: the messages addressed to this person or session became seen; the one for a session nobody has used stays unread', (await rawDb.collection('messages').countDocuments({ projectId: project._id, status: 'seen' })) === 3);
+  check('MS1: the messages addressed to this person became seen; the one for the earlier session and the one for a session nobody has used stay unread', (await rawDb.collection('messages').countDocuments({ projectId: project._id, status: 'seen' })) === 2);
   const s3 = await must(cc, 'start_work', { project: NAME, label: 'cutroom third' });
-  check('MS1: seen ones are still listed, and the unread count is 1', s3.inbox.unread === 1 && s3.inbox.messages.length === 4);
+  check('MS1: seen ones are still listed, and a third session has the 2 untargeted ones unread', s3.inbox.unread === 2 && s3.inbox.messages.length === 4);
 
   const inb = await must(MCP, 'inbox', { project: NAME });
-  check('MS1: inbox lists them for the sender with their status', inb.messages.length === 4 && inb.messages.filter(m => m.status === 'seen').length === 3 && inb.messages.filter(m => m.status === 'unread').length === 1, JSON.stringify(inb.messages.map(m => m.status)));
+  check('MS1: inbox lists them for the sender with their status', inb.messages.length === 4 && inb.messages.filter(m => m.status === 'seen').length === 2 && inb.messages.filter(m => m.status === 'unread').length === 2, JSON.stringify(inb.messages.map(m => m.status)));
   const asAgent = await must(cc, 'send_message', { project: NAME, kind: 'question', body: 'Which branch?' });
   check('MS1: a Claude Code key message has word agent', asAgent.word === 'agent' && (await rawDb.collection('messages').findOne({ _id: asAgent.id })).from.word === 'agent');
   const tooLong = await mcpH(MCP, 'send_message', { project: NAME, kind: 'fyi', body: 'x'.repeat(4001) });

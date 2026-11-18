@@ -50,6 +50,7 @@ flow-ms1|flow-ms1.mjs|none|plain
 flow-ms2|flow-ms2.mjs|none|plain
 flow-ms3|flow-ms3.mjs|none|plain
 flow-ms4|flow-ms4.mjs|none|plain
+flow-ms5|flow-ms5.mjs|none|plain
 flow-w1|flow-w1.mjs|none|plain
 flow-w3|flow-w3.mjs|none|plain
 usage|usage.mjs|none|plain
