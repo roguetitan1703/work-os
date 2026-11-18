@@ -10,12 +10,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configDir, loadConfig } from './config.mjs';
+import { EVENTS } from './hook-lib.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const settingsPath = () => process.env.CLAUDE_SETTINGS_PATH || path.join(os.homedir(), '.claude', 'settings.json');
 export const hooksDir = () => path.join(configDir(), 'hooks');
-// secret.mjs: the start hook reads this PC's device key with it (the worker's own code, so the key stays in DPAPI / Keychain).
-const FILES = ['hook.mjs', 'config.mjs', 'secret.mjs'];
+// The files the installed copy runs: the router, one file per event (and hook-lib, hook-copy), config.mjs and secret.mjs (the
+// start hook reads this PC's device key with it: the worker's own code, so the key stays in DPAPI / Keychain).
+export const FILES = ['hook.mjs', 'hook-lib.mjs', 'hook-copy.mjs', 'hook-session-start.mjs', 'hook-stop.mjs', 'hook-pre-tool.mjs', 'hook-post-tool.mjs', 'config.mjs', 'secret.mjs'];
 const VERSION_FILE = 'hooks.version';
 /** How the start brief signs in on this PC: 'key' (WORK_OS_KEY set), 'worker' (the worker is set up), or null. */
 function signIn(settings) {
@@ -38,17 +40,9 @@ const MARK = 'work-os-worker'; // every entry we write runs a hook.mjs inside th
 export function entries(hook) {
   const h = hook.split(path.sep).join('/');
   const c = (e, t) => ({ type: 'command', command: `node "${h}" ${e}`, timeout: t });
-  return {
-    // The brief (Orders, State, tasks) at start and after every compaction. Signs in with this PC's worker device key
-    // (or WORK_OS_KEY on a PC without the worker; docs/setup-pc.md).
-    SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [c('session-start', 8)] }],
-    // Files changed and State not saved: hold the session once and ask for save_state.
-    Stop: [{ hooks: [c('stop', 8)] }],
-    // Refuse hand edits of WORK-STATE.md (it is a copy of the Work OS State).
-    PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', hooks: [c('pre-tool', 5)] }],
-    // After a State save or read: write WORK-STATE.md from the answer and commit that file alone.
-    PostToolUse: [{ matcher: 'mcp__.*__(save_state|import_state|get_state)', hooks: [c('post-tool', 20)] }],
-  };
+  const out = {};
+  for (const e of EVENTS) out[e.claudeEvent] = [{ ...(e.matcher ? { matcher: e.matcher } : {}), hooks: [c(e.event, e.timeoutS)] }];
+  return out;
 }
 
 const ours = (group) => (group?.hooks || []).some((x) => String(x.command || '').includes(MARK) && /hook\.mjs/.test(String(x.command || '')));
