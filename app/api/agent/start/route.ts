@@ -14,7 +14,8 @@ import type { Scope } from '@/lib/scope';
 // POST /api/agent/start, JSON body { remote?, subdir?, branch?, path?, machine?, label?, model? } (the folder the
 // Claude Code session runs in, found like start_work finds it).
 //   Authorization: Bearer wkr_…  the PC's worker device key: opens a new session on the project of that folder, only
-//                                when the project has a folder on that PC (projectOnDevice). Answers the start brief and
+//                                when a folder on that PC is linked to the project (projectOnDevice; a folder's remote
+//                                alone never counts, the worker reports it itself). Answers the start brief and
 //                                a session token (wst_…), the only time the token is sent.
 //   Authorization: Bearer wst_…  that session token (after a compaction): the same session's brief again, for its own
 //                                project only.
@@ -33,7 +34,7 @@ const HEADERS = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosnif
 const reply = (status: number, body: object, extra: Record<string, string> = {}) => Response.json(body, { status, headers: { ...HEADERS, ...extra } });
 const unauthorized = () => reply(401, { error: 'unauthorized' }, { 'WWW-Authenticate': 'Bearer' });
 // One answer for "no project matches" and "that project has no folder on this PC": the two must not be told apart.
-const NO_PROJECT = 'No project with a folder on this computer matches this folder. Link the folder to its project in Work OS (Claude › Setup, or the project\'s Code tab).';
+const NO_PROJECT = 'No project linked to a folder on this computer matches this folder. Link the folder to its project in Work OS (Claude › Setup, or the project\'s Code tab).';
 
 const Body = z
   .object({
@@ -143,7 +144,7 @@ export async function POST(req: Request): Promise<Response> {
       if (!(await projectOnDevice(s, device.id, projectId))) return reply(404, { error: NO_PROJECT });
       let token: string | undefined;
       if (!session) {
-        const made = await createAgentSession(s, device.id, projectId);
+        const made = await createAgentSession(s, device.id, projectId, cred);
         token = made.token;
         session = { id: made.id, projectId, expiresAt: made.expiresAt };
       }

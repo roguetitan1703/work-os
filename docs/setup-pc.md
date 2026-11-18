@@ -42,9 +42,10 @@ Details: worker/README.md.
 
 The start hook needs no key of its own: it signs in with this PC's worker device key (from the worker's DPAPI /
 Keychain store, never written anywhere else) and gets a session token for that one Claude Code session and project,
-good for a day; after a compaction it shows the token instead. The device key opens a project only when that project
-has a folder on this PC: a folder linked to it (Claude › Setup or the project's Code tab), or an unlinked folder with
-one of the project's git remotes, as the worker last reported (a new clone counts after the worker's next scan).
+good for a day; after a compaction it shows the token instead. The device key opens a project only when a folder
+linked to the project on this PC is there: link the folder once in Claude › Setup or the project's Code tab (a folder
+with the same git remote that nobody linked does not count; a new clone can be linked after the worker's next scan).
+The token is kept beside the installed hook (`<worker config dir>/hooks/sessions`), never in a repo.
 All four fail open: no key, no network or an error means they print nothing and the session carries on.
 
 ## 5. A key for the start brief: only for a PC without the worker

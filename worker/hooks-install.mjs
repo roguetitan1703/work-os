@@ -118,7 +118,7 @@ export function status() {
 }
 
 const SIGN_IN = {
-  worker: "The start brief and the stop check sign in with this PC's worker key: nothing more to set up.",
+  worker: "The start brief and the stop check sign in with this PC's worker key, for projects with a folder linked to them on this PC (Claude › Setup or the project's Code tab).",
   key: 'WORK_OS_KEY is set: the start brief and the stop check use it (a PC with the worker does not need it).',
   none: 'The WORK-STATE.md copy and edit guard work now; the start brief and the stop check turn on once the worker is set up here (node worker.mjs setup).',
 };

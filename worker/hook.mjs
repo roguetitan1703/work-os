@@ -16,7 +16,7 @@
 //                 WORK_OS_URL (default: the worker config's baseUrl). Only for a PC without the worker.
 //   the worker    this PC's worker device key (wkr_, kept by the worker in DPAPI / Keychain) and the baseUrl of the
 //                 worker config this copy was installed beside: POST /api/agent/start answers the brief and a session
-//                 token (wst_) for this one session and project. The token is kept in this session's marker file and
+//                 token (wst_) for this one session and project. The token is kept in <hooks folder>/sessions and
 //                 shown instead of the device key after a compaction. Only the installed copy takes this path: its own
 //                 folder decides which config and key it reads (WORK_OS_URL and WORK_OS_WORKER_DIR are ignored here,
 //                 so a repo's settings cannot send the device key elsewhere). Neither key nor token is ever printed.
@@ -35,6 +35,18 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The worker config folder this copy was installed into (<dir>/hooks/hook.mjs), or null when it runs from elsewhere. */
 const workerHome = () => (path.basename(HERE) === 'hooks' && fs.existsSync(path.join(path.dirname(HERE), 'config.json')) ? path.dirname(HERE) : null);
 const SESSION_TOKEN_RE = /^wst_[A-Za-z0-9_-]{43}$/;
+// Session tokens are kept beside the installed hook (<worker config dir>/hooks/sessions), never in the marker folder:
+// WORK_OS_HOOK_DIR (and the temp folder) come from the environment, which a repo's settings could point into the repo.
+// This folder is fixed by where the hook was installed: per user, outside every repo. Files older than two days are
+// deleted on each write.
+const tokenFile = (sid) => path.join(HERE, 'sessions', String(sid).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80) + '.json');
+const readKept = (sid) => { try { const k = JSON.parse(fs.readFileSync(tokenFile(sid), 'utf8')); return SESSION_TOKEN_RE.test(k.token) && k.until > Date.now() ? k.token : null; } catch { return null; } };
+function keepToken(sid, token, until) {
+  const dir = path.dirname(tokenFile(sid));
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(tokenFile(sid), JSON.stringify({ token, until: until || Date.now() + 24 * 3600e3 }), { mode: 0o600 });
+  try { for (const f of fs.readdirSync(dir)) { const p = path.join(dir, f); if (Date.now() - fs.statSync(p).mtimeMs > 2 * 86_400_000) fs.rmSync(p, { force: true }); } } catch {}
+}
 
 const TIMEOUT_MS = 5000;
 const MAX_BRIEF = 9500; // Claude Code caps a hook context string at 10,000 characters
@@ -44,8 +56,7 @@ const markerFile = (sid) => path.join(markerDir(), String(sid).replace(/[^A-Za-z
 const git = (cwd, args) => { try { return execFileSync('git', args, { cwd, encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return ''; } };
 const statusHash = (cwd) => createHash('sha1').update(git(cwd, ['status', '--porcelain'])).digest('hex');
 const readMarker = (sid) => { try { return JSON.parse(fs.readFileSync(markerFile(sid), 'utf8')); } catch { return null; } };
-// Only this user can read it (it may hold the session's token; on Windows the temp folder is the user's own).
-const writeMarker = (sid, m) => { fs.mkdirSync(markerDir(), { recursive: true, mode: 0o700 }); fs.writeFileSync(markerFile(sid), JSON.stringify(m), { mode: 0o600 }); };
+const writeMarker = (sid, m) => { fs.mkdirSync(markerDir(), { recursive: true }); fs.writeFileSync(markerFile(sid), JSON.stringify(m)); };
 const sizeOf = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };
 
 async function mcpCall(name, args) {
@@ -110,21 +121,19 @@ export async function sessionStart(input) {
   const where = { ...(remote ? { remote } : {}), subdir: git(cwd, ['rev-parse', '--show-prefix']), branch, path: cwd, machine: os.hostname().slice(0, 40), label: 'Claude Code' };
   const old = sid ? readMarker(sid) : null; // after compaction the baseline stays the one from the real start
   let r;
-  let token = old?.token;
-  let until = old?.tokenUntil;
   if (process.env.WORK_OS_KEY) {
     const text = await mcpCall('start_work', where);
     if (!text) return null;
     try { r = JSON.parse(text); } catch { return null; }
   } else {
-    const a = await agentStart(where, until && until > Date.now() ? token : null);
+    const a = await agentStart(where, sid ? readKept(sid) : null);
     if (!a) return null;
     r = a.brief;
-    if (a.token) { token = a.token; until = a.until; }
+    if (a.token && sid) keepToken(sid, a.token, a.until);
   }
   if (!r || r.unmatched || !r.project) return null;
   if (sid) {
-    writeMarker(sid, { status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...(token ? { token, tokenUntil: until } : {}) });
+    writeMarker(sid, { status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project });
   }
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: formatBrief(r) } };
 }

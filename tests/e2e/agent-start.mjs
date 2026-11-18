@@ -2,7 +2,8 @@
 // worker device key and gets the start brief plus a session token for one session and one project; after a compaction
 // the token gets the same session's brief again. Covers: a good device key (brief, token, session id that is not the
 // token, presence row), the token again (same session, no new token), a token for another project (403), a project with
-// no folder on that PC (404, the same answer as no project at all), another organization's project (404), revoked
+// no folder linked to it on that PC (404, the same answer as no project at all; an unlinked folder with its remote and a
+// linked folder reported missing do not count), another organization's project (404), revoked
 // computer (401 for its key and its tokens), a replaced key (old key and old tokens 401, new key works), a device whose
 // owner is no longer a member (401), every other credential (wos_ keys, X-API-Key, a session cookie, junk: 401), bad
 // bodies (400, 413), GET (405), the hourly limits (429 for a computer's new sessions and for one token's briefs), and the
@@ -60,6 +61,7 @@ try {
   const one = (await must(MCP, 'add_project', { name: 'Agent One', code: [{ remote: 'acme/agent-one' }] })).project.id;
   const two = (await must(MCP, 'add_project', { name: 'Agent Two', code: [{ remote: 'acme/agent-two' }] })).project.id;
   await must(MCP, 'add_project', { name: 'Agent Bare', code: [{ remote: 'acme/agent-bare' }] });
+  const gone = (await must(MCP, 'add_project', { name: 'Agent Gone', code: [{ remote: 'acme/agent-gone' }] })).project.id;
   await must(MCP, 'save_state', { project: 'Agent One', ops: [{ op: 'add_next', text: 'Agent brief line' }] });
   // Another organization's project, with a folder of the same remote on the owner's PC1.
   const X = await makeUser({ email: 'agent-x@example.test', name: 'Xena', orgName: 'Agent X Org' });
@@ -71,6 +73,8 @@ try {
   await rawDb.collection('workerFolders').insertMany([
     folder(pc1, A, 'f1', 'acme/agent-one', one),
     folder(pc1, A, 'fx', 'acme/x-secret', null),
+    folder(pc1, A, 'fb', 'acme/agent-bare', null), // the remote matches, but nobody linked it: the worker reports remotes itself
+    { ...folder(pc1, A, 'fg', 'acme/agent-gone', gone), missing: true }, // linked, but the worker no longer finds it
     folder(pc2, A, 'f2', 'acme/agent-two', two),
   ]);
   const at = (remote, extra = {}) => ({ remote: `https://github.com/${remote}.git`, branch: 'main', path: `C:/code/${remote.split('/')[1]}`, machine: 'agent-pc', label: 'Claude Code', ...extra });
@@ -87,6 +91,7 @@ try {
   check('the session is present on the project', !!(await rawDb.collection('presence').findOne({ session: sid, projectId: one })));
   const row = await rawDb.collection('agentSessions').findOne({ _id: sid });
   check('agentSessions row: hash only, one project, about 24 h', !!row && row.projectId === one && row.deviceId === pc1.id && /^[0-9a-f]{64}$/.test(row.hash) && Math.abs(row.expiresAt - row.createdAt - 24 * 3600e3) < 5000);
+  check('agentSessions row: the hash of the key it was made with', row?.keyHash === (await rawDb.collection('devices').findOne({ _id: pc1.id }))?.hash);
 
   // ---- the token again (after a compaction) ----
   const r2 = await post(T1, at('acme/agent-one'));
@@ -104,7 +109,9 @@ try {
   check('a project with no folder on this PC: 404', r4.status === 404, `${r4.status} ${r4.text.slice(0, 160)}`);
   check('...the same answer as no project at all', r4.text === r4none.text && r4none.status === 404, `${r4.text} | ${r4none.text}`);
   const r5 = await post(pc1.key, at('acme/agent-bare'));
-  check('a project with no folder anywhere: 404', r5.status === 404, r5.status);
+  check('an unlinked folder with the project\'s remote on this PC: 404 (the remote alone never counts)', r5.status === 404 && r5.text === r4none.text, `${r5.status} ${r5.text.slice(0, 160)}`);
+  const r5g = await post(pc1.key, at('acme/agent-gone'));
+  check('a linked folder the worker reports missing: 404', r5g.status === 404, r5g.status);
   const r6 = await post(pc1.key, at('acme/x-secret'));
   check("another organization's project (even with a folder of its remote here): 404, no name", r6.status === 404 && !/X Secret/.test(r6.text), `${r6.status} ${r6.text.slice(0, 160)}`);
   const r7 = await post(pc2.key, at('acme/agent-two'));
@@ -156,6 +163,13 @@ try {
   const T3 = (await post(pc3.key, at('acme/agent-one'))).json?.token ?? '';
   await rawDb.collection('devices').updateOne({ _id: pc3.id }, { $set: { revokedAt: new Date() } });
   check('revoked in the database only: the token is refused too', !!T3 && (await post(T3, at('acme/agent-one'))).status === 401);
+  // a token whose row survived a key replace (made in a race with it): its key hash is no longer the computer's
+  const pc5 = await deviceOf(A, 'agent-pc-5');
+  await rawDb.collection('workerFolders').insertOne(folder(pc5, A, 'f5', 'acme/agent-one', one));
+  const T5 = (await post(pc5.key, at('acme/agent-one'))).json?.token ?? '';
+  check('a token of the current key works', !!T5 && (await post(T5, {})).status === 200);
+  await rawDb.collection('devices').updateOne({ _id: pc5.id }, { $set: { hash: 'f'.repeat(64) } });
+  check('the computer has another key now (row kept): the token is refused', (await post(T5, {})).status === 401);
 
   // ---- an owner who is no longer a member ----
   const M = await makeUser({ email: 'agent-m@example.test', name: 'Moe', orgId: A.orgId, role: 'member' });
@@ -179,7 +193,7 @@ try {
   check('one computer: 30 new sessions (or misses) an hour, then 429', made === 30 && over2.status === 429, `${made} then ${over2.status}`);
 
   // ---- the token is nowhere in the database ----
-  const toks = [T1, T2, T3, T4].filter(Boolean);
+  const toks = [T1, T2, T3, T4, T5].filter(Boolean);
   let found = [];
   for (const { name } of await rawDb.listCollections({}, { nameOnly: true }).toArray()) {
     if (name.startsWith('system.')) continue;

@@ -195,8 +195,10 @@ test('no WORK_OS_KEY: the installed hook signs in with the device key, keeps the
   assert.equal(seen[0].body.branch, 'main');
   assert.equal(seen[0].body.path, repo);
   assert.ok(!out.includes(WKR) && !out.includes(TOKEN), 'neither the key nor the token is printed');
-  assert.ok(markerOf('dev1').includes(TOKEN), 'the token is kept for this session');
-  assert.ok(!markerOf('dev1').includes(WKR), 'the device key is never written down');
+  const kept = fs.readFileSync(path.join(home, 'hooks', 'sessions', 'dev1.json'), 'utf8');
+  assert.ok(kept.includes(TOKEN), 'the token is kept for this session, beside the installed hook');
+  assert.ok(!markerOf('dev1').includes(TOKEN), 'never in the marker folder (WORK_OS_HOOK_DIR could point into a repo)');
+  assert.ok(!markerOf('dev1').includes(WKR) && !kept.includes(WKR), 'the device key is never written down');
   // compaction: the same session shows its token, not the device key
   const again = await devStart('dev1');
   assert.match(JSON.parse(again).hookSpecificOutput.additionalContext, /device brief/);

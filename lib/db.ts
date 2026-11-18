@@ -413,9 +413,10 @@ export type DeviceActivity = { sessions: number; sessionsWorkOs: number; session
 /**
  * A Claude Code session token (lib/agent-sessions.ts): what the Work OS hook gets from POST /api/agent/start for one
  * session on one project, signed in with its PC's device key. `_id` is the session id (the first 32 hex of the token's
- * SHA-256); only the full SHA-256 is stored, never the token. TTL index on `expiresAt`.
+ * SHA-256); only the full SHA-256 is stored, never the token. `keyHash`: the hash of the device key it was made with
+ * (the token is refused once the computer's key differs). TTL index on `expiresAt`.
  */
-export type AgentSessionDoc = { _id: string; hash: string; deviceId: string; orgId: string; ownerId: string; projectId: string; createdAt: Date; expiresAt: Date };
+export type AgentSessionDoc = { _id: string; hash: string; keyHash: string; deviceId: string; orgId: string; ownerId: string; projectId: string; createdAt: Date; expiresAt: Date };
 export type WorkerFolderDoc = { _id: string; /** The device's owner and organization. */ orgId: string; ownerId: string; deviceId: string; folderId: string; name: string; git: boolean; remote?: string; branch?: string; projectId: string | null; linkedAt: Date | null; seenAt: Date; missing: boolean };
 export type WorkerJobDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; kind: 'start' | 'resume' | 'stop' | 'vscode' | 'desktop' | 'reopen' | 'dismiss'; folderId?: string; projectId?: string; /** Not set for reopen and dismiss (they act on the worker's own remembered set). */ sessionId?: string; prompt?: string; /** Turbo mode: the repo is not on the computer; the worker clones it first (docs/launcher.md). No folderId then. */ clone?: { repo: string; trusted: boolean }; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
 export type WorkerSessionDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; /** '' while its repo is still being cloned (turbo mode). */ folderId: string; projectId: string | null; /** Turbo mode: still cloning `repo` (owner/name). */ cloning?: boolean; repo?: string; /** Turbo mode: cloned but not trusted automatically; Claude Code asks the person on first run. */ needsTrust?: boolean; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Its owner removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string };

@@ -13,10 +13,11 @@ import { scoped, type Scope } from './scope';
 //     so the brief, presence, save_state and the X-Work-OS-Session header use that id and the token itself never
 //     reaches the database, the brief or the session's context.
 //   - One project, fixed when it is made; expires TOKEN_TTL_MS after it is made (a TTL index deletes the row). Dies at
-//     once when its computer is revoked or gets a new key (endDeviceSessions), or when its owner leaves the
+//     once when its computer is revoked or gets a new key (endDeviceSessions; and the row keeps the hash of the key it
+//     was made with, so a token made in a race with a key replace is refused too), or when its owner leaves the
 //     organization (the route checks the role on every call).
 //   - Rate limits: lib/mcp/policy.ts AGENT_PER_HOUR (new sessions per computer, briefs per token).
-//   - The device key opens a project only when that project has a folder on the computer (projectOnDevice).
+//   - The device key opens a project only when a folder on that computer is linked to it (projectOnDevice).
 
 export const AGENT_TOKEN_PREFIX = 'wst_';
 export const TOKEN_TTL_MS = 24 * 3_600_000;
@@ -28,28 +29,28 @@ const idOf = (hash: string) => hash.slice(0, 32);
 export type AgentSession = { id: string; deviceId: string; deviceName: string; orgId: string; ownerId: string; projectId: string; expiresAt: Date };
 
 /**
- * Whether a project has a folder on this computer: a folder there linked to it (Claude › Setup or the project's Code
- * tab), or a folder there linked to nothing whose git remote is one of the project's code locations. Read through the
- * device owner's door, so the project must also be one they can read.
+ * Whether a folder on this computer is linked to the project (a person links it in the app: Claude › Setup or the
+ * project's Code tab), and the worker still reports it. A folder's git remote alone never counts: the worker reports
+ * remotes itself, so a stolen device key could claim any remote. Read through the device owner's door, so the project
+ * must also be one they can read.
  */
 export async function projectOnDevice(s: Scope, deviceId: string, projectId: string): Promise<boolean> {
   const c = await scoped(s);
-  const p = await c.projects.findOne({ _id: projectId }, { projection: { code: 1 } });
+  const p = await c.projects.findOne({ _id: projectId }, { projection: { _id: 1 } });
   if (!p) return false;
-  const remotes = [...new Set((p.code ?? []).map(l => l.remote).filter((r): r is string => !!r))];
-  const f = await c.workerFolders.findOne(
-    { deviceId, $or: [{ projectId }, ...(remotes.length ? [{ projectId: null, missing: false, remote: { $in: remotes } }] : [])] },
-    { projection: { _id: 1 } },
-  );
+  const f = await c.workerFolders.findOne({ deviceId, projectId, missing: false }, { projection: { _id: 1 } });
   return !!f;
 }
 
-/** A new session token for one project on one computer. Returns the token in full: the only time it exists. */
-export async function createAgentSession(s: Scope, deviceId: string, projectId: string): Promise<{ token: string; id: string; expiresAt: Date }> {
+/**
+ * A new session token for one project on one computer, made with `deviceKey` (its hash is kept on the row and must
+ * still be the computer's key when the token is shown). Returns the token in full: the only time it exists.
+ */
+export async function createAgentSession(s: Scope, deviceId: string, projectId: string, deviceKey: string): Promise<{ token: string; id: string; expiresAt: Date }> {
   const token = AGENT_TOKEN_PREFIX + randomBytes(32).toString('base64url');
   const hash = sha256(token);
   const now = new Date();
-  const doc: AgentSessionDoc = { _id: idOf(hash), hash, deviceId, orgId: s.orgId, ownerId: s.userId, projectId, createdAt: now, expiresAt: new Date(now.getTime() + TOKEN_TTL_MS) };
+  const doc: AgentSessionDoc = { _id: idOf(hash), hash, keyHash: sha256(deviceKey), deviceId, orgId: s.orgId, ownerId: s.userId, projectId, createdAt: now, expiresAt: new Date(now.getTime() + TOKEN_TTL_MS) };
   await (await collections()).agentSessions.insertOne(doc); // scope-ok: session tokens: written for the verified device's owner and organization
   return { token, id: doc._id, expiresAt: doc.expiresAt };
 }
@@ -65,8 +66,9 @@ export async function verifyAgentToken(token: string | null | undefined): Promis
   const b = Buffer.from(hash, 'hex');
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   if (doc.expiresAt.getTime() <= Date.now()) return null; // the TTL monitor runs about once a minute
-  const d = await c.devices.findOne({ _id: doc.deviceId }, { projection: { name: 1, ownerId: 1, orgId: 1, revokedAt: 1 } });
+  const d = await c.devices.findOne({ _id: doc.deviceId }, { projection: { name: 1, ownerId: 1, orgId: 1, revokedAt: 1, hash: 1 } });
   if (!d || d.revokedAt || d.ownerId !== doc.ownerId || d.orgId !== doc.orgId) return null;
+  if (!doc.keyHash || d.hash !== doc.keyHash) return null; // made with a key the computer no longer has (a replace raced it)
   return { id: doc._id, deviceId: doc.deviceId, deviceName: d.name, orgId: doc.orgId, ownerId: doc.ownerId, projectId: doc.projectId, expiresAt: doc.expiresAt };
 }
 
