@@ -14,6 +14,7 @@ import { openInVscode, resolveCode } from './vscode.mjs';
 import { openInDesktop } from './desktop.mjs';
 import { connectPush } from './push.mjs';
 import { startUpdateCheck } from './update.mjs';
+import * as hooksInstall from './hooks-install.mjs';
 
 const log = (m) => console.log(`${new Date().toISOString()} ${m}`);
 
@@ -39,6 +40,9 @@ async function run() {
   const push = connectPush({ getCfg: loadConfig, getToken, onWake: () => loop?.wake(), onUp: (up) => { log(up ? 'push connected' : 'push disconnected'); loop?.wake(); }, log });
   loop = createLoop({ core, getConfig: loadConfig, state, log, pushUp: () => push.up });
   log(`work-os-worker ${VERSION} started`);
+  // After an update the unpacked code is new: bring the installed hooks up to date too (a no-op when none are installed).
+  const refreshed = hooksInstall.refreshIfStale();
+  if (refreshed) log(`hooks refreshed to ${refreshed}`);
   startUpdateCheck({ getBaseUrl: () => loadConfig().baseUrl, log });
   await loop.run();
 }
@@ -49,6 +53,7 @@ function status() {
   console.log('config file:', configPath());
   console.log(JSON.stringify(cfg, null, 2));
   console.log('worker code:', bundleId() ? `downloaded bundle ${bundleId().slice(0, 12)}` : 'run from the repo');
+  { const h = hooksInstall.status(); console.log('hooks:', h.events.length ? `installed, version ${h.version || 'unknown'}${h.stale ? ` (stale, this worker carries ${h.current}; run: hooks install)` : ' (current)'}` : 'not installed'); }
   console.log('device key set:', getToken() ? 'yes' : 'no');
   console.log('last scan:', state.lastScan ? new Date(state.lastScan).toISOString() : 'never');
   console.log('last poll:', state.lastPoll ? new Date(state.lastPoll).toISOString() : 'never');
@@ -77,7 +82,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (cmd === 'run') await run();
     else if (cmd === 'set-token') { setToken(await readSecretFromStdin()); console.log('device key stored'); }
     else if (cmd === 'install') { install(); console.log('autostart installed'); }
-    else if (cmd === 'uninstall') { uninstall(); console.log('autostart removed'); }
+    else if (cmd === 'uninstall') {
+      uninstall(); console.log('autostart removed');
+      try { console.log(hooksInstall.remove() ? 'Work OS hooks removed' : 'no Work OS hooks installed'); } catch (e) { console.log(`hooks not removed: ${String(e.message || e).split('\n')[0].slice(0, 300)}`); }
+    }
     else if (cmd === 'status') status();
     else if (cmd === 'hooks') (await import('./hooks-install.mjs')).cli(process.argv[3]);
     else if (cmd === 'activity') {
@@ -89,7 +97,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       else console.log('(add --titles to print the list on your own console)');
       console.log('(read-only, nothing sent)');
     }
-    else if (cmd === 'setup') await runSetup({ argv: process.argv.slice(3), deps: { getToken, setToken, readSecret: readSecretFromStdin, scanAndReport: scanAndSend, install, prereqs: () => checkPrereqs(loadConfig().roots) } });
+    else if (cmd === 'setup') await runSetup({ argv: process.argv.slice(3), deps: { getToken, setToken, readSecret: readSecretFromStdin, scanAndReport: scanAndSend, install, installHooks: hooksInstall.install, prereqs: () => checkPrereqs(loadConfig().roots) } });
     else if (cmd === 'scan') {
       if (process.argv.includes('--dry')) {
         const cfg = loadConfig();

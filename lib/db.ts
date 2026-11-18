@@ -387,6 +387,8 @@ export type SettingsDoc = {
   discordLink?: { hash: string; expiresAt: Date } | null;
   /** profile:<userId>: the person hid the first-run checklist on Today. */
   checklistHidden?: boolean;
+  /** profile:<userId> (lib/whats-new-seen.ts): ids from lib/whats-new.ts the person dismissed or opened. */
+  whatsNewSeen?: string[];
   /** mail:<userId> (lib/mail/keys.ts): the person's own Mailloom agent key, sealed, with its visible prefix and the mailbox it opens. */
   mail?: { sealed: string; prefix: string; email: string; savedAt: Date; /** Granted at Connect (lib/mail/connect.ts); absent for a pasted key. */ scopes?: string[]; keyId?: string; via?: 'connect' | 'paste' } | null;
   /** discord:<orgId>: the organization's Discord server (set by the operator). */
@@ -489,6 +491,8 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { dependsOn: 1 }, name: 'depends_on' },
       // A parent's subtasks (rollup, the task page, list_tasks parent).
       { key: { parentId: 1 }, name: 'parent', sparse: true },
+      // The heads of recurring series the alerts cron looks at every 15 minutes (spawnDueOccurrences): only repeating tasks are in it.
+      { key: { orgId: 1, nextRef: 1, due: 1 }, name: 'recurring_heads', partialFilterExpression: { recurrence: { $type: 'object' } } },
     ]],
     ['activity', [
       { key: { taskId: 1, at: -1 }, name: 'task_at' },

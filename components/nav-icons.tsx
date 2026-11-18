@@ -1,4 +1,4 @@
-import { CalendarCheck, CalendarClock, FileText, Folder, History, Inbox, ListChecks, Settings, Sparkles, type LucideIcon } from 'lucide-react';
+import { CalendarCheck, CalendarClock, FileText, Folder, HandHelping, History, Inbox, ListChecks, Megaphone, Settings, Sparkles, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ICON } from '@/lib/ui-tokens';
 
@@ -10,6 +10,8 @@ export const PLACE_ICON = {
   notes: FileText,
   claude: Sparkles,
   inbox: Inbox,
+  needs: HandHelping,
+  whatsnew: Megaphone,
   review: History,
   schedule: CalendarClock,
   settings: Settings,

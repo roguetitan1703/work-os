@@ -5,7 +5,7 @@
 // the app at 1280 (task page section, board chip and "in" line, the "Close the N open subtasks too?" question) and 390
 // (task page section, list row, Leave them open).
 // Seed profile: none.
-import { B, ME, MCP, check, finish, launch, login, makeUser, mcpAs, mkKey, okO, overflow, rawDb, settle } from './lib.mjs';
+import { B, CRON, ME, MCP, check, finish, launch, login, makeUser, mcpAs, mkKey, okO, overflow, rawDb, settle } from './lib.mjs';
 
 const as = (key, name, args = {}) => mcpAs(key, name, args);
 const must = async (key, name, args) => {
@@ -125,8 +125,12 @@ try {
   // ---- a recurring parent's next occurrence gets the subtasks again ----
   const rec = await must(kA, 'add_task', { title: 'Weekly ship', recurrence: { freq: 'weekly', interval: 1 }, due: '2030-02-04', subtasks: [{ title: 'Changelog' }, { title: 'Deploy' }] });
   await must(kA, 'complete_task', { task: rec.subtasks[0].ref });
-  const rc = await must(kA, 'complete_task', { task: rec.created.ref });
-  const nx = rc.nextOccurrence ? await doc(rc.nextOccurrence.ref) : null;
+  await must(kA, 'complete_task', { task: rec.created.ref });
+  // The copy comes on the parent's due date, from the alerts cron (docs/HANDOVER.md "Recurring tasks").
+  const cr = await fetch(`${B}/api/cron/alerts?at=2030-02-04T06:00:00Z`, { headers: { authorization: `Bearer ${CRON}` } }).then(r => r.json());
+  const recDoc = await doc(rec.created.ref);
+  const nx = recDoc?.nextRef ? await doc(recDoc.nextRef) : null;
+  check('recurring: the cron on the due date made the copy', !!nx && cr.copies >= 1, JSON.stringify(cr));
   const nk = nx ? await T.find({ parentId: nx._id }).sort({ ref: 1 }).toArray() : [];
   check('recurring: the next one has the subtasks as new open ones', nk.length === 2 && nk.map(k => k.title).join() === 'Changelog,Deploy' && nk.every(k => k.status === 'Not Started') && nx.subtaskCount?.total === 2, JSON.stringify(nk.map(k => [k.title, k.status])));
 

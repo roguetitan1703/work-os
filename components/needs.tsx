@@ -11,6 +11,7 @@ import type { Need } from '@/lib/data/needs';
 import { cn } from '@/lib/utils';
 import { useApp } from './app-context';
 import { usePhone } from './mobile/use-phone';
+import { MEmpty } from './mobile/sub-header';
 
 const KIND_LABEL: Record<Need['kind'], string> = { decide: 'Decide', approve: 'Approve', review: 'Review', do: 'Do', chase: 'Chase' };
 
@@ -152,10 +153,14 @@ function fmtWait(ms: number): string {
   return h < 48 ? `${h} h` : `${Math.round(h / 24)} days`;
 }
 
-/** The block at the top of Today (desktop and phone): what waits on the signed-in person. Nothing when nothing does. */
-export function NeedsYou({ needs, phone }: { needs: Need[]; phone: boolean }) {
+/**
+ * The block at the top of Today and Tasks (desktop and phone): what waits on the signed-in person. Nothing when nothing
+ * does. `max` shows the first few; `seeAll` adds a "See all" link (the Needs page).
+ */
+export function NeedsYou({ needs, phone, max, seeAll }: { needs: Need[]; phone: boolean; max?: number; seeAll?: string }) {
   const [gone, setGone] = useState<Set<string>>(new Set());
   const list = needs.filter(n => !gone.has(n.id));
+  const shown = max ? list.slice(0, max) : list;
   // A push or a DM link opens /today#need-<ref>: scroll that card into view (both layouts exist in the page; take the visible one).
   useEffect(() => {
     const m = window.location.hash.match(/^#need-(\d+)$/);
@@ -166,12 +171,19 @@ export function NeedsYou({ needs, phone }: { needs: Need[]; phone: boolean }) {
   if (!list.length) return null;
   return (
     <section data-section="needs-you" className={phone ? 'mt-3' : ''}>
-      <h2 className={cn('font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400', phone ? 'px-1 mb-1.5 text-[13px]' : 'mb-1.5 text-xs')}>
-        Needs you
-        <span className="ml-1.5 font-normal text-muted-foreground">{list.length}</span>
-      </h2>
+      <div className={cn('flex items-center justify-between', phone ? 'px-1 mb-1.5' : 'mb-1.5')}>
+        <h2 className={cn('font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400', phone ? 'text-[13px]' : 'text-xs')}>
+          Needs you
+          <span className="ml-1.5 font-normal text-muted-foreground">{list.length}</span>
+        </h2>
+        {seeAll && (
+          <Link href={seeAll} data-needs-see-all className={cn('text-muted-foreground hover:text-foreground', phone ? 'inline-flex items-center min-h-11 -my-3 text-[13px]' : 'text-xs')}>
+            See all ›
+          </Link>
+        )}
+      </div>
       <div className="space-y-2">
-        {list.map(n => (
+        {shown.map(n => (
           <NeedCard key={n.id} need={n} phone={phone} onAnswered={id => setGone(g => new Set(g).add(id))} />
         ))}
       </div>
@@ -189,13 +201,47 @@ export function NeedsTab({ needs }: { needs: Need[] }) {
     <div className="space-y-5 max-w-3xl" data-view="needs">
       <section className="space-y-2">
         <h2 className="px-1 md:px-0 text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider">Open · {open.length}</h2>
-        {open.length === 0 && <p className="text-sm text-muted-foreground px-1 md:px-0">Nothing is waiting on anyone in this project.</p>}
+        {open.length === 0 && (
+          <p className="text-sm text-muted-foreground px-1 md:px-0" data-needs-empty>
+            Nothing is waiting on anyone in this project. When a Claude session or a teammate asks someone here to decide, approve or do something, or hands in work for review, it shows here.
+          </p>
+        )}
         <div className="space-y-2">{open.map(n => <NeedCard key={n.id} need={n} phone={phone} canAnswer={n.to === me} />)}</div>
       </section>
       {closed.length > 0 && (
         <section className="space-y-2">
           <h2 className="px-1 md:px-0 text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider">Recently closed</h2>
           <div className="space-y-2">{closed.map(n => <NeedCard key={n.id} need={n} phone={phone} canAnswer={false} />)}</div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+/** The Needs page (/needs): what waits on the signed-in person, then what they answered in the last days. */
+export function MyNeeds({ open, answered }: { open: Need[]; answered: Need[] }) {
+  const phone = usePhone();
+  const H2 = 'px-1 md:px-0 mb-1.5 text-[13px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider';
+  return (
+    <div className="space-y-5" data-view="my-needs">
+      <section>
+        <h2 className={H2}>Waiting on you · {open.length}</h2>
+        {open.length === 0 ? (
+          <div data-needs-empty>
+            <MEmpty
+              icon={<HandHelping className="w-5 h-5" />}
+              title="Nothing waits on you"
+              hint="When a Claude session or a teammate needs you to decide, approve or do something, or hands in work for you to review, it shows here and on Today. You answer with a tap."
+            />
+          </div>
+        ) : (
+          <div className="space-y-2">{open.map(n => <NeedCard key={n.id} need={n} phone={phone} />)}</div>
+        )}
+      </section>
+      {answered.length > 0 && (
+        <section data-needs-answered>
+          <h2 className={H2}>Answered recently</h2>
+          <div className="space-y-2">{answered.map(n => <NeedCard key={n.id} need={n} phone={phone} canAnswer={false} />)}</div>
         </section>
       )}
     </div>

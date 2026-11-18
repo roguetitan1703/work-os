@@ -36,9 +36,11 @@ type Props = {
   projects: { id: string; name: string; private?: boolean }[];
   filters: { project: string; mode: string; due: string; q: string; assigned: string };
   focusSearch?: boolean;
+  /** Under the title (Needs you). */
+  top?: React.ReactNode;
 };
 
-export function BoardClient({ tasks, projects, filters, focusSearch = false }: Props) {
+export function BoardClient({ tasks, projects, filters, focusSearch = false, top }: Props) {
   const searchBox = useRef<HTMLInputElement>(null);
   const { modes, color } = useModes();
   useEffect(() => {
@@ -119,6 +121,8 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false }: P
           </Select>
         </div>
       </div>
+
+      {top}
 
       <QuickAddBar defaults={{ project: projectName }} />
 

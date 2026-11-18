@@ -12,23 +12,23 @@ import { QuickAddSheet } from './quick-add-sheet';
 import { BellButton } from './bell';
 import { openSearch } from '../global-search';
 
-type TabKey = 'today' | 'projects' | 'claude' | 'tasks';
+type TabKey = 'today' | 'projects' | 'needs' | 'tasks';
 const TABS: ({ key: TabKey; href: string; label: string; icon: typeof Menu } | null)[] = [
   { key: 'today', href: '/today', label: 'Today', icon: PLACE_ICON.today },
   { key: 'projects', href: '/projects', label: 'Projects', icon: PLACE_ICON.projects },
   null, // + in the middle
-  { key: 'claude', href: '/claude', label: 'Claude', icon: PLACE_ICON.claude },
+  { key: 'needs', href: '/needs', label: 'Needs', icon: PLACE_ICON.needs },
   { key: 'tasks', href: '/tasks', label: 'Tasks', icon: PLACE_ICON.tasks },
 ];
 
-/** Phone navigation: Today, Projects, a centre "add" button, Claude and Tasks, above the home indicator. */
+/** Phone navigation: Today, Projects, a centre "add" button, Needs and Tasks, above the home indicator. Claude is in the Menu. */
 export function TabBar() {
   const path = usePathname();
   const router = useRouter();
   const { badges } = useApp();
   const [adding, setAdding] = useState(false);
   const lit = phoneTabOf(path);
-  const count: Record<TabKey, number> = { today: badges.overdue, claude: badges.claudeWaiting, projects: 0, tasks: 0 };
+  const count: Record<TabKey, number> = { today: badges.overdue, needs: badges.needs ?? 0, projects: 0, tasks: 0 };
   // Home-screen shortcut "New task" opens /today?add=1.
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('add') !== '1') return;
@@ -119,6 +119,9 @@ export function MobileHeader({
   nav?: boolean;
 }) {
   const path = usePathname();
+  const { badges } = useApp();
+  // Something inside the Menu wants a look: Claude waiting on you (amber; Claude is no longer a tab) or something new (blue).
+  const menuDot = badges.claudeWaiting ? 'bg-amber-500' : badges.whatsNew ? 'bg-blue-500' : null;
   return (
     <header
       className="md:hidden sticky -top-3 z-30 -mx-4 -mt-3 px-4 pb-3 pt-3 bg-background/85 backdrop-blur-xl"
@@ -139,8 +142,9 @@ export function MobileHeader({
             )}
             {bell && <BellButton />}
             {nav && path !== '/menu' && (
-              <Link href="/menu" aria-label="Menu" className="w-11 h-11 -mr-2 flex items-center justify-center rounded-full active:bg-muted">
+              <Link href="/menu" aria-label={menuDot ? (badges.claudeWaiting ? 'Menu, Claude waits on you' : 'Menu, something new') : 'Menu'} className="relative w-11 h-11 -mr-2 flex items-center justify-center rounded-full active:bg-muted">
                 <Menu className="w-[22px] h-[22px]" />
+                {menuDot && <span data-menu-dot className={cn('absolute right-2 top-2.5 w-2 h-2 rounded-full ring-2 ring-background', menuDot)} aria-hidden />}
               </Link>
             )}
           </div>

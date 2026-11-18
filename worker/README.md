@@ -6,13 +6,13 @@ Small Node program (Node 22+, no npm dependencies) that lets Work OS start, resu
 
 **From Work OS, without the repo (the way for teammates).** In Work OS open Claude, Setup, Computers, type a name and press Add. It shows the new key once and one command per OS (Windows PowerShell, macOS Terminal). The command downloads `/worker/work-os-worker.mjs` (the worker as one file, served by your Work OS) to a folder of your own (`%LOCALAPPDATA%\WorkOS` or `~/.work-os`), checks its sha256 against the one Work OS shows (that catches a damaged or half-finished download only: the file and the checksum come from the same Work OS, so it says nothing about who made them), and runs `setup --server <your Work OS>`. Paste the key when setup asks (hidden); it is never part of the command, so it stays out of your shell history. Setup first checks Node 22+ and Claude Code and says what is missing, with a link. The file unpacks the code into a `worker` folder beside it; autostart runs from there.
 
-**Updating.** The worker asks `/worker/latest.json` at start and every 6 hours; if Work OS serves a different bundle it writes "a newer worker is available" to `worker.log`, and Claude, Setup, Computers shows "update available" on that computer (the worker reports which bundle it runs, 12 characters of its sha256). To update, run the same command again (settings and key are kept: press Enter at each question); the supervisor restarts the worker on its own when the unpacked code changes. The worker never downloads or swaps its own code: code arriving from the server would let anyone who controls the server run programs on every teammate's computer, so a person pastes the command (with its checksum) each time. Runs from the repo never ask.
+**Updating.** The worker asks `/worker/latest.json` at start and every 6 hours; if Work OS serves a different bundle it writes "a newer worker is available" to `worker.log`, and Claude, Setup, Computers shows "update available" on that computer (the worker reports which bundle it runs, 12 characters of its sha256). To update, run the same command again (settings and key are kept: press Enter at each question; setup refreshes the installed hooks too, and a worker that starts with newer hook files than the installed ones refreshes them itself); the supervisor restarts the worker on its own when the unpacked code changes. The worker never downloads or swaps its own code: code arriving from the server would let anyone who controls the server run programs on every teammate's computer, so a person pastes the command (with its checksum) each time. Runs from the repo never ask.
 
 **From the repo.** Install Node 22+ (Windows also needs Windows Terminal; wt.exe). Create a device key in Work OS (Claude, Setup, Computers), then from the work-os repo run:
    ```
    node worker/worker.mjs setup
    ```
-   It asks only for what is missing (server, device name, folder to scan, then the key, hidden), checks the key with one real call (a refused key stops it with "key refused"), stores the key with DPAPI or the Keychain (never in config.json), writes config.json, scans and reports folders, and installs autostart. Optional flags: `--server URL --name NAME --root DIR` (repeat `--root`) `--projects DIR` (where Work OS clones new repos; default: the first `--root`). Safe to rerun; existing settings such as `allowPrompts` are kept.
+   It asks only for what is missing (server, device name, folder to scan, then the key, hidden), checks the key with one real call (a refused key stops it with "key refused"), stores the key with DPAPI or the Keychain (never in config.json), writes config.json, scans and reports folders, installs autostart, and installs the Work OS hooks into `~/.claude/settings.json` (one line says so; if that fails it says why and setup still finishes; see docs/setup-pc.md). Optional flags: `--server URL --name NAME --root DIR` (repeat `--root`) `--projects DIR` (where Work OS clones new repos; default: the first `--root`). Safe to rerun; existing settings such as `allowPrompts` are kept.
 2. Open a project in Work OS, Sessions, and link a folder.
 
 ## Manual setup
@@ -57,7 +57,7 @@ The worker keeps one stream open to Work OS (`GET /api/worker/stream`, `push.mjs
 
 ## Commands
 
-`run` (default), `setup`, `set-token`, `install`, `uninstall`, `status`, `scan [--dry]`, `activity [--titles]`.
+`run` (default), `setup`, `set-token`, `install`, `uninstall` (also removes the hooks), `status` (shows the hooks version), `hooks install|remove|status`, `scan [--dry]`, `activity [--titles]`.
 
 The scan offers git repos, folders with a project file (package.json, pyproject.toml, …) and every parent folder above them (below the root), so a client folder that holds several repos can be linked too.
 

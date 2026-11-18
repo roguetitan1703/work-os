@@ -25,7 +25,8 @@ linked by "Blocked by" (`dependsOn`); what is missing is "part of".
 - **Lists.** Subtasks stay real tasks (own assignees, due date, status, Claude). In lists and the board they show a
   small "in <parent title>" line; a parent shows the "3/8" chip. The task page has a Subtasks section: add (title,
   Enter), tick done, open, detach.
-- **Recurring parent.** The next occurrence copies the subtasks' titles as new open subtasks (like the checklist).
+- **Recurring parent.** The next occurrence (made on the parent's due date by the alerts cron, done or not) copies
+  the subtasks' titles and assignees as new open subtasks (like the checklist).
 
 ## MCP
 

@@ -199,7 +199,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   save_state: {
     title: 'Save State',
     description:
-      'Change the project’s State with ops, in one call: set_now {text, holder?}; add_next {text, ref?, waits_on?}; move_next {id, to: top|bottom|a position}; done_next {id}; add_later {text, waits_on?}; promote_later {id, priority?} (the line becomes a task); add_decision {text}; archive_decision {id} (app only: not available through MCP); set_where {machine, branch?, head?, dirty?, worktrees?}. set_now, move_next and done_next need base_version (the State version you read): if it is stale nothing is written and the current State comes back, so merge and retry. Appends (add_next, add_later, add_decision, set_where) never clash. Every write bumps the version. The answer holds the State and its WORK-STATE.md text; the Work OS hook writes and commits that file (where no hook is installed, write it unchanged). Never edit WORK-STATE.md by hand. Call it on stop and at every merge; any agent may append, but only the project’s orchestrator rewrites Now or reorders Next.',
+      'Change the project’s State with ops, in one call: set_now {text, holder?}; add_next {text, ref?, waits_on?}; move_next {id|find, to: top|bottom|a position}; done_next {id|find}; add_later {text, waits_on?}; promote_later {id|find, priority?} (the line becomes a task); add_decision {text}; archive_decision {id|find} (app only: not available through MCP); edit_line {find, new} (replaces find with new inside the one Now, Next or Later line that holds it; an empty new removes the line: a Next line counts as done, a Later line as dropped, both kept in the history; the edited line becomes yours). find is text inside exactly one line, case-sensitive; no match or several = an error naming the candidates and nothing written, so use more of the line. Decisions are never edited. set_where {machine, branch?, head?, dirty?, worktrees?}. set_now, move_next, done_next and edit_line need base_version (the State version you read): if it is stale nothing is written and the current State comes back, so merge and retry. Appends (add_next, add_later, add_decision, set_where) never clash. Every write bumps the version. The answer holds the State and its WORK-STATE.md text; the Work OS hook writes and commits that file (where no hook is installed, write it unchanged). Never edit WORK-STATE.md by hand. Call it on stop and at every merge; any agent may append, but only the project’s orchestrator rewrites Now or reorders Next.',
     writes: true,
     example: 'Add "wire the webhook" to Next and note that we chose Mongo',
   },
@@ -286,7 +286,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   complete_task: {
     title: 'Complete task',
-    description: 'Mark a task Done (progress 100). Recurring tasks automatically get their next occurrence created (with their subtasks as new open ones). A parent’s open subtasks are left open and listed in the answer (openSubtasks): complete or drop the finished ones yourself.',
+    description: 'Mark a task Done (progress 100). Completing a recurring task makes no copy: its next occurrence appears on its due date, done or not (nextOccurrence in the answer, once it exists). A parent’s open subtasks are left open and listed in the answer (openSubtasks): complete or drop the finished ones yourself.',
     writes: true,
     example: 'Mark #12 done, invoice sent',
   },

@@ -1,10 +1,10 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { Filter } from 'mongodb';
-import { requestContext } from '../request-context';
+import { requestContext, runWithRequestContext } from '../request-context';
 import { inTransaction, nextSeq, toActivity, type ActivityDoc, type ClaudeMark, type ProjectDoc, type TaskDoc, type TrashDoc } from '../db';
 import { canSee, forUser, orgWide, readableFilter, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
-import { asActor, isAgent, isPerson, actorUserId, type ActorFilter, type TextAuthor } from '../actors';
+import { SYSTEM, asActor, isAgent, isPerson, actorUserId, type ActorFilter, type TextAuthor } from '../actors';
 import {
   CLOSED_STATUSES,
   OPEN_STATUSES,
@@ -31,7 +31,7 @@ import {
   type TaskPatch,
   type TaskSource,
 } from '../types';
-import { addDays, addMonths, resolveDate, todayStr, weekday, weekStart } from '../dates';
+import { DEFAULT_TZ, addDays, addMonths, dateInTz, resolveDate, todayStr, weekday, weekStart } from '../dates';
 import { placeIn, placeNotes, placeOf, placeTasks, resolveProject, samePlace, toProject, type Placement } from './projects';
 import { InputError, NotFoundError } from './errors';
 import { MAX_ASSIGNEES, assignedTo, assigneesOf, canBeAssigned, unassigned } from '../assignees';
@@ -467,7 +467,7 @@ async function insertTask(
   s: Scope,
   data: ReturnType<typeof TaskInputSchema.parse>,
   actor: Actor,
-  opts: { note?: string; source?: TaskSource; ownerId?: string; authors?: TextAuthors } = {},
+  opts: { note?: string; source?: TaskSource; ownerId?: string; authors?: TextAuthors; quietAssign?: boolean } = {},
 ): Promise<TaskDoc> {
   const au = opts.authors ?? {};
   const now = new Date();
@@ -523,7 +523,7 @@ async function insertTask(
   };
   await c.tasks.insertOne(doc);
   await logActivity(c, doc, actor, 'created', { note: opts.note });
-  for (const a of assigneeIds) await queueAssigned(s, doc, a, actor);
+  if (!opts.quietAssign) for (const a of assigneeIds) await queueAssigned(s, doc, a, actor);
   if (parent) await rollUp(c, parent._id);
   return doc;
 }
@@ -792,9 +792,7 @@ async function updateTaskCore(s: Scope, key: string | number, data: ReturnType<t
   if (tookBack) next.claude = (await c.tasks.findOne({ _id: cur._id }, { projection: { claude: 1 } }))?.claude ?? next.claude;
   // A task someone gave to Claude: Done or Blocked ends the dispatcher's run (docs/dispatcher.md).
   if (statusChanged && next.claude?.state === 'running') await onTaskChanged(c, s, next);
-  if (statusChanged && status === 'Done' && next.recurrence && !next.nextRef) {
-    next.nextRef = await spawnNextOccurrence(c, s, next, actor);
-  }
+  // A recurring task's next copy is not made here: it comes on the calendar (spawnDueOccurrences, the alerts cron).
   return toTask(next);
 }
 
@@ -1145,46 +1143,126 @@ function advance(date: string, r: Recurrence): string {
   }
 }
 
-async function spawnNextOccurrence(c: Collections, s: Scope, done: TaskDoc, actor: Actor): Promise<number> {
-  const today = todayStr();
-  const r = done.recurrence!;
-  let due = advance(done.due ?? today, r);
-  while (due <= today) due = advance(due, r);
-  const shift = done.due && done.start ? Math.round((Date.parse(done.due) - Date.parse(done.start)) / 86_400_000) : null;
-  // The copy's text is still whoever wrote the original's (an unknown author stays unknown), not the person completing it.
+// A series is the chain of copies linked by nextRef. Its head is the latest copy: it repeats (recurrence), has no
+// nextRef, and is not archived (a trashed task has left the tasks collection). The alerts cron calls
+// spawnDueOccurrences every 15 minutes: on the day a head is due, in its owner's timezone, it makes the next copy,
+// whatever the head's status (unfinished copies stay open, overdue; a Dropped head repeats like a done one). Repeat set
+// to Never, trashing or archiving the head, or its owner leaving the organization ends the series; completing a task
+// makes no copy. A head without a due date counts from the day it was made. Nothing to migrate: heads already in the
+// database are picked up on the next run.
+
+/** Query: the heads of series (the partial index recurring_heads in lib/db.ts serves it). */
+const SERIES_HEAD = { recurrence: { $type: 'object' }, nextRef: null, archived: false } as const;
+
+/** Most heads looked at in one cron run, across organizations. */
+export const SPAWN_LIMIT = 200;
+
+/**
+ * The cron's sweep: the next copy of every series whose head is due (today or earlier) in these organizations. At most
+ * `limit` heads a run, oldest due first; the rest wait for the next run. Safe when runs overlap: see spawnFrom.
+ */
+export async function spawnDueOccurrences(orgIds: string[], opts: { now?: Date; limit?: number } = {}): Promise<{ made: number; errors: string[] }> {
+  const now = opts.now ?? new Date();
+  // The latest calendar date anywhere (UTC+14): no owner's today is later, so this bound misses nothing that is due.
+  const latest = dateInTz(now, 'Etc/GMT-14');
+  const { timezoneOf } = await import('../profile');
+  const { memberNames } = await import('../people');
+  const zones = new Map<string, string>();
+  let budget = opts.limit ?? SPAWN_LIMIT;
+  let made = 0;
+  const errors: string[] = [];
+  for (const orgId of new Set(orgIds)) {
+    if (budget <= 0) break;
+    // Org-wide read of the candidates only; each copy is then made through its owner's own scope. A series whose owner
+    // has left the organization stops (their private things are kept as they are, docs/multi-user.md).
+    const org = await orgWide(orgId);
+    const owners = Object.keys(await memberNames(orgId));
+    const heads = await org.tasks.find({ ...SERIES_HEAD, ownerId: { $in: owners }, $or: [{ due: null }, { due: { $lte: latest } }] }).sort({ due: 1, ref: 1 }).limit(budget).toArray();
+    budget -= heads.length;
+    for (const h of heads) {
+      const s: Scope = { userId: h.ownerId, orgId };
+      try {
+        let tz = zones.get(s.userId);
+        if (!tz) zones.set(s.userId, (tz = await timezoneOf(s).catch(() => DEFAULT_TZ)));
+        const today = dateInTz(now, tz);
+        if ((h.due ?? dateInTz(h.createdAt, tz)) > today) continue;
+        if (await runWithRequestContext({ userId: s.userId, tz }, () => spawnFrom(s, h._id, today))) made++;
+      } catch (e) {
+        errors.push(`recurring #${h.ref}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+  return { made, errors };
+}
+
+/**
+ * One head's next copy, in one transaction: the claim (the head's nextRef set while it is still null), the copy and
+ * its subtasks, then nextRef set to the copy's number. Two runs on the same head: the second one's claim meets the
+ * first one's write, its transaction retries, finds nextRef set and makes nothing. A run that fails part-way rolls
+ * back whole, so no claim is ever left behind. Returns whether a copy was made.
+ */
+async function spawnFrom(s: Scope, headId: string, today: string): Promise<boolean> {
+  return inTransaction(async () => {
+    const c = await scoped(s);
+    const head = await c.tasks.findOneAndUpdate({ _id: headId, ...SERIES_HEAD }, { $set: { nextRef: 0 } }, { returnDocument: 'after' });
+    if (!head) return false;
+    const ref = await makeNextOccurrence(c, s, head, today);
+    await c.tasks.updateOne({ _id: head._id }, { $set: { nextRef: ref } });
+    return true;
+  });
+}
+
+/**
+ * The next copy of a head: due on the first beat after the head's due (or the day it was made) that is today or later,
+ * so a server that missed weeks makes one copy, not a backlog. The start keeps its distance before the due; the
+ * checklist comes unticked and the subtasks as new open ones; the text keeps its authors; the owner, the assignees
+ * (those who can still be assigned) and the result kind stay. The history says "Next occurrence of #N", by the system.
+ */
+async function makeNextOccurrence(c: Collections, s: Scope, head: TaskDoc, today: string): Promise<number> {
+  const r = head.recurrence!;
+  let due = advance(head.due ?? dateInTz(head.createdAt), r);
+  while (due < today) due = advance(due, r);
+  const shift = head.due && head.start ? Math.round((Date.parse(head.due) - Date.parse(head.start)) / 86_400_000) : null;
+  // The copy's text is still whoever wrote the original's (an unknown author stays unknown).
   const { taskAuthors } = await import('./authors');
-  const a = await taskAuthors(s, done);
+  const a = await taskAuthors(s, head);
+  // Where the copy will live (insertTask places it the same way), and who may be assigned there now.
+  const project = head.projectId ? await c.projects.findOne({ _id: head.projectId }) : null;
+  const parent = head.parentId ? await c.tasks.findOne({ _id: head.parentId }) : null;
+  const { memberNames } = await import('../people');
+  const members = await memberNames(s.orgId);
+  const keep = (ids: string[], place: Placement) => ids.filter(id => Object.hasOwn(members, id) && canBeAssigned(place, id));
+  const note = `Next occurrence of #${head.ref}`;
   const next = await insertTask(
     c,
     s,
     {
-      title: done.title,
-      description: done.description,
-      mode: done.mode,
-      project: done.projectId,
-      priority: done.priority,
-      tags: done.tags,
+      title: head.title,
+      description: head.description,
+      mode: head.mode,
+      priority: head.priority,
+      tags: head.tags,
       due,
       start: shift != null ? addDays(due, -shift) : null,
-      estimateMins: done.estimateMins,
-      checklist: done.checklist.map(i => i.text),
-      links: done.links,
+      estimateMins: head.estimateMins,
+      checklist: head.checklist.map(i => i.text),
+      links: head.links,
       recurrence: r,
-      ...(done.resultKind ? { resultKind: done.resultKind } : {}),
-      ...(done.parentId && (await c.tasks.findOne({ _id: done.parentId }, { projection: { _id: 1 } })) ? { parent: done.parentId } : {}),
+      assignees: keep(assigneesOf(head), parent ? placeUnder(project, parent, head.ownerId) : placeIn(project, head.ownerId)),
+      ...(head.resultKind ? { resultKind: head.resultKind } : {}),
+      // A subtask's copy goes under the same parent, in its project; a project that is gone leaves the copy in none.
+      ...(parent ? { parent: parent._id } : { project: project?._id ?? null }),
     },
-    actor,
-    // The next one belongs to whoever owned this one (a shared task completed by a teammate stays theirs).
-    {
-      note: `Next occurrence of #${done.ref}`,
-      ownerId: done.ownerId,
-      authors: { title: a.title, description: a.description, tags: a.tags, checklist: a.checklist, links: a.links },
-    },
+    SYSTEM,
+    // The copy belongs to whoever owned the head. Its assignees had the series already: no "assigned" notice each time.
+    { note, ownerId: head.ownerId, quietAssign: true, authors: { title: a.title, description: a.description, tags: a.tags, checklist: a.checklist, links: a.links } },
   );
-  await c.tasks.updateOne({ _id: done._id }, { $set: { nextRef: next.ref } });
-  // Its subtasks come back as new open subtasks of the next one, like the checklist (Dropped ones are left out).
-  const kids = await c.tasks.find({ parentId: done._id, status: { $ne: 'Dropped' } }, { projection: { title: 1, ownerId: 1 } }).sort({ ref: 1 }).toArray();
-  for (const k of kids) await insertTask(c, s, { title: k.title, parent: next._id }, actor, { note: `Next occurrence of #${done.ref}`, ownerId: k.ownerId });
+  // Its subtasks come back as new open subtasks of the copy, like the checklist (Dropped ones are left out).
+  const kids = await c.tasks.find({ parentId: head._id, status: { $ne: 'Dropped' } }, { projection: { title: 1, ownerId: 1, assigneeIds: 1, assigneeId: 1 } }).sort({ ref: 1 }).toArray();
+  for (const k of kids) {
+    const assignees = keep(assigneesOf(k), placeUnder(project, next, k.ownerId));
+    await insertTask(c, s, { title: k.title, parent: next._id, assignees }, SYSTEM, { note, ownerId: k.ownerId, quietAssign: true });
+  }
   return next.ref;
 }
 

@@ -26,6 +26,8 @@ const ROUTE_LIST: [string, string][] = [
   [`/notes/${S}`, '/notes/[id]'],
   [`/modes/${S}`, '/modes/[mode]'],
   ['/notifications', '/notifications'],
+  ['/needs', '/needs'],
+  ['/whats-new', '/whats-new'],
   ['/review', '/review'],
   ['/settings', '/settings'],
   ['/claude', '/claude'],

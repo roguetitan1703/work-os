@@ -8,7 +8,7 @@
 //   - a dispatched task that goes to review sends the review alert, not "Claude finished";
 //   - an agent cannot loosen a task's kind to get past the gate.
 // Seed profile: none.
-import { B, ME, MCP, check, finish, launch, login, makeUser, mkKey, rawDb, setProfile } from './lib.mjs';
+import { B, CRON, ME, MCP, check, finish, launch, login, makeUser, mkKey, rawDb, setProfile } from './lib.mjs';
 import { mcpH, must, sleep } from './flow-lib.mjs';
 
 const col = n => rawDb.collection(n);
@@ -234,14 +234,16 @@ try {
     check('accept and file: the filed title is labelled as the agent\'s text, not the owner\'s', !!filedSeen.titleWrittenBy && /Claude Code/.test(filedSeen.titleWrittenBy), JSON.stringify([filedSeen.titleWrittenBy]));
 
     // A recurring task keeps its kind in the next occurrence
-    const rc = await mk('Recurring code', 'code', { due: '+1d', recurrence: { freq: 'daily', interval: 1 } });
+    const rc = await mk('Recurring code', 'code', { due: 'today', recurrence: { freq: 'daily', interval: 1 } });
     await mcpH(kA, 'hand_in', { task: rc.ref, changed: 'Did today\'s' });
     await decide(rc.ref, 'accept');
+    const rk = await mk('Recurring check', 'check', { due: 'today', recurrence: { freq: 'daily', interval: 1 } });
+    await mcpH(kA, 'complete_task', { task: rk.ref });
+    // The next copies come on the due date (today), from the alerts cron (docs/HANDOVER.md "Recurring tasks").
+    await fetch(`${B}/api/cron/alerts`, { headers: { authorization: `Bearer ${CRON}` } });
     const rcd = await task(rc.ref);
     const nxt = rcd.nextRef ? await task(rcd.nextRef) : null;
     check('recurring: the next occurrence keeps the result kind', !!nxt && nxt.resultKind === 'code', JSON.stringify([rcd.nextRef, nxt?.resultKind]));
-    const rk = await mk('Recurring check', 'check', { due: '+1d', recurrence: { freq: 'daily', interval: 1 } });
-    await mcpH(kA, 'complete_task', { task: rk.ref });
     const rkd = await task(rk.ref);
     check('recurring: a check task finishes and its next keeps "check"', rkd.status === 'Done' && (await task(rkd.nextRef))?.resultKind === 'check');
 
