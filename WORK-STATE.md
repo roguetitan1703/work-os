@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 30. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 31. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -43,7 +43,8 @@ Copy of the Work OS state, version 30. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov: no-State hotfix 3596c54 live (WSL build, deployed over SSH; previous 865c699 removed). Checked live: get_state on PMS (no State) gives the make-it-now text; import_state on a throwaway project left History and Done out and named them (project archived). Master merged into dev (ad99b8c, no code change). AKAR's Later trim waits on R1's edit_line. (Om, chat)
 - 2026-11-18: 19 Nov, Om: the agents-and-Work-OS plan (docs/flows/agent-system.md, from the 18 Nov Fable review: hooks, rules, State, Needs, transfer, wrap_up/hand_over/declutter, live sessions) is named Harness. R1 is only the release that carries Harness part 1 plus other features. (Om, chat)
 - 2026-11-18: 19 Nov, Om: ship Harness end to end and verify it; Opus writes each part's implementation plan, Sonnet builds from it; ask Om when a part drifts, duplicates or could be done better. Checklist #276 (H0-H16). The 'live sessions and messaging design' Next line is now H3, H6, H7 (closed as covered). (Om, chat)
+- 2026-11-18: 19 Nov, Om (chat): #259 Agent fleet folded into Harness (#261 Done, the rest Dropped naming the part that covers them). H17 added: Fable reviews the whole Harness after H16. H2 reshaped: hooks on any new PC with one command via the worker setup, cloud repos one line, a plugin only if a PC must run without the worker. Needs: when Om is in the conversation, ask in chat; a Need only when he is away or it's for someone else (proposed Orders change; H1 rewrites the texts). (Om, chat)
 
 ## Where
 - Victus-Knight: dev ad99b8c (2026-11-18 20:46)
-<!-- work-os-copy sha1:d06e2fc24df702e0ba2b5974023f0a2c34b5ac90 -->
+<!-- work-os-copy sha1:369af7ee9bc0fff1787cdd860fa4ad8eab7fa639 -->
