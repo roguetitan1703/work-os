@@ -48,7 +48,8 @@ In Work OS: Claude › Setup › Claude Code key. Add it to the `env` block of `
 ```json
 "env": { "WORK_OS_KEY": "wos_..." }
 ```
-Never paste the key into a chat, and never into `~/.claude.json`. (Planned: the hooks sign in with the worker's device
+Never paste the key into a chat, and never into `~/.claude.json`.
+Without the browser (the owner on a PC that has the database credentials in `.env.local`): `node scripts/make-key.mjs --db <database> --email <you> --name "Hooks · <pc>" --apply` creates the key the way the app does and writes it into the settings file without showing it (Om's PC, 18 Nov: "Hooks · Victus-Knight"). (Planned: the hooks sign in with the worker's device
 key, and this step goes away; agent-system.md section 4.)
 - Check: start a new session in a repo that has a Work OS project; its first context says "Work OS brief for this
   project".
