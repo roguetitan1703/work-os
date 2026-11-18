@@ -17,22 +17,21 @@ Then in Claude Code type `/mcp`, pick work-os, Authenticate, and press Allow on 
   Code sessions (each connection lists every tool again and costs tokens), keep it for claude.ai chat.
 - Check: in a session, ask "call get_state for work-os"; it answers with the State.
 
-## 3. The Work OS worker
+## 3. The Work OS worker and hooks (one step)
 In Work OS open Claude › Setup › Computers, type a name for this PC, press Add, and run the command it shows (it
 downloads the worker, checks its checksum and runs `setup`; paste the device key when asked, it is never part of the
-command). Details: worker/README.md.
-- Check: Claude › Setup › Computers shows this PC as online.
+command). At its end `setup` also installs the Work OS hooks (global, every folder): it copies `hook.mjs` to the
+worker's config folder (`%APPDATA%work-os-workerhooks` on Windows) and adds four entries to
+`~/.claude/settings.json`, keeping a dated backup and every other setting. It never touches `~/.claude.json`. If the
+hook install fails, setup says why and still finishes; retry with `node worker.mjs hooks install` from the worker
+folder (`%LOCALAPPDATA%WorkOSworker` on Windows, `~/.work-os/worker` on macOS; from the repo: `worker/`).
+After a worker update (run the same command again) setup refreshes the hooks too, and a worker that starts with
+newer code than the installed hooks refreshes them itself, so `hook.mjs` never goes stale. `hooks status` and
+`worker.mjs status` show the installed hooks version; `hooks remove` (or `worker.mjs uninstall`) takes them out.
+Details: worker/README.md.
+- Check: Claude › Setup › Computers shows this PC as online; `node worker.mjs hooks status` lists four events.
 
-## 4. The Work OS hooks (global, every folder)
-From the worker folder (`%LOCALAPPDATA%\WorkOS\worker` on Windows, `~/.work-os/worker` on macOS; from the repo:
-`worker/`):
-```bash
-node worker.mjs hooks install
-```
-It copies `hook.mjs` to the worker's config folder (`%APPDATA%\work-os-worker\hooks` on Windows) and adds four
-entries to `~/.claude/settings.json`, keeping a dated backup and every other setting. It never touches
-`~/.claude.json`. Run it again after a worker update; `hooks status` shows what is installed, `hooks remove` takes it
-out.
+## 4. (merged into step 3)
 
 | Event | What it does | Needs a key |
 |---|---|---|

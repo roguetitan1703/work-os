@@ -62,7 +62,7 @@ export async function verifyKey(baseUrl, token, fetchImpl = fetch) {
 const isOldHost = (u) => { try { return new URL(u).hostname.endsWith('.vercel.app'); } catch { return false; } };
 
 export async function runSetup({ argv, deps }) {
-  const { getToken, setToken, readSecret, scanAndReport, install, prereqs, verify = verifyKey, input = process.stdin, defaultServer = DEFAULT_SERVER } = deps;
+  const { getToken, setToken, readSecret, scanAndReport, install, installHooks, prereqs, verify = verifyKey, input = process.stdin, defaultServer = DEFAULT_SERVER } = deps;
   const problems = prereqs ? prereqs() : [];
   if (problems.length) throw new Error(problems.join('\n'));
   const args = parseSetupArgs(argv);
@@ -138,5 +138,9 @@ export async function runSetup({ argv, deps }) {
   console.log(`${n} folders reported`);
   try { install(); console.log('autostart installed'); }
   catch (e) { console.log(`autostart not set: ${String(e.message || e).split('\n')[0].slice(0, 300)}`); }
+  if (installHooks) {
+    try { installHooks(); console.log('Work OS hooks installed (start brief, stop check, WORK-STATE.md guard)'); }
+    catch (e) { console.log(`hooks not installed: ${String(e.message || e).split('\n')[0].slice(0, 300)} (retry: node worker.mjs hooks install)`); }
+  }
   console.log('Done: open a project in Work OS → Sessions to link a folder');
 }
