@@ -59,6 +59,25 @@ A few lines only: call start_work and follow the Orders; status lives in Work OS
 facts about this PC (RAM, disks, shells, limits). The rules themselves live in the Work OS Orders, so every PC gets
 the same ones. The proposed text is in the side-session notes of 18 Nov (rules/global-CLAUDE.md), waiting on Om.
 
+## 6b. Permissions in `~/.claude/settings.json` (global, every project)
+Only rules that hold in every repo go here; a project's own test hosts, cloud projects and deploys are not global
+(Om, 18 Nov: no per-project settings files; those steps ask).
+- `permissions.allow`:
+  - Work OS reads: `start_work get_state get_project get_task list_projects list_tasks list_notes read_note inbox
+    needs recent_activity daily_summary message_status`.
+  - Work OS writes of the agent's own work (the Orders: always theirs): `save_state import_state set_doing
+    log_progress complete_task write_note add_task add_comment update_checklist ask withdraw_need hand_in slot`.
+  - Each written as `mcp__work-os__<tool>`. Not allowed, so they still ask: deletes, `update_task`,
+    `apply_changes`, `send_message`, every mail tool.
+  - Test env files: `Read(**/.env.test.local)`, `Bash(grep * .env.test.local)`, `Bash(cut * .env.test.local)`,
+    `Bash(cat .env.test.local)`.
+- `permissions.deny`: `Edit(~/.claude.json)`.
+- `autoMode.environment`: `$defaults` plus two lines. One says Work OS (work.delpat.in) is Om's own task system,
+  where agents write their own status. The other says `.env.test.local` files hold test-only credentials for their
+  repo's local and test hosts.
+- Check: `node -e "console.log(Object.keys(require(require('os').homedir()+'/.claude/settings.json').permissions))"`
+  prints `allow` and `deny`.
+
 ## 7. Check the whole setup
 In a repo with a Work OS project:
 1. A new session starts with the Work OS brief (step 5 done).
