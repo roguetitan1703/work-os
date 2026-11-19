@@ -134,7 +134,7 @@ export async function applyChanges(s: Scope, ops: BatchOp[], actor: Actor, opts:
           case 'write_note': {
             const { op: _op, note_id, task, project, parent_id, block_ops, ...w } = o;
             const r = await notes.writeNote(s, { ...w, noteId: note_id, task: task !== undefined ? key(task) : undefined, project, parentId: parent_id, blockOps: block_ops }, actor);
-            done(i, o.op, undefined, `${r.created ? 'created' : 'updated'} note ${r.note.id} "${r.note.title}"`);
+            done(i, o.op, undefined, `${r.created ? 'created' : 'updated'} note ${r.note.id} "${r.note.title}"${r.orders ? ` (Orders ${r.orders.layer} v${r.orders.version}, ${r.orders.lines} lines${r.orders.warning ? '; ' + r.orders.warning : ''})` : ''}`);
             break;
           }
           case 'delete_note': {

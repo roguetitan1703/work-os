@@ -69,7 +69,7 @@ export async function sessionStart(input) {
   } else return null;
   if (!r || r.unmatched || !r.project) return null;
   if (sid) {
-    writeMarker(sid, { status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
+    writeMarker(sid, { status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
   }
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: formatBrief(r) } };
 }
@@ -91,8 +91,25 @@ export function formatBrief(r) {
   if (Array.isArray(r.moreHandovers) && r.moreHandovers.length) sections.push(`## More handovers\n${r.moreHandovers.slice(0, 5).map(m => `- ${cut(m, 160)}`).join('\n')}\nRead one with read_note.`);
   const orders = Array.isArray(r.orders) ? r.orders : [];
   sections.push(orders.length
-    ? orders.map(o => `## Orders (${o.layer}: ${o.title}${o.writtenBy ? `, writtenBy ${o.writtenBy}` : ''})\n${str(o.text).trim()}`).join('\n\n')
+    ? orders.map(o => `## Orders (${o.layer}: ${o.title}${Number.isInteger(o.version) ? `, v${o.version}` : ''}${o.writtenBy ? `, writtenBy ${o.writtenBy}` : ''})\n${str(o.text).trim()}`).join('\n\n')
     : '## Orders\nnone set');
+  // What changed in the Orders in the last 48 hours: who, when, why, the lines out and in. Right after the Orders themselves.
+  const changed = Array.isArray(r.ordersChanged) ? r.ordersChanged.filter((c) => c && typeof c === 'object').slice(0, 5) : [];
+  if (changed.length) {
+    let block = '';
+    for (const c of changed) {
+      const at = Date.parse(c.at || '');
+      const time = at ? new Date(at).toTimeString().slice(0, 5) : '';
+      const head = `- ${c.layer} v${c.version} "${cut(c.title, 60)}" by ${cut(c.by || 'someone', 30)}${c.session ? ` (${cut(c.session, 40)})` : ''}${time ? `, ${time}` : ''}${c.writtenBy ? `, writtenBy ${cut(c.writtenBy, 40)}` : ''}${c.why ? `; why: ${cut(c.why, 160)}` : ''}${c.own ? '; undo in the app: Orders page, Changes' : ''}`;
+      const lines = [...(Array.isArray(c.removed) ? c.removed : []).slice(0, 6).map((l) => `  - ${cut(l, 200)}`), ...(Array.isArray(c.added) ? c.added : []).slice(0, 6).map((l) => `  + ${cut(l, 200)}`)];
+      const room = 1200 - block.length - (block ? 1 : 0);
+      while (lines.length && [head, ...lines].join('\n').length > room) lines.pop();
+      const next = [head, ...lines].join('\n');
+      if (next.length > room) break;
+      block += (block ? '\n' : '') + next;
+    }
+    if (block) sections.push(`## Orders changed\n${block}\nThese are your rules from now on.`);
+  }
   const st = r.state && typeof r.state === 'object' ? r.state : null;
   if (st) {
     const next = (st.next || []).map((l, i) => `${i + 1}. ${cut(l.text, 400)}${l.waitsOn ? ` (waits on ${cut(l.waitsOn, 120)})` : ''} [${l.id}]`);

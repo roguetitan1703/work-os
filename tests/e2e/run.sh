@@ -50,6 +50,7 @@ flow-h4|flow-h4.mjs|none|plain
 flow-h5|flow-h5.mjs|none|plain
 flow-h6|flow-h6.mjs|none|plain
 flow-h7|flow-h7.mjs|none|plain
+flow-h9|flow-h9.mjs|none|plain
 flow-h8|flow-h8.mjs|none|plain
 flow-h10|flow-h10.mjs|none|plain
 flow-h14|flow-h14.mjs|none|plain

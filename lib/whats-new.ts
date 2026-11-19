@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'orders-versions',
+    date: '2026-11-19',
+    title: 'Your Claude can now fix your Orders',
+    line: "Every change keeps a version you can undo on the page; teammates' Claude proposes changes as a Need.",
+    where: 'Any Orders page, under Changes',
+    href: '/notes',
+  },
+  {
     id: 'agents-feedback',
     date: '2026-11-19',
     title: 'Agents tell you what got in their way',
