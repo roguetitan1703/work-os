@@ -29,10 +29,13 @@ export type WorkerRow = {
   person: string;
   mine: boolean;
   ai: string;
+  /** Where it runs, as its hook says: desktop, vscode or terminal ('' when no hook said). */
+  tool: string;
   model: string;
   account: string;
   machine: string;
-  project: { id: string; name: string };
+  /** Null: a session outside any project ("No project"); its row is private to its person. */
+  project: { id: string; name: string } | null;
   branch: string;
   label: string;
   slot: string;
@@ -104,7 +107,7 @@ async function loadRaw(s: Scope, hours: number, projectId?: string): Promise<Raw
     for (const d of devs) {
       const list = d.claudeSessions;
       if (!list || nowMs - list.at.getTime() > DAEMON_FRESH_MS) continue;
-      for (const it of list.items) says.set(`${d._id}:${it.sessionId}`, it.running ? 'running' : 'stopped');
+      for (const it of list.items) if (!it.unknown) says.set(`${d._id}:${it.sessionId}`, it.running ? 'running' : 'stopped'); // unknown: the computer has no word on it
     }
   }
   return rows.map(row => ({ row, daemon: (ccOf(row) && says.get(`${row.machine}:${ccOf(row)}`)) || 'unknown' }));
@@ -130,7 +133,7 @@ type Ctx = { tasks: Map<string, { ref: number; title: string }>; names: Record<s
 function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
   const now = Date.now();
   const rows: (WorkerRow & { _parent?: string; _uid: string; _rid: string; _sess: string | null })[] = raw
-    .filter(r => x.pname.has(r.row.projectId))
+    .filter(r => r.row.projectId === null || x.pname.has(r.row.projectId))
     .map(({ row, daemon }) => {
       const st = presenceState(row, { now, daemon, needs: x.needs.has(row._id) });
       const state = st.state;
@@ -142,10 +145,11 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
         person: x.names[row.userId] || 'a member',
         mine,
         ai: mine ? row.ai : clientWord(row.agent), // a key name is its owner's label: others see the kind of client
+        tool: row.tool ?? '',
         model: row.model ?? '',
         account: row.account ?? '',
         machine: row.machineName ?? row.machine,
-        project: { id: row.projectId, name: x.pname.get(row.projectId)! },
+        project: row.projectId ? { id: row.projectId, name: x.pname.get(row.projectId)! } : null,
         branch: row.branch ?? '',
         label: row.label,
         slot: row.slot ?? '',
@@ -154,7 +158,7 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
         // A permission prompt is the owner's business; teammates see only that it waits on a person.
         ...(state === 'waiting' ? { waitingOn: st.why === 'prompt' && !mine ? ('need' as const) : st.why } : {}),
         since: st.since.toISOString(),
-        nextWork: state === 'idle' ? x.nextCount(row.projectId) : 0,
+        nextWork: state === 'idle' && row.projectId ? x.nextCount(row.projectId) : 0,
         lastSeen: row.lastSeen.toISOString(),
         depth: 0 as const,
         ...(row.userId === s.userId && row.parent ? { parent: row.parent } : {}),
@@ -188,7 +192,7 @@ export async function roster(s: Scope): Promise<Roster> {
   const raw = await loadRaw(s, LIST_HOURS);
   const c = await scoped(s);
   const names = await memberNames(s.orgId);
-  const projectIds = [...new Set(raw.map(r => r.row.projectId))];
+  const projectIds = [...new Set(raw.flatMap(r => (r.row.projectId ? [r.row.projectId] : [])))];
   const projects = projectIds.length ? await c.projects.find({ _id: { $in: projectIds } }, { projection: { name: 1 } }).toArray() : [];
   const pname = new Map(projects.map(p => [p._id, p.name]));
   const needs = await openNeedRows(s, raw.map(r => r.row));

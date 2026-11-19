@@ -118,7 +118,7 @@ try {
 
   // A message (its body never goes in a row)
   const MSG = mark('msgbody');
-  await must(A.chat, 'send_message', { project: SP, kind: 'fyi', body: MSG });
+  await must(A.chat, 'send_message', { to: 'Actq t', project: SP, kind: 'fyi', body: MSG });
 
   // Needs: one answered in the app (with words: never copied), one withdrawn, one on the task (stays open)
   const Q = { answered: mark('needans'), withdrawn: mark('needwd'), onTask: mark('needtask') };
@@ -184,7 +184,8 @@ try {
   const P = { now: mark('pvnow'), note: mark('pvnote'), msg: mark('pvmsg'), need: mark('pvneed') };
   await must(A.chat, 'save_state', { project: PP, base_version: 0, ops: [{ op: 'set_now', text: P.now }, { op: 'add_decision', text: P.now + 'd' }] });
   await must(A.chat, 'write_note', { project: PP, title: P.note, body: 'x' });
-  await must(A.chat, 'send_message', { project: PP, kind: 'request', body: P.msg });
+  const ppSid = (await must(A.code, 'start_work', { project: PP, label: 'actq private' })).session;
+  await must(A.chat, 'send_message', { to: ppSid, kind: 'request', body: P.msg });
   await must(A.code, 'ask', { project: PP, to: 'me', kind: 'approve', ask: P.need });
   const pvAll = [P.now, P.note, P.need, ppName];
   {

@@ -26,7 +26,7 @@ const TOKEN_RE = /^wst_[A-Za-z0-9_-]{43}$/;
 const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
 const idOf = (hash: string) => hash.slice(0, 32);
 
-export type AgentSession = { id: string; deviceId: string; deviceName: string; orgId: string; ownerId: string; projectId: string; expiresAt: Date };
+export type AgentSession = { id: string; deviceId: string; deviceName: string; orgId: string; ownerId: string; /** Null: a session outside any project; its token opens only /api/agent/event and /api/agent/wait. */ projectId: string | null; expiresAt: Date };
 
 /**
  * Whether a folder on this computer is linked to the project (a person links it in the app: Claude › Setup or the
@@ -46,11 +46,11 @@ export async function projectOnDevice(s: Scope, deviceId: string, projectId: str
  * A new session token for one project on one computer, made with `deviceKey` (its hash is kept on the row and must
  * still be the computer's key when the token is shown). Returns the token in full: the only time it exists.
  */
-export async function createAgentSession(s: Scope, deviceId: string, projectId: string, deviceKey: string, dispatched?: { taskId: string; ref: number } | null): Promise<{ token: string; id: string; expiresAt: Date }> {
+export async function createAgentSession(s: Scope, deviceId: string, projectId: string | null, deviceKey: string, dispatched?: { taskId: string; ref: number } | null, ccSession?: string): Promise<{ token: string; id: string; expiresAt: Date }> {
   const token = AGENT_TOKEN_PREFIX + randomBytes(32).toString('base64url');
   const hash = sha256(token);
   const now = new Date();
-  const doc: AgentSessionDoc = { _id: idOf(hash), hash, keyHash: sha256(deviceKey), deviceId, orgId: s.orgId, ownerId: s.userId, projectId, createdAt: now, expiresAt: new Date(now.getTime() + TOKEN_TTL_MS), ...(dispatched ? { dispatched } : {}) };
+  const doc: AgentSessionDoc = { _id: idOf(hash), hash, keyHash: sha256(deviceKey), deviceId, orgId: s.orgId, ownerId: s.userId, projectId, ...(projectId === null && ccSession ? { ccSession } : {}), createdAt: now, expiresAt: new Date(now.getTime() + TOKEN_TTL_MS), ...(dispatched ? { dispatched } : {}) };
   await (await collections()).agentSessions.insertOne(doc); // scope-ok: session tokens: written for the verified device's owner and organization
   return { token, id: doc._id, expiresAt: doc.expiresAt };
 }
@@ -89,6 +89,17 @@ export async function dispatchedSession(s: Scope, deviceId: string, ccSession: s
 export async function dispatchedOfToken(sessionId: string): Promise<{ taskId: string; ref: number } | null> {
   const doc = await (await collections()).agentSessions.findOne({ _id: sessionId }, { projection: { dispatched: 1 } }); // scope-ok: session tokens: found by the verified session's own id
   return doc?.dispatched ?? null;
+}
+
+/**
+ * Ends the no-project sessions this person's Claude Code session id has on this computer: the token and the row (Identity step 5).
+ * Called when the folder gets a project (the session is filed: it signs in again with a project) and before a new no-project start,
+ * so one Claude Code session is never two rows.
+ */
+export async function endUnfiledSession(s: Scope, deviceId: string, ccSession: string): Promise<void> {
+  const c = await collections(); // scope-ok: session tokens of the verified device's owner, found by their own Claude Code session id
+  await c.agentSessions.deleteMany({ deviceId, ownerId: s.userId, orgId: s.orgId, projectId: null, ccSession });
+  await (await scoped(s)).presence.deleteMany({ userId: s.userId, ccSession, projectId: null });
 }
 
 /** Ends every session token of a computer (its key was replaced, or it was revoked). */

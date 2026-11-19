@@ -14,22 +14,35 @@ const STATE: Record<WorkerState, { text: string; cls: string }> = {
 
 /** The roster (docs/flows/plan-1-3.md slice 7): who is working on what and where. Builders sit under their orchestrator. */
 export function WorkersTab({ data, tz }: { data: Roster; tz: string }) {
-  const { workers, couldBeRunning, machines } = data;
+  const { couldBeRunning, machines } = data;
+  // Sessions whose folder no project owns sit apart, under "No project" (Identity step 5); builders stay under their orchestrators within each list.
+  const workers = data.workers.filter(w => w.project);
+  const noProject = data.workers.filter(w => !w.project);
   return (
     <div className="space-y-5 md:max-w-4xl" data-section="workers">
       <CouldBeRunning list={couldBeRunning} />
       <section className="space-y-2">
         <h2 className={cn(H2, 'px-1 md:px-0 text-muted-foreground')}>Workers</h2>
-        {workers.length === 0 ? (
+        {workers.length === 0 && noProject.length === 0 ? (
           <p data-workers-empty className="px-1 md:px-0 text-[15px] md:text-sm text-muted-foreground">
-            No one has reported in. A session that calls start_work on a project shows up here.
+            No one has reported in. A Claude Code session with the Work OS hooks shows up here, on a project or under No project.
           </p>
-        ) : (
+        ) : workers.length === 0 ? null : (
           <ul className={cn(card, 'divide-y divide-border/60')} data-workers-list>
             {workers.map(w => (
               <Row key={w.id} w={w} tz={tz} />
             ))}
           </ul>
+        )}
+        {noProject.length > 0 && (
+          <div className="space-y-1" data-workers-no-project>
+            <h3 className="px-1 md:px-0 text-[13px] md:text-xs font-semibold text-muted-foreground">No project</h3>
+            <ul className={cn(card, 'divide-y divide-border/60')}>
+              {noProject.map(w => (
+                <Row key={w.id} w={w} tz={tz} />
+              ))}
+            </ul>
+          </div>
         )}
         {machines.length > 0 && (
           <p className="px-1 md:px-0 text-[13px] md:text-xs text-muted-foreground" data-heavy-slots>
@@ -75,9 +88,13 @@ function sinceText(iso: string, tz: string): string {
   }
 }
 
+const TOOL_NAME: Record<string, string> = { desktop: 'Desktop', vscode: 'VS Code', terminal: 'Terminal' };
+
 function Row({ w, tz }: { w: WorkerRow; tz: string }) {
   const st = STATE[w.state];
-  const who = [w.ai, w.model].filter(Boolean).join(' · ');
+  // The session's own name leads; where it runs and its model follow, small (Identity step 4).
+  const name = w.label || w.ai;
+  const via = [TOOL_NAME[w.tool] ?? (w.label ? w.ai : ''), w.model].filter(Boolean).join(' · ');
   const where = [w.machine, w.branch].filter(Boolean).join(' · ');
   return (
     <li className={cn('px-4 md:px-3 py-2.5 md:py-2 min-h-11 space-y-0.5', w.depth === 1 && 'pl-8 md:pl-8 bg-muted/20')} data-worker={w.id} data-depth={w.depth} data-state={w.state}>
@@ -86,8 +103,13 @@ function Row({ w, tz }: { w: WorkerRow; tz: string }) {
           {w.person}
         </span>
         <span className="text-[15px] md:text-sm text-foreground" data-worker-ai>
-          {who}
+          {name}
         </span>
+        {via && (
+          <span className="text-[13px] md:text-xs text-muted-foreground" data-worker-via>
+            {via}
+          </span>
+        )}
         {w.slot && <span className="text-[11px] px-1.5 py-px rounded bg-muted text-muted-foreground font-medium">slot {w.slot}</span>}
         <span className={cn('text-[11px] px-1.5 py-px rounded font-medium', st.cls)} data-worker-state>
           {w.state === 'waiting' && w.waitingOn === 'prompt' ? 'Waiting on you' : st.text}
@@ -103,9 +125,13 @@ function Row({ w, tz }: { w: WorkerRow; tz: string }) {
         </span>
       </div>
       <div className="text-[13px] md:text-xs text-muted-foreground">
-        <Link href={`/projects/${encodeURIComponent(w.project.id)}`} className="hover:text-foreground hover:underline">
-          {w.project.name}
-        </Link>
+        {w.project ? (
+          <Link href={`/projects/${encodeURIComponent(w.project.id)}`} className="hover:text-foreground hover:underline">
+            {w.project.name}
+          </Link>
+        ) : (
+          <span data-worker-no-project>No project</span>
+        )}
         {where && <> · {where}</>}
         {w.account && <> · account {w.account}</>}
       </div>

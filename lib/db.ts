@@ -350,8 +350,11 @@ export type StateDoc = Placed & {
  */
 export type MessageDoc = Placed & {
   _id: string;
-  projectId: string;
-  /** Who should act, for display: a session label or client name (a pending label when no session matched at send time): a hint, not a privacy line. Never a raw session id. */
+  /** Null: a message between two of one person's own sessions, one of which has no project (Identity step 6); it is placed private to that person. */
+  projectId: string | null;
+  /** A person the message is for (it shows under Messages for you on their Claude › Now; their sessions do not get it). Needs a project both read. */
+  toUser?: string;
+  /** Who should act, for display: the addressed session's name (old messages: a label or client name, a hint). Never a raw session id. */
   toSession?: string;
   /** The session keys (userId:session) the message was addressed to at send time (at most 10). Never shown. */
   toSids?: string[];
@@ -383,7 +386,8 @@ export type MessageDoc = Placed & {
 export type PresenceState = 'on' | 'working' | 'waiting' | 'idle' | 'off';
 export type PresenceDoc = Placed & {
   _id: string;
-  projectId: string;
+  /** Null: a session outside any project (Identity step 5); its row is private to its person. */
+  projectId: string | null;
   /** The person (user id) the session works for. */
   userId: string;
   /** Session id when the call carried one, else the key id (or OAuth client id). */
@@ -396,6 +400,12 @@ export type PresenceDoc = Placed & {
   /** The Work OS hook protocol the session signed in with: 1 = an old hook (still sent the copy in every save answer), 2 and up = the new hook. Unset for other clients. */
   hook?: number;
   label: string;
+  /** Where the label came from (Identity step 4): title (the session's own name, /rename), label (start_work's), ai (Claude's title for it), fallback (project + Claude Code), forced (the dispatcher's). Absent on older rows (a non-empty label then counts as label). */
+  labelSource?: 'title' | 'label' | 'ai' | 'fallback' | 'forced';
+  /** When the label was last written. */
+  labelAt?: Date;
+  /** Where the session runs, as its hook says: desktop, vscode or terminal. */
+  tool?: 'desktop' | 'vscode' | 'terminal';
   machine: string;
   /** The client's name (key name / OAuth client name). */
   ai: string;
@@ -538,7 +548,7 @@ export type DeviceHooks = { version: string | null; events: number; stale: boole
 export type DeviceDoc = { _id: string; name: string; /** The signed-in user who created it, and their organization (docs/auth.md). Missing on devices from before. */ ownerId?: string; orgId?: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; /** Set each time Replace key made a new key for this computer (history: when, and how many times). */ keyReplacedAt?: Date; keyReplacements?: number; worker?: { version: string; os: string; /** First 12 hex of the sha256 of the downloaded worker bundle (absent when run from the repo). */ bundle?: string; /** The worker passes a first message to Claude (config allowPrompts). The dispatcher needs it. */ allowPrompts?: boolean; /** Turbo mode: this computer clones a project's repo when it is not there (config allowClone), and into projectsDir. */ allowClone?: boolean; projectsDir?: string; /** This PC's Claude Code hooks, as its worker reports them (version: first 12 hex of the hooks version, null when none are installed). */ hooks?: DeviceHooks }; /** Latest counts from the worker (numbers only). `at` is the server's receive time. */ activity?: DeviceActivity; /** Latest named session list from the worker (docs/launcher.md Activity counts). */ claudeSessions?: { at: Date; items: ReportedClaudeSession[] }; /** Sessions that were open before the PC restarted, as the worker remembers them (docs/launcher.md). Cleared when the worker reports none, or on Dismiss. */ reopen?: { at: Date; items: ReopenItem[] } };
 /** Where a session was last used: the VS Code extension, a terminal, or something else (the SDK, a script). */
 export type SessionOrigin = 'vscode' | 'cli' | 'other';
-export type ReportedClaudeSession = { sessionId: string; folder: string; title: string; lastActiveAt: Date; subagentsActive: number; startedByWorkOs: boolean; running: boolean; origin?: SessionOrigin };
+export type ReportedClaudeSession = { sessionId: string; folder: string; title: string; lastActiveAt: Date; subagentsActive: number; startedByWorkOs: boolean; running: boolean; /** The computer has no evidence of this session's process: `running` is then true (older readers keep working) but the roster's daemon join says nothing. */ unknown?: true; origin?: SessionOrigin };
 export type ReopenItem = { sessionId: string; folder: string; title: string; origin: SessionOrigin };
 export type DeviceActivity = { sessions: number; sessionsWorkOs: number; sessionsOther: number; sessionsActive: number; subagents: number; at: Date };
 /** A folder a worker reported. _id = deviceId:folderId. Never a path. */
@@ -548,7 +558,7 @@ export type DeviceActivity = { sessions: number; sessionsWorkOs: number; session
  * SHA-256); only the full SHA-256 is stored, never the token. `keyHash`: the hash of the device key it was made with
  * (the token is refused once the computer's key differs). TTL index on `expiresAt`.
  */
-export type AgentSessionDoc = { _id: string; hash: string; keyHash: string; deviceId: string; orgId: string; ownerId: string; projectId: string; createdAt: Date; expiresAt: Date; /** H15: the task dispatcher started this session (the PC's own worker session row says so); only ever adds refusals. */ dispatched?: { taskId: string; ref: number } };
+export type AgentSessionDoc = { _id: string; hash: string; keyHash: string; deviceId: string; orgId: string; ownerId: string; /** Null: a session outside any project (Identity step 5): its token opens only event and wait. */ projectId: string | null; /** Claude Code's session id, kept for a no-project token so filing the folder can end it. */ ccSession?: string; createdAt: Date; expiresAt: Date; /** H15: the task dispatcher started this session (the PC's own worker session row says so); only ever adds refusals. */ dispatched?: { taskId: string; ref: number } };
 export type WorkerFolderDoc = { _id: string; /** The device's owner and organization. */ orgId: string; ownerId: string; deviceId: string; folderId: string; name: string; git: boolean; remote?: string; branch?: string; projectId: string | null; linkedAt: Date | null; seenAt: Date; missing: boolean };
 export type WorkerJobDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; kind: 'start' | 'resume' | 'stop' | 'vscode' | 'desktop' | 'reopen' | 'dismiss'; folderId?: string; projectId?: string; /** Not set for reopen and dismiss (they act on the worker's own remembered set). */ sessionId?: string; prompt?: string; /** Turbo mode: the repo is not on the computer; the worker clones it first (docs/launcher.md). No folderId then. */ clone?: { repo: string; trusted: boolean }; /** The task ref of a dispatcher-started run: the worker puts it in the claude process's environment (WORK_OS_DISPATCHED) so the hooks refuse Orders edits there. */ dispatched?: number; createdAt: Date; takenAt: Date | null; doneAt: Date | null; ok?: boolean; error?: string };
 export type WorkerSessionDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; /** '' while its repo is still being cloned (turbo mode). */ folderId: string; projectId: string | null; /** Turbo mode: still cloning `repo` (owner/name). */ cloning?: boolean; repo?: string; /** Turbo mode: cloned but not trusted automatically; Claude Code asks the person on first run. */ needsTrust?: boolean; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Its owner removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string };

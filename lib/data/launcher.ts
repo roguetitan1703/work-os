@@ -197,7 +197,11 @@ export function cleanClaudeSessions(raw: unknown): ReportedClaudeSession[] {
     if (typeof sub !== 'number' || !Number.isInteger(sub) || sub < 0) throw new InputError(`claudeSessions[${n}].subagentsActive must be a whole number, 0 or more`);
     if (typeof o.startedByWorkOs !== 'boolean' || typeof o.running !== 'boolean') throw new InputError(`claudeSessions[${n}] flags must be true or false`);
     if (o.origin !== undefined && !ORIGINS.includes(o.origin as SessionOrigin)) throw new InputError(`claudeSessions[${n}].origin must be vscode, cli or other`);
-    return { sessionId, folder: o.folder.trim(), title, lastActiveAt: new Date(Math.round(at)), subagentsActive: Math.min(sub, 99), startedByWorkOs: o.startedByWorkOs, running: o.running, ...(o.origin ? { origin: o.origin as SessionOrigin } : {}) };
+    if (o.unknown !== undefined && typeof o.unknown !== 'boolean') throw new InputError(`claudeSessions[${n}].unknown must be true or false`);
+    // unknown (Identity step 3): the computer has no evidence about this session's process (a transcript written lately and nothing else).
+    // Everything that already read `running` keeps treating such a session as open (as the old guess did); the roster's daemon join does not: no word is no word.
+    const unknown = o.unknown === true && !o.running;
+    return { sessionId, folder: o.folder.trim(), title, lastActiveAt: new Date(Math.round(at)), subagentsActive: Math.min(sub, 99), startedByWorkOs: o.startedByWorkOs, running: o.running || unknown, ...(unknown ? { unknown: true as const } : {}), ...(o.origin ? { origin: o.origin as SessionOrigin } : {}) };
   });
 }
 

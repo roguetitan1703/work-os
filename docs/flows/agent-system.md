@@ -136,7 +136,7 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
 | Claude items | update_claude_items | Retire after migration (section 3) |
 | Projects | list_projects, add_project, update_project, get_project, daily_summary, recent_activity | get_project's "start here from a repo" text → start_work |
 | Notes | write_note, read_note, list_notes, delete_note | Shelves; duplicate titles refused; normalise quotes and dashes when matching edits *Built in H14* |
-| Messages and Needs | send_message, inbox, message_status, reply, ask, needs, withdraw_need | Per-session ids; to_session by id or label; the frame on every message |
+| Messages and Needs | send_message, message_status, reply, ask, needs, withdraw_need | Per-session ids; `to` is a session of yours (id or name) or a person; the frame on every message (the inbox tool went in Identity step 6) |
 | Rules | (none) | Add propose_order, feedback; Orders version in forYou |
 | Discord (4), Mail (12) | discord_*, mail_* | Keep; their detail leaves the server instructions for their own descriptions |
 
@@ -181,7 +181,7 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
   hook's `folders`; `start_work` gains `folder`, `link`, `not_work_os`; the remote only ranks suggestions; see
   HANDOVER.md section 3, "Claude Code hooks", "The folder decides the project".
 - **Every session has its own id** (the session token's id, section 16.8, or one from start_work; not Claude Code's
-  session_id). Seen state, presence and to_session key on it. This fixes the "same person, unread forever" bug.
+  session_id). Seen state, presence and `to` (a message's addressee) key on it. This fixes the "same person, unread forever" bug.
   **Built (H3, 19 Nov):** `seenBy`, `toSids`, `sessionKey`, `isUnreadFor`; see docs/HANDOVER.md section 3, Messages.
 - **Presence at zero tokens from hooks:**
   - On: SessionStart.
@@ -197,6 +197,18 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
   - Chat and API: forYou on the next call.
   - People: push and Discord.
   **Built (H7, 19 Nov):** delivery into sessions: prompt, tool batch, Stop continue and the idle wait (`POST /api/agent/wait`, `hook-wait.mjs`, asyncRewake), with the frame, wake caps (6 an hour per session) and the chain limit (2); see docs/HANDOVER.md section 3, Messages and Claude Code hooks. Hand check on Om's PC after release, results to record here: idle wake in the desktop app, VS Code and the terminal; a wait past one hour (the hook timeout is 3600 s; an 8 h timeout is not tried); a permission prompt open while a message comes (delivered after); a cloud session gets forYou only.
+- **Built (Identity, 19 Nov; design in Work OS note 2afd68cb00, Om after a live test: "our ability to watch sessions is half"):**
+  - **A message is to a session or a person, not to a project.** `send_message {to, project?}`: `to` is one of your own
+    sessions (id or name; another person's session id is refused) or a person you share a project with; the project inbox,
+    the `inbox` tool and the project Inbox tab are gone. A person's messages show on Claude › Now under Messages for you
+    (apply, reject, reply, make a task); `message_status` with no status reads the text.
+  - **Every session is on the roster, with or without a project.** A folder no project owns gives a "No project" row,
+    private to its person, with a token that opens only event and wait (hook protocol 3); messages to it, delivery and
+    wake work as for any session.
+  - **The roster says what is true:** the session name (rename, label, Claude's title), tool and model come from the
+    hook; running comes from the worker's evidence (session files, `CLAUDE_PID`, command line); idle after 10 quiet
+    minutes, off after 30 unless the worker says it runs; `word` is `chat` only for the claude.ai connector with no session.
+  - See docs/HANDOVER.md section 3 (Words, Messages, Claude Code hooks).
 - **Message text is pushed with its frame** (who sent it, how it came in, what it may and may not ask). Shipping, money
   and credentials stay server-side as Needs.
 - **Install:**

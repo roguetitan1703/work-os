@@ -34,7 +34,7 @@ import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
 import * as ordersData from '../data/orders';
 import { ordersChangesFor, ordersFor, ordersWrittenBy, shortFormForSubagent } from '../data/orders';
-import { endPresence, setOrdersSeen, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
+import { cleanLabel, endPresence, setOrdersSeen, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
 import { presenceState } from '../data/presence-state';
 import { clientWord, roster, taskInfo } from '../data/roster';
 import * as handovers from '../data/handovers';
@@ -442,7 +442,32 @@ function conflictOut(r: { state: Parameters<typeof stateData.stateOut>[0] | null
 }
 
 /** start_work's arguments after the project is found (the session id is decided by the caller). */
-export type StartWorkArgs = { hook?: number; /** Claude Code's own session UUID and what began the session (the hook's start route only). */ ccSession?: string; source?: 'startup' | 'resume' | 'clear' | 'compact'; branch?: string; machine?: string; label?: string; model?: string; account?: string; parent?: string; slot?: string; /** H15: the task the dispatcher started this session for (the start route only): forces the label and marks the row. */ dispatched?: { taskId: string; ref: number } };
+export type StartWorkArgs = { hook?: number; /** True for the hook's start route: such a session always gets a name. */ viaHook?: boolean; /** Claude Code's own session UUID and what began the session (the hook's start route only). */ ccSession?: string; source?: 'startup' | 'resume' | 'clear' | 'compact'; branch?: string; machine?: string; label?: string; /** The hook's identity (protocol 3): the session's own name (a /rename), Claude's title for it, and where it runs. */ title?: string; aiTitle?: string; tool?: string; model?: string; account?: string; parent?: string; slot?: string; /** H15: the task the dispatcher started this session for (the start route only): forces the label and marks the row. */ dispatched?: { taskId: string; ref: number } };
+
+/**
+ * The label a start writes and where it comes from (Identity step 4). A dispatched session: the forced label. Else the first that is there of
+ * the session's own name, the label start_work was given, Claude's title; a hook session (it has a Claude Code id) with none of them gets
+ * "<project> · Claude Code" so no row is just "Claude Code". An old hook's plain "Claude Code" label is no name.
+ */
+function labelFor(projectName: string, a: StartWorkArgs, dispatched?: { ref: number } | null): { label?: string; labelSource?: 'title' | 'label' | 'ai' | 'fallback' | 'forced' } {
+  if (dispatched) return { label: `${projectName} · worker · #${dispatched.ref}`.slice(0, 120), labelSource: 'forced' };
+  if (cleanLabel(a.title)) return { label: a.title, labelSource: 'title' };
+  if (cleanLabel(a.label)) return { label: a.label, labelSource: 'label' };
+  if (cleanLabel(a.aiTitle)) return { label: a.aiTitle, labelSource: 'ai' };
+  if (a.ccSession || a.viaHook) return { label: `${projectName} · Claude Code`, labelSource: 'fallback' };
+  return {};
+}
+
+/**
+ * A Claude Code session whose folder no project owns (Identity step 5): it is on the roster, private to its person, with no project.
+ * Written by the hook's start route for protocol 3; no brief, no State. `folderName` names the row until the session has a name.
+ */
+export async function registerUnfiledSession(ctx: BriefCtx, sid: string, a: StartWorkArgs, folderName?: string): Promise<void> {
+  const caller = ctx.caller;
+  const s = sOf(ctx);
+  const mach = await resolveMachine(s, a.machine);
+  await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, null, { machine: mach.machine, machineName: mach.machineName, ...labelFor(cleanLabel(folderName) || 'Claude Code', a, null), tool: a.tool, model: a.model, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
+}
 
 /**
  * The start brief for one project and session: registers the session as present, marks the unread messages it hands
@@ -461,7 +486,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   const mach = await resolveMachine(s, a.machine);
   // H15: a session the dispatcher started keeps its forced label and mark when it calls start_work itself (the session's own row says so).
   const dispatched = a.dispatched ?? (sid ? await dispatchedOfToken(sid) : null) ?? undefined;
-  const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, label: dispatched ? `${project.name} · worker · #${dispatched.ref}`.slice(0, 120) : a.label, dispatched, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
+  const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, ...labelFor(project.name, a, dispatched), tool: a.tool, dispatched, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
   // The handovers left for this person (a fresh session takes the newest first; a re-call after compaction shows its own again).
   const hv = await handovers.handoversForBrief(s, project._id, { me: row.key, label: row.label, fresh: row.fresh, parent: row.parent, actor: agentActor(caller.agent, caller.userId) });
   // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
@@ -548,7 +573,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
         }
       : {}),
     textRule: textRule(),
-    sessionNote: !sid ? 'This connector is your session: no id to pass. Messages for you and the unread count follow it on every call.' : 'Pass this session id as session on save_state, end_work, get_state, inbox, send_message, reply and message_status (and as the X-Work-OS-Session header on every call, if your client can).',
+    sessionNote: !sid ? 'This connector is your session: no id to pass. Messages for you and the unread count follow it on every call.' : 'Pass this session id as session on save_state, end_work, get_state, send_message, reply and message_status (and as the X-Work-OS-Session header on every call, if your client can). Messages for you are handed to the session by the Work OS hook; answer one with reply by its id.',
     orders: orders.length ? orders : 'no Orders set',
     ...(orders.length ? { ordersVersion: orders.map(o => `${o.layer} v${o.version}`).join(', ') } : {}),
     ...(changed.length ? { ordersChanged: changed } : {}),
@@ -630,7 +655,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
   const sessionArg = z.string().max(64).optional().describe("The session id start_work returned (letters, digits and dashes); lets Work OS tell your answers apart from other sessions' of the same key");
   /** Tools that take an optional `session` argument (the session id start_work returned); the others read the X-Work-OS-Session header only (update_claude_items has its own `session`: a branch name). */
-  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'send_message', 'inbox', 'message_status', 'reply', 'get_task', 'log_progress', 'complete_task', 'set_doing', 'slot', 'hand_in', 'end_work', 'feedback']);
+  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'send_message', 'message_status', 'reply', 'get_task', 'log_progress', 'complete_task', 'set_doing', 'slot', 'hand_in', 'end_work', 'feedback']);
   /** Who is calling, for presence and the "for you" line (lib/mcp/for-you.ts). */
   const identOf = (name: ToolName, a: unknown[]): Ident => {
     const arg = SESSION_ARG.has(name) && a[0] && typeof a[0] === 'object' ? (a[0] as { session?: unknown }).session : undefined;
@@ -1264,7 +1289,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? (caller.keyId?.startsWith('oauth_') ? undefined : randomUUID());
       // The hook protocol: the header; a call without it from the old hook (key label "Claude Code") counts as protocol 1.
       const hook = requestContext().hook ?? (a.label === 'Claude Code' ? 1 : undefined);
-      const brief = await startWorkBrief(ctx, key, sid, { ...a, hook }, matchedBy);
+      const brief = await startWorkBrief(ctx, key, sid, { ...a, hook, viaHook: hook !== undefined }, matchedBy);
       return filed ? { ...brief, filed } : brief;
     }),
   );
@@ -1345,7 +1370,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false },
     },
     handler(async a => {
-      const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller) === 'chat' ? 'chat' : 'code' });
+      const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller, sessionHeader(a.session ?? null) ?? requestContext().sid) === 'chat' ? 'chat' : 'code' });
       const names = await memberNames(s.orgId);
       if (r.conflict) return conflictOut(r, s.userId, names, 'save_state');
       return savedAnswer(r, { markdown: await legacyCopy(a, r.project, r.state) });
@@ -1391,7 +1416,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         handovers.checkHandover(fields, lines);
         ho = { fields, forId: await handovers.resolveFor(s, project, forWho), title: title || (label && label !== 'Claude Code' ? `Handover: ${label}` : 'Handover:') };
       }
-      const r = await stateData.saveState(s, a.project, a.state, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller) === 'chat' ? 'chat' : 'code' });
+      const r = await stateData.saveState(s, a.project, a.state, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller, sessionHeader(a.session ?? null) ?? requestContext().sid) === 'chat' ? 'chat' : 'code' });
       const names = await memberNames(s.orgId);
       if (r.conflict) return { ended: false, ...conflictOut(r, s.userId, names, 'end_work') };
 
@@ -1508,7 +1533,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         const p = await declutterData.buildProposal(s, project);
         return { project: project.name, ...(due.text ? { due: due.text } : { due: 'not due' }), items: p.items, ...(p.fyi.length ? { fyi: p.fyi } : {}), counts: p.counts, next: p.items.length ? 'Check these against the code and the disk, add what you see, then call declutter with ask: true (skip: ids to leave out, add, disk).' : 'Nothing to tidy.', textRule: textRule() };
       }
-      const r = await declutterApply.askDeclutter(s, { project: a.project, skip: a.skip, add: a.add, disk: a.disk, actor: ACTOR, word: WORD, session: ident.session, keyId: caller.keyId });
+      const r = await declutterApply.askDeclutter(s, { project: a.project, skip: a.skip, add: a.add, disk: a.disk, actor: ACTOR, word: wordFor(ident.session), session: ident.session, keyId: caller.keyId });
       const owner = (await whoIs())(r.need.to);
       return { need: await needOut(r.need), changes: r.items, message: `Need #${r.need.ref} is with ${owner}; you hear the answer here. No alert goes to the phone. Nothing is deleted: lines, pages and old Claude items are archived and can be put back. After a Yes, do the disk lines you gave.` };
     }),
@@ -1530,7 +1555,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       // A project you cannot read is "not found", as everywhere else (same answer for one that does not exist).
       if (a.project?.trim()) {
         const { project } = await stateData.getState(s, a.project);
-        ws = ws.filter(w => w.project.id === project._id);
+        ws = ws.filter(w => w.project?.id === project._id);
       }
       if (!a.include_off && !a.include_gone) ws = ws.filter(w => w.state !== 'off');
       const now = Date.now();
@@ -1540,10 +1565,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
           ...(w.mine && w.session ? { session: w.session } : {}),
           name: w.label,
           person: w.mine ? 'me' : w.person,
-          tool: w.ai,
+          tool: w.tool || w.ai, // desktop, vscode or terminal when the hook said; else the kind of client
           model: w.model,
           machine: w.machine,
-          project: w.project.name,
+          project: w.project?.name ?? 'No project', // a session whose folder no project owns (only its own person sees it)
           branch: w.branch,
           doing: w.doing ? `#${w.doing.ref}` : null,
           state: w.state,
@@ -1580,13 +1605,13 @@ export function createMcpServer(ctx: Ctx): McpServer {
   );
 
   // ── Messages (docs/flows/step-1.md section 4) ──
-  // `word` is set here from how the call came in (OAuth, the claude.ai connector: chat; any static key: agent) and is not an argument.
-  const WORD = messageData.wordOf(caller);
+  // `word` is set here from how the call came in (chat only for the claude.ai connector over OAuth with no session; anything else: agent) and is not an argument.
+  const wordFor = (session?: string | null) => messageData.wordOf(caller, session);
   /** Who is sending: the client name, and the label of the session's presence row when it has one. */
   const fromOf = async (name: ToolName, a: { session?: string }): Promise<messageData.From> => {
     const ident = identOf(name, [a]);
     const row = await readerRow(s, ident).catch(() => null);
-    return { word: WORD, ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: sessionKey(ident), actor: ACTOR };
+    return { word: wordFor(ident.session), ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: sessionKey(ident), actor: ACTOR };
   };
   /** The calling session as a reader: its key and its presence row. */
   const readerOf = async (name: ToolName, a: { session?: string }): Promise<messageData.Reader> => {
@@ -1597,7 +1622,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     sent: true,
     id: r.message._id,
     thread: r.message.thread,
-    project: r.project.name,
+    ...(r.project ? { project: r.project.name } : { project: 'No project: only you can read it' }),
     word: r.message.from.word,
     target: r.target,
   });
@@ -1606,34 +1631,21 @@ export function createMcpServer(ctx: Ctx): McpServer {
     'send_message',
     {
       inputSchema: {
-        project: z.string().describe('Project name or id'),
+        to: z.string().min(1).max(messageData.TO_MAX).optional().describe('Who it is for: a session of yours (its id or name from list_sessions; never another person’s session) or a person of your organization (then project is needed, one you both read)'),
+        project: z.string().optional().describe('Project name or id. For a person: the project you both read. For a session: only when its name is on several projects'),
         kind: z.enum(messageData.KINDS).describe('decision, request, question or fyi'),
         body: z.string().min(1).max(messageData.MSG_LIMITS.body),
         refs: messageData.RefsSchema.optional().describe('{tasks: [task numbers], commits: [...], files: [...]}'),
-        to_session: z.string().max(120).optional().describe('Who should act: a session id (start_work, alsoHere) or a session label (a hint: everyone who reads the project can read the message)'),
+        to_session: z.string().max(messageData.TO_MAX).optional(), // the old name of `to`, still accepted for one release (not described)
         sender_commit: z.string().max(80).optional(),
         session: sessionArg,
       },
       annotations: { destructiveHint: false },
     },
-    handler(async a => sentOut(await messageData.sendMessage(s, a.project, { kind: a.kind, body: a.body, refs: a.refs, to_session: a.to_session, sender_commit: a.sender_commit }, await fromOf('send_message', a)))),
-  );
-
-  tool(
-    'inbox',
-    {
-      inputSchema: {
-        project: z.string().optional().describe('Project name or id; leave out for every project you can read'),
-        status: z.enum(['unread', 'seen', 'applied', 'rejected']).optional(),
-        limit: z.number().int().min(1).max(100).optional(),
-        session: sessionArg,
-      },
-      annotations: { destructiveHint: false },
-    },
     handler(async a => {
-      const r = await messageData.inbox(s, { project: a.project, status: a.status, limit: a.limit, reader: await readerOf('inbox', a) });
-      const names = await memberNames(s.orgId);
-      return { textRule: textRule(), ...(r.project ? { project: r.project.name } : {}), unread: r.unread, messages: r.messages.map(m => messageData.messageOut(m, s.userId, names, { unread: r.unreadIds.has(m._id) })) };
+      const to = a.to ?? a.to_session;
+      if (!to) throw new InputError('to is needed: a session of yours (its id or name from list_sessions) or a person.');
+      return sentOut(await messageData.sendTo(s, { to, project: a.project, kind: a.kind, body: a.body, refs: a.refs, sender_commit: a.sender_commit }, await fromOf('send_message', a)));
     }),
   );
 
@@ -1642,7 +1654,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     {
       inputSchema: {
         id: z.string().min(1).max(40).describe('Message id (m_…)'),
-        status: z.enum(messageData.STATUSES).describe('seen, applied or rejected'),
+        status: z.enum(messageData.STATUSES).optional().describe('seen, applied or rejected; leave it out to read the message’s full text'),
         note: z.string().max(500).optional().describe('Why (shown to the sender)'),
         commit: z.string().max(80).optional().describe('The commit that did it'),
         make_task: z.boolean().optional().describe('A request only: make it a task of the project (marks it applied)'),
@@ -1651,8 +1663,13 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false },
     },
     handler(async a => {
-      const r = await messageData.setStatus(s, a.id, a.status, { note: a.note, commit: a.commit, actor: ACTOR, makeTask: a.make_task, reader: await readerOf('message_status', a) });
       const names = await memberNames(s.orgId);
+      if (!a.status) {
+        // No status: read the message (the one it is for, or its sender): the full text, in its frame of who wrote it and what to do with it.
+        const m = await messageData.readMessage(s, a.id, await readerOf('message_status', a));
+        return { textRule: textRule(), message: messageData.messageOut(m.message, s.userId, names, { unread: m.unread }) };
+      }
+      const r = await messageData.setStatus(s, a.id, a.status, { note: a.note, commit: a.commit, actor: ACTOR, makeTask: a.make_task, reader: await readerOf('message_status', a) });
       return { message: messageData.messageOut(r.message, s.userId, names), ...(r.decision ? { addedToDecisions: true } : {}), ...(r.task ? { task: `#${r.task.ref} ${r.task.title}` } : {}) };
     }),
   );
@@ -1663,7 +1680,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       inputSchema: { id: z.string().min(1).max(40).describe('Message id (m_…)'), body: z.string().min(1).max(messageData.MSG_LIMITS.body), session: sessionArg },
       annotations: { destructiveHint: false },
     },
-    handler(async a => sentOut(await messageData.reply(s, a.id, a.body, await fromOf('reply', a)))),
+    handler(async a => sentOut(await messageData.reply(s, a.id, a.body, await fromOf('reply', a), await readerOf('reply', a)))),
   );
 
   const itemKey = z.union([z.number().int(), z.string()]).describe('Item ref: "C12" or 12');
@@ -2123,7 +2140,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         to = p.ownerId;
       } else if (!a.to) throw new InputError('to is required: "me", a name, an email or a user id.');
       else to = a.to.trim().toLowerCase() === 'me' ? s.userId : await tasks.findAssignee(s.orgId, a.to);
-      const r = await needsData.askNeed(s, { project: a.project, to, kind: a.kind, ask: a.ask, example: a.example, options: a.options, task: a.task, appOnly: a.app_only, release: a.release, actor: ACTOR, word: WORD, session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
+      const r = await needsData.askNeed(s, { project: a.project, to, kind: a.kind, ask: a.ask, example: a.example, options: a.options, task: a.task, appOnly: a.app_only, release: a.release, actor: ACTOR, word: wordFor(sessionHeader(a.session ?? null) ?? requestContext().sid), session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
       return {
         need: await needOut(r.need),
         ...(r.replaced.length ? { replaced: r.replaced.map(n => ({ id: n.id, ref: n.ref })) } : {}),
@@ -2149,7 +2166,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false, idempotentHint: false },
     },
     handler(async a => {
-      const r = await ordersData.proposeOrder(s, { project: a.project, layer: a.layer, old: a.old, new: a.new, why: a.why, incident: a.incident, repeat: a.repeat }, { actor: ACTOR, word: WORD, session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
+      const r = await ordersData.proposeOrder(s, { project: a.project, layer: a.layer, old: a.old, new: a.new, why: a.why, incident: a.incident, repeat: a.repeat }, { actor: ACTOR, word: wordFor(sessionHeader(a.session ?? null) ?? requestContext().sid), session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
       return { need: await needOut(r.need), note: 'Asked the holder. Accept applies it as one version and the answer comes to this session; nothing you can call answers it, and nothing changes until they do.' };
     }),
   );
@@ -2193,7 +2210,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const n = await needsData.findNeed(s, a.id);
       if (!n) throw new NotFoundError('That Need does not exist, or you did not ask it.');
-      return { need: await needOut(await needsData.withdrawNeed(s, n.id, { word: WORD, session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId })) };
+      return { need: await needOut(await needsData.withdrawNeed(s, n.id, { word: wordFor(sessionHeader(a.session ?? null) ?? requestContext().sid), session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId })) };
     }),
   );
 

@@ -40,7 +40,7 @@ export function activityHref(a: Pick<Activity, 'subject' | 'taskRef' | 'projectI
     case 'note':
       return `/notes/${encodeURIComponent(a.subject.id)}`;
     case 'message':
-      return p('inbox');
+      return '/claude';
     case 'need':
       return p('needs');
     case 'state':

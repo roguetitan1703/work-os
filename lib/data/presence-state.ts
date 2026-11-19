@@ -5,20 +5,18 @@ import type { PresenceState } from '../db';
 // workerState) calls it; list_sessions (H5) and the brief's alsoHere call it too once they are on this branch.
 //
 // A row that a Claude Code hook reports on has `activity` (state and time of the last event the server accepted):
-//   endedAt, activity off, or the worker daemon reporting the process stopped -> off
-//   waiting at a prompt   -> waiting (why: prompt) while it is under 8 h old or the daemon says it runs, else off
-//   working               -> working under 30 min old, else idle (daemon running or under 8 h) or off
-//   on / idle             -> an open Need makes it waiting (why: need); else on / idle (daemon running or under 8 h) or off
+//   endedAt, activity off, or the worker daemon reporting the process stopped -> off at once
+//   a session is alive while the daemon says its process runs, or while something was heard from it in the last 30 minutes:
+//   its last hook event, or its last sign of life (lastSeen: a call it made, or the idle wait that refreshes it each minute)
+//   working               -> working while its last event is under 10 min old, else idle (alive) or off
+//   waiting at a prompt   -> waiting (why: prompt) while alive, else off
+//   on / idle             -> an open Need makes it waiting (why: need); else on / idle while alive, else off
 // A row with no `activity` (claude.ai chat, API, an old hook, a WORK_OS_KEY hook) keeps the call-based rules:
 //   off after 30 quiet minutes unless the daemon says it runs; an open Need -> waiting; seen in the last 10 minutes
 //   -> working, else idle.
 
 export const WORKING_MIN = 10;
 export const GONE_MIN = 30;
-/** A hook session that reports "working" and then goes silent this long has ended its turn without a Stop. */
-export const HOOK_WORKING_MIN = 30;
-/** With no daemon list to confirm, a session quiet for this long is off. */
-export const OFF_HOURS = 8;
 
 /** What the worker daemon's fresh session list says about the process: running, stopped, or nothing known (no fresh list, or not listed). */
 export type DaemonSays = 'running' | 'stopped' | 'unknown';
@@ -43,10 +41,11 @@ export function presenceState(row: StateRow, o: { now: number; daemon?: DaemonSa
     return { state: ageMin <= WORKING_MIN ? 'working' : 'idle', since };
   }
   const ageMin = (o.now - a.at.getTime()) / 60_000;
-  const alive = daemon === 'running' || ageMin <= OFF_HOURS * 60;
+  const quietMin = (o.now - Math.max(a.at.getTime(), row.lastSeen.getTime())) / 60_000;
+  const alive = daemon === 'running' || quietMin <= GONE_MIN;
   if (a.state === 'waiting') return alive ? { state: 'waiting', why: a.why === 'prompt' ? 'prompt' : 'need', since } : { state: 'off', since };
   if (a.state === 'working') {
-    if (ageMin <= HOOK_WORKING_MIN) return { state: 'working', since };
+    if (ageMin <= WORKING_MIN) return { state: 'working', since };
     return alive ? { state: 'idle', since } : { state: 'off', since };
   }
   if (!alive) return { state: 'off', since };

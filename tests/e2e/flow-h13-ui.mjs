@@ -1,5 +1,5 @@
 // H13 UI: Claude › Setup › Computers shows the "Not Work OS folders" list (hidden when empty, one Remove per row), and the
-// Sessions list on Claude › Now reads "not filed" for a session whose folder no project owns, with a Link button that opens
+// Sessions list on Claude › Now reads "No project" for a session whose folder no project owns, with a Link button that opens
 // the same project picker as the folder list. Looked at in 390 and 1280 px, light and dark (shots in E2E_SHOTS).
 // Seeds itself (device, folders and the computer's session list inserted directly). Seed profile: none.
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
@@ -62,11 +62,11 @@ try {
       const unfiled = p.locator(`[data-session-row="${deviceId}:${CC2}"]`);
       const filed = p.locator(`[data-session-row="${deviceId}:${CC1}"]`);
       const stray = p.locator(`[data-session-row="${deviceId}:${CC3}"]`);
-      check(T(`${scheme}: a session in an unlinked folder reads "not filed" where the project goes`), /not filed/.test(await unfiled.innerText()) && !/not filed/.test(await filed.innerText()), await unfiled.innerText());
+      check(T(`${scheme}: a session in an unlinked folder reads "No project" where the project goes`), /No project/.test(await unfiled.innerText()) && !/No project/.test(await filed.innerText()), await unfiled.innerText());
       check(T(`${scheme}: the filed session still shows its project`), /Alpha/.test(await filed.innerText()));
-      check(T(`${scheme}: the unfiled session has a Link button; one in a folder the worker never scanned has none`), (await unfiled.locator('[data-link-folder]').count()) === 1 && (await stray.locator('[data-link-folder]').count()) === 0 && /not filed/.test(await stray.innerText()));
+      check(T(`${scheme}: the unfiled session has a Link button; one in a folder the worker never scanned has none`), (await unfiled.locator('[data-link-folder]').count()) === 1 && (await stray.locator('[data-link-folder]').count()) === 0 && /No project/.test(await stray.innerText()));
       if (phone) { const bb = await unfiled.locator('[data-link-folder]').boundingBox(); check(T(`${scheme}: Link target at least 44px`), bb && bb.height >= 43.5, JSON.stringify(bb)); }
-      check(T(`${scheme}: Claude page no horizontal scroll with the not filed row`), await noScroll());
+      check(T(`${scheme}: Claude page no horizontal scroll with the No project row`), await noScroll());
       await p.screenshot({ path: `${SP}/h13-${tag}-sessions.png` });
 
       if (scheme === 'light') {

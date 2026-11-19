@@ -18,7 +18,7 @@ const settle = (p, ms = 700) => p.waitForTimeout(ms);
 const seenOf = async () => (await rawDb.collection('settings').findOne({ _id: `profile:${ME.userId}` }))?.whatsNewSeen ?? [];
 const resetSeen = () => rawDb.collection('settings').updateOne({ _id: `profile:${ME.userId}` }, { $unset: { whatsNewSeen: '' } });
 const shot = (p, name) => p.screenshot({ path: `${SP}/whats-new-${name}.png`, fullPage: true });
-const ALL = ['dispatcher-restart-once', 'notes-shelves', 'quiet-phone-monday-numbers', 'declutter-project', 'orders-versions', 'folder-decides-project', 'agents-feedback', 'agents-ask-before-production', 'messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
+const ALL = ['messages-to-sessions', 'sessions-everywhere', 'dispatcher-restart-once', 'notes-shelves', 'quiet-phone-monday-numbers', 'declutter-project', 'orders-versions', 'folder-decides-project', 'agents-feedback', 'agents-ask-before-production', 'messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
 
 const b = await launch();
 try {
@@ -60,14 +60,14 @@ try {
       const o = await overflow(p); check(`no horizontal scroll /today ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
 
       // Try it marks that one seen and goes there
-      // (the newest entry, H14: its card is the first of three on the phone)
-      await card.locator('[data-whats-new-try="notes-shelves"]').tap();
-      await p.waitForURL(u => u.pathname === '/notes', { timeout: 10000 });
-      check('Try it: opens where the feature lives (/notes)', new URL(p.url()).pathname === '/notes');
-      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['notes-shelves']), JSON.stringify(await seenOf()));
+      // (the newest entry, Identity step 7: its card is the first of three on the phone)
+      await card.locator('[data-whats-new-try="messages-to-sessions"]').tap();
+      await p.waitForURL(u => u.pathname === '/claude', { timeout: 10000 });
+      check('Try it: opens where the feature lives (/claude)', new URL(p.url()).pathname === '/claude');
+      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['messages-to-sessions']), JSON.stringify(await seenOf()));
       await p.goto(B + '/today'); await settle(p);
       const ids2 = await p.locator('[data-section="whats-new"]:visible [data-whats-new]').evaluateAll(els => els.map(e => e.getAttribute('data-whats-new')));
-      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'notes-shelves').slice(0, 3)), JSON.stringify(ids2));
+      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'messages-to-sessions').slice(0, 3)), JSON.stringify(ids2));
       await resetSeen();
     }
 
@@ -142,10 +142,10 @@ try {
     check(`project ${tag}: State empty state says how it fills`, (await st.count()) === 1 && /No State yet/.test(await st.innerText()) && /Sessions save Now, Next, Later/.test(await st.innerText()));
     await shot(p, `state-empty-${tag}`);
     await p.goto(`${B}/projects/${quiet}?tab=inbox`); await settle(p);
-    const ib = p.locator('[data-inbox-empty]');
-    check(`project ${tag}: Inbox empty state says who sends and that you can send`, (await ib.count()) === 1 && /No messages yet/.test(await ib.innerText()) && /send one above/.test(await ib.innerText()));
-    await shot(p, `inbox-empty-${tag}`);
-    o = await overflow(p); check(`no horizontal scroll project inbox ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
+    // Rewritten for Identity step 6: the project Inbox tab is gone (messages go to sessions and people, on Claude > Now), so there is no Inbox tab and no inbox view
+    check(`project ${tag}: no Inbox tab (messages are for sessions and people now)`, (await p.locator('[data-tab=inbox]').count()) === 0 && (await p.locator('[data-view=inbox]').count()) === 0 && (await p.locator('[data-inbox-empty]').count()) === 0);
+    await shot(p, `no-inbox-tab-${tag}`);
+    o = await overflow(p); check(`no horizontal scroll project page with an old inbox link ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
     await p.goto(`${B}/projects/${quiet}?tab=needs`); await settle(p);
     const nt = p.locator('[data-view="needs"] [data-needs-empty]');
     check(`project ${tag}: Needs tab empty state says what appears`, (await nt.count()) === 1 && /hands in work for review/.test(await nt.innerText()));
@@ -204,8 +204,7 @@ try {
     check(`sidebar ${tag}: the dot is gone once seen`, (await aside.locator('a[href="/whats-new"] [data-new-dot]').count()) === 0);
 
     await p.goto(`${B}/projects/${quiet}?tab=inbox`); await settle(p);
-    check(`desktop project ${tag}: Inbox empty state`, /No messages yet/.test(await p.locator('[data-inbox-empty]').innerText()));
-    await shot(p, `inbox-empty-${tag}`);
+    check(`desktop project ${tag}: no Inbox tab (rewritten for Identity step 6)`, (await p.locator('[data-tab=inbox]').count()) === 0 && (await p.locator('[data-inbox-empty]').count()) === 0);
     await p.goto(`${B}/projects/${quiet}`); await settle(p);
     check(`desktop project ${tag}: State empty state`, (await p.locator('[data-state-empty]:visible').count()) === 1);
     await shot(p, `state-empty-${tag}`);

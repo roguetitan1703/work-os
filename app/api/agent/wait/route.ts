@@ -4,6 +4,7 @@ import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken,
 import { reserveAgent } from '@/lib/mcp/policy';
 import { applyAck, deliverFor, sessionRow, wakeWaiting, wakesLeft } from '@/lib/data/deliver';
 import { presenceState } from '@/lib/data/presence-state';
+import { touchPresence } from '@/lib/data/presence';
 import { waitFor } from '@/lib/live';
 
 // The idle session's long poll (docs/flows/agent-system.md section 11; plan note 6dfdb98f4f). The Work OS hook that Claude Code
@@ -18,6 +19,7 @@ import { waitFor } from '@/lib/live';
 //     200 { wake: true, text }   a request, question or decision addressed to the session (never an fyi, never an untargeted
 //                                project message, never a message at chain 2 or more), or an answer to a Need it asked: handed
 //                                over as read (lib/data/deliver.ts), framed, the session's wokeAt set. At most 6 an hour.
+//     (every call and every wait round also refreshes the row's lastSeen, at most once a minute: Identity step 2)
 //     200 { busy: true }         the session is working (or off): in-turn delivery has it; the hook stops waiting
 //     200 { again: true }        nothing: ask again (a newer waiter for the session, or the time is up); with retryAfter (and a
 //                                Retry-After header) when too many sessions are waiting: ask again no sooner than that
@@ -62,7 +64,7 @@ export async function POST(req: Request): Promise<Response> {
     const sid = session.id;
     const projectId = session.projectId;
     // Checked on every call (and again after each wait): the folder may have been unlinked since the session began.
-    if (!(await projectOnDevice(s, device.id, projectId))) return reply(404, { error: 'This project has no folder on this computer any more.' });
+    if (projectId && !(await projectOnDevice(s, device.id, projectId))) return reply(404, { error: 'This project has no folder on this computer any more.' });
     if (body.data.ack?.length) await applyAck(s, sid, projectId, body.data.ack);
     const key = `${s.userId}:${sid}`;
     const end = Date.now() + WAIT_MS;
@@ -70,8 +72,11 @@ export async function POST(req: Request): Promise<Response> {
     for (;;) {
       const row = await sessionRow(s, sid, projectId);
       if (!row) return reply(404, { error: 'not found' });
+      // A session waiting here is alive: its row is refreshed once a minute, so a quiet idle session is not taken for a gone one (lib/data/presence-state.ts).
+      await touchPresence(s, row);
+      const seenNow = Date.now(); // the touch above wrote this (or the row was fresher): it is alive
       // A row the hook has not reported on yet (no activity) is idle: the call-based rules of the roster would call it working.
-      const st = row.activity || row.endedAt ? presenceState({ lastSeen: row.lastSeen, activity: row.activity, endedAt: row.endedAt }, { now: Date.now() }) : { state: 'on' as const, why: undefined };
+      const st = row.activity || row.endedAt ? presenceState({ lastSeen: new Date(Math.max(row.lastSeen.getTime(), seenNow)), activity: row.activity, endedAt: row.endedAt }, { now: Date.now() }) : { state: 'on' as const, why: undefined };
       // Mid-turn (working, or stopped at a permission prompt) or gone: the hook stops waiting and delivery inside the turn has it.
       if (st.state === 'working' || st.state === 'off' || (st.state === 'waiting' && st.why === 'prompt')) return reply(200, { busy: true });
       if ((await wakesLeft(sid)) > 0 && (await wakeWaiting(s, sid, projectId))) {
@@ -92,7 +97,7 @@ export async function POST(req: Request): Promise<Response> {
       if (how === 'bumped') return reply(200, { again: true });
       // Too many waiters (this person's or all): not held; the hook waits at least this long before asking again.
       if (how === 'refused') return reply(200, { again: true, retryAfter: 60 }, { 'Retry-After': '60' });
-      if (!(await projectOnDevice(s, device.id, projectId))) return reply(404, { error: 'This project has no folder on this computer any more.' });
+      if (projectId && !(await projectOnDevice(s, device.id, projectId))) return reply(404, { error: 'This project has no folder on this computer any more.' });
     }
   } catch (err) {
     console.error('[agent/wait]', err instanceof Error ? err.name : 'error'); // the name only: never a credential or body

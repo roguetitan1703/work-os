@@ -9,6 +9,10 @@ import { fileURLToPath } from 'node:url';
 import { B, MCP, check, finish, mkKey, rawDb } from './lib.mjs';
 import { markOrders, must } from './flow-lib.mjs';
 
+// The server closes an idle connection after 5 s and this suite runs hooks (seconds) between its calls: a pooled connection can then be reset
+// (ECONNRESET on this PC). It keeps no connection open between calls. No check changes.
+try { const u = await import('undici'); u.setGlobalDispatcher(new u.Agent({ keepAliveTimeout: 1, keepAliveMaxTimeout: 1 })); } catch { /* the default pool */ }
+
 const HOOK = fileURLToPath(new URL('../../worker/hook.mjs', import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-hooks-e2e-'));
 try {
@@ -45,8 +49,8 @@ try {
   check('session-start: exit 0 and Claude Code hook JSON (hookEventName SessionStart)', s1.status === 0 && o1?.hookSpecificOutput?.hookEventName === 'SessionStart', s1.stdout + s1.stderr);
   check('session-start: the brief names the project, the State line and a session id', ctx.includes(NAME) && ctx.includes('Hooked brief line') && /Session id: [0-9a-f-]{8,}\./.test(ctx), ctx.slice(0, 300));
   check('session-start: within the 10,000 character cap', ctx.length <= 10000, String(ctx.length));
-  const presence = await rawDb.collection('presence').countDocuments({ label: 'Claude Code' });
-  check('session-start: the session is registered as present', presence === 1, String(presence));
+  const presence = await rawDb.collection('presence').countDocuments({ label: `${NAME} · Claude Code` });
+  check('session-start: the session is registered as present', presence === 1, String(presence) + JSON.stringify((await rawDb.collection('presence').find({}).project({label:1}).toArray())));
 
   // H5: a handover left with end_work comes first in the next session's brief
   const hov = await must(MCP, 'end_work', { project: NAME, state: [{ op: 'set_where', machine: 'hk-box', branch: 'main' }], friction: 'none', handover: { step: 'hooked handover step' } });

@@ -60,8 +60,8 @@ export async function readerRow(s: Scope, i: Ident): Promise<PresenceDoc | null>
 }
 
 /** The row id of a hook session: the person, the session token's id and the project (the shape rowId makes for a session id). */
-export const hookRowId = (userId: string, sid: string, projectId: string) => `${userId}:s:${sid}:${projectId}`;
-const rowId = (i: Ident, projectId: string) => (i.session ? hookRowId(i.userId, i.session, projectId) : `${i.userId}:k:${i.keyId ?? i.agent}:${projectId}`);
+export const hookRowId = (userId: string, sid: string, projectId: string | null) => `${userId}:s:${sid}:${projectId ?? 'none'}`;
+const rowId = (i: Ident, projectId: string | null) => (i.session ? hookRowId(i.userId, i.session, projectId) : `${i.userId}:k:${i.keyId ?? i.agent}:${projectId ?? 'none'}`);
 
 // "No row for this caller" is remembered for a few seconds, so a caller who never calls start_work costs no read per tool call.
 const none = new Map<string, number>();
@@ -69,26 +69,57 @@ const NONE_MS = 15_000;
 const noneKey = (i: Ident) => `${i.userId}|${i.session ?? ''}|${i.keyId ?? ''}`;
 
 /** Registers (or refreshes) the session as present on a project. Called by start_work. */
-export type RosterReport = { hook?: number; model?: string; account?: string; parent?: string; slot?: string; machineName?: string; branch?: string };
+export type RosterReport = { hook?: number; model?: string; account?: string; parent?: string; slot?: string; machineName?: string; branch?: string; tool?: string };
 const clip = (v: string | undefined, n: number) => (v ?? '').trim().slice(0, n);
 
+export type LabelSource = NonNullable<PresenceDoc['labelSource']>;
+export const TOOLS = ['desktop', 'vscode', 'terminal'] as const;
+/** A name for a roster row: one line, no control characters, at most 120 characters. An old hook's plain "Claude Code" is no name. */
+export function cleanLabel(v: string | undefined | null): string {
+  const t = (v ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+  return t === 'Claude Code' ? '' : t;
+}
+/**
+ * The label change a write makes, or null for none (Identity step 4). Order: the session's own name (title) -> start_work's label -> Claude's
+ * title (ai) -> the fallback; of the two explicit ones the last written wins; ai only fills where nothing explicit is set (and may replace an earlier
+ * ai title or the fallback); the fallback only fills an empty label; a dispatched row keeps its forced label whatever else writes.
+ */
+export function labelPatch(ex: Pick<PresenceDoc, 'label' | 'labelSource' | 'dispatched'> | null, text: string, source: LabelSource): { label: string; labelSource: LabelSource; labelAt: Date } | null {
+  const t = cleanLabel(text);
+  if (!t) return null;
+  const forced = !!ex?.dispatched;
+  if (forced) return source === 'forced' ? { label: t, labelSource: 'forced', labelAt: new Date() } : null;
+  const was: LabelSource | undefined = ex?.labelSource ?? (ex?.label ? 'label' : undefined);
+  const explicitWas = was === 'title' || was === 'label' || was === 'forced';
+  const ok = source === 'forced' || source === 'title' || source === 'label' || (source === 'ai' && !explicitWas) || (source === 'fallback' && !ex?.label);
+  return ok ? { label: t, labelSource: source, labelAt: new Date() } : null;
+}
+
 /** `fresh`: this call made the row (a new session), not a re-call of one that was there (after compaction, or a later start_work). */
-export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, o: { machine?: string; label?: string; /** Claude Code's own session UUID (the hook's start only). */ ccSession?: string; /** The state this start puts the session in (the hook's start only: on, or working after a compaction). */ activity?: 'on' | 'working'; /** H15: the task the dispatcher started it for. */ dispatched?: { taskId: string; ref: number } } & RosterReport): Promise<PresenceDoc & { fresh: boolean }> {
+export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc | null, o: { machine?: string; label?: string; /** Where `label` comes from (default: start_work's own label). */ labelSource?: LabelSource; /** Claude Code's own session UUID (the hook's start only). */ ccSession?: string; /** The state this start puts the session in (the hook's start only: on, or working after a compaction). */ activity?: 'on' | 'working'; /** H15: the task the dispatcher started it for. */ dispatched?: { taskId: string; ref: number } } & RosterReport): Promise<PresenceDoc & { fresh: boolean }> {
   const c = await scoped(s);
   const now = new Date();
-  const _id = rowId(i, project._id);
+  const _id = rowId(i, project?._id ?? null);
+  // One machine name per PC (Identity step 3): a row the hook made carries the device itself (machine = device id, machineName = its name).
+  // A later start_work from the agent that names the PC any other way (its hostname in another case, a nickname) must not replace that:
+  // the plain name is ignored while the row has a device. A call that resolves to a device (same or another) still wins.
+  const ex = await c.presence.findOne({ _id }, { projection: { machineName: 1, label: 1, labelSource: 1, dispatched: 1 } });
+  const keepDevice = !!(o.machine && !o.machineName) && !!ex?.machineName;
+  const lp = o.label ? labelPatch(ex ? { ...ex, dispatched: ex.dispatched ?? o.dispatched } : o.dispatched ? { label: '', dispatched: o.dispatched } : null, o.label, o.labelSource ?? (o.dispatched ? 'forced' : 'label')) : null;
+  const tool = (TOOLS as readonly string[]).includes(o.tool ?? '') ? (o.tool as (typeof TOOLS)[number]) : undefined;
   const up = await c.presence.updateOne(
     { _id },
     {
       $set: {
-        projectId: project._id,
+        projectId: project?._id ?? null,
         userId: s.userId,
         key: i.session ?? i.keyId ?? i.agent,
         ...(i.session ? { session: i.session } : {}),
         ...(i.keyId ? { keyId: i.keyId } : {}),
-        // A later start_work without a label keeps the earlier one (label addressing depends on it).
-        ...((o.label ?? '').trim() ? { label: (o.label ?? '').trim().slice(0, 120) } : {}),
-        machine: (o.machine ?? '').slice(0, 40),
+        // A later start_work without a label keeps the earlier one (label addressing depends on it); which write wins is labelPatch's.
+        ...(lp ?? {}),
+        ...(tool ? { tool } : {}),
+        ...(keepDevice ? {} : { machine: (o.machine ?? '').slice(0, 40) }),
         ai: (i.keyName || i.agent).slice(0, 80),
         agent: i.agent,
         // The hook protocol: only when this call says (an old hook's row stays 1 until a new hook starts it again).
@@ -110,15 +141,34 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
         writesSinceSave: 0,
         ...placeIn(project, s.userId),
       },
-      $setOnInsert: { createdAt: now, ...((o.label ?? '').trim() ? {} : { label: '' }) },
+      $setOnInsert: { createdAt: now, ...(lp ? {} : { label: '' }) },
       // A machine that is no longer one of the person's devices (or a name now reported plain) drops its device name.
       // A start_work after end_work is a session working again.
-      $unset: { endedAt: '', ...(o.machine && !o.machineName ? { machineName: '' } : {}) },
+      $unset: { endedAt: '', ...(o.machine && !o.machineName && !keepDevice ? { machineName: '' } : {}) },
     },
     { upsert: true },
   );
   for (const k of [...none.keys()]) if (k.startsWith(`${i.userId}|`)) none.delete(k);
   return { ...(await c.presence.findOne({ _id }))!, fresh: up.upsertedCount > 0 };
+}
+
+/**
+ * What the hook reports about a session that changed (POST /api/agent/event identity): its own name (a /rename), Claude's title and the model.
+ * Only the token's own row; never creates one. Returns whether anything changed.
+ */
+export async function setIdentity(s: Scope, r: { sid: string; projectId: string | null }, id: { title?: string; aiTitle?: string; model?: string }): Promise<boolean> {
+  const c = await scoped(s);
+  const _id = hookRowId(s.userId, r.sid, r.projectId);
+  const ex = await c.presence.findOne({ _id, userId: s.userId }, { projection: { label: 1, labelSource: 1, dispatched: 1, model: 1 } });
+  if (!ex) return false;
+  const set: Record<string, unknown> = {};
+  const lp = (id.title ? labelPatch(ex, id.title, 'title') : null) ?? (id.aiTitle ? labelPatch(ex, id.aiTitle, 'ai') : null);
+  if (lp && (lp.label !== ex.label || lp.labelSource !== ex.labelSource)) Object.assign(set, lp);
+  const model = clip(id.model, 60);
+  if (model && /^[A-Za-z0-9._:/-]+$/.test(model) && model !== ex.model) set.model = model;
+  if (!Object.keys(set).length) return false;
+  await c.presence.updateOne({ _id, userId: s.userId }, { $set: set });
+  return true;
 }
 
 /** The caller's own presence row on one project (end_work: a session may have rows on several projects), or null. */
@@ -205,12 +255,12 @@ const REPEAT_MS = 60_000;
  * recorded less than a minute ago? Such an event is answered from the row without a write and costs no hourly budget, so a
  * session making many tool calls never runs out of events. `state` is null when the row is gone (not free: it is charged).
  */
-export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string }, ev: { event: EventName; kind?: EventKind; files?: StopFiles; copy?: 'refused' }): Promise<{ free: boolean; state: PresenceState | null; ignored?: boolean }> {
+export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string | null }, ev: { event: EventName; kind?: EventKind; files?: StopFiles; copy?: 'refused'; identity?: object }): Promise<{ free: boolean; state: PresenceState | null; ignored?: boolean }> {
   const next = eventState(ev);
   const row = await (await scoped(s)).presence.findOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { projection: { activity: 1 } });
   if (!row) return { free: false, state: null };
   // An event that carries a count (a stop check, a refused copy write) is never free: it is written and charged.
-  if (ev.files || ev.copy) return { free: false, state: row.activity?.state ?? null };
+  if (ev.files || ev.copy || ev.identity) return { free: false, state: row.activity?.state ?? null };
   const a = row.activity;
   if (!next) return { free: true, state: a?.state ?? null, ignored: true };
   const same = !!a && a.state === next.state && a.why === next.why && Date.now() - a.at.getTime() < REPEAT_MS;
@@ -231,7 +281,7 @@ const copyInc = (what: 'refused' | 'forwarded') => ({ [`copyEdits.${what}`]: 1, 
  */
 export async function recordEvent(
   s: Scope,
-  r: { sid: string; projectId: string },
+  r: { sid: string; projectId: string | null },
   ev: { event: EventName; kind?: EventKind; at?: number; files?: StopFiles; reminded?: boolean; copy?: 'refused' },
 ): Promise<{ state: PresenceState | null; changed: boolean; ignored?: boolean }> {
   const out = await recordState(s, r, ev);
@@ -249,13 +299,13 @@ export async function recordEvent(
 }
 
 /** The token's own session counted one hand edit of WORK-STATE.md: refused or forwarded (POST /api/agent/state). Never creates a row. */
-export async function countCopyEdit(s: Scope, r: { sid: string; projectId: string }, what: 'refused' | 'forwarded'): Promise<void> {
+export async function countCopyEdit(s: Scope, r: { sid: string; projectId: string | null }, what: 'refused' | 'forwarded'): Promise<void> {
   await (await scoped(s)).presence.updateOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { $inc: copyInc(what) });
 }
 
 async function recordState(
   s: Scope,
-  r: { sid: string; projectId: string },
+  r: { sid: string; projectId: string | null },
   ev: { event: EventName; kind?: EventKind; at?: number },
 ): Promise<{ state: PresenceState | null; changed: boolean; ignored?: boolean }> {
   const next = eventState(ev);

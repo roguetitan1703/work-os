@@ -37,6 +37,22 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'messages-to-sessions',
+    date: '2026-11-19',
+    title: 'Messages go to sessions and people',
+    line: 'Send a message to one of your sessions or to a teammate; messages for you show under Claude › Now, where you apply, reject or reply. The project Inbox tab is gone.',
+    where: 'Claude › Now, Messages for you',
+    href: '/claude',
+  },
+  {
+    id: 'sessions-everywhere',
+    date: '2026-11-19',
+    title: 'Every Claude session is on the roster',
+    line: 'Sessions in a folder no project owns now show under No project, with their real name, tool and model, and whether they are running or idle.',
+    where: 'Claude › Workers',
+    href: '/claude?tab=workers',
+  },
+  {
     id: 'dispatcher-restart-once',
     date: '2026-11-19',
     title: 'Claude tasks restart once',

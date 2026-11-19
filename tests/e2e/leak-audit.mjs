@@ -370,7 +370,8 @@ try {
   const tEmail = `lkqtmail${hex(3)}@example.test`;
   const xEmail = `lkqxmail${hex(3)}@example.test`;
   const rEmail = `lkqrmail${hex(3)}@example.test`;
-  T = { name: 'T', email: tEmail, ...(await makeUser({ email: tEmail, name: can('tname', ['A', 'T']), orgId: A.orgId, role: 'member' })) };
+  const tPerson = can('tname', ['A', 'T']);
+  T = { name: 'T', person: tPerson, email: tEmail, ...(await makeUser({ email: tEmail, name: tPerson, orgId: A.orgId, role: 'member' })) };
   X = { name: 'X', email: xEmail, ...(await makeUser({ email: xEmail, name: can('xname', ['X']), orgName: can('xorg', ['X']) })) };
   R = { name: 'R', email: rEmail, ...(await makeUser({ email: rEmail, name: 'Gone Member', orgId: A.orgId, role: 'member' })) };
   CANARIES.push({ s: tEmail, tag: 'temail', allow: new Set(['A', 'T']) }, { s: xEmail, tag: 'xemail', allow: new Set(['X']) });
@@ -475,11 +476,12 @@ try {
   for (const [o, tg, allow] of [[P, 'pv', ['A']], [S, 'sh', ['A', 'T']]]) {
     o.stateNext = can(`${tg}statenext`, allow);
     await mustMcp(A.chat, 'save_state', { project: o.projectName, base_version: 0, ops: [{ op: 'set_now', text: can(`${tg}statenow`, allow) }, { op: 'add_next', text: o.stateNext }, { op: 'add_later', text: can(`${tg}statelater`, allow), waits_on: can(`${tg}statewait`, allow) }, { op: 'add_decision', text: can(`${tg}statedecision`, allow) }, { op: 'set_where', machine: can(`${tg}statemach`, allow), branch: can(`${tg}statebranch`, allow) }] });
-    await mustMcp(A.chat, 'start_work', { project: o.projectName, machine: can(`${tg}presmach`, allow), label: can(`${tg}preslabel`, allow) });
+    o.sid = (await mustMcp(A.chat, 'start_work', { project: o.projectName, machine: can(`${tg}presmach`, allow), label: can(`${tg}preslabel`, allow) })).session;
   }
   for (const [o, tg, allow] of [[P, 'pv', ['A']], [S, 'sh', ['A', 'T']]]) {
-    o.msg = (await mustMcp(A.chat, 'send_message', { project: o.projectName, kind: 'fyi', body: can(`${tg}msgbody`, allow) })).id;
-    o.msgReq = (await mustMcp(A.chat, 'send_message', { project: o.projectName, kind: 'request', body: can(`${tg}msgreq`, allow) })).id;
+    // to the owner's own session on the project, sent from that session (so a reply has a session to go back to)
+    o.msg = (await mustMcp(A.chat, 'send_message', { to: o.sid, session: o.sid, kind: 'fyi', body: can(`${tg}msgbody`, allow) })).id;
+    o.msgReq = (await mustMcp(A.chat, 'send_message', { to: o.sid, session: o.sid, kind: 'request', body: can(`${tg}msgreq`, allow) })).id;
   }
   P.ordersNote = (await mustMcp(A.chat, 'write_note', { project: P.projectName, title: can('pvorders', ['A']), body: can('pvordersbody', ['A']) })).created?.id;
   S.ordersNote = (await mustMcp(A.chat, 'write_note', { project: S.projectName, title: can('shorders', ['A', 'T']), body: can('shordersbody', ['A', 'T']) })).created?.id;
@@ -603,8 +605,8 @@ try {
   // A second target for owner calls that destroy one (each control needs its own; the attackers aim at the same one)
   Object.assign(TARGET.T, { trashRef2: P.trashRef, trashRef3: P.trashRef, trashRef4: P.trashRef, comment2: P.comment, sub2: P.subNote, invite2: A.invite, boiler: P.projNote, give: P.giveRef });
   Object.assign(TARGET.X, { trashRef2: S.trashRef, trashRef3: S.trashRef, trashRef4: S.trashRef, comment2: S.comment, sub2: P.subNote, invite2: A.invite, boiler: S.note, give: S.taskRef });
-  Object.assign(TARGET.T, { ordersNote: P.ordersNote, msg: P.msg, msgReq: P.msgReq });
-  Object.assign(TARGET.X, { ordersNote: S.ordersNote, msg: S.msg, msgReq: S.msgReq });
+  Object.assign(TARGET.T, { ordersNote: P.ordersNote, msg: P.msg, msgReq: P.msgReq, sid: P.sid });
+  Object.assign(TARGET.X, { ordersNote: S.ordersNote, msg: S.msg, msgReq: S.msgReq, sid: S.sid });
   Object.assign(FAKE, { trashRef2: 92001, trashRef3: 92002, trashRef4: 92003, comment2: fakeUuid(), sub2: mutate(P.subNote2), invite2: oid(), boiler: mutate(P.boiler), give: 94000 });
   // Needs: T aims at A's private ones (and at the shared ones it can read but may not answer or withdraw); X and R at the shared ones.
   Object.assign(TARGET.T, { needAns: P.needAns, needAnsS: S.needAns, needWd: P.needWd, needWdS: S.needWd });
@@ -623,6 +625,8 @@ try {
   OWN.msgReq = P.msgReq;
   FAKE.msg = mutate(P.msg);
   FAKE.msgReq = mutate(P.msgReq);
+  OWN.sid = P.sid;
+  FAKE.sid = mutate(P.sid);
   Object.assign(OWN, { needAns: P.needAns, needAnsS: S.needAns, needWd: P.needWd, needWdS: S.needWd });
   Object.assign(OWN, { needDc: P.needDc, needDcS: S.needDc });
 
@@ -634,7 +638,7 @@ try {
     for (const pr of [].concat(spec.probes ?? [])) probes.push({ id, ...pr });
   }
   // A persona's credentials for a probe of kind k
-  const ECHO_IDS_MORE = ['ordersNote', 'msg', 'msgReq'];
+  const ECHO_IDS_MORE = ['ordersNote', 'msg', 'msgReq', 'sid'];
   const ECHO_IDS = ['project', 'itemProject', 'task', 'note', 'taskNote', 'sub', 'comment', 'device', 'folder', 'session', 'job', 'review', 'push', 'passkey', 'invite', 'member', 'comment2', 'sub2', 'invite2', 'boiler'];
   const credOf = (p, k) => (k === 'mcp' ? p.chat : k === 'mcp-code' ? p.code : k === 'worker' ? p.wkr : p.cookie);
   /** Run one probe as persona `who` aimed at `o` (target or fake). */
@@ -894,7 +898,7 @@ try {
     CANARIES.push({ s: cn, tag: 'mvstate', allow: new Set(['A', 'T']) });
     await mustMcp(A.chat, 'add_project', { name: nm });
     await mustMcp(A.chat, 'save_state', { project: nm, ops: [{ op: 'add_next', text: cn }, { op: 'add_decision', text: cn + 'd' }] });
-    await mustMcp(A.chat, 'start_work', { project: nm, machine: 'lkqmv', label: cn + 'p' });
+    const aSid = (await mustMcp(A.chat, 'start_work', { project: nm, machine: 'lkqmv', label: cn + 'p' })).session;
     // Archiving a decision: the app only, and only the project's owner (or an organization owner)
     const pidNm = (await rawDb.collection('projects').findOne({ orgId: A.orgId, name: nm }))._id;
     const decId = (await mustMcp(A.chat, 'get_state', { project: nm })).state.decisions[0].id;
@@ -912,13 +916,18 @@ try {
     check('Orders: a member marks their own page as their person Orders', fp.value?.ok === true, JSON.stringify(fp.value));
     const mcn = `lkqmvmsg${hex(4)}`;
     CANARIES.push({ s: mcn, tag: 'mvmsg', allow: new Set(['A', 'T']) });
-    const mm = await mustMcp(A.chat, 'send_message', { project: nm, kind: 'fyi', body: mcn, word: 'person' });
+    const mm = await mustMcp(A.chat, 'send_message', { to: T.person, project: nm, kind: 'fyi', body: mcn, word: 'person' });
     check('Messages: word is set by the server, an argument for it is ignored', mm.word === 'agent' && (await rawDb.collection('messages').findOne({ _id: mm.id })).from.word === 'agent', JSON.stringify(mm));
-    const tm = await mcpCall(T.code, 'send_message', { project: nm, kind: 'fyi', body: 'lkq from T', word: 'person' });
-    check('Messages: a teammate can send to a shared project, and their word is agent whatever they pass', tm.ok && JSON.parse(tm.text).word === 'agent', tm.text.slice(0, 200));
-    const tib = await mcpCall(T.chat, 'inbox', { project: nm });
-    scan('T', 'mv inbox (before)', tib.text);
-    check('Messages: a teammate reads a shared project’s inbox', tib.ok && tib.text.includes(mcn), tib.text.slice(0, 200));
+    const tm = await mcpCall(T.code, 'send_message', { to: 'E2E Owner', project: nm, kind: 'fyi', body: 'lkq from T', word: 'person' });
+    check('Messages: a teammate can send to a person on a shared project, and their word is agent whatever they pass', tm.ok && JSON.parse(tm.text).word === 'agent', tm.text.slice(0, 200));
+    const tib = await mcpCall(T.chat, 'message_status', { id: mm.id });
+    scan('T', 'mv message_status read (before)', tib.text);
+    check('Messages: a teammate reads a message sent to her on a shared project', tib.ok && tib.text.includes(mcn), tib.text.slice(0, 200));
+    const tNowBefore = await req('GET', '/claude?tab=now', { cookie: T.cookie });
+    check('Messages: …and it is under Messages for you on her Claude › Now', tNowBefore.status === 200 && tNowBefore.text.includes(mcn), String(tNowBefore.status));
+    const tNoSession = await mcpCall(T.chat, 'send_message', { to: aSid, kind: 'fyi', body: 'lkq to the owner session' });
+    scan('T', 'mv send_message to a session of another person', tNoSession.text);
+    check('Messages: a teammate cannot send to the owner’s session by its id (it is no session of hers)', !tNoSession.ok && /No session of yours has that id/.test(tNoSession.text) && !tNoSession.text.includes(aSid), tNoSession.text.slice(0, 200));
     const tBefore = await mcpCall(T.chat, 'get_state', { project: nm });
     scan('T', 'mv get_state (before)', tBefore.text);
     check('State: a teammate reads a shared project’s State', tBefore.ok && tBefore.text.includes(cn), tBefore.text.slice(0, 200));
@@ -926,7 +935,7 @@ try {
     check('State: a teammate can start work on it (presence is theirs)', tStart.ok, tStart.text.slice(0, 200));
     // H3: read state and addressing never leave the server, and nobody else's session id reaches a teammate (alsoHere, target, messages)
     const aSessions = (await rawDb.collection('presence').find({ userId: A.userId, projectId: (await rawDb.collection('projects').findOne({ orgId: A.orgId, name: nm }))._id }).toArray()).map(p => p.session).filter(Boolean);
-    const tAll3 = tib.text + tStart.text + (await mcpCall(T.code, 'inbox', { project: nm })).text;
+    const tAll3 = tib.text + tStart.text + tNoSession.text + (await mcpCall(T.code, 'message_status', { id: tm.id })).text;
     check('Messages: seenBy and toSids are never in an output', !/seenBy|toSids/.test(tAll3) && !/seenBy|toSids/.test(tib.text), '');
     check('Messages: no other person’s session id in alsoHere, the target or a message', aSessions.length > 0 && aSessions.every(sid => !tAll3.includes(sid)), String(aSessions.length));
     // Activity (note e56029b458): the State and message rows of a shared project reach the teammate's feed until it goes private
@@ -949,14 +958,13 @@ try {
     check('State: …and the presence rows (both sessions) with it', pr.length === 2 && pr.every(p => p.visibility === 'private' && p.ownerId === A.userId), JSON.stringify(pr.map(p => [p.visibility, p.ownerId])));
     const mvd = await rawDb.collection('messages').find({ projectId: pid }).toArray();
     check('Messages: a project made private takes its messages along (placed private, owned by its owner)', mvd.length === 2 && mvd.every(m => m.visibility === 'private' && m.ownerId === A.userId), JSON.stringify(mvd.map(m => [m.visibility, m.ownerId])));
-    for (const [tool, args] of [['inbox', { project: nm }], ['send_message', { project: nm, kind: 'fyi', body: 'lkq after private' }], ['message_status', { id: mm.id, status: 'seen' }], ['reply', { id: mm.id, body: 'lkq after private' }]]) {
+    for (const [tool, args] of [['message_status', { id: mm.id }], ['send_message', { to: 'E2E Owner', project: nm, kind: 'fyi', body: 'lkq after private' }], ['message_status', { id: mm.id, status: 'seen' }], ['reply', { id: mm.id, body: 'lkq after private' }]]) {
       const r = await mcpCall(T.chat, tool, args);
       scan('T', `mv ${tool} (after private)`, r.text);
       check(`Messages: after the project was made private the teammate is refused (${tool})`, !r.ok && /not found/i.test(r.text) && !r.text.includes(mcn), r.text.slice(0, 200));
     }
-    const tinb = await mcpCall(T.chat, 'inbox', {});
-    scan('T', 'mv inbox (all, after private)', tinb.text);
-    check('Messages: …and the all-projects inbox carries nothing of it', tinb.ok && !tinb.text.includes(mcn), tinb.text.slice(0, 200));
+    const tNowAfter = await req('GET', '/claude?tab=now', { cookie: T.cookie });
+    check('Messages: …and her Claude › Now (Messages for you) carries nothing of it', tNowAfter.status === 200 && !tNowAfter.text.includes(mcn), String(tNowAfter.status));
     for (const [tool, args] of [['get_state', { project: nm }], ['start_work', { project: nm }], ['save_state', { project: nm, ops: [{ op: 'add_next', text: 'lkq after private' }] }], ['import_state', { project: nm, markdown: '## Now\n- x' }], ['get_project', { project: nm }]]) {
       const r = await mcpCall(T.chat, tool, args);
       scan('T', `mv ${tool} (after private)`, r.text);
@@ -1115,6 +1123,34 @@ try {
       check(`h5: ${p.name} cannot end work on, or leave a handover in, the private project`, !ew.ok, ew.text.slice(0, 120));
     }
   }
+  // Identity step 5: a session whose folder no project owns is on its own person's roster and nobody else's, and its token reaches only event and wait.
+  {
+    const cn = `lkqnoproj${hex(4)}`;
+    CANARIES.push({ s: cn, tag: 'noproject', allow: new Set(['A']) });
+    const cc = randomUUID();
+    // Its own computer (A's other one has been revoked and replaced by the actions above).
+    const npKey = 'wkr_' + randomBytes(32).toString('base64url');
+    await rawDb.collection('devices').insertOne({ _id: randomUUID(), name: cn + 'dev', ownerId: A.userId, orgId: A.orgId, hash: sha(npKey), prefix: npKey.slice(0, 8), createdAt: new Date(), lastSeenAt: new Date(), revokedAt: null });
+    secret('A no-project device key', npKey);
+    const st = await req('POST', '/api/agent/start', { bearer: npKey, headers: { 'x-work-os-hook': '3' }, body: { path: `C:/lk/${cn}folder`, branch: cn + 'br', title: cn + 'title', model: 'm-' + cn.slice(-6), ccSession: cc, source: 'startup' } });
+    let tok = '';
+    try { tok = JSON.parse(st.text).token ?? ''; } catch { /* no token */ }
+    check("noproject: A's computer gets a no-project token for a folder no project owns", st.status === 200 && /^wst_/.test(tok), st.text.slice(0, 120));
+    const mine = await mcpCall(A.code, 'list_sessions', { include_gone: true });
+    check('noproject: the owner sees it under No project', mine.ok && mine.text.includes(cn + 'title') && mine.text.includes('No project'), mine.text.slice(0, 200));
+    for (const p of [T, R, X]) {
+      const r = await mcpCall(p.code || p.chat, 'list_sessions', { include_gone: true });
+      scan(p.name, 'list_sessions (no-project session)', r.text);
+      check(`noproject: ${p.name}'s list_sessions does not show it`, !r.ok || (!r.text.includes(cn) && !r.text.includes('No project')), r.text.slice(0, 160));
+    }
+    // A teammate in the same organization too (T is a member of A's organization in this audit): the row is private to its person.
+    for (const [what, path, body] of [['state', '/api/agent/state', {}], ['release', '/api/agent/release', { what: 'push' }]]) {
+      const r = await req('POST', path, { bearer: tok, body });
+      check(`noproject: its token is refused by ${what} (403, never a project's answer)`, r.status === 403 && !r.text.includes(cn), `${r.status} ${r.text.slice(0, 120)}`);
+    }
+    const mcpTok = await mcpCall(tok, 'list_sessions', {});
+    check('noproject: its token is not an MCP credential', !mcpTok.ok && !mcpTok.text.includes(cn), mcpTok.text.slice(0, 120));
+  }
   await sleep(500);
   for (const s of [sX, wT, wX]) s.close();
   // (X's own probes make hints marked as X's own, s:1; anything else came from someone else's write)
@@ -1266,18 +1302,15 @@ function AUDIT() {
   add('mcp import_state', M('import_state', t => ({ project: t.project, markdown: '## Now\n- lkq imported goal' }), aim(['project'], { control: false })));
   // Messages (slice 3): a reader of the project only
   add('mcp send_message',
-    M('send_message', t => ({ project: t.project, kind: 'fyi', body: 'lkq sneaked message' }), aim(['project'])),
-    M('send_message', t => ({ project: t.projectName, kind: 'request', body: 'lkq sneaked request', to_session: 'lkq' }), aim(['projectName'], { label: 'by name' })),
-    Mc('send_message', t => ({ project: t.project, kind: 'decision', body: 'lkq sneaked decision' }), aim(['project'], { label: 'code key' })),
+    M('send_message', t => ({ to: t.sid, project: t.project, kind: 'fyi', body: 'lkq sneaked message' }), aim(['project', 'sid'])),
+    M('send_message', t => ({ to: t.sid, project: t.projectName, kind: 'request', body: 'lkq sneaked request' }), aim(['projectName', 'sid'], { label: 'by name' })),
+    M('send_message', t => ({ to: t.sid, kind: 'fyi', body: 'lkq sneaked session message' }), aim(['sid'], { label: 'to another person session id, no project', control: false, refusal: /No session of yours has that id/ })),
+    Mc('send_message', t => ({ to: t.sid, project: t.project, kind: 'decision', body: 'lkq sneaked decision' }), aim(['project', 'sid'], { label: 'code key' })),
   );
-  add('mcp inbox',
-    M('inbox', t => ({ project: t.project }), aim(['project'])),
-    M('inbox', t => ({ project: t.projectName, status: 'unread' }), aim(['projectName'], { label: 'by name' })),
-    M('inbox', {}, { label: 'every project' }),
-    Mc('inbox', t => ({ project: t.project }), aim(['project'], { label: 'code key' })),
-  );
+  // (the inbox tool went with Identity step 6: a message is read with message_status, by the session it is for or its sender)
   add('mcp message_status',
     M('message_status', t => ({ id: t.msg, status: 'seen' }), aim(['msg'])),
+    M('message_status', t => ({ id: t.msg }), aim(['msg'], { label: 'read the text' })),
     M('message_status', t => ({ id: t.msgReq, status: 'applied', make_task: true, note: 'lkq' }), aim(['msgReq'], { label: 'make a task', control: false })),
     Mc('message_status', t => ({ id: t.msg, status: 'rejected', note: 'lkq' }), aim(['msg'], { label: 'code key', control: false })),
   );
@@ -1397,10 +1430,11 @@ function AUDIT() {
   add(`action ${N_}searchMentionsAction`, act(N_ + 'searchMentionsAction', ['lkq'], { ok: r => r.status === 200 && !r.error && Array.isArray(r.value) }));
   const SA = 'app/(app)/projects/[id]/state-actions.ts#';
   const OA = 'app/(app)/notes/orders-actions.ts#';
-  const IA = 'app/(app)/projects/[id]/inbox-actions.ts#';
-  add(`action ${IA}sendMessageAction`, act(IA + 'sendMessageAction', t => [t.project, 'fyi', 'lkq action message'], aim(['project'])), act(IA + 'sendMessageAction', t => [t.project, 'request', 'lkq action request', 'lkq'], aim(['project'], { label: 'for a session' })));
-  add(`action ${IA}messageStatusAction`, act(IA + 'messageStatusAction', t => [t.project, t.msg, 'seen'], aim(['project', 'msg'])), act(IA + 'messageStatusAction', t => [t.project, t.msg, 'rejected', 'lkq'], aim(['project', 'msg'], { label: 'rejected', control: false })));
-  add(`action ${IA}makeTaskFromMessageAction`, act(IA + 'makeTaskFromMessageAction', t => [t.project, t.msgReq], aim(['project', 'msgReq'], { control: false })));
+  const MFA = 'app/(app)/claude/message-actions.ts#';
+  // Messages for you (Identity step 6): the signed-in person acts on what is theirs; another person session message, or one on a project she cannot read, is 'not found' as a made-up id
+  add(`action ${MFA}messageStatusAction`, act(MFA + 'messageStatusAction', t => [t.msg, 'applied'], aim(['msg'], { control: false })), act(MFA + 'messageStatusAction', t => [t.msg, 'rejected', 'lkq'], aim(['msg'], { label: 'rejected', control: false })));
+  add(`action ${MFA}makeTaskFromMessageAction`, act(MFA + 'makeTaskFromMessageAction', t => [t.msgReq], aim(['msgReq'], { control: false })));
+  add(`action ${MFA}replyToMessageAction`, act(MFA + 'replyToMessageAction', t => [t.msg, 'lkq action reply'], aim(['msg'])));
   add(`action ${SA}saveStateAction`, act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_next', text: 'lkq action sneak' }]], aim(['project'])), act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_decision', text: 'lkq action decision' }, { op: 'add_later', text: 'lkq action later' }]], aim(['project'], { label: 'decision and later' })));
   // H11: Declutter in the app. The project's owner (the control) sees and applies; a member who is not the owner and anyone without access get the same answer as for a made-up project (not found, or the owner-only line), and a made-up archived line is refused alike.
   const DC = 'app/(app)/projects/[id]/declutter-actions.ts#';

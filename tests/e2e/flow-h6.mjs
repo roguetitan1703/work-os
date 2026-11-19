@@ -90,7 +90,7 @@ try {
   await bad('an extra field (a state)', { event: 'prompt', state: 'off' });
   await bad('an extra field (the message text)', { event: 'notify', kind: 'permission_prompt', message: 'Claude needs your permission to run git push' });
   await bad('at that is not a number', { event: 'prompt', at: 'now' });
-  check('a body over 1 KB: 413', (await ev(S.token, { event: 'prompt', kind: 'x'.repeat(1100) })).status === 413);
+  check('a body over 2 KB: 413 (Identity step 4 raised the cap from 1 KB so a rename can ride along)', (await ev(S.token, { event: 'prompt', kind: 'x'.repeat(2100) })).status === 413);
   check('the refused bodies changed nothing', (await prow(S.sid)).activity.state === 'on');
 
   // ---- the sequence through the real start route ----
@@ -136,11 +136,22 @@ try {
   const want = async (label, s, state) => { const g = await stateOf(s.sid); check(label, g?.state === state, `${g?.state} wanted ${state}`); };
   await daemonList([]);
   await setRow(R, { activity: { state: 'working', at: ago(40) }, lastSeen: ago(40) });
-  await want('working for 40 minutes with no word since, no daemon word: idle', R, 'idle');
+  await want('working for 40 minutes with no word since, no daemon word: off (Identity step 2: quiet for 30 minutes)', R, 'off');
+  await setRow(R, { activity: { state: 'working', at: ago(15) }, lastSeen: ago(15) });
+  await want('working but no event for 15 minutes (heard of 15 minutes ago): idle, not off', R, 'idle');
+  await setRow(R, { activity: { state: 'working', at: ago(40) }, lastSeen: ago(1) });
+  await want('no hook event for 40 minutes but the session was seen a minute ago (its idle wait refreshes it): idle', R, 'idle');
+  await daemonList([item(await ccOfRow(R), true)]);
+  await setRow(R, { activity: { state: 'working', at: ago(40) }, lastSeen: ago(40) });
+  await want('working, quiet for 40 minutes, but the daemon says its process runs: idle', R, 'idle');
+  await daemonList([]);
   await setRow(R, { activity: { state: 'working', at: ago(5) }, lastSeen: ago(5) });
   await want('working 5 minutes ago: working', R, 'working');
   await setRow(R, { activity: { state: 'idle', at: ago(9 * 60) }, lastSeen: ago(9 * 60) });
   await want('idle for 9 hours, no daemon word: off', R, 'off');
+  await setRow(R, { activity: { state: 'idle', at: ago(45) }, lastSeen: ago(45) });
+  await want('idle for 45 minutes, no daemon word: off (the 8 hour rule is gone)', R, 'off');
+  await setRow(R, { activity: { state: 'idle', at: ago(9 * 60) }, lastSeen: ago(9 * 60) });
   await daemonList([item(await ccOfRow(R), true)]);
   await want('idle for 9 hours but the daemon says its process (Claude Code session id) runs: idle', R, 'idle');
   await daemonList([item(await ccOfRow(R), false)]);

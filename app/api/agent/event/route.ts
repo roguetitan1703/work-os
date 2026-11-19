@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { projectOnDevice } from '@/lib/agent-sessions';
 import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf, readCapped } from '@/lib/agent-auth';
 import { reserveAgent } from '@/lib/mcp/policy';
-import { isFreeEvent, recordEvent } from '@/lib/data/presence';
+import { isFreeEvent, recordEvent, setIdentity } from '@/lib/data/presence';
 import { EVENT_KINDS, EVENT_NAMES } from '@/lib/data/presence-state';
 import { hint } from '@/lib/live';
 import { applyAck, deliverFor, startTurn, type Delivery } from '@/lib/data/deliver';
@@ -29,6 +29,9 @@ import { applyAck, deliverFor, startTurn, type Delivery } from '@/lib/data/deliv
 //            was reminded first. copy: 'refused' (tool only): a WORK-STATE.md write the hook refused that never reached this server.
 //            Counted on the token's own row (stopCheck, copyEdits) for the owner's Monday numbers; words and a flag, no text or path.
 //            An event that carries them is never free.
+//   identity (protocol 3) { title?, aiTitle?, model? }, on a prompt or a stop and only when it changed since the last one: the session's own
+//            name (a /rename), Claude's title for it, the model. Sets the roster row's label and model (lib/data/presence.ts labelPatch:
+//            the session's own name or start_work's label beats Claude's title; a dispatched session keeps its forced label). One line, 120 characters.
 // The only row it writes is the token's own presence row (state, turn chain) (the person, the token's session and project), and never creates one.
 // No State, feed, activity or Needs writes. The owner's own pages are told to refresh only when the state changes.
 // Rate limited per session token, lib/mcp/policy.ts AGENT_PER_HOUR.event (300 an hour). Free: an event that repeats the stored state
@@ -40,7 +43,7 @@ import { applyAck, deliverFor, startTurn, type Delivery } from '@/lib/data/deliv
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const MAX_BODY = 1024;
+const MAX_BODY = 2048;
 
 const Body = z
   .object({
@@ -54,11 +57,14 @@ const Body = z
     files: z.enum(['saved', 'unsaved']).optional(),
     reminded: z.boolean().optional(),
     copy: z.literal('refused').optional(),
+    // Protocol 3 (Identity step 4), on a prompt or a stop, only when it changed since the last one: the session's own name, Claude's title for it, the model.
+    identity: z.object({ title: z.string().max(300).optional(), aiTitle: z.string().max(300).optional(), model: z.string().max(60).optional() }).strict().optional(),
   })
   .strict()
   .refine(b => (b.files === undefined && b.reminded === undefined) || b.event === 'stop', { message: 'files and reminded belong to a stop' })
   .refine(b => b.reminded === undefined || b.files !== undefined, { message: 'reminded goes with files' })
-  .refine(b => b.copy === undefined || b.event === 'tool', { message: 'copy belongs to a tool event' });
+  .refine(b => b.copy === undefined || b.event === 'tool', { message: 'copy belongs to a tool event' })
+  .refine(b => b.identity === undefined || b.event === 'prompt' || b.event === 'stop', { message: 'identity belongs to a prompt or a stop' });
 
 export async function POST(req: Request): Promise<Response> {
   try {
@@ -85,7 +91,8 @@ export async function POST(req: Request): Promise<Response> {
     if (free.free) return await answer({ state: free.state, ...(free.ignored ? { ignored: true } : {}) });
     if (!(await reserveAgent('event', session.id))) return tooMany();
     const r = await recordEvent(s, { sid: session.id, projectId: session.projectId }, ev);
-    if (r.changed) hint(s.orgId, new Set([s.userId]), 'claude');
+    const named = ev.identity ? await setIdentity(s, { sid: session.id, projectId: session.projectId }, ev.identity) : false;
+    if (r.changed || named) hint(s.orgId, new Set([s.userId]), 'claude');
     return await answer({ state: r.state, ...(r.ignored ? { ignored: true } : {}) });
 
     // The answer; a prompt starts a turn (its chain restarts), and a hook that asked for it is handed what is waiting for the session.
@@ -95,8 +102,9 @@ export async function POST(req: Request): Promise<Response> {
       if (ev.event === 'prompt') await startTurn(s, session.id, session.projectId, ev.woke === true);
       if (ev.deliver && out.state && (ev.event === 'prompt' || ev.event === 'tool' || ev.event === 'stop')) {
         // Checked on every call: the folder may have been unlinked since the session began. A used-up read budget answers the state alone.
-        if ((await projectOnDevice(s, device.id, session.projectId)) && (await reserveAgent('deliver', session.id))) {
-          const d = (await deliverFor(s, session.id, session.projectId, ev.event === 'stop' ? 'stop' : 'turn')).delivery;
+        const pid = session.projectId; // null: a session outside any project: it gets the messages addressed to it that no project holds
+        if ((!pid || (await projectOnDevice(s, device.id, pid))) && (await reserveAgent('deliver', session.id))) {
+          const d = (await deliverFor(s, session.id, pid, ev.event === 'stop' ? 'stop' : 'turn')).delivery;
           if (d) return reply(200, { ...out, deliver: d satisfies Delivery });
         }
       }

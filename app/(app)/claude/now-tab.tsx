@@ -16,21 +16,26 @@ import { dispatcherSettingsAction } from './dispatcher-actions';
 import { ClaudeTasksSection } from './claude-tasks';
 import { ReopenBanner } from './reopen-banner';
 import { LinkSessionFolder } from './link-session-folder';
+import { MessagesForYou } from './messages-for-you';
+import type { MessageForYou } from '@/lib/data/messages';
 import { trackJob } from './job-toast';
 import { btnOutline, card, field, ghost, H2 } from './ui';
 
-type Props = { needsYou: NeedsYouItem[]; sessions: SessionRow[]; summary: SessionSummary; hasComputers: boolean; claudeTasks: ClaudeTasks; reopen?: ReopenPrompt[] };
+type Props = { needsYou: NeedsYouItem[]; sessions: SessionRow[]; summary: SessionSummary; hasComputers: boolean; claudeTasks: ClaudeTasks; reopen?: ReopenPrompt[]; messages?: MessageForYou[] };
 
-export function NowTab({ needsYou, sessions, summary, hasComputers, claudeTasks, reopen = [] }: Props) {
+export function NowTab({ needsYou, sessions, summary, hasComputers, claudeTasks, reopen = [], messages = [] }: Props) {
   // Hide an answered row at once; it stays hidden until the server copy changes (a late refresh must not bring it back).
   const [answered, setAnswered] = useState<Record<string, string>>({});
   const shown = needsYou.filter(i => answered[i.id] !== i.updatedAt);
+  const [handled, setHandled] = useState<Record<string, true>>({}); // a message dealt with disappears at once; the server copy follows
+  const msgs = messages.filter(m => !handled[m.id]);
   return (
     <div className="space-y-4">
       <SetupBanner hasComputers={hasComputers} enabled={claudeTasks.settings.enabled} hasNote={!!claudeTasks.settings.boilerplateNoteId} />
       <ReopenBanner prompts={reopen} />
       <Summary summary={summary} needs={shown.length} hasComputers={hasComputers} />
       {shown.length > 0 && <NeedsYou items={shown} onAnswered={i => setAnswered(a => ({ ...a, [i.id]: i.updatedAt }))} />}
+      {msgs.length > 0 && <MessagesForYou items={msgs} onDone={m => setHandled(h => ({ ...h, [m.id]: true }))} />}
       <ClaudeTasksSection data={claudeTasks} />
       <Sessions sessions={sessions} hasComputers={hasComputers} />
     </div>
@@ -404,7 +409,7 @@ function SessionLine({ s, busy, onStop, onRemove, onResume, onVscode, onLink }: 
           <span className={st.tone}>{st.label}</span>
           {subs && ` · ${subs}`}
           {` · ${s.folder}`}
-          {s.projectId ? s.projectName && ` · ${s.projectName}` : ' · not filed'}
+          {s.projectId ? s.projectName && ` · ${s.projectName}` : ' · No project'}
           {` · ${s.deviceName}`}
           <span suppressHydrationWarning>{` · ${agoShort(s.lastActiveAt)}`}</span>
           {s.error && ` · ${s.error}`}
@@ -417,7 +422,7 @@ function SessionLine({ s, busy, onStop, onRemove, onResume, onVscode, onLink }: 
           </Link>
         ) : (
           <span data-not-filed>
-            <span className="text-amber-600 dark:text-amber-400">not filed</span> · {s.folder}
+            <span className="text-amber-600 dark:text-amber-400">No project</span> · {s.folder}
           </span>
         )}
       </div>

@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkBaseUrl, loadConfig } from './config.mjs';
 import { getToken } from './secret.mjs';
+import { identityKey, lstartTicks, transcriptMeta } from './hook-identity.mjs';
 
 /** What the device-key path reads the key with; tests replace it (in process only, never from the environment). */
 export const deps = { deviceKey: (dir) => getToken(dir) };
@@ -58,6 +59,63 @@ export function keepToken(sid, token, until) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(tokenFile(sid), JSON.stringify({ token, until: until || Date.now() + 24 * 3600e3 }), { mode: 0o600 });
   try { for (const f of fs.readdirSync(dir)) { const p = path.join(dir, f); if (Date.now() - fs.statSync(p).mtimeMs > 2 * 86_400_000) fs.rmSync(p, { force: true }); } } catch {}
+}
+
+// ── The session's claude process (Identity step 3) ─────────────────────────────────────────────────────────────────────────
+// At SessionStart the hook notes which process the session runs in: <hooks folder>/sessions/<session id>.proc = { pid, procStart? },
+// so the worker can tell at once when it is gone (worker/activity.mjs sessionEvidence). The pid is CLAUDE_PID, which Claude Code puts in the
+// environment of its hooks and shell commands in every surface (desktop, VS Code, terminal: it is the claude process's own id); without it, the
+// nearest claude ancestor of this process. procStart (Windows and macOS, FILETIME ticks as a string) guards against a pid that another process took later.
+// Only an installed copy writes it (next to a worker config); the id is a UUID, the pid a small integer, nothing else is stored.
+const procFile = (sid) => path.join(HERE, 'sessions', String(sid).toLowerCase() + '.proc');
+const isClaudeImage = (n) => /^claude(\.exe)?$/i.test(String(n || '').replace(/^"|"$/g, '').split(/[\\/]/).pop());
+
+/** Process facts for `pid`, or null: { ppid, name, start? }. One short PowerShell or ps call. */
+function processFacts(pid) {
+  try {
+    if (process.platform === 'win32') {
+      const script = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${Number(pid)}'; if ($p) { @{ ppid = $p.ParentProcessId; name = $p.Name; start = [string]$p.CreationDate.ToFileTimeUtc() } | ConvertTo-Json -Compress }`;
+      const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim();
+      const o = out ? JSON.parse(out) : null;
+      return o && Number.isInteger(o.ppid) ? { ppid: o.ppid, name: String(o.name || ''), ...(/^\d{1,20}$/.test(String(o.start)) ? { start: String(o.start) } : {}) } : null;
+    }
+    const out = execFileSync('ps', ['-o', 'ppid=,comm=', '-p', String(Number(pid))], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const m = /^(\d+)\s+(.*)$/.exec(out);
+    if (!m) return null;
+    // macOS: the start time guards against a reused pid the way FILETIME does on Windows (ps prints it in local time).
+    let start = null;
+    try { start = lstartTicks(execFileSync('ps', ['-o', 'lstart=', '-p', String(Number(pid))], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] })); } catch { /* no start time */ }
+    return { ppid: Number(m[1]), name: m[2], ...(start ? { start } : {}) };
+  } catch { return null; }
+}
+
+/** The claude process of this session: { pid, procStart? } from CLAUDE_PID, else the nearest claude ancestor; null when neither is found. */
+export function claudeProcess(env = process.env, facts = processFacts, ppid = process.ppid) {
+  const fromEnv = /^\d{1,10}$/.test(env.CLAUDE_PID || '') ? Number(env.CLAUDE_PID) : 0;
+  if (fromEnv > 0) {
+    const f = facts(fromEnv);
+    return { pid: fromEnv, ...(f && f.start ? { procStart: f.start } : {}) };
+  }
+  let pid = ppid;
+  for (let i = 0; i < 8 && Number.isInteger(pid) && pid > 1; i++) {
+    const f = facts(pid);
+    if (!f) return null;
+    if (isClaudeImage(f.name)) return { pid, ...(f.start ? { procStart: f.start } : {}) };
+    pid = f.ppid;
+  }
+  return null;
+}
+
+/** Writes the .proc file for a session (an installed copy only). Never throws. Returns what it wrote, or null. */
+export function keepProc(sid, claude = claudeProcess) {
+  try {
+    if (!workerHome() || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sid || ''))) return null;
+    const c = claude();
+    if (!c) return null;
+    fs.mkdirSync(path.dirname(procFile(sid)), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(procFile(sid), JSON.stringify(c), { mode: 0o600 });
+    return c;
+  } catch { return null; }
 }
 
 // ── Which folder is this session in (H13: the folder decides the project) ─────────────────────────────────────────────────
@@ -141,10 +199,19 @@ export async function postEvent(sid, event, extra = {}, timeoutMs = 1500) {
     if (!token) return null;
     const at = Date.now();
     let r = null;
-    const ack = readMarker(sid)?.ack;
+    const m0 = readMarker(sid);
+    const ack = m0?.ack;
     const sent = Array.isArray(ack) && ack.length ? ack.slice(0, 12) : null;
-    try { r = await postAgent('/api/agent/event', token, { event, ...extra, ...(sent ? { ack: sent } : {}), at }, timeoutMs); } catch {}
+    // Protocol 3: the session's own name, Claude's title and the model go with a prompt or a stop, once per change (the start sent the first).
+    let ident = null;
+    if ((event === 'prompt' || event === 'stop') && typeof m0?.transcript === 'string') {
+      const meta = transcriptMeta(m0.transcript);
+      const k = identityKey(meta);
+      if (k !== (m0.ident ?? '')) ident = { key: k, send: { ...(meta.title ? { title: meta.title } : {}), ...(meta.aiTitle ? { aiTitle: meta.aiTitle } : {}), ...(meta.model ? { model: meta.model } : {}) } };
+    }
+    try { r = await postAgent('/api/agent/event', token, { event, ...extra, ...(ident && Object.keys(ident.send).length ? { identity: ident.send } : {}), ...(sent ? { ack: sent } : {}), at }, timeoutMs); } catch {}
     const m = readMarker(sid);
+    if (m && ident && r?.status === 200) m.ident = ident.key; // the server has it
     if (m && sent && r?.status === 200) delete m.ack; // the server has it
     if (m) {
       const state = event === 'notify' ? (extra.kind === 'idle_prompt' ? 'idle' : 'waiting') : PRESENCE_AFTER[event];
@@ -202,7 +269,7 @@ export function frameText(text, id, max = 600) {
     .replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, '')
     .replace(/\[+\[/g, '[ [')
     .replace(/\]\]/g, '] ]');
-  return clean.length > max ? `${clean.slice(0, max)}\n... (read the rest with inbox ${id})` : clean;
+  return clean.length > max ? `${clean.slice(0, max)}\n... (read the rest with message_status {id: "${id}"})` : clean;
 }
 
 /**
@@ -234,9 +301,10 @@ export function frameInbox(messages) {
 /**
  * Extra request headers every hook call sends. X-Work-OS-Hook is the hook protocol version: 2 = this hook fetches the copy
  * itself (get_state copy:true, POST /api/agent/state), so the server's save answers leave out the markdown. An old hook sends
- * nothing and is marked protocol 1 (it still gets the markdown in answers).
+ * nothing and is marked protocol 1 (it still gets the markdown in answers). 3 = the hook also sends the session's identity (its name,
+ * Claude's title, the model, the tool) at the start and on change (Identity step 4).
  */
-export const HOOK_PROTOCOL = 2;
+export const HOOK_PROTOCOL = 3;
 export const hookHeaders = () => ({ 'x-work-os-hook': String(HOOK_PROTOCOL) });
 
 /**

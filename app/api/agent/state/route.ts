@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { projectOnDevice } from '@/lib/agent-sessions';
-import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf, readCapped } from '@/lib/agent-auth';
+import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf, noProject, readCapped } from '@/lib/agent-auth';
 import { reserveAgent } from '@/lib/mcp/policy';
 import { agentActor } from '@/lib/actors';
 import { editCopyLine, getState, setWhere, stateCopy } from '@/lib/data/states';
@@ -50,6 +50,8 @@ export async function POST(req: Request): Promise<Response> {
     const auth = await authAgentToken(bearerOf(req));
     if (!auth) return unauthorized();
     const { s, device, session } = auth;
+    const sessionProject = session.projectId;
+    if (!sessionProject) return noProject(); // a session outside any project: its token takes only events and waits
     if (!(await reserveAgent('state', session.id))) {
       return reply(429, { error: 'Too many Work OS State calls from this session in the last hour; try again later.' }, { 'Retry-After': '600' });
     }
@@ -72,8 +74,8 @@ export async function POST(req: Request): Promise<Response> {
     const tz = await timezoneOf(s);
     return await runWithRequestContext({ userId: s.userId, tz, hook, sid: session.id, src: session.id }, async () => {
       // Checked on every call: the folder may have been unlinked since the session began.
-      if (!(await projectOnDevice(s, device.id, session.projectId))) return reply(404, { error: 'This project has no folder on this computer any more.' });
-      const projectId = session.projectId;
+      if (!(await projectOnDevice(s, device.id, sessionProject))) return reply(404, { error: 'This project has no folder on this computer any more.' });
+      const projectId = sessionProject;
       let applied: { version: number; closedTasks: number[]; sentForReview: number[] } | undefined;
       if (b.edit) {
         // H12: counted here once, what reached the server (the hook counts only what never did): an edit refused with 400, or applied.

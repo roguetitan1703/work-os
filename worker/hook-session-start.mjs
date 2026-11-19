@@ -12,7 +12,8 @@
 //                 the fallback on a PC with one when the worker gives no brief (folder not linked, key refused, no
 //                 network). That session has no token, so it sends no state events.
 import os from 'node:os';
-import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, mcpCall, postAgent, quietPath, quietRun, readKept, readMarker, keepToken, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
+import { identityKey, identityOf } from './hook-identity.mjs';
+import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, keepProc, mcpCall, postAgent, quietPath, quietRun, readKept, readMarker, keepToken, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
 
 // The folder decides the project (H13): the body carries the ids of the worker folders that contain the session's folder
 // (`folders`, longest first); the server takes the first one linked on this PC. The git remote is sent as information only.
@@ -33,12 +34,15 @@ async function agentStart(body, kept, timeoutMs) {
   if (kept && SESSION_TOKEN_RE.test(kept)) {
     const r = await post(kept);
     if (r.status === 200 && r.b?.brief) return { brief: r.b.brief, ...dispatchedOf(r.b) };
+    if (r.status === 200 && r.b?.unfiled === true) return { unfiled: true, quiet: r.b.quiet === true }; // still no project; the token stays this session's
     if (r.status !== 401 && r.status !== 403) return null; // over the limit, server trouble: no brief this time
   }
   const key = deps.deviceKey(home);
   if (!key || !/^wkr_[A-Za-z0-9_-]{43}$/.test(key)) return null;
   const r = await post(key);
   if (r.unfiled) return { unfiled: true, quiet: r.quiet === true };
+  // Protocol 3: a folder no project owns is a session with no project; the answer carries a token that opens only events and waits.
+  if (r.status === 200 && r.b?.unfiled === true) return { unfiled: true, quiet: r.b.quiet === true, ...(SESSION_TOKEN_RE.test(r.b.token || '') ? { token: r.b.token, until: Date.parse(r.b.expiresAt || '') || undefined } : {}) };
   if (r.status !== 200 || !r.b?.brief) return null;
   const token = SESSION_TOKEN_RE.test(r.b.token || '') ? r.b.token : undefined;
   const until = Date.parse(r.b.expiresAt || '') || undefined;
@@ -55,24 +59,34 @@ const SOURCES = ['startup', 'resume', 'clear', 'compact'];
 function whereOf(cwd) {
   const remote = git(cwd, ['remote', 'get-url', 'origin']);
   const branch = git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
-  return { remote, where: { ...(remote ? { remote } : {}), subdir: git(cwd, ['rev-parse', '--show-prefix']), branch, path: cwd, machine: os.hostname().slice(0, 40), label: 'Claude Code' } };
+  return { remote, where: { ...(remote ? { remote } : {}), subdir: git(cwd, ['rev-parse', '--show-prefix']), branch, path: cwd, machine: os.hostname().slice(0, 40) } };
 }
 
 /** The marker of a session whose brief was shown: the baseline, project, production block and presence. */
 function briefMarker(sid, input, cwd, old, r, reports, dispatched) {
-  writeMarker(sid, { ...(old?.promptAt ? { promptAt: old.promptAt } : {}), ...(dispatched ?? old?.dispatched ? { dispatched: dispatched ?? old.dispatched } : {}), status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(Array.isArray(r.orders) ? { orders: r.orders.map((o) => o && o.noteId).filter((i) => typeof i === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(i)).slice(0, 10) } : old?.orders ? { orders: old.orders } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
+  const transcript = typeof input.transcript_path === 'string' && input.transcript_path ? input.transcript_path : old?.transcript;
+  writeMarker(sid, { ...(old?.promptAt ? { promptAt: old.promptAt } : {}), ...(transcript ? { transcript, ident: identityKey(identityOf(transcript)) } : {}), ...(dispatched ?? old?.dispatched ? { dispatched: dispatched ?? old.dispatched } : {}), status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(Array.isArray(r.orders) ? { orders: r.orders.map((o) => o && o.noteId).filter((i) => typeof i === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(i)).slice(0, 10) } : old?.orders ? { orders: old.orders } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
 }
 
 /**
  * The session is in an unfiled folder: the marker says so (the prompt hook asks again after the person filed it; `stopped` keeps
  * the stop check quiet) and the answer is the fixed unfiled text. Nothing in a temp folder.
  */
-function unfiledAnswer(sid, input, cwd, remote, folders, candidates) {
-  if (quietPath(cwd)) return null;
+function unfiledAnswer(sid, input, cwd, remote, folders, candidates, silent = false) {
   const folder = folders[0] || null;
-  if (sid) writeMarker(sid, { status: statusHash(cwd), offset: sizeOf(input.transcript_path), stopped: true, unfiled: true, folder, path: cwd });
+  // A session with a no-project token reports its state (the other hooks post when the marker has `presence`).
+  const reports = !!(sid && readKept(sid));
+  const presence = reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : {};
+  if (silent || quietPath(cwd)) {
+    if (sid && reports) writeMarker(sid, { ...(transcriptOf(input) ? { transcript: transcriptOf(input), ident: identityKey(identityOf(transcriptOf(input))) } : {}), status: statusHash(cwd), offset: sizeOf(input.transcript_path), stopped: true, quiet: true, ...presence });
+    return null;
+  }
+  if (sid) writeMarker(sid, { ...(transcriptOf(input) ? { transcript: transcriptOf(input), ident: identityKey(identityOf(transcriptOf(input))) } : {}), status: statusHash(cwd), offset: sizeOf(input.transcript_path), stopped: true, unfiled: true, folder, path: cwd, ...presence });
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: unfiledText({ path: cwd, remote, folder, machine: os.hostname().slice(0, 40), candidates, worker: !!workerHome() }) } };
 }
+
+/** The transcript path of a hook input, or ''. */
+const transcriptOf = (input) => (typeof input.transcript_path === 'string' ? input.transcript_path : '');
 
 /** SessionStart: the hook's JSON answer (or null for "print nothing"). */
 export async function sessionStart(input) {
@@ -82,23 +96,28 @@ export async function sessionStart(input) {
   const { remote, where } = whereOf(cwd);
   const folders = folderCandidates(cwd);
   const old = sid ? readMarker(sid) : null; // after compaction the baseline stays the one from the real start
+  if (sid) keepProc(sid); // which process the session runs in, for the worker (Identity step 3); every start, so a resume names its new process
   let r;
   let reports = false; // signed in with the worker (a session token): Work OS gets this session's state events
   let unfiled = null; // { candidates } when no project owns the folder
   // The worker first (a session token, so the state events are sent); the key only when the worker gives no brief.
   // head, dirty and worktrees fill Where on the server without a State version bump (the key path's start_work does not take them).
   const ids = { ...(UUID_RE.test(sid || '') ? { ccSession: sid } : {}), ...(SOURCES.includes(input.source) ? { source: input.source } : {}) };
+  // Protocol 3: who the session is. The worker route takes title, aiTitle, model and tool; start_work (the key path) takes the name as its label and the model.
+  const identity = identityOf(input.transcript_path);
+  const keyIdentity = { ...(identity.title || identity.aiTitle ? { label: identity.title || identity.aiTitle } : {}), ...(identity.model ? { model: identity.model } : {}) };
   let a = null;
   if (workerHome()) {
-    try { a = await agentStart({ ...where, folders, ...repoFacts(cwd), ...ids }, sid ? readKept(sid) : null); } catch { a = null; }
+    try { a = await agentStart({ ...where, folders, ...repoFacts(cwd), ...ids, ...identity }, sid ? readKept(sid) : null); } catch { a = null; }
   }
+  if (a?.unfiled && a.token && sid) keepToken(sid, a.token, a.until); // no project: the token opens only events and waits
   if (a?.brief) {
     reports = true;
     r = a.brief;
     if (a.token && sid) keepToken(sid, a.token, a.until);
-  } else if (a?.unfiled && a.quiet) return null; // the person said this folder is not Work OS
+  } else if (a?.unfiled && a.quiet) return unfiledAnswer(sid, input, cwd, remote, folders, undefined, true); // the person said this folder is not Work OS: on the roster, nothing printed
   else if (process.env.WORK_OS_KEY) {
-    const text = await mcpCall('start_work', run.project ? { ...where, project: run.project } : where); // a cloud repo filed with --project starts on it
+    const text = await mcpCall('start_work', { ...where, ...keyIdentity, ...(run.project ? { project: run.project } : {}) }); // a cloud repo filed with --project starts on it
     if (text) { try { r = JSON.parse(text); } catch { r = null; } }
     if (r?.quiet) return null;
     if (r?.unmatched) unfiled = { candidates: r.candidates };
@@ -125,7 +144,7 @@ export async function refile(input, timeoutMs = 2000) {
   const ids = { ...(UUID_RE.test(sid) ? { ccSession: sid } : {}), source: 'startup' };
   let a = null;
   if (workerHome()) {
-    try { a = await agentStart({ ...where, folders: folderCandidates(cwd), ...repoFacts(cwd), ...ids }, null, timeoutMs); } catch { return null; }
+    try { a = await agentStart({ ...where, folders: folderCandidates(cwd), ...repoFacts(cwd), ...ids, ...identityOf(input.transcript_path) }, readKept(sid), timeoutMs); } catch { return null; } // the kept token (a no-project session) keeps this one session
     if (a?.unfiled && a.quiet) return { unfiled: true, quiet: true };
     if (a?.brief?.project) {
       if (a.token) keepToken(sid, a.token, a.until);
@@ -196,7 +215,7 @@ export function formatBrief(r) {
   if (r.inbox && typeof r.inbox === 'object') {
     // Each message between two markers with a nonce, with who wrote it and what to do with it (the server's own treat line).
     const blocks = frameInbox(r.inbox.messages);
-    sections.push(`## Inbox (${r.inbox.unread ?? 0} unread; inbox for all; reply with reply {id}, close with message_status)${blocks ? '\n' + blocks : ''}`);
+    sections.push(`## Messages for this session (${r.inbox.unread ?? 0} unread; read one in full with message_status {id}, answer with reply {id}, close with message_status and a status)${blocks ? '\n' + blocks : ''}`);
   }
   const ot = r.openTasks;
   if (ot && Array.isArray(ot.tasks)) {
