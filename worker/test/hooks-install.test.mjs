@@ -30,6 +30,7 @@ test('install copies the hook, merges four events, keeps other settings and hook
   assert.deepEqual(s.env, { A: '1' });
   assert.deepEqual(Object.keys(s.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'Stop']);
   assert.equal(s.hooks.Stop.length, 2, 'the other Stop hook is kept');
+  assert.match(s.hooks.PostToolUse.find(h => /hook\.mjs" post-tool$/.test(h.hooks[0].command)).matcher, /\(save_state\|import_state\|get_state\|end_work\)$/, 'end_work is a save the copy follows');
   assert.match(s.hooks.PreToolUse[0].hooks[0].command, /hook\.mjs" pre-tool$/);
   assert.doesNotMatch(s.hooks.PreToolUse[0].hooks[0].command, /\\/, 'forward slashes only');
   m.install();
@@ -63,14 +64,14 @@ test('install copies every FILES entry, removes a stray hook-*.mjs, and writes t
   assert.ok(fs.existsSync(path.join(hooksOf(dir), 'notes.txt')));
 });
 
-test('the entries equal the strings older workers wrote', () => {
+test('the entries equal the strings older workers wrote, except the PostToolUse matcher that now also lists end_work (H5)', () => {
   const h = 'C:/Users/x/AppData/Roaming/work-os-worker/hooks/hook.mjs';
   const c = (e, t) => ({ type: 'command', command: `node "${h}" ${e}`, timeout: t });
   assert.deepEqual(m.entries(h), {
     SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [c('session-start', 8)] }],
     Stop: [{ hooks: [c('stop', 8)] }],
     PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', hooks: [c('pre-tool', 5)] }],
-    PostToolUse: [{ matcher: 'mcp__.*__(save_state|import_state|get_state)', hooks: [c('post-tool', 20)] }],
+    PostToolUse: [{ matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', hooks: [c('post-tool', 20)] }],
   });
 });
 

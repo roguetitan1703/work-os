@@ -47,6 +47,7 @@ flow-s1|flow-s1.mjs|none|plain
 flow-s2|flow-s2.mjs|none|plain
 flow-h1|flow-h1.mjs|none|plain
 flow-h4|flow-h4.mjs|none|plain
+flow-h5|flow-h5.mjs|none|plain
 flow-h6|flow-h6.mjs|none|plain
 flow-state-edit|flow-state-edit.mjs|none|plain
 flow-ms1|flow-ms1.mjs|none|plain

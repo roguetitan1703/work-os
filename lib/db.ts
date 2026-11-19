@@ -234,12 +234,29 @@ export type NoteDoc = Placed & {
   taskId: string | null; // task note (at most one live per task)
   projectId: string | null; // project note (when taskId is null)
   archived: boolean;
+  /** Set on a handover (lib/data/handovers.ts): the note a session leaves for the next one. */
+  handover?: HandoverMeta;
   createdBy: Actor;
   createdAt: Date;
   updatedBy: Actor;
   updatedAt: Date;
   deletedAt: Date | null;
   deletedBy?: Actor;
+};
+
+/** What a session leaves when it stops (end_work): the fields the writer gave, each capped (lib/data/handovers.ts). */
+export type HandoverFields = { step: string; in_flight?: string[]; tried?: string[]; rules?: string[]; check?: string[] };
+/**
+ * A handover's own record. `by` = the writer's user id; `for` = a user id or 'anyone'; `session` = the writing session.
+ * `pickedUp` = the first session that was shown it (start_work).
+ */
+export type HandoverMeta = {
+  by: string;
+  for: string;
+  session?: string;
+  label?: string;
+  fields: HandoverFields;
+  pickedUp?: { session: string; label?: string; at: Date; by: string };
 };
 
 /** A line of a project's State (Next, Later): `by` is who wrote it (a user id), shown labelled to everyone else. */
@@ -342,6 +359,8 @@ export type PresenceDoc = Placed & {
   activity?: { state: PresenceState; at: Date; why?: 'prompt' };
   /** Claude Code's own session UUID, only for the join with the worker daemon's session list. Never shown to anyone. */
   ccSession?: string;
+  /** Set by end_work: the session said it stopped. The roster shows it as gone. A later start_work clears it. */
+  endedAt?: Date;
 };
 /** Heavy-slot leases on one machine (lib/data/slots.ts): at most `cap` (default 2) holders, each with a lease end. _id = org:machine. Organization-wide on purpose: the cap is per machine across every session on it. */
 export type SlotDoc = { _id: string; orgId: string; machine: string; kind: 'heavy'; /** The person whose machine it is (the device's owner, or whoever named a plain-name machine). Only they write it. */ ownerId: string; /** Last write; a TTL index removes a document untouched for a day. */ touchedAt: Date; cap?: number; holds: { h: string; session: string; userId: string; until: Date }[] };

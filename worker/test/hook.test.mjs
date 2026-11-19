@@ -418,3 +418,36 @@ test('--cloud: silent unless CLAUDE_CODE_REMOTE=true; then --server is the addre
     assert.equal(await main('session-start', input, { cloud: true, server: 'http://example.com' }), '', 'plain http to a non-local server is refused');
   } finally { delete process.env.CLAUDE_CODE_REMOTE; process.env.WORK_OS_URL = url; libRun.server = null; }
 });
+
+// ---- H5: end_work (handover first in the brief, end_work counts as a save) ----
+test('the brief puts a Handover first, before Orders and State, whole', async () => {
+  const { formatBrief } = await import('../hook.mjs');
+  const r = {
+    project: { id: 'p1', name: 'Demo' }, session: 'sess-h5', textRule: 'x',
+    handover: [{ id: '9f2c41d0aa', title: 'Handover: B', from: 'Work OS builder B', at: '2026-11-19T08:32:00.000Z', markdown: '## Next step\n\ncontinue with step 4', writtenBy: 'Tess' }],
+    moreHandovers: ['aa11bb22cc, Handover: older'],
+    orders: [{ layer: 'organisation', title: 'O', text: 'RULE' }],
+    state: { version: 3, now: { text: 'goal' }, next: [], later: [], decisions: [] },
+  };
+  const b = formatBrief(r);
+  assert.match(b, /## Handover \(note 9f2c41d0aa, from Work OS builder B, \d\d:\d\d, writtenBy Tess\)\n## Next step\n\ncontinue with step 4/);
+  assert.ok(b.indexOf('## Handover') < b.indexOf('## Orders') && b.indexOf('## Handover') < b.indexOf('## State'));
+  assert.match(b, /## More handovers\n- aa11bb22cc, Handover: older/);
+  assert.doesNotMatch(formatBrief({ ...r, handover: undefined, moreHandovers: undefined }), /## Handover/);
+});
+
+test('Stop does not block after an end_work call in the transcript', async () => {
+  mode = 'ok';
+  assert.ok(await start({ sid: 'stop-ew' }));
+  fs.writeFileSync(path.join(repo, 'ew.txt'), '7');
+  fs.appendFileSync(transcript, '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t9","name":"mcp__work-os__end_work","input":{}}]}}\n');
+  assert.equal(await main('stop', JSON.stringify({ session_id: 'sstop-ew', cwd: repo, transcript_path: transcript })), '', 'end_work is a save');
+});
+
+test('PostToolUse on end_work with markdown writes the copy and counts as a save', async () => {
+  mode = 'ok';
+  assert.ok(await start({ sid: 'copy-ew' }));
+  const out = JSON.parse(await main('post-tool', JSON.stringify({ session_id: 'scopy-ew', cwd: repo, tool_name: 'mcp__work-os__end_work', tool_input: {}, tool_response: answer(md(40, '- from end_work\n')) })));
+  assert.match(out.hookSpecificOutput.additionalContext, /v40/);
+  assert.match(fs.readFileSync(copyFile, 'utf8'), /from end_work/);
+});

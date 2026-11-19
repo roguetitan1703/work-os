@@ -87,6 +87,12 @@ try {
   check('the brief is the start_work brief (State line, Orders, open tasks)', /Agent brief line/.test(JSON.stringify(r1.json?.brief)) && 'orders' in (r1.json?.brief ?? {}) && 'openTasks' in (r1.json?.brief ?? {}));
   check('the session id is not the token and the token is not in the brief', !!sid && sid !== T1 && !JSON.stringify(r1.json?.brief).includes(T1) && !JSON.stringify(r1.json?.brief).includes(T1.slice(4)));
   check('the device key is not in the answer', !r1.text.includes(pc1.key));
+  // H5: a handover left with end_work is carried in the brief of a fresh session, once.
+  const ho = await must(MCP, 'end_work', { project: 'Agent One', state: [{ op: 'add_later', text: 'agent-start later line' }], friction: 'none', handover: { step: 'agent-start handover step', title: 'Handover: agent-start' } });
+  const rH = await post(pc1.key, at('acme/agent-one'));
+  check('H5: the /api/agent/start brief carries the handover (id, from, markdown)', rH.status === 200 && rH.json?.brief?.handover?.some(h => h.id === ho.handover.id && h.markdown.includes('agent-start handover step')), `${rH.status} ${rH.text.slice(0, 300)}`);
+  const rH2 = await post(pc1.key, at('acme/agent-one'));
+  check('H5: a second fresh session is not shown the handover again', rH2.status === 200 && !rH2.json?.brief?.handover, `${rH2.status} ${rH2.text.slice(0, 200)}`);
   check('no-store on the answer', /no-store/.test(r1.headers.get('cache-control') ?? ''));
   check('the session is present on the project', !!(await rawDb.collection('presence').findOne({ session: sid, projectId: one })));
   const row = await rawDb.collection('agentSessions').findOne({ _id: sid });

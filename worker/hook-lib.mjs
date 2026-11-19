@@ -28,7 +28,7 @@ export const EVENTS = [
   // Refuse hand edits of WORK-STATE.md (it is a copy of the Work OS State).
   { event: 'pre-tool', claudeEvent: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', timeoutS: 5 },
   // After a State save or read: write WORK-STATE.md from the answer and commit that file alone.
-  { event: 'post-tool', claudeEvent: 'PostToolUse', matcher: 'mcp__.*__(save_state|import_state|get_state)', timeoutS: 20 },
+  { event: 'post-tool', claudeEvent: 'PostToolUse', matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', timeoutS: 20 },
 ];
 
 export const SESSION_TOKEN_RE = /^wst_[A-Za-z0-9_-]{43}$/;
@@ -61,8 +61,36 @@ export const sizeOf = (f) => { try { return fs.statSync(f).size; } catch { retur
 export const str = (v) => (typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v));
 export const cut = (s, n) => { s = str(s).replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 
-/** Extra request headers every hook call sends. None yet (H4 stage 3 adds 'x-work-os-hook' with its copy fetch). */
-export const hookHeaders = () => ({});
+/**
+ * Extra request headers every hook call sends. X-Work-OS-Hook is the hook protocol version: 2 = this hook fetches the copy
+ * itself (get_state copy:true, POST /api/agent/state), so the server's save answers leave out the markdown. An old hook sends
+ * nothing and is marked protocol 1 (it still gets the markdown in answers).
+ */
+export const HOOK_PROTOCOL = 2;
+export const hookHeaders = () => ({ 'x-work-os-hook': String(HOOK_PROTOCOL) });
+
+/**
+ * What git says about a folder, for Where: { head, dirty, worktrees }. head is the short commit, dirty whether the working
+ * tree has changes, worktrees "path [branch]" for each (at most 20, 200 characters each). Empty parts are left out.
+ */
+export function repoFacts(cwd) {
+  const out = {};
+  const head = git(cwd, ['rev-parse', '--short', 'HEAD']);
+  if (head) {
+    out.head = head.slice(0, 80);
+    out.dirty = git(cwd, ['status', '--porcelain']) !== '';
+  }
+  const list = [];
+  for (const block of git(cwd, ['worktree', 'list', '--porcelain']).split(/\r?\n\r?\n/)) {
+    const lines = block.split(/\r?\n/);
+    const p = lines.find((l) => l.startsWith('worktree '))?.slice(9).trim();
+    if (!p) continue;
+    const b = lines.find((l) => l.startsWith('branch '))?.slice(7).replace(/^refs\/heads\//, '') || (lines.includes('detached') ? 'detached' : '');
+    list.push((b ? `${p} [${b}]` : p).slice(0, 200));
+  }
+  if (list.length) out.worktrees = list.slice(0, 20);
+  return out;
+}
 
 export async function mcpCall(name, args) {
   const key = process.env.WORK_OS_KEY || '';
@@ -88,7 +116,7 @@ export async function mcpCall(name, args) {
  * token). Returns { status, b } (b is the JSON answer on 200, else null), or null when this copy is not installed. Never
  * follows a redirect, so the credential cannot be sent to another address.
  */
-export async function postAgent(apiPath, cred, body) {
+export async function postAgent(apiPath, cred, body, timeoutMs = TIMEOUT_MS) {
   const home = workerHome();
   if (!home) return null;
   const base = checkBaseUrl(loadConfig(home).baseUrl);
@@ -96,8 +124,10 @@ export async function postAgent(apiPath, cred, body) {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${cred}`, ...hookHeaders() },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
     redirect: 'error',
   });
-  return { status: res.status, b: res.ok ? await res.json() : null };
+  let b = null;
+  try { b = await res.json(); } catch {}
+  return { status: res.status, b: res.ok ? b : null, error: !res.ok && typeof b?.error === 'string' ? b.error : null };
 }

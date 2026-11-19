@@ -72,11 +72,12 @@ const noneKey = (i: Ident) => `${i.userId}|${i.session ?? ''}|${i.keyId ?? ''}`;
 export type RosterReport = { hook?: number; model?: string; account?: string; parent?: string; slot?: string; machineName?: string; branch?: string };
 const clip = (v: string | undefined, n: number) => (v ?? '').trim().slice(0, n);
 
-export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, o: { machine?: string; label?: string; /** Claude Code's own session UUID (the hook's start only). */ ccSession?: string; /** The state this start puts the session in (the hook's start only: on, or working after a compaction). */ activity?: 'on' | 'working' } & RosterReport): Promise<PresenceDoc> {
+/** `fresh`: this call made the row (a new session), not a re-call of one that was there (after compaction, or a later start_work). */
+export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, o: { machine?: string; label?: string; /** Claude Code's own session UUID (the hook's start only). */ ccSession?: string; /** The state this start puts the session in (the hook's start only: on, or working after a compaction). */ activity?: 'on' | 'working' } & RosterReport): Promise<PresenceDoc & { fresh: boolean }> {
   const c = await scoped(s);
   const now = new Date();
   const _id = rowId(i, project._id);
-  await c.presence.updateOne(
+  const up = await c.presence.updateOne(
     { _id },
     {
       $set: {
@@ -110,12 +111,18 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
       },
       $setOnInsert: { createdAt: now, ...((o.label ?? '').trim() ? {} : { label: '' }) },
       // A machine that is no longer one of the person's devices (or a name now reported plain) drops its device name.
-      ...(o.machine && !o.machineName ? { $unset: { machineName: '' } } : {}),
+      // A start_work after end_work is a session working again.
+      $unset: { endedAt: '', ...(o.machine && !o.machineName ? { machineName: '' } : {}) },
     },
     { upsert: true },
   );
   for (const k of [...none.keys()]) if (k.startsWith(`${i.userId}|`)) none.delete(k);
-  return (await c.presence.findOne({ _id }))!;
+  return { ...(await c.presence.findOne({ _id }))!, fresh: up.upsertedCount > 0 };
+}
+
+/** The caller's own presence row on one project (end_work: a session may have rows on several projects), or null. */
+export async function rowFor(s: Scope, i: Ident, projectId: string): Promise<PresenceDoc | null> {
+  return (await scoped(s)).presence.findOne({ _id: rowId(i, projectId), userId: i.userId });
 }
 
 /** The present row of this caller (by session id, else the most recent one of their key), or null. */
@@ -237,4 +244,10 @@ export async function recordEvent(
   // Not updated: the row is gone, or the stored state is newer than this event.
   const row = await c.presence.findOne({ _id }, { projection: { activity: 1 } });
   return { state: row ? (row.activity?.state ?? null) : null, changed: false };
+}
+
+/** end_work: the session stops. Clears what it is doing and marks the row ended (the roster shows it off). */
+export async function endPresence(s: Scope, row: PresenceDoc): Promise<void> {
+  await (await scoped(s)).presence.updateOne({ _id: row._id }, { $unset: { doing: '' }, $set: { endedAt: new Date() } });
+  for (const k of [...none.keys()]) if (k.startsWith(`${row.userId}|`)) none.delete(k);
 }
