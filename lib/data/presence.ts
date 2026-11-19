@@ -308,6 +308,7 @@ export function cleanResult(v: string | undefined | null): string {
  * A subagent's last message (the hook's SubagentStop, POST /api/agent/event result): the lane result of the token's own presence row,
  * cleaned and cut at 300 characters. Only that row, never created here; an empty text changes nothing. Returns whether it was written.
  */
+// Readers see this as agent-written text (marked writtenBy, Step 5); it is cleaned of control characters and cut, not scanned for secrets.
 export async function setLastResult(s: Scope, r: { sid: string; projectId: string | null }, text: string): Promise<boolean> {
   const t = cleanResult(text);
   if (!t) return false;

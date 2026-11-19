@@ -131,15 +131,20 @@ try {
   const LR = await newSession();
   const LR2 = await newSession();
   const BEL = String.fromCharCode(7);
-  const rest = await ev(LR.token, { event: 'tool', result: `Tests pass.${BEL}\nsecond line ${'x'.repeat(1970)}` });
+  const lrBefore = await prow(LR.sid);
+  const rest = await ev(LR.token, { event: 'result', result: `Tests pass.${BEL}\nsecond line ${'x'.repeat(1970)}` });
   const lrow = await prow(LR.sid);
   check('result: a tool event with a 2,000 character result is 200 and the row keeps it cleaned and cut to 300 characters', rest.status === 200 && lrow.lastResult?.text.length === 300 && !/[\u0000-\u001f]/.test(lrow.lastResult.text) && lrow.lastResult.text.startsWith('Tests pass. second line x') && lrow.lastResult.at instanceof Date, JSON.stringify(lrow.lastResult)?.slice(0, 120));
+  const lrow0 = await prow(LR.sid);
+  check('result: it changes neither the state nor lastSeen (a subagent ending after the parent stopped does not make it working)', JSON.stringify(lrow0.activity) === JSON.stringify(lrBefore.activity) && +lrow0.lastSeen === +lrBefore.lastSeen);
   check('result: only the token\'s own row changes', (await prow(LR2.sid)).lastResult === undefined);
-  const again = await ev(LR.token, { event: 'tool', result: 'Second answer.' });
+  const again = await ev(LR.token, { event: 'result', result: 'Second answer.' });
   check('result: an event with a result is never free (the same state within a minute is still written)', again.status === 200 && (await prow(LR.sid)).lastResult.text === 'Second answer.');
-  await bad('a result of 2,001 characters', { event: 'tool', result: 'x'.repeat(2001) });
+  await bad('a result of 2,001 characters', { event: 'result', result: 'x'.repeat(2001) });
   await bad('a result on a prompt', { event: 'prompt', result: 'hello' });
-  check('result: a blank result changes nothing', (await ev(LR.token, { event: 'tool', result: '  ' })).status === 200 && (await prow(LR.sid)).lastResult.text === 'Second answer.');
+  await bad('a result on a tool event', { event: 'tool', result: 'hello' });
+  await bad('a result event with no result', { event: 'result' });
+  check('result: a blank result changes nothing', (await ev(LR.token, { event: 'result', result: '  ' })).status === 200 && (await prow(LR.sid)).lastResult.text === 'Second answer.');
   check('result: a protocol 3 hook (no result) is still accepted', (await ev(LR.token, { event: 'tool' }, { headers: { 'x-work-os-hook': '3' } })).status === 200);
 
   // ---- the state rules on read (seeded rows) ----

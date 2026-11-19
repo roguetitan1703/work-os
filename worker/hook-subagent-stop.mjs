@@ -1,5 +1,5 @@
 // SubagentStop hook (Lanes step 3): a subagent ended. Its last message becomes its parent session's lane result: POST /api/agent/event
-// { event: 'tool', result } with the parent's session token (the event passes the parent's session_id; the server writes the token's own
+// { event: 'result', result } with the parent's session token (the event passes the parent's session_id; the server writes the token's own
 // row only, lastResult, 300 characters). The text is Claude Code's `last_assistant_message`, else the last assistant text at the end of
 // the subagent's transcript (`agent_transcript_path`), else of the session's. Control characters out, one line, 300 characters.
 // No token, no text or any failure sends nothing. Prints nothing.
@@ -45,7 +45,7 @@ export async function subagentStop(input) {
     if (!sid) return null;
     const text = cleanResult(typeof input.last_assistant_message === 'string' && input.last_assistant_message.trim() ? input.last_assistant_message : (lastAssistantText(input.agent_transcript_path) || lastAssistantText(input.transcript_path)));
     if (!text) return null;
-    await postEvent(sid, 'tool', { result: text }, 2000);
+    await postEvent(sid, 'result', { result: text }, 2000);
   } catch { /* fail open */ }
   return null;
 }

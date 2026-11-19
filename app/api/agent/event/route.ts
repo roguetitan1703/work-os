@@ -32,9 +32,9 @@ import { applyAck, deliverFor, startTurn, type Delivery } from '@/lib/data/deliv
 //   identity (protocol 3) { title?, aiTitle?, model? }, on a prompt or a stop and only when it changed since the last one: the session's own
 //            name (a /rename), Claude's title for it, the model. Sets the roster row's label and model (lib/data/presence.ts labelPatch:
 //            the session's own name or start_work's label beats Claude's title; a dispatched session keeps its forced label). One line, 120 characters.
-//   result   (protocol 4, tool only, at most 2,000 characters) a subagent's last message from the SubagentStop hook: kept cleaned and cut to 300
+//   result   (protocol 4, the result event only, at most 2,000 characters) a subagent's last message from the SubagentStop hook: kept cleaned and cut to 300
 //            characters as `lastResult` of the token's own row (lib/data/presence.ts setLastResult), shown to the project's readers marked
-//            writtenBy. Text of the session, so it is the one thing this route takes besides words: own row only, never creates a row, never free.
+//            writtenBy. A result event changes no state and no lastSeen (a background subagent ending after the parent's stop must not make it working). Text of the session, so it is the one thing this route takes besides words: own row only, never creates a row, never free.
 //            Protocol 3 hooks (no result) are still accepted.
 // The only row it writes is the token's own presence row (state, turn chain) (the person, the token's session and project), and never creates one.
 // No State, feed, activity or Needs writes. The owner's own pages are told to refresh only when the state changes.
@@ -62,7 +62,7 @@ const Body = z
     reminded: z.boolean().optional(),
     copy: z.literal('refused').optional(),
     // Protocol 3 (Identity step 4), on a prompt or a stop, only when it changed since the last one: the session's own name, Claude's title for it, the model.
-    // Protocol 4 (Lanes step 3), on a tool event: a subagent's last message (SubagentStop). The server cleans it and keeps 300 characters as the lane result of the token's own row.
+    // Protocol 4 (Lanes step 3), on a result event: a subagent's last message (SubagentStop). The server cleans it and keeps 300 characters as the lane result of the token's own row.
     result: z.string().max(2000).optional(),
     identity: z.object({ title: z.string().max(300).optional(), aiTitle: z.string().max(300).optional(), model: z.string().max(60).optional() }).strict().optional(),
   })
@@ -70,7 +70,7 @@ const Body = z
   .refine(b => (b.files === undefined && b.reminded === undefined) || b.event === 'stop', { message: 'files and reminded belong to a stop' })
   .refine(b => b.reminded === undefined || b.files !== undefined, { message: 'reminded goes with files' })
   .refine(b => b.copy === undefined || b.event === 'tool', { message: 'copy belongs to a tool event' })
-  .refine(b => b.result === undefined || b.event === 'tool', { message: 'result belongs to a tool event' })
+  .refine(b => (b.result === undefined) === (b.event !== 'result'), { message: 'result goes with a result event, and only with it' })
   .refine(b => b.identity === undefined || b.event === 'prompt' || b.event === 'stop', { message: 'identity belongs to a prompt or a stop' });
 
 export async function POST(req: Request): Promise<Response> {
@@ -89,7 +89,7 @@ export async function POST(req: Request): Promise<Response> {
       return (await reserveAgent('event', session.id)) ? reply(400, { error: 'The body is not JSON.' }) : tooMany();
     }
     const parsed = Body.safeParse(raw);
-    if (!parsed.success) return (await reserveAgent('event', session.id)) ? reply(400, { error: 'The body needs an event and may have a kind and a time; nothing else (files and reminded go with a stop, copy and result with a tool).' }) : tooMany();
+    if (!parsed.success) return (await reserveAgent('event', session.id)) ? reply(400, { error: 'The body needs an event and may have a kind and a time; nothing else (files and reminded go with a stop, copy with a tool, result with a result event).' }) : tooMany();
 
     // An event that repeats the stored state (a tool call while working) is answered with no write and costs no budget;
     // every other event, and a missing row, counts toward the hour (a refused body does too, above).

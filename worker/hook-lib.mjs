@@ -216,6 +216,7 @@ export async function postEvent(sid, event, extra = {}, timeoutMs = 1500) {
     if (m && ident && r?.status === 200) m.ident = ident.key; // the server has it
     if (m && sent && r?.status === 200) delete m.ack; // the server has it
     if (m) {
+      if (event === 'result') return r; // a lane result changes no session state
       const state = event === 'notify' ? (extra.kind === 'idle_prompt' ? 'idle' : 'waiting') : PRESENCE_AFTER[event];
       writeMarker(sid, { ...m, presence: r?.status === 200 ? { state, at, postedAt: at } : { ...(m.presence || {}), postedAt: at, failed: true } });
     }

@@ -32,10 +32,11 @@ async function fetchCopy(input, cwd, project, saving) {
 export async function postTool(input) {
   const cwd = input.cwd || process.cwd();
   const name = input.tool_name || '';
-  // Lanes step 3: a session that is not the Now holder updates its lane (log_progress, set_doing, hand_in, complete_task): that counts as
-  // Work OS having heard from it, so the Stop reminder does not ask again. No copy is written for these.
+  // Lanes step 3: a session that does not hold Now (marker holdsNow === false) updates its lane with log_progress, set_doing, hand_in or
+  // complete_task: that counts as Work OS having heard from it, so the Stop reminder does not ask again. Absent or true (the holder, and
+  // every session until Lanes step 1 sets it) keeps the rule that only a State save counts. No copy is written for these.
   if (/__(log_progress|set_doing|hand_in|complete_task)$/.test(name)) {
-    if (!answerOf(input.tool_response)?.error && !input.agent_id) markSaved(input, cwd);
+    if (!answerOf(input.tool_response)?.error && !input.agent_id && readMarker(input.session_id)?.holdsNow === false) markSaved(input, cwd);
     return null;
   }
   const saving = /__(save_state|import_state|end_work)$/.test(name);

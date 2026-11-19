@@ -105,7 +105,8 @@ test('subagent-stop: last_assistant_message goes to the event route as result, c
   const e = events()[0];
   assert.equal(e.auth, `Bearer ${TOKEN}`);
   assert.equal(e.hook, '4');
-  assert.equal(e.body.event, 'tool');
+  assert.equal(e.body.event, 'result', 'a dedicated event: it changes no state');
+  assert.equal(readMarker('l-sub-1').presence, undefined, 'and the marker keeps no state from it');
   assert.equal(e.body.result.length, 300);
   assert.doesNotMatch(e.body.result, /[\u0000-\u001f\u007f-\u009f]/);
   assert.match(e.body.result, /^Tests pass\. second line x+/);
@@ -163,30 +164,32 @@ test('stop: a session that holds Now (or has no holdsNow yet) gets today\'s text
   }
 });
 
-test('stop: a lane call in the transcript (log_progress, set_doing, hand_in, complete_task) counts as heard from, like a save; a read does not', async () => {
+test('stop: a lane call in the transcript (log_progress, set_doing, hand_in, complete_task) counts as heard from, like a save, for holdsNow false; a read does not', async () => {
   for (const [i, tool] of ['log_progress', 'set_doing', 'hand_in', 'complete_task', 'save_state'].entries()) {
     const sid = `l-heard-${i}`;
-    start(sid);
+    start(sid, { holdsNow: false });
     fs.writeFileSync(path.join(repo, `${sid}.txt`), 'x');
     fs.appendFileSync(transcript, toolUse(tool));
     assert.equal(await run('stop', { session_id: sid }), '', tool);
     fs.rmSync(path.join(repo, `${sid}.txt`));
   }
-  start('l-heard-none');
+  start('l-heard-none', { holdsNow: false });
   fs.writeFileSync(path.join(repo, 'n.txt'), 'x');
   fs.appendFileSync(transcript, toolUse('get_state'));
   assert.equal(JSON.parse(await run('stop', { session_id: 'l-heard-none' })).decision, 'block', 'a read is not a save');
   fs.rmSync(path.join(repo, 'n.txt'));
 });
 
-test('post-tool: log_progress and set_doing mark the session saved (the next stop does not ask); an error answer or a subagent call does not', async () => {
-  for (const [sid, input, asks] of [
-    ['l-post-a', { tool_name: 'mcp__work-os__log_progress', tool_response: JSON.stringify({ ok: true }) }, false],
-    ['l-post-b', { tool_name: 'mcp__work-os__set_doing', tool_response: JSON.stringify({ doing: 12 }) }, false],
-    ['l-post-c', { tool_name: 'mcp__work-os__complete_task', tool_response: JSON.stringify({ error: 'no such task' }) }, true],
-    ['l-post-d', { tool_name: 'mcp__work-os__hand_in', tool_response: JSON.stringify({ ok: true }), agent_id: 'a1' }, true],
+test('post-tool: for a session with holdsNow false, lane calls mark the session saved (the next stop does not ask); an error answer, a subagent call, a holder (holdsNow true) or no holdsNow yet still gets asked', async () => {
+  for (const [sid, input, asks, holds] of [
+    ['l-post-a', { tool_name: 'mcp__work-os__log_progress', tool_response: JSON.stringify({ ok: true }) }, false, false],
+    ['l-post-b', { tool_name: 'mcp__work-os__set_doing', tool_response: JSON.stringify({ doing: 12 }) }, false, false],
+    ['l-post-c', { tool_name: 'mcp__work-os__complete_task', tool_response: JSON.stringify({ error: 'no such task' }) }, true, false],
+    ['l-post-d', { tool_name: 'mcp__work-os__hand_in', tool_response: JSON.stringify({ ok: true }), agent_id: 'a1' }, true, false],
+    ['l-post-e', { tool_name: 'mcp__work-os__log_progress', tool_response: JSON.stringify({ ok: true }) }, true, true],
+    ['l-post-f', { tool_name: 'mcp__work-os__log_progress', tool_response: JSON.stringify({ ok: true }) }, true, undefined],
   ]) {
-    start(sid);
+    start(sid, holds === undefined ? {} : { holdsNow: holds });
     fs.writeFileSync(path.join(repo, `${sid}.txt`), 'x');
     assert.equal(await run('post-tool', { session_id: sid, ...input }), '');
     const out = await run('stop', { session_id: sid });
