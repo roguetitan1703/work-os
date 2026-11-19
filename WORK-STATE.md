@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 104. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 105. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -11,6 +11,7 @@ Copy of the Work OS state, version 104. WORK-STATE.md is a copy of the State, wr
 3. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
 4. Need answers reach whoever holds the work now: a Need asked by a session that is off is delivered to the project's Now holder or the session that picked up its handover, and start_work lists answered Needs since the last lead's session; withdraw_need on an answered or closed Need says so with the answer and time. Fold into the lanes design (note after 2afd68cb00).
 5. Fable review of the whole Harness after R7, centred on tool calling: inconsistent parameters such as write_note without session, unused or duplicate tools, and words that drift. Findings go to a Work OS note; Opus triages them into fixes.
+6. Nudge gaps (Om 20 Nov, 'the hook didn't nudge you to update your state?'). Builder S: (1) a save by an interactive session takes an unheld Now, since this project's Now had no holder so the declutter nudge reached nobody; (2) the Stop hook blocks once when a turn merged or released without a later save_state. Then review, merge, and ship in the next release.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -42,4 +43,4 @@ Copy of the Work OS state, version 104. WORK-STATE.md is a copy of the State, wr
 - flow-dc1 'a review Need gets no buttons in its DM' fails about 2 runs in 3: the test inserts the review Need's alert after the asks, so the DM sometimes misses the batch. Test race; the alerts code didn't change in R7.
 - The SIGTERM fix does not work: on R7 (59cb0edb5693) a systemctl restart still waits the full 30 s stop-sigterm timeout, then SIGKILL (journal 20 Nov 01:44 IST). Something keeps next-server open (SSE /live streams, the wait route, or Mongo). Each deploy is about 30 s down.
 - write_note has no session parameter, so a lead session can't edit the Orders through MCP: it is refused as 'one that names no session'. Add session to write_note or expose propose_order. For the H17 tool-calling review.
-<!-- work-os-copy sha1:4f0511c334805e1b7a55ba66766c4ddd3be00c63 -->
+<!-- work-os-copy sha1:89652b85e21a9d87a92d5d72cb2fff7cf208abfa -->
