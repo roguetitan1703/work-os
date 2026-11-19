@@ -13,10 +13,10 @@ import { listNotes } from '@/lib/data/notes';
 import { NewNoteButton } from '@/components/new-note-button';
 import { fmtAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { projectItems } from '@/lib/data/claude-items';
+import { oldItems } from '@/lib/data/claude-items';
 import { projectLauncher, reopenPrompts } from '@/lib/data/launcher';
 import { turboInfo } from '@/lib/data/turbo';
-import { ClaudeItems } from './claude-items';
+import { OldClaudeItems } from './old-claude-items';
 import { ProjectSessions } from './sessions';
 import { CodeLocations } from './code-locations';
 import { ProductionSetting } from './production-setting';
@@ -61,12 +61,12 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const base = `/projects/${encodeURIComponent(project.id)}`;
   const tabHref = (t: TabId) => `${base}?tab=${t}`;
 
-  const [open, done, activity, notes, work, launcher, reopen, stateDoc, names, needs] = await Promise.all([
+  const [open, done, activity, notes, oldClaudeItems, launcher, reopen, stateDoc, names, needs] = await Promise.all([
     listTasks(sc, { project: project.id, open: true }),
     listTasks(sc, { project: project.id, status: ['Done', 'Dropped'], sort: 'done', limit: 30 }),
     listActivity(sc, { project: project.id, limit: 40 }),
     listNotes(sc, { project: project.id, state: 'all' }),
-    projectItems(sc, project.id, { doneLimit: 30 }),
+    oldItems(sc, project.id),
     projectLauncher(me, project.id),
     reopenPrompts(me),
     stateOfProject(sc, project.id),
@@ -86,22 +86,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const repos = project.code ?? [];
   const folders = launcher.folders.filter(f => !f.missing);
 
-  const openItems = work.items.filter(i => i.state !== 'done' && i.state !== 'dropped');
-  const waiting = openItems.filter(i => i.waitingOn === me.userId).map(i => ({ id: i.id, ref: i.ref, title: i.title, question: i.waitingText, updatedAt: i.updatedAt }));
-  const queuedItems = openItems.filter(i => i.state === 'queued' && i.kind !== 'idea' && !i.waitingOn);
-  const nextItem = work.pickNext ?? queuedItems.find(i => i.next) ?? queuedItems[0] ?? null;
   const running = launcher.sessions.filter(x => x.state === 'running' || x.state === 'starting' || x.state === 'unknown');
-
-  const claudeBlock = (
-    <ClaudeItems
-      projectId={project.id}
-      items={work.items}
-      blockers={Object.fromEntries([...work.blockers].map(([k, b]) => [k, { ref: b.ref, title: b.title, state: b.state }]))}
-      waiting={work.waiting}
-      doneCount={work.doneCount}
-      openRef={Number(sp.claude?.replace(/^C/i, '')) || undefined}
-    />
-  );
 
   const noteList = (list: typeof projectNotes, dense?: boolean) => (
     <ul className="divide-y divide-border/60 md:divide-border">
@@ -157,7 +142,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
           </section>
         )}
         {projectWorkers.couldBeRunning && <CouldBeRunning list={[projectWorkers.couldBeRunning]} compact />}
-        <ClaudeCard projectId={project.id} tabHref={tabHref('claude')} waiting={waiting} running={running} next={nextItem ? { ref: nextItem.ref, title: nextItem.title } : null} queued={queuedItems.length} hasComputers={launcher.devices.length > 0} />
+        <ClaudeCard projectId={project.id} tabHref={tabHref('claude')} running={running} hasComputers={launcher.devices.length > 0} />
         <section className="space-y-1.5" data-card="tasks">
           <div className="flex items-center gap-2 px-1 md:px-0 min-h-11 md:min-h-0 -mb-1 md:mb-0">
             <h2 className={H2}>Tasks</h2>
@@ -223,7 +208,6 @@ export default async function ProjectPage({ params, searchParams }: Props) {
           >
             {t.label}
             {t.id === 'needs' && needsOpenForMe > 0 && <span aria-label={`${needsOpenForMe} Needs you`} className="ml-1 w-2 h-2 rounded-full bg-amber-500" />}
-            {t.id === 'claude' && waiting.length > 0 && <span aria-label={`Claude is asking ${waiting.length}`} className="ml-1 w-2 h-2 rounded-full bg-amber-500" />}
           </Link>
         ))}
       </nav>
@@ -246,8 +230,8 @@ export default async function ProjectPage({ params, searchParams }: Props) {
 
       {tab === 'claude' && (
         <div className="space-y-5 max-w-3xl" data-view="claude">
-          {work.items.length > 0 ? claudeBlock : <p className="text-sm text-muted-foreground px-1">Nothing in the queue. Claude adds items here as it plans work for this project.</p>}
           <ProjectSessions projectId={project.id} {...launcher} turbo={turbo} reopen={reopen} />
+          <OldClaudeItems items={oldClaudeItems} openRef={Number(sp.claude?.replace(/^C/i, '')) || undefined} />
         </div>
       )}
 

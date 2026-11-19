@@ -128,7 +128,7 @@ export async function createProjectAction(input: ProjectInput): Promise<Result<{
 }
 
 /** Who would lose access if the project became private (no keep) or shared with just `keep`. */
-export async function projectSharingImpactAction(id: string, keep: string[] = []): Promise<Result<{ assignees: string[]; commenters: string[]; claude: string[]; waiting: string[] }>> {
+export async function projectSharingImpactAction(id: string, keep: string[] = []): Promise<Result<{ assignees: string[]; commenters: string[]; claude: string[] }>> {
   try {
     const caller = await requireCaller();
     const list = Array.isArray(keep) ? keep.filter((x): x is string => typeof x === 'string').slice(0, 500) : [];

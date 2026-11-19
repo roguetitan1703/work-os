@@ -91,7 +91,7 @@ Comment edits: an agent may edit only entries of the same agent for the same use
 
 **MCP.** The server acts for the key's user in the key's organization. Tool names are unchanged. Renamed or new fields:
 - Claude items: output `waitingOnOm` became `waitingText` (what) plus `waitingOn` ('me' or the member's name). `get_project` → `claudeItems.waitingOnOm` (a count) became `waiting`.
-- `update_claude_items` add/block take `waiting_on` (a member id or email; default the key's owner) next to `waiting_on_om` (the text). Someone outside the organization is refused. A private item can wait only on its owner.
+- (Gone in H11 step 8: `update_claude_items` and its `waiting_on` / `waiting_on_om`. Old items stay as read-only history.)
 - `add_project`/`update_project` and the apply_changes ops take `visibility`. `get_task`, `list_projects` and `get_project` return it.
 - `by`, `createdBy`, `doneBy` and `updatedBy` are strings as before ('me', 'claude', 'claude-code', 'discord', 'system') for the key's owner. For anyone else they hold the name, e.g. 'Ana' or 'claude-code for Ana'.
 - `recent_activity` `actor` filters the caller's own kinds ('me' = the caller in the app).

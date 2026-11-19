@@ -13,7 +13,7 @@ type Loaded = { items: DeclutterItem[]; fyi: string[] };
 
 /**
  * Project › ⋯ › Declutter: the changes Work OS proposes for this project (stale and repeated State lines, repeated pages, finished
- * tasks, old Needs, open Claude items), each ticked; one button applies the ticked ones. Nothing is deleted.
+ * tasks, old Needs), each ticked; one button applies the ticked ones. Nothing is deleted.
  */
 export function DeclutterDialog({ projectId, onClose }: { projectId: string; onClose: () => void }) {
   const phone = usePhone();
@@ -55,7 +55,7 @@ export function DeclutterDialog({ projectId, onClose }: { projectId: string; onC
         {loaded && 'items' in loaded && !items.length && <p className="text-sm text-muted-foreground" data-declutter-empty>Nothing to tidy.</p>}
         {items.length > 0 && (
           <>
-            <p className="text-sm text-muted-foreground">Tick what goes. Nothing is deleted: lines, pages and old Claude items are archived and can be put back.</p>
+            <p className="text-sm text-muted-foreground">Tick what goes. Nothing is deleted: lines and pages are archived and can be put back.</p>
             <DeclutterList items={items} ticked={result ? undefined : ticked} onToggle={result ? undefined : toggle} result={result ?? undefined} phone={phone} testid="dialog" />
           </>
         )}

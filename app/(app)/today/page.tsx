@@ -31,7 +31,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const whatsNew: WhatsNewCardData | null = news?.unseen.length ? { entries: news.unseen.slice(0, WHATS_NEW_MAX), more: Math.max(0, news.unseen.length - WHATS_NEW_MAX) } : null;
   const waitingRefs = Object.fromEntries([...waiting].map(([id, deps]) => [id, deps.map(d => `#${d.ref}`)]));
   const dayName = format(new Date(today + 'T12:00:00Z'), 'EEEE, MMMM d');
-  const claude: ClaudeCardData | null = overview ? { needsYou: overview.needsYou, hasComputers: overview.hasComputers, running: overview.sessions.filter(r => r.state === 'working' || r.state === 'open' || r.state === 'idle' || r.state === 'starting').length, activity: overview.activity } : null;
+  const claude: ClaudeCardData | null = overview ? { hasComputers: overview.hasComputers, running: overview.sessions.filter(r => r.state === 'working' || r.state === 'open' || r.state === 'idle' || r.state === 'starting').length, activity: overview.activity } : null;
 
   return (
     <TodayClient

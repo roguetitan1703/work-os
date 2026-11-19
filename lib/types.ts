@@ -283,6 +283,8 @@ export type ClaudeItem = {
   /** The last question a person answered in the app (text empty: closed without an answer). Sessions read it in get_project. */
   answer?: ClaudeItemAnswer | null;
   gitRef: string; // branch or commit when done
+  /** Where an open item went when the items retired: "#123" (a task) or "later:l_..." (a Later line). */
+  movedTo?: string;
   claimedBy: { session: string; at: string } | null;
   createdBy: Actor;
   createdAt: string;

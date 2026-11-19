@@ -38,10 +38,6 @@ export async function browserSession({ browser, team, person, teammate, wait = 5
   await at('nav Today', () => page.click('aside a[href="/today"]'));
   await at('complete a task on Today', () => page.locator('[data-variant=desk] button[title="Mark done"]').first().click(), wait + 1000);
   await at('nav Claude', () => page.click('aside a[href="/claude"]'), wait + 1000);
-  await at('a teammate adds a Claude item (push hint)', async () => {
-    const p = team.projects[0].id;
-    await mcpAs(teammate.claudeKey, 'update_claude_items', { project: p, ops: [{ op: 'add', project: p, kind: 'idea', title: 'Session probe item', why: 'Recorded by the load session probe on the throwaway app only.', done_when: 'Nothing; it is a fixture for the probe run.' }] });
-  }, wait + 1000);
   await at('a teammate edits a task (push hint)', async () => {
     const t = team.tasks.find(x => x.open && x.visibility === 'org');
     await mcpAs(teammate.claudeKey, 'update_task', { task: t.ref, priority: 'P1', note: 'session probe' });

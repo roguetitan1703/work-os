@@ -1,4 +1,4 @@
-// Sidebar footer, theme toggle, Day plan dialog/sheet, named switches, Claude item sheet (note/state/Next) at 1280 and 390.
+// Sidebar footer, theme toggle, Day plan dialog/sheet, named switches, the Old Claude items fold at 1280 and 390.
 import { launch, check, B, PW, call, finish, fillLogin, pick, mkClaudeItem } from './lib.mjs';
 const PN = 'Fix ' + Date.now();
 const pr = await call('add_project', { name: PN });
@@ -37,24 +37,14 @@ for (const vp of [{ w: 1280, h: 800 }, { w: 390, h: 844 }]) {
   await p.goto(B + '/settings?section=notifications'); await p.waitForSelector('[role=switch]'); // the alert switches moved into the Alerts section
   const sw = await p.$$eval('[role=switch]', els => els.map(e => e.getAttribute('aria-label') || e.textContent.trim()));
   check(T(`switches named (${sw.length})`), sw.length >= 3 && sw.every(Boolean), JSON.stringify(sw));
-  // item sheet
+  // old Claude items: a read-only fold on the project's Claude tab (no sheet, no controls)
   await p.goto(B + '/projects/' + pid + '?tab=claude');
-  await click(p.locator('#claude-work li button').first());
-  const dlg = phone ? p : p.locator('[role=dialog]');
-  const en = async () => (await p.locator('[aria-label=State]').isEnabled());
-  const sel = p.locator('[aria-label=State]');
-  const until = async (f, ms = 8000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await f().catch(() => false)) return true; await p.waitForTimeout(150); } return false; };
-  check(T('sheet open, controls enabled'), await en());
-  await p.fill('input[aria-label="Add note"]', 'hello note'); await click(p.locator('button[type=submit]:has-text("Add")'));
-  check(T('after note: log shows note and controls enabled'), await until(async () => (await p.locator('text=hello note').count()) > 0 && await en()));
-  await pick(p, sel, 'blocked');
-  check(T('after state=blocked: enabled and shows blocked'), await until(async () => (await en()) && (await sel.innerText()).trim() === 'blocked'));
-  await pick(p, sel, 'queued');
-  check(T('after state=queued: enabled'), await until(async () => (await en()) && (await sel.innerText()).trim() === 'queued' && (await p.locator('button[aria-pressed]').count()) > 0));
-  const nx = p.locator('button[aria-pressed]'); await click(nx);
-  check(T('after Next: enabled and on'), await until(async () => (await en()) && (await nx.getAttribute('aria-pressed')) === 'true'), 'pressed=' + await nx.getAttribute('aria-pressed') + ' en=' + await en() + ' toasts=' + (await p.locator('[data-sonner-toast]').allInnerTexts()).join('|'));
-  await click(nx);
-  check(T('Next again toggles off, enabled'), await until(async () => (await en()) && (await nx.getAttribute('aria-pressed')) === 'false'), 'pressed=' + await nx.getAttribute('aria-pressed') + ' en=' + await en() + ' toasts=' + (await p.locator('[data-sonner-toast]').allInnerTexts()).join('|'));
+  const fold = p.locator('[data-card="old-claude-items"]');
+  check(T('Old Claude items fold shows for a project that has items'), (await fold.count()) === 1 && /Old Claude items/.test(await fold.innerText()));
+  await click(fold.locator('summary'));
+  check(T('the fold lists the item read-only (no State select, no note box)'), (await fold.locator('[data-claude-item]').count()) === 1 && (await p.locator('[aria-label=State]').count()) === 0 && (await p.locator('input[aria-label="Add note"]').count()) === 0);
+  const ov = await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
+  check(T('fold: no h-scroll'), !ov);
   await ctx.close();
 }
 await browser.close();

@@ -20,9 +20,7 @@ export const STATE_FILE_OK = [
   "'WORK-STATE.md'",
 ];
 /** Retired words: agent-facing text must not use them (see "Words" in docs/HANDOVER.md section 3). */
-export const RETIRED = [/\bwork state file\b/i, /\btransfer note\b/i, /\bboilerplate\b/i];
-/** Retired in the instructions and the dispatcher prompt only, until the Claude items clean-up. */
-export const RETIRED_LATER = /\bClaude items?\b/i;
+export const RETIRED = [/\bwork state file\b/i, /\btransfer note\b/i, /\bboilerplate\b/i, /\bClaude items?\b/i];
 /** Most characters the server instructions may have (instructions plus the Claude Code part). */
 export const INSTRUCTIONS_BUDGET = 2500;
 
@@ -75,7 +73,6 @@ export type ToolName =
   | 'update_project'
   | 'daily_summary'
   | 'recent_activity'
-  | 'update_claude_items'
   | 'discord_needs_attention'
   | 'discord_list_channels'
   | 'discord_read_messages'
@@ -226,7 +223,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   declutter: {
     title: 'Declutter (tidy a project that grew)',
     description:
-      'Work OS says “Declutter due” in the start brief and in end_work when a project grew: Later over 25 lines, Next over 10, a line nobody waits on untouched for 14 days, two pages with one title, or open Claude items. Call this to see what it proposes (read only: stale and repeated Later lines, Next lines with no task, finished tasks, old Needs, repeated pages, open Claude items that move into tasks and Later lines). Check the items against the code and the disk, then call it again with ask: true, skip (item ids to leave out), add (up to 40 Later lines {later, waits_on?} or tasks {task} of your own) and disk (up to 20 lines for you to do after a Yes: worktrees, branches, files; Work OS only shows them). That files one Need to the project’s owner, who ticks what goes and answers in the app; the server applies the ticked changes as that person. Nothing is deleted: lines, pages and old Claude items are archived and can be put back. You hear the answer here. A project is quiet for 14 days after an answer. At most 3 asks per project an hour; another session’s open declutter Need must be answered first.',
+      'Work OS says “Declutter due” in the start brief and in end_work when a project grew: Later over 25 lines, Next over 10, a line nobody waits on untouched for 14 days, two pages with one title. Call this to see what it proposes (read only: stale and repeated Later lines, Next lines with no task, finished tasks, old Needs, repeated pages). Check the items against the code and the disk, then call it again with ask: true, skip (item ids to leave out), add (up to 40 Later lines {later, waits_on?} or tasks {task} of your own) and disk (up to 20 lines for you to do after a Yes: worktrees, branches, files; Work OS only shows them). That files one Need to the project’s owner, who ticks what goes and answers in the app; the server applies the ticked changes as that person. Nothing is deleted: lines and pages are archived and can be put back. You hear the answer here. A project is quiet for 14 days after an answer. At most 3 asks per project an hour; another session’s open declutter Need must be answered first.',
     writes: true,
     example: 'The brief says Declutter due: look at what Work OS proposes for this project',
   },
@@ -473,13 +470,6 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
     description: 'Take back a Need you asked while it is still open (id or number such as #7). Only the asker can withdraw it; there is no tool to answer one.',
     writes: true,
     example: 'Withdraw Need #7, the question no longer matters',
-  },
-  update_claude_items: {
-    title: 'Update Claude items',
-    description:
-      'Retired: use save_state add_later or a task. Still moves an item you hold to done or release until your project’s items are migrated (add is refused: a Declutter moves open items into tasks and Later lines).',
-    writes: true,
-    example: 'Start C9 on wt/debt-4t; file the flaky picker test as a bug',
   },
   recent_activity: {
     title: 'Recent activity',

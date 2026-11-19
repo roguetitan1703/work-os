@@ -2,14 +2,13 @@
 
 import { useState } from 'react';
 import Link from '@/components/intent-link';
-import { ChevronDown, ChevronRight, Link2, MonitorUp, RotateCcw, Square, Trash2 } from 'lucide-react';
+import { Link2, MonitorUp, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmSheet } from '@/components/responsive-sheet';
 import { cn } from '@/lib/utils';
 import type { ReopenPrompt } from '@/lib/data/launcher';
-import type { NeedsYouItem, SessionRow, SessionRowState, SessionSummary } from '@/lib/data/claude-overview';
+import type { SessionRow, SessionRowState, SessionSummary } from '@/lib/data/claude-overview';
 import { openInVscodeAction, removeSessionAction, resumeSessionAction, stopSessionAction, unhideSessionAction } from '../projects/[id]/launcher-actions';
-import { updateClaudeItemAction } from '../projects/[id]/claude-items-actions';
 import type { ClaudeTasks } from '@/lib/data/dispatcher';
 import { write } from './auto-refresh';
 import { dispatcherSettingsAction } from './dispatcher-actions';
@@ -19,22 +18,18 @@ import { LinkSessionFolder } from './link-session-folder';
 import { MessagesForYou } from './messages-for-you';
 import type { MessageForYou } from '@/lib/data/messages';
 import { trackJob } from './job-toast';
-import { btnOutline, card, field, ghost, H2 } from './ui';
+import { btnOutline, card, ghost, H2 } from './ui';
 
-type Props = { needsYou: NeedsYouItem[]; sessions: SessionRow[]; summary: SessionSummary; hasComputers: boolean; claudeTasks: ClaudeTasks; reopen?: ReopenPrompt[]; messages?: MessageForYou[] };
+type Props = { sessions: SessionRow[]; summary: SessionSummary; hasComputers: boolean; claudeTasks: ClaudeTasks; reopen?: ReopenPrompt[]; messages?: MessageForYou[] };
 
-export function NowTab({ needsYou, sessions, summary, hasComputers, claudeTasks, reopen = [], messages = [] }: Props) {
-  // Hide an answered row at once; it stays hidden until the server copy changes (a late refresh must not bring it back).
-  const [answered, setAnswered] = useState<Record<string, string>>({});
-  const shown = needsYou.filter(i => answered[i.id] !== i.updatedAt);
+export function NowTab({ sessions, summary, hasComputers, claudeTasks, reopen = [], messages = [] }: Props) {
   const [handled, setHandled] = useState<Record<string, true>>({}); // a message dealt with disappears at once; the server copy follows
   const msgs = messages.filter(m => !handled[m.id]);
   return (
     <div className="space-y-4">
       <SetupBanner hasComputers={hasComputers} enabled={claudeTasks.settings.enabled} hasNote={!!claudeTasks.settings.boilerplateNoteId} />
       <ReopenBanner prompts={reopen} />
-      <Summary summary={summary} needs={shown.length} hasComputers={hasComputers} />
-      {shown.length > 0 && <NeedsYou items={shown} onAnswered={i => setAnswered(a => ({ ...a, [i.id]: i.updatedAt }))} />}
+      <Summary summary={summary} hasComputers={hasComputers} />
       {msgs.length > 0 && <MessagesForYou items={msgs} onDone={m => setHandled(h => ({ ...h, [m.id]: true }))} />}
       <ClaudeTasksSection data={claudeTasks} />
       <Sessions sessions={sessions} hasComputers={hasComputers} />
@@ -104,23 +99,22 @@ export function agoShort(iso: string | null): string {
   return `${Math.round(s / 86400)}d ago`;
 }
 
-function Summary({ summary, needs, hasComputers }: { summary: SessionSummary; needs: number; hasComputers: boolean }) {
+function Summary({ summary, hasComputers }: { summary: SessionSummary; hasComputers: boolean }) {
   const { computers } = summary;
   if (!hasComputers) return null;
   const many = computers.length > 1;
-  const parts: { text: string; needs?: boolean }[] = [];
+  const parts: { text: string }[] = [];
   if (summary.reporting === 0) {
     parts.push({ text: computers.length === 0 ? 'No news from your computers yet' : many ? 'No news from your computers' : `No news from ${computers[0].name}` });
   } else {
     parts.push({ text: many ? `${plural(summary.sessions, 'session')} on ${computers.length} computers` : `${plural(summary.sessions, 'session')} on ${computers[0].name}` });
     if (summary.subagents > 0) parts.push({ text: `${plural(summary.subagents, 'subagent')} working` });
   }
-  if (needs > 0) parts.push({ text: `Claude is asking ${needs}`, needs: true });
   return (
     <section className="px-1 md:px-0 space-y-0.5" data-section="summary" aria-label="Claude activity on your computers">
       <p className="text-[16px] md:text-sm text-foreground font-medium" data-summary-line>
         {parts.map((p, n) => (
-          <span key={n} className={cn(p.needs ? 'text-amber-700 dark:text-amber-300' : n > 0 && 'text-muted-foreground font-normal')}>
+          <span key={n} className={cn(n > 0 && 'text-muted-foreground font-normal')}>
             {n > 0 && <span className="text-muted-foreground font-normal"> · </span>}
             {p.text}
           </span>
@@ -136,97 +130,6 @@ function Summary({ summary, needs, hasComputers }: { summary: SessionSummary; ne
         </ul>
       )}
     </section>
-  );
-}
-
-// ── Claude is asking ─────────────────────────────────────────────────────
-
-const FIRST = 3;
-
-function NeedsYou({ items, onAnswered }: { items: NeedsYouItem[]; onAnswered: (i: NeedsYouItem) => void }) {
-  const [open, setOpen] = useState<string | null>(null); // one expanded at a time
-  const [all, setAll] = useState(false);
-  const list = all ? items : items.slice(0, FIRST);
-  return (
-    <section className="space-y-1" data-section="needs-you">
-      <h2 className={cn(H2, 'px-1 md:px-0 text-amber-700 dark:text-amber-300')}>Claude is asking {items.length}</h2>
-      <ul className="rounded-xl border border-amber-500/30 bg-amber-500/5 divide-y divide-amber-500/20 overflow-hidden">
-        {list.map(i => (
-          <NeedsYouRow key={i.id} item={i} expanded={open === i.id} onToggle={() => setOpen(open === i.id ? null : i.id)} onAnswered={() => onAnswered(i)} />
-        ))}
-        {items.length > FIRST && (
-          <li>
-            <button type="button" onClick={() => setAll(v => !v)} className="w-full text-left px-3 h-11 md:h-8 text-[13px] font-medium text-muted-foreground hover:bg-amber-500/10" data-needs-more>
-              {all ? 'Show fewer' : `${items.length - FIRST} more`}
-            </button>
-          </li>
-        )}
-      </ul>
-    </section>
-  );
-}
-
-function NeedsYouRow({ item: i, expanded, onToggle, onAnswered }: { item: NeedsYouItem; expanded: boolean; onToggle: () => void; onAnswered: () => void }) {
-  const [reply, setReply] = useState('');
-  const [busy, setBusy] = useState(false);
-  const text = reply.trim();
-
-  // Plain flag, not useTransition (a transition stayed pending after the revalidation and froze the controls).
-  const go = async (patch: { note?: string; waitingText?: string }, done: string, after: () => void) => {
-    setBusy(true);
-    try {
-      const r = await write(() => updateClaudeItemAction(i.projectId, i.id, patch));
-      if (!r.ok) return void toast.error(r.error);
-      toast(done);
-      setReply('');
-      after();
-    } catch {
-      toast.error('Something went wrong');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // One question, one answer: the answer is stored with its question and Claude reads it in get_project
-  // (claudeItems.answered). Closing without an answer tells Claude that too.
-  const answer = () => go({ waitingText: '', note: text }, 'Answer sent. Claude sees it the next time it checks this project.', onAnswered);
-  const closeIt = () => go({ waitingText: '' }, 'Closed without an answer', onAnswered);
-  return (
-    <li data-needs-you={`C${i.ref}`}>
-      <button type="button" onClick={onToggle} aria-expanded={expanded} className="w-full flex items-start gap-2 px-3 min-h-11 md:min-h-8 text-left hover:bg-amber-500/10 active:bg-amber-500/15">
-        {expanded ? <ChevronDown className="w-4 h-4 mt-3.5 md:mt-2.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 mt-3.5 md:mt-2.5 shrink-0 text-muted-foreground" />}
-        <span className="text-[16px] md:text-[13px] min-w-0 py-2 md:py-1.5 break-words">
-          <span className="font-semibold">{i.projectName}</span>
-          <span className="font-mono text-muted-foreground"> · C{i.ref} · </span>
-          <span className="text-foreground whitespace-pre-wrap">{i.question}</span>
-        </span>
-      </button>
-      {expanded && (
-        <div className="px-3 pb-3 pt-1 space-y-2">
-          <Link href={`/projects/${encodeURIComponent(i.projectId)}?claude=C${i.ref}`} className="inline-flex items-center min-h-11 md:min-h-6 text-[13px] text-muted-foreground underline">
-            {i.title}
-          </Link>
-          <div className="flex items-center gap-2">
-            <input
-              className={cn(field, 'flex-1')}
-              value={reply}
-              maxLength={1000}
-              onChange={e => setReply(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && text && !busy && void answer()}
-              placeholder="Your answer…"
-              aria-label={`Your answer to C${i.ref}`}
-              enterKeyHint="send"
-            />
-            <button type="button" className={cn(btnOutline, 'bg-foreground text-background border-foreground hover:bg-foreground/90')} disabled={busy || !text} onClick={answer}>
-              Send answer
-            </button>
-            <button type="button" className="h-11 md:h-auto px-2 text-[13px] md:text-xs text-muted-foreground underline shrink-0 disabled:opacity-50" disabled={busy} onClick={closeIt}>
-              Close without answer
-            </button>
-          </div>
-        </div>
-      )}
-    </li>
   );
 }
 

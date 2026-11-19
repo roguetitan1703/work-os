@@ -166,20 +166,6 @@ try {
   check('C: Discord tools are not available (linked to the first organization or off)', cDiscord.isError);
 
   // ---- inbox notices go to their recipient, by the recipient's own settings ----
-  await rawDb.collection('settings').insertOne({ _id: `notify:${A.userId}`, area: 'notify', orgId: A.orgId, userId: A.userId, notify: { kinds: { claude_waiting: false } } });
-  const zB = await mkClaudeItem({ project: 'Zephyr Shared', kind: 'feature', title: 'Zephyr question for Bea in the tenancy run', why, doneWhen: 'Bea has answered the question.' });
-  const zO = await mkClaudeItem({ project: 'Zephyr Shared', kind: 'feature', title: 'Zephyr question for the owner in this run', why, doneWhen: 'The owner has answered the question.' });
-  await must(kA, 'update_claude_items', { ops: [
-    { op: 'block', item: `C${zB.ref}`, waiting_on_om: 'Bea: pick a colour', waiting_on: 'bea@example.test' },
-    { op: 'block', item: `C${zO.ref}`, waiting_on_om: 'Owner: pick a size' },
-  ] });
-  const waitB = await rawDb.collection('notifications').countDocuments({ userId: Bu.userId, kind: 'claude_waiting' });
-  const waitA = await rawDb.collection('notifications').countDocuments({ userId: A.userId, kind: 'claude_waiting' });
-  check('inbox: the item waiting on B tells B', waitB === 1, String(waitB));
-  check('inbox: A turned "Claude is asking" off, so A gets none (A\'s own settings)', waitA === 0, String(waitA));
-  const zX = await mkClaudeItem({ project: 'Zephyr Shared', kind: 'feature', title: 'Zephyr question for an outsider in this run', why, doneWhen: 'Nobody can answer this one.' });
-  const bad = await as(kA, 'update_claude_items', { ops: [{ op: 'block', item: `C${zX.ref}`, waiting_on_om: 'x', waiting_on: 'cy@example.test' }] });
-  check('waiting_on: someone outside the organization is refused', bad.isError, bad.text);
   // B's Claude Code changes A's shared task: A (its recipient) is told, B is not
   await must(kBcode, 'update_task', { task: s1.ref, priority: 'P1' });
   const chA = await rawDb.collection('notifications').countDocuments({ userId: A.userId, kind: 'claude_code_changes' });
@@ -254,9 +240,6 @@ try {
   }
   const dAssign = await as(kA, 'update_task', { task: ct.ref, assignee: 'dee@example.test' });
   check('Dee: cannot be assigned a task in it', dAssign.isError && /chosen people/.test(dAssign.text), dAssign.text);
-  const cD = await mkClaudeItem({ project: 'Circle Room', kind: 'feature', title: 'Circle question for Dee in this run', why, doneWhen: 'Dee has answered the question in the app.' });
-  const dWait = await as(kA, 'update_claude_items', { ops: [{ op: 'block', item: `C${cD.ref}`, waiting_on_om: 'x', waiting_on: 'dee@example.test' }] });
-  check('Dee: a Claude item in it cannot wait on her', dWait.isError && /chosen people/.test(dWait.text), dWait.text);
   // A task in it that waits on a task Dee closes: the "unblocked" alert goes to the owner, never to Dee.
   const dTask = (await must(kD, 'add_task', { title: 'Dee shared step', project: 'Zephyr Shared' })).created;
   const cDep = (await must(kA, 'add_task', { title: 'Circle waits on Dee', project: 'Circle Room', depends_on: [dTask.ref] })).created;
@@ -440,7 +423,7 @@ try {
     m = await missing(p, `/notes/${vMemo.id}`, /Hidden/);
     check('B pages: A\'s private note is not found', m.ok, m.why);
     const inbox = await text(p, '/notifications');
-    check('B inbox: B\'s notice, not A\'s', /Claude is asking/.test(inbox.text) && !/changed #/.test(inbox.text) && !/Owner: pick a size/.test(inbox.text));
+    check('B inbox: B\'s notice, not A\'s', !/changed #/.test(inbox.text) && !/Owner: pick a size/.test(inbox.text));
     const dev = await text(p, '/settings?section=notifications');
     check('B settings: push devices are B\'s own (none)', /No phone is set up for alerts yet/.test(dev.text), (dev.text.match(/\d+ devices? receiving push/) ?? ['none'])[0]);
     const sh = await search(p, 'Hidden');

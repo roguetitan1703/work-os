@@ -25,7 +25,7 @@ export function ProjectDetails({ project, isOwner }: { project: Project; isOwner
   const [, start] = useTransition();
   const { people, account } = useApp();
   // A change that cuts people off waits for a confirm: what it is, and who loses what.
-  const [cutting, setCutting] = useState<{ impact: { assignees: string[]; commenters: string[]; claude: string[]; waiting: string[] }; patch: Partial<ProjectInput>; done: string } | null>(null);
+  const [cutting, setCutting] = useState<{ impact: { assignees: string[]; commenters: string[]; claude: string[] }; patch: Partial<ProjectInput>; done: string } | null>(null);
   // Shared: with everyone, or with the people ticked (the owner is always on the list).
   const [choosing, setChoosing] = useState(project.visibility === 'members');
   const savedList = project.sharedWith ?? [project.ownerId];
@@ -51,7 +51,7 @@ export function ProjectDetails({ project, isOwner }: { project: Project; isOwner
     start(async () => {
       const r = await projectSharingImpactAction(project.id, keep);
       if (!r.ok) return void toast.error(r.error);
-      if (r.data.assignees.length || r.data.commenters.length || r.data.claude.length || r.data.waiting.length) setCutting({ impact: r.data, patch, done });
+      if (r.data.assignees.length || r.data.commenters.length || r.data.claude.length) setCutting({ impact: r.data, patch, done });
       else save(patch, done);
     });
   }
@@ -197,10 +197,9 @@ export function ProjectDetails({ project, isOwner }: { project: Project; isOwner
           verb={cutting.patch.visibility === 'private' ? 'Make private' : 'Save'}
           message={
             <span data-private-confirm={cutting.patch.visibility === 'private' ? '' : undefined} data-cut-confirm>
-              {[...new Set([...cutting.impact.assignees, ...cutting.impact.commenters, ...cutting.impact.claude, ...cutting.impact.waiting])].join(', ')} will lose access to {project.name} and its tasks and notes.
+              {[...new Set([...cutting.impact.assignees, ...cutting.impact.commenters, ...cutting.impact.claude])].join(', ')} will lose access to {project.name} and its tasks and notes.
               {cutting.impact.assignees.length > 0 && ` Tasks assigned to ${cutting.impact.assignees.join(', ')} will be unassigned.`}
               {cutting.impact.claude.length > 0 && ` ${cutting.impact.claude.join(', ')}: their Claude task will be stopped.`}
-              {cutting.impact.waiting.length > 0 && ` Claude items waiting on ${cutting.impact.waiting.join(', ')} will stop waiting.`}
             </span>
           }
           onClose={() => setCutting(null)}

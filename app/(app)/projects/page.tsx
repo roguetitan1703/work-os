@@ -7,7 +7,6 @@ import { cn } from '@/lib/utils';
 import { MEmpty } from '@/components/mobile/sub-header';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { HubSegment } from '@/components/mobile/hub-segment';
-import { waitingCounts } from '@/lib/data/claude-items';
 import { NewProjectButton } from './new-project';
 import { requireScope } from '@/lib/caller';
 
@@ -18,7 +17,7 @@ export const metadata = { title: 'Projects · Work OS' };
 export default async function ProjectsPage({ searchParams }: Props) {
   const { all } = await searchParams;
   const s = await requireScope();
-  const [projects, waiting] = await Promise.all([listProjects(s, { includeInactive: all === '1' }), waitingCounts(s)]);
+  const projects = await listProjects(s, { includeInactive: all === '1' });
 
   return (
     <div className="space-y-5 max-w-6xl">
@@ -80,7 +79,6 @@ export default async function ProjectsPage({ searchParams }: Props) {
                   <span className="font-semibold text-[16px] md:text-base text-foreground truncate">{p.name}</span>
                   {p.visibility === 'private' && <PrivateBadge />}
                   {p.visibility === 'members' && <PeopleBadge count={p.sharedWith?.length ?? 1} />}
-                  {waiting.get(p.id) && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 shrink-0">{waiting.get(p.id)} for you</span>}
                 </div>
                 {p.client && <div className="text-sm md:text-xs text-muted-foreground truncate">{p.client}</div>}
               </div>
