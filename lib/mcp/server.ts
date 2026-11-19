@@ -33,8 +33,9 @@ import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
 import * as ordersData from '../data/orders';
 import { ordersChangesFor, ordersFor, ordersWrittenBy, shortFormForSubagent } from '../data/orders';
-import { cleanLabel, endPresence, setOrdersSeen, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
+import { cleanLabel, endPresence, rowKey, setOrdersSeen, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
 import { presenceState } from '../data/presence-state';
+import { laneOut, type LaneOut } from '../data/lanes';
 import { clientWord, roster, taskInfo } from '../data/roster';
 import * as handovers from '../data/handovers';
 import * as declutterData from '../data/declutter';
@@ -428,8 +429,26 @@ function conflictOut(r: { state: Parameters<typeof stateData.stateOut>[0] | null
   };
 }
 
+/**
+ * The sessions on a project in the last 30 minutes as lanes (labels, names, branch, slot, task ref, state, last result), the caller's own
+ * included. Never a session id. A last result written by a session other than the reader's own is marked writtenBy: information, not
+ * a request. Read through the caller's door, so only a project reader gets it.
+ */
+async function lanesFor(s: ReturnType<typeof sOf>, projectId: string, names: Record<string, string>, readerKey: string | undefined): Promise<LaneOut[]> {
+  const now = Date.now();
+  const rows = (await othersPresent(s, projectId)).filter(p => presenceState(p, { now }).state !== 'off');
+  const info = await taskInfo(s, rows.flatMap(p => (p.doing ? [p.doing.taskId] : [])));
+  return rows.map(p =>
+    laneOut(
+      { ...p, person: p.userId === s.userId ? 'me' : names[p.userId] || 'another member', doing: p.doing ? info.get(p.doing.taskId)?.ref : undefined, lastResult: p.lastResult ?? null, dispatched: !!p.dispatched },
+      now,
+      { writtenBy: !readerKey || rowKey(p) !== readerKey },
+    ),
+  );
+}
+
 /** start_work's arguments after the project is found (the session id is decided by the caller). */
-export type StartWorkArgs = { hook?: number; /** True for the hook's start route: such a session always gets a name. */ viaHook?: boolean; /** Claude Code's own session UUID and what began the session (the hook's start route only). */ ccSession?: string; source?: 'startup' | 'resume' | 'clear' | 'compact'; branch?: string; machine?: string; label?: string; /** The hook's identity (protocol 3): the session's own name (a /rename), Claude's title for it, and where it runs. */ title?: string; aiTitle?: string; tool?: string; model?: string; account?: string; parent?: string; slot?: string; /** H15: the task the dispatcher started this session for (the start route only): forces the label and marks the row. */ dispatched?: { taskId: string; ref: number } };
+export type StartWorkArgs = { hook?: number; /** A handover note id: take over the work of the session that wrote it (Lanes step 4). */ pick_up?: string; /** True for the hook's start route: such a session always gets a name. */ viaHook?: boolean; /** Claude Code's own session UUID and what began the session (the hook's start route only). */ ccSession?: string; source?: 'startup' | 'resume' | 'clear' | 'compact'; branch?: string; machine?: string; label?: string; /** The hook's identity (protocol 3): the session's own name (a /rename), Claude's title for it, and where it runs. */ title?: string; aiTitle?: string; tool?: string; model?: string; account?: string; parent?: string; slot?: string; /** H15: the task the dispatcher started this session for (the start route only): forces the label and marks the row. */ dispatched?: { taskId: string; ref: number } };
 
 /**
  * The label a start writes and where it comes from (Identity step 4). A dispatched session: the forced label. Else the first that is there of
@@ -475,7 +494,9 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   const dispatched = a.dispatched ?? (sid ? await dispatchedOfToken(sid) : null) ?? undefined;
   const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, ...labelFor(project.name, a, dispatched), tool: a.tool, dispatched, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
   // The handovers left for this person (a fresh session takes the newest first; a re-call after compaction shows its own again).
-  const hv = await handovers.handoversForBrief(s, project._id, { me: row.key, label: row.label, fresh: row.fresh, parent: row.parent, actor: agentActor(caller.agent, caller.userId) });
+  // With pick_up the named handover is the one taken (and the old session's work moves to this one); without it the newest one for this person is shown.
+  const picked = a.pick_up ? await handovers.pickUpHandover(s, project._id, a.pick_up.trim(), { me: row.key, label: row.label, actor: agentActor(caller.agent, caller.userId) }) : null;
+  const hv = picked ? { shown: [picked.brief], more: [] as { id: string; title: string }[] } : await handovers.handoversForBrief(s, project._id, { me: row.key, label: row.label, fresh: row.fresh, parent: row.parent, actor: agentActor(caller.agent, caller.userId) });
   // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
   const layerName = { org: 'organisation', project: 'project', person: 'person' } as const;
   const served = await ordersFor(s, project);
@@ -559,6 +580,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
           ...(hv.more.length ? { moreHandovers: hv.more.map(m => `${m.id}, ${m.title}`) } : {}),
         }
       : {}),
+    ...(picked ? { pickedUp: handovers.pickUpText(picked.move, picked.again) } : {}),
     textRule: textRule(),
     sessionNote: !sid ? 'This connector is your session: no id to pass. Messages for you and the unread count follow it on every call.' : 'Pass this session id as session on save_state, end_work, get_state, send_message, reply and message_status (and as the X-Work-OS-Session header on every call, if your client can). Messages for you are handed to the session by the Work OS hook; answer one with reply by its id.',
     orders: orders.length ? orders : 'no Orders set',
@@ -567,6 +589,9 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     ...(orgOrders && shortFormForSubagent(orgOrders) ? { shortOrders: shortFormForSubagent(orgOrders), shortOrdersVersion: orgOrders.version } : {}),
     ...(needsBlock.answered.length || needsBlock.forYou.length ? { needs: { ...(needsBlock.answered.length ? { answeredForYou: needsBlock.answered } : {}), ...(needsBlock.forYou.length ? { openForYou: needsBlock.forYou } : {}) } } : {}),
     state: state ? await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names) : NO_STATE,
+    // After a pick-up the Now hold may just have moved to this session: read it again.
+    holdsNow: stateData.holdsNowOf(picked?.move?.moved ? (await stateData.getState(s, key)).state : state, rowKey(row)),
+    lanes: await lanesFor(s, project._id, names, rowKey(row)),
     ...(await declutterData.briefField(s, project, state)),
     inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names, { cut: 500, unread: inb.unreadIds.has(m._id) })) } : 'no messages',
     openTasks: { total: open.length, tasks: open.slice(0, 25).map(t => briefTask(t, pn, { baseUrl: ctx.baseUrl, who })), ...(open.length > 25 ? { more: `${open.length - 25} more: list_tasks project:"${project.name}"` } : {}) },
@@ -1212,6 +1237,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         parent: z.string().max(64).optional().describe('For a builder: the session id of the orchestrator that started you (the roster shows you under it)'),
         slot: z.string().max(20).optional().describe('For a builder: your slot name, e.g. "A", "B" or "S"'),
         folder: z.string().max(40).optional().describe('The folder id the hook printed (a computer with the Work OS worker); with link it files that folder under project'),
+        pick_up: z.string().max(40).optional().describe('The id of a handover note to take over (the pickUp line end_work gave): shows it and moves the Needs, unread messages and held lines of the session that wrote it to you. Never read_note it'),
         link: z.boolean().optional().describe('With project: your person said the folder belongs to it; files it (folder, or path and machine) so later sessions there check in'),
         not_work_os: z.boolean().optional().describe('With path and machine: your person said this folder is not Work OS; sessions in it (and below) stay quiet. Undo in Claude › Setup › Computers'),
         session: sessionArg,
@@ -1329,7 +1355,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       if (!state) return { project: project.name, state: NO_STATE, version: 0 };
       const names = await memberNames(s.orgId);
       const markdown = a.copy ? await stateData.stateCopy(s, project, state, ctx.baseUrl) : await legacyCopy(a, project, state);
-      return { textRule: textRule(), project: project.name, version: state.version, ...laneExtra({ holdsNow: stateData.holdsNowOf(state, requestContext().src) }, identOf('get_state', [a]).session), state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), ...(markdown ? { markdown } : {}) };
+      return { textRule: textRule(), project: project.name, version: state.version, ...laneExtra({ holdsNow: stateData.holdsNowOf(state, requestContext().src) }, identOf('get_state', [a]).session), lanes: await lanesFor(s, project._id, names, requestContext().src), state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), ...(markdown ? { markdown } : {}) };
     }),
   );
 
