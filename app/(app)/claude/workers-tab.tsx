@@ -13,7 +13,7 @@ const STATE: Record<WorkerState, { text: string; cls: string }> = {
 };
 
 /** The roster (docs/flows/plan-1-3.md slice 7): who is working on what and where. Builders sit under their orchestrator. */
-export function WorkersTab({ data }: { data: Roster }) {
+export function WorkersTab({ data, tz }: { data: Roster; tz: string }) {
   const { workers, couldBeRunning, machines } = data;
   return (
     <div className="space-y-5 md:max-w-4xl" data-section="workers">
@@ -27,7 +27,7 @@ export function WorkersTab({ data }: { data: Roster }) {
         ) : (
           <ul className={cn(card, 'divide-y divide-border/60')} data-workers-list>
             {workers.map(w => (
-              <Row key={w.id} w={w} />
+              <Row key={w.id} w={w} tz={tz} />
             ))}
           </ul>
         )}
@@ -66,7 +66,16 @@ export function CouldBeRunning({ list, compact }: { list: Roster['couldBeRunning
   );
 }
 
-function Row({ w }: { w: WorkerRow }) {
+/** "since 14:02" for a session that stopped (idle) or waits: the hook's last event, in the person's timezone. */
+function sinceText(iso: string, tz: string): string {
+  try {
+    return `since ${new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz }).format(new Date(iso))}`;
+  } catch {
+    return '';
+  }
+}
+
+function Row({ w, tz }: { w: WorkerRow; tz: string }) {
   const st = STATE[w.state];
   const who = [w.ai, w.model].filter(Boolean).join(' · ');
   const where = [w.machine, w.branch].filter(Boolean).join(' · ');
@@ -84,6 +93,11 @@ function Row({ w }: { w: WorkerRow }) {
           {w.state === 'waiting' && w.waitingOn === 'prompt' ? 'Waiting on you' : st.text}
           {w.state === 'idle' && w.nextWork > 0 ? ` · ${w.nextWork} Next line${w.nextWork === 1 ? '' : 's'} waiting` : ''}
         </span>
+        {(w.state === 'idle' || w.state === 'waiting') && (
+          <span className="text-[13px] md:text-xs text-muted-foreground" data-worker-since>
+            {sinceText(w.since, tz)}
+          </span>
+        )}
         <span className="ml-auto text-[13px] md:text-xs text-muted-foreground" data-worker-seen>
           {fmtAgo(w.lastSeen)}
         </span>

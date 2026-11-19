@@ -203,3 +203,18 @@ test('the WORK_OS_KEY path posts no events', async () => {
   } finally { if (keep === undefined) delete process.env.WORK_OS_KEY; else process.env.WORK_OS_KEY = keep; }
   assert.equal(events().length, 0);
 });
+
+test('the brief shows each other session with its state and age', async () => {
+  const { formatBrief } = await import('../hook.mjs');
+  const b = formatBrief({
+    project: { id: 'p1', name: 'Demo' }, session: 's', textRule: 'x', orders: 'no Orders set', state: 'no State',
+    alsoHere: [
+      { label: 'Demo builder', for: 'me', machine: 'Victus', state: 'working', minutesAgo: 2 },
+      { label: 'Akash lead', for: 'Akash', state: 'waiting', minutesAgo: 9 },
+      { label: 'old client', for: 'me', minutesAgo: 20 },
+    ],
+  });
+  assert.match(b, /Demo builder, me, Victus \(working, 2 min ago\)/);
+  assert.match(b, /Akash lead, Akash \(waiting, 9 min ago\)/);
+  assert.match(b, /old client, me \(20 min ago\)/);
+});

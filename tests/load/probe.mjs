@@ -19,6 +19,8 @@ function kinds(b, person, ids) {
   const pr = ids.projects[0];
   const n = ids.notes[0];
   let pri = 0;
+  let tok = '';
+  let evn = 0;
   return [
     ['page /today', () => b.get('page', '/today', doc)],
     ['rsc /today', nav('/today', '/tasks')],
@@ -39,6 +41,15 @@ function kinds(b, person, ids) {
     ['stream /api/stream (connect)', async () => { const ac = new AbortController(); const r = await fetch(b.base + '/api/stream', { headers: { cookie: b.cookie }, signal: ac.signal }); const rd = r.body.getReader(); await rd.read(); ac.abort(); }],
     ['api /api/worker/jobs', () => fetch(b.base + '/api/worker/jobs', { headers: { authorization: `Bearer ${person.deviceKey}` } }).then(r => r.text())],
     ['api /api/worker/status', () => fetch(b.base + '/api/worker/status', { method: 'POST', headers: { authorization: `Bearer ${person.deviceKey}`, 'content-type': 'application/json' }, body: JSON.stringify({ worker: { version: '0.1.0', os: 'win32', allowPrompts: false }, jobs: [], sessions: [], activity: { sessions: 1, sessionsWorkOs: 0, sessionsOther: 1, sessionsActive: 0, subagents: 0 }, claudeSessions: [] }) }).then(r => r.text())],
+    // A Claude Code hook's state event (H6): the session token comes from the start route (the first call, the warm-up), then prompt and stop alternate so each one changes the state.
+    ['api /api/agent/event', async () => {
+      const pj = person.folders[0];
+      if (!tok) {
+        const r = await fetch(b.base + '/api/agent/start', { method: 'POST', headers: { authorization: `Bearer ${person.deviceKey}`, 'content-type': 'application/json' }, body: JSON.stringify({ remote: `https://github.com/delpat/${pj.projectId}.git`, branch: 'main', path: 'C:/code/probe', label: 'Load probe' }) });
+        tok = (await r.json().catch(() => ({}))).token;
+      }
+      return fetch(b.base + '/api/agent/event', { method: 'POST', headers: { authorization: `Bearer ${tok}`, 'content-type': 'application/json' }, body: JSON.stringify({ event: ['prompt', 'stop'][evn++ % 2], at: Date.now() }) }).then(r => r.text());
+    }],
     ['mcp list_tasks', () => mcpCall(person.claudeKey, 'list_tasks', { limit: 20 })],
     ['mcp get_task', () => mcpCall(person.claudeKey, 'get_task', { task: ids.refs[0] })],
     ['mcp update_task', () => mcpCall(person.claudeKey, 'update_task', { task: ids.refs[1], priority: ['P2', 'P3'][pri++ % 2], note: 'load probe' })],

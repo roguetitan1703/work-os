@@ -23,6 +23,7 @@ Status: reviewed by Fable 18 Nov (section 9) and settled with Om's answers; buil
 
 ## 2. Presence at zero tokens: hooks and the plugin's process
 Claude Code runs hooks itself; each posts a tiny event to Work OS. No model turn.
+Built in H6 (19 Nov) without a plugin: see docs/flows/agent-system.md section 11 and docs/HANDOVER.md "Session state".
 | Shown | Source |
 |---|---|
 | On | SessionStart (start, resume, clear, compact) |

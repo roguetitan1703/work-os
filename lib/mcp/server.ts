@@ -31,6 +31,7 @@ import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
 import { ordersFor } from '../data/orders';
 import { endPresence, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
+import { presenceState } from '../data/presence-state';
 import { clientWord, roster, taskInfo } from '../data/roster';
 import * as handovers from '../data/handovers';
 import type { HandoverFields } from '../db';
@@ -474,6 +475,8 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     ...(p.machine ? { machine: p.machineName ?? p.machine } : {}),
     ...(p.model ? { model: p.model } : {}),
     ...(p.doing && doingInfo.get(p.doing.taskId) ? { doing: `#${doingInfo.get(p.doing.taskId)!.ref}` } : {}),
+    // working, waiting, idle, on or off: from the session's hook, else from its last call (no daemon or Need lookup here: no extra reads).
+    state: presenceState(p, { now: Date.now() }).state,
     minutesAgo: Math.round((Date.now() - p.lastSeen.getTime()) / 60_000),
     ...(p.userId === s.userId ? {} : { writtenBy: names[p.userId] || 'another member' }),
   }));
