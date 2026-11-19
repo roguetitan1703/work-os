@@ -1,7 +1,7 @@
 // H13 "the folder decides the project" (docs/flows/agent-system.md section 11): a remote never decides; a path location
 // does (longest wins, narrowed to one computer by `machine`); a session in a folder no project owns is "unfiled". Seed
 // profile: none. Steps 1-4 of the plan (matcher, quiet list, link from a session, the device-key route) are checked here.
-import { check, finish, mkKey, rawDb } from './lib.mjs';
+import { ME, check, finish, makeUser, mkKey, rawDb } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
 
 const pid = async name => (await rawDb.collection('projects').findOne({ name }))._id;
@@ -40,6 +40,36 @@ try {
   check('H13 matcher: start_work with only a remote is unmatched, registers nobody, and the hint teaches link and not_work_os', swRem.json?.unmatched === true && (await rawDb.collection('presence').countDocuments({})) === 0 && /link/.test(swRem.json.hint) && /not_work_os/.test(swRem.json.hint) && swRem.json.candidates[0]?.why === 'same remote', swRem.text.slice(0, 300));
   const swPath = await mcpH(cc, 'start_work', { path: 'C:/h13/alpha/web', remote: 'acme/h13-other', machine: 'pc-one', label: 'h13' });
   check('H13 matcher: start_work with a path and a remote of another project: the path decides', !swPath.isError && swPath.json?.project?.id === A && swPath.json?.project?.matchedBy?.how === 'path', swPath.text.slice(0, 200));
+
+  // ── 2. The quiet list: "not Work OS", per person, on the server
+  const T = await makeUser({ email: 'h13-tess@example.test', name: 'Tess', orgId: ME.orgId, role: 'member' });
+  const X = await makeUser({ email: 'h13-xavier@example.test', name: 'Xavier', orgName: 'H13 Other Org' });
+  const kT = await mkKey({ agent: 'claude-code', userId: T.userId, name: 'Tess cc' });
+  const kX = await mkKey({ agent: 'claude-code', userId: X.userId, orgId: X.orgId, name: 'Xavier cc' });
+  const quiet = userId => rawDb.collection('settings').findOne({ _id: `quietFolders:${userId}` });
+  const presenceBefore = await rawDb.collection('presence').countDocuments({});
+  const nw = await mcpH(cc, 'start_work', { path: 'D:\\Scratch\\Thing', machine: 'PC-One', not_work_os: true });
+  check('H13 quiet: not_work_os answers quiet with a message and no brief, no presence', !nw.isError && nw.json?.quiet === true && !nw.json?.project && typeof nw.json?.message === 'string' && (await rawDb.collection('presence').countDocuments({})) === presenceBefore, nw.text.slice(0, 300));
+  const q1 = await quiet(ME.userId);
+  check('H13 quiet: stored on the caller\'s own settings doc, path normalised, machine lowercase', q1?.userId === ME.userId && q1.orgId === ME.orgId && q1.items.length === 1 && q1.items[0].path === 'd:/scratch/thing' && q1.items[0].machine === 'pc-one', JSON.stringify(q1));
+  await mcpH(cc, 'start_work', { path: 'd:/scratch/thing/', machine: 'pc-one', not_work_os: true });
+  check('H13 quiet: the same folder twice is one entry', (await quiet(ME.userId)).items.length === 1);
+  await mcpH(cc, 'start_work', { path: 'd:/scratch/other', machine: "Om's PC", not_work_os: true });
+  check('H13 quiet: a machine name with odd characters is cleaned, not refused', (await quiet(ME.userId)).items.some(i => i.machine === 'om-s-pc' && i.path === 'd:/scratch/other'));
+  for (const [what, args] of [['no path', { machine: 'pc-one', not_work_os: true }], ['no machine', { path: 'D:/x', not_work_os: true }]]) {
+    const r = await mcpH(cc, 'start_work', args);
+    check(`H13 quiet: ${what} is refused`, r.isError, r.text.slice(0, 160));
+  }
+  const tq = await quiet(T.userId);
+  const xq = await quiet(X.userId);
+  check('H13 quiet: another person (same organization) and another organization have no entry from it', !tq && !xq);
+  await mcpH(kX, 'start_work', { path: 'D:/Scratch/Thing', machine: 'pc-one', not_work_os: true });
+  check('H13 quiet: another organization marks its own; the first list is unchanged', (await quiet(X.userId))?.orgId === X.orgId && (await quiet(ME.userId)).items.length === 2);
+  // The cap: at most 200, the oldest dropped
+  await rawDb.collection('settings').updateOne({ _id: `quietFolders:${T.userId}` }, { $set: { area: 'quietFolders', orgId: T.orgId ?? ME.orgId, userId: T.userId, items: Array.from({ length: 200 }, (_, i) => ({ machine: 'pc-one', path: `d:/many/f${i}`, at: new Date(2020, 0, 1, 0, 0, i) })) } }, { upsert: true });
+  await mcpH(kT, 'start_work', { path: 'D:/Many/New', machine: 'pc-one', not_work_os: true });
+  const capped = (await quiet(T.userId)).items;
+  check('H13 quiet: 200 is the cap; the 201st drops the oldest', capped.length === 200 && capped.some(i => i.path === 'd:/many/new') && !capped.some(i => i.path === 'd:/many/f0') && capped.some(i => i.path === 'd:/many/f1'), String(capped.length));
 
 } catch (e) {
   check('flow-h13 threw', false, String(e?.stack || e));

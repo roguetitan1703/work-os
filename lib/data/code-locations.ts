@@ -130,7 +130,12 @@ export function cleanCodeLocations(input: CodeLocation[] | null | undefined): Co
   return out;
 }
 
-function within(child: string, parent: string): boolean {
+/** A computer's name as the hook sends it, for comparing: lowercase, anything but a-z 0-9 . _ - becomes a dash, at most 40. */
+export function cleanMachine(input: string | null | undefined): string {
+  return (input ?? '').trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+}
+
+export function within(child: string, parent: string): boolean {
   return child === parent || child.startsWith(parent + '/');
 }
 
@@ -177,7 +182,7 @@ export function matchCodeLocation(projects: CodeProject[], query: CodeQuery, opt
     path: normalizePath(query.path),
     subdir: normalizeSubdir(query.subdir),
     branch: normalizeBranch(query.branch),
-    machine: (query.machine ?? '').trim().toLowerCase(),
+    machine: cleanMachine(query.machine),
   };
   if (opts.legacyRemote ? !q.remote && !q.path : !q.path) return null;
   let best: CodeMatch | null = null;

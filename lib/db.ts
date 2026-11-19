@@ -459,6 +459,8 @@ export type SettingsDoc = {
   whatsNewSeen?: string[];
   /** mail:<userId> (lib/mail/keys.ts): the person's own Mailloom agent key, sealed, with its visible prefix and the mailbox it opens. */
   mail?: { sealed: string; prefix: string; email: string; savedAt: Date; /** Granted at Connect (lib/mail/connect.ts); absent for a pasted key. */ scopes?: string[]; keyId?: string; via?: 'connect' | 'paste' } | null;
+  /** quietFolders:<userId> (lib/data/quiet-folders.ts): folders on a computer the person said are not Work OS (path stored through normalizePath; a folder covers its subfolders). */
+  items?: { machine: string; path: string; at: Date }[];
   /** discord:<orgId>: the organization's Discord server (set by the operator). */
   guildId?: string | null;
   /** discord:<orgId>: the Discord channel the team digest goes to (lib/team-digest.ts). */

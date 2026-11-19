@@ -7,6 +7,7 @@ import { briefTask, dailySummary } from '../data/summary';
 import { applyChanges, MAX_OPS, type BatchOp } from '../data/batch';
 import { getProjectTree } from '../data/tree';
 import * as notesData from '../data/notes';
+import { addQuietFolder } from '../data/quiet-folders';
 import { authorLabel, isMine, outsideTitleLabel, taskAuthors } from '../data/authors';
 import * as items from '../data/claude-items';
 import * as needsData from '../data/needs';
@@ -1164,11 +1165,17 @@ export function createMcpServer(ctx: Ctx): McpServer {
         account: z.string().max(80).optional().describe('A label for the account you run under, e.g. "om-max" (the roster shows it; never a key or email)'),
         parent: z.string().max(64).optional().describe('For a builder: the session id of the orchestrator that started you (the roster shows you under it)'),
         slot: z.string().max(20).optional().describe('For a builder: your slot name, e.g. "A", "B" or "S"'),
+        not_work_os: z.boolean().optional().describe('With path and machine: your person said this folder is not Work OS; sessions in it (and below) stay quiet. Undo in Claude › Setup › Computers'),
         session: sessionArg,
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     handler(async a => {
+      if (a.not_work_os) {
+        if (!a.path || !a.machine) throw new InputError('not_work_os needs path and machine (as the hook printed them)');
+        await addQuietFolder(s, a.machine, a.path);
+        return { quiet: true, message: `Marked not Work OS: sessions in ${a.path} on ${a.machine} stay quiet. Your person can undo it in Work OS (Claude › Setup › Computers, Not Work OS folders). No project was started.` };
+      }
       let key = a.project?.trim();
       let matchedBy: { how: string; location: unknown } | undefined;
       if (!key) {
