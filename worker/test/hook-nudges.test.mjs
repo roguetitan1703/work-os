@@ -294,7 +294,7 @@ test('release check: merge, push to master or work-os-deploy then no save blocks
     assert.equal(await run('stop', { session_id: sid, transcript_path: t, stop_hook_active: true }), '');
     assert.equal(events()[0].body.nudge, undefined);
   }
-  for (const [sid, t] of [['r-save', withTurn(tu('Bash', { command: 'git merge x' }), tu('mcp__work-os__save_state', {}))], ['r-none', withTurn(tu('Bash', { command: 'git status' }), tu('Bash', { command: 'git push origin feature' }))], ['r-old', (() => { const f = path.join(tmp, 'r-old.jsonl'); fs.writeFileSync(f, tu('Bash', { command: 'git merge x' }) + PROMPT + tu('Bash', { command: 'ls' })); return f; })()]]) {
+  for (const [sid, t] of [['r-save', withTurn(tu('Bash', { command: 'git merge x' }), tu('mcp__work-os__save_state', {}))], ['r-none', withTurn(tu('Bash', { command: 'git status' }), tu('Bash', { command: 'git push origin feature' }))], ['r-base', withTurn(tu('Bash', { command: 'git merge-base --is-ancestor HEAD dev' }))], ['r-old', (() => { const f = path.join(tmp, 'r-old.jsonl'); fs.writeFileSync(f, tu('Bash', { command: 'git merge x' }) + PROMPT + tu('Bash', { command: 'ls' })); return f; })()]]) {
     start(sid);
     reset();
     answer = { state: 'idle', nudge: { release: true } };
