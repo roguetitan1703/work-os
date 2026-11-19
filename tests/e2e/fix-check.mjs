@@ -40,7 +40,7 @@ for (const vp of [{ w: 1280, h: 800 }, { w: 390, h: 844 }]) {
   // old Claude items: a read-only fold on the project's Claude tab (no sheet, no controls)
   await p.goto(B + '/projects/' + pid + '?tab=claude');
   const fold = p.locator('[data-card="old-claude-items"]');
-  check(T('Old Claude items fold shows for a project that has items'), (await fold.count()) === 1 && /Old Claude items/.test(await fold.innerText()));
+  check(T('Old Claude items fold shows for a project that has items'), (await fold.count()) === 1 && /old claude items/i.test(await fold.innerText()));
   await click(fold.locator('summary'));
   check(T('the fold lists the item read-only (no State select, no note box)'), (await fold.locator('[data-claude-item]').count()) === 1 && (await p.locator('[aria-label=State]').count()) === 0 && (await p.locator('input[aria-label="Add note"]').count()) === 0);
   const ov = await p.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
