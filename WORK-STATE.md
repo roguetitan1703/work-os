@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 108. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 109. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -11,7 +11,6 @@ Copy of the Work OS state, version 108. WORK-STATE.md is a copy of the State, wr
 3. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
 4. Need answers reach whoever holds the work now: a Need asked by a session that is off is delivered to the project's Now holder or the session that picked up its handover, and start_work lists answered Needs since the last lead's session; withdraw_need on an answered or closed Need says so with the answer and time. Fold into the lanes design (note after 2afd68cb00).
 5. R8 batch A (note 954f4550f8): builder B is building F1 (session on every tool), F4, F5, F8, F7, F3/F9. Then an independent review (it touches the Orders guard and session identity), merge, and F2 in slot S after the nudge fix.
-6. Slot S: F2 from note 954f4550f8 (forYou 'save State' only to the Now holder; NAG text names save_state ops). The nudge fixes are on dev 0257e0e and ship in R8.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -38,4 +37,4 @@ Copy of the Work OS state, version 108. WORK-STATE.md is a copy of the State, wr
 - flow-dc1 'a review Need gets no buttons in its DM' fails about 2 runs in 3: the test inserts the review Need's alert after the asks, so the DM sometimes misses the batch. Test race; the alerts code didn't change in R7.
 - The SIGTERM fix does not work: on R7 (59cb0edb5693) a systemctl restart still waits the full 30 s stop-sigterm timeout, then SIGKILL (journal 20 Nov 01:44 IST). Something keeps next-server open (SSE /live streams, the wait route, or Mongo). Each deploy is about 30 s down.
 - Declutter cache still counted "7 open Claude items" on 20 Nov after the migration moved them all: the cached daily reasons are not refreshed after a migration or apply. — waits on a fix slot (small)
-<!-- work-os-copy sha1:bcd3bc72ed491da1970aaeedd9a69d13a74b220d -->
+<!-- work-os-copy sha1:c9a2d57d4fefac44730f9f1a82bdf6394562864d -->
