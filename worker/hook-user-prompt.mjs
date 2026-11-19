@@ -20,6 +20,17 @@ async function unfiledStep(input, m) {
   return r?.unfiled ? unfiledReminder(m.folder, !!workerHome()) : '';
 }
 
+/**
+ * Prompts that arrive through UserPromptSubmit but that the person did not type (a background agent reporting back, a task or session
+ * notification, a message from another session, a scheduled task). The hook input has no field that marks the source (hooks docs,
+ * checked 19 Nov), so this is an exact list of wrappers, matched at the START of the trimmed prompt only: a typed prompt that quotes
+ * one mid-text still counts. Fails towards unattended: an empty or non-text prompt is not typed, and the wake prompt of the idle wait
+ * is not typed. An unknown wrapper is not recognised and counts as typed, so keep the list current. A Remote Control prompt from the
+ * person's phone is typed, so it is not listed.
+ */
+export const AUTOMATED_PROMPT = /^(<task-notification|\[SYSTEM NOTIFICATION|<cross-session-message|Another Claude session sent a message|<agent-message|\[Subagent hand-back\]|<side-sessions-event|<ci-monitor-event|<scheduled-task)/;
+export const typedByPerson = (input) => typeof input?.prompt === 'string' && input.prompt.trim() !== '' && !AUTOMATED_PROMPT.test(input.prompt.trimStart());
+
 export async function userPrompt(input) {
   const sid = input.session_id;
   if (!sid || input.agent_id) return null;
@@ -33,7 +44,8 @@ export async function userPrompt(input) {
   if (after && !after.unfiled) {
     const { wokeAt, ...rest } = after;
     void wokeAt;
-    writeMarker(sid, { ...rest, lastTool: Date.now() }); // the tool-batch hook posts again in 20 s
+    const typed = !woke && typedByPerson(input);
+    writeMarker(sid, { ...rest, lastTool: Date.now(), ...(typed ? { promptAt: Date.now() } : rest.promptAt ? { promptAt: rest.promptAt } : {}) }); // promptAt: the person's last prompt in this main session (H8 attended rule: hook-pre-tool.mjs attended()); the tool-batch hook posts again in 20 s
   }
   const out = deliverOut('UserPromptSubmit', r, sid);
   if (!line) return out;
