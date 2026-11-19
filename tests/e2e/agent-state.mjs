@@ -58,13 +58,12 @@ try {
   const cp = await must(await mkKey({ agent: 'claude-code', name: 'state copy reader' }), 'get_state', { project: 'State One', copy: true });
   check('an empty body: 200 with project, version and the copy', a0.status === 200 && a0.json?.project === one && a0.json?.version === cp.version && typeof a0.json?.markdown === 'string' && !('applied' in a0.json), `${a0.status} ${a0.text.slice(0, 200)}`);
   check('the copy is the same text get_state copy:true gives', a0.json?.markdown === cp.markdown, a0.json?.markdown);
-  // Lanes step 6: one session per checkout commits the copy: the oldest live one when nobody there holds Now.
+  // Lanes step 6 review fix: no committer election; the answer has no commit field.
   const s1b = await start(pc.key, at('acme/state-one')); // the same folder, a later session
   const T1b = s1b.json?.token ?? '';
   const c1 = await st(T1, {});
   const c1b = await st(T1b, {});
-  check('Lanes 6: commit true for the oldest live session of the folder, false for the later one', c1.json?.commit === true && c1b.json?.commit === false, `${c1.json?.commit} ${c1b.json?.commit}`);
-  check('Lanes 6: a session in another project has its own folder and commits', (await st(T2, {})).json?.commit === true);
+  check('Lanes 6 review fix: no committer election: no session is told commit true or false (every session commits the copy itself)', c1.status === 200 && c1b.status === 200 && !('commit' in c1.json) && !('commit' in c1b.json) && !('commit' in (await st(T2, {})).json), c1.text.slice(0, 120));
   check('no Decisions and no Where in the copy (repo not known private)', !a0.json?.markdown.includes('Secret pricing') && !a0.json?.markdown.includes('## Where'), a0.json?.markdown);
   check('no-store on the answer', /no-store/.test(a0.headers.get('cache-control') ?? ''));
   const a2 = await st(T2, {});

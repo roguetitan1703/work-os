@@ -199,7 +199,7 @@ try {
   const nOld = await ask(cc, 'pkOld', 'PK Old question?');
   await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'now.hold': { key: K('pkOld'), label: 'PK Old', at: new Date() } } });
   const hOld = await handover(cc, 'pkOld', 'Handover: PK Old');
-  await rawDb.collection('notes').updateOne({ _id: hOld.handover.id }, { $set: { updatedAt: ago(26 * 60) } });
+  await rawDb.collection('notes').updateOne({ _id: hOld.handover.id }, { $set: { 'handover.at': ago(26 * 60) } });
   await start(ccB, 'pkNew', { label: 'PK New' });
   st = await stateDoc();
   check('old handover: the Need moves but the Now hold stays where it was (the handover is over 24 hours old)', (await needDoc(nOld.id)).from.session === 'pkNew' && st.now.hold?.key === K('pkOld'), JSON.stringify([(await needDoc(nOld.id)).from.session, st.now.hold]));
@@ -234,14 +234,14 @@ try {
   // wrong project: the handover is on PK Alpha, the caller starts on another project
   await must(cc, 'add_project', { name: 'PK Other', visibility: 'org' });
   const wp = await mcpH(ccB, 'start_work', { project: 'PK Other', session: 'pkU2x', pick_up: hU.handover.id }, hdr('pkU2x'));
-  check('pick_up: a handover of another project is refused, and nothing moved', wp.isError && /another project/.test(wp.text) && (await needDoc(nU.id)).from.session === 'pkU1' && !(await rawDb.collection('notes').findOne({ _id: hU.handover.id })).handover.pickedUp, wp.text.slice(0, 200));
+  check('pick_up: a handover of another project is refused, and nothing moved', !wp.isError && /another project/.test(wp.json?.pickUp?.refused ?? '') && (await needDoc(nU.id)).from.session === 'pkU1' && !(await rawDb.collection('notes').findOne({ _id: hU.handover.id })).handover.pickedUp, wp.text.slice(0, 200));
   // not addressed to me: Tess left a handover for herself; Om's session may not pick it up. Om's own note for Tess is Tess's, not his.
   await start(kT, 'pkTh', { label: 'PK Tess writer' });
   const hT = await handover(kT, 'pkTh', 'Handover: PK Tess own');
   const nt = await mcpH(cc, 'start_work', { project: P, session: 'pkU3', pick_up: hT.handover.id }, hdr('pkU3'));
-  check('pick_up: another person\'s handover not addressed to me is refused', nt.isError && /for another person/.test(nt.text) && !(await rawDb.collection('notes').findOne({ _id: hT.handover.id })).handover.pickedUp, nt.text.slice(0, 200));
+  check('pick_up: another person\'s handover not addressed to me is refused', !nt.isError && /for another person/.test(nt.json?.pickUp?.refused ?? '') && !(await rawDb.collection('notes').findOne({ _id: hT.handover.id })).handover.pickedUp, nt.text.slice(0, 200));
   const nn = await mcpH(cc, 'start_work', { project: P, session: 'pkU3', pick_up: nU.id }, hdr('pkU3'));
-  check('pick_up: a note that is not a handover is refused', nn.isError && /not a handover/.test(nn.text), nn.text.slice(0, 200));
+  check('pick_up: a note that is not a handover is refused', !nn.isError && /not an open handover/.test(nn.json?.pickUp?.refused ?? ''), nn.text.slice(0, 200));
   // the real pick-up: counts in plain words, the handover shown, lanes and holdsNow in the answer
   const up = await mcpH(ccB, 'start_work', { project: P, session: 'pkU2', label: 'PK U2', pick_up: hU.handover.id }, hdr('pkU2'));
   const upj = up.json;
@@ -251,14 +251,14 @@ try {
   const again = await mcpH(ccB, 'start_work', { project: P, session: 'pkU2', pick_up: hU.handover.id }, hdr('pkU2'));
   check('pick_up: the same session asking again says so and moves nothing more', !again.isError && /already picked this handover up/.test(again.json?.pickedUp ?? ''), again.text.slice(0, 200));
   const other = await mcpH(ccC, 'start_work', { project: P, session: 'pkU4', pick_up: hU.handover.id }, hdr('pkU4'));
-  check('pick_up: a handover another session already picked up is refused', other.isError && /already picked up/.test(other.text), other.text.slice(0, 200));
+  check('pick_up: a handover another session already picked up is refused', !other.isError && /already picked up/.test(other.json?.pickUp?.refused ?? ''), other.text.slice(0, 200));
   void noteBefore;
   // an old handover (over 24 hours) moves the Need but no holds; the count line says 0 held lines and no Now hold
   await start(cc, 'pkU5', { label: 'PK U5' });
   const nU5 = await ask(cc, 'pkU5', 'PK U5 question?');
   await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'now.hold': { key: K('pkU5'), label: 'PK U5', at: new Date() } } });
   const hU5 = await handover(cc, 'pkU5', 'Handover: PK U5');
-  await rawDb.collection('notes').updateOne({ _id: hU5.handover.id }, { $set: { updatedAt: ago(26 * 60) } });
+  await rawDb.collection('notes').updateOne({ _id: hU5.handover.id }, { $set: { 'handover.at': ago(26 * 60) } });
   const up5 = await mcpH(ccC, 'start_work', { project: P, session: 'pkU6', label: 'PK U6', pick_up: hU5.handover.id }, hdr('pkU6'));
   st = await stateDoc();
   check('pick_up: an old handover moves the Need but no hold (the answer says so)', !up5.isError && up5.json?.pickedUp === 'Moved to you: 1 Need, 0 unread messages, 0 held lines.' && (await needDoc(nU5.id)).from.session === 'pkU6' && st.now.hold?.key === K('pkU5') && up5.json?.holdsNow === false, up5.isError ? up5.text.slice(0, 200) : `${up5.json?.pickedUp} ${JSON.stringify(st.now.hold)}`);
@@ -268,6 +268,23 @@ try {
   await rawDb.collection('presence').updateOne({ session: 'pkU7' }, { $unset: { endedAt: '' }, $set: { activity: { state: 'working', at: new Date() }, lastSeen: new Date() } });
   const up7 = await mcpH(ccC, 'start_work', { project: P, session: 'pkU8', label: 'PK U8', pick_up: hU7.handover.id }, hdr('pkU8'));
   check('pick_up: while the old session is working nothing moves and the answer says why', !up7.isError && /Nothing moved: the session that wrote it is still working/.test(up7.json?.pickedUp ?? ''), up7.text.slice(0, 200));
+  check('pick_up (review fix): the busy writer left the handover unclaimed, no pick-up line was written', !(await rawDb.collection('notes').findOne({ _id: hU7.handover.id })).handover.pickedUp && !(await rawDb.collection('notes').findOne({ _id: hU7.handover.id })).body.includes('Picked up by'));
+  // a refused pick_up still gives the brief (Orders, State, session id) with the reason in pickUp.refused
+  check('pick_up (review fix): a refusal is a normal brief with pickUp.refused, Orders and State', !!wp.json?.orders && !!wp.json?.state && typeof wp.json?.pickUp?.refused === 'string', JSON.stringify(Object.keys(wp.json ?? {})));
+  // the writer stops; a later pick-up now works and claims the handover
+  await rawDb.collection('presence').updateOne({ session: 'pkU7' }, { $set: { endedAt: new Date(), activity: { state: 'on', at: ago(60) } } });
+  const up7b = await mcpH(ccC, 'start_work', { project: P, session: 'pkU9', label: 'PK U9', pick_up: hU7.handover.id }, hdr('pkU9'));
+  check('pick_up (review fix): once the writer has stopped, a later pick-up works and claims the handover', !up7b.isError && /^Moved to you/.test(up7b.json?.pickedUp ?? '') && (await rawDb.collection('notes').findOne({ _id: hU7.handover.id })).handover.pickedUp?.session === 'pkU9', up7b.text.slice(0, 200));
+  // the 24 hour hold limit counts from when the writer wrote the handover: the pick-up line and a repeat call do not restart it
+  const again5 = await mcpH(ccC, 'start_work', { project: P, session: 'pkU6', pick_up: hU5.handover.id }, hdr('pkU6'));
+  st = await stateDoc();
+  check('pick_up (review fix): a repeat pick-up of a handover over 24 hours old moves no hold', !again5.isError && st.now.hold?.key === K('pkU5') && again5.json?.holdsNow === false, JSON.stringify(st.now.hold));
+  // an archived handover cannot be picked up
+  await start(cc, 'pkAr', { label: 'PK Ar' });
+  const hAr = await handover(cc, 'pkAr', 'Handover: PK Ar');
+  await rawDb.collection('notes').updateOne({ _id: hAr.handover.id }, { $set: { archived: true } });
+  const arch = await mcpH(ccC, 'start_work', { project: P, session: 'pkAr2', label: 'PK Ar2', pick_up: hAr.handover.id }, hdr('pkAr2'));
+  check('pick_up (review fix): an archived handover is refused and not claimed', !arch.isError && /not an open handover/.test(arch.json?.pickUp?.refused ?? '') && !(await rawDb.collection('notes').findOne({ _id: hAr.handover.id })).handover.pickedUp, arch.text.slice(0, 200));
 } catch (e) {
   check('flow-pickup (error)', false, e?.stack || String(e));
 }

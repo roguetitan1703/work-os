@@ -1,6 +1,7 @@
 import 'server-only';
 import type { PresenceDoc, PresenceState, ProjectDoc } from '../db';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
+import { authSecret } from '../auth';
 import { eventState, presenceState, type EventKind, type EventName } from './presence-state';
 import { scoped, type Scope } from '../scope';
 import { placeIn } from './projects';
@@ -364,11 +365,17 @@ export async function setOrdersSeen(s: Scope, rowId: string, seen: Record<string
   for (const [id, v] of Object.entries(seen)) await markOrdersDelivered(s, id, v);
 }
 
-/** Lanes step 6: the key of the checkout a session works in: sha1(machine + normalised path). Never the path itself, which is not kept. Null without a path. */
+/**
+ * Lanes step 6: the key of the checkout a session works in: HMAC-SHA256 (server secret) of machine + normalised path. Never the path itself,
+ * which is not kept, and not guessable from a list of likely paths. Null without a path or a server secret. The path is lower-cased only
+ * for a Windows drive path (D:/x), where the file system ignores case.
+ */
 export function folderKeyOf(machine: string, path: string | undefined | null): string | null {
-  const p = (path ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-  if (!p || !machine) return null;
-  return createHash('sha1').update(`${machine}\n${p}`).digest('hex');
+  let p = (path ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  if (/^[a-z]:(\/|$)/i.test(p)) p = p.toLowerCase();
+  const secret = authSecret();
+  if (!p || !machine || !secret) return null;
+  return createHmac('sha256', secret).update(`wos-folder.v1\n${machine}\n${p}`).digest('hex');
 }
 
 /** Stores the folder key on the token's own row (the hook's start, after the row exists). Never creates a row. */
@@ -397,18 +404,4 @@ export async function sameFolderOf(s: Scope, projectId: string, key: string | nu
   const others = rows.length - (first ? 1 : 0);
   const label = first ? cleanLabel(first.label) || 'unnamed session' : 'another session';
   return { label, state: presenceState(first ?? rows[0], { now: Date.now() }).state, ...(others > 0 ? { more: others } : {}) };
-}
-
-/**
- * Whether this session's hook commits WORK-STATE.md: the Now holder's session; else, when no live session of this folder holds Now,
- * the oldest live row of the folder. A row with no folder key is alone as far as the server knows: it commits.
- */
-export async function commitFlag(s: Scope, projectId: string, row: PresenceDoc | null, holder: string | undefined, holdsNow: boolean): Promise<boolean> {
-  if (holdsNow) return true;
-  if (!row?.folderKey) return true;
-  const rows = await folderRows(s, projectId, row.folderKey);
-  if (holder && rows.some(r => rowKey(r) === holder && r._id !== row._id)) return false;
-  const all = rows.some(r => r._id === row._id) ? rows : [...rows, row].sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
-  const oldest = all.find(r => r.userId === s.userId) ?? all[0];
-  return oldest._id === row._id;
 }

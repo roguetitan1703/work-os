@@ -99,8 +99,8 @@ try {
   check('the session is present on the project', !!(await rawDb.collection('presence').findOne({ session: sid, projectId: one })));
   // Lanes step 6: the folder's key (never its path) is on the row; a second live session in the same folder is told, a different folder is not.
   const rowS = await rawDb.collection('presence').findOne({ session: sid, projectId: one });
-  const keyOf = (p) => crypto.createHash('sha1').update(`${pc1.id}\n${p.toLowerCase()}`).digest('hex');
-  check('Lanes 6: the presence row carries sha1(device + path) and the path is not stored', rowS?.folderKey === keyOf('c:/code/agent-one') && !JSON.stringify(rowS).includes('code/agent-one'), String(rowS?.folderKey));
+  const keyOf = (p) => crypto.createHmac('sha256', process.env.BETTER_AUTH_SECRET).update(`wos-folder.v1\n${pc1.id}\n${p.toLowerCase()}`).digest('hex');
+  check('Lanes 6: the presence row carries the HMAC of device + path and the path is not stored', rowS?.folderKey === keyOf('c:/code/agent-one') && !JSON.stringify(rowS).includes('code/agent-one'), String(rowS?.folderKey));
   check('Lanes 6: the first session in a folder has no sameFolder; the next one in the same folder does (label, state, text)', !('sameFolder' in (r1.json?.brief ?? {})) && rH2.json?.brief?.sameFolder?.label === rowS?.label && ['on', 'working', 'idle', 'waiting'].includes(rH2.json?.brief?.sameFolder?.state), JSON.stringify(rH2.json?.brief?.sameFolder));
   const rOther = await post(pc1.key, at('acme/agent-one', { path: 'C:/other/checkout' }));
   check('Lanes 6: a session in another folder has no sameFolder', rOther.status === 200 && !('sameFolder' in (rOther.json?.brief ?? {})), JSON.stringify(rOther.json?.brief?.sameFolder));
