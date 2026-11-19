@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 86. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 87. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -14,6 +14,7 @@ Copy of the Work OS state, version 86. WORK-STATE.md is a copy of the State, wri
 6. Before R5, harden H9 fix 2: dispatched runs share the wos_ key and the label/session check is agent-controlled, so a hijacked run could pass Om's session id and edit Orders. Fix: worker launches dispatched claude with WORK_OS_DISPATCHED=<ref>; the PreToolUse hook refuses write_note/propose_order on Orders pages in such runs; server check stays as a second layer. Next free slot. (#286)
 7. R6 = session identity (note 2afd68cb00; builder-b ecc8d8a, steps 1-7). Opus security review 19 Nov: no high; slot B fixing seen-message read bypass, reply note, PID reuse, leftover 'inbox' text, fix script scope, oauth 'chat' word check. Then merge dev, full e2e, release on Om's chat yes, reinstall hooks, fix-message-word on production (dry run first). (note 2afd68cb00): Opus plan, then build in slot B, Opus security review, then into R5 or right after it; reinstall hooks on the PCs.
 8. Need answers reach whoever holds the work now: a Need asked by a session that is off is delivered to the project's Now holder or the session that picked up its handover, and start_work lists answered Needs since the last lead's session; withdraw_need on an answered or closed Need says so with the answer and time. Fold into the lanes design (note after 2afd68cb00).
+9. Nudges (Om 19 Nov, note ce434ed759): idle 20 min with Next work not waiting on anyone wakes the holder through the idle wait (backoff 1/2/4 h, 4 a day, not when the person typed in the last 20 min); Declutter-due nudge to the Now holder once a day at turn end. Build in R7 after lanes step 1.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -37,4 +38,4 @@ Copy of the Work OS state, version 86. WORK-STATE.md is a copy of the State, wri
 - Dispatcher cap: e9fd820 ranks claims by claimedAt, which is stamped before the write, so two claims written in the opposite order to their timestamps can still each pass. Make it airtight with an atomic per-person slot counter (inc when claiming, dec when a run ends). — waits on R5 out
 - H8 attended rule: the automated-prompt list in worker/hook-user-prompt.mjs (AUTOMATED_PROMPT) must be kept current; a new Claude Code wrapper would count as typed until added. — waits on a new automated prompt kind appearing
 - work-os.service stop times out (30 s, then SIGKILL) on most deploys: 10 times in 3 days. Likely the hooks' long-poll waits (/api/agent/wait up to 1 h) hold the server open; close waits on SIGTERM. — waits on a fix slot (small, with R7)
-<!-- work-os-copy sha1:a3d25da136c26416d952cc7606588ee75b4a671c -->
+<!-- work-os-copy sha1:d8b553cee53e0fda1067436b8292519fdf005c1a -->
