@@ -495,8 +495,16 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, ...labelFor(project.name, a, dispatched), tool: a.tool, dispatched, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
   // The handovers left for this person (a fresh session takes the newest first; a re-call after compaction shows its own again).
   // With pick_up the named handover is the one taken (and the old session's work moves to this one); without it the newest one for this person is shown.
-  const picked = a.pick_up ? await handovers.pickUpHandover(s, project._id, a.pick_up.trim(), { me: row.key, label: row.label, actor: agentActor(caller.agent, caller.userId) }) : null;
-  const hv = picked ? { shown: [picked.brief], more: [] as { id: string; title: string }[] } : await handovers.handoversForBrief(s, project._id, { me: row.key, label: row.label, fresh: row.fresh, parent: row.parent, actor: agentActor(caller.agent, caller.userId) });
+  const pickRefused: { text?: string } = {};
+  const picked = a.pick_up
+    ? await handovers.pickUpHandover(s, project._id, a.pick_up.trim(), { me: row.key, label: row.label, actor: agentActor(caller.agent, caller.userId) }).catch(e => {
+        if (!(e instanceof InputError)) throw e;
+        pickRefused.text = e.message; // the brief still comes (Orders, State, session id); the reason is in pickUp.refused
+        return null;
+      })
+    : null;
+  // A refused pick_up shows no other handover: the session asked for one named note and must not silently claim another.
+  const hv = picked ? { shown: [picked.brief], more: [] as { id: string; title: string }[] } : pickRefused.text ? { shown: [] as handovers.BriefHandover[], more: [] as { id: string; title: string }[] } : await handovers.handoversForBrief(s, project._id, { me: row.key, label: row.label, fresh: row.fresh, parent: row.parent, actor: agentActor(caller.agent, caller.userId) });
   // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
   const layerName = { org: 'organisation', project: 'project', person: 'person' } as const;
   const served = await ordersFor(s, project);
@@ -581,6 +589,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
         }
       : {}),
     ...(picked ? { pickedUp: handovers.pickUpText(picked.move, picked.again) } : {}),
+    ...(pickRefused.text ? { pickUp: { refused: pickRefused.text } } : {}),
     textRule: textRule(),
     sessionNote: !sid ? 'This connector is your session: no id to pass. Messages for you and the unread count follow it on every call.' : 'Pass this session id as session on save_state, end_work, get_state, send_message, reply and message_status (and as the X-Work-OS-Session header on every call, if your client can). Messages for you are handed to the session by the Work OS hook; answer one with reply by its id.',
     orders: orders.length ? orders : 'no Orders set',

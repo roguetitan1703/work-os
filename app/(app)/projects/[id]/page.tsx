@@ -136,7 +136,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
             <ul className={cn(CARD, 'divide-y divide-border/60')}>
               {projectWorkers.workers.map(w => (
                 <li key={w.id} className={cn('px-4 md:px-3 py-2 text-[15px] md:text-sm', w.depth === 1 && 'pl-8 bg-muted/20')} data-project-worker={w.id}>
-                  <span className="font-semibold">{w.label || w.person}</span> · {[w.ai, w.model].filter(Boolean).join(' · ')}
+                  <span className="font-semibold">{w.label ? `${w.label} · ${w.person}` : w.person}</span> · {[w.ai, w.model].filter(Boolean).join(' · ')}
                   <span className="text-muted-foreground text-[13px] md:text-xs">
                     {w.branch ? ` · ${w.branch}` : ''}
                     {w.slot ? ` · slot ${w.slot}` : ''}
@@ -148,8 +148,9 @@ export default async function ProjectPage({ params, searchParams }: Props) {
                     </Link>
                   )}
                   {w.lastResult && (
-                    <div className="text-[13px] md:text-xs text-muted-foreground italic truncate" data-lane-result title="Written by the agent, not checked">
-                      last: {w.lastResult.text.replace(/\s+/g, ' ')}
+                    <div className="text-[13px] md:text-xs text-muted-foreground" data-lane-result>
+                      <div className="italic truncate" title="Written by the agent, not checked">last: {w.lastResult.text.replace(/\s+/g, ' ')}</div>
+                      <div className="text-[11px]" data-lane-result-by>written by {w.ai || 'the agent'} of {w.person}, not checked</div>
                     </div>
                   )}
                 </li>

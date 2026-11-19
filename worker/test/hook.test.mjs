@@ -383,7 +383,7 @@ test('builder worktrees and merges in progress: no copy in a worktree, no commit
   } finally { fs.rmSync(path.join(gitDir, 'MERGE_HEAD')); }
 });
 
-test('Lanes step 6: the copy is written without a commit when the server says commit false; the committer next write commits that file', async () => {
+test('writeCopy with commit false (the pre-tool hook) writes the file only; the next save commits that file', async () => {
   const { writeCopy } = await import('../hook-copy.mjs');
   const repoC = path.join(tmp, 'repo-commit');
   fs.mkdirSync(repoC);
@@ -393,10 +393,10 @@ test('Lanes step 6: the copy is written without a commit when the server says co
   sh(repoC, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init');
   const w = writeCopy('scopy', repoC, md(30, '- thirty'), { commit: false });
   assert.equal(w.committed, false);
-  assert.match(w.notes[0], /v30 \(not committed: another session in this folder commits it\)/);
+  assert.match(w.notes[0], /v30 \(not committed here: the next save commits it\)/);
   assert.match(fs.readFileSync(path.join(repoC, 'WORK-STATE.md'), 'utf8'), /version 30\./);
   assert.equal(lastMsg(repoC), 'init', 'no commit was made');
-  // the committer sees the same copy: the file is waiting for its commit, so it commits it
+  // the next save sees the same copy: the file is waiting for its commit, so it commits it
   const c = writeCopy('scopy', repoC, md(30, '- thirty'));
   assert.equal(c.committed, true);
   assert.equal(lastMsg(repoC), 'WORK-STATE.md: copy of the Work OS State v30');

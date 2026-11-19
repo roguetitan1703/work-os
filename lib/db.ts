@@ -312,6 +312,8 @@ export type HandoverMeta = {
   for: string;
   session?: string;
   label?: string;
+  /** When its writer wrote (or rewrote) it: the pick-up hold limit counts from here, never from the note's updatedAt (a reader's edit or the pick-up line moves that). Rows from before: the note's createdAt. */
+  at?: Date;
   fields: HandoverFields;
   pickedUp?: { session: string; label?: string; at: Date; by: string };
 };

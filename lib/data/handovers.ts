@@ -77,7 +77,7 @@ export async function writeHandover(s: Scope, w: WriteHandover, actor: Actor): P
   const { note, created } = cur
     ? await writeNote(s, { noteId: cur._id, body, archived: false }, actor)
     : await writeNote(s, { project: w.project._id, title, body, archived: false, allowSameTitle: true, shelf: 'handovers', fromHandover: true }, actor);
-  const meta: HandoverMeta = { by: s.userId, for: w.for, session: w.me, ...(w.label ? { label: w.label } : {}), fields: w.fields };
+  const meta: HandoverMeta = { by: s.userId, for: w.for, session: w.me, at: new Date(), ...(w.label ? { label: w.label } : {}), fields: w.fields };
   await c.notes.updateOne({ _id: note.id }, { $set: { handover: meta } });
   return { id: note.id, title: note.title, created };
 }
@@ -125,7 +125,7 @@ export async function handoversForBrief(s: Scope, projectId: string, o: { me: st
       const claimed = await c.notes.updateOne({ _id: d._id, 'handover.pickedUp': { $exists: false } }, { $set: { 'handover.pickedUp': { session: o.me, ...(o.label ? { label: o.label } : {}), at, by: s.userId } } });
       if (!claimed.modifiedCount) continue;
       // Lanes: the session that wrote it hands its work (Needs, unread messages, Now hold, held lines) to this one, when it ended or is not busy.
-      if (h.session) await pickUpWork(s, projectId, h.by, h.session, o.me, d.updatedAt);
+      if (h.session) await pickUpWork(s, projectId, h.by, h.session, o.me, h.at ?? d.createdAt);
       const line = `Picked up by ${o.label || 'a session'}, ${at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
       body = `${body}\n\n${line}`;
       // The note shows who took it; a failed rewrite must not hide the handover from the session that was handed it.
@@ -144,27 +144,37 @@ export async function handoversForBrief(s: Scope, projectId: string, o: { me: st
  */
 export async function pickUpHandover(s: Scope, projectId: string, noteId: string, o: { me: string; label: string; actor: Actor }): Promise<{ brief: BriefHandover; move: MoveResult | null; again: boolean }> {
   const c = await scoped(s);
-  const d = await c.notes.findOne({ _id: noteId, deletedAt: null });
+  const d = await c.notes.findOne({ _id: noteId, deletedAt: null, archived: { $ne: true } });
   const h = d?.handover;
-  if (!d || !h) throw new InputError('That note is not a handover. pick_up takes the id of a handover (the pickUp line end_work gave).');
+  if (!d || !h) throw new InputError('That note is not an open handover (it may be archived). pick_up takes the id of a handover (the pickUp line end_work gave).');
   if (d.projectId !== projectId) throw new InputError('That handover is on another project. Start work on the project it belongs to, then pick it up.');
   if (h.for !== s.userId && h.for !== 'anyone') throw new InputError('That handover is for another person. Nothing was picked up.');
   if (h.by === s.userId && h.session === o.me) throw new InputError('That handover was written by this very session. Nothing was picked up.');
   const again = !!h.pickedUp && h.pickedUp.session === o.me && h.pickedUp.by === s.userId;
   if (h.pickedUp && !again) throw new InputError(`That handover was already picked up${h.pickedUp.label ? ` by "${h.pickedUp.label}"` : ''}. Nothing was picked up.`);
   let body = d.body;
+  const claim = { session: o.me, ...(o.label ? { label: o.label } : {}), at: new Date(), by: s.userId };
   if (!again) {
-    const at = new Date();
-    const claimed = await c.notes.updateOne({ _id: d._id, 'handover.pickedUp': { $exists: false } }, { $set: { 'handover.pickedUp': { session: o.me, ...(o.label ? { label: o.label } : {}), at, by: s.userId } } });
+    const claimed = await c.notes.updateOne({ _id: d._id, 'handover.pickedUp': { $exists: false } }, { $set: { 'handover.pickedUp': claim } });
     if (!claimed.modifiedCount) throw new InputError('That handover was just picked up by another session. Nothing was picked up.');
-    const line = `Picked up by ${o.label || 'a session'}, ${at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
-    body = `${body}\n\n${line}`;
-    await writeNote(s, { noteId: d._id, append: `\n\n${line}` }, o.actor).catch(() => null);
   }
   let move: MoveResult | null = null;
   if (h.session) {
     const [a, b] = await Promise.all([c.presence.findOne({ projectId, userId: h.by, key: h.session }), c.presence.findOne({ projectId, userId: s.userId, key: o.me })]);
-    if (a && b) move = await moveSession(s, projectId, a, b, Date.now(), { handoverAt: d.updatedAt });
+    // The hold limit counts from when the writer wrote it (handover.at), never from updatedAt, which every edit and the pick-up line move.
+    if (a && b) move = await moveSession(s, projectId, a, b, Date.now(), { handoverAt: h.at ?? d.createdAt });
+  }
+  if (!again && move && !move.moved && move.reason === 'busy') {
+    // The writer is still working: leave the handover unclaimed so a later pick-up can move its work.
+    await c.notes.updateOne({ _id: d._id, 'handover.pickedUp.session': o.me, 'handover.pickedUp.by': s.userId }, { $unset: { 'handover.pickedUp': '' } });
+  } else if (!again) {
+    const line = `Picked up by ${o.label || 'a session'}, ${claim.at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+    body = `${body}
+
+${line}`;
+    await writeNote(s, { noteId: d._id, append: `
+
+${line}` }, o.actor).catch(() => null);
   }
   return { brief: { id: d._id, title: d.title, label: h.label ?? '', by: h.by, at: d.updatedAt, markdown: body, createdBy: d.createdBy, updatedBy: d.updatedBy }, move, again };
 }
