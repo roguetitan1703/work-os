@@ -159,9 +159,11 @@ const ask = async (sid, extra = {}) => (await must(kA, 'ask', { project: 'H12 Pr
 
   // /api/agent/state: an applied edit is forwarded, a refused one is refused, each counted once by the server
   const ok = await post('/api/agent/state', T, { edit: { old: 'H12 first line', new: 'H12 first line, edited' } });
+  const day = new Date().toISOString().slice(0, 10);
   check('state: an applied edit counts as forwarded, once', ok.status === 200 && (await row()).copyEdits?.forwarded === 1 && (await row()).copyEdits?.refused === 2, `${ok.status} ${JSON.stringify((await row()).copyEdits)}`);
   const no = await post('/api/agent/state', T, { edit: { old: 'H12 no such line', new: 'x' } });
   check('state: an edit refused with 400 counts as refused, once', no.status === 400 && (await row()).copyEdits?.refused === 3 && (await row()).copyEdits?.forwarded === 1, `${no.status} ${JSON.stringify((await row()).copyEdits)}`);
+  check('counts: each is also kept under the day it happened (for the weekly numbers)', (await row()).copyEdits?.days?.[day]?.refused === 3 && (await row()).copyEdits?.days?.[day]?.forwarded === 1, JSON.stringify((await row()).copyEdits));
   const where = await post('/api/agent/state', T, { where: { branch: 'main' } });
   check('state: a call with no edit counts nothing', where.status === 200 && (await row()).copyEdits?.refused === 3 && (await row()).copyEdits?.forwarded === 1);
 
@@ -190,9 +192,9 @@ const ask = async (sid, extra = {}) => (await must(kA, 'ask', { project: 'H12 Pr
   const rows = [];
   for (let i = 0; i < 5; i++) rows.push(prow(i, { stopCheck: { files: 'saved', at } }));
   for (let i = 5; i < 7; i++) rows.push(prow(i, { stopCheck: { files: 'saved', reminded: true, at } }));
-  for (let i = 7; i < 9; i++) rows.push(prow(i, { stopCheck: { files: 'unsaved', reminded: true, at }, ...(i === 7 ? { copyEdits: { refused: 2, forwarded: 1 } } : {}) }));
+  for (let i = 7; i < 9; i++) rows.push(prow(i, { stopCheck: { files: 'unsaved', reminded: true, at }, ...(i === 7 ? { copyEdits: { refused: 52, forwarded: 31, days: { '2026-11-18': { refused: 2, forwarded: 1 }, '2026-11-02': { refused: 50, forwarded: 30 } } } } : {}) }));
   // outside the week: not counted
-  rows.push(prow(9, { stopCheck: { files: 'unsaved', at: D('2026-11-09T10:00:00Z') }, copyEdits: { refused: 50, forwarded: 50 }, lastSeen: D('2026-11-09T10:00:00Z') }));
+  rows.push(prow(9, { stopCheck: { files: 'unsaved', at: D('2026-11-09T10:00:00Z') }, copyEdits: { refused: 50, forwarded: 50, days: { '2026-11-09': { refused: 50, forwarded: 50 } } }, lastSeen: D('2026-11-09T10:00:00Z') }));
   await rawDb.collection('presence').insertMany(rows);
   // computers: one current, one out of date, one with no hooks; a revoked one and one not seen this week are left out
   const dev = (id, extra) => ({ _id: id, name: `H12 PC ${id}`, ownerId: ME.userId, orgId: ME.orgId, hash: id, prefix: id, createdAt: D('2026-10-01T00:00:00Z'), lastSeenAt: D('2026-11-20T00:00:00Z'), revokedAt: null, ...extra });
@@ -229,7 +231,7 @@ const ask = async (sid, extra = {}) => (await must(kA, 'ask', { project: 'H12 Pr
   check('monday: the header summary says Monday numbers', /Mon 23 Nov.*Monday numbers/.test(text.split(String.fromCharCode(10))[0]), text.slice(0, 300));
   check('monday: sessions that changed files and saved State: 7 of 9, 2 after the reminder, with the target', /Sessions that changed files and saved State: 7 of 9 .?\(2 after the reminder.?\) · target 9 of 10/.test(block), block.slice(0, 500));
   check('monday: PCs with no hooks: 1 of 3 seen this week (a revoked and a quiet one left out), 1 out of date', /PCs with no hooks: 1 of 3 .?\(1 out of date.?\)/.test(block), block.slice(0, 500));
-  check('monday: WORK-STATE.md edits counted over the week only', /WORK-STATE\.md edits: 2 refused, 1 forwarded/.test(block), block.slice(0, 500));
+  check('monday: WORK-STATE.md edits counted over the week only (a long-lived session is not recounted from its start)', /WORK-STATE\.md edits: 2 refused, 1 forwarded/.test(block), block.slice(0, 500));
   check("monday: Om's repeats says not counted yet", /Om's repeats: not counted yet/.test(block), block.slice(0, 500));
   check('monday: proposals are numbered, silence means keep; open Monday Needs first (oldest first), older than 14 days left out', /Proposals\*\* \(silence means keep\)/.test(block) && /1\. .*MONDAY ONE/.test(block) && /2\. .*MONDAY TWO/.test(block) && !/MONDAY OLD/.test(block), block.slice(0, 900));
   check('monday: then friction by size: end_work (5 lines, 3 sessions); at most three lines, then "+N more in the app"', /3\. Friction: end.?_work, 5 lines from 3 sessions this week/.test(block) && /\+2 more.* in the app/.test(block) && !/4\. Friction/.test(block), block.slice(0, 900));

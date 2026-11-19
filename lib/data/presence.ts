@@ -218,6 +218,9 @@ export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string 
 
 export type StopFiles = 'saved' | 'unsaved';
 
+/** One counted WORK-STATE.md edit: the session's total, and the day's (UTC date), so the Monday numbers count a week and not a session's whole life. */
+const copyInc = (what: 'refused' | 'forwarded') => ({ [`copyEdits.${what}`]: 1, [`copyEdits.days.${new Date().toISOString().slice(0, 10)}.${what}`]: 1 });
+
 /**
  * One event from a session's Claude Code hook (POST /api/agent/event): sets `activity` from what happened and refreshes
  * lastSeen. Only the row `hookRowId(...)` is touched, never upserted. `at` is the hook's clock (ms), clamped to the server's
@@ -238,7 +241,7 @@ export async function recordEvent(
       { _id, userId: s.userId },
       ev.files
         ? { $set: { stopCheck: { files: ev.files, ...(ev.reminded ? { reminded: true as const } : {}), at: new Date() } } }
-        : { $inc: { 'copyEdits.refused': 1 } },
+        : { $inc: copyInc('refused') },
     );
   }
   return out;
@@ -246,7 +249,7 @@ export async function recordEvent(
 
 /** The token's own session counted one hand edit of WORK-STATE.md: refused or forwarded (POST /api/agent/state). Never creates a row. */
 export async function countCopyEdit(s: Scope, r: { sid: string; projectId: string }, what: 'refused' | 'forwarded'): Promise<void> {
-  await (await scoped(s)).presence.updateOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { $inc: { [`copyEdits.${what}`]: 1 } });
+  await (await scoped(s)).presence.updateOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { $inc: copyInc(what) });
 }
 
 async function recordState(

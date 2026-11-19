@@ -255,6 +255,7 @@ test('releaseDeny: names what to do, under 600 characters, in the Words', () => 
 const WKR = 'wkr_' + 'D'.repeat(43);
 const TOKEN = 'wst_' + 't'.repeat(43);
 const seen = [];
+let stateMode = 'ok'; // ok | http500 | http400 (what /api/agent/state answers)
 let mode = 'allowed'; // allowed | refused | open | http500 | http401 | hang | garbled
 let stateLine = '- ship it';
 const md = (v, line) => `Copy of the Work OS state, version ${v}. Edit it in Work OS (https://x/projects/p1); this file is its copy.\n\n# Work state: Demo\n\n## Now\n${line}\n`;
@@ -280,6 +281,8 @@ const server = http.createServer((req, res) => {
       return json(200, { allowed: true, until: new Date(Date.now() + 3600e3).toISOString(), need: 41 });
     }
     if (req.url === '/api/agent/state') {
+      if (stateMode === 'http500') return json(500, { error: 'x' });
+      if (stateMode === 'http400') return json(400, { error: 'No Now, Next or Later line holds that text.' });
       if (body.edit) stateLine = body.edit.new ? `- ${body.edit.new.replace(/^- /, '')}` : '- (empty)';
       return json(200, { project: 'p1', version: 12, markdown: md(12, stateLine), ...(body.edit ? { applied: { version: 12, closedTasks: [], sentForReview: [] } } : {}) });
     }
@@ -429,4 +432,22 @@ test('block 3: Edit of one line is forwarded, Write is refused, shell writes are
   assert.equal(await run('Bash', { command: 'cat WORK-STATE.md' }), '');
   // out of time on a write of the copy: the plain refusal, as before
   assert.equal(JSON.parse(JSON.stringify(preMod.timeoutAnswer(JSON.stringify({ session_id: 'b3', tool_name: 'Write', tool_input: { file_path: copy } })))).hookSpecificOutput.permissionDecision, 'deny');
+});
+
+// H12: a refused write is counted by the hook only when the server never judged it: a 5xx or no answer is counted here, a 200 or a 400 is the server's own count.
+test('block 3 counts: a 5xx on the forwarded Edit posts one count event; a 400 or a 200 posts none (the server counted it)', async () => {
+  const copy = path.join(onMaster, 'WORK-STATE.md');
+  fs.writeFileSync(copy, md(9, '- ship it'));
+  assert.ok(await startSid('b3c'));
+  const edit = () => dev.main('pre-tool', JSON.stringify({ session_id: 'b3c', cwd: onMaster, tool_name: 'Edit', tool_input: { file_path: copy, old_string: 'ship it', new_string: 'shipped' }, permission_mode: 'acceptEdits' }));
+  const counts = () => seen.filter((x) => x.url === '/api/agent/event' && x.body.copy === 'refused');
+  for (const [m, want] of [['http500', 1], ['http400', 0], ['ok', 0]]) {
+    stateMode = m; mode = 'allowed'; seen.length = 0;
+    fs.writeFileSync(copy, md(9, '- ship it'));
+    const out = JSON.parse(await edit()).hookSpecificOutput;
+    assert.equal(out.permissionDecision, 'deny', m);
+    assert.equal(seen.filter((x) => x.url === '/api/agent/state').length, 1, m);
+    assert.equal(counts().length, want, m);
+  }
+  stateMode = 'ok';
 });

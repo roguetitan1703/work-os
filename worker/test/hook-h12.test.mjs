@@ -116,8 +116,19 @@ test('files changed and saved without a reminder: saved, no reminded; a save aft
   markSaved({ session_id: UUID4, transcript_path: transcript }, repo);
   assert.equal(await run('stop', UUID4), '');
   assert.deepEqual(counts(events()[0]), { files: 'saved', reminded: true });
+  // the next save after that count is a new story: no leftover reminder, and a new reminder can fire
+  reset();
+  fs.writeFileSync(path.join(repo, 'h12-d.txt'), 'z');
+  markSaved({ session_id: UUID4, transcript_path: transcript }, repo);
+  assert.notEqual(marker(UUID4).reminded, true, 'the reminder of the earlier stop is not carried over');
+  assert.equal(await run('stop', UUID4), '');
+  assert.deepEqual(counts(events()[0]), { files: 'saved' }, 'saved with no reminder this time');
+  fs.writeFileSync(path.join(repo, 'h12-e.txt'), 'w');
+  assert.equal(JSON.parse(await run('stop', UUID4)).decision, 'block', 'a new reminder fires');
   fs.rmSync(path.join(repo, 'h12-b.txt'));
   fs.rmSync(path.join(repo, 'h12-c.txt'));
+  fs.rmSync(path.join(repo, 'h12-d.txt'));
+  fs.rmSync(path.join(repo, 'h12-e.txt'));
 });
 
 test('a refused WORK-STATE.md write posts copy: refused (and nothing else), without a token nothing, and a hung server costs under a second more', async () => {

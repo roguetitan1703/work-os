@@ -43,10 +43,20 @@ export async function mondayBlock(s: Scope, x: { today: string; tz: string; now?
   const noHooks = pcs.filter(d => !d.worker?.hooks || !d.worker.hooks.version || !d.worker.hooks.events).length;
   const stale = pcs.filter(d => d.worker?.hooks?.stale).length;
 
-  // 3. WORK-STATE.md hand edits: refused and forwarded, summed over sessions seen this week.
-  const edits = await org.presence.find({ lastSeen: week, copyEdits: { $exists: true } }, { projection: { copyEdits: 1 } }).toArray();
-  const refused = edits.reduce((n, r) => n + (r.copyEdits?.refused ?? 0), 0);
-  const forwarded = edits.reduce((n, r) => n + (r.copyEdits?.forwarded ?? 0), 0);
+  // 3. WORK-STATE.md hand edits: refused and forwarded, only the days of this week (a session that lives for weeks is not recounted),
+  // summed over the sessions seen since the week began. Days are UTC dates.
+  const dayFrom = from.toISOString().slice(0, 10);
+  const dayTo = to.toISOString().slice(0, 10);
+  const edits = await org.presence.find({ lastSeen: { $gte: from }, 'copyEdits.days': { $exists: true } }, { projection: { copyEdits: 1 } }).toArray();
+  let refused = 0;
+  let forwarded = 0;
+  for (const r of edits) {
+    for (const [day, n] of Object.entries(r.copyEdits?.days ?? {})) {
+      if (day < dayFrom || day >= dayTo) continue;
+      refused += n.refused ?? 0;
+      forwarded += n.forwarded ?? 0;
+    }
+  }
 
   // 4. Om's repeats.
   const repeats = REPEATS_COUNTED ? await org.needs.countDocuments({ repeat: true, createdAt: week }) : null;

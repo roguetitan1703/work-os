@@ -52,7 +52,7 @@ async function forwardEdit(input, seen) {
   let r;
   try { r = await postAgent('/api/agent/state', token, { edit: ch }, EDIT_TIMEOUT_MS); } catch { return null; }
   if (!r) return null;
-  if (r.status) seen.reached = true; // the server answered: it counted the edit (forwarded or refused) itself
+  if (r.status === 200 || r.status === 400) seen.reached = true; // the server judged the edit and counted it (forwarded or refused); a 5xx or no answer did not
   const deny = (reason) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } });
   if (r.status === 400 && r.error) return deny('Work OS did not apply this edit: ' + r.error + ' ' + COPY_REASON);
   if (r.status !== 200 || typeof r.b?.markdown !== 'string') return null;
