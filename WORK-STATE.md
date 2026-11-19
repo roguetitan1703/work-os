@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 114. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 115. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -38,5 +38,5 @@ Copy of the Work OS state, version 114. WORK-STATE.md is a copy of the State, wr
 - The SIGTERM fix does not work: on R7 (59cb0edb5693) a systemctl restart still waits the full 30 s stop-sigterm timeout, then SIGKILL (journal 20 Nov 01:44 IST). Something keeps next-server open (SSE /live streams, the wait route, or Mongo). Each deploy is about 30 s down.
 - Declutter cache still counted "7 open Claude items" on 20 Nov after the migration moved them all: the cached daily reasons are not refreshed after a migration or apply. — waits on a fix slot (small)
 - R8 stopgap (builder-b ab06462) blocks invented and dispatched session ids for Orders writes, but not a copied real hooked id passed as the session argument. The dispatch credential (slot A) closes that. Re-review both together before merge. — waits on slot A's dispatch credential
-- R8 re-review: the HIGH is not closed. 'Reopen all' after a worker restart reopens dispatched runs on Om's key (the reopen set has no ref), plus MEDIUMs: a resume with the task gone, a dead row reopened with no Work OS. Builder A is fixing; then re-merge into r8-int and run one more check. — waits on builder A's fixes
-<!-- work-os-copy sha1:176bc54dc2fbead76f8ae7e203a37567f371083c -->
+- R8 re-check of 1afed4c: Reopen all and resume are closed. New HIGH: 'Open in VS Code' resumes a dispatched session on Om's key. Builder A is fixing that and two LOWs. Not closed yet. 'Reopen all' after a worker restart reopens dispatched runs on Om's key (the reopen set has no ref), plus MEDIUMs: a resume with the task gone, a dead row reopened with no Work OS. Builder A is fixing; then re-merge into r8-int and run one more check. — waits on builder A's fixes
+<!-- work-os-copy sha1:c87aee4eff3f8cca4790d3be7e257da7ed7f2f34 -->
