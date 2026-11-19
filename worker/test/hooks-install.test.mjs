@@ -12,7 +12,7 @@ const m = await import('../hooks-install.mjs');
 const awaitedChildProcess = await import('node:child_process');
 const settings = () => JSON.parse(fs.readFileSync(process.env.CLAUDE_SETTINGS_PATH, 'utf8'));
 
-test('install copies the hook, merges four events, keeps other settings and hooks, and is safe to rerun', () => {
+test('install copies the hook, merges seven events, keeps other settings and hooks, and is safe to rerun', () => {
   fs.mkdirSync(path.dirname(process.env.CLAUDE_SETTINGS_PATH), { recursive: true });
   const other = { type: 'command', command: 'node other.mjs' };
   fs.writeFileSync(process.env.CLAUDE_SETTINGS_PATH, JSON.stringify({ model: 'opus', env: { A: '1' }, hooks: { Stop: [{ hooks: [other] }] } }));
@@ -28,7 +28,12 @@ test('install copies the hook, merges four events, keeps other settings and hook
   let s = settings();
   assert.equal(s.model, 'opus');
   assert.deepEqual(s.env, { A: '1' });
-  assert.deepEqual(Object.keys(s.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'Stop']);
+  assert.deepEqual(Object.keys(s.hooks).sort(), ['Notification', 'PostToolUse', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'UserPromptSubmit']);
+  assert.equal(s.hooks.UserPromptSubmit[0].hooks[0].async, true, 'the prompt row runs in the background');
+  assert.equal(s.hooks.Notification[0].hooks[0].async, true);
+  assert.equal(s.hooks.Notification[0].matcher, 'permission_prompt|idle_prompt|elicitation_dialog');
+  assert.equal(s.hooks.SessionEnd[0].hooks[0].async, undefined, 'SessionEnd is awaited');
+  assert.equal(s.hooks.SessionEnd[0].hooks[0].timeout, 2);
   assert.equal(s.hooks.Stop.length, 2, 'the other Stop hook is kept');
   assert.match(s.hooks.PostToolUse.find(h => /hook\.mjs" post-tool$/.test(h.hooks[0].command)).matcher, /\(save_state\|import_state\|get_state\|end_work\)$/, 'end_work is a save the copy follows');
   assert.match(s.hooks.PreToolUse[0].hooks[0].command, /hook\.mjs" pre-tool$/);
@@ -37,7 +42,7 @@ test('install copies the hook, merges four events, keeps other settings and hook
   s = settings();
   assert.equal(s.hooks.Stop.length, 2, 'rerun replaces its own entries, no duplicates');
   assert.equal(s.hooks.SessionStart.length, 1);
-  assert.deepEqual(m.status().events.sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'Stop']);
+  assert.deepEqual(m.status().events.sort(), ['Notification', 'PostToolUse', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'UserPromptSubmit']);
   assert.ok(fs.readdirSync(path.dirname(process.env.CLAUDE_SETTINGS_PATH)).some((f) => f.startsWith('settings.json.bak-')), 'a backup is kept');
 });
 
@@ -64,15 +69,33 @@ test('install copies every FILES entry, removes a stray hook-*.mjs, and writes t
   assert.ok(fs.existsSync(path.join(hooksOf(dir), 'notes.txt')));
 });
 
-test('the entries equal the strings older workers wrote, except the PostToolUse matcher that now also lists end_work (H5)', () => {
+test('the entries equal the strings older workers wrote, except the PostToolUse matcher that now also lists end_work (H5) and the three session-state rows (H6)', () => {
   const h = 'C:/Users/x/AppData/Roaming/work-os-worker/hooks/hook.mjs';
   const c = (e, t) => ({ type: 'command', command: `node "${h}" ${e}`, timeout: t });
-  assert.deepEqual(m.entries(h), {
+  const old = {
     SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [c('session-start', 8)] }],
     Stop: [{ hooks: [c('stop', 8)] }],
     PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', hooks: [c('pre-tool', 5)] }],
     PostToolUse: [{ matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', hooks: [c('post-tool', 20)] }],
+  };
+  assert.deepEqual(m.entries(h, '', { cloud: true }), old, 'a repo gets the four cloud entries only');
+  assert.deepEqual(m.entries(h), {
+    ...old,
+    UserPromptSubmit: [{ hooks: [{ ...c('user-prompt', 3), async: true }] }],
+    Notification: [{ matcher: 'permission_prompt|idle_prompt|elicitation_dialog', hooks: [{ ...c('notification', 3), async: true }] }],
+    SessionEnd: [{ hooks: [c('session-end', 2)] }],
   });
+});
+
+test('every EVENTS row has its hook file, its FILES entry and exactly one settings entry', async () => {
+  const { EVENTS } = await import('../hook-lib.mjs');
+  const e = m.entries('C:/x/hooks/hook.mjs');
+  assert.equal(Object.keys(e).length, EVENTS.length);
+  for (const row of EVENTS) {
+    assert.ok(m.FILES.includes(`hook-${row.event}.mjs`), row.event);
+    assert.equal(e[row.claudeEvent].length, 1);
+    assert.ok(fs.existsSync(new URL(`../hook-${row.event}.mjs`, import.meta.url)), row.event);
+  }
 });
 
 test('the hooks version changes when any file changes', () => {
@@ -147,7 +170,7 @@ test('a worker folder not named work-os-worker: two installs leave no duplicates
     const s = JSON.parse(fs.readFileSync(process.env.CLAUDE_SETTINGS_PATH, 'utf8'));
     assert.equal(s.hooks.Stop.length, 1);
     assert.equal(s.hooks.SessionStart.length, 1);
-    assert.equal(m.status().events.length, 4);
+    assert.equal(m.status().events.length, 7);
     assert.equal(m.refreshIfStale(), null);
     assert.equal(m.remove(), true);
     assert.equal(m.status().events.length, 0);
