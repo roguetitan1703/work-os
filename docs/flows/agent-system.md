@@ -181,11 +181,12 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
   - Waiting: Notification.
   - Off: SessionEnd or a stopped heartbeat.
 - **Delivery, any surface:**
-  - After any tool call: PostToolBatch, an http hook.
+  - After any tool call: PostToolBatch, a command hook (an http hook cannot send the per-session token, which lives in a file); posts at most every 20 s.
   - At turn end: Stop continue.
   - Idle wake: asyncRewake with a long timeout, re-armed.
   - Chat and API: forYou on the next call.
   - People: push and Discord.
+  **Built (H7, 19 Nov):** delivery into sessions: prompt, tool batch, Stop continue and the idle wait (`POST /api/agent/wait`, `hook-wait.mjs`, asyncRewake), with the frame, wake caps (6 an hour per session) and the chain limit (2); see docs/HANDOVER.md section 3, Messages and Claude Code hooks. Hand check on Om's PC after release, results to record here: idle wake in the desktop app, VS Code and the terminal; a wait past one hour (the hook timeout is 3600 s; an 8 h timeout is not tried); a permission prompt open while a message comes (delivered after); a cloud session gets forYou only.
 - **Message text is pushed with its frame** (who sent it, how it came in, what it may and may not ask). Shipping, money
   and credentials stay server-side as Needs.
 - **Install:**

@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'messages-reach-sessions',
+    date: '2026-11-19',
+    title: 'Messages reach Claude Code sessions',
+    line: 'A message to a working Claude Code session reaches it after its next step; an idle one wakes for a direct request or question.',
+    where: "The project's Inbox tab",
+    href: '/projects',
+  },
+  {
     id: 'end-work-handover',
     date: '2026-11-19',
     title: 'Sessions hand over through Work OS',
