@@ -419,6 +419,12 @@ try {
     check('7: propose_order accepts an old line that differs in quotes and dashes', !folded.isError && !!folded.json?.need?.id, folded.text.slice(0, 200));
     const fAcc = await action('app/(app)/needs/actions.ts#answerNeedAction', [folded.json.need.id, 'accept'], cookie);
     check('7: Accept replaces it', fAcc.value?.ok === true && (await cur()).body.includes('Show it before saying done.') && !(await cur()).body.includes('show it.'), JSON.stringify(fAcc.value));
+    // Undo is refused when the page was written after the holder opened it (the guard holds inside the write too)
+    const opened = (await cur()).updatedAt.getTime();
+    await mcpH(kCode, 'write_note', { note_id: org, append: 'Written meanwhile.', why: 'H9 test: in between' });
+    const vUndo = (await cur()).ordersV;
+    const undoStale = await action(OA + 'undoOrdersAction', [org, (await cur()).ordersLog.at(-1).v, opened], cookie);
+    check('7: undo after an in-between write is refused and writes nothing', !(undoStale.value?.ok === true) && (await cur()).ordersV === vUndo && (await cur()).body.includes('Written meanwhile.'), JSON.stringify(undoStale.value));
   }
 } catch (e) {
   check('suite ran without throwing', false, e?.stack || String(e));
