@@ -542,3 +542,25 @@ test('the prompt hook records the person\'s prompt time; a subagent prompt recor
   seen.length = 0; mode = 'refused';
   assert.equal((await preRaw('at3', 'git push origin master')).additionalContext?.includes('passes without a release Need'), true);
 });
+
+// An automated prompt (agent report, notification, another session, a scheduled task) is not the person: it never sets promptAt.
+// Only a wrapper at the START of the prompt counts as automated; a typed prompt that quotes one mid-text is still typed.
+test('promptAt: every automated wrapper leaves it unchanged; a typed prompt sets it, also when it quotes a wrapper mid-text; a wake prompt and an empty one do not', async () => {
+  assert.ok(await startSid('at4'));
+  const up = (prompt) => dev.main('user-prompt', JSON.stringify({ session_id: 'at4', cwd: onMaster, prompt }));
+  const at = () => readMarkerFile('at4').promptAt;
+  const wrappers = ['<task-notification>\n<task-id>x</task-id>', '[SYSTEM NOTIFICATION - NOT USER INPUT] hi', '<cross-session-message from="a">x</cross-session-message>', 'Another Claude session sent a message: x', '<agent-message from="b">x', '[Subagent hand-back] done', '<side-sessions-event>x', '<ci-monitor-event>x', '<scheduled-task name="n">x', '  \n<task-notification>x', '', undefined];
+  for (const w of wrappers) { await up(w); assert.equal(at(), undefined, String(w).slice(0, 30)); }
+  const t0 = Date.now();
+  await up('push it to master please');
+  const first = at();
+  assert.ok(first >= t0);
+  const old = first - 40 * MIN;
+  setMarker('at4', { promptAt: old });
+  for (const w of wrappers) { await up(w); assert.equal(at(), old, 'unchanged: ' + String(w).slice(0, 30)); }
+  await up('what does <task-notification> mean in the log?');
+  assert.ok(at() > old, 'a prompt that quotes a wrapper mid-text is typed');
+  setMarker('at4', { promptAt: old, wokeAt: Date.now() });
+  await up('a message that woke the idle wait');
+  assert.equal(at(), old, 'the wake prompt is not typed');
+});
