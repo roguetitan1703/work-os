@@ -1,5 +1,5 @@
 // Flow MS1 (docs/flows/step-1.md "Tests"): with nobody present send_message says so, and the next start_work lists the message;
-// a message to a session that was here earlier says "offline, last active 3 h ago"; `word` is set by the server from how the
+// a message to a session that was here earlier says "off, last active 3 h ago; it gets this when it starts" (Identity step 2: never "present now" for an off row); `word` is set by the server from how the
 // call came in (an argument for it is ignored). Seed profile: none.
 import { ME, MCP, check, finish, mkKey, rawDb } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
@@ -20,9 +20,9 @@ try {
   await must(cc, 'start_work', { project: NAME, machine: 'laptop', label: 'cutroom prime' });
   await rawDb.collection('presence').updateMany({ projectId: project._id }, { $set: { lastSeen: new Date(Date.now() - 3 * 3600_000) } });
   const second = await must(MCP, 'send_message', { project: NAME, kind: 'fyi', body: 'The API now returns ids as strings' });
-  check('MS1: a session that was here 3 h ago: offline, last active 3 h ago, it will get this on start', /cutroom prime: offline, last active 3 h ago; it will get this on start/.test(second.target), second.target);
+  check("MS1: a session that was here 3 h ago: off, last active 3 h ago, it gets this when it starts", /cutroom prime: off, last active 3 h ago; it gets this when it starts/.test(second.target) && !/present now/.test(second.target), second.target);
   const narrow = await must(MCP, 'send_message', { project: NAME, kind: 'fyi', body: 'Only for cutroom', to_session: 'Cutroom Prime' });
-  check('MS1: to_session (an exact label, any case) narrows the target note', /^cutroom prime: offline/.test(narrow.target) && (narrow.target.match(/offline/g) || []).length === 1, narrow.target);
+  check('MS1: to_session (an exact label, any case) narrows the target note', /^cutroom prime: off/.test(narrow.target) && (narrow.target.match(/: off,/g) || []).length === 1, narrow.target);
   const nobody = await must(MCP, 'send_message', { project: NAME, kind: 'fyi', body: 'For a session that never was', to_session: 'antigravity' });
   check('MS1: a label nobody has used says so', /no session like that/.test(nobody.target), nobody.target);
 

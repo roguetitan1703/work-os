@@ -84,7 +84,7 @@ async function hookNote(who: string, r: PresenceDoc, m: Sending): Promise<string
   return `${who}: idle; a direct ${m.kind} wakes it`;
 }
 
-/** Who is on the receiving end, in words: "cutroom: offline, last active 3 h ago; it will get this on start". `sending` says how a session with the Work OS hook gets it. */
+/** Who is on the receiving end, in words: "cutroom: off, last active 3 h ago; it gets this when it starts". `sending` says how a session with the Work OS hook gets it. */
 export async function targetNote(s: Scope, project: Pick<ProjectDoc, '_id' | 'name'>, toSession?: string, matched?: PresenceDoc[], sending?: Sending): Promise<string> {
   const c = await scoped(s);
   let rows = matched ?? (await c.presence.find({ projectId: project._id }).sort({ lastSeen: -1 }).limit(40).toArray());
@@ -104,7 +104,9 @@ export async function targetNote(s: Scope, project: Pick<ProjectDoc, '_id' | 'na
       if (out.length >= 5) break;
       continue;
     }
-    out.push(age < 30 * 60_000 ? `${who}: present now (active ${ago(age)} ago)` : `${who}: offline, last active ${ago(age)} ago; it will get this on start`);
+    // One rule for every row (presenceState): a session that is off is never "present". It gets the message when it starts.
+    const off = presenceState({ lastSeen: r.lastSeen, activity: r.activity, endedAt: r.endedAt }, { now: Date.now() }).state === 'off';
+    out.push(off ? `${who}: off, last active ${ago(age)} ago; it gets this when it starts` : `${who}: present now (active ${ago(age)} ago)`);
     if (out.length >= 5) break;
   }
   return out.join('; ');
