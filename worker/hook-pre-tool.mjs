@@ -251,10 +251,28 @@ async function countRefused(input) {
   try { if (input.session_id) await postEvent(input.session_id, 'tool', { copy: 'refused' }, COUNT_TIMEOUT_MS); } catch {}
 }
 
+/** How long after the person's last prompt a session counts as attended (H8, changed 19 Nov). */
+export const ATTENDED_MS = 30 * 60_000;
+/**
+ * Attended: the person (not a subagent: no agent_id) sent a prompt in this session within 30 minutes, and the run is not dispatched.
+ * The hook cannot see that the person said yes in chat; the note below tells the agent it must have it.
+ */
+export function attended(input, now = Date.now()) {
+  try {
+    if (input.agent_id || isDispatched(input)) return false;
+    const at = readMarker(input.session_id)?.promptAt;
+    return Number.isFinite(at) && now - at >= 0 && now - at < ATTENDED_MS;
+  } catch { return false; }
+}
+function attendedNote(action, project) {
+  const proj = String(project || 'this project').replace(/["\\\n]/g, '').slice(0, 60);
+  return `Work OS: Production ${action.label} passes without a release Need because the person is in this session. You must have their yes in chat for it: if you do not, stop and ask them first. Record their words as a Decision (save_state {project: "${proj}", add_decision}, quoting them) before or right after this.`;
+}
+
 const RELEASE_TIMEOUT_MS = 3000; // the route call; the hook as a whole has 5 s
 /**
  * The production blocks (docs/flows/agent-system.md section 10): a Bash or PowerShell command that pushes, tags or releases to
- * the project's production, or runs a production CLI command, is refused unless the project's owner answered a release Need.
+ * the project's production, or runs a production CLI command, is refused unless the session is attended (the person typed a prompt in the main session within 30 minutes, not dispatched: it passes with a note to record their words as a Decision) or the project's owner answered a release Need.
  * The hook decides locally whether the command is a production one (hook-release.mjs; the brief's `production` in the
  * marker) and asks Work OS only then, sending { what, name }, never the command. Fails closed on an exact match only: no
  * token, an unreachable, slow or refusing server all refuse; everything else (no marker, no production setting, a command
@@ -271,6 +289,8 @@ async function productionBlock(input) {
     if (!marker?.production) return null;
     const action = prodAction({ command: cmd, cwd: input.cwd }, marker.production);
     if (!action) return null;
+    // Attended (19 Nov, Om): the person typed in this main session within 30 minutes and the run is not dispatched, so the person's yes in chat is enough.
+    if (attended(input)) return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: attendedNote(action, marker.project) } };
     run.prod = action;
     const token = readKept(sid);
     if (!token) return releaseDeny(action, 'no-token', marker.project);
