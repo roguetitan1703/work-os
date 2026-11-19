@@ -189,6 +189,23 @@ export async function setDoing(s: Scope, i: Ident, taskId: string | null): Promi
 }
 
 const SKEW_MS = 5 * 60_000;
+/** A repeat of the state already stored, within this long of the last event, needs no write (and no budget). */
+const REPEAT_MS = 60_000;
+
+/**
+ * Is this event a repeat that changes nothing: a kind of notification with no effect, or the state the row already has,
+ * recorded less than a minute ago? Such an event is answered from the row without a write and costs no hourly budget, so a
+ * session making many tool calls never runs out of events. `state` is null when the row is gone (not free: it is charged).
+ */
+export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string }, ev: { event: EventName; kind?: EventKind }): Promise<{ free: boolean; state: PresenceState | null; ignored?: boolean }> {
+  const next = eventState(ev);
+  const row = await (await scoped(s)).presence.findOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { projection: { activity: 1 } });
+  if (!row) return { free: false, state: null };
+  const a = row.activity;
+  if (!next) return { free: true, state: a?.state ?? null, ignored: true };
+  const same = !!a && a.state === next.state && a.why === next.why && Date.now() - a.at.getTime() < REPEAT_MS;
+  return { free: same, state: a?.state ?? null };
+}
 
 /**
  * One event from a session's Claude Code hook (POST /api/agent/event): sets `activity` from what happened and refreshes

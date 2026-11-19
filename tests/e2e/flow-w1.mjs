@@ -6,7 +6,10 @@
 // Seed profile: none.
 import { randomUUID } from 'node:crypto';
 import { B, ME, MCP, EMAIL, PW, SP, check, finish, launch, login, makeUser, mkKey, overflow, okO, rawDb } from './lib.mjs';
+import { createHash } from 'node:crypto';
 import { mcpH, must, sleep } from './flow-lib.mjs';
+// Another person's row is labelled by a one-way hash of its id (lib/data/roster.ts opaqueId).
+const opq = id => createHash('sha256').update(`worker-row:${id}`).digest('hex').slice(0, 16);
 
 const NAME = 'Flow Roster';
 let PID = ''; // presence rows are keyed user:s:session:project
@@ -120,11 +123,11 @@ try {
   await must(kT, 'start_work', { project: NAME, machine: 'tess-box', label: 'tess builder', parent: 'w1-ba', session: 'w1-tb' });
   await must(kT, 'start_work', { project: NAME, machine: 'tess-box', label: 'tess twin', session: 'w1-orch' });
   await snap();
-  const tb = workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-tb:${PID}`);
+  const tb = workers(htmlNow).find(w => w.id === opq(`${tess.userId}:s:w1-tb:${PID}`));
   check('W1: a builder whose parent names another person’s orchestrator stays top level', tb?.depth === 0, JSON.stringify(tb)?.slice(0, 300));
   const nT = await must(kT, 'ask', { project: NAME, to: EMAIL, kind: 'approve', ask: 'Tess asks: ship?', session: 'w1-orch' });
   await snap();
-  check('W1: another person’s Need with the same session id does not make this person’s worker wait (only their own twin does)', st('w1-orch') === 'working' && workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-orch:${PID}`)?.state === 'waiting', [st('w1-orch'), workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-orch:${PID}`)?.state].join());
+  check('W1: another person’s Need with the same session id does not make this person’s worker wait (only their own twin does)', st('w1-orch') === 'working' && workers(htmlNow).find(w => w.id === opq(`${tess.userId}:s:w1-orch:${PID}`))?.state === 'waiting', [st('w1-orch'), workers(htmlNow).find(w => w.id === opq(`${tess.userId}:s:w1-orch:${PID}`))?.state].join());
   await must(kT, 'withdraw_need', { id: nT.need.ref, session: 'w1-orch' });
   await rawDb.collection('presence').deleteMany({ userId: tess.userId }); // her rows must not keep the project busy in the cases below
 

@@ -7,7 +7,7 @@
 // open Need, a row with no hook), the daemon join by ccSession and machine id, who sees what (a teammate sees "Waiting on a
 // person" and never the prompt or ccSession, another organization sees nothing, a teammate's token touches only their own
 // row), no State, feed or cursor writes, and the hourly limit (300). Seed profile: none.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { B, EMAIL, MCP, ME, PW, check, finish, makeUser, mkDevice, mkKey, rawDb } from './lib.mjs';
 import { must } from './flow-lib.mjs';
 
@@ -32,6 +32,8 @@ async function cookieOf(email) {
   const r = await fetch(B + '/api/auth/sign-in/email', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PW }), redirect: 'manual' });
   return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).join('; ');
 }
+/** The label a teammate's page gives a row (lib/data/roster.ts opaqueId). */
+const opq = rowId => createHash('sha256').update(`worker-row:${rowId}`).digest('hex').slice(0, 16);
 const unesc = s => s.replace(/&amp;/g, '&').replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
 const page = async ck => (await fetch(B + '/claude?tab=workers', { headers: { cookie: ck } })).text();
 /** The worker rows of a Workers page: { id, state, text }. */
@@ -179,10 +181,10 @@ try {
   const W = await newSession({ ccSession: randomUUID(), source: 'startup' });
   await ev(W.token, { event: 'notify', kind: 'permission_prompt' });
   const tessHtml = await page(await cookieOf('h6-tess@example.test'));
-  const tw = workers(tessHtml).find(w => w.id === rowId(W.sid));
+  const tw = workers(tessHtml).find(w => w.id === opq(rowId(W.sid)));
   check('a teammate who reads the project sees the state as waiting on a person, never as a prompt', tw?.state === 'waiting' && /Waiting on a person/.test(tw.text) && !/Waiting on you/.test(tw.text), JSON.stringify(tw)?.slice(0, 300));
   const wrow = await prow(W.sid);
-  check('the teammate’s page never carries Claude Code’s session id', !tessHtml.includes(wrow.ccSession));
+  check('the teammate’s page never carries Claude Code’s session id, nor the session id of Om’s row, only an opaque label', !tessHtml.includes(wrow.ccSession) && !tessHtml.includes(W.sid) && !tessHtml.includes(rowId(W.sid)));
   const otherHtml = await page(await cookieOf('h6-other@example.test'));
   check('another organization sees no worker of this one', !workers(otherHtml).some(w => w.id.startsWith(ME.userId)) && !otherHtml.includes(wrow.ccSession));
   const pcT = await deviceOf(tess, 'tess-pc');
@@ -192,6 +194,11 @@ try {
   const te = await ev(tt.token, { event: 'end' });
   const tRow = await rawDb.collection('presence').findOne({ _id: `${tess.userId}:s:${tt.brief.session}:${ONE}` });
   check('a teammate’s token changes only the teammate’s own row (Om’s row is as it was)', te.json?.state === 'off' && tRow.activity.state === 'off' && JSON.stringify((await prow(W.sid)).activity) === before, te.text);
+
+  // Om's page, Tess's row: no session id of Tess's, her row has the opaque label
+  const tessRowId = `${tess.userId}:s:${tt.brief.session}:${ONE}`;
+  const omHtml = await page(ck);
+  check('Om’s page shows Tess’s row under an opaque label and carries no session id of hers', workers(omHtml).some(w => w.id === opq(tessRowId)) && !omHtml.includes(tt.brief.session) && !omHtml.includes(tessRowId) && workers(omHtml).some(w => w.id === rowId(W.sid)));
 
   // ---- no side effects ----
   const states0 = await rawDb.collection('states').findOne({ projectId: ONE });
@@ -205,9 +212,16 @@ try {
   // ---- the hourly limit: 300 events per token ----
   const L = await newSession();
   let ok = 0;
-  for (let i = 0; i < 303; i++) if ((await ev(L.token, { event: 'tool' })).status === 200) ok++;
+  for (let i = 0; i < 303; i++) if ((await ev(L.token, { event: i % 2 ? 'stop' : 'prompt' })).status === 200) ok++; // every one changes the state
   const over = await ev(L.token, { event: 'tool' });
-  check('one token: 300 events an hour, then 429 with Retry-After', ok === 300 && over.status === 429 && !!over.headers.get('retry-after'), `${ok} then ${over.status}`);
+  check('one token: 300 events that change the state an hour, then 429 with Retry-After', ok === 300 && over.status === 429 && !!over.headers.get('retry-after'), `${ok} then ${over.status}`);
+  // Events that repeat the stored state are free: a tool-heavy session never runs out
+  const F = await newSession();
+  await ev(F.token, { event: 'prompt' });
+  let free = 0;
+  for (let i = 0; i < 400; i++) if ((await ev(F.token, { event: 'tool' })).status === 200) free++;
+  const stillOk = await ev(F.token, { event: 'stop' });
+  check('400 tool events while working: none is refused, and a state change after them is still accepted', free === 400 && stillOk.status === 200 && stillOk.json?.state === 'idle', `${free} ${stillOk.status}`);
 
   // ---- the token is nowhere in the database ----
   const found = [];

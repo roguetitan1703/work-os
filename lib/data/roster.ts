@@ -1,4 +1,5 @@
 import 'server-only';
+import { createHash } from 'node:crypto';
 import type { PresenceDoc, PresenceState } from '../db';
 import { orgWide, scoped, type Scope } from '../scope';
 import { memberNames } from '../people';
@@ -118,20 +119,24 @@ export async function taskInfo(s: Scope, ids: string[]): Promise<Map<string, { r
   return new Map(ts.map(t => [t._id, { ref: t.ref, title: t.title }]));
 }
 
+/** What a row is called to someone who does not own it: the row id holds the session id, so they get a one-way label of it. */
+const opaqueId = (rowId: string) => createHash('sha256').update(`worker-row:${rowId}`).digest('hex').slice(0, 16);
+
 type Ctx = { tasks: Map<string, { ref: number; title: string }>; names: Record<string, string>; pname: Map<string, string>; needs: Set<string>; nextCount: (projectId: string) => number };
 
 /** Rows for the screen: state computed, builders placed under their orchestrators, orchestrators ordered working first. */
 function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
   const now = Date.now();
-  const rows: (WorkerRow & { _parent?: string; _uid: string })[] = raw
+  const rows: (WorkerRow & { _parent?: string; _uid: string; _rid: string; _sess: string | null })[] = raw
     .filter(r => x.pname.has(r.row.projectId))
     .map(({ row, daemon }) => {
       const st = presenceState(row, { now, daemon, needs: x.needs.has(row._id) });
       const state = st.state;
       const mine = row.userId === s.userId;
       return {
-        id: row._id,
-        session: row.session ?? null,
+        // Another person's session id never leaves the server: their row gets an opaque id and no session.
+        id: mine ? row._id : opaqueId(row._id),
+        session: mine ? (row.session ?? null) : null,
         person: x.names[row.userId] || 'a member',
         mine,
         ai: mine ? row.ai : clientWord(row.agent), // a key name is its owner's label: others see the kind of client
@@ -152,23 +157,25 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
         depth: 0 as const,
         _parent: row.parent,
         _uid: row.userId,
+        _rid: row._id,
+        _sess: row.session ?? null,
       };
     });
   // Builders under their orchestrator (the one whose session id they named, same person).
   const rank: Record<WorkerState, number> = { working: 0, waiting: 1, on: 2, idle: 3, off: 4 };
-  const bySession = new Map(rows.filter(r => r.session).map(r => [`${r._uid}:${r.session}`, r]));
+  const bySession = new Map(rows.filter(r => r._sess).map(r => [`${r._uid}:${r._sess}`, r]));
   const kids = new Map<string, typeof rows>();
   const tops: typeof rows = [];
   for (const r of rows) {
     const p = r._parent ? bySession.get(`${r._uid}:${r._parent}`) : undefined;
-    if (p && p !== r) kids.set(p.id, [...(kids.get(p.id) ?? []), r]);
+    if (p && p !== r) kids.set(p._rid, [...(kids.get(p._rid) ?? []), r]);
     else tops.push(r);
   }
   const cmp = (a: WorkerRow, b: WorkerRow) => rank[a.state] - rank[b.state] || b.lastSeen.localeCompare(a.lastSeen);
   const workers: WorkerRow[] = [];
   for (const t of tops.sort(cmp)) {
     workers.push(strip(t, 0));
-    for (const k of (kids.get(t.id) ?? []).sort(cmp)) workers.push(strip(k, 1));
+    for (const k of (kids.get(t._rid) ?? []).sort(cmp)) workers.push(strip(k, 1));
   }
   return workers;
 }
@@ -195,10 +202,12 @@ export async function roster(s: Scope): Promise<Roster> {
   return { workers, couldBeRunning: await couldBeRunning(s, raw), machines };
 }
 
-function strip(r: WorkerRow & { _parent?: string; _uid?: string }, depth: 0 | 1): WorkerRow {
-  const { _parent, _uid, ...rest } = r;
+function strip(r: WorkerRow & { _parent?: string; _uid?: string; _rid?: string; _sess?: string | null }, depth: 0 | 1): WorkerRow {
+  const { _parent, _uid, _rid, _sess, ...rest } = r;
   void _parent;
   void _uid;
+  void _rid;
+  void _sess;
   return { ...rest, depth };
 }
 
