@@ -139,6 +139,10 @@ export type ProjectDoc = Placed & {
   /** true public, false private, null unknown (GitHub did not answer); see lib/data/repo-visibility.ts for how long each is kept. */
   repoPublic?: boolean | null;
   repoPublicAt?: Date;
+  /** What counts as this project's production for the Work OS hook (lib/data/production.ts); unset = the default from `code`. Set in the app only. */
+  production?: { remotes: string[]; branches: string[]; targets: string[]; off?: boolean };
+  /** Who last set `production`. */
+  productionBy?: string;
   /** The Delpat OS project it was imported from (lib/delpat-os.ts); unique per organization among shared projects, per owner among private ones. */
   delpatOsId?: string;
   createdAt: Date;
@@ -205,6 +209,9 @@ export type NeedDoc = Placed & {
   noAlert?: boolean;
   /** A review Need made because an agent wanted to drop or archive the task: what Accept then does (default: close it as Done). */
   closing?: 'Dropped' | 'archived';
+  /** A release Need (an approve Need made with release: true): Yes or Yes for 24 hours opens production on the project until releaseUntil. */
+  release?: true;
+  releaseUntil?: Date;
 };
 
 export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {

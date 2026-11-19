@@ -24,6 +24,7 @@ import {
   Undo2,
   FolderPlus,
   Eye,
+  ShieldCheck,
   LogOut,
 } from 'lucide-react';
 import { WHAT_LABEL, activityHref, describeActivity, whatOf } from '@/lib/activity-text';
@@ -60,6 +61,7 @@ const ICONS: Record<ActivityType, React.ComponentType<{ className?: string }>> =
   project_created: FolderPlus,
   project_renamed: Pencil,
   visibility_changed: Eye,
+  production: ShieldCheck,
   session_ended: LogOut,
 };
 

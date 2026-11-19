@@ -170,7 +170,7 @@ export async function reserveIntake(source: IntakeSource): Promise<{ ok: true; r
  * deliver = reads of the unread messages by the event route (a hook asking), wake = idle sessions woken by a message or an answered
  * Need, cont = turns a Stop hook continued with one, wait = long polls of POST /api/agent/wait.
  */
-export const AGENT_PER_HOUR = { device: 30, session: 20, state: 240, event: 300, deliver: 360, wake: 6, cont: 20, wait: 120 } as const;
+export const AGENT_PER_HOUR = { device: 30, session: 20, state: 240, event: 300, deliver: 360, wake: 6, cont: 20, wait: 120, release: 60 } as const;
 
 /** How many slots of an hourly agent budget are used (a peek: nothing is reserved). */
 export async function agentUsed(kind: keyof typeof AGENT_PER_HOUR, id: string): Promise<number> {

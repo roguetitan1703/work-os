@@ -92,6 +92,8 @@ export function describeChange(a: Pick<Activity, 'type' | 'changes' | 'note' | '
       return `Renamed project "${fmt(c.name?.from)}" → "${fmt(c.name?.to)}"`;
     case 'visibility_changed':
       return `Who sees it: ${fmt(c.visibility?.from)} → ${fmt(c.visibility?.to)}`;
+    case 'production':
+      return n || 'Production changed';
     default:
       return null;
   }

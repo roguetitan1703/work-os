@@ -53,6 +53,9 @@ export type Need = {
   /** A review Need: what was handed in, and (once answered with "file what is left") the numbers of the tasks made. */
   result?: HandInResult;
   filed?: number[];
+  /** A release Need (H8): Yes or Yes for 24 hours opens production on the project until releaseUntil. */
+  release?: true;
+  releaseUntil?: string;
 };
 
 export function toNeed(d: NeedDoc): Need {
@@ -76,6 +79,8 @@ export function toNeed(d: NeedDoc): Need {
     waitedMs: d.waitedMs ?? null,
     ...(d.result ? { result: d.result } : {}),
     ...(d.filed ? { filed: d.filed } : {}),
+    ...(d.release ? { release: true as const } : {}),
+    ...(d.releaseUntil ? { releaseUntil: d.releaseUntil.toISOString() } : {}),
   };
 }
 
@@ -86,7 +91,9 @@ export function toNeed(d: NeedDoc): Need {
  */
 export function forViewer(n: Need, viewerId: string): Need {
   if (!n.appOnly || !n.answer || viewerId === n.to || ('userId' in n.from.actor && viewerId === n.from.actor.userId)) return n;
-  return { ...n, answer: { ...n.answer, option: '', text: '(answer hidden)' } };
+  const { releaseUntil: _until, ...rest } = n; // a release window is the answer's choice: hidden with it
+  void _until;
+  return { ...rest, answer: { ...n.answer, option: '', text: '(answer hidden)' } };
 }
 
 /** The ask as a row shows it: one line, about 90 characters. */
@@ -114,6 +121,14 @@ const DEFAULT_OPTIONS: Record<NeedKind, NeedOption[]> = {
     { id: 'send_back', label: 'Send back', means: 'It needs more work.' },
   ],
 };
+
+/** A release Need's options are fixed by the server (H8, docs/flows/agent-system.md 16.12): the asker cannot word them. */
+export const RELEASE_HOURS = { yes: 1, day: 24 } as const;
+export const RELEASE_OPTIONS: NeedOption[] = [
+  { id: 'yes', label: 'Yes, release', means: 'Open production on this project for 1 hour: pushes, tags, releases and production commands may go ahead.' },
+  { id: 'day', label: 'Yes, for 24 hours', means: 'Open production on this project for 24 hours.' },
+  { id: 'no', label: 'No', means: 'Do not release.' },
+];
 
 /** 2 to 4 options with unique short ids; the first is the recommendation. A kind with defaults needs none given. */
 export function optionsFor(kind: NeedKind, given?: { id?: string; label: string; means?: string }[]): NeedOption[] {
@@ -162,6 +177,8 @@ export type AskInput = {
   options?: { id?: string; label: string; means?: string }[];
   task?: string | number;
   appOnly?: boolean;
+  /** A release Need: kind approve, to the project's owner, fixed options, app only. */
+  release?: boolean;
   /** Who asks and how the call came in: set by the server, never by an argument. */
   actor: Actor;
   word: NeedWord;
@@ -193,13 +210,16 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
   const example = input.example?.trim() || undefined;
   if (example && example.length > NEED_LIMITS.example) throw new InputError(`The example is at most ${NEED_LIMITS.example} characters.`);
   if (!REPEAT_KINDS.includes(input.kind)) throw new InputError('Unknown kind of Need.');
-  const options = optionsFor(input.kind, input.options);
+  if (input.release && input.kind !== 'approve') throw new InputError('A release Need is kind approve.');
+  if (input.release && input.task !== undefined && input.task !== null && String(input.task).trim() !== '') throw new InputError('A release Need is about the project, not a task: leave task out.');
+  const options = input.release ? RELEASE_OPTIONS : optionsFor(input.kind, input.options);
   const actorId = 'userId' in input.actor && input.actor.userId ? input.actor.userId : s.userId;
 
   return inTransaction(async () => {
     const c = await scoped(s);
     const project = await resolveProject(c, s, input.project, { create: false });
     if (!project) throw new NotFoundError(`Project "${input.project}" not found`);
+    if (input.release && input.to !== project.ownerId) throw new InputError("A release Need goes to the project's owner: they decide releases.");
     if (!(await isMember(s.orgId, input.to)) || !readable(project, input.to)) throw new InputError('That person cannot see this project, so they cannot be asked about it here. Pick someone who can, or share the project first.');
     let task: { _id: string; ref: number } | null = null;
     if (input.task !== undefined && input.task !== null && String(input.task).trim() !== '') {
@@ -246,7 +266,8 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
       ...(example ? { example } : {}),
       options,
       status: 'open',
-      appOnly: input.appOnly === true || isSensitiveNeed([ask, example, ...options.flatMap(o => [o.label, o.means])]),
+      ...(input.release ? { release: true as const } : {}),
+      appOnly: input.release === true || input.appOnly === true || isSensitiveNeed([ask, example, ...options.flatMap(o => [o.label, o.means])]),
       createdAt: now,
       answeredAt: null,
       ...(quiet ? { alertedAt: new Date(lastAlert) } : { alertedAt: now }),
@@ -392,6 +413,7 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
     const c = await scoped(s);
     const cur = await c.needs.findOne({ _id: id, to: s.userId });
     if (!cur) throw new NotFoundError('That Need does not exist, or it is not addressed to you.');
+    if (cur.release && via === 'discord') throw new InputError('A release Need is answered in the app.');
     if (cur.status !== 'open') throw new InputError(cur.status === 'answered' ? 'This Need is already answered.' : `This Need was ${cur.status}.`);
     // 'other' = the person typed their own answer instead of pressing an option (not for reviews: they have send_back).
     const own = answer.option === 'other' && !cur.options.some(o => o.id === 'other');
@@ -399,9 +421,10 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
     if (!own && !cur.options.some(o => o.id === answer.option)) throw new InputError('Choose one of the Need\'s options, or type your own answer.');
     if (cur.kind === 'review' && answer.option === 'send_back' && !text) throw new InputError('Say what to change: your line goes first in the next brief for the task.');
     const now = new Date();
+    const hours = cur.release && !own ? RELEASE_HOURS[answer.option as keyof typeof RELEASE_HOURS] : undefined;
     const done = await c.needs.findOneAndUpdate(
       { _id: id, to: s.userId, status: 'open' },
-      { $set: { status: 'answered', answer: { option: answer.option, ...(text ? { text } : {}), by: s.userId, via, at: now }, answeredAt: now, closedAt: now, waitedMs: now.getTime() - cur.createdAt.getTime() } },
+      { $set: { ...(hours ? { releaseUntil: new Date(now.getTime() + hours * 3_600_000) } : {}), status: 'answered', answer: { option: answer.option, ...(text ? { text } : {}), by: s.userId, via, at: now }, answeredAt: now, closedAt: now, waitedMs: now.getTime() - cur.createdAt.getTime() } },
       { returnDocument: 'after' },
     );
     if (!done) throw new InputError('This Need is already answered.');
@@ -581,9 +604,10 @@ export async function restampTaskNeeds(orgId: string, taskIds: string[]): Promis
     const set: Document = { ownerId: t.ownerId, visibility: t.visibility, sharedWith: t.visibility === 'members' ? (t.sharedWith ?? []) : [] };
     // A task taken out of every project leaves its old project behind: a Need (or its row) still naming that project
     // would be moved with it, and shown to its readers, the next time the project's placement changes.
-    await c.needs.updateMany({ taskId: t._id }, { $set: { ...set, projectId: t.projectId || '' } });
+    // A release Need belongs to its project and never moves with a task (it opens production on that project).
+    await c.needs.updateMany({ taskId: t._id, release: { $ne: true } }, { $set: { ...set, projectId: t.projectId || '' } });
     // Their feed rows follow them: the same placement and project (rows are found by the Need, the one subject id).
-    const ids = await c.needs.distinct('_id', { taskId: t._id });
+    const ids = await c.needs.distinct('_id', { taskId: t._id, release: { $ne: true } });
     if (ids.length) await c.activity.updateMany({ 'subject.kind': 'need', 'subject.id': { $in: ids } }, t.projectId ? { $set: { ...set, projectId: t.projectId } } : { $set: set, $unset: { projectId: '' } });
     await withdrawUnreadableNeeds(c, { taskId: t._id }, 'moved');
     await syncTaskNeed(c, t._id);
