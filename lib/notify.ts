@@ -10,7 +10,7 @@ import { getUserSetting, scoped, setUserSetting, type Scope } from './scope';
 // (notify:<userId>), their inbox, their push devices (docs/multi-user.md "Inbox, push, alerts").
 
 export const ALERT_KINDS: { kind: AlertKind; label: string; hint: string }[] = [
-  { kind: 'digest', label: 'Daily digest', hint: 'Once a day at your hour (Settings › Alerts): what needs you, your top 3 for today, what moved per project, which agents run or stall. Replaces the morning alerts' },
+  { kind: 'digest', label: 'Daily digest', hint: 'Once a day at your hour (Settings › Alerts): what needs you, your top 3 for today, what moved per project, which agents run or stall; on Mondays four numbers and up to three proposals. Replaces the morning alerts' },
   { kind: 'unblocked', label: 'Unblocked', hint: 'The last task it waited on is done' },
   { kind: 'assigned', label: 'Assigned to you', hint: 'Someone assigned a task to you' },
   { kind: 'overdue', label: 'Overdue', hint: 'Morning after, then every 2 days' },
@@ -21,7 +21,7 @@ export const ALERT_KINDS: { kind: AlertKind; label: string; hint: string }[] = [
   { kind: 'claude_finished', label: 'Claude finished', hint: 'A task you gave to Claude is done' },
   { kind: 'claude_stopped', label: 'Claude stopped', hint: 'Claude stopped on a task without finishing it (blocked, closed or could not start)' },
   { kind: 'claude_stuck', label: 'Claude may be stuck', hint: 'Its session has been quiet for 20 minutes' },
-  { kind: 'need', label: 'Needs you', hint: 'Someone or an agent asked you one thing and is waiting (sent at once)' },
+  { kind: 'need', label: 'Needs you', hint: 'Right away when an agent session waits on your answer, a person asks you, or a release; reviews and proposals wait for the digest' },
 ];
 
 /** Every switch under Settings → Notifications: the alert types plus inbox-only notices. */

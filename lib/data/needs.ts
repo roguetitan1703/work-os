@@ -11,6 +11,7 @@ import type { Actor } from '../actors';
 import { isMember } from '../people';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, placeOf, resolveProject } from './projects';
+import { presenceState } from './presence-state';
 
 // Needs: one ask to one person (docs/flows/plan-1-3.md, slice 4; flows N1, N2, B1, B2, F2). A Need replaces "waits on
 // Om" in progress text and chat. Stamped with its project's placement (the door filters each document by its own
@@ -193,6 +194,10 @@ export type AskInput = {
   order?: NeedDoc['order'];
   /** No alert for this Need: it waits on the Needs page (rule proposals; the Monday digest lists them). */
   noAlert?: boolean;
+  /** Part of the owner's Monday digest: never reaches the phone (server-only, never an argument). */
+  batch?: 'monday';
+  /** A correction a person gave twice (server-only, never an argument). */
+  repeat?: true;
   /** A release Need: kind approve, to the project's owner, fixed options, app only. */
   release?: boolean;
   /** A declutter Need (lib/data/declutter.ts askDeclutter): kind approve, to the project's owner, fixed options, no alert; replaces the project's open one. */
@@ -302,6 +307,8 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
       ...(quiet ? { alertedAt: new Date(lastAlert) } : { alertedAt: now }),
       ...(input.order ? { order: input.order } : {}),
       ...(input.noAlert ? { noAlert: true } : {}),
+      ...(input.batch ? { batch: input.batch } : {}),
+      ...(input.repeat ? { repeat: true as const } : {}),
     };
     await c.needs.insertOne(doc);
     if (replaced.length) await (input.declutter ? org : c).needs.updateMany({ _id: { $in: [...replacedIds] }, status: 'open' }, { $set: { status: 'replaced', closedAt: now, replacedBy: id } });
@@ -311,9 +318,10 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
       // The State remembers the open Need, so the start brief says "Declutter Need #n is open" without another read.
       await c.states.updateOne({ _id: project._id }, { $set: { 'declutter.needId': id, 'declutter.needRef': doc.ref } } as never);
     }
-    // One alert per Need, sent at once (like "assigned"): to the addressee, even when they asked themselves through their own agent.
-    if (!quiet && !input.noAlert && !input.declutter) {
-      await (await orgWide(s.orgId)).alertQueue.updateOne(
+    // One alert per Need that reaches the phone (reachesPhone), sent at once (like "assigned"): to the addressee, even when they
+    // asked themselves through their own agent. The rest (and a declutter Need, always) wait on Today, the Needs page and the digest.
+    if (!quiet && !input.noAlert && !input.declutter && (await reachesPhone(org, doc, now.getTime()))) {
+      await org.alertQueue.updateOne(
         { _id: `need:${id}` },
         { $setOnInsert: { userId: input.to, kind: 'need', taskId: task?._id ?? '', byTaskId: '', needId: id, createdAt: now, sentAt: null } },
         { upsert: true },
@@ -321,6 +329,23 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
     }
     return { need: toNeed(doc), replaced: replaced.map(n => toNeed({ ...n, status: 'replaced', replacedBy: id })) };
   });
+}
+
+/**
+ * Does this Need reach the phone (push, Discord DM, inbox row of its alert)? A release Need always; a Need a person asked
+ * always; a review and a Monday Need never; any other agent or chat Need only while the session that asked is not off
+ * (no session on the Need, or no row for it, means we cannot tell: yes). Checked when it is queued and again when sent.
+ */
+export async function reachesPhone(c: Collections, n: Pick<NeedDoc, 'kind' | 'release' | 'batch' | 'from' | 'projectId'>, now: number): Promise<boolean> {
+  if (n.release) return true;
+  if (n.from.word === 'person') return true;
+  if (n.kind === 'review' || n.batch === 'monday') return false;
+  const sid = n.from.session;
+  const askerId = 'userId' in n.from.actor && n.from.actor.userId ? n.from.actor.userId : null;
+  if (!sid || !askerId) return true;
+  const row = await c.presence.findOne({ userId: askerId, projectId: n.projectId, $or: [{ session: sid }, { key: sid }] }, { projection: { lastSeen: 1, activity: 1, endedAt: 1 } });
+  if (!row) return true;
+  return presenceState(row, { now, needs: true }).state !== 'off';
 }
 
 export type NeedFilter = {
@@ -501,10 +526,6 @@ export async function createReviewNeed(s: Scope, t: TaskDoc, actor: Actor, resul
     const now = new Date();
     const last = open.map(n => n.alertedAt?.getTime() ?? 0).reduce((a, b) => Math.max(a, b), 0);
     const quiet = last > now.getTime() - NEED_LIMITS.replaceAlertMs;
-    // One agent cannot fill an owner's phone with reviews: past 20 alerted reviews an hour from one asker to one owner, the Need is made without an alert.
-    const askerId = actor && 'userId' in actor && actor.userId ? actor.userId : s.userId;
-    const alerted = await org.needs.countDocuments({ kind: 'review', 'from.actor.userId': askerId, to: t.ownerId, createdAt: { $gt: new Date(now.getTime() - 3_600_000) }, noAlert: { $ne: true } });
-    const flood = alerted >= NEED_LIMITS.perHour;
     const id = randomUUID();
     const place = placeOf(t);
     const options = [
@@ -527,7 +548,6 @@ export async function createReviewNeed(s: Scope, t: TaskDoc, actor: Actor, resul
       kind: 'review',
       ask: `Review #${t.ref}: ${t.title}${closing === 'Dropped' ? ' (the agent wants to drop it)' : closing === 'archived' ? ' (the agent wants to archive it)' : ''}`.slice(0, NEED_LIMITS.ask),
       ...(closing ? { closing } : {}),
-      ...(flood ? { noAlert: true } : {}),
       options,
       status: 'open',
       appOnly: false,
@@ -541,9 +561,7 @@ export async function createReviewNeed(s: Scope, t: TaskDoc, actor: Actor, resul
     await logNeed(org, doc, actor, 'need_asked');
     await org.tasks.updateOne({ _id: t._id }, { $unset: { sentBack: '' } });
     await syncTaskNeed(org, t._id);
-    if (!quiet && !flood) {
-      await org.alertQueue.updateOne({ _id: `need:${id}` }, { $setOnInsert: { userId: t.ownerId, kind: 'need', taskId: t._id, byTaskId: '', needId: id, createdAt: now, sentAt: null } }, { upsert: true });
-    }
+    // A review never reaches the phone (reachesPhone): it is on Today, the Needs page and the daily digest.
     return toNeed(doc);
   });
 }

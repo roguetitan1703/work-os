@@ -25,6 +25,10 @@ import { applyAck, deliverFor, startTurn, type Delivery } from '@/lib/data/deliv
 //   ack      ids (messages, Needs) the hook printed from the last `deliver`: only then are they read; one not acknowledged is offered
 //            again after 20 s (at most 3 offers, then 2 minutes' rest). A wake or a Stop continue is charged when acknowledged.
 //   woke     true on a prompt that is a wake the hook just got (kept only when the server handed out a wake under a minute ago).
+//   files, reminded  (stop only) H12: whether the changed files were saved to the State ('saved' | 'unsaved') and whether the session
+//            was reminded first. copy: 'refused' (tool only): a WORK-STATE.md write the hook refused that never reached this server.
+//            Counted on the token's own row (stopCheck, copyEdits) for the owner's Monday numbers; words and a flag, no text or path.
+//            An event that carries them is never free.
 // The only row it writes is the token's own presence row (state, turn chain) (the person, the token's session and project), and never creates one.
 // No State, feed, activity or Needs writes. The owner's own pages are told to refresh only when the state changes.
 // Rate limited per session token, lib/mcp/policy.ts AGENT_PER_HOUR.event (300 an hour). Free: an event that repeats the stored state
@@ -46,8 +50,15 @@ const Body = z
     deliver: z.boolean().optional(),
     woke: z.boolean().optional(),
     ack: z.array(z.string().max(40)).max(12).optional(),
+    // H12, the Monday numbers: words and a flag, never text. files and reminded only with a stop, copy only with a tool.
+    files: z.enum(['saved', 'unsaved']).optional(),
+    reminded: z.boolean().optional(),
+    copy: z.literal('refused').optional(),
   })
-  .strict();
+  .strict()
+  .refine(b => (b.files === undefined && b.reminded === undefined) || b.event === 'stop', { message: 'files and reminded belong to a stop' })
+  .refine(b => b.reminded === undefined || b.files !== undefined, { message: 'reminded goes with files' })
+  .refine(b => b.copy === undefined || b.event === 'tool', { message: 'copy belongs to a tool event' });
 
 export async function POST(req: Request): Promise<Response> {
   try {
@@ -65,7 +76,7 @@ export async function POST(req: Request): Promise<Response> {
       return (await reserveAgent('event', session.id)) ? reply(400, { error: 'The body is not JSON.' }) : tooMany();
     }
     const parsed = Body.safeParse(raw);
-    if (!parsed.success) return (await reserveAgent('event', session.id)) ? reply(400, { error: 'The body needs an event and may have a kind and a time; nothing else.' }) : tooMany();
+    if (!parsed.success) return (await reserveAgent('event', session.id)) ? reply(400, { error: 'The body needs an event and may have a kind and a time; nothing else (files and reminded go with a stop, copy with a tool).' }) : tooMany();
 
     // An event that repeats the stored state (a tool call while working) is answered with no write and costs no budget;
     // every other event, and a missing row, counts toward the hour (a refused body does too, above).

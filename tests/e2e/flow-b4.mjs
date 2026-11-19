@@ -39,7 +39,9 @@ await saveOk({ project: 'B4 Alpha', base_version: 0, ops: [{ op: 'set_now', text
 await saveOk({ project: 'B4 Beta', ops: [{ op: 'add_next', text: 'B4 beta first' }, { op: 'add_next', text: 'B4 beta second' }] });
 await saveOk({ project: 'B4 Beta', base_version: (await call('get_state', { project: 'B4 Beta' })).version, ops: [{ op: 'done_next', find: 'B4 beta first' }] });
 const projId = async name => (await rawDb.collection('projects').findOne({ orgId: ME.orgId, name }))._id;
+// "Since yesterday" reads the Activity feed: the State lines were written through save_state, so their feed rows are moved to yesterday.
 await rawDb.collection('states').updateMany({ projectId: { $in: [await projId('B4 Alpha'), await projId('B4 Beta')] } }, { $set: { 'log.$[].at': new Date('2026-11-17T08:00:00Z') } });
+await rawDb.collection('activity').updateMany({ projectId: { $in: [await projId('B4 Alpha'), await projId('B4 Beta')] }, type: { $in: ['state_now', 'next_added', 'next_done', 'decision'] } }, { $set: { at: new Date('2026-11-17T08:00:00Z') } });
 const wKey = await mkKey({ agent: 'claude-code', name: 'B4 worker' });
 await mcpAs(wKey, 'start_work', { project: 'B4 Alpha', label: 'builder A', model: 'Opus', session: 'b4-run' });
 await mcpAs(wKey, 'start_work', { project: 'B4 Beta', label: 'builder S', model: 'Sonnet', session: 'b4-stall' });

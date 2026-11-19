@@ -2120,7 +2120,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       return {
         need: await needOut(r.need),
         ...(r.replaced.length ? { replaced: r.replaced.map(n => ({ id: n.id, ref: n.ref })) } : {}),
-        note: a.release ? 'Asked. The owner gets one alert and answers in the app (Yes for 1 hour, Yes for 24 hours, or No). The answer comes to this session; then try again. Nothing you can call answers it. An answer is the only approval: do not proceed on a guess.' : 'Asked. They get one alert and answer in the app; nothing you can call answers it. Read the answer with needs, or it arrives in your next brief. An answer is the only approval: do not proceed on a guess.',
+        note: a.release ? 'Asked. The owner gets one alert and answers in the app (Yes for 1 hour, Yes for 24 hours, or No). The answer comes to this session; then try again. Nothing you can call answers it. An answer is the only approval: do not proceed on a guess.' : 'Asked. They get one alert while this session waits; otherwise it is in their morning digest. They answer in the app; nothing you can call answers it. Read the answer with needs, or it arrives in your next brief. An answer is the only approval: do not proceed on a guess.',
       };
     }),
   );

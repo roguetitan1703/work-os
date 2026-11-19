@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'quiet-phone-monday-numbers',
+    date: '2026-11-19',
+    title: 'Quieter phone, Monday numbers',
+    line: 'Your phone now buzzes only when an agent session is waiting on your answer, a person asks you, or a release needs your yes; the rest waits for the digest, which on Mondays adds four numbers and up to three proposals.',
+    where: 'Settings › Alerts',
+    href: '/settings',
+  },
+  {
     id: 'declutter-project',
     date: '2026-11-19',
     title: 'Declutter a project',

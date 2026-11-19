@@ -207,8 +207,12 @@ export type NeedDoc = Placed & {
   withdrawnReason?: string;
   /** When an alert for this Need (or the one it replaced) was last queued: a replacement within 10 minutes of it sends none. */
   alertedAt?: Date;
-  /** A review Need made past the hourly alert limit: no alert was queued for it. */
+  /** No alert was queued for it (a proposal of Orders). Older review Needs made past an hourly alert limit carry it too. */
   noAlert?: boolean;
+  /** Part of the owner's Monday digest (H12): a Need that waits for it and never reaches the phone. Server-only; set by propose_order and declutter. */
+  batch?: 'monday';
+  /** A correction a person gave twice (H12 counts it among Om's repeats). Server-only. */
+  repeat?: true;
   /** A review Need made because an agent wanted to drop or archive the task: what Accept then does (default: close it as Done). */
   closing?: 'Dropped' | 'archived';
   /**
@@ -411,6 +415,10 @@ export type PresenceDoc = Placed & {
   doing?: { taskId: string; at: Date };
   /** The state the Claude Code hook last reported (POST /api/agent/event; the server decides it from the event). Absent for sessions with no hook token. */
   activity?: { state: PresenceState; at: Date; why?: 'prompt' };
+  /** The last Stop the hook counted (H12, the Monday numbers): were the changed files saved to the State, and was the session reminded first. Last stop wins. Counts only, never text. */
+  stopCheck?: { files: 'saved' | 'unsaved'; reminded?: true; at: Date };
+  /** WORK-STATE.md hand edits of this session (H12): refused (by the hook or the server), and forwarded to the State. Counts only. */
+  copyEdits?: { refused?: number; forwarded?: number; /** Per UTC day (YYYY-MM-DD), so a week can be counted without the session's earlier life. */ days?: Record<string, { refused?: number; forwarded?: number }> };
   /** What the server last offered this session's hook to print (lib/data/deliver.ts): kept until the hook acknowledges it (`ack`) or the lease runs out. */
   offered?: { ids: string[]; needs: string[]; /** Orders versions offered as `ord:<noteId>:<v>`. */ orders?: string[]; mode: 'turn' | 'stop' | 'wake'; chain: number; at: Date; first: Date; tries: number; /** The text of the organization Orders short form, when the offer carried one. */ short?: boolean };
   /** The Orders version of each page this session was last told (start_work, an acknowledged delivery), by note id. */
