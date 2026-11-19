@@ -22,14 +22,14 @@ try {
   const ONE = (await must(MCP, 'add_project', { name: P, code: [{ remote: 'acme/detect-one' }] })).project.id;
   const pc = await mkDevice('detect-pc');
   await rawDb.collection('devices').updateOne({ _id: pc.id }, { $set: { ownerId: ME.userId, orgId: ME.orgId, name: 'detect-pc' } });
-  await rawDb.collection('workerFolders').insertOne(folder(pc, ME, 'f1', 'acme/detect-one', ONE));
+  await rawDb.collection('workerFolders').insertOne(folder(pc, ME, 'fold1', 'acme/detect-one', ONE));
   const rowId = sid => `${ME.userId}:s:${sid}:${ONE}`;
   const setRow = (sid, set) => rawDb.collection('presence').updateOne({ _id: rowId(sid) }, { $set: set });
   const daemonList = items => rawDb.collection('devices').updateOne({ _id: pc.id }, { $set: { claudeSessions: { at: new Date(), items } } });
   const item = (sessionId, running) => ({ sessionId, folder: 'f', title: 't', lastActiveAt: new Date(), subagentsActive: 0, startedByWorkOs: false, running });
   const sess = async () => {
     const cc = randomUUID();
-    const r = await call('/api/agent/start', pc.key, { remote: 'https://github.com/acme/detect-one.git', branch: 'main', path: 'C:/code/detect-one', label: 'detective', ccSession: cc, source: 'startup', machine: 'detect-pc' });
+    const r = await call('/api/agent/start', pc.key, { folders: ['fold1'], remote: 'https://github.com/acme/detect-one.git', branch: 'main', path: 'C:/code/detect-one', label: 'detective', ccSession: cc, source: 'startup', machine: 'detect-pc' });
     return { token: r.json.token, sid: r.json.brief.session, cc };
   };
   const rosterState = async sid => {

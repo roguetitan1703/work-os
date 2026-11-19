@@ -58,8 +58,8 @@ try {
 
   // ---- b) production per project: default, the brief for the hook, no MCP way to change it ----
   const pc = await deviceOf(ME, 'h8-pc');
-  await rawDb.collection('workerFolders').insertOne(folder(pc, ME, 'f1', 'acme/h8-one', ONE));
-  const body0 = { remote: 'https://github.com/acme/h8-one.git', branch: 'main', path: 'C:/code/h8-one', label: 'H8 · builder', ccSession: randomUUID(), source: 'startup' };
+  await rawDb.collection('workerFolders').insertOne(folder(pc, ME, 'fold1', 'acme/h8-one', ONE));
+  const body0 = { folders: ['fold1'], remote: 'https://github.com/acme/h8-one.git', branch: 'main', path: 'C:/code/h8-one', label: 'H8 · builder', ccSession: randomUUID(), source: 'startup' };
   const st = await call('/api/agent/start', pc.key, body0);
   const prod = st.json?.brief?.production;
   check("b: the hook's start brief carries production: the code remotes, main and master, no CLI targets (the default)", st.status === 200 && JSON.stringify(prod) === JSON.stringify({ remotes: ['acme/h8-one', 'acme/h8-site'], branches: ['main', 'master'], targets: [] }), JSON.stringify(prod) + st.text.slice(0, 200));
@@ -99,8 +99,8 @@ try {
   check('c: a release Need open and none answered: allowed false, open = its number, owner = first name only', none.status === 200 && none.json?.allowed === false && typeof none.json?.open === 'number' && none.json?.owner === 'E2E' && !('until' in none.json), none.text);
   check('c: the answer is no-store and holds nothing else (no ids, no project, no Need text)', none.headers.get('cache-control') === 'no-store' && Object.keys(none.json).sort().join() === 'allowed,open,owner', none.text);
   const TWO = (await must(MCP, 'add_project', { name: 'H8 Two', code: [{ remote: 'acme/h8-two' }] })).project.id;
-  await rawDb.collection('workerFolders').insertOne(folder(pc, ME, 'f2', 'acme/h8-two', TWO));
-  const st2 = await call('/api/agent/start', pc.key, { remote: 'https://github.com/acme/h8-two.git', branch: 'main', path: 'C:/code/h8-two', label: 'H8 two', ccSession: randomUUID(), source: 'startup' });
+  await rawDb.collection('workerFolders').insertOne(folder(pc, ME, 'fold2', 'acme/h8-two', TWO));
+  const st2 = await call('/api/agent/start', pc.key, { folders: ['fold2'], remote: 'https://github.com/acme/h8-two.git', branch: 'main', path: 'C:/code/h8-two', label: 'H8 two', ccSession: randomUUID(), source: 'startup' });
   const none2 = await rel(st2.json.token);
   check('c: a project with no release Need at all: allowed false and no "open"', none2.status === 200 && none2.json?.allowed === false && !('open' in none2.json), none2.text);
 
@@ -169,10 +169,10 @@ try {
   check('d: a teammate reading the answered release Need sees no window and no choice (an app-only answer is hidden)', !!seenByT && !viewer.text.includes('releaseUntil') && seenByT.answer?.option === '', viewer.text.slice(0, 300));
 
   // ---- e) unlinked folder, rate ----
-  await rawDb.collection('workerFolders').updateOne({ _id: `${pc.id}:f1` }, { $set: { missing: true } });
+  await rawDb.collection('workerFolders').updateOne({ _id: `${pc.id}:fold1` }, { $set: { missing: true } });
   const gone = await rel(sess.token);
   check('e: a folder unlinked since the start: 404, no grant answered', gone.status === 404, `${gone.status} ${gone.text}`);
-  await rawDb.collection('workerFolders').updateOne({ _id: `${pc.id}:f1` }, { $set: { missing: false } });
+  await rawDb.collection('workerFolders').updateOne({ _id: `${pc.id}:fold1` }, { $set: { missing: false } });
   const sess3 = (await call('/api/agent/start', pc.key, { ...body0, ccSession: randomUUID() })).json;
   let last = null;
   let firstBad = 0;

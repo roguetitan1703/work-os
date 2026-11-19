@@ -8,7 +8,7 @@ const kindOf = (h, u) => (h['next-action'] ? 'action' : h['next-router-prefetch'
 
 /**
  * Runs the steps in a new desktop context of `browser` as `person`; returns { steps: { name: { kind: n } }, log }.
- * A teammate (`teammate`, a team.json person) adds a Claude item while the tab is on /claude, as a push hint.
+ * A teammate (`teammate`, a team.json person) edits a task while the tab is on /claude, as a push hint.
  */
 export async function browserSession({ browser, team, person, teammate, wait = 5000 }) {
   const ctx = await browser.newContext({ viewport: { width: 1366, height: 860 } });

@@ -115,8 +115,8 @@ const ask = async (sid, extra = {}) => (await must(kA, 'ask', { project: 'H12 Pr
   await must(MCP, 'save_state', { project: 'H12 Hooks', ops: [{ op: 'add_next', text: 'H12 first line' }, { op: 'add_next', text: 'H12 second line' }] });
   const pc = await mkDevice('h12-pc');
   await rawDb.collection('devices').updateOne({ _id: pc.id }, { $set: { ownerId: ME.userId, orgId: ME.orgId } });
-  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:f1`, deviceId: pc.id, folderId: 'f1', name: 'C:/code/f1', git: true, remote: 'acme/h12-hooks', projectId: one, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
-  const start = await post('/api/agent/start', pc.key, { remote: 'https://github.com/acme/h12-hooks.git', branch: 'main', path: 'C:/code/h12-hooks', machine: 'h12-pc', label: 'Claude Code' });
+  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:fold1`, deviceId: pc.id, folderId: 'fold1', name: 'C:/code/f1', git: true, remote: 'acme/h12-hooks', projectId: one, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
+  const start = await post('/api/agent/start', pc.key, { folders: ['fold1'], remote: 'https://github.com/acme/h12-hooks.git', branch: 'main', path: 'C:/code/h12-hooks', machine: 'h12-pc', label: 'Claude Code' });
   const T = start.json?.token ?? '';
   const sid = start.json?.brief?.session;
   const row = () => rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:${sid}:${one}` });
