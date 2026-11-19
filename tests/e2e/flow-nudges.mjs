@@ -27,9 +27,9 @@ try {
   const kA = await mkKey({ agent: 'claude-code', name: 'NG Code' });
   PID = (await must(kA, 'add_project', { name: NAME, code: [{ remote: 'acme/ng-one' }] })).project.id;
   const pc = await mkDevice('ng-pc');
-  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:f1`, deviceId: pc.id, folderId: 'f1', name: 'C:/code/ng-one', git: true, remote: 'acme/ng-one', projectId: PID, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
+  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:fold1`, deviceId: pc.id, folderId: 'fold1', name: 'C:/code/ng-one', git: true, remote: 'acme/ng-one', projectId: PID, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
   const newSession = async label => {
-    const r = await call('/api/agent/start', pc.key, { remote: 'https://github.com/acme/ng-one.git', branch: 'main', path: 'C:/code/ng-one', label, ccSession: randomUUID(), source: 'startup' });
+    const r = await call('/api/agent/start', pc.key, { folders: ['fold1'], remote: 'https://github.com/acme/ng-one.git', branch: 'main', path: 'C:/code/ng-one', label, ccSession: randomUUID(), source: 'startup' });
     return { token: r.json?.token ?? '', sid: r.json?.brief?.session ?? '', ok: r.status === 200 };
   };
   const S = await newSession('NG holder');
