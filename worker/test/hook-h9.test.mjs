@@ -46,3 +46,29 @@ test('formatBrief: no section without changes, and it stays inside 1,200 charact
   const sec = b.split('## Orders changed\n')[1].split('\n\n')[0];
   assert.ok(sec.length <= 1200 + 60, `section is ${sec.length}`);
 });
+
+// ---- step 4: changes handed into running sessions ----
+const lib = await import('../hook-lib.mjs');
+
+test('keepAck: the ids to acknowledge include the Orders versions handed over', () => {
+  lib.writeMarker('h9-ack', { status: 'x' });
+  lib.keepAck('h9-ack', { status: 200, b: { deliver: { text: 't', ids: ['m_1'], needs: ['n_1'], orders: ['ord:abc:8'] } } });
+  assert.deepEqual(lib.readMarker('h9-ack').ack, ['m_1', 'n_1', 'ord:abc:8']);
+  lib.writeMarker('h9-ack2', { status: 'x' });
+  lib.keepAck('h9-ack2', { status: 200, b: { deliver: { text: 't', ids: [], needs: [], orders: ['ord:abc:9'] } } });
+  assert.deepEqual(lib.readMarker('h9-ack2').ack, ['ord:abc:9'], 'an Orders-only delivery is acknowledged too');
+});
+
+test('deliverOut: the short form of a changed organization Orders replaces the one kept at the start', () => {
+  lib.writeMarker('h9-short', { status: 'x', short: 'old line' });
+  const out = lib.deliverOut('PostToolBatch', { status: 200, b: { deliver: { text: 'Work OS: changed', ids: [], needs: [], orders: ['ord:a:2'], short: 'Rule one.\nRule two.' } } }, 'h9-short');
+  assert.equal(out.hookSpecificOutput.additionalContext, 'Work OS: changed');
+  assert.equal(lib.readMarker('h9-short').short, 'Rule one.\nRule two.');
+  assert.deepEqual(lib.readMarker('h9-short').ack, ['ord:a:2']);
+  lib.deliverOut('PostToolBatch', { status: 200, b: { deliver: { text: 'again', ids: [], needs: [], orders: ['ord:a:3'], short: '' } } }, 'h9-short');
+  assert.equal(lib.readMarker('h9-short').short, undefined, 'an empty short form removes it');
+  lib.writeMarker('h9-keep', { status: 'x', short: 'kept' });
+  lib.deliverOut('PostToolBatch', { status: 200, b: { deliver: { text: 'msg only', ids: ['m_1'], needs: [], orders: [] } } }, 'h9-keep');
+  assert.equal(lib.readMarker('h9-keep').short, 'kept', 'a delivery without Orders leaves the short form alone');
+  assert.equal(lib.deliverOut('PostToolBatch', { status: 200, b: {} }, 'h9-keep'), null);
+});

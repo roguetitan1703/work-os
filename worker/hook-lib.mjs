@@ -109,13 +109,18 @@ export const deliverText = (r) => (r && r.status === 200 && typeof r.b?.deliver?
 /** The ids to acknowledge for what an answer handed over: kept in the marker once the text is being printed, sent with the next call (`ack`). Until then the server counts the messages unread and offers them again after 20 s. */
 export const keepAck = (sid, r) => {
   const d = r?.status === 200 ? r.b?.deliver : null;
-  const ids = [...(Array.isArray(d?.ids) ? d.ids : []), ...(Array.isArray(d?.needs) ? d.needs : [])].filter((i) => typeof i === 'string').slice(0, 12);
+  const ids = [...(Array.isArray(d?.ids) ? d.ids : []), ...(Array.isArray(d?.needs) ? d.needs : []), ...(Array.isArray(d?.orders) ? d.orders : [])].filter((i) => typeof i === 'string').slice(0, 12);
   const m = sid && ids.length ? readMarker(sid) : null;
   if (m) writeMarker(sid, { ...m, ack: ids });
 };
 export const deliverOut = (hookEventName, r, sid) => {
   const text = deliverText(r);
   if (text && sid) keepAck(sid, r);
+  // The organization Orders changed: the new short form (what a subagent starts with) replaces the one kept at the start.
+  if (text && sid && typeof r.b?.deliver?.short === 'string') {
+    const m = readMarker(sid);
+    if (m) { const { short: _old, ...rest } = m; writeMarker(sid, { ...rest, ...(r.b.deliver.short ? { short: r.b.deliver.short.slice(0, 1200) } : {}) }); }
+  }
   return text ? { hookSpecificOutput: { hookEventName, additionalContext: text } } : null;
 };
 
