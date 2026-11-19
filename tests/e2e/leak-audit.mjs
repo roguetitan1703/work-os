@@ -1031,6 +1031,8 @@ try {
     await mustMcp(A.code, 'start_work', { project: nm, machine: cn + 'box', label: cn + 'label', branch: cn + 'br', session: 'lkqh5sess' });
     const ended = await mustMcp(A.code, 'end_work', { project: nm, base_version: 0, state: [{ op: 'set_now', text: cn + 'now' }], friction: cn + 'friction', handover: { step: cn + 'step', in_flight: [cn + 'flight'] }, session: 'lkqh5sess' });
     await mustMcp(A.code, 'start_work', { project: nm, machine: cn + 'box', label: cn + 'label2', session: 'lkqh5live' });
+    // H10: a feedback line on the private project (its text, tool and rule carry the canary) is a row on the project's State
+    await mustMcp(A.code, 'feedback', { project: nm, text: cn + 'feedbacktext', tool: cn + 'fbtool', rule: cn + 'fbrule', session: 'lkqh5sess' });
     const mine = await mcpCall(A.code, 'list_sessions', { include_gone: true });
     check('h5: the owner sees their sessions in list_sessions (live and gone)', mine.ok && mine.text.includes(cn + 'label') && mine.text.includes(cn + 'label2'), mine.text.slice(0, 200));
     for (const p of [T, R, X]) {
@@ -1046,7 +1048,9 @@ try {
       scan(p.name, 'read_note (handover)', rn.text);
       check(`h5: ${p.name} cannot read the handover note`, !rn.ok || !rn.text.includes(cn), rn.text.slice(0, 120));
       const fd = await mcpCall(k, 'recent_activity', { limit: 50 });
-      scan(p.name, 'recent_activity (session_ended)', fd.text);
+      scan(p.name, 'recent_activity (session_ended, feedback)', fd.text);
+      const fb = await mcpCall(k, 'feedback', { project: nm, text: 'probe' });
+      check(`h10: ${p.name} cannot send feedback to the private project`, !fb.ok, fb.text.slice(0, 120));
       const ew = await mcpCall(k, 'end_work', { project: nm, state: [{ op: 'set_where', machine: 'x', branch: 'y' }], friction: 'probe', handover: { step: 'probe' } });
       check(`h5: ${p.name} cannot end work on, or leave a handover in, the private project`, !ew.ok, ew.text.slice(0, 120));
     }
@@ -1222,6 +1226,11 @@ function AUDIT() {
   add('mcp end_work',
     M('end_work', t => ({ project: t.project, state: [{ op: 'add_next', text: 'lkq sneaked end line' }], friction: 'lkq probe', handover: { step: 'lkq sneaked handover' } }), aim(['project'])),
     M('end_work', t => ({ project: t.projectName, base_version: 0, state: [{ op: 'set_now', text: 'lkq sneaked end goal' }], friction: 'lkq probe', handover: { step: 'lkq by name', for: 'anyone' } }), aim(['projectName'], { label: 'set_now, by name' })),
+  );
+  // H10: feedback writes a feed row on the project's State, so each probe is aimed at a project the caller cannot read
+  add('mcp feedback',
+    M('feedback', t => ({ project: t.project, text: 'lkq sneaked feedback', tool: 'lkq', rule: 'lkq' }), aim(['project'])),
+    M('feedback', t => ({ project: t.projectName, text: 'lkq sneaked feedback by name' }), aim(['projectName'], { label: 'by name' })),
   );
   add('mcp list_sessions', M('list_sessions', { include_gone: true }), M('list_sessions', t => ({ project: t.project, include_gone: true }), aim(['project'], { label: 'by project', control: false, ok: r => r.ok && r.json?.sessions?.length > 0 })));
   add('mcp slot', M('slot', { action: 'acquire', machine: 'lkq-slot-box' }, { label: 'acquire' }), M('slot', { action: 'release', machine: 'lkq-slot-box' }, { label: 'release' }));
