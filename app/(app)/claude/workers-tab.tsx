@@ -14,22 +14,35 @@ const STATE: Record<WorkerState, { text: string; cls: string }> = {
 
 /** The roster (docs/flows/plan-1-3.md slice 7): who is working on what and where. Builders sit under their orchestrator. */
 export function WorkersTab({ data, tz }: { data: Roster; tz: string }) {
-  const { workers, couldBeRunning, machines } = data;
+  const { couldBeRunning, machines } = data;
+  // Sessions whose folder no project owns sit apart, under "No project" (Identity step 5); builders stay under their orchestrators within each list.
+  const workers = data.workers.filter(w => w.project);
+  const noProject = data.workers.filter(w => !w.project);
   return (
     <div className="space-y-5 md:max-w-4xl" data-section="workers">
       <CouldBeRunning list={couldBeRunning} />
       <section className="space-y-2">
         <h2 className={cn(H2, 'px-1 md:px-0 text-muted-foreground')}>Workers</h2>
-        {workers.length === 0 ? (
+        {workers.length === 0 && noProject.length === 0 ? (
           <p data-workers-empty className="px-1 md:px-0 text-[15px] md:text-sm text-muted-foreground">
-            No one has reported in. A session that calls start_work on a project shows up here.
+            No one has reported in. A Claude Code session with the Work OS hooks shows up here, on a project or under No project.
           </p>
-        ) : (
+        ) : workers.length === 0 ? null : (
           <ul className={cn(card, 'divide-y divide-border/60')} data-workers-list>
             {workers.map(w => (
               <Row key={w.id} w={w} tz={tz} />
             ))}
           </ul>
+        )}
+        {noProject.length > 0 && (
+          <div className="space-y-1" data-workers-no-project>
+            <h3 className="px-1 md:px-0 text-[13px] md:text-xs font-semibold text-muted-foreground">No project</h3>
+            <ul className={cn(card, 'divide-y divide-border/60')}>
+              {noProject.map(w => (
+                <Row key={w.id} w={w} tz={tz} />
+              ))}
+            </ul>
+          </div>
         )}
         {machines.length > 0 && (
           <p className="px-1 md:px-0 text-[13px] md:text-xs text-muted-foreground" data-heavy-slots>
@@ -112,9 +125,13 @@ function Row({ w, tz }: { w: WorkerRow; tz: string }) {
         </span>
       </div>
       <div className="text-[13px] md:text-xs text-muted-foreground">
-        <Link href={`/projects/${encodeURIComponent(w.project.id)}`} className="hover:text-foreground hover:underline">
-          {w.project.name}
-        </Link>
+        {w.project ? (
+          <Link href={`/projects/${encodeURIComponent(w.project.id)}`} className="hover:text-foreground hover:underline">
+            {w.project.name}
+          </Link>
+        ) : (
+          <span data-worker-no-project>No project</span>
+        )}
         {where && <> · {where}</>}
         {w.account && <> · account {w.account}</>}
       </div>

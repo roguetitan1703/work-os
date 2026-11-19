@@ -37,7 +37,10 @@ export async function readCapped(req: Request, max: number): Promise<string | nu
   return Buffer.concat(parts).toString('utf8');
 }
 
-export type AgentToken = { s: Scope; device: { id: string; name: string }; session: { id: string; projectId: string; expiresAt: Date } };
+export type AgentToken = { s: Scope; device: { id: string; name: string }; session: { id: string; /** Null: a session outside any project; only event and wait take its token. */ projectId: string | null; expiresAt: Date } };
+
+/** What the routes that need a project (state, release, the brief) answer to a token that has none. */
+export const noProject = () => agentReply(403, { error: 'This session is not on a project: its token takes only events and waits.' });
 
 /**
  * A wst_ session token that is valid and whose owner is still a member of its organization; null for anything else (no

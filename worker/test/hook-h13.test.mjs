@@ -46,6 +46,8 @@ const server = http.createServer((req, res) => {
       if (mode === 'http429') return json(429, { error: 'too many' });
       if (mode === 'unfiled' || mode === 'unfkey') return json(404, { error: 'No project linked to a folder on this computer matches this folder.', unfiled: true });
       if (mode === 'quiet') return json(404, { error: 'x', unfiled: true, quiet: true });
+      // Protocol 3 (Identity step 5): no project is a 200 with `unfiled`; the first start also hands over a token that opens only events and waits.
+      if (mode === 'unf3' || mode === 'unf3q') return json(200, { unfiled: true, ...(mode === 'unf3q' ? { quiet: true } : {}), ...(req.headers.authorization === `Bearer ${TOKEN}` ? {} : { token: TOKEN, expiresAt: new Date(Date.now() + 3600e3).toISOString() }) });
       return json(200, { brief, token: TOKEN, expiresAt: new Date(Date.now() + 3600e3).toISOString() });
     }
     if (req.url === '/api/mcp') {
@@ -332,4 +334,59 @@ test('the prompt hook: the worker says unfiled but the key path (a path location
     assert.match(still, /not filed yet/);
     assert.equal(marker('kp2').unfiled, true);
   } finally { delete process.env.WORK_OS_KEY; delete process.env.WORK_OS_URL; mode = 'unfiled'; }
+});
+
+test('protocol 3: a folder no project owns is a session with no project: the unfiled text, the token kept, a marker that reports state', async () => {
+  setFolders({ idApp001: app });
+  mode = 'unf3'; seen.length = 0;
+  const out = text(await start('n1', path.join(app, 'src')));
+  assert.match(out, /not filed in Work OS/);
+  assert.ok(lib.readKept('n1'), 'the no-project token is kept');
+  const m = marker('n1');
+  assert.equal(m.unfiled, true);
+  assert.equal(m.stopped, true);
+  assert.equal(m.presence?.state, 'on', 'other hooks post for it');
+  assert.equal(starts()[0].auth, `Bearer ${WKR}`, 'the first start is the PC key');
+});
+
+test('protocol 3: the next prompt signs in again with the kept token (one session, not a new one) and posts its event', async () => {
+  mode = 'unf3'; seen.length = 0;
+  const still = text(await prompt('n1', path.join(app, 'src')));
+  assert.ok(still.length > 0 && still.length < 160, 'the one-line reminder is still shown');
+  assert.equal(starts().length, 1);
+  assert.equal(starts()[0].auth, `Bearer ${TOKEN}`, 'the kept token, not the PC key: no second session');
+  const ev = seen.filter((x) => x.url === '/api/agent/event');
+  assert.equal(ev.length, 1, 'the prompt event is posted');
+  assert.equal(ev[0].auth, `Bearer ${TOKEN}`);
+  assert.equal(ev[0].body.event, 'prompt');
+  assert.equal(marker('n1').unfiled, true);
+});
+
+test('protocol 3: once the folder is filed the same prompt hook ends the no-project state, with a new token for the project', async () => {
+  mode = 'ok'; seen.length = 0;
+  const filed = text(await prompt('n1', path.join(app, 'src')));
+  assert.equal(filed, 'Filed under Demo; Work OS hooks are on for this session.');
+  assert.equal(marker('n1').unfiled, undefined);
+  assert.equal(marker('n1').project, 'Demo');
+});
+
+test('protocol 3: marked not Work OS and a temp folder print nothing but still report; an SDK run signs in nowhere', async () => {
+  setFolders({ idApp001: app });
+  mode = 'unf3q'; seen.length = 0;
+  assert.equal(text(await start('n2', path.join(app, 'src'))), '', 'quiet prints nothing');
+  assert.ok(lib.readKept('n2'));
+  assert.equal(marker('n2').quiet, true);
+  assert.equal(marker('n2').unfiled, undefined);
+  assert.equal(marker('n2').presence?.state, 'on');
+  mode = 'unf3'; seen.length = 0;
+  setTmp(realTmp);
+  const tmpOut = text(await start('n3', path.join(tmp, 'projs', 'app', 'src')));
+  assert.equal(tmpOut, '', 'a temp folder prints nothing');
+  assert.ok(lib.readKept('n3'), 'but it is on the roster');
+  setTmp(fakeTmp);
+  process.env.CLAUDE_CODE_ENTRYPOINT = 'sdk-cli';
+  seen.length = 0;
+  assert.equal(text(await start('n4', path.join(app, 'src'))), '');
+  delete process.env.CLAUDE_CODE_ENTRYPOINT;
+  assert.equal(starts().length, 0, 'claude -p and the SDK never register');
 });

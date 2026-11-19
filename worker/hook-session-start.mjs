@@ -34,12 +34,15 @@ async function agentStart(body, kept, timeoutMs) {
   if (kept && SESSION_TOKEN_RE.test(kept)) {
     const r = await post(kept);
     if (r.status === 200 && r.b?.brief) return { brief: r.b.brief, ...dispatchedOf(r.b) };
+    if (r.status === 200 && r.b?.unfiled === true) return { unfiled: true, quiet: r.b.quiet === true }; // still no project; the token stays this session's
     if (r.status !== 401 && r.status !== 403) return null; // over the limit, server trouble: no brief this time
   }
   const key = deps.deviceKey(home);
   if (!key || !/^wkr_[A-Za-z0-9_-]{43}$/.test(key)) return null;
   const r = await post(key);
   if (r.unfiled) return { unfiled: true, quiet: r.quiet === true };
+  // Protocol 3: a folder no project owns is a session with no project; the answer carries a token that opens only events and waits.
+  if (r.status === 200 && r.b?.unfiled === true) return { unfiled: true, quiet: r.b.quiet === true, ...(SESSION_TOKEN_RE.test(r.b.token || '') ? { token: r.b.token, until: Date.parse(r.b.expiresAt || '') || undefined } : {}) };
   if (r.status !== 200 || !r.b?.brief) return null;
   const token = SESSION_TOKEN_RE.test(r.b.token || '') ? r.b.token : undefined;
   const until = Date.parse(r.b.expiresAt || '') || undefined;
@@ -69,12 +72,21 @@ function briefMarker(sid, input, cwd, old, r, reports, dispatched) {
  * The session is in an unfiled folder: the marker says so (the prompt hook asks again after the person filed it; `stopped` keeps
  * the stop check quiet) and the answer is the fixed unfiled text. Nothing in a temp folder.
  */
-function unfiledAnswer(sid, input, cwd, remote, folders, candidates) {
-  if (quietPath(cwd)) return null;
+function unfiledAnswer(sid, input, cwd, remote, folders, candidates, silent = false) {
   const folder = folders[0] || null;
-  if (sid) writeMarker(sid, { status: statusHash(cwd), offset: sizeOf(input.transcript_path), stopped: true, unfiled: true, folder, path: cwd });
+  // A session with a no-project token reports its state (the other hooks post when the marker has `presence`).
+  const reports = !!(sid && readKept(sid));
+  const presence = reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : {};
+  if (silent || quietPath(cwd)) {
+    if (sid && reports) writeMarker(sid, { ...(transcriptOf(input) ? { transcript: transcriptOf(input), ident: identityKey(identityOf(transcriptOf(input))) } : {}), status: statusHash(cwd), offset: sizeOf(input.transcript_path), stopped: true, quiet: true, ...presence });
+    return null;
+  }
+  if (sid) writeMarker(sid, { ...(transcriptOf(input) ? { transcript: transcriptOf(input), ident: identityKey(identityOf(transcriptOf(input))) } : {}), status: statusHash(cwd), offset: sizeOf(input.transcript_path), stopped: true, unfiled: true, folder, path: cwd, ...presence });
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: unfiledText({ path: cwd, remote, folder, machine: os.hostname().slice(0, 40), candidates, worker: !!workerHome() }) } };
 }
+
+/** The transcript path of a hook input, or ''. */
+const transcriptOf = (input) => (typeof input.transcript_path === 'string' ? input.transcript_path : '');
 
 /** SessionStart: the hook's JSON answer (or null for "print nothing"). */
 export async function sessionStart(input) {
@@ -98,11 +110,12 @@ export async function sessionStart(input) {
   if (workerHome()) {
     try { a = await agentStart({ ...where, folders, ...repoFacts(cwd), ...ids, ...identity }, sid ? readKept(sid) : null); } catch { a = null; }
   }
+  if (a?.unfiled && a.token && sid) keepToken(sid, a.token, a.until); // no project: the token opens only events and waits
   if (a?.brief) {
     reports = true;
     r = a.brief;
     if (a.token && sid) keepToken(sid, a.token, a.until);
-  } else if (a?.unfiled && a.quiet) return null; // the person said this folder is not Work OS
+  } else if (a?.unfiled && a.quiet) return unfiledAnswer(sid, input, cwd, remote, folders, undefined, true); // the person said this folder is not Work OS: on the roster, nothing printed
   else if (process.env.WORK_OS_KEY) {
     const text = await mcpCall('start_work', { ...where, ...keyIdentity, ...(run.project ? { project: run.project } : {}) }); // a cloud repo filed with --project starts on it
     if (text) { try { r = JSON.parse(text); } catch { r = null; } }
@@ -131,7 +144,7 @@ export async function refile(input, timeoutMs = 2000) {
   const ids = { ...(UUID_RE.test(sid) ? { ccSession: sid } : {}), source: 'startup' };
   let a = null;
   if (workerHome()) {
-    try { a = await agentStart({ ...where, folders: folderCandidates(cwd), ...repoFacts(cwd), ...ids, ...identityOf(input.transcript_path) }, null, timeoutMs); } catch { return null; }
+    try { a = await agentStart({ ...where, folders: folderCandidates(cwd), ...repoFacts(cwd), ...ids, ...identityOf(input.transcript_path) }, readKept(sid), timeoutMs); } catch { return null; } // the kept token (a no-project session) keeps this one session
     if (a?.unfiled && a.quiet) return { unfiled: true, quiet: true };
     if (a?.brief?.project) {
       if (a.token) keepToken(sid, a.token, a.until);

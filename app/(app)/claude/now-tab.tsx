@@ -404,7 +404,7 @@ function SessionLine({ s, busy, onStop, onRemove, onResume, onVscode, onLink }: 
           <span className={st.tone}>{st.label}</span>
           {subs && ` · ${subs}`}
           {` · ${s.folder}`}
-          {s.projectId ? s.projectName && ` · ${s.projectName}` : ' · not filed'}
+          {s.projectId ? s.projectName && ` · ${s.projectName}` : ' · No project'}
           {` · ${s.deviceName}`}
           <span suppressHydrationWarning>{` · ${agoShort(s.lastActiveAt)}`}</span>
           {s.error && ` · ${s.error}`}
@@ -417,7 +417,7 @@ function SessionLine({ s, busy, onStop, onRemove, onResume, onVscode, onLink }: 
           </Link>
         ) : (
           <span data-not-filed>
-            <span className="text-amber-600 dark:text-amber-400">not filed</span> · {s.folder}
+            <span className="text-amber-600 dark:text-amber-400">No project</span> · {s.folder}
           </span>
         )}
       </div>

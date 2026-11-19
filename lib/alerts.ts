@@ -337,13 +337,13 @@ async function buildDigest(
   // 4. Agents: working and waiting sessions, stalled ones (idle or off while their project has unblocked Next lines), stops,
   // and projects that could be running and are not. The roster comes through the person's own door.
   const r = await roster(s);
-  const nextByProject = await unblockedNext(s, [...new Set(r.workers.map(w => w.project.id))]);
+  const nextByProject = await unblockedNext(s, [...new Set(r.workers.flatMap(w => (w.project ? [w.project.id] : [])))]);
   const agents: { rank: number; text: string; detail?: string }[] = [];
-  const workerName = (w: (typeof r.workers)[number]) => `${neutralAlertText(w.project.name)} · ${neutralAlertText(w.label || w.ai)}${w.model ? ` (${neutralAlertText(w.model)})` : ''}`;
+  const workerName = (w: (typeof r.workers)[number]) => `${neutralAlertText(w.project?.name ?? 'No project')} · ${neutralAlertText(w.label || w.ai)}${w.model ? ` (${neutralAlertText(w.model)})` : ''}`;
   let running = 0;
   let stalled = 0;
   for (const w of r.workers) {
-    const left = nextByProject.get(w.project.id)?.n ?? 0;
+    const left = w.project ? (nextByProject.get(w.project.id)?.n ?? 0) : 0;
     if (w.state === 'working') {
       running++;
       agents.push({ rank: 0, text: `Running: ${workerName(w)}`, detail: w.machine ? `on ${neutralAlertText(w.machine)}` : undefined });

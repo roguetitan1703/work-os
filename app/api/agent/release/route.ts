@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { projectOnDevice } from '@/lib/agent-sessions';
-import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf, readCapped } from '@/lib/agent-auth';
+import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf, noProject, readCapped } from '@/lib/agent-auth';
 import { reserveAgent } from '@/lib/mcp/policy';
 import { agentActor } from '@/lib/actors';
 import { RELEASE_WHAT, checkRelease } from '@/lib/data/production';
@@ -35,6 +35,8 @@ export async function POST(req: Request): Promise<Response> {
     const auth = await authAgentToken(bearerOf(req));
     if (!auth) return unauthorized();
     const { s, device, session } = auth;
+    const sessionProject = session.projectId;
+    if (!sessionProject) return noProject(); // a session outside any project: its token takes only events and waits
     if (!(await reserveAgent('release', session.id))) {
       return reply(429, { error: 'Too many production checks from this session in the last hour; try again later.' }, { 'Retry-After': '600' });
     }
@@ -55,8 +57,8 @@ export async function POST(req: Request): Promise<Response> {
     const tz = await timezoneOf(s);
     return await runWithRequestContext({ userId: s.userId, tz, hook, sid: session.id, src: session.id }, async () => {
       // Checked on every call: the folder may have been unlinked since the session began.
-      if (!(await projectOnDevice(s, device.id, session.projectId))) return reply(404, { error: 'This project has no folder on this computer any more.' });
-      return reply(200, await checkRelease(s, session.projectId, b.what, b.name, agentActor('claude-code', s.userId)));
+      if (!(await projectOnDevice(s, device.id, sessionProject))) return reply(404, { error: 'This project has no folder on this computer any more.' });
+      return reply(200, await checkRelease(s, sessionProject, b.what, b.name, agentActor('claude-code', s.userId)));
     });
   } catch (err) {
     if (err instanceof InputError) return reply(400, { error: err.message });

@@ -102,8 +102,9 @@ export async function POST(req: Request): Promise<Response> {
       if (ev.event === 'prompt') await startTurn(s, session.id, session.projectId, ev.woke === true);
       if (ev.deliver && out.state && (ev.event === 'prompt' || ev.event === 'tool' || ev.event === 'stop')) {
         // Checked on every call: the folder may have been unlinked since the session began. A used-up read budget answers the state alone.
-        if ((await projectOnDevice(s, device.id, session.projectId)) && (await reserveAgent('deliver', session.id))) {
-          const d = (await deliverFor(s, session.id, session.projectId, ev.event === 'stop' ? 'stop' : 'turn')).delivery;
+        const pid = session.projectId; // null: a session outside any project, which gets no delivery
+        if (pid && (await projectOnDevice(s, device.id, pid)) && (await reserveAgent('deliver', session.id))) {
+          const d = (await deliverFor(s, session.id, pid, ev.event === 'stop' ? 'stop' : 'turn')).delivery;
           if (d) return reply(200, { ...out, deliver: d satisfies Delivery });
         }
       }

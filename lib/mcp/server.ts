@@ -459,6 +459,17 @@ function labelFor(projectName: string, a: StartWorkArgs, dispatched?: { ref: num
 }
 
 /**
+ * A Claude Code session whose folder no project owns (Identity step 5): it is on the roster, private to its person, with no project.
+ * Written by the hook's start route for protocol 3; no brief, no State. `folderName` names the row until the session has a name.
+ */
+export async function registerUnfiledSession(ctx: BriefCtx, sid: string, a: StartWorkArgs, folderName?: string): Promise<void> {
+  const caller = ctx.caller;
+  const s = sOf(ctx);
+  const mach = await resolveMachine(s, a.machine);
+  await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, null, { machine: mach.machine, machineName: mach.machineName, ...labelFor(cleanLabel(folderName) || 'Claude Code', a, null), tool: a.tool, model: a.model, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
+}
+
+/**
  * The start brief for one project and session: registers the session as present, marks the unread messages it hands
  * over as seen and the answered Needs as briefed, and returns Orders, Needs, State, inbox, open tasks and who else is
  * here. Used by the start_work tool and by the hook's route (POST /api/agent/start, lib/agent-sessions.ts). `key` is a
@@ -1544,7 +1555,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       // A project you cannot read is "not found", as everywhere else (same answer for one that does not exist).
       if (a.project?.trim()) {
         const { project } = await stateData.getState(s, a.project);
-        ws = ws.filter(w => w.project.id === project._id);
+        ws = ws.filter(w => w.project?.id === project._id);
       }
       if (!a.include_off && !a.include_gone) ws = ws.filter(w => w.state !== 'off');
       const now = Date.now();
@@ -1557,7 +1568,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
           tool: w.tool || w.ai, // desktop, vscode or terminal when the hook said; else the kind of client
           model: w.model,
           machine: w.machine,
-          project: w.project.name,
+          project: w.project?.name ?? 'No project', // a session whose folder no project owns (only its own person sees it)
           branch: w.branch,
           doing: w.doing ? `#${w.doing.ref}` : null,
           state: w.state,

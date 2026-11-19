@@ -24,7 +24,7 @@ import type { ToolName } from './docs';
 // that returns lines. Nothing else in this file or in the tool wrapper changes.
 
 export const SKEW_MS = 2000;
-export type ForYouInput = { s: Scope; row: PresenceDoc; since: Date; projectId: string; src?: string; named: Set<string> };
+export type ForYouInput = { s: Scope; row: PresenceDoc & { projectId: string }; since: Date; projectId: string; src?: string; named: Set<string> };
 export type Named = { lines: string[]; ids: string[] };
 export type ForYouSource = {
   id: string;
@@ -170,13 +170,15 @@ export async function forYouBefore(s: Scope, ident: Ident, tool: ToolName): Prom
     }
     const startedAt = new Date();
     const c = await scoped(s);
-    // A project the caller can no longer read (made private, taken off) names nothing.
-    if (!(await c.projects.findOne({ _id: row.projectId }, { projection: { _id: 1 } }))) return null;
+    // A session with no project (Identity step 5) hears nothing from a project; a project the caller can no longer read (made private, taken off) names nothing.
+    if (!row.projectId) return null;
+    const here = { ...row, projectId: row.projectId };
+    if (!(await c.projects.findOne({ _id: here.projectId }, { projection: { _id: 1 } }))) return null;
     const named = new Set(row.named ?? []);
     const lines: string[] = [];
     const ids: string[] = [];
     for (const src of SOURCES) {
-      const r = await src.collect({ s, row, since: row.forYouCursor, projectId: row.projectId, src: sessionKey(ident), named });
+      const r = await src.collect({ s, row: here, since: row.forYouCursor, projectId: here.projectId, src: sessionKey(ident), named });
       lines.push(...r.lines);
       ids.push(...r.ids);
     }

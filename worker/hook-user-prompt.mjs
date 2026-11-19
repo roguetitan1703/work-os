@@ -3,7 +3,7 @@
 // prompt's context. Waits for the answer (0.6 s at most, the hook is given 3); no token, a slow or failed call: no output.
 // A session that started unfiled (no project owns its folder, H13) tries to sign in again first (2 s): once its person filed the folder
 // it gets its token and one line, "Filed under X"; still unfiled it gets a one-line reminder; marked not Work OS it is left alone.
-import { deliverOut, postEvent, readMarker, unfiledReminder, workerHome, writeMarker } from './hook-lib.mjs';
+import { deliverOut, postEvent, readKept, readMarker, unfiledReminder, workerHome, writeMarker } from './hook-lib.mjs';
 import { refile } from './hook-session-start.mjs';
 
 const WOKE_MS = 60_000;
@@ -28,9 +28,9 @@ export async function userPrompt(input) {
   const now = line.startsWith('Filed') ? readMarker(sid) : m;
   // This prompt is the wake the idle wait just caused (the server checks the time too): the chain of the agent that woke the session carries on.
   const woke = !!now?.wokeAt && Date.now() - now.wokeAt < WOKE_MS;
-  const r = m?.unfiled && !line.startsWith('Filed') ? null : await postEvent(sid, 'prompt', { deliver: true, ...(woke ? { woke: true } : {}) }, PROMPT_POST_MS);
+  const r = m?.unfiled && !line.startsWith('Filed') && !readKept(sid) ? null : await postEvent(sid, 'prompt', { deliver: true, ...(woke ? { woke: true } : {}) }, PROMPT_POST_MS);
   const after = readMarker(sid);
-  if (after && !after.unfiled) {
+  if (after && (!after.unfiled || readKept(sid))) {
     const { wokeAt, ...rest } = after;
     void wokeAt;
     writeMarker(sid, { ...rest, lastTool: Date.now() }); // the tool-batch hook posts again in 20 s

@@ -1115,6 +1115,34 @@ try {
       check(`h5: ${p.name} cannot end work on, or leave a handover in, the private project`, !ew.ok, ew.text.slice(0, 120));
     }
   }
+  // Identity step 5: a session whose folder no project owns is on its own person's roster and nobody else's, and its token reaches only event and wait.
+  {
+    const cn = `lkqnoproj${hex(4)}`;
+    CANARIES.push({ s: cn, tag: 'noproject', allow: new Set(['A']) });
+    const cc = randomUUID();
+    // Its own computer (A's other one has been revoked and replaced by the actions above).
+    const npKey = 'wkr_' + randomBytes(32).toString('base64url');
+    await rawDb.collection('devices').insertOne({ _id: randomUUID(), name: cn + 'dev', ownerId: A.userId, orgId: A.orgId, hash: sha(npKey), prefix: npKey.slice(0, 8), createdAt: new Date(), lastSeenAt: new Date(), revokedAt: null });
+    secret('A no-project device key', npKey);
+    const st = await req('POST', '/api/agent/start', { bearer: npKey, headers: { 'x-work-os-hook': '3' }, body: { path: `C:/lk/${cn}folder`, branch: cn + 'br', title: cn + 'title', model: 'm-' + cn.slice(-6), ccSession: cc, source: 'startup' } });
+    let tok = '';
+    try { tok = JSON.parse(st.text).token ?? ''; } catch { /* no token */ }
+    check("noproject: A's computer gets a no-project token for a folder no project owns", st.status === 200 && /^wst_/.test(tok), st.text.slice(0, 120));
+    const mine = await mcpCall(A.code, 'list_sessions', { include_gone: true });
+    check('noproject: the owner sees it under No project', mine.ok && mine.text.includes(cn + 'title') && mine.text.includes('No project'), mine.text.slice(0, 200));
+    for (const p of [T, R, X]) {
+      const r = await mcpCall(p.code || p.chat, 'list_sessions', { include_gone: true });
+      scan(p.name, 'list_sessions (no-project session)', r.text);
+      check(`noproject: ${p.name}'s list_sessions does not show it`, !r.ok || (!r.text.includes(cn) && !r.text.includes('No project')), r.text.slice(0, 160));
+    }
+    // A teammate in the same organization too (T is a member of A's organization in this audit): the row is private to its person.
+    for (const [what, path, body] of [['state', '/api/agent/state', {}], ['release', '/api/agent/release', { what: 'push' }]]) {
+      const r = await req('POST', path, { bearer: tok, body });
+      check(`noproject: its token is refused by ${what} (403, never a project's answer)`, r.status === 403 && !r.text.includes(cn), `${r.status} ${r.text.slice(0, 120)}`);
+    }
+    const mcpTok = await mcpCall(tok, 'list_sessions', {});
+    check('noproject: its token is not an MCP credential', !mcpTok.ok && !mcpTok.text.includes(cn), mcpTok.text.slice(0, 120));
+  }
   await sleep(500);
   for (const s of [sX, wT, wX]) s.close();
   // (X's own probes make hints marked as X's own, s:1; anything else came from someone else's write)

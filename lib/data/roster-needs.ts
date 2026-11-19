@@ -15,7 +15,7 @@ type Row = Pick<PresenceDoc, '_id' | 'session' | 'userId' | 'agent' | 'projectId
 export async function openNeedRows(s: Scope, rows: Row[]): Promise<Set<string>> {
   if (!rows.length) return new Set();
   try {
-    const projects = [...new Set(rows.map(r => r.projectId))];
+    const projects = [...new Set(rows.flatMap(r => (r.projectId ? [r.projectId] : [])))]; // a session with no project has no project's Need
     const needs = await (await scoped(s)).needs
       .find({ status: 'open', projectId: { $in: projects } }, { projection: { projectId: 1, from: 1 } })
       .limit(500)

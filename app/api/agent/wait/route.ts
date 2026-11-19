@@ -64,7 +64,7 @@ export async function POST(req: Request): Promise<Response> {
     const sid = session.id;
     const projectId = session.projectId;
     // Checked on every call (and again after each wait): the folder may have been unlinked since the session began.
-    if (!(await projectOnDevice(s, device.id, projectId))) return reply(404, { error: 'This project has no folder on this computer any more.' });
+    if (projectId && !(await projectOnDevice(s, device.id, projectId))) return reply(404, { error: 'This project has no folder on this computer any more.' });
     if (body.data.ack?.length) await applyAck(s, sid, projectId, body.data.ack);
     const key = `${s.userId}:${sid}`;
     const end = Date.now() + WAIT_MS;
@@ -79,7 +79,7 @@ export async function POST(req: Request): Promise<Response> {
       const st = row.activity || row.endedAt ? presenceState({ lastSeen: new Date(Math.max(row.lastSeen.getTime(), seenNow)), activity: row.activity, endedAt: row.endedAt }, { now: Date.now() }) : { state: 'on' as const, why: undefined };
       // Mid-turn (working, or stopped at a permission prompt) or gone: the hook stops waiting and delivery inside the turn has it.
       if (st.state === 'working' || st.state === 'off' || (st.state === 'waiting' && st.why === 'prompt')) return reply(200, { busy: true });
-      if ((await wakesLeft(sid)) > 0 && (await wakeWaiting(s, sid, projectId))) {
+      if (projectId && (await wakesLeft(sid)) > 0 && (await wakeWaiting(s, sid, projectId))) {
         // What came together goes out together: look again after a short pause, then hand it all over once.
         if (!batched && end - Date.now() >= 8_000) {
           batched = true;
@@ -97,7 +97,7 @@ export async function POST(req: Request): Promise<Response> {
       if (how === 'bumped') return reply(200, { again: true });
       // Too many waiters (this person's or all): not held; the hook waits at least this long before asking again.
       if (how === 'refused') return reply(200, { again: true, retryAfter: 60 }, { 'Retry-After': '60' });
-      if (!(await projectOnDevice(s, device.id, projectId))) return reply(404, { error: 'This project has no folder on this computer any more.' });
+      if (projectId && !(await projectOnDevice(s, device.id, projectId))) return reply(404, { error: 'This project has no folder on this computer any more.' });
     }
   } catch (err) {
     console.error('[agent/wait]', err instanceof Error ? err.name : 'error'); // the name only: never a credential or body

@@ -49,7 +49,7 @@ export function wakeWorthy(m: MessageDoc, reader: Reader, ownerId: string | unde
 }
 
 /** The session's own presence row on its project, or null (gone). */
-export async function sessionRow(s: Scope, sid: string, projectId: string): Promise<PresenceDoc | null> {
+export async function sessionRow(s: Scope, sid: string, projectId: string | null): Promise<PresenceDoc | null> {
   return (await scoped(s)).presence.findOne({ _id: hookRowId(s.userId, sid, projectId), userId: s.userId });
 }
 
@@ -200,7 +200,7 @@ export async function deliverFor(s: Scope, sid: string, projectId: string, mode:
  * (messages), handed over (Needs), and a wake or a Stop continue is charged; the turn's chain is set from what was handed over.
  * Anything else in `ack` is ignored. The offer is cleared whatever was acknowledged: what is left unread is offered again.
  */
-export async function applyAck(s: Scope, sid: string, projectId: string, ack: readonly string[]): Promise<void> {
+export async function applyAck(s: Scope, sid: string, projectId: string | null, ack: readonly string[]): Promise<void> {
   if (!ack.length) return;
   const row = await sessionRow(s, sid, projectId);
   const o = row?.offered;
@@ -247,7 +247,7 @@ export async function wakeWaiting(s: Scope, sid: string, projectId: string): Pro
 export const wakesLeft = async (sid: string): Promise<number> => Math.max(0, AGENT_PER_HOUR.wake - (await agentUsed('wake', sid)));
 
 /** A prompt starts a turn: the chain restarts at -1 (a person's word), unless the server woke this session less than a minute ago and the hook says this prompt is that wake. */
-export async function startTurn(s: Scope, sid: string, projectId: string, woke: boolean): Promise<void> {
+export async function startTurn(s: Scope, sid: string, projectId: string | null, woke: boolean): Promise<void> {
   const c = await scoped(s);
   const filter = woke ? { _id: hookRowId(s.userId, sid, projectId), userId: s.userId, $nor: [{ wokeAt: { $gt: new Date(Date.now() - 60_000) } }] } : { _id: hookRowId(s.userId, sid, projectId), userId: s.userId };
   await c.presence.updateOne(filter as never, { $set: { turnChain: -1 } });
