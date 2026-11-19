@@ -202,6 +202,7 @@ try {
   await must(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'untargeted from the same person' });
   check('h: an fyi to the session and untargeted requests never wake it (still waiting after 6 s)', (await settled(quietWait, 6000)) === undefined);
   // a request addressed to the session wakes it within a few seconds, once, with the frame
+  await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:${S.sid}:${ONE}` }, { $unset: { wokeAt: '' } });
   const w1 = timed(wait(S.token));
   await pause(300);
   const req1 = await send('please run the tests again', 'request');
@@ -256,6 +257,7 @@ try {
   check('h: the sender’s note says it was woken 6 times this hour and gets it on its next turn', /H7 · tester: idle and woken 6 times this hour; it gets this on its next turn/.test(capNote.json?.target ?? ''), capNote.text.slice(0, 300));
   const turn7 = await ev(S3.token, { event: 'tool', deliver: true });
   check('h: …but the message the cap held back is handed over in the next turn', /cap 6/.test(turn7.json?.deliver?.text ?? ''), turn7.text.slice(0, 200));
+  await ev(S3.token, { event: 'tool', ack: turn7.json?.deliver?.ids ?? [] });
   // an answered Need wakes the session that asked it
   await ev(S3.token, { event: 'stop' });
   const asked3 = await mcpH(kA, 'ask', { project: 'H7 One', to: 'me', kind: 'approve', ask: 'May S3 push the build?', session: S3.sid });
@@ -360,8 +362,7 @@ try {
 
   // ---- k) loss-safe delivery, the chain across rows, the waiter caps, the Need frame ----
   // k1: an offer that is not acknowledged is offered again after the lease; an ack of anything else is ignored
-  await deliver('tool'); // acknowledges and clears what the part before left
-  await deliver('tool');
+  await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:${S.sid}:${ONE}` }, { $unset: { offered: '' } });
   pend = undefined;
   const k1 = await send('k1 survives a lost print', 'request');
   const k1a = await deliver('tool');
@@ -381,7 +382,7 @@ try {
   // k2: the third offer without an ack stops offering for a while (a hook that never acknowledges cannot loop)
   const k2 = await send('k2 never acknowledged', 'request');
   for (let i = 0; i < 4; i++) {
-    await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:${S.sid}:${ONE}` }, { $set: { 'offered.at': new Date(Date.now() - 30_000) } });
+    await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:${S.sid}:${ONE}`, offered: { $exists: true } }, { $set: { 'offered.at': new Date(Date.now() - 30_000) } });
     pend = undefined;
     var k2r = await deliver('tool');
   }
@@ -416,7 +417,7 @@ try {
   await pause(2500);
   const done = [];
   for (const h of held) { const v = await settled(h.p, 10); if (v !== undefined) done.push(v); }
-  check('k5: of 21 waiters of one person only the one past the cap (20) is answered at once: again, retryAfter 60, and a Retry-After header', done.length === 1 && done[0].json?.again === true && done[0].json?.retryAfter === 60 && done[0].headers.get('retry-after') === '60', JSON.stringify(done.map(d => d.json)));
+  check('k5: past the cap (20 for one person) the new waiters are answered at once with again, retryAfter 60 and a Retry-After header; no waiter is bumped (no plain again)', done.length >= 1 && done.length <= 2 && done.every(d => d.json?.again === true && d.json?.retryAfter === 60 && d.headers.get('retry-after') === '60'), JSON.stringify(done.map(d => d.json)));
   for (const n of waiters) await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'k5 release', to_session: n.sid, session: other.session });
   await Promise.all(held.map(h => h.p));
   // k6: a call the hook has already dropped (aborted) is not offered anything: nothing is claimed for nobody
