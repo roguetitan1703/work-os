@@ -1292,11 +1292,7 @@ function AUDIT() {
     M('apply_changes', { ops: [{ op: 'update_task', task: 'constructor', title: 'x' }, { op: 'update_task', task: '__proto__', title: 'x' }] }, { label: 'prototype keys', aim: true, aimKeys: [], control: false }),
   );
   add('mcp get_project', M('get_project', t => ({ project: t.project, depth: 'full' }), aim(['project'])), M('get_project', t => ({ project: t.projectName }), aim(['projectName'], { label: 'by name' })), M('get_project', t => ({ remote: t.remote }), { label: 'by remote (H13: unmatched, the remote only ranks candidates)', ok: r => r.ok && r.json?.unmatched === true && r.json?.candidates?.[0]?.why === 'same remote', aim: true, aimKeys: ['remote'] }), M('get_project', { project: 'constructor' }, { label: 'prototype key', aim: true, aimKeys: [], control: false }));
-  add('mcp update_claude_items',
-    M('update_claude_items', t => ({ ops: [{ op: 'note', item: t.item, text: 'lkq note' }] }), aim(['item'])),
-    M('update_claude_items', t => ({ ops: [{ op: 'edit', item: t.item, title: 'lkq edited title of the item' }] }), aim(['item'], { label: 'edit' })),
-    // (H11: update_claude_items add is retired for every caller, so its 'add into their project' and 'blocked_by theirs' probes are gone; the refusal is checked in flow-h11.)
-  );
+  // (H11 step 8: update_claude_items is gone, so it has no probe; flow-h11 checks the tool is not there.)
   add('mcp delete_task', M('delete_task', t => ({ task: t.ref, title: 'lkq' }), aim(['ref'], { label: 'wrong title', control: false })), M('delete_task', t => ({ task: t.looseRef, title: 'lkqpvloose' }), aim(['looseRef'], { label: 'title start', stage: 2 })));
   add('mcp restore_task', M('restore_task', t => ({ task: t.trashRef }), aim(['trashRef'], { stage: 1 })));
   add('mcp list_trash', M('list_trash', {}));
@@ -1469,9 +1465,6 @@ function AUDIT() {
   add(`action ${OA}setOrdersAction`, act(OA + 'setOrdersAction', t => [t.ordersNote, 'project'], aim(['ordersNote'])), act(OA + 'setOrdersAction', t => [t.ordersNote, null], aim(['ordersNote'], { label: 'clearing it' })));
   // H9: undo writes the text before a version back; the holder only. The probe's page is not Orders (the flag on it is the setOrdersAction probe's), so the owner's control is answered "not found", the same as everyone's.
   add(`action ${OA}undoOrdersAction`, act(OA + 'undoOrdersAction', t => [t.ordersNote, 2], aim(['ordersNote'], { controlOk: r => actOk(r) || /not found/i.test(r.text) })));
-  const CI = 'app/(app)/projects/[id]/claude-items-actions.ts#';
-  add(`action ${CI}updateClaudeItemAction`, act(CI + 'updateClaudeItemAction', t => [t.itemProject, t.item, { note: 'lkq hacked' }], aim(['itemProject', 'item'])));
-  add(`action ${CI}moveClaudeItemAction`, act(CI + 'moveClaudeItemAction', t => [t.itemProject, t.item, 'top'], aim(['itemProject', 'item'])));
   const L_ = 'app/(app)/projects/[id]/launcher-actions.ts#';
   add(`action ${L_}quietFoldersAction`, act(L_ + 'quietFoldersAction', [])); // the caller's own not-Work-OS list (per person), nothing of anyone else's
   add(`action ${L_}removeQuietFolderAction`, act(L_ + 'removeQuietFolderAction', ['lkq', 'c:/lkq/quiet']));

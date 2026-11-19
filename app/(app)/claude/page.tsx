@@ -1,7 +1,7 @@
 import Link from '@/components/intent-link';
 import { redirect } from 'next/navigation';
 import { getCaller } from '@/lib/caller';
-import { Activity, ListOrdered, Play, SlidersHorizontal, Users } from 'lucide-react';
+import { Activity, Play, SlidersHorizontal, Users } from 'lucide-react';
 import { NavIcon } from '@/components/nav-icons';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { claudeOverview } from '@/lib/data/claude-overview';
@@ -13,7 +13,6 @@ import { cn } from '@/lib/utils';
 import { baseUrl } from '../settings/base-url';
 import { AutoRefresh } from './auto-refresh';
 import { NowTab } from './now-tab';
-import { QueueTab } from './queue-tab';
 import { SetupTab } from './setup-tab';
 import { messagesForYou } from '@/lib/data/messages';
 import { WorkersTab } from './workers-tab';
@@ -22,7 +21,6 @@ export const metadata = { title: 'Claude · Work OS' };
 
 const TABS = [
   { id: 'now', label: 'Now', icon: Activity },
-  { id: 'queue', label: 'Queue', icon: ListOrdered },
   { id: 'workers', label: 'Workers', icon: Users },
   { id: 'setup', label: 'Set up', icon: SlidersHorizontal },
 ] as const;
@@ -96,8 +94,7 @@ export default async function ClaudePage({ searchParams }: Props) {
       {/* Set up refreshes too: it waits for a computer to connect and shows it when it does. */}
       {/* eslint-disable-next-line react-hooks/purity -- a server render runs once per request; the stamp marks it */}
       <AutoRefresh stamp={Date.now()} />
-      {tab === 'now' && data && tasks && <NowTab claudeTasks={tasks} needsYou={data.needsYou} sessions={data.sessions} summary={data.summary} hasComputers={data.hasComputers} reopen={data.reopen} messages={messages} />}
-      {tab === 'queue' && data && <QueueTab groups={data.queue} />}
+      {tab === 'now' && data && tasks && <NowTab claudeTasks={tasks} sessions={data.sessions} summary={data.summary} hasComputers={data.hasComputers} reopen={data.reopen} messages={messages} />}
       {tab === 'workers' && workers && <WorkersTab data={workers} tz={tz} />}
       {tab === 'setup' && <SetupTab url={url} />}
     </div>

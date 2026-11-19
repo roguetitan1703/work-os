@@ -2,7 +2,7 @@ import Link from '@/components/intent-link';
 import { ChevronRight } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { NavIcon, PLACE_ICON } from '@/components/nav-icons';
-import { claudeWaitingCount, systemStatusLevel } from '@/lib/data/nav-counts';
+import { systemStatusLevel } from '@/lib/data/nav-counts';
 import { unreadCount } from '@/lib/notify';
 import { requireCaller } from '@/lib/caller';
 import { isOperator } from '@/lib/operator';
@@ -18,14 +18,14 @@ export default async function MenuPage() {
   const s = await requireCaller();
   // Server health is the operator's: everyone else gets no dot.
   const operator = isOperator(s);
-  const [status, unread, news, claude] = await Promise.all([operator ? systemStatusLevel(s).catch(() => 'ok' as const) : Promise.resolve('ok' as const), unreadCount(s).catch(() => 0), whatsNewState(s).catch(() => null), claudeWaitingCount(s).catch(() => 0)]);
+  const [status, unread, news] = await Promise.all([operator ? systemStatusLevel(s).catch(() => 'ok' as const) : Promise.resolve('ok' as const), unreadCount(s).catch(() => 0), whatsNewState(s).catch(() => null)]);
   return (
     <div className="max-w-xl mx-auto">
       <MobileHeader title="Menu" />
       <h1 className="hidden md:block text-2xl font-bold mb-4">Menu</h1>
 
       <Group title="Claude">
-        <Row href="/claude" icon={PLACE_ICON.claude} label="Now · Queue · Workers · Set up" dot={claude > 0 ? <span data-claude-count className="text-xs rounded-full px-1.5 py-0.5 font-medium bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">{claude}</span> : undefined} />
+        <Row href="/claude" icon={PLACE_ICON.claude} label="Now · Workers · Set up" />
       </Group>
 
       <Group title="Inbox">

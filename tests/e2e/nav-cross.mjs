@@ -26,13 +26,7 @@ console.log('alpha id', A);
   // Claude is in the Menu now (the bar has Needs): no tab is lit on it, and the Menu's Claude row counts what asks.
   check('phone: no tab lit on /claude', cur.length === 0, JSON.stringify(cur));
   check('phone: no Claude tab in the bar', (await bar.locator('a[href="/claude"]').count()) === 0);
-  const head = await p.locator('[data-section=needs-you] h2').innerText();
-  const n = Number((head.match(/(\d+)\s*$/) || [])[1] ?? 0);
-  check('phone: the header Menu button carries the amber dot while Claude asks', n > 0 && (await p.locator('header:visible [data-menu-dot]').count()) === 1, `heading "${head}"`);
-  await p.goto(B + '/menu'); await p.waitForTimeout(600);
-  const mc = (await p.locator('main a[href="/claude"] [data-claude-count]').count()) ? await p.locator('main a[href="/claude"] [data-claude-count]').innerText() : '0';
-  check('phone: the Menu Claude row count matches Claude is asking count', mc === String(n), `menu ${mc}, heading "${head}"`);
-  for (const u of ['/claude?tab=queue', '/claude?tab=setup']) {
+  for (const u of ['/claude?tab=workers', '/claude?tab=setup']) {
     await p.goto(B + u); await p.waitForTimeout(500);
     const lit = await bar.locator('a[aria-current=page]').evaluateAll(e => e.map(x => (x.getAttribute('aria-label') || x.textContent).trim()));
     check(`phone: no tab lit on ${u}`, lit.length === 0, JSON.stringify(lit));
@@ -46,7 +40,7 @@ console.log('alpha id', A);
     await p.goBack(); await p.waitForTimeout(700);
     check(`phone system Back closes modal on ${u}`, (await modal(p).count()) === 0 && !path(p).includes('start='), path(p));
   }
-  for (const u of ['/today', '/tasks', '/projects', `/projects/${A}`, '/notes', '/claude', '/claude?tab=queue', '/claude?tab=setup', '/menu', '/claude?start=1', '/settings', '/connect']) {
+  for (const u of ['/today', '/tasks', '/projects', `/projects/${A}`, '/notes', '/claude', '/claude?tab=workers', '/claude?tab=setup', '/menu', '/claude?start=1', '/settings', '/connect']) {
     await p.goto(B + u); await p.waitForTimeout(900); const o = await overflow(p);
     check(`390 no h-scroll ${u}`, okO(o), JSON.stringify(o));
   }
@@ -99,7 +93,7 @@ console.log('alpha id', A);
   check('sidebar fits 1280x800', g.maxItem <= g.vh + 0.5 && g.minItem >= -0.5 && !g.docScroll, JSON.stringify(g));
   const hit = async sel => p.evaluate(s => { const e = document.querySelector(s); if (!e) return 'missing'; const r = e.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return e.contains(t) ? 'ok' : 'covered by ' + (t?.tagName + '.' + String(t?.className).slice(0, 40)); }, sel);
   check('footer account button clickable', (await hit('aside [data-account-button]')) === 'ok', await hit('aside [data-account-button]'));
-  for (const u of ['/today', '/tasks', '/claude', '/claude?tab=queue', '/claude?tab=setup', '/projects', '/notes', '/menu']) {
+  for (const u of ['/today', '/tasks', '/claude', '/claude?tab=workers', '/claude?tab=setup', '/projects', '/notes', '/menu']) {
     await p.goto(B + u); await p.waitForTimeout(700); const o = await overflow(p);
     check(`1280 no h-scroll ${u}`, okO(o), JSON.stringify(o));
   }

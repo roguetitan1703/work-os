@@ -88,13 +88,13 @@ await call('write_note', { parent_id: scopeId, title: 'Open questions', body: 'W
 await call('write_note', { project: 'Delpat Site', title: 'Site plan', body: 'Pages: home, work, contact.' });
 
 // ── Claude items, one waiting on Om ──
-await call('update_claude_items', {
-  project: 'AKAR',
-  ops: [
-    { op: 'add', project: 'AKAR', kind: 'feature', title: 'Reorder invoice export', why: 'The invoice export (lib/export.ts) lists columns in our order; the client wants theirs.', done_when: 'The export file matches the client sample column for column.' },
-    { op: 'add', project: 'AKAR', kind: 'bug', title: 'Webhook sender retries storm on 502', why: 'The webhook sender (lib/webhooks.ts) retries at once on a 502 and posts the same event many times.', done_when: 'One post per event while the receiver answers 502, checked on staging.', waiting_on_om: 'Is a 30 s backoff acceptable?' },
-  ],
-});
+// (update_claude_items is gone, H11 step 8: the old items are inserted in their old shape.)
+const akar = await db.collection('projects').findOne({ name: 'AKAR' });
+const oldItem = (ref, o) => ({ _id: randomUUID(), ref, projectId: akar._id, state: 'queued', next: false, order: ref, note: '', parts: [], blockedBy: null, gitRef: '', claimedBy: null, createdBy: 'claude-code', createdAt: new Date(), updatedAt: new Date(), doneAt: null, log: [], ...o });
+await db.collection('claudeItems').insertMany([
+  oldItem(1, { kind: 'feature', title: 'Reorder invoice export', why: 'The invoice export (lib/export.ts) lists columns in our order; the client wants theirs.', doneWhen: 'The export file matches the client sample column for column.', waitingOnOm: '' }),
+  oldItem(2, { kind: 'bug', title: 'Webhook sender retries storm on 502', why: 'The webhook sender (lib/webhooks.ts) retries at once on a 502 and posts the same event many times.', doneWhen: 'One post per event while the receiver answers 502, checked on staging.', waitingOnOm: 'Is a 30 s backoff acceptable?' }),
+]);
 
 // ── What has no tool: direct inserts in the old shapes ──
 const now = new Date();

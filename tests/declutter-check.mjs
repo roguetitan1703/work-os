@@ -1,12 +1,12 @@
 // Unit test for lib/declutter-core.ts (docs/flows/agent-system.md section 7, H11): when a project is due, which lines and
-// notes count, the stable item ids and where an open Claude item goes. Run: npm run check:declutter (Node 22.6+, type stripping).
+// notes count, and the stable item ids. Run: npm run check:declutter (Node 22.6+, type stripping).
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const core = await import(pathToFileURL(join(ROOT, 'lib/declutter-core.ts')).href);
 const { titleKey } = await import(pathToFileURL(join(ROOT, 'lib/notes-match.ts')).href);
-const { GROWTH, dueReasons, duplicateGroups, itemId, itemPlan, noteItems, dupNoteCount, stateItems, isStale } = core;
+const { GROWTH, dueReasons, duplicateGroups, itemId, noteItems, dupNoteCount, stateItems, isStale } = core;
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -41,7 +41,7 @@ check('a waiting line alone does not make it due', !due({ next: [], later: [line
 // 3. Cache, quiet window, open Need
 const cache = (o = {}) => ({ checkedAt: NOW, reasons: [], ...o });
 check('cached reasons are added to the count reasons', due({ next: lines(11), later: [], declutter: cache({ reasons: ['2 notes share a title'] }) }).reasons.join('|') === 'Next 11 (over 10)|2 notes share a title');
-check('cached reasons alone make it due', due({ next: [], later: [], declutter: cache({ reasons: ['3 open Claude items'] }) }).due);
+check('cached reasons alone make it due', due({ next: [], later: [], declutter: cache({ reasons: ['3 pages share a title'] }) }).due);
 check('the text names the project and the tool', due({ next: lines(11), later: [] }).text === 'Declutter due: Next 11 (over 10). Call declutter {project: "Work OS"}.');
 const quiet = { next: lines(30), later: lines(40), declutter: cache({ reasons: ['x'], quietUntil: new Date(NOW.getTime() + 86_400_000) }) };
 check('quiet: nothing is said while quietUntil is in the future', !due(quiet).due && due(quiet).text === null);
@@ -95,20 +95,10 @@ check('later: a stale line is archived', byId[`later:${l1.id}`]?.kind === 'archi
 check('later: of two duplicates the older goes, the newer stays', byId[`later:${l2.id}`]?.kind === 'archive_line' && !byId[`later:${l3.id}`]);
 check('later: a waiting line is left alone however old', !byId[`later:${l4.id}`]);
 check('item ids are stable between two calls', JSON.stringify(si.map(i => i.id)) === JSON.stringify(stateItems(st, NOW, new Set([6]), titleKey).map(i => i.id)));
-check('item ids carry a group and the target', itemId('later', 'l_x') === 'later:l_x' && itemId('note', 'abc') === 'note:abc' && itemId('need', 7) === 'need:7' && itemId('item', 'C41') === 'item:C41');
+check('item ids carry a group and the target', itemId('later', 'l_x') === 'later:l_x' && itemId('note', 'abc') === 'note:abc' && itemId('need', 7) === 'need:7');
 check('item text stays within the limit', stateItems({ next: [], later: [line({ text: 'y'.repeat(500), at: exactly(40) })] }, NOW, new Set(), titleKey)[0].text.length <= GROWTH.itemText);
 
-// 7. Where a Claude item goes
-const it = (o = {}) => ({ ref: 41, title: 'Fix the thing', why: 'It breaks on Mondays. More detail follows here.', doneWhen: 'The test passes', kind: 'task', state: 'queued', waitingText: '', waitingOn: null, ...o });
-const p1 = itemPlan(it());
-check('item with a done-when becomes a task', p1?.kind === 'item_to_task' && p1.id === 'item:C41' && p1.target === 'C41', JSON.stringify(p1));
-const p2 = itemPlan(it({ kind: 'idea' }));
-check('an idea becomes a Later line with the first sentence', p2?.kind === 'item_to_later' && p2.text === 'Fix the thing: It breaks on Mondays.', JSON.stringify(p2));
-check('an item without a done-when becomes a Later line', itemPlan(it({ doneWhen: '' }))?.kind === 'item_to_later');
-const p3 = itemPlan(it({ waitingOn: 'u1', waitingText: 'needs the key' }), 'Akash');
-check('an item waiting on a person becomes a Later line naming them', p3?.kind === 'item_to_later' && /Akash/.test(p3.why) && /needs the key/.test(p3.why), JSON.stringify(p3));
-check('an active or blocked item moves too', itemPlan(it({ state: 'active' }))?.kind === 'item_to_task' && itemPlan(it({ state: 'blocked' }))?.kind === 'item_to_task');
-check('done and dropped items stay as history', itemPlan(it({ state: 'done' })) === null && itemPlan(it({ state: 'dropped' })) === null);
+// 7. Limits
 check('the limits are the plan numbers', GROWTH.later === 25 && GROWTH.next === 10 && GROWTH.staleDays === 14 && GROWTH.quietDays === 14 && GROWTH.noteDays === 30 && GROWTH.items === 60 && GROWTH.adds === 40 && GROWTH.disk === 20);
 
 console.log(failed ? `${failed} FAILED` : 'declutter check: ok');

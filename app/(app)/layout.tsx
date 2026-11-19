@@ -9,7 +9,7 @@ import { unreadCount } from '@/lib/notify';
 import { AppContextProvider } from '@/components/app-context';
 import { listProjectsNav, listRecentProjects } from '@/lib/data/projects';
 import { overdueCount } from '@/lib/data/summary';
-import { claudeWaitingCount, systemStatusLevel } from '@/lib/data/nav-counts';
+import { systemStatusLevel } from '@/lib/data/nav-counts';
 import { todayStr } from '@/lib/dates';
 import { redirect } from 'next/navigation';
 import { getCaller } from '@/lib/caller';
@@ -34,11 +34,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!caller) redirect('/login');
   const s = { userId: caller.userId, orgId: caller.orgId };
   const operator = isOperator(caller);
-  const [projects, overdue, unread, claudeWaiting, status, people, modes, schedule, recent, org, computers, needs, news] = await Promise.all([
+  const [projects, overdue, unread, status, people, modes, schedule, recent, org, computers, needs, news] = await Promise.all([
     listProjectsNav(s),
     overdueCount(s),
     unreadCount(s),
-    claudeWaitingCount(s).catch(() => 0),
     operator ? systemStatusLevel(s).catch(() => 'ok' as const) : Promise.resolve('ok' as const), // server health is the operator's
     memberNames(s.orgId),
     getOrgModes(s.orgId),
@@ -62,7 +61,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       account={{ name: caller.name || caller.email, email: caller.email, org, operator }}
       hasComputers={computers}
       recent={recent.map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }))}
-      badges={{ overdue, claudeWaiting, status, needs, whatsNew: !!news?.unseen.length, newBadges: news?.badges ?? [] }}
+      badges={{ overdue, status, needs, whatsNew: !!news?.unseen.length, newBadges: news?.badges ?? [] }}
       projects={projects.map(p => ({ id: p.id, name: p.name, status: p.status, visibility: p.visibility }))}
     >
       <PageTint />

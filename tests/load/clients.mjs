@@ -180,7 +180,7 @@ export class Browser {
       ...this.pick(this.ids.tasks, L.tasks ?? 0).map(t => `/tasks/${t}`),
       ...this.pick(this.ids.projects, L.projects ?? 0).map(p => `/projects/${p}`),
       ...this.pick(this.ids.notes, L.notes ?? 0).map(n => `/notes/${n}`),
-      ...(L.claudeTabs ? ['/claude?tab=now', '/claude?tab=queue', '/claude?tab=setup'] : []),
+      ...(L.claudeTabs ? ['/claude?tab=now', '/claude?tab=workers', '/claude?tab=setup'] : []),
     ];
   }
   /** Prefetch the visible links that are not cached (staleTimes.static: 5 minutes), the way the router does. */

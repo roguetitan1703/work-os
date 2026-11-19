@@ -40,9 +40,6 @@ async function reset() {
   await rawDb.collection('settings').updateOne({ _id: 'profile:' + ME.userId }, { $set: { checklistHidden: true } }, { upsert: true });
   await db.collection('tasks').updateMany({ title: /^Overdue task/ }, { $set: { status: 'Not Started' } });
   await db.collection('devices').updateOne({ _id: 'dev1' }, { $set: { 'activity.at': new Date() } });
-  const items = await db.collection('claudeItems').find({}).sort({ ref: 1 }).toArray();
-  const qs = ['Which logo should the header use?', 'Pick option A or B please', 'Third question here'];
-  for (const [i, it] of items.entries()) await db.collection('claudeItems').updateOne({ _id: it._id }, { $set: { waitingText: qs[i], waitingOn: ME.userId, updatedAt: new Date(Date.now() - (3 - i) * 60000) } });
 }
 for (const kind of ['phone', 'desk']) {
   await reset();
@@ -99,26 +96,10 @@ for (const kind of ['phone', 'desk']) {
   // Claude card
   const st = (await V.locator('[data-claude-status]').innerText()).replace(/\s+/g, ' ');
   console.log('claude status:', st);
-  check(`${kind}: card "Claude is asking 3 · 2 running"`, /Claude is asking 3/.test(st) && /2 running/.test(st) && !/needs you/i.test(st), st);
-  check(`${kind}: at most 2 rows + "1 more"`, (await V.locator('[data-needs-you]').count()) === 2 && (await V.getByText('1 more ›').count()) === 1);
+  check(`${kind}: card "Claude is working · 2 running"`, /^Claude is working · 2 running/.test(st) && !/asking/i.test(st), st);
+  check(`${kind}: card has no question rows (Claude items retired)`, (await V.locator('[data-needs-you]').count()) === 0 && (await V.locator('input[placeholder="Your answer…"]').count()) === 0);
   const act = await V.locator('[data-activity-total]').innerText();
   check(`${kind}: activity line`, /2 Claude Code sessions · 3 subagents working/.test(act), act);
-  // The collapsed row shows the whole question, wrapped (nothing cut with an ellipsis).
-  const cut = await V.locator('[data-needs-you] > button').first().evaluate(b => [...b.querySelectorAll('span')].some(s => s.scrollWidth > s.clientWidth + 1 || getComputedStyle(s).textOverflow === 'ellipsis'));
-  check(`${kind}: waiting row shows the question in full (wrapped, not cut)`, !cut && (await V.locator('[data-needs-you]').first().innerText()).includes('Which logo should the header use?'));
-  check(`${kind}: card pre-expand has no reply input`, (await V.locator('input[placeholder="Your answer…"]').count()) === 0);
-  await tap(V.locator('[data-needs-you] button').first(), phone);
-  check(`${kind}: tap expands to the answer box`, (await V.locator('input[placeholder="Your answer…"]').count()) === 1);
-  await V.locator('input[placeholder="Your answer…"]').first().fill('Use the dark logo');
-  // The refresh can re-render the card and swallow the tap; tap Send answer again (re-opening the row if it collapsed) until the count drops.
-  const dropped = k => p.waitForFunction(k => /^Claude is asking 2/.test(document.querySelector(`[data-variant=${k}] [data-claude-status]`)?.textContent ?? ''), k, { timeout: 4000 }).then(() => true, () => false);
-  let ok = false;
-  for (let n = 0; n < 3 && !ok; n++) {
-    if (n && (await V.getByRole('button', { name: 'Send answer', exact: true }).count()) === 0) { await tap(V.locator('[data-needs-you] button').first(), phone); await V.locator('input[placeholder="Your answer…"]').first().fill('Use the dark logo'); }
-    if ((await V.getByRole('button', { name: 'Send answer', exact: true }).count()) === 1) await tap(V.getByRole('button', { name: 'Send answer', exact: true }), phone);
-    ok = await dropped(kind);
-  }
-  check(`${kind}: Send answer drops the count to 2`, ok, await V.locator('[data-claude-status]').innerText());
 
   // Start Claude
   await tap(V.locator('[data-start-claude]'), phone);
@@ -171,9 +152,8 @@ for (const kind of ['phone', 'desk']) {
   await p.context().close();
 }
 
-// Empty states: finish overdue tasks and clear waiting questions directly in the test DB
+// Empty states: finish overdue tasks directly in the test DB
 await db.collection('tasks').updateMany({ title: /^Overdue task/ }, { $set: { status: 'Done' } });
-await db.collection('claudeItems').updateMany({}, { $set: { waitingText: '', waitingOn: null } });
 for (const kind of ['phone', 'desk']) {
   const { p, errs } = await open(kind);
   const V = p.locator(`[data-variant=${kind}]`);

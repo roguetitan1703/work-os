@@ -1,17 +1,17 @@
 // Declutter, the pure half (docs/flows/agent-system.md section 7, H11): when a project is "due", which State lines and notes
 // count, and the shape of one proposed change. No imports and no database, so tests/declutter-check.mjs can run it as it is.
-// The database half (reading notes, tasks, Needs and Claude items, then applying) is lib/data/declutter.ts.
+// The database half (reading notes, tasks and Needs, then applying) is lib/data/declutter.ts.
 
 export const GROWTH = { later: 25, next: 10, staleDays: 14, quietDays: 14, noteDays: 30, items: 60, adds: 40, disk: 20, itemText: 300, asksPerHour: 3 } as const;
 
 const DAY = 86_400_000;
 
-export type DeclutterKind = 'archive_line' | 'done_next' | 'archive_note' | 'complete_task' | 'withdraw_need' | 'item_to_task' | 'item_to_later' | 'add_later' | 'add_task';
+export type DeclutterKind = 'archive_line' | 'done_next' | 'archive_note' | 'complete_task' | 'withdraw_need' | 'add_later' | 'add_task';
 /** One proposed change. `id` is `kind:target` and stays the same between calls, so `skip` works across them. */
-export type DeclutterItem = { id: string; kind: DeclutterKind; text: string; why: string; target?: string; /** What a new Later line waits on (add_later, item_to_later). */ waits?: string; /** archive_note: the page that stays (the newest live one); the apply checks it is still live. */ keep?: string };
+export type DeclutterItem = { id: string; kind: DeclutterKind; text: string; why: string; target?: string; /** What a new Later line waits on (add_later). */ waits?: string; /** archive_note: the page that stays (the newest live one); the apply checks it is still live. */ keep?: string };
 
-/** The id of a proposed change: what kind of thing and which one (a line id, note id, task ref, Need ref or item ref). */
-export function itemId(group: 'later' | 'next' | 'note' | 'task' | 'need' | 'item' | 'add', target: string | number): string {
+/** The id of a proposed change: what kind of thing and which one (a line id, note id, task ref or Need ref). */
+export function itemId(group: 'later' | 'next' | 'note' | 'task' | 'need' | 'add', target: string | number): string {
   return `${group}:${target}`;
 }
 
@@ -121,20 +121,3 @@ export function dupNoteCount(groups: { archived?: boolean }[][]): number {
   return groups.reduce((n, g) => { const live = g.filter(x => !x.archived).length; return n + (live > 1 ? live : 0); }, 0);
 }
 
-export type ItemLike = { ref: number; title: string; why: string; doneWhen?: string; kind: string; waitingText?: string; waitingOn?: string | null; state: string };
-
-/** Where an open Claude item goes (16.7). Not open (done, dropped) items stay as history and return null. */
-export function itemPlan(i: ItemLike, personName?: string): DeclutterItem | null {
-  if (!['queued', 'active', 'blocked'].includes(i.state)) return null;
-  const first = (i.why.split(/(?<=[.!?])\s/)[0] ?? '').trim();
-  const id = itemId('item', `C${i.ref}`);
-  if (i.waitingOn) {
-    const who = personName || 'a person';
-    const text = clip(`${i.title}: ${first || i.why}`.slice(0, 280));
-    return { id, kind: 'item_to_later', text, why: `Claude item C${i.ref} waits on ${who}${i.waitingText ? ` (${clip(i.waitingText, 80)})` : ''}; it becomes a Later line waiting on ${who}`, target: `C${i.ref}`, waits: clip(`${who}${i.waitingText ? `: ${i.waitingText}` : ''}`, 200) };
-  }
-  if (i.kind !== 'idea' && i.doneWhen?.trim()) {
-    return { id, kind: 'item_to_task', text: clip(i.title), why: `Claude item C${i.ref} becomes a task (P3, tag from-claude-item)`, target: `C${i.ref}` };
-  }
-  return { id, kind: 'item_to_later', text: clip(`${i.title}: ${first || i.why}`), why: `Claude item C${i.ref} (${i.kind === 'idea' ? 'an idea' : 'no done-when'}) becomes a Later line`, target: `C${i.ref}`, ...(i.waitingText?.trim() ? { waits: clip(i.waitingText.trim(), 200) } : {}) };
-}

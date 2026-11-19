@@ -56,7 +56,7 @@ daily without friction.
 
 **Claude items (C12) retire.** They duplicate State and tasks: discovered work → a State Later line, ordered work →
 Next, a deliverable someone tracks → a task, "waiting on Om" → a Need. One migration per project, then
-update_claude_items goes away (and its lines in the server instructions).
+update_claude_items goes away (and its lines in the server instructions). Built in H11: migrated (steps 7 and 8, scripts/migrate-claude-items.mjs); the tool, get_project.claudeItems, the Queue tab and the badges are gone, and the old items stay read-only on the project's Claude tab.
 
 ## 4. Keys and connections
 - **Why the hook needs its own key.** Claude Code's Work OS connection keeps its sign-in inside Claude Code's own
@@ -133,7 +133,7 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
 |---|---|---|
 | Session | start_work, end_work, list_sessions, set_doing, slot, get_state, save_state, import_state | save_state: edit/remove ops, short answer, drop "write it to the repo". Add edit_state, wrap_up, hand_over, who. import_state: run by the hook when a repo with a hand-kept file first meets Work OS |
 | Tasks | list_tasks, get_task, add_task, update_task, log_progress, complete_task, hand_in, add_comment, update_checklist, delete_task, restore_task, list_trash, apply_changes | Keep |
-| Claude items | update_claude_items | Retire after migration (section 3) |
+| Claude items | (update_claude_items, removed in H11) | Migrated (section 3) |
 | Projects | list_projects, add_project, update_project, get_project, daily_summary, recent_activity | get_project's "start here from a repo" text → start_work |
 | Notes | write_note, read_note, list_notes, delete_note | Shelves; duplicate titles refused; normalise quotes and dashes when matching edits *Built in H14* |
 | Messages and Needs | send_message, message_status, reply, ask, needs, withdraw_need | Per-session ids; `to` is a session of yours (id or name) or a person; the frame on every message (the inbox tool went in Identity step 6) |

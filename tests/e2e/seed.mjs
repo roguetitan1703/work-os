@@ -7,7 +7,7 @@
 //          a device with 2 running sessions (Today page)
 // Suites that need something else seed themselves; they start from the same emptied database.
 // Every profile first creates the signed-in owner, their organization and a Claude chat key (makeIdentity in lib.mjs).
-import { db, mc, call, makeIdentity, ME, mkClaudeItem } from './lib.mjs';
+import { db, mc, call, makeIdentity, ME } from './lib.mjs';
 
 export async function wipe() {
   for (const { name } of await db.listCollections({}, { nameOnly: true }).toArray()) await db.collection(name).deleteMany({});
@@ -74,11 +74,6 @@ async function seedNav() {
   await call('add_comment', { task: refs[0], note: 'seed comment one' });
   await call('add_comment', { task: refs[2], note: 'seed comment two' });
   for (const [p, t] of [['Alpha Client', 'Alpha notes'], ['Beta Product', 'Beta spec'], ['Gamma Internal', 'Gamma ideas']]) await call('write_note', { project: p, title: t, body: '# ' + t + '\n\nSome body text.' });
-  const P = 'Alpha Client';
-  for (const t of ['Confirm invoice export column order', 'Choose logo for the invoice header']) {
-    const r = await mkClaudeItem({ project: P, kind: 'bug', title: t, why: 'Fixture for the nav badge test on the throwaway app, nothing real at all.', doneWhen: 'The nav badge check passes on the throwaway app.', waitingText: 'Which one should we pick for this fixture?' });
-    if (r.ERROR) throw new Error('seed claude items: ' + r.ERROR);
-  }
   // One computer, so Start Claude (not Set up Claude) shows in the sidebar and the + sheet.
   const now = new Date();
   await db.collection('devices').insertOne({ _id: 'dev1', name: 'Om-PC', ownerId: ME.userId, orgId: ME.orgId, hash: 'h1', prefix: 'p1', createdAt: now, lastSeenAt: now, revokedAt: null });
@@ -97,10 +92,6 @@ async function seedToday() {
   await add('Code NOW only task Y', { priority: 'P3', mode: 'Code & Dev' });
   await add('Plain P1 up next', { priority: 'P1', mode: 'Growth' });
   await add('Plain P4 backlog', { priority: 'P4' });
-  for (const t of ['Which logo should the header use?', 'Pick option A or B please', 'Third question here']) {
-    const r = await mkClaudeItem({ project: P, kind: 'bug', title: 'Fixture ' + t.slice(0, 12), why: 'Fixture for the Today card test on the throwaway app, nothing real at all here.', doneWhen: 'The Today check passes.', waitingText: t });
-    if (r.ERROR) throw new Error('seed claude items: ' + r.ERROR);
-  }
   const proj = await db.collection('projects').findOne({ name: P });
   const now = new Date();
   await db.collection('devices').insertOne({ _id: 'dev1', name: 'Om-PC', ownerId: ME.userId, orgId: ME.orgId, hash: 'h1', prefix: 'p1', createdAt: now, lastSeenAt: now, revokedAt: null, activity: { sessions: 2, sessionsWorkOs: 1, sessionsOther: 1, sessionsActive: 1, subagents: 3, at: now } });

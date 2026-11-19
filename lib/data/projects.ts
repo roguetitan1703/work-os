@@ -542,9 +542,9 @@ async function assertPlacementFree(c: Collections, cur: ProjectDoc, id: string, 
 
 /**
  * Who a project's owner would cut off by changing who sees it (to Private, or to a list: `keep`): people assigned to its
- * tasks, people who commented on them, who gave its tasks to Claude, and whom its Claude items wait on.
+ * tasks, people who commented on them, and who gave its tasks to Claude.
  */
-export async function projectSharingImpact(s: Scope, id: string, keep: string[] = []): Promise<{ assignees: string[]; commenters: string[]; claude: string[]; waiting: string[] }> {
+export async function projectSharingImpact(s: Scope, id: string, keep: string[] = []): Promise<{ assignees: string[]; commenters: string[]; claude: string[] }> {
   const c = await scoped(s);
   const p = await c.projects.findOne({ _id: id });
   if (!p) throw new NotFoundError(`Project "${id}" not found`);
@@ -554,10 +554,9 @@ export async function projectSharingImpact(s: Scope, id: string, keep: string[] 
   const assignees = others([...(await c.tasks.distinct('assigneeIds', { projectId: id })), ...(await c.tasks.distinct('assigneeId', { projectId: id }))]);
   const commenters = others((await c.activity.distinct('actor.userId', { taskId: { $in: taskIds }, type: 'comment' })) as unknown[]);
   const claude = others(await c.tasks.distinct('claude.markedByUserId', { projectId: id, 'claude.state': { $in: ['queued', 'running'] } }));
-  const waiting = others(await c.claudeItems.distinct('waitingOn', { projectId: id }));
   const names = await memberNames(s.orgId);
   const label = (u: string) => names[u] ?? 'Someone';
-  return { assignees: assignees.map(label), commenters: commenters.map(label), claude: claude.map(label), waiting: waiting.map(label) };
+  return { assignees: assignees.map(label), commenters: commenters.map(label), claude: claude.map(label) };
 }
 
 /**

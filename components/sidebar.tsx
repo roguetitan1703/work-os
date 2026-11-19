@@ -170,7 +170,7 @@ export function Sidebar({ showSignOut = true }: { showSignOut?: boolean }) {
           <NavItem rail={rail} href="/tasks" icon={PLACE_ICON.tasks} on={place === 'tasks'} keyHint="2">Tasks</NavItem>
           <NavItem rail={rail} href="/projects" icon={PLACE_ICON.projects} on={place === 'projects'} keyHint="3">Projects</NavItem>
           <NavItem rail={rail} href="/notes" icon={PLACE_ICON.notes} on={place === 'notes'} keyHint="4">Notes</NavItem>
-          <NavItem rail={rail} href="/claude" icon={PLACE_ICON.claude} on={place === 'claude'} count={badges.claudeWaiting} tone="amber" keyHint="5">Claude</NavItem>
+          <NavItem rail={rail} href="/claude" icon={PLACE_ICON.claude} on={place === 'claude'} keyHint="5">Claude</NavItem>
         </Group>
         <Group>
           <NavItem rail={rail} href="/notifications" icon={PLACE_ICON.inbox} on={place === 'inbox'} count={unread} tone="red">Inbox</NavItem>
