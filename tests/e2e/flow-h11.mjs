@@ -11,6 +11,9 @@ const stateDoc = async () => rawDb.collection('states').findOne({ projectId: P1 
 let P1 = null;
 let browser = null;
 try {
+  // Made before the first call: the server caches the member list for a minute, and this person is asked a Need near the end (review 3).
+  const U = await makeUser({ email: 'una-h11@example.test', name: 'Una', orgId: ME.orgId, role: 'member' });
+  const kU = await mkKey({ agent: 'claude-code', userId: U.userId, name: 'H11 Una' });
   const cc = await mkKey({ agent: 'claude-code', name: 'H11 cc' });
   P1 = (await must(cc, 'add_project', { name: P, visibility: 'org' })).project.id;
   const save = (ops, extra = {}) => mcpH(cc, 'save_state', { project: P, ops, ...extra });
@@ -433,6 +436,7 @@ try {
   // 2. An archived newest copy never makes the only live page a candidate, and does not count as "share a title"
   const NU = 'H11 Nu';
   const NUID = (await must(cc, 'add_project', { name: NU, visibility: 'org' })).project.id;
+  await must(cc, 'save_state', { project: NU, ops: [{ op: 'add_later', text: 'Nu fresh line' }] }); // the daily check needs a State to store its result on
   const nuOld = await mkNote(NU, 'Nu plan', 'old copy');
   const nuNew = await mkNote(NU, 'Nu plan', 'new copy');
   await rawDb.collection('notes').updateOne({ _id: nuOld }, { $set: { updatedAt: ago(5) } });
@@ -465,16 +469,16 @@ try {
 
   // 3. Someone who was the owner when the Need was asked and can still read the project applies nothing
   const MU = 'H11 Mu';
-  const kTown = await must(kT, 'add_project', { name: MU, visibility: 'org' });
+  const kTown = await must(kU, 'add_project', { name: MU, visibility: 'org' });
   const MUID = kTown.project.id;
-  await must(kT, 'save_state', { project: MU, ops: [{ op: 'add_later', text: 'Mu old line that would be archived' }] });
+  await must(kU, 'save_state', { project: MU, ops: [{ op: 'add_later', text: 'Mu old line that would be archived' }] });
   const stMu = await stateOf(MUID);
   await rawDb.collection('states').updateOne({ _id: stMu._id, 'later.id': stMu.later[0].id }, { $set: { 'later.$.at': ago(30) } });
-  const muAsk = await must(kT, 'declutter', { project: MU, ask: true }, hdr('h11m1'));
+  const muAsk = await must(kU, 'declutter', { project: MU, ask: true }, hdr('h11m1'));
   await rawDb.collection('projects').updateOne({ _id: MUID }, { $set: { ownerId: ME.userId } });
   const ctxM = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const pageM = await ctxM.newPage();
-  await login(pageM, { phone: false, next: '/needs', email: 'tess-h11@example.test' });
+  await login(pageM, { phone: false, next: '/needs', email: 'una-h11@example.test' });
   const mBtn = pageM.locator(`[data-need="${muAsk.need.ref}"] [data-need-option="yes"]`);
   await mBtn.waitFor({ timeout: 20000 });
   await mBtn.click();
