@@ -1345,7 +1345,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false },
     },
     handler(async a => {
-      const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller) === 'chat' ? 'chat' : 'code' });
+      const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller, sessionHeader(a.session ?? null) ?? requestContext().sid) === 'chat' ? 'chat' : 'code' });
       const names = await memberNames(s.orgId);
       if (r.conflict) return conflictOut(r, s.userId, names, 'save_state');
       return savedAnswer(r, { markdown: await legacyCopy(a, r.project, r.state) });
@@ -1391,7 +1391,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         handovers.checkHandover(fields, lines);
         ho = { fields, forId: await handovers.resolveFor(s, project, forWho), title: title || (label && label !== 'Claude Code' ? `Handover: ${label}` : 'Handover:') };
       }
-      const r = await stateData.saveState(s, a.project, a.state, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller) === 'chat' ? 'chat' : 'code' });
+      const r = await stateData.saveState(s, a.project, a.state, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller, sessionHeader(a.session ?? null) ?? requestContext().sid) === 'chat' ? 'chat' : 'code' });
       const names = await memberNames(s.orgId);
       if (r.conflict) return { ended: false, ...conflictOut(r, s.userId, names, 'end_work') };
 
@@ -1508,7 +1508,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         const p = await declutterData.buildProposal(s, project);
         return { project: project.name, ...(due.text ? { due: due.text } : { due: 'not due' }), items: p.items, ...(p.fyi.length ? { fyi: p.fyi } : {}), counts: p.counts, next: p.items.length ? 'Check these against the code and the disk, add what you see, then call declutter with ask: true (skip: ids to leave out, add, disk).' : 'Nothing to tidy.', textRule: textRule() };
       }
-      const r = await declutterApply.askDeclutter(s, { project: a.project, skip: a.skip, add: a.add, disk: a.disk, actor: ACTOR, word: WORD, session: ident.session, keyId: caller.keyId });
+      const r = await declutterApply.askDeclutter(s, { project: a.project, skip: a.skip, add: a.add, disk: a.disk, actor: ACTOR, word: wordFor(ident.session), session: ident.session, keyId: caller.keyId });
       const owner = (await whoIs())(r.need.to);
       return { need: await needOut(r.need), changes: r.items, message: `Need #${r.need.ref} is with ${owner}; you hear the answer here. No alert goes to the phone. Nothing is deleted: lines, pages and old Claude items are archived and can be put back. After a Yes, do the disk lines you gave.` };
     }),
@@ -1580,13 +1580,13 @@ export function createMcpServer(ctx: Ctx): McpServer {
   );
 
   // ── Messages (docs/flows/step-1.md section 4) ──
-  // `word` is set here from how the call came in (OAuth, the claude.ai connector: chat; any static key: agent) and is not an argument.
-  const WORD = messageData.wordOf(caller);
+  // `word` is set here from how the call came in (chat only for the claude.ai connector over OAuth with no session; anything else: agent) and is not an argument.
+  const wordFor = (session?: string | null) => messageData.wordOf(caller, session);
   /** Who is sending: the client name, and the label of the session's presence row when it has one. */
   const fromOf = async (name: ToolName, a: { session?: string }): Promise<messageData.From> => {
     const ident = identOf(name, [a]);
     const row = await readerRow(s, ident).catch(() => null);
-    return { word: WORD, ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: sessionKey(ident), actor: ACTOR };
+    return { word: wordFor(ident.session), ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: sessionKey(ident), actor: ACTOR };
   };
   /** The calling session as a reader: its key and its presence row. */
   const readerOf = async (name: ToolName, a: { session?: string }): Promise<messageData.Reader> => {
@@ -2123,7 +2123,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         to = p.ownerId;
       } else if (!a.to) throw new InputError('to is required: "me", a name, an email or a user id.');
       else to = a.to.trim().toLowerCase() === 'me' ? s.userId : await tasks.findAssignee(s.orgId, a.to);
-      const r = await needsData.askNeed(s, { project: a.project, to, kind: a.kind, ask: a.ask, example: a.example, options: a.options, task: a.task, appOnly: a.app_only, release: a.release, actor: ACTOR, word: WORD, session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
+      const r = await needsData.askNeed(s, { project: a.project, to, kind: a.kind, ask: a.ask, example: a.example, options: a.options, task: a.task, appOnly: a.app_only, release: a.release, actor: ACTOR, word: wordFor(sessionHeader(a.session ?? null) ?? requestContext().sid), session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
       return {
         need: await needOut(r.need),
         ...(r.replaced.length ? { replaced: r.replaced.map(n => ({ id: n.id, ref: n.ref })) } : {}),
@@ -2149,7 +2149,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false, idempotentHint: false },
     },
     handler(async a => {
-      const r = await ordersData.proposeOrder(s, { project: a.project, layer: a.layer, old: a.old, new: a.new, why: a.why, incident: a.incident, repeat: a.repeat }, { actor: ACTOR, word: WORD, session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
+      const r = await ordersData.proposeOrder(s, { project: a.project, layer: a.layer, old: a.old, new: a.new, why: a.why, incident: a.incident, repeat: a.repeat }, { actor: ACTOR, word: wordFor(sessionHeader(a.session ?? null) ?? requestContext().sid), session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
       return { need: await needOut(r.need), note: 'Asked the holder. Accept applies it as one version and the answer comes to this session; nothing you can call answers it, and nothing changes until they do.' };
     }),
   );
@@ -2193,7 +2193,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const n = await needsData.findNeed(s, a.id);
       if (!n) throw new NotFoundError('That Need does not exist, or you did not ask it.');
-      return { need: await needOut(await needsData.withdrawNeed(s, n.id, { word: WORD, session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId })) };
+      return { need: await needOut(await needsData.withdrawNeed(s, n.id, { word: wordFor(sessionHeader(a.session ?? null) ?? requestContext().sid), session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId })) };
     }),
   );
 

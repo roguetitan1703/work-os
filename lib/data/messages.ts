@@ -29,10 +29,11 @@ export const STATUSES = ['seen', 'applied', 'rejected'] as const;
 export type Word = MessageDoc['from']['word'];
 
 /**
- * How an MCP call came in: chat only for a caller that signed in through OAuth (the claude.ai connector; its key id starts
- * with oauth_, lib/oauth.ts). A static key, whatever its kind (a Claude chat key included), is an agent.
+ * How an MCP call came in: chat only for the claude.ai connector (agent 'claude') that signed in through OAuth (its key id
+ * starts with oauth_, lib/oauth.ts) and has no session id. Everything else is an agent: a static key of any kind, Claude
+ * Code's own OAuth, and any call that carries a session id (a session is an agent, not a person typing in a chat).
  */
-export const wordOf = (caller: { keyId?: string }): Word => (caller.keyId?.startsWith('oauth_') ? 'chat' : 'agent');
+export const wordOf = (caller: { keyId?: string; agent?: string }, session?: string | null): Word => (caller.keyId?.startsWith('oauth_') && caller.agent === 'claude' && !session ? 'chat' : 'agent');
 
 export const RefsSchema = z
   .object({
