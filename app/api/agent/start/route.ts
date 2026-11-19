@@ -6,6 +6,8 @@ import { roleOf } from '@/lib/caller';
 import { reserveAgent } from '@/lib/mcp/policy';
 import { startWorkBrief } from '@/lib/mcp/server';
 import { findProjectByCode } from '@/lib/data/projects';
+import { linkedFolderProject } from '@/lib/data/launcher';
+import { quietFolder } from '@/lib/data/quiet-folders';
 import { setWhere } from '@/lib/data/states';
 import { hookHeader, runWithRequestContext } from '@/lib/request-context';
 import { timezoneOf } from '@/lib/profile';
@@ -13,8 +15,9 @@ import { InputError, NotFoundError } from '@/lib/data/errors';
 import type { Scope } from '@/lib/scope';
 
 // The Work OS hook's sign-in (worker/hook.mjs; docs/flows/agent-system.md sections 4 and 16 item 8; lib/agent-sessions.ts).
-// POST /api/agent/start, JSON body { remote?, subdir?, branch?, path?, machine?, label?, model? } (the folder the
-// Claude Code session runs in, found like start_work finds it).
+// POST /api/agent/start, JSON body { folders?, remote?, subdir?, branch?, path?, machine?, label?, model? } (the folder the
+// Claude Code session runs in: the worker folder ids that contain it decide the project, H13; remote, subdir and branch are
+// information, and decide only for an old hook that sends no folders).
 //   Authorization: Bearer wkr_…  the PC's worker device key: opens a new session on the project of that folder, only
 //                                when a folder on that PC is linked to the project (projectOnDevice; a folder's remote
 //                                alone never counts, the worker reports it itself). Answers the start brief and
@@ -29,7 +32,7 @@ import type { Scope } from '@/lib/scope';
 // the session is then on, or working after a compaction). The row's machine is the device itself, whatever hostname the body names. The X-Work-OS-Hook header marks the
 // hook's protocol (new hooks send 2; none means 1, which still gets the copy in save answers).
 //   200 { brief, token?, expiresAt } · 400 bad body · 401 no or bad credential · 403 a token for another project
-//   404 no project with a folder on this computer matches · 413 body too large · 429 over the hourly limit
+//   404 { error, unfiled: true, quiet? } no project with a folder on this computer owns this folder (quiet: the person marked it not Work OS) · 413 body too large · 429 over the hourly limit
 // proxy.ts lets this exact path through untouched: this route checks its own credential.
 
 export const runtime = 'nodejs';
@@ -45,6 +48,8 @@ const Body = z
     subdir: z.string().max(300).optional(),
     branch: z.string().max(120).optional(),
     path: z.string().max(500).optional(),
+    // H13: the ids of the worker folders that contain the session's folder (and its main worktree), longest first; the first one linked on this computer decides the project.
+    folders: z.array(z.string().regex(/^[A-Za-z0-9_-]{4,40}$/)).max(8).optional(),
     machine: z.string().max(40).optional(),
     label: z.string().max(120).optional(),
     model: z.string().max(60).optional(),
@@ -57,11 +62,22 @@ const Body = z
   .strict();
 type Body = z.infer<typeof Body>;
 
-/** The project the body's folder belongs to, as the device owner sees it, or null. */
-async function lookup(s: Scope, b: Body): Promise<string | null> {
+/**
+ * The project the body's folder belongs to, as the device owner sees it, or null. H13: with `folders` the folder decides
+ * (the first linked on this computer); a body without them (an old hook, until the next release) is found the old way,
+ * where a remote decides.
+ */
+async function lookup(s: Scope, b: Body, deviceId: string): Promise<string | null> {
+  if (b.folders) return (await linkedFolderProject(s, deviceId, b.folders))?.projectId ?? null;
   if (!b.remote && !b.path) return null;
-  const m = await findProjectByCode(s, { remote: b.remote, path: b.path, subdir: b.subdir, branch: b.branch });
+  const m = await findProjectByCode(s, { remote: b.remote, path: b.path, subdir: b.subdir, branch: b.branch, machine: b.machine }, { legacyRemote: true }); // old hooks (no `folders`): until H13 step 8
   return m.matched ? m.project.id : null;
+}
+
+/** The one 404: no project owns this folder (unfiled); `quiet` when the person marked the folder not Work OS. Never names a project. */
+async function unfiled(s: Scope, b: Body): Promise<Response> {
+  const quiet = await quietFolder(s, b.machine, b.path);
+  return reply(404, { error: NO_PROJECT, unfiled: true, ...(quiet ? { quiet: true } : {}) });
 }
 
 function baseUrl(req: Request): string {
@@ -114,16 +130,16 @@ export async function POST(req: Request): Promise<Response> {
       let projectId: string;
       if (session) {
         // A token is for its own project only: a folder that belongs to another project gets a new session (device key).
-        const found = b.remote || b.path ? await lookup(s, b) : session.projectId;
+        const found = b.folders || b.remote || b.path ? await lookup(s, b, device.id) : session.projectId;
         if (found !== session.projectId) return reply(403, { error: 'This session token is for another project.' });
         projectId = session.projectId;
       } else {
-        const found = await lookup(s, b);
-        if (!found) return reply(404, { error: NO_PROJECT });
+        const found = await lookup(s, b, device.id);
+        if (!found) return unfiled(s, b);
         projectId = found;
       }
       // Checked again with a token: the folder may have been unlinked since the session began.
-      if (!(await projectOnDevice(s, device.id, projectId))) return reply(404, { error: NO_PROJECT });
+      if (!(await projectOnDevice(s, device.id, projectId))) return unfiled(s, b);
       let token: string | undefined;
       if (!session) {
         const made = await createAgentSession(s, device.id, projectId, cred);

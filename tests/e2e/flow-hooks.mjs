@@ -7,7 +7,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { B, MCP, check, finish, mkKey, rawDb } from './lib.mjs';
-import { must } from './flow-lib.mjs';
+import { markOrders, must } from './flow-lib.mjs';
 
 const HOOK = fileURLToPath(new URL('../../worker/hook.mjs', import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-hooks-e2e-'));
@@ -29,6 +29,8 @@ try {
     return d;
   };
   const repo = mkRepo('repo', 'https://github.com/acme/hooks-alpha.git');
+  // The folder decides the project (H13): the key path matches by the folder's path, never by the remote alone.
+  await must(MCP, 'update_project', { project: NAME, code: [{ remote: 'acme/hooks-alpha' }, { path: repo }] });
   const other = mkRepo('other', 'https://github.com/acme/not-a-project.git');
   const env = { ...process.env, WORK_OS_KEY: key, WORK_OS_URL: B, WORK_OS_HOOK_DIR: path.join(tmp, 'markers'), WORK_OS_WORKER_DIR: path.join(tmp, 'cfg') };
   const hook = (arg, input, e = env) => spawnSync(process.execPath, [HOOK, arg], { input: JSON.stringify(input), encoding: 'utf8', env: e, timeout: 20000 });
@@ -61,6 +63,62 @@ try {
   check('session-start: a repo no project has prints nothing, exit 0', un.status === 0 && un.stdout === '', un.stdout);
   const down = hook('session-start', { session_id: 'hk4', transcript_path: transcript, cwd: repo }, { ...env, WORK_OS_URL: 'http://127.0.0.1:1' });
   check('session-start: server unreachable prints nothing, exit 0', down.status === 0 && down.stdout === '', down.stdout);
+
+  // H13: the folder decides the project. A second clone of the project's remote in another folder is unfiled (asks, with the
+  // project as a "same remote" suggestion); filing it with start_work link makes the next session check in; a folder marked
+  // not Work OS stays quiet; a subfolder of a filed folder is the same project. Temp folders are quiet, so the child process
+  // is told another temp folder (os.tmpdir() reads TEMP / TMP / TMPDIR).
+  const fakeTmp = path.join(tmp, 'faketmp');
+  fs.mkdirSync(fakeTmp);
+  const envOut = { ...env, TEMP: fakeTmp, TMP: fakeTmp, TMPDIR: fakeTmp };
+  const machine = os.hostname().slice(0, 40);
+  const clone = mkRepo('clone', 'https://github.com/acme/hooks-alpha.git');
+  const ctxOf = r => (r.stdout ? JSON.parse(r.stdout).hookSpecificOutput.additionalContext : '');
+  fresh();
+  const c1 = hook('session-start', { session_id: 'h13a', transcript_path: transcript, cwd: clone }, envOut);
+  const c1text = ctxOf(c1);
+  check('H13 hook: a second clone of the project\'s remote is unfiled, not briefed: it asks, naming the project as the same-remote suggestion', c1.status === 0 && /not filed in Work OS/.test(c1text) && /Suggestions: Hooks Alpha \(same remote\)/.test(c1text) && !c1text.includes('Hooked brief line'), c1.stdout + c1.stderr);
+  check('H13 hook: the unfiled text names the link call with path and machine (no worker here) and not_work_os', /link: true/.test(c1text) && /not_work_os: true/.test(c1text) && c1text.length < 900, c1text);
+  const c1q = hook('session-start', { session_id: 'h13a2', transcript_path: transcript, cwd: clone });
+  check('H13 hook: the same folder under the (real) temp folder stays quiet', c1q.status === 0 && c1q.stdout === '', c1q.stdout);
+  await must(MCP, 'start_work', { project: NAME, path: clone, machine, link: true, label: 'h13 test' });
+  const c2 = hook('session-start', { session_id: 'h13b', transcript_path: transcript, cwd: clone }, envOut);
+  check('H13 hook: after start_work link the next session in that folder gets the brief', c2.status === 0 && ctxOf(c2).includes('Hooked brief line'), c2.stdout.slice(0, 200));
+  const deep = path.join(clone, 'sub', 'dir');
+  fs.mkdirSync(deep, { recursive: true });
+  const c3 = hook('session-start', { session_id: 'h13c', transcript_path: transcript, cwd: deep }, envOut);
+  check('H13 hook: a subfolder of a filed folder is the same project', c3.status === 0 && ctxOf(c3).includes('Hooked brief line'), c3.stdout.slice(0, 200));
+  const scratch = mkRepo('scratch', 'https://github.com/acme/scratch-thing.git');
+  const c4 = hook('session-start', { session_id: 'h13d', transcript_path: transcript, cwd: scratch }, envOut);
+  await must(MCP, 'start_work', { path: scratch, machine, not_work_os: true });
+  const c5 = hook('session-start', { session_id: 'h13e', transcript_path: transcript, cwd: scratch }, envOut);
+  check('H13 hook: an unknown folder asks; once the person says not Work OS the next session prints nothing', /not filed in Work OS/.test(ctxOf(c4)) && c5.status === 0 && c5.stdout === '', `${c4.stdout.slice(0, 100)} | ${c5.stdout}`);
+  const plainDir = path.join(tmp, 'plain-dir');
+  fs.mkdirSync(plainDir);
+  const c6 = hook('session-start', { session_id: 'h13f', transcript_path: transcript, cwd: plainDir }, envOut);
+  check('H13 hook: a folder that is not a git repo asks too', c6.status === 0 && /not filed in Work OS/.test(ctxOf(c6)), c6.stdout.slice(0, 200));
+  const c7 = hook('session-start', { session_id: 'h13g', transcript_path: transcript, cwd: plainDir }, { ...envOut, CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' });
+  check('H13 hook: claude -p (entrypoint sdk-cli) prints nothing, even in an unfiled folder', c7.status === 0 && c7.stdout === '', c7.stdout);
+  const c8 = hook('session-start', { session_id: 'h13h', transcript_path: transcript, cwd: plainDir }, { ...envOut, WORK_OS_KEY: 'wos_' + 'x'.repeat(40) });
+  check('H13 hook: a key the server refuses still prints nothing (fail open, also unfiled)', c8.status === 0 && c8.stdout === '', c8.stdout);
+
+  // H9 hardening: a dispatched run (WORK_OS_DISPATCHED=<task ref>, set by the worker) shares the person's key; the pre-tool hook
+  // refuses Orders edits there, using the Orders note ids the brief named (kept in the session marker).
+  const ordersNote = (await must(MCP, 'write_note', { project: NAME, title: 'Hooks project Orders', body: 'Hooks rule one.' })).created.id;
+  await markOrders(ordersNote, 'project');
+  fresh();
+  const d1 = hook('session-start', { session_id: 'hkd1', transcript_path: transcript, cwd: repo, hook_event_name: 'SessionStart', source: 'startup' });
+  const dm = (() => { try { return JSON.parse(fs.readFileSync(path.join(tmp, 'markers', 'hkd1.json'), 'utf8')); } catch { return null; } })();
+  check('H9 dispatched: the session marker keeps the brief\'s Orders note ids', d1.status === 0 && Array.isArray(dm?.orders) && dm.orders.includes(ordersNote), JSON.stringify(dm?.orders));
+  const denyOut = r => { try { return JSON.parse(r.stdout).hookSpecificOutput?.permissionDecision === 'deny'; } catch { return false; } };
+  const denv = { ...env, WORK_OS_DISPATCHED: '290' };
+  const wn = (id, e) => hook('pre-tool', { session_id: 'hkd1', cwd: repo, tool_name: 'mcp__work-os__write_note', tool_input: { note_id: id, append: 'x', why: 'x' } }, e);
+  check('H9 dispatched: write_note on the Orders page is refused in a dispatched run, and the person\'s own session passes', denyOut(wn(ordersNote, denv)) && wn(ordersNote, env).stdout === '', wn(ordersNote, denv).stdout.slice(0, 200));
+  check('H9 dispatched: write_note on another note and a task\'s note passes in a dispatched run', wn('notAnOrdersNote1', denv).stdout === '');
+  const po = hook('pre-tool', { session_id: 'hkd1', cwd: repo, tool_name: 'mcp__work-os__propose_order', tool_input: { project: NAME, layer: 'project', new: 'x', why: 'x' } }, denv);
+  check('H9 dispatched: propose_order is refused in a dispatched run', denyOut(po), po.stdout.slice(0, 200));
+  const pl = hook('pre-tool', { session_id: 'hkd1', cwd: repo, tool_name: 'mcp__work-os__write_note', tool_input: { note_id: ordersNote, append: 'x' } }, { ...denv, WORK_OS_DISPATCHED: 'yes' });
+  check('H9 dispatched: a value that is not a task ref is not a dispatched run', pl.stdout === '');
 
   // Stop: quiet with nothing changed, blocks once after a change
   const stopIn = (sid, extra = {}) => ({ session_id: sid, transcript_path: transcript, cwd: repo, hook_event_name: 'Stop', stop_hook_active: false, ...extra });

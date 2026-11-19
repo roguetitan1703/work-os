@@ -8,7 +8,7 @@ import { markOrders, mcpH, must } from './flow-lib.mjs';
 const NAME = 'Flow Alpha';
 const REMOTE = 'acme/flow-alpha';
 try {
-  await must(MCP, 'add_project', { name: NAME, code: [{ remote: REMOTE }] });
+  await must(MCP, 'add_project', { name: NAME, code: [{ remote: REMOTE }, { path: 'C:/code/flow-alpha' }] });
   const project = await rawDb.collection('projects').findOne({ name: NAME });
   await must(MCP, 'add_task', { title: 'Wire the webhook', project: NAME, priority: 'P1' });
 
@@ -26,13 +26,13 @@ try {
 
   const cc = await mkKey({ agent: 'claude-code', name: 'Claude Code' });
   const ag = await mkKey({ agent: 'claude-code', name: 'Antigravity' });
-  const a1 = await mustStart(cc, { remote: `https://github.com/${REMOTE}.git`, machine: 'laptop', label: 'cutroom prime, Opus, main' });
-  const a2 = await mustStart(ag, { remote: `git@github.com:${REMOTE}.git`, machine: 'desktop', label: 'antigravity, gemini' });
+  const a1 = await mustStart(cc, { path: 'C:/code/flow-alpha/web', remote: `https://github.com/${REMOTE}.git`, machine: 'laptop', label: 'cutroom prime, Opus, main' });
+  const a2 = await mustStart(ag, { path: 'c:\\code\\Flow-Alpha', remote: `git@github.com:${REMOTE}.git`, machine: 'desktop', label: 'antigravity, gemini' });
 
   check('S1: both clients get the same State version', a1.stateVersion === a2.stateVersion && a1.stateVersion === 1, `${a1.stateVersion} ${a2.stateVersion}`);
   check('S1: both get the same Orders (organisation, project, person, in that order)', JSON.stringify(a1.orders) === JSON.stringify(a2.orders) && a1.orders.map(o => o.layer).join() === 'organisation,project,person', JSON.stringify(a1.orders).slice(0, 300));
   check('S1: the Orders text is there, written by the owner (no writtenBy on their own)', a1.orders[0].text.includes('Always run the tests') && !a1.orders.some(o => o.writtenBy), JSON.stringify(a1.orders));
-  check('S1: the project matched by its remote (https and ssh forms)', a1.project.id === project._id && a2.project.id === project._id && a1.project.matchedBy, JSON.stringify(a1.project));
+  check('S1: the project matched by its folder (path, either slash form; the remote does not decide since H13)', a1.project.id === project._id && a2.project.id === project._id && a1.project.matchedBy, JSON.stringify(a1.project));
   check('S1: each gets its own session id', typeof a1.session === 'string' && a1.session.length >= 8 && a1.session !== a2.session, `${a1.session} ${a2.session}`);
   check('S1: the State comes with Next, Decisions and ids', a1.state.next.length === 1 && a1.state.next[0].id && a1.state.decisions.length === 1 && a1.state.decisions[0].text === 'Use Mongo', JSON.stringify(a1.state).slice(0, 300));
   check('S1: open tasks in brief', a1.openTasks.total === 1 && a1.openTasks.tasks[0].title === 'Wire the webhook', JSON.stringify(a1.openTasks));
@@ -55,7 +55,7 @@ try {
 
   // An unknown remote returns candidates
   const un = await must(cc, 'start_work', { remote: 'github.com/nobody/never-heard-of-it', branch: 'main' });
-  check('S1: an unknown remote returns unmatched with candidates and a hint', un.unmatched === true && Array.isArray(un.candidates) && un.candidates.length >= 1 && /update_project/.test(un.hint), JSON.stringify(un).slice(0, 300));
+  check('S1: an unknown remote returns unmatched with candidates and a hint', un.unmatched === true && Array.isArray(un.candidates) && un.candidates.length >= 1 && /start_work/.test(un.hint) && /not_work_os/.test(un.hint), JSON.stringify(un).slice(0, 300));
   check('S1: unmatched registers nobody as present', (await rawDb.collection('presence').countDocuments({})) === 3);
 
   // No project, no repo: an error that says what to give

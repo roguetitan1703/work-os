@@ -88,7 +88,7 @@ test('the entries equal the strings older workers wrote, except the PostToolUse 
   const old = {
     SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [c('session-start', 8)] }],
     Stop: [{ hooks: [c('stop', 8)] }],
-    PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', hooks: [c('pre-tool', 5)] }],
+    PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|mcp__.*__(write_note|propose_order|apply_changes)', hooks: [c('pre-tool', 5)] }],
     PostToolUse: [{ matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', hooks: [c('post-tool', 20)] }],
   };
   // H9: the subagent row reads only the session's marker (no network), so a repo's cloud entries have it too.
@@ -224,4 +224,22 @@ test('H8: the production blocks ship with the hooks (hook-release.mjs and remote
   assert.equal(EVENTS.filter(r => r.event === 'pre-tool').length, 1);
   assert.match(EVENTS.find(r => r.event === 'pre-tool').matcher, /Bash\|PowerShell/, 'the one pre-tool row already covers Bash and PowerShell');
   assert.equal(EVENTS.length, 11, 'H8 adds no event row (ten, plus H9 subagent-start)');
+});
+
+test('H13 hooks repo --project: the project id goes into the four entries, a name is refused, none keeps the old entries', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-repo-project-'));
+  try {
+    awaitedChildProcess.execFileSync('git', ['init', '-q'], { cwd: dir });
+    const r = m.repo(dir, { server: 'https://work.example', project: 'cutroom-a1b2c3d4' });
+    assert.equal(r.project, 'cutroom-a1b2c3d4');
+    const s = JSON.parse(fs.readFileSync(r.settings, 'utf8'));
+    const cmds = Object.values(s.hooks).flat().flatMap((g) => g.hooks.map((h) => h.command));
+    assert.equal(cmds.length, 5); // H9 added the SubagentStart entry after this test was written (4 then)
+    assert.ok(cmds.every((c) => c.endsWith(' --project "cutroom-a1b2c3d4"') && c.includes(' --cloud ')), cmds.join('\n'));
+    for (const bad of ['Cutroom Site', 'a"b', 'x; rm -rf', '../up', '', 'A']) assert.throws(() => m.repo(dir, { server: 'https://work.example', project: bad }), /project id/, bad);
+    const again = m.repo(dir, { server: 'https://work.example' });
+    assert.equal(again.project, null);
+    const cmds2 = Object.values(JSON.parse(fs.readFileSync(again.settings, 'utf8')).hooks).flat().flatMap((g) => g.hooks.map((h) => h.command));
+    assert.ok(cmds2.every((c) => !c.includes('--project')), 'a rerun without --project replaces the entries without it');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

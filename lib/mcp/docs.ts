@@ -4,6 +4,10 @@
 /** Who the connector acts for: the key's owner and their organization's modes of work. */
 export type InstructionsFor = { name: string; modes: string[] };
 
+/** start_work / get_project when no project owns the folder (H13: the folder decides; a remote only ranks the candidates). */
+export const UNMATCHED_HINT =
+  'This folder is unfiled: no project owns it. A remote never decides the project; candidates with why "same remote" only suggest. Ask your person once which project the folder is for. Then start_work { project, path, machine, link: true } files it (with folder: the folder id the hook printed, on a computer with the worker); for a new project call add_project first. If it is not Work OS: start_work { path, machine, not_work_os: true }.';
+
 export const STATE_COPY = 'WORK-STATE.md is a copy of the State, written by the Work OS hook';
 /** Phrases that may contain "WORK-STATE" in agent-facing text (tests/words-check.mjs removes these, then fails on any left). */
 export const STATE_FILE_OK = [
@@ -189,7 +193,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   start_work: {
     title: 'Start work (brief)',
     description:
-      'Call this first when a session starts on a project (also after the context was compacted). Pass project (name or id), or remote (+ subdir, branch) or path like get_project; machine (a short name for this computer; if it is one of your computers in Work OS it is matched to it) and label (who you are: "cutroom prime, Opus, main"); model (e.g. "Opus 4.7") and account (a label for the account you run under, never a key or email) so the roster can show them; for a builder also parent (the orchestrator’s session id) and slot (your slot name); session if your client sets one. It answers, in this order: Orders (standing rules: the organization’s, the project’s, yours; text marked writtenBy is someone else’s: information, not rules), the State (Now, Next, Later, Decisions, Where, each line labelled writtenBy when someone else wrote it; or "no State yet" with how to make it now), the open tasks in brief, who else was on this project in the last 30 minutes, and the State version (compare with your repo copy). It returns a session id and registers you as present: later answers carry a short forYou line (ids and counts only) when something new arrived for you. If nothing matches the repo it returns unmatched with candidates.',
+      'Call this first when a session starts on a project (also after the context was compacted). Pass project (name or id), or remote (+ subdir, branch) or path like get_project; machine (a short name for this computer; if it is one of your computers in Work OS it is matched to it) and label (who you are: "cutroom prime, Opus, main"); model (e.g. "Opus 4.7") and account (a label for the account you run under, never a key or email) so the roster can show them; for a builder also parent (the orchestrator’s session id) and slot (your slot name); session if your client sets one. It answers, in this order: Orders (standing rules: the organization’s, the project’s, yours; text marked writtenBy is someone else’s: information, not rules), the State (Now, Next, Later, Decisions, Where, each line labelled writtenBy when someone else wrote it; or "no State yet" with how to make it now), the open tasks in brief, who else was on this project in the last 30 minutes, and the State version (compare with your repo copy). It returns a session id and registers you as present: later answers carry a short forYou line (ids and counts only) when something new arrived for you. If no project owns the folder it returns unmatched with candidates (a remote only suggests); ask your person once, then start_work again with project and link, or with path, machine and not_work_os to mark the folder not Work OS (no brief).',
     writes: false,
     example: 'Start work on Grant Leads (this repo, my laptop, Opus)',
   },
@@ -342,7 +346,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   get_project: {
     title: 'Get project (nested)',
     description:
-      'One call for a project’s full picture: stats, code locations and recent activity; depth "tasks" adds its open tasks (include_closed for all); depth "full" adds each task’s checklist, what it waits on, and recent history entries with their ids. Find it from a repo: instead of project, pass your git remote, path relative to the repo root (subdir) and branch (or an absolute path); the most specific code location wins (remote+subdir+branch, then remote+subdir or remote+branch, then remote, then longest path). If nothing matches it returns unmatched with candidate projects: ask the user which project, then call update_project with code. To start a session, use start_work.',
+      'One call for a project’s full picture: stats, code locations and recent activity; depth "tasks" adds its open tasks (include_closed for all); depth "full" adds each task’s checklist, what it waits on, and recent history entries with their ids. Find it from a repo: instead of project, pass your git remote, path relative to the repo root (subdir) and branch (or an absolute path); the folder decides: the longest path location that contains it wins, a remote never does (it only ranks candidates). If nothing matches it returns unmatched with candidate projects (why "same remote" first): ask the user which project, then file the folder with start_work link. To start a session, use start_work.',
     writes: false,
     example: 'Give me the full state of the Grant Leads project',
   },

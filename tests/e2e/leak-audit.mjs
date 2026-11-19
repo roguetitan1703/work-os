@@ -1198,7 +1198,7 @@ function AUDIT() {
     M('apply_changes', t => ({ ops: [{ op: 'delete_note', note_id: t.sub, title: 'lkq' }] }), aim(['sub'], { label: 'delete_note (wrong title)', control: false })),
     M('apply_changes', { ops: [{ op: 'update_task', task: 'constructor', title: 'x' }, { op: 'update_task', task: '__proto__', title: 'x' }] }, { label: 'prototype keys', aim: true, aimKeys: [], control: false }),
   );
-  add('mcp get_project', M('get_project', t => ({ project: t.project, depth: 'full' }), aim(['project'])), M('get_project', t => ({ project: t.projectName }), aim(['projectName'], { label: 'by name' })), M('get_project', t => ({ remote: t.remote }), { label: 'by remote', ok: r => r.ok && !r.json?.unmatched, aim: true, aimKeys: ['remote'] }), M('get_project', { project: 'constructor' }, { label: 'prototype key', aim: true, aimKeys: [], control: false }));
+  add('mcp get_project', M('get_project', t => ({ project: t.project, depth: 'full' }), aim(['project'])), M('get_project', t => ({ project: t.projectName }), aim(['projectName'], { label: 'by name' })), M('get_project', t => ({ remote: t.remote }), { label: 'by remote (H13: unmatched, the remote only ranks candidates)', ok: r => r.ok && r.json?.unmatched === true && r.json?.candidates?.[0]?.why === 'same remote', aim: true, aimKeys: ['remote'] }), M('get_project', { project: 'constructor' }, { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add('mcp update_claude_items',
     M('update_claude_items', t => ({ ops: [{ op: 'note', item: t.item, text: 'lkq note' }] }), aim(['item'])),
     M('update_claude_items', t => ({ ops: [{ op: 'edit', item: t.item, title: 'lkq edited title of the item' }] }), aim(['item'], { label: 'edit' })),
@@ -1216,8 +1216,11 @@ function AUDIT() {
   add('mcp start_work',
     M('start_work', t => ({ project: t.project, machine: 'lkq', label: 'lkq probe' }), aim(['project'])),
     M('start_work', t => ({ project: t.projectName }), aim(['projectName'], { label: 'by name' })),
-    M('start_work', t => ({ remote: t.remote }), { label: 'by remote', ok: r => r.ok && !r.json?.unmatched, aim: true, aimKeys: ['remote'] }),
+    M('start_work', t => ({ remote: t.remote }), { label: 'by remote (H13: unmatched, the remote only ranks candidates)', ok: r => r.ok && r.json?.unmatched === true && r.json?.candidates?.[0]?.why === 'same remote', aim: true, aimKeys: ['remote'] }),
     Mc('start_work', t => ({ project: t.project }), aim(['project'], { label: 'code key' })),
+    M('start_work', { path: 'C:/lkq/quiet', machine: 'lkq', not_work_os: true }, { label: 'not_work_os (own quiet list)' }),
+    M('start_work', t => ({ project: t.project, folder: 'lkqf0001', link: true }), aim(['project'], { label: 'link (project, own folder id)' })),
+    M('start_work', t => ({ project: t.project, path: 'C:/lkq/linkpath', machine: 'lkq', link: true }), aim(['project'], { label: 'link by path and machine' })),
     M('start_work', { project: 'constructor' }, { label: 'prototype key', aim: true, aimKeys: [], control: false }),
   );
   add('mcp get_state', M('get_state', t => ({ project: t.project }), aim(['project'])), M('get_state', t => ({ project: t.projectName }), aim(['projectName'], { label: 'by name' })), Mc('get_state', t => ({ project: t.project }), aim(['project'], { label: 'code key' })));
@@ -1369,6 +1372,8 @@ function AUDIT() {
   add(`action ${CI}updateClaudeItemAction`, act(CI + 'updateClaudeItemAction', t => [t.itemProject, t.item, { note: 'lkq hacked' }], aim(['itemProject', 'item'])));
   add(`action ${CI}moveClaudeItemAction`, act(CI + 'moveClaudeItemAction', t => [t.itemProject, t.item, 'top'], aim(['itemProject', 'item'])));
   const L_ = 'app/(app)/projects/[id]/launcher-actions.ts#';
+  add(`action ${L_}quietFoldersAction`, act(L_ + 'quietFoldersAction', [])); // the caller's own not-Work-OS list (per person), nothing of anyone else's
+  add(`action ${L_}removeQuietFolderAction`, act(L_ + 'removeQuietFolderAction', ['lkq', 'c:/lkq/quiet']));
   add(`action ${L_}searchFoldersAction`, act(L_ + 'searchFoldersAction', t => [t.device, ''], aim(['device'], { ok: r => actOk(r) && r.value.data?.length > 0 })));
   // Another person's computer (same organization or another) is 'not found' for both, exactly as a made-up id; the owner's own call works (nothing matches the canary remotes, so nothing is linked).
   add(`action ${L_}matchingFoldersAction`, act(L_ + 'matchingFoldersAction', t => [t.device], aim(['device'], { ok: r => actOk(r) && Array.isArray(r.value.data?.matches) })));

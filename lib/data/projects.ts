@@ -13,7 +13,7 @@ import {
 import { todayStr, weekStart } from '../dates';
 import { InputError, NotFoundError } from './errors';
 import { memberNames } from '../people';
-import { cleanCodeLocations, codeCandidates, matchCodeLocation, type CodeQuery } from './code-locations';
+import { cleanCodeLocations, cleanMachine, codeCandidates, matchCodeLocation, MAX_CODE_LOCATIONS, normalizePath, type CodeQuery } from './code-locations';
 import { assigneesOf, unassignableFilter, unassignPull } from '../assignees';
 import type { CodeLocation } from '../types';
 import { userActor, type Actor } from '../actors';
@@ -612,20 +612,50 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   await move('messages', { projectId: p._id });
 }
 
+/**
+ * Files a folder under a project from a session (start_work link): adds a path location for one computer. Only adds that
+ * one location (codeBy, the production default and the remote list stay as they are, unlike a whole-list update). Refused
+ * when another project the caller reads already owns exactly that folder on that computer. Returns false when the project
+ * already has it.
+ */
+export async function addPathLocation(s: Scope, projectId: string, path: string, machine: string): Promise<boolean> {
+  const c = await scoped(s);
+  const norm = normalizePath(path);
+  const mach = cleanMachine(machine);
+  if (!norm || norm.length > 300) throw new InputError('Give the absolute path of the folder');
+  if (!mach) throw new InputError('Say which computer: pass machine');
+  const all = await c.projects.find({ 'code.path': { $exists: true } }, { projection: { name: 1, code: 1 } }).toArray();
+  let have = false;
+  for (const p of all) {
+    for (const l of p.code ?? []) {
+      if (!l.path || normalizePath(l.path) !== norm || (l.machine && l.machine !== mach) || (l.by && l.by !== s.userId)) continue; // another person's link on a same-named computer does not count
+      if (p._id !== projectId) throw new InputError(`This folder is already filed under ${p.name}`);
+      have = true; // the same computer, or a location for any computer: already covered
+    }
+  }
+  const cur = await c.projects.findOne({ _id: projectId }, { projection: { code: 1 } });
+  if (!cur) throw new NotFoundError('Project not found');
+  if (have) return false;
+  if ((cur.code?.length ?? 0) >= MAX_CODE_LOCATIONS) throw new InputError(`At most ${MAX_CODE_LOCATIONS} code locations per project`);
+  const [loc] = cleanCodeLocations([{ path, machine: mach, by: s.userId }]);
+  await c.projects.updateOne({ _id: projectId }, { $push: { code: loc }, $set: { updatedAt: new Date() } });
+  return true;
+}
+
 export type ProjectByCode =
   | { matched: true; project: Project; how: string; location: CodeLocation }
-  | { matched: false; candidates: { id: string; name: string; similarity: number }[] };
+  | { matched: false; candidates: { id: string; name: string; similarity: number; why?: string }[] };
 
-/** The project whose code locations best match a git remote / subdir / branch / folder path. */
-export async function findProjectByCode(s: Scope, q: CodeQuery): Promise<ProjectByCode> {
+/** The project whose path location best matches the folder (the folder decides; a remote only ranks the candidates). */
+export async function findProjectByCode(s: Scope, q: CodeQuery, opts: { legacyRemote?: boolean } = {}): Promise<ProjectByCode> {
   const c = await scoped(s);
   const docs = await c.projects.find({}, { projection: { name: 1, code: 1, status: 1 } }).toArray();
   const list = docs.map(d => ({ id: d._id, name: d.name, code: d.code }));
-  const m = matchCodeLocation(list, q);
+  const m = matchCodeLocation(list, { ...q, by: s.userId }, opts);
   if (m) {
     const doc = await c.projects.findOne({ _id: m.project.id });
     if (doc) return { matched: true, project: toProject(doc), how: m.how, location: m.location };
   }
   const live = list.filter((_, i) => docs[i].status === 'active' || docs[i].status === 'paused');
-  return { matched: false, candidates: codeCandidates(live.length ? live : list, q).map(x => ({ id: x.project.id, name: x.project.name, similarity: x.similarity })) };
+  return { matched: false, candidates: codeCandidates(live.length ? live : list, q).map(x => ({ id: x.project.id, name: x.project.name, similarity: x.similarity, ...(x.why ? { why: x.why } : {}) })) };
 }

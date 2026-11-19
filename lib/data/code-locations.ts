@@ -3,14 +3,16 @@
 //
 // A project has `code: CodeLocation[]`. A location is a git remote (normalised to a
 // lowercase "owner/name", credentials never kept) optionally narrowed by a subdir and/or
-// branch, or an absolute folder path. The most specific match wins:
-//   remote + subdir + branch  >  remote + subdir | remote + branch  >  remote  >  longest path prefix
-// A branch ending in * matches by prefix (wt/ana* covers wt/anasignin).
+// branch, or an absolute folder path (optionally for one `machine`). The folder decides the
+// project (H13): only a path location picks one, the longest path prefix wins. A remote never
+// decides; it only ranks the suggestions (`remoteMatches`, `codeCandidates`).
 
 import { InputError } from './errors';
 
-export type CodeLocation = { remote?: string; path?: string; subdir?: string; branch?: string; host?: string };
-export type CodeQuery = { remote?: string; path?: string; subdir?: string; branch?: string };
+/** `by`: the person whose link made a path location (start_work link with path and machine). Two people can have a computer of the same name and the same path, so a location with `by` matches only its person; none (made in the app, old data) = anyone. */
+export type CodeLocation = { remote?: string; path?: string; subdir?: string; branch?: string; host?: string; machine?: string; by?: string };
+export type CodeQuery = { remote?: string; path?: string; subdir?: string; branch?: string; machine?: string; /** The asking person (the scope's user). */ by?: string };
+const USER_ID = /^[A-Za-z0-9_-]{1,80}$/;
 export type CodeProject = { id: string; name: string; code?: CodeLocation[] };
 export type CodeMatch = { project: CodeProject; score: number; location: CodeLocation; how: string };
 
@@ -104,6 +106,13 @@ export function cleanCodeLocations(input: CodeLocation[] | null | undefined): Co
       const p = l.path.trim().replace(/[\\/]+$/, '');
       if (p.length > 300) throw new InputError('Path is too long');
       loc.path = p;
+      const mach = (l.machine ?? '').trim().toLowerCase();
+      if (mach) {
+        if (mach.length > 40 || !/^[a-z0-9._-]+$/.test(mach)) throw new InputError('Bad machine name: at most 40 of a-z, 0-9, dot, dash, underscore');
+        loc.machine = mach;
+      }
+      const by = (l.by ?? '').trim();
+      if (by && USER_ID.test(by)) loc.by = by;
     }
     if (!loc.remote && !loc.path) throw new InputError('A code location needs a remote or a path');
     const sub = normalizeSubdir(l.subdir);
@@ -116,7 +125,7 @@ export function cleanCodeLocations(input: CodeLocation[] | null | undefined): Co
       if (br.length > 200 || /\s/.test(br)) throw new InputError(`Bad branch "${l.branch}"`);
       loc.branch = br;
     }
-    const k = JSON.stringify([loc.remote, loc.path && normalizePath(loc.path), loc.subdir, loc.branch, loc.host]);
+    const k = JSON.stringify([loc.remote, loc.path && normalizePath(loc.path), loc.subdir, loc.branch, loc.host, loc.machine, loc.by]);
     if (!seen.has(k)) {
       seen.add(k);
       out.push(loc);
@@ -125,54 +134,80 @@ export function cleanCodeLocations(input: CodeLocation[] | null | undefined): Co
   return out;
 }
 
-function within(child: string, parent: string): boolean {
+/** A computer's name as the hook sends it, for comparing: lowercase, anything but a-z 0-9 . _ - becomes a dash, at most 40. */
+export function cleanMachine(input: string | null | undefined): string {
+  return (input ?? '').trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+}
+
+export function within(child: string, parent: string): boolean {
   return child === parent || child.startsWith(parent + '/');
 }
 
-/** Score of one location against a query; 0 = no match. */
-function scoreLocation(loc: CodeLocation, q: { remote: string | null; path: string | null; subdir: string; branch: string }): { score: number; how: string } {
+/** Score of one location against a query; 0 = no match. Only a path location decides (longer prefix wins); a remote never does. */
+function scoreLocation(loc: CodeLocation, q: { path: string | null; machine: string; by: string }): { score: number; how: string } {
+  if (!loc.path || !q.path) return { score: 0, how: '' };
+  if (loc.by && loc.by !== q.by) return { score: 0, how: '' }; // another person's link (the same computer name and path can be anyone's)
+  // A location written for one machine matches only there; an old one without `machine` matches on any.
+  if (loc.machine && loc.machine !== q.machine) return { score: 0, how: '' };
+  const lp = normalizePath(loc.path);
+  if (!lp || !within(q.path, lp)) return { score: 0, how: '' };
+  return { score: 1 + Math.min(lp.length, 999) / 1000, how: 'path' };
+}
+
+/**
+ * The old rule, where a remote decided: remote + subdir + branch > remote + subdir | remote + branch > remote > longest path.
+ * Kept for one release for the device-key route's body without `folders` (an old hook); step 8 of H13 removes it.
+ */
+function scoreLegacy(loc: CodeLocation, q: { remote: string | null; path: string | null; subdir: string; branch: string; by: string }): { score: number; how: string } {
   let best = { score: 0, how: '' };
   if (loc.remote && q.remote && normalizeRemote(loc.remote) === q.remote) {
     const sub = normalizeSubdir(loc.subdir);
     const br = normalizeBranch(loc.branch);
     const subOk = !sub || (!!q.subdir && within(q.subdir, sub));
-    // A trailing * matches a branch prefix, e.g. `wt/ana*` covers wt/anasignin.
     const brOk = !br || (br.endsWith('*') ? q.branch.startsWith(br.slice(0, -1)) : br === q.branch);
     if (subOk && brOk) {
-      // Tiers: 100 remote, 120 remote+subdir or +branch, 140 all three. Deeper subdirs win ties.
       const score = 100 + (sub ? 20 : 0) + (br ? 20 : 0) + (sub ? Math.min(sub.split('/').length, 9) / 10 : 0);
       best = { score, how: ['remote', sub && 'subdir', br && 'branch'].filter(Boolean).join(' + ') };
     }
   }
-  if (loc.path && q.path) {
+  if (loc.path && q.path && !(loc.by && loc.by !== q.by)) {
     const lp = normalizePath(loc.path);
     if (lp && within(q.path, lp)) {
-      const score = 1 + Math.min(lp.length, 999) / 1000; // always below any remote match; longer prefix wins
+      const score = 1 + Math.min(lp.length, 999) / 1000;
       if (score > best.score) best = { score, how: 'path' };
     }
   }
   return best;
 }
 
-/** The project whose code location best matches, or null. */
-export function matchCodeLocation(projects: CodeProject[], query: CodeQuery): CodeMatch | null {
+/** The project whose path location best matches, or null. `legacyRemote`: the old rule, where a remote decides (see scoreLegacy). */
+export function matchCodeLocation(projects: CodeProject[], query: CodeQuery, opts: { legacyRemote?: boolean } = {}): CodeMatch | null {
   const q = {
     remote: normalizeRemote(query.remote),
     path: normalizePath(query.path),
     subdir: normalizeSubdir(query.subdir),
     branch: normalizeBranch(query.branch),
+    machine: cleanMachine(query.machine),
+    by: (query.by ?? '').trim(),
   };
-  if (!q.remote && !q.path) return null;
+  if (opts.legacyRemote ? !q.remote && !q.path : !q.path) return null;
   let best: CodeMatch | null = null;
   for (const p of projects) {
     for (const loc of p.code ?? []) {
-      const s = scoreLocation(loc, q);
+      const s = opts.legacyRemote ? scoreLegacy(loc, q) : scoreLocation(loc, q);
       if (s.score > 0 && (!best || s.score > best.score || (s.score === best.score && p.name.localeCompare(best.project.name) < 0))) {
         best = { project: p, score: s.score, location: loc, how: s.how };
       }
     }
   }
   return best;
+}
+
+/** The projects with a code location whose remote equals the query's (they only rank the suggestions). */
+export function remoteMatches(projects: CodeProject[], query: CodeQuery): CodeProject[] {
+  const r = normalizeRemote(query.remote);
+  if (!r) return [];
+  return projects.filter(p => (p.code ?? []).some(l => l.remote && normalizeRemote(l.remote) === r));
 }
 
 /** The repo's own name from the query: last segment of the remote, else of the path. */
@@ -211,11 +246,12 @@ export function nameSimilarity(a: string, b: string): number {
   return (2 * hits) / (bx.length + by.length) * 0.8;
 }
 
-/** Top projects by name similarity to the repo name, for "which project is this?". */
-export function codeCandidates(projects: CodeProject[], query: CodeQuery, limit = 5): { project: CodeProject; similarity: number }[] {
+/** Suggestions for "which project is this?": projects with the same remote first (why: "same remote"), then by name similarity to the repo name. */
+export function codeCandidates(projects: CodeProject[], query: CodeQuery, limit = 5): { project: CodeProject; similarity: number; why?: string }[] {
   const name = repoName(query);
+  const same = new Set(remoteMatches(projects, query).map(p => p.id));
   return projects
-    .map(project => ({ project, similarity: Math.round(nameSimilarity(name, project.name) * 100) / 100 }))
-    .sort((a, b) => b.similarity - a.similarity || a.project.name.localeCompare(b.project.name))
+    .map(project => ({ project, similarity: Math.round(nameSimilarity(name, project.name) * 100) / 100, ...(same.has(project.id) ? { why: 'same remote' } : {}) }))
+    .sort((a, b) => Number(!!b.why) - Number(!!a.why) || b.similarity - a.similarity || a.project.name.localeCompare(b.project.name))
     .slice(0, limit);
 }

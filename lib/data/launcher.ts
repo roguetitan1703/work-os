@@ -87,7 +87,7 @@ export type JobsResponse = {
   enabled: boolean;
   pollSeconds: number;
   links: { folderId: string; projectId: string; projectName: string }[];
-  jobs: { id: string; kind: WorkerJobDoc['kind']; folderId?: string; projectId?: string; projectName?: string; sessionId?: string; prompt?: string; clone?: { repo: string; trusted: boolean } }[];
+  jobs: { id: string; kind: WorkerJobDoc['kind']; folderId?: string; projectId?: string; projectName?: string; sessionId?: string; prompt?: string; clone?: { repo: string; trusted: boolean }; dispatched?: number }[];
 };
 
 export async function pollJobs(s: Scope, deviceId: string): Promise<JobsResponse> {
@@ -130,6 +130,7 @@ export async function pollJobs(s: Scope, deviceId: string): Promise<JobsResponse
       ...(j.projectId ? { projectId: j.projectId, projectName: names.get(j.projectId) ?? j.projectId } : {}),
       ...(j.prompt ? { prompt: j.prompt } : {}),
       ...(j.clone ? { clone: j.clone } : {}),
+      ...(Number.isInteger(j.dispatched) ? { dispatched: j.dispatched } : {}),
     })),
   };
 }
@@ -408,6 +409,47 @@ async function sessionDoc(scope: DeviceScope, projectId: string, sessionId: stri
   return s;
 }
 
+/**
+ * The caller's own folder with this worker folder id (what the hook prints; start_work link). Only folders on the
+ * caller's own, non-revoked computers: another person's is "not found", exactly as no folder at all, and so is an id that
+ * two of the caller's computers both report.
+ */
+export async function ownFolderById(scope: DeviceScope, folderId: string): Promise<WorkerFolderDoc> {
+  if (!FOLDER_ID.test(folderId)) throw new NotFoundError('Folder not found');
+  const c = await scoped(scope);
+  const [rows, devices] = await Promise.all([c.workerFolders.find({ folderId }).limit(5).toArray(), deviceMap(scope)]);
+  const mine = rows.filter(f => devices.has(f.deviceId));
+  if (mine.length !== 1) throw new NotFoundError('Folder not found');
+  return mine[0];
+}
+
+/**
+ * The project of the first of `folderIds` (longest folder first, as the hook sends them) that is linked on this computer
+ * and still reported, or null. The caller is the computer's owner (the device-key route acts for them). H13: this is how a
+ * session's folder decides its project; a remote never does.
+ */
+export async function linkedFolderProject(scope: DeviceScope, deviceId: string, folderIds: string[]): Promise<{ projectId: string; folderId: string } | null> {
+  const ids = folderIds.filter(id => FOLDER_ID.test(id)).slice(0, 8);
+  if (!ids.length) return null;
+  const c = await scoped(scope);
+  const rows = await c.workerFolders.find({ deviceId, folderId: { $in: ids }, projectId: { $ne: null }, missing: false }).toArray();
+  for (const id of ids) {
+    const f = rows.find(r => r.folderId === id);
+    if (f?.projectId) return { projectId: f.projectId, folderId: f.folderId };
+  }
+  return null;
+}
+
+/** The folders linked to a project on one of the caller's computers, as project name and folder name (for suggestions); only projects the caller can read. */
+export async function devicesLinked(scope: DeviceScope, deviceId: string): Promise<{ project: string; folder: string }[]> {
+  const c = await scoped(scope);
+  if (!(await deviceMap(scope)).has(deviceId)) throw new NotFoundError('Device not found');
+  const rows = await c.workerFolders.find({ deviceId, projectId: { $ne: null }, missing: false }).sort({ name: 1 }).limit(50).toArray();
+  const projects = await c.projects.find({ _id: { $in: [...new Set(rows.map(f => f.projectId as string))] } }, { projection: { name: 1 } }).toArray();
+  const name = new Map(projects.map(p => [p._id, p.name]));
+  return rows.filter(f => name.has(f.projectId as string)).map(f => ({ project: name.get(f.projectId as string) as string, folder: f.name }));
+}
+
 export async function linkFolder(scope: DeviceScope, projectId: string, key: string): Promise<void> {
   const c = await scoped(scope);
   if (!(await c.projects.findOne({ _id: projectId }, { projection: { _id: 1 } }))) throw new NotFoundError('Project not found');
@@ -492,7 +534,7 @@ export async function unlinkFolder(scope: DeviceScope, projectId: string, key: s
   afterCommit(() => wake(scope.orgId, scope.userId, f.deviceId));
 }
 
-export async function addJob(scope: DeviceScope, deviceId: string, job: { kind: WorkerJobDoc['kind']; sessionId?: string; folderId?: string; projectId?: string; prompt?: string; clone?: { repo: string; trusted: boolean } }): Promise<string> {
+export async function addJob(scope: DeviceScope, deviceId: string, job: { kind: WorkerJobDoc['kind']; sessionId?: string; folderId?: string; projectId?: string; prompt?: string; clone?: { repo: string; trusted: boolean }; dispatched?: number }): Promise<string> {
   const c = await scoped(scope);
   if (!(await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { _id: 1 } }))) throw new InputError('That device was revoked; add it again under Claude › Setup');
   const open = await c.workerJobs.countDocuments({ deviceId, doneAt: null });
@@ -515,14 +557,14 @@ export async function startSession(scope: DeviceScope, projectId: string, key: s
  * The session row and the start job. Also used by the dispatcher (docs/dispatcher.md), which passes `dispatched`
  * (the fixed template is the prompt, never task text) and a session id it already recorded on the task.
  */
-export async function createStartJob(scope: DeviceScope, f: WorkerFolderDoc, projectId: string, text: string, dispatched?: { taskId: string; sessionId: string }): Promise<string> {
+export async function createStartJob(scope: DeviceScope, f: WorkerFolderDoc, projectId: string, text: string, dispatched?: { taskId: string; sessionId: string; ref: number }): Promise<string> {
   if (text.length > MAX_PROMPT) throw new InputError(`First message is too long (max ${MAX_PROMPT} characters)`);
   const sessionId = dispatched?.sessionId ?? randomUUID();
   const c = await scoped(scope);
   const now = new Date();
   await c.workerSessions.insertOne({ _id: sessionId, orgId: scope.orgId, ownerId: scope.userId, deviceId: f.deviceId, folderId: f.folderId, projectId, state: 'starting', startedAt: now, updatedAt: now, ...(dispatched ? { dispatched: true, taskId: dispatched.taskId } : {}) });
   try {
-    await addJob(scope, f.deviceId, { kind: 'start', sessionId, folderId: f.folderId, projectId, ...(text ? { prompt: text } : {}) });
+    await addJob(scope, f.deviceId, { kind: 'start', sessionId, folderId: f.folderId, projectId, ...(text ? { prompt: text } : {}), ...(dispatched ? { dispatched: dispatched.ref } : {}) });
   } catch (err) {
     await c.workerSessions.deleteOne({ _id: sessionId }); // no orphan "starting" row when the job is refused
     throw err;

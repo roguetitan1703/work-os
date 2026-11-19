@@ -75,7 +75,8 @@ update_claude_items goes away (and its lines in the server instructions).
 ## 5. How a session works
 1. **Start, and after every compaction** (hook): start_work for the folder. The brief puts the Orders, State,
    handovers for this project, messages and "Declutter due" into context. A folder no project owns: the session asks
-   once which project it is and links the folder. claude.ai chat and the API have no hooks: line one of the server
+   once which project it is and links the folder (sections 11 and 16.13 add: or creates the project, or marks the
+   folder not Work OS; section 11 wins). claude.ai chat and the API have no hooks: line one of the server
    instructions tells them to call start_work.
 2. **While working:** status goes to Work OS. State with edit_state / save_state, tasks with set_doing / log_progress /
    hand_in, questions with ask. Messages arrive after any tool call (hook) or in forYou.
@@ -173,7 +174,9 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
 ## 11. Live sessions and messaging (from session-messaging.md, settled with Om)
 - **The folder decides the project.** Code locations are `{path, host}`; the longest match wins; the git remote is
   information. Unknown folder: the session sorts itself out (asks once, links or creates). `claude -p`, workers and
-  subagents stay quiet.
+  subagents stay quiet. **Built (H13, 19 Nov):** path locations take a `machine`; the device-key route takes the
+  hook's `folders`; `start_work` gains `folder`, `link`, `not_work_os`; the remote only ranks suggestions; see
+  HANDOVER.md section 3, "Claude Code hooks", "The folder decides the project".
 - **Every session has its own id** (the session token's id, section 16.8, or one from start_work; not Claude Code's
   session_id). Seen state, presence and to_session key on it. This fixes the "same person, unread forever" bug.
   **Built (H3, 19 Nov):** `seenBy`, `toSids`, `sessionKey`, `isUnreadFor`; see docs/HANDOVER.md section 3, Messages.
@@ -269,7 +272,7 @@ Each piece ships through dev, a full test run, then master. Security review befo
     number. "Claude items" joins the test when the migration lands.
 12. **Phone:** only Needs a session is waiting on reach the phone; Declutter, rule proposals and the rest go in the Monday
     digest. A push Need offers "yes, and for 24 hours on this project". Wakes are capped per session per hour.
-13. **Akash's other folders:** the Lobby question gets a "not Work OS" answer, remembered per folder.
+13. **Akash's other folders:** the Lobby question gets a "not Work OS" answer, remembered per folder. **Built (H13):** per person on the server (`quietFolders:<userId>`), per computer and path, undone in Claude › Setup › Computers.
 14. **Build order:** tonight (Om: Orders, CLAUDE.md, key). Then S alone first (wording pass, instructions paragraph, hook
     split into one file per event, packaging: the worker's update refreshes the hooks and reports their version). Then A
     (session token, per-session ids, the hook files) and B (line edit with `find`, remove, short answers in states.ts and

@@ -7,13 +7,15 @@ import { briefTask, dailySummary } from '../data/summary';
 import { applyChanges, MAX_OPS, type BatchOp } from '../data/batch';
 import { getProjectTree } from '../data/tree';
 import * as notesData from '../data/notes';
+import { addQuietFolder, quietFolder } from '../data/quiet-folders';
+import { devicesLinked, linkFolder, ownFolderById } from '../data/launcher';
 import { authorLabel, isMine, outsideTitleLabel, taskAuthors } from '../data/authors';
 import * as items from '../data/claude-items';
 import * as needsData from '../data/needs';
 import * as productionData from '../data/production';
 import * as results from '../data/results';
 import { InputError, NotFoundError } from '../data/errors';
-import { serverInstructions, STATE_COPY, TOOLS, type InstructionsFor, type ToolName } from './docs';
+import { serverInstructions, STATE_COPY, TOOLS, UNMATCHED_HINT, type InstructionsFor, type ToolName } from './docs';
 import { beforeTool, callerScope, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
 import { actorOut, agentActor } from '../actors';
 import { findMember, memberNames } from '../people';
@@ -376,6 +378,7 @@ const codeShape = z
       path: z.string().optional().describe('Absolute folder path, for code that is not in a git remote'),
       subdir: z.string().optional().describe('Folder inside the repo (relative to its root) that belongs to this project'),
       branch: z.string().optional().describe('Branch that belongs to this project, e.g. a worktree branch'),
+      machine: z.string().max(40).optional().describe('With a path: the computer it is on (the name start_work got); none = any computer'),
     }),
   )
   .max(20)
@@ -1099,6 +1102,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         subdir: z.string().optional().describe('Your working folder relative to the repo root (git rev-parse --show-prefix)'),
         branch: z.string().optional().describe('Current git branch'),
         path: z.string().optional().describe('Absolute path of your working folder'),
+        machine: z.string().max(40).optional().describe('A short name for this computer (with path: only a folder written for this computer matches)'),
         depth: z.enum(['project', 'tasks', 'full']).optional().describe('Default tasks'),
         include_closed: z.boolean().optional().describe('Also Done/Dropped tasks'),
         activity_per_task: z.number().int().min(1).max(30).optional().describe('depth full: history entries per task (default 5)'),
@@ -1110,12 +1114,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
       let matchedBy: { how: string; location: unknown } | undefined;
       if (!projectKey) {
         if (!a.remote && !a.path) throw new InputError('Give project (name or id), or remote (+ subdir, branch) or path to find it from your repo');
-        const m = await projects.findProjectByCode(s, { remote: a.remote, path: a.path, subdir: a.subdir, branch: a.branch });
+        const m = await projects.findProjectByCode(s, { remote: a.remote, path: a.path, subdir: a.subdir, branch: a.branch, machine: a.machine });
         if (!m.matched) {
           return {
             unmatched: true,
             candidates: m.candidates,
-            hint: 'No project has this repo as a code location. Ask your person which project this is, then call update_project with code: [{ remote, subdir?, branch? }] (or path) so it resolves next time.',
+            hint: UNMATCHED_HINT,
           };
         }
         projectKey = m.project.id;
@@ -1174,6 +1178,18 @@ export function createMcpServer(ctx: Ctx): McpServer {
 
   // ── Starting work and State (docs/flows/step-1.md) ─────────────────────────
 
+  // The projects with a folder on the same computer as `folder` (the person's own computer only; nothing otherwise).
+  const onThisPc = async (folder: string) => {
+    try {
+      const f = await ownFolderById(s, folder);
+      const list = await devicesLinked(s, f.deviceId);
+      return list.length ? { onThisPc: list } : {};
+    } catch (e) {
+      if (e instanceof NotFoundError) return {};
+      throw e;
+    }
+  };
+
   tool(
     'start_work',
     {
@@ -1189,21 +1205,46 @@ export function createMcpServer(ctx: Ctx): McpServer {
         account: z.string().max(80).optional().describe('A label for the account you run under, e.g. "om-max" (the roster shows it; never a key or email)'),
         parent: z.string().max(64).optional().describe('For a builder: the session id of the orchestrator that started you (the roster shows you under it)'),
         slot: z.string().max(20).optional().describe('For a builder: your slot name, e.g. "A", "B" or "S"'),
+        folder: z.string().max(40).optional().describe('The folder id the hook printed (a computer with the Work OS worker); with link it files that folder under project'),
+        link: z.boolean().optional().describe('With project: your person said the folder belongs to it; files it (folder, or path and machine) so later sessions there check in'),
+        not_work_os: z.boolean().optional().describe('With path and machine: your person said this folder is not Work OS; sessions in it (and below) stay quiet. Undo in Claude › Setup › Computers'),
         session: sessionArg,
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     handler(async a => {
+      if (a.not_work_os) {
+        if (!a.path || !a.machine) throw new InputError('not_work_os needs path and machine (as the hook printed them)');
+        await addQuietFolder(s, a.machine, a.path);
+        return { quiet: true, message: `Marked not Work OS: sessions in ${a.path} on ${a.machine} stay quiet. Your person can undo it in Work OS (Claude › Setup › Computers, Not Work OS folders). No project was started.` };
+      }
       let key = a.project?.trim();
+      let filed: { how: string } | undefined;
+      if (a.link) {
+        // Your person said which project the folder is for (H13): file it, then start. The same key could already read and write that project.
+        if (!key) throw new InputError('link needs project: the project your person named');
+        const p = await projects.getProject(s, key);
+        if (!p) throw new NotFoundError(`Project "${key.slice(0, 120)}" not found`);
+        if (a.folder) {
+          await linkFolder(s, p.id, (await ownFolderById(s, a.folder))._id);
+          filed = { how: 'folder' };
+        } else {
+          if (!a.path || !a.machine) throw new InputError('link needs folder (the id the hook printed) or path and machine');
+          filed = { how: (await projects.addPathLocation(s, p.id, a.path, a.machine)) ? 'path' : 'path (it was already filed here)' };
+        }
+        key = p.id;
+      }
       let matchedBy: { how: string; location: unknown } | undefined;
       if (!key) {
         if (!a.remote && !a.path) throw new InputError('Give project (name or id), or remote (+ subdir, branch) or path to find it from your repo');
-        const m = await projects.findProjectByCode(s, { remote: a.remote, path: a.path, subdir: a.subdir, branch: a.branch });
+        const m = await projects.findProjectByCode(s, { remote: a.remote, path: a.path, subdir: a.subdir, branch: a.branch, machine: a.machine });
         if (!m.matched) {
           return {
             unmatched: true,
             candidates: m.candidates,
-            hint: 'No project has this repo as a code location. Ask your person which project this is, then call update_project with code: [{ remote, subdir?, branch? }] (or path) and call start_work again.',
+            ...(a.folder ? await onThisPc(a.folder) : {}),
+            ...(a.path && a.machine && (await quietFolder(s, a.machine, a.path)) ? { quiet: true } : {}),
+            hint: UNMATCHED_HINT,
           };
         }
         key = m.project.id;
@@ -1214,7 +1255,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? (caller.keyId?.startsWith('oauth_') ? undefined : randomUUID());
       // The hook protocol: the header; a call without it from the old hook (key label "Claude Code") counts as protocol 1.
       const hook = requestContext().hook ?? (a.label === 'Claude Code' ? 1 : undefined);
-      return startWorkBrief(ctx, key, sid, { ...a, hook }, matchedBy);
+      const brief = await startWorkBrief(ctx, key, sid, { ...a, hook }, matchedBy);
+      return filed ? { ...brief, filed } : brief;
     }),
   );
 

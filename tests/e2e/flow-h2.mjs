@@ -113,7 +113,10 @@ try {
     hook.deps.deviceKey = () => ${JSON.stringify(devKey)};
     process.stdout.write(await hook.main('session-start', JSON.stringify({ session_id: 'h2s', cwd: ${JSON.stringify(cwd)}, transcript_path: '' })));
   `], { env, encoding: 'utf8', timeout: 30000 });
-  const linkedRepo = run(mkRepo('linked', 'https://github.com/acme/h2-one.git'));
+  // H13: the folder decides. The worker's state.json says which folder id this folder is; the remote alone no longer files a clone.
+  const linkedDir = mkRepo('linked', 'https://github.com/acme/h2-one.git');
+  fs.writeFileSync(path.join(worker, 'state.json'), JSON.stringify({ folders: { 'h2-one': linkedDir } }));
+  const linkedRepo = run(linkedDir);
   check('a linked folder gets the brief for its project', /Work OS brief for project H2 One/.test(linkedRepo.stdout), linkedRepo.stdout.slice(0, 200) + linkedRepo.stderr);
   const unlinkedRepo = run(mkRepo('unlinked', 'https://github.com/acme/h2-shared.git'));
   check('an unlinked folder gets nothing', unlinkedRepo.stdout.trim() === '', unlinkedRepo.stdout.slice(0, 200));

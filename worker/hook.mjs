@@ -14,7 +14,8 @@
 //   subagent-start SubagentStart: the short form of the organization Orders (from the session's marker, no network) as context.
 //                  These and the stop and pre-tool pings use POST /api/agent/event with the session token (postEvent in
 //                  hook-lib.mjs); no token (WORK_OS_KEY, cloud) sends nothing, and a failure is silent.
-//   Flags: --cloud (do nothing unless CLAUDE_CODE_REMOTE=true) and --server <url>, written by `hooks repo`.
+//   Flags: --cloud (do nothing unless CLAUDE_CODE_REMOTE=true), --server <url> and --project <id> (the project a cloud repo's
+//   sessions start on; the key path then calls start_work { project }), written by `hooks repo`.
 // Each reads Claude Code's hook JSON on stdin and answers in its hook JSON on stdout. They FAIL OPEN: no key, no network,
 // no matching project, a timeout or anything unexpected prints nothing and exits 0, so a hook can never stop a session.
 // `node worker.mjs hooks install` (worker/hooks-install.mjs) copies this file and the files it needs (FILES there) to
@@ -37,12 +38,14 @@ export { postTool } from './hook-post-tool.mjs';
  * `cloud` (the --cloud flag of a repo's settings, see hooks-install.mjs "repo"): do nothing unless this is a Claude Code
  * cloud session (CLAUDE_CODE_REMOTE=true), so a repo's hooks stay silent on a PC, where the global hooks run.
  * `server` (--server): the Work OS address when WORK_OS_URL is not set.
+ * `project` (--project): the project id a cloud repo's sessions start on (hooks-install.mjs "repo").
  */
-export async function main(event, stdinText, { cloud = false, server = null } = {}) {
+export async function main(event, stdinText, { cloud = false, server = null, project = null } = {}) {
   try {
     if (!EVENTS.some((e) => e.event === event)) return '';
     if (cloud && process.env.CLAUDE_CODE_REMOTE !== 'true') return '';
     run.server = server;
+    run.project = project;
     let input = {};
     try { input = JSON.parse(stdinText || '{}'); } catch {}
     const out = await (await import(`./hook-${event}.mjs`)).handle(input);
@@ -56,7 +59,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const row = EVENTS.find((e) => e.event === process.argv[2]);
   if (!row) process.exit(0);
   const flags = process.argv.slice(3);
-  const opts = { cloud: flags.includes('--cloud'), server: flags.includes('--server') ? flags[flags.indexOf('--server') + 1] || null : null };
+  const opts = { cloud: flags.includes('--cloud'), server: flags.includes('--server') ? flags[flags.indexOf('--server') + 1] || null : null, project: flags.includes('--project') ? flags[flags.indexOf('--project') + 1] || null : null };
   if (opts.cloud && process.env.CLAUDE_CODE_REMOTE !== 'true') process.exit(0);
   let buf = '';
   process.stdin.setEncoding('utf8');

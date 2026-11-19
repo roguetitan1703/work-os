@@ -426,7 +426,7 @@ export const scopeOf = (c: Scope): Scope => check({ userId: c.userId, orgId: c.o
 // One document per person (notify, dispatcher, alerts, status, profile, schedule) or per organization (discord,
 // modes), _id `<area>:<id>`.
 
-export type UserArea = 'notify' | 'dispatcher' | 'alerts' | 'status' | 'profile' | 'schedule' | 'mail';
+export type UserArea = 'notify' | 'dispatcher' | 'alerts' | 'status' | 'profile' | 'schedule' | 'mail' | 'quietFolders';
 export type OrgArea = 'discord' | 'modes';
 
 async function settingsCol() {

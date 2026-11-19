@@ -187,7 +187,7 @@ export function createCore(deps) {
       if (projectId && projectName) writeMarker(v.dir, { projectId, projectName, folderId: job.folderId });
       if (projectId && projectName) state.markers[job.folderId] = true;
       trustFolder(v.dir, log);
-      await launcher({ kind: job.kind, folder: v.dir, sessionId: job.sessionId, projectName: projectName || undefined, prompt: job.kind === 'start' && getConfig().allowPrompts !== false ? job.prompt || undefined : undefined });
+      await launcher({ kind: job.kind, folder: v.dir, sessionId: job.sessionId, projectName: projectName || undefined, prompt: job.kind === 'start' && getConfig().allowPrompts !== false ? job.prompt || undefined : undefined, dispatched: Number.isInteger(job.dispatched) ? job.dispatched : undefined });
       state.sessions[job.sessionId] = { folderId: job.folderId, state: 'running', startedAt: now() };
       return { id, ok: true };
     } catch (e) {

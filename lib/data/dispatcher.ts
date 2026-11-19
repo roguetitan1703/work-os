@@ -331,8 +331,8 @@ async function claimFor(c: Collections, s: Scope, deviceId: string, set: Dispatc
     );
     if (!claimed) return null;
     try {
-      if (f) await createStartJob(s, f, claimed.projectId!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId });
-      else await createCloneJob(s, deviceId, claimed.projectId!, clone!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId });
+      if (f) await createStartJob(s, f, claimed.projectId!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId, ref: claimed.ref });
+      else await createCloneJob(s, deviceId, claimed.projectId!, clone!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId, ref: claimed.ref });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[dispatcher] start job failed, rolled back', msg);

@@ -26,7 +26,7 @@ export const EVENTS = [
   // Files changed and State not saved: hold the session once and ask for save_state.
   { event: 'stop', claudeEvent: 'Stop', matcher: null, timeoutS: 8 },
   // Refuse hand edits of WORK-STATE.md (it is a copy of the Work OS State).
-  { event: 'pre-tool', claudeEvent: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', timeoutS: 5 },
+  { event: 'pre-tool', claudeEvent: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|mcp__.*__(write_note|propose_order|apply_changes)', timeoutS: 5 },
   // After a State save or read: write WORK-STATE.md from the answer and commit that file alone.
   { event: 'post-tool', claudeEvent: 'PostToolUse', matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', timeoutS: 20 },
   // Session state and messages (POST /api/agent/event and /api/agent/wait, a session token only: a PC's own hooks, so a repo's cloud
@@ -60,6 +60,73 @@ export function keepToken(sid, token, until) {
   try { for (const f of fs.readdirSync(dir)) { const p = path.join(dir, f); if (Date.now() - fs.statSync(p).mtimeMs > 2 * 86_400_000) fs.rmSync(p, { force: true }); } } catch {}
 }
 
+// ── Which folder is this session in (H13: the folder decides the project) ─────────────────────────────────────────────────
+const FOLDER_ID_RE = /^[A-Za-z0-9_-]{4,40}$/;
+const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+const flat = (p) => { const x = real(p).replace(/\\/g, '/').replace(/\/+$/, ''); return process.platform === 'win32' || process.platform === 'darwin' ? x.toLowerCase() : x; };
+
+/**
+ * The ids of the worker folders (the worker's state.json, outside every repo) that contain `cwd`, longest first, then the
+ * same for the main worktree (a worktree of a linked repo falls through to the repo), at most 8. [] when this copy is not
+ * installed beside a worker or the worker has not scanned. The server takes the first one linked on this computer.
+ */
+export function folderCandidates(cwd) {
+  const home = workerHome();
+  if (!home) return [];
+  let folders = null;
+  try { folders = JSON.parse(fs.readFileSync(path.join(home, 'state.json'), 'utf8')).folders; } catch { return []; }
+  if (!folders || typeof folders !== 'object') return [];
+  const list = Object.entries(folders).filter(([id, p]) => FOLDER_ID_RE.test(id) && typeof p === 'string' && p).map(([id, p]) => [id, flat(p)]);
+  const containing = (dir) => {
+    const d = flat(dir);
+    return list.filter(([, p]) => d === p || d.startsWith(p + '/')).sort((a, b) => b[1].length - a[1].length).map(([id]) => id);
+  };
+  const out = containing(cwd);
+  const common = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  if (common && path.basename(common) === '.git') {
+    const main = path.dirname(common);
+    if (flat(main) !== flat(cwd)) out.push(...containing(main));
+  }
+  return [...new Set(out)].slice(0, 8);
+}
+
+/** A temp folder (a scratch checkout, a test run): asking which project it is for would only be noise. */
+export function quietPath(cwd) {
+  const d = flat(cwd);
+  const t = flat(os.tmpdir());
+  return d === t || d.startsWith(t + '/');
+}
+
+/** `claude -p` and Agent SDK runs (CLAUDE_CODE_ENTRYPOINT sdk-cli, sdk-ts, sdk-py): no person to ask, so no start brief or question. A person's session is cli, claude-desktop, claude-vscode. */
+export const quietRun = () => /^sdk/i.test(process.env.CLAUDE_CODE_ENTRYPOINT || '');
+
+const plain = (v, n) => str(v).replace(/[^\w ./:\\()@+~-]/g, '?').slice(0, n);
+/**
+ * What a session is told in a folder no project owns: fixed words, with the folder's path, remote and id (cut and cleaned:
+ * a hostile folder name is data), the calls that file it, and suggestions from Work OS (names cleaned the same way).
+ */
+export function unfiledText({ path: p, remote, folder, machine, candidates, worker = false }) {
+  const P = plain(p, 100);
+  const M = plain(machine, 40);
+  const where = `path: ${P}${remote ? `; remote: ${plain(remote, 80)}` : ''}${folder ? `; folder id: ${plain(folder, 40)}` : ''}`;
+  const link = folder ? `{ project: "<name>", folder: "${plain(folder, 40)}", link: true }` : `{ project: "<name>", path: "${P}", machine: "${M}", link: true }`;
+  // A PC with the worker links by folder id only (/api/agent/start never reads a path link). A folder the worker has not scanned
+  // has no id: the person adds or links it in the app, then the next prompt finds it.
+  const noId = worker && !folder;
+  const names = (Array.isArray(candidates) ? candidates : []).slice(0, 3).map((c) => `${plain(c?.name, 40)}${c?.why ? ' (same remote)' : ''}`).filter(Boolean);
+  return [
+    `This folder is not filed in Work OS (${where}). A remote never picks the project. Ask your person once which project this folder is for.`,
+    noId
+      ? `The worker on this computer has not scanned this folder, so it cannot be filed from here. Ask your person to add or link it in Work OS under Claude › Setup › Computers (a new project: add_project first), or call start_work { path: "${P}", machine: "${M}", not_work_os: true } if it is not Work OS.`
+      : `Then call start_work ${link} to file it (a new project: add_project first, then the same call), or { path: "${P}", machine: "${M}", not_work_os: true } if it is not Work OS.`,
+    names.length ? `Suggestions: ${names.join(', ')}.` : 'Suggestions: start_work { path, remote } lists candidates.',
+  ].join('\n');
+}
+/** The one line a session sees on each prompt while its folder is still unfiled. */
+export const unfiledReminder = (folder, worker = false) => (worker && !folder
+  ? 'Work OS: this folder is not filed yet. Ask your person to add or link it in Claude › Setup › Computers.'
+  : `Work OS: this folder is not filed yet. Ask your person which project, then start_work { project, ${folder ? `folder: "${plain(folder, 40)}", ` : 'path, machine, '}link: true }.`);
+
 const PRESENCE_AFTER = { prompt: 'working', tool: 'working', stop: 'idle', end: 'off' };
 /**
  * Tells Work OS what this session just did (POST /api/agent/event, the kept session token only; nothing without one).
@@ -88,7 +155,7 @@ export async function postEvent(sid, event, extra = {}, timeoutMs = 1500) {
 }
 
 /** Set by hook.mjs from the command line: the server address a cloud repo's settings name (--server), used when WORK_OS_URL is not set. `exitCode` and `stderr`: what the process ends with (the idle wait: 2 and the message, which wakes the session). */
-export const run = { server: null, exitCode: 0, stderr: '', /** Set by the pre-tool hook once it found a production action, before it asks Work OS: if the hook then runs out of time, hook.mjs refuses (hook-release.mjs). */ prod: null };
+export const run = { server: null, /** Set by hook.mjs from --project (a cloud repo's entries, `hooks repo --project`): the project this repo's cloud sessions start on, so the key path calls start_work { project }. */ project: null, exitCode: 0, stderr: '', /** Set by the pre-tool hook once it found a production action, before it asks Work OS: if the hook then runs out of time, hook.mjs refuses (hook-release.mjs). */ prod: null };
 
 export const TIMEOUT_MS = 5000;
 export const MAX_BRIEF = 9500; // Claude Code caps a hook context string at 10,000 characters
@@ -232,5 +299,5 @@ export async function postAgent(apiPath, cred, body, timeoutMs = TIMEOUT_MS) {
   });
   let b = null;
   try { b = await res.json(); } catch {}
-  return { status: res.status, b: res.ok ? b : null, error: !res.ok && typeof b?.error === 'string' ? b.error : null };
+  return { status: res.status, b: res.ok ? b : null, error: !res.ok && typeof b?.error === 'string' ? b.error : null, ...(res.status === 404 && b?.unfiled === true ? { unfiled: true, quiet: b.quiet === true } : {}) };
 }
