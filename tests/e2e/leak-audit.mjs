@@ -570,6 +570,17 @@ try {
   // the missing membership stands between R and the first organization (the worst case of a removal).
   const rUid = { $in: [R.userId, uid(R.userId)] };
   const left = { session: await rawDb.collection('session').find({ userId: rUid }).toArray(), apikey: await rawDb.collection('apikey').find({ referenceId: rUid }).toArray() };
+  {
+    // H14: fields a client adds to a save are not passed on (allowSameTitle, fromHandover, shelf, need, undoOf), and a shelf must be one
+    await mustMcp(A.chat, 'write_note', { project: S.projectName, title: 'lkq fields one', body: 'x' });
+    const fb = (await mustMcp(A.chat, 'write_note', { project: S.projectName, title: 'lkq fields two', body: 'x' })).created.id;
+    await action('app/(app)/notes/actions.ts#saveNoteAction', [fb, { title: 'lkq fields one', allowSameTitle: true, fromHandover: true, shelf: 'handovers', need: 1, undoOf: 1 }], { cookie: A.cookie });
+    const nb = await rawDb.collection('notes').findOne({ _id: fb });
+    check('H14: saveNoteAction ignores allowSameTitle, fromHandover and shelf sent by the client', nb.title === 'lkq fields two' && nb.shelf === undefined, JSON.stringify([nb.title, nb.shelf]));
+    await action('app/(app)/notes/actions.ts#setShelfAction', [fb, 'handovers'], { cookie: A.cookie });
+    await action('app/(app)/notes/actions.ts#setShelfAction', [fb, 'bogus'], { cookie: A.cookie });
+    check('H14: setShelfAction refuses Handovers and anything that is not a shelf', (await rawDb.collection('notes').findOne({ _id: fb })).shelf === undefined);
+  }
   const rm = await action('app/(app)/settings/members-actions.ts#removeMemberAction', [R.userId], { cookie: A.cookie });
   if (!rm.value?.ok) throw new Error(`remove R: ${rm.text.slice(0, 300)}`);
   if (await rawDb.collection('member').countDocuments({ userId: rUid })) throw new Error('remove R: the membership is still there');

@@ -69,7 +69,7 @@ export default async function NotePage({ params, searchParams }: Props) {
           Edited {fmtAgo(note.updatedAt)} by <ActorName actor={note.updatedBy} />
         </span>
         {note.archived && <span className="px-1.5 py-px rounded bg-muted">Archived · {note.archivedBecause}</span>}
-        {note.shelf && <ShelfSwitch noteId={note.id} current={note.shelf} isHandover={note.shelf === 'handovers'} />}
+        {note.shelf && <ShelfSwitch noteId={note.id} current={note.shelf} />}
         {(ordersOptions.length > 0 || note.orders) && <OrdersSwitch noteId={note.id} current={note.orders ?? null} options={ordersOptions} updatedAt={new Date(note.updatedAt).getTime()} />}
         {history && (
           <span

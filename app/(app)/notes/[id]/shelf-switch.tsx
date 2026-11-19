@@ -10,7 +10,7 @@ import { setShelfAction } from '../actions';
  * The shelf a project note sits on (Overview, Designs, Runbooks; Handovers only on a handover). Beside the Orders switch in
  * the note's header; the project page and the Notes filter group by it.
  */
-export function ShelfSwitch({ noteId, current, isHandover }: { noteId: string; current: Shelf; isHandover: boolean }) {
+export function ShelfSwitch({ noteId, current }: { noteId: string; current: Shelf }) {
   const [shelf, setShelf] = useState<Shelf>(current);
   const [pending, start] = useTransition();
   const change = (next: Shelf) =>
@@ -32,7 +32,7 @@ export function ShelfSwitch({ noteId, current, isHandover }: { noteId: string; c
           className="h-9 md:h-7 rounded-md border border-input bg-background px-2 text-base md:text-xs text-foreground"
           data-shelf-select
         >
-          {SHELVES.filter(x => x.id !== 'handovers' || isHandover).map(x => (
+          {SHELVES.filter(x => x.id !== 'handovers' || shelf === 'handovers').map(x => (
             <option key={x.id} value={x.id}>
               {x.label}
             </option>

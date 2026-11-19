@@ -114,7 +114,7 @@ export function cloneBlocks(blocks: NoteBlock[]): NoteBlock[] {
 
 // ── In-place text edits (H14 step 2) ────────────────────────────────────────
 
-type Run = { list: Inline[]; index: number; text: string; editable: boolean };
+type Run = { list: Inline[]; index: number; text: string; editable: boolean; link?: { node: Inline; parent: Inline[] } };
 
 /**
  * The text segments of a block with inline content, in order: `text` runs and the `text` runs inside a `link`. A mention
@@ -125,10 +125,10 @@ export function inlineRuns(block: AnyBlock): Run[] | null {
   const x = block as unknown as { type: string; content?: unknown };
   if (!Array.isArray(x.content) || x.type === 'codeBlock') return null;
   const runs: Run[] = [];
-  const walk = (list: Inline[]) => {
+  const walk = (list: Inline[], link?: Run['link']) => {
     list.forEach((ic, index) => {
-      if (ic.type === 'text') runs.push({ list, index, text: ic.text ?? '', editable: true });
-      else if (ic.type === 'link' && Array.isArray(ic.content)) walk(ic.content);
+      if (ic.type === 'text') runs.push({ list, index, text: ic.text ?? '', editable: true, ...(link ? { link } : {}) });
+      else if (ic.type === 'link' && Array.isArray(ic.content)) walk(ic.content, { node: ic, parent: list });
       else runs.push({ list, index, text: '\uFFFC', editable: false });
     });
   };
@@ -144,11 +144,19 @@ export function inlineRuns(block: AnyBlock): Run[] | null {
  * not editable in place (count 0), so the caller takes the markdown path.
  */
 export function editInPlace(blocks: NoteBlock[], find: string, replace: string): { count: number; apply?: () => void } {
+  // `runs` is empty for text that is counted but never edited here (code blocks, table cells): a find that also occurs there
+  // is not unique, as in the markdown path.
   const texts: { runs: Run[]; text: string }[] = [];
+  const raw = (c: unknown): string => (Array.isArray(c) ? (c as Inline[]).map(ic => ic.text ?? raw(ic.content)).join('') : '');
   const walk = (bs: AnyBlock[]) => {
     for (const b of bs) {
       const runs = inlineRuns(b);
       if (runs?.length) texts.push({ runs, text: runs.map(r => r.text).join('') });
+      else {
+        const c = (b as unknown as { content?: unknown }).content;
+        if (Array.isArray(c)) texts.push({ runs: [], text: raw(c) });
+        else if (c && typeof c === 'object') for (const row of (c as { rows?: { cells?: unknown[] }[] }).rows ?? []) for (const cell of row.cells ?? []) texts.push({ runs: [], text: raw((cell as { content?: unknown })?.content ?? cell) });
+      }
       const kids = (b as unknown as { children?: AnyBlock[] }).children;
       if (kids?.length) walk(kids);
     }
@@ -161,6 +169,7 @@ export function editInPlace(blocks: NoteBlock[], find: string, replace: string):
   const i = per.findIndex(h => h.length);
   const hit = per[i][0];
   const { runs } = texts[i];
+  if (!runs.length) return { count: 0 };
   const touched: { run: Run; from: number; to: number }[] = [];
   let at = 0;
   for (const run of runs) {
@@ -178,7 +187,16 @@ export function editInPlace(blocks: NoteBlock[], find: string, replace: string):
         node.text = k === 0 ? text.slice(0, t.from) + replace + (touched.length === 1 ? text.slice(t.to) : '') : text.slice(t.to);
       });
       // Drop runs the edit left empty (highest index first so earlier ones keep their place).
-      for (const t of [...touched].reverse()) if (!(t.run.list[t.run.index].text ?? '')) t.run.list.splice(t.run.index, 1);
+      for (const t of [...touched].reverse()) {
+        if (t.run.list[t.run.index].text ?? '') continue;
+        t.run.list.splice(t.run.index, 1);
+        // A link left with no text goes too (no empty link).
+        const l = t.run.link;
+        if (l && !t.run.list.length) {
+          const at = l.parent.indexOf(l.node);
+          if (at >= 0) l.parent.splice(at, 1);
+        }
+      }
     },
   };
 }

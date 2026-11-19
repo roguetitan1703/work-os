@@ -307,6 +307,22 @@ try {
     const noShelf = await must(cc, 'list_notes', { project: P });
     check('H14 shelf: every project note in a plain listing carries its shelf', noShelf.notes.filter(n => !/task/.test(n.attachedTo ?? '') && !/sub-page/.test(n.attachedTo ?? '')).every(n => n.shelf), JSON.stringify(noShelf.notes.filter(n => !n.shelf).map(n => n.title)));
   }
+  // ── 11. Review fixes: a find also in a code block or table is not unique; an emptied link goes
+  {
+    const id = await mk('Use zebraquux now.\n\n```\nzebraquux\n```');
+    const r = await edit(id, 'zebraquux', 'x');
+    check('H14 unique: a find in a paragraph and a code block is refused as not unique', r.isError && /occurs 2 times/.test(r.text) && (await md(cc, id)).includes('Use zebraquux now.'), r.text.slice(0, 200));
+    const t = await mk('Table word zebratab here.\n\n| h | v |\n| --- | --- |\n| a | zebratab |');
+    const r2 = await edit(t, 'zebratab', 'x');
+    check('H14 unique: a find in a paragraph and a table cell is refused as not unique', r2.isError && /occurs 2 times/.test(r2.text), r2.text.slice(0, 200));
+    const only = await mk('Only zebraone here.\n\n```\nother\n```');
+    const r3 = await edit(only, 'zebraone', 'x');
+    check('H14 unique: a find only in the paragraph still lands', !r3.isError && (await md(cc, only)).includes('Only x here.'), r3.text.slice(0, 200));
+    const l = await mk('See [linktext](https://example.com/x) now.');
+    const r4 = await edit(l, 'linktext', '');
+    const lm = await md(cc, l);
+    check('H14 link: removing all of a link\'s text drops the link', !r4.isError && !lm.includes('[](') && !lm.includes('example.com') && lm.includes('See'), r4.text.slice(0, 200) + ' | ' + lm);
+  }
   // ── 10. Part 5: shelves in the app (project Notes tab, Notes filter, note header), looked at on both widths and themes
   {
     const pid = (await rawDb.collection('projects').findOne({ name: P }))._id;

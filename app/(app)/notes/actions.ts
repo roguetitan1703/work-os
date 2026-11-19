@@ -7,7 +7,7 @@ import { listProjectsBasic } from '@/lib/data/projects';
 import { asCaller } from '@/lib/caller';
 import { userActor } from '@/lib/actors';
 import type { Scope } from '@/lib/scope';
-import { UNTITLED, type Shelf } from '@/lib/notes-shelves';
+import { SHELVES, UNTITLED, type Shelf } from '@/lib/notes-shelves';
 
 // Every action requires a signed-in caller (lib/caller.ts); proxy.ts is only the first gate. They act in the caller's
 // scope, as the caller (actor kind 'user').
@@ -48,7 +48,7 @@ export async function saveNoteAction(
 ): Promise<{ ok: true; updatedAt: string; titleRefused?: { id: string; title: string; kept: string } } | { error: string; conflict?: true }> {
   try {
     // Autosave sends title and blocks together: the blocks save, a title that clashes with a sibling's stays as it was.
-    const { note, titleRefused } = await asCaller(c => writeNote(c, { noteId: id, ...patch, titleClash: 'keep' }, userActor(c.userId)));
+    const { note, titleRefused } = await asCaller(c => writeNote(c, { noteId: id, title: patch.title, blocks: patch.blocks, archived: patch.archived, expectUpdatedAt: patch.expectUpdatedAt, titleClash: 'keep' }, userActor(c.userId)));
     if (patch.title !== undefined || patch.archived !== undefined) refresh(note);
     return { ok: true, updatedAt: note.updatedAt, ...(titleRefused ? { titleRefused: { ...titleRefused, kept: note.title } } : {}) };
   } catch (e) {
@@ -59,6 +59,7 @@ export async function saveNoteAction(
 
 /** Moves a project note to a shelf (null puts it back where it belongs by default). */
 export async function setShelfAction(id: string, shelf: Shelf | null): Promise<{ ok: true } | { error: string }> {
+  if (shelf !== null && !SHELVES.some(x => x.id === shelf)) return { error: 'That is not a shelf' };
   try {
     const { note } = await asCaller(c => writeNote(c, { noteId: id, shelf }, userActor(c.userId)));
     refresh(note);
