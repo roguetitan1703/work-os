@@ -12,7 +12,9 @@ export async function stop(input) {
   const sid = input.session_id;
   const r = await decide(input);
   if (r) {
-    const a = sid ? await postEvent(sid, 'tool', { deliver: true }) : null; // still working: it is delivered inside the turn
+    const a = sid ? await postEvent(sid, 'tool', { deliver: true, holds: true }) : null; // still working: it is delivered inside the turn; holds: does this session hold Now
+    // The marker did not know (no tool answer named this session): the server's answer decides, so a non-holder is not told to save the whole State.
+    if (a?.status === 200 && a.b?.holdsNow === false && r.reason === NAG_HOLDER) { r.reason = NAG_LANE; const m2 = readMarker(sid); if (m2) writeMarker(sid, { ...m2, holdsNow: false }); }
     const text = deliverText(a);
     if (text) keepAck(sid, a);
     return text ? { ...r, reason: `${r.reason}\n\n${text}`.slice(0, MAX_BRIEF) } : r;
@@ -186,7 +188,7 @@ async function decide(input) {
  * false gets the lane text; true or absent (nothing has set it yet) gets today's text, so a session before step 1 is told what it was told before.
  */
 export const NAG_HOLDER = 'Files changed in this session and the State was not saved since. Call save_state (with the session id from start_work) with what is now true: Now, Next, Later and any decision. Then finish. Asked once until the next save.';
-export const NAG_LANE = 'Files changed and Work OS has not heard from this session since. Update your lane: set_doing your task, log_progress, add_next or add_decision for anything new. Then finish. Asked once.';
+export const NAG_LANE = 'Files changed and Work OS has not heard from this session since. Update your lane: set_doing or log_progress, or save_state with add_next / add_decision for anything new. Then finish. Asked once.';
 export const nagText = (m) => (m && m.holdsNow === false ? NAG_LANE : NAG_HOLDER);
 // A save of the State; for a session that does not hold Now (marker holdsNow === false, Lanes step 3) a lane update counts too.
 const SAVE_CALL = /"name"\s*:\s*"mcp__[^"]+__(save_state|import_state|end_work)"/;

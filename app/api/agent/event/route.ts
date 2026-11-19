@@ -6,7 +6,8 @@ import { isFreeEvent, recordEvent, setIdentity, setLastResult } from '@/lib/data
 import { EVENT_KINDS, EVENT_NAMES } from '@/lib/data/presence-state';
 import { hint } from '@/lib/live';
 import { applyAck, deliverFor, sessionRow, startTurn, type Delivery } from '@/lib/data/deliver';
-import { stopNudge, type StopNudge } from '@/lib/data/nudges';
+import { holdsOf, stopNudge, type StopNudge } from '@/lib/data/nudges';
+import { stateOfProject } from '@/lib/data/states';
 
 // The Work OS hook's session-state route (docs/flows/agent-system.md section 11; the worker's hook files report to it).
 // POST /api/agent/event, JSON body { event: 'prompt'|'tool'|'tool-start'|'notify'|'stop'|'end', kind?: 'permission_prompt'|'idle_prompt'|
@@ -26,6 +27,7 @@ import { stopNudge, type StopNudge } from '@/lib/data/nudges';
 //   nudge    (stop only) { asks?, quiet? }: the hook's two facts. The answer may then carry `nudge: { lines?, declutter? }` for the token's own session
 //            and project only (lib/data/nudges.ts stopNudge): Next lines that wait on nobody (up to 3, 120 characters), and the Declutter nudge text.
 //            Nothing when the project turned nudges off or the session holds nothing.
+//   holds    true on a tool or stop event: the answer carries `holdsNow` (whether this session holds the State's Now), for the Stop hook's reminder.
 //   ack      ids (messages, Needs) the hook printed from the last `deliver`: only then are they read; one not acknowledged is offered
 //            again after 20 s (at most 3 offers, then 2 minutes' rest). A wake or a Stop continue is charged when acknowledged.
 //   woke     true on a prompt that is a wake the hook just got (kept only when the server handed out a wake under a minute ago).
@@ -69,6 +71,8 @@ const Body = z
     // Nudges, on a stop only: the hook's two facts (the turn's last message asked the person something; the turn changed no files and Declutter was not nudged today).
     nudge: z.object({ asks: z.boolean().optional(), quiet: z.boolean().optional(), released: z.boolean().optional() }).strict().optional(),
     copy: z.literal('refused').optional(),
+    // The Stop hook asks whether this session holds the State's Now (a tool or stop event): the answer carries holdsNow, so its save reminder is the right one.
+    holds: z.literal(true).optional(),
     // Protocol 3 (Identity step 4), on a prompt or a stop, only when it changed since the last one: the session's own name, Claude's title for it, the model.
     // Protocol 4 (Lanes step 3), on a result event: a subagent's last message (SubagentStop). The server cleans it and keeps 300 characters as the lane result of the token's own row.
     result: z.string().max(2000).optional(),
@@ -78,6 +82,7 @@ const Body = z
   .refine(b => (b.files === undefined && b.reminded === undefined) || b.event === 'stop', { message: 'files and reminded belong to a stop' })
   .refine(b => b.reminded === undefined || b.files !== undefined, { message: 'reminded goes with files' })
   .refine(b => b.nudge === undefined || b.event === 'stop', { message: 'nudge belongs to a stop' })
+  .refine(b => b.holds === undefined || b.event === 'tool' || b.event === 'stop', { message: 'holds belongs to a tool or a stop event' })
   .refine(b => b.copy === undefined || b.event === 'tool', { message: 'copy belongs to a tool event' })
   .refine(b => (b.result === undefined) === (b.event !== 'result'), { message: 'result goes with a result event, and only with it' })
   .refine(b => b.identity === undefined || b.event === 'prompt' || b.event === 'stop', { message: 'identity belongs to a prompt or a stop' });
@@ -118,11 +123,16 @@ export async function POST(req: Request): Promise<Response> {
       if (ev.ack?.length) await applyAck(s, session.id, session.projectId, ev.ack);
       if (ev.event === 'prompt') await startTurn(s, session.id, session.projectId, ev.woke === true);
       // Nudges (a stop only, the token's own session and project): what the hook needs for the turn-end check and the Declutter nudge.
-      let extra: { nudge?: StopNudge } = {};
+      let extra: { nudge?: StopNudge; holdsNow?: boolean } = {};
+      if (ev.holds && out.state && session.projectId) {
+        const row = await sessionRow(s, session.id, session.projectId);
+        const st = row ? await stateOfProject(s, session.projectId) : null;
+        if (row && st) extra = { holdsNow: holdsOf(st, row).now };
+      }
       if (ev.nudge && ev.event === 'stop' && out.state && session.projectId && (await projectOnDevice(s, device.id, session.projectId))) {
         const row = await sessionRow(s, session.id, session.projectId);
         const n = row ? await stopNudge(s, row, session.projectId, ev.nudge) : null;
-        if (n && (n.lines || n.declutter || n.release)) extra = { nudge: n };
+        if (n && (n.lines || n.declutter || n.release)) extra = { ...extra, nudge: n };
       }
       if (ev.deliver && out.state && (ev.event === 'prompt' || ev.event === 'tool' || ev.event === 'stop')) {
         // Checked on every call: the folder may have been unlinked since the session began. A used-up read budget answers the state alone.

@@ -58,7 +58,16 @@ try {
   check('H1: a session is not told about what it just wrote itself', !own.json?.forYou && !afterOwn.json?.forYou, `${own.text.slice(0, 120)} | ${afterOwn.text.slice(0, 120)}`);
 
   // The save nudge: 10 writes without a save_state
-  await must(cc, 'save_state', { project: NAME, ops: [{ op: 'add_decision', text: 'reset the count' }], session: s1 });
+  // s1 takes Now: only the holder is told to save the whole State.
+  const v0 = (await must(cc, 'get_state', { project: NAME, session: s1 })).version;
+  await must(cc, 'save_state', { project: NAME, base_version: v0, ops: [{ op: 'set_now', text: 'H1 goal' }, { op: 'add_decision', text: 'reset the count' }], session: s1 });
+  await must(cc, 'save_state', { project: NAME, ops: [{ op: 'add_decision', text: 'reset the count of the other session' }], session: s3 });
+  const others = [];
+  for (let i = 1; i <= 10; i++) {
+    const w = await mcpH(cc, 'add_task', { title: `Lane write ${i}`, project: NAME }, { 'x-work-os-session': s3 });
+    others.push(w.json?.forYou?.find(l => /State not saved/.test(l)) ?? null);
+  }
+  check('H1: a session that does not hold Now is not told to save the State after 10 writes', others.every(x => !x), JSON.stringify(others));
   const nudges = [];
   for (let i = 1; i <= 10; i++) {
     const w = await mcpH(cc, 'add_task', { title: `Write ${i}`, project: NAME }, { 'x-work-os-session': s1 });
