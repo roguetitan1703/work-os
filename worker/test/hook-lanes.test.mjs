@@ -22,6 +22,7 @@ const { FILES } = await import('../hooks-install.mjs');
 
 const TOKEN = 'wst_' + 't'.repeat(43);
 const seen = [];
+let eventReply = null; // extra fields on POST /api/agent/event answers
 let stateReply = null; // what POST /api/agent/state answers (Lanes step 6)
 const server = http.createServer((req, res) => {
   let b = '';
@@ -29,7 +30,7 @@ const server = http.createServer((req, res) => {
   req.on('end', () => {
     seen.push({ url: req.url, auth: req.headers.authorization, hook: req.headers['x-work-os-hook'], body: b ? JSON.parse(b) : {} });
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(req.url === '/api/agent/state' && stateReply ? stateReply : { state: 'working' }));
+    res.end(JSON.stringify(req.url === '/api/agent/state' && stateReply ? stateReply : { state: 'working', ...(req.url === '/api/agent/event' ? eventReply : {}) }));
   });
 });
 server.keepAliveTimeout = 1;
@@ -157,7 +158,7 @@ test('stop: a session that holds Now (or has no holdsNow yet) gets today\'s text
   assert.equal(stopMod.nagText({}), stopMod.NAG_HOLDER, 'holdsNow absent: holder, today\'s text (until Lanes step 1 sets it)');
   assert.equal(stopMod.nagText({ holdsNow: true }), stopMod.NAG_HOLDER);
   assert.match(stopMod.NAG_HOLDER, /^Files changed in this session and the State was not saved since\. Call save_state/);
-  assert.equal(stopMod.nagText({ holdsNow: false }), 'Files changed and Work OS has not heard from this session since. Update your lane: set_doing your task, log_progress, add_next or add_decision for anything new. Then finish. Asked once.');
+  assert.equal(stopMod.nagText({ holdsNow: false }), 'Files changed and Work OS has not heard from this session since. Update your lane: set_doing or log_progress, or save_state with add_next / add_decision for anything new. Then finish. Asked once.');
   for (const [sid, holds, re] of [['l-stop-a', undefined, /Call save_state/], ['l-stop-b', false, /Update your lane/]]) {
     start(sid, holds === undefined ? {} : { holdsNow: holds });
     fs.writeFileSync(path.join(repo, `${sid}.txt`), 'x');
@@ -273,4 +274,19 @@ test('post-tool: every saving session commits WORK-STATE.md alone, whatever a se
   assert.match(JSON.parse(await post()).hookSpecificOutput.additionalContext, /v9, committed/);
   stateReply = null;
   fs.rmSync(repo2, { recursive: true, force: true });
+});
+
+test('stop: a marker with holdsNow unknown gets the holder text unless the server says the session does not hold Now (then the lane text, and the marker keeps false); a holder answer keeps the holder text', async () => {
+  for (const [sid, reply, re, kept] of [['l-srv-a', { holdsNow: false }, /Update your lane/, false], ['l-srv-b', { holdsNow: true }, /Call save_state/, undefined], ['l-srv-c', {}, /Call save_state/, undefined]]) {
+    eventReply = reply;
+    seen.length = 0;
+    start(sid, {});
+    lib.keepToken(sid, TOKEN);
+    fs.writeFileSync(path.join(repo, `${sid}.txt`), 'x');
+    assert.match(JSON.parse(await run('stop', { session_id: sid })).reason, re);
+    assert.equal(seen.find((x) => x.url === '/api/agent/event')?.body.holds, true, 'the hook asks whether it holds Now');
+    assert.equal(lib.readMarker(sid).holdsNow, kept);
+    fs.rmSync(path.join(repo, `${sid}.txt`));
+  }
+  eventReply = null;
 });

@@ -6,6 +6,8 @@ import { frameLine, unreadFor, type MessageOut } from '../data/messages';
 import { memberNames } from '../people';
 import { answeredNeedsSince, newNeedsForMe } from '../data/needs';
 import { ordersChangesFor } from '../data/orders';
+import { holdsOf } from '../data/nudges';
+import { stateOfProject } from '../data/states';
 import type { ToolName } from './docs';
 
 // The "for you" line (docs/flows/step-1.md section 5). Every Work OS tool answer to a present session (one that called
@@ -210,7 +212,11 @@ export async function forYouAfter(p: Pending | null, tool: ToolName, writes: boo
       if (SAVES.has(tool)) await resetWrites(p.s, p.row);
       else if (write) {
         const n = await countWrite(p.s, p.row);
-        if (n > 0 && n % SAVE_NUDGE === 0) lines = [...lines, `State not saved since ${n} writes: call save_state`];
+        // Only the session that holds the State's Now is asked to save the whole State; the others keep their lane (set_doing, log_progress).
+        if (n > 0 && n % SAVE_NUDGE === 0 && p.row.projectId) {
+          const st = await stateOfProject(p.s, p.row.projectId);
+          if (st && holdsOf(st, p.row).now) lines = [...lines, `State not saved since ${n} writes: call save_state`];
+        }
       }
     }
     await touchPresence(p.s, p.row);
