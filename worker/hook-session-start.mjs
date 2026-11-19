@@ -110,7 +110,7 @@ export function formatBrief(r) {
     sections.push(`## Open tasks (${ot.total}${ot.total > lines.length ? `; list_tasks for the rest` : ''})\n${lines.join('\n')}`);
   }
   if (Array.isArray(r.alsoHere) && r.alsoHere.length) {
-    sections.push(`## Also working here\n${r.alsoHere.slice(0, 5).map(p => `- ${cut([p.label, p.for, p.machine, p.doing].filter(Boolean).join(', '), 120)} (${p.minutesAgo} min ago)`).join('\n')}`);
+    sections.push(`## Also working here\n${r.alsoHere.slice(0, 5).map(p => `- ${cut([p.label, p.for, p.machine, p.doing].filter(Boolean).join(', '), 120)} (${p.state ? `${p.state}, ` : ''}${p.minutesAgo} min ago)`).join('\n')}`);
   }
   let out = head;
   const left = [];

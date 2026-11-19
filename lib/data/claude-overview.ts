@@ -6,6 +6,7 @@ import { connectedDevice } from '../live';
 import { deviceMap, derivedState, ownedDeviceIds, reopenPrompts, WAITING_MS, type DeviceScope, type ReopenPrompt, type SessionView } from './launcher';
 import { friendlyError } from '../worker-errors';
 import type { SessionOrigin } from '../db';
+import { presenceState } from './presence-state';
 
 // The Claude area (/claude) reads everything Claude-related across projects in one go: what
 // waits on the person, every Claude Code session on their computers (named, from the worker's list), and the
@@ -47,6 +48,8 @@ export type SessionRow = {
   /** Project the session is controlled under (Work OS ones). */
   controlProjectId?: string;
   waiting?: boolean;
+  /** Why it waits when its Claude Code hook says so: a permission prompt in its terminal (only the owner sees this tab). */
+  waitingWhy?: 'prompt';
   /** Turbo mode: a new repo cloned but not trusted automatically; Claude Code asks on that computer (first 10 minutes). */
   needsTrust?: boolean;
   error?: string;
@@ -133,6 +136,13 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
   const reportedIds = reporting.flatMap(d => (d.claudeSessions?.items ?? []).map(i => i.sessionId));
   const known = reportedIds.length ? await c.workerSessions.find({ _id: { $in: reportedIds }, deviceId: { $in: mine } }).toArray() : [];
   const wsById = new Map([...known, ...live, ...ended].map(s => [s._id, s]));
+  // What each session's own Claude Code hook last reported (the owner's rows only, keyed by Claude Code's session id): it beats guessing from transcript timing.
+  const hookRows = reportedIds.length ? await c.presence.find({ userId: scope.userId, ccSession: { $in: reportedIds }, activity: { $exists: true } }, { projection: { ccSession: 1, activity: 1, endedAt: 1, lastSeen: 1 } }).toArray() : [];
+  const hookOf = new Map<string, (typeof hookRows)[number]>();
+  for (const r of hookRows) {
+    const prev = r.ccSession ? hookOf.get(r.ccSession) : undefined;
+    if (r.ccSession && (!prev || (r.activity?.at.getTime() ?? 0) > (prev.activity?.at.getTime() ?? 0))) hookOf.set(r.ccSession, r);
+  }
 
   // Folders: name and "still linked" for Work OS sessions; linked folders by (computer, name) to find a reported session's project.
   const wsAll = [...live, ...ended].filter(s => !!s.projectId);
@@ -170,6 +180,15 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
       const lastMs = it.lastActiveAt.getTime();
       let state: SessionRowState = liveState(it.running, lastMs, it.subagentsActive, nowMs);
       if (own && !it.running && (own.state === 'starting' || own.state === 'stopped' || own.state === 'failed')) state = own.state === 'starting' ? 'starting' : own.state;
+      let waitingPrompt = false;
+      const hook = hookOf.get(it.sessionId);
+      if (hook && it.running && !stale && (state === 'working' || state === 'open' || state === 'idle')) {
+        const h = presenceState(hook, { now: nowMs, daemon: 'running' });
+        if (h.state === 'working') state = 'working';
+        else if (h.state === 'waiting' && h.why === 'prompt') waitingPrompt = true;
+        else if (h.state === 'off') state = 'closed';
+        else if (h.state === 'on' || h.state === 'idle') state = it.subagentsActive > 0 ? 'working' : state === 'idle' ? 'idle' : 'open';
+      }
       if (stale && state !== 'closed' && state !== 'stopped' && state !== 'failed') state = 'unknown';
       const projectId = own?.projectId ?? projectFor(d._id, it.folder);
       const f = own ? folderOf.get(`${own.deviceId}:${own.folderId}`) : undefined;
@@ -189,7 +208,7 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
         lastActiveAt: it.lastActiveAt.toISOString(),
         workOs: it.startedByWorkOs || !!own,
         ...(own && own.projectId ? { workOsId: own._id, controlProjectId: own.projectId } : {}),
-        ...(own && own.state === 'starting' && nowMs - own.updatedAt.getTime() > WAITING_MS ? { waiting: true } : {}),
+        ...(waitingPrompt ? { waiting: true, waitingWhy: 'prompt' as const } : own && own.state === 'starting' && nowMs - own.updatedAt.getTime() > WAITING_MS ? { waiting: true } : {}),
         ...(own?.needsTrust && isLive && nowMs - own.startedAt.getTime() < 10 * 60_000 ? { needsTrust: true } : {}),
         ...(own?.error ? { error: friendlyError(own.error) } : {}),
         ...(it.origin ? { origin: it.origin } : {}),

@@ -158,6 +158,30 @@ async function suite(vp) {
   check(T('Claude page no horizontal scroll'), await noScroll());
   await p.screenshot({ path: `${SP}/cl-${vp}-sessions.png` });
 
+  // A session whose Claude Code hook says it waits at a permission prompt reads "waiting on you" (the hook beats transcript timing); working stays working
+  await mcp('start_work', { project: 'Alpha', session: 'cp-hook', label: 'Claude page hook row' });
+  const HOOKROW = `${ME.userId}:s:cp-hook:${A}`;
+  const CC = 'cc-' + randomUUID();
+  const hookItems = () => [{ sessionId: CC, folder: 'alpha', title: 'Hook session', lastActiveAt: new Date(Date.now() - 20 * 60_000), subagentsActive: 0, startedByWorkOs: false, running: true }];
+  await db.collection('devices').updateOne({ _id: D1 }, { $set: { claudeSessions: { at: new Date(), items: hookItems() } } });
+  await db.collection('presence').updateOne({ _id: HOOKROW }, { $set: { ccSession: CC, activity: { state: 'waiting', at: new Date(), why: 'prompt' } } });
+  await p.goto(B + '/claude'); await p.waitForSelector('[data-section="sessions"]');
+  const hrow = p.locator(`[data-session-row="${D1}:${CC}"]`);
+  check(T('hook says waiting at a prompt: the row reads "waiting on you"'), (await hrow.count()) === 1 && /waiting on you/.test(await hrow.innerText()), await hrow.innerText().catch(() => 'no row'));
+  check(T('Claude page no horizontal scroll with the waiting row'), await noScroll());
+  await p.screenshot({ path: `${SP}/cl-${vp}-now-waiting.png` });
+  await p.evaluate(() => document.documentElement.classList.add('dark'));
+  await p.screenshot({ path: `${SP}/cl-${vp}-now-waiting-dark.png` });
+  await p.evaluate(() => document.documentElement.classList.remove('dark'));
+  await db.collection('presence').updateOne({ _id: HOOKROW }, { $set: { activity: { state: 'working', at: new Date() } } });
+  await p.goto(B + '/claude'); await p.waitForSelector('[data-section="sessions"]');
+  check(T('hook says working although the transcript is 20 minutes old: working'), (await p.locator(`[data-session-row="${D1}:${CC}"]`).getAttribute('data-state')) === 'working');
+  await db.collection('presence').updateOne({ _id: HOOKROW }, { $set: { activity: { state: 'off', at: new Date() } } });
+  await p.goto(B + '/claude'); await p.waitForSelector('[data-section="sessions"]');
+  check(T('hook says off while the worker list still shows it running: closed'), (await p.locator(`[data-session-row="${D1}:${CC}"]`).getAttribute('data-state')) === 'closed');
+  await db.collection('presence').deleteOne({ _id: HOOKROW });
+  await db.collection('devices').updateOne({ _id: D1 }, { $unset: { claudeSessions: '' } });
+
   // ── Queue ──
   await p.goto(B + '/claude?tab=queue'); await p.waitForSelector('[data-section="queue"]');
   const q = p.locator('[data-section="queue"]');

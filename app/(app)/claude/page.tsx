@@ -8,6 +8,7 @@ import { claudeOverview } from '@/lib/data/claude-overview';
 import { claudeTasks } from '@/lib/data/dispatcher';
 import { deviceMap } from '@/lib/data/launcher';
 import { roster } from '@/lib/data/roster';
+import { timezoneOf } from '@/lib/profile';
 import { cn } from '@/lib/utils';
 import { baseUrl } from '../settings/base-url';
 import { AutoRefresh } from './auto-refresh';
@@ -37,6 +38,7 @@ export default async function ClaudePage({ searchParams }: Props) {
   // Start Claude has nothing to start on until a computer exists; until then the page offers Set up Claude instead.
   const hasComputers = data ? data.hasComputers : (await deviceMap(me)).size > 0;
   const workers = tab === 'workers' ? await roster({ userId: me.userId, orgId: me.orgId }) : null;
+  const tz = workers ? await timezoneOf({ userId: me.userId, orgId: me.orgId }) : 'UTC';
   const url = tab === 'setup' ? `${await baseUrl()}/api/mcp` : '';
   const startBtn = !hasComputers ? (
     <Link
@@ -94,7 +96,7 @@ export default async function ClaudePage({ searchParams }: Props) {
       <AutoRefresh stamp={Date.now()} />
       {tab === 'now' && data && tasks && <NowTab claudeTasks={tasks} needsYou={data.needsYou} sessions={data.sessions} summary={data.summary} hasComputers={data.hasComputers} reopen={data.reopen} />}
       {tab === 'queue' && data && <QueueTab groups={data.queue} />}
-      {tab === 'workers' && workers && <WorkersTab data={workers} />}
+      {tab === 'workers' && workers && <WorkersTab data={workers} tz={tz} />}
       {tab === 'setup' && <SetupTab url={url} />}
     </div>
   );
