@@ -6,7 +6,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { COPY, COPY_REASON, markSaved, projectOf, writeCopy } from './hook-copy.mjs';
-import { postAgent, postEvent, readKept, readMarker, run } from './hook-lib.mjs';
+import { postAgent, postEvent, readKept, readMarker, run, workerHome } from './hook-lib.mjs';
+import { loadConfig } from './config.mjs';
 import { prodAction, releaseDeny } from './hook-release.mjs';
 
 const COUNT_TIMEOUT_MS = 500; // H12: telling Work OS about a refusal that never reached it; the refusal never waits longer
@@ -81,6 +82,8 @@ export function writesCopy(cmd) {
 export async function preTool(input) {
   const od = ordersDeny(input);
   if (od) return od;
+  const sd = shellDeny(input);
+  if (sd) return sd;
   if (!hitsCopy(input)) {
     const blocked = await productionBlock(input);
     if (blocked) return blocked;
@@ -123,6 +126,58 @@ export function ordersDeny(input, env = process.env) {
     const hit = tool === 'propose_order' || (ids.size > 0 && JSON.stringify(input.tool_input ?? {}).match(/[A-Za-z0-9_-]{6,64}/g)?.some((w) => ids.has(w)));
     if (!hit) return null;
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Work OS: this run was started by the task dispatcher, and a dispatched run does not change Orders pages (' + tool + '). Say what you found in your report or with the feedback tool; the person edits Orders.' } };
+  } catch { return null; }
+}
+
+/**
+ * H15: the shell path for a dispatched run. A dispatched run shares the person's key, which sits on disk and in settings.json's env
+ * block, so the Orders refusals above would mean little if the run could curl /api/mcp itself. A Bash or PowerShell command of a
+ * dispatched run is refused when it names: WORK_OS_KEY (any form: $WORK_OS_KEY, $env:WORK_OS_KEY, printenv), a Work OS server's
+ * /api/ paths (the worker's server, WORK_OS_URL, work.delpat.in), the Claude Code config file (.claude.json), the hooks' session
+ * folder (hooks/sessions: the session tokens), a Claude settings.json together with an env read, or PowerShell's -EncodedCommand
+ * (which hides what runs). This is a word detector, not a sandbox: on a PC the bypass can be made deliberate, not impossible (same
+ * OS user). The reason says what to use instead. Fails open on any other error; nothing outside a dispatched run is touched.
+ */
+const USE_INSTEAD = 'Use the Work OS tools of this session (start_work, get_task, log_progress, ask, complete_task, end_work); a dispatched run does not call Work OS from a shell.';
+const SHELL_RULES = [
+  [/\bWORK_OS_KEY(?![A-Za-z0-9_])/i, 'the Work OS key'],
+  [/\.claude\.json(?![A-Za-z0-9_-])/i, 'the Claude Code config file'],
+  [/hooks[\\/]+sessions(?![A-Za-z0-9_-])/i, 'the hooks session folder'],
+  [/(?:^|\s)-(?:encodedcommand|encodedcomman|encodedcomma|encodedcomm|encodedcom|encodedco|encodedc|encoded|encode|enc|ec)(?=[\s:=]|$)/i, 'an encoded PowerShell command'],
+];
+// "-e" and "-en" are PowerShell's own short forms of -EncodedCommand; they count only on a powershell or pwsh command line (grep -e is not it).
+const PS_SHORT_ENC = /\b(?:powershell|pwsh)(?:\.exe)?\b[^\n|;&]*\s-(?:e|en)(?=\s)/i;
+const SETTINGS_FILE = /\.claude[\\/]+settings(?:\.local)?\.json(?![A-Za-z0-9_-])/i;
+function workOsHosts() {
+  const hosts = new Set(['work.delpat.in']);
+  const add = (u) => { try { if (u) hosts.add(new URL(/^[a-z]+:\/\//i.test(u) ? u : 'https://' + u).host.toLowerCase()); } catch {} };
+  add(process.env.WORK_OS_URL);
+  add(run.server);
+  try { const h = workerHome(); if (h) add(loadConfig(h).baseUrl); } catch {}
+  return [...hosts];
+}
+export function shellDeny(input, env = process.env) {
+  try {
+    const t = String(input.tool_name || '');
+    if (!/^(Bash|PowerShell)$/.test(t)) return null;
+    const cmd = (input.tool_input || {}).command;
+    if (typeof cmd !== 'string' || !cmd) return null;
+    if (!isDispatched(input, env)) return null;
+    let what = null;
+    for (const [re, name] of SHELL_RULES) if (re.test(cmd)) { what = name; break; }
+    if (!what && PS_SHORT_ENC.test(cmd)) what = 'an encoded PowerShell command';
+    if (!what && SETTINGS_FILE.test(cmd) && /\benv\b/i.test(cmd)) what = 'the env block of a Claude settings file';
+    if (!what) {
+      const lc = cmd.toLowerCase();
+      for (const h of workOsHosts()) {
+        for (let i = lc.indexOf(h); i >= 0; i = lc.indexOf(h, i + 1)) {
+          if (/^\/+api(?:\/|$|[^a-z0-9_-])/.test(lc.slice(i + h.length).replace(/^:\d+/, ''))) what = 'the Work OS API';
+        }
+        if (what) break;
+      }
+    }
+    if (!what) return null;
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Work OS: this run was started by the task dispatcher, and a dispatched run does not reach ' + what + ' from a shell command. ' + USE_INSTEAD } };
   } catch { return null; }
 }
 
@@ -198,6 +253,8 @@ export function timeoutAnswer(stdinText) {
     if (hitsCopy(input)) return plainDeny();
     const od = ordersDeny(input);
     if (od) return od;
+    const sd = shellDeny(input);
+    if (sd) return sd;
     // A production action was found and Work OS had not answered yet: refuse (the hook cannot confirm a release Need in time).
     if (run.prod) return releaseDeny(run.prod, 'unconfirmed', readMarker(input.session_id)?.project);
     return null;

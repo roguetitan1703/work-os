@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { B, EMAIL, ME, MCP, PW, check, finish, mkDevice, rawDb } from './lib.mjs';
 import { must } from './flow-lib.mjs';
 
@@ -69,6 +70,14 @@ try {
   const j2 = await rawDb.collection('workerJobs').findOne({ sessionId: ord, kind: 'resume' });
   check('1: resuming a dispatched session: the job carries the task ref', a1.ok && j1?.dispatched === task.ref, JSON.stringify([a1.text.slice(0, 120), j1]));
   check('1: resuming an ordinary session: no dispatched in the job', a2.ok && !!j2 && !('dispatched' in j2), JSON.stringify([a2.text.slice(0, 120), j2]));
+
+  // ---- 2: the shell path: the real hook process (node worker/hook.mjs pre-tool) for a dispatched and an ordinary run ----
+  const hook = path.join(ROOT, 'worker', 'hook.mjs');
+  const runHook = (cmd, env = {}) => spawnSync(process.execPath, [hook, 'pre-tool'], { input: JSON.stringify({ session_id: 'h15-shell', tool_name: 'Bash', tool_input: { command: cmd }, cwd: ROOT }), encoding: 'utf8', timeout: 8000, env: { ...process.env, WORK_OS_KEY: '', WORK_OS_URL: '', WORK_OS_WORKER_DIR: path.join(ROOT, 'tmp-no-such-dir'), ...env } }).stdout || '';
+  const curl = 'curl -s -H "Authorization: Bearer $WORK_OS_KEY" https://work.delpat.in/api/mcp';
+  check('2: a dispatched run (WORK_OS_DISPATCHED) that curls /api/mcp with the key is refused, the reason names the Work OS tools', /"permissionDecision":"deny"/.test(runHook(curl, { WORK_OS_DISPATCHED: '301' })) && /Use the Work OS tools of this session/.test(runHook(curl, { WORK_OS_DISPATCHED: '301' })));
+  check('2: the same command from the person own session is not refused', runHook(curl) === '');
+  check('2: a dispatched run ordinary shell command passes', runHook('git status', { WORK_OS_DISPATCHED: '301' }) === '');
 } catch (e) {
   check('flow-h15 suite (error)', false, e?.stack || String(e));
 }
