@@ -3,7 +3,7 @@ import { scoped, type Scope } from '../scope';
 import type { ProjectDoc, StateDoc } from '../db';
 import { titleKey } from '../notes-match';
 import { memberNames } from '../people';
-import { setDeclutterCache } from './states';
+import { setDeclutterReasons } from './states';
 import {
   GROWTH,
   dueReasons,
@@ -11,6 +11,7 @@ import {
   itemId,
   itemPlan,
   noteItems,
+  dupNoteCount,
   stateItems,
   type Due,
   type DeclutterItem,
@@ -52,10 +53,10 @@ export async function refreshCache(s: Scope, project: ProjectDoc, state: StateDo
     c.claudeItems.countDocuments({ projectId: project._id, state: { $in: ['queued', 'active', 'blocked'] } }),
   ]);
   const reasons: string[] = [];
-  const dup = groups.filter(g => g.some(n => !n.archived)).reduce((n, g) => n + g.length, 0);
+  const dup = dupNoteCount(groups);
   if (dup) reasons.push(`${dup} notes share a title`);
   if (open) reasons.push(`${open} open Claude item${open === 1 ? '' : 's'}`);
-  await setDeclutterCache(s, project._id, { ...(state.declutter ?? {}), checkedAt: now, reasons });
+  await setDeclutterReasons(s, project._id, now, reasons);
   return reasons;
 }
 
@@ -104,11 +105,9 @@ export async function buildProposal(s: Scope, project: ProjectDoc, now = new Dat
     items.push(...stateItems(state, now, closed, titleKey));
   }
 
-  // Sibling notes with one title: all but the newest, never one already archived.
+  // Sibling notes with one title: all live ones but the newest live one; archived pages are never proposed and never the one that stays.
   const groups = await noteGroups(s, pid);
-  const live = new Set<string>();
-  for (const g of groups) for (const n of g) if (!n.archived) live.add(n.id);
-  items.push(...noteItems(groups).filter(i => live.has(i.target!)));
+  items.push(...noteItems(groups));
 
   // Tasks that are finished in all but status: 100 % progress, or a parent whose subtasks are all closed. Completed as the answerer.
   const open = await c.tasks

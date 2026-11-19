@@ -244,8 +244,10 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
     // (A review Need is the system's, made when an agent closes work: it counts against no limit.)
     const mine = { status: 'open' as const, 'from.actor.userId': actorId, 'from.word': input.word, kind: { $ne: 'review' as const } };
     // A declutter Need replaces the project's open one (whoever asked it): one batch at a time per project.
+    // A declutter Need is private to the owner (below), so the asker's own door cannot see the one it replaces: read it org-wide.
+    const org = await orgWide(s.orgId);
     const replaced = input.declutter
-      ? await c.needs.find({ projectId: project._id, status: 'open', declutter: { $exists: true } }).toArray()
+      ? await org.needs.find({ projectId: project._id, status: 'open', declutter: { $exists: true } }).toArray()
       : task ? await c.needs.find({ ...mine, taskId: task._id, kind: input.kind }).toArray() : [];
     const replacedIds = new Set(replaced.map(n => n._id));
     // The limit holds under a race because the `need:<org>` counter (nextSeq below) is the lock: two asks at once both write
@@ -264,7 +266,9 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
     const lastAlert = replaced.map(n => n.alertedAt?.getTime() ?? 0).reduce((a, b) => Math.max(a, b), 0);
     const quiet = lastAlert > now.getTime() - NEED_LIMITS.replaceAlertMs;
     const id = randomUUID();
-    const place = placeIn(project, s.userId);
+    // A declutter Need names what the owner can read (private pages, tasks, other people's Needs): it is private to the owner, who
+    // is the one it is addressed to, so no other reader of the project sees it, in the app or through a tool.
+    const place = input.declutter ? { ownerId: project.ownerId, visibility: 'private' as const, sharedWith: [] as string[] } : placeIn(project, s.userId);
     const doc: NeedDoc = {
       _id: id,
       orgId: s.orgId,
@@ -291,7 +295,7 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
       ...(quiet ? { alertedAt: new Date(lastAlert) } : { alertedAt: now }),
     };
     await c.needs.insertOne(doc);
-    if (replaced.length) await c.needs.updateMany({ _id: { $in: [...replacedIds] }, status: 'open' }, { $set: { status: 'replaced', closedAt: now, replacedBy: id } });
+    if (replaced.length) await (input.declutter ? org : c).needs.updateMany({ _id: { $in: [...replacedIds] }, status: 'open' }, { $set: { status: 'replaced', closedAt: now, replacedBy: id } });
     await syncTaskNeed(await orgWide(s.orgId), doc.taskId);
     await logNeed(c, doc, input.actor, 'need_asked');
     if (input.declutter) {

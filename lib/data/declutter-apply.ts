@@ -1,5 +1,6 @@
 import 'server-only';
-import { scoped, type Scope } from '../scope';
+import { orgWide, scoped, type Scope } from '../scope';
+import { roleOf } from '../caller';
 import type { ProjectDoc } from '../db';
 import { InputError, NotFoundError } from './errors';
 import { resolveProject } from './projects';
@@ -23,6 +24,8 @@ const DAY = 86_400_000;
 export type ApplyResult = { applied: string[]; failed: string[] };
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : 'failed').slice(0, 160);
+/** The thing changed since the proposal was made: skipped, and listed in the answer as "no longer applies". */
+class StaleError extends Error {}
 
 /**
  * Applies the items to one project as `s` and records it: the State's quiet window (14 days), the Need no longer open on the
@@ -34,7 +37,7 @@ export async function applyDeclutter(s: Scope, project: ProjectDoc, items: Declu
   const c = await scoped(s);
   const applied: string[] = [];
   const failed: string[] = [];
-  const fail = (i: DeclutterItem, e: unknown) => failed.push(`${i.id}: ${msg(e)}`);
+  const fail = (i: DeclutterItem, e: unknown) => failed.push(`${i.id}: ${e instanceof StaleError ? `skipped, it no longer applies (${e.message})` : msg(e)}`);
 
   // 1. The State's own items, batched into saveState calls (at most 30 ops each; one version bump per call).
   const state = await stateOfProject(s, pid);
@@ -108,11 +111,20 @@ export async function applyDeclutter(s: Scope, project: ProjectDoc, items: Declu
         if (!n) throw new NotFoundError('page not found');
         const inProject = n.projectId === pid || (n.parentId ? (await c.notes.findOne({ _id: n.parentId }, { projection: { projectId: 1 } }))?.projectId === pid : false);
         if (!inProject) throw new NotFoundError('page not found in this project');
+        if (!n.archived && i.keep) {
+          // The page that was to stay must still be live; otherwise this would archive the last live copy.
+          const keep = await c.notes.findOne({ _id: i.keep, deletedAt: null }, { projection: { archived: 1 } });
+          if (!keep || keep.archived) throw new StaleError('the newer page with the same title is no longer there');
+        }
         if (!n.archived) await writeNote(s, { noteId: i.target, archived: true }, actor);
         applied.push(i.id);
       } else if (i.kind === 'complete_task') {
         const t = await getTask(s, Number(i.target));
         if (!t || t.projectId !== pid) throw new NotFoundError('task not found in this project');
+        if (t.status !== 'Done' && t.status !== 'Dropped') {
+          const sc = (t as { subtaskCount?: { total: number; done: number } }).subtaskCount;
+          if (!((t.progress ?? 0) >= 100 || (!!sc && sc.total > 0 && sc.done >= sc.total))) throw new StaleError('the task is no longer finished');
+        }
         if (t.status !== 'Done' && t.status !== 'Dropped') await completeTask(s, t.ref, 'Declutter: finished in all but status', actor);
         applied.push(i.id);
       } else if (i.kind === 'withdraw_need') {
@@ -161,6 +173,14 @@ export async function applyAnswer(s: Scope, need: Need, yes: boolean): Promise<N
   const c = await scoped(s);
   const now = new Date();
   const project = await c.projects.findOne({ _id: need.projectId });
+  // The owner decides, and that is checked again now: someone who was the owner when the Need was asked, and can still read the
+  // project, applies nothing.
+  if (yes && project && !(await mayDeclutter(s, project))) {
+    await setQuiet(s, need.projectId, now);
+    const result = { applied: [], failed: d.items.map(i => `${i.id}: only the project's owner or an owner of the organization can declutter it`) };
+    await c.needs.updateOne({ _id: need.id }, { $set: { 'declutter.result': result } });
+    return { ...need, declutter: { ...d, result } };
+  }
   if (!yes || !project) {
     await setQuiet(s, need.projectId, now);
     if (yes && !project) {
@@ -174,6 +194,11 @@ export async function applyAnswer(s: Scope, need: Need, yes: boolean): Promise<N
   const result = await applyDeclutter(s, project, d.items.filter(i => !skip.has(i.id)), now);
   await c.needs.updateOne({ _id: need.id }, { $set: { 'declutter.result': result } });
   return { ...need, declutter: { ...d, result } };
+}
+
+/** Who may declutter a project: its owner now, or an owner of the organization. Checked at ask-answer time and by the app's Declutter. */
+export async function mayDeclutter(s: Scope, project: Pick<ProjectDoc, 'ownerId'>): Promise<boolean> {
+  return project.ownerId === s.userId || (await roleOf(s.userId, s.orgId)) === 'owner';
 }
 
 export type AskDeclutterInput = {
@@ -202,13 +227,15 @@ export async function askDeclutter(s: Scope, input: AskDeclutterInput): Promise<
   if (!project) throw new NotFoundError(`Project "${input.project.trim().slice(0, 120)}" not found`);
   const now = new Date();
 
-  const open = await c.needs.find({ projectId: project._id, status: 'open', declutter: { $exists: true } }).toArray();
+  // Declutter Needs are private to the owner, so the asker's own door would not show them: the checks read org-wide.
+  const org = await orgWide(s.orgId);
+  const open = await org.needs.find({ projectId: project._id, status: 'open', declutter: { $exists: true } }).toArray();
   for (const n of open) {
     const same = (!n.from.keyId || n.from.keyId === input.keyId) && (!n.from.session || n.from.session === input.session);
     if (!same) throw new InputError(`Declutter Need #${n.ref} is open from another session: wait for the answer, or ask the person to withdraw it.`);
   }
   const hourAgo = new Date(now.getTime() - 3_600_000);
-  if ((await c.needs.countDocuments({ projectId: project._id, declutter: { $exists: true }, createdAt: { $gt: hourAgo } })) >= GROWTH.asksPerHour) {
+  if ((await org.needs.countDocuments({ projectId: project._id, declutter: { $exists: true }, createdAt: { $gt: hourAgo } })) >= GROWTH.asksPerHour) {
     throw new InputError(`That is ${GROWTH.asksPerHour} declutter asks for this project in the last hour. Wait before asking again.`);
   }
 

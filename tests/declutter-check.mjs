@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const core = await import(pathToFileURL(join(ROOT, 'lib/declutter-core.ts')).href);
 const { titleKey } = await import(pathToFileURL(join(ROOT, 'lib/notes-match.ts')).href);
-const { GROWTH, dueReasons, duplicateGroups, itemId, itemPlan, noteItems, stateItems, isStale } = core;
+const { GROWTH, dueReasons, duplicateGroups, itemId, itemPlan, noteItems, dupNoteCount, stateItems, isStale } = core;
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -65,6 +65,13 @@ check('two separate pairs make two groups', duplicateGroups([T('a'), T('A'), T('
 // 5. The note proposal keeps the newest
 const ni = noteItems([[{ id: 'n1', title: 'Plan', updatedAt: ago(10) }, { id: 'n2', title: 'Plan', updatedAt: ago(1) }, { id: 'n3', title: 'plan', updatedAt: ago(5) }]]);
 check('notes: the newest stays, the two older are proposed', ni.length === 2 && ni.every(i => i.kind === 'archive_note') && ni.map(i => i.target).sort().join() === 'n1,n3', JSON.stringify(ni));
+
+// 5b. An archived newest copy never stays in place of a live page and is never proposed (review 2)
+const na = noteItems([[{ id: 'a1', title: 'Plan', updatedAt: ago(10) }, { id: 'a2', title: 'Plan', updatedAt: ago(1), archived: true }]]);
+check('notes: the only live page is not proposed when the newest copy is archived', na.length === 0, JSON.stringify(na));
+const nb = noteItems([[{ id: 'b1', title: 'Plan', updatedAt: ago(10) }, { id: 'b2', title: 'Plan', updatedAt: ago(1), archived: true }, { id: 'b3', title: 'Plan', updatedAt: ago(4) }]]);
+check('notes: of two live pages the newer live one stays, the archived one is neither kept nor proposed', nb.length === 1 && nb[0].target === 'b1' && nb[0].keep === 'b3', JSON.stringify(nb));
+check('notes: the due count counts only groups with two live pages', dupNoteCount([[{}, { archived: true }], [{}, {}, { archived: true }]]) === 2 && dupNoteCount([[{ archived: true }, {}]]) === 0);
 
 // 6. State items and stable ids
 const s1 = line({ text: 'Old next without a task', at: exactly(20) });

@@ -8,7 +8,7 @@ const DAY = 86_400_000;
 
 export type DeclutterKind = 'archive_line' | 'done_next' | 'archive_note' | 'complete_task' | 'withdraw_need' | 'item_to_task' | 'item_to_later' | 'add_later' | 'add_task';
 /** One proposed change. `id` is `kind:target` and stays the same between calls, so `skip` works across them. */
-export type DeclutterItem = { id: string; kind: DeclutterKind; text: string; why: string; target?: string; /** What a new Later line waits on (add_later, item_to_later). */ waits?: string };
+export type DeclutterItem = { id: string; kind: DeclutterKind; text: string; why: string; target?: string; /** What a new Later line waits on (add_later, item_to_later). */ waits?: string; /** archive_note: the page that stays (the newest live one); the apply checks it is still live. */ keep?: string };
 
 /** The id of a proposed change: what kind of thing and which one (a line id, note id, task ref, Need ref or item ref). */
 export function itemId(group: 'later' | 'next' | 'note' | 'task' | 'need' | 'item' | 'add', target: string | number): string {
@@ -103,14 +103,22 @@ export function stateItems(state: StateLike, now: Date, closed: Set<number>, key
   return out;
 }
 
-/** Two notes with one title: the most recently updated stays, the others are proposed. */
-export function noteItems(groups: { id: string; title: string; updatedAt: Date }[][]): DeclutterItem[] {
+/**
+ * Two live notes with one title: the most recently updated live one stays, the other live ones are proposed. An archived page
+ * never stays in place of a live one and is never proposed; a group with fewer than two live pages proposes nothing.
+ */
+export function noteItems(groups: { id: string; title: string; updatedAt: Date; archived?: boolean }[][]): DeclutterItem[] {
   const out: DeclutterItem[] = [];
   for (const g of groups) {
-    const sorted = [...g].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-    for (const n of sorted.slice(1)) out.push({ id: itemId('note', n.id), kind: 'archive_note', text: clip(`"${n.title}"`), why: `an older page with the same title as "${sorted[0].title}"`, target: n.id });
+    const sorted = g.filter(n => !n.archived).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    for (const n of sorted.slice(1)) out.push({ id: itemId('note', n.id), kind: 'archive_note', text: clip(`"${n.title}"`), why: `an older page with the same title as "${sorted[0].title}"`, target: n.id, keep: sorted[0].id });
   }
   return out;
+}
+
+/** How many live pages sit in groups that hold two or more live pages (what "notes share a title" counts). */
+export function dupNoteCount(groups: { archived?: boolean }[][]): number {
+  return groups.reduce((n, g) => { const live = g.filter(x => !x.archived).length; return n + (live > 1 ? live : 0); }, 0);
 }
 
 export type ItemLike = { ref: number; title: string; why: string; doneWhen?: string; kind: string; waitingText?: string; waitingOn?: string | null; state: string };

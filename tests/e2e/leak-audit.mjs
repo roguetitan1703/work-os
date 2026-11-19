@@ -720,6 +720,28 @@ try {
     const gone = [...enumerated].filter(n => listed && !listed.includes(n));
     check(`mcp: tools/list as the owner names exactly the ${enumerated.size} enumerated tools`, !!listed && !extra.length && !gone.length, listed ? `not enumerated: ${extra.join(', ') || '-'}; not listed: ${gone.join(', ') || '-'}` : `${r.status} ${r.text.slice(0, 200)}`);
   }
+  // H11 review: a teammate asks a Declutter on the owner's org project. The Need holds what only the owner can read (a private task's
+  // title), so it is private to the owner: the teammate gets counts, never the title, from the ask, the Needs tool or the project's Needs.
+  {
+    const marker = `lkqdecl${hex(5)}`;
+    const q = `lkqdeclproj${hex(3)}`;
+    await mustMcp(A.chat, 'add_project', { name: q, visibility: 'org' });
+    const tk = (await mustMcp(A.chat, 'add_task', { title: `${marker} owner private finished task`, project: q })).created;
+    await rawDb.collection('tasks').updateOne({ ref: tk.ref }, { $set: { visibility: 'private', ownerId: A.userId, progress: 100, status: 'In Progress' } });
+    const tRead = await mcpCall(T.chat, 'declutter', { project: q });
+    const tAsk = await mcpCall(T.chat, 'declutter', { project: q, ask: true, add: [{ later: 'lkq teammate added line' }] });
+    const doc = await rawDb.collection('needs').findOne({ ask: new RegExp(`^Declutter ${q}`) });
+    const tNeeds = await mcpCall(T.chat, 'needs', { project: q, status: 'all' });
+    const tAll = await mcpCall(T.chat, 'needs', { status: 'all' });
+    const tProj = await mcpCall(T.chat, 'get_project', { project: q, depth: 'full' });
+    const aSees = await mcpCall(A.chat, 'needs', { project: q, status: 'all' });
+    check('declutter: the proposal holds the private task title of the owner (so the check below means something)', JSON.stringify(doc?.declutter?.items ?? []).includes(marker), JSON.stringify(doc?.declutter?.items ?? []).slice(0, 200));
+    check('declutter: a teammate reading the proposal does not name the private task', tRead.ok && !tRead.text.includes(marker), tRead.text.slice(0, 200));
+    check('declutter: a teammate asking works and its answer holds counts, not the title', tAsk.ok && !tAsk.text.includes(marker) && /"changes":s*d/.test(tAsk.text), tAsk.text.slice(0, 200));
+    check('declutter: the Need is private to the owner (stamped, not shared)', doc?.visibility === 'private' && doc.ownerId === A.userId && !(doc.sharedWith ?? []).length, JSON.stringify([doc?.visibility, doc?.ownerId === A.userId]));
+    check('declutter: the Needs reads of the teammate (this project, all, the project page) show no title and not the Need', ![tNeeds, tAll, tProj].some(r => r.text.includes(marker) || /Declutter lkqdeclproj/.test(r.text)), [tNeeds, tAll, tProj].map(r => r.text.length).join(','));
+    check('declutter: the owner sees it', aSees.ok && /Declutter lkqdeclproj/.test(aSees.text), aSees.text.slice(0, 120));
+  }
   // Needs (slice 4): no MCP path answers a Need, for any key (no tool, no batch op), and a project made private takes its
   // Needs along (a member who read them before cannot read, answer or ask on them after).
   {

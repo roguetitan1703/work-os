@@ -2,12 +2,12 @@
 
 import { revalidatePath } from 'next/cache';
 import { SafeError } from '@/lib/auth';
-import { requireCaller, roleOf, withCaller } from '@/lib/caller';
+import { requireCaller, withCaller } from '@/lib/caller';
 import { scoped, type Scope } from '@/lib/scope';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 import { resolveProject } from '@/lib/data/projects';
 import { buildProposal } from '@/lib/data/declutter';
-import { applyDeclutter } from '@/lib/data/declutter-apply';
+import { applyDeclutter, mayDeclutter } from '@/lib/data/declutter-apply';
 import type { DeclutterItem } from '@/lib/declutter-core';
 
 // The project's ⋯ › Declutter (docs/flows/agent-system.md section 7, "also on demand from the app"): the person sees the same
@@ -25,8 +25,7 @@ async function owned(projectId: string) {
   const c = await scoped(s);
   const project = await resolveProject(c, s, String(projectId), { create: false });
   if (!project) throw new NotFoundError('Project not found');
-  const may = project.ownerId === s.userId || (await roleOf(s.userId, s.orgId)) === 'owner';
-  if (!may) throw new InputError("Only the project's owner or an owner of the organization can declutter it.");
+  if (!(await mayDeclutter(s, project))) throw new InputError("Only the project's owner or an owner of the organization can declutter it.");
   return { caller, s, project };
 }
 

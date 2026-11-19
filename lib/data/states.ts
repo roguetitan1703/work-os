@@ -368,6 +368,12 @@ export async function setDeclutterCache(s: Scope, projectId: string, cache: Decl
   await c.states.updateOne({ _id: projectId }, { $set: { declutter: cache } } as never);
 }
 
+/** The daily check's result: only checkedAt and reasons are written, so an Ask or an Apply racing it keeps quietUntil and needId. */
+export async function setDeclutterReasons(s: Scope, projectId: string, checkedAt: Date, reasons: string[]): Promise<void> {
+  const c = await scoped(s);
+  await c.states.updateOne({ _id: projectId }, { $set: { 'declutter.checkedAt': checkedAt, 'declutter.reasons': reasons } } as never);
+}
+
 /**
  * A task ended (Done or Dropped): its Next lines come off every State the caller can read, whatever the project. One version
  * bump, a log entry and a feed row per State. Runs in the caller's transaction (tasks.ts updateTaskCore). A State the

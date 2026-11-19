@@ -415,6 +415,75 @@ try {
   const o2 = await pageP.evaluate(() => ({ doc: document.documentElement.scrollWidth > innerWidth + 1 }));
   check('H11 phone: the Declutter sheet does not scroll sideways at 390', !o2.doc, JSON.stringify(o2));
   await ctxP.close();
+
+  // f) Opus review fixes
+  // 1. A teammate asks: the Need is private to the owner; the asker's own checks still see it (one open Need, other session refused)
+  const XI = 'H11 Xi';
+  await must(cc, 'add_project', { name: XI, visibility: 'org' });
+  const xa1 = await mcpH(kT, 'declutter', { project: XI, ask: true, add: [{ later: 'Xi line from Tess' }] }, hdr('h11t1'));
+  const xa2 = await mcpH(kT, 'declutter', { project: XI, ask: true, add: [{ later: 'Xi line from Tess again' }] }, hdr('h11t1'));
+  const xNeeds = await rawDb.collection('needs').find({ projectId: (await rawDb.collection('projects').findOne({ name: XI }))._id, declutter: { $exists: true } }).toArray();
+  check('H11 review 1: a teammate Declutter Need is private to the project owner', !xa1.isError && xNeeds.length === 2 && xNeeds.every(n => n.visibility === 'private' && n.ownerId === ME.userId && !(n.sharedWith ?? []).length), JSON.stringify(xNeeds.map(n => [n.visibility, n.status])));
+  check('H11 review 1: asking again from the same session still replaces it (the asker cannot read it, the check can)', !xa2.isError && xNeeds.filter(n => n.status === 'open').length === 1 && xNeeds.filter(n => n.status === 'replaced').length === 1, JSON.stringify(xNeeds.map(n => n.status)));
+  const xOther = await mcpH(cc, 'declutter', { project: XI, ask: true, add: [{ later: 'Xi from the owner session' }] }, hdr('h11x2'));
+  check('H11 review 1: another session cannot ask while the teammate Need is open, though the teammate cannot see it', xOther.isError && /open from another session/.test(xOther.text), xOther.text.slice(0, 200));
+  const tNeedsX = await mcpH(kT, 'needs', { project: XI, status: 'all' });
+  check('H11 review 1: the Needs read of the teammate does not list it', !tNeedsX.isError && !/Declutter H11 Xi/.test(tNeedsX.text), tNeedsX.text.slice(0, 200));
+
+  // 2. An archived newest copy never makes the only live page a candidate, and does not count as "share a title"
+  const NU = 'H11 Nu';
+  const NUID = (await must(cc, 'add_project', { name: NU, visibility: 'org' })).project.id;
+  const nuOld = await mkNote(NU, 'Nu plan', 'old copy');
+  const nuNew = await mkNote(NU, 'Nu plan', 'new copy');
+  await rawDb.collection('notes').updateOne({ _id: nuOld }, { $set: { updatedAt: ago(5) } });
+  const nuT = await must(cc, 'add_task', { title: 'H11 Nu finished in all but status', project: NU });
+  await rawDb.collection('tasks').updateOne({ ref: nuT.created.ref }, { $set: { progress: 100, status: 'In Progress' } });
+  const nuRd = await must(cc, 'declutter', { project: NU }, hdr('h11n1'));
+  check('H11 review 2: with two live pages the older is proposed and the newer stays', nuRd.items.some(i => i.id === `note:${nuOld}`) && !nuRd.items.some(i => i.id === `note:${nuNew}`), JSON.stringify(nuRd.items.map(i => i.id)));
+  const nuAsk = await must(cc, 'declutter', { project: NU, ask: true }, hdr('h11n1'));
+  await rawDb.collection('notes').updateOne({ _id: nuNew }, { $set: { archived: true, updatedAt: new Date() } });
+  const nuRd2 = await must(cc, 'declutter', { project: NU }, hdr('h11n1'));
+  check('H11 review 2: once the newest copy is archived the only live page is not proposed', !nuRd2.items.some(i => i.kind === 'archive_note'), JSON.stringify(nuRd2.items.map(i => i.id)));
+  await rawDb.collection('states').updateOne({ projectId: NUID }, { $unset: { declutter: '' } });
+  const nuBrief = await start(NU, 'h11n2');
+  check('H11 review 2: and the daily check does not say notes share a title for it', !/share a title/.test(nuBrief.declutter ?? ''), JSON.stringify(nuBrief.declutter));
+
+  // 4. Stored items are checked again when applied: the newer page is gone (archived above), the task is no longer at 100%
+  await rawDb.collection('tasks').updateOne({ ref: nuT.created.ref }, { $set: { progress: 40 } });
+  await answerUI(nuAsk.need.ref, 'yes');
+  const nuDone = await rawDb.collection('needs').findOne({ ref: nuAsk.need.ref });
+  const nuRes = nuDone.declutter?.result ?? { applied: [], failed: [] };
+  check('H11 review 4: the older page is not archived because the page that was to stay is no longer live', (await rawDb.collection('notes').findOne({ _id: nuOld })).archived === false && nuRes.failed.some(x => x.startsWith(`note:${nuOld}: skipped, it no longer applies`)), JSON.stringify(nuRes));
+  check('H11 review 4: the task that is no longer finished stays open, and the answer lists it as skipped', (await rawDb.collection('tasks').findOne({ ref: nuT.created.ref })).status === 'In Progress' && nuRes.failed.some(x => x.startsWith(`task:${nuT.created.ref}: skipped, it no longer applies`)), JSON.stringify(nuRes));
+
+  // 5. The daily check writes only checkedAt and reasons: quietUntil stays
+  const quiet = new Date(Date.now() + 5 * 86_400_000);
+  await rawDb.collection('states').updateOne({ projectId: NUID }, { $set: { declutter: { checkedAt: ago(3), reasons: ['old reason'], quietUntil: quiet } } });
+  await start(NU, 'h11n3');
+  const nuCache = (await stateOf(NUID)).declutter;
+  check('H11 review 5: a refreshed daily check leaves quietUntil alone and replaces checkedAt and reasons', nuCache.quietUntil.getTime() === quiet.getTime() && nuCache.checkedAt.getTime() > Date.now() - 60_000 && nuCache.reasons.length === 0, JSON.stringify(nuCache));
+
+  // 3. Someone who was the owner when the Need was asked and can still read the project applies nothing
+  const MU = 'H11 Mu';
+  const kTown = await must(kT, 'add_project', { name: MU, visibility: 'org' });
+  const MUID = kTown.project.id;
+  await must(kT, 'save_state', { project: MU, ops: [{ op: 'add_later', text: 'Mu old line that would be archived' }] });
+  const stMu = await stateOf(MUID);
+  await rawDb.collection('states').updateOne({ _id: stMu._id, 'later.id': stMu.later[0].id }, { $set: { 'later.$.at': ago(30) } });
+  const muAsk = await must(kT, 'declutter', { project: MU, ask: true }, hdr('h11m1'));
+  await rawDb.collection('projects').updateOne({ _id: MUID }, { $set: { ownerId: ME.userId } });
+  const ctxM = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const pageM = await ctxM.newPage();
+  await login(pageM, { phone: false, next: '/needs', email: 'tess-h11@example.test' });
+  const mBtn = pageM.locator(`[data-need="${muAsk.need.ref}"] [data-need-option="yes"]`);
+  await mBtn.waitFor({ timeout: 20000 });
+  await mBtn.click();
+  await pageM.waitForFunction(r => !document.querySelector(`[data-need="${r}"] [data-need-option]`), muAsk.need.ref, { timeout: 20000 }).catch(() => {});
+  await new Promise(r => setTimeout(r, 800));
+  const muDone = await rawDb.collection('needs').findOne({ ref: muAsk.need.ref });
+  const stMu2 = await stateOf(MUID);
+  check('H11 review 3: a former owner who can still read the project answers Yes and nothing is applied', muDone.status === 'answered' && stMu2.later.length === 1 && !(stMu2.archived ?? []).length && (muDone.declutter?.result?.failed ?? []).some(x => /only the project's owner/.test(x)) && (muDone.declutter?.result?.applied ?? []).length === 0, JSON.stringify(muDone.declutter?.result));
+  await ctxM.close();
   void randomUUID;
 } catch (e) {
   check('flow-h11 (error)', false, e?.stack || String(e));
