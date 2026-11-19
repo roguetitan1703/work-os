@@ -2,7 +2,10 @@ import 'server-only';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { inTransaction, type MessageDoc, type PresenceDoc, type ProjectDoc } from '../db';
+import { AGENT_PER_HOUR, agentUsed } from '../mcp/policy';
 import { idShaped, matchSessions, rowKey } from './presence';
+import { presenceState } from './presence-state';
+import { signalSessions } from '../live';
 import { scoped, type Scope } from '../scope';
 import { agentActor, isPerson, userActor, type Actor } from '../actors';
 import { InputError, NotFoundError } from './errors';
@@ -58,8 +61,30 @@ const ago = (ms: number) => {
   return `${Math.round(m / 1440)} days`;
 };
 
-/** Who is on the receiving end, in words: "cutroom: offline, last active 3 h ago; it will get this on start". */
-export async function targetNote(s: Scope, project: Pick<ProjectDoc, '_id' | 'name'>, toSession?: string, matched?: PresenceDoc[]): Promise<string> {
+/**
+ * What the message is, for the note on how it will reach a session: its kind, whether it names a session, and its chain (a message
+ * at WAKE_CHAIN or more never wakes anyone).
+ */
+export type Sending = { kind: MessageDoc['kind']; direct: boolean; chain: number };
+/** A message at this chain or more never wakes a session or makes a Stop continue (lib/data/deliver.ts). */
+export const WAKE_CHAIN = 2;
+
+/** How a session that reports its state through the Work OS hook gets a message: by what it is doing now. */
+async function hookNote(who: string, r: PresenceDoc, m: Sending): Promise<string> {
+  const st = presenceState({ lastSeen: r.lastSeen, activity: r.activity, endedAt: r.endedAt }, { now: Date.now() });
+  if (st.state === 'off') return `${who}: off; it gets this when it starts`;
+  if (st.state === 'working') return `${who}: working; it gets this after its next step`;
+  if (st.state === 'waiting' && st.why === 'prompt') return `${who}: waiting at a prompt; it gets this when it carries on`;
+  if (m.kind === 'fyi') return `${who}: idle; an fyi does not wake it, it gets this on its next turn`;
+  if (!m.direct) return `${who}: idle; a message to the project does not wake it, it gets this on its next turn`;
+  if (m.chain >= WAKE_CHAIN) return `${who}: idle; this message follows a wake by another agent, so it does not wake it: it gets this on its next turn`;
+  const used = r.session ? await agentUsed('wake', r.session).catch(() => 0) : 0;
+  if (used >= AGENT_PER_HOUR.wake) return `${who}: idle and woken ${used} times this hour; it gets this on its next turn`;
+  return `${who}: idle; a direct ${m.kind} wakes it`;
+}
+
+/** Who is on the receiving end, in words: "cutroom: offline, last active 3 h ago; it will get this on start". `sending` says how a session with the Work OS hook gets it. */
+export async function targetNote(s: Scope, project: Pick<ProjectDoc, '_id' | 'name'>, toSession?: string, matched?: PresenceDoc[], sending?: Sending): Promise<string> {
   const c = await scoped(s);
   let rows = matched ?? (await c.presence.find({ projectId: project._id }).sort({ lastSeen: -1 }).limit(40).toArray());
   if (toSession && !matched) rows = matchSessions(rows, toSession, s.userId);
@@ -73,6 +98,11 @@ export async function targetNote(s: Scope, project: Pick<ProjectDoc, '_id' | 'na
     if (seen.has(who)) continue;
     seen.add(who);
     const age = Date.now() - r.lastSeen.getTime();
+    if (sending && r.activity && r.session) {
+      out.push(await hookNote(who, r, sending));
+      if (out.length >= 5) break;
+      continue;
+    }
     out.push(age < 30 * 60_000 ? `${who}: present now (active ${ago(age)} ago)` : `${who}: offline, last active ${ago(age)} ago; it will get this on start`);
     if (out.length >= 5) break;
   }
@@ -147,17 +177,20 @@ export async function sendMessage(
     at: new Date(),
   };
   await c.messages.insertOne(doc);
+  // An idle session waiting for a message hears there may be one (no data in the signal; it reads through its own door). An fyi never wakes a session.
+  if (toSids.length && input.kind !== 'fyi') signalSessions(s.orgId, toSids);
   // The feed says a message came, never what it says (the body stays in the inbox): placed like the message.
   const actor = from.actor ?? (from.word === 'person' ? userActor(s.userId) : agentActor('claude', s.userId));
   await logChange(c, doc, actor, 'message_sent', { subject: { kind: 'message', id: _id, title: input.kind }, projectId: project._id, at: doc.at });
+  const sending: Sending = { kind: input.kind, direct: !!(toSids.length || toSession), chain };
   let target: string;
   if (o.toSids?.length) {
     // A reply: the rows of the sessions it goes back to (labels only).
     const rows = await c.presence.find({ projectId: project._id }).sort({ lastSeen: -1 }).limit(200).toArray();
     const back = rows.filter(r => toSids.includes(rowKey(r)));
-    target = back.length ? await targetNote(s, project, toSession, back) : await targetNote(s, project, toSession);
+    target = back.length ? await targetNote(s, project, toSession, back, sending) : await targetNote(s, project, toSession, undefined, sending);
   } else {
-    target = await targetNote(s, project, toSession ?? asked, matched?.length ? matched : undefined);
+    target = await targetNote(s, project, toSession ?? asked, matched?.length ? matched : undefined, sending);
     if (matched && matched.length > 1) target = `reaches ${matched.length} sessions: ${target}`;
   }
   return { message: doc, project, target };

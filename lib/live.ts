@@ -34,11 +34,14 @@ type Conn = {
   timer?: ReturnType<typeof setTimeout>;
 };
 
-type Hub = { conns: Map<number, Conn>; next: number; closed: Map<string, number> };
+type Waiter = { id: number; key: string; done: (r: 'signal' | 'timeout' | 'bumped') => void };
+type Hub = { conns: Map<number, Conn>; next: number; closed: Map<string, number>; waiters: Map<string, Waiter>; nextWaiter: number };
 // On globalThis: route handlers, actions and pages can each load their own copy of this module in one process.
 const g = globalThis as unknown as { __workosLive?: Hub };
-const hub: Hub = (g.__workosLive ??= { conns: new Map(), next: 1, closed: new Map() });
+const hub: Hub = (g.__workosLive ??= { conns: new Map(), next: 1, closed: new Map(), waiters: new Map(), nextWaiter: 1 });
 hub.closed ??= new Map();
+hub.waiters ??= new Map();
+hub.nextWaiter ??= 1;
 
 export const PAGE_CAP = 10;
 export const WORKER_CAP = 2;
@@ -108,6 +111,43 @@ export function wake(orgId: string, userId: string, deviceId?: string): void {
     c.send('jobs', {});
   }
 }
+
+/**
+ * Idle Claude Code sessions waiting for a message (POST /api/agent/wait): one waiter per session key, at most WAITER_CAP in
+ * all. A new waiter for a session answers the old one 'bumped' (a session has one hook waiting at a time); past the cap the
+ * oldest of all is bumped. Signals carry a session key and no data: the waiter reads the database itself, through its own door.
+ */
+export const WAITER_CAP = 500;
+const waitKey = (orgId: string, sessionKey: string) => `${orgId}|${sessionKey}`;
+
+/** Resolves 'signal' when signalSessions names this session, 'timeout' after `ms`, 'bumped' when a newer waiter took its place. */
+export function waitFor(orgId: string, sessionKey: string, ms: number): Promise<'signal' | 'timeout' | 'bumped'> {
+  const key = waitKey(orgId, sessionKey);
+  hub.waiters.get(key)?.done('bumped');
+  while (hub.waiters.size >= WAITER_CAP) hub.waiters.values().next().value?.done('bumped');
+  return new Promise(resolve => {
+    const id = hub.nextWaiter++;
+    const timer = setTimeout(() => w.done('timeout'), Math.max(0, ms));
+    const w: Waiter = {
+      id,
+      key,
+      done: r => {
+        clearTimeout(timer);
+        if (hub.waiters.get(key)?.id === id) hub.waiters.delete(key);
+        resolve(r);
+      },
+    };
+    hub.waiters.set(key, w);
+  });
+}
+
+/** Tell these sessions (keys: userId:session) of an organization that something may be waiting for them. */
+export function signalSessions(orgId: string, keys: readonly string[]): void {
+  for (const k of keys) hub.waiters.get(waitKey(orgId, k))?.done('signal');
+}
+
+/** Idle sessions waiting right now (tests and the status panel). */
+export const waiterCount = (): number => hub.waiters.size;
 
 /** Close every stream of a person in an organization (removed member): pages and workers. */
 export function closeFor(orgId: string, userId: string): number {

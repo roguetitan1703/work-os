@@ -18,7 +18,12 @@ import { deliverFor, startTurn, type Delivery } from '@/lib/data/deliver';
 //          other kinds change nothing). The hook never sends a state, a message text, a path or a session id.
 //   at     The hook's clock in ms; clamped to the server's now plus or minus 5 minutes. An event not newer than the
 //          stored one changes nothing, so hooks that arrive out of order never step a session back.
-// The only row it writes is the token's own presence row (the person, the token's session and project), and never creates one.
+//   deliver  true on a prompt, a tool batch or a stop: the answer may carry `deliver: { text, ids, wakeable }`, the text of what is
+//            unread for the session (lib/data/deliver.ts), framed and read by handing it over: a prompt and a tool batch get
+//            everything, a stop only what may wake a session. Needs a folder on the token's computer for the project (checked
+//            every call) and one of 360 reads an hour; without them the answer is the state alone.
+//   woke     true on a prompt that is a wake the hook just got (kept only when the server handed out a wake under a minute ago).
+// The only row it writes is the token's own presence row (state, turn chain) (the person, the token's session and project), and never creates one.
 // No State, feed, activity or Needs writes. The owner's own pages are told to refresh only when the state changes.
 // Rate limited per session token, lib/mcp/policy.ts AGENT_PER_HOUR.event (300 an hour). Free: an event that repeats the stored state
 // within a minute (answered with no write) and a notification kind that changes nothing; so many tool calls never use it up.
