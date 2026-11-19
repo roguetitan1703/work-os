@@ -46,7 +46,7 @@ import { forYouAfter, forYouBefore } from './for-you';
 import { requestContext, runWithRequestContext, sessionHeader } from '../request-context';
 import { noteRefusal, recentRefusals } from './refusals';
 import { dispatchedOfToken } from '../agent-sessions';
-import { addDays, isDateStr, resolveDate, startOfDay, todayStr, weekday } from '../dates';
+import { addDays, isDateStr, resolveDate, resolvePastDate, startOfDay, todayStr, weekday } from '../dates';
 import { ModeSchema, PrioritySchema, ProjectStatusSchema, RATINGS, RESULT_KINDS, RecurrenceSchema, StatusSchema, VisibilitySchema, type Task, type TaskPatch } from '../types';
 
 /**
@@ -107,8 +107,14 @@ const taskKey = z.union([z.number().int(), z.string()]).describe('Task ref (12 o
 const dateArg = z.string().describe('YYYY-MM-DD, today, tomorrow, a weekday name, +3d …');
 
 /** A list_tasks date filter: the same words as `due` (today, +3d, a weekday …); anything else is refused, naming the field. */
-function dateFilter(v: string | undefined, field: string): string | undefined {
+function dateFilter(v: string | undefined, field: string, past = false): string | undefined {
   if (v === undefined) return undefined;
+  // A filter that looks back (done_since): a weekday is its last day, and "none" or an empty value is refused instead of dropping the filter.
+  if (past) {
+    const p = resolvePastDate(v);
+    if (p === undefined) throw new InputError(`Couldn't read ${field} "${v}". Use YYYY-MM-DD, today, yesterday or a weekday name (the last such day). To drop the filter, leave ${field} out.`);
+    return p;
+  }
   const r = resolveDate(v);
   if (r === undefined) throw new InputError(`Couldn't read ${field} "${v}". Use YYYY-MM-DD, today, tomorrow, yesterday, a weekday name or +3d.`);
   return r ?? undefined;
@@ -128,6 +134,8 @@ function parseSince(s: string | undefined): Date | undefined {
   const rel = v.match(/^(\d+)\s*(h|d)$/);
   if (rel) return new Date(Date.now() - Number(rel[1]) * (rel[2] === 'h' ? 3_600_000 : 86_400_000));
   if (isDateStr(v)) return startOfDay(v);
+  if (/^(sun|mon|tue|wed|thu|fri|sat)[a-z]*$/.test(v)) return startOfDay(resolvePastDate(v)!); // a weekday: the last such day
+  if (v === 'none' || v === 'null') throw new InputError(`"since" value "${s}" is not a date. To drop the filter, leave since out.`);
   const t = Date.parse(s);
   if (!Number.isNaN(t)) return new Date(t);
   throw new InputError(`Couldn't read "since" value "${s}"`);
@@ -687,10 +695,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
   // Title/description come from docs.ts so the /connect page shows exactly what Claude sees.
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
   const sessionArg = z.string().max(64).optional().describe("The session id start_work returned (letters, digits and dashes); lets Work OS tell your answers apart from other sessions' of the same key");
-  /** Who is calling, for presence and the "for you" line (lib/mcp/for-you.ts). Every tool takes `session`; it counts like the X-Work-OS-Session header. */
+  /** Who is calling, for presence and the "for you" line (lib/mcp/for-you.ts). Every tool takes `session`; it counts like the X-Work-OS-Session header, which wins when both are given. */
   const identOf = (_name: ToolName, a: unknown[]): Ident => {
     const arg = a[0] && typeof a[0] === 'object' ? (a[0] as { session?: unknown }).session : undefined;
-    return { userId: caller.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sessionHeader(typeof arg === 'string' ? arg : null) ?? requestContext().sid };
+    return { userId: caller.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: requestContext().sid ?? sessionHeader(typeof arg === 'string' ? arg : null) };
   };
   /** The copy (WORK-STATE.md text) for this caller when it still needs it in the answer: an old hook (protocol 1, marked at sign-in), else nothing. */
   const legacyCopy = async (a: unknown, project: Parameters<typeof stateData.stateCopy>[1], state: Parameters<typeof stateData.stateCopy>[2]): Promise<string | undefined> => {
@@ -737,7 +745,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         due: z.enum(['overdue', 'today', 'today_or_overdue', 'this_week', 'next_7_days', 'no_date', 'has_date']).optional(),
         due_from: z.string().optional().describe('Inclusive: YYYY-MM-DD, today, +3d, a weekday …'),
         due_to: z.string().optional().describe('Inclusive: YYYY-MM-DD, today, +3d, a weekday …'),
-        done_since: z.string().optional().describe('YYYY-MM-DD, today or yesterday: only tasks completed on/after this date (implies Done)'),
+        done_since: z.string().optional().describe('YYYY-MM-DD, today, yesterday or a weekday name (the last such day): only tasks completed on/after this date (implies Done)'),
         query: z.string().optional().describe('Text search in title, description and tags'),
         assignee: z.string().max(200).optional().describe("Only tasks this member is one of the assignees of: 'me', a name, an email or a user id"),
         parent: z.union([z.number().int(), z.string()]).optional().describe('Only the subtasks of this task (ref)'),
@@ -750,7 +758,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const dueFrom = dateFilter(a.due_from, 'due_from');
       const dueTo = dateFilter(a.due_to, 'due_to');
-      const doneSince = dateFilter(a.done_since, 'done_since');
+      const doneSince = dateFilter(a.done_since, 'done_since', true);
       let assignee: string | undefined;
       if (a.assignee) {
         const v = a.assignee.trim();

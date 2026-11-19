@@ -184,8 +184,9 @@ export async function sendMessage(
   if (from.word === 'agent' && from.session) {
     // The highest chain across every row of this session (it may have a row on another project): a row with chain 0 cannot hide a higher one.
     const rows = await c.presence.find({ userId: s.userId, session: from.session }, { projection: { turnChain: 1 } }).limit(20).toArray();
-    chain = Math.min(9, Math.max(0, ...rows.map(r => (r.turnChain ?? -1) + 1)));
-  }
+    // No row at all: the turn cannot be shown, so this word counts as the end of the chain and never wakes.
+    chain = rows.length ? Math.min(9, Math.max(0, ...rows.map(r => (r.turnChain ?? -1) + 1))) : WAKE_CHAIN;
+  } else if (from.word === 'agent') chain = WAKE_CHAIN; // names no session: the same
   const doc: MessageDoc = {
     _id,
     orgId: s.orgId,

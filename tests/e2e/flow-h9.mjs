@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { B, EMAIL, ME, MCP, PW, SP, check, finish, launch, login, makeUser, mkDevice, mkKey, okO, overflow, rawDb } from './lib.mjs';
-import { mcpH as mcpRaw, must, markOrders } from './flow-lib.mjs';
+import { mcpH as mcpRaw, must, markOrders, hookRow } from './flow-lib.mjs';
 // The holder's Claude Code writes Orders only from a real session (H9 review): its calls carry one session id.
 let kCodeKey = null;
 const mcpH = (k, t, a, h = {}) => mcpRaw(k, t, a, k === kCodeKey && !('X-Work-OS-Session' in h) ? { ...h, 'X-Work-OS-Session': 'h9interactive' } : h);
@@ -107,6 +107,7 @@ try {
   const kTess = await mkKey({ agent: 'claude-code', userId: T.userId, name: 'Tess Code' });
   kCodeKey = kCode;
   await must(kCode, 'start_work', { project: 'H9 One', label: 'H9 · interactive', session: 'h9interactive' });
+  await hookRow('h9interactive'); // the hook's start route marks the row; start_work over MCP does not
   const cur = async () => (await noteDoc(org));
   const w1 = await mcpH(kCode, 'write_note', { note_id: org, edits: [{ find: 'Rule four.', replace: 'Rule four, by the holder Claude Code.' }], why: 'H9 test: edits' });
   const c1 = await cur();

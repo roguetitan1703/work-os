@@ -1,7 +1,7 @@
 // R8 batch A: how agents call the MCP tools. Session on every tool, Orders rows say how to change them, list_tasks dates
 // parse like due, first-call mistakes, answer size, words that lie. Seed profile: none.
 import { ME, MCP, check, finish, makeUser, mkKey, rawDb } from './lib.mjs';
-import { markOrders, mcpH, must } from './flow-lib.mjs';
+import { hookRow, markOrders, mcpH, must } from './flow-lib.mjs';
 
 const NAME = 'R8A Project';
 try {
@@ -13,14 +13,29 @@ try {
   await markOrders(rules, 'org');
   await must(cc, 'start_work', { project: NAME, label: 'r8 interactive', session: 'r8int' });
   await must(cc, 'start_work', { project: NAME, label: 'r8 disp · worker · #5', session: 'r8disp' });
+  await hookRow('r8int'); // the hook's start route marks its rows with ccSession; start_work over MCP does not
   const noSess = await mcpH(cc, 'write_note', { note_id: rules, append: 'NOSESS', why: 'r8' });
   check('F1: write_note on the Orders with no session is refused', noSess.isError && /Orders/.test(noSess.text), noSess.text.slice(0, 200));
   const disp = await mcpH(cc, 'write_note', { note_id: rules, append: 'DISP', why: 'r8', session: 'r8disp' });
   check('F1: write_note on the Orders with a dispatched session is refused', disp.isError && /Orders/.test(disp.text), disp.text.slice(0, 200));
   const holder = await mcpH(cc, 'write_note', { note_id: rules, append: 'HOLDER LINE', why: 'r8', session: 'r8int' });
   check('F1: write_note on the Orders with the holder\'s own session (argument only) succeeds', !holder.isError && /HOLDER LINE/.test((await rawDb.collection('notes').findOne({ _id: rules })).body), holder.text.slice(0, 200));
-  const body = (await rawDb.collection('notes').findOne({ _id: rules })).body;
-  check('F1: the refused tries wrote nothing', !/NOSESS|DISP\b/.test(body));
+  // Stopgap: an invented id, a dispatched row, header over argument
+  await must(cc, 'start_work', { project: NAME, label: 'r8 invented', session: 'x1' });
+  const inv = await mcpH(cc, 'write_note', { note_id: rules, append: 'INVENTED', why: 'r8', session: 'x1' });
+  check('F1: an id made up with start_work (no hook behind it) is refused', inv.isError && /Orders/.test(inv.text), inv.text.slice(0, 200));
+  const dispRow = await rawDb.collection('presence').findOne({ session: 'r8disp' });
+  await rawDb.collection('presence').updateOne({ _id: dispRow._id }, { $set: { ccSession: crypto.randomUUID(), dispatched: { taskId: 't', ref: 5 }, label: 'r8 plain label' } });
+  const dis2 = await mcpH(cc, 'write_note', { note_id: rules, append: 'DISPMARK', why: 'r8', session: 'r8disp' });
+  check('F1: a hooked row marked dispatched is refused even with a plain label', dis2.isError && /Orders/.test(dis2.text), dis2.text.slice(0, 200));
+  const prec = await mcpH(cc, 'write_note', { note_id: rules, append: 'PRECEDENCE', why: 'r8', session: 'r8int' }, { 'X-Work-OS-Session': 'x1' });
+  check('F1: header x1 and argument r8int (the holder): the header wins and the write is refused', prec.isError && /Orders/.test(prec.text), prec.text.slice(0, 200));
+  const prec2 = await mcpH(cc, 'write_note', { note_id: rules, append: 'PRECEDENCE OK', why: 'r8', session: 'x1' }, { 'X-Work-OS-Session': 'r8int' });
+  check('F1: header r8int (the holder) and argument x1: the header wins and the write succeeds', !prec2.isError, prec2.text.slice(0, 200));
+  const after = await rawDb.collection('notes').findOne({ _id: rules });
+  check('F1: no Orders version credits a refused session (x1, r8disp)', !JSON.stringify(after).includes('"x1"') && !JSON.stringify(after).includes('"r8disp"'), JSON.stringify(after).slice(0, 300));
+  const body = after.body;
+  check('F1: the refused tries wrote nothing', !/NOSESS|DISP\b|INVENTED|DISPMARK|PRECEDENCE(?! OK)/.test(body));
   const askNo = await must(cc, 'ask', { project: NAME, to: 'me', kind: 'decide', ask: 'Which one?', options: [{ label: 'A' }, { label: 'B' }] });
   check('F1: ask with no session answers with a note to pass session', /No session given: the answer will not wake you; pass session\./.test(askNo.sessionNote ?? ''), JSON.stringify(askNo).slice(0, 300));
   const askYes = await must(cc, 'ask', { project: NAME, to: 'me', kind: 'decide', ask: 'Which other?', options: [{ label: 'A' }, { label: 'B' }], session: 'r8int' });
@@ -48,6 +63,21 @@ try {
   check('F5: a done_since that does not parse is refused', badDone.isError && /done_since/.test(badDone.text), badDone.text);
   const okDone = await mcpH(cc, 'list_tasks', { project: NAME, done_since: 'today' });
   check('F5: done_since today is read', !okDone.isError, okDone.text);
+  const none = await mcpH(cc, 'list_tasks', { project: NAME, done_since: 'none' });
+  check('F5: done_since none is refused, not a dropped filter', none.isError && /done_since/.test(none.text), none.text);
+  // a weekday name in a filter that looks back is the last such day (today counts), never a future date
+  const wdNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const todayName = wdNames[new Date().getUTCDay()];
+  const doneToday = await mustDone();
+  check('F5: done_since with today\'s own weekday name is read (today counts) and finds a task done today', !doneToday.isError && doneToday.json?.total >= 1, doneToday.text.slice(0, 200));
+  const yesterdayName = wdNames[(new Date().getUTCDay() + 6) % 7];
+  const wdY = await mcpH(cc, 'list_tasks', { project: NAME, done_since: yesterdayName });
+  check('F5: done_since with yesterday\'s weekday name reaches back to yesterday, so a task done today is found', !wdY.isError && wdY.json?.total >= 1, wdY.text.slice(0, 200));
+  async function mustDone() {
+    const t = await must(cc, 'add_task', { title: 'R8 finished today', project: NAME });
+    await must(cc, 'complete_task', { task: t.created?.ref ?? t.ref, note: 'r8' });
+    return mcpH(cc, 'list_tasks', { project: NAME, done_since: todayName });
+  }
 
   // F8: first-call mistakes
   const pNo = await mcpH(cc, 'add_task', { title: 'R8 typo project', project: 'R8A Projet' });
@@ -81,6 +111,12 @@ try {
   check('F9: a reply to a question is marked as waking the asker', rdoc?.kind === 'fyi' && rdoc.wakes === true, JSON.stringify(rdoc));
   const f = await must(cc, 'send_message', { to: 'r8help', project: NAME, kind: 'fyi', body: 'R8 just so you know', session: 'r8int' });
   await must(cc, 'reply', { id: f.message?.id ?? f.id, body: 'R8 noted', session: 'r8help' });
+  const nos = await must(cc, 'send_message', { to: 'r8help', project: NAME, kind: 'request', body: 'R8 no session sender' });
+  const nosDoc = await rawDb.collection('messages').findOne({ body: 'R8 no session sender' });
+  check('F9: an agent message that names no session counts as the end of the wake chain (never wakes)', nosDoc && nosDoc.chain >= 2, JSON.stringify(nosDoc));
+  const ghost = await mcpH(cc, 'send_message', { to: 'r8help', project: NAME, kind: 'request', body: 'R8 ghost sender', session: 'ghost1' });
+  const ghostDoc = await rawDb.collection('messages').findOne({ body: 'R8 ghost sender' });
+  check('F9: an agent message from a session with no row counts as the end of the chain', ghost.isError || (ghostDoc && ghostDoc.chain >= 2), JSON.stringify(ghostDoc ?? ghost.text).slice(0, 200));
   const rf = await rawDb.collection('messages').findOne({ body: 'R8 noted' });
   check('F9: a reply to an fyi does not wake', rf && !rf.wakes, JSON.stringify(rf));
   const ad = await mcpH(cc, 'save_state', { project: NAME, session: 'r8int', ops: [{ op: 'archive_decision', id: 'x' }] });

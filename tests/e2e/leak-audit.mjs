@@ -1042,6 +1042,7 @@ try {
     const disp = await mcpCall(A.code, 'write_note', { note_id: S.ordersNote, append: 'lkq dispatched injected', why: 'lkq audit', session: 'lkqdispsess' }, { 'X-Work-OS-Session': 'lkqdispsess' });
     check('Orders: a session the dispatcher started (label "worker · #ref") cannot change the Orders (unchanged)', !disp.ok && /Orders/.test(disp.text) && !(await rawDb.collection('notes').findOne({ _id: S.ordersNote })).body.includes('lkq dispatched injected'), disp.text.slice(0, 200));
     await mustMcp(A.code, 'start_work', { project: S.projectName, label: 'lkq interactive', session: 'lkqintsess' });
+    await rawDb.collection('presence').updateMany({ session: 'lkqintsess' }, { $set: { ccSession: randomUUID() } }); // as the hook's start route does
     const ownerCode = await mcpCall(A.code, 'write_note', { note_id: S.ordersNote, append: 'lkq owner code orders', why: 'lkq audit' }, { 'X-Work-OS-Session': 'lkqintsess' });
     check('Orders: the owner’s Claude Code key in a real session changes the Orders with a why (version 3)', ownerCode.ok && ownerCode.json?.orders?.version === 3 && (await rawDb.collection('notes').findOne({ _id: S.ordersNote })).body.includes('lkq owner code orders'), ownerCode.text.slice(0, 200));
     const start = await mcpCall(T.chat, 'start_work', { project: S.projectName });

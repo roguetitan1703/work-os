@@ -161,3 +161,17 @@ export function resolveDate(input: string | null | undefined, today: string = to
   }
   return undefined;
 }
+
+/**
+ * resolveDate for a filter that looks back ("since", "done since"): a weekday name means the last such day (today counts), not the next one.
+ * Empty, "none" and "null" are not dates here (undefined: the caller refuses them); everything else reads as resolveDate does.
+ */
+export function resolvePastDate(input: string, today: string = todayStr()): string | undefined {
+  const s = input.trim().toLowerCase();
+  if (!s || s === 'none' || s === 'null') return undefined;
+  if (/^(sun|mon|tue|wed|thu|fri|sat)[a-z]*$/.test(s)) {
+    const idx = WEEKDAYS.findIndex(w => s.startsWith(w));
+    return addDays(today, -((weekday(today) - idx + 7) % 7));
+  }
+  return resolveDate(s, today) ?? undefined;
+}
