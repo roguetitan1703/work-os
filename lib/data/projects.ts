@@ -614,18 +614,18 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
 
 export type ProjectByCode =
   | { matched: true; project: Project; how: string; location: CodeLocation }
-  | { matched: false; candidates: { id: string; name: string; similarity: number }[] };
+  | { matched: false; candidates: { id: string; name: string; similarity: number; why?: string }[] };
 
-/** The project whose code locations best match a git remote / subdir / branch / folder path. */
-export async function findProjectByCode(s: Scope, q: CodeQuery): Promise<ProjectByCode> {
+/** The project whose path location best matches the folder (the folder decides; a remote only ranks the candidates). */
+export async function findProjectByCode(s: Scope, q: CodeQuery, opts: { legacyRemote?: boolean } = {}): Promise<ProjectByCode> {
   const c = await scoped(s);
   const docs = await c.projects.find({}, { projection: { name: 1, code: 1, status: 1 } }).toArray();
   const list = docs.map(d => ({ id: d._id, name: d.name, code: d.code }));
-  const m = matchCodeLocation(list, q);
+  const m = matchCodeLocation(list, q, opts);
   if (m) {
     const doc = await c.projects.findOne({ _id: m.project.id });
     if (doc) return { matched: true, project: toProject(doc), how: m.how, location: m.location };
   }
   const live = list.filter((_, i) => docs[i].status === 'active' || docs[i].status === 'paused');
-  return { matched: false, candidates: codeCandidates(live.length ? live : list, q).map(x => ({ id: x.project.id, name: x.project.name, similarity: x.similarity })) };
+  return { matched: false, candidates: codeCandidates(live.length ? live : list, q).map(x => ({ id: x.project.id, name: x.project.name, similarity: x.similarity, ...(x.why ? { why: x.why } : {}) })) };
 }

@@ -60,7 +60,7 @@ type Body = z.infer<typeof Body>;
 /** The project the body's folder belongs to, as the device owner sees it, or null. */
 async function lookup(s: Scope, b: Body): Promise<string | null> {
   if (!b.remote && !b.path) return null;
-  const m = await findProjectByCode(s, { remote: b.remote, path: b.path, subdir: b.subdir, branch: b.branch });
+  const m = await findProjectByCode(s, { remote: b.remote, path: b.path, subdir: b.subdir, branch: b.branch, machine: b.machine }, { legacyRemote: true }); // old hooks (no `folders`): until H13 step 8
   return m.matched ? m.project.id : null;
 }
 

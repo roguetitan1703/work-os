@@ -1171,7 +1171,7 @@ function AUDIT() {
     M('apply_changes', t => ({ ops: [{ op: 'delete_note', note_id: t.sub, title: 'lkq' }] }), aim(['sub'], { label: 'delete_note (wrong title)', control: false })),
     M('apply_changes', { ops: [{ op: 'update_task', task: 'constructor', title: 'x' }, { op: 'update_task', task: '__proto__', title: 'x' }] }, { label: 'prototype keys', aim: true, aimKeys: [], control: false }),
   );
-  add('mcp get_project', M('get_project', t => ({ project: t.project, depth: 'full' }), aim(['project'])), M('get_project', t => ({ project: t.projectName }), aim(['projectName'], { label: 'by name' })), M('get_project', t => ({ remote: t.remote }), { label: 'by remote', ok: r => r.ok && !r.json?.unmatched, aim: true, aimKeys: ['remote'] }), M('get_project', { project: 'constructor' }, { label: 'prototype key', aim: true, aimKeys: [], control: false }));
+  add('mcp get_project', M('get_project', t => ({ project: t.project, depth: 'full' }), aim(['project'])), M('get_project', t => ({ project: t.projectName }), aim(['projectName'], { label: 'by name' })), M('get_project', t => ({ remote: t.remote }), { label: 'by remote (H13: unmatched, the remote only ranks candidates)', ok: r => r.ok && r.json?.unmatched === true, aim: true, aimKeys: ['remote'] }), M('get_project', { project: 'constructor' }, { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add('mcp update_claude_items',
     M('update_claude_items', t => ({ ops: [{ op: 'note', item: t.item, text: 'lkq note' }] }), aim(['item'])),
     M('update_claude_items', t => ({ ops: [{ op: 'edit', item: t.item, title: 'lkq edited title of the item' }] }), aim(['item'], { label: 'edit' })),
@@ -1189,7 +1189,7 @@ function AUDIT() {
   add('mcp start_work',
     M('start_work', t => ({ project: t.project, machine: 'lkq', label: 'lkq probe' }), aim(['project'])),
     M('start_work', t => ({ project: t.projectName }), aim(['projectName'], { label: 'by name' })),
-    M('start_work', t => ({ remote: t.remote }), { label: 'by remote', ok: r => r.ok && !r.json?.unmatched, aim: true, aimKeys: ['remote'] }),
+    M('start_work', t => ({ remote: t.remote }), { label: 'by remote (H13: unmatched, the remote only ranks candidates)', ok: r => r.ok && r.json?.unmatched === true, aim: true, aimKeys: ['remote'] }),
     Mc('start_work', t => ({ project: t.project }), aim(['project'], { label: 'code key' })),
     M('start_work', { project: 'constructor' }, { label: 'prototype key', aim: true, aimKeys: [], control: false }),
   );

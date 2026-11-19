@@ -29,6 +29,8 @@ try {
     return d;
   };
   const repo = mkRepo('repo', 'https://github.com/acme/hooks-alpha.git');
+  // The folder decides the project (H13): the key path matches by the folder's path, never by the remote alone.
+  await must(MCP, 'update_project', { project: NAME, code: [{ remote: 'acme/hooks-alpha' }, { path: repo }] });
   const other = mkRepo('other', 'https://github.com/acme/not-a-project.git');
   const env = { ...process.env, WORK_OS_KEY: key, WORK_OS_URL: B, WORK_OS_HOOK_DIR: path.join(tmp, 'markers'), WORK_OS_WORKER_DIR: path.join(tmp, 'cfg') };
   const hook = (arg, input, e = env) => spawnSync(process.execPath, [HOOK, arg], { input: JSON.stringify(input), encoding: 'utf8', env: e, timeout: 20000 });

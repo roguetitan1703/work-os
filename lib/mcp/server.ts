@@ -13,7 +13,7 @@ import * as needsData from '../data/needs';
 import * as productionData from '../data/production';
 import * as results from '../data/results';
 import { InputError, NotFoundError } from '../data/errors';
-import { serverInstructions, STATE_COPY, TOOLS, type InstructionsFor, type ToolName } from './docs';
+import { serverInstructions, STATE_COPY, TOOLS, UNMATCHED_HINT, type InstructionsFor, type ToolName } from './docs';
 import { beforeTool, callerScope, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
 import { actorOut, agentActor } from '../actors';
 import { findMember, memberNames } from '../people';
@@ -375,6 +375,7 @@ const codeShape = z
       path: z.string().optional().describe('Absolute folder path, for code that is not in a git remote'),
       subdir: z.string().optional().describe('Folder inside the repo (relative to its root) that belongs to this project'),
       branch: z.string().optional().describe('Branch that belongs to this project, e.g. a worktree branch'),
+      machine: z.string().max(40).optional().describe('With a path: the computer it is on (the name start_work got); none = any computer'),
     }),
   )
   .max(20)
@@ -1072,6 +1073,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         subdir: z.string().optional().describe('Your working folder relative to the repo root (git rev-parse --show-prefix)'),
         branch: z.string().optional().describe('Current git branch'),
         path: z.string().optional().describe('Absolute path of your working folder'),
+        machine: z.string().max(40).optional().describe('A short name for this computer (with path: only a folder written for this computer matches)'),
         depth: z.enum(['project', 'tasks', 'full']).optional().describe('Default tasks'),
         include_closed: z.boolean().optional().describe('Also Done/Dropped tasks'),
         activity_per_task: z.number().int().min(1).max(30).optional().describe('depth full: history entries per task (default 5)'),
@@ -1083,12 +1085,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
       let matchedBy: { how: string; location: unknown } | undefined;
       if (!projectKey) {
         if (!a.remote && !a.path) throw new InputError('Give project (name or id), or remote (+ subdir, branch) or path to find it from your repo');
-        const m = await projects.findProjectByCode(s, { remote: a.remote, path: a.path, subdir: a.subdir, branch: a.branch });
+        const m = await projects.findProjectByCode(s, { remote: a.remote, path: a.path, subdir: a.subdir, branch: a.branch, machine: a.machine });
         if (!m.matched) {
           return {
             unmatched: true,
             candidates: m.candidates,
-            hint: 'No project has this repo as a code location. Ask your person which project this is, then call update_project with code: [{ remote, subdir?, branch? }] (or path) so it resolves next time.',
+            hint: UNMATCHED_HINT,
           };
         }
         projectKey = m.project.id;
@@ -1171,12 +1173,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
       let matchedBy: { how: string; location: unknown } | undefined;
       if (!key) {
         if (!a.remote && !a.path) throw new InputError('Give project (name or id), or remote (+ subdir, branch) or path to find it from your repo');
-        const m = await projects.findProjectByCode(s, { remote: a.remote, path: a.path, subdir: a.subdir, branch: a.branch });
+        const m = await projects.findProjectByCode(s, { remote: a.remote, path: a.path, subdir: a.subdir, branch: a.branch, machine: a.machine });
         if (!m.matched) {
           return {
             unmatched: true,
             candidates: m.candidates,
-            hint: 'No project has this repo as a code location. Ask your person which project this is, then call update_project with code: [{ remote, subdir?, branch? }] (or path) and call start_work again.',
+            hint: UNMATCHED_HINT,
           };
         }
         key = m.project.id;

@@ -293,7 +293,7 @@ export const ProjectStatusSchema = z.enum(PROJECT_STATUSES);
 export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
 
 /** Where a project's code lives (lib/data/code-locations.ts). remote = lowercase "owner/name". */
-export type CodeLocation = { remote?: string; path?: string; subdir?: string; branch?: string; /** Git host when it is not github.com (kept from a full URL, so a PC can clone it). */ host?: string };
+export type CodeLocation = { remote?: string; path?: string; subdir?: string; branch?: string; /** Git host when it is not github.com (kept from a full URL, so a PC can clone it). */ host?: string; /** A path location for one computer (the name the hook sends, lowercase); none = any. */ machine?: string };
 
 export const CodeLocationInputSchema = z.object({
   remote: z.string().trim().max(300).optional(),
@@ -301,6 +301,7 @@ export const CodeLocationInputSchema = z.object({
   subdir: z.string().trim().max(200).optional(),
   branch: z.string().trim().max(200).optional(),
   host: z.string().trim().max(253).optional(),
+  machine: z.string().trim().max(40).optional(),
 });
 
 export type Project = {
