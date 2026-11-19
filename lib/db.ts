@@ -270,6 +270,10 @@ export type HandoverMeta = {
 
 /** A line of a project's State (Next, Later): `by` is who wrote it (a user id), shown labelled to everyone else. */
 export type StateLine = { id: string; text: string; ref?: number; waitsOn?: string; by: string; src?: string; at: Date };
+/** A Next or Later line taken off the State with its text kept (archive_line, a removed Later line, Declutter). `by`/`at` are the line's own; `archivedBy`/`archivedAt` say who took it off and when. */
+export type ArchivedLine = { id: string; text: string; from: 'Next' | 'Later'; waitsOn?: string; by: string; at: Date; archivedBy: string; archivedAt: Date; why?: string };
+/** What the daily Declutter check found on a project (lib/data/declutter.ts); written without a version bump, like `where`. */
+export type DeclutterCache = { checkedAt: Date; reasons: string[]; quietUntil?: Date; needId?: string; needRef?: number };
 /** A decision recorded on a project (append-only). `by` = who decided (a user id), `via` = chat / code / app / discord. */
 export type StateDecision = { id: string; at: Date; by: string; src?: string; via: string; text: string; archivedAt?: Date; /** The key that recorded it (the hourly limit counts per key). */ key?: string; /** The message it was applied from, who wrote that message and how it came in; `by` is who applied it. */ msg?: string; author?: string; word?: string };
 /** Where the work is on one machine, as the agent reported it from git. */
@@ -283,6 +287,9 @@ export type StateDoc = Placed & {
   later: StateLine[];
   decisions: StateDecision[];
   where: Record<string, StateWhere>;
+  /** Lines taken off Next or Later, text kept, put back from the State card (the newest 300). */
+  archived?: ArchivedLine[];
+  declutter?: DeclutterCache;
   /** The last 200 ops with who made them (user, key, session): so a changed Now or a done Next line can be traced. Not shown to readers. */
   log?: { at: Date; by: string; key?: string; src?: string; via: string; op: string; id?: string }[];
   /** Bumped on every write. */

@@ -52,6 +52,7 @@ const ICONS: Record<ActivityType, React.ComponentType<{ className?: string }>> =
   next_added: ListPlus,
   next_done: CheckCheck,
   later_added: Clock,
+  line_archived: Archive,
   decision: Gavel,
   note_created: FilePlus,
   note_edited: FileText,
