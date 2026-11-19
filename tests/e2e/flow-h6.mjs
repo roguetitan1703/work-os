@@ -90,7 +90,7 @@ try {
   await bad('an extra field (a state)', { event: 'prompt', state: 'off' });
   await bad('an extra field (the message text)', { event: 'notify', kind: 'permission_prompt', message: 'Claude needs your permission to run git push' });
   await bad('at that is not a number', { event: 'prompt', at: 'now' });
-  check('a body over 2 KB: 413 (Identity step 4 raised the cap from 1 KB so a rename can ride along)', (await ev(S.token, { event: 'prompt', kind: 'x'.repeat(2100) })).status === 413);
+  check('a body over 4 KB: 413 (Identity step 4 raised the cap from 1 KB so a rename can ride along; Lanes step 3 to 4 KB for a result of 2,000 characters)', (await ev(S.token, { event: 'prompt', kind: 'x'.repeat(4200) })).status === 413);
   check('the refused bodies changed nothing', (await prow(S.sid)).activity.state === 'on');
 
   // ---- the sequence through the real start route ----
@@ -126,6 +126,26 @@ try {
   check('an event dated days ahead is accepted but clamped to about 5 minutes ahead', fut.json?.state === 'idle' && fa <= Date.now() + 5 * 60_000 + 2000 && fa > Date.now(), `${fut.text} ${fa - Date.now()}`);
   const stale = await ev(O.token, { event: 'prompt', at: Date.now() - 400_000 });
   check('an event from long ago is older than the stored one: ignored', stale.json?.state === 'idle', stale.text);
+
+  // ---- Lanes step 3: a subagent's last message as the lane result (result, protocol 4) ----
+  const LR = await newSession();
+  const LR2 = await newSession();
+  const BEL = String.fromCharCode(7);
+  const lrBefore = await prow(LR.sid);
+  const rest = await ev(LR.token, { event: 'result', result: `Tests pass.${BEL}\nsecond line ${'x'.repeat(1970)}` });
+  const lrow = await prow(LR.sid);
+  check('result: a tool event with a 2,000 character result is 200 and the row keeps it cleaned and cut to 300 characters', rest.status === 200 && lrow.lastResult?.text.length === 300 && !/[\u0000-\u001f]/.test(lrow.lastResult.text) && lrow.lastResult.text.startsWith('Tests pass. second line x') && lrow.lastResult.at instanceof Date, JSON.stringify(lrow.lastResult)?.slice(0, 120));
+  const lrow0 = await prow(LR.sid);
+  check('result: it changes neither the state nor lastSeen (a subagent ending after the parent stopped does not make it working)', JSON.stringify(lrow0.activity) === JSON.stringify(lrBefore.activity) && +lrow0.lastSeen === +lrBefore.lastSeen);
+  check('result: only the token\'s own row changes', (await prow(LR2.sid)).lastResult === undefined);
+  const again = await ev(LR.token, { event: 'result', result: 'Second answer.' });
+  check('result: an event with a result is never free (the same state within a minute is still written)', again.status === 200 && (await prow(LR.sid)).lastResult.text === 'Second answer.');
+  await bad('a result of 2,001 characters', { event: 'result', result: 'x'.repeat(2001) });
+  await bad('a result on a prompt', { event: 'prompt', result: 'hello' });
+  await bad('a result on a tool event', { event: 'tool', result: 'hello' });
+  await bad('a result event with no result', { event: 'result' });
+  check('result: a blank result changes nothing', (await ev(LR.token, { event: 'result', result: '  ' })).status === 200 && (await prow(LR.sid)).lastResult.text === 'Second answer.');
+  check('result: a protocol 3 hook (no result) is still accepted', (await ev(LR.token, { event: 'tool' }, { headers: { 'x-work-os-hook': '3' } })).status === 200);
 
   // ---- the state rules on read (seeded rows) ----
   const R = await newSession({ ccSession: randomUUID(), source: 'startup' });

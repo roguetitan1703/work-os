@@ -26,7 +26,7 @@ export const settingsPath = () => process.env.CLAUDE_SETTINGS_PATH || path.join(
 export const hooksDir = () => path.join(configDir(), 'hooks');
 // The files the installed copy runs: the router, one file per event (and hook-lib, hook-copy), config.mjs and secret.mjs (the
 // start hook reads this PC's device key with it: the worker's own code, so the key stays in DPAPI / Keychain).
-export const FILES = ['hook.mjs', 'hook-lib.mjs', 'hook-identity.mjs', 'hook-copy.mjs', 'hook-release.mjs', 'remote.mjs', 'hook-session-start.mjs', 'hook-stop.mjs', 'hook-pre-tool.mjs', 'hook-post-tool.mjs', 'hook-user-prompt.mjs', 'hook-notification.mjs', 'hook-session-end.mjs', 'hook-subagent-start.mjs', 'hook-tool-batch.mjs', 'hook-wait.mjs', 'config.mjs', 'secret.mjs'];
+export const FILES = ['hook.mjs', 'hook-lib.mjs', 'hook-identity.mjs', 'hook-copy.mjs', 'hook-release.mjs', 'remote.mjs', 'hook-session-start.mjs', 'hook-stop.mjs', 'hook-pre-tool.mjs', 'hook-post-tool.mjs', 'hook-user-prompt.mjs', 'hook-notification.mjs', 'hook-session-end.mjs', 'hook-subagent-start.mjs', 'hook-subagent-stop.mjs', 'hook-tool-batch.mjs', 'hook-wait.mjs', 'config.mjs', 'secret.mjs'];
 const VERSION_FILE = 'hooks.version';
 /** How the start brief signs in on this PC, first choice: 'worker' (the worker is set up; a WORK_OS_KEY is only its fallback), 'key' (WORK_OS_KEY set, no worker), or null. */
 function signIn(settings) {

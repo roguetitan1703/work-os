@@ -255,12 +255,12 @@ const REPEAT_MS = 60_000;
  * recorded less than a minute ago? Such an event is answered from the row without a write and costs no hourly budget, so a
  * session making many tool calls never runs out of events. `state` is null when the row is gone (not free: it is charged).
  */
-export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string | null }, ev: { event: EventName; kind?: EventKind; files?: StopFiles; copy?: 'refused'; identity?: object }): Promise<{ free: boolean; state: PresenceState | null; ignored?: boolean }> {
+export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string | null }, ev: { event: EventName; kind?: EventKind; files?: StopFiles; copy?: 'refused'; identity?: object; result?: string }): Promise<{ free: boolean; state: PresenceState | null; ignored?: boolean }> {
   const next = eventState(ev);
   const row = await (await scoped(s)).presence.findOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { projection: { activity: 1 } });
   if (!row) return { free: false, state: null };
   // An event that carries a count (a stop check, a refused copy write) is never free: it is written and charged.
-  if (ev.files || ev.copy || ev.identity) return { free: false, state: row.activity?.state ?? null };
+  if (ev.files || ev.copy || ev.identity || ev.result !== undefined) return { free: false, state: row.activity?.state ?? null };
   const a = row.activity;
   if (!next) return { free: true, state: a?.state ?? null, ignored: true };
   const same = !!a && a.state === next.state && a.why === next.why && Date.now() - a.at.getTime() < REPEAT_MS;
@@ -296,6 +296,24 @@ export async function recordEvent(
     );
   }
   return out;
+}
+
+export const LAST_RESULT_MAX = 300;
+/** A lane result as stored: control characters and line breaks to spaces, one line, at most 300 characters (an ellipsis counts). */
+export function cleanResult(v: string | undefined | null): string {
+  const t = (v ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return t.length > LAST_RESULT_MAX ? t.slice(0, LAST_RESULT_MAX - 1) + '\u2026' : t;
+}
+/**
+ * A subagent's last message (the hook's SubagentStop, POST /api/agent/event result): the lane result of the token's own presence row,
+ * cleaned and cut at 300 characters. Only that row, never created here; an empty text changes nothing. Returns whether it was written.
+ */
+// Readers see this as agent-written text (marked writtenBy, Step 5); it is cleaned of control characters and cut, not scanned for secrets.
+export async function setLastResult(s: Scope, r: { sid: string; projectId: string | null }, text: string): Promise<boolean> {
+  const t = cleanResult(text);
+  if (!t) return false;
+  const res = await (await scoped(s)).presence.updateOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { $set: { lastResult: { text: t, at: new Date() } } });
+  return res.matchedCount > 0;
 }
 
 /** The token's own session counted one hand edit of WORK-STATE.md: refused or forwarded (POST /api/agent/state). Never creates a row. */

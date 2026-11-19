@@ -54,7 +54,7 @@ export function presenceState(row: StateRow, o: { now: number; daemon?: DaemonSa
 }
 
 /** What the hook reports (POST /api/agent/event). The server decides the state from the event; the hook never sends one. */
-export const EVENT_NAMES = ['prompt', 'tool', 'notify', 'stop', 'end'] as const;
+export const EVENT_NAMES = ['prompt', 'tool', 'notify', 'stop', 'end', 'result'] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 export const EVENT_KINDS = ['permission_prompt', 'idle_prompt', 'elicitation_dialog', 'auth_success', 'other'] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
@@ -69,6 +69,8 @@ export function eventState(ev: { event: EventName; kind?: EventKind }): { state:
       return { state: 'idle' };
     case 'end':
       return { state: 'off' };
+    case 'result': // a subagent's last message (Lanes step 3): the lane result only, never a state or a sign of life
+      return null;
     case 'notify':
       if (ev.kind === 'permission_prompt' || ev.kind === 'elicitation_dialog') return { state: 'waiting', why: 'prompt' };
       if (ev.kind === 'idle_prompt') return { state: 'idle' };

@@ -60,12 +60,21 @@ async function decide(input) {
   let saved = false;
   const f = input.transcript_path;
   try {
-    if (f) { const fd = fs.openSync(f, 'r'); try { const size = fs.fstatSync(fd).size; const buf = Buffer.alloc(Math.max(0, size - (m.offset || 0))); fs.readSync(fd, buf, 0, buf.length, m.offset || 0); saved = SAVE_CALL.test(buf.toString('utf8')); } finally { fs.closeSync(fd); } }
+    if (f) { const fd = fs.openSync(f, 'r'); try { const size = fs.fstatSync(fd).size; const buf = Buffer.alloc(Math.max(0, size - (m.offset || 0))); fs.readSync(fd, buf, 0, buf.length, m.offset || 0); saved = (m.holdsNow === false ? LANE_CALL : SAVE_CALL).test(buf.toString('utf8')); } finally { fs.closeSync(fd); } }
   } catch {}
   if (saved) { writeMarker(sid, { ...m, status: now, offset: sizeOf(f), changed: true }); return null; }
   writeMarker(sid, { ...m, stopped: true, offset: sizeOf(f), changed: true, reminded: true });
-  return { decision: 'block', reason: 'Files changed in this session and the State was not saved since. Call save_state (with the session id from start_work) with what is now true: Now, Next, Later and any decision. Then finish. Asked once until the next save.' };
+  return { decision: 'block', reason: nagText(m) };
 }
+/**
+ * The reminder. The marker's `holdsNow` (set from the server's answers once Lanes step 1 lands) says whether this session holds Now:
+ * false gets the lane text; true or absent (nothing has set it yet) gets today's text, so a session before step 1 is told what it was told before.
+ */
+export const NAG_HOLDER = 'Files changed in this session and the State was not saved since. Call save_state (with the session id from start_work) with what is now true: Now, Next, Later and any decision. Then finish. Asked once until the next save.';
+export const NAG_LANE = 'Files changed and Work OS has not heard from this session since. Update your lane: set_doing your task, log_progress, add_next or add_decision for anything new. Then finish. Asked once.';
+export const nagText = (m) => (m && m.holdsNow === false ? NAG_LANE : NAG_HOLDER);
+// A save of the State; for a session that does not hold Now (marker holdsNow === false, Lanes step 3) a lane update counts too.
 const SAVE_CALL = /"name"\s*:\s*"mcp__[^"]+__(save_state|import_state|end_work)"/;
+const LANE_CALL = /"name"\s*:\s*"mcp__[^"]+__(save_state|import_state|end_work|log_progress|set_doing|hand_in|complete_task)"/;
 
 export const handle = stop;

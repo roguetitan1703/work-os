@@ -27,9 +27,9 @@ export const EVENTS = [
   // Files changed and State not saved: hold the session once and ask for save_state.
   { event: 'stop', claudeEvent: 'Stop', matcher: null, timeoutS: 8 },
   // Refuse hand edits of WORK-STATE.md (it is a copy of the Work OS State).
-  { event: 'pre-tool', claudeEvent: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|Read|Grep|Glob|mcp__.*__(write_note|propose_order|apply_changes)', timeoutS: 5 },
+  { event: 'pre-tool', claudeEvent: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|Read|Grep|Glob|mcp__.*__(write_note|propose_order|apply_changes|save_state|import_state|end_work)', timeoutS: 5 },
   // After a State save or read: write WORK-STATE.md from the answer and commit that file alone.
-  { event: 'post-tool', claudeEvent: 'PostToolUse', matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', timeoutS: 20 },
+  { event: 'post-tool', claudeEvent: 'PostToolUse', matcher: 'mcp__.*__(save_state|import_state|get_state|end_work|log_progress|set_doing|hand_in|complete_task)', timeoutS: 20 },
   // Session state and messages (POST /api/agent/event and /api/agent/wait, a session token only: a PC's own hooks, so a repo's cloud
   // entries leave these out). The prompt hook waits for the answer (a message waiting for the session goes into its context);
   // the notification hook runs in the background (async).
@@ -45,6 +45,8 @@ export const EVENTS = [
   // A subagent starts with the short form of the organization Orders (the first ten rule lines; the full Orders are in its parent's
   // brief). It reads only the session's marker and makes no network call, so a cloud repo's entry has it too.
   { event: 'subagent-start', claudeEvent: 'SubagentStart', matcher: null, timeoutS: 2 },
+  // A subagent ended (Lanes step 3): its last message becomes its parent session's lane result (POST /api/agent/event { result }).
+  { event: 'subagent-stop', claudeEvent: 'SubagentStop', matcher: null, timeoutS: 3, localOnly: true },
 ];
 
 export const SESSION_TOKEN_RE = /^wst_[A-Za-z0-9_-]{43}$/;
@@ -188,8 +190,8 @@ export const unfiledReminder = (folder, worker = false) => (worker && !folder
 const PRESENCE_AFTER = { prompt: 'working', tool: 'working', stop: 'idle', end: 'off' };
 /**
  * Tells Work OS what this session just did (POST /api/agent/event, the kept session token only; nothing without one).
- * `event` is prompt, tool, notify, stop or end; `extra` is { kind } for notify. Never throws and never sends text of the
- * session. Records presence { state, at, postedAt } in the session's marker so the pre-tool hook knows when to ping again:
+ * `event` is prompt, tool, notify, stop or end; `extra` is { kind } for notify. Never throws and sends no text of the
+ * session except `extra.result` (a subagent's last message, cleaned and cut by hook-subagent-stop.mjs). Records presence { state, at, postedAt } in the session's marker so the pre-tool hook knows when to ping again:
  * postedAt is set on every try, so a down server is tried once per 5 minutes and not on every tool call. Returns the
  * answer ({ status, b }) or null.
  */
@@ -214,6 +216,7 @@ export async function postEvent(sid, event, extra = {}, timeoutMs = 1500) {
     if (m && ident && r?.status === 200) m.ident = ident.key; // the server has it
     if (m && sent && r?.status === 200) delete m.ack; // the server has it
     if (m) {
+      if (event === 'result') return r; // a lane result changes no session state
       const state = event === 'notify' ? (extra.kind === 'idle_prompt' ? 'idle' : 'waiting') : PRESENCE_AFTER[event];
       writeMarker(sid, { ...m, presence: r?.status === 200 ? { state, at, postedAt: at } : { ...(m.presence || {}), postedAt: at, failed: true } });
     }
@@ -302,9 +305,10 @@ export function frameInbox(messages) {
  * Extra request headers every hook call sends. X-Work-OS-Hook is the hook protocol version: 2 = this hook fetches the copy
  * itself (get_state copy:true, POST /api/agent/state), so the server's save answers leave out the markdown. An old hook sends
  * nothing and is marked protocol 1 (it still gets the markdown in answers). 3 = the hook also sends the session's identity (its name,
- * Claude's title, the model, the tool) at the start and on change (Identity step 4).
+ * Claude's title, the model, the tool) at the start and on change (Identity step 4). 4 = a subagent's last message goes to the server as the lane's `result` (Lanes step 3);
+ * the server still accepts 1 to 3.
  */
-export const HOOK_PROTOCOL = 3;
+export const HOOK_PROTOCOL = 4;
 export const hookHeaders = () => ({ 'x-work-os-hook': String(HOOK_PROTOCOL) });
 
 /**
