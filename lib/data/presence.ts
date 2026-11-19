@@ -204,15 +204,19 @@ const REPEAT_MS = 60_000;
  * recorded less than a minute ago? Such an event is answered from the row without a write and costs no hourly budget, so a
  * session making many tool calls never runs out of events. `state` is null when the row is gone (not free: it is charged).
  */
-export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string }, ev: { event: EventName; kind?: EventKind }): Promise<{ free: boolean; state: PresenceState | null; ignored?: boolean }> {
+export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string }, ev: { event: EventName; kind?: EventKind; files?: StopFiles; copy?: 'refused' }): Promise<{ free: boolean; state: PresenceState | null; ignored?: boolean }> {
   const next = eventState(ev);
   const row = await (await scoped(s)).presence.findOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { projection: { activity: 1 } });
   if (!row) return { free: false, state: null };
+  // An event that carries a count (a stop check, a refused copy write) is never free: it is written and charged.
+  if (ev.files || ev.copy) return { free: false, state: row.activity?.state ?? null };
   const a = row.activity;
   if (!next) return { free: true, state: a?.state ?? null, ignored: true };
   const same = !!a && a.state === next.state && a.why === next.why && Date.now() - a.at.getTime() < REPEAT_MS;
   return { free: same, state: a?.state ?? null };
 }
+
+export type StopFiles = 'saved' | 'unsaved';
 
 /**
  * One event from a session's Claude Code hook (POST /api/agent/event): sets `activity` from what happened and refreshes
@@ -222,6 +226,30 @@ export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string 
  * `ignored` for an event that changes nothing, and `changed` when the state differs from before.
  */
 export async function recordEvent(
+  s: Scope,
+  r: { sid: string; projectId: string },
+  ev: { event: EventName; kind?: EventKind; at?: number; files?: StopFiles; reminded?: boolean; copy?: 'refused' },
+): Promise<{ state: PresenceState | null; changed: boolean; ignored?: boolean }> {
+  const out = await recordState(s, r, ev);
+  // The counts (H12): numbers and two words, on the token's own row only, never created here, whatever the state did.
+  if (ev.files || ev.copy) {
+    const _id = hookRowId(s.userId, r.sid, r.projectId);
+    await (await scoped(s)).presence.updateOne(
+      { _id, userId: s.userId },
+      ev.files
+        ? { $set: { stopCheck: { files: ev.files, ...(ev.reminded ? { reminded: true as const } : {}), at: new Date() } } }
+        : { $inc: { 'copyEdits.refused': 1 } },
+    );
+  }
+  return out;
+}
+
+/** The token's own session counted one hand edit of WORK-STATE.md: refused or forwarded (POST /api/agent/state). Never creates a row. */
+export async function countCopyEdit(s: Scope, r: { sid: string; projectId: string }, what: 'refused' | 'forwarded'): Promise<void> {
+  await (await scoped(s)).presence.updateOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { $inc: { [`copyEdits.${what}`]: 1 } });
+}
+
+async function recordState(
   s: Scope,
   r: { sid: string; projectId: string },
   ev: { event: EventName; kind?: EventKind; at?: number },

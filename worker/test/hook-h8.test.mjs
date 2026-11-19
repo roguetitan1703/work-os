@@ -422,7 +422,9 @@ test('block 3: Edit of one line is forwarded, Write is refused, shell writes are
     assert.equal(o.permissionDecision, 'deny', tool);
     assert.match(o.permissionDecisionReason, /save_state/, tool);
   }
-  assert.equal(seen.length, 0, 'only the one-line Edit is forwarded');
+  // H12: a refusal that never reached the server is counted (one event with copy: 'refused', nothing else); only the one-line Edit is forwarded.
+  assert.equal(seen.filter((x) => x.url === '/api/agent/state').length, 0, 'only the one-line Edit is forwarded');
+  assert.ok(seen.every((x) => x.url === '/api/agent/event' && x.body.copy === 'refused' && x.body.event === 'tool'), 'the refusals post a count and nothing else');
   assert.equal(await run('Write', { file_path: path.join(onMaster, 'other.txt'), content: 'x' }), '');
   assert.equal(await run('Bash', { command: 'cat WORK-STATE.md' }), '');
   // out of time on a write of the copy: the plain refusal, as before

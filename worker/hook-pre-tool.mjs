@@ -8,6 +8,7 @@ import { COPY, COPY_REASON, markSaved, projectOf, writeCopy } from './hook-copy.
 import { postAgent, postEvent, readKept, readMarker, run } from './hook-lib.mjs';
 import { prodAction, releaseDeny } from './hook-release.mjs';
 
+const COUNT_TIMEOUT_MS = 500; // H12: telling Work OS about a refusal that never reached it; the refusal never waits longer
 const EDIT_TIMEOUT_MS = 3500; // the pre-tool hook is given 5 s (hook-lib.mjs EVENTS)
 // PreToolUse runs before Claude Code's permission check, so an Edit is forwarded only when the session would let it through
 // without asking: any other mode (default, plan, none given) gets the plain refusal and nothing is sent.
@@ -35,7 +36,7 @@ export function oneLineChange(text, i) {
 }
 
 /** Forwards an Edit of the copy to Work OS. Returns the hook's deny answer, or null for the plain refusal. */
-async function forwardEdit(input) {
+async function forwardEdit(input, seen) {
   const sid = input.session_id;
   const i = input.tool_input || {};
   const token = sid ? readKept(sid) : null;
@@ -51,6 +52,7 @@ async function forwardEdit(input) {
   let r;
   try { r = await postAgent('/api/agent/state', token, { edit: ch }, EDIT_TIMEOUT_MS); } catch { return null; }
   if (!r) return null;
+  if (r.status) seen.reached = true; // the server answered: it counted the edit (forwarded or refused) itself
   const deny = (reason) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } });
   if (r.status === 400 && r.error) return deny('Work OS did not apply this edit: ' + r.error + ' ' + COPY_REASON);
   if (r.status !== 200 || typeof r.b?.markdown !== 'string') return null;
@@ -82,10 +84,18 @@ export async function preTool(input) {
     await pingWorking(input);
     return null;
   }
+  const seen = { reached: false };
   if (input.tool_name === 'Edit') {
-    try { const f = await forwardEdit(input); if (f) return f; } catch {}
+    try { const f = await forwardEdit(input, seen); if (f) return f; } catch {}
   }
+  // A plain refusal that never reached the server is counted here, once, with a short timeout (the answer does not wait on it).
+  if (!seen.reached) await countRefused(input);
   return plainDeny();
+}
+
+/** H12: one refused WORK-STATE.md write that never reached Work OS (a count, nothing else). Never throws and never waits long. */
+async function countRefused(input) {
+  try { if (input.session_id) await postEvent(input.session_id, 'tool', { copy: 'refused' }, COUNT_TIMEOUT_MS); } catch {}
 }
 
 const RELEASE_TIMEOUT_MS = 3000; // the route call; the hook as a whole has 5 s
