@@ -104,6 +104,7 @@ flow-n1|flow-n1.mjs|none|plain
 flow-n2|flow-n2.mjs|none|plain
 flow-n3|flow-n3.mjs|none|plain
 flow-n4|flow-n4.mjs|none|plain
+flow-notes-search|flow-notes-search.mjs|none|plain
 flow-r1|flow-r1.mjs|none|plain
 delpat-os|delpat-os.mjs|none|delpat
 mail|mail.mjs|none|mail
