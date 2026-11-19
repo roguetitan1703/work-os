@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'declutter-project',
+    date: '2026-11-19',
+    title: 'Declutter a project',
+    line: 'Work OS proposes a tidy-up when a project grows; you tick what goes, and nothing is deleted.',
+    where: 'Project › ⋯ › Declutter, and Needs',
+    href: '/needs',
+  },
+  {
     id: 'agents-feedback',
     date: '2026-11-19',
     title: 'Agents tell you what got in their way',

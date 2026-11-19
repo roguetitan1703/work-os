@@ -1334,6 +1334,11 @@ function AUDIT() {
   add(`action ${IA}messageStatusAction`, act(IA + 'messageStatusAction', t => [t.project, t.msg, 'seen'], aim(['project', 'msg'])), act(IA + 'messageStatusAction', t => [t.project, t.msg, 'rejected', 'lkq'], aim(['project', 'msg'], { label: 'rejected', control: false })));
   add(`action ${IA}makeTaskFromMessageAction`, act(IA + 'makeTaskFromMessageAction', t => [t.project, t.msgReq], aim(['project', 'msgReq'], { control: false })));
   add(`action ${SA}saveStateAction`, act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_next', text: 'lkq action sneak' }]], aim(['project'])), act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_decision', text: 'lkq action decision' }, { op: 'add_later', text: 'lkq action later' }]], aim(['project'], { label: 'decision and later' })));
+  // H11: Declutter in the app. The project's owner (the control) sees and applies; a member who is not the owner and anyone without access get the same answer as for a made-up project (not found, or the owner-only line), and a made-up archived line is refused alike.
+  const DC = 'app/(app)/projects/[id]/declutter-actions.ts#';
+  add(`action ${DC}declutterProposalAction`, act(DC + 'declutterProposalAction', t => [t.project], aim(['project'], { ok: r => actOk(r) && Array.isArray(r.value.items) })));
+  add(`action ${DC}applyDeclutterAction`, act(DC + 'applyDeclutterAction', t => [t.project, ['later:lkqnone']], aim(['project'], { control: false })));
+  add(`action ${SA}restoreLineAction`, act(SA + 'restoreLineAction', t => [t.project, 'lkqnoline'], aim(['project'], { control: false })));
   add(`action ${OA}setOrdersAction`, act(OA + 'setOrdersAction', t => [t.ordersNote, 'project'], aim(['ordersNote'])), act(OA + 'setOrdersAction', t => [t.ordersNote, null], aim(['ordersNote'], { label: 'clearing it' })));
   const CI = 'app/(app)/projects/[id]/claude-items-actions.ts#';
   add(`action ${CI}updateClaudeItemAction`, act(CI + 'updateClaudeItemAction', t => [t.itemProject, t.item, { note: 'lkq hacked' }], aim(['itemProject', 'item'])));
