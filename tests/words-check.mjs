@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const docs = await import(pathToFileURL(join(ROOT, 'lib/mcp/docs.ts')).href);
 const { DEFAULT_MODES } = await import(pathToFileURL(join(ROOT, 'lib/modes.ts')).href);
-const { serverInstructions, INSTRUCTIONS_BUDGET, RETIRED, RETIRED_LATER, STATE_FILE_OK } = docs;
+const { serverInstructions, INSTRUCTIONS_BUDGET, RETIRED, STATE_FILE_OK } = docs;
 
 // Agent-facing text: what agents read in tool descriptions, answers, hooks and the Claude page. Comment lines are skipped.
 const SCANNED_DIRS = [
@@ -43,7 +43,6 @@ export function wordsViolations() {
   for (const [label, text] of [['Claude Code key', withCode], ['connector', connector]]) {
     if (text.length > INSTRUCTIONS_BUDGET) out.push(`lib/mcp/docs.ts: the instructions for a ${label} are ${text.length} characters; the budget is ${INSTRUCTIONS_BUDGET}`);
     if (!text.startsWith('Call start_work first')) out.push(`lib/mcp/docs.ts: the instructions for a ${label} must start with "Call start_work first"`);
-    if (RETIRED_LATER.test(text)) out.push(`lib/mcp/docs.ts: the instructions for a ${label} use "Claude item"`);
     for (const re of RETIRED) if (re.test(text)) out.push(`lib/mcp/docs.ts: the instructions for a ${label} use the retired word ${re}`);
   }
 
@@ -57,7 +56,6 @@ export function wordsViolations() {
     lines(f).forEach((raw, i) => {
       if (isComment(raw)) return;
       const at = `${name}:${i + 1}: ${raw.trim().slice(0, 120)}`;
-      if (name === 'lib/data/dispatcher.ts' && RETIRED_LATER.test(raw)) out.push(`${at}  (retired: "Claude item")`);
       for (const re of RETIRED) if (re.test(raw)) out.push(`${at}  (retired: ${re})`);
       let l = raw.replace(/\u2019/g, "'").split("\\'").join("'").toLowerCase();
       for (const ok of okForms) l = l.split(ok).join('');

@@ -3,7 +3,7 @@
 // what was archived. Putting a line back is a person's action in the app (restoreLine): checked in the UI part (step 5).
 // Later parts are added by the later steps. Seed profile: none.
 import { randomUUID } from 'node:crypto';
-import { B, ME, check, finish, launch, login, makeUser, mkClaudeItem, mkKey, rawDb } from './lib.mjs';
+import { B, ME, check, finish, launch, login, makeUser, mkKey, rawDb } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
 
 const P = 'H11 Alpha';
@@ -112,17 +112,6 @@ try {
   await rawDb.collection('tasks').updateMany({ ref: { $in: [tDone.ref, tOther.ref] } }, { $set: { progress: 100, status: 'In Progress' } });
   const oldNeed = (await must(cc, 'ask', { project: P2name, to: 'me', kind: 'decide', ask: 'H11 an old question', options: [{ label: 'A' }, { label: 'B' }] })).need;
   await rawDb.collection('needs').updateOne({ ref: oldNeed.ref }, { $set: { createdAt: old } });
-  const WHY = 'This item exists for the declutter flow test. It says what and where in enough words to pass the clarity rule.';
-  const DONE = 'The declutter test finds this item moved into a task.';
-  // Claude items are no longer added through MCP (checked in part 3): these are fixtures.
-  const addItem = async (title, extra = {}) => mkClaudeItem({ project: P2name, kind: 'bug', title, why: WHY, doneWhen: DONE, ...extra });
-  await addItem('H11 item that becomes a task');
-  await addItem('H11 idea that becomes a Later line', { kind: 'idea', why: 'An idea for later, kept in the declutter test and moved by it. It has a second sentence that stays out.' });
-  const itemOf = async title => rawDb.collection('claudeItems').findOne({ title });
-  const iTask = await itemOf('H11 item that becomes a task');
-  const iIdea = await itemOf('H11 idea that becomes a Later line');
-  check('H11 setup: the two Claude items exist and are open', iTask?.state === 'queued' && iIdea?.state === 'queued', JSON.stringify([iTask?.state, iIdea?.state]));
-
   const items = [
     { id: `later:${lid('Beta later to archive')}`, kind: 'archive_line', text: 'Beta later to archive', why: 'stale', target: lid('Beta later to archive') },
     { id: `later:${lid('Beta later to archive too')}`, kind: 'archive_line', text: 'Beta later to archive too', why: 'stale', target: lid('Beta later to archive too') },
@@ -133,8 +122,6 @@ try {
     { id: `task:${tDone.ref}`, kind: 'complete_task', text: `#${tDone.ref} H11 task at 100`, why: 'at 100', target: String(tDone.ref) },
     { id: `task:${tOther.ref}`, kind: 'complete_task', text: `#${tOther.ref} H11 task in Alpha`, why: 'a task of another project pasted in', target: String(tOther.ref) },
     { id: `need:${oldNeed.ref}`, kind: 'withdraw_need', text: `#${oldNeed.ref} an old question`, why: 'open 40 days', target: String(oldNeed.ref) },
-    { id: `item:C${iTask.ref}`, kind: 'item_to_task', text: iTask.title, why: 'becomes a task', target: `C${iTask.ref}` },
-    { id: `item:C${iIdea.ref}`, kind: 'item_to_later', text: 'H11 idea that becomes a Later line: An idea for later, kept in the declutter test and moved by it.', why: 'idea', target: `C${iIdea.ref}`, waits: 'Akash: needs a key' },
     { id: 'add:1', kind: 'add_later', text: 'Added Later line from the session', why: 'added by the session' },
     { id: 'add:2', kind: 'add_task', text: 'Added task from the session', why: 'added by the session' },
   ];
@@ -159,12 +146,12 @@ try {
     await new Promise(r => setTimeout(r, 800));
   };
 
-  const ref1 = await mkDeclutterNeed(P2name, items, 'Declutter H11 Beta: 13 changes');
+  const ref1 = await mkDeclutterNeed(P2name, items, 'Declutter H11 Beta: 11 changes');
   await answerUI(ref1, 'yes');
   const nd = await rawDb.collection('needs').findOne({ ref: ref1 });
   const res = nd.declutter?.result ?? { applied: [], failed: [] };
   check('H11 apply: the Need is answered Yes by the person (app), with a result stored on it', nd.status === 'answered' && nd.answer?.option === 'yes' && nd.answer?.by === ME.userId && nd.answer?.via === 'app' && !!nd.declutter?.result, JSON.stringify([nd.status, nd.answer, nd.declutter?.result]));
-  check('H11 apply: 11 applied, the two items from another project fail as not found', res.applied.length === 11 && res.failed.length === 2 && res.failed.every(f => /not found/.test(f)) && res.failed.some(f => f.startsWith(`note:${nOther}`)) && res.failed.some(f => f.startsWith(`task:${tOther.ref}`)), JSON.stringify(res));
+  check('H11 apply: 9 applied, the two items from another project fail as not found', res.applied.length === 9 && res.failed.length === 2 && res.failed.every(f => /not found/.test(f)) && res.failed.some(f => f.startsWith(`note:${nOther}`)) && res.failed.some(f => f.startsWith(`task:${tOther.ref}`)), JSON.stringify(res));
   const s2 = await rawDb.collection('states').findOne({ projectId: P2 });
   check('H11 apply: the two Later lines and the Next line are archived with their text, waits on kept', ['Beta later to archive', 'Beta later to archive too', 'Beta next stale'].every(t => s2.archived?.some(a => a.text === t)) && s2.archived.find(a => a.text === 'Beta later to archive too').waitsOn === 'Akash' && !s2.later.some(l => l.text === 'Beta later to archive') && !s2.next.some(l => l.text === 'Beta next stale'), JSON.stringify(s2.archived));
   check('H11 apply: "Beta later to keep" is untouched', s2.later.some(l => l.text === 'Beta later to keep'));
@@ -180,15 +167,9 @@ try {
   check('H11 apply: the session\'s add_task became a task in the project, P3', addedTask?.projectId === P2 && addedTask.priority === 'P3', JSON.stringify(addedTask && [addedTask.projectId, addedTask.priority]));
   const needNow = await rawDb.collection('needs').findOne({ ref: oldNeed.ref });
   check('H11 apply: the old Need is withdrawn (status kept as a record), not deleted', needNow.status === 'withdrawn' && needNow.withdrawnReason === 'declutter', JSON.stringify([needNow.status, needNow.withdrawnReason]));
-  const iT = await rawDb.collection('claudeItems').findOne({ _id: iTask._id });
-  const migrated = await rawDb.collection('tasks').findOne({ title: iTask.title, tags: 'from-claude-item' });
-  check('H11 apply: the Claude item becomes a P3 task tagged from-claude-item with done-when in it, and the item is dropped with movedTo', iT.state === 'dropped' && migrated?.priority === 'P3' && iT.movedTo === `#${migrated.ref}` && /Done when:/.test(migrated.description) && migrated.projectId === P2, JSON.stringify([iT.state, iT.movedTo, migrated && [migrated.ref, migrated.priority]]));
-  const iI = await rawDb.collection('claudeItems').findOne({ _id: iIdea._id });
-  const ideaLine = s2.later.find(l => l.text.startsWith('H11 idea that becomes a Later line'));
-  check('H11 apply: the idea becomes a Later line waiting on what the item waited on, and the item points at it', iI.state === 'dropped' && ideaLine?.waitsOn === 'Akash: needs a key' && iI.movedTo === `later:${ideaLine.id}`, JSON.stringify([iI.state, iI.movedTo, ideaLine]));
   check('H11 quiet: quietUntil is about 14 days out and the State no longer names the Need', s2.declutter?.quietUntil && Math.abs(s2.declutter.quietUntil.getTime() - Date.now() - 14 * 86_400_000) < 3_600_000 && !s2.declutter.needId && !s2.declutter.needRef, JSON.stringify(s2.declutter));
   const feedRows = await rawDb.collection('activity').find({ type: 'declutter_applied', projectId: P2 }).toArray();
-  check('H11 feed: one declutter_applied row, "11 changes applied, 2 failed"', feedRows.length === 1 && /11 changes applied, 2 failed/.test(feedRows[0].note ?? ''), JSON.stringify(feedRows.map(r => r.note)));
+  check('H11 feed: one declutter_applied row, "9 changes applied, 2 failed"', feedRows.length === 1 && /9 changes applied, 2 failed/.test(feedRows[0].note ?? ''), JSON.stringify(feedRows.map(r => r.note)));
   const act2 = await must(cc, 'recent_activity', { since: '1d', limit: 200 });
   check('H11 feed: declutter_applied is in recent_activity', (act2.events ?? []).some(e => e.type === 'declutter_applied'), '');
 
@@ -207,7 +188,7 @@ try {
   const s2c = await rawDb.collection('states').findOne({ projectId: P2 });
   check('H11 withdraw: the State no longer names the withdrawn declutter Need', !w.isError && !s2c.declutter?.needId && !s2c.declutter?.needRef, w.text.slice(0, 200) + JSON.stringify(s2c.declutter));
 
-  // ══ Part 3 (step 4): the brief field, end_work, the declutter tool, and update_claude_items add ══
+  // ══ Part 3 (step 4): the brief field, end_work, the declutter tool, and the retired update_claude_items ══
   const hdr = sess => ({ 'X-Work-OS-Session': sess });
   const start = (project, sess) => must(cc, 'start_work', { project, session: sess }, hdr(sess));
   const stateOf = async pid => rawDb.collection('states').findOne({ projectId: pid });
@@ -236,7 +217,7 @@ try {
   const endD = await must(cc, 'end_work', { project: D, state: [{ op: 'set_where', machine: 'h11box', branch: 'x' }], friction: 'none', session: 'h11d1' }, hdr('h11d1'));
   check('H11 end_work: the answer carries the same declutter line', /Declutter due: Later 26/.test(endD.declutter ?? ''), JSON.stringify(Object.keys(endD)));
 
-  // b) Gamma: stale lines, two pages with one title, an open Claude item
+  // b) Gamma: stale lines, two pages with one title, 
   const G = 'H11 Gamma';
   const GID = (await must(cc, 'add_project', { name: G, visibility: 'org' })).project.id;
   await must(cc, 'save_state', { project: G, ops: [{ op: 'add_later', text: 'Gamma stale one' }, { op: 'add_later', text: 'Gamma stale two' }, { op: 'add_later', text: 'Gamma stale three' }, { op: 'add_later', text: 'Gamma fresh' }] });
@@ -247,11 +228,10 @@ try {
   const gn2 = await mkNote(G, 'Gamma plan copy', 'second'); // H14 refuses a repeated title: rename in the database
   await rawDb.collection('notes').updateOne({ _id: gn2 }, { $set: { title: 'Gamma plan' } });
   await rawDb.collection('notes').updateOne({ _id: gn1 }, { $set: { updatedAt: new Date(Date.now() - 3 * 86_400_000) } });
-  const gItem = await mkClaudeItem({ project: G, kind: 'bug', title: 'H11 gamma item to move', why: WHY, doneWhen: DONE });
   const bG = await start(G, 'h11gA');
-  check('H11 brief: the daily check adds "2 notes share a title" and "1 open Claude item" and the stale lines', /3 lines untouched 14 days; 2 notes share a title; 1 open Claude item\./.test(bG.declutter ?? ''), JSON.stringify(bG.declutter));
+  check('H11 brief: the daily check adds "2 notes share a title" and the stale lines', /3 lines untouched 14 days; 2 notes share a title\./.test(bG.declutter ?? ''), JSON.stringify(bG.declutter));
   const cacheG = (await stateOf(GID)).declutter;
-  check('H11 cache: the check is stored on the State (no version bump needed to read it) and is not run again within a day', !!cacheG?.checkedAt && cacheG.reasons.length === 2, JSON.stringify(cacheG));
+  check('H11 cache: the check is stored on the State (no version bump needed to read it) and is not run again within a day', !!cacheG?.checkedAt && cacheG.reasons.length === 1, JSON.stringify(cacheG));
   const verBefore = (await stateOf(GID)).version;
   await start(G, 'h11gA');
   check('H11 cache: a second brief does not change the State version or the check time', (await stateOf(GID)).version === verBefore && (await stateOf(GID)).declutter.checkedAt.getTime() === cacheG.checkedAt.getTime());
@@ -259,14 +239,14 @@ try {
   // c) the tool: read only, then ask
   const rd = await must(cc, 'declutter', { project: G }, hdr('h11gA'));
   const kinds = k => rd.items.filter(i => i.kind === k);
-  check('H11 declutter read: 3 stale Later lines, the older page, the Claude item; stable ids', kinds('archive_line').length === 3 && kinds('archive_note').length === 1 && kinds('archive_note')[0].id === `note:${gn1}` && kinds('item_to_task').length === 1 && kinds('item_to_task')[0].id === `item:C${gItem.ref}` && kinds('archive_line').every(i => /^later:l_/.test(i.id)), JSON.stringify(rd.items.map(i => i.id)));
+  check('H11 declutter read: 3 stale Later lines and the older page; stable ids', kinds('archive_line').length === 3 && kinds('archive_note').length === 1 && kinds('archive_note')[0].id === `note:${gn1}` && kinds('archive_line').every(i => /^later:l_/.test(i.id)), JSON.stringify(rd.items.map(i => i.id)));
   check('H11 declutter read: it says why it is due and what to do next; nothing is written', /Declutter due/.test(rd.due) && /ask: true/.test(rd.next) && (await rawDb.collection('needs').countDocuments({ projectId: GID, declutter: { $exists: true } })) === 0, JSON.stringify([rd.due, rd.next]));
   const skipId = `later:${staleIds[0]}`;
   const ask1 = await mcpH(cc, 'declutter', { project: G, ask: true, skip: [skipId], add: [{ later: 'Gamma added later line', waits_on: 'Akash' }, { task: 'Gamma added task' }], disk: ['remove worktree wos-s2 (merged)'] }, hdr('h11gA'));
   const n1 = ask1.json?.need;
   const n1d = n1 ? await rawDb.collection('needs').findOne({ ref: n1.ref }) : null;
-  check('H11 ask: one Need to the project owner, kind approve, the fixed options, written by the server', !ask1.isError && n1d?.to === ME.userId && n1d.kind === 'approve' && JSON.stringify(n1d.options.map(o => o.id)) === '["yes","no"]' && n1d.options[0].label === 'Yes, apply' && n1d.ask === 'Declutter H11 Gamma: 6 changes' && n1d.projectId === GID, ask1.text.slice(0, 300) + JSON.stringify(n1d?.ask));
-  check('H11 ask: skip left the one line out, add put the session lines in, disk is stored and nothing was applied', n1d?.declutter.items.length === 6 && !n1d.declutter.items.some(i => i.id === skipId) && n1d.declutter.items.some(i => i.id === 'add:1' && i.kind === 'add_later' && i.waits === 'Akash') && n1d.declutter.items.some(i => i.id === 'add:2' && i.kind === 'add_task') && n1d.declutter.disk[0] === 'remove worktree wos-s2 (merged)' && (await stateOf(GID)).later.length === 4, JSON.stringify(n1d?.declutter));
+  check('H11 ask: one Need to the project owner, kind approve, the fixed options, written by the server', !ask1.isError && n1d?.to === ME.userId && n1d.kind === 'approve' && JSON.stringify(n1d.options.map(o => o.id)) === '["yes","no"]' && n1d.options[0].label === 'Yes, apply' && n1d.ask === 'Declutter H11 Gamma: 5 changes' && n1d.projectId === GID, ask1.text.slice(0, 300) + JSON.stringify(n1d?.ask));
+  check('H11 ask: skip left the one line out, add put the session lines in, disk is stored and nothing was applied', n1d?.declutter.items.length === 5 && !n1d.declutter.items.some(i => i.id === skipId) && n1d.declutter.items.some(i => i.id === 'add:1' && i.kind === 'add_later' && i.waits === 'Akash') && n1d.declutter.items.some(i => i.id === 'add:2' && i.kind === 'add_task') && n1d.declutter.disk[0] === 'remove worktree wos-s2 (merged)' && (await stateOf(GID)).later.length === 4, JSON.stringify(n1d?.declutter));
   check('H11 ask: no push alert is queued and the Need is marked noAlert', n1d?.noAlert === true && (await rawDb.collection('alertQueue').countDocuments({ needId: n1d._id })) === 0, JSON.stringify([n1d?.noAlert]));
   check('H11 ask: the State names the open Need and the brief says so instead of "due"', (await stateOf(GID)).declutter.needRef === n1.ref && (await start(G, 'h11gA')).declutter === `Declutter Need #${n1.ref} is open.`);
   const reread = await must(cc, 'declutter', { project: G }, hdr('h11gA'));
@@ -284,11 +264,11 @@ try {
   // d) the answer: Yes in the app applies all but nothing was unticked here; the asker's brief shows the result
   await answerUI(openNow.ref, 'yes');
   const doneG = await rawDb.collection('needs').findOne({ _id: openNow._id });
-  check('H11 answer: Yes applied the 4 changes (2 stale lines, the page, the item) as the person, nothing failed', doneG.declutter?.result?.failed.length === 0 && doneG.declutter.result.applied.length === 4, JSON.stringify(doneG.declutter?.result));
+  check('H11 answer: Yes applied the 3 changes (2 stale lines, the page) as the person, nothing failed', doneG.declutter?.result?.failed.length === 0 && doneG.declutter.result.applied.length === 3, JSON.stringify(doneG.declutter?.result));
   const bGq = await start(G, 'h11gA');
   check('H11 quiet: after the answer the brief says nothing about Declutter, though lines are still stale', !('declutter' in bGq), JSON.stringify(bGq.declutter));
   const answeredForMe = (bGq.needs?.answeredForYou ?? []).find(n => n.ref === openNow.ref);
-  check('H11 answer: the asking session sees the result in its brief (applied, failed, disk)', answeredForMe?.declutter?.applied?.length === 4 && answeredForMe.declutter.failed.length === 0 && answeredForMe.declutter.disk?.length === undefined, JSON.stringify(answeredForMe?.declutter));
+  check('H11 answer: the asking session sees the result in its brief (applied, failed, disk)', answeredForMe?.declutter?.applied?.length === 3 && answeredForMe.declutter.failed.length === 0 && answeredForMe.declutter.disk?.length === undefined, JSON.stringify(answeredForMe?.declutter));
 
   // e) privacy and refusals
   const T = await makeUser({ email: 'tess-h11@example.test', name: 'Tess', orgId: ME.orgId, role: 'member' });
@@ -304,12 +284,10 @@ try {
   const empty = await must(cc, 'declutter', { project: 'H11 Zeta' }, hdr('h11z'));
   const emptyAsk = await mcpH(cc, 'declutter', { project: 'H11 Zeta', ask: true }, hdr('h11z'));
   check('H11 declutter: nothing to tidy is said plainly, and an ask for nothing is refused', /Nothing to tidy/.test(empty.next) && emptyAsk.isError && /Nothing to tidy/.test(emptyAsk.text), emptyAsk.text.slice(0, 200));
-  const addOps = await mcpH(cc, 'update_claude_items', { ops: [{ op: 'add', project: G, kind: 'bug', title: 'H11 should be refused', why: WHY, done_when: DONE }] });
-  check('H11 update_claude_items: add is refused at once, with where new work goes', addOps.isError && /retired/.test(addOps.text) && /add_later/.test(addOps.text), addOps.text.slice(0, 250));
-  await must(cc, 'add_project', { name: 'H11 Eta', visibility: 'org' });
-  const etaItem = await mkClaudeItem({ project: 'H11 Eta', kind: 'bug', title: 'H11 eta item still open', why: WHY, doneWhen: DONE });
-  const note = await mcpH(cc, 'update_claude_items', { ops: [{ op: 'note', item: `C${etaItem.ref}`, text: 'a note on an open item is still allowed' }] });
-  check('H11 update_claude_items: the other ops still work until the migration ends', !note.isError, note.text.slice(0, 200));
+  const gone = await mcpH(cc, 'update_claude_items', { ops: [{ op: 'note', item: 'C1', text: 'x' }] });
+  check('H11 update_claude_items: the tool is gone (step 8)', gone.isError, gone.text.slice(0, 200));
+  const gp = await must(cc, 'get_project', { project: G });
+  check('H11 get_project: no claudeItems field any more', !('claudeItems' in gp), Object.keys(gp).join(','));
 
   // ══ Part 4 (step 5): the screens: the Need card with ticks, the project's Declutter dialog, the archived lines on the State card ══
   const SHOTS = 'D:/Work/Delpat/builds/e2e-h11/shots';

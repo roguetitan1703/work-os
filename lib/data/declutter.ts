@@ -2,14 +2,12 @@ import 'server-only';
 import { scoped, type Scope } from '../scope';
 import type { ProjectDoc, StateDoc } from '../db';
 import { titleKey } from '../notes-match';
-import { memberNames } from '../people';
 import { setDeclutterReasons } from './states';
 import {
   GROWTH,
   dueReasons,
   duplicateGroups,
   itemId,
-  itemPlan,
   noteItems,
   dupNoteCount,
   stateItems,
@@ -18,8 +16,7 @@ import {
 } from '../declutter-core';
 
 // Declutter, the database half (docs/flows/agent-system.md section 7, H11). Every read goes through scoped(s), so a proposal never
-// names a line, note, task, Need or item the caller cannot read. The pure rules (thresholds, stale lines, duplicates, where an
-// open Claude item goes) are in lib/declutter-core.ts.
+// names a line, note, task or Need the caller cannot read. The pure rules (thresholds, stale lines, duplicates) are in lib/declutter-core.ts.
 
 const DAY = 86_400_000;
 
@@ -42,20 +39,15 @@ async function noteGroups(s: Scope, projectId: string): Promise<{ id: string; ti
 }
 
 /**
- * The once-a-day part of the check: sibling notes with one title, and open Claude items. Stored on the State (no version
+ * The once-a-day part of the check: sibling notes with one title. Stored on the State (no version
  * bump, no log, no feed), so a normal start costs no extra read. Keeps quietUntil and an open Need as they are.
  */
 export async function refreshCache(s: Scope, project: ProjectDoc, state: StateDoc | null, now = new Date()): Promise<string[]> {
   if (!state) return [];
-  const c = await scoped(s);
-  const [groups, open] = await Promise.all([
-    noteGroups(s, project._id),
-    c.claudeItems.countDocuments({ projectId: project._id, state: { $in: ['queued', 'active', 'blocked'] } }),
-  ]);
+  const groups = await noteGroups(s, project._id);
   const reasons: string[] = [];
   const dup = dupNoteCount(groups);
   if (dup) reasons.push(`${dup} notes share a title`);
-  if (open) reasons.push(`${open} open Claude item${open === 1 ? '' : 's'}`);
   await setDeclutterReasons(s, project._id, now, reasons);
   return reasons;
 }
@@ -65,7 +57,7 @@ export const cacheStale = (state: StateDoc | null, now = new Date()) => !!state 
 
 /**
  * Is this project due? The brief and end_work call it with the State they already loaded: counts and stale lines cost nothing,
- * and the cached notes and Claude items check is refreshed at most once a day (a failure there never breaks a start).
+ * and the cached notes check is refreshed at most once a day (a failure there never breaks a start).
  */
 export async function dueFor(s: Scope, project: ProjectDoc, state: StateDoc | null, now = new Date()): Promise<Due> {
   let st = state;
@@ -84,7 +76,7 @@ export type Proposal = {
   items: DeclutterItem[];
   /** For information only; never in the batch unless the session adds its id. */
   fyi: string[];
-  counts: { later: number; next: number; notes: number; tasks: number; needs: number; claudeItems: number };
+  counts: { later: number; next: number; notes: number; tasks: number; needs: number };
 };
 
 /**
@@ -127,18 +119,6 @@ export async function buildProposal(s: Scope, project: ProjectDoc, now = new Dat
   const needs = await c.needs.find({ projectId: pid, status: 'open', kind: { $ne: 'review' }, release: { $ne: true }, declutter: { $exists: false }, createdAt: { $lt: new Date(now.getTime() - GROWTH.staleDays * DAY) } }, { projection: { ref: 1, ask: 1, createdAt: 1 } }).toArray();
   for (const n of needs) items.push({ id: itemId('need', n.ref), kind: 'withdraw_need', text: `#${n.ref} ${n.ask}`.slice(0, GROWTH.itemText), why: `open ${Math.floor((now.getTime() - n.createdAt.getTime()) / DAY)} days`, target: String(n.ref) });
 
-  // Open Claude items move to tasks and Later lines (they retire; see the plan, decision 11).
-  const names = await memberNames(s.orgId);
-  const cis = await c.claudeItems.find({ projectId: pid, state: { $in: ['queued', 'active', 'blocked'] } }).sort({ order: 1 }).toArray();
-  let claudeItems = 0;
-  for (const d of cis) {
-    const p = itemPlan({ ref: d.ref, title: d.title, why: d.why, doneWhen: d.doneWhen, kind: d.kind, waitingText: d.waitingText, waitingOn: d.waitingOn, state: d.state }, d.waitingOn ? names[d.waitingOn] : undefined);
-    if (p) {
-      claudeItems++;
-      items.push(p);
-    }
-  }
-
   // Information only: notes nobody touched for 30 days.
   const old = await c.notes.find({ projectId: pid, taskId: null, deletedAt: null, archived: false, handover: { $exists: false }, updatedAt: { $lt: new Date(now.getTime() - GROWTH.noteDays * DAY) } }, { projection: { title: 1 }, limit: 20 }).toArray();
   const fyi = old.length ? [`${old.length === 20 ? '20 or more' : old.length} page${old.length === 1 ? '' : 's'} untouched for ${GROWTH.noteDays} days (not proposed): ${old.slice(0, 5).map(n => `"${n.title}"`).join(', ')}${old.length > 5 ? ', …' : ''}`] : [];
@@ -146,7 +126,7 @@ export async function buildProposal(s: Scope, project: ProjectDoc, now = new Dat
   return {
     items: items.slice(0, GROWTH.items),
     fyi,
-    counts: { later: state?.later.length ?? 0, next: state?.next.length ?? 0, notes: groups.reduce((n, g) => n + g.length, 0), tasks, needs: needs.length, claudeItems },
+    counts: { later: state?.later.length ?? 0, next: state?.next.length ?? 0, notes: groups.reduce((n, g) => n + g.length, 0), tasks, needs: needs.length },
   };
 }
 

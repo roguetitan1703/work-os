@@ -13,7 +13,6 @@ const GROUPS: { kinds: DeclutterKind[]; title: string }[] = [
   { kinds: ['archive_note'], title: 'Pages' },
   { kinds: ['complete_task'], title: 'Tasks to finish' },
   { kinds: ['withdraw_need'], title: 'Old Needs to withdraw' },
-  { kinds: ['item_to_task', 'item_to_later'], title: 'Claude items to move' },
   { kinds: ['add_later', 'add_task'], title: 'Added by the session (written by the agent, not checked)' },
 ];
 
@@ -23,8 +22,6 @@ const VERB: Record<DeclutterKind, string> = {
   archive_note: 'Archive page',
   complete_task: 'Finish',
   withdraw_need: 'Withdraw',
-  item_to_task: 'Make a task',
-  item_to_later: 'Make a Later line',
   add_later: 'Add to Later',
   add_task: 'Add task',
 };

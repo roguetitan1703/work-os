@@ -484,11 +484,11 @@ export type AlertLogDoc = { _id: string; orgId: string; /** Who it was sent to. 
 export type AlertQueueDoc = { _id: string; orgId: string; /** Who gets it: the task's recipient, or the person who gave it to Claude. */ userId: string; kind: QueuedAlertKind; taskId: string; byTaskId: string; createdAt: Date; sentAt: Date | null; /** Dispatcher outcomes: the reason; assigned: who assigned it. */ detail?: string; /** kind 'need': the Need (taskId is then the Need's task, or '' when it has none). */ needId?: string };
 
 /** Inbox-only notices that are not scheduled alerts. */
-export type NoticeKind = 'claude_code_changes' | 'claude_waiting' | 'claude_mail_sent';
+export type NoticeKind = 'claude_code_changes' | 'claude_mail_sent';
 /** Everything with an on/off switch in Settings → Notifications. */
 export type NotifyKind = AlertKind | NoticeKind;
 /** In-app inbox: every alert delivered (plus test notifications). */
-export type NotificationDoc = { _id: string; orgId: string; /** The recipient. */ userId: string; kind: NotifyKind | 'test' | 'security'; title: string; body: string; url: string; createdAt: Date; readAt: Date | null };
+export type NotificationDoc = { _id: string; orgId: string; /** The recipient. */ userId: string; kind: NotifyKind | 'claude_waiting' | 'test' | 'security'; title: string; body: string; url: string; createdAt: Date; readAt: Date | null };
 /** Web Push subscriptions, keyed by endpoint (one per device/browser). */
 export type PushSubDoc = { _id: string; orgId: string; /** The person signed in when this device turned push on. */ userId: string; keys: { p256dh: string; auth: string }; device: string; createdAt: Date; updatedAt: Date };
 

@@ -118,15 +118,13 @@ try {
   const mark = o => ({ state: 'queued', markedAt: new Date(), markedBy: 'user', markedByUserId: Bu.userId, markedByOrgId: A.orgId, ...o });
   await rawDb.collection('tasks').updateOne({ orgId: A.orgId, ref: t2.ref }, { $set: { claude: mark({}) } });
   await rawDb.collection('tasks').updateOne({ orgId: A.orgId, ref: t3.ref }, { $set: { status: 'In Progress', claude: mark({ state: 'running', claimedAt: new Date(), deviceId: devId, sessionId: randomUUID(), prevStatus: 'Not Started' }) } });
-  const itemId = randomUUID();
-  await rawDb.collection('claudeItems').insertOne({ _id: itemId, orgId: A.orgId, ownerId: A.userId, visibility: 'org', ref: 9001, projectId: id, title: 'Needs Bea', kind: 'task', why: 'w', doneWhen: 'd', state: 'blocked', next: false, order: 1, note: '', parts: [], blockedBy: null, waitingOn: Bu.userId, waitingText: 'Pick one', gitRef: '', claimedBy: null, createdBy: { kind: 'user', userId: A.userId }, createdAt: new Date(), updatedAt: new Date(), doneAt: null, log: [] });
   await pa.goto(`${B}/projects/${id}?tab=info`);
   await pa.waitForSelector('[data-section="sharing"] [data-sharing="private"]', { timeout: 15000 });
   await pa.click('[data-section="sharing"] [data-sharing="private"]');
   await pa.waitForSelector('[data-private-confirm]', { timeout: 15000 });
   const msg = await pa.locator('[data-private-confirm]').innerText();
   check('confirm: names who loses access and the assignment', /Bea/.test(msg) && /lose access/.test(msg) && /unassigned/.test(msg), msg);
-  check("confirm: says Bea's Claude task is stopped and the waiting item", /Claude task will be stopped/.test(msg) && /stop waiting/.test(msg), msg);
+  check("confirm: says Bea's Claude task is stopped", /Claude task will be stopped/.test(msg), msg);
   check('confirm: nothing changed yet', (await proj())?.visibility === 'org');
   await pa.click('[data-confirm]');
   check('private again: the project switches', !!(await until(async () => (await proj())?.visibility === 'private')));
@@ -138,7 +136,6 @@ try {
   const q3 = await rawDb.collection('tasks').findOne({ orgId: A.orgId, ref: t3.ref });
   check("private again: Bea's queued Claude mark is cleared", !q2?.claude, JSON.stringify(q2?.claude));
   check("private again: Bea's running Claude task is stopped (project made private)", q3?.claude?.state === 'stopped' && /made private/.test(q3.claude.note), JSON.stringify(q3?.claude));
-  check('private again: the item waiting on Bea no longer waits', !(await rawDb.collection('claudeItems').findOne({ _id: itemId }))?.waitingOn);
   await rawDb.collection('tasks').updateOne({ orgId: A.orgId, ref: t2.ref }, { $set: { claude: mark({}) } }); // a leftover queued mark must still not be claimed
   const poll = await fetch(`${B}/api/worker/jobs`, { headers: { authorization: `Bearer ${dkey}` } });
   const pj = await poll.json().catch(() => ({}));

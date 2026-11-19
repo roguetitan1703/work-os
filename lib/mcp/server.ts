@@ -10,7 +10,6 @@ import * as notesData from '../data/notes';
 import { addQuietFolder, quietFolder } from '../data/quiet-folders';
 import { devicesLinked, linkFolder, ownFolderById } from '../data/launcher';
 import { authorLabel, isMine, outsideTitleLabel, taskAuthors } from '../data/authors';
-import * as items from '../data/claude-items';
 import * as needsData from '../data/needs';
 import * as productionData from '../data/production';
 import * as results from '../data/results';
@@ -18,7 +17,7 @@ import { InputError, NotFoundError } from '../data/errors';
 import { serverInstructions, STATE_COPY, TOOLS, UNMATCHED_HINT, type InstructionsFor, type ToolName } from './docs';
 import { beforeTool, callerScope, checkBatch, notifyChanges, PolicyError, watchTarget, watchTasks, type Caller, type WatchTarget } from './policy';
 import { actorOut, agentActor } from '../actors';
-import { findMember, memberNames } from '../people';
+import { memberNames } from '../people';
 import { discordLinkOf } from '../profile';
 import * as discord from '../discord/read';
 import { BlockedChannelError, DiscordError, NotVisibleError } from '../discord/client';
@@ -47,7 +46,7 @@ import { requestContext, runWithRequestContext, sessionHeader } from '../request
 import { noteRefusal, recentRefusals } from './refusals';
 import { dispatchedOfToken } from '../agent-sessions';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
-import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RATINGS, RESULT_KINDS, RecurrenceSchema, StatusSchema, VisibilitySchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
+import { ModeSchema, PrioritySchema, ProjectStatusSchema, RATINGS, RESULT_KINDS, RecurrenceSchema, StatusSchema, VisibilitySchema, type Task, type TaskPatch } from '../types';
 
 /**
  * caller: who is calling (a Claude chat key → agent "claude"; a Claude Code key → agent "claude-code"; lib/api-keys.ts).
@@ -248,27 +247,6 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
     doneAt: t.doneAt,
     doneBy: t.doneBy ? by(t.doneBy) : null,
     activity,
-  };
-}
-
-/** A Claude item as MCP output: everything a new session needs, nothing it doesn't. */
-function itemOut(i: ClaudeItem, blockers: items.ProjectItems['blockers'] | undefined, who: (userId: string) => string) {
-  const b = i.blockedBy ? blockers?.get(i.blockedBy) : undefined;
-  return {
-    ref: items.itemRef(i.ref),
-    title: i.title,
-    kind: i.kind,
-    state: i.state,
-    ...(i.next ? { next: true } : {}),
-    why: i.why,
-    ...(i.doneWhen ? { doneWhen: i.doneWhen } : {}),
-    ...(i.note ? { note: i.note.slice(-1500) } : {}),
-    ...(i.parts.length ? { parts: i.parts.map((p, n) => ({ n: n + 1, text: p.text, done: p.done })) } : {}),
-    ...(i.blockedBy ? { blockedBy: b ? `${items.itemRef(b.ref)} ${b.title} (${b.state})` : i.blockedBy } : {}),
-    ...(i.waitingOn ? { waitingText: i.waitingText, waitingOn: who(i.waitingOn) } : {}),
-    ...(i.answer ? { answer: { question: i.answer.question, text: i.answer.text || '(closed without an answer)', by: who(i.answer.by), at: i.answer.at } } : {}),
-    ...(i.claimedBy ? { activeIn: `${i.claimedBy.session} since ${i.claimedBy.at}` } : {}),
-    ...(i.gitRef ? { landedIn: i.gitRef } : {}),
   };
 }
 
@@ -663,7 +641,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   // Title/description come from docs.ts so the /connect page shows exactly what Claude sees.
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
   const sessionArg = z.string().max(64).optional().describe("The session id start_work returned (letters, digits and dashes); lets Work OS tell your answers apart from other sessions' of the same key");
-  /** Tools that take an optional `session` argument (the session id start_work returned); the others read the X-Work-OS-Session header only (update_claude_items has its own `session`: a branch name). */
+  /** Tools that take an optional `session` argument (the session id start_work returned); the others read the X-Work-OS-Session header only. */
   const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'send_message', 'message_status', 'reply', 'get_task', 'log_progress', 'complete_task', 'set_doing', 'slot', 'hand_in', 'end_work', 'feedback']);
   /** Who is calling, for presence and the "for you" line (lib/mcp/for-you.ts). */
   const identOf = (name: ToolName, a: unknown[]): Ident => {
@@ -964,7 +942,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         client: z.string().optional(),
         description: z.string().optional(),
         status: ProjectStatusSchema.optional(),
-        visibility: VisibilitySchema.optional().describe("Only the project's owner can change it; its tasks, notes and Claude items follow. members: only the people in shared_with"),
+        visibility: VisibilitySchema.optional().describe("Only the project's owner can change it; its tasks and notes follow. members: only the people in shared_with"),
         shared_with: z
           .array(z.string().min(1).max(200))
           .max(500)
@@ -1179,21 +1157,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
         project: { id: t.project.id, name: t.project.name, client: t.project.client || undefined, status: t.project.status, visibility: t.project.visibility, ...(t.project.sharedWith ? { sharedWith: t.project.sharedWith.map(who) } : {}), description: t.project.description || undefined, code: t.project.code, url: `${ctx.baseUrl}/projects/${t.project.id}`, ...t.project.stats },
         ...(matchedBy ? { matchedBy } : {}),
         notes: (idx.byProject.get(t.project.id) ?? []).map(nref),
-        claudeItems: await (async () => {
-          const ci = await items.projectItems(s, t.project.id);
-          const open = ci.items.filter(i => i.state === 'queued' || i.state === 'active' || i.state === 'blocked');
-          return {
-            takeNext: ci.pickNext ? `${items.itemRef(ci.pickNext.ref)} ${ci.pickNext.title}` : null,
-            waiting: ci.waiting,
-            // Answers people gave in the app in the last 14 days to questions on open items: read and act on them.
-            answered: open
-              .filter(i => i.answer && Date.now() - Date.parse(i.answer.at) < 14 * 86400_000)
-              .map(i => `${items.itemRef(i.ref)} asked "${i.answer!.question}" → ${who(i.answer!.by)}: ${i.answer!.text ? `"${i.answer!.text}"` : 'closed it without an answer'} (${i.answer!.at})`),
-            open: open.map(i => itemOut(i, ci.blockers, who)),
-            recentlyDone: ci.items.filter(i => i.state === 'done').map(i => `${items.itemRef(i.ref)} ${i.title}${i.gitRef ? ` (${i.gitRef})` : ''}`),
-            doneTotal: ci.doneCount,
-          };
-        })(),
         recentActivity: t.recentActivity.map(x => act(x, describeActivity(x))),
         ...(t.tasks
           ? {
@@ -1548,7 +1511,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       }
       const r = await declutterApply.askDeclutter(s, { project: a.project, skip: a.skip, add: a.add, disk: a.disk, actor: ACTOR, word: wordFor(ident.session), session: ident.session, keyId: caller.keyId });
       const owner = (await whoIs())(r.need.to);
-      return { need: await needOut(r.need), changes: r.items, message: `Need #${r.need.ref} is with ${owner}; you hear the answer here. No alert goes to the phone. Nothing is deleted: lines, pages and old Claude items are archived and can be put back. After a Yes, do the disk lines you gave.` };
+      return { need: await needOut(r.need), changes: r.items, message: `Need #${r.need.ref} is with ${owner}; you hear the answer here. No alert goes to the phone. Nothing is deleted: lines and pages are archived and can be put back. After a Yes, do the disk lines you gave.` };
     }),
   );
 
@@ -1694,80 +1657,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false },
     },
     handler(async a => sentOut(await messageData.reply(s, a.id, a.body, await fromOf('reply', a), await readerOf('reply', a)))),
-  );
-
-  const itemKey = z.union([z.number().int(), z.string()]).describe('Item ref: "C12" or 12');
-  const ItemOpSchema = z.discriminatedUnion('op', [
-    z.object({
-      op: z.literal('add'),
-      project: z.string().describe("The project whose code this changes (not necessarily your folder's project)"),
-      title: z.string().max(140).describe('15-140 chars, names the thing itself, e.g. "Bulk bar shows locked records as editable"'),
-      kind: z.enum(CLAUDE_ITEM_KINDS),
-      why: z.string().max(2000).describe('What is wrong or wanted and where (file, screen, module); readable by a session with no chat history'),
-      done_when: z.string().max(1000).optional().describe('How to tell it is finished (required except for ideas)'),
-      small: z.boolean().optional().describe('Under ~30 minutes: added as a part of the project\u2019s "Small fixes and checks" item instead of a new item'),
-      next: z.boolean().optional().describe('A person\u2019s call: refused for Claude Code keys (they mark next in the app)'),
-      blocked_by: itemKey.optional(),
-      waiting_on_om: z.string().max(1000).optional().describe('What the person must decide or do; they get an inbox notice'),
-      waiting_on: z.string().max(200).optional().describe('Who it waits on: a member user id or email (default you, the key owner)'),
-      note: z.string().max(1000).optional(),
-      start: z.boolean().optional().describe('Add it already active in this session'),
-    }),
-    z.object({ op: z.literal('start'), item: itemKey, take_over: z.boolean().optional().describe('Only if the session holding it has ended') }),
-    z.object({ op: z.literal('block'), item: itemKey, blocked_by: itemKey.optional(), waiting_on_om: z.string().max(1000).optional(), waiting_on: z.string().max(200).optional(), reason: z.string().max(1000).optional() }),
-    z.object({ op: z.literal('done'), item: itemKey, ref: z.string().max(120).optional().describe('Branch or commit where it landed (required for Claude Code, except ideas)'), note: z.string().optional() }),
-    z.object({ op: z.literal('note'), item: itemKey, text: z.string().min(1).max(1000).describe('Decision or context worth keeping; dated automatically') }),
-    z.object({ op: z.literal('release'), item: itemKey, reason: z.string().optional().describe('Why it goes back to the queue unfinished') }),
-    z.object({ op: z.literal('edit'), item: itemKey, title: z.string().optional(), why: z.string().optional(), done_when: z.string().optional(), kind: z.enum(CLAUDE_ITEM_KINDS).optional() }),
-    z.object({
-      op: z.literal('parts'),
-      item: itemKey,
-      add: z.array(z.string().max(300)).max(20).optional(),
-      check: z.array(z.union([z.number().int(), z.string()])).optional().describe('Part numbers (1-based) or ids'),
-      uncheck: z.array(z.union([z.number().int(), z.string()])).optional(),
-    }),
-  ]);
-
-  /** waiting_on (a member id or email) → a user id in this organization. */
-  async function waitingOn(v: string | undefined): Promise<string | undefined> {
-    if (v === undefined) return undefined;
-    const id = await findMember(s.orgId, v);
-    if (!id) throw new InputError(`waiting_on: "${v}" is not a member of this organization`);
-    return id;
-  }
-
-  async function toItemOp(o: z.infer<typeof ItemOpSchema>): Promise<items.ItemOp> {
-    switch (o.op) {
-      case 'add':
-        return { op: 'add', project: o.project, title: o.title, kind: o.kind, why: o.why, doneWhen: o.done_when, small: o.small, next: o.next, blockedBy: o.blocked_by, waitingText: o.waiting_on_om, waitingOn: await waitingOn(o.waiting_on), note: o.note, ...(o.start ? { state: 'active' as const } : {}) };
-      case 'start':
-        return { op: 'start', item: o.item, takeOver: o.take_over };
-      case 'block':
-        return { op: 'block', item: o.item, blockedBy: o.blocked_by, waitingText: o.waiting_on_om, waitingOn: await waitingOn(o.waiting_on), reason: o.reason };
-      case 'done':
-        return { op: 'done', item: o.item, gitRef: o.ref, note: o.note };
-      case 'edit':
-        return { op: 'edit', item: o.item, title: o.title, why: o.why, doneWhen: o.done_when, kind: o.kind };
-      default:
-        return o;
-    }
-  }
-
-  tool(
-    'update_claude_items',
-    {
-      inputSchema: {
-        session: z.string().max(64).optional().describe('Your branch or worktree name (e.g. "wt/debt-3"): who holds an item you start'),
-        ops: z.array(ItemOpSchema).min(1).max(30),
-      },
-      annotations: { destructiveHint: false, idempotentHint: false },
-    },
-    handler(async a => {
-      const ops: items.ItemOp[] = [];
-      for (const o of a.ops) ops.push(await toItemOp(o));
-      const results = await items.applyItemOps(s, ops, { actor: ACTOR, keyId: caller.keyId, session: a.session?.trim() || undefined });
-      return { results };
-    }),
   );
 
   tool(

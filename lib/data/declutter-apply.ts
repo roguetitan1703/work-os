@@ -8,7 +8,6 @@ import { saveState, stateOfProject, type SaveResult } from './states';
 import { completeTask, createTask, getTask, logChange } from './tasks';
 import { writeNote } from './notes';
 import { askNeed, withdrawForDeclutter, type Need } from './needs';
-import { getItem, migrateItem } from './claude-items';
 import { buildProposal } from './declutter';
 import { userActor, type Actor } from '../actors';
 import { GROWTH, type DeclutterItem } from '../declutter-core';
@@ -17,8 +16,7 @@ import type { NeedWord } from '../db';
 // Declutter, apply and ask (docs/flows/agent-system.md section 7, H11). Apply runs as the person who answered (their own door:
 // every target is read again through scoped(s) and must belong to the project), never as the asker, so a Yes cannot reach what
 // that person cannot read, and a session cannot use it to reach what they cannot. Each item is idempotent: "already gone"
-// counts as applied. Nothing is deleted: lines go to the State's archived lines, notes are archived, Claude items are dropped
-// with movedTo, Needs are withdrawn, tasks completed.
+// counts as applied. Nothing is deleted: lines go to the State's archived lines, notes are archived, Needs are withdrawn, tasks completed.
 
 const DAY = 86_400_000;
 export type ApplyResult = { applied: string[]; failed: string[] };
@@ -76,34 +74,7 @@ export async function applyDeclutter(s: Scope, project: ProjectDoc, items: Declu
     else for (const b of chunk) applied.push(b.item.id);
   }
 
-  // 2. Claude items. The line a Later item became is found by its text (newest first); the task by the number createTask returned.
-  for (const i of items) {
-    if (i.kind !== 'item_to_task' && i.kind !== 'item_to_later') continue;
-    try {
-      const item = await getItem(s, i.target ?? '');
-      if (!item || item.projectId !== pid) throw new NotFoundError('Claude item not found in this project');
-      if (!['queued', 'active', 'blocked'].includes(item.state)) {
-        applied.push(i.id); // already moved or finished
-        continue;
-      }
-      let movedTo: string;
-      if (i.kind === 'item_to_task') {
-        const t = await createTask(s, { title: item.title.slice(0, 300), project: pid, priority: 'P3', tags: ['from-claude-item'], description: [item.why, item.doneWhen ? `Done when: ${item.doneWhen}` : ''].filter(Boolean).join('\n\n').slice(0, 20_000) }, actor, { note: `From Claude item C${item.ref}` });
-        movedTo = `#${t.ref}`;
-      } else {
-        await saveState(s, pid, [{ op: 'add_later', text: i.text, ...(i.waits ? { waits_on: i.waits } : {}) }], { actor, via: 'app' });
-        const after = await stateOfProject(s, pid);
-        const line = [...(after?.later ?? [])].reverse().find(l => l.text === i.text);
-        movedTo = line ? `later:${line.id}` : 'later';
-      }
-      await migrateItem(s, item.id, movedTo);
-      applied.push(i.id);
-    } catch (e) {
-      fail(i, e);
-    }
-  }
-
-  // 3. Notes (archived), tasks (completed), Needs (withdrawn), tasks the session added.
+  // 2. Notes (archived), tasks (completed), Needs (withdrawn), tasks the session added.
   for (const i of items) {
     try {
       if (i.kind === 'archive_note') {

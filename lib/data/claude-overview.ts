@@ -1,19 +1,14 @@
 import 'server-only';
-import { scoped, type Scope } from '../scope';
-import { toItem } from './claude-items';
-import type { ClaudeItem } from '../types';
+import { scoped } from '../scope';
 import { connectedDevice } from '../live';
 import { deviceMap, derivedState, ownedDeviceIds, reopenPrompts, WAITING_MS, type DeviceScope, type ReopenPrompt, type SessionView } from './launcher';
 import { friendlyError } from '../worker-errors';
 import type { SessionOrigin } from '../db';
 import { presenceState } from './presence-state';
 
-// The Claude area (/claude) reads everything Claude-related across projects in one go: what
-// waits on the person, every Claude Code session on their computers (named, from the worker's list), and the
-// open queue. Read-only; the writes go through the existing item and launcher actions. Call it only
-// from signed-in pages/actions.
-
-const OPEN = ['queued', 'active', 'blocked'] as const;
+// The Claude area (/claude) reads everything Claude-related across projects in one go: every Claude Code session on
+// their computers (named, from the worker's list) and the computers' activity. Read-only; the writes go through the
+// launcher actions. Call it only from signed-in pages/actions.
 
 /** Written in the last 2 minutes (or subagents working): "working". Open but quiet for 15 minutes: "idle". */
 export const WORKING_MS = 2 * 60_000;
@@ -21,8 +16,6 @@ export const IDLE_MS = 15 * 60_000;
 /** A computer's session list older than this is dropped (the computer is off or the worker stopped). */
 const LIST_DROP_MS = 6 * 3600_000;
 
-export type NeedsYouItem = { id: string; ref: number; projectId: string; projectName: string; title: string; question: string; updatedAt: string };
-export type QueueGroup = { projectId: string; projectName: string; items: ClaudeItem[]; blockers: Record<string, { ref: number; title: string; state: string }> };
 /** Counts a computer last reported (numbers only). `fresh` is false after ACTIVITY_STALE_MS without news: then show "no news", not the old numbers. */
 export type ComputerActivity = { deviceId: string; name: string; fresh: boolean; sessions: number; sessionsWorkOs: number; sessionsOther: number; subagents: number; at: string };
 export type ActivityTotal = { sessions: number; sessionsWorkOs: number; sessionsOther: number; subagents: number; /** Computers with fresh numbers. */ reporting: number };
@@ -67,10 +60,8 @@ export type ComputerSummary = { deviceId: string; name: string; fresh: boolean; 
 export type SessionSummary = { computers: ComputerSummary[]; sessions: number; working: number; subagents: number; reporting: number };
 
 export type ClaudeOverview = {
-  needsYou: NeedsYouItem[];
   sessions: SessionRow[];
   summary: SessionSummary;
-  queue: QueueGroup[];
   hasComputers: boolean;
   activity: { computers: ComputerActivity[]; total: ActivityTotal };
   /** Sessions that were open before a computer restarted (docs/launcher.md). */
@@ -101,12 +92,6 @@ export async function activityOverview(scope: DeviceScope): Promise<ClaudeOvervi
   return { computers, total };
 }
 
-/** How many open Claude items wait on the caller (for a nav badge). One indexed count. */
-export async function needsYouCount(s: Scope): Promise<number> {
-  const c = await scoped(s);
-  return c.claudeItems.countDocuments({ waitingOn: s.userId, state: { $in: [...OPEN] } });
-}
-
 function liveState(running: boolean, lastMs: number, subagents: number, nowMs: number): SessionRowState {
   if (!running) return 'closed';
   if (subagents > 0 || nowMs - lastMs <= WORKING_MS) return 'working';
@@ -114,16 +99,15 @@ function liveState(running: boolean, lastMs: number, subagents: number, nowMs: n
 }
 
 /**
- * Sessions and computers are the signed-in person's own (scope); the open Claude items are shared.
- * `card` (Today's Claude card): only the items waiting on the caller, no queue (empty) and no blockers.
+ * Sessions and computers are the signed-in person's own (scope).
+ * `card` (Today's Claude card): no reopen prompts.
  */
 export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean } = {}): Promise<ClaudeOverview> {
   const c = await scoped(scope);
   const nowMs = Date.now();
   const mine = await ownedDeviceIds(scope);
-  const [devices, items, live, ended, projects, activity, reporting, reopen] = await Promise.all([
+  const [devices, live, ended, projects, activity, reporting, reopen] = await Promise.all([
     deviceMap(scope),
-    c.claudeItems.find({ state: { $in: [...OPEN] }, ...(opts.card ? { waitingOn: scope.userId } : {}) }).sort({ order: 1 }).toArray(),
     c.workerSessions.find({ state: { $in: ['starting', 'running'] }, deviceId: { $in: mine }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(50).toArray(),
     c.workerSessions.find({ state: { $in: ['dead', 'stopped', 'failed'] }, deviceId: { $in: mine }, hidden: { $ne: true } }).sort({ updatedAt: -1 }).limit(15).toArray(),
     c.projects.find({}, { projection: { name: 1 } }).toArray(),
@@ -296,34 +280,7 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
     summary.sessions += x.sessions; summary.working += x.working; summary.subagents += x.subagents; summary.reporting++;
   }
 
-  const needsYou = items
-    .filter(d => d.waitingOn === scope.userId)
-    .map(d => ({ id: d._id, ref: d.ref, projectId: d.projectId, projectName: pname(d.projectId), title: d.title, question: d.waitingText, updatedAt: d.updatedAt.toISOString() }))
-    .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
-
-  if (opts.card) return { needsYou, sessions: rows, summary, queue: [], hasComputers: devices.size > 0, activity, reopen };
-
-  const blockerIds = [...new Set(items.map(d => d.blockedBy).filter((x): x is string => !!x))];
-  const blockerDocs = blockerIds.length ? await c.claudeItems.find({ _id: { $in: blockerIds } }, { projection: { ref: 1, title: 1, state: 1 } }).toArray() : [];
-  const blockerMap = new Map(blockerDocs.map(b => [b._id, { ref: b.ref, title: b.title, state: b.state }]));
-
-  const byProject = new Map<string, QueueGroup>();
-  for (const d of items) {
-    let g = byProject.get(d.projectId);
-    if (!g) byProject.set(d.projectId, (g = { projectId: d.projectId, projectName: pname(d.projectId), items: [], blockers: {} }));
-    g.items.push(toItem(d));
-    if (d.blockedBy && blockerMap.has(d.blockedBy)) g.blockers[d.blockedBy] = blockerMap.get(d.blockedBy)!;
-  }
-
-  return {
-    needsYou,
-    sessions: rows,
-    summary,
-    queue: [...byProject.values()].sort((a, b) => a.projectName.localeCompare(b.projectName)),
-    hasComputers: devices.size > 0,
-    activity,
-    reopen,
-  };
+  return { sessions: rows, summary, hasComputers: devices.size > 0, activity, reopen };
 }
 
 // ── Start Claude: which projects can start ──────────────────────────────────

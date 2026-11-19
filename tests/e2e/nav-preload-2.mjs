@@ -32,8 +32,8 @@ await T('Today -> Needs', p.locator('nav[aria-label=Main]:visible a[href="/needs
 await T('Needs -> Menu', p.locator('header:visible a[href="/menu"]').first(), p.locator('h1:visible',{hasText:/^Menu$/}).first());
 await T('Menu -> Claude', p.locator('main a[href="/claude"]').first(), p.locator('h1:visible',{hasText:/^Claude$/}).first());
 await p.waitForTimeout(3000);
-await T('Claude -> Queue tab', p.locator('[data-tab="queue"]'), p.locator('[data-tab="queue"][aria-current="page"]'));
-await T('Queue -> Setup tab', p.locator('[data-tab="setup"]'), p.locator('[data-tab="setup"][aria-current="page"]'));
+await T('Claude -> Workers tab', p.locator('[data-tab="workers"]'), p.locator('[data-tab="workers"][aria-current="page"]'));
+await T('Workers -> Setup tab', p.locator('[data-tab="setup"]'), p.locator('[data-tab="setup"][aria-current="page"]'));
 await p.goto(B + '/projects/alpha-client'); await p.waitForTimeout(3500);
 for (const t of ['tasks','claude','notes','info']) await T('Project -> '+t+' tab', p.locator('[data-tab="'+t+'"]').first(), p.locator('[data-tab="'+t+'"][aria-current="page"]').first());
 await b.close();

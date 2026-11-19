@@ -1,7 +1,7 @@
-// UI checks for the Claude area (/claude: Now, Queue, Set up) and the Start Claude flow.
+// UI checks for the Claude area (/claude: Now, Workers, Set up) and the Start Claude flow.
 // Seeds itself (device/folder/session docs inserted directly; no worker). Seed profile: none.
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
-import { check, db, rawDb, mcp, B, PW, SP, ME, launch, finish, fillLogin, pick, mkClaudeItem } from './lib.mjs';
+import { check, db, rawDb, mcp, B, PW, SP, ME, launch, finish, fillLogin, pick } from './lib.mjs';
 
 const browser = await launch();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -32,7 +32,6 @@ const proj = async (name, code) => {
   if (code) await db.collection('projects').updateOne({ _id: id }, { $set: { code } });
   return id;
 };
-const add = async (project, title, extra = {}) => { const { waiting_on_om, ...rest } = extra; return mkClaudeItem({ project, title, why: WHY, doneWhen: DONE, ...(waiting_on_om ? { waitingText: waiting_on_om } : {}), ...rest }); };
 
 async function suite(vp) {
   const phone = vp === 390;
@@ -53,12 +52,6 @@ async function suite(vp) {
   const sDead = await mkSess(D1, 'f_alpha1', A, 'dead', { updatedAt: new Date(Date.now() - 600_000) });
   const sFail = await mkSess(D1, 'f_alpha2', A, 'failed', { error: 'Install Windows Terminal (wt.exe)', updatedAt: new Date(Date.now() - 900_000) });
   const sOrph = await mkSess(D1, 'f_bravo', Bv, 'stopped', { updatedAt: new Date(Date.now() - 1_200_000) }); // folder not linked to Bravo
-  await add('Alpha', 'Reorder invoice export columns', { waiting_on_om: 'Which logo should the header use, the old one or the new one?' });
-  await add('Alpha', 'Fix webhook retry backoff');
-  await add('Alpha', 'Update schema for clients table');
-  await add('Bravo', 'Rename legacy settings keys');
-  const items = await db.collection('claudeItems').find({}).sort({ order: 1 }).toArray();
-  const itByTitle = t => items.find(i => i.title === t);
 
   const ctx = await browser.newContext(phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } : { viewport: { width: 1280, height: 800 } });
   const p = await ctx.newPage();
@@ -75,29 +68,11 @@ async function suite(vp) {
   await fillLogin(p);
   await click(p.locator('button[type=submit]'));
   await p.waitForURL(u => u.pathname === '/claude', { timeout: 20000 });
-  await p.waitForSelector('[data-section="needs-you"]');
+  await p.waitForSelector('[data-tab="now"]');
 
   // ── Now ──
-  const ny = p.locator('[data-section="needs-you"]');
-  check(T('Claude is asking shows count, project, ref and question text'), await ny.innerText().then(t => /Claude is asking\s*1/i.test(t) && !/Needs you/i.test(t) && /Alpha/.test(t) && /C\d+/.test(t) && t.includes('Which logo should the header use'), () => false));
-  await click(ny.locator('[data-needs-you] button[aria-expanded]').first()); // STALE-FIX: rows are collapsed now
-  const reply = ny.locator('input[placeholder="Your answer…"]');
-  const sendBtn = ny.getByRole('button', { name: 'Send answer' });
-  const closeBtn = ny.getByRole('button', { name: 'Close without answer' });
-  const sameRow = await Promise.all([reply.boundingBox(), sendBtn.boundingBox()]).then(([a, b]) => Math.abs(a.y + a.height / 2 - (b.y + b.height / 2)) < 6);
-  check(T('answer input and Send answer on one row'), sameRow);
-  await h44(sendBtn, 'Send answer'); await h44(closeBtn, 'Close without answer'); await h44(reply, 'answer input');
-  check(T('Send answer disabled while empty'), await sendBtn.isDisabled());
-  check(T('no separate Reply / Answered buttons'), (await ny.getByRole('button', { name: /^(Reply|Answered)$/ }).count()) === 0);
-  await reply.fill('Final: new logo, thanks.');
-  await click(sendBtn);
-  const afterAns = await wait(async () => { const d = await db.collection('claudeItems').findOne({ _id: itByTitle('Reorder invoice export columns')._id }); return d.waitingText === '' && !d.waitingOn && d; });
-  check(T('Send answer stores the answer with its question and clears the flag'), afterAns && afterAns.answer?.text === 'Final: new logo, thanks.' && afterAns.answer?.question === 'Which logo should the header use, the old one or the new one?' && afterAns.answer?.by === ME.userId, JSON.stringify(afterAns?.answer));
-  const gp = await mcp('get_project', { project: 'Alpha' });
-  check(T('get_project shows Claude the answer (claudeItems.answered and the item)'), (gp.claudeItems?.answered ?? []).some(a => a.includes('Which logo should the header use') && a.includes('Final: new logo, thanks.')) && gp.claudeItems.open.some(o => o.answer?.text === 'Final: new logo, thanks.'), JSON.stringify(gp.claudeItems?.answered));
-  check(T('answered row disappears'), await ny.locator('[data-needs-you]').waitFor({ state: 'detached', timeout: 5000 }).then(() => true, () => false));
-  // put a question back for later checks
-  await db.collection('claudeItems').updateOne({ _id: itByTitle('Fix webhook retry backoff')._id }, { $set: { waitingText: 'Retry 3 or 5 times?', waitingOn: ME.userId, updatedAt: new Date() } });
+  check(T('no Claude is asking block, no answer box (Claude items retired)'), (await p.locator('[data-section="needs-you"]').count()) === 0 && (await p.locator('[data-needs-you]').count()) === 0);
+  check(T('no Queue tab'), (await p.locator('[data-tab="queue"]').count()) === 0);
 
   // One state-aware banner: a computer exists but Claude is switched off -> "Switch on"; no word "dispatcher" on the page.
   const bnr = p.locator('[data-claude-banner]');
@@ -181,44 +156,6 @@ async function suite(vp) {
   check(T('hook says off while the worker list still shows it running: closed'), (await p.locator(`[data-session-row="${D1}:${CC}"]`).getAttribute('data-state')) === 'closed');
   await db.collection('presence').deleteOne({ _id: HOOKROW });
   await db.collection('devices').updateOne({ _id: D1 }, { $unset: { claudeSessions: '' } });
-
-  // ── Queue ──
-  await p.goto(B + '/claude?tab=queue'); await p.waitForSelector('[data-section="queue"]');
-  const q = p.locator('[data-section="queue"]');
-  check(T('Queue groups by project'), (await q.locator('[data-queue-project]').count()) === 2 && (await q.locator(`[data-queue-project="${A}"] [data-queue-item]`).count()) === 3);
-  const refOf = t => `C${itByTitle(t).ref}`;
-  const rowOf = t => q.locator(`[data-queue-item="${refOf(t)}"]`);
-  const order = async () => (await db.collection('claudeItems').find({ projectId: A }).sort({ order: 1 }).toArray()).map(i => i.title);
-  const before = await order();
-  const last = before[before.length - 1];
-  await h44(rowOf(last).locator('button[aria-label^="Move"]').first(), 'Top');
-  await click(rowOf(last).locator('button:has-text("Top")'));
-  check(T('Top moves an item to the top'), !!(await wait(async () => (await order())[0] === last)));
-  // The row's buttons follow the saved order once the page refresh after the previous move lands.
-  const move = async dir => {
-    const btn = () => rowOf(last).locator(`button[aria-label$="${dir}"]`);
-    check(T(`${dir} button enabled after the previous change`), !!(await wait(() => btn().isEnabled(), 5000)));
-    await click(btn());
-  };
-  await move('down');
-  check(T('Down moves it one place'), !!(await wait(async () => (await order())[1] === last)));
-  await move('up');
-  check(T('Up moves it back'), !!(await wait(async () => (await order())[0] === last)));
-  const showLoc = async (loc, what) => check(T(what), !!(await wait(() => loc().isVisible(), 5000)));
-  const nextRow = rowOf('Update schema for clients table');
-  await click(nextRow.locator('button:has-text("Next")'));
-  check(T('Next marks the item next'), !!(await wait(async () => (await db.collection('claudeItems').findOne({ _id: itByTitle('Update schema for clients table')._id })).next === true)));
-  await showLoc(() => rowOf('Update schema for clients table').locator('button[aria-pressed="true"]'), 'Next shows as on');
-  await click(rowOf('Update schema for clients table').locator('button[aria-pressed]'));
-  check(T('Next toggles off'), !!(await wait(async () => (await db.collection('claudeItems').findOne({ _id: itByTitle('Update schema for clients table')._id })).next === false)));
-  await click(rowOf('Rename legacy settings keys').locator('button').first());
-  check(T('tapping a row opens the item sheet'), await p.locator('[aria-label=State]').waitFor({ timeout: 5000 }).then(() => true, () => false));
-  if (phone) check(T('item sheet has data-sheet'), (await p.locator('[data-sheet]').count()) === 1);
-  await p.screenshot({ path: `${SP}/cl-${vp}-queue-sheet.png` });
-  await p.keyboard.press('Escape'); if (phone) await click(p.locator('[data-sheet] button[aria-label="Close"]').last());
-  check(T('item sheet closes'), await p.locator('[aria-label=State]').waitFor({ state: 'detached', timeout: 5000 }).then(() => true, () => false));
-  await p.screenshot({ path: `${SP}/cl-${vp}-queue.png`, fullPage: true });
-  check(T('Queue: no horizontal scroll'), await noScroll());
 
   // ── Set up (step 1 must be done for the PC step to open: Claude was used through MCP above; make it certain) ──
   await rawDb.collection('settings').updateOne({ _id: 'status:' + ME.userId }, { $set: { area: 'status', orgId: ME.orgId, userId: ME.userId, lastMcpAt: new Date() } }, { upsert: true });
@@ -332,11 +269,11 @@ async function suite(vp) {
   check(T('Connect has no Claude Code / Devices tab'), (await p.locator('a[data-tab="code"], a[data-tab="devices"]').count()) === 0);
 
   // ── Start Claude flow ──
-  await p.goto(B + '/claude?tab=queue'); await p.waitForSelector('a[data-start-claude]:visible');
+  await p.goto(B + '/claude?tab=workers'); await p.waitForSelector('a[data-start-claude]:visible');
   const depth0 = await p.evaluate(() => history.length);
   await click(p.locator('a[data-start-claude]:visible'));
   await p.waitForSelector('[data-start-step="project"]');
-  check(T('Start Claude on /claude opens step 1 (?start=1, tab kept)'), p.url().includes('start=1') && p.url().includes('tab=queue'));
+  check(T('Start Claude on /claude opens step 1 (?start=1, tab kept)'), p.url().includes('start=1') && p.url().includes('tab=workers'));
   const step = p.locator('[data-start-step="project"]');
   await step.locator('[data-start-project]').first().waitFor();
   const st = await step.innerText();
@@ -441,10 +378,6 @@ async function suite(vp) {
     check(T('S does nothing while a dialog is open'), p.url().includes(`start=${C}`) && (await p.locator('[data-start-step="project"]').count()) === 0);
     await p.keyboard.press('Escape');
     await p.locator('[data-start-step]').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
-    await p.goto(B + '/claude'); await p.waitForSelector('[data-needs-you] button[aria-expanded]'); await click(p.locator('[data-needs-you] button[aria-expanded]').first()); await p.waitForSelector('[data-section="needs-you"] input[placeholder="Your answer…"]');
-    await p.locator('[data-section="needs-you"] input[placeholder="Your answer…"]').click();
-    await p.keyboard.type('s');
-    check(T('S does nothing while typing in a field'), (await p.locator('[data-start-step]').count()) === 0 && (await p.locator('[data-section="needs-you"] input[placeholder="Your answer…"]').inputValue()) === 's');
     await p.screenshot({ path: `${SP}/cl-${vp}-final.png` });
   }
   // ── No computer yet: Set up Claude instead of Start Claude, one banner, nothing else telling you to go elsewhere ──

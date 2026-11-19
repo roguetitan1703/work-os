@@ -6,7 +6,7 @@
 // real worker/push.mjs client), and that removing a member closes their streams. Ends with the request counts of an
 // idle Claude page for an hour, push off (the old poll) and on (docs/cpu.md). Seed profile: none.
 import { randomBytes, randomUUID } from 'node:crypto';
-import { B, EMAIL, ME, MCP, PW, check, finish, launch, login, makeUser, mkClaudeItem, mkKey, rawDb, sha } from './lib.mjs';
+import { B, EMAIL, ME, MCP, PW, check, finish, launch, login, makeUser, mkKey, rawDb, sha } from './lib.mjs';
 import { connectPush } from '../../worker/push.mjs';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -166,11 +166,10 @@ try {
     await as(kA, 'add_task', { title: 'Push circle task', project: 'Push Circle' });
     check('list: someone on it gets "tasks"', !!(await until(() => sB.hints('tasks').length > bT)));
     await as(kB, 'add_task', { title: 'Push circle task by Bea', project: 'Push Circle' });
-    // Claude items are no longer added through MCP (H11): the item is a fixture, and the change that must reach nobody off the list is a note on it.
-    const circleItem = await mkClaudeItem({ project: 'Push Circle', title: 'Push circle item for the hint check', why: 'Push check: a teammate off the list of this project must get no hint of it.', doneWhen: 'Cal got no hint while this item changed.' });
-    await as(kA, 'update_claude_items', { ops: [{ op: 'note', item: `C${circleItem.ref}`, text: 'a note for the hint check' }] });
+    // A note in the project is the other change that must reach nobody off the list.
+    await as(kA, 'write_note', { project: 'Push Circle', title: 'Push circle note for the hint check', body: 'a teammate off the list of this project must get no hint of it' });
     await sleep(1500);
-    check('list: a teammate off it gets nothing (project, tasks, Claude items)', sC.hints().length === c0, JSON.stringify(sC.hints().slice(c0)));
+    check('list: a teammate off it gets nothing (project, tasks, notes)', sC.hints().length === c0, JSON.stringify(sC.hints().slice(c0)));
     // Cal's own write still reaches only who can read it: her private task tells nobody else
     const bBefore = sB.hints().length;
     await as(kC, 'add_task', { title: 'Cal own task' });
@@ -193,16 +192,13 @@ try {
   let liveOk = 0;
   pA.on('response', r => { if (new URL(r.url()).pathname === '/api/stream' && r.status() === 200) liveOk++; });
   pA.on('request', r => { if (new URL(r.url()).pathname === '/api/stream') liveReqs++; else if (r.headers()['rsc']) rscAfter++; });
-  await login(pA, { next: '/claude?tab=queue' });
-  await pA.goto(B + '/claude?tab=queue');
+  await login(pA, { next: '/claude?tab=workers' });
+  await pA.goto(B + '/claude?tab=workers');
   await pA.waitForLoadState('networkidle').catch(() => {});
   check('Claude page opens a push stream', !!(await until(() => liveReqs >= 1 && liveOk >= 1)));
   await sleep(500);
-  const itemTitle = 'Teammate pushed item ' + randomBytes(3).toString('hex');
   rscAfter = 0;
-  const teamItem = await mkClaudeItem({ project: 'Push Team', title: 'Push team fixture item before the edit', why: 'Push check: an open Claude page (Queue tab) must follow a change a teammate makes elsewhere.', doneWhen: 'The open page lists the new title without a reload.' });
-  await as(kB, 'update_claude_items', { project: 'Push Team', ops: [{ op: 'edit', item: `C${teamItem.ref}`, title: itemTitle }] });
-  check('Claude page shows a teammate\'s new item without a reload', !!(await until(async () => (await pA.getByText(itemTitle).count()) > 0, 10000)));
+  // (The check that an open Claude page lists a teammate's new Claude item went with the items: they retired in H11.)
 
   // ── the worker gets a job pushed ──
   const proj = (await rawDb.collection('projects').findOne({ orgId: ME.orgId, name: 'Push Team' }))._id;
