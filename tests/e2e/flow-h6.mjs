@@ -212,8 +212,9 @@ try {
   // ---- the hourly limit: 300 events per token ----
   const L = await newSession();
   let ok = 0;
-  for (let i = 0; i < 303; i++) if ((await ev(L.token, { event: i % 2 ? 'stop' : 'prompt' })).status === 200) ok++; // every one changes the state
-  const over = await ev(L.token, { event: 'tool' });
+  const seen = [];
+  for (let i = 0; i < 301; i++) { const r = await ev(L.token, { event: i % 2 ? 'stop' : 'prompt', at: Date.now() + i * 10 }); if (r.status === 200) ok++; seen.push(`${i}:${r.status}:${r.json?.state}`); } // every one changes the state
+  const over = await ev(L.token, { event: 'prompt' }); // the stored state is idle: a change
   check('one token: 300 events that change the state an hour, then 429 with Retry-After', ok === 300 && over.status === 429 && !!over.headers.get('retry-after'), `${ok} then ${over.status}`);
   // Events that repeat the stored state are free: a tool-heavy session never runs out
   const F = await newSession();
