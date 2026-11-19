@@ -117,7 +117,7 @@ try {
   check('H13 link by path: codeBy (who set the repo, which turbo cloning trusts) does not change to the linker', pdoc.codeBy === codeByBefore && pdoc.codeBy !== T.userId, `${codeByBefore} -> ${pdoc.codeBy}`);
   const again = await mcpH(kT, 'start_work', { project: 'H13 Pathy', path: 'c:\\h13\\pathy\\', machine: 'tess-pc', link: true });
   check('H13 link by path: filing the same folder again adds nothing', !again.isError && /already filed/.test(again.json?.filed?.how ?? '') && (await rawDb.collection('projects').findOne({ _id: PA })).code.length === 1, again.text.slice(0, 200));
-  const clash = await mcpH(cc, 'start_work', { project: 'H13 Alpha', path: 'C:/h13/pathy', machine: 'tess-pc', link: true });
+  const clash = await mcpH(kT, 'start_work', { project: 'H13 Alpha', path: 'C:/h13/pathy', machine: 'tess-pc', link: true });
   check('H13 link by path: the same folder on the same computer under another project is refused, naming the owner project', clash.isError && /already filed under H13 Pathy/.test(clash.text) && !(await rawDb.collection('projects').findOne({ _id: A })).code.some(l => l.path === 'C:/h13/pathy'), clash.text.slice(0, 200));
   const sub = await mcpH(kT, 'start_work', { path: 'C:/h13/pathy/deep/er', machine: 'TESS-PC', label: 'h13' });
   const subOther = await mcpH(kT, 'start_work', { path: 'C:/h13/pathy/deep/er', machine: 'another-pc', label: 'h13' });
