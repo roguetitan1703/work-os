@@ -14,9 +14,15 @@ import { GONE_MIN, presenceState } from './presence-state';
 // Every read and write goes through the caller's door (`scoped(s)`) on the one project; nothing here bumps the State version.
 
 const MAX_HOPS = 3;
+/** At most this many rows are swept per call (the sweep runs inside the 3-second prompt hook). */
+const SWEEP_ROWS = 3;
 
 /** How a presence row names a session in messages (userId:key). */
 const keyOf = (r: Pick<PresenceDoc, 'userId' | 'key'>) => rowKey(r);
+/** A hold names a session by userId:key (a row without a session is keyed by its agent name, which two people may share). */
+const holdKey = keyOf;
+/** A handover older than this no longer moves holds (an idle but live session may still hold Now). */
+const HOLD_MOVE_MAX_MS = 24 * 3_600_000;
 
 export type Moved = { needs: number; messages: number; lines: number; now: boolean };
 export type MoveResult = ({ moved: true } & Moved) | { moved: false; reason: 'busy' | 'self' | 'project' | 'already moved' };
@@ -68,11 +74,11 @@ async function doingRef(c: Coll, row: PresenceDoc): Promise<number | undefined> 
  * permission prompt: lanes.ts busy). Moves Needs and unread messages (same person only), the Now hold, held lines and what it is doing
  * (a direct update on the State by arrayFilters, no version bump), and sets `movedTo` on `from` (same person only: replies follow it).
  */
-export async function moveSession(s: Scope, projectId: string, from: PresenceDoc, to: PresenceDoc, now: number = Date.now()): Promise<MoveResult> {
+export async function moveSession(s: Scope, projectId: string, from: PresenceDoc, to: PresenceDoc, now: number = Date.now(), o: { /** When the handover was written: holds move only for a handover younger than 24 hours. */ handoverAt?: Date } = {}): Promise<MoveResult> {
   if (from._id === to._id) return { moved: false, reason: 'self' };
   if (from.projectId !== projectId || to.projectId !== projectId) return { moved: false, reason: 'project' };
   if (busy(from, now)) return { moved: false, reason: 'busy' };
-  if (from.movedTo && from.movedTo !== to.key) return { moved: false, reason: 'already moved' };
+  if (from.movedTo && from.movedTo !== to.key && !from.swept) return { moved: false, reason: 'already moved' };
   if (to.movedTo === from.key) return { moved: false, reason: 'already moved' };
   const c = await scoped(s);
   const same = from.userId === to.userId;
@@ -82,17 +88,19 @@ export async function moveSession(s: Scope, projectId: string, from: PresenceDoc
   const ref = await doingRef(c, from);
   let lines = 0;
   let nowMoved = false;
-  const st = await c.states.findOne({ _id: projectId }, { projection: { now: 1, next: 1, later: 1 } });
+  const fresh = !o.handoverAt || now - o.handoverAt.getTime() < HOLD_MOVE_MAX_MS;
+  const hk = holdKey(from);
+  const st = fresh ? await c.states.findOne({ _id: projectId }, { projection: { now: 1, next: 1, later: 1 } }) : null;
   if (st) {
-    if (st.now?.hold?.key === from.key) {
-      const r = await c.states.updateOne({ _id: projectId, 'now.hold.key': from.key } as never, { $set: { 'now.hold': { key: to.key, label: to.label ?? '', at } } } as never);
+    if (st.now?.hold?.key === hk) {
+      const r = await c.states.updateOne({ _id: projectId, 'now.hold.key': hk } as never, { $set: { 'now.hold': { key: holdKey(to), label: to.label ?? '', at } } } as never);
       nowMoved = r.modifiedCount > 0;
     }
-    const mine = (l: StateLine) => l.hold?.key === from.key || (!l.hold && ref != null && l.ref === ref);
+    const mine = (l: StateLine) => l.hold?.key === hk || (!l.hold && ref != null && l.ref === ref);
     for (const list of ['next', 'later'] as const) {
       for (const l of st[list] ?? []) {
         if (!mine(l)) continue;
-        const r = await c.states.updateOne({ _id: projectId } as never, { $set: { [`${list}.$[l].hold`]: { key: to.key, at } } } as never, { arrayFilters: [{ 'l.id': l.id }] } as never);
+        const r = await c.states.updateOne({ _id: projectId } as never, { $set: { [`${list}.$[l].hold`]: { key: holdKey(to), at } } } as never, { arrayFilters: [{ 'l.id': l.id }] } as never);
         if (r.modifiedCount) lines++;
       }
     }
@@ -106,20 +114,38 @@ export async function moveSession(s: Scope, projectId: string, from: PresenceDoc
   return { moved: true, needs: owned.needs, messages: owned.messages, lines, now: nowMoved };
 }
 
+/** The session a gone session's work goes to: the Now holder when it is live (and not `excludeId`), else the newest live session. `live` is newest first. */
+function pickTarget(live: PresenceDoc[], holder: string | undefined, excludeId: string): PresenceDoc | null {
+  const h = holder ? live.find(r => holdKey(r) === holder && r._id !== excludeId) : undefined;
+  return h ?? live.find(r => r._id !== excludeId) ?? null;
+}
+
+async function liveRows(c: Coll, projectId: string, userId: string, now: number): Promise<PresenceDoc[]> {
+  const cutoff = new Date(now - GONE_MIN * 60_000);
+  return (await c.presence.find({ projectId, userId, lastSeen: { $gte: cutoff } } as never).sort({ lastSeen: -1 }).limit(20).toArray()).filter(r => presenceState(r, { now }).state !== 'off');
+}
+
 /**
- * Where a reply to a session of one person goes now: its key (`userId:key`) followed along `movedTo` at most 3 hops. Same person
- * all the way (movedTo is only set between sessions of one person). Never throws: a missing row ends the chain.
+ * Where a reply to a session of the caller goes now: its key (`userId:key`) followed along `movedTo` at most 3 hops, same person
+ * all the way. A row that is alive again is not followed past (it came back). If the chain ends on a dead row, the reply goes where the
+ * sweep would send that row's work (the Now holder when live, else the newest live session). Never throws: a missing row ends the chain.
  */
-export async function followMoved(s: Scope, projectId: string | null, key: string): Promise<string> {
+export async function followMoved(s: Scope, projectId: string | null, key: string, now: number = Date.now()): Promise<string> {
   const i = key.indexOf(':');
-  if (i < 1) return key;
+  if (i < 1 || key.slice(0, i) !== s.userId) return key;
   const userId = key.slice(0, i);
   const c = await scoped(s);
   let cur = key.slice(i + 1);
-  for (let hop = 0; hop < MAX_HOPS; hop++) {
-    const row = await c.presence.findOne({ projectId, userId, key: cur }, { projection: { movedTo: 1 } });
-    if (!row?.movedTo || row.movedTo === cur) break;
+  let row: PresenceDoc | null = null;
+  for (let hop = 0; hop <= MAX_HOPS; hop++) {
+    row = await c.presence.findOne({ projectId, userId, key: cur });
+    if (hop === MAX_HOPS || !row?.movedTo || row.movedTo === cur || presenceState(row, { now }).state !== 'off') break;
     cur = row.movedTo;
+  }
+  if (projectId && row && presenceState(row, { now }).state === 'off') {
+    const st = await c.states.findOne({ _id: projectId }, { projection: { now: 1 } });
+    const t = pickTarget(await liveRows(c, projectId, userId, now), st?.now?.hold?.key, row._id);
+    if (t) return holdKey(t);
   }
   return `${userId}:${cur}`;
 }
@@ -132,10 +158,12 @@ function goneFor30(r: PresenceDoc, now: number): boolean {
 }
 
 /** The text a released line keeps: where the session stood. */
-async function leftOf(c: Coll, row: PresenceDoc, line: StateLine, where: Record<string, { branch?: string; head?: string }>, at: Date): Promise<NonNullable<StateLine['left']>> {
+async function leftOf(c: Coll, projectId: string, row: PresenceDoc, line: StateLine, where: Record<string, { branch?: string; head?: string }>, at: Date): Promise<NonNullable<StateLine['left']>> {
   let log: string | undefined;
   if (line.ref != null) {
-    const a = await c.activity.find({ taskRef: line.ref, note: { $exists: true } } as never).sort({ at: -1 }).limit(1).next();
+    // The task is looked up inside the line's own project first (a ref in another project, maybe private, gives nothing), then its log by task id.
+    const t = await c.tasks.findOne({ projectId, ref: line.ref }, { projection: { _id: 1 } });
+    const a = t ? await c.activity.find({ taskId: t._id, note: { $exists: true } } as never).sort({ at: -1 }).limit(1).next() : null;
     if (a?.note) log = a.note.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 200);
   }
   const head = row.branch ? Object.values(where ?? {}).find(w => w.branch === row.branch)?.head : undefined;
@@ -156,15 +184,13 @@ export async function sweepGone(s: Scope, projectId: string, selfRowId: string, 
     .find({ projectId, userId: s.userId, _id: { $ne: selfRowId }, lastSeen: { $lt: cutoff }, $or: [{ swept: { $exists: false } }, { $expr: { $lt: ['$swept', '$lastSeen'] } }] } as never)
     .sort({ lastSeen: -1 })
     .limit(20)
-    .toArray()).filter(r => goneFor30(r, now));
+    .toArray()).filter(r => goneFor30(r, now)).slice(0, SWEEP_ROWS);
   if (!cands.length) return out;
   const st = await c.states.findOne({ _id: projectId }, { projection: { now: 1, next: 1, later: 1, where: 1 } });
-  const live = (await c.presence.find({ projectId, userId: s.userId, lastSeen: { $gte: cutoff } } as never).sort({ lastSeen: -1 }).limit(20).toArray()).filter(r => presenceState(r, { now }).state !== 'off');
-  const holderKey = st?.now?.hold?.key;
-  const holder = holderKey ? live.find(r => r.key === holderKey) : undefined;
+  const live = await liveRows(c, projectId, s.userId, now);
   const at = new Date(now);
   for (const a of cands) {
-    const target = (holder && holder._id !== a._id ? holder : undefined) ?? live.find(r => r._id !== a._id);
+    const target = pickTarget(live, st?.now?.hold?.key, a._id);
     if (!target) continue;
     const moved = await moveOwned(c, projectId, a, target);
     out.needs += moved.needs;
@@ -172,13 +198,13 @@ export async function sweepGone(s: Scope, projectId: string, selfRowId: string, 
     // Held lines are released: the hold goes, a `left` record stays on the line.
     for (const list of ['next', 'later'] as const) {
       for (const l of st?.[list] ?? []) {
-        if (l.hold?.key !== a.key) continue;
-        const left = await leftOf(c, a, l, st?.where ?? {}, at);
-        const r = await c.states.updateOne({ _id: projectId } as never, { $set: { [`${list}.$[l].left`]: left }, $unset: { [`${list}.$[l].hold`]: '' } } as never, { arrayFilters: [{ 'l.id': l.id, 'l.hold.key': a.key }] } as never);
+        if (l.hold?.key !== holdKey(a)) continue;
+        const left = await leftOf(c, projectId, a, l, st?.where ?? {}, at);
+        const r = await c.states.updateOne({ _id: projectId } as never, { $set: { [`${list}.$[l].left`]: left }, $unset: { [`${list}.$[l].hold`]: '' } } as never, { arrayFilters: [{ 'l.id': l.id, 'l.hold.key': holdKey(a) }] } as never);
         if (r.modifiedCount) out.lines++;
       }
     }
-    await c.presence.updateOne({ _id: a._id }, { $set: { swept: at } });
+    await c.presence.updateOne({ _id: a._id }, { $set: { swept: at, movedTo: target.key } });
     out.rows++;
   }
   return out;

@@ -83,11 +83,11 @@ export async function writeHandover(s: Scope, w: WriteHandover, actor: Actor): P
 }
 
 /** The handover's writer (`by`, session row key `from`) hands its work to the picking session (`to`, its row key). Never breaks the brief. */
-async function pickUpWork(s: Scope, projectId: string, by: string, from: string, to: string): Promise<void> {
+async function pickUpWork(s: Scope, projectId: string, by: string, from: string, to: string, handoverAt: Date): Promise<void> {
   try {
     const c = await scoped(s);
     const [a, b] = await Promise.all([c.presence.findOne({ projectId, userId: by, key: from }), c.presence.findOne({ projectId, userId: s.userId, key: to })]);
-    if (a && b) await moveSession(s, projectId, a, b);
+    if (a && b) await moveSession(s, projectId, a, b, Date.now(), { handoverAt });
   } catch {
     // the handover is still shown; the sweep hands the work on later
   }
@@ -125,7 +125,7 @@ export async function handoversForBrief(s: Scope, projectId: string, o: { me: st
       const claimed = await c.notes.updateOne({ _id: d._id, 'handover.pickedUp': { $exists: false } }, { $set: { 'handover.pickedUp': { session: o.me, ...(o.label ? { label: o.label } : {}), at, by: s.userId } } });
       if (!claimed.modifiedCount) continue;
       // Lanes: the session that wrote it hands its work (Needs, unread messages, Now hold, held lines) to this one, when it ended or is not busy.
-      if (h.session) await pickUpWork(s, projectId, h.by, h.session, o.me);
+      if (h.session) await pickUpWork(s, projectId, h.by, h.session, o.me, d.updatedAt);
       const line = `Picked up by ${o.label || 'a session'}, ${at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
       body = `${body}\n\n${line}`;
       // The note shows who took it; a failed rewrite must not hide the handover from the session that was handed it.

@@ -23,6 +23,7 @@ const needDoc = id => rawDb.collection('needs').findOne({ _id: id });
 const msgDoc = id => rawDb.collection('messages').findOne({ _id: id });
 const stateDoc = async () => rawDb.collection('states').findOne({ _id: PID });
 let PID = '';
+const K = s => `${ME.userId}:${s}`;
 
 try {
   const T = await makeUser({ email: 'pk-tess@example.test', name: 'Tess', orgId: ME.orgId, role: 'member' }); // before the first call: member names are cached
@@ -54,7 +55,7 @@ try {
   await answer(n1);
   const m1 = await say(cc, 'pkS', 'pkA', 'PK to A: please look at line one');
   const m2 = await say(cc, 'pkA', 'pkS', 'PK from A: a question for S', 'question');
-  await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'now.hold': { key: 'pkA', label: 'PK A', at: new Date() }, 'next.0.hold': { key: 'pkA', at: new Date() } } });
+  await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'now.hold': { key: K('pkA'), label: 'PK A', at: new Date() }, 'next.0.hold': { key: K('pkA'), at: new Date() } } });
   const hA = await handover(cc, 'pkA', 'Handover: PK A');
   check('A: ended, with a handover', !!hA.handover?.id && !!(await row('pkA')).endedAt, JSON.stringify(hA).slice(0, 200));
   const vBefore = (await stateDoc()).version;
@@ -68,7 +69,7 @@ try {
   const m2b = await msgDoc(m2.id);
   check('pickup: the unread message to A is addressed to B; a message A sent stays as it was', JSON.stringify(m1b.toSids) === JSON.stringify([`${ME.userId}:pkB`]) && m2b.src === `${ME.userId}:pkA` && JSON.stringify(m2b.toSids) === JSON.stringify([`${ME.userId}:pkS`]), JSON.stringify([m1b.toSids, m2b.src, m2b.toSids]));
   st = await stateDoc();
-  check('pickup: the Now hold and the held line move to B, a line nobody held stays free', st.now.hold?.key === 'pkB' && st.next.find(l => l.id === L1).hold?.key === 'pkB' && !st.next.find(l => l.id === L2).hold, JSON.stringify([st.now.hold, st.next.map(l => l.hold)]));
+  check('pickup: the Now hold and the held line move to B, a line nobody held stays free', st.now.hold?.key === K('pkB') && st.next.find(l => l.id === L1).hold?.key === K('pkB') && !st.next.find(l => l.id === L2).hold, JSON.stringify([st.now.hold, st.next.map(l => l.hold)]));
   check('pickup: the State version is unchanged and A\'s row says where its work went', st.version === vBefore && (await row('pkA')).movedTo === 'pkB', JSON.stringify([st.version, vBefore, (await row('pkA')).movedTo]));
   const w1 = await mcpH(ccB, 'withdraw_need', { id: n2.ref, session: 'pkB' }, hdr('pkB'));
   check('pickup: B may withdraw the Need A asked (its session and key match now)', !w1.isError && /withdrawn/.test(w1.text), w1.text.slice(0, 200));
@@ -77,14 +78,14 @@ try {
   await start(cc, 'pkA2', { label: 'PK A2' });
   const nA2 = await ask(cc, 'pkA2', 'PK A2 question?');
   const mA2 = await say(cc, 'pkS', 'pkA2', 'PK to A2: still here');
-  await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'next.1.hold': { key: 'pkA2', at: new Date() } } });
+  await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'next.1.hold': { key: K('pkA2'), at: new Date() } } });
   const hA2 = await handover(cc, 'pkA2', 'Handover: PK A2');
   await rawDb.collection('presence').updateOne({ session: 'pkA2' }, { $unset: { endedAt: '' }, $set: { activity: { state: 'working', at: new Date() }, lastSeen: new Date() } }); // A2 is working again
   const b2 = await start(ccB, 'pkB2', { label: 'PK B2' });
   check('busy: B2 is still shown the handover (the note is for it)', b2.handover?.some(h => h.id === hA2.handover.id), JSON.stringify(b2.handover)?.slice(0, 200));
   const nA2b = await needDoc(nA2.id);
   st = await stateDoc();
-  check('busy: nothing moved: the Need, the message, the held line and A2\'s row are as they were', nA2b.from.session === 'pkA2' && JSON.stringify((await msgDoc(mA2.id)).toSids) === JSON.stringify([`${ME.userId}:pkA2`]) && st.next[1].hold?.key === 'pkA2' && st.now.hold?.key === 'pkB' && !(await row('pkA2')).movedTo, JSON.stringify([nA2b.from.session, st.now.hold, st.next[1].hold]));
+  check('busy: nothing moved: the Need, the message, the held line and A2\'s row are as they were', nA2b.from.session === 'pkA2' && JSON.stringify((await msgDoc(mA2.id)).toSids) === JSON.stringify([`${ME.userId}:pkA2`]) && st.next[1].hold?.key === K('pkA2') && st.now.hold?.key === K('pkB') && !(await row('pkA2')).movedTo, JSON.stringify([nA2b.from.session, st.now.hold, st.next[1].hold]));
   await rawDb.collection('presence').updateOne({ session: 'pkA2' }, { $set: { activity: { state: 'waiting', why: 'prompt', at: new Date() } } });
   await rawDb.collection('notes').updateOne({ _id: hA2.handover.id }, { $unset: { 'handover.pickedUp': '' } }); // offered again to a fresh session
   const b2b = await start(ccC, 'pkB2b', { label: 'PK B2b' });
@@ -111,7 +112,7 @@ try {
   const rowC = await row('pkC');
   const nBc = await needDoc(nB.id);
   st = await stateDoc();
-  check('chain: the open Need and unread message of B, and the Now hold and line B got from A, are now C\'s', nBc.from.session === 'pkC' && nBc.from.keyId === rowC.keyId && JSON.stringify((await msgDoc(mB.id)).toSids) === JSON.stringify([`${ME.userId}:pkC`]) && st.now.hold?.key === 'pkC' && st.next.find(l => l.id === L1).hold?.key === 'pkC', JSON.stringify([nBc.from, st.now.hold, st.next[0].hold]));
+  check('chain: the open Need and unread message of B, and the Now hold and line B got from A, are now C\'s', nBc.from.session === 'pkC' && nBc.from.keyId === rowC.keyId && JSON.stringify((await msgDoc(mB.id)).toSids) === JSON.stringify([`${ME.userId}:pkC`]) && st.now.hold?.key === K('pkC') && st.next.find(l => l.id === L1).hold?.key === K('pkC'), JSON.stringify([nBc.from, st.now.hold, st.next[0].hold]));
   check('chain: A points at B and B points at C', (await row('pkA')).movedTo === 'pkB' && (await row('pkB')).movedTo === 'pkC');
 
   // ── 5. a reply to A reaches C; the chain is followed 3 hops at most
@@ -119,11 +120,11 @@ try {
   const rd = await msgDoc(rp.id);
   check('reply: an answer to A\'s message goes to C, in the same thread', JSON.stringify(rd.toSids) === JSON.stringify([`${ME.userId}:pkC`]) && rd.thread === m2.id, JSON.stringify([rd.toSids, rd.thread]));
   const base = await row('pkS');
-  for (let i = 1; i <= 5; i++) await rawDb.collection('presence').insertOne({ ...base, _id: `${ME.userId}:s:x${i}:${PID}`, key: `x${i}`, session: `x${i}`, label: `X${i}`, ...(i < 5 ? { movedTo: `x${i + 1}` } : {}) });
+  for (let i = 1; i <= 5; i++) await rawDb.collection('presence').insertOne({ ...base, _id: `${ME.userId}:s:x${i}:${PID}`, key: `x${i}`, session: `x${i}`, label: `X${i}`, ...(i < 5 ? { movedTo: `x${i + 1}` } : {}), ...(i < 4 ? { activity: { state: 'off', at: new Date() } } : {}) });
   const parent = await msgDoc(m2.id);
   await rawDb.collection('messages').insertOne({ ...parent, _id: 'm_pkhops000001', src: `${ME.userId}:x1`, from: { ...parent.from, session: 'x1' }, toSids: [`${ME.userId}:pkS`], seenBy: [], thread: 'm_pkhops000001', status: 'unread' });
   const hop = await must(cc, 'reply', { id: 'm_pkhops000001', body: 'PK reply along a long chain', session: 'pkS' }, hdr('pkS'));
-  check('reply: a chain of moves is followed 3 hops and no further (x1 -> x4)', JSON.stringify((await msgDoc(hop.id)).toSids) === JSON.stringify([`${ME.userId}:x4`]), JSON.stringify((await msgDoc(hop.id)).toSids));
+  check('reply: a chain of moves is followed 3 hops and no further (x1 -> x4; a session alive again ends the chain)', JSON.stringify((await msgDoc(hop.id)).toSids) === JSON.stringify([`${ME.userId}:x4`]), JSON.stringify((await msgDoc(hop.id)).toSids));
   const bare = await must(cc, 'reply', { id: 'm_pkhops000001', body: 'again', session: 'pkS' }, hdr('pkS'));
   check('reply: the same answer twice still goes to the same place', JSON.stringify((await msgDoc(bare.id)).toSids) === JSON.stringify([`${ME.userId}:x4`]));
 
@@ -136,7 +137,7 @@ try {
   const LSID = hs.json?.brief?.session;
   check('sweep setup: a hook session of Om on the project', hs.status === 200 && /^wst_/.test(LTOK ?? '') && !!LSID, hs.text.slice(0, 160));
   await start(cc, 'pkH', { label: 'PK H' });
-  await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'now.hold': { key: 'pkH', label: 'PK H', at: new Date() } } });
+  await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'now.hold': { key: K('pkH'), label: 'PK H', at: new Date() } } });
   await start(cc, 'pkA6', { label: 'PK A6', machine: 'pkbox', branch: 'br-pkA6' });
   const t6 = (await must(cc, 'add_task', { title: 'PK sweep task', project: P })).created;
   await must(cc, 'log_progress', { task: t6.ref, progress: 30, note: 'PK sweep log note', session: 'pkA6' }, hdr('pkA6'));
@@ -144,7 +145,7 @@ try {
   const n6a = await ask(cc, 'pkA6', 'PK A6 answered question?');
   await answer(n6a);
   const m6 = await say(cc, 'pkS', 'pkA6', 'PK to A6: unread');
-  await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'next.1.hold': { key: 'pkA6', at: ago(50) }, 'next.1.ref': t6.ref, 'where.raw6': { branch: 'br-pkA6', head: 'bbb2222', at: new Date(), by: ME.userId } } });
+  await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'next.1.hold': { key: K('pkA6'), at: ago(50) }, 'next.1.ref': t6.ref, 'where.raw6': { branch: 'br-pkA6', head: 'bbb2222', at: new Date(), by: ME.userId } } });
   await start(cc, 'pkA7', { label: 'PK A7' });
   const n7 = await ask(cc, 'pkA7', 'PK A7 open question?');
   await start(kT, 'pkTs', { label: 'PK Tess off' });
@@ -168,7 +169,7 @@ try {
   check('sweep: a session off only 10 minutes is left alone', (await needDoc(n7.id)).from.session === 'pkA7' && !(await row('pkA7')).swept);
   check('sweep: another person\'s session, off 45 minutes, is left alone (nothing crosses persons)', (await needDoc(nT.id)).from.session === 'pkTs' && !(await row('pkTs')).swept);
   // Now holder is no live session of Om's: the newest live session of his (the caller's) gets it, and the answer is handed over in that very turn
-  await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'now.hold': { key: 'pkTs', label: 'PK Tess off', at: new Date() } } });
+  await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'now.hold': { key: `${T.userId}:pkTs`, label: 'PK Tess off', at: new Date() } } });
   await start(cc, 'pkA8', { label: 'PK A8' });
   const n8 = await ask(cc, 'pkA8', 'PK A8 answered question?');
   await answer(n8);
@@ -177,6 +178,40 @@ try {
   check('sweep: with no live Now holder of his own, the Needs go to the newest live session (the caller here)', (await needDoc(n8.id)).from.session === LSID, JSON.stringify((await needDoc(n8.id)).from));
   check('sweep: …and the answer reaches the caller in that same turn', new RegExp(`Need #${n8.ref} was answered`).test(d2.json?.deliver?.text ?? '') && (d2.json.deliver.needs ?? []).includes(n8.id), (d2.text ?? '').slice(0, 240));
   check('sweep: the row of the first one is not swept again (still marked, Needs stay with the holder)', (await needDoc(n6a.id)).from.session === 'pkH');
+
+
+  // ── 8. review fixes
+  // movedTo after a sweep: the swept row points at the receiver; a reply to a message it sent goes there; alive again, it gets it back
+  const a6 = await row('pkA6');
+  check('sweep: the swept row points at the session that received its work', a6.movedTo === 'pkH', String(a6.movedTo));
+  const m6s = await say(cc, 'pkA6', 'pkS', 'PK from A6 before it died', 'question'); // sent now, so src is A6
+  const rp6 = await must(cc, 'reply', { id: m6s.id, body: 'PK reply to a swept session', session: 'pkS' }, hdr('pkS'));
+  check('reply: an answer to a swept session goes to the one that got its work', JSON.stringify((await msgDoc(rp6.id)).toSids) === JSON.stringify([K('pkH')]), JSON.stringify((await msgDoc(rp6.id)).toSids));
+  await rawDb.collection('presence').updateOne({ session: 'pkA6' }, { $set: { lastSeen: new Date(), activity: { state: 'on', at: new Date() } } });
+  const rp6b = await must(cc, 'reply', { id: m6s.id, body: 'PK reply after it came back', session: 'pkS' }, hdr('pkS'));
+  check('reply: a session that came alive again gets its replies again', JSON.stringify((await msgDoc(rp6b.id)).toSids) === JSON.stringify([K('pkA6')]), JSON.stringify((await msgDoc(rp6b.id)).toSids));
+
+  // an old handover does not move holds (24 hours), Needs and messages still move
+  await start(cc, 'pkOld', { label: 'PK Old' });
+  const nOld = await ask(cc, 'pkOld', 'PK Old question?');
+  await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'now.hold': { key: K('pkOld'), label: 'PK Old', at: new Date() } } });
+  const hOld = await handover(cc, 'pkOld', 'Handover: PK Old');
+  await rawDb.collection('notes').updateOne({ _id: hOld.handover.id }, { $set: { updatedAt: ago(26 * 60) } });
+  await start(ccB, 'pkNew', { label: 'PK New' });
+  st = await stateDoc();
+  check('old handover: the Need moves but the Now hold stays where it was (the handover is over 24 hours old)', (await needDoc(nOld.id)).from.session === 'pkNew' && st.now.hold?.key === K('pkOld'), JSON.stringify([(await needDoc(nOld.id)).from.session, st.now.hold]));
+
+  // a private task of another project is never read into this State by the sweep
+  const Q = (await must(cc, 'add_project', { name: 'PK Private', visibility: 'private' })).project.id;
+  const tq = (await must(cc, 'add_task', { title: 'PK private task', project: 'PK Private' })).created;
+  await must(cc, 'log_progress', { task: tq.ref, progress: 10, note: 'PK SECRET private note' });
+  await start(cc, 'pkA9', { label: 'PK A9', branch: 'br-pkA9' });
+  await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'next.0.hold': { key: K('pkA9'), at: ago(60) }, 'next.0.ref': tq.ref } });
+  await off('pkA9', 45);
+  await call('/api/agent/event', LTOK, { event: 'prompt', deliver: true });
+  st = await stateDoc();
+  const l1 = st.next.find(l => l.id === L1);
+  check('sweep: a line naming a task of another project gets no log from it', !l1.hold && l1.left?.label === 'PK A9' && !('log' in l1.left) && !JSON.stringify(st).includes('SECRET') && !!Q, JSON.stringify(l1));
 
   // ── 7. withdraw_need on an answered Need says which answer
   await start(cc, 'pkW', { label: 'PK W' });
