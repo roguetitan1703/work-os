@@ -1276,6 +1276,7 @@ function AUDIT() {
   add(`action ${A_}editCommentAction`, act(A_ + 'editCommentAction', t => [t.comment, 'lkq edited'], aim(['comment'])));
   add(`action ${A_}deleteCommentAction`, act(A_ + 'deleteCommentAction', t => [t.comment], aim(['comment'], { stage: 2 })));
   add(`action ${A_}createProjectAction`, act(A_ + 'createProjectAction', [{ name: `lkq own project ${hex(3)}`, visibility: 'private' }]));
+  add(`action ${A_}setProductionAction`, act(A_ + 'setProductionAction', t => [t.project, null], aim(['project'])), act(A_ + 'setProductionAction', ['constructor', null], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add(`action ${A_}updateProjectAction`, act(A_ + 'updateProjectAction', t => [t.project, { description: 'lkq hacked' }], aim(['project'])), act(A_ + 'updateProjectAction', ['constructor', { description: 'x' }], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add(`action ${A_}projectSharingImpactAction`, act(A_ + 'projectSharingImpactAction', t => [t.project], aim(['project'])));
   add(`action ${A_}logoutAction`, act(A_ + 'logoutAction', [], { ok: r => !!r.redirect && /login/.test(r.redirect), public: true, only: ['N'], control: false /* it would sign the persona out for the rest of its probes; the misuse checks sign out a spare session */ }));
