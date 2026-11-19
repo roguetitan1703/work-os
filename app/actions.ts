@@ -14,6 +14,7 @@ import type { Scope } from '@/lib/scope';
 import * as tasks from '@/lib/data/tasks';
 import * as projects from '@/lib/data/projects';
 import * as production from '@/lib/data/production';
+import * as nudges from '@/lib/data/nudges';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 import type {
   Activity,
@@ -148,6 +149,11 @@ export async function updateProjectAction(id: string, patch: Partial<ProjectInpu
 /** What counts as production on a project (H8): the app only, never an agent's tool. null = back to the default. */
 export async function setProductionAction(projectId: string, input: production.ProductionInput | null): Promise<Result<production.ProductionView>> {
   return run(s => production.setProduction(s, String(projectId), input));
+}
+
+/** Nudges on a project (note ce434ed759): whether Work OS asks its Claude sessions to move on when work is left. The app only, never an agent's tool. */
+export async function setNudgesAction(projectId: string, on: boolean): Promise<Result<boolean>> {
+  return run(s => nudges.setNudges(s, String(projectId), on === true));
 }
 
 // ── Session ─────────────────────────────────────────────────────────────────

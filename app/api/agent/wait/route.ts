@@ -3,6 +3,7 @@ import { projectOnDevice } from '@/lib/agent-sessions';
 import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf, readCapped } from '@/lib/agent-auth';
 import { reserveAgent } from '@/lib/mcp/policy';
 import { applyAck, deliverFor, sessionRow, wakeWaiting, wakesLeft } from '@/lib/data/deliver';
+import { idleNudge } from '@/lib/data/nudges';
 import { presenceState } from '@/lib/data/presence-state';
 import { touchPresence } from '@/lib/data/presence';
 import { waitFor } from '@/lib/live';
@@ -19,6 +20,9 @@ import { waitFor } from '@/lib/live';
 //     200 { wake: true, text }   a request, question or decision addressed to the session (never an fyi, never an untargeted
 //                                project message, never a message at chain 2 or more), or an answer to a Need it asked: handed
 //                                over as read (lib/data/deliver.ts), framed, the session's wokeAt set. At most 6 an hour.
+//     200 { wake: true, text }   also the idle nudge (lib/data/nudges.ts, note ce434ed759): a main session idle 20 minutes that holds Now,
+//                                a line or a task, with a Next line that waits on nobody, unless its project turned nudges off; at most 4 a day,
+//                                1 h, 2 h, 4 h apart. No ack, no message read; the counters are on the session's own row.
 //     (every call and every wait round also refreshes the row's lastSeen, at most once a minute: Identity step 2)
 //     200 { busy: true }         the session is working (or off): in-turn delivery has it; the hook stops waiting
 //     200 { again: true }        nothing: ask again (a newer waiter for the session, or the time is up); with retryAfter (and a
@@ -90,6 +94,11 @@ export async function POST(req: Request): Promise<Response> {
         if (req.signal.aborted) return reply(200, { again: true });
         const r = await deliverFor(s, sid, projectId, 'wake');
         if (r.delivery) return reply(200, { wake: true, text: r.delivery.text, ack: [...r.delivery.ids, ...r.delivery.needs] });
+      }
+      // Nothing to deliver: an idle main session with work Work OS can see (a Next line that waits on nobody) is nudged (lib/data/nudges.ts).
+      if (!batched && !req.signal.aborted) {
+        const nudge = await idleNudge(s, { ...row, lastSeen: new Date(Math.max(row.lastSeen.getTime(), seenNow)) }, projectId);
+        if (nudge) return reply(200, { wake: true, text: nudge, ack: [] });
       }
       const left = end - Date.now();
       if (left <= 0) return reply(200, { again: true });

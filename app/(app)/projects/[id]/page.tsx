@@ -21,6 +21,8 @@ import { ProjectSessions } from './sessions';
 import { CodeLocations } from './code-locations';
 import { ProductionSetting } from './production-setting';
 import { getProduction } from '@/lib/data/production';
+import { getNudges } from '@/lib/data/nudges';
+import { NudgesSetting } from './nudges-setting';
 import { FolderLinks } from './folders';
 import { ProjectDetails } from './project-header';
 import { ProjectTop } from './project-top';
@@ -288,6 +290,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
               <h2 className={`${H2} px-1 md:px-0`}>Code</h2>
               <CodeLocations projectId={project.id} initial={repos} />
               <ProductionSetting projectId={project.id} initial={await getProduction(sc, project.id)} />
+              <NudgesSetting projectId={project.id} initial={await getNudges(sc, project.id)} />
               <div className="space-y-1.5" data-part="folders">
                 <h3 className="text-[13px] md:text-xs font-semibold text-foreground px-1 md:px-0">Folders on your computers</h3>
                 <p className="text-[13px] md:text-xs text-muted-foreground px-1 md:px-0">Where this project lives on each of your computers. Claude opens its sessions in these folders. Only you see your computers.</p>

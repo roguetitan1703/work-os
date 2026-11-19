@@ -145,6 +145,8 @@ export type ProjectDoc = Placed & {
   repoPublicAt?: Date;
   /** What counts as this project's production for the Work OS hook (lib/data/production.ts); unset = the default from `code`. Set in the app only. */
   production?: { remotes: string[]; branches: string[]; targets: string[]; off?: boolean };
+  /** Nudges (lib/data/nudges.ts): false = Work OS does not nudge sessions of this project (the turn-end check, the idle nudge, the Declutter nudge). Unset = on. Set in the app only. */
+  nudges?: boolean;
   /** Who last set `production`. */
   productionBy?: string;
   /** The Delpat OS project it was imported from (lib/delpat-os.ts); unique per organization among shared projects, per owner among private ones. */
@@ -446,6 +448,11 @@ export type PresenceDoc = Placed & {
   movedTo?: string;
   /** Lanes: set once the sweep has moved this off session's Needs and messages on. */
   swept?: Date;
+  /** Nudges: when a prompt event last reached the server for this session (typed or not), the last idle nudge handed out, how many today (nudgeDay, UTC YYYY-MM-DD). Counters only. */
+  promptAt?: Date;
+  nudgeAt?: Date;
+  nudgeCount?: number;
+  nudgeDay?: string;
   /** The state the Claude Code hook last reported (POST /api/agent/event; the server decides it from the event). Absent for sessions with no hook token. */
   activity?: { state: PresenceState; at: Date; why?: 'prompt' };
   /** The last Stop the hook counted (H12, the Monday numbers): were the changed files saved to the State, and was the session reminded first. Last stop wins. Counts only, never text. */

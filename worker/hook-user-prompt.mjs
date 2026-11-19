@@ -3,7 +3,7 @@
 // prompt's context. Waits for the answer (0.6 s at most, the hook is given 3); no token, a slow or failed call: no output.
 // A session that started unfiled (no project owns its folder, H13) tries to sign in again first (2 s): once its person filed the folder
 // it gets its token and one line, "Filed under X"; still unfiled it gets a one-line reminder; marked not Work OS it is left alone.
-import { deliverOut, postEvent, readKept, readMarker, unfiledReminder, workerHome, writeMarker } from './hook-lib.mjs';
+import { deliverOut, postEvent, readKept, readMarker, statusHash, unfiledReminder, workerHome, writeMarker } from './hook-lib.mjs';
 import { refile } from './hook-session-start.mjs';
 
 const WOKE_MS = 60_000;
@@ -42,8 +42,10 @@ export async function userPrompt(input) {
   const r = m?.unfiled && !line.startsWith('Filed') && !readKept(sid) ? null : await postEvent(sid, 'prompt', { deliver: true, ...(woke ? { woke: true } : {}) }, PROMPT_POST_MS);
   const after = readMarker(sid);
   if (after && (!after.unfiled || readKept(sid))) {
-    const { wokeAt, ...rest } = after;
-    void wokeAt;
+    const { wokeAt, turnStatus, ...rest } = after;
+    void wokeAt; void turnStatus;
+    // The Declutter nudge fires only on a turn that changed no files: the Now holder's turn starts from this snapshot (hook-stop.mjs quietTurn).
+    if (rest.holdsNow === true) rest.turnStatus = statusHash(input.cwd || process.cwd());
     const typed = !woke && typedByPerson(input);
     writeMarker(sid, { ...rest, lastTool: Date.now(), ...(typed ? { promptAt: Date.now() } : rest.promptAt ? { promptAt: rest.promptAt } : {}) }); // promptAt: the person's last prompt in this main session (H8 attended rule: hook-pre-tool.mjs attended()); the tool-batch hook posts again in 20 s
   }

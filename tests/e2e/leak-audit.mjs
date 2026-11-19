@@ -1408,6 +1408,7 @@ function AUDIT() {
   add(`action ${A_}deleteCommentAction`, act(A_ + 'deleteCommentAction', t => [t.comment], aim(['comment'], { stage: 2 })));
   add(`action ${A_}createProjectAction`, act(A_ + 'createProjectAction', [{ name: `lkq own project ${hex(3)}`, visibility: 'private' }]));
   add(`action ${A_}setProductionAction`, act(A_ + 'setProductionAction', t => [t.project, null], aim(['project'])), act(A_ + 'setProductionAction', ['constructor', null], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
+  add(`action ${A_}setNudgesAction`, act(A_ + 'setNudgesAction', t => [t.project, true], aim(['project'])), act(A_ + 'setNudgesAction', ['constructor', true], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add(`action ${A_}updateProjectAction`, act(A_ + 'updateProjectAction', t => [t.project, { description: 'lkq hacked' }], aim(['project'])), act(A_ + 'updateProjectAction', ['constructor', { description: 'x' }], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add(`action ${A_}projectSharingImpactAction`, act(A_ + 'projectSharingImpactAction', t => [t.project], aim(['project'])));
   add(`action ${A_}logoutAction`, act(A_ + 'logoutAction', [], { ok: r => !!r.redirect && /login/.test(r.redirect), public: true, only: ['N'], control: false /* it would sign the persona out for the rest of its probes; the misuse checks sign out a spare session */ }));
@@ -1645,8 +1646,10 @@ function AUDIT() {
     const s = await req('POST', '/api/agent/start', { bearer: p.wkr, body: { remote: t.remote, branch: 'main' } });
     let token = 'wst_' + 'a'.repeat(43);
     try { token = JSON.parse(s.text).token ?? token; } catch { /* no token: the made-up one is refused */ }
-    return req('POST', '/api/agent/event', { bearer: token, body: { event: 'prompt' } });
-  }, controlOk: r => r.status === 200 && /"state":"working"/.test(r.text) }));
+    // A prompt, then a stop that carries the nudge facts (Nudges): the answer's `nudge` (Next lines, the Declutter text) is for the token's own session and project only.
+    await req('POST', '/api/agent/event', { bearer: token, body: { event: 'prompt' } });
+    return req('POST', '/api/agent/event', { bearer: token, body: { event: 'stop', nudge: { asks: true, quiet: true } } });
+  }, controlOk: r => r.status === 200 && /"state":"idle"/.test(r.text) }));
   // The idle session's wait (session token only): the same sign-in, then a prompt event (the session is working, so the wait answers
   // busy at once instead of holding the call), then the wait. Only A, whose computer has the folder, gets an answer; nobody's other
   // credential opens it (misuse list below).

@@ -5,7 +5,8 @@ import { reserveAgent } from '@/lib/mcp/policy';
 import { isFreeEvent, recordEvent, setIdentity, setLastResult } from '@/lib/data/presence';
 import { EVENT_KINDS, EVENT_NAMES } from '@/lib/data/presence-state';
 import { hint } from '@/lib/live';
-import { applyAck, deliverFor, startTurn, type Delivery } from '@/lib/data/deliver';
+import { applyAck, deliverFor, sessionRow, startTurn, type Delivery } from '@/lib/data/deliver';
+import { stopNudge, type StopNudge } from '@/lib/data/nudges';
 
 // The Work OS hook's session-state route (docs/flows/agent-system.md section 11; the worker's hook files report to it).
 // POST /api/agent/event, JSON body { event: 'prompt'|'tool'|'notify'|'stop'|'end', kind?: 'permission_prompt'|'idle_prompt'|
@@ -22,6 +23,9 @@ import { applyAck, deliverFor, startTurn, type Delivery } from '@/lib/data/deliv
 //            unread for the session (lib/data/deliver.ts), framed and read by handing it over: a prompt and a tool batch get
 //            everything, a stop only what may wake a session. Needs a folder on the token's computer for the project (checked
 //            every call) and one of 360 reads an hour; without them the answer is the state alone.
+//   nudge    (stop only) { asks?, quiet? }: the hook's two facts. The answer may then carry `nudge: { lines?, declutter? }` for the token's own session
+//            and project only (lib/data/nudges.ts stopNudge): Next lines that wait on nobody (up to 3, 120 characters), and the Declutter nudge text.
+//            Nothing when the project turned nudges off or the session holds nothing.
 //   ack      ids (messages, Needs) the hook printed from the last `deliver`: only then are they read; one not acknowledged is offered
 //            again after 20 s (at most 3 offers, then 2 minutes' rest). A wake or a Stop continue is charged when acknowledged.
 //   woke     true on a prompt that is a wake the hook just got (kept only when the server handed out a wake under a minute ago).
@@ -60,6 +64,8 @@ const Body = z
     // H12, the Monday numbers: words and a flag, never text. files and reminded only with a stop, copy only with a tool.
     files: z.enum(['saved', 'unsaved']).optional(),
     reminded: z.boolean().optional(),
+    // Nudges, on a stop only: the hook's two facts (the turn's last message asked the person something; the turn changed no files and Declutter was not nudged today).
+    nudge: z.object({ asks: z.boolean().optional(), quiet: z.boolean().optional() }).strict().optional(),
     copy: z.literal('refused').optional(),
     // Protocol 3 (Identity step 4), on a prompt or a stop, only when it changed since the last one: the session's own name, Claude's title for it, the model.
     // Protocol 4 (Lanes step 3), on a result event: a subagent's last message (SubagentStop). The server cleans it and keeps 300 characters as the lane result of the token's own row.
@@ -69,6 +75,7 @@ const Body = z
   .strict()
   .refine(b => (b.files === undefined && b.reminded === undefined) || b.event === 'stop', { message: 'files and reminded belong to a stop' })
   .refine(b => b.reminded === undefined || b.files !== undefined, { message: 'reminded goes with files' })
+  .refine(b => b.nudge === undefined || b.event === 'stop', { message: 'nudge belongs to a stop' })
   .refine(b => b.copy === undefined || b.event === 'tool', { message: 'copy belongs to a tool event' })
   .refine(b => (b.result === undefined) === (b.event !== 'result'), { message: 'result goes with a result event, and only with it' })
   .refine(b => b.identity === undefined || b.event === 'prompt' || b.event === 'stop', { message: 'identity belongs to a prompt or a stop' });
@@ -108,15 +115,22 @@ export async function POST(req: Request): Promise<Response> {
       // What the hook printed from the last offer is acknowledged first: it is read, and a wake is charged and sets the chain the prompt keeps.
       if (ev.ack?.length) await applyAck(s, session.id, session.projectId, ev.ack);
       if (ev.event === 'prompt') await startTurn(s, session.id, session.projectId, ev.woke === true);
+      // Nudges (a stop only, the token's own session and project): what the hook needs for the turn-end check and the Declutter nudge.
+      let extra: { nudge?: StopNudge } = {};
+      if (ev.nudge && ev.event === 'stop' && out.state && session.projectId && (await projectOnDevice(s, device.id, session.projectId))) {
+        const row = await sessionRow(s, session.id, session.projectId);
+        const n = row ? await stopNudge(s, row, session.projectId, ev.nudge) : null;
+        if (n && (n.lines || n.declutter)) extra = { nudge: n };
+      }
       if (ev.deliver && out.state && (ev.event === 'prompt' || ev.event === 'tool' || ev.event === 'stop')) {
         // Checked on every call: the folder may have been unlinked since the session began. A used-up read budget answers the state alone.
         const pid = session.projectId; // null: a session outside any project: it gets the messages addressed to it that no project holds
         if ((!pid || (await projectOnDevice(s, device.id, pid))) && (await reserveAgent('deliver', session.id))) {
           const d = (await deliverFor(s, session.id, pid, ev.event === 'stop' ? 'stop' : 'turn')).delivery;
-          if (d) return reply(200, { ...out, deliver: d satisfies Delivery });
+          if (d) return reply(200, { ...out, ...extra, deliver: d satisfies Delivery });
         }
       }
-      return reply(200, out);
+      return reply(200, { ...out, ...extra });
     }
   } catch (err) {
     console.error('[agent/event]', err instanceof Error ? err.name : 'error'); // the name only: never a credential or body

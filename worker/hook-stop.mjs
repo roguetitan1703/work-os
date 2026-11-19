@@ -1,6 +1,6 @@
 // Stop hook: files changed since the session started and no save_state since: block once.
 import fs from 'node:fs';
-import { MAX_BRIEF, deliverText, keepAck, postEvent, readMarker, sizeOf, statusHash, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, cut, deliverText, keepAck, postEvent, readMarker, sizeOf, statusHash, writeMarker } from './hook-lib.mjs';
 
 /**
  * Stop: the hook's JSON answer (or null). The save check blocks at most once per session; messages that came during the turn ride
@@ -19,7 +19,13 @@ export async function stop(input) {
   }
   if (!sid) return null;
   const again = !!input.stop_hook_active;
-  const a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...stopCounts(input, sid) });
+  // Nudges (note ce434ed759): two facts go to the server, which answers for this session only; the message never leaves this computer.
+  const asks = !again && asksQuestion(lastAssistantText(input));
+  const quiet = !again && quietTurn(input, sid);
+  const nudge = asks || quiet ? { nudge: { ...(asks ? { asks: true } : {}), ...(quiet ? { quiet: true } : {}) } } : {};
+  const counts = stopCounts(input, sid);
+  let a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...counts, ...nudge });
+  if (a?.status === 400 && nudge.nudge) a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...counts }); // a server that does not know nudges yet
   const d = a?.status === 200 ? a.b?.deliver : null;
   if (!again && d?.wakeable === true && deliverText(a)) {
     const m = readMarker(sid);
@@ -27,7 +33,72 @@ export async function stop(input) {
     keepAck(sid, a);
     return { decision: 'block', reason: deliverText(a) };
   }
+  // The turn-end check, then the Declutter nudge: at most one of them, and only when this stop is not itself the answer to a block.
+  const n = !again && a?.status === 200 ? a.b?.nudge : null;
+  if (n && typeof n === 'object') {
+    const lines = asks && Array.isArray(n.lines) ? n.lines.filter((l) => typeof l === 'string' && l.trim()).slice(0, 3).map((l) => cut(l, 120)) : [];
+    const m = readMarker(sid);
+    if (lines.length) {
+      if (m) writeMarker(sid, { ...m, lastTool: 0 });
+      return { decision: 'block', reason: turnEndText(lines) };
+    }
+    if (quiet && typeof n.declutter === 'string' && n.declutter.trim()) {
+      if (m) writeMarker(sid, { ...m, lastTool: 0, declutterDay: today() });
+      return { decision: 'block', reason: cut(n.declutter, 400) };
+    }
+  }
   return null;
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+/** The turn-end check's words: Next lines that wait on nobody (the server's, at most 3, 120 characters each). */
+export const turnEndText = (lines) => `Before you stop: these Next lines don't wait on your question: ${lines.map((l) => `"${l}"`).join('; ')}. Start the next one, or add waits_on to each line that really waits.`;
+
+/**
+ * Does a message ask the person something? A line that ends with "?" (closing quotes, brackets and markdown after it are ignored),
+ * outside code blocks, anywhere in the message; that includes a message that ends with one.
+ */
+export function asksQuestion(text) {
+  if (typeof text !== 'string' || !text) return false;
+  const plain = text.replace(/```[\s\S]*?(```|$)/g, '\n');
+  return plain.split(/\r?\n/).some((l) => /\?[\s"'`)\]}*_>]*$/.test(l.trimEnd()));
+}
+
+/** The turn's last assistant message: the Stop input's `last_assistant_message` when Claude Code gives it, else the transcript's tail. '' when unknown. */
+export function lastAssistantText(input) {
+  if (typeof input?.last_assistant_message === 'string') return input.last_assistant_message;
+  const f = input?.transcript_path;
+  if (!f) return '';
+  try {
+    const fd = fs.openSync(f, 'r');
+    try {
+      const size = fs.fstatSync(fd).size;
+      const len = Math.min(size, 131072);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, size - len);
+      const lines = buf.toString('utf8').split('\n');
+      if (size > len) lines.shift(); // the first line may be cut
+      const parts = [];
+      for (let i = lines.length - 1; i >= 0; i--) {
+        let o;
+        try { o = JSON.parse(lines[i]); } catch { continue; }
+        const c = o?.message?.content;
+        if (o?.type === 'user') { if (Array.isArray(c) && c.every((b) => b?.type === 'tool_result')) continue; break; } // the person's prompt: the turn starts here
+        if (o?.type !== 'assistant') continue;
+        const t = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b?.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('\n') : '';
+        if (t) { parts.unshift(t); break; } // the last message with words in it
+      }
+      return parts.join('\n');
+    } finally { fs.closeSync(fd); }
+  } catch { return ''; }
+}
+
+/** Declutter may be nudged: this session held Now when the turn began (the marker says so), the turn changed no files, and it was not nudged today. */
+function quietTurn(input, sid) {
+  const m = readMarker(sid);
+  if (!m || m.holdsNow !== true || m.declutterDay === today() || !m.turnStatus) return false;
+  return statusHash(input.cwd || process.cwd()) === m.turnStatus;
 }
 
 /**
