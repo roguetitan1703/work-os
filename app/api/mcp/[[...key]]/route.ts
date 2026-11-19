@@ -5,7 +5,9 @@ import { acquireMcpServer } from '@/lib/mcp/pool';
 import type { Caller } from '@/lib/mcp/policy';
 import { flushQueuedAlerts } from '@/lib/alerts';
 import { markSeen } from '@/lib/notify';
-import { verifyKey } from '@/lib/caller';
+import { roleOf, verifyKey } from '@/lib/caller';
+import { RUN_KEY_PREFIX, verifyRunKey } from '@/lib/run-keys';
+import { timezoneOf } from '@/lib/profile';
 import { callerFromOAuthToken, OAUTH_ACCESS_PREFIX } from '@/lib/oauth';
 import { mcpResource } from '@/lib/oauth-config';
 import { hookHeader, repoHeader, runWithRequestContext, sessionHeader, type RequestContext } from '@/lib/request-context';
@@ -20,6 +22,8 @@ import { hookHeader, repoHeader, runWithRequestContext, sessionHeader, type Requ
 //   - a Claude chat key (agent "claude", Settings › Connections): actor "claude", as the old MCP_TOKEN was
 //   - a Claude Code key (agent "claude-code", Claude › Setup): actor "claude-code", with the rules in
 //     lib/mcp/policy.ts. Optional headers X-Work-OS-Session / X-Work-OS-Repo are stored on the history entries.
+//   - a run key (wdr_…, lib/run-keys.ts): a dispatched run's own key; a Claude Code caller with `dispatched` set
+//     (Orders never writable, mail and Discord refused, its sessions marked, no other session's id)
 // Every key belongs to a user in an organization; the server acts for them (their scope; history says "Claude · <them>").
 // Fallback for clients that can't send headers (the claude.ai connector), only when MCP_ALLOW_URL_TOKEN=1 and only
 // for Claude chat keys:                                         → POST /api/mcp/<key>
@@ -40,6 +44,13 @@ async function authorize(req: Request, ctx: Ctx): Promise<Authorized | null> {
     return c?.key?.agent === 'claude' ? { agent: 'claude', keyId: c.key.id, keyName: c.key.name, userId: c.userId, orgId: c.orgId, tz: c.tz } : null;
   }
   const token = bearerToken(req);
+  // A dispatched run's own key (lib/run-keys.ts): the person's Claude Code, marked dispatched on every call, whatever it sends.
+  if (token?.startsWith(RUN_KEY_PREFIX)) {
+    const r = await verifyRunKey(token);
+    if (!r || !(await roleOf(r.userId, r.orgId))) return null;
+    const tz = await timezoneOf({ userId: r.userId, orgId: r.orgId });
+    return { agent: 'claude-code', keyId: `run_${r.sessionId}`, keyName: `Dispatched run #${r.ref}`, userId: r.userId, orgId: r.orgId, tz, dispatched: { taskId: r.taskId, ref: r.ref, sessionId: r.sessionId } };
+  }
   const c = token?.startsWith(OAUTH_ACCESS_PREFIX) ? await callerFromOAuthToken(token) : await verifyKey(token);
   if (!c?.key) return null;
   return { agent: c.key.agent, keyId: c.key.id, keyName: c.key.name, userId: c.userId, orgId: c.orgId, tz: c.tz };
@@ -70,7 +81,7 @@ async function handle(req: Request, ctx: Ctx): Promise<Response> {
   await server.connect(transport);
   const rc: RequestContext =
     caller.agent === 'claude-code'
-      ? { userId: caller.userId, tz: caller.tz, session: sessionHeader(req.headers.get('x-work-os-session')), repo: repoHeader(req.headers.get('x-work-os-repo')), sid: sessionHeader(req.headers.get('x-work-os-session')), hook: hookHeader(req.headers.get('x-work-os-hook')), keyId: caller.keyId }
+      ? { userId: caller.userId, tz: caller.tz, session: sessionHeader(req.headers.get('x-work-os-session')), repo: repoHeader(req.headers.get('x-work-os-repo')), sid: sessionHeader(req.headers.get('x-work-os-session')), hook: hookHeader(req.headers.get('x-work-os-hook')), keyId: caller.keyId, ...(caller.dispatched ? { dispatched: { taskId: caller.dispatched.taskId, ref: caller.dispatched.ref } } : {}) }
       : { userId: caller.userId, tz: caller.tz, sid: sessionHeader(req.headers.get('x-work-os-session')), hook: hookHeader(req.headers.get('x-work-os-hook')), keyId: caller.keyId };
   try {
     return await runWithRequestContext(rc, () => transport.handleRequest(req));

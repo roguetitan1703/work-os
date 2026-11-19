@@ -1645,6 +1645,9 @@ function AUDIT() {
   add('route GET /api/timetable/today', route('GET', '/api/timetable/today'), route('GET', '/api/timetable/today', { label: 'chat key', useKey: true }));
   add('route POST /api/worker/folders', worker('POST', '/api/worker/folders', () => ({ folders: [{ id: 'lkqf0001', name: 'lkq probe folder', path: 'C:/lkq', git: false }] }), { label: 'own scan' }));
   add('route GET /api/worker/jobs', worker('GET', '/api/worker/jobs'));
+  // A run key only for the computer's own dispatched session (A's session is an ordinary one, so the owner is refused too; the
+  // mint itself is in tests/e2e/dispatch-key.mjs). Another persona naming A's session must not write A's row.
+  add('route POST /api/worker/run-key', worker('POST', '/api/worker/run-key', t => ({ sessionId: t.session }), { label: 'their session id', ok: r => two(r.status) && /wdr_/.test(r.text), controlOk: r => r.status === 400 && !/wdr_/.test(r.text) }));
   add('route POST /api/worker/status', worker('POST', '/api/worker/status', t => ({ worker: { version: '0.1.0', os: 'win32', allowPrompts: false }, jobs: [{ id: t.job, ok: false, error: 'lkq' }], sessions: [{ sessionId: t.session, state: 'dead' }] }), { label: 'their job and session ids', controlOk: r => two(r.status), stage: 1 }));
   add('route GET /api/worker/stream', { kind: 'worker', ok: r => r.status === 200, call: ({ p }) => streamPeek('/api/worker/stream', p.wkr ? { authorization: `Bearer ${p.wkr}` } : {}) });
   // The hook's sign-in (device key): A's private project by its folder (the hook sends the worker folder ids; the remote is information).
@@ -1813,6 +1816,7 @@ function MISUSE({ A, T, X, R }) {
   L('Better Auth OAuth client creation (not served)', () => req('POST', '/api/auth/oauth2/create-client', { cookie: A.cookie, body: { redirect_uris: ['https://evil.example/cb'] } }), r => r.status === 404);
   L('Better Auth OAuth consent list (not served)', () => req('GET', '/api/auth/oauth2/get-consents', { cookie: A.cookie }), r => r.status === 404);
   L('a made-up wos_ key on /api/mcp', () => req('POST', '/api/mcp', { bearer: 'wos_' + 'a'.repeat(48), headers: mh, body: tl }));
+  L('a made-up wdr_ run key on /api/mcp', () => req('POST', '/api/mcp', { bearer: 'wdr_' + 'a'.repeat(43), headers: mh, body: tl }));
   L('a chat key in the URL (MCP_ALLOW_URL_TOKEN off)', () => req('POST', `/api/mcp/${A.chat}`, { headers: mh, body: tl }));
   L('a chat key in X-API-Key on a page', () => req('GET', '/today', { headers: { 'x-api-key': A.chat } }), r => toLogin(r) || no(r));
   L('a chat key as Bearer on a page', () => req('GET', '/tasks', { bearer: A.chat }), r => toLogin(r) || no(r));

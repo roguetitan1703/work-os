@@ -416,6 +416,8 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 
 **H15 (19 Nov):** a dispatched session is marked by the server (the PC's own worker session row), its hooks refuse Orders edits and shell calls that reach the Work OS key or API, the claim cap is a transaction behind a per-person lock document, a session that ends on its own is put back once and then asked about (an app-only Need to the giver: Give to Claude again / Take back), and the prompt ends with `end_work`. See `docs/dispatcher.md` "As built (H15)".
 
+**Run keys (20 Nov):** a dispatched run never holds its person's Work OS credential. The worker gets a per-run `wdr_` key (`POST /api/worker/run-key`, `lib/run-keys.ts`) and starts or resumes the run with `--strict-mcp-config` on a temp MCP config holding only that key, a `--settings` file that blanks `WORK_OS_KEY`, and the key dropped from its environment (`worker/dispatch-run.mjs`). On `/api/mcp` that key is always dispatched: Orders not writable, mail and Discord refused, its sessions marked, another session's id refused. See `docs/dispatcher.md` "Run keys" (and what a same-user run can still read).
+
 **Claude Code:** design, rules and what differs from the plan are in `docs/dispatcher.md` ("As built"). All logic is `lib/data/dispatcher.ts`; `claude` on a task is written only by `app/(app)/claude/dispatcher-actions.ts` (session cookie) and the dispatcher; `updateTask`/`createTask` never touch it. The claim runs in `GET /api/worker/jobs` (`dispatchFor`), outcomes are settled on worker status, task changes and the alerts cron (`reconcileDispatched`). Test with a throwaway mongod replica set and a fake device key (never the real database).
 
 ---

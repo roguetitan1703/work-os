@@ -197,7 +197,7 @@ export async function pick(from, where, v) {
 }
 
 export const state = { pass: 0, fail: 0, fails: [] };
-export const redact = s => String(s).replace(/w(kr|os)_[A-Za-z0-9_-]{8,}/g, 'w$1_<redacted>');
+export const redact = s => String(s).replace(/w(kr|os|dr|st)_[A-Za-z0-9_-]{8,}/g, 'w$1_<redacted>');
 export const check = (l, c, x = '') => { c ? state.pass++ : (state.fail++, state.fails.push(l)); console.log(`${c ? 'PASS' : 'FAIL'}  ${l}${!c && x ? '  - ' + redact(x) : ''}`); };
 // Prints the line run.sh parses, closes the database, exits non-zero on any failure.
 export async function finish(extraFail = 0) {
