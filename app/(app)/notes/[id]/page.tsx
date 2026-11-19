@@ -7,6 +7,7 @@ import { getCaller, requireScope } from '@/lib/caller';
 import { scoped } from '@/lib/scope';
 import { ORG_RULE_LINES, ordersHistory, ruleLines } from '@/lib/data/orders';
 import { OrdersSwitch } from './orders-switch';
+import { ShelfSwitch } from './shelf-switch';
 import { OrdersChanges } from './orders-changes';
 import { ActorName } from '@/components/actor-badge';
 import { NoteEditor } from './note-editor';
@@ -68,6 +69,7 @@ export default async function NotePage({ params, searchParams }: Props) {
           Edited {fmtAgo(note.updatedAt)} by <ActorName actor={note.updatedBy} />
         </span>
         {note.archived && <span className="px-1.5 py-px rounded bg-muted">Archived · {note.archivedBecause}</span>}
+        {note.shelf && <ShelfSwitch noteId={note.id} current={note.shelf} />}
         {(ordersOptions.length > 0 || note.orders) && <OrdersSwitch noteId={note.id} current={note.orders ?? null} options={ordersOptions} updatedAt={new Date(note.updatedAt).getTime()} />}
         {history && (
           <span

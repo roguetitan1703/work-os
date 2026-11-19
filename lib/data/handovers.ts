@@ -75,7 +75,7 @@ export async function writeHandover(s: Scope, w: WriteHandover, actor: Actor): P
   const cur = await c.notes.findOne({ projectId: w.project._id, taskId: null, title, 'handover.by': s.userId, deletedAt: null }, { projection: { _id: 1 } });
   const { note, created } = cur
     ? await writeNote(s, { noteId: cur._id, body, archived: false }, actor)
-    : await writeNote(s, { project: w.project._id, title, body, archived: false }, actor);
+    : await writeNote(s, { project: w.project._id, title, body, archived: false, allowSameTitle: true, shelf: 'handovers', fromHandover: true }, actor);
   const meta: HandoverMeta = { by: s.userId, for: w.for, session: w.me, ...(w.label ? { label: w.label } : {}), fields: w.fields };
   await c.notes.updateOne({ _id: note.id }, { $set: { handover: meta } });
   return { id: note.id, title: note.title, created };

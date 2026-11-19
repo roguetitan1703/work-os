@@ -135,7 +135,7 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
 | Tasks | list_tasks, get_task, add_task, update_task, log_progress, complete_task, hand_in, add_comment, update_checklist, delete_task, restore_task, list_trash, apply_changes | Keep |
 | Claude items | update_claude_items | Retire after migration (section 3) |
 | Projects | list_projects, add_project, update_project, get_project, daily_summary, recent_activity | get_project's "start here from a repo" text → start_work |
-| Notes | write_note, read_note, list_notes, delete_note | Shelves; duplicate titles refused; normalise quotes and dashes when matching edits |
+| Notes | write_note, read_note, list_notes, delete_note | Shelves; duplicate titles refused; normalise quotes and dashes when matching edits *Built in H14* |
 | Messages and Needs | send_message, inbox, message_status, reply, ask, needs, withdraw_need | Per-session ids; to_session by id or label; the frame on every message |
 | Rules | (none) | Add propose_order, feedback; Orders version in forYou |
 | Discord (4), Mail (12) | discord_*, mail_* | Keep; their detail leaves the server instructions for their own descriptions |

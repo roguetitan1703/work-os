@@ -109,7 +109,7 @@ A number (`#12`), title, description, project, mode (type of work), priority P1�
 
 One list of words, used in the server instructions, every tool description and answer, the hook messages, the State card and the docs. `lib/mcp/docs.ts` carries the one-line agent version.
 
-- **State** = a project's Now (one goal), Next, Later (found, not chased; says what it waits on), Decisions and Where. **task** = a deliverable someone tracks (#12). **Need** = one question to one person (`ask`). **Orders** = the standing rules (organisation, project, person). **Orders version** = one saved state of an Orders page (vN), with what changed and why, kept for undo. **note** = a page in Work OS. **session** = one agent conversation (`start_work` gives its id). **handover** = the note a session leaves for the next. **copy** = WORK-STATE.md, written by the Work OS hook. **session state** = on, working, waiting, idle or off, reported by the Work OS hook (Claude Code) or taken from the last Work OS call (other clients). **friction** = one line on what got in an agent's way in Work OS: `feedback` while working, end_work's `friction` at the end; both go to the project's feed.
+- **State** = a project's Now (one goal), Next, Later (found, not chased; says what it waits on), Decisions and Where. **task** = a deliverable someone tracks (#12). **Need** = one question to one person (`ask`). **Orders** = the standing rules (organisation, project, person). **Orders version** = one saved state of an Orders page (vN), with what changed and why, kept for undo. **note** = a page in Work OS; a project's notes sit on **shelves** (Overview, Designs, Runbooks, Handovers; archived notes are the Archive). **session** = one agent conversation (`start_work` gives its id). **handover** = the note a session leaves for the next. **copy** = WORK-STATE.md, written by the Work OS hook. **session state** = on, working, waiting, idle or off, reported by the Work OS hook (Claude Code) or taken from the last Work OS call (other clients). **friction** = one line on what got in an agent's way in Work OS: `feedback` while working, end_work's `friction` at the end; both go to the project's feed.
 - **Monday numbers** = the four counts and up to three proposals in the organization owner's Monday digest (sessions that changed files and saved State, PCs with no hooks, WORK-STATE.md edits refused and forwarded, Om's repeats); silence means keep.
 - **release Need** = an approve Need asked with `release: true` (to the project's owner, options fixed by the server: Yes release (1 hour), Yes for 24 hours, No). Yes opens production on the project for its window: pushes, tags, releases and production commands pass the Work OS hook until it ends. The only approval the hook accepts.
 - **folder** = where a session starts. A project owns folders per PC (linked in the app, or by a session with start_work `link`); the longest owned folder wins, and a worktree or subfolder of an owned folder belongs to the same project. The remote is information: it never picks the project, it only ranks the suggestions ("same remote"). **unfiled** = a session in a folder no project owns: it asks its person once which project it is for, then files the folder (link), creates the project first (`add_project`), or marks the folder **not Work OS** (`not_work_os`, per person, undone in Claude › Setup › Computers). Never "Lobby" in agent-facing text (a design word).
@@ -242,29 +242,31 @@ One list of words, used in the server instructions, every tool description and a
   - **`/` → Sub-page** creates a page inside the note. Its title shows in the parent as a link, and breadcrumbs lead back.
 - **Where notes live:**
   - **A task has one note:** "Add a note" or "Open note" on the task.
-  - **Projects can have many:** the Notes section on the project page.
-  - **All notes:** the **Notes** page (sidebar, or the phone tab). It's one flat list, newest first, filtered by project, active / archived / all, task or project notes, plus a text search.
+  - **Projects can have many:** the Notes section on the project page. They sit on **shelves** (Overview, Designs, Runbooks, Handovers), each a small heading over its notes; empty shelves are hidden. A note nobody moved sits on Designs (a handover on Handovers, an Orders page on Overview). Move one with the **Shelf** picker in the note's header. Task notes and sub-pages have no shelf; they sit with their task or page.
+  - **All notes:** the **Notes** page (sidebar, or the phone tab). It's one flat list, newest first, filtered by project, shelf (desktop select, phone chips; Archive is the archived project notes), active / archived / all, task or project notes, plus a text search.
 - **Archiving:**
   - A task's note is archived automatically when the task is done or dropped, and stays readable.
   - A project note can be archived by hand.
+- **One title per place:** a second note with the same title beside one (same project, or the same page's sub-pages; case, quotes and dashes ignored) is refused. Archived notes count; task notes, handovers, Orders pages and "Untitled" do not. In the editor the blocks you typed still save, the title goes back to what it was, and a message with Open takes you to the existing note.
 - **Saving:** automatic, about 1 second after you stop typing, or Ctrl+S.
 - **Delete:** a page goes to the trash for 30 days, with Undo. Deleting a page also deletes its sub-pages. Review → Trash lists deleted notes (sub-pages fold into the page they went with) with Restore and Delete forever.
 - **If Claude edits a page while you have it open,** your old copy won't overwrite Claude's changes. You get a warning and the page reloads. Anything typed in those few seconds is lost, so copy it first if it matters.
 - **Images, video, audio and files are switched off for now.** They're hidden from the `/` menu, and pasting files does nothing.
 
 ### Claude
-- **`list_notes`:** id, title, first line, what it's attached to, last edited. Filters: project, state, kind, search.
+- **`list_notes`:** id, title, first line, what it's attached to, shelf, last edited. Filters: project, state, kind, shelf (`overview`, `designs`, `runbooks`, `handovers`, `archive`), search.
 - **`read_note`:** the markdown, plus **blocks** (`id`, `type`, `markdown` each) and sub-pages.
 - **`write_note`:**
   - **Which note:** by `note_id`, or by `task` (that task's one note, created if missing). A **new** project note needs `project` and `title`. A new sub-page needs `parent_id` and `title`.
   - **How the content changes**, one of:
     - **`block_ops`** (preferred): replace, insert or delete by block id. Everything else keeps its formatting.
-    - **`edits`** `[{find, replace}]`: the text must occur exactly once; only that block is rewritten.
+    - **`edits`** `[{find, replace}]`: the text must occur exactly once. It is matched against `blocks[].markdown` from `read_note` (the page's `markdown` numbers list items; the blocks say `1.` for each, and both match), exact first, then through curly and straight quotes, dashes, `...`, list numbers, table padding, hard breaks and `\` escapes. A plain replacement changes only the touched text and keeps colours, bold, mentions and literal `<tag>` text; a replacement with markdown (`**x**`, a link, a new line) rebuilds that one block. The replacement is written as given.
+    - **`shelf`** (`overview`, `designs`, `runbooks`) puts a project note on a shelf; not for a task's note or a sub-page. `handovers` only comes from `end_work`.
     - **`append`**: markdown added at the end.
     - **`body`**: replaces the whole page and drops Notion-only formatting.
   - **Links:** `[#12 Title](/tasks/12)` and `[Name](/projects/<id>)` become mentions.
 - **`delete_note`** needs the title as a check.
-- **No duplicate notes:** `get_task`, `get_project` and `list_projects` include each note's id, title and first line, so Claude can see what exists and update it instead of creating another.
+- **Duplicate titles are refused:** a second note with the same title beside one comes back as an error with the existing note's id (and its shelf or `archived`), nothing saved: write to that id, or give another title. `get_task`, `get_project` and `list_projects` still include each note's id, title and first line, so Claude can see what exists first. In `apply_changes` the refusal rolls back the whole batch.
 
 ### Claude Code
 - **Editor:** BlockNote 0.55 (`@blocknote/react`, `@blocknote/mantine`). Schema: `lib/notes-schema.ts`, with custom `mention` inline content and a `page` block. Plain DOM renderers, so it works in the browser and on the server.
@@ -277,6 +279,8 @@ One list of words, used in the server instructions, every tool description and a
   - **Soft delete:** `deletedAt`; deletion cascades to sub-pages. `listDeletedNotes` (Review › Trash) purges notes older than 30 days first, like the task trash; `purgeNote` deletes one for good with its sub-pages.
   - **Version check:** `expectUpdatedAt` raises `NoteConflictError`.
   - **Task trash:** the note goes to the trash and comes back with its task.
+- **Matching and in-place edits (H14):** `lib/notes-match.ts` (pure, no imports: `fold`, `locate`, `hasMarkdown`, `titleKey`; `npm run check:notes-match`) and `inlineRuns` / `editInPlace` in `lib/notes-convert.ts`. The `edits` loop in `applyContent` tries `editInPlace` when the replacement holds no markdown, else the markdown path (`locate` per top-level block, re-parsed). Order Orders proposals (`proposeOrder`) and edits should use the same `locate`.
+- **Duplicates and shelves (H14):** `sameTitle` in `lib/data/notes.ts` reads the siblings through `scoped(s)` (so a refusal can only name a note the caller can read) and compares `titleKey`; there is no unique index, so two simultaneous creates can both pass (Declutter lists notes with matching titles by `titleKey`). `allowSameTitle` (internal) lets end_work's handovers through; `titleClash: 'keep'` is the editor's autosave (blocks save, title stays, answer carries `titleRefused`). `NoteDoc.shelf` and `lib/notes-shelves.ts` (`SHELVES`, `shelfOf`, `UNTITLED`); `fromHandover` (internal) is the only way onto Handovers. `listNotes` takes `shelf`. A shelf change is a move for `guardOrders`: an Orders page is moved by its holder in the app only.
 - **UI:**
   - `app/(app)/notes/` (list, `[id]` page, `block-editor.tsx`, `note-editor.tsx`, `actions.ts`)
   - `components/new-note-button.tsx`

@@ -1,6 +1,7 @@
 import 'server-only';
 import type { ServerBlockNoteEditor } from '@blocknote/server-util';
 import type { NoteBlock, NotePartialBlock, NoteSchema } from './notes-schema';
+import { locateExact, locateFolded } from './notes-match';
 
 // Server-side conversion between note blocks (source of truth) and markdown (what Claude reads
 // and writes). Links Claude writes to /tasks/<ref> or /projects/<id> become mentions.
@@ -109,4 +110,93 @@ export function findBlock(blocks: NoteBlock[], id: string): Loc | null {
 /** Deep clone so edits never mutate the stored array in place. */
 export function cloneBlocks(blocks: NoteBlock[]): NoteBlock[] {
   return JSON.parse(JSON.stringify(blocks ?? []));
+}
+
+// ── In-place text edits (H14 step 2) ────────────────────────────────────────
+
+type Run = { list: Inline[]; index: number; text: string; editable: boolean; link?: { node: Inline; parent: Inline[] } };
+
+/**
+ * The text segments of a block with inline content, in order: `text` runs and the `text` runs inside a `link`. A mention
+ * counts as one U+FFFC character (it never matches a find, and is never edited). Blocks without inline content (tables,
+ * code, page) have none.
+ */
+export function inlineRuns(block: AnyBlock): Run[] | null {
+  const x = block as unknown as { type: string; content?: unknown };
+  if (!Array.isArray(x.content) || x.type === 'codeBlock') return null;
+  const runs: Run[] = [];
+  const walk = (list: Inline[], link?: Run['link']) => {
+    list.forEach((ic, index) => {
+      if (ic.type === 'text') runs.push({ list, index, text: ic.text ?? '', editable: true, ...(link ? { link } : {}) });
+      else if (ic.type === 'link' && Array.isArray(ic.content)) walk(ic.content, { node: ic, parent: list });
+      else runs.push({ list, index, text: '\uFFFC', editable: false });
+    });
+  };
+  walk(x.content as Inline[]);
+  return runs;
+}
+
+/**
+ * Finds `find` in the plain text of the page's blocks (exact first, then folded through quotes, dashes and spaces) and,
+ * when it occurs exactly once inside ordinary text runs of one block, `apply()` rewrites just those runs: the first touched
+ * run gets the new text with its styles, later touched runs are trimmed, everything else (other runs, mentions, colours,
+ * the block's id and props) stays. `count` is the number of hits across the page; a hit that touches a mention is
+ * not editable in place (count 0), so the caller takes the markdown path.
+ */
+export function editInPlace(blocks: NoteBlock[], find: string, replace: string): { count: number; apply?: () => void } {
+  // `runs` is empty for text that is counted but never edited here (code blocks, table cells): a find that also occurs there
+  // is not unique, as in the markdown path.
+  const texts: { runs: Run[]; text: string }[] = [];
+  const raw = (c: unknown): string => (Array.isArray(c) ? (c as Inline[]).map(ic => ic.text ?? raw(ic.content)).join('') : '');
+  const walk = (bs: AnyBlock[]) => {
+    for (const b of bs) {
+      const runs = inlineRuns(b);
+      if (runs?.length) texts.push({ runs, text: runs.map(r => r.text).join('') });
+      else {
+        const c = (b as unknown as { content?: unknown }).content;
+        if (Array.isArray(c)) texts.push({ runs: [], text: raw(c) });
+        else if (c && typeof c === 'object') for (const row of (c as { rows?: { cells?: unknown[] }[] }).rows ?? []) for (const cell of row.cells ?? []) texts.push({ runs: [], text: raw((cell as { content?: unknown })?.content ?? cell) });
+      }
+      const kids = (b as unknown as { children?: AnyBlock[] }).children;
+      if (kids?.length) walk(kids);
+    }
+  };
+  walk(blocks);
+  let per = texts.map(t => locateExact(t.text, find));
+  if (!per.some(h => h.length)) per = texts.map(t => locateFolded(t.text, find));
+  const count = per.reduce((n, h) => n + h.length, 0);
+  if (count !== 1) return { count };
+  const i = per.findIndex(h => h.length);
+  const hit = per[i][0];
+  const { runs } = texts[i];
+  if (!runs.length) return { count: 0 };
+  const touched: { run: Run; from: number; to: number }[] = [];
+  let at = 0;
+  for (const run of runs) {
+    const end = at + run.text.length;
+    if (end > hit.start && at < hit.end) touched.push({ run, from: Math.max(hit.start, at) - at, to: Math.min(hit.end, end) - at });
+    at = end;
+  }
+  if (!touched.length || touched.some(t => !t.run.editable)) return { count: 0 };
+  return {
+    count,
+    apply: () => {
+      touched.forEach((t, k) => {
+        const node = t.run.list[t.run.index];
+        const text = node.text ?? '';
+        node.text = k === 0 ? text.slice(0, t.from) + replace + (touched.length === 1 ? text.slice(t.to) : '') : text.slice(t.to);
+      });
+      // Drop runs the edit left empty (highest index first so earlier ones keep their place).
+      for (const t of [...touched].reverse()) {
+        if (t.run.list[t.run.index].text ?? '') continue;
+        t.run.list.splice(t.run.index, 1);
+        // A link left with no text goes too (no empty link).
+        const l = t.run.link;
+        if (l && !t.run.list.length) {
+          const at = l.parent.indexOf(l.node);
+          if (at >= 0) l.parent.splice(at, 1);
+        }
+      }
+    },
+  };
 }

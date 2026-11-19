@@ -99,7 +99,9 @@ try {
   const lid = t => [...st2.next, ...st2.later].find(l => l.text === t).id;
   const mkNote = async (proj, title, body) => (await must(cc, 'write_note', { project: proj, title, body })).created.id;
   const nOld = await mkNote(P2name, 'Beta plan', 'old copy');
-  const nNew = await mkNote(P2name, 'Beta plan', 'new copy');
+  // H14 refuses a second note with one title, so the legacy duplicate is made by renaming in the database.
+  const nNew = await mkNote(P2name, 'Beta plan copy', 'new copy');
+  await rawDb.collection('notes').updateOne({ _id: nNew }, { $set: { title: 'Beta plan' } });
   await rawDb.collection('notes').updateOne({ _id: nOld }, { $set: { updatedAt: old } });
   const nOther = await mkNote(P, 'Alpha elsewhere', 'a page in another project');
   const tDone = (await must(cc, 'add_task', { title: 'H11 task at 100', project: P2name })).created;
@@ -239,7 +241,8 @@ try {
   const staleIds = ['Gamma stale one', 'Gamma stale two', 'Gamma stale three'].map(t => stG.later.find(l => l.text === t).id);
   for (const id of staleIds) await rawDb.collection('states').updateOne({ _id: stG._id, 'later.id': id }, { $set: { 'later.$.at': new Date(Date.now() - 30 * 86_400_000) } });
   const gn1 = await mkNote(G, 'Gamma plan', 'first');
-  const gn2 = await mkNote(G, 'Gamma plan', 'second');
+  const gn2 = await mkNote(G, 'Gamma plan copy', 'second'); // H14 refuses a repeated title: rename in the database
+  await rawDb.collection('notes').updateOne({ _id: gn2 }, { $set: { title: 'Gamma plan' } });
   await rawDb.collection('notes').updateOne({ _id: gn1 }, { $set: { updatedAt: new Date(Date.now() - 3 * 86_400_000) } });
   const gItem = await mkClaudeItem({ project: G, kind: 'bug', title: 'H11 gamma item to move', why: WHY, doneWhen: DONE });
   const bG = await start(G, 'h11gA');
@@ -438,7 +441,8 @@ try {
   const NUID = (await must(cc, 'add_project', { name: NU, visibility: 'org' })).project.id;
   await must(cc, 'save_state', { project: NU, ops: [{ op: 'add_later', text: 'Nu fresh line' }] }); // the daily check needs a State to store its result on
   const nuOld = await mkNote(NU, 'Nu plan', 'old copy');
-  const nuNew = await mkNote(NU, 'Nu plan', 'new copy');
+  const nuNew = await mkNote(NU, 'Nu plan copy', 'new copy'); // H14 refuses a repeated title: rename in the database
+  await rawDb.collection('notes').updateOne({ _id: nuNew }, { $set: { title: 'Nu plan' } });
   await rawDb.collection('notes').updateOne({ _id: nuOld }, { $set: { updatedAt: ago(5) } });
   const nuT = await must(cc, 'add_task', { title: 'H11 Nu finished in all but status', project: NU });
   await rawDb.collection('tasks').updateOne({ ref: nuT.created.ref }, { $set: { progress: 100, status: 'In Progress' } });

@@ -261,6 +261,8 @@ export type NoteDoc = Placed & {
   taskId: string | null; // task note (at most one live per task)
   projectId: string | null; // project note (when taskId is null)
   archived: boolean;
+  /** Which shelf a top-level project note sits on (lib/notes-shelves.ts shelfOf gives the default). Never set on a task's note or a sub-page. */
+  shelf?: 'overview' | 'designs' | 'runbooks' | 'handovers';
   /** Set on a handover (lib/data/handovers.ts): the note a session leaves for the next one. */
   handover?: HandoverMeta;
   createdBy: Actor;

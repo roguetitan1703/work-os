@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { redirect } from 'next/navigation';
+import { SHELVES } from '@/lib/notes-shelves';
 import { getCaller } from '@/lib/caller';
 import Link from '@/components/intent-link';
 import { ChevronRight, FileText } from 'lucide-react';
@@ -79,8 +80,11 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const stateView = stateDoc ? await withNeedWaits(sc, project.id, stateOut(stateDoc, me.userId, names), names) : null;
   const needsOpenForMe = needs.filter(n => n.status === 'open' && n.to === me.userId).length;
   const turbo = await turboInfo(me, project.id, launcher);
-  const projectNotes = notes.notes.filter(n => !n.taskId && !n.archived);
+  // A project's notes sit on shelves (lib/notes-shelves.ts); task notes, sub-pages and archived notes sit elsewhere.
+  const projectNotes = notes.notes.filter(n => !n.taskId && !n.parentId && !n.archived);
   const otherNotes = notes.notes.length - projectNotes.length;
+  const shelves = SHELVES.map(sh => ({ ...sh, notes: projectNotes.filter(n => n.shelf === sh.id) })).filter(sh => sh.notes.length);
+  const overviewFirst = [...projectNotes].sort((a, b) => Number(b.shelf === 'overview') - Number(a.shelf === 'overview'));
   const s = project.stats;
   const repos = project.code ?? [];
   const folders = launcher.folders.filter(f => !f.missing);
@@ -179,7 +183,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
       <aside className="space-y-4 min-w-0">
         <section className={CARD} data-card="notes">
           {cardHead('Notes', String(projectNotes.length), 'notes')}
-          {projectNotes.length > 0 && <div className="border-t border-border/60">{noteList(projectNotes.slice(0, 3), true)}</div>}
+          {projectNotes.length > 0 && <div className="border-t border-border/60">{noteList(overviewFirst.slice(0, 3), true)}</div>}
           <div className={cn('px-2 md:px-1', projectNotes.length > 0 && 'border-t border-border/60')}>{newNote}</div>
         </section>
         <section className={CARD} data-card="repos">
@@ -259,13 +263,20 @@ export default async function ProjectPage({ params, searchParams }: Props) {
             {newNote}
           </div>
           {projectNotes.length ? (
-            <div className={CARD}>{noteList(projectNotes)}</div>
+            shelves.map(sh => (
+              <div key={sh.id} className="space-y-1.5 pt-1" data-shelf={sh.id}>
+                <h3 className={`${H2} px-1 md:px-0 text-[12px] md:text-[11px]`}>
+                  {sh.label} · {sh.notes.length}
+                </h3>
+                <div className={CARD}>{noteList(sh.notes)}</div>
+              </div>
+            ))
           ) : (
             <p className="text-sm text-muted-foreground px-1">No project notes. Ideas, client terms and things to raise later go here.</p>
           )}
           {otherNotes > 0 && (
             <Link href={`/notes?project=${project.id}&state=all`} className="flex items-center min-h-11 md:min-h-0 px-1 md:px-0 text-sm md:text-xs text-muted-foreground hover:text-foreground">
-              + {otherNotes} task or archived notes →
+              + {otherNotes} task, sub-page or archived notes →
             </Link>
           )}
         </section>

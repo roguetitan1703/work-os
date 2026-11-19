@@ -570,6 +570,17 @@ try {
   // the missing membership stands between R and the first organization (the worst case of a removal).
   const rUid = { $in: [R.userId, uid(R.userId)] };
   const left = { session: await rawDb.collection('session').find({ userId: rUid }).toArray(), apikey: await rawDb.collection('apikey').find({ referenceId: rUid }).toArray() };
+  {
+    // H14: fields a client adds to a save are not passed on (allowSameTitle, fromHandover, shelf, need, undoOf), and a shelf must be one
+    await mustMcp(A.chat, 'write_note', { project: S.projectName, title: 'lkq fields one', body: 'x' });
+    const fb = (await mustMcp(A.chat, 'write_note', { project: S.projectName, title: 'lkq fields two', body: 'x' })).created.id;
+    await action('app/(app)/notes/actions.ts#saveNoteAction', [fb, { title: 'lkq fields one', allowSameTitle: true, fromHandover: true, shelf: 'handovers', need: 1, undoOf: 1 }], { cookie: A.cookie });
+    const nb = await rawDb.collection('notes').findOne({ _id: fb });
+    check('H14: saveNoteAction ignores allowSameTitle, fromHandover and shelf sent by the client', nb.title === 'lkq fields two' && nb.shelf === undefined, JSON.stringify([nb.title, nb.shelf]));
+    await action('app/(app)/notes/actions.ts#setShelfAction', [fb, 'handovers'], { cookie: A.cookie });
+    await action('app/(app)/notes/actions.ts#setShelfAction', [fb, 'bogus'], { cookie: A.cookie });
+    check('H14: setShelfAction refuses Handovers and anything that is not a shelf', (await rawDb.collection('notes').findOne({ _id: fb })).shelf === undefined);
+  }
   const rm = await action('app/(app)/settings/members-actions.ts#removeMemberAction', [R.userId], { cookie: A.cookie });
   if (!rm.value?.ok) throw new Error(`remove R: ${rm.text.slice(0, 300)}`);
   if (await rawDb.collection('member').countDocuments({ userId: rUid })) throw new Error('remove R: the membership is still there');
@@ -1376,8 +1387,9 @@ function AUDIT() {
   add(`action ${K_}revokeDeviceAction`, act(K_ + 'revokeDeviceAction', t => [t.device], aim(['device'], { stage: 2 })));
   const N_ = 'app/(app)/notes/actions.ts#';
   add(`action ${N_}createNoteAction`, act(N_ + 'createNoteAction', t => [{ task: t.ref, title: 'lkq' }], aim(['ref'], { ok: r => actOk(r) && !!r.value?.id, controlOk: r => actOk(r) || /already/i.test(r.text) })), act(N_ + 'createNoteAction', t => [{ project: t.project, title: 'lkq memo' }], aim(['project'], { label: 'project note', ok: r => actOk(r) && !!r.value?.id })));
-  add(`action ${N_}createSubPageAction`, act(N_ + 'createSubPageAction', t => [t.note, 'lkq sub'], aim(['note'], { ok: r => actOk(r) && !!r.value?.id })));
+  add(`action ${N_}createSubPageAction`, act(N_ + 'createSubPageAction', t => [t.note, 'lkq sub by action'], aim(['note'], { ok: r => actOk(r) && !!r.value?.id })));
   add(`action ${N_}saveNoteAction`, act(N_ + 'saveNoteAction', t => [t.note, { title: 'lkq hacked' }], aim(['note'])), act(N_ + 'saveNoteAction', t => [t.taskNote, { archived: true }], aim(['taskNote'], { label: 'archive a task note' })));
+  add(`action ${N_}setShelfAction`, act(N_ + 'setShelfAction', t => [t.note, 'runbooks'], aim(['note'])));
   add(`action ${N_}deleteNoteAction`, act(N_ + 'deleteNoteAction', t => [t.sub], aim(['sub'], { stage: 1 })));
   add(`action ${N_}restoreNoteAction`, act(N_ + 'restoreNoteAction', t => [t.sub], aim(['sub'], { stage: 2 })));
   // (sub2 is put in the trash by mcp delete_note earlier in stage 2; this deletes it for good)
