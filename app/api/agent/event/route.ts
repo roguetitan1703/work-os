@@ -67,7 +67,7 @@ const Body = z
     files: z.enum(['saved', 'unsaved']).optional(),
     reminded: z.boolean().optional(),
     // Nudges, on a stop only: the hook's two facts (the turn's last message asked the person something; the turn changed no files and Declutter was not nudged today).
-    nudge: z.object({ asks: z.boolean().optional(), quiet: z.boolean().optional() }).strict().optional(),
+    nudge: z.object({ asks: z.boolean().optional(), quiet: z.boolean().optional(), released: z.boolean().optional() }).strict().optional(),
     copy: z.literal('refused').optional(),
     // Protocol 3 (Identity step 4), on a prompt or a stop, only when it changed since the last one: the session's own name, Claude's title for it, the model.
     // Protocol 4 (Lanes step 3), on a result event: a subagent's last message (SubagentStop). The server cleans it and keeps 300 characters as the lane result of the token's own row.
@@ -122,7 +122,7 @@ export async function POST(req: Request): Promise<Response> {
       if (ev.nudge && ev.event === 'stop' && out.state && session.projectId && (await projectOnDevice(s, device.id, session.projectId))) {
         const row = await sessionRow(s, session.id, session.projectId);
         const n = row ? await stopNudge(s, row, session.projectId, ev.nudge) : null;
-        if (n && (n.lines || n.declutter)) extra = { nudge: n };
+        if (n && (n.lines || n.declutter || n.release)) extra = { nudge: n };
       }
       if (ev.deliver && out.state && (ev.event === 'prompt' || ev.event === 'tool' || ev.event === 'stop')) {
         // Checked on every call: the folder may have been unlinked since the session began. A used-up read budget answers the state alone.

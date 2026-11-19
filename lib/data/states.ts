@@ -442,7 +442,14 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     if (cur.decisions.filter(x => !x.archivedAt).length + decisions.length > LIMITS.decisions) throw new InputError(`Decisions would hold more than ${LIMITS.decisions} entries.`);
     if (Object.keys(cur.where).length + Object.keys(where).filter(k => !Object.hasOwn(cur.where, k.slice(6))).length > 40) throw new InputError('Where tracks at most 40 machines.');
 
+    // An unheld Now (set before Lanes) is taken by the first save of a session that may hold it: a main session (not dispatched, not
+    // ended, no parent, so not a builder) with a presence row on this project. A hold that exists is never moved here.
+    if (!person && !nowSet && cur.now && !cur.now.hold && !nowHold) {
+      const mine = await rowOf(me);
+      if (mine && !mine.dispatched && !mine.endedAt && !mine.parent) nowHold = { key: me, label: labelOf(mine), at: now };
+    }
     const set: Record<string, unknown> = { updatedAt: now, ...where };
+    if (nowHold && !nowSet && !cur.now?.hold && cur.now) set['now.hold'] = nowHold;
     const push: Record<string, unknown> = {};
     if (nowSet) set.now = nowSet;
     if (nextEdited) set.next = next;

@@ -22,7 +22,8 @@ export async function stop(input) {
   // Nudges (note ce434ed759): two facts go to the server, which answers for this session only; the message never leaves this computer.
   const asks = !again && asksQuestion(lastAssistantText(input));
   const quiet = !again && quietTurn(input, sid);
-  const nudge = asks || quiet ? { nudge: { ...(asks ? { asks: true } : {}), ...(quiet ? { quiet: true } : {}) } } : {};
+  const released = !again && releasedUnsaved(input);
+  const nudge = asks || quiet || released ? { nudge: { ...(asks ? { asks: true } : {}), ...(quiet ? { quiet: true } : {}), ...(released ? { released: true } : {}) } } : {};
   const counts = stopCounts(input, sid);
   let a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...counts, ...nudge });
   if (a?.status === 400 && nudge.nudge) a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...counts }); // a server that does not know nudges yet
@@ -43,6 +44,10 @@ export async function stop(input) {
     if (lines.length) {
       if (m) writeMarker(sid, { ...m, lastTool: 0, turnEndDay: today(), turnEndCount: used + 1 });
       return { decision: 'block', reason: turnEndText(lines) };
+    }
+    if (released && n.release === true && used < TURN_END_PER_DAY) {
+      if (m) writeMarker(sid, { ...m, lastTool: 0, turnEndDay: today(), turnEndCount: used + 1 });
+      return { decision: 'block', reason: RELEASE_TEXT };
     }
     if (quiet && typeof n.declutter === 'string' && n.declutter.trim()) {
       if (m) writeMarker(sid, { ...m, lastTool: 0, declutterDay: today() });
@@ -96,6 +101,41 @@ export function lastAssistantText(input) {
       return parts.join('\n');
     } finally { fs.closeSync(fd); }
   } catch { return ''; }
+}
+
+export const RELEASE_TEXT = 'You merged or released this turn and the State was not saved after it. Mark the Next lines it finished done (save_state done_next), add what you found to Later, then finish.';
+const RELEASE_CMD = /\bgit\s+(?:-C\s+\S+\s+)?merge\b(?!\s+--(?:abort|quit))|\bgit\s+(?:-C\s+\S+\s+)?push\b[^\n;&|]*\b(?:master|main)\b|\bwork-os-deploy\b/;
+
+/** Did this turn merge into the current branch, push to master or main, or run work-os-deploy, with no save_state or end_work after it? Reads the transcript from the turn's start (the last prompt of the person). */
+export function releasedUnsaved(input) {
+  const f = input?.transcript_path;
+  if (!f) return false;
+  try {
+    const fd = fs.openSync(f, 'r');
+    let text;
+    try {
+      const size = fs.fstatSync(fd).size;
+      const len = Math.min(size, 1048576);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, size - len);
+      text = buf.toString('utf8');
+      if (size > len) text = text.slice(text.indexOf('\n') + 1);
+    } finally { fs.closeSync(fd); }
+    const turn = [];
+    for (const l of text.split('\n')) {
+      let o;
+      try { o = JSON.parse(l); } catch { continue; }
+      if (o?.type === 'user') { const c = o.message?.content; if (Array.isArray(c) && c.every((b) => b?.type === 'tool_result')) continue; turn.length = 0; continue; }
+      if (o?.type === 'assistant' && Array.isArray(o.message?.content)) for (const b of o.message.content) if (b?.type === 'tool_use') turn.push(b);
+    }
+    let merged = -1;
+    let saved = -1;
+    turn.forEach((b, i) => {
+      if (b.name === 'Bash' || b.name === 'PowerShell') { if (RELEASE_CMD.test(String(b.input?.command || ''))) merged = i; }
+      else if (/^mcp__[^_].*__(save_state|import_state|end_work)$/.test(String(b.name))) saved = i;
+    });
+    return merged >= 0 && saved < merged;
+  } catch { return false; }
 }
 
 /** Declutter may be nudged: this session held Now when the turn began (the marker says so), the turn changed no files, and it was not nudged today. */

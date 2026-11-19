@@ -269,3 +269,48 @@ test('a question in a heading or a quote is not a question; the turn-end check i
   answer = { state: 'idle', nudge: { lines: LINES } };
   assert.equal(await run('stop', { session_id: sid, last_assistant_message: Q }), '', 'the fourth is not blocked');
 });
+
+// The release check: a merge, a push to master or work-os-deploy in this turn with no save_state after it.
+const tu = (name, input) => JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name, input }] } }) + NL;
+const PROMPT = JSON.stringify({ type: 'user', message: { content: 'go' } }) + NL;
+const withTurn = (...parts) => { const f = path.join(tmp, `r-${Math.random().toString(36).slice(2)}.jsonl`); fs.writeFileSync(f, PROMPT + parts.join('')); return f; };
+const RELEASE = 'You merged or released this turn and the State was not saved after it. Mark the Next lines it finished done (save_state done_next), add what you found to Later, then finish.';
+
+test('release check: merge, push to master or work-os-deploy then no save blocks once; merge then save, or no merge, does not', async () => {
+  assert.ok(RELEASE.length < 300);
+  for (const cmd of ['git merge builder-s', 'git push origin master', 'work-os-deploy --now']) {
+    const sid = 'r-' + cmd.length;
+    start(sid);
+    reset();
+    answer = { state: 'idle', nudge: { release: true } };
+    const t = withTurn(tu('Bash', { command: cmd }));
+    const out = JSON.parse(await run('stop', { session_id: sid, transcript_path: t }));
+    assert.equal(out.decision, 'block');
+    assert.equal(out.reason, RELEASE);
+    assert.deepEqual(events()[0].body.nudge, { released: true });
+    // once: the stop that answers the block is not asked again
+    reset();
+    answer = { state: 'idle', nudge: { release: true } };
+    assert.equal(await run('stop', { session_id: sid, transcript_path: t, stop_hook_active: true }), '');
+    assert.equal(events()[0].body.nudge, undefined);
+  }
+  for (const [sid, t] of [['r-save', withTurn(tu('Bash', { command: 'git merge x' }), tu('mcp__work-os__save_state', {}))], ['r-none', withTurn(tu('Bash', { command: 'git status' }), tu('Bash', { command: 'git push origin feature' }))], ['r-old', (() => { const f = path.join(tmp, 'r-old.jsonl'); fs.writeFileSync(f, tu('Bash', { command: 'git merge x' }) + PROMPT + tu('Bash', { command: 'ls' })); return f; })()]]) {
+    start(sid);
+    reset();
+    answer = { state: 'idle', nudge: { release: true } };
+    assert.equal(await run('stop', { session_id: sid, transcript_path: t }), '', sid);
+    assert.equal(events()[0].body.nudge, undefined, `${sid}: not asked`);
+  }
+});
+
+test('release check: counts toward the 3 a day, and a project with nudges off (the server sends nothing) is not blocked', async () => {
+  const t = withTurn(tu('Bash', { command: 'git merge x' }));
+  start('r-cap', { turnEndDay: today, turnEndCount: 3 });
+  reset();
+  answer = { state: 'idle', nudge: { release: true } };
+  assert.equal(await run('stop', { session_id: 'r-cap', transcript_path: t }), '');
+  start('r-off');
+  reset();
+  assert.equal(await run('stop', { session_id: 'r-off', transcript_path: t }), '');
+  assert.deepEqual(events()[0].body.nudge, { released: true });
+});

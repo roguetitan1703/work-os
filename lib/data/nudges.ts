@@ -79,21 +79,22 @@ export function declutterNudge(reasons: string[]): string {
   return `Work OS: this project's State has ${parts.join(', ')} (Declutter is due). Call declutter: it proposes, your person approves on one Need.`;
 }
 
-export type StopNudge = { /** Next lines that wait on nobody (only when the hook said the last message asked something and this session holds work). */ lines?: string[]; /** The Declutter nudge text (only when asked, the Now holder, and due). */ declutter?: string };
+export type StopNudge = { /** Next lines that wait on nobody (only when the hook said the last message asked something and this session holds work). */ lines?: string[]; /** The Declutter nudge text (only when asked, the Now holder, and due). */ declutter?: string; /** The turn merged or released and did not save the State (only when the hook said so and the project's nudges are on). */ release?: true };
 
 /**
  * The Stop hook's part of the nudges, for the token's own session only. `asks`: the turn's last message asked the person something
  * (the hook decided that from the message, which never reaches the server). `quiet`: the turn changed no files and the hook has
  * not nudged about Declutter today. Returns what the hook may use, or null when the project switched nudges off.
  */
-export async function stopNudge(s: Scope, row: PresenceDoc, projectId: string | null, q: { asks?: boolean; quiet?: boolean }): Promise<StopNudge | null> {
-  if (!projectId || row.dispatched || (!q.asks && !q.quiet)) return null;
+export async function stopNudge(s: Scope, row: PresenceDoc, projectId: string | null, q: { asks?: boolean; quiet?: boolean; released?: boolean }): Promise<StopNudge | null> {
+  if (!projectId || row.dispatched || (!q.asks && !q.quiet && !q.released)) return null;
   const project = await projectOf(s, projectId);
   if (!project) return null;
   const state = await stateOfProject(s, projectId);
   if (!state) return null;
   const h = holdsOf(state, row);
   const out: StopNudge = {};
+  if (q.released) out.release = true;
   if (q.asks && (h.now || h.line || h.doing)) {
     const lines = await freeLines(s, state, row);
     if (lines.length) out.lines = lines;

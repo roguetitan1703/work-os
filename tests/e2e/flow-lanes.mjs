@@ -259,6 +259,18 @@ try {
   await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'now.holder': 'old lead' }, $unset: { 'now.hold': '' } });
   const g15 = await must(kT, 'get_state', { project: P, copy: true, session: 'lnT' }, hdr('lnT'));
   check('legacy: get_state shows the old holder text; the copy never has a holder suffix', g15.state.now.holder === 'old lead' && g15.markdown.includes('\n- LN B back\n') && !g15.markdown.includes('old lead'), JSON.stringify(g15.state.now));
+
+  // ── 16. an unheld Now (set before Lanes): a save by a main session takes it; a builder (a row with a parent) does not; a hold is never moved
+  await rawDb.collection('states').updateOne({ _id: PID }, { $unset: { 'now.holder': '', 'now.hold': '' } });
+  await setRow('lnB', { parent: 'lnA' });
+  const r16a = await save(ccB, 'lnB', [{ op: 'set_where', machine: 'lnbox', branch: 'b1' }], await ver());
+  check('unheld: a builder row (with parent) saving does not take Now', !r16a.isError && r16a.json.holdsNow === false && !(await stateDoc()).now.hold, r16a.text.slice(0, 200));
+  await setRow('lnB', {}, { parent: '' });
+  const r16b = await save(ccB, 'lnB', [{ op: 'set_where', machine: 'lnbox', branch: 'b2' }], await ver());
+  st = await stateDoc();
+  check('unheld: a save by a main session (no set_now) takes Now: holdsNow true and now.hold set', !r16b.isError && r16b.json.holdsNow === true && st.now.hold?.key === K('lnB') && st.now.hold.label === 'LN B', r16b.text.slice(0, 200));
+  const r16c = await save(ccA, 'lnA', [{ op: 'set_where', machine: 'lnbox', branch: 'b3' }], await ver());
+  check('unheld: an existing hold is never moved by a plain save', !r16c.isError && r16c.json.holdsNow === false && (await stateDoc()).now.hold.key === K('lnB'), r16c.text.slice(0, 200));
 } catch (e) {
   check('flow-lanes (error)', false, e?.stack || String(e));
 }
