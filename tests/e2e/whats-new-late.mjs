@@ -2,6 +2,7 @@
 // newest entry (2026-11-19) is 14 days old, so nothing is new any more even though nobody has seen them:
 //   - no card on Today, no dot on the Menu row, the Menu button or the sidebar, no "New" badge on Needs;
 //   - /whats-new still lists every entry, without "New". Seed profile: none.
+import fs from 'node:fs';
 import { B, check, finish, launch, login } from './lib.mjs';
 
 const settle = (p, ms = 700) => p.waitForTimeout(ms);
@@ -16,9 +17,9 @@ try {
     await p.goto(B + '/menu'); await settle(p);
     check("menu: no dot on What's new", (await p.locator('main a[href="/whats-new"] [data-new-dot]').count()) === 0);
     await p.goto(B + '/whats-new'); await settle(p);
-    // The four of 2026-11-15, the hook sign-in and digest (2026-11-18), Activity and typed Need answers (2026-11-19); Mail
-    // and the report intake are not set up here.
-    check("whats-new: still lists every entry", (await p.locator('[data-whats-new-entry]').count()) === 10);
+    // Every entry in lib/whats-new.ts except the two whose feature is not set up here (Mail and the report intake).
+    const all = (fs.readFileSync(new URL('../../lib/whats-new.ts', import.meta.url), 'utf8').match(/^\s+date: '\d{4}-\d{2}-\d{2}',$/gm) || []).length;
+    check("whats-new: still lists every entry", (await p.locator('[data-whats-new-entry]').count()) === all - 2);
     check('whats-new: none marked "New"', (await p.locator('[data-new-badge]').count()) === 0);
     await ctx.close();
   }
