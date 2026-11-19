@@ -5,7 +5,6 @@ import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken,
 import { roleOf } from '@/lib/caller';
 import { reserveAgent } from '@/lib/mcp/policy';
 import { registerUnfiledSession, startWorkBrief } from '@/lib/mcp/server';
-import { findProjectByCode } from '@/lib/data/projects';
 import { linkedFolderProject } from '@/lib/data/launcher';
 import { quietFolder } from '@/lib/data/quiet-folders';
 import { setWhere } from '@/lib/data/states';
@@ -17,7 +16,7 @@ import type { Scope } from '@/lib/scope';
 // The Work OS hook's sign-in (worker/hook.mjs; docs/flows/agent-system.md sections 4 and 16 item 8; lib/agent-sessions.ts).
 // POST /api/agent/start, JSON body { folders?, remote?, subdir?, branch?, path?, machine?, label?, model? } (the folder the
 // Claude Code session runs in: the worker folder ids that contain it decide the project, H13; remote, subdir and branch are
-// information, and decide only for an old hook that sends no folders). title, aiTitle, tool and model (protocol 3) name the session on the roster.
+// information only: a body without folders finds no project). title, aiTitle, tool and model (protocol 3) name the session on the roster.
 //   Authorization: Bearer wkr_…  the PC's worker device key: opens a new session on the project of that folder, only
 //                                when a folder on that PC is linked to the project (projectOnDevice; a folder's remote
 //                                alone never counts, the worker reports it itself). Answers the start brief and
@@ -68,16 +67,10 @@ const Body = z
   .strict();
 type Body = z.infer<typeof Body>;
 
-/**
- * The project the body's folder belongs to, as the device owner sees it, or null. H13: with `folders` the folder decides
- * (the first linked on this computer); a body without them (an old hook, until the next release) is found the old way,
- * where a remote decides.
- */
+/** The project the body's folder belongs to, as the device owner sees it, or null. The folder decides (H13): the first of `folders` linked on this computer. A body without `folders` finds nothing; a remote never decides. */
 async function lookup(s: Scope, b: Body, deviceId: string): Promise<string | null> {
-  if (b.folders) return (await linkedFolderProject(s, deviceId, b.folders))?.projectId ?? null;
-  if (!b.remote && !b.path) return null;
-  const m = await findProjectByCode(s, { remote: b.remote, path: b.path, subdir: b.subdir, branch: b.branch, machine: b.machine }, { legacyRemote: true }); // old hooks (no `folders`): until H13 step 8
-  return m.matched ? m.project.id : null;
+  if (!b.folders) return null;
+  return (await linkedFolderProject(s, deviceId, b.folders))?.projectId ?? null;
 }
 
 /** The one 404: no project owns this folder (unfiled); `quiet` when the person marked the folder not Work OS. Never names a project. */
@@ -158,7 +151,7 @@ export async function POST(req: Request): Promise<Response> {
       let projectId: string;
       if (session) {
         // A token is for its own project only: a folder that belongs to another project gets a new session (device key).
-        const found = b.folders || b.remote || b.path ? await lookup(s, b, device.id) : session.projectId;
+        const found = b.folders ? await lookup(s, b, device.id) : session.projectId;
         if (found !== session.projectId) return reply(403, { error: 'This session token is for another project.' });
         if (session.projectId === null) return noProjectStart();
         projectId = session.projectId;

@@ -647,11 +647,11 @@ export type ProjectByCode =
   | { matched: false; candidates: { id: string; name: string; similarity: number; why?: string }[] };
 
 /** The project whose path location best matches the folder (the folder decides; a remote only ranks the candidates). */
-export async function findProjectByCode(s: Scope, q: CodeQuery, opts: { legacyRemote?: boolean } = {}): Promise<ProjectByCode> {
+export async function findProjectByCode(s: Scope, q: CodeQuery): Promise<ProjectByCode> {
   const c = await scoped(s);
   const docs = await c.projects.find({}, { projection: { name: 1, code: 1, status: 1 } }).toArray();
   const list = docs.map(d => ({ id: d._id, name: d.name, code: d.code }));
-  const m = matchCodeLocation(list, { ...q, by: s.userId }, opts);
+  const m = matchCodeLocation(list, { ...q, by: s.userId });
   if (m) {
     const doc = await c.projects.findOne({ _id: m.project.id });
     if (doc) return { matched: true, project: toProject(doc), how: m.how, location: m.location };

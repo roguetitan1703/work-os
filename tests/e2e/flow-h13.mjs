@@ -165,7 +165,7 @@ try {
   const r7b = await post(xPc.key, at(['rtparent']));
   check('H13 route: another member\'s and another organization\'s computer cannot use the owner\'s folder id (404)', r7.status === 404 && r7b.status === 404 && r7.text === r3.text, `${r7.status} ${r7b.status}`);
   const old = await post(pc1.key, { remote: 'https://github.com/acme/h13-route.git', branch: 'main', path: 'C:/h13/rt', machine: 'rt-pc', label: 'Claude Code' });
-  check('H13 route: a body without folders (an old hook) still finds the project the old way, until step 8', old.status === 200 && old.json?.brief?.project?.id === RA, `${old.status} ${old.text.slice(0, 200)}`);
+  check('H13 route (step 8): a body without folders (an old hook) finds no project, whatever its remote and path say', old.json?.unfiled === true && !old.json?.brief, `${old.status} ${old.text.slice(0, 200)}`);
   const T1 = r1.json?.token ?? '';
   const tOk = await post(T1, at(['rtchild']));
   const tOther = await post(T1, at(['rtparent']));
