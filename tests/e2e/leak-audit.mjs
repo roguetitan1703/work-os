@@ -753,7 +753,7 @@ try {
     const aSees = await mcpCall(A.chat, 'needs', { project: q, status: 'all' });
     check('declutter: the proposal holds the private task title of the owner (so the check below means something)', JSON.stringify(doc?.declutter?.items ?? []).includes(marker), JSON.stringify(doc?.declutter?.items ?? []).slice(0, 200));
     check('declutter: a teammate reading the proposal does not name the private task', tRead.ok && !tRead.text.includes(marker), tRead.text.slice(0, 200));
-    check('declutter: a teammate asking works and its answer holds counts, not the title', tAsk.ok && !tAsk.text.includes(marker) && /"changes": [1-9]/.test(tAsk.text), tAsk.text.slice(0, 200));
+    check('declutter: a teammate asking works and its answer holds counts, not the title', tAsk.ok && !tAsk.text.includes(marker) && /"changes":[1-9]/.test(tAsk.text), tAsk.text.slice(0, 200));
     check('declutter: the Need is private to the owner (stamped, not shared)', doc?.visibility === 'private' && doc.ownerId === A.userId && !(doc.sharedWith ?? []).length, JSON.stringify([doc?.visibility, doc?.ownerId === A.userId]));
     check('declutter: the Needs reads of the teammate (this project, all, the project page) show no title and not the Need', ![tNeeds, tAll, tProj].some(r => r.text.includes(marker) || /Declutter lkqdeclproj/.test(r.text)), [tNeeds, tAll, tProj].map(r => r.text.length).join(','));
     check('declutter: the owner sees it', aSees.ok && /Declutter lkqdeclproj/.test(aSees.text), aSees.text.slice(0, 120));

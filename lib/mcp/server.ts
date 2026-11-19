@@ -65,7 +65,7 @@ async function byOf(ctx: BriefCtx): Promise<(a: unknown) => string> {
 }
 
 function ok(data: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 1) }] };
+  return { content: [{ type: 'text' as const, text: JSON.stringify(data) }] };
 }
 
 function fail(message: string) {
@@ -99,6 +99,9 @@ function handler<A>(fn: (args: A) => Promise<unknown>) {
     }
   };
 }
+
+/** start_work over MCP shows this many Later lines (the hook's brief shows the count only). */
+const LATER_IN_BRIEF = 5;
 
 const taskKey = z.union([z.number().int(), z.string()]).describe('Task ref (12 or "#12") or task id');
 const dateArg = z.string().describe('YYYY-MM-DD, today, tomorrow, a weekday name, +3d …');
@@ -210,7 +213,6 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
   const sentBack = t.sentBack ? { line: t.sentBack.line, by: who(t.sentBack.by), at: t.sentBack.at, ...(t.sentBack.by !== s.userId ? { writtenBy: who(t.sentBack.by) } : {}) } : null;
   return {
     ...(sentBack ? { sentBack } : {}),
-    textRule: textRule(),
     ...(fromOthers.length ? { fromOthers } : {}),
     ref: t.ref,
     id: t.id,
@@ -1306,7 +1308,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
       // The hook protocol: the header; a call without it from the old hook (key label "Claude Code") counts as protocol 1.
       const hook = requestContext().hook ?? (a.label === 'Claude Code' ? 1 : undefined);
       const brief = await startWorkBrief(ctx, key, sid, { ...a, hook, viaHook: hook !== undefined }, matchedBy);
-      return filed ? { ...brief, filed } : brief;
+      // Later is long: an agent gets the count and the first 5 lines (as the hook's brief does, which counts them), the rest from get_state.
+      const st = brief.state as { later?: unknown[] } | string;
+      const short = hook === undefined && typeof st === 'object' && st && Array.isArray(st.later) && st.later.length > LATER_IN_BRIEF ? { ...brief, state: { ...st, later: st.later.slice(0, LATER_IN_BRIEF), laterCount: st.later.length, laterMore: `Later has ${st.later.length} lines, the first ${LATER_IN_BRIEF} are here: get_state for the rest.` } } : brief;
+      return filed ? { ...short, filed } : short;
     }),
   );
 
@@ -1371,7 +1376,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       if (!state) return { project: project.name, state: NO_STATE, version: 0 };
       const names = await memberNames(s.orgId);
       const markdown = a.copy ? await stateData.stateCopy(s, project, state, ctx.baseUrl) : await legacyCopy(a, project, state);
-      return { textRule: textRule(), project: project.name, version: state.version, ...laneExtra({ holdsNow: stateData.holdsNowOf(state, requestContext().src) }, identOf('get_state', [a]).session), lanes: await lanesFor(s, project._id, names, requestContext().src), state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), ...(markdown ? { markdown } : {}) };
+      return { project: project.name, version: state.version, ...laneExtra({ holdsNow: stateData.holdsNowOf(state, requestContext().src) }, identOf('get_state', [a]).session), lanes: await lanesFor(s, project._id, names, requestContext().src), state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), ...(markdown ? { markdown } : {}) };
     }),
   );
 
@@ -1545,7 +1550,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         const { project, state } = await stateData.getState(s, a.project);
         const due = await declutterData.dueFor(s, project, state);
         const p = await declutterData.buildProposal(s, project);
-        return { project: project.name, ...(due.text ? { due: due.text } : { due: 'not due' }), items: p.items, ...(p.fyi.length ? { fyi: p.fyi } : {}), counts: p.counts, next: p.items.length ? 'Check these against the code and the disk, add what you see, then call declutter with ask: true (skip: ids to leave out, add, disk).' : 'Nothing to tidy.', textRule: textRule() };
+        return { project: project.name, ...(due.text ? { due: due.text } : { due: 'not due' }), items: p.items, ...(p.fyi.length ? { fyi: p.fyi } : {}), counts: p.counts, next: p.items.length ? 'Check these against the code and the disk, add what you see, then call declutter with ask: true (skip: ids to leave out, add, disk).' : 'Nothing to tidy.' };
       }
       const r = await declutterApply.askDeclutter(s, { project: a.project, skip: a.skip, add: a.add, disk: a.disk, actor: ACTOR, word: wordFor(ident.session), session: ident.session, keyId: caller.keyId });
       const owner = (await whoIs())(r.need.to);
@@ -1678,7 +1683,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       if (!a.status) {
         // No status: read the message (the one it is for, or its sender): the full text, in its frame of who wrote it and what to do with it.
         const m = await messageData.readMessage(s, a.id, await readerOf('message_status', a));
-        return { textRule: textRule(), message: messageData.messageOut(m.message, s.userId, names, { unread: m.unread }) };
+        return { message: messageData.messageOut(m.message, s.userId, names, { unread: m.unread }) };
       }
       const r = await messageData.setStatus(s, a.id, a.status, { note: a.note, commit: a.commit, actor: ACTOR, makeTask: a.make_task, reader: await readerOf('message_status', a) });
       return { message: messageData.messageOut(r.message, s.userId, names), ...(r.decision ? { addedToDecisions: true } : {}), ...(r.task ? { task: `#${r.task.ref} ${r.task.title}` } : {}) };
@@ -1802,7 +1807,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const label = await labeller(ctx);
       const ws = [...new Set([r.note.createdBy, r.note.updatedBy].map(label).filter((x): x is string => !!x))];
       const writtenBy = ws.length ? ws.join('; ') : undefined;
-      return { textRule: textRule(), ...noteOut(r.note, true, by), createdBy: by(r.note.createdBy), ...(writtenBy ? { writtenBy } : {}), markdown: r.note.body, blocks: r.outline };
+      return { ...noteOut(r.note, true, by), createdBy: by(r.note.createdBy), ...(writtenBy ? { writtenBy } : {}), markdown: r.note.body, blocks: r.outline };
     }),
   );
 
@@ -2135,7 +2140,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         list = list.filter(n => n.status === 'open' || (n.status === 'answered' && n.answeredAt !== null && Date.parse(n.answeredAt) >= since));
       }
       const limit = a.limit ?? 50;
-      return { total: list.length, needs: await Promise.all(list.slice(0, limit).map(needOut)), textRule: textRule() };
+      return { total: list.length, needs: await Promise.all(list.slice(0, limit).map(needOut)) };
     }),
   );
 

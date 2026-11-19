@@ -353,7 +353,7 @@ try {
   const needAfter = await rawDb.collection('needs').findOne({ _id: needDoc._id });
   check('6: Accept applies it as the holder: version +1 with the Need number, the line replaced', ac.value?.ok === true && afterAcc.ordersV === ordersV0 + 1 && afterAcc.body.includes('Rule one, as Tess proposes.') && !afterAcc.body.includes(lineOne) && afterAcc.ordersLog.at(-1).need === needDoc.ref && afterAcc.ordersLog.at(-1).by?.kind === 'user' && afterAcc.ordersLog.at(-1).by.userId === ME.userId && /^proposed by .+'s Claude \(Need #\d+\)$/.test(afterAcc.ordersLog.at(-1).why) && needAfter.order.applied?.v === ordersV0 + 1, JSON.stringify([ac.value, afterAcc.ordersV, afterAcc.ordersLog.at(-1)?.why, needAfter.order]));
   const asker = await mcpH(kTess, 'needs', { project: 'H9 One', status: 'answered' });
-  check('6: the asker reads that it was applied (needs shows order.applied)', !asker.isError && new RegExp(`"v": ${ordersV0 + 1}`).test(asker.text), asker.text.slice(0, 300));
+  check('6: the asker reads that it was applied (needs shows order.applied)', !asker.isError && new RegExp(`"v":${ordersV0 + 1}`).test(asker.text), asker.text.slice(0, 300));
   // The line changed meanwhile: the answer is kept, nothing is written, the error says why.
   const lineTwo = ruleLinesOf((await cur()).body)[1];
   const pr2 = await mcpH(kTess, 'propose_order', { project: 'H9 One', layer: 'org', old: lineTwo, new: 'Rule two, as Tess proposes.', why: 'H9 test: stale' });

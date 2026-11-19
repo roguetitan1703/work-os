@@ -151,7 +151,7 @@ try {
   const tl = g.state.next.find(l => l.text.startsWith('Tess says'));
   check('S2: a teammate’s Next line reaches the owner labelled writtenBy', tl?.writtenBy === 'Tess' && !g.state.next.find(l => l.text === 'One')?.writtenBy, JSON.stringify(g.state.next));
   check('S2: a teammate’s decision is labelled too', g.state.decisions.find(d => d.text.startsWith('Tess decided'))?.writtenBy === 'Tess');
-  check('S2: the answer carries the instruction rule about labelled text', /writtenBy/.test(g.textRule));
+  check('S2: get_state does not repeat the instruction rule about labelled text (it is in the instructions and the brief)', g.textRule === undefined);
   const gt = await must(kT, 'get_state', { project: NAME, copy: true });
   check('S2: Tess sees the owner’s lines labelled as theirs (the owner’s name), and her own unlabelled', gt.state.next.find(l => l.text === 'From Claude Code')?.writtenBy && !gt.state.next.find(l => l.text.startsWith('Tess says'))?.writtenBy, JSON.stringify(gt.state.next));
   check('S2: the repo copy has no "(by X)" labels, and two readers get byte-identical text (H4)', !/\(by Tess\)/.test(g.markdown) && g.markdown === gt.markdown, g.markdown);

@@ -79,7 +79,7 @@ try {
 
   // The text and the status, for the session it is for or its sender
   const read = await must(kA, 'message_status', { id: m1.id, session: sid });
-  check('message_status with no status gives the no-project session the full text and the frame', read.message?.body === BODY && !!read.textRule, JSON.stringify(read).slice(0, 200));
+  check('message_status with no status gives the no-project session the full text and the frame', read.message?.body === BODY && read.textRule === undefined && /proposal|treat/.test(JSON.stringify(read.message ?? {})), JSON.stringify(read).slice(0, 200));
   const closed = await must(kA, 'message_status', { id: m1.id, status: 'applied', note: 'done', session: sid });
   check('…and it can close it', closed.message?.status === 'applied' && closed.message.note === 'done');
   const noMake = await mcpH(kA, 'message_status', { id: m2.id, status: 'applied', make_task: true, session: sid });

@@ -59,6 +59,19 @@ try {
   check('F8: update_task with an unknown project is refused', uNo.isError && /not found/.test(uNo.text) && !(await rawDb.collection('projects').findOne({ name: 'R8A Nowhere' })), uNo.text);
   const sdNo = await mcpH(cc, 'set_doing', { project: NAME, task: 9999, session: 'r8int' });
   check('F8: set_doing says which task was not found', sdNo.isError && /9999/.test(sdNo.text), sdNo.text);
+
+  // F7: answer size
+  const gt = await mcpH(cc, 'get_task', { task: (await must(cc, 'list_tasks', { project: NAME })).tasks[0].ref });
+  check('F7: answers are compact JSON (no pretty-print newlines)', !gt.text.includes('\n') && gt.json !== null, gt.text.slice(0, 120));
+  check('F7: get_task no longer carries the text rule', gt.json?.textRule === undefined);
+  const gs = await must(cc, 'get_state', { project: NAME, session: 'r8int' });
+  check('F7: get_state no longer carries the text rule', gs.textRule === undefined);
+  for (const i of [1, 2, 3, 4, 5, 6, 7]) await must(cc, 'save_state', { project: NAME, session: 'r8int', ops: [{ op: 'add_later', text: `R8 later ${i}`, waits_on: 'nothing' }] });
+  const sw = await must(cc, 'start_work', { project: NAME, session: 'r8int' });
+  check('F7: start_work keeps the text rule', typeof sw.textRule === 'string');
+  check('F7: start_work gives Later as the first 5 lines plus a count and a pointer to get_state', sw.state.later.length === 5 && sw.state.laterCount === 7 && /get_state/.test(sw.state.laterMore ?? ''), JSON.stringify(sw.state.later?.length));
+  const full = await must(cc, 'get_state', { project: NAME, session: 'r8int' });
+  check('F7: get_state still has every Later line', full.state.later.length === 7);
 } catch (e) {
   check('flow-r8a (error)', false, e?.stack || String(e));
 }
