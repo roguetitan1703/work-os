@@ -10,7 +10,8 @@
     "prebuild": "node tests/scope-check.mjs && node --experimental-strip-types --no-warnings tests/words-check.mjs",
     "check:scope": "node tests/scope-check.mjs",
     "check:words": "node --experimental-strip-types --no-warnings tests/words-check.mjs",
-    "check:notes-match": "node --experimental-strip-types --no-warnings tests/notes-match-check.mjs"
+    "check:notes-match": "node --experimental-strip-types --no-warnings tests/notes-match-check.mjs",
+    "check:declutter": "node --experimental-strip-types --no-warnings tests/declutter-check.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

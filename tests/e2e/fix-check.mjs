@@ -1,10 +1,10 @@
 // Sidebar footer, theme toggle, Day plan dialog/sheet, named switches, Claude item sheet (note/state/Next) at 1280 and 390.
-import { launch, check, B, PW, call, finish, fillLogin, pick } from './lib.mjs';
+import { launch, check, B, PW, call, finish, fillLogin, pick, mkClaudeItem } from './lib.mjs';
 const PN = 'Fix ' + Date.now();
 const pr = await call('add_project', { name: PN });
 const pid = pr.project.id;
 console.log('project', JSON.stringify(pr).slice(0, 150));
-const mk = async t => call('update_claude_items', { project: PN, ops: [{ op: 'add', project: PN, kind: 'bug', title: t, why: 'Fixture item for the sheet check, on the project page of the throwaway app, used by the Playwright run.', done_when: 'The check passes with no reopen of the sheet needed.' }] });
+const mk = async t => mkClaudeItem({ project: PN, kind: 'bug', title: t, why: 'Fixture item for the sheet check, on the project page of the throwaway app, used by the Playwright run.', doneWhen: 'The check passes with no reopen of the sheet needed.' });
 console.log(JSON.stringify(await mk('Fixture item one for sheet')).slice(0, 200));
 const browser = await launch();
 for (const vp of [{ w: 1280, h: 800 }, { w: 390, h: 844 }]) {

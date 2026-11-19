@@ -191,8 +191,9 @@ try {
     }
     const needsMade = await rawDb.collection('needs').find({ taskRef: { $in: ids }, kind: 'review' }).toArray();
     const queued = await rawDb.collection('alertQueue').countDocuments({ needId: { $in: needsMade.map(n => n._id) } });
-    check('review flood: one agent handing in 50 tasks of one owner makes 50 reviews but at most 20 alerts', needsMade.length === 50 && queued > 0 && queued <= 20, `needs ${needsMade.length}, alerts ${queued}`);
-    check('review flood: the ones past the limit are marked as made without an alert', needsMade.filter(n => n.noAlert).length === 50 - queued);
+    // H12: a review never reaches the phone, so there is no hourly alert limit to test: 50 reviews, no alert at all.
+    check('review flood: one agent handing in 50 tasks of one owner makes 50 reviews and no alert (reviews wait on Today and the digest)', needsMade.length === 50 && queued === 0, `needs ${needsMade.length}, alerts ${queued}`);
+    check('review flood: no review is marked noAlert any more (the field is only read)', needsMade.filter(n => n.noAlert).length === 0);
   }
 
   // ======== two answers at once: one wins ========

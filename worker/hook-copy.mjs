@@ -31,7 +31,10 @@ export const projectOf = (md) => (md.match(/^# Work state: (.+)$/m) || [])[1]?.t
 export function markSaved(input, cwd) {
   const sid = input.session_id;
   const m = sid && readMarker(sid);
-  if (m) writeMarker(sid, { ...m, status: statusHash(cwd), stopped: false, offset: sizeOf(input.transcript_path) });
+  if (!m) return;
+  const status = statusHash(cwd);
+  // `changed`: files changed since the last point (H12 counts the stop of such a session); `counted` is cleared so the next stop says again; `reminded` too once the stop that reported it was counted, so the next reminder is a new one.
+  writeMarker(sid, { ...m, status, stopped: false, offset: sizeOf(input.transcript_path), ...(status !== m.status ? { changed: true, counted: null, ...(m.counted ? { reminded: false } : {}) } : {}) });
 }
 
 /** The WORK-STATE.md write for a State answer (or for md, a copy fetched from the server): the hook output, or null for nothing to do. */

@@ -115,10 +115,11 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
   it first and marks it read. This is Akash's "move chats between tools" (#165), option 1. Tools without MCP use the
   app's paste import.
 - **declutter** {project}: Work OS lists what has grown: Later lines done, duplicated or untouched for 30 days; Next
-  lines without a task or with a finished one; notes with matching titles or untouched for 30 days; done-but-open tasks;
+  lines without a task or with a finished one; notes with matching titles or untouched for 14 days; done-but-open tasks;
   unanswered Needs. The session adds what it sees on disk (extra worktrees, branches, stray files). It proposes one batch
   as a single Need. On yes it applies it. **Triggered by growth** (Om): start_work and wrap_up say "Declutter due" when
   Later passes 25, Next passes 10, a line sits for 14 days, or notes duplicate. Also on demand from the app (project ⋯).
+  *Built in H11:* `declutter {project, ask?}`; lines untouched 14 days (never one that waits on someone), notes duplicated by title or untouched 30 days; see docs/HANDOVER.md section 3 (Declutter).
 - **propose_order** {project, layer (org or project), old?, new, why, incident?, repeat?}: for a teammate's Claude. A Need for
   the holder (Om for the org layer, the project owner for a project) with the old and new line and no phone alert;
   Accept applies it as one version. The holder's own Claude uses write_note instead. **Built in H9** (section 16.15).
@@ -170,6 +171,7 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
 - **Subagents** get a ten-line short form of the Orders at their start (hook), so rules don't depend on the brief.
 - **Monday block in the digest:** four numbers (sessions that saved State, PCs with no hooks, refused edits, Om's
   repeats) and at most three proposals. Silence means keep.
+  **Built (H12, 19 Nov):** `lib/monday.ts` `mondayBlock`, appended last to the organization owner's personal digest on a Monday (their timezone, their digest hour; the team channel digest is unchanged). The numbers are org-wide counts for the 7 days before today (presence `stopCheck` and `copyEdits`, devices seen that week with `worker.hooks`); proposals are open `batch: 'monday'` Needs of the last 14 days, oldest first, then friction groups from `feedback` and `session_ended` rows (a tool or rule in 3 or more lines, or from 2 or more sessions), at most three lines then "+N more in the app". Om's repeats says "not counted yet" (`REPEATS_COUNTED` false): H9 files a correction as a direct Orders edit with a why, and its `ordersLog` has no repeat mark to count. Nothing is written by silence.
 
 ## 11. Live sessions and messaging (from session-messaging.md, settled with Om)
 - **The folder decides the project.** Code locations are `{path, host}`; the longest match wins; the git remote is
@@ -208,6 +210,7 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
 - PCs with no hook events.
 - Refused or forwarded WORK-STATE.md edits.
 - Om's repeated corrections.
+  **Built (H12):** the first three are counted by the server from the session's own hook row (`stopCheck`, `copyEdits`, sent by `hook-stop.mjs` and `hook-pre-tool.mjs`) and the PC's reported hooks, and shown in the owner's Monday digest (section 10); the fourth reads "not counted yet" until something marks a repeat.
 - The size of the Orders.
 - The survey again on 2 Dec.
 - On three random days Om opens five projects on his phone and asks "does this match?"
@@ -272,6 +275,7 @@ Each piece ships through dev, a full test run, then master. Security review befo
     number. "Claude items" joins the test when the migration lands.
 12. **Phone:** only Needs a session is waiting on reach the phone; Declutter, rule proposals and the rest go in the Monday
     digest. A push Need offers "yes, and for 24 hours on this project". Wakes are capped per session per hour.
+    **Built (H12):** `reachesPhone` (`lib/data/needs.ts`): a release Need and a Need a person asked always reach the phone; a review Need and a Monday Need (`batch: 'monday'`) never; any other agent or chat Need only while the session that asked is not off, checked when queued and again when sent (after quiet hours). "Yes for 24 hours" is H8's and the wake caps are H7's; not rebuilt.
 13. **Akash's other folders:** the Lobby question gets a "not Work OS" answer, remembered per folder. **Built (H13):** per person on the server (`quietFolders:<userId>`), per computer and path, undone in Claude › Setup › Computers.
 14. **Build order:** tonight (Om: Orders, CLAUDE.md, key). Then S alone first (wording pass, instructions paragraph, hook
     split into one file per event, packaging: the worker's update refreshes the hooks and reports their version). Then A

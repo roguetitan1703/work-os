@@ -30,7 +30,7 @@ import { NeedsTab } from '@/components/needs';
 import { StateCard } from './state-card';
 import { CouldBeRunning } from '../../claude/workers-tab';
 import { projectRoster } from '@/lib/data/roster';
-import { stateOfProject, stateOut } from '@/lib/data/states';
+import { archivedOut, stateOfProject, stateOut } from '@/lib/data/states';
 import { memberNames } from '@/lib/people';
 import { inbox as inboxOf, messageOut } from '@/lib/data/messages';
 import { InboxTab } from './inbox-tab';
@@ -145,7 +145,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const overview = (
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,_1.7fr)_minmax(0,_1fr)] gap-4 lg:gap-6 items-start" data-view="overview">
       <div className="space-y-4 min-w-0">
-        <StateCard projectId={project.id} initial={stateView} />
+        <StateCard projectId={project.id} initial={stateView} archived={stateDoc ? archivedOut(stateDoc, names) : []} />
         {projectWorkers.workers.length > 0 && (
           <section className="space-y-1.5" data-card="workers">
             <h2 className={H2}>Working on it now</h2>

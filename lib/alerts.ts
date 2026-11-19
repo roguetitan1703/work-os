@@ -9,11 +9,11 @@ import { CLOSED_STATUSES, OPEN_STATUSES } from './types';
 import { api, discordConfig, DiscordError } from './discord/client';
 import { addToInbox, getNotifySettings, pushConfigured, sendPush } from './notify';
 import { neutralAlertText, plainAlertText, stuckClaims } from './data/dispatcher';
-import { recipientFilter, recipientsOf } from './data/tasks';
+import { listActivity, recipientFilter, recipientsOf } from './data/tasks';
 import { assigneesOf } from './assignees';
 import { isMember, memberNames } from './people';
 import { actorLabel } from './actors';
-import { shortAsk } from './data/needs';
+import { reachesPhone, shortAsk } from './data/needs';
 import { roster, unblockedNext } from './data/roster';
 import { needButtons } from './discord/need-buttons';
 
@@ -26,7 +26,8 @@ import { needButtons } from './discord/need-buttons';
 //   due_tomorrow   18:00 the day before, P1/P2
 //   digest         once a day at the person's own hour (profile.digestHour, default 9), claimed by alertLog key
 //                  digest:<date>:<userId>: Needs you (answerable from Discord), Today (top 3 by rule), Since yesterday (one line per
-//                  project that changed), Agents (running, stalled, could run). While it is on (kinds.digest) the
+//                  project that changed), Agents (running, stalled, could run); on Mondays, for the organization's owner, the
+//                  Monday numbers and up to three proposals (lib/monday.ts). While it is on (kinds.digest) the
 //                  three alerts below wait for it and go into it; their log keys are claimed with it. After it has gone
 //                  out, a task that becomes due, overdue or quiet still alerts on its own on the next run. Off = the
 //                  alerts below work as they always did.
@@ -214,8 +215,8 @@ async function buildDigest(
   const since = lastAny ? lastAny.sentAt : previousWorkdayStart(today, tz);
   const projectNames = new Map((await c.projects.find({}, { projection: { name: 1 } }).toArray()).map(p => [p._id, p.name]));
 
-  // 1. Needs you: the open Needs addressed to this person, oldest first. Review Needs are folded in. Through their own door.
-  const allNeeds = await c.needs.find({ to: s.userId, status: 'open' }).sort({ createdAt: 1 }).limit(60).toArray();
+  // 1. Needs you: the open Needs addressed to this person, oldest first. Review Needs are folded in; Monday Needs wait for the Monday block. Through their own door.
+  const allNeeds = await c.needs.find({ to: s.userId, status: 'open', batch: { $ne: 'monday' } }).sort({ createdAt: 1 }).limit(60).toArray();
   if (allNeeds.length) {
     const people = await memberNames(s.orgId);
     const rows: DigestSection['rows'] = allNeeds.slice(0, MAX_NEED_LINES).map(n => {
@@ -277,7 +278,7 @@ async function buildDigest(
     sections.push({ head: '🎯 **Today**', numbered: true, rows });
   }
 
-  // 3. Since the last digest: one line per project they can read with something changed (State log, tasks done, Needs, messages).
+  // 3. Since the last digest: one line per project they can read with something changed (read from the Activity feed: State lines, tasks done, Needs, messages).
   type Moved = { nextDone: number; nextAdded: number; now: boolean; decisions: number; done: number; asked: number; answered: number; msgs: number };
   const per = new Map<string, Moved>();
   const bump = (pid: string): Moved => {
@@ -286,27 +287,34 @@ async function buildDigest(
     return e;
   };
   const nowText = new Map<string, string>();
-  for (const st of await c.states.find({ 'log.at': { $gt: since } }, { projection: { projectId: 1, log: 1, now: 1 } }).toArray()) {
-    for (const l of st.log ?? []) {
-      if (l.at <= since) continue;
-      if (l.op === 'done_next') bump(st.projectId).nextDone++;
-      else if (l.op === 'add_next') bump(st.projectId).nextAdded++;
-      else if (l.op === 'set_now') {
-        bump(st.projectId).now = true;
-        if (st.now?.text) nowText.set(st.projectId, st.now.text);
-      } else if (l.op === 'add_decision') bump(st.projectId).decisions++;
+  // One read of the Activity feed (through the reader's own door): State lines, tasks done, Needs and messages. Newest first.
+  const feed = await listActivity(s, { since, types: ['next_done', 'next_added', 'state_now', 'decision', 'completed', 'need_asked', 'need_answered', 'message_sent'], limit: 1000 });
+  const sinceIso = since.toISOString();
+  const doneTaskIds: string[] = [];
+  for (const a of feed) {
+    if (a.at <= sinceIso) continue;
+    if (a.type === 'completed') {
+      if (a.taskId) doneTaskIds.push(a.taskId);
+      continue;
+    }
+    if (!a.projectId) continue;
+    const e = bump(a.projectId);
+    if (a.type === 'next_done') e.nextDone++;
+    else if (a.type === 'next_added') e.nextAdded++;
+    else if (a.type === 'state_now') {
+      e.now = true;
+      if (a.note && !nowText.has(a.projectId)) nowText.set(a.projectId, a.note);
+    } else if (a.type === 'decision') e.decisions++;
+    else if (a.type === 'need_asked') e.asked++;
+    else if (a.type === 'need_answered') e.answered++;
+    else if (a.type === 'message_sent') e.msgs++;
+  }
+  if (doneTaskIds.length) {
+    for (const t of await c.tasks.find({ _id: { $in: [...new Set(doneTaskIds)] }, projectId: { $ne: null } }, { projection: { projectId: 1 } }).toArray()) {
+      // A task closed twice (reopened) counts once per close: count every completed row.
+      bump(t.projectId as string).done += doneTaskIds.filter(id => id === t._id).length;
     }
   }
-  const doneActs = await c.activity.find({ at: { $gt: since }, type: 'completed', taskId: { $type: 'string' } }, { projection: { taskId: 1 } }).toArray();
-  if (doneActs.length) {
-    const ids = [...new Set(doneActs.flatMap(a => (a.taskId ? [a.taskId] : [])))];
-    for (const t of await c.tasks.find({ _id: { $in: ids }, projectId: { $ne: null } }, { projection: { projectId: 1 } }).toArray()) bump(t.projectId as string).done++;
-  }
-  for (const n of await c.needs.find({ $or: [{ createdAt: { $gt: since } }, { answeredAt: { $gt: since } }] }, { projection: { projectId: 1, createdAt: 1, answeredAt: 1 } }).toArray()) {
-    if (n.createdAt > since) bump(n.projectId).asked++;
-    if (n.answeredAt && n.answeredAt > since) bump(n.projectId).answered++;
-  }
-  for (const m of await c.messages.find({ at: { $gt: since } }, { projection: { projectId: 1 } }).toArray()) bump(m.projectId).msgs++;
   const moved = [...per.entries()]
     .filter(([pid]) => projectNames.has(pid))
     .map(([pid, e]) => {
@@ -358,6 +366,13 @@ async function buildDigest(
   const shown = agents.slice(0, MAX_AGENT_LINES);
   if (shown.length) sections.push({ head: '🤖 **Agents**', rows: shown.map(a => ({ text: a.text, detail: a.detail })) });
 
+  // 5. Mondays, for the organization's owner only: four numbers and up to three proposals (lib/monday.ts). Silence means keep.
+  let monday = false;
+  if (weekday(today) === 1 && (await (await import('./caller')).roleOf(s.userId, s.orgId)) === 'owner') {
+    sections.push(...(await (await import('./monday')).mondayBlock(s, { tz, today })));
+    monday = true;
+  }
+
   // The header line, also the inbox body and the push text.
   const summary = [
     dayLabel(today),
@@ -365,6 +380,7 @@ async function buildDigest(
     picks.length && `${picks.length} for today`,
     moved.length && `${plural(moved.length, 'project')} moved`,
     (running || stalled) && [running && `${running} running`, stalled && `${stalled} stalled`].filter(Boolean).join(', '),
+    monday && 'Monday numbers',
   ].filter(Boolean).join(' · ');
   // The first digest says why the morning alerts changed.
   const first = !(await c.alertLog.findOne({ kind: 'digest', empty: { $ne: true } }, { projection: { _id: 1 } }));
@@ -389,6 +405,8 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
         // Dropped if it was answered, withdrawn or replaced before it went out, or the person can no longer read it.
         const n = needById.get(q.needId ?? '');
         if (!n || n.status !== 'open') continue;
+        // And when the session that asked has ended or gone off since it was queued (H12), or it never reaches the phone.
+        if (!(await reachesPhone(await orgWide(q.orgId), n, Date.now()))) continue;
         const who = neutralAlertText(actorLabel(n.from.actor, q.userId, people));
         const ask = neutralAlertText(shortAsk(n.ask));
         items.push({

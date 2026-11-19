@@ -343,6 +343,7 @@ export async function proposeOrder(s: Scope, input: ProposeInput, ctx: { actor: 
     ],
     appOnly: true,
     noAlert: true,
+    batch: 'monday', // H12: a proposal waits for the owner's Monday digest and never reaches the phone
     order: { noteId: note._id, layer: input.layer, base: note.ordersV ?? 1, ...(old ? { old } : {}), new: text, why, ...(incident ? { incident } : {}), ...(input.repeat ? { repeat: true } : {}) },
     actor: ctx.actor,
     word: ctx.word,

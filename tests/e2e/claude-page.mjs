@@ -1,7 +1,7 @@
 // UI checks for the Claude area (/claude: Now, Queue, Set up) and the Start Claude flow.
 // Seeds itself (device/folder/session docs inserted directly; no worker). Seed profile: none.
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
-import { check, db, rawDb, mcp, B, PW, SP, ME, launch, finish, fillLogin, pick } from './lib.mjs';
+import { check, db, rawDb, mcp, B, PW, SP, ME, launch, finish, fillLogin, pick, mkClaudeItem } from './lib.mjs';
 
 const browser = await launch();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -32,7 +32,7 @@ const proj = async (name, code) => {
   if (code) await db.collection('projects').updateOne({ _id: id }, { $set: { code } });
   return id;
 };
-const add = (project, title, extra = {}) => mcp('update_claude_items', { project, ops: [{ op: 'add', project, kind: 'bug', title, why: WHY, done_when: DONE, ...extra }] });
+const add = async (project, title, extra = {}) => { const { waiting_on_om, ...rest } = extra; return mkClaudeItem({ project, title, why: WHY, doneWhen: DONE, ...(waiting_on_om ? { waitingText: waiting_on_om } : {}), ...rest }); };
 
 async function suite(vp) {
   const phone = vp === 390;

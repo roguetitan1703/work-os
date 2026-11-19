@@ -19,7 +19,7 @@ export async function stop(input) {
   }
   if (!sid) return null;
   const again = !!input.stop_hook_active;
-  const a = await postEvent(sid, 'stop', again ? {} : { deliver: true });
+  const a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...stopCounts(input, sid) });
   const d = a?.status === 200 ? a.b?.deliver : null;
   if (!again && d?.wakeable === true && deliverText(a)) {
     const m = readMarker(sid);
@@ -28,6 +28,23 @@ export async function stop(input) {
     return { decision: 'block', reason: deliverText(a) };
   }
   return null;
+}
+
+/**
+ * H12 (the Monday numbers): for a session whose files changed, what its last stop looked like: were the changes saved to the State
+ * ({ files: 'saved' | 'unsaved' }) and was the session reminded first ({ reminded: true }). Words only, never text; nothing for a
+ * session whose files never changed, and each answer is sent once (a repeat of the same one is not).
+ */
+function stopCounts(input, sid) {
+  try {
+    const m = readMarker(sid);
+    if (!m?.changed) return {};
+    const files = statusHash(input.cwd || process.cwd()) === m.status ? 'saved' : 'unsaved';
+    const key = `${files}${m.reminded ? ':r' : ''}`;
+    if (m.counted === key) return {};
+    writeMarker(sid, { ...m, counted: key });
+    return { files, ...(m.reminded ? { reminded: true } : {}) };
+  } catch { return {}; }
 }
 
 async function decide(input) {
@@ -45,8 +62,8 @@ async function decide(input) {
   try {
     if (f) { const fd = fs.openSync(f, 'r'); try { const size = fs.fstatSync(fd).size; const buf = Buffer.alloc(Math.max(0, size - (m.offset || 0))); fs.readSync(fd, buf, 0, buf.length, m.offset || 0); saved = SAVE_CALL.test(buf.toString('utf8')); } finally { fs.closeSync(fd); } }
   } catch {}
-  if (saved) { writeMarker(sid, { ...m, status: now, offset: sizeOf(f) }); return null; }
-  writeMarker(sid, { ...m, stopped: true, offset: sizeOf(f) });
+  if (saved) { writeMarker(sid, { ...m, status: now, offset: sizeOf(f), changed: true }); return null; }
+  writeMarker(sid, { ...m, stopped: true, offset: sizeOf(f), changed: true, reminded: true });
   return { decision: 'block', reason: 'Files changed in this session and the State was not saved since. Call save_state (with the session id from start_work) with what is now true: Now, Next, Later and any decision. Then finish. Asked once until the next save.' };
 }
 const SAVE_CALL = /"name"\s*:\s*"mcp__[^"]+__(save_state|import_state|end_work)"/;

@@ -86,6 +86,10 @@ export function describeChange(a: Pick<Activity, 'type' | 'changes' | 'note' | '
       return n ? `Next done: ${n}` : 'Next line done';
     case 'later_added':
       return n ? `Later + ${n}` : 'Later line added';
+    case 'declutter_applied':
+      return n ? `Declutter: ${n}` : 'Declutter applied';
+    case 'line_archived':
+      return n ? `Archived a ${n}` : 'Archived a line';
     case 'decision':
       return n ? `Decision: ${n}` : 'Decision recorded';
     case 'note_created':

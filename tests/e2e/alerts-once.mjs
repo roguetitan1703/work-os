@@ -35,7 +35,9 @@ if (!morning) { console.log('(before 09:00: overdue alerts are not due yet; chec
 // The morning's overdue now arrive in the daily digest (slice 2): one inbox row for all of them, no separate Overdue rows.
 if (over.length) { check('overdue: one daily digest in the inbox, no separate Overdue rows', cnt(/^Your daily digest$/) === 1 && cnt(/^Overdue: /) === 0, `digest ${cnt(/^Your daily digest$/)}, overdue ${cnt(/^Overdue: /)}`); }
 const all = dms.join('\n');
-for (const r of [...dep, ...over]) { const n = all.split(`[#${r}](`).length - 1; check(`Discord mentions #${r} exactly once`, n === 1, `got ${n}`); }
+// The digest's Today section lists the top 3 and folds the rest into "+N overdue, on Today" (docs/HANDOVER.md, daily digest: Today "top 3 ... "+N overdue, on Today""), so only 3 overdue are linked.
+if (over.length > 3) { const hid = over.length - 3; check('digest folds the rest into "+N overdue, on Today"', all.includes(`+${hid} overdue, on Today`), `no +${hid} line`); }
+for (const r of [...dep, ...over.slice(0, 3)]) { const n = all.split(`[#${r}](`).length - 1; check(`Discord mentions #${r} exactly once`, n === 1, `got ${n}`); }
 console.log('discord DMs sent:', dms.length);
 const left = await db.collection('alertQueue').countDocuments({ sentAt: null });
 check('queue fully claimed', left === 0, String(left));

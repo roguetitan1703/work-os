@@ -4,6 +4,7 @@ import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken,
 import { reserveAgent } from '@/lib/mcp/policy';
 import { agentActor } from '@/lib/actors';
 import { editCopyLine, getState, setWhere, stateCopy } from '@/lib/data/states';
+import { countCopyEdit } from '@/lib/data/presence';
 import { hookHeader, runWithRequestContext } from '@/lib/request-context';
 import { timezoneOf } from '@/lib/profile';
 import { InputError, NotFoundError } from '@/lib/data/errors';
@@ -16,6 +17,7 @@ import { InputError, NotFoundError } from '@/lib/data/errors';
 //   where  Where this session works (no State version bump).
 //   edit   One line of WORK-STATE.md changed by an Edit tool call: applied to the State as an edit_line (editCopyLine),
 //          as the Claude Code agent of the token's owner. Several lines, the header, Decisions and the marks of a line are refused.
+//          Each edit is counted once on the session's own row (copyEdits.forwarded or .refused, H12): numbers only.
 // Always answers the copy of the token's project (the same text get_state copy:true gives), so the hook can write the file.
 // Rate limited per session token, lib/mcp/policy.ts AGENT_PER_HOUR.state.
 //   200 { project, version, markdown, applied? } · 400 bad body or an edit refused · 401 no or bad credential
@@ -74,8 +76,20 @@ export async function POST(req: Request): Promise<Response> {
       const projectId = session.projectId;
       let applied: { version: number; closedTasks: number[]; sentForReview: number[] } | undefined;
       if (b.edit) {
-        const r = await editCopyLine(s, projectId, b.edit.old, b.edit.new, { actor: agentActor('claude-code', s.userId), via: 'code' });
-        if (r.conflict) return reply(400, { error: 'The State changed while the edit was made; read the file again and repeat it.' });
+        // H12: counted here once, what reached the server (the hook counts only what never did): an edit refused with 400, or applied.
+        const mine = { sid: session.id, projectId };
+        let r;
+        try {
+          r = await editCopyLine(s, projectId, b.edit.old, b.edit.new, { actor: agentActor('claude-code', s.userId), via: 'code' });
+        } catch (e) {
+          if (e instanceof InputError) await countCopyEdit(s, mine, 'refused');
+          throw e;
+        }
+        if (r.conflict) {
+          await countCopyEdit(s, mine, 'refused');
+          return reply(400, { error: 'The State changed while the edit was made; read the file again and repeat it.' });
+        }
+        await countCopyEdit(s, mine, 'forwarded');
         applied = { version: r.state.version, closedTasks: r.closedTasks, sentForReview: r.sentForReview };
       }
       if (b.where) await setWhere(s, projectId, b.where.machine || device.name, b.where);

@@ -207,8 +207,12 @@ export type NeedDoc = Placed & {
   withdrawnReason?: string;
   /** When an alert for this Need (or the one it replaced) was last queued: a replacement within 10 minutes of it sends none. */
   alertedAt?: Date;
-  /** A review Need made past the hourly alert limit: no alert was queued for it. */
+  /** No alert was queued for it (a proposal of Orders). Older review Needs made past an hourly alert limit carry it too. */
   noAlert?: boolean;
+  /** Part of the owner's Monday digest (H12): a Need that waits for it and never reaches the phone. Server-only; set by propose_order and declutter. */
+  batch?: 'monday';
+  /** A correction a person gave twice (H12 counts it among Om's repeats). Server-only. */
+  repeat?: true;
   /** A review Need made because an agent wanted to drop or archive the task: what Accept then does (default: close it as Done). */
   closing?: 'Dropped' | 'archived';
   /**
@@ -219,7 +223,10 @@ export type NeedDoc = Placed & {
   /** A release Need (an approve Need made with release: true): Yes or Yes for 24 hours opens production on the project until releaseUntil. */
   release?: true;
   releaseUntil?: Date;
+  /** A declutter Need (an approve Need with fixed options, lib/data/declutter.ts): the proposed changes, what the session will do on disk after Yes, what the person unticked and what the server did. */
+  declutter?: DeclutterNeed;
 };
+export type DeclutterNeed = { items: import('./declutter-core').DeclutterItem[]; disk: string[]; skip?: string[]; result?: { applied: string[]; failed: string[] } };
 
 export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {
   _id: string;
@@ -230,6 +237,8 @@ export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | '
   log: { at: Date; actor: Actor; session?: string; text: string }[];
   /** Claude Code key that created it (for the per-day cap). */
   keyId?: string;
+  /** Set when a Declutter moved the item: "#123" (a task) or "later:l_..." (a Later line). */
+  movedTo?: string;
   /** The project's "Small fixes and checks" item (not counted toward the cap; title/kind fixed). */
   group?: true;
 };
@@ -303,6 +312,10 @@ export type HandoverMeta = {
 
 /** A line of a project's State (Next, Later): `by` is who wrote it (a user id), shown labelled to everyone else. */
 export type StateLine = { id: string; text: string; ref?: number; waitsOn?: string; by: string; src?: string; at: Date };
+/** A Next or Later line taken off the State with its text kept (archive_line, a removed Later line, Declutter). `by`/`at` are the line's own; `archivedBy`/`archivedAt` say who took it off and when. */
+export type ArchivedLine = { id: string; text: string; from: 'Next' | 'Later'; waitsOn?: string; by: string; at: Date; archivedBy: string; archivedAt: Date; why?: string };
+/** What the daily Declutter check found on a project (lib/data/declutter.ts); written without a version bump, like `where`. */
+export type DeclutterCache = { checkedAt: Date; reasons: string[]; quietUntil?: Date; needId?: string; needRef?: number };
 /** A decision recorded on a project (append-only). `by` = who decided (a user id), `via` = chat / code / app / discord. */
 export type StateDecision = { id: string; at: Date; by: string; src?: string; via: string; text: string; archivedAt?: Date; /** The key that recorded it (the hourly limit counts per key). */ key?: string; /** The message it was applied from, who wrote that message and how it came in; `by` is who applied it. */ msg?: string; author?: string; word?: string };
 /** Where the work is on one machine, as the agent reported it from git. */
@@ -316,6 +329,9 @@ export type StateDoc = Placed & {
   later: StateLine[];
   decisions: StateDecision[];
   where: Record<string, StateWhere>;
+  /** Lines taken off Next or Later, text kept, put back from the State card (the newest 300). */
+  archived?: ArchivedLine[];
+  declutter?: DeclutterCache;
   /** The last 200 ops with who made them (user, key, session): so a changed Now or a done Next line can be traced. Not shown to readers. */
   log?: { at: Date; by: string; key?: string; src?: string; via: string; op: string; id?: string }[];
   /** Bumped on every write. */
@@ -401,6 +417,10 @@ export type PresenceDoc = Placed & {
   doing?: { taskId: string; at: Date };
   /** The state the Claude Code hook last reported (POST /api/agent/event; the server decides it from the event). Absent for sessions with no hook token. */
   activity?: { state: PresenceState; at: Date; why?: 'prompt' };
+  /** The last Stop the hook counted (H12, the Monday numbers): were the changed files saved to the State, and was the session reminded first. Last stop wins. Counts only, never text. */
+  stopCheck?: { files: 'saved' | 'unsaved'; reminded?: true; at: Date };
+  /** WORK-STATE.md hand edits of this session (H12): refused (by the hook or the server), and forwarded to the State. Counts only. */
+  copyEdits?: { refused?: number; forwarded?: number; /** Per UTC day (YYYY-MM-DD), so a week can be counted without the session's earlier life. */ days?: Record<string, { refused?: number; forwarded?: number }> };
   /** What the server last offered this session's hook to print (lib/data/deliver.ts): kept until the hook acknowledges it (`ack`) or the lease runs out. */
   offered?: { ids: string[]; needs: string[]; /** Orders versions offered as `ord:<noteId>:<v>`. */ orders?: string[]; mode: 'turn' | 'stop' | 'wake'; chain: number; at: Date; first: Date; tries: number; /** The text of the organization Orders short form, when the offer carried one. */ short?: boolean };
   /** The Orders version of each page this session was last told (start_work, an acknowledged delivery), by note id. */

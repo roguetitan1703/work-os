@@ -2,7 +2,7 @@ import 'server-only';
 import { requestContext } from '../request-context';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { inTransaction, type ProjectDoc, type StateDoc, type StateLine } from '../db';
+import { inTransaction, type ArchivedLine, type DeclutterCache, type ProjectDoc, type StateDoc, type StateLine } from '../db';
 import { scoped, type Scope } from '../scope';
 import { isPerson, userActor, type Actor } from '../actors';
 import { InputError, NotFoundError } from './errors';
@@ -41,9 +41,12 @@ export const StateOpSchema = z.discriminatedUnion('op', [
   // Takes a decision off the State's list (it stays in the log): the project's owner or an owner of the organization only.
   z.object({ op: z.literal('archive_decision'), id: lineId, find: findText }),
   // Replaces `find` with `new` inside the one Now, Next or Later line that holds it. An empty `new` removes the line
-  // (Next: done, Later: dropped; both stay in the history). The edited line becomes the caller's.
+  // (Next: done, Later: dropped and archived with its text). The edited line becomes the caller's.
   // `id` (optional) narrows the search to that Next or Later line, which must hold `find`.
   z.object({ op: z.literal('edit_line'), find: z.string().min(1).max(LIMITS.line), new: z.string().max(LIMITS.line), id: lineId }),
+  // Takes a Next or Later line off the State and keeps its text in `archived` (Declutter, or a session tidying): nothing is lost,
+  // a person puts it back from the State card. It does not finish the line's task.
+  z.object({ op: z.literal('archive_line'), id: lineId, find: findText, why: z.string().trim().max(200).optional() }),
   z.object({
     op: z.literal('set_where'),
     machine: z.string().trim().min(1).max(40),
@@ -57,6 +60,9 @@ export type StateOp = z.infer<typeof StateOpSchema>;
 export const StateOpsSchema = z.array(StateOpSchema).min(1).max(30);
 /** The ops that need base_version: set_now overwrites what a teammate may have just changed. The others are checked per line. */
 const VERSIONED = new Set(['set_now']);
+
+/** How many archived lines a State keeps (the newest). */
+export const ARCHIVED_KEEP = 300;
 
 export type Via = 'chat' | 'code' | 'app' | 'discord';
 
@@ -136,6 +142,11 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     const nextAdds: StateLine[] = [];
     const laterAdds: StateLine[] = [];
     const decisions: StateDoc['decisions'] = [];
+    const archivedAdds: ArchivedLine[] = [];
+    const archive = (l: StateLine, from: 'Next' | 'Later', why?: string) => {
+      archivedAdds.push({ id: l.id, text: l.text, from, ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), by: l.by, at: l.at, archivedBy: by, archivedAt: now, ...(why ? { why } : {}) });
+      feed.push({ type: 'line_archived', text: `${from} line: ${l.text}`, by: l.by });
+    };
     const where: Record<string, unknown> = {};
     let nowSet: StateDoc['now'] | undefined;
     let nextEdited = false;
@@ -144,7 +155,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     const dropped: string[] = [];
     const promoted: { ref: number; title: string }[] = [];
     // The activity feed: one row per change worth reading (Now, a Next line added or done, a Later line, a decision).
-    const feed: { type: 'state_now' | 'next_added' | 'next_done' | 'later_added' | 'decision'; text: string; by?: string }[] = [];
+    const feed: { type: 'state_now' | 'next_added' | 'next_done' | 'later_added' | 'line_archived' | 'decision'; text: string; by?: string }[] = [];
     const take = (list: StateLine[], id: string, what: string): StateLine => {
       const i = list.findIndex(l => l.id === id);
       if (i < 0) throw new InputError(`${what} has no line ${id} (read the State again for current ids)`);
@@ -165,7 +176,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
       return hits[0];
     };
     for (const [oi, op] of ops.entries()) {
-      if (op.op === 'move_next' || op.op === 'done_next' || op.op === 'promote_later' || op.op === 'archive_decision') {
+      if (op.op === 'move_next' || op.op === 'done_next' || op.op === 'promote_later' || op.op === 'archive_decision' || op.op === 'archive_line') {
         if (op.find !== undefined && op.id) throw new InputError(`${op.op}: give id or find, not both.`);
         if (op.find === undefined && !op.id) throw new InputError(`${op.op} needs id or find.`);
       }
@@ -247,6 +258,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           log[oi].id = h.id;
           if (!replaced) {
             list.splice(h.i, 1);
+            if (h.where === 'Later') archive(h.line!, 'Later', 'removed with edit_line');
             (h.where === 'Next' ? done : dropped).push(h.text);
             if (h.where === 'Next' && h.line!.ref) doneRefs.push(h.line!.ref);
             if (h.where === 'Next') feed.push({ type: 'next_done', text: h.text, by: h.line!.by });
@@ -255,6 +267,28 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
             void oldSrc;
             list[h.i] = { ...rest, ...stamp, text: replaced, at: now };
           }
+          break;
+        }
+        case 'archive_line': {
+          let from: 'Next' | 'Later';
+          let lid2: string;
+          if (op.find !== undefined) {
+            const h = findLine(op.find, ['Next', 'Later']);
+            from = h.where as 'Next' | 'Later';
+            lid2 = h.id!;
+          } else if (next.some(l => l.id === op.id)) {
+            from = 'Next';
+            lid2 = op.id!;
+          } else if (later.some(l => l.id === op.id)) {
+            from = 'Later';
+            lid2 = op.id!;
+          } else throw new InputError(`Next and Later have no line ${op.id} (read the State again for current ids)`);
+          const l = take(from === 'Next' ? next : later, lid2, from);
+          if (from === 'Next') nextEdited = true;
+          else laterEdited = true;
+          log[oi].id = l.id;
+          archive(l, from, op.why);
+          dropped.push(l.text);
           break;
         }
         case 'set_where':
@@ -276,6 +310,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     else if (laterAdds.length) push.later = { $each: laterAdds };
     if (decisionsEdited) set.decisions = [...decisionsAll, ...decisions];
     else if (decisions.length) push.decisions = { $each: decisions };
+    if (archivedAdds.length) push.archived = { $each: archivedAdds, $slice: -ARCHIVED_KEEP };
     push.log = { $each: log, $slice: -200 };
     const r = await c.states.updateOne({ _id: cur._id, version: cur.version }, { $set: set, $inc: { version: 1 }, ...(Object.keys(push).length ? { $push: push } : {}) } as never);
     if (!r.matchedCount) throw new InputError('The State changed while you saved: read it again and retry.');
@@ -297,6 +332,46 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     }
   }
   return r;
+}
+
+/**
+ * Puts an archived line back at the end of Later (a person, from the State card). The line keeps its id, text, author and
+ * what it waits on; it leaves `archived`. One version bump, a log entry and a feed row.
+ */
+export async function restoreLine(s: Scope, projectId: string, archivedId: string, actor: Actor): Promise<{ state: StateDoc; text: string }> {
+  if (!isPerson(actor)) throw new InputError('An archived line is put back by a person in the app.');
+  return inTransaction(async () => {
+    const c = await scoped(s);
+    const cur = await c.states.findOne({ _id: projectId });
+    if (!cur) throw new NotFoundError('State not found');
+    const a = (cur.archived ?? []).find(x => x.id === archivedId);
+    if (!a) throw new InputError('That archived line is not there any more (it may already be back).');
+    if (cur.later.length + 1 > LIMITS.later) throw new InputError(`Later would hold ${cur.later.length + 1} lines (max ${LIMITS.later}): promote or drop some first.`);
+    const now = new Date();
+    const rc = requestContext();
+    const line: StateLine = { id: a.id, text: a.text, ...(a.waitsOn ? { waitsOn: a.waitsOn } : {}), by: a.by, at: now };
+    const entry = { at: now, by: s.userId, ...(rc.keyId ? { key: rc.keyId } : {}), ...(rc.src ? { src: rc.src } : {}), via: 'app', op: 'restore_line', id: a.id };
+    // One update: $pull and $push on different fields.
+    const u = await c.states.updateOne(
+      { _id: cur._id, version: cur.version },
+      { $pull: { archived: { id: a.id } }, $push: { later: line, log: { $each: [entry], $slice: -200 } }, $set: { updatedAt: now }, $inc: { version: 1 } } as never,
+    );
+    if (!u.matchedCount) throw new InputError('The State changed while you saved: try again.');
+    await logChange(c, cur, actor, 'later_added', { subject: { kind: 'state', id: projectId, title: 'State' }, projectId, note: a.text, textBy: a.by, at: now });
+    return { state: (await c.states.findOne({ _id: cur._id }))!, text: a.text };
+  });
+}
+
+/** What the daily Declutter check found, stored on the State without a version bump, log or feed row (like setWhere). */
+export async function setDeclutterCache(s: Scope, projectId: string, cache: DeclutterCache): Promise<void> {
+  const c = await scoped(s);
+  await c.states.updateOne({ _id: projectId }, { $set: { declutter: cache } } as never);
+}
+
+/** The daily check's result: only checkedAt and reasons are written, so an Ask or an Apply racing it keeps quietUntil and needId. */
+export async function setDeclutterReasons(s: Scope, projectId: string, checkedAt: Date, reasons: string[]): Promise<void> {
+  const c = await scoped(s);
+  await c.states.updateOne({ _id: projectId }, { $set: { 'declutter.checkedAt': checkedAt, 'declutter.reasons': reasons } } as never);
 }
 
 /**
@@ -491,6 +566,17 @@ export function stateOut(d: StateDoc, reader: string, names: Names): StateOut {
     where: Object.fromEntries(Object.entries(d.where ?? {}).map(([m, v]) => [m, { ...(v.branch ? { branch: v.branch } : {}), ...(v.head ? { head: v.head } : {}), ...(v.dirty !== undefined ? { dirty: v.dirty } : {}), ...(v.worktrees?.length ? { worktrees: v.worktrees } : {}), at: v.at.toISOString(), ...w(v.by) }])),
     updatedAt: d.updatedAt.toISOString(),
   };
+}
+
+/** An archived line as the State card shows it (the page only: the MCP State and the brief never carry archived lines). */
+export type ArchivedOut = { id: string; text: string; from: 'Next' | 'Later'; waitsOn?: string; archivedAt: string; archivedBy: string; why?: string };
+
+/** The newest 50 archived lines, newest first, with who archived them as a name. */
+export function archivedOut(d: StateDoc, names: Names): ArchivedOut[] {
+  return [...(d.archived ?? [])]
+    .reverse()
+    .slice(0, 50)
+    .map(a => ({ id: a.id, text: a.text, from: a.from, ...(a.waitsOn ? { waitsOn: a.waitsOn } : {}), archivedAt: a.archivedAt.toISOString(), archivedBy: names[a.archivedBy] || 'a former member', ...(a.why ? { why: a.why } : {}) }));
 }
 
 
