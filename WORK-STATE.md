@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 117. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 121. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -6,11 +6,11 @@ Copy of the Work OS state, version 117. WORK-STATE.md is a copy of the State, wr
 - Ship Harness end to end (#276, docs/flows/agent-system.md): R6 and R7 are live. Now: the Fable tool-calling review and its fixes, H16 measuring until about 3 Dec, then H17. Per part: Opus plans, Sonnet builds in its slot, Opus reviews, dev, tests; production per release with Om's go.
 
 ## Next
-1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel.
-2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
-3. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
-4. Need answers reach whoever holds the work now: a Need asked by a session that is off is delivered to the project's Now holder or the session that picked up its handover, and start_work lists answered Needs since the last lead's session; withdraw_need on an answered or closed Need says so with the answer and time. Fold into the lanes design (note after 2afd68cb00).
-5. R8 (note 954f4550f8): batch A, the stopgap (ab06462) and run keys for dispatched runs (2cfc999) merged in wos-int branch r8-int; tsc, words and worker 424 pass. Re-reviews: Reopen all and resume closed; builder A fixing the Open in VS Code HIGH; then a final check, full e2e, dev, and ask Om.
+1. UI revamp so the purpose of the work always shows first (Om 18 Nov): an Opus design draft is running (390/1280 survey, options, phased plan). Then a design note and phase 1 in a slot.
+2. Need answers reach whoever holds the work now: a Need asked by a session that is off is delivered to the project's Now holder or the session that picked up its handover, and start_work lists answered Needs since the last lead's session; withdraw_need on an answered or closed Need says so with the answer and time. Fold into the lanes design (note after 2afd68cb00).
+3. R8 (note 954f4550f8): batch A, the stopgap (ab06462) and run keys for dispatched runs (2cfc999) merged in wos-int branch r8-int; tsc, words and worker 424 pass. Re-reviews: Reopen all and resume closed; builder A fixing the Open in VS Code HIGH; then a final check, full e2e, dev, and ask Om.
+4. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
+5. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -27,7 +27,6 @@ Copy of the Work OS state, version 117. WORK-STATE.md is a copy of the State, wr
 - done_next on a Next line naming a parent task with open subtasks sends the parent to review (19 Nov: finishing the R2 line opened review Need #10 for #276, withdrawn). Fix: don't send a task to review while it has open subtasks; also, a release line should name its part (#282) not the parent. — waits on a fix slot (small, with H8 or the next batch)
 - Claude > Now sessions table at 1280: columns don't line up row to row (project, machine, state start at different x per row); 'since HH:MM' beside 'N minutes ago' on Workers reads as redundant. — waits on the UI revamp (Next 3)
 - Dispatched-run Orders block: a resumed dispatched session isn't marked WORK_OS_DISPATCHED, and a hijacked run could call /api/mcp from the shell with WORK_OS_KEY. A server-side marker would need dispatched runs on their own key. — waits on H15 (dispatcher on the Harness)
-- flow-hooks crashed 3 times in slot S only (wos-s, ports 27284/3284/4404) with ECONNRESET at its start_work link call (flow-hooks.mjs:84); 28/0 in slot A on the same commits. Something about that slot or the load, not the code; look if it repeats. — waits on it repeating in a full e2e
 - Dispatcher cap: e9fd820 ranks claims by claimedAt, which is stamped before the write, so two claims written in the opposite order to their timestamps can still each pass. Make it airtight with an atomic per-person slot counter (inc when claiming, dec when a run ends). — waits on R5 out
 - H8 attended rule: the automated-prompt list in worker/hook-user-prompt.mjs (AUTOMATED_PROMPT) must be kept current; a new Claude Code wrapper would count as typed until added. — waits on a new automated prompt kind appearing
 - worker test hook-h7 #117 'wait: a wake keeps the ids' fails now and then under the full parallel worker run (passes alone; seen 4+ times on 19 Nov in slots A, B, S). Timing in the test, not the code (not checked). — waits on a fix slot
@@ -38,4 +37,5 @@ Copy of the Work OS state, version 117. WORK-STATE.md is a copy of the State, wr
 - The SIGTERM fix does not work: on R7 (59cb0edb5693) a systemctl restart still waits the full 30 s stop-sigterm timeout, then SIGKILL (journal 20 Nov 01:44 IST). Something keeps next-server open (SSE /live streams, the wait route, or Mongo). Each deploy is about 30 s down.
 - Declutter cache still counted "7 open Claude items" on 20 Nov after the migration moved them all: the cached daily reasons are not refreshed after a migration or apply. — waits on a fix slot (small)
 - Run keys, small leftovers from the final re-check (09277d5): the release update has no state guard (run-keys.ts:73); a worker crash mid Reopen-all leaves rows in starting with live keys until 24 h; the worker trusts the server on a resume job with no dispatched flag. — waits on a fix slot (small)
-<!-- work-os-copy sha1:4847306fc3c107c62ef75c5d79f035577e6160ec -->
+- The idle nudge says "add waits_on (save_state edit_line)", but edit_line silently ignores waits_on (20 Nov): an agent following the nudge changes nothing. Make edit_line take waits_on, or fix the nudge text. Unknown op fields are stripped with no error. — waits on R8 batch B or H17
+<!-- work-os-copy sha1:a7be28ab6b28a87b0d7047943e4d968eae6390e5 -->
