@@ -701,7 +701,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   const tool = ((name: ToolName, config: object, cb: (...a: unknown[]) => unknown) =>
     server.registerTool(
       name,
-      { ...config, inputSchema: { ...(config as { inputSchema?: object }).inputSchema }, title: TOOLS[name].title, description: TOOLS[name].description },
+      { ...config, inputSchema: { ...(config as { inputSchema?: object }).inputSchema, session: sessionArg }, title: TOOLS[name].title, description: TOOLS[name].description },
       (async (...a: unknown[]) => {
         try {
           await beforeTool(caller, name);

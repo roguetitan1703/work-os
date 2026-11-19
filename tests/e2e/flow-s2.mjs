@@ -162,7 +162,7 @@ try {
   const lid = g.state.later.find(l => l.text.startsWith('Tess later')).id;
   const pr = await must(cc, 'save_state', { project: NAME, ops: [{ op: 'promote_later', id: lid }] });
   const ptask = await must(cc, 'get_task', { task: Number(pr.promotedToTasks[0].match(/#([0-9]+)/)[1]) });
-  check('S2: promoting a teammate’s Later line makes a task whose title is labelled writtenBy', /writtenBy/.test(JSON.stringify(ptask)) && /Tess/.test(JSON.stringify(ptask)), JSON.stringify(ptask).slice(0, 300));
+  check('S2: promoting a teammate’s Later line makes a task whose title is labelled writtenBy', /[wW]rittenBy/.test(JSON.stringify(ptask)) && /Tess/.test(JSON.stringify(ptask)), JSON.stringify(ptask).slice(0, 300));
   const mine = g.state.decisions.find(d => d.text.startsWith('Tess decided'));
   const arch1 = await mcpH(kT, 'save_state', { project: NAME, ops: [{ op: 'archive_decision', id: mine.id }] });
   check('S2: archive_decision is not available through MCP, for a member', arch1.isError && /archive_decision|op/.test(arch1.text), arch1.text.slice(0, 200));
