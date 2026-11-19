@@ -135,12 +135,25 @@ transaction), B1 (a hook deny list), C (no cloud work: #267 and #268 are their o
   (`hook-pre-tool.mjs`) treat the `WORK_OS_DISPATCHED` variable **or** the marker as dispatched, so a run the worker resumed, or one that lost the
   variable, stays refused. The mark only adds refusals: a run that deletes its own marker is accepted (it gains nothing). `resumeSession`
   passes `dispatched` in the job, as a start does. Old hooks keep the variable-only guard until they update.
-- **The shell path is blocked for dispatched runs (B1).** A Bash or PowerShell command is refused when it names `WORK_OS_KEY` (also
-  `$env:WORK_OS_KEY`, `printenv`), an `/api/` path on a Work OS server (the worker's, `WORK_OS_URL`, work.delpat.in), `.claude.json`, the hooks
-  `sessions` folder (the session tokens), a Claude `settings.json` together with an env read, or PowerShell's `-EncodedCommand` (also `-enc`,
-  `-ec`, and `-e` on a powershell or pwsh command line). The reason says to use the session's Work OS tools. It is a word detector, not a
-  sandbox: on a PC the bypass can be made deliberate, not impossible (same OS user, the key on disk), and a legitimate `curl` to Work OS is
-  refused too (use the MCP tools). Fails open on any error. A per-claim restricted key (B2) belongs to the cloud part.
+- **The shell path is blocked for dispatched runs (B1).** Aim: catch the cheap, obvious ways to print the key and refuse nothing normal. A
+  Bash or PowerShell command of a dispatched run is refused when it would print a value or reach the API, not because it names a word
+  (`grep WORK_OS_KEY`, `git grep hooks/sessions` and a commit message pass): a read (`cat`, `type`, `Get-Content`/`gc`, `less`, `head`, `tail`, `sed`,
+  `awk`, `node`, `python`, `grep` and the like) of the home `.claude/settings.json`, `.claude.json`, a hooks `sessions` folder (also after a `cd`
+  into hooks: `sessions/` beside a hooks path) or the worker's `config.json`; an environment dump (bare `env`, `printenv`, `set`, `export -p`,
+  `gci env:`, `cmd /c set`, `[Environment]::GetEnvironmentVariables`, `process.env` or `os.environ` with no key named, or `WORK_OS_KEY` named);
+  printing the key (`echo $WORK_OS_KEY`, `$env:WORK_OS_KEY`); a PowerShell encoded command (any `-e…` prefix of `-EncodedCommand`, with a hyphen,
+  slash, en dash or em dash, only on a powershell or pwsh command line, so `bash -ec` passes) and `base64 -d` piped into a shell or `iex`; and a
+  network tool (`curl`, `wget`, `iwr`, `irm`) aimed at an `/api/` path of a Work OS server named in the command. The Read, Grep and Glob tools
+  are refused on the same files (the pre-tool hook matcher now lists them; a PC needs `hooks install` to pick that up). The reason says to use
+  the session's Work OS tools. **Known limits, accepted:** a host held in a variable (`$WORK_OS_URL`), URL-encoded paths, and any script the run
+  writes and runs (the key is on disk and the run is the same OS user, so on a PC the bypass can be made deliberate, not impossible). A
+  per-claim restricted key (B2) belongs to the cloud part. Fails open on any error.
+- **Closing the window is not a crash.** `run-claude.mjs` leaves a note (`<temp>/work-os-ended/<session id>`) when its window is closed (SIGHUP
+  or SIGTERM; on Windows closing the console raises SIGHUP) or claude exits cleanly (code 0, the person quit it); a crash leaves none. The
+  worker reads the note when the process is gone and reports the session `stopped`, not `dead`, so it is never started again. A stop
+  request that is still pending (a `stop` job exists for the session) counts the same, even when presence shows the end first.
+- **A dispatched session's label and mark cannot be overwritten:** its own `start_work` keeps `<Project> · worker · #ref` (the session
+  token row says it is dispatched). The reconciler reads presence for the giver's own rows only.
 - **The cap is airtight (A1).** `claimFor` makes the cap count and the claim one transaction that first writes the person's lock document
   (`counters` {_id: `dispatch:<org>:<user>`}, the Needs counter pattern): concurrent polls conflict, one retries, counts the running claims again
   and sees the first claim. The `claimedAt` rank is gone. There is no stored count, so nothing drifts when a claim ends by any of its eight

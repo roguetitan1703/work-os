@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { scanRoots, publicFolder } from './scan.mjs';
 import { sessionProcs } from './activity.mjs';
@@ -195,6 +196,16 @@ export function createCore(deps) {
     }
   }
 
+  /** H15: run-claude.mjs left a note that the person ended this session (closed its window, or a clean exit). Read once, then removed. Same folder as run-claude.mjs. */
+  function endedByPerson(sid) {
+    try {
+      const f = path.join(os.tmpdir(), 'work-os-ended', String(sid).toLowerCase());
+      if (!fs.existsSync(f)) return false;
+      fs.rmSync(f, { force: true });
+      return true;
+    } catch { return false; }
+  }
+
   async function refreshSessions() {
     const ids = Object.keys(state.sessions).filter((k) => state.sessions[k].state === 'running');
     if (!ids.length) return;
@@ -207,7 +218,7 @@ export function createCore(deps) {
       // One empty process listing (slow or failed query) must not close a live session: it has to be
       // missing on checks at least MISS_MS apart.
       if (!s.missingSince) s.missingSince = now();
-      else if (now() - s.missingSince >= MISS_MS) s.state = 'dead';
+      else if (now() - s.missingSince >= MISS_MS) s.state = endedByPerson(sid) ? 'stopped' : 'dead'; // H15: the person closed or quit it: stopped, never revived
     }
   }
 

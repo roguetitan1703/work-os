@@ -42,3 +42,24 @@ test('claude gone for 20 s+ after grace reports dead once, then is dropped', asy
   assert.equal(m.reports.at(-1).sessions[0].state, 'dead');
   assert.deepEqual(m.state.sessions, {});
 });
+
+// H15: the person closed the window or quit (run-claude.mjs left a note): the session is reported stopped, not dead, so it is never started again
+test('a session the person ended (note left by run-claude.mjs) reports stopped, and the note is used up', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = path.join(os.tmpdir(), 'work-os-ended');
+  fs.mkdirSync(dir, { recursive: true });
+  const note = path.join(dir, SID);
+  fs.writeFileSync(note, 'window closed');
+  try {
+    const m = mk();
+    m.adv(60_000);
+    m.setProcs([]);
+    await m.core.sendStatus();
+    m.adv(25_000);
+    await m.core.sendStatus();
+    assert.equal(m.reports.at(-1).sessions[0].state, 'stopped');
+    assert.equal(fs.existsSync(note), false);
+  } finally { fs.rmSync(note, { force: true }); }
+});

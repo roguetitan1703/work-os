@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { B, EMAIL, ME, MCP, PW, check, cron, finish, makeUser, mkDevice, rawDb } from './lib.mjs';
-import { must } from './flow-lib.mjs';
+import { must, mcpH } from './flow-lib.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, '.next/server/server-reference-manifest.json'), 'utf8')).node;
@@ -180,6 +180,34 @@ try {
   const nd = await needsOf(tD);
   const tk = await act(cookie4, 'answerNeedAction', /needs\/actions\.ts$/, nd[0]._id, 'takeback');
   check('4g: "Take back": the claim is cleared', tk.ok && (await task4(tD)).claude === null && (await needsOf(tD))[0].dispatch.result === 'taken back from Claude', JSON.stringify([tk.text.slice(0, 120), (await task4(tD)).claude]));
+
+  // 4h (H15 review): a dispatched run calling start_work itself keeps the forced label and the mark
+  const tH = await mkTask('H15 label kept');
+  const sH = randomUUID();
+  await runTask(tH, sH);
+  const rH = await post(pc.key, at({ ccSession: sH, source: 'startup' }));
+  const sidH = rH.json?.brief?.session;
+  const sw = await mcpH(MCP, 'start_work', { project: 'H15 One', label: 'my own label' }, { 'X-Work-OS-Session': sidH });
+  const pH = await rawDb.collection('presence').findOne({ session: sidH });
+  check('4h: start_work from the dispatched session itself cannot rename it: the forced label and the mark stay', !!sw && pH?.label === `H15 One · worker · #${tH.ref}` && pH.dispatched?.ref === tH.ref, JSON.stringify([pH?.label, pH?.dispatched]));
+  // 4i: a stop request is the person's stop: a session that ends (presence off) before the worker reports stopped is not started again
+  const tI = await mkTask('H15 stop pending');
+  const sI = randomUUID();
+  await runTask(tI, sI);
+  const tokI = await live(tI, sI);
+  await rawDb.collection('workerJobs').insertOne({ _id: 'j_stop_' + sI, orgId: ME.orgId, ownerId: ME.userId, deviceId: pc.id, kind: 'stop', sessionId: sI, createdAt: new Date(), takenAt: null, doneAt: null });
+  await events(tokI, 'end');
+  await quiet();
+  const i1 = await task4(tI);
+  check('4i: Stop pressed, presence ended first: stopped, no restart, no Need', i1.claude.state === 'stopped' && !i1.claude.revived && (await needsOf(tI)).length === 0, JSON.stringify(i1.claude));
+  // 4j: another person's presence row with the same Claude Code session id says nothing about this claim
+  const tJ = await mkTask('H15 foreign presence');
+  const sJ = randomUUID();
+  await runTask(tJ, sJ);
+  await rawDb.collection('devices').updateOne({ _id: pc.id }, { $set: { lastSeenAt: new Date() } });
+  await rawDb.collection('presence').insertOne({ _id: 'pres-foreign-' + sJ, orgId: ME.orgId, ownerId: ME.userId, visibility: 'org', projectId: proj, userId: 'someone-else', key: 'x', session: 'x' + sJ, label: 'x', machine: '', ai: 'x', agent: 'claude-code', lastSeen: new Date(), forYouCursor: new Date(), writesSinceSave: 0, ccSession: sJ, endedAt: new Date(), activity: { state: 'off', at: new Date() } });
+  await quiet();
+  check('4j: a presence row of someone else with this session id (ended) does not end the claim', (await task4(tJ)).claude.state === 'running');
 } catch (e) {
   check('flow-h15 suite (error)', false, e?.stack || String(e));
 }

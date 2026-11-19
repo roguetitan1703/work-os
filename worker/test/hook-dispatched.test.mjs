@@ -31,8 +31,8 @@ const denied = (r) => r?.hookSpecificOutput?.permissionDecision === 'deny';
 test('the pre-tool hook matcher covers the Work OS tools that can change Orders, beside the file tools', () => {
   const row = EVENTS.find((e) => e.event === 'pre-tool');
   const re = new RegExp('^(?:' + row.matcher + ')$');
-  for (const n of ['Edit', 'Write', 'Bash', 'PowerShell', 'mcp__work-os__write_note', 'mcp__plugin_x_work-os__propose_order', 'mcp__work-os__apply_changes']) assert.ok(re.test(n), n);
-  for (const n of ['Read', 'mcp__work-os__read_note', 'mcp__work-os__start_work']) assert.ok(!re.test(n), n);
+  for (const n of ['Edit', 'Write', 'Bash', 'PowerShell', 'mcp__work-os__write_note', 'mcp__plugin_x_work-os__propose_order', 'mcp__work-os__apply_changes', 'Read', 'Grep', 'Glob']) assert.ok(re.test(n), n);
+  for (const n of ['mcp__work-os__read_note', 'mcp__work-os__start_work', 'WebFetch']) assert.ok(!re.test(n), n);
 });
 
 test('dispatched run: write_note on an Orders note id is refused, on any other note it passes', () => {

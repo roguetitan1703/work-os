@@ -392,6 +392,9 @@ async function requeue(c: Collections, t: TaskDoc, countAttempt: boolean, revive
  * stopped it or took it back, Blocked, Dropped, archived) ends as before, with no Need. Returns what happened, or null.
  */
 async function settleEnd(c: Collections, s: Scope, t: TaskDoc, end: End): Promise<'revived' | 'ended' | null> {
+  // A stop job exists for this session (the person pressed Stop; the worker's `stopped` report may not have arrived yet, and presence can
+  // show the session ended first): it is their stop, never a session that ended on its own.
+  if (end.revive && t.claude?.sessionId && (await (await scoped(forUser(s, t.claude.markedByUserId ?? t.ownerId))).workerJobs.findOne({ sessionId: t.claude.sessionId, kind: 'stop' }, { projection: { _id: 1 } }))) end = { to: 'stopped', note: 'the session was stopped' };
   if (end.revive && (t.claude?.revived ?? 0) < 1) return (await reviveRun(c, s, t, end.note)) ? 'revived' : null;
   if (!(await endRun(c, s, t, end))) return null;
   if (end.revive) {
@@ -410,7 +413,7 @@ async function reviveRun(c: Collections, s: Scope, t: TaskDoc, why?: string): Pr
   const m = t.claude;
   if (!m || m.state !== 'running') return false;
   const gs = forUser(s, m.markedByUserId ?? t.ownerId);
-  const old = m.sessionId ? await c.workerSessions.findOne({ _id: m.sessionId }, { projection: { state: 1 } }) : null;
+  const old = m.sessionId ? await (await scoped(gs)).workerSessions.findOne({ _id: m.sessionId }, { projection: { state: 1 } }) : null; // the marker's scope, as onTaskChanged reads it: a teammate's scope cannot see the giver's session rows
   if (!(await requeue(c, t, false, true))) return false;
   // A session that may still run (a silent computer that comes back) must not run beside the new one.
   if (old && old.state !== 'dead' && t.projectId && m.sessionId) await stopSession(gs, t.projectId, m.sessionId).catch(() => {});
@@ -475,7 +478,7 @@ export async function reconcileDispatched(s: Scope, now: Date = new Date()): Pro
       // H15: the session's own hooks report through presence (the newest row with this Claude Code session id): a session that
       // ended itself, or a computer and a session both silent for 15 minutes, is over; a quiet worker beside a session that still
       // reports is not.
-      const pres = m.sessionId ? (await c.presence.find({ ccSession: m.sessionId }).sort({ lastSeen: -1 }).limit(1).toArray())[0] : undefined;
+      const pres = m.sessionId ? (await c.presence.find({ ccSession: m.sessionId, userId: s.userId }).sort({ lastSeen: -1 }).limit(1).toArray())[0] : undefined;
       const ended = !!pres && (!!pres.endedAt || pres.activity?.state === 'off');
       const silent = now.getTime() - seen > NO_REPORT_MS;
       const reporting = !!pres && !ended && now.getTime() - pres.lastSeen.getTime() < NO_REPORT_MS;

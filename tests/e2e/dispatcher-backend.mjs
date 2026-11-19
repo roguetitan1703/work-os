@@ -193,7 +193,9 @@ const jj = await db.collection('workerJobs').findOne({ _id: 'j_stuck' });
 check('its start job is cancelled and session closed', !!jj.doneAt && jj.ok === false && (await db.collection('workerSessions').findOne({ _id: sidA })).state === 'failed');
 const t106 = await task(106);
 check('H15: silent computer and no presence: the claim is put back in the queue once (revived 1), no alert', t106.claude.state === 'queued' && t106.claude.revived === 1 && (await db.collection('notifications').countDocuments({ title: /#106/ })) === 0, JSON.stringify(t106.claude));
-await db.collection('tasks').updateOne({ ref: 106 }, { $set: { status: 'In Progress', claude: { ...t106.claude, state: 'running', claimedAt: new Date(Date.now() - 30 * 60_000), deviceId: D3.id, sessionId: sidB } } });
+const sidB2 = randomUUID(); // a new claim has a new session (the first one got a stop job when it was put back)
+await db.collection('workerSessions').insertOne({ _id: sidB2, deviceId: D3.id, folderId: 'f_cccc1', projectId: 'p1', state: 'running', startedAt: new Date(Date.now() - 30 * 60_000), updatedAt: new Date(Date.now() - 20 * 60_000), dispatched: true, taskId: 'd106' });
+await db.collection('tasks').updateOne({ ref: 106 }, { $set: { status: 'In Progress', claude: { ...t106.claude, state: 'running', claimedAt: new Date(Date.now() - 30 * 60_000), deviceId: D3.id, sessionId: sidB2 } } });
 await cron();
 const t106b = await task(106);
 check('silent computer, second time: running claim stopped', t106b.claude.state === 'stopped' && /no news from PC-3/.test(t106b.claude.note), JSON.stringify(t106b.claude));

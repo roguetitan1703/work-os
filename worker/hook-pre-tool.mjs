@@ -4,6 +4,7 @@
 // token only), the file is then written from the answer, and the Edit is refused with "Applied to Work OS State vN". Write,
 // MultiEdit, NotebookEdit and shell writes are only refused. No token, a timeout or any failure: the plain refusal.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { COPY, COPY_REASON, markSaved, projectOf, writeCopy } from './hook-copy.mjs';
 import { postAgent, postEvent, readKept, readMarker, run, workerHome } from './hook-lib.mjs';
@@ -130,24 +131,38 @@ export function ordersDeny(input, env = process.env) {
 }
 
 /**
- * H15: the shell path for a dispatched run. A dispatched run shares the person's key, which sits on disk and in settings.json's env
- * block, so the Orders refusals above would mean little if the run could curl /api/mcp itself. A Bash or PowerShell command of a
- * dispatched run is refused when it names: WORK_OS_KEY (any form: $WORK_OS_KEY, $env:WORK_OS_KEY, printenv), a Work OS server's
- * /api/ paths (the worker's server, WORK_OS_URL, work.delpat.in), the Claude Code config file (.claude.json), the hooks' session
- * folder (hooks/sessions: the session tokens), a Claude settings.json together with an env read, or PowerShell's -EncodedCommand
- * (which hides what runs). This is a word detector, not a sandbox: on a PC the bypass can be made deliberate, not impossible (same
- * OS user). The reason says what to use instead. Fails open on any other error; nothing outside a dispatched run is touched.
+ * H15: the shell path for a dispatched run. A dispatched run shares the person's key, which sits in settings.json's env block and the
+ * worker's files, so the Orders refusals above would mean little if the run could print it or call /api/mcp itself. The aim is to
+ * catch the cheap, obvious ways and refuse nothing normal: a command of a dispatched run is refused only when it would PRINT a value
+ * or reach the API, never because it merely names a word (grep WORK_OS_KEY, git grep hooks/sessions and a commit message pass):
+ *   - a read (cat, type, Get-Content, gc, less, more, head, tail, sed, awk, node, python, perl, cp, grep ...) of a credential file:
+ *     the home .claude/settings.json, .claude.json, a hooks sessions folder (the session tokens), the worker's config.json;
+ *   - an environment dump: bare env, printenv, set, export -p, gci env:, cmd /c set, [Environment]::GetEnvironmentVariables,
+ *     process.env or os.environ with no key named (or WORK_OS_KEY named), and printing WORK_OS_KEY ($WORK_OS_KEY, $env:WORK_OS_KEY);
+ *   - a PowerShell encoded command (any -e... prefix of EncodedCommand, also with an en or em dash or a slash, only on a powershell or
+ *     pwsh command line), and base64 -d piped into a shell or iex;
+ *   - a network tool (curl, wget, iwr, irm, ...) aimed at an /api/ path of a Work OS server named in the command.
+ * The Read, Grep and Glob tools are refused on the same files. KNOWN LIMITS (docs/dispatcher.md): a host held in a variable
+ * ($WORK_OS_URL), URL-encoded paths, and any script the run writes and runs. On a PC (same OS user, the key on disk) the bypass can be
+ * made deliberate, not impossible; a per-claim restricted key (B2) belongs to the cloud part. Fails open on any error.
  */
-const USE_INSTEAD = 'Use the Work OS tools of this session (start_work, get_task, log_progress, ask, complete_task, end_work); a dispatched run does not call Work OS from a shell.';
-const SHELL_RULES = [
-  [/\bWORK_OS_KEY(?![A-Za-z0-9_])/i, 'the Work OS key'],
-  [/\.claude\.json(?![A-Za-z0-9_-])/i, 'the Claude Code config file'],
-  [/hooks[\\/]+sessions(?![A-Za-z0-9_-])/i, 'the hooks session folder'],
-  [/(?:^|\s)-(?:encodedcommand|encodedcomman|encodedcomma|encodedcomm|encodedcom|encodedco|encodedc|encoded|encode|enc|ec)(?=[\s:=]|$)/i, 'an encoded PowerShell command'],
+const USE_INSTEAD = 'Use the Work OS tools of this session (start_work, get_task, log_progress, ask, complete_task, end_work); a dispatched run does not read credentials or call Work OS from a shell.';
+const shellRefusal = (what) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Work OS: this run was started by the task dispatcher, and a dispatched run does not reach ' + what + '. ' + USE_INSTEAD } });
+const slashes = (s) => String(s).replace(/\\/g, '/');
+const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const READ_VERB = /(?:^|[\s;&|(`'"])(?:cat|type|get-content|gc|less|more|head|tail|sed|awk|gawk|node|python3?|py|perl|ruby|xxd|od|strings|tac|nl|bat|cp|copy|copy-item|cpi|select-string|sls|findstr|rg|(?<!git\s+)grep)(?=[\s;&|)`'"]|$)/i;
+const HOME_ANCHOR = String.raw`(?:~|\$\{?HOME\}?|%USERPROFILE%|\$env:(?:USERPROFILE|HOME)|[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s'"]+|/(?:home|Users)/[^/\s'"]+)`;
+const PS_ENC = ['encodedcommand', 'ec'].flatMap((w) => (w === 'ec' ? ['ec'] : [...w].map((_, i) => w.slice(0, i + 1))));
+const PS_ENC_FLAG = new RegExp(String.raw`\b(?:powershell|pwsh)(?:\.exe)?\b[^\n|;&]*?\s[-/–—―](?:${PS_ENC.join('|')})(?=[\s:=]|$)`, 'i');
+const EXPANDS_KEY = /\$\{?(?:env:)?WORK_OS_KEY(?![A-Za-z0-9_])|%WORK_OS_KEY%/i;
+const ENV_DUMP_SEGMENT = [
+  /^(?:env(?:\s+-[0a-z-]+)*|printenv|export(?:\s+-p)?|set|(?:declare|typeset)\s+-[xp]+|compgen\s+-e)$/i,
+  /^printenv\s+\S*WORK_OS_KEY\S*$/i,
+  /^cmd(?:\.exe)?\s+\/[ck]\s+["']?set["']?$/i,
+  /^(?:gci|ls|dir|get-childitem|gi|get-item|gc|get-content|cat|type)\s+(?:-(?:path|literalpath)\s+)?["']?\$?env:/i,
 ];
-// "-e" and "-en" are PowerShell's own short forms of -EncodedCommand; they count only on a powershell or pwsh command line (grep -e is not it).
-const PS_SHORT_ENC = /\b(?:powershell|pwsh)(?:\.exe)?\b[^\n|;&]*\s-(?:e|en)(?=\s)/i;
-const SETTINGS_FILE = /\.claude[\\/]+settings(?:\.local)?\.json(?![A-Za-z0-9_-])/i;
+const NET_TOOL = /\b(?:curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod|webclient|httpie|xh)\b|\b(?:node|python3?|deno|bun)\b[^\n]*\b(?:fetch|http|https|requests|urllib)\b/i;
+
 function workOsHosts() {
   const hosts = new Set(['work.delpat.in']);
   const add = (u) => { try { if (u) hosts.add(new URL(/^[a-z]+:\/\//i.test(u) ? u : 'https://' + u).host.toLowerCase()); } catch {} };
@@ -156,28 +171,78 @@ function workOsHosts() {
   try { const h = workerHome(); if (h) add(loadConfig(h).baseUrl); } catch {}
   return [...hosts];
 }
+
+/** The credential file a command names, or null (a Claude settings file only counts under the home folder: a repo's own .claude/settings.json is fine). */
+function credentialIn(cmd) {
+  const flat = slashes(cmd).toLowerCase();
+  if (/\.claude\.json(?![a-z0-9_-])/.test(flat)) return 'the Claude Code config file';
+  const homes = [HOME_ANCHOR, reEsc(slashes(os.homedir()))].join('|');
+  if (new RegExp(`(?:${homes})/+\\.claude(?![a-z0-9._-])`, 'i').test(flat) && /settings(?:\.local)?\.json/.test(flat)) return 'the Claude settings file';
+  if (/hooks/.test(flat) && /sessions\//.test(flat) || /hooks\/+sessions(?![a-z0-9_-])/.test(flat)) return 'the hooks session folder';
+  const wh = (() => { try { return workerHome(); } catch { return null; } })();
+  if (/work-os-worker/.test(flat) && /(?:config|state)\.json/.test(flat)) return 'the worker config';
+  if (wh && flat.includes(slashes(wh).toLowerCase()) && /(?:config|state)\.json/.test(flat)) return 'the worker config';
+  return null;
+}
+
+/** An environment dump, or printing the key: what it would print, or null. */
+function envDumpIn(cmd) {
+  if (EXPANDS_KEY.test(cmd)) return 'the Work OS key';
+  for (const seg of cmd.split(/\|\||&&|[;&|\n]/)) {
+    const s = seg.trim().replace(/^[({]+\s*|\s*[)}]+$/g, '').replace(/^(?:sudo|command|builtin|exec)\s+/i, '');
+    if (s && ENV_DUMP_SEGMENT.some((re) => re.test(s))) return 'the environment';
+  }
+  if (/\[environment\]::getenvironmentvariables\b/i.test(cmd) || /\[environment\]::getenvironmentvariable\(\s*['"]work_os_key/i.test(cmd) || /\bgetenv\(\s*['"]work_os_key/i.test(cmd)) return 'the environment';
+  for (const re of [/process\.env\b(?:\s*(?:\.\s*(\w+)|\[\s*['"]([^'"]*)['"]))?/gi, /os\.environ\b(?:\s*(?:\[\s*['"]([^'"]*)['"]|\.get\(\s*['"]([^'"]*)['"]))?/gi]) {
+    for (const m of cmd.matchAll(re)) {
+      const key = m[1] ?? m[2] ?? m[3] ?? m[4];
+      if (key === undefined || /^work_os_key$/i.test(key)) return 'the environment';
+    }
+  }
+  return null;
+}
+
+/** Read, Grep and Glob on the credential files (a dispatched run reads its rules and the task through the Work OS tools). */
+function pathDeny(i) {
+  const raw = [i.file_path, i.path, i.pattern, i.glob].filter((x) => typeof x === 'string').join('\n');
+  const p = slashes(raw).toLowerCase();
+  const home = slashes(os.homedir()).toLowerCase();
+  if (/\.claude\.json(?![a-z0-9_-])/.test(p)) return 'the Claude Code config file';
+  if ((p.includes(home + '/.claude') || /~\/\.claude/.test(p)) && /settings/.test(p)) return 'the Claude settings file';
+  if (/\/hooks\/+sessions(?:\/|$|\n)/.test(p)) return 'the hooks session folder';
+  const wh = (() => { try { return workerHome(); } catch { return null; } })();
+  if (/\/work-os-worker\/+(?:config|state)\.json/.test(p) || (wh && p.includes(slashes(wh).toLowerCase() + '/config.json'))) return 'the worker config';
+  return null;
+}
+
 export function shellDeny(input, env = process.env) {
   try {
     const t = String(input.tool_name || '');
-    if (!/^(Bash|PowerShell)$/.test(t)) return null;
+    const isShell = /^(Bash|PowerShell)$/.test(t);
+    if (!isShell && !/^(Read|Grep|Glob)$/.test(t)) return null;
+    if (!isDispatched(input, env)) return null;
+    if (!isShell) {
+      const what = pathDeny(input.tool_input || {});
+      return what ? shellRefusal(what) : null;
+    }
     const cmd = (input.tool_input || {}).command;
     if (typeof cmd !== 'string' || !cmd) return null;
-    if (!isDispatched(input, env)) return null;
     let what = null;
-    for (const [re, name] of SHELL_RULES) if (re.test(cmd)) { what = name; break; }
-    if (!what && PS_SHORT_ENC.test(cmd)) what = 'an encoded PowerShell command';
-    if (!what && SETTINGS_FILE.test(cmd) && /\benv\b/i.test(cmd)) what = 'the env block of a Claude settings file';
-    if (!what) {
+    const cred = credentialIn(cmd);
+    if (cred && READ_VERB.test(cmd)) what = cred;
+    if (!what) what = envDumpIn(cmd);
+    if (!what && PS_ENC_FLAG.test(cmd)) what = 'an encoded PowerShell command';
+    if (!what && (/base64\s+(?:-d|-D|--decode)\b[^\n]*\|\s*(?:sh|bash|zsh|dash|powershell|pwsh|iex|python3?|node)\b/i.test(cmd) || (/frombase64string/i.test(cmd) && /\b(?:iex|invoke-expression)\b/i.test(cmd)))) what = 'an encoded command';
+    if (!what && NET_TOOL.test(cmd)) {
       const lc = cmd.toLowerCase();
       for (const h of workOsHosts()) {
-        for (let i = lc.indexOf(h); i >= 0; i = lc.indexOf(h, i + 1)) {
-          if (/^\/+api(?:\/|$|[^a-z0-9_-])/.test(lc.slice(i + h.length).replace(/^:\d+/, ''))) what = 'the Work OS API';
+        for (let i = lc.indexOf(h); i >= 0 && !what; i = lc.indexOf(h, i + 1)) {
+          if (/^\/+api(?:\/|$|[^a-z0-9_-])/.test(lc.slice(i + h.length).replace(/^:\d+/, ''))) what = 'the Work OS API from a shell command';
         }
         if (what) break;
       }
     }
-    if (!what) return null;
-    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Work OS: this run was started by the task dispatcher, and a dispatched run does not reach ' + what + ' from a shell command. ' + USE_INSTEAD } };
+    return what ? shellRefusal(what) : null;
   } catch { return null; }
 }
 
