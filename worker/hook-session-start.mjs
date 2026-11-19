@@ -12,7 +12,7 @@
 //                 the fallback on a PC with one when the worker gives no brief (folder not linked, key refused, no
 //                 network). That session has no token, so it sends no state events.
 import os from 'node:os';
-import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, mcpCall, postAgent, quietPath, quietRun, readKept, readMarker, keepToken, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, keepProc, mcpCall, postAgent, quietPath, quietRun, readKept, readMarker, keepToken, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
 
 // The folder decides the project (H13): the body carries the ids of the worker folders that contain the session's folder
 // (`folders`, longest first); the server takes the first one linked on this PC. The git remote is sent as information only.
@@ -82,6 +82,7 @@ export async function sessionStart(input) {
   const { remote, where } = whereOf(cwd);
   const folders = folderCandidates(cwd);
   const old = sid ? readMarker(sid) : null; // after compaction the baseline stays the one from the real start
+  if (sid) keepProc(sid); // which process the session runs in, for the worker (Identity step 3); every start, so a resume names its new process
   let r;
   let reports = false; // signed in with the worker (a session token): Work OS gets this session's state events
   let unfiled = null; // { candidates } when no project owns the folder

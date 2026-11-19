@@ -100,15 +100,15 @@ export async function launch({ kind, folder, sessionId, projectName, prompt, cla
   } else throw new Error('unsupported platform');
 }
 
-// [{pid, name?, cmd}] for claude.exe processes (Windows) or everything (macOS).
+// [{pid, ppid, name?, cmd, start?}] for claude.exe processes (Windows; start = the process start time as FILETIME ticks, a string) or everything (macOS).
 export async function listProcesses() {
   if (process.platform === 'win32') {
-    const script = "@(Get-CimInstance Win32_Process -Filter \"Name='claude.exe'\" | Select-Object ProcessId,ParentProcessId,Name,CommandLine) | ConvertTo-Json -Compress";
+    const script = "@(Get-CimInstance Win32_Process -Filter \"Name='claude.exe'\" | Select-Object ProcessId,ParentProcessId,Name,CommandLine,@{n='Start';e={[string]$_.CreationDate.ToFileTimeUtc()}}) | ConvertTo-Json -Compress";
     const { stdout } = await execFileP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { maxBuffer: 16e6, timeout: 30000 });
     if (!stdout.trim()) return [];
     let j = JSON.parse(stdout);
     if (!Array.isArray(j)) j = [j];
-    return j.filter((p) => p && p.CommandLine && p.ProcessId !== process.pid).map((p) => ({ pid: p.ProcessId, ppid: p.ParentProcessId, name: p.Name, cmd: p.CommandLine }));
+    return j.filter((p) => p && p.CommandLine && p.ProcessId !== process.pid).map((p) => ({ pid: p.ProcessId, ppid: p.ParentProcessId, name: p.Name, cmd: p.CommandLine, ...(/^\d{1,20}$/.test(String(p.Start)) ? { start: String(p.Start) } : {}) }));
   }
   const { stdout } = await execFileP('ps', ['-axo', 'pid,ppid,command'], { maxBuffer: 16e6, timeout: 30000 });
   return stdout.split('\n').slice(1).map((l) => l.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/)).filter(Boolean)

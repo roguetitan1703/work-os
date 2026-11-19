@@ -60,6 +60,59 @@ export function keepToken(sid, token, until) {
   try { for (const f of fs.readdirSync(dir)) { const p = path.join(dir, f); if (Date.now() - fs.statSync(p).mtimeMs > 2 * 86_400_000) fs.rmSync(p, { force: true }); } } catch {}
 }
 
+// ── The session's claude process (Identity step 3) ─────────────────────────────────────────────────────────────────────────
+// At SessionStart the hook notes which process the session runs in: <hooks folder>/sessions/<session id>.proc = { pid, procStart? },
+// so the worker can tell at once when it is gone (worker/activity.mjs sessionEvidence). The pid is CLAUDE_PID, which Claude Code puts in the
+// environment of its hooks and shell commands in every surface (desktop, VS Code, terminal: it is the claude process's own id); without it, the
+// nearest claude ancestor of this process. procStart (Windows only, FILETIME ticks as a string) guards against a pid that another process took later.
+// Only an installed copy writes it (next to a worker config); the id is a UUID, the pid a small integer, nothing else is stored.
+const procFile = (sid) => path.join(HERE, 'sessions', String(sid).toLowerCase() + '.proc');
+const isClaudeImage = (n) => /^claude(\.exe)?$/i.test(String(n || '').replace(/^"|"$/g, '').split(/[\\/]/).pop());
+
+/** Process facts for `pid`, or null: { ppid, name, start? }. One short PowerShell or ps call. */
+function processFacts(pid) {
+  try {
+    if (process.platform === 'win32') {
+      const script = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${Number(pid)}'; if ($p) { @{ ppid = $p.ParentProcessId; name = $p.Name; start = [string]$p.CreationDate.ToFileTimeUtc() } | ConvertTo-Json -Compress }`;
+      const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim();
+      const o = out ? JSON.parse(out) : null;
+      return o && Number.isInteger(o.ppid) ? { ppid: o.ppid, name: String(o.name || ''), ...(/^\d{1,20}$/.test(String(o.start)) ? { start: String(o.start) } : {}) } : null;
+    }
+    const out = execFileSync('ps', ['-o', 'ppid=,comm=', '-p', String(Number(pid))], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const m = /^(\d+)\s+(.*)$/.exec(out);
+    return m ? { ppid: Number(m[1]), name: m[2] } : null;
+  } catch { return null; }
+}
+
+/** The claude process of this session: { pid, procStart? } from CLAUDE_PID, else the nearest claude ancestor; null when neither is found. */
+export function claudeProcess(env = process.env, facts = processFacts, ppid = process.ppid) {
+  const fromEnv = /^\d{1,10}$/.test(env.CLAUDE_PID || '') ? Number(env.CLAUDE_PID) : 0;
+  if (fromEnv > 0) {
+    const f = facts(fromEnv);
+    return { pid: fromEnv, ...(f && f.start ? { procStart: f.start } : {}) };
+  }
+  let pid = ppid;
+  for (let i = 0; i < 8 && Number.isInteger(pid) && pid > 1; i++) {
+    const f = facts(pid);
+    if (!f) return null;
+    if (isClaudeImage(f.name)) return { pid, ...(f.start ? { procStart: f.start } : {}) };
+    pid = f.ppid;
+  }
+  return null;
+}
+
+/** Writes the .proc file for a session (an installed copy only). Never throws. Returns what it wrote, or null. */
+export function keepProc(sid, claude = claudeProcess) {
+  try {
+    if (!workerHome() || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sid || ''))) return null;
+    const c = claude();
+    if (!c) return null;
+    fs.mkdirSync(path.dirname(procFile(sid)), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(procFile(sid), JSON.stringify(c), { mode: 0o600 });
+    return c;
+  } catch { return null; }
+}
+
 // ── Which folder is this session in (H13: the folder decides the project) ─────────────────────────────────────────────────
 const FOLDER_ID_RE = /^[A-Za-z0-9_-]{4,40}$/;
 const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };

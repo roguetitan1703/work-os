@@ -53,7 +53,8 @@ test('payload has only the allowed keys and no message text or full path', () =>
     assert.ok(!json.includes('secret-dir'));
     assert.ok(!/[\\/]/.test(json.replace(/\\"/g, '')), 'no path separators anywhere in the payload');
     for (const s of list) {
-      assert.deepEqual(Object.keys(s).sort(), ['folder', 'lastActiveAt', 'origin', 'running', 'sessionId', 'startedByWorkOs', 'subagentsActive', 'title']);
+      // Identity step 3: a session no process evidence names also says `unknown: true` (the machine cannot say whether it runs).
+      assert.deepEqual(Object.keys(s).sort(), ['folder', 'lastActiveAt', 'origin', 'running', 'sessionId', 'startedByWorkOs', 'subagentsActive', 'title', 'unknown']);
       const strings = Object.values(s).filter((v) => typeof v === 'string');
       assert.equal(strings.length, 4); // sessionId, folder, title, origin
       assert.ok(Number.isInteger(s.lastActiveAt) && Number.isInteger(s.subagentsActive));
@@ -95,14 +96,92 @@ test('window, running and subagents', () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('a process with no session id is matched to the newest unclaimed transcript', () => {
+// Identity step 3: the guess that tied a process with no session id to the newest transcript is gone.
+test('a process with no session id is not evidence: an old transcript is not listed, a recent one is unknown and not running', () => {
   const { root, now, put } = tree();
   try {
-    put('p1', uuid(1), 60 * 60_000, [msg('/a/vscode')]); // an hour old, but a plain claude process is open
+    put('p1', uuid(1), 60 * 60_000, [msg('/a/vscode')]); // an hour old, a plain claude process is open: still not listed
     put('p1', uuid(2), 3 * 24 * 3600_000, [msg('/a/ancient')]);
-    const list = listSessions({ procs: [{ pid: 5, ppid: 1, name: 'claude.exe', cmd: '"C:/bin/claude.exe"' }], root, now });
-    assert.deepEqual(list.map((s) => s.sessionId), [uuid(1)]);
+    put('p1', uuid(3), 60_000, [msg('/a/recent')]);
+    const list = listSessions({ procs: [{ pid: 5, ppid: 1, name: 'claude.exe', cmd: '"C:/bin/claude.exe"' }], root, now, sessionsDir: path.join(root, 'none') });
+    assert.deepEqual(list.map((s) => s.sessionId), [uuid(3)]);
+    assert.equal(list[0].running, false);
+    assert.equal(list[0].unknown, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+const writeSessionFile = (dir, o) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, `${o.pid}.json`), JSON.stringify({ kind: 'interactive', messagingSocketPath: 'MADE-UP-SOCKET', messagingToken: 'MADE-UP-TOKEN', ...o })); };
+const plain = (pid, start) => ({ pid, ppid: 1, name: 'claude.exe', cmd: '"C:/bin/claude.exe"', ...(start ? { start } : {}) });
+
+test('the Claude Code own session file (pid, sessionId, name, procStart) says the session runs; the name is a title fallback; nothing else is read', () => {
+  const { root, now, put } = tree();
+  const dir = path.join(root, 'sessions');
+  try {
+    put('p1', uuid(1), 5 * 3600_000, [msg('/a/desktop')]); // old transcript, but its process runs
+    put('p1', uuid(2), 5 * 3600_000, [msg('/a/gone')]); // old transcript, file for a pid that is gone
+    writeSessionFile(dir, { pid: 4321, sessionId: uuid(1), name: 'Made up session name', procStart: '134395156985665484', entrypoint: 'claude-desktop' });
+    writeSessionFile(dir, { pid: 999, sessionId: uuid(2), name: 'Gone', procStart: '134395156985665484' });
+    fs.writeFileSync(path.join(dir, '4321.key'), 'MADE-UP-KEY-never-read');
+    const list = listSessions({ procs: [plain(4321, '134395156985665480')], root, now, sessionsDir: dir });
+    assert.deepEqual(list.map((s) => s.sessionId), [uuid(1)]); // the gone one is old and not running: not listed
     assert.equal(list[0].running, true);
+    assert.equal(list[0].unknown, undefined);
+    assert.equal(list[0].title, 'Made up session name');
+    const json = JSON.stringify(list);
+    assert.ok(!json.includes('MADE-UP-TOKEN') && !json.includes('MADE-UP-SOCKET') && !json.includes('never-read'));
+    // a recent transcript whose file's process is gone: known stopped, not unknown
+    put('p1', uuid(3), 30_000, [msg('/a/closed')]);
+    writeSessionFile(dir, { pid: 777, sessionId: uuid(3), name: 'Closed', procStart: '1' });
+    const l2 = listSessions({ procs: [plain(4321, '134395156985665480')], root, now, sessionsDir: dir });
+    const closed = l2.find((s) => s.sessionId === uuid(3));
+    assert.equal(closed.running, false);
+    assert.equal(closed.unknown, undefined);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a pid that another process took does not count: the process start time must match (within a second)', () => {
+  const { root, now, put } = tree();
+  const dir = path.join(root, 'sessions');
+  try {
+    put('p1', uuid(1), 30_000, [msg('/a/one')]);
+    writeSessionFile(dir, { pid: 50, sessionId: uuid(1), procStart: '134395156985665484' });
+    const same = listSessions({ procs: [plain(50, '134395156985665480')], root, now, sessionsDir: dir });
+    assert.equal(same[0].running, true);
+    const reused = listSessions({ procs: [plain(50, '134395999999999999')], root, now, sessionsDir: dir });
+    assert.equal(reused[0].running, false);
+    assert.equal(reused[0].unknown, undefined);
+    const noStart = listSessions({ procs: [plain(50)], root, now, sessionsDir: dir }); // a platform that does not report it: the pid counts
+    assert.equal(noStart[0].running, true);
+    const notClaude = listSessions({ procs: [{ pid: 50, ppid: 1, name: 'node.exe', cmd: 'node x.js' }], root, now, sessionsDir: dir });
+    assert.equal(notClaude[0].running, false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('the hook .proc file (<sessionId>.proc) says the session runs (a terminal or VS Code session, which has no file of its own)', () => {
+  const { root, now, put } = tree();
+  const procDir = path.join(root, 'hooks-sessions');
+  try {
+    put('p1', uuid(1), 2 * 3600_000, [msg('/a/terminal')]);
+    put('p1', uuid(2), 2 * 3600_000, [msg('/a/vscode')]);
+    fs.mkdirSync(procDir, { recursive: true });
+    fs.writeFileSync(path.join(procDir, `${uuid(1)}.proc`), JSON.stringify({ pid: 61, procStart: '77' }));
+    fs.writeFileSync(path.join(procDir, `${uuid(2)}.proc`), JSON.stringify({ pid: 62 }));
+    fs.writeFileSync(path.join(procDir, 'not-a-session.proc'), JSON.stringify({ pid: 63 }));
+    const list = listSessions({ procs: [plain(61, '77'), plain(62)], root, now, procDir, sessionsDir: path.join(root, 'none') });
+    assert.deepEqual(list.map((s) => s.sessionId).sort(), [uuid(1), uuid(2)].sort());
+    assert.ok(list.every((s) => s.running === true));
+    const stopped = listSessions({ procs: [], root, now, procDir, sessionsDir: path.join(root, 'none') });
+    assert.deepEqual(stopped, []); // old transcripts, nothing runs
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a session this worker started and that is not on a command line is known stopped, not unknown', () => {
+  const { root, now, put } = tree();
+  try {
+    put('p1', uuid(1), 30_000, [msg('/a/one')]);
+    const list = listSessions({ procs: [], workOsIds: [uuid(1)], root, now, sessionsDir: path.join(root, 'none') });
+    assert.equal(list[0].running, false);
+    assert.equal(list[0].unknown, undefined);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

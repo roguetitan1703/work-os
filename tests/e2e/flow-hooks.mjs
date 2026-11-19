@@ -9,6 +9,10 @@ import { fileURLToPath } from 'node:url';
 import { B, MCP, check, finish, mkKey, rawDb } from './lib.mjs';
 import { markOrders, must } from './flow-lib.mjs';
 
+// The server closes an idle connection after 5 s and this suite runs hooks (seconds) between its calls: a pooled connection can then be reset
+// (ECONNRESET on this PC). It keeps no connection open between calls. No check changes.
+try { const u = await import('undici'); u.setGlobalDispatcher(new u.Agent({ keepAliveTimeout: 1, keepAliveMaxTimeout: 1 })); } catch { /* the default pool */ }
+
 const HOOK = fileURLToPath(new URL('../../worker/hook.mjs', import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-hooks-e2e-'));
 try {

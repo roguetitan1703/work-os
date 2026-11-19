@@ -77,6 +77,10 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
   const c = await scoped(s);
   const now = new Date();
   const _id = rowId(i, project._id);
+  // One machine name per PC (Identity step 3): a row the hook made carries the device itself (machine = device id, machineName = its name).
+  // A later start_work from the agent that names the PC any other way (its hostname in another case, a nickname) must not replace that:
+  // the plain name is ignored while the row has a device. A call that resolves to a device (same or another) still wins.
+  const keepDevice = !!(o.machine && !o.machineName) && !!(await c.presence.findOne({ _id, machineName: { $exists: true } }, { projection: { _id: 1 } }));
   const up = await c.presence.updateOne(
     { _id },
     {
@@ -88,7 +92,7 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
         ...(i.keyId ? { keyId: i.keyId } : {}),
         // A later start_work without a label keeps the earlier one (label addressing depends on it).
         ...((o.label ?? '').trim() ? { label: (o.label ?? '').trim().slice(0, 120) } : {}),
-        machine: (o.machine ?? '').slice(0, 40),
+        ...(keepDevice ? {} : { machine: (o.machine ?? '').slice(0, 40) }),
         ai: (i.keyName || i.agent).slice(0, 80),
         agent: i.agent,
         // The hook protocol: only when this call says (an old hook's row stays 1 until a new hook starts it again).
@@ -113,7 +117,7 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
       $setOnInsert: { createdAt: now, ...((o.label ?? '').trim() ? {} : { label: '' }) },
       // A machine that is no longer one of the person's devices (or a name now reported plain) drops its device name.
       // A start_work after end_work is a session working again.
-      $unset: { endedAt: '', ...(o.machine && !o.machineName ? { machineName: '' } : {}) },
+      $unset: { endedAt: '', ...(o.machine && !o.machineName && !keepDevice ? { machineName: '' } : {}) },
     },
     { upsert: true },
   );

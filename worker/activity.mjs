@@ -113,12 +113,12 @@ export function rootsFilter(roots) {
   return (name) => { const n = name.toLowerCase(); return pre.some((r) => n === r || n.startsWith(r + '-')); };
 }
 
-export async function collectActivity({ listProcesses, workOsIds = [], root, now = Date.now(), withSessions = false, onlyRoots = null }) {
+export async function collectActivity({ listProcesses, workOsIds = [], root, now = Date.now(), withSessions = false, onlyRoots = null, sessionsDir, procDir }) {
   const procs = await listProcesses();
   const keep = rootsFilter(onlyRoots);
   if (keep) {
     // Only sessions under the roots: counts come from the filtered list, so nothing about other sessions is sent.
-    const list = listSessions({ procs, workOsIds, root, now, keep });
+    const list = listSessions({ procs, workOsIds, root, now, keep, sessionsDir, procDir });
     const run = list.filter((s) => s.running);
     const sessionsWorkOs = run.filter((s) => s.startedByWorkOs).length;
     const counts = { sessions: run.length, sessionsWorkOs, sessionsOther: run.length - sessionsWorkOs, sessionsActive: list.filter((s) => now - s.lastActiveAt <= ACTIVE_MS).length, subagents: list.reduce((n, s) => n + s.subagentsActive, 0), at: now };
@@ -127,7 +127,7 @@ export async function collectActivity({ listProcesses, workOsIds = [], root, now
   const s = countSessions(procs, workOsIds);
   const t = scanTranscripts(root, now);
   const counts = { ...s, sessionsActive: t.sessionsActive, subagents: t.subagents, at: now };
-  return withSessions ? { counts, list: listSessions({ procs, workOsIds, root, now }) } : counts;
+  return withSessions ? { counts, list: listSessions({ procs, workOsIds, root, now, sessionsDir, procDir }) } : counts;
 }
 
 // ── Named session list ──────────────────────────────────────────────────────
@@ -138,7 +138,6 @@ export const MAX_TITLE = 80;
 export const MAX_FOLDER = 80;
 const TAIL_BYTES = 512 * 1024;
 const HEAD_BYTES = 128 * 1024;
-const UNMAPPED_WINDOW_MS = 24 * 3600_000;
 const SID_FILE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
 
 // Title record types, best first: a name the user gave (custom-title), Claude's generated title, an agent name, an old summary.
@@ -235,6 +234,90 @@ function nameArg(cmd) {
   return m ? oneLine(m[1] ?? m[2], MAX_TITLE) : '';
 }
 
+// ── Which sessions run (Identity step 3) ─────────────────────────────────────────────────────────────────────────────────
+// A session runs when a claude process is tied to it by one of three kinds of evidence, never by guessing from transcript times:
+//   1. its command line names it (--session-id / --resume <uuid>), the sessions this worker started;
+//   2. Claude Code's own file ~/.claude/sessions/<pid>.json (pid, sessionId, name, procStart) and that pid is a claude process;
+//   3. the file the Work OS hook wrote at SessionStart, <hooks folder>/sessions/<sessionId>.proc ({ pid, procStart? }), the same check.
+// Of the files only these few fields are read (the folder also holds .key files with secrets, which are never opened: only
+// names that are a pid and .json are read). On Windows a process start time (procStart, FILETIME ticks) must also match, so a
+// pid that was reused by another claude process does not count. A session with no evidence at all is "unknown", not "running".
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const START_TOLERANCE = 10_000_000n; // one second in 100 ns ticks
+
+export const defaultSessionsDir = () => path.join(process.env.WORK_OS_CLAUDE_SESSIONS || path.join(os.homedir(), '.claude', 'sessions'));
+
+const ticks = (v) => { try { return /^\d{1,20}$/.test(String(v)) ? BigInt(String(v)) : null; } catch { return null; } };
+
+/** Reads <pid>.json files of Claude Code's sessions folder: [{ pid, sessionId, name, procStart, entrypoint }]. Only those fields; .key files are never opened. */
+export function readSessionFiles(dir = defaultSessionsDir()) {
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return []; }
+  const out = [];
+  for (const n of names) {
+    if (!/^\d{1,10}\.json$/.test(n)) continue; // a .key file or anything else is not touched
+    let o;
+    try { const f = path.join(dir, n); if (fs.statSync(f).size > 64 * 1024) continue; o = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { continue; }
+    if (!o || !Number.isInteger(o.pid) || o.pid <= 0 || typeof o.sessionId !== 'string' || !UUID_RE.test(o.sessionId)) continue;
+    out.push({
+      pid: o.pid,
+      sessionId: o.sessionId.toLowerCase(),
+      name: typeof o.name === 'string' ? oneLine(o.name, MAX_TITLE) : '',
+      procStart: o.procStart !== undefined && ticks(o.procStart) !== null ? String(o.procStart) : '',
+      entrypoint: typeof o.entrypoint === 'string' && /^[a-z0-9_-]{1,32}$/.test(o.entrypoint) ? o.entrypoint : '',
+    });
+  }
+  return out;
+}
+
+/** The hook's .proc files: Map(sessionId -> { pid, procStart }). */
+export function readProcFiles(dir) {
+  const out = new Map();
+  if (!dir) return out;
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return out; }
+  for (const n of names) {
+    const m = /^([0-9a-f-]{36})\.proc$/i.exec(n);
+    if (!m || !UUID_RE.test(m[1])) continue;
+    try {
+      const f = path.join(dir, n);
+      if (fs.statSync(f).size > 4096) continue;
+      const o = JSON.parse(fs.readFileSync(f, 'utf8'));
+      if (o && Number.isInteger(o.pid) && o.pid > 0) out.set(m[1].toLowerCase(), { pid: o.pid, procStart: o.procStart !== undefined && ticks(o.procStart) !== null ? String(o.procStart) : '' });
+    } catch { /* unreadable: no evidence */ }
+  }
+  return out;
+}
+
+/** Is `rec` ({ pid, procStart }) a live claude process in `procs`? Where both sides know the start time they must agree. */
+function liveProc(procs, rec) {
+  const p = (procs || []).find((x) => x && x.pid === rec.pid && isClaudeProcess(x));
+  if (!p) return false;
+  const a = ticks(rec.procStart);
+  const b = ticks(p.start);
+  if (a === null || b === null) return true;
+  const d = a > b ? a - b : b - a;
+  return d <= START_TOLERANCE;
+}
+
+/**
+ * What the machine can tell about each session id: Map(sessionId -> { running, name?, entrypoint? }). `running` false with an entry
+ * means there was evidence and the process is gone (stopped); a session not in the map is unknown.
+ */
+export function sessionEvidence({ procs, workOsIds = [], sessionsDir, procDir } = {}) {
+  const ev = new Map();
+  const note = (sid, running, extra = {}) => {
+    const cur = ev.get(sid);
+    ev.set(sid, { running: !!(cur && cur.running) || running, ...(cur && cur.name ? { name: cur.name } : {}), ...(cur && cur.entrypoint ? { entrypoint: cur.entrypoint } : {}), ...(extra.name ? { name: extra.name } : {}), ...(extra.entrypoint ? { entrypoint: extra.entrypoint } : {}) });
+  };
+  const { byId } = sessionProcs(procs);
+  for (const [sid, v] of byId) note(sid, true, { name: v.name });
+  for (const id of workOsIds) { const sid = String(id).toLowerCase(); if (!ev.has(sid)) note(sid, false); } // started by this worker and not on a command line: stopped
+  for (const r of readSessionFiles(sessionsDir)) note(r.sessionId, liveProc(procs, r), { name: r.name, entrypoint: r.entrypoint });
+  for (const [sid, r] of readProcFiles(procDir)) note(sid, liveProc(procs, r));
+  return ev;
+}
+
 // procs: process list. Returns { byId: Map(sessionId -> {pid, name}), unmapped: number } over real session processes.
 export function sessionProcs(procs) {
   const claude = (procs || []).filter((p) => p && Number.isInteger(p.pid) && isClaudeProcess(p) && !isHelperCommand(p.cmd));
@@ -250,14 +333,12 @@ export function sessionProcs(procs) {
   return { byId, unmapped };
 }
 
-// Active Claude Code sessions: a running claude process, or a transcript written in the last LIST_WINDOW_MS.
-// A process without a session id in its arguments (a plain terminal or VS Code session) cannot be tied to a
-// transcript by id, so each one is matched to the most recently written transcript not already tied to a process
-// (best effort, within a day).
-// keep (optional): project dir name filter; with it, processes without a session id are not matched (they could be anyone's).
-export function listSessions({ procs, workOsIds = [], root = defaultProjectsRoot(), now = Date.now(), keep = null }) {
-  const { byId, unmapped: allUnmapped } = sessionProcs(procs);
-  const unmapped = keep ? 0 : allUnmapped;
+// Active Claude Code sessions: one with evidence of a running claude process (sessionEvidence), or a transcript written in the last
+// LIST_WINDOW_MS. A session no evidence names is listed with `unknown: true` (running false): the machine cannot say, and Work OS
+// then goes by its hook alone. The old guess that tied a process with no session id to the newest transcript is gone (Identity step 3).
+// keep (optional): project dir name filter.
+export function listSessions({ procs, workOsIds = [], root = defaultProjectsRoot(), now = Date.now(), keep = null, sessionsDir, procDir }) {
+  const ev = sessionEvidence({ procs, workOsIds, sessionsDir, procDir });
   const files = [];
   let projects;
   try { projects = fs.readdirSync(root, { withFileTypes: true }); } catch { return []; }
@@ -276,12 +357,11 @@ export function listSessions({ procs, workOsIds = [], root = defaultProjectsRoot
   }
   files.sort((a, b) => b.mt - a.mt);
   const chosen = new Map();
-  for (const f of files) if (byId.has(f.sid) && !chosen.has(f.sid)) chosen.set(f.sid, { ...f, running: true });
-  let slots = unmapped;
   for (const f of files) {
     if (chosen.has(f.sid)) continue;
-    if (slots > 0 && now - f.mt <= UNMAPPED_WINDOW_MS) { chosen.set(f.sid, { ...f, running: true }); slots--; }
-    else if (now - f.mt <= LIST_WINDOW_MS) chosen.set(f.sid, { ...f, running: false });
+    const e = ev.get(f.sid);
+    if (e && e.running) chosen.set(f.sid, { ...f, running: true, known: true });
+    else if (now - f.mt <= LIST_WINDOW_MS) chosen.set(f.sid, { ...f, running: false, known: !!e });
   }
   const wos = new Set(workOsIds.map((i) => String(i).toLowerCase()));
   const out = [];
@@ -303,12 +383,13 @@ export function listSessions({ procs, workOsIds = [], root = defaultProjectsRoot
     out.push({
       sessionId: f.sid,
       folder,
-      title: meta.title || (byId.get(f.sid) && byId.get(f.sid).name) || folder,
+      title: meta.title || (ev.get(f.sid) && ev.get(f.sid).name) || folder,
       lastActiveAt: Math.round(f.mt),
       subagentsActive: Math.min(subagentsActive, 99),
       startedByWorkOs: wos.has(f.sid),
       running: f.running,
-      origin: meta.origin,
+      ...(f.known ? {} : { unknown: true }),
+      origin: meta.origin === 'other' && ev.get(f.sid)?.entrypoint ? originOf(ev.get(f.sid).entrypoint) : meta.origin,
     });
   }
   return out;

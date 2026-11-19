@@ -104,7 +104,7 @@ async function loadRaw(s: Scope, hours: number, projectId?: string): Promise<Raw
     for (const d of devs) {
       const list = d.claudeSessions;
       if (!list || nowMs - list.at.getTime() > DAEMON_FRESH_MS) continue;
-      for (const it of list.items) says.set(`${d._id}:${it.sessionId}`, it.running ? 'running' : 'stopped');
+      for (const it of list.items) if (!it.unknown) says.set(`${d._id}:${it.sessionId}`, it.running ? 'running' : 'stopped'); // unknown: the computer has no word on it
     }
   }
   return rows.map(row => ({ row, daemon: (ccOf(row) && says.get(`${row.machine}:${ccOf(row)}`)) || 'unknown' }));
