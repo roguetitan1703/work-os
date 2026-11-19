@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils"
 // disabled>), the same `value` / `defaultValue` / `name` / `disabled` / `aria-label`, and calls `onChange` with
 // `{ target: { value } }`, so a call site only changes the tag. Keyboard: Enter / Space / arrows open it, arrows move,
 // type-ahead jumps, Enter picks, Escape closes. The trigger is a real button (tappable at 44px where the caller sizes it),
-// the list scrolls on touch. In a form it submits through a hidden input under `name`, like a native select.
+// the list scrolls on touch. In a form it submits its real value ("" for the empty option) through a hidden input under `name`, like a native select.
 
 export type SelectChangeEvent = { target: { value: string }; currentTarget: { value: string } }
 
@@ -62,16 +62,21 @@ function Select({ value, defaultValue, onChange, name, id, disabled, required, c
   const options = collect(children)
   const items = options.map((o) => ({ value: enc(o.value), label: o.label }))
   const controlled = value !== undefined
+  // The form value is the real one: Base UI would submit the '' marker (empty) under `name`, so a form never sees it.
+  const [picked, setPicked] = React.useState(defaultValue !== undefined ? String(defaultValue) : "")
+  const current = controlled ? String(value) : picked
   return (
+    <>
+    {name && <input type="hidden" name={name} value={current} disabled={disabled} />}
     <SelectPrimitive.Root
       items={items}
       value={controlled ? enc(String(value)) : undefined}
       defaultValue={!controlled && defaultValue !== undefined ? enc(String(defaultValue)) : undefined}
       onValueChange={(v) => {
         const s = dec(String(v ?? ""))
+        setPicked(s)
         onChange?.({ target: { value: s }, currentTarget: { value: s } })
       }}
-      name={name}
       id={id}
       disabled={disabled}
       required={required}
@@ -120,6 +125,7 @@ function Select({ value, defaultValue, onChange, name, id, disabled, required, c
         </SelectPrimitive.Positioner>
       </SelectPrimitive.Portal>
     </SelectPrimitive.Root>
+    </>
   )
 }
 
