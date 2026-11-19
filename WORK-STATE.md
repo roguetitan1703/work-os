@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 102. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 103. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -9,12 +9,8 @@ Copy of the Work OS state, version 102. WORK-STATE.md is a copy of the State, wr
 1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel.
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
 3. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
-4. Harness R3 = H6 (session state from hooks): steps 1-4 on dev 3caa047 (security-reviewed, fixes re-checked); steps 5-6 (UI, docs, What's new, budgets) building in slot A; then full e2e of dev, release R3, step 7 (refresh hooks on Om's PC, hand check in the desktop app and VS Code). Then H7 (plan 6dfdb98f4f) per #276. (#283)
-5. H8 release waits on Om's answer to Need #11 (release yes always a tap, or chat yes enough). Built in slot B with the default. (#285) — waits on Om (Need #11)
-6. Before R5, harden H9 fix 2: dispatched runs share the wos_ key and the label/session check is agent-controlled, so a hijacked run could pass Om's session id and edit Orders. Fix: worker launches dispatched claude with WORK_OS_DISPATCHED=<ref>; the PreToolUse hook refuses write_note/propose_order on Orders pages in such runs; server check stays as a second layer. Next free slot. (#286)
-7. R6 = session identity (note 2afd68cb00; builder-b ecc8d8a, steps 1-7). Opus security review 19 Nov: no high; slot B fixing seen-message read bypass, reply note, PID reuse, leftover 'inbox' text, fix script scope, oauth 'chat' word check. Then merge dev, full e2e, release on Om's chat yes, reinstall hooks, fix-message-word on production (dry run first). (note 2afd68cb00): Opus plan, then build in slot B, Opus security review, then into R5 or right after it; reinstall hooks on the PCs.
-8. Need answers reach whoever holds the work now: a Need asked by a session that is off is delivered to the project's Now holder or the session that picked up its handover, and start_work lists answered Needs since the last lead's session; withdraw_need on an answered or closed Need says so with the answer and time. Fold into the lanes design (note after 2afd68cb00).
-9. Nudges (Om 19 Nov, note ce434ed759): idle 20 min with Next work not waiting on anyone wakes the holder through the idle wait (backoff 1/2/4 h, 4 a day, not when the person typed in the last 20 min); Declutter-due nudge to the Now holder once a day at turn end. Build in R7 after lanes step 1.
+4. Need answers reach whoever holds the work now: a Need asked by a session that is off is delivered to the project's Now holder or the session that picked up its handover, and start_work lists answered Needs since the last lead's session; withdraw_need on an answered or closed Need says so with the answer and time. Fold into the lanes design (note after 2afd68cb00).
+5. Fable review of the whole Harness after R7, centred on tool calling: inconsistent parameters such as write_note without session, unused or duplicate tools, and words that drift. Findings go to a Work OS note; Opus triages them into fixes.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -46,4 +42,4 @@ Copy of the Work OS state, version 102. WORK-STATE.md is a copy of the State, wr
 - flow-dc1 'a review Need gets no buttons in its DM' fails about 2 runs in 3: the test inserts the review Need's alert after the asks, so the DM sometimes misses the batch. Test race; the alerts code didn't change in R7.
 - The SIGTERM fix does not work: on R7 (59cb0edb5693) a systemctl restart still waits the full 30 s stop-sigterm timeout, then SIGKILL (journal 20 Nov 01:44 IST). Something keeps next-server open (SSE /live streams, the wait route, or Mongo). Each deploy is about 30 s down.
 - write_note has no session parameter, so a lead session can't edit the Orders through MCP: it is refused as 'one that names no session'. Add session to write_note or expose propose_order. For the H17 tool-calling review.
-<!-- work-os-copy sha1:017445839945de04b7d578beeccd945fd68c063e -->
+<!-- work-os-copy sha1:5ebe1c8b92d20b3ee07c55d90388c9c8957ae315 -->
