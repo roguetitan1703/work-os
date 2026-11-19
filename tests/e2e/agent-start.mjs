@@ -71,13 +71,14 @@ try {
   const pc1 = await deviceOf(A, 'agent-pc-1');
   const pc2 = await deviceOf(A, 'agent-pc-2');
   await rawDb.collection('workerFolders').insertMany([
-    folder(pc1, A, 'f1', 'acme/agent-one', one),
-    folder(pc1, A, 'fx', 'acme/x-secret', null),
-    folder(pc1, A, 'fb', 'acme/agent-bare', null), // the remote matches, but nobody linked it: the worker reports remotes itself
-    { ...folder(pc1, A, 'fg', 'acme/agent-gone', gone), missing: true }, // linked, but the worker no longer finds it
-    folder(pc2, A, 'f2', 'acme/agent-two', two),
+    folder(pc1, A, 'fold1', 'acme/agent-one', one),
+    folder(pc1, A, 'foldx', 'acme/x-secret', null),
+    folder(pc1, A, 'foldb', 'acme/agent-bare', null), // the remote matches, but nobody linked it: the worker reports remotes itself
+    { ...folder(pc1, A, 'foldg', 'acme/agent-gone', gone), missing: true }, // linked, but the worker no longer finds it
+    folder(pc2, A, 'fold2', 'acme/agent-two', two),
   ]);
-  const at = (remote, extra = {}) => ({ remote: `https://github.com/${remote}.git`, branch: 'main', path: `C:/code/${remote.split('/')[1]}`, machine: 'agent-pc', label: 'Claude Code', ...extra });
+  const FOLDER_OF = { 'acme/agent-one': 'fold1', 'acme/x-secret': 'foldx', 'acme/agent-bare': 'foldb', 'acme/agent-gone': 'foldg', 'acme/agent-two': 'fold2' }; // the hook sends the worker folder ids (H13); the remote is information
+  const at = (remote, extra = {}) => ({ folders: [FOLDER_OF[remote]].filter(Boolean), remote: `https://github.com/${remote}.git`, branch: 'main', path: `C:/code/${remote.split('/')[1]}`, machine: 'agent-pc', label: 'Claude Code', ...extra });
 
   // ---- a good device key ----
   const r1 = await post(pc1.key, at('acme/agent-one'));
@@ -203,13 +204,13 @@ try {
   check('revoked: its token is refused', (await post(T2, at('acme/agent-two'))).status === 401);
   // a token whose row survived (as if the delete failed) is still refused for a revoked computer
   const pc3 = await deviceOf(A, 'agent-pc-3');
-  await rawDb.collection('workerFolders').insertOne(folder(pc3, A, 'f3', 'acme/agent-one', one));
+  await rawDb.collection('workerFolders').insertOne(folder(pc3, A, 'fold1', 'acme/agent-one', one));
   const T3 = (await post(pc3.key, at('acme/agent-one'))).json?.token ?? '';
   await rawDb.collection('devices').updateOne({ _id: pc3.id }, { $set: { revokedAt: new Date() } });
   check('revoked in the database only: the token is refused too', !!T3 && (await post(T3, at('acme/agent-one'))).status === 401);
   // a token whose row survived a key replace (made in a race with it): its key hash is no longer the computer's
   const pc5 = await deviceOf(A, 'agent-pc-5');
-  await rawDb.collection('workerFolders').insertOne(folder(pc5, A, 'f5', 'acme/agent-one', one));
+  await rawDb.collection('workerFolders').insertOne(folder(pc5, A, 'fold1', 'acme/agent-one', one));
   const T5 = (await post(pc5.key, at('acme/agent-one'))).json?.token ?? '';
   check('a token of the current key works', !!T5 && (await post(T5, {})).status === 200);
   await rawDb.collection('devices').updateOne({ _id: pc5.id }, { $set: { hash: 'f'.repeat(64) } });
@@ -218,7 +219,7 @@ try {
   // ---- an owner who is no longer a member ----
   const M = await makeUser({ email: 'agent-m@example.test', name: 'Moe', orgId: A.orgId, role: 'member' });
   const pcM = await deviceOf(M, 'moe-pc');
-  await rawDb.collection('workerFolders').insertOne(folder(pcM, M, 'fm', 'acme/agent-one', one));
+  await rawDb.collection('workerFolders').insertOne(folder(pcM, M, 'fold1', 'acme/agent-one', one));
   await rawDb.collection('member').deleteOne({ userId: idIn(M.userId), organizationId: idIn(A.orgId) });
   const rM = await post(pcM.key, at('acme/agent-one'));
   check('a device whose owner left the organization: 401', rM.status === 401, `${rM.status} ${rM.text.slice(0, 120)}`);
@@ -227,12 +228,12 @@ try {
   const dCreated = (await must(MCP, 'add_task', { title: 'H15 dispatched task', project: 'Agent One' })).created;
   const dTask = { ref: dCreated.ref, id: (await rawDb.collection('tasks').findOne({ ref: dCreated.ref }))._id };
   const pcP = await deviceOf(A, 'agent-pc-p');
-  await rawDb.collection('workerFolders').insertOne(folder(pcP, A, 'fp', 'acme/agent-one', one));
+  await rawDb.collection('workerFolders').insertOne(folder(pcP, A, 'fold1', 'acme/agent-one', one));
   const DCC = '5a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
-  const wsRow = (deviceId, ownerId, extra = {}) => ({ _id: DCC, orgId: A.orgId, ownerId, deviceId, folderId: 'fp', projectId: one, state: 'running', startedAt: new Date(), updatedAt: new Date(), dispatched: true, taskId: dTask.id, ...extra });
+  const wsRow = (deviceId, ownerId, extra = {}) => ({ _id: DCC, orgId: A.orgId, ownerId, deviceId, folderId: 'fold1', projectId: one, state: 'running', startedAt: new Date(), updatedAt: new Date(), dispatched: true, taskId: dTask.id, ...extra });
   await rawDb.collection('workerSessions').insertOne(wsRow(pcP.id, A.userId));
   const pcD = await deviceOf(A, 'agent-pc-d');
-  await rawDb.collection('workerFolders').insertOne(folder(pcD, A, 'fd', 'acme/agent-one', one));
+  await rawDb.collection('workerFolders').insertOne(folder(pcD, A, 'fold1', 'acme/agent-one', one));
   const rD = await post(pcP.key, { ...at('acme/agent-one'), ccSession: DCC, source: 'startup' });
   const sD = rD.json?.brief?.session;
   check('H15: this PC own dispatched session row: the answer carries dispatched = the task ref', rD.status === 200 && rD.json?.dispatched === dTask.ref, `${rD.status} ${rD.text.slice(0, 200)}`);
@@ -255,7 +256,7 @@ try {
 
   // ---- hourly limits ----
   const pc4 = await deviceOf(A, 'agent-pc-4');
-  await rawDb.collection('workerFolders').insertOne(folder(pc4, A, 'f4', 'acme/agent-one', one));
+  await rawDb.collection('workerFolders').insertOne(folder(pc4, A, 'fold1', 'acme/agent-one', one));
   const T4 = (await post(pc4.key, at('acme/agent-one'))).json?.token ?? '';
   let briefs = 0;
   for (let i = 0; i < 25 && T4; i++) if ((await post(T4, {})).status === 200) briefs++;
