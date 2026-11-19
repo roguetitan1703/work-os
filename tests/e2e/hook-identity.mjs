@@ -20,8 +20,8 @@ try {
   const ONE = (await must(MCP, 'add_project', { name: P, code: [{ remote: 'acme/ident-one' }] })).project.id;
   const pc = await mkDevice('ident-pc');
   await rawDb.collection('devices').updateOne({ _id: pc.id }, { $set: { ownerId: ME.userId, orgId: ME.orgId, name: 'Ident-PC' } });
-  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:f1`, deviceId: pc.id, folderId: 'f1', name: 'C:/code/f1', git: true, remote: 'acme/ident-one', projectId: ONE, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
-  const base = { remote: 'https://github.com/acme/ident-one.git', branch: 'main', path: 'C:/code/f1' };
+  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:fold1`, deviceId: pc.id, folderId: 'fold1', name: 'C:/code/f1', git: true, remote: 'acme/ident-one', projectId: ONE, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
+  const base = { folders: ['fold1'], remote: 'https://github.com/acme/ident-one.git', branch: 'main', path: 'C:/code/f1' };
   const start = async extra => {
     const r = await call('/api/agent/start', pc.key, { ...base, ccSession: randomUUID(), source: 'startup', ...extra });
     if (r.status !== 200) throw new Error(`start ${r.status} ${r.text.slice(0, 200)}`);
@@ -86,7 +86,7 @@ try {
   const ccD = randomUUID();
   await must(MCP, 'add_task', { project: P, title: 'Ident dispatched task' });
   const taskId = (await rawDb.collection('tasks').findOne({ title: 'Ident dispatched task' }))._id;
-  await rawDb.collection('workerSessions').insertOne({ _id: ccD, orgId: ME.orgId, ownerId: ME.userId, deviceId: pc.id, folderId: 'f1', projectId: ONE, state: 'running', startedAt: new Date(), updatedAt: new Date(), dispatched: true, taskId });
+  await rawDb.collection('workerSessions').insertOne({ _id: ccD, orgId: ME.orgId, ownerId: ME.userId, deviceId: pc.id, folderId: 'fold1', projectId: ONE, state: 'running', startedAt: new Date(), updatedAt: new Date(), dispatched: true, taskId });
   const D = await start({ ccSession: ccD, title: 'A name the person typed' });
   r = await row(D.sid);
   const forced = r.label;

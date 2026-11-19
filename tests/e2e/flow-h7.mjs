@@ -34,8 +34,8 @@ try {
   const ONE = (await must(MCP, 'add_project', { name: 'H7 One', code: [{ remote: 'acme/h7-one' }] })).project.id;
   await must(MCP, 'save_state', { project: 'H7 One', ops: [{ op: 'add_next', text: 'H7 line' }] });
   const pc = await deviceOf(ME, 'h7-pc');
-  await rawDb.collection('workerFolders').insertOne(folder(pc, ME, 'f1', 'acme/h7-one', ONE));
-  const body0 = { remote: 'https://github.com/acme/h7-one.git', branch: 'main', path: 'C:/code/h7-one', label: 'H7 · builder B' };
+  await rawDb.collection('workerFolders').insertOne(folder(pc, ME, 'fold1', 'acme/h7-one', ONE));
+  const body0 = { folders: ['fold1'], remote: 'https://github.com/acme/h7-one.git', branch: 'main', path: 'C:/code/h7-one', label: 'H7 · builder B' };
   const newSession = async (label = 'H7 · builder B') => {
     const r = await start(pc.key, { ...body0, label, ccSession: randomUUID(), source: 'startup' });
     return { token: r.json?.token ?? '', sid: r.json?.brief?.session ?? '' };
@@ -125,16 +125,16 @@ try {
   check('d: and the unseen one is still there for the next tool event', /unseen/.test(D.json?.deliver?.text ?? ''));
   // a token for another project's session gets nothing of this project
   await must(MCP, 'add_project', { name: 'H7 Two', code: [{ remote: 'acme/h7-two' }] });
-  await rawDb.collection('workerFolders').insertOne(folder(pc, ME, 'f2', 'acme/h7-two', (await rawDb.collection('projects').findOne({ name: 'H7 Two' }))._id));
-  const s2 = await start(pc.key, { remote: 'https://github.com/acme/h7-two.git', branch: 'main', path: 'C:/code/h7-two', label: 'two' });
+  await rawDb.collection('workerFolders').insertOne(folder(pc, ME, 'fold2', 'acme/h7-two', (await rawDb.collection('projects').findOne({ name: 'H7 Two' }))._id));
+  const s2 = await start(pc.key, { folders: ['fold2'], remote: 'https://github.com/acme/h7-two.git', branch: 'main', path: 'C:/code/h7-two', label: 'two' });
   await send('only for project one', 'request');
   const other2 = await ev(s2.json.token, { event: 'tool', deliver: true });
   check('d: a session on another project is handed nothing of this one', other2.status === 200 && !('deliver' in other2.json), other2.text);
   // an unlinked folder stops delivery
-  await rawDb.collection('workerFolders').updateOne({ _id: `${pc.id}:f1` }, { $set: { missing: true } });
+  await rawDb.collection('workerFolders').updateOne({ _id: `${pc.id}:fold1` }, { $set: { missing: true } });
   const gone = await deliver('tool');
   check('d: a folder unlinked since the start stops delivery (state still answered)', gone.status === 200 && gone.json.state === 'working' && !('deliver' in gone.json), gone.text);
-  await rawDb.collection('workerFolders').updateOne({ _id: `${pc.id}:f1` }, { $set: { missing: false } });
+  await rawDb.collection('workerFolders').updateOne({ _id: `${pc.id}:fold1` }, { $set: { missing: false } });
 
   // ---- e) stop delivers only what may wake ----
   const fyiS = await send('just so you know', 'fyi');

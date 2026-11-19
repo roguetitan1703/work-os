@@ -154,34 +154,8 @@ function scoreLocation(loc: CodeLocation, q: { path: string | null; machine: str
   return { score: 1 + Math.min(lp.length, 999) / 1000, how: 'path' };
 }
 
-/**
- * The old rule, where a remote decided: remote + subdir + branch > remote + subdir | remote + branch > remote > longest path.
- * Kept for one release for the device-key route's body without `folders` (an old hook); step 8 of H13 removes it.
- */
-function scoreLegacy(loc: CodeLocation, q: { remote: string | null; path: string | null; subdir: string; branch: string; by: string }): { score: number; how: string } {
-  let best = { score: 0, how: '' };
-  if (loc.remote && q.remote && normalizeRemote(loc.remote) === q.remote) {
-    const sub = normalizeSubdir(loc.subdir);
-    const br = normalizeBranch(loc.branch);
-    const subOk = !sub || (!!q.subdir && within(q.subdir, sub));
-    const brOk = !br || (br.endsWith('*') ? q.branch.startsWith(br.slice(0, -1)) : br === q.branch);
-    if (subOk && brOk) {
-      const score = 100 + (sub ? 20 : 0) + (br ? 20 : 0) + (sub ? Math.min(sub.split('/').length, 9) / 10 : 0);
-      best = { score, how: ['remote', sub && 'subdir', br && 'branch'].filter(Boolean).join(' + ') };
-    }
-  }
-  if (loc.path && q.path && !(loc.by && loc.by !== q.by)) {
-    const lp = normalizePath(loc.path);
-    if (lp && within(q.path, lp)) {
-      const score = 1 + Math.min(lp.length, 999) / 1000;
-      if (score > best.score) best = { score, how: 'path' };
-    }
-  }
-  return best;
-}
-
-/** The project whose path location best matches, or null. `legacyRemote`: the old rule, where a remote decides (see scoreLegacy). */
-export function matchCodeLocation(projects: CodeProject[], query: CodeQuery, opts: { legacyRemote?: boolean } = {}): CodeMatch | null {
+/** The project whose path location best matches, or null. */
+export function matchCodeLocation(projects: CodeProject[], query: CodeQuery): CodeMatch | null {
   const q = {
     remote: normalizeRemote(query.remote),
     path: normalizePath(query.path),
@@ -190,11 +164,11 @@ export function matchCodeLocation(projects: CodeProject[], query: CodeQuery, opt
     machine: cleanMachine(query.machine),
     by: (query.by ?? '').trim(),
   };
-  if (opts.legacyRemote ? !q.remote && !q.path : !q.path) return null;
+  if (!q.path) return null;
   let best: CodeMatch | null = null;
   for (const p of projects) {
     for (const loc of p.code ?? []) {
-      const s = opts.legacyRemote ? scoreLegacy(loc, q) : scoreLocation(loc, q);
+      const s = scoreLocation(loc, q);
       if (s.score > 0 && (!best || s.score > best.score || (s.score === best.score && p.name.localeCompare(best.project.name) < 0))) {
         best = { project: p, score: s.score, location: loc, how: s.how };
       }
