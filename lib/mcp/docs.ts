@@ -366,7 +366,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   write_note: {
     title: 'Write note',
     description:
-      'Create or update a note (a Notion-style page). Update by note_id, or by task (a task has one note; created if missing). New project note: project + title, only when no existing note fits (get_project / list_notes show what a project holds). New sub-page: parent_id + title. Change content with ONE of: block_ops (replace/insert/delete by block id from read_note; keeps formatting elsewhere; preferred), edits [{find, replace}] (rewrites only the block containing it), append (markdown at the end), or body (replaces the whole page). Link tasks/projects as [#12 Title](/tasks/12) or [Name](/projects/<id>); they become mentions. archived:true archives a note. An Orders page you hold: say why in why; it keeps a version with undo. Keep task descriptions short; longer text goes in the task\'s note.',
+      'Create or update a note (a Notion-style page). Update by note_id, or by task (a task has one note; created if missing). New project note: project + title, only when no existing note fits (get_project / list_notes show what a project holds). New sub-page: parent_id + title. Change content with ONE of: block_ops (replace/insert/delete by block id from read_note; keeps formatting elsewhere; preferred), edits [{find, replace}] (matches through curly quotes, dashes and list numbers; keeps formatting), append (markdown at the end), or body (replaces the whole page). Link tasks/projects as [#12 Title](/tasks/12) or [Name](/projects/<id>); they become mentions. archived:true archives a note. A second note with the same title beside it is refused with the id of the existing one: write to that. shelf: overview, designs or runbooks (project notes). An Orders page you hold: say why in why; it keeps a version with undo. Keep task descriptions short; longer text goes in the task\'s note.',
     writes: true,
     example: 'Put the Terrah handover in a note on #76',
   },
@@ -378,7 +378,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   list_notes: {
     title: 'List notes',
-    description: 'Flat list of notes (id, title, first line, what it is attached to, last edited), newest first. Filter by project, state (active, archived, all), kind (task, project) and text search.',
+    description: 'Flat list of notes (id, title, first line, what it is attached to, last edited), newest first. Filter by project, state (active, archived, all), kind (task, project), shelf (overview, designs, runbooks, handovers, archive) and text search.',
     writes: false,
     example: 'Find the note about pricing',
   },

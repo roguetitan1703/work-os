@@ -1017,6 +1017,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         .optional(),
       edits: z.array(z.object({ find: z.string().min(1), replace: z.string() })).optional(),
       archived: z.boolean().optional(),
+      shelf: z.enum(['overview', 'designs', 'runbooks']).optional(),
       why: z.string().min(1).max(200).optional(),
     }),
     z.object({ op: z.literal('delete_note'), note_id: z.string(), title: z.string() }),
@@ -1750,6 +1751,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     updatedAt: n.updatedAt,
     updatedBy: by(n.updatedBy),
     chars: n.chars,
+    ...(n.shelf ? { shelf: n.shelf } : {}),
     ...(n.subPages.length ? { subPages: n.subPages } : {}),
     ...(withBody ? {} : { firstLine: n.firstLine }),
   });
@@ -1772,8 +1774,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
         body: z.string().optional().describe('Markdown; replaces the whole page (loses Notion-only formatting). Prefer block_ops'),
         append: z.string().optional().describe('Markdown added at the end'),
         block_ops: z.array(blockOp).optional().describe('Per-block changes using block ids from read_note; untouched blocks keep their formatting'),
-        edits: z.array(z.object({ find: z.string().min(1), replace: z.string() })).optional().describe('Text replacements; each find must occur exactly once in the page; only that block is rewritten'),
+        edits: z.array(z.object({ find: z.string().min(1), replace: z.string() })).optional().describe('Text replacements; each find must occur exactly once in the page (curly quotes, dashes and list numbers match; formatting is kept)'),
         archived: z.boolean().optional(),
+        shelf: z.enum(['overview', 'designs', 'runbooks']).optional().describe('Project notes: which shelf it sits on (Archive is archived:true; Handovers come only from end_work)'),
         why: z.string().min(1).max(200).optional().describe('An Orders page you hold: why you change it (shown beside the change; required there, ignored on other notes)'),
       },
       annotations: { destructiveHint: false },
@@ -1781,7 +1784,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const r = await notesData.writeNote(
         s,
-        { noteId: a.note_id, task: a.task, project: a.project, parentId: a.parent_id, title: a.title, body: a.body, append: a.append, blockOps: a.block_ops, edits: a.edits, archived: a.archived, why: a.why },
+        { noteId: a.note_id, task: a.task, project: a.project, parentId: a.parent_id, title: a.title, body: a.body, append: a.append, blockOps: a.block_ops, edits: a.edits, archived: a.archived, shelf: a.shelf, why: a.why },
         ACTOR,
       );
       return { [r.created ? 'created' : 'updated']: noteOut(r.note, false, await byOf(ctx)), ...(r.orders ? { orders: r.orders } : {}) };
@@ -1815,13 +1818,14 @@ export function createMcpServer(ctx: Ctx): McpServer {
         project: z.string().optional(),
         state: z.enum(['active', 'archived', 'all']).optional().describe('Default active'),
         kind: z.enum(['task', 'project', 'all']).optional(),
+        shelf: z.enum(['overview', 'designs', 'runbooks', 'handovers', 'archive']).optional().describe('Project notes on one shelf (archive = archived project notes)'),
         query: z.string().optional().describe('Search titles and text'),
         limit: z.number().int().min(1).max(200).optional().describe('Default 50'),
       },
       annotations: { readOnlyHint: true },
     },
     handler(async a => {
-      const r = await notesData.listNotes(s, { project: a.project, state: a.state, kind: a.kind, q: a.query, limit: a.limit ?? 50 });
+      const r = await notesData.listNotes(s, { project: a.project, state: a.state, kind: a.kind, shelf: a.shelf, q: a.query, limit: a.limit ?? 50 });
       const by = await byOf(ctx);
       return { total: r.total, notes: r.notes.map(n => noteOut(n, false, by)) };
     }),

@@ -7,7 +7,7 @@ import { actorUserId, asActor, isPerson } from '../actors';
 import { CLOSED_STATUSES, type Actor } from '../types';
 import type { NoteBlock } from '../notes-schema';
 import { hasMarkdown, locate, locateExact, locateFolded, titleKey } from '../notes-match';
-import { UNTITLED } from '../notes-shelves';
+import { UNTITLED, shelfLabel, shelfOf, type Shelf } from '../notes-shelves';
 import { blockOutline, blocksToMarkdown, cloneBlocks, editInPlace, findBlock, markdownToBlocks, plainText } from '../notes-convert';
 import { requestContext } from '../request-context';
 import { InputError, NotFoundError } from './errors';
@@ -19,7 +19,7 @@ import { canEditOrders, planVersion, ruleLines, ORG_RULE_LINES } from './orders'
 // nested as sub-pages. Blocks are the source of truth; `body` is derived markdown used for
 // search, previews and Claude.
 // - A task has at most one note (unique index); addressing a note by its task always hits it.
-// - Everything else is addressed by note id. Titles are never used to match.
+// - Everything else is addressed by note id. Titles never address a note; they are compared only to refuse a duplicate among siblings.
 // - A task note is archived while its task is Done/Dropped/archived; a project note when its
 //   project is done/archived or the note is archived; a sub-page follows its root page.
 // - Deleting is soft (30 days) and takes sub-pages with it.
@@ -35,6 +35,8 @@ export type NoteRef = {
   updatedBy: Actor;
   /** Only where the listing asked for it (noteIndex: a task's note, whose authors get_task labels). */
   createdBy?: Actor;
+  /** The shelf of a top-level project note (lib/notes-shelves.ts); absent on a task's note and a sub-page. */
+  shelf?: Shelf;
 };
 
 export type Note = NoteRef & {
@@ -76,6 +78,7 @@ export function noteRef(d: ListedNoteDoc): NoteRef {
     updatedAt: d.updatedAt.toISOString(),
     updatedBy: asActor(d.updatedBy),
     ...(d.createdBy ? { createdBy: asActor(d.createdBy) } : {}),
+    ...(d.projectId && shelfOf(d) ? { shelf: shelfOf(d)! } : {}),
   };
 }
 
@@ -187,6 +190,8 @@ export async function getTaskNoteId(s: Scope, key: string | number): Promise<str
 
 export type NoteFilter = {
   project?: string;
+  /** A shelf of the project notes, or 'archive' for the archived ones. */
+  shelf?: Shelf | 'archive';
   state?: 'active' | 'archived' | 'all';
   kind?: 'task' | 'project' | 'all';
   q?: string;
@@ -204,13 +209,18 @@ export async function listNotes(s: Scope, f: NoteFilter = {}): Promise<{ total: 
   }
   // Lists never need a whole page: keep a prefix of the text (for the first line) and the full length.
   const docs = (await c.notes
-    .find(q, { projection: { title: 1, parentId: 1, taskId: 1, projectId: 1, archived: 1, createdBy: 1, createdAt: 1, updatedBy: 1, updatedAt: 1, deletedAt: 1, body: { $substrCP: ['$body', 0, 500] }, _chars: { $strLenCP: '$body' } } })
+    .find(q, { projection: { title: 1, parentId: 1, taskId: 1, projectId: 1, archived: 1, createdBy: 1, createdAt: 1, updatedBy: 1, updatedAt: 1, deletedAt: 1, shelf: 1, orders: 1, 'handover.by': 1, body: { $substrCP: ['$body', 0, 500] }, _chars: { $strLenCP: '$body' } } })
     .sort({ updatedAt: -1 })
     .toArray()) as ListedNoteDoc[];
   let notes = await hydrate(c, docs);
   if (f.project) {
     const p = await resolveProject(c, s, f.project, { create: false });
     notes = p ? notes.filter(n => n.projectId === p._id) : [];
+  }
+  if (f.shelf) {
+    // Shelves hold top-level project notes: Archive is the archived ones, a shelf the active ones that sit on it.
+    notes = notes.filter(n => n.projectId && !n.taskId && !n.parentId && (f.shelf === 'archive' ? n.archived : !n.archived && n.shelf === f.shelf));
+    return { total: notes.length, notes: f.limit ? notes.slice(0, f.limit) : notes };
   }
   const state = f.state ?? 'active';
   if (state !== 'all') notes = notes.filter(n => n.archived === (state === 'archived'));
@@ -228,7 +238,7 @@ export async function noteIndex(s: Scope, opts: { taskIds?: string[]; projectIds
   if (!or.length) return { byTask, byProject };
   // Only what noteRef needs: the first blocks (for the first line), a prefix of the text, the full length.
   const docs = (await c.notes
-    .find({ ...live, $or: or }, { projection: { title: 1, taskId: 1, projectId: 1, parentId: 1, updatedAt: 1, updatedBy: 1, createdBy: 1, blocks: { $slice: 8 }, body: { $substrCP: ['$body', 0, 500] }, _chars: { $strLenCP: '$body' } } })
+    .find({ ...live, $or: or }, { projection: { title: 1, taskId: 1, projectId: 1, parentId: 1, updatedAt: 1, updatedBy: 1, createdBy: 1, shelf: 1, orders: 1, 'handover.by': 1, blocks: { $slice: 8 }, body: { $substrCP: ['$body', 0, 500] }, _chars: { $strLenCP: '$body' } } })
     .sort({ updatedAt: -1 })
     .toArray()) as ListedNoteDoc[];
   for (const d of docs) {
@@ -276,6 +286,10 @@ export type NoteWrite = {
   archived?: boolean;
   /** Internal (never in an MCP schema): skip the duplicate-title check (end_work's handovers keep their own per-writer rule). */
   allowSameTitle?: boolean;
+  /** A project note's shelf (null puts it back on the default one). Not for a task's note or a sub-page; Handovers only from end_work. */
+  shelf?: Shelf | null;
+  /** Internal: set by end_work's handover write, the only way a note gets onto Handovers. */
+  fromHandover?: boolean;
   /** Internal: on a rename into a duplicate title, 'keep' saves the rest and keeps the old title (the editor's autosave); default 'refuse'. */
   titleClash?: 'refuse' | 'keep';
   /** Sub-page only: false when the caller (the editor) inserts the page block itself. Default true. */
@@ -302,7 +316,7 @@ export class DuplicateTitleError extends InputError {
   }
 }
 
-type Sibling = { id: string; title: string; archived: boolean; updatedAt: Date };
+type Sibling = { id: string; title: string; archived: boolean; updatedAt: Date; shelf?: Shelf };
 
 /**
  * The sibling that already has this title (top-level notes of one project, or the sub-pages of one page), or null. Read
@@ -317,15 +331,15 @@ async function sameTitle(c: Collections, at: { projectId: string | null; parentI
   const sibs = await c.notes
     .find(
       { ...live, taskId: null, ...(at.parentId ? { parentId: at.parentId } : { parentId: null, projectId: at.projectId }), handover: { $exists: false }, orders: { $exists: false } },
-      { projection: { title: 1, archived: 1, updatedAt: 1 } },
+      { projection: { title: 1, archived: 1, updatedAt: 1, shelf: 1 } },
     )
     .toArray();
   const hit = sibs.find(n => n._id !== excludeId && titleKey(n.title) === key);
-  return hit ? { id: hit._id, title: hit.title, archived: !!hit.archived, updatedAt: hit.updatedAt } : null;
+  return hit ? { id: hit._id, title: hit.title, archived: !!hit.archived, updatedAt: hit.updatedAt, ...(at.parentId ? {} : { shelf: shelfOf({ shelf: hit.shelf })! }) } : null;
 }
 
 function dupMessage(d: Sibling, where: string): string {
-  return `A note titled "${d.title}" is already in ${where} (note_id ${d.id}, ${d.archived ? 'archived, ' : ''}edited ${d.updatedAt.toISOString().slice(0, 10)}): write to it with note_id${d.archived ? ' (archived:false brings it back)' : ''}, or give another title. Nothing was saved.`;
+  return `A note titled "${d.title}" is already in ${where} (note_id ${d.id}, ${d.archived ? 'archived, ' : d.shelf ? shelfLabel(d.shelf) + ', ' : ''}edited ${d.updatedAt.toISOString().slice(0, 10)}): write to it with note_id${d.archived ? ' (archived:false brings it back)' : ''}, or give another title. Nothing was saved.`;
 }
 
 async function whereIs(c: Collections, projectId: string | null, parentId: string | null): Promise<string> {
@@ -477,6 +491,14 @@ const DISPATCHED_LABEL = /·\s*worker\s*·\s*#\d+/i;
 /** The words of an Orders text that the Words retired (docs/HANDOVER.md section 3), for a warning. */
 const retiredIn = (text: string): string[] => RETIRED.map(re => re.exec(text)?.[0]).filter((x): x is string => !!x);
 
+/** What a shelf change may be, said before anything is written. `onto` is the note's current handover flag. */
+function checkShelf(w: NoteWrite, at: { taskId?: string | null; parentId?: string | null; handover?: unknown }, actor: Actor): void {
+  if (w.shelf === undefined) return;
+  if (at.taskId || at.parentId) throw new InputError("A task's note and a sub-page sit with their task or page; shelf is for project notes.");
+  if (w.shelf === 'handovers' && !w.fromHandover) throw new InputError('A handover is left with end_work; it is the only way a note lands on Handovers.');
+  if (at.handover && actor.kind === 'agent' && !w.fromHandover) throw new InputError('A handover stays on Handovers; it is moved in the app.');
+}
+
 export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{ note: Note; created: boolean; titleRefused?: { id: string; title: string }; orders?: { layer: 'org' | 'project' | 'person'; version: number; lines: string; removed: number; added: number; warning?: string } }> {
   const c = await scoped(s);
   const now = new Date();
@@ -504,9 +526,10 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
   await guardBoilerplate(s, actor, [cur?._id, cur?.parentId, parent?._id]);
 
   // Text and title of an Orders page: its holder, and the holder's own Claude. Archiving and sub-pages: the holder in the app.
-  await guardOrders(s, actor, [cur?._id], w.archived === undefined ? 'content' : 'other', w.session ?? (actor.kind === 'agent' ? requestContext().sid : undefined));
+  await guardOrders(s, actor, [cur?._id], w.archived === undefined && w.shelf === undefined ? 'content' : 'other', w.session ?? (actor.kind === 'agent' ? requestContext().sid : undefined));
   await guardOrders(s, actor, [cur?.parentId, parent?._id]);
   if (cur) {
+    checkShelf(w, cur, actor);
     if (w.expectUpdatedAt && cur.updatedAt.toISOString() !== w.expectUpdatedAt) throw new NoteConflictError();
     const next = await applyContent(await noteBlocks(cur), w);
     const set: Partial<NoteDoc> = { updatedAt: now, updatedBy: actor };
@@ -525,6 +548,9 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
       }
     }
     if (w.archived !== undefined) set.archived = w.archived;
+    const unset: Record<string, ''> = {};
+    if (w.shelf) set.shelf = w.shelf;
+    else if (w.shelf === null) unset.shelf = '';
     if (set.blocks || set.title) await takeBackTaskOnNoteEdit(s, c, cur, actor);
     if (set.title && cur.parentId) await renamePageBlock(c, cur.parentId, cur._id, set.title);
     if (cur.orders && actor.kind === 'agent' && !w.why?.trim()) throw new InputError("Say why in why: it shows beside the change in the Orders' versions.");
@@ -537,15 +563,17 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     const lbl = w.label ?? (cur.orders && sess && actor.kind === 'agent' ? (await c.presence.findOne({ userId: actor.userId, session: sess }, { projection: { label: 1 } }))?.label : undefined);
     const ver = cur.orders && set.body !== undefined ? planVersion(cur, set.body, actor, { why: w.why, session: sess, label: lbl, need: w.need, undoOf: w.undoOf }, now) : null;
     if (ver) {
-      const r = await c.notes.updateOne({ _id: cur._id, updatedAt: cur.updatedAt }, { $set: { ...set, ...ver.set }, ...(ver.push ? { $push: ver.push } : {}) } as never);
+      const r = await c.notes.updateOne({ _id: cur._id, updatedAt: cur.updatedAt }, { $set: { ...set, ...ver.set }, ...(ver.push ? { $push: ver.push } : {}), ...(unset.shelf !== undefined ? { $unset: unset } : {}) } as never);
       if (!r.matchedCount) throw new NoteConflictError();
       set.ordersV = ver.v;
-    } else await c.notes.updateOne({ _id: cur._id }, { $set: set });
+    } else await c.notes.updateOne({ _id: cur._id }, { $set: set, ...(unset.shelf !== undefined ? { $unset: unset } : {}) });
     if (ver) await logOrders(c, { ...cur, ...set }, actor, ver, w.why);
     else if (set.blocks || set.title) await logNote(c, { ...cur, ...set }, actor, 'note_edited', set.title !== undefined && set.title !== cur.title);
     const retired = ver ? retiredIn(ver.added.join('\n')) : [];
     const orders = ver ? { layer: cur.orders!, version: ver.v, lines: cur.orders === 'org' ? `${ruleLines(set.body!).length} of ${ORG_RULE_LINES}` : `${ruleLines(set.body!).length}`, removed: ver.nRemoved, added: ver.nAdded, ...(retired.length ? { warning: `Saved. These Orders now use ${retired.map(x => '"' + x + '"').join(', ')}, a word the Words retired: use the current word (docs/HANDOVER.md section 3).` } : {}) } : undefined;
-    return { note: (await hydrate(c, [{ ...cur, ...set }]))[0], created: false, ...(titleRefused ? { titleRefused } : {}), ...(orders ? { orders } : {}) };
+    const view: NoteDoc = { ...cur, ...set };
+    if (unset.shelf !== undefined) delete view.shelf;
+    return { note: (await hydrate(c, [view]))[0], created: false, ...(titleRefused ? { titleRefused } : {}), ...(orders ? { orders } : {}) };
   }
 
   // Create
@@ -565,6 +593,7 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
   } else {
     place = taskPlace!;
   }
+  checkShelf(w, { taskId, parentId: parent?._id }, actor);
   const title = (w.title ?? UNTITLED).trim() || UNTITLED;
   if (!taskId && !w.allowSameTitle) {
     const dup = await sameTitle(c, { projectId, parentId: parent?._id ?? null }, title);
@@ -582,6 +611,7 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     taskId,
     projectId,
     archived: w.archived ?? false,
+    ...(w.shelf ? { shelf: w.shelf } : {}),
     createdBy: actor,
     createdAt: now,
     updatedBy: actor,
