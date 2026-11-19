@@ -451,3 +451,94 @@ test('block 3 counts: a 5xx on the forwarded Edit posts one count event; a 400 o
   }
   stateMode = 'ok';
 });
+
+// ---- 19 Nov (Om): an attended session needs no release Need ----
+// Attended = the person typed a prompt in this main session within 30 minutes (marker.promptAt), not a subagent's call, not a dispatched run.
+const setMarker = (sid, patch) => { const f = path.join(process.env.WORK_OS_HOOK_DIR, `${sid}.json`); fs.writeFileSync(f, JSON.stringify({ ...JSON.parse(fs.readFileSync(f, 'utf8')), ...patch })); };
+const preRaw = async (sid, command, extra = {}) => {
+  const out = await dev.main('pre-tool', JSON.stringify({ session_id: sid, cwd: onMaster, tool_name: 'Bash', tool_input: { command }, ...extra }));
+  return out ? JSON.parse(out).hookSpecificOutput : null;
+};
+const MIN = 60_000;
+
+test('attended (prompt 29 minutes ago): the push passes with a note to record the words as a Decision; the server is not asked', async () => {
+  assert.ok(await startSid('at1'));
+  setMarker('at1', { promptAt: Date.now() - 29 * MIN });
+  seen.length = 0; mode = 'refused';
+  const out = await preRaw('at1', 'git push origin master');
+  assert.equal(out.permissionDecision, undefined);
+  assert.match(out.additionalContext, /Production push \(master to acme\/prod\) passes without a release Need because the person is in this session/);
+  assert.match(out.additionalContext, /their yes in chat/);
+  assert.match(out.additionalContext, /save_state \{project: "Demo", add_decision\}/);
+  assert.equal(releases().length, 0);
+  assert.equal(await preRaw('at1', 'git push origin dev'), null, 'not production: untouched');
+});
+
+test('unattended (prompt 31 minutes ago, or no prompt recorded): refused as before, the release Need still decides', async () => {
+  assert.ok(await startSid('at2'));
+  setMarker('at2', { promptAt: Date.now() - 31 * MIN });
+  seen.length = 0; mode = 'refused';
+  const out = await preRaw('at2', 'git push origin master');
+  assert.equal(out.permissionDecision, 'deny');
+  assert.match(out.permissionDecisionReason, /needs an answered release Need/);
+  assert.equal(releases().length, 1);
+  setMarker('at2', { promptAt: undefined });
+  assert.equal((await preRaw('at2', 'git push origin master')).permissionDecision, 'deny', 'no prompt recorded');
+});
+
+test('a granted release Need still opens production everywhere: unattended, a subagent, dispatched', async () => {
+  mode = 'allowed';
+  setMarker('at2', { promptAt: Date.now() - 31 * MIN });
+  seen.length = 0;
+  assert.equal(await preRaw('at2', 'git push origin master'), null);
+  setMarker('at1', { promptAt: Date.now() - 1 * MIN });
+  assert.equal(await preRaw('at1', 'git push origin master', { agent_id: 'sub-1' }), null, 'a subagent goes through the Need path and it is granted');
+  process.env.WORK_OS_DISPATCHED = '301';
+  try { assert.equal(await preRaw('at1', 'git push origin master'), null); } finally { delete process.env.WORK_OS_DISPATCHED; }
+  assert.equal(releases().length, 3);
+});
+
+test('a subagent call is never attended, even right after the person typed', async () => {
+  setMarker('at1', { promptAt: Date.now() - 1 * MIN });
+  seen.length = 0; mode = 'refused';
+  const out = await preRaw('at1', 'git push origin master', { agent_id: 'sub-1' });
+  assert.equal(out.permissionDecision, 'deny');
+  assert.equal(releases().length, 1);
+});
+
+test('a dispatched run is never attended: the environment variable, or the dispatched mark in the marker', async () => {
+  setMarker('at1', { promptAt: Date.now() - 1 * MIN });
+  seen.length = 0; mode = 'refused';
+  process.env.WORK_OS_DISPATCHED = '301';
+  try { assert.equal((await preRaw('at1', 'git push origin master')).permissionDecision, 'deny'); } finally { delete process.env.WORK_OS_DISPATCHED; }
+  setMarker('at1', { dispatched: 301 });
+  assert.equal((await preRaw('at1', 'git push origin master')).permissionDecision, 'deny');
+  assert.equal(releases().length, 2);
+  setMarker('at1', { dispatched: undefined });
+  assert.equal((await preRaw('at1', 'git push origin master')).permissionDecision, undefined, 'attended again without the mark');
+});
+
+test('a production command (not only a push) is covered the same way', async () => {
+  setMarker('at1', { promptAt: Date.now() - 1 * MIN });
+  mode = 'refused'; seen.length = 0;
+  const o = await preRaw('at1', 'vercel deploy --prod');
+  assert.equal(o.permissionDecision, undefined);
+  assert.match(o.additionalContext, /Production command \(vercel on production\) passes/);
+  assert.equal(releases().length, 0);
+});
+
+test('the prompt hook records the person\'s prompt time; a subagent prompt records nothing; a compaction keeps it', async () => {
+  assert.ok(await startSid('at3'));
+  assert.equal(readMarkerFile('at3').promptAt, undefined);
+  const up = (extra = {}) => dev.main('user-prompt', JSON.stringify({ session_id: 'at3', cwd: onMaster, prompt: 'hi', ...extra }));
+  await up({ agent_id: 'sub-1' });
+  assert.equal(readMarkerFile('at3').promptAt, undefined, 'a subagent is not the person');
+  const t0 = Date.now();
+  await up();
+  const at = readMarkerFile('at3').promptAt;
+  assert.ok(at >= t0 && at <= Date.now());
+  assert.ok(await startSid('at3'));
+  assert.equal(readMarkerFile('at3').promptAt, at, 'session start again (compaction) keeps it');
+  seen.length = 0; mode = 'refused';
+  assert.equal((await preRaw('at3', 'git push origin master')).additionalContext?.includes('passes without a release Need'), true);
+});

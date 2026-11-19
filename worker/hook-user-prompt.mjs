@@ -33,7 +33,7 @@ export async function userPrompt(input) {
   if (after && !after.unfiled) {
     const { wokeAt, ...rest } = after;
     void wokeAt;
-    writeMarker(sid, { ...rest, lastTool: Date.now() }); // the tool-batch hook posts again in 20 s
+    writeMarker(sid, { ...rest, lastTool: Date.now(), promptAt: Date.now() }); // promptAt: the person's last prompt in this main session (H8 attended rule: hook-pre-tool.mjs attended()); the tool-batch hook posts again in 20 s
   }
   const out = deliverOut('UserPromptSubmit', r, sid);
   if (!line) return out;
