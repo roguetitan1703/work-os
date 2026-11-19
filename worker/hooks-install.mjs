@@ -26,10 +26,10 @@ export const hooksDir = () => path.join(configDir(), 'hooks');
 // start hook reads this PC's device key with it: the worker's own code, so the key stays in DPAPI / Keychain).
 export const FILES = ['hook.mjs', 'hook-lib.mjs', 'hook-copy.mjs', 'hook-session-start.mjs', 'hook-stop.mjs', 'hook-pre-tool.mjs', 'hook-post-tool.mjs', 'hook-user-prompt.mjs', 'hook-notification.mjs', 'hook-session-end.mjs', 'config.mjs', 'secret.mjs'];
 const VERSION_FILE = 'hooks.version';
-/** How the start brief signs in on this PC: 'key' (WORK_OS_KEY set), 'worker' (the worker is set up), or null. */
+/** How the start brief signs in on this PC, first choice: 'worker' (the worker is set up; a WORK_OS_KEY is only its fallback), 'key' (WORK_OS_KEY set, no worker), or null. */
 function signIn(settings) {
-  if (settings.env?.WORK_OS_KEY || process.env.WORK_OS_KEY) return 'key';
-  try { return loadConfig().baseUrl ? 'worker' : null; } catch { return null; }
+  try { if (loadConfig().baseUrl) return 'worker'; } catch { /* no worker config */ }
+  return settings.env?.WORK_OS_KEY || process.env.WORK_OS_KEY ? 'key' : null;
 }
 /** The hooks version: a short hash of the hook files this worker carries (changes whenever any of them does). */
 export function hooksVersion(dir = here) {
