@@ -3,7 +3,9 @@ import type { PresenceDoc, StateDoc } from '../db';
 import { scoped, type Scope } from '../scope';
 import { NotFoundError } from './errors';
 import { dueFor } from './declutter';
-import { nudgeLine, nudgeTimeOk, nudgeText, type NudgeRow } from '../nudges-core';
+import { nudgeEntry, nudgeTimeOk, nudgeText, type NudgeRow } from '../nudges-core';
+import { lineHolder } from './lanes';
+import { memberNames } from '../people';
 import { holdKeyOf, stateOfProject } from './states';
 
 // Nudges (note ce434ed759): Work OS asks a session that has work it can see to carry on, or to declutter. Three of them:
@@ -15,7 +17,6 @@ import { holdKeyOf, stateOfProject } from './states';
 // Everything is read through the token owner's door on the token's own project and session.
 
 const LINES_MAX = 3;
-const LINE_CUT = 120;
 
 /** What a session holds in a project's State: Now, a Next or Later line (hold), or a task (set_doing). */
 export function holdsOf(state: StateDoc, row: Pick<PresenceDoc, 'userId' | 'key' | 'doing'>): { now: boolean; line: boolean; doing: boolean } {
@@ -27,9 +28,25 @@ export function holdsOf(state: StateDoc, row: Pick<PresenceDoc, 'userId' | 'key'
   };
 }
 
-/** Next lines that wait on nobody (no waits_on), up to 3, one line each, cut to 120 characters. Their words are other people's: cleaned like a message line. */
-export function freeLines(state: Pick<StateDoc, 'next'>): string[] {
-  return state.next.filter(l => !l.waitsOn).slice(0, LINES_MAX).map(l => nudgeLine(l.text, LINE_CUT));
+/**
+ * Next lines that wait on nobody (no waits_on) and are not held by another session (a line this session holds, or nobody does, counts),
+ * up to 3, each as nudgeEntry words: a line another person or their agent wrote carries its author and a short quote. Their words are
+ * other people's: cleaned like a message line.
+ */
+export async function freeLines(s: Scope, state: Pick<StateDoc, 'next'>, row: Pick<PresenceDoc, 'userId' | 'key' | 'projectId'>): Promise<string[]> {
+  const me = holdKeyOf(row.userId, row.key);
+  const cands = state.next.filter(l => !l.waitsOn);
+  if (!cands.length) return [];
+  const live = (await (await scoped(s)).presence.find({ projectId: row.projectId } as never).toArray()).map(r => ({ ...r, key: `${r.userId}:${r.key}` }));
+  const now = Date.now();
+  const free = cands.filter(l => {
+    if (!l.hold) return true;
+    const h = lineHolder(l, live, () => undefined, now);
+    return !h || h.key === me;
+  }).slice(0, LINES_MAX);
+  if (!free.length) return [];
+  const names = free.some(l => l.by !== row.userId) ? await memberNames(s.orgId) : {};
+  return free.map(l => nudgeEntry(l, l.by === row.userId ? undefined : { by: names[l.by] || 'a former member', agent: !!l.src }));
 }
 
 /** Is this project's nudging on? (A missing project is off.) */
@@ -78,7 +95,7 @@ export async function stopNudge(s: Scope, row: PresenceDoc, projectId: string | 
   const h = holdsOf(state, row);
   const out: StopNudge = {};
   if (q.asks && (h.now || h.line || h.doing)) {
-    const lines = freeLines(state);
+    const lines = await freeLines(s, state, row);
     if (lines.length) out.lines = lines;
   }
   if (q.quiet && h.now) {
@@ -103,7 +120,7 @@ export async function idleNudge(s: Scope, row: PresenceDoc, projectId: string | 
   if (!state) return null;
   const h = holdsOf(state, row);
   if (!h.now && !h.line && !h.doing) return null;
-  const lines = freeLines(state);
+  const lines = await freeLines(s, state, row);
   if (!lines.length) return null;
   const c = await scoped(s);
   const got = await c.presence.updateOne(

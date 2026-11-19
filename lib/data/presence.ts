@@ -257,12 +257,12 @@ const REPEAT_MS = 60_000;
  * recorded less than a minute ago? Such an event is answered from the row without a write and costs no hourly budget, so a
  * session making many tool calls never runs out of events. `state` is null when the row is gone (not free: it is charged).
  */
-export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string | null }, ev: { event: EventName; kind?: EventKind; files?: StopFiles; copy?: 'refused'; identity?: object; result?: string }): Promise<{ free: boolean; state: PresenceState | null; ignored?: boolean }> {
+export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string | null }, ev: { event: EventName; kind?: EventKind; files?: StopFiles; copy?: 'refused'; identity?: object; result?: string; nudge?: object }): Promise<{ free: boolean; state: PresenceState | null; ignored?: boolean }> {
   const next = eventState(ev);
   const row = await (await scoped(s)).presence.findOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { projection: { activity: 1 } });
   if (!row) return { free: false, state: null };
   // An event that carries a count (a stop check, a refused copy write) is never free: it is written and charged.
-  if (ev.files || ev.copy || ev.identity || ev.result !== undefined) return { free: false, state: row.activity?.state ?? null };
+  if (ev.files || ev.copy || ev.identity || ev.result !== undefined || ev.nudge) return { free: false, state: row.activity?.state ?? null };
   const a = row.activity;
   if (!next) return { free: true, state: a?.state ?? null, ignored: true };
   // A tool-start is a repeat only of an already open working row; any other event is a repeat only when nothing is open (it must clear `open`).
