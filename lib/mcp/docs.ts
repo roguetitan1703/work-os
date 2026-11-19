@@ -484,7 +484,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   recent_activity: {
     title: 'Recent activity',
     description:
-      'The change feed on its own, newest first: tasks (created, status, progress, edits, comments, completions, archive, trash and restore), State (Now set, Next lines added and done, Later lines, decisions), notes created and edited, messages sent (who sent one, never its text: read it with inbox), Needs asked, answered (the option chosen, never the answer’s text) and withdrawn, projects created, renamed or changing who sees them. Filter by who made it (e.g. actor claude-code), project, and what (tasks, state, notes, messages, needs, projects). Text someone other than the user wrote is labelled writtenBy. For the user’s day use daily_summary instead.',
+      'The change feed on its own, newest first: tasks (created, status, progress, edits, comments, completions, archive, trash and restore), State (Now set, Next lines added and done, Later lines, decisions), notes created and edited, messages sent (who sent one, never its text: a message for a session reaches it through the Work OS hook, and message_status reads one by id), Needs asked, answered (the option chosen, never the answer’s text) and withdrawn, projects created, renamed or changing who sees them. Filter by who made it (e.g. actor claude-code), project, and what (tasks, state, notes, messages, needs, projects). Text someone other than the user wrote is labelled writtenBy. For the user’s day use daily_summary instead.',
     writes: false,
     example: 'What did my agents change in Work OS today?',
   },

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkBaseUrl, loadConfig } from './config.mjs';
 import { getToken } from './secret.mjs';
-import { identityKey, transcriptMeta } from './hook-identity.mjs';
+import { identityKey, lstartTicks, transcriptMeta } from './hook-identity.mjs';
 
 /** What the device-key path reads the key with; tests replace it (in process only, never from the environment). */
 export const deps = { deviceKey: (dir) => getToken(dir) };
@@ -65,7 +65,7 @@ export function keepToken(sid, token, until) {
 // At SessionStart the hook notes which process the session runs in: <hooks folder>/sessions/<session id>.proc = { pid, procStart? },
 // so the worker can tell at once when it is gone (worker/activity.mjs sessionEvidence). The pid is CLAUDE_PID, which Claude Code puts in the
 // environment of its hooks and shell commands in every surface (desktop, VS Code, terminal: it is the claude process's own id); without it, the
-// nearest claude ancestor of this process. procStart (Windows only, FILETIME ticks as a string) guards against a pid that another process took later.
+// nearest claude ancestor of this process. procStart (Windows and macOS, FILETIME ticks as a string) guards against a pid that another process took later.
 // Only an installed copy writes it (next to a worker config); the id is a UUID, the pid a small integer, nothing else is stored.
 const procFile = (sid) => path.join(HERE, 'sessions', String(sid).toLowerCase() + '.proc');
 const isClaudeImage = (n) => /^claude(\.exe)?$/i.test(String(n || '').replace(/^"|"$/g, '').split(/[\\/]/).pop());
@@ -81,7 +81,11 @@ function processFacts(pid) {
     }
     const out = execFileSync('ps', ['-o', 'ppid=,comm=', '-p', String(Number(pid))], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
     const m = /^(\d+)\s+(.*)$/.exec(out);
-    return m ? { ppid: Number(m[1]), name: m[2] } : null;
+    if (!m) return null;
+    // macOS: the start time guards against a reused pid the way FILETIME does on Windows (ps prints it in local time).
+    let start = null;
+    try { start = lstartTicks(execFileSync('ps', ['-o', 'lstart=', '-p', String(Number(pid))], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] })); } catch { /* no start time */ }
+    return { ppid: Number(m[1]), name: m[2], ...(start ? { start } : {}) };
   } catch { return null; }
 }
 

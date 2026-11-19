@@ -222,8 +222,8 @@ export async function sendMessage(
   let note: string;
   if (target.kind === 'person') note = `${target.name}: it shows under Messages for you on their Claude › Now`;
   else {
-    // The rows the message goes to (a reply: the sessions it goes back to), by key; labels only.
-    const rows = target.kind === 'session' ? target.rows : (await c.presence.find({ userId: s.userId, projectId: project?._id ?? null }).sort({ lastSeen: -1 }).limit(200).toArray()).filter(r => toSids.includes(rowKey(r)));
+    // The rows the message goes to (a reply: the sessions it goes back to, whoever owns them), by key; labels only.
+    const rows = target.kind === 'session' ? target.rows : (await c.presence.find({ projectId: project?._id ?? null, $or: toSids.map(k => { const i = k.indexOf(':'); return { userId: k.slice(0, i), key: k.slice(i + 1) }; }) }).sort({ lastSeen: -1 }).limit(200).toArray()).filter(r => toSids.includes(rowKey(r)));
     note = rows.length ? await targetNote(rows, sending) : 'that session is gone; it gets this if it starts again';
     const n = new Set(rows.map(rowKey)).size;
     if (target.kind === 'session' && n > 1) note = `reaches ${n} sessions: ${note}`;
@@ -547,6 +547,8 @@ async function setStatusIn(
     if (toMe && !(m.src && keysOf(reader).includes(m.src))) await c.messages.updateOne({ _id: m._id, seenBy: { $exists: true, $nin: [reader.key] } } as never, { $push: { seenBy: { $each: [reader.key], $slice: -50 } } } as never);
   };
   if (status === 'seen' && m.status === 'seen') {
+    // The same gate as below, before anything is handed back: someone who is neither side gets what a missing id gets.
+    if (!person && !mine && !toMe) throw new NotFoundError(`Message ${String(id).slice(0, 40)} not found`);
     await markRead();
     return { message: m };
   }

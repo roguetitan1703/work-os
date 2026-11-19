@@ -41,12 +41,22 @@ try {
   await mk('m_fix_client', { word: 'chat', keyId: `oauth_${codeClient}_${ME.userId}` });
   await mk('m_fix_right', { word: 'chat', keyId: `oauth_${chatClient}_${ME.userId}` });
   await mk('m_fix_agent', { word: 'agent', keyId: 'wkr_x' });
+  const needWord = async id => (await rawDb.collection('needs').findOne({ _id: id })).from.word;
+  const mkNeed = (id, from, extra = {}) => rawDb.collection('needs').insertOne({ _id: id, ref: 9000 + Math.floor(Math.random() * 90000), orgId: ME.orgId, projectId: project._id, from: { actor: { userId: ME.userId }, ...from }, kind: 'question', ask: id, status: 'open', ...extra });
+  await mkNeed('n_fix_session', { word: 'chat', keyId: `oauth_${chatClient}_${ME.userId}`, session: 's-2' });
+  await mkNeed('n_fix_prop', { word: 'chat', keyId: `oauth_${codeClient}_${ME.userId}` }, { order: { layer: 'org', new: 'x' } });
+  await mkNeed('n_fix_right', { word: 'chat', keyId: `oauth_${chatClient}_${ME.userId}` });
+  const dec = (id, via, key) => ({ id, at: new Date(), by: ME.userId, via, text: id, ...(key ? { key } : {}) });
+  await rawDb.collection('states').updateOne({ orgId: ME.orgId, projectId: project._id }, { $push: { decisions: { $each: [dec('d_fix_client', 'chat', `oauth_${codeClient}_${ME.userId}`), dec('d_fix_right', 'chat', `oauth_${chatClient}_${ME.userId}`), dec('d_fix_app', 'app')] } } }, { upsert: true });
+  const decVia = async id => (await rawDb.collection('states').findOne({ orgId: ME.orgId, projectId: project._id })).decisions.find(x => x.id === id).via;
   const run = extra => execFileSync(process.execPath, [path.join(ROOT, 'scripts/fix-message-word.mjs'), '--db', DBNAME, ...extra], { encoding: 'utf8', env: process.env });
   const dry = run([]);
-  check('fix script: the dry run says what it would change and changes nothing', /DRY RUN/.test(dry) && /would be set/.test(dry) && (await word('m_fix_session')) === 'chat' && (await word('m_fix_client')) === 'chat', dry);
+  check('fix script: the dry run says what it would change and changes nothing', /DRY RUN/.test(dry) && /would be set/.test(dry) && (await word('m_fix_session')) === 'chat' && (await word('m_fix_client')) === 'chat' && (await needWord('n_fix_session')) === 'chat' && (await decVia('d_fix_client')) === 'chat', dry);
   const applied = run(['--apply']);
   check('fix script: --apply fixes the session message and the other client’s message', /APPLY/.test(applied) && (await word('m_fix_session')) === 'agent' && (await word('m_fix_client')) === 'agent', applied);
   check('fix script: the claude.ai chat message and the agent message are left alone', (await word('m_fix_right')) === 'chat' && (await word('m_fix_agent')) === 'agent' && (await word(a.id)) === 'chat');
+  check('fix script: Needs and Orders proposals stamped chat by an agent are fixed, the chat one is not; the dry run counts per collection without bodies', (await needWord('n_fix_session')) === 'agent' && (await needWord('n_fix_prop')) === 'agent' && (await needWord('n_fix_right')) === 'chat' && /Needs/.test(dry) && /Orders proposals/.test(dry) && /State decisions/.test(dry) && !dry.includes('n_fix_'), dry);
+  check('fix script: a State decision recorded by another client is set to code, the claude.ai chat and app ones are left', (await decVia('d_fix_client')) === 'code' && (await decVia('d_fix_right')) === 'chat' && (await decVia('d_fix_app')) === 'app');
   check('fix script: a second run finds nothing', /Nothing to do/.test(run(['--apply'])));
   check('fix script: refuses to run without --db', (() => { try { execFileSync(process.execPath, [path.join(ROOT, 'scripts/fix-message-word.mjs')], { encoding: 'utf8', stdio: 'pipe', env: process.env }); return false; } catch (x) { return x.status === 2; } })());
 } catch (e) {

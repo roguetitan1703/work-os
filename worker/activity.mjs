@@ -240,7 +240,7 @@ function nameArg(cmd) {
 //   2. Claude Code's own file ~/.claude/sessions/<pid>.json (pid, sessionId, name, procStart) and that pid is a claude process;
 //   3. the file the Work OS hook wrote at SessionStart, <hooks folder>/sessions/<sessionId>.proc ({ pid, procStart? }), the same check.
 // Of the files only these few fields are read (the folder also holds .key files with secrets, which are never opened: only
-// names that are a pid and .json are read). On Windows a process start time (procStart, FILETIME ticks) must also match, so a
+// names that are a pid and .json are read). On Windows and macOS a process start time (procStart, FILETIME ticks; macOS from ps lstart) must also match, so a
 // pid that was reused by another claude process does not count. A session with no evidence at all is "unknown", not "running".
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const START_TOLERANCE = 10_000_000n; // one second in 100 ns ticks
@@ -289,13 +289,15 @@ export function readProcFiles(dir) {
   return out;
 }
 
-/** Is `rec` ({ pid, procStart }) a live claude process in `procs`? Where both sides know the start time they must agree. */
-function liveProc(procs, rec) {
+/** Is `rec` ({ pid, procStart }) a live claude process in `procs`? Where both sides know the start time they must agree; null (unknown) on macOS when a start time is missing. */
+export function liveProc(procs, rec, platform = process.platform) {
   const p = (procs || []).find((x) => x && x.pid === rec.pid && isClaudeProcess(x));
   if (!p) return false;
   const a = ticks(rec.procStart);
   const b = ticks(p.start);
-  if (a === null || b === null) return true;
+  // Windows with a start time missing on a side: the pid counts, as before. Elsewhere (macOS) a pid with no start time to compare
+  // could be another process that took the number, so nothing is claimed: null, unknown.
+  if (a === null || b === null) return platform === 'win32' ? true : null;
   const d = a > b ? a - b : b - a;
   return d <= START_TOLERANCE;
 }
@@ -313,8 +315,8 @@ export function sessionEvidence({ procs, workOsIds = [], sessionsDir, procDir } 
   const { byId } = sessionProcs(procs);
   for (const [sid, v] of byId) note(sid, true, { name: v.name });
   for (const id of workOsIds) { const sid = String(id).toLowerCase(); if (!ev.has(sid)) note(sid, false); } // started by this worker and not on a command line: stopped
-  for (const r of readSessionFiles(sessionsDir)) note(r.sessionId, liveProc(procs, r), { name: r.name, entrypoint: r.entrypoint });
-  for (const [sid, r] of readProcFiles(procDir)) note(sid, liveProc(procs, r));
+  for (const r of readSessionFiles(sessionsDir)) { const l = liveProc(procs, r); if (l !== null) note(r.sessionId, l, { name: r.name, entrypoint: r.entrypoint }); }
+  for (const [sid, r] of readProcFiles(procDir)) { const l = liveProc(procs, r); if (l !== null) note(sid, l); }
   return ev;
 }
 

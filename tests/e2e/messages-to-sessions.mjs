@@ -85,6 +85,22 @@ try {
   const noMake = await mcpH(kA, 'message_status', { id: m2.id, status: 'applied', make_task: true, session: sid });
   check('a message with no project cannot become a task', noMake.isError, noMake.text.slice(0, 160));
 
+  // A message on a project, seen: neither side gone, a stranger gets "not found", also when it is already seen
+  const kC = await mkKey({ agent: 'claude-code', userId: TESS.userId, name: 'Tess Code 2' });
+  const tSes = await must(kC, 'start_work', { project: 'M2S Project', machine: 'tess-laptop', label: 'tess live' });
+  const priv2 = await must(kA, 'send_message', { to: sid, kind: 'fyi', body: 'secret already seen', session: pSid });
+  await must(kA, 'message_status', { id: priv2.id, status: 'seen', session: pSid });
+  await must(kA, 'message_status', { id: priv2.id, status: 'seen', session: pSid }); // the sender again: already seen, still its own
+  const tSeen = await mcpH(kT, 'message_status', { id: priv2.id, status: 'seen' });
+  const gone = await mcpH(kT, 'message_status', { id: 'm_doesnotexist0', status: 'seen' });
+  check('a stranger marking an already-seen message seen gets the same not-found as a missing id, and no text', tSeen.isError && /not found/.test(tSeen.text) && !tSeen.text.includes('secret') && gone.isError && /not found/.test(gone.text), tSeen.text.slice(0, 160));
+  // A reply to a teammate's live session does not say it is gone
+  const tRow = await rawDb.collection('presence').findOne({ session: tSes.session });
+  const fromT = { id: 'm_fromtess0001' };
+  await rawDb.collection('messages').insertOne({ _id: fromT.id, orgId: ME.orgId, projectId: tRow.projectId, visibility: 'org', seenBy: [], from: { userId: TESS.userId, word: 'agent', session: tSes.session, label: 'tess live' }, src: `${TESS.userId}:${tRow.key}`, toSids: [`${ME.userId}:${pSid}`], kind: 'question', body: 'Tess asks: ready?', refs: {}, thread: fromT.id, status: 'unread', at: new Date() });
+  const repT = await must(kA, 'reply', { id: fromT.id, body: 'Yes, ready', session: pSid });
+  check('a reply to a teammate’s live session does not say "gone"', typeof repT.target === 'string' && !/gone/.test(repT.target) && /tess live/.test(repT.target), String(repT.target).slice(0, 200));
+
   // A message to a person: shows on her Claude > Now, not for any session of hers
   const toT = await must(kA, 'send_message', { to: 'Tess', project: 'M2S Project', kind: 'fyi', body: 'Tess: the planner is ready', session: pSid });
   const dt = await rawDb.collection('messages').findOne({ _id: toT.id });

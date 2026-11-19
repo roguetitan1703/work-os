@@ -246,3 +246,19 @@ test('sessionsInRootsOnly: only sessions under the roots are listed and counted;
     assert.equal(all.list.length, 4, 'off by default');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('liveProc: on macOS a start time missing on either side is unknown (null), never running; Windows still counts the pid', async () => {
+  const { liveProc } = await import('../activity.mjs');
+  const { lstartTicks } = await import('../hook-identity.mjs');
+  const t = lstartTicks('Thu Nov 19 10:00:00 2026');
+  assert.match(t, /^\d{17,19}$/);
+  assert.equal(lstartTicks('not a time'), null);
+  const procs = [plain(50, t)];
+  assert.equal(liveProc(procs, { pid: 50, procStart: t }, 'darwin'), true);
+  assert.equal(liveProc(procs, { pid: 50, procStart: lstartTicks('Thu Nov 19 11:00:00 2026') }, 'darwin'), false);
+  assert.equal(liveProc(procs, { pid: 50, procStart: '' }, 'darwin'), null); // the record has no start time
+  assert.equal(liveProc([plain(50)], { pid: 50, procStart: t }, 'darwin'), null); // the process list has none
+  assert.equal(liveProc([plain(50)], { pid: 50, procStart: '' }, 'darwin'), null);
+  assert.equal(liveProc([plain(50)], { pid: 50, procStart: '' }, 'win32'), true); // Windows as before
+  assert.equal(liveProc([], { pid: 50, procStart: t }, 'darwin'), false); // no such process at all: gone
+});

@@ -6,6 +6,7 @@ import { spawn, execFile, execFileSync } from 'node:child_process';
 import { insideRoot } from './validate.mjs';
 import { promisify } from 'node:util';
 import { macScript, asEscape } from './quote.mjs';
+import { lstartTicks } from './hook-identity.mjs';
 
 const execFileP = promisify(execFile);
 
@@ -110,9 +111,10 @@ export async function listProcesses() {
     if (!Array.isArray(j)) j = [j];
     return j.filter((p) => p && p.CommandLine && p.ProcessId !== process.pid).map((p) => ({ pid: p.ProcessId, ppid: p.ParentProcessId, name: p.Name, cmd: p.CommandLine, ...(/^\d{1,20}$/.test(String(p.Start)) ? { start: String(p.Start) } : {}) }));
   }
-  const { stdout } = await execFileP('ps', ['-axo', 'pid,ppid,command'], { maxBuffer: 16e6, timeout: 30000 });
-  return stdout.split('\n').slice(1).map((l) => l.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/)).filter(Boolean)
-    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), cmd: m[3] }))
+  // lstart is five words ("Thu Nov 19 10:00:00 2026"); the command follows it.
+  const { stdout } = await execFileP('ps', ['-axo', 'pid,ppid,lstart,command'], { maxBuffer: 16e6, timeout: 30000 });
+  return stdout.split('\n').slice(1).map((l) => l.match(/^\s*(\d+)\s+(\d+)\s+([A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.*)$/)).filter(Boolean)
+    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), cmd: m[4], ...(lstartTicks(m[3]) ? { start: lstartTicks(m[3]) } : {}) }))
     .filter((p) => p.pid !== process.pid && !/\bosascript\b/.test(p.cmd));
 }
 

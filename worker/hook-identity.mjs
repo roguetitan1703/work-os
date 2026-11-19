@@ -57,3 +57,15 @@ export function identityOf(transcript, env = process.env) {
 
 /** A short fingerprint of the identity, so an event carries it only when it changed. */
 export const identityKey = (i) => [i.title || '', i.aiTitle || '', i.model || ''].join('\u0001');
+
+const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+/**
+ * A process start time as `ps -o lstart=` prints it ("Thu Nov 19 10:00:00 2026", local time) in the same unit Windows gives (FILETIME ticks of
+ * 100 ns, as a string), so one comparison serves both. null when it is not that shape.
+ */
+export function lstartTicks(text) {
+  const m = /^\s*[A-Za-z]{3}\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(\d{4})\s*$/.exec(String(text ?? ''));
+  if (!m || !(m[1].toLowerCase() in MONTHS)) return null;
+  const ms = new Date(Number(m[6]), MONTHS[m[1].toLowerCase()], Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5])).getTime();
+  return Number.isFinite(ms) && ms > 0 ? String((BigInt(ms) + 11644473600000n) * 10000n) : null;
+}
