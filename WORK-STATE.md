@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 45. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
+Copy of the Work OS state, version 46. Edit it in Work OS (https://work.delpat.in/projects/work-os); this file is its copy.
 
 # Work state: Work OS
 
@@ -55,8 +55,9 @@ Copy of the Work OS state, version 45. Edit it in Work OS (https://work.delpat.i
 - 2026-11-18: 19 Nov: H4 phase 2 merged into dev (68175c2): lib/agent-auth.ts, POST /api/agent/state, Where from the start route, short save answers, copy lines. Opus security review: no high/medium; two lows fixed in a1a7285 (repo visibility: private cached 1 h, unknown 10 min) and re-checked by the lead. (Om, chat)
 - 2026-11-18: 19 Nov, Om (chat): "don't only add it, edit the instructions and the whole way we discipline ... I don't want to keep adding points." Orders rewritten whole (DB, note 785391c151; backup ~/orders-backup-19nov.json on the server): a new section 'Asking and approvals' merges the Needs rule, ask-before-irreversible with the away-go exception, and never-end-on-a-question plus the morning report; usage folded into 'Models, subagents and usage'; 5,673 -> 5,510 chars, 25 -> 22 bullets. /transfer skill step 5 and note ac2026fedb pick-up step 4 rewritten in place to point at it. ~/.claude/CLAUDE.md unchanged: it already defers to the Orders, so no line is needed. Supersedes the two decisions above about the appended bullet. (Om, chat)
 - 2026-11-18: 19 Nov ~05:30 IST: R1 live, c4381cf02edc (master on origin and delpat; WSL build, deployed over SSH under Om's overnight go). Full e2e of r1-fixes 67/67, tsc and eslint clean; fixer's no-leak claims checked by the lead; Needs page checked by eye at 390/1280 light/dark, no overflow (awkward: the first option always shows filled, so it reads as already picked; placeholder 'also sent as a note with a button' is unclear). Live: / 307, /login 200, service active, no errors. (Om, chat)
+- 2026-11-19: 19 Nov ~06:30 IST: H6 steps 1-3 merged into dev (3dda5c8, pushed origin+delpat). Opus security review: no blocker; low (other people's session ids in Workers rows) fixed with an opaque row id and session null; medium (300/h event budget) fixed by making same-state events within 60 s free. Lead re-checked the diff. Suites on builder-s: flow-h6 62, flow-h5 46, flow-hooks 14, flow-w1 53, flow-w3 24, claude-page 219, agent-start 63, leak-audit 205. H6 step 4 (hooks) building in slot A; step 5 (UI) goes to slot B after the R2 e2e. (Om, chat)
 
 ## Where
-- Victus-Knight: dev 121f436 clean (2026-11-18 23:58)
+- Victus-Knight: dev 3dda5c8 (2026-11-19 00:59)
 - victus: dev 324ecb7 clean (2026-11-18 22:48)
-<!-- work-os-copy sha1:968679d6dd459eef8861e4d511afc779cd4fc81b -->
+<!-- work-os-copy sha1:553154e4ef35b605748c61775232e139638f3bf1 -->
