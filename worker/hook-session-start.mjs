@@ -12,7 +12,7 @@
 //                 the fallback on a PC with one when the worker gives no brief (folder not linked, key refused, no
 //                 network). That session has no token, so it sends no state events.
 import os from 'node:os';
-import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, mcpCall, postAgent, quietPath, quietRun, readKept, readMarker, keepToken, repoFacts, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, mcpCall, postAgent, quietPath, quietRun, readKept, readMarker, keepToken, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
 
 // The folder decides the project (H13): the body carries the ids of the worker folders that contain the session's folder
 // (`folders`, longest first); the server takes the first one linked on this PC. The git remote is sent as information only.
@@ -95,7 +95,7 @@ export async function sessionStart(input) {
     if (a.token && sid) keepToken(sid, a.token, a.until);
   } else if (a?.unfiled && a.quiet) return null; // the person said this folder is not Work OS
   else if (process.env.WORK_OS_KEY) {
-    const text = await mcpCall('start_work', where);
+    const text = await mcpCall('start_work', run.project ? { ...where, project: run.project } : where); // a cloud repo filed with --project starts on it
     if (text) { try { r = JSON.parse(text); } catch { r = null; } }
     if (r?.quiet) return null;
     if (r?.unmatched) unfiled = { candidates: r.candidates };
@@ -220,7 +220,7 @@ export async function startCheck(cwd) {
       }
     }
     if (!hasKey) return { ...no(why, tried ? 'worker' : null), ...(unfiled ? { unfiled, ...(folders[0] ? { folder: folders[0] } : {}) } : {}) };
-    const text = await mcpCall('start_work', where);
+    const text = await mcpCall('start_work', run.project ? { ...where, project: run.project } : where);
     if (!text) return no(`${why ? why + '; and ' : ''}WORK_OS_KEY did not get a brief (key refused or not valid, or no network)`, 'key');
     let r; try { r = JSON.parse(text); } catch { return no('start_work answered something unreadable', 'key'); }
     return r?.project ? { ok: true, via: 'key', project: r.project.name } : { ...no('this folder is not filed in Work OS: no project owns it', 'key'), unfiled: r?.quiet ? 'quiet' : 'unfiled' };

@@ -5,9 +5,11 @@
 //                                   another folder unless --force.
 //   node worker.mjs hooks remove    take the Work OS entries out again
 //   node worker.mjs hooks status    say what is installed
-//   node worker.mjs hooks repo [folder] [--server URL]   for a cloud repo (Claude Code on the web): copy the hook files to
+//   node worker.mjs hooks repo [folder] [--server URL] [--project ID]   for a cloud repo (Claude Code on the web): copy the hook files to
 //                                   <repo>/.claude/work-os/ and merge four entries into <repo>/.claude/settings.json that
 //                                   run only in a cloud session and sign in with WORK_OS_KEY. Hooks only, never permissions.
+//                                   --project ID (the id in the project's Work OS address): the project this repo's cloud sessions
+//                                   start on; without it a cloud session in the repo is unfiled and asks (H13).
 //   node worker.mjs hooks check [folder]   would a Claude Code session in the folder (default: here) get the Work OS brief?
 // Never touches ~/.claude.json. Safe to run again (it replaces its own entries only).
 import crypto from 'node:crypto';
@@ -182,7 +184,8 @@ const repoOurs = (group) => (group?.hooks || []).some((x) => String(x.command ||
  * carry --cloud, so the hooks run nothing on a PC (the global hooks do), and --server, the address a cloud session has no
  * worker config for. The session signs in with WORK_OS_KEY from the cloud environment's variables.
  */
-export function repo(folder = process.cwd(), { server } = {}) {
+export function repo(folder = process.cwd(), { server, project } = {}) {
+  if (project !== undefined && project !== null && !/^[a-z0-9][a-z0-9._-]{0,99}$/.test(project)) throw new Error('--project is the project id (the last part of its Work OS address, lowercase letters, digits, dot, dash), not its name');
   const top = gitTop(path.resolve(folder));
   if (!top) throw new Error(`${folder} is not inside a git repo`);
   const base = server || loadConfig().baseUrl;
@@ -197,9 +200,9 @@ export function repo(folder = process.cwd(), { server } = {}) {
   const s = read(file);
   const hooks = {};
   for (const [ev, groups] of Object.entries(s.hooks || {})) { const keep = (groups || []).filter((g) => !repoOurs(g)); if (keep.length) hooks[ev] = keep; }
-  for (const [ev, groups] of Object.entries(entries(`$CLAUDE_PROJECT_DIR/${REPO_MARK}`, ` --cloud --server "${origin}"`, { cloud: true }))) hooks[ev] = [...(hooks[ev] || []), ...groups];
+  for (const [ev, groups] of Object.entries(entries(`$CLAUDE_PROJECT_DIR/${REPO_MARK}`, ` --cloud --server "${origin}"${project ? ` --project "${project}"` : ''}`, { cloud: true }))) hooks[ev] = [...(hooks[ev] || []), ...groups];
   fs.writeFileSync(file, JSON.stringify({ ...s, hooks }, null, 2) + '\n');
-  return { dir, settings: file, server: origin };
+  return { dir, settings: file, server: origin, project: project || null };
 }
 /** A symlink or junction at .claude or .claude/work-os would let a hostile repo aim our writes and the stale-file cleanup elsewhere. */
 function refuseLinks(top, parts) {
@@ -237,13 +240,15 @@ export async function cli(sub, rest = []) {
   else if (sub === 'status') console.log(JSON.stringify(status(), null, 2));
   else if (sub === 'repo') {
     const i = rest.indexOf('--server');
-    const folder = rest.find((x, j) => !x.startsWith('--') && j !== i + 1);
-    const r = repo(folder, { server: i >= 0 ? rest[i + 1] : undefined });
-    console.log(`Work OS hooks for cloud sessions written to ${r.dir} and ${r.settings} (server ${r.server}). Commit both.`);
+    const k = rest.indexOf('--project');
+    const folder = rest.find((x, j) => !x.startsWith('--') && j !== i + 1 && j !== k + 1);
+    const r = repo(folder, { server: i >= 0 ? rest[i + 1] : undefined, project: k >= 0 ? rest[k + 1] : undefined });
+    console.log(`Work OS hooks for cloud sessions written to ${r.dir} and ${r.settings} (server ${r.server}${r.project ? `, project ${r.project}` : ''}). Commit both.`);
+    if (!r.project) console.log('No --project: a cloud session in this repo is unfiled and asks its person which project it is for. Pass --project <id> (the last part of the address of the project in Work OS) to start it on one.');
     console.log('In the cloud environment: set WORK_OS_KEY to a Claude Code key made for it (Work OS › Settings › Keys), and allow the Work OS address in its network settings.');
   } else if (sub === 'check') {
     const r = await check(rest.find((x) => !x.startsWith('--')));
     console.log(describeCheck(r));
     if (!r.ok) process.exitCode = 1;
-  } else { console.error('usage: node worker.mjs hooks [install [--force]|remove|status|check [folder]|repo [folder] [--server URL]]'); process.exitCode = 2; }
+  } else { console.error('usage: node worker.mjs hooks [install [--force]|remove|status|check [folder]|repo [folder] [--server URL] [--project ID]]'); process.exitCode = 2; }
 }

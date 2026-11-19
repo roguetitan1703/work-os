@@ -145,7 +145,7 @@ export async function postEvent(sid, event, extra = {}, timeoutMs = 1500) {
 }
 
 /** Set by hook.mjs from the command line: the server address a cloud repo's settings name (--server), used when WORK_OS_URL is not set. `exitCode` and `stderr`: what the process ends with (the idle wait: 2 and the message, which wakes the session). */
-export const run = { server: null, exitCode: 0, stderr: '', /** Set by the pre-tool hook once it found a production action, before it asks Work OS: if the hook then runs out of time, hook.mjs refuses (hook-release.mjs). */ prod: null };
+export const run = { server: null, /** Set by hook.mjs from --project (a cloud repo's entries, `hooks repo --project`): the project this repo's cloud sessions start on, so the key path calls start_work { project }. */ project: null, exitCode: 0, stderr: '', /** Set by the pre-tool hook once it found a production action, before it asks Work OS: if the hook then runs out of time, hook.mjs refuses (hook-release.mjs). */ prod: null };
 
 export const TIMEOUT_MS = 5000;
 export const MAX_BRIEF = 9500; // Claude Code caps a hook context string at 10,000 characters
