@@ -11,6 +11,7 @@
     "check:scope": "node tests/scope-check.mjs",
     "check:words": "node --experimental-strip-types --no-warnings tests/words-check.mjs",
     "check:notes-match": "node --experimental-strip-types --no-warnings tests/notes-match-check.mjs",
+    "check:lanes": "node --experimental-strip-types --no-warnings tests/lanes-check.mjs",
     "check:declutter": "node --experimental-strip-types --no-warnings tests/declutter-check.mjs"
   },
   "dependencies": {

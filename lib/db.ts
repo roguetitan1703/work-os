@@ -315,7 +315,13 @@ export type HandoverMeta = {
 };
 
 /** A line of a project's State (Next, Later): `by` is who wrote it (a user id), shown labelled to everyone else. */
-export type StateLine = { id: string; text: string; ref?: number; waitsOn?: string; by: string; src?: string; at: Date };
+export type StateLine = {
+  id: string; text: string; ref?: number; waitsOn?: string; by: string; src?: string; at: Date;
+  /** Lanes: the session that holds the line (key = presence row key); a hold from set_doing is derived at read from presence `doing`. */
+  hold?: { key: string; at: Date };
+  /** Lanes: set when a hold was released because its session left (label of the session, where it stood). */
+  left?: { label: string; branch?: string; head?: string; log?: string; at: Date };
+};
 /** A Next or Later line taken off the State with its text kept (archive_line, a removed Later line, Declutter). `by`/`at` are the line's own; `archivedBy`/`archivedAt` say who took it off and when. */
 export type ArchivedLine = { id: string; text: string; from: 'Next' | 'Later'; waitsOn?: string; by: string; at: Date; archivedBy: string; archivedAt: Date; why?: string };
 /** What the daily Declutter check found on a project (lib/data/declutter.ts); written without a version bump, like `where`. */
@@ -328,7 +334,8 @@ export type StateWhere = { branch?: string; head?: string; dirty?: boolean; work
 export type StateDoc = Placed & {
   _id: string;
   projectId: string;
-  now: { text: string; holder?: string; by: string; at: Date } | null;
+  /** `holder` is the legacy form (read only); `hold` is the Now holder: key = presence row key. */
+  now: { text: string; holder?: string; hold?: { key: string; label: string; at: Date }; by: string; at: Date } | null;
   next: StateLine[];
   later: StateLine[];
   decisions: StateDecision[];
@@ -431,6 +438,14 @@ export type PresenceDoc = Placed & {
   machineName?: string;
   /** The task the worker says it is on (set_doing): only its id. Its number and title are read through the scoped door when shown, so a viewer who cannot read the task sees nothing of it. */
   doing?: { taskId: string; at: Date };
+  /** Lanes: the last result text a subagent of this session reported (own row only, 300 chars). */
+  lastResult?: { text: string; at: Date };
+  /** Lanes: sha1(machine + path) of the folder the session works in, never the path. */
+  folderKey?: string;
+  /** Lanes: the row this session's work moved to (pickup); followed at most 3 hops. */
+  movedTo?: string;
+  /** Lanes: set once the sweep has moved this off session's Needs and messages on. */
+  swept?: Date;
   /** The state the Claude Code hook last reported (POST /api/agent/event; the server decides it from the event). Absent for sessions with no hook token. */
   activity?: { state: PresenceState; at: Date; why?: 'prompt' };
   /** The last Stop the hook counted (H12, the Monday numbers): were the changed files saved to the State, and was the session reminded first. Last stop wins. Counts only, never text. */
