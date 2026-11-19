@@ -1,13 +1,16 @@
 // SessionStart hook (also after compaction): start_work for the repo in the cwd; the brief goes into the session's context.
 // Signing in, the first that applies:
-//   WORK_OS_KEY   (in the "env" block of settings.json) a Work OS Claude Code key (wos_...): start_work on /api/mcp at
-//                 WORK_OS_URL (default: the worker config's baseUrl). Only for a PC without the worker.
 //   the worker    this PC's worker device key (wkr_, kept by the worker in DPAPI / Keychain) and the baseUrl of the
 //                 worker config this copy was installed beside: POST /api/agent/start answers the brief and a session
 //                 token (wst_) for this one session and project. The token is kept in <hooks folder>/sessions and
-//                 shown instead of the device key after a compaction. Only the installed copy takes this path: its own
-//                 folder decides which config and key it reads (WORK_OS_URL and WORK_OS_WORKER_DIR are ignored here,
-//                 so a repo's settings cannot send the device key elsewhere). Neither key nor token is ever printed.
+//                 shown instead of the device key after a compaction, and it is what lets the other hooks report the
+//                 session's state. Only the installed copy takes this path: its own folder decides which config and key
+//                 it reads (WORK_OS_URL and WORK_OS_WORKER_DIR are ignored here, so a repo's settings cannot send the
+//                 device key elsewhere). Neither key nor token is ever printed.
+//   WORK_OS_KEY   (in the "env" block of settings.json) a Work OS Claude Code key (wos_...): start_work on /api/mcp at
+//                 WORK_OS_URL (default: the worker config's baseUrl). The only way for a PC without the worker, and
+//                 the fallback on a PC with one when the worker gives no brief (folder not linked, key refused, no
+//                 network). That session has no token, so it sends no state events.
 import os from 'node:os';
 import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, git, mcpCall, postAgent, readKept, readMarker, keepToken, repoFacts, sizeOf, statusHash, str, workerHome, writeMarker } from './hook-lib.mjs';
 
@@ -48,19 +51,22 @@ export async function sessionStart(input) {
   const old = sid ? readMarker(sid) : null; // after compaction the baseline stays the one from the real start
   let r;
   let reports = false; // signed in with the worker (a session token): Work OS gets this session's state events
-  if (process.env.WORK_OS_KEY) {
-    const text = await mcpCall('start_work', where);
-    if (!text) return null;
-    try { r = JSON.parse(text); } catch { return null; }
-  } else {
-    // head, dirty and worktrees fill Where on the server without a State version bump (the key path's start_work does not take them).
-    const ids = { ...(UUID_RE.test(sid || '') ? { ccSession: sid } : {}), ...(SOURCES.includes(input.source) ? { source: input.source } : {}) };
-    const a = await agentStart({ ...where, ...repoFacts(cwd), ...ids }, sid ? readKept(sid) : null);
-    if (!a) return null;
+  // The worker first (a session token, so the state events are sent); the key only when the worker gives no brief.
+  // head, dirty and worktrees fill Where on the server without a State version bump (the key path's start_work does not take them).
+  const ids = { ...(UUID_RE.test(sid || '') ? { ccSession: sid } : {}), ...(SOURCES.includes(input.source) ? { source: input.source } : {}) };
+  let a = null;
+  if (workerHome()) {
+    try { a = await agentStart({ ...where, ...repoFacts(cwd), ...ids }, sid ? readKept(sid) : null); } catch { a = null; }
+  }
+  if (a) {
     reports = true;
     r = a.brief;
     if (a.token && sid) keepToken(sid, a.token, a.until);
-  }
+  } else if (process.env.WORK_OS_KEY) {
+    const text = await mcpCall('start_work', where);
+    if (!text) return null;
+    try { r = JSON.parse(text); } catch { return null; }
+  } else return null;
   if (!r || r.unmatched || !r.project) return null;
   if (sid) {
     writeMarker(sid, { status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
@@ -135,21 +141,34 @@ export async function startCheck(cwd) {
   if (!remote && !branch) return no('not a git folder');
   const where = { ...(remote ? { remote } : {}), subdir: git(cwd, ['rev-parse', '--show-prefix']), branch, path: cwd, machine: os.hostname().slice(0, 40), label: 'Claude Code' };
   try {
-    if (process.env.WORK_OS_KEY) {
-      const text = await mcpCall('start_work', where);
-      if (!text) return no('WORK_OS_KEY did not get a brief (key refused or not valid, or no network)', 'key');
-      let r; try { r = JSON.parse(text); } catch { return no('start_work answered something unreadable', 'key'); }
-      return r?.project ? { ok: true, via: 'key', project: r.project.name } : no('no project matches this folder', 'key');
-    }
+    // The worker first, as SessionStart does; the key only when the worker gives no brief.
+    const hasKey = !!process.env.WORK_OS_KEY;
+    let why = null;
+    let tried = false;
     const home = workerHome();
-    if (!home) return no('this copy is not installed beside a worker (run: node worker.mjs hooks install)');
-    const key = deps.deviceKey(home);
-    if (!key || !/^wkr_[A-Za-z0-9_-]{43}$/.test(key)) return no('no device key on this PC (run: node worker.mjs setup)');
-    const r = await postAgent('/api/agent/start', key, where);
-    if (r.status === 404) return no('this folder is not linked on this PC (Work OS: Claude › Setup › Computers › Folders)', 'worker');
-    if (r.status === 401 || r.status === 403) return no(`the server refused this PC's worker key (HTTP ${r.status})`, 'worker');
-    if (r.status !== 200 || !r.b?.brief?.project) return no(`the server answered HTTP ${r.status}`, 'worker');
-    return { ok: true, via: 'worker', project: r.b.brief.project.name };
+    if (!home) why = 'this copy is not installed beside a worker (run: node worker.mjs hooks install)';
+    else {
+      const key = deps.deviceKey(home);
+      if (!key || !/^wkr_[A-Za-z0-9_-]{43}$/.test(key)) why = 'no device key on this PC (run: node worker.mjs setup)';
+      else {
+        try {
+          tried = true;
+          const r = await postAgent('/api/agent/start', key, where);
+          if (r.status === 200 && r.b?.brief?.project) return { ok: true, via: 'worker', project: r.b.brief.project.name };
+          if (r.status === 404) why = 'this folder is not linked on this PC (Work OS: Claude › Setup › Computers › Folders)';
+          else if (r.status === 401 || r.status === 403) why = `the server refused this PC's worker key (HTTP ${r.status})`;
+          else why = `the server answered HTTP ${r.status}`;
+        } catch (e) {
+          if (!hasKey) throw e;
+          why = `network: ${String(e.message || e).slice(0, 120)}`;
+        }
+      }
+    }
+    if (!hasKey) return no(why, tried ? 'worker' : null);
+    const text = await mcpCall('start_work', where);
+    if (!text) return no(`${why ? why + '; and ' : ''}WORK_OS_KEY did not get a brief (key refused or not valid, or no network)`, 'key');
+    let r; try { r = JSON.parse(text); } catch { return no('start_work answered something unreadable', 'key'); }
+    return r?.project ? { ok: true, via: 'key', project: r.project.name } : no('no project matches this folder', 'key');
   } catch (e) {
     return no(`network: ${String(e.message || e).slice(0, 120)}`);
   }

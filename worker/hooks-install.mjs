@@ -26,10 +26,10 @@ export const hooksDir = () => path.join(configDir(), 'hooks');
 // start hook reads this PC's device key with it: the worker's own code, so the key stays in DPAPI / Keychain).
 export const FILES = ['hook.mjs', 'hook-lib.mjs', 'hook-copy.mjs', 'hook-session-start.mjs', 'hook-stop.mjs', 'hook-pre-tool.mjs', 'hook-post-tool.mjs', 'hook-user-prompt.mjs', 'hook-notification.mjs', 'hook-session-end.mjs', 'config.mjs', 'secret.mjs'];
 const VERSION_FILE = 'hooks.version';
-/** How the start brief signs in on this PC: 'key' (WORK_OS_KEY set), 'worker' (the worker is set up), or null. */
+/** How the start brief signs in on this PC, first choice: 'worker' (the worker is set up; a WORK_OS_KEY is only its fallback), 'key' (WORK_OS_KEY set, no worker), or null. */
 function signIn(settings) {
-  if (settings.env?.WORK_OS_KEY || process.env.WORK_OS_KEY) return 'key';
-  try { return loadConfig().baseUrl ? 'worker' : null; } catch { return null; }
+  try { if (loadConfig().baseUrl) return 'worker'; } catch { /* no worker config */ }
+  return settings.env?.WORK_OS_KEY || process.env.WORK_OS_KEY ? 'key' : null;
 }
 /** The hooks version: a short hash of the hook files this worker carries (changes whenever any of them does). */
 export function hooksVersion(dir = here) {
@@ -167,7 +167,8 @@ export function status() {
 
 const SIGN_IN = {
   worker: "The start brief and the stop check sign in with this PC's worker key, for projects with a folder linked to them on this PC (Claude › Setup or the project's Code tab).",
-  key: 'WORK_OS_KEY is set: the start brief and the stop check use it (a PC with the worker does not need it).',
+  key: 'WORK_OS_KEY is set: the start brief and the stop check use it (this PC has no worker; with one, the worker is used first and the key is only the fallback).',
+  workerKey: "WORK_OS_KEY is set: the worker is used first (this PC's worker key, which also reports the session's state) and the key is only the fallback when the worker gives no brief.",
   none: 'The WORK-STATE.md copy and its edit guard work now; the start brief and the stop check turn on once the worker is set up here (node worker.mjs setup).',
 };
 
@@ -229,7 +230,7 @@ export async function cli(sub, rest = []) {
   if (sub === 'install') {
     const r = install({ force: rest.includes('--force') });
     console.log(`Work OS hooks installed in ${r.settings} (hook: ${r.hook}, version ${r.version}).`);
-    console.log(SIGN_IN[r.signIn ?? 'none']);
+    console.log(SIGN_IN[r.signIn === 'worker' && (process.env.WORK_OS_KEY || read(settingsPath()).env?.WORK_OS_KEY) ? 'workerKey' : r.signIn ?? 'none']);
     console.log('Open Claude Code sessions pick this up on their next tool call; restart them to get the start brief.');
   } else if (sub === 'remove') console.log(remove() ? 'Work OS hooks removed.' : 'No Work OS hooks were installed.');
   else if (sub === 'status') console.log(JSON.stringify(status(), null, 2));

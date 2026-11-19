@@ -24,6 +24,9 @@ test('install copies the hook, merges seven events, keeps other settings and hoo
   fs.writeFileSync(path.join(process.env.WORK_OS_WORKER_DIR, 'config.json'), JSON.stringify({ baseUrl: 'https://x.example' }));
   assert.equal(m.install().signIn, 'worker', 'with the worker set up the hooks need no key');
   assert.equal(m.status().signIn, 'worker');
+  process.env.WORK_OS_KEY = 'wos_' + 'k'.repeat(40);
+  assert.equal(m.status().signIn, 'worker', 'the worker is first, the key only its fallback');
+  delete process.env.WORK_OS_KEY;
   fs.rmSync(path.join(process.env.WORK_OS_WORKER_DIR, 'config.json'));
   let s = settings();
   assert.equal(s.model, 'opus');

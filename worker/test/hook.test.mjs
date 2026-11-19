@@ -255,12 +255,41 @@ test('the device-key path fails open and never sends the key anywhere but the wo
   agentMode = 'ok'; devKey = WKR;
 }));
 
-test('WORK_OS_KEY, when set, is still used before the device key', async () => {
-  mode = 'ok'; agentMode = 'ok'; seen.length = 0;
-  assert.ok(await devStart('dev12'));
-  assert.equal(seen[0].url, '/api/mcp');
-  assert.equal(seen[0].auth, `Bearer ${KEY}`);
-  assert.equal(seen.filter((x) => x.url === '/api/agent/start').length, 0);
+test('worker and WORK_OS_KEY both present: the worker is used first, a token is kept; the key is the fallback', async () => {
+  // the key is set for this whole file (see before())
+  mode = 'ok'; agentMode = 'ok'; devKey = WKR; seen.length = 0;
+  assert.match(JSON.parse(await devStart('dev12')).hookSpecificOutput.additionalContext, /device brief/);
+  assert.deepEqual(seen.map((x) => x.url), ['/api/agent/start'], 'the key is not used when the worker gives a brief');
+  assert.ok(fs.readFileSync(path.join(home, 'hooks', 'sessions', 'dev12.json'), 'utf8').includes(TOKEN), 'a token is kept, so the state events go out');
+  // folder not linked on this PC (404): the key
+  agentMode = 'http404'; seen.length = 0;
+  assert.ok(await devStart('dev13'));
+  assert.deepEqual(seen.map((x) => [x.url, x.auth]), [['/api/agent/start', `Bearer ${WKR}`], ['/api/mcp', `Bearer ${KEY}`]]);
+  assert.ok(!fs.existsSync(path.join(home, 'hooks', 'sessions', 'dev13.json')), 'no token on the key path');
+  // no device key stored: the key
+  agentMode = 'ok'; devKey = null; seen.length = 0;
+  assert.ok(await devStart('dev14'));
+  assert.deepEqual(seen.map((x) => x.url), ['/api/mcp']);
+  devKey = WKR;
+  // no worker (the repo copy): the key, as before
+  seen.length = 0;
+  assert.ok(await start());
+  assert.deepEqual(seen.map((x) => x.url), ['/api/mcp']);
+  agentMode = 'ok';
+});
+
+test('worker and key: the worker path keeps its token and posts state events; the key fallback posts none', async () => {
+  agentMode = 'ok'; devKey = WKR; seen.length = 0;
+  await devStart('dev15');
+  await dev.main('user-prompt', JSON.stringify({ session_id: 'dev15', cwd: repo, transcript_path: transcript }));
+  const ev = seen.filter((x) => x.url === '/api/agent/event');
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].auth, `Bearer ${TOKEN}`);
+  agentMode = 'http404'; seen.length = 0;
+  await devStart('dev16');
+  await dev.main('user-prompt', JSON.stringify({ session_id: 'dev16', cwd: repo, transcript_path: transcript }));
+  assert.equal(seen.filter((x) => x.url === '/api/agent/event').length, 0);
+  agentMode = 'ok';
 });
 
 const run = (arg, input) => new Promise((resolve) => {
@@ -397,7 +426,11 @@ test('startCheck: the reason a folder gets no brief, and the project and sign-in
   assert.match((await startCheck(tmp)).reason, /not a git folder/);
   process.env.WORK_OS_URL = URL_; // the key path is the one with WORK_OS_KEY set
   process.env.WORK_OS_KEY = KEY; mode = 'ok';
-  assert.deepEqual(await startCheck(repo), { ok: true, via: 'key', project: 'Demo' });
+  // worker and key together: the worker first, the key when the worker gives no brief
+  agentMode = 'ok'; assert.deepEqual(await startCheck(repo), { ok: true, via: 'worker', project: 'Demo' });
+  agentMode = 'http404'; assert.deepEqual(await startCheck(repo), { ok: true, via: 'key', project: 'Demo' });
+  agentMode = 'ok'; devKey = null; assert.equal((await startCheck(repo)).via, 'key');
+  devKey = WKR;
   delete process.env.WORK_OS_KEY;
 }));
 
