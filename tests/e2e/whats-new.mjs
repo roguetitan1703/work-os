@@ -1,7 +1,7 @@
 // What's new and the Needs page (docs/HANDOVER.md "What's new", "Needs page"). run.sh pins "today" to 2026-11-20
 // (mode whatsnew): the four entries of 2026-11-15, the hook sign-in and digest of 2026-11-18 and Activity of
 // 2026-11-19 are all new (Mail and the report intake are not set up here):
-//   - Today's "New in Work OS" card (phone and desktop): three entries and "6 more"; Try it marks one seen; Dismiss all;
+//   - Today's "New in Work OS" card (phone and desktop): three entries and "7 more"; Try it marks one seen; Dismiss all;
 //   - the Menu row and the sidebar entry carry a dot while something is unseen; opening /whats-new clears it;
 //   - /whats-new lists every entry newest first, one line and where to find it, "New" while new;
 //   - the Needs row (Menu, sidebar) has a "New" badge and the open count; /needs lists the open Need, answers it with a
@@ -18,7 +18,7 @@ const settle = (p, ms = 700) => p.waitForTimeout(ms);
 const seenOf = async () => (await rawDb.collection('settings').findOne({ _id: `profile:${ME.userId}` }))?.whatsNewSeen ?? [];
 const resetSeen = () => rawDb.collection('settings').updateOne({ _id: `profile:${ME.userId}` }, { $unset: { whatsNewSeen: '' } });
 const shot = (p, name) => p.screenshot({ path: `${SP}/whats-new-${name}.png`, fullPage: true });
-const ALL = ['end-work-handover', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
+const ALL = ['end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
 
 const b = await launch();
 try {
