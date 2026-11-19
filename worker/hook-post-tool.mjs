@@ -20,7 +20,7 @@ async function fetchCopy(input, cwd, project, saving) {
     } else {
       const token = readKept(sid);
       if (!token) return null;
-      const where = saving ? { machine: os.hostname().slice(0, 40), branch: git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']), ...repoFacts(cwd) } : null;
+      const where = saving ? { machine: os.hostname().slice(0, 40), branch: git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).slice(0, 120), ...repoFacts(cwd) } : null;
       const r = await postAgent('/api/agent/state', token, where ? { where } : {});
       md = r?.status === 200 ? r.b?.markdown : null;
     }

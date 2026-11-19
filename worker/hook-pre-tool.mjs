@@ -8,6 +8,9 @@ import { COPY, COPY_REASON, markSaved, projectOf, writeCopy } from './hook-copy.
 import { postAgent, readKept, readMarker } from './hook-lib.mjs';
 
 const EDIT_TIMEOUT_MS = 3500; // the pre-tool hook is given 5 s (hook-lib.mjs EVENTS)
+// PreToolUse runs before Claude Code's permission check, so an Edit is forwarded only when the session would let it through
+// without asking: any other mode (default, plan, none given) gets the plain refusal and nothing is sent.
+const FORWARD_MODES = new Set(['acceptEdits', 'bypassPermissions', 'auto']);
 
 /**
  * The one-line change an Edit tool call would make to the copy: { old, new } as whole lines (new is '' to remove the line),
@@ -36,7 +39,7 @@ async function forwardEdit(input) {
   const i = input.tool_input || {};
   const token = sid ? readKept(sid) : null;
   const marker = sid ? readMarker(sid) : null;
-  if (!token || !marker?.project || typeof i.file_path !== 'string') return null;
+  if (!FORWARD_MODES.has(input.permission_mode) || !token || !marker?.project || typeof i.file_path !== 'string') return null;
   const cwd = input.cwd || process.cwd();
   const file = path.resolve(cwd, i.file_path);
   let text;
@@ -51,12 +54,12 @@ async function forwardEdit(input) {
   if (r.status === 400 && r.error) return deny('Work OS did not apply this edit: ' + r.error + ' ' + COPY_REASON);
   if (r.status !== 200 || typeof r.b?.markdown !== 'string') return null;
   let w = null;
-  try { w = writeCopy(sid, path.dirname(file), r.b.markdown); } catch {}
+  try { w = writeCopy(sid, path.dirname(file), r.b.markdown, { commit: false }); } catch {} // never git commit here: it can outlast the hook; the next post-tool commits
   try { markSaved(input, path.dirname(file)); } catch {}
   const v = r.b.version ?? r.b.applied?.version;
   const closed = r.b.applied?.closedTasks?.length ? ' Closed ' + r.b.applied.closedTasks.map((n) => '#' + n).join(', ') + '.' : '';
   const review = r.b.applied?.sentForReview?.length ? ' Sent for review: ' + r.b.applied.sentForReview.map((n) => '#' + n).join(', ') + '.' : '';
-  return deny('Applied to Work OS State v' + v + '; ' + (w ? 'the file is updated' + (w.committed ? ' and committed' : '') : 'the file was not written here (a builder worktree, another project or a merge under way)') + '.' + closed + review + ' Nothing more to do: do not repeat the edit.');
+  return deny('Applied to Work OS State v' + v + '; ' + (w ? 'the file is updated (the next save commits it)' : 'the file was not written here (a builder worktree, another project or a merge under way)') + '.' + closed + review + ' Nothing more to do: do not repeat the edit.');
 }
 
 /** True when a Bash or PowerShell command writes to WORK-STATE.md (redirect, tee, sed -i, Set-Content, cp/mv onto it). */
@@ -72,16 +75,27 @@ export function writesCopy(cmd) {
 
 /** PreToolUse: refuse hand edits of WORK-STATE.md, saying what to do instead. */
 export async function preTool(input) {
-  const t = input.tool_name || '';
-  const i = input.tool_input || {};
-  let hit = false;
-  if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(t)) hit = path.basename(String(i.file_path || i.notebook_path || '')).toUpperCase() === COPY.toUpperCase();
-  else if (/^(Bash|PowerShell)$/.test(t)) hit = writesCopy(String(i.command || ''));
-  if (!hit) return null;
-  if (t === 'Edit') {
+  if (!hitsCopy(input)) return null;
+  if (input.tool_name === 'Edit') {
     try { const f = await forwardEdit(input); if (f) return f; } catch {}
   }
-  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: COPY_REASON } };
+  return plainDeny();
+}
+
+/** True when this tool call writes WORK-STATE.md. */
+export function hitsCopy(input) {
+  const t = input.tool_name || '';
+  const i = input.tool_input || {};
+  if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(t)) return path.basename(String(i.file_path || i.notebook_path || '')).toUpperCase() === COPY.toUpperCase();
+  if (/^(Bash|PowerShell)$/.test(t)) return writesCopy(String(i.command || ''));
+  return false;
+}
+
+export const plainDeny = () => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: COPY_REASON } });
+
+/** For hook.mjs when the hook runs out of time: the plain refusal for a call that writes the copy, else nothing (fails closed for the copy only). */
+export function timeoutAnswer(stdinText) {
+  try { const input = JSON.parse(stdinText || '{}'); return hitsCopy(input) ? plainDeny() : null; } catch { return null; }
 }
 
 export const handle = preTool;

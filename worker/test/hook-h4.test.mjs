@@ -21,6 +21,7 @@ const WKR = 'wkr_' + 'D'.repeat(43);
 const TOKEN = 'wst_' + 't'.repeat(43);
 const KEY = 'wos_' + 'k'.repeat(40);
 const seen = [];
+let cur = { v: 9, line: '- ship it' };
 let stateMode = 'ok'; // ok | http400 | http500 | hang | nomd
 const md = (v, line = '- ship it') => `Copy of the Work OS state, version ${v}. Edit it in Work OS (https://x/projects/p1); this file is its copy.\n\n# Work state: Demo\n\n## Now\n${line}\n`;
 const server = http.createServer((req, res) => {
@@ -39,8 +40,9 @@ const server = http.createServer((req, res) => {
       if (stateMode === 'hang') return;
       if (stateMode === 'http500') return json(500, { error: 'x' });
       if (stateMode === 'http400') return json(400, { error: 'That line is in two places.' });
-      const line = body.edit ? (body.edit.new ? `- ${body.edit.new.replace(/^- /, '')}` : '- (empty)') : '- ship it';
-      const v = body.edit ? 12 : 9; // an edit bumps the State past the file's version
+      // The server's State: an edit bumps it past the file's version and later answers keep it.
+      if (body.edit) cur = { v: 12, line: body.edit.new ? `- ${body.edit.new.replace(/^- /, '')}` : '- (empty)' };
+      const { v, line } = cur;
       return json(200, { project: 'p1', version: v, markdown: stateMode === 'nomd' ? 'nothing' : md(v, line), ...(body.edit ? { applied: { version: v, closedTasks: [], sentForReview: [] } } : {}) });
     }
     if (req.url === '/api/mcp') {
@@ -78,7 +80,7 @@ const lastMsg = () => execFileSync('git', ['log', '-1', '--format=%s'], { cwd: r
 const startSid = (sid) => dev.main('session-start', JSON.stringify({ session_id: sid, cwd: repo, transcript_path: transcript }));
 const answer = (o) => [{ type: 'text', text: JSON.stringify(o) }];
 const post = (sid, tool, o) => dev.main('post-tool', JSON.stringify({ session_id: sid, cwd: repo, tool_name: `mcp__work-os__${tool}`, tool_input: {}, tool_response: answer(o) }));
-const pre = (sid, tool_name, tool_input) => dev.main('pre-tool', JSON.stringify({ session_id: sid, cwd: repo, tool_name, tool_input }));
+const pre = (sid, tool_name, tool_input, permission_mode = 'acceptEdits') => dev.main('pre-tool', JSON.stringify({ session_id: sid, cwd: repo, tool_name, tool_input, permission_mode }));
 const copyFile = path.join(repo, 'WORK-STATE.md');
 const posts = () => seen.filter((s) => s.url === '/api/agent/state');
 const reason = (out) => JSON.parse(out).hookSpecificOutput.permissionDecisionReason;
@@ -152,6 +154,36 @@ test('Edit of one line of WORK-STATE.md is forwarded; the Edit is refused saying
   assert.deepEqual(posts()[0].body, { edit: { old: '- ship it', new: '- shipped' } }, 'whole lines, from the part the Edit named');
   assert.equal(posts()[0].auth, `Bearer ${TOKEN}`);
   assert.match(fs.readFileSync(copyFile, 'utf8'), /version 12\.[\s\S]*- shipped/);
+  assert.notEqual(lastMsg(), 'WORK-STATE.md: copy of the Work OS State v12', 'pre-tool never runs git commit');
+  assert.match(reason(out), /the next save commits it/);
+  assert.match(execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' }), /WORK-STATE\.md/, 'written, waiting for its commit');
+  // the next post-tool (the same State again) commits what pre-tool wrote
+  const o2 = JSON.parse(await post('h1', 'get_state', { project: 'Demo', version: 12, state: {} }));
+  assert.match(o2.hookSpecificOutput.additionalContext, /committed/);
+  assert.equal(lastMsg(), 'WORK-STATE.md: copy of the Work OS State v12');
+});
+
+test('Edit forwarding only when the session would allow the edit: default, plan or no mode send nothing', async () => {
+  seen.length = 0;
+  const edit = { file_path: copyFile, old_string: 'shipped', new_string: 'sent' };
+  for (const mode of ['default', 'plan', null, 'dontAsk'])
+    assert.match(reason(await pre('h1', 'Edit', edit, mode)), /^WORK-STATE\.md is a copy/, String(mode));
+  assert.equal(posts().length, 0);
+  for (const mode of ['bypassPermissions', 'auto']) {
+    seen.length = 0;
+    assert.match(reason(await pre('h1', 'Edit', edit, mode)), /^Applied to Work OS State/, mode);
+    assert.equal(posts().length, 1);
+    cur = { v: 12, line: '- shipped' }; // put the State and the file back
+    await post('h1', 'get_state', { project: 'Demo', version: 12, state: {} });
+  }
+  assert.match(fs.readFileSync(copyFile, 'utf8'), /- shipped/);
+});
+
+test('the hook timer answers a write of the copy with the plain refusal, and nothing for other calls', async () => {
+  const { timeoutAnswer } = await import(pathToFileURL(path.join(home, 'hooks', 'hook-pre-tool.mjs')).href);
+  assert.match(timeoutAnswer(JSON.stringify({ tool_name: 'Edit', tool_input: { file_path: copyFile } })).hookSpecificOutput.permissionDecisionReason, /^WORK-STATE\.md is a copy/);
+  assert.equal(timeoutAnswer(JSON.stringify({ tool_name: 'Edit', tool_input: { file_path: 'a.txt' } })), null);
+  assert.equal(timeoutAnswer('not json'), null);
 });
 
 test('Edit forwarding: removing a line; several lines, added lines and no match are refused without a call', async () => {

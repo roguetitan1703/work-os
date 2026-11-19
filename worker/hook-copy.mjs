@@ -40,8 +40,8 @@ export function copyState(input, cwd, md = stateMarkdown(input.tool_response)) {
   return w ? { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: w.notes.join('\n\n').slice(0, MAX_BRIEF) } } : null;
 }
 
-/** Writes and commits WORK-STATE.md from md. Returns { version, committed, notes }, or null when nothing was written. */
-export function writeCopy(sid, cwd, md) {
+/** Writes and commits WORK-STATE.md from md (commit: false writes only: the pre-tool hook must not run git commit, so a file it wrote is committed by the next post-tool). Returns { version, committed, notes }, or null when nothing was written. */
+export function writeCopy(sid, cwd, md, { commit = true } = {}) {
   if (!md) return null;
   const top = git(cwd, ['rev-parse', '--show-toplevel']);
   if (!top) return null;
@@ -60,10 +60,13 @@ export function writeCopy(sid, cwd, md) {
   const body = md.replace(/\r\n/g, '\n').trimEnd() + '\n';
   const next = `${body}<!-- work-os-copy sha1:${sha1(body)} -->\n`;
   const notes = [];
-  if (old !== null && old === next) return null;
+  const doCommit = commit && process.env.WORK_OS_COPY_COMMIT !== '0';
+  const same = old !== null && old === next;
   // Only the version line differs: no write, no commit (a save every few minutes for weeks would be hundreds of commits).
   const lines = (s) => s.replace(STAMP, '').replace(/\r\n/g, '\n').split('\n').filter((l) => !COPY_HEAD.test(l)).join('\n').trimEnd();
-  if (old !== null && lines(old) === lines(body)) return null;
+  const sameLines = old !== null && lines(old) === lines(body);
+  // Nothing new to write: done, unless an earlier write (an Edit forwarded by pre-tool) is still waiting for its commit.
+  if ((same || sameLines) && !(doCommit && git(top, ['status', '--porcelain', '--', COPY]))) return null;
   if (old !== null) {
     const m = old.match(STAMP);
     const clean = m && sha1(old.replace(STAMP, '').trimEnd() + '\n') === m[1];
@@ -80,7 +83,7 @@ export function writeCopy(sid, cwd, md) {
   let committed = false;
   const branch = git(top, ['rev-parse', '--abbrev-ref', 'HEAD']);
   const busy = ['MERGE_HEAD', 'REBASE_HEAD', 'CHERRY_PICK_HEAD', 'rebase-merge', 'rebase-apply'].some((f) => fs.existsSync(path.join(gitDir, f)));
-  if (process.env.WORK_OS_COPY_COMMIT !== '0' && branch && branch !== 'HEAD' && !busy) {
+  if (doCommit && branch && branch !== 'HEAD' && !busy) {
     try {
       execFileSync('git', ['add', '--', COPY], { cwd: top, stdio: 'ignore', timeout: 5000 });
       execFileSync('git', ['commit', '--only', '-q', '-m', `WORK-STATE.md: copy of the Work OS State v${vNew}`, '--', COPY], { cwd: top, stdio: 'ignore', timeout: 15000 });
