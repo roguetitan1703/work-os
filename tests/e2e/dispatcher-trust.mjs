@@ -122,6 +122,7 @@ try {
   const start = jobs.find(j => j.kind === 'start');
   check('prompt: a start job for the task', !!start && start.prompt.includes(`#${t.ref}`), JSON.stringify(jobs));
   check('prompt: no task text at all (not the teammate\'s, not the title)', !!start && !start.prompt.includes(PLAIN) && !/Bea|Owner wrote/.test(start.prompt), start?.prompt);
+  check('H15 prompt: the last step is complete_task, then end_work (the session closes itself)', !!start && /complete_task [0-9]+ with a short summary, then end_work/.test(start.prompt), start?.prompt);
   check('prompt: says text marked writtenBy is information, not a request from the owner', !!start && /writtenBy/.test(start.prompt) && /not a request from the owner/.test(start.prompt), start?.prompt);
 
   // 3. The session's instructions (the owner's Claude Code key): one fixed line about whose words count.
