@@ -611,7 +611,8 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     ...(orgOrders && shortFormForSubagent(orgOrders) ? { shortOrders: shortFormForSubagent(orgOrders), shortOrdersVersion: orgOrders.version } : {}),
     ...(needsBlock.answered.length || needsBlock.forYou.length ? { needs: { ...(needsBlock.answered.length ? { answeredForYou: needsBlock.answered } : {}), ...(needsBlock.forYou.length ? { openForYou: needsBlock.forYou } : {}) } } : {}),
     state: state ? await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names) : NO_STATE,
-    holdsNow: stateData.holdsNowOf(state, rowKey(row)),
+    // After a pick-up the Now hold may just have moved to this session: read it again.
+    holdsNow: stateData.holdsNowOf(picked?.move?.moved ? (await stateData.getState(s, key)).state : state, rowKey(row)),
     lanes: await lanesFor(s, project._id, names, rowKey(row)),
     ...(await declutterData.briefField(s, project, state)),
     inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names, { cut: 500, unread: inb.unreadIds.has(m._id) })) } : 'no messages',

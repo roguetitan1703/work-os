@@ -134,8 +134,8 @@ try {
   // ── 6. the sweep: a session off for 30 minutes hands its Needs and messages on when the person's next session takes a turn
   const pc = await mkDevice('pk-pc');
   await rawDb.collection('devices').updateOne({ _id: pc.id }, { $set: { ownerId: ME.userId, orgId: ME.orgId, name: 'PK-PC' } });
-  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:f1`, deviceId: pc.id, folderId: 'f1', name: 'C:/code/f1', git: true, remote: 'acme/pk-alpha', projectId: PID, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
-  const hs = await call('/api/agent/start', pc.key, { remote: 'https://github.com/acme/pk-alpha.git', branch: 'main', path: 'C:/code/f1', ccSession: randomUUID(), source: 'startup' });
+  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:fold1`, deviceId: pc.id, folderId: 'fold1', name: 'C:/code/f1', git: true, remote: 'acme/pk-alpha', projectId: PID, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
+  const hs = await call('/api/agent/start', pc.key, { folders: ['fold1'], remote: 'https://github.com/acme/pk-alpha.git', branch: 'main', path: 'C:/code/f1', ccSession: randomUUID(), source: 'startup' });
   const LTOK = hs.json?.token;
   const LSID = hs.json?.brief?.session;
   check('sweep setup: a hook session of Om on the project', hs.status === 200 && /^wst_/.test(LTOK ?? '') && !!LSID, hs.text.slice(0, 160));
@@ -229,7 +229,7 @@ try {
   const nU = await ask(cc, 'pkU1', 'PK U1 question?');
   const mU = await say(cc, 'pkS', 'pkU1', 'PK to U1: unread');
   await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'now.hold': { key: K('pkU1'), label: 'PK U1', at: new Date() } } });
-  const hU = await handover(cc, 'pkU1', 'Handover: PK U1', { for: 'anyone' });
+  const hU = await handover(cc, 'pkU1', 'Handover: PK U1');
   const noteBefore = await rawDb.collection('notes').findOne({ _id: hU.handover.id });
   // wrong project: the handover is on PK Alpha, the caller starts on another project
   await must(cc, 'add_project', { name: 'PK Other', visibility: 'org' });
@@ -257,14 +257,14 @@ try {
   await start(cc, 'pkU5', { label: 'PK U5' });
   const nU5 = await ask(cc, 'pkU5', 'PK U5 question?');
   await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'now.hold': { key: K('pkU5'), label: 'PK U5', at: new Date() } } });
-  const hU5 = await handover(cc, 'pkU5', 'Handover: PK U5', { for: 'anyone' });
+  const hU5 = await handover(cc, 'pkU5', 'Handover: PK U5');
   await rawDb.collection('notes').updateOne({ _id: hU5.handover.id }, { $set: { updatedAt: ago(26 * 60) } });
   const up5 = await mcpH(ccC, 'start_work', { project: P, session: 'pkU6', label: 'PK U6', pick_up: hU5.handover.id }, hdr('pkU6'));
   st = await stateDoc();
   check('pick_up: an old handover moves the Need but no hold (the answer says so)', !up5.isError && up5.json?.pickedUp === 'Moved to you: 1 Need, 0 unread messages, 0 held lines.' && (await needDoc(nU5.id)).from.session === 'pkU6' && st.now.hold?.key === K('pkU5') && up5.json?.holdsNow === false, up5.isError ? up5.text.slice(0, 200) : `${up5.json?.pickedUp} ${JSON.stringify(st.now.hold)}`);
   // a session still working holds its work back, and the answer says why
   await start(cc, 'pkU7', { label: 'PK U7' });
-  const hU7 = await handover(cc, 'pkU7', 'Handover: PK U7', { for: 'anyone' });
+  const hU7 = await handover(cc, 'pkU7', 'Handover: PK U7');
   await rawDb.collection('presence').updateOne({ session: 'pkU7' }, { $unset: { endedAt: '' }, $set: { activity: { state: 'working', at: new Date() }, lastSeen: new Date() } });
   const up7 = await mcpH(ccC, 'start_work', { project: P, session: 'pkU8', label: 'PK U8', pick_up: hU7.handover.id }, hdr('pkU8'));
   check('pick_up: while the old session is working nothing moves and the answer says why', !up7.isError && /Nothing moved: the session that wrote it is still working/.test(up7.json?.pickedUp ?? ''), up7.text.slice(0, 200));
