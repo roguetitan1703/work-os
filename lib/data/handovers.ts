@@ -143,7 +143,36 @@ export async function openNeedsOf(s: Scope, projectId: string, row: { session?: 
 }
 
 /** The feed row of an ended session: the friction line (and the handover id) on the project's State. */
-export async function logSessionEnded(s: Scope, project: ProjectDoc, actor: Actor, friction: string, handoverId?: string): Promise<void> {
+export async function logSessionEnded(s: Scope, project: ProjectDoc, actor: Actor, friction: string, handoverId?: string, refusals?: string[]): Promise<void> {
   const { logChange } = await import('./tasks');
-  await logChange(await scoped(s), project, actor, 'session_ended', { subject: { kind: 'state', id: project._id, title: 'State' }, projectId: project._id, note: `${friction}${handoverId ? ` · handover ${handoverId}` : ''}` });
+  await logChange(await scoped(s), project, actor, 'session_ended', { subject: { kind: 'state', id: project._id, title: 'State' }, projectId: project._id, note: `${friction}${handoverId ? ` · handover ${handoverId}` : ''}`, ...(refusals?.length ? { feedback: { refusals } } : {}) });
+}
+
+/** What feedback keeps per session (else per key) per hour. */
+export const FEEDBACK_PER_HOUR = 10;
+
+/**
+ * The feed row of a feedback call (H10): a friction line mid-work, in the shape of session_ended (the project's State,
+ * the line as the note). The same text from the same session within an hour is not written again; at most
+ * FEEDBACK_PER_HOUR rows per session (else per actor) per hour.
+ */
+export async function logFeedback(
+  s: Scope,
+  project: ProjectDoc,
+  actor: Actor,
+  input: { text: string; tool?: string; rule?: string; refusals?: string[] },
+  now: Date = new Date(),
+): Promise<{ recorded: true } | { recorded: false; duplicate: true } | { recorded: false; limit: true }> {
+  const { logChange } = await import('./tasks');
+  const { requestContext } = await import('../request-context');
+  const c = await scoped(s);
+  const rc = requestContext();
+  const since = new Date(now.getTime() - 3_600_000);
+  const mine = rc.session ? { session: rc.session } : { session: { $exists: false }, 'actor.userId': s.userId };
+  const base = { type: 'feedback' as const, projectId: project._id, at: { $gt: since }, ...mine };
+  if (await c.activity.findOne({ ...base, note: input.text }, { projection: { _id: 1 } })) return { recorded: false, duplicate: true };
+  if ((await c.activity.countDocuments(base as never)) >= FEEDBACK_PER_HOUR) return { recorded: false, limit: true };
+  const info = { ...(input.tool ? { tool: input.tool } : {}), ...(input.rule ? { rule: input.rule } : {}), ...(input.refusals?.length ? { refusals: input.refusals } : {}) };
+  await logChange(c, project, actor, 'feedback', { subject: { kind: 'state', id: project._id, title: 'State' }, projectId: project._id, note: input.text, at: now, ...(Object.keys(info).length ? { feedback: info } : {}) });
+  return { recorded: true };
 }

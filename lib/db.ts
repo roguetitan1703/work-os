@@ -117,6 +117,8 @@ export type ActivityDoc = Placed & {
   type: ActivityType;
   changes?: Record<string, FieldChange>;
   note?: string;
+  /** Only `feedback` and `session_ended` rows (H10). */
+  feedback?: import('./types').FeedbackInfo;
   /** Claude Code session / repo headers (lib/request-context.ts). */
   session?: string;
   repo?: string;
@@ -807,6 +809,7 @@ export function toActivity(d: ActivityDoc): Activity {
     type: d.type,
     ...(d.changes ? { changes: d.changes } : {}),
     ...(d.note ? { note: d.note } : {}),
+    ...(d.feedback ? { feedback: d.feedback } : {}),
     ...(d.session ? { session: d.session } : {}),
     ...(d.repo ? { repo: d.repo } : {}),
   };

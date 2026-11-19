@@ -39,6 +39,7 @@ import type { HandoverFields } from '../db';
 import { holderOf, machineKey, MAX_WAIT_S, POLL_MS, prepareSlot, releaseSlot, tryAcquire } from '../data/slots';
 import { forYouAfter, forYouBefore } from './for-you';
 import { requestContext, runWithRequestContext, sessionHeader } from '../request-context';
+import { noteRefusal, recentRefusals } from './refusals';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
 import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RATINGS, RESULT_KINDS, RecurrenceSchema, StatusSchema, VisibilitySchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
 
@@ -67,12 +68,27 @@ function fail(message: string) {
 
 function handler<A>(fn: (args: A) => Promise<unknown>) {
   return async (args: A) => {
+    // The kind of a refusal goes into the request context (the tool() wrapper notes it, lib/mcp/refusals.ts).
+    const kind = (k: NonNullable<ReturnType<typeof requestContext>['failKind']>) => {
+      requestContext().failKind = k;
+    };
     try {
       return ok(await fn(args));
     } catch (err) {
-      if (err instanceof ZodError) return fail(err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '));
-      if (err instanceof InputError || err instanceof NotFoundError || err instanceof DiscordError || err instanceof MailError || err instanceof BlockedChannelError || err instanceof NotVisibleError) return fail(err.message);
+      if (err instanceof ZodError) {
+        kind('input');
+        return fail(err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '));
+      }
+      if (err instanceof NotFoundError || err instanceof NotVisibleError) {
+        kind('not_found');
+        return fail(err.message);
+      }
+      if (err instanceof InputError || err instanceof DiscordError || err instanceof MailError || err instanceof BlockedChannelError) {
+        kind('input');
+        return fail(err.message);
+      }
       console.error('[mcp]', err);
+      kind('internal');
       return fail('Internal error');
     }
   };
@@ -577,7 +593,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
   const sessionArg = z.string().max(64).optional().describe("The session id start_work returned (letters, digits and dashes); lets Work OS tell your answers apart from other sessions' of the same key");
   /** Tools that take an optional `session` argument (the session id start_work returned); the others read the X-Work-OS-Session header only (update_claude_items has its own `session`: a branch name). */
-  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'send_message', 'inbox', 'message_status', 'reply', 'get_task', 'log_progress', 'complete_task', 'set_doing', 'slot', 'hand_in', 'end_work']);
+  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'send_message', 'inbox', 'message_status', 'reply', 'get_task', 'log_progress', 'complete_task', 'set_doing', 'slot', 'hand_in', 'end_work', 'feedback']);
   /** Who is calling, for presence and the "for you" line (lib/mcp/for-you.ts). */
   const identOf = (name: ToolName, a: unknown[]): Ident => {
     const arg = SESSION_ARG.has(name) && a[0] && typeof a[0] === 'object' ? (a[0] as { session?: unknown }).session : undefined;
@@ -597,7 +613,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
         try {
           await beforeTool(caller, name);
         } catch (err) {
-          if (err instanceof PolicyError) return fail(err.message);
+          if (err instanceof PolicyError) {
+            if (name !== 'feedback') noteRefusal(sessionKey(identOf(name, a)), name, 'policy');
+            return fail(err.message);
+          }
           console.error('[mcp policy]', err);
           return fail('Internal error');
         }
@@ -605,7 +624,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
         const ident = identOf(name, a);
         const pending = await forYouBefore(s, ident, name);
         // What this call creates is stamped with its session (else its key), so the line does not name it back to the session.
-        const res = await runWithRequestContext({ ...requestContext(), src: sessionKey(ident) }, () => cb(...a));
+        const rc = { ...requestContext(), src: sessionKey(ident) };
+        const res = await runWithRequestContext(rc, () => cb(...a));
+        if ((res as { isError?: boolean } | null)?.isError && name !== 'feedback') noteRefusal(sessionKey(ident), name, rc.failKind ?? 'internal');
         return forYouAfter(pending, name, TOOLS[name].writes, res);
       }) as never,
     )) as unknown as typeof server.registerTool;
@@ -1343,7 +1364,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       let archivedHandovers: string[] = [];
       try {
         archivedHandovers = await handovers.archivePickedUp(s, project._id, me, handoverId, ACTOR);
-        await handovers.logSessionEnded(s, project, ACTOR, a.friction, handoverId);
+        await handovers.logSessionEnded(s, project, ACTOR, a.friction, handoverId, recentRefusals(sessionKey(ident)));
       } catch (e) {
         console.error('[end_work after]', e);
       }
@@ -1357,6 +1378,28 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ...(handover ? { handover } : {}),
         ...(handoverError ? { handoverError } : {}),
       };
+    }),
+  );
+
+  tool(
+    'feedback',
+    {
+      inputSchema: {
+        project: z.string().describe('Project name or id'),
+        text: z.string().trim().min(1).max(300).describe('One line: what got in your way in Work OS, and what you did about it'),
+        tool: z.string().trim().min(1).max(80).optional().describe('The Work OS tool, hook or command that got in the way (for a hook, name it here: Work OS never sees its refusals)'),
+        rule: z.string().trim().min(1).max(80).optional().describe('The Orders line that got in the way: its id or first words'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => {
+      const ident = identOf('feedback', [a]);
+      const { project } = await stateData.getState(s, a.project);
+      const r = await handovers.logFeedback(s, project, ACTOR, { text: a.text, tool: a.tool, rule: a.rule, refusals: recentRefusals(sessionKey(ident)) });
+      if ('limit' in r) throw new InputError(`Nothing was written: that is ${handovers.FEEDBACK_PER_HOUR} feedback lines this hour. Put the rest in the friction line of end_work.`);
+      const refusals = recentRefusals(sessionKey(ident));
+      return 'duplicate' in r || !refusals.length ? r : { ...r, refusals };
     }),
   );
 

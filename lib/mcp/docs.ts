@@ -99,6 +99,7 @@ export type ToolName =
   | 'set_doing'
   | 'slot'
   | 'end_work'
+  | 'feedback'
   | 'list_sessions'
   | 'ask'
   | 'needs'
@@ -206,9 +207,16 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   end_work: {
     title: 'End work (stop or hand over)',
     description:
-      'Call this when you stop, hand over, or your context or usage is running out (commit work in progress first). It pairs with start_work and does four things in one call. 1. state: 1 to 30 save_state ops (if nothing changed, set_where); the State is always saved first, and a project with no State yet needs set_now (with base_version) here; a stale base_version or any State error stops the call and nothing else happens. 2. It frees what this session held: its heavy slots and its set_doing task; the answer names open Needs you asked (leftovers) but withdraws none and makes none. 3. friction: one line (1 to 300 characters; "none" is allowed) on what slowed you down or went wrong in Work OS; it goes into the project’s activity feed. 4. handover (optional): the note the next session reads first when it starts work on this project, in Claude Code or Claude chat. Fields: step (1 to 600 characters, required: where to continue), in_flight, tried, rules, check (each up to 6 items of 300 characters). Put in only what the State, git and notes do not hold: never copy Next or Later lines, test counts or history (2 or more State lines inside it are refused); Work OS adds Where, Waiting and Task itself; the whole handover is at most 3,000 characters and is refused, never cut. for: "me" (default: you, any tool), a member (name, email or id; must be able to read the project) or "anyone"; title (default: "Handover: " and your session label). A second end_work with the same title rewrites the note. The answer gives the line to tell your person (pickUp, chat). Ask your person in chat before this call while they are here; ask (a Need) only when they are away.',
+      'Call this when you stop, hand over, or your context or usage is running out (commit work in progress first). It pairs with start_work and does four things in one call. 1. state: 1 to 30 save_state ops (if nothing changed, set_where); the State is always saved first, and a project with no State yet needs set_now (with base_version) here; a stale base_version or any State error stops the call and nothing else happens. 2. It frees what this session held: its heavy slots and its set_doing task; the answer names open Needs you asked (leftovers) but withdraws none and makes none. 3. friction: one line (1 to 300 characters; "none" is allowed) on what slowed you down or went wrong in Work OS; it goes into the project’s activity feed (what you already sent with feedback need not be repeated). 4. handover (optional): the note the next session reads first when it starts work on this project, in Claude Code or Claude chat. Fields: step (1 to 600 characters, required: where to continue), in_flight, tried, rules, check (each up to 6 items of 300 characters). Put in only what the State, git and notes do not hold: never copy Next or Later lines, test counts or history (2 or more State lines inside it are refused); Work OS adds Where, Waiting and Task itself; the whole handover is at most 3,000 characters and is refused, never cut. for: "me" (default: you, any tool), a member (name, email or id; must be able to read the project) or "anyone"; title (default: "Handover: " and your session label). A second end_work with the same title rewrites the note. The answer gives the line to tell your person (pickUp, chat). Ask your person in chat before this call while they are here; ask (a Need) only when they are away.',
     writes: true,
     example: 'Hand this session over: save the State and leave a note for the next one',
+  },
+  feedback: {
+    title: 'Feedback (what got in your way)',
+    description:
+      'Say, in one line, that something in Work OS slowed you down: a refused call, a confusing answer, an Orders line that blocks the work. Call it at the moment it happens, once per problem, and go on with your work. Fields: project (required), text (1 to 300 characters: what got in the way and what you did), tool (optional, up to 80: the Work OS tool, hook or command; name a hook here, Work OS never sees its refusals), rule (optional, up to 80: the Orders line, its id or first words). The answer is {recorded: true}; the same text from the same session within an hour is not written twice (recorded: false, duplicate: true), and after 10 lines in an hour put the rest in end_work friction. The line goes into the project’s activity feed, where your person reads it, and into the Monday summary. It is never a message or a Need and nobody is told right now: if you need an answer, ask; for status, use save_state. The friction line of end_work covers the end of the session, so do not repeat it there.',
+    writes: true,
+    example: 'save_state refused my edit twice; tell Om',
   },
   list_sessions: {
     title: 'List sessions',

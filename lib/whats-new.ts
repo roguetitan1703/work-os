@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'agents-feedback',
+    date: '2026-11-19',
+    title: 'Agents tell you what got in their way',
+    line: 'An agent that hits a refused call or a blocking rule now says so in one line, which shows in the project’s activity next to the line it leaves when it stops.',
+    where: 'Review › Activity, What: State',
+    href: '/review?view=activity',
+  },
+  {
     id: 'agents-ask-before-production',
     date: '2026-11-19',
     title: 'Agents ask before production',

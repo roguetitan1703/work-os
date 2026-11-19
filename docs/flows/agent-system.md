@@ -120,7 +120,7 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
   Later passes 25, Next passes 10, a line sits for 14 days, or notes duplicate. Also on demand from the app (project ⋯).
 - **propose_order** {line, replaces?, why, incident}: a Need for Om with the old and new line; Accept applies it.
   Repeats of a correction are counted.
-- **feedback** {text, rule?}: "this got in my way", attached to the project with tool names and refusal codes.
+- **feedback** {text, rule?}: "this got in my way", attached to the project with tool names and refusal codes. *Built in H10:* `feedback {project, text, tool?, rule?}`; refusal codes are the server's own `tool:kind` list; see docs/HANDOVER.md (feedback, H10).
 - **who** {project?}: live sessions (name, machine, tool, state, task).
 - Check in stays start_work.
 
