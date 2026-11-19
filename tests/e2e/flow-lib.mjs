@@ -42,3 +42,5 @@ export async function mkOAuth({ userId, orgId, name = 'claude.ai chat' }) {
   await rawDb.collection('oauthAccessToken').insertOne({ token: createHash('sha256').update(raw, 'utf8').digest('base64url'), clientId, userId, referenceId: orgId, scopes: ['workos'], resources: [`${B}/api/mcp`], createdAt: now, expiresAt: new Date(Date.now() + 3_600_000), revoked: null });
   return 'wosat_' + raw;
 }
+/** Marks the presence row(s) of a session as one the Work OS hook started (the hook's start route writes ccSession; start_work over MCP cannot). */
+export const hookRow = async session => rawDb.collection('presence').updateMany({ session }, { $set: { ccSession: crypto.randomUUID() } });

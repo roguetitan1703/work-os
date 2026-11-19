@@ -384,6 +384,8 @@ export type MessageDoc = Placed & {
   src?: string;
   /** Wake chain: how many agent-started wakes led to this message. Missing = 0 (a person's, the app's and chat's word); an agent's word is the sending session's turnChain plus 1. A message at 2 or more never wakes a session (lib/data/deliver.ts). */
   chain?: number;
+  /** A reply to a question or a request: an fyi that still wakes the one who asked (under the same chain limit). */
+  wakes?: boolean;
   /** Who set the status, and when. */
   statusBy?: string;
   statusAt?: Date;

@@ -48,7 +48,7 @@ try {
 
   // message_status with no status reads the text: the session it is for, or its sender
   const asTo = await must(cc, 'message_status', { id: first.id, session: idA });
-  check('MS1: message_status with no status gives the session it is for the full text and the frame', asTo.message?.body === 'Rebuild the client after the API change' && /proposal/.test(asTo.message.treat) && !!asTo.textRule, JSON.stringify(asTo).slice(0, 240));
+  check('MS1: message_status with no status gives the session it is for the full text and the frame', asTo.message?.body === 'Rebuild the client after the API change' && /proposal/.test(asTo.message.treat) && asTo.textRule === undefined, JSON.stringify(asTo).slice(0, 240));
   const asFrom = await must(MCP, 'message_status', { id: first.id });
   check('MS1: …and its sender', asFrom.message?.body === 'Rebuild the client after the API change', JSON.stringify(asFrom).slice(0, 200));
   const asOther = await mcpH(cc, 'message_status', { id: first.id, session: other.session });

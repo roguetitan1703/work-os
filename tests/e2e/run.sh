@@ -106,6 +106,7 @@ flow-n3|flow-n3.mjs|none|plain
 flow-n4|flow-n4.mjs|none|plain
 flow-notes-search|flow-notes-search.mjs|none|plain
 flow-r1|flow-r1.mjs|none|plain
+flow-r8a|flow-r8a.mjs|none|plain
 delpat-os|delpat-os.mjs|none|delpat
 mail|mail.mjs|none|mail
 mail-paste|mail-paste.mjs|none|mailpaste

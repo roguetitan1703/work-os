@@ -19,6 +19,7 @@ export type MessageTaskOverrides = {
   priority?: Priority;
   due?: string | null;
   note?: string;
+  createProject?: boolean;
 };
 
 export type MessageTaskResult = { task: Task; existing: boolean };
@@ -134,6 +135,7 @@ export async function taskFromMessage(
     actor,
     {
       note: overrides.note ?? `From Discord message by ${author} in ${where}`,
+      createProject: overrides.createProject,
       source,
       // The message's words are its author's, not the member's who made the task (lib/data/authors.ts): a title the
       // member typed is theirs.

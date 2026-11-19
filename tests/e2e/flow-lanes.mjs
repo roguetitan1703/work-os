@@ -102,7 +102,7 @@ try {
   // ── 2. the holder keeps it; set_now's holder argument is ignored and the answer says so
   const r2 = await save(ccA, 'lnA', [{ op: 'set_now', text: 'LN goal two', holder: 'someone else' }], await ver());
   st = await stateDoc();
-  check('holder: the holder sets Now again; holder is ignored (the answer says so)', !r2.isError && r2.json.holdsNow === true && /set_now's holder is ignored/.test(r2.json.note ?? '') && st.now.hold.key === K('lnA') && !st.now.holder && st.now.text === 'LN goal two', r2.text.slice(0, 300));
+  check('holder: the holder sets Now again; the holder argument is no longer in the schema (it is dropped)', !r2.isError && r2.json.holdsNow === true && st.now.hold.key === K('lnA') && !st.now.holder && st.now.text === 'LN goal two', r2.text.slice(0, 300));
 
   // ── 3. another session is refused while the holder works (set_now and edit_line on Now)
   let v = await ver();

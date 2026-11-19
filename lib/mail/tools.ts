@@ -186,7 +186,7 @@ export async function forward(c: MailCtx, a: MailRef & { to: string | string[]; 
 
 // ── Mail to task ────────────────────────────────────────────────────────────
 
-export type MailTaskOverrides = { title?: string; project?: string | null; mode?: Mode | null; priority?: Priority; due?: string | null; note?: string };
+export type MailTaskOverrides = { title?: string; project?: string | null; mode?: Mode | null; priority?: Priority; due?: string | null; note?: string; createProject?: boolean };
 
 const bare = (id: string) => id.trim().replace(/^<|>$/g, '');
 
@@ -228,6 +228,7 @@ export async function messageToTask(c: MailCtx, r: MailRef, o: MailTaskOverrides
     c.actor,
     {
       note: o.note ?? 'Made from an email (see description)',
+      createProject: o.createProject,
       source: { kind: 'mail', messageId: `mail:${id.toLowerCase()}`, ...(web ? { url: web } : {}), from, subject },
       authors: { title: o.title?.trim() ? c.actor : author, description: author },
     },

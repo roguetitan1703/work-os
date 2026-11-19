@@ -46,7 +46,7 @@ import { forYouAfter, forYouBefore } from './for-you';
 import { requestContext, runWithRequestContext, sessionHeader } from '../request-context';
 import { noteRefusal, recentRefusals } from './refusals';
 import { dispatchedOfToken } from '../agent-sessions';
-import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
+import { addDays, isDateStr, resolveDate, resolvePastDate, startOfDay, todayStr, weekday } from '../dates';
 import { ModeSchema, PrioritySchema, ProjectStatusSchema, RATINGS, RESULT_KINDS, RecurrenceSchema, StatusSchema, VisibilitySchema, type Task, type TaskPatch } from '../types';
 
 /**
@@ -65,7 +65,7 @@ async function byOf(ctx: BriefCtx): Promise<(a: unknown) => string> {
 }
 
 function ok(data: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 1) }] };
+  return { content: [{ type: 'text' as const, text: JSON.stringify(data) }] };
 }
 
 function fail(message: string) {
@@ -100,8 +100,25 @@ function handler<A>(fn: (args: A) => Promise<unknown>) {
   };
 }
 
+/** start_work over MCP shows this many Later lines (the hook's brief shows the count only). */
+const LATER_IN_BRIEF = 5;
+
 const taskKey = z.union([z.number().int(), z.string()]).describe('Task ref (12 or "#12") or task id');
 const dateArg = z.string().describe('YYYY-MM-DD, today, tomorrow, a weekday name, +3d …');
+
+/** A list_tasks date filter: the same words as `due` (today, +3d, a weekday …); anything else is refused, naming the field. */
+function dateFilter(v: string | undefined, field: string, past = false): string | undefined {
+  if (v === undefined) return undefined;
+  // A filter that looks back (done_since): a weekday is its last day, and "none" or an empty value is refused instead of dropping the filter.
+  if (past) {
+    const p = resolvePastDate(v);
+    if (p === undefined) throw new InputError(`Couldn't read ${field} "${v}". Use YYYY-MM-DD, today, yesterday or a weekday name (the last such day). To drop the filter, leave ${field} out.`);
+    return p;
+  }
+  const r = resolveDate(v);
+  if (r === undefined) throw new InputError(`Couldn't read ${field} "${v}". Use YYYY-MM-DD, today, tomorrow, yesterday, a weekday name or +3d.`);
+  return r ?? undefined;
+}
 
 function parseSince(s: string | undefined): Date | undefined {
   if (!s) return undefined;
@@ -117,6 +134,8 @@ function parseSince(s: string | undefined): Date | undefined {
   const rel = v.match(/^(\d+)\s*(h|d)$/);
   if (rel) return new Date(Date.now() - Number(rel[1]) * (rel[2] === 'h' ? 3_600_000 : 86_400_000));
   if (isDateStr(v)) return startOfDay(v);
+  if (/^(sun|mon|tue|wed|thu|fri|sat)[a-z]*$/.test(v)) return startOfDay(resolvePastDate(v)!); // a weekday: the last such day
+  if (v === 'none' || v === 'null') throw new InputError(`"since" value "${s}" is not a date. To drop the filter, leave since out.`);
   const t = Date.parse(s);
   if (!Number.isNaN(t)) return new Date(t);
   throw new InputError(`Couldn't read "since" value "${s}"`);
@@ -202,7 +221,6 @@ async function fullTask(key: string | number, ctx: Ctx, activityLimit = 20) {
   const sentBack = t.sentBack ? { line: t.sentBack.line, by: who(t.sentBack.by), at: t.sentBack.at, ...(t.sentBack.by !== s.userId ? { writtenBy: who(t.sentBack.by) } : {}) } : null;
   return {
     ...(sentBack ? { sentBack } : {}),
-    textRule: textRule(),
     ...(fromOthers.length ? { fromOthers } : {}),
     ref: t.ref,
     id: t.id,
@@ -307,7 +325,8 @@ function toPatch(a: FieldArgs): TaskPatch {
 
 const fieldShape = {
   description: z.string().optional().describe('Longer detail / context (markdown ok)'),
-  project: z.string().nullable().optional().describe('Project or client name (or id). Created if it does not exist; null clears'),
+  project: z.string().nullable().optional().describe('Project or client name (or id); null clears. An unknown name is refused unless create_project is true'),
+  create_project: z.boolean().optional().describe('true: make a new project of that name when it does not exist (default: refuse and name the closest)'),
   mode: ModeSchema.nullable().optional(),
   priority: PrioritySchema.optional(),
   tags: z.array(z.string()).optional(),
@@ -506,9 +525,10 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   // A refused pick_up shows no other handover: the session asked for one named note and must not silently claim another.
   const hv = picked ? { shown: [picked.brief], more: [] as { id: string; title: string }[] } : pickRefused.text ? { shown: [] as handovers.BriefHandover[], more: [] as { id: string; title: string }[] } : await handovers.handoversForBrief(s, project._id, { me: row.key, label: row.label, fresh: row.fresh, parent: row.parent, actor: agentActor(caller.agent, caller.userId) });
   // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
-  const layerName = { org: 'organisation', project: 'project', person: 'person' } as const;
+  const layerName = { org: 'org', project: 'project', person: 'person' } as const;
   const served = await ordersFor(s, project);
-  const orders = served.map(o => ({
+  // `change`: the tool that changes this layer for the caller (the holder writes the page, anyone else files a proposal).
+  const orders = (await Promise.all(served.map(async o => ({ o, edit: await ordersData.canEditOrders(s, { orders: o.layer, ownerId: o.ownerId, projectId: o.layer === 'project' ? project._id : null }) })))).map(({ o, edit }) => ({ change: (edit ? 'write_note' : 'propose_order') as 'write_note' | 'propose_order',
     layer: layerName[o.layer],
     title: o.title,
     version: o.version,
@@ -591,7 +611,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     ...(picked ? { pickedUp: handovers.pickUpText(picked.move, picked.again) } : {}),
     ...(pickRefused.text ? { pickUp: { refused: pickRefused.text } } : {}),
     textRule: textRule(),
-    sessionNote: !sid ? 'This connector is your session: no id to pass. Messages for you and the unread count follow it on every call.' : 'Pass this session id as session on save_state, end_work, get_state, send_message, reply and message_status (and as the X-Work-OS-Session header on every call, if your client can). Messages for you are handed to the session by the Work OS hook; answer one with reply by its id.',
+    sessionNote: !sid ? 'This connector is your session: no id to pass. Messages for you and the unread count follow it on every call.' : 'Pass this session id as session on every Work OS call (or as the X-Work-OS-Session header, if your client can). Messages for you are handed to the session by the Work OS hook; answer one with reply by its id.',
     orders: orders.length ? orders : 'no Orders set',
     ...(orders.length ? { ordersVersion: orders.map(o => `${o.layer} v${o.version}`).join(', ') } : {}),
     ...(changed.length ? { ordersChanged: changed } : {}),
@@ -675,12 +695,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
   // Title/description come from docs.ts so the /connect page shows exactly what Claude sees.
   // Every tool runs the caller policy first (lib/mcp/policy.ts; a no-op for the claude.ai connector).
   const sessionArg = z.string().max(64).optional().describe("The session id start_work returned (letters, digits and dashes); lets Work OS tell your answers apart from other sessions' of the same key");
-  /** Tools that take an optional `session` argument (the session id start_work returned); the others read the X-Work-OS-Session header only. */
-  const SESSION_ARG = new Set<ToolName>(['start_work', 'get_state', 'save_state', 'import_state', 'send_message', 'message_status', 'reply', 'get_task', 'log_progress', 'complete_task', 'set_doing', 'slot', 'hand_in', 'end_work', 'feedback']);
-  /** Who is calling, for presence and the "for you" line (lib/mcp/for-you.ts). */
-  const identOf = (name: ToolName, a: unknown[]): Ident => {
-    const arg = SESSION_ARG.has(name) && a[0] && typeof a[0] === 'object' ? (a[0] as { session?: unknown }).session : undefined;
-    return { userId: caller.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sessionHeader(typeof arg === 'string' ? arg : null) ?? requestContext().sid };
+  /** Who is calling, for presence and the "for you" line (lib/mcp/for-you.ts). Every tool takes `session`; it counts like the X-Work-OS-Session header, which wins when both are given. */
+  const identOf = (_name: ToolName, a: unknown[]): Ident => {
+    const arg = a[0] && typeof a[0] === 'object' ? (a[0] as { session?: unknown }).session : undefined;
+    return { userId: caller.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: requestContext().sid ?? sessionHeader(typeof arg === 'string' ? arg : null) };
   };
   /** The copy (WORK-STATE.md text) for this caller when it still needs it in the answer: an old hook (protocol 1, marked at sign-in), else nothing. */
   const legacyCopy = async (a: unknown, project: Parameters<typeof stateData.stateCopy>[1], state: Parameters<typeof stateData.stateCopy>[2]): Promise<string | undefined> => {
@@ -691,7 +709,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   const tool = ((name: ToolName, config: object, cb: (...a: unknown[]) => unknown) =>
     server.registerTool(
       name,
-      { ...config, title: TOOLS[name].title, description: TOOLS[name].description },
+      { ...config, inputSchema: { ...(config as { inputSchema?: object }).inputSchema, session: sessionArg }, title: TOOLS[name].title, description: TOOLS[name].description },
       (async (...a: unknown[]) => {
         try {
           await beforeTool(caller, name);
@@ -707,7 +725,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         const ident = identOf(name, a);
         const pending = await forYouBefore(s, ident, name);
         // What this call creates is stamped with its session (else its key), so the line does not name it back to the session.
-        const rc = { ...requestContext(), src: sessionKey(ident) };
+        const rc = { ...requestContext(), ...(ident.session ? { sid: ident.session } : {}), src: sessionKey(ident) };
         const res = await runWithRequestContext(rc, () => cb(...a));
         if ((res as { isError?: boolean } | null)?.isError && name !== 'feedback') noteRefusal(sessionKey(ident), name, rc.failKind ?? 'internal');
         return forYouAfter(pending, name, TOOLS[name].writes, res);
@@ -725,9 +743,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
         tag: z.string().optional(),
         priority: z.array(PrioritySchema).optional(),
         due: z.enum(['overdue', 'today', 'today_or_overdue', 'this_week', 'next_7_days', 'no_date', 'has_date']).optional(),
-        due_from: z.string().optional().describe('YYYY-MM-DD inclusive'),
-        due_to: z.string().optional().describe('YYYY-MM-DD inclusive'),
-        done_since: z.string().optional().describe('YYYY-MM-DD: only tasks completed on/after this date (implies Done)'),
+        due_from: z.string().optional().describe('Inclusive: YYYY-MM-DD, today, +3d, a weekday …'),
+        due_to: z.string().optional().describe('Inclusive: YYYY-MM-DD, today, +3d, a weekday …'),
+        done_since: z.string().optional().describe('YYYY-MM-DD, today, yesterday or a weekday name (the last such day): only tasks completed on/after this date (implies Done)'),
         query: z.string().optional().describe('Text search in title, description and tags'),
         assignee: z.string().max(200).optional().describe("Only tasks this member is one of the assignees of: 'me', a name, an email or a user id"),
         parent: z.union([z.number().int(), z.string()]).optional().describe('Only the subtasks of this task (ref)'),
@@ -738,6 +756,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { readOnlyHint: true },
     },
     handler(async a => {
+      const dueFrom = dateFilter(a.due_from, 'due_from');
+      const dueTo = dateFilter(a.due_to, 'due_to');
+      const doneSince = dateFilter(a.done_since, 'done_since', true);
       let assignee: string | undefined;
       if (a.assignee) {
         const v = a.assignee.trim();
@@ -746,19 +767,19 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const all = await tasks.listTasks(s, {
         assignee,
         parent: a.parent,
-        status: a.done_since ? ['Done'] : a.status,
-        open: !a.status?.length && !a.include_closed && !a.done_since,
+        status: doneSince ? ['Done'] : a.status,
+        open: !a.status?.length && !a.include_closed && !doneSince,
         project: a.project,
         mode: a.mode,
         tag: a.tag,
         priority: a.priority,
         due: a.due,
-        dueFrom: a.due_from,
-        dueTo: a.due_to,
-        doneFrom: a.done_since,
+        dueFrom,
+        dueTo,
+        doneFrom: doneSince,
         q: a.query,
         archived: a.archived ? 'only' : 'exclude',
-        sort: a.sort ?? (a.done_since ? 'done' : 'priority'),
+        sort: a.sort ?? (doneSince ? 'done' : 'priority'),
       });
       const limit = a.limit ?? 50;
       const names = await projects.projectNameMap(s);
@@ -797,7 +818,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const { note, subtasks, ...fields } = a;
-      const r = await tasks.createTaskWithSubtasks(s, { ...toPatch(fields), title: a.title }, subtaskInputs(subtasks), ACTOR, { note });
+      const r = await tasks.createTaskWithSubtasks(s, { ...toPatch(fields), title: a.title }, subtaskInputs(subtasks), ACTOR, { note, createProject: fields.create_project === true ? undefined : false });
       return { created: await brief(r.task, ctx), ...(r.subtasks.length ? { subtasks: await Promise.all(r.subtasks.map(k => brief(k, ctx))) } : {}) };
     }),
   );
@@ -817,7 +838,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const { task, note, ...fields } = a;
       const watch = await watchTasks(caller, [watchTarget('update_task', a)!]);
-      const t = await tasks.updateTask(s, task, toPatch(fields), ACTOR, { note });
+      const t = await tasks.updateTask(s, task, toPatch(fields), ACTOR, { note, createProject: fields.create_project === true ? undefined : false });
       await notifyChanges(watch);
       return { updated: await brief(t, ctx), ...(await reviewNote(t, fields.status === 'Done')) };
     }),
@@ -884,7 +905,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
         where: z.array(z.object({ url: z.string().min(1).max(500), label: z.string().max(100).optional() })).max(10).optional().describe('Links: the PR, a preview, a note, the Delpat OS page. Links only, no files'),
         left: z.array(z.string().min(1).max(300)).max(20).optional().describe('What is still open, one line each: the owner can file them as tasks'),
         kind: z.enum(RESULT_KINDS).optional().describe('code, data, client (reviewed by the owner), check or report (closes by itself)'),
-        session: sessionArg,
       },
       annotations: { destructiveHint: false, idempotentHint: false },
     },
@@ -1082,11 +1102,11 @@ export function createMcpServer(ctx: Ctx): McpServer {
   function toBatchOp(o: z.infer<typeof OpSchema>): BatchOp {
     if (o.op === 'create_task') {
       const { op, as, note, title, subtasks, ...fields } = o;
-      return { op, as, note, ...toPatch(fields), title, ...(subtasks?.length ? { subtasks: subtaskInputs(subtasks) } : {}) } as BatchOp;
+      return { op, as, note, createProject: fields.create_project === true, ...toPatch(fields), title, ...(subtasks?.length ? { subtasks: subtaskInputs(subtasks) } : {}) } as BatchOp;
     }
     if (o.op === 'update_task') {
       const { op, task, note, ...fields } = o;
-      return { op, task, note, ...toPatch(fields) } as BatchOp;
+      return { op, task, note, createProject: fields.create_project === true, ...toPatch(fields) } as BatchOp;
     }
     if (o.op === 'add_comment') {
       const text = o.note ?? o.text;
@@ -1249,7 +1269,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
         pick_up: z.string().max(40).optional().describe('The id of a handover note to take over (the pickUp line end_work gave): shows it and moves the Needs, unread messages and held lines of the session that wrote it to you. Never read_note it'),
         link: z.boolean().optional().describe('With project: your person said the folder belongs to it; files it (folder, or path and machine) so later sessions there check in'),
         not_work_os: z.boolean().optional().describe('With path and machine: your person said this folder is not Work OS; sessions in it (and below) stay quiet. Undo in Claude › Setup › Computers'),
-        session: sessionArg,
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
@@ -1293,11 +1312,14 @@ export function createMcpServer(ctx: Ctx): McpServer {
       }
       // The session: the one named (argument or header), else a new one.
       // A claude.ai chat (OAuth) passes no id: its connector is its session (userId:keyId), so its row has no session id and its later calls find it. Other callers are handed an id.
-      const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? (caller.keyId?.startsWith('oauth_') ? undefined : randomUUID());
+      const sid = requestContext().sid ?? (caller.keyId?.startsWith('oauth_') ? undefined : randomUUID());
       // The hook protocol: the header; a call without it from the old hook (key label "Claude Code") counts as protocol 1.
       const hook = requestContext().hook ?? (a.label === 'Claude Code' ? 1 : undefined);
       const brief = await startWorkBrief(ctx, key, sid, { ...a, hook, viaHook: hook !== undefined }, matchedBy);
-      return filed ? { ...brief, filed } : brief;
+      // Later is long: an agent gets the count and the first 5 lines (as the hook's brief does, which counts them), the rest from get_state.
+      const st = brief.state as { later?: unknown[] } | string;
+      const short = hook === undefined && typeof st === 'object' && st && Array.isArray(st.later) && st.later.length > LATER_IN_BRIEF ? { ...brief, state: { ...st, later: st.later.slice(0, LATER_IN_BRIEF), laterCount: st.later.length, laterMore: `Later has ${st.later.length} lines, the first ${LATER_IN_BRIEF} are here: get_state for the rest.` } } : brief;
+      return filed ? { ...short, filed } : short;
     }),
   );
 
@@ -1306,13 +1328,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
     {
       inputSchema: {
         task: taskKey.optional().describe('The task you are working on now (ref or id). Omit it to say you are on none'),
-        session: sessionArg,
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     handler(async a => {
       const t = a.task === undefined ? null : await tasks.getTask(s, a.task);
-      if (a.task !== undefined && !t) throw new NotFoundError('Task not found');
+      if (a.task !== undefined && !t) throw new NotFoundError(`Task ${typeof a.task === 'number' ? '#' : ''}${a.task} not found`);
       const ident = identOf('set_doing', [a]);
       const here = await presentRow(s, ident);
       if (!here) throw new InputError('You are not registered as present: call start_work first (and pass its session id)');
@@ -1334,7 +1355,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
         kind: z.literal('heavy').optional().describe('Only "heavy" exists: builds, test runs, browsers'),
         action: z.enum(['acquire', 'release']),
         wait_seconds: z.number().int().min(0).max(MAX_WAIT_S).optional().describe('On acquire: wait up to this long for a free slot (default 0: answer at once with retryAfterSeconds)'),
-        session: sessionArg,
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
@@ -1358,13 +1378,13 @@ export function createMcpServer(ctx: Ctx): McpServer {
 
   tool(
     'get_state',
-    { inputSchema: { project: z.string().describe('Project name or id'), copy: z.boolean().optional().describe('For the Work OS hook: also answer the WORK-STATE.md copy'), session: sessionArg }, annotations: { readOnlyHint: true } },
+    { inputSchema: { project: z.string().describe('Project name or id'), copy: z.boolean().optional().describe('For the Work OS hook: also answer the WORK-STATE.md copy') }, annotations: { readOnlyHint: true } },
     handler(async a => {
       const { project, state } = await stateData.getState(s, a.project);
       if (!state) return { project: project.name, state: NO_STATE, version: 0 };
       const names = await memberNames(s.orgId);
       const markdown = a.copy ? await stateData.stateCopy(s, project, state, ctx.baseUrl) : await legacyCopy(a, project, state);
-      return { textRule: textRule(), project: project.name, version: state.version, ...laneExtra({ holdsNow: stateData.holdsNowOf(state, requestContext().src) }, identOf('get_state', [a]).session), lanes: await lanesFor(s, project._id, names, requestContext().src), state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), ...(markdown ? { markdown } : {}) };
+      return { project: project.name, version: state.version, ...laneExtra({ holdsNow: stateData.holdsNowOf(state, requestContext().src) }, identOf('get_state', [a]).session), lanes: await lanesFor(s, project._id, names, requestContext().src), state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), ...(markdown ? { markdown } : {}) };
     }),
   );
 
@@ -1373,14 +1393,13 @@ export function createMcpServer(ctx: Ctx): McpServer {
     {
       inputSchema: {
         project: z.string().describe('Project name or id'),
-        ops: z.array(stateData.StateOpSchema).min(1).max(30).describe('Changes, applied in order'),
+        ops: z.array(stateData.AgentStateOpSchema).min(1).max(30).describe('Changes, applied in order'),
         base_version: z.number().int().min(0).optional().describe('The State version you read. Needed only with set_now; stale = nothing written and the current State comes back'),
-        session: sessionArg,
       },
       annotations: { destructiveHint: false },
     },
     handler(async a => {
-      const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller, sessionHeader(a.session ?? null) ?? requestContext().sid) === 'chat' ? 'chat' : 'code' });
+      const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller, requestContext().sid) === 'chat' ? 'chat' : 'code' });
       const names = await memberNames(s.orgId);
       const mine = identOf('save_state', [a]).session;
       if (r.conflict) return conflictOut(r, s.userId, names, 'save_state', mine);
@@ -1393,7 +1412,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     {
       inputSchema: {
         project: z.string().describe('Project name or id'),
-        state: z.array(stateData.StateOpSchema).min(1).max(30).describe('save_state ops, applied first (if nothing changed, a set_where). A project with no State yet needs a set_now'),
+        state: z.array(stateData.AgentStateOpSchema).min(1).max(30).describe('save_state ops, applied first (if nothing changed, a set_where). A project with no State yet needs a set_now'),
         base_version: z.number().int().min(0).optional().describe('The State version you read. Needed only with set_now; stale = nothing happens and the current State comes back'),
         friction: z.string().trim().min(1).max(300).describe('One line: what slowed you down or went wrong in Work OS ("none" is allowed)'),
         handover: z
@@ -1408,7 +1427,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
           })
           .strict()
           .optional(),
-        session: sessionArg,
       },
       annotations: { destructiveHint: false },
     },
@@ -1427,7 +1445,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         handovers.checkHandover(fields, lines);
         ho = { fields, forId: await handovers.resolveFor(s, project, forWho), title: title || (label && label !== 'Claude Code' ? `Handover: ${label}` : 'Handover:') };
       }
-      const r = await stateData.saveState(s, a.project, a.state, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller, sessionHeader(a.session ?? null) ?? requestContext().sid) === 'chat' ? 'chat' : 'code' });
+      const r = await stateData.saveState(s, a.project, a.state, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller, requestContext().sid) === 'chat' ? 'chat' : 'code' });
       const names = await memberNames(s.orgId);
       if (r.conflict) return { ended: false, ...conflictOut(r, s.userId, names, 'end_work', ident.session) };
 
@@ -1504,7 +1522,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
         text: z.string().trim().min(1).max(300).describe('One line: what got in your way in Work OS, and what you did about it'),
         tool: z.string().trim().min(1).max(80).optional().describe('The Work OS tool, hook or command that got in the way (for a hook, name it here: Work OS never sees its refusals)'),
         rule: z.string().trim().min(1).max(80).optional().describe('The Orders line that got in the way: its id or first words'),
-        session: sessionArg,
       },
       annotations: { destructiveHint: false },
     },
@@ -1531,7 +1548,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
           .optional()
           .describe('Lines or tasks to add with the clean-up (with ask): either later or task in each'),
         disk: z.array(z.string().max(300)).max(20).optional().describe('What you will do on disk after a Yes (worktrees, branches, files); Work OS only shows it (with ask)'),
-        session: sessionArg,
       },
       annotations: { destructiveHint: false },
     },
@@ -1542,7 +1558,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         const { project, state } = await stateData.getState(s, a.project);
         const due = await declutterData.dueFor(s, project, state);
         const p = await declutterData.buildProposal(s, project);
-        return { project: project.name, ...(due.text ? { due: due.text } : { due: 'not due' }), items: p.items, ...(p.fyi.length ? { fyi: p.fyi } : {}), counts: p.counts, next: p.items.length ? 'Check these against the code and the disk, add what you see, then call declutter with ask: true (skip: ids to leave out, add, disk).' : 'Nothing to tidy.', textRule: textRule() };
+        return { project: project.name, ...(due.text ? { due: due.text } : { due: 'not due' }), items: p.items, ...(p.fyi.length ? { fyi: p.fyi } : {}), counts: p.counts, next: p.items.length ? 'Check these against the code and the disk, add what you see, then call declutter with ask: true (skip: ids to leave out, add, disk).' : 'Nothing to tidy.' };
       }
       const r = await declutterApply.askDeclutter(s, { project: a.project, skip: a.skip, add: a.add, disk: a.disk, actor: ACTOR, word: wordFor(ident.session), session: ident.session, keyId: caller.keyId });
       const owner = (await whoIs())(r.need.to);
@@ -1597,7 +1613,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
       inputSchema: {
         project: z.string().describe('Project name or id'),
         markdown: z.string().min(1).max(200_000).describe("The text of the repo's WORK-STATE.md"),
-        session: sessionArg,
       },
       annotations: { destructiveHint: false },
     },
@@ -1619,13 +1634,13 @@ export function createMcpServer(ctx: Ctx): McpServer {
   // `word` is set here from how the call came in (chat only for the claude.ai connector over OAuth with no session; anything else: agent) and is not an argument.
   const wordFor = (session?: string | null) => messageData.wordOf(caller, session);
   /** Who is sending: the client name, and the label of the session's presence row when it has one. */
-  const fromOf = async (name: ToolName, a: { session?: string }): Promise<messageData.From> => {
+  const fromOf = async (name: ToolName, a: object): Promise<messageData.From> => {
     const ident = identOf(name, [a]);
     const row = await readerRow(s, ident).catch(() => null);
     return { word: wordFor(ident.session), ai: caller.keyName || caller.agent, session: ident.session, label: row?.label || undefined, keyId: caller.keyId, src: sessionKey(ident), actor: ACTOR };
   };
   /** The calling session as a reader: its key and its presence row. */
-  const readerOf = async (name: ToolName, a: { session?: string }): Promise<messageData.Reader> => {
+  const readerOf = async (name: ToolName, a: object): Promise<messageData.Reader> => {
     const ident = identOf(name, [a]);
     return { key: sessionKey(ident), userId: s.userId, row: await readerRow(s, ident).catch(() => null) };
   };
@@ -1649,7 +1664,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
         refs: messageData.RefsSchema.optional().describe('{tasks: [task numbers], commits: [...], files: [...]}'),
         to_session: z.string().max(messageData.TO_MAX).optional(), // the old name of `to`, still accepted for one release (not described)
         sender_commit: z.string().max(80).optional(),
-        session: sessionArg,
       },
       annotations: { destructiveHint: false },
     },
@@ -1669,7 +1683,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
         note: z.string().max(500).optional().describe('Why (shown to the sender)'),
         commit: z.string().max(80).optional().describe('The commit that did it'),
         make_task: z.boolean().optional().describe('A request only: make it a task of the project (marks it applied)'),
-        session: sessionArg,
       },
       annotations: { destructiveHint: false },
     },
@@ -1678,7 +1691,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       if (!a.status) {
         // No status: read the message (the one it is for, or its sender): the full text, in its frame of who wrote it and what to do with it.
         const m = await messageData.readMessage(s, a.id, await readerOf('message_status', a));
-        return { textRule: textRule(), message: messageData.messageOut(m.message, s.userId, names, { unread: m.unread }) };
+        return { message: messageData.messageOut(m.message, s.userId, names, { unread: m.unread }) };
       }
       const r = await messageData.setStatus(s, a.id, a.status, { note: a.note, commit: a.commit, actor: ACTOR, makeTask: a.make_task, reader: await readerOf('message_status', a) });
       return { message: messageData.messageOut(r.message, s.userId, names), ...(r.decision ? { addedToDecisions: true } : {}), ...(r.task ? { task: `#${r.task.ref} ${r.task.title}` } : {}) };
@@ -1688,7 +1701,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   tool(
     'reply',
     {
-      inputSchema: { id: z.string().min(1).max(40).describe('Message id (m_…)'), body: z.string().min(1).max(messageData.MSG_LIMITS.body), session: sessionArg },
+      inputSchema: { id: z.string().min(1).max(40).describe('Message id (m_…)'), body: z.string().min(1).max(messageData.MSG_LIMITS.body) },
       annotations: { destructiveHint: false },
     },
     handler(async a => sentOut(await messageData.reply(s, a.id, a.body, await fromOf('reply', a), await readerOf('reply', a)))),
@@ -1802,7 +1815,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const label = await labeller(ctx);
       const ws = [...new Set([r.note.createdBy, r.note.updatedBy].map(label).filter((x): x is string => !!x))];
       const writtenBy = ws.length ? ws.join('; ') : undefined;
-      return { textRule: textRule(), ...noteOut(r.note, true, by), createdBy: by(r.note.createdBy), ...(writtenBy ? { writtenBy } : {}), markdown: r.note.body, blocks: r.outline };
+      return { ...noteOut(r.note, true, by), createdBy: by(r.note.createdBy), ...(writtenBy ? { writtenBy } : {}), markdown: r.note.body, blocks: r.outline };
     }),
   );
 
@@ -1890,7 +1903,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
         channel: z.string().optional().describe('Alternative to message_link: channel name or id'),
         message_id: z.string().optional(),
         title: z.string().optional().describe('Short, verb-first title; drafted from the message if omitted'),
-        project: z.string().nullable().optional(),
+        project: z.string().nullable().optional().describe('An existing project name or id; an unknown name is refused unless create_project is true'),
+        create_project: z.boolean().optional().describe('true: make a new project of that name when it does not exist'),
         mode: ModeSchema.nullable().optional(),
         priority: PrioritySchema.optional(),
         due: dateArg.nullable().optional().describe('Only if the message states a date'),
@@ -1904,7 +1918,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         s,
         link,
         { link: a.message_link, channel: a.channel, messageId: a.message_id },
-        { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note },
+        { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note, createProject: a.create_project === true ? undefined : false },
         ACTOR,
       );
       return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: r.message };
@@ -2029,7 +2043,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
       inputSchema: {
         ...msgRef,
         title: z.string().optional().describe('Short, verb-first title; from the subject if omitted'),
-        project: z.string().nullable().optional(),
+        project: z.string().nullable().optional().describe('An existing project name or id; an unknown name is refused unless create_project is true'),
+        create_project: z.boolean().optional().describe('true: make a new project of that name when it does not exist'),
         mode: ModeSchema.nullable().optional(),
         priority: PrioritySchema.optional(),
         due: dateArg.nullable().optional().describe('Only if the mail states a date'),
@@ -2038,7 +2053,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handler(async a => {
-      const r = await mail.messageToTask(mailCtx(), a, { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note });
+      const r = await mail.messageToTask(mailCtx(), a, { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note, createProject: a.create_project === true ? undefined : false });
       return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: mail.markUntrusted(r.message) };
     }),
   );
@@ -2064,7 +2079,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
         task: taskKey.optional().describe('Attach it to a task of this project'),
         app_only: z.boolean().optional().describe('true for anything touching production, money or credentials: answered in the app only'),
         release: z.boolean().optional().describe('true for a push, tag or release to production or a production command: kind approve, goes to the project owner; the only approval the hook accepts'),
-        session: z.string().max(80).optional().describe('Your session id, so the answer reaches you'),
         label: z.string().max(80).optional().describe('Your session label, e.g. "cutroom prime, Opus"'),
       },
       annotations: { destructiveHint: false, idempotentHint: false },
@@ -2077,11 +2091,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
         to = p.ownerId;
       } else if (!a.to) throw new InputError('to is required: "me", a name, an email or a user id.');
       else to = a.to.trim().toLowerCase() === 'me' ? s.userId : await tasks.findAssignee(s.orgId, a.to);
-      const r = await needsData.askNeed(s, { project: a.project, to, kind: a.kind, ask: a.ask, example: a.example, options: a.options, task: a.task, appOnly: a.app_only, release: a.release, actor: ACTOR, word: wordFor(sessionHeader(a.session ?? null) ?? requestContext().sid), session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
+      const r = await needsData.askNeed(s, { project: a.project, to, kind: a.kind, ask: a.ask, example: a.example, options: a.options, task: a.task, appOnly: a.app_only, release: a.release, actor: ACTOR, word: wordFor(requestContext().sid), session: requestContext().sid, keyId: caller.keyId, label: a.label });
       return {
         need: await needOut(r.need),
         ...(r.replaced.length ? { replaced: r.replaced.map(n => ({ id: n.id, ref: n.ref })) } : {}),
         note: a.release ? 'Asked. The owner gets one alert and answers in the app (Yes for 1 hour, Yes for 24 hours, or No). The answer comes to this session; then try again. Nothing you can call answers it. An answer is the only approval: do not proceed on a guess.' : 'Asked. They get one alert while this session waits; otherwise it is in their morning digest. They answer in the app; nothing you can call answers it. Read the answer with needs, or it arrives in your next brief. An answer is the only approval: do not proceed on a guess.',
+        ...(!requestContext().sid && !caller.keyId?.startsWith('oauth_') ? { sessionNote: 'No session given: the answer will not wake you; pass session.' } : {}),
       };
     }),
   );
@@ -2097,13 +2112,12 @@ export function createMcpServer(ctx: Ctx): McpServer {
         why: z.string().min(1).max(300),
         incident: z.string().max(80).optional().describe('What happened, e.g. "Cutroom, 18 Nov"'),
         repeat: z.boolean().optional().describe('true when this correction was made before'),
-        session: z.string().max(80).optional().describe('Your session id, so the answer reaches you'),
         label: z.string().max(80).optional().describe('Your session label'),
       },
       annotations: { destructiveHint: false, idempotentHint: false },
     },
     handler(async a => {
-      const r = await ordersData.proposeOrder(s, { project: a.project, layer: a.layer, old: a.old, new: a.new, why: a.why, incident: a.incident, repeat: a.repeat }, { actor: ACTOR, word: wordFor(sessionHeader(a.session ?? null) ?? requestContext().sid), session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
+      const r = await ordersData.proposeOrder(s, { project: a.project, layer: a.layer, old: a.old, new: a.new, why: a.why, incident: a.incident, repeat: a.repeat }, { actor: ACTOR, word: wordFor(requestContext().sid), session: requestContext().sid, keyId: caller.keyId, label: a.label });
       return { need: await needOut(r.need), note: 'Asked the holder. Accept applies it as one version and the answer comes to this session; nothing you can call answers it, and nothing changes until they do.' };
     }),
   );
@@ -2134,20 +2148,20 @@ export function createMcpServer(ctx: Ctx): McpServer {
         list = list.filter(n => n.status === 'open' || (n.status === 'answered' && n.answeredAt !== null && Date.parse(n.answeredAt) >= since));
       }
       const limit = a.limit ?? 50;
-      return { total: list.length, needs: await Promise.all(list.slice(0, limit).map(needOut)), textRule: textRule() };
+      return { total: list.length, needs: await Promise.all(list.slice(0, limit).map(needOut)) };
     }),
   );
 
   tool(
     'withdraw_need',
     {
-      inputSchema: { id: z.union([z.number().int(), z.string()]).describe('Need number (7 or "#7") or id'), session: sessionArg },
+      inputSchema: { id: z.union([z.number().int(), z.string()]).describe('Need number (7 or "#7") or id') },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     handler(async a => {
       const n = await needsData.findNeed(s, a.id);
       if (!n) throw new NotFoundError('That Need does not exist, or you did not ask it.');
-      return { need: await needOut(await needsData.withdrawNeed(s, n.id, { word: wordFor(sessionHeader(a.session ?? null) ?? requestContext().sid), session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId })) };
+      return { need: await needOut(await needsData.withdrawNeed(s, n.id, { word: wordFor(requestContext().sid), session: requestContext().sid, keyId: caller.keyId })) };
     }),
   );
 
