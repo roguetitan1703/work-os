@@ -6,8 +6,8 @@ import { scoped, usersWithSetting, type Scope, type ScopedCollections as Collect
 import { actorUserId, asActor, isPerson } from '../actors';
 import { CLOSED_STATUSES, type Actor } from '../types';
 import type { NoteBlock } from '../notes-schema';
-import { locate, locateExact, locateFolded } from '../notes-match';
-import { blockOutline, blocksToMarkdown, cloneBlocks, findBlock, markdownToBlocks, plainText } from '../notes-convert';
+import { hasMarkdown, locate, locateExact, locateFolded } from '../notes-match';
+import { blockOutline, blocksToMarkdown, cloneBlocks, editInPlace, findBlock, markdownToBlocks, plainText } from '../notes-convert';
 import { requestContext } from '../request-context';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, placeOf, resolveProject, type Placement } from './projects';
@@ -326,6 +326,14 @@ async function applyContent(blocks: NoteBlock[], w: NoteWrite): Promise<NoteBloc
     }
   }
   for (const e of w.edits ?? []) {
+    // Plain text in, plain text out: only the touched text runs change, so every format on the block stays.
+    if (!hasMarkdown(e.replace)) {
+      const r = editInPlace(out, e.find, e.replace);
+      if (r.count === 1 && r.apply) {
+        r.apply();
+        continue;
+      }
+    }
     const outline = await blockOutline(out);
     // Exact text first; only when nothing matches, the folded match (quotes, dashes, list numbers, padding, escapes).
     let per = outline.map(x => locateExact(x.markdown, e.find));

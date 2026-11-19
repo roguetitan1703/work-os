@@ -1,8 +1,10 @@
 // H14 (docs/flows/agent-system.md section 8, Notes): write_note `edits` match through typography and markdown dress.
 // Part 1 (step 1, lib/notes-match.ts): curly vs straight quotes and dashes, list numbers, padded table cells, hard breaks,
 // escaped finds, a find across two blocks, two hits, and exact text still winning. Only the matched characters change.
-// Later parts (formatting kept, duplicate titles, shelves) are added by the later steps. Seed profile: none.
-import { check, finish, mkKey } from './lib.mjs';
+// Part 2 (step 2, editInPlace): a plain-text edit changes only the touched runs, so colours, bold, mentions and literal
+// <tag> text stay; a replacement with markdown takes the markdown path.
+// Later parts ( duplicate titles, shelves) are added by the later steps. Seed profile: none.
+import { check, finish, mkKey, rawDb } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
 
 const BS = String.fromCharCode(92); // a backslash, spelled so no tool or editor can swallow it
@@ -104,6 +106,35 @@ try {
     const id = await mk('Om’s rule');
     const r = await must(cc, 'apply_changes', { ops: [{ op: 'write_note', note_id: id, edits: [{ find: 'Om\'s rule', replace: 'Om\'s other rule' }] }] }).catch(e => ({ error: String(e) }));
     check('H14 batch: apply_changes edits fold the same way', !r.error && (await md(cc, id)).includes('other rule'), JSON.stringify(r).slice(0, 300));
+  }
+  // ── 7. Part 2: edits keep formatting
+  {
+    const id = await mk('seed');
+    const T = (text, styles = {}) => ({ type: 'text', text, styles });
+    const blocks = [
+      { id: 'b1', type: 'paragraph', props: { textColor: 'default', backgroundColor: 'default', textAlignment: 'left' }, content: [T('Ship the '), T('red', { textColor: 'red', bold: true }), T(' button and keep <tag> as typed, 2 * 3 * 4.')], children: [] },
+      { id: 'b2', type: 'paragraph', props: { textColor: 'default', backgroundColor: 'default', textAlignment: 'center' }, content: [T('Centered Om’s “quote” line', { underline: true })], children: [] },
+      { id: 'b3', type: 'paragraph', props: { textColor: 'default', backgroundColor: 'default', textAlignment: 'left' }, content: [T('See '), { type: 'mention', props: { kind: 'task', target: '1', label: '#1 Thing' } }, T(' and bold '), T('part', { bold: true }), T(' end')], children: [] },
+    ];
+    await rawDb.collection('notes').updateOne({ _id: id }, { $set: { blocks } });
+    const blk = async () => (await rawDb.collection('notes').findOne({ _id: id })).blocks;
+    const r = await edit(id, 'Ship the', 'Launch the');
+    let b = await blk();
+    check('H14 in place: a plain word changes', !r.isError && b[0].content[0].text === 'Launch the ', r.text.slice(0, 200) + JSON.stringify(b[0].content));
+    check('H14 in place: colour and bold on the next run stay', b[0].content[1].styles.textColor === 'red' && b[0].content[1].styles.bold === true && b[0].content[1].text === 'red', JSON.stringify(b[0].content));
+    check('H14 in place: literal <tag> and asterisks stay as typed', b[0].content[2].text.includes('<tag>') && b[0].content[2].text.includes('2 * 3 * 4'), JSON.stringify(b[0].content[2]));
+    check('H14 in place: the block keeps its id and other blocks are untouched', b[0].id === 'b1' && b[1].props.textAlignment === 'center' && b[2].content[1].type === 'mention', JSON.stringify(b.map(x => x.id)));
+    const r2 = await edit(id, 'Centered Om\'s "quote" line', 'Still centered');
+    b = await blk();
+    check('H14 in place: a curly find lands, underline and alignment stay', !r2.isError && b[1].content[0].text === 'Still centered' && b[1].content[0].styles.underline === true && b[1].props.textAlignment === 'center', r2.text.slice(0, 200) + JSON.stringify(b[1]));
+    const r3 = await edit(id, 'and bold part end', 'and bold plain end');
+    b = await blk();
+    check('H14 in place: a find across runs puts the new text in the first run and trims the rest', !r3.isError && b[2].content.some(c => c.type === 'mention') && b[2].content.map(c => c.text ?? '').join('').endsWith('and bold plain end'), r3.text.slice(0, 200) + JSON.stringify(b[2].content));
+    const r4 = await edit(id, 'Launch the', 'Launch **the**');
+    b = await blk();
+    check('H14 markdown path: a replacement with ** is parsed as markdown', !r4.isError && b[0].id === 'b1' && b[0].content.some(c => c.styles?.bold && c.text === 'the'), r4.text.slice(0, 200) + JSON.stringify(b[0].content));
+    const r5 = await edit(id, 'Centered', 'x');
+    check('H14 in place: a find that is gone is still refused', r5.isError && /not found/.test(r5.text), r5.text.slice(0, 200));
   }
 } catch (e) {
   check('flow-h14 (error)', false, e?.stack || String(e));
