@@ -9,7 +9,7 @@
 //                 folder decides which config and key it reads (WORK_OS_URL and WORK_OS_WORKER_DIR are ignored here,
 //                 so a repo's settings cannot send the device key elsewhere). Neither key nor token is ever printed.
 import os from 'node:os';
-import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, git, mcpCall, postAgent, readKept, readMarker, keepToken, sizeOf, statusHash, str, workerHome, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, git, mcpCall, postAgent, readKept, readMarker, keepToken, repoFacts, sizeOf, statusHash, str, workerHome, writeMarker } from './hook-lib.mjs';
 
 /**
  * The brief through the worker's device key (POST /api/agent/start), or null. A session token kept from this session's
@@ -49,7 +49,8 @@ export async function sessionStart(input) {
     if (!text) return null;
     try { r = JSON.parse(text); } catch { return null; }
   } else {
-    const a = await agentStart(where, sid ? readKept(sid) : null);
+    // head, dirty and worktrees fill Where on the server without a State version bump (the key path's start_work does not take them).
+    const a = await agentStart({ ...where, ...repoFacts(cwd) }, sid ? readKept(sid) : null);
     if (!a) return null;
     r = a.brief;
     if (a.token && sid) keepToken(sid, a.token, a.until);
