@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 95. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 97. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -42,4 +42,5 @@ Copy of the Work OS state, version 95. WORK-STATE.md is a copy of the State, wri
 - Idle wait ends ~1 h after a stop (hook timeout 3600 s): a session idle longer gets no messages and no later nudges until its next turn. Consider re-arming the wait (a fresh wait after a timeout) if sessions idle for hours should still be reached. — waits on nudges used for a week
 - Dark mode at 390 (Claude › Now, seen 20 Nov in the H11 step 8 screenshots): the selected pill of a segmented control (Now; All sessions) is light grey with white text, hard to read; Start Claude reads as disabled when no worker is linked. Not caused by the Claude items removal. — waits on the UI revamp (Next 3)
 - Notes search fixed on dev d5b1454 (desktop Filter sent the Select's empty marker as project/shelf); ships with R7. (19 Nov). Production data and the server regex are fine ("orders" matches 24 notes). Builder S is reproducing it in wos-s with a new flow-notes-search suite.
-<!-- work-os-copy sha1:18acf8a05c29c98295447788efa2c746f700560d -->
+- oauth e2e 'settings: phone: no sideways scroll' fails about 3 runs in 4 on the Add passkey row (Settings › Account › Security at 390). Cause not found: it is not inside a closed details, and 740cd1f's helper change is not the fix. Check by eye at 390, and check the panel slide-in timing.
+<!-- work-os-copy sha1:d0741ba9f05be1d148246a7d7e65bbcc59b4866e -->
