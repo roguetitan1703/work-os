@@ -137,6 +137,8 @@ test('open set: remembered, compared once at start, closed ones leave it, expiry
   assert.equal(old.reopen.length, 0);
 });
 
+// A server for which no session is a dispatched run.
+const PLAIN_API = { runKeys: async (ids) => ({ runs: ids.map((sessionId) => ({ sessionId, dispatched: false })) }), runCheck: async () => ({ dispatched: false }) };
 function mkCore(over = {}) {
   const root = tmp();
   const app = path.join(root, 'app');
@@ -148,7 +150,7 @@ function mkCore(over = {}) {
   const state = { ids: {}, folders: { f_app: app }, sessions: {}, markers: {}, doneJobs: [], reopen: [] };
   const locals = { [SID]: { cwd: path.join(app, 'sub'), origin: 'vscode' }, [SID2]: { cwd: outside, origin: 'vscode' }, [SID3]: { cwd: app + '-evil', origin: 'cli' }, ...(over.locals || {}) };
   const c = createCore({
-    getConfig: () => ({ roots: [root] }), state, save() {}, api: over.api || { runKey: async () => ({ dispatched: false }) }, // reopen asks whether a session is a dispatched run
+    getConfig: () => ({ roots: [root] }), state, save() {}, api: over.api || PLAIN_API, // reopen and Open in VS Code ask whether a session is a dispatched run
     launcher: async (a) => void launched.push(a), listProcesses: async () => over.procs || [], killPid: async () => {},
     sessionLocal: (sid) => locals[sid] || null,
     openVscode: async (a) => void opened.push(a),
@@ -188,7 +190,7 @@ test('vscode job: the same session again within a minute opens nothing; more tha
     const locals = {};
     for (const i of ids) locals[i] = { cwd: path.join(m.app, 'sub'), origin: 'vscode' };
     const opened = [];
-    const c = createCore({ getConfig: () => ({ roots: [path.dirname(m.app)] }), state: m.state, save() {}, api: {}, now: () => t, launcher: async () => {}, listProcesses: async () => [], killPid: async () => {}, sessionLocal: (s) => locals[s] || null, openVscode: async (a) => void opened.push(a.sessionId) });
+    const c = createCore({ getConfig: () => ({ roots: [path.dirname(m.app)] }), state: m.state, save() {}, api: PLAIN_API, now: () => t, launcher: async () => {}, listProcesses: async () => [], killPid: async () => {}, sessionLocal: (s) => locals[s] || null, openVscode: async (a) => void opened.push(a.sessionId) });
     c.applyLinks([{ folderId: 'f_app', projectId: 'p1', projectName: 'Proj' }]);
     assert.equal((await c.handleJob({ id: 'a', kind: 'vscode', sessionId: ids[0] })).ok, true);
     assert.equal((await c.handleJob({ id: 'b', kind: 'vscode', sessionId: ids[0] })).ok, true); // dropped
@@ -210,7 +212,7 @@ test('vscode job: the same session again within a minute opens nothing; more tha
   } finally { m.done(); }
 });
 
-test('reopen: each opened where it was made, running ones skipped, refusals reported, set cleared; dismiss clears', async () => {
+test('reopen: each opened where it was made, running ones skipped, refusals reported and kept for another try; dismiss clears', async () => {
   const m = mkCore({ procs: [{ pid: 9, name: 'claude.exe', cmd: `claude.exe --resume=${SID2}` }] });
   try {
     m.state.reopen = [
@@ -222,7 +224,7 @@ test('reopen: each opened where it was made, running ones skipped, refusals repo
     assert.equal(m.opened.length, 1);
     assert.equal(m.launched.length, 0);
     assert.equal(r.ok, false); assert.match(r.error, /Opened 1 of 2.*not linked/);
-    assert.deepEqual(m.state.reopen, []);
+    assert.deepEqual(m.state.reopen.map((s) => s.sessionId), [SID3], 'the refused one stays, so Reopen all can be pressed again');
   } finally { m.done(); }
   const k = mkCore();
   try {

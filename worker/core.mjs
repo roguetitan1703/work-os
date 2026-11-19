@@ -9,7 +9,9 @@ import { matchesClaudeProcess } from './launch.mjs';
 import { writeMarker, removeMarker } from './markers.mjs';
 import { trustFolder } from './trust.mjs';
 import { handleCloneJob, projectsDirOf } from './clone.mjs';
-import { askRun } from './dispatch-run.mjs';
+import { askRuns, isRun, releaseRun } from './dispatch-run.mjs';
+
+const DISPATCHED_NO_VSCODE = 'This session was started for a task and runs on its own key: use Resume, not VS Code';
 
 import { bundleId } from './config.mjs';
 
@@ -101,43 +103,65 @@ export function createCore(deps) {
     return { error: 'folder not linked to a project' };
   }
 
+  // Sessions a Reopen all is opening right now: left out of the reopen report until it is done (the banner does not come back meanwhile).
+  const reopening = new Set();
+
   async function openPending() {
-    const pending = Array.isArray(state.reopen) ? state.reopen : [];
-    state.reopen = [];
+    const pending = (Array.isArray(state.reopen) ? state.reopen : []).slice();
     if (!pending.length) return { id: '', ok: true };
     const running = sessionProcs(await listProcesses()).byId;
-    let opened = 0;
+    const todo = pending.filter((s) => !running.has(s.sessionId));
+    for (const s of todo) reopening.add(s.sessionId);
+    const opened = new Set();
     const why = new Set();
     const bg = [];
-    for (const s of pending) {
-      if (running.has(s.sessionId)) continue;
-      const l = locate(s.sessionId);
-      if (l.error) { why.add(l.error); continue; }
+    try {
+      const found = [];
+      for (const s of todo) {
+        const l = locate(s.sessionId);
+        if (l.error) why.add(l.error);
+        else found.push({ s, l });
+      }
       // A dispatched run is reopened as one (its own run key, never the person's credential; never in VS Code). The server says which
-      // sessions are (askRun, one call each; a dispatched one gets its run key there); when it cannot say, the session stays closed.
-      // What this worker remembers (the reopen entry, its session list) counts too: remembered as dispatched but not one to the server
-      // is a refusal, never an ordinary reopen.
-      const local = Number.isInteger(s.dispatched) ? s.dispatched : state.sessions[s.sessionId] && Number.isInteger(state.sessions[s.sessionId].dispatched) ? state.sessions[s.sessionId].dispatched : undefined;
-      let run = null;
-      try { run = await askRun(api, s.sessionId); } catch (e) { why.add(errMsg(e)); continue; }
-      if (!run && local !== undefined) { why.add('a dispatched run the server does not know as one: not reopened'); continue; }
-      try {
-        if (s.origin === 'vscode' && !run) {
-          if (!deps.openVscode) throw new Error('VS Code not found');
-          bg.push(deps.openVscode({ folder: l.dir, sessionId: s.sessionId }).catch((e) => log('vscode open failed: ' + errMsg(e))));
-        } else {
-          trustFolder(l.dir, log);
-          await launcher({ kind: 'resume', folder: l.dir, sessionId: s.sessionId, projectName: l.link.projectName || undefined, ...(run ? { dispatched: run.ref, run: { key: run.key } } : {}) });
-          // A reopened dispatched run is this worker's again: it reports it (the server moved its row to starting) and remembers the ref.
-          if (run) state.sessions[s.sessionId] = { folderId: l.link.folderId, state: 'running', startedAt: now(), dispatched: run.ref };
+      // sessions are, all in one request (askRuns; a dispatched one gets its run key there); a session it gives no answer for stays
+      // closed. What this worker remembers (the reopen entry, its session list) counts too: remembered as dispatched but not one to
+      // the server is a refusal, never an ordinary reopen. Whatever is not opened stays in the reopen set, so Reopen all can be
+      // pressed again (a busy server, 429, refuses nothing).
+      let runs = new Map();
+      if (found.length) {
+        try { runs = await askRuns(api, found.map((x) => x.s.sessionId)); } catch (e) { why.add(errMsg(e)); found.length = 0; }
+      }
+      for (const { s, l } of found) {
+        const sid = s.sessionId;
+        const local = Number.isInteger(s.dispatched) ? s.dispatched : state.sessions[sid] && Number.isInteger(state.sessions[sid].dispatched) ? state.sessions[sid].dispatched : undefined;
+        const run = runs.get(String(sid).toLowerCase());
+        if (run === undefined || (run && run.error)) { why.add(run ? run.error : 'could not check whether this is a dispatched run'); continue; }
+        if (!run && local !== undefined) { why.add('a dispatched run the server does not know as one: not reopened'); continue; }
+        try {
+          if (s.origin === 'vscode' && !run) {
+            if (!deps.openVscode) throw new Error('VS Code not found');
+            bg.push(deps.openVscode({ folder: l.dir, sessionId: sid }).catch((e) => log('vscode open failed: ' + errMsg(e))));
+          } else {
+            trustFolder(l.dir, log);
+            await launcher({ kind: 'resume', folder: l.dir, sessionId: sid, projectName: l.link.projectName || undefined, ...(run ? { dispatched: run.ref, run: { key: run.key } } : {}) });
+            // A reopened dispatched run is this worker's again: it reports it (the server moved its row to starting) and remembers the ref.
+            if (run) state.sessions[sid] = { folderId: l.link.folderId, state: 'running', startedAt: now(), dispatched: run.ref };
+          }
+          opened.add(sid);
+        } catch (e) {
+          why.add(errMsg(e));
+          // Its key was issued but nothing runs it: the server ends the key and puts the row back (stopped or dead).
+          if (run) await releaseRun(api, sid, run.key);
         }
-        opened++;
-      } catch (e) { why.add(errMsg(e)); }
+      }
+    } finally {
+      for (const s of todo) reopening.delete(s.sessionId);
+      // Opened ones leave the set (and any already running); the rest stay for the next Reopen all, or until dismissed or old.
+      state.reopen = (Array.isArray(state.reopen) ? state.reopen : []).filter((s) => !opened.has(s.sessionId) && !running.has(s.sessionId));
     }
     Promise.allSettled(bg).then(() => save());
     // ok only when every one that was not already running was opened; the message says how many and why not.
-    const todo = pending.filter((s) => !running.has(s.sessionId)).length;
-    return why.size ? { id: '', ok: false, error: `Opened ${opened} of ${todo}: ${[...why].join('; ')}`.slice(0, 300) } : { id: '', ok: true };
+    return why.size ? { id: '', ok: false, error: `Opened ${opened.size} of ${todo.length}: ${[...why].join('; ')}`.slice(0, 300) } : { id: '', ok: true };
   }
 
   async function handleJob(job) {
@@ -161,6 +185,11 @@ export function createCore(deps) {
         if (opens.length >= OPEN_MAX_PER_MIN) return { id, ok: false, error: 'Too many opens at once, try again in a minute' };
         const l = locate(job.sessionId);
         if (l.error) return { id, ok: false, error: l.error };
+        // A dispatched run opens only with its own run key (Resume); VS Code would run it with the person's config and key. Remembered
+        // here as one, or one to the server (isRun; mints nothing), or the server cannot say: not opened.
+        const sl = state.sessions[job.sessionId];
+        if ((sl && Number.isInteger(sl.dispatched)) || (state.openSet || []).concat(state.reopen || []).some((s) => s.sessionId === job.sessionId && Number.isInteger(s.dispatched))) return { id, ok: false, error: DISPATCHED_NO_VSCODE };
+        try { if (await isRun(api, job.sessionId)) return { id, ok: false, error: DISPATCHED_NO_VSCODE }; } catch (e) { return { id, ok: false, error: errMsg(e) }; }
         opens.push({ sessionId: job.sessionId, at: t });
         save();
         await deps.openVscode({ folder: l.dir, sessionId: job.sessionId });
@@ -259,7 +288,7 @@ export function createCore(deps) {
           body.claudeSessions = a.list;
           trackOpenSet(state, a.list, now(), !tracked, (sid) => (state.sessions[sid] ? state.sessions[sid].dispatched : undefined));
           tracked = true;
-          body.reopen = reopenReport(state);
+          body.reopen = reopenReport(state).filter((r) => !reopening.has(r.sessionId));
           const snap = JSON.stringify([state.openSet, state.reopen]);
           if (snap !== savedOpen) { savedOpen = snap; save(); } // survives a crash: the next start compares with it
         } else body.activity = a;

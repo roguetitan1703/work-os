@@ -13,7 +13,7 @@ export function makeApi(getCfg, getToken) {
     });
     let data = null;
     try { data = await res.json(); } catch {}
-    if (!res.ok) throw new Error(`HTTP ${res.status}${data && data.error ? ': ' + String(data.error).slice(0, 100) : ''}`);
+    if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}${data && data.error ? ': ' + String(data.error).slice(0, 100) : ''}`), { status: res.status });
     return data;
   }
   return {
@@ -22,5 +22,11 @@ export function makeApi(getCfg, getToken) {
     postStatus: (body) => req('POST', '/api/worker/status', body),
     // A dispatched run's own Work OS key (dispatch-run.mjs runFor): { key, expiresAt }. Never logged.
     runKey: (sessionId) => req('POST', '/api/worker/run-key', { sessionId }),
+    // Reopen all: the same for up to 20 sessions in one request ({ runs: [...] }).
+    runKeys: (sessionIds) => req('POST', '/api/worker/run-key', { sessionIds }),
+    // Open in VS Code: is it a dispatched run? ({ dispatched }); mints nothing.
+    runCheck: (sessionId) => req('POST', '/api/worker/run-key', { sessionId, check: true }),
+    // A launch failed after its key was issued: the key dies and the row goes back.
+    runRelease: (sessionId, key) => req('POST', '/api/worker/run-key', { sessionId, release: key }),
   };
 }

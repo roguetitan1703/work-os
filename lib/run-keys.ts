@@ -46,9 +46,32 @@ export async function mintRunKey(s: Scope, deviceId: string, sessionId: string):
   const key = RUN_KEY_PREFIX + randomBytes(32).toString('base64url');
   const now = new Date();
   const expiresAt = new Date(now.getTime() + RUN_KEY_TTL_MS);
-  const back = ENDED.has(ws.state) ? { state: 'starting' as const, updatedAt: now } : {};
-  const r = await c.workerSessions.updateOne({ _id: sessionId, deviceId, ownerId: s.userId, dispatched: true, state: { $ne: 'failed' } }, { $set: { runKey: { hash: sha256(key), keyHash: dev.hash, ref: task.ref, at: now, expiresAt }, ...back } });
+  const from = ws.state === 'stopped' || ws.state === 'dead' ? ws.state : undefined;
+  const back = from ? { state: 'starting' as const, updatedAt: now } : {};
+  const r = await c.workerSessions.updateOne({ _id: sessionId, deviceId, ownerId: s.userId, dispatched: true, state: { $ne: 'failed' } }, { $set: { runKey: { hash: sha256(key), keyHash: dev.hash, ref: task.ref, at: now, expiresAt, ...(from ? { from } : {}) }, ...back } });
   return r.matchedCount ? { key, expiresAt, ref: task.ref } : null;
+}
+
+/** Whether `sessionId` is a dispatched run of this person (on any of their computers). Mints nothing: "Open in VS Code" asks it. */
+export async function isDispatchedRun(s: Scope, sessionId: string): Promise<boolean> {
+  const c = await scoped(s);
+  return !!(await c.workerSessions.findOne({ _id: sessionId, ownerId: s.userId, dispatched: true }, { projection: { _id: 1 } }));
+}
+
+/**
+ * The worker could not launch the run it got `key` for (a reopen whose launch failed): the key dies at once, and a row its mint moved
+ * from stopped or dead to starting goes back (a row still starting or running with no `from` becomes dead: nothing runs it).
+ * Only this computer's own run and only with the key it was given. Returns whether a key was released.
+ */
+export async function releaseRunKey(s: Scope, deviceId: string, sessionId: string, key: string): Promise<boolean> {
+  if (!RUN_KEY_RE.test(key)) return false;
+  const c = await scoped(s);
+  const hash = sha256(key);
+  const ws = await c.workerSessions.findOne({ _id: sessionId, deviceId, ownerId: s.userId, dispatched: true, 'runKey.hash': hash }, { projection: { state: 1, runKey: 1 } });
+  if (!ws) return false;
+  const back = ws.state === 'starting' || ws.state === 'running' ? { state: ws.runKey?.from ?? ('dead' as const), updatedAt: new Date() } : {};
+  const r = await c.workerSessions.updateOne({ _id: sessionId, deviceId, 'runKey.hash': hash }, { $unset: { runKey: '' }, ...(Object.keys(back).length ? { $set: back } : {}) });
+  return r.modifiedCount > 0;
 }
 
 /** The run behind a presented run key, or null: unknown, expired, its run ended, or its computer revoked or no longer its owner's. */

@@ -140,6 +140,56 @@ export async function askRun(api, sessionId) {
   throw new Error('could not check whether this is a dispatched run (unexpected answer)');
 }
 
+/** One answer of the batched run-key call: { ref, key }, null (not a dispatched run), or { error } (refused or unreadable). */
+function runAnswer(r) {
+  if (r && r.dispatched === false && !('key' in r)) return null;
+  if (r && RUN_KEY_RE.test(String(r.key || '')) && Number.isInteger(r.ref) && r.ref > 0) return { ref: r.ref, key: r.key };
+  if (r && typeof r.refused === 'string') return { error: r.refused.slice(0, 120) };
+  return { error: 'could not check whether this is a dispatched run (unexpected answer)' };
+}
+
+/**
+ * askRun for several sessions in one request (Reopen all: up to 20, one device rate-limit hit): a Map of session id (lower case) to
+ * { ref, key }, null or { error }; a session missing from the answer is { error }. Throws when the request fails, with `busy` set
+ * when the server said too many requests (try again in a minute; nothing is refused).
+ */
+export async function askRuns(api, sessionIds) {
+  const ids = [...new Set(sessionIds.map((s) => String(s || '').toLowerCase()))];
+  if (!ids.length) return new Map();
+  if (!ids.every((s) => SID.test(s))) throw new Error('bad session id');
+  if (!api || typeof api.runKeys !== 'function') throw new Error('cannot ask the server whether these are dispatched runs');
+  let r;
+  try { r = await api.runKeys(ids); } catch (e) {
+    const busy = !!e && e.status === 429;
+    throw Object.assign(new Error(busy ? 'the server is busy, try Reopen all again in a minute' : 'could not check whether these are dispatched runs (' + String((e && e.message) || e).slice(0, 120) + ')'), { busy });
+  }
+  const runs = r && Array.isArray(r.runs) ? r.runs : [];
+  const out = new Map();
+  for (const sid of ids) {
+    const a = runs.find((x) => x && typeof x.sessionId === 'string' && x.sessionId.toLowerCase() === sid);
+    out.set(sid, a ? runAnswer(a) : { error: 'could not check whether this is a dispatched run (no answer)' });
+  }
+  return out;
+}
+
+/** Open in VS Code: true when the server knows `sessionId` as a dispatched run. Throws when it cannot say. Mints nothing. */
+export async function isRun(api, sessionId) {
+  if (!SID.test(String(sessionId || ''))) throw new Error('bad session id');
+  if (!api || typeof api.runCheck !== 'function') throw new Error('cannot ask the server whether this is a dispatched run');
+  let r;
+  try { r = await api.runCheck(String(sessionId).toLowerCase()); } catch (e) { throw new Error('could not check whether this is a dispatched run (' + String((e && e.message) || e).slice(0, 120) + ')'); }
+  if (r && typeof r.dispatched === 'boolean') return r.dispatched;
+  throw new Error('could not check whether this is a dispatched run (unexpected answer)');
+}
+
+/** A launch failed after `key` was issued: the server ends the key and puts the row back. Best effort (a key nobody holds also dies at its TTL). */
+export async function releaseRun(api, sessionId, key) {
+  try {
+    if (api && typeof api.runRelease === 'function' && RUN_KEY_RE.test(String(key || ''))) return !!(await api.runRelease(String(sessionId).toLowerCase(), key))?.released;
+  } catch {}
+  return false;
+}
+
 /** The run files a claude command line names (after --mcp-config and --settings), when they are ours. */
 export function runFilesOf(args) {
   const out = [];

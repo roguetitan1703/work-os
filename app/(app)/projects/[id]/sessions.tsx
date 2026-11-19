@@ -72,6 +72,11 @@ export function ProjectSessions({
                   <span className="text-muted-foreground" suppressHydrationWarning>
                     {' '}· <Ago iso={s.startedAt} prefix="started " />
                   </span>
+                  {s.dispatched && (
+                    <span className="text-muted-foreground" title="Started for a task: it runs on its own key, so it opens with Resume, not in VS Code" data-dispatched>
+                      {' '}· for a task
+                    </span>
+                  )}
                   {s.error && <span className="text-muted-foreground"> · {s.error}</span>}
                 </div>
               </div>
@@ -80,7 +85,7 @@ export function ProjectSessions({
                   <RotateCcw className="w-4 h-4" /> Resume
                 </button>
               )}
-              {s.linked && (
+              {s.linked && !s.dispatched && (
                 <button
                   type="button"
                   className={iconBtn}

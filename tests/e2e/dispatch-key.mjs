@@ -177,6 +177,40 @@ try {
   check('6: a dispatched session whose task is gone is not resumed (no job, row unchanged)', !a2.ok && /task that is gone/.test(a2.text) && !j2 && s2row?.state === 'dead', JSON.stringify([a2.text.slice(0, 160), !!j2, s2row?.state]));
   const m7 = await mint(pc.key, rs2);
   check('6: and it gets no run key either', m7.status === 400 && !m7.body?.key, `${m7.status}`);
+
+  // ---- 7: Reopen all asks in one request; a failed launch releases its key; Open in VS Code refuses a dispatched run ----
+  const RK = '/api/worker/run-key';
+  const [rd, ro, ru] = [randomUUID(), randomUUID(), randomUUID()];
+  await rawDb.collection('workerSessions').insertMany([wsRow(pc, rd, task.id, { projectId: proj, state: 'dead' }), wsRow(other, ro, task.id, { projectId: proj, state: 'dead' })]);
+  const b1 = await api(pc.key, 'POST', RK, { sessionIds: [rd, plain, ro, ru] });
+  const runs = new Map((b1.body?.runs ?? []).map(x => [x.sessionId, x]));
+  const rdRow = await rawDb.collection('workerSessions').findOne({ _id: rd });
+  check('7: one batched request answers each session: a key for this computer\'s dispatched run, "not dispatched" for others, refused for another computer\'s',
+    b1.status === 200 && RUN_RE.test(runs.get(rd)?.key ?? '') && runs.get(rd)?.ref === task.ref && runs.get(plain)?.dispatched === false && runs.get(ru)?.dispatched === false && !!runs.get(ro)?.refused && !runs.get(ro)?.key && rdRow?.state === 'starting' && rdRow?.runKey?.from === 'dead',
+    JSON.stringify([b1.status, [...runs.values()].map(x => Object.keys(x).sort().join(',')), rdRow?.state, rdRow?.runKey?.from]));
+  const b2 = await api(pc.key, 'POST', RK, { sessionIds: Array.from({ length: 21 }, () => randomUUID()) });
+  check('7: more than 20 in one request is refused', b2.status === 400, `${b2.status}`);
+  const rdKey = runs.get(rd)?.key;
+  const wrong = await api(pc.key, 'POST', RK, { sessionId: rd, release: 'wdr_' + 'A'.repeat(43) });
+  const otherRel = await api(other.key, 'POST', RK, { sessionId: rd, release: rdKey });
+  check('7: a release needs this computer and the key it was given', wrong.body?.released === false && otherRel.body?.released === false && (await rawDb.collection('workerSessions').findOne({ _id: rd }))?.state === 'starting', JSON.stringify([wrong.body, otherRel.body]));
+  const rel = await api(pc.key, 'POST', RK, { sessionId: rd, release: rdKey });
+  const rdAfter = await rawDb.collection('workerSessions').findOne({ _id: rd });
+  const eRel = await mcpH(rdKey, 'get_task', { task: task.ref });
+  check('7: a failed launch releases its key: the key dies and the row goes back to dead', rel.body?.released === true && rdAfter?.state === 'dead' && !rdAfter?.runKey && eRel.isError && /Unauthorized/.test(eRel.text), JSON.stringify([rel.body, rdAfter?.state, !!rdAfter?.runKey, eRel.text.slice(0, 60)]));
+  const hashBefore = (await rawDb.collection('workerSessions').findOne({ _id: cc }))?.runKey?.hash;
+  const c1 = await api(pc.key, 'POST', RK, { sessionId: cc, check: true });
+  const c2 = await api(pc.key, 'POST', RK, { sessionId: plain, check: true });
+  const hashAfter = (await rawDb.collection('workerSessions').findOne({ _id: cc }))?.runKey?.hash;
+  check('7: the VS Code check says which sessions are dispatched runs and mints nothing', c1.body?.dispatched === true && c2.body?.dispatched === false && !/wdr_/.test(c1.text + c2.text) && hashBefore === hashAfter, JSON.stringify([c1.body, c2.body, hashBefore === hashAfter]));
+  const item = (sessionId, title) => ({ sessionId, folder: 'fdk1', title, lastActiveAt: new Date(), subagentsActive: 0, startedByWorkOs: true, running: true, origin: 'vscode' });
+  await rawDb.collection('devices').updateOne({ _id: pc.id }, { $set: { lastSeenAt: new Date(), claudeSessions: { at: new Date(), items: [item(cc, 'dk dispatched'), item(plain, 'dk plain')] } } });
+  const v1 = await act(cookie, 'openInVscodeAction', /launcher-actions\.ts$/, pc.id, cc);
+  const vj1 = await rawDb.collection('workerJobs').findOne({ sessionId: cc, kind: 'vscode' });
+  check('7: Open in VS Code refuses a dispatched run (use Resume) and queues nothing', !v1.ok && /own key: use Resume/.test(v1.text) && !vj1, v1.text.slice(0, 160));
+  const v2 = await act(cookie, 'openInVscodeAction', /launcher-actions\.ts$/, pc.id, plain);
+  const vj2 = await rawDb.collection('workerJobs').findOne({ sessionId: plain, kind: 'vscode' });
+  check('7: an ordinary session still opens in VS Code', v2.ok && !!vj2, v2.text.slice(0, 160));
   void B;
 } catch (e) {
   check('suite ran without throwing', false, e?.stack || String(e));

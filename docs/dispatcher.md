@@ -183,7 +183,16 @@ and the hook stood between it and the Orders or the lead session, and it could c
   computer, failed, its task gone). Only the key's hash is kept on the row (`runKey {hash, keyHash, ref, at, expiresAt}`, unique
   partial index). One live key per run: a resume replaces it. It dies after 24 hours, when the worker reports the run stopped, dead
   or failed, when the computer is revoked or gets a new key (`keyHash`), or when its owner leaves. Resume in the app refuses a
-  dispatched session whose task is gone, and sets the row to starting before it makes the job.
+  dispatched session whose task is gone, and sets the row to starting before it makes the job. Other bodies of the same route:
+  `{sessionIds}` (Reopen all, up to 20 in one request: `{runs: [{sessionId, ...}]}`, a refusal is `refused`), `{sessionId, check:
+  true}` (Open in VS Code: `{dispatched}`, mints nothing) and `{sessionId, release: key}` (the launch failed: the key is removed
+  and a row its mint moved out of stopped or dead goes back, `runKey.from`; one with no `from` becomes dead).
+- **Open in VS Code** never opens a dispatched run, which would run with the person's own config and key: the app hides the button
+  on its rows (a "For a task" badge on the Claude page, "for a task" on the project's sessions, tooltip "use Resume"), the server
+  refuses the job (`openSessionInVscode`), and the worker refuses it too when it remembers the session as dispatched, the server
+  says it is one, or the server cannot say (`isRun`). Every other way a session opens: Resume and a dispatcher start (job with
+  `dispatched`, `runFor`), a turbo clone start (same), Reopen all (below). "Open in Claude Code" and "Open in Claude Desktop" on a
+  task start a new session of the person's own (not a dispatched run, by design).
 - **The server:** `/api/mcp` takes it (no other route does) as the person's Claude Code with `dispatched {taskId, ref, sessionId}`
   on the caller and in the request context, whatever the run sends. Then: `canEditOrders` is false (`lib/data/orders.ts`), so
   Orders text is never writable, `propose_order` is refused too (as the hook does) and its brief says `change: 'none'`: a run
@@ -201,10 +210,14 @@ and the hook stood between it and the Orders or the lead session, and it could c
   2.1.327 with a real `claude -p`: without the flag the run sees the person's claude.ai connectors and their Work OS server; with
   it, no MCP tool at all (connectors and plugin servers are dropped too).
   `run-claude.mjs` drops the same variables from claude's environment (`scrubEnv`) and deletes both files when claude ends; the
-  worker sweeps files of runs that no longer run (a crash). **Reopen all** asks the server about every session it reopens
-  (`askRun`): a dispatched one opens with its run key (never in VS Code) and is the worker's again; no answer means not opened;
-  one this worker remembers as dispatched (the reopen entry keeps the ref for its 7 days, `openset.mjs`, and the worker's own
-  session list) but the server calls ordinary is refused. macOS: `env -u WORK_OS_KEY`, the sweep deletes the files.
+  worker sweeps files of runs that no longer run (a crash). **Reopen all** asks the server about all the sessions it reopens in one
+  request (`askRuns`, one hit on the device's 60 a minute): a dispatched one opens with its run key (never in VS Code) and is the
+  worker's again; a refusal or no answer means not opened; one this worker remembers as dispatched (the reopen entry keeps the ref
+  for its 7 days, `openset.mjs`, and the worker's own session list) but the server calls ordinary is refused. Whatever is not
+  opened stays in the reopen set (a busy server, 429, refuses nothing), so the banner comes back and Reopen all can be pressed
+  again; while it runs, the status leaves those sessions out. A launch that fails after its key was issued releases the key
+  (`releaseRun`). A start or resume job that fails marks the row failed, which ends its key. macOS: `env -u WORK_OS_KEY`, the
+  sweep deletes the files.
 - **Not covered (same OS user):** the run can still read files its user can: the person's OAuth token store, `~/.claude.json`, the
   settings file and the worker's device key (DPAPI or Keychain, same user). The hook's shell guard (B1) catches the plain ways; a
   deliberate script can get past it on a PC. A run the person resumes by hand in their own terminal uses their own setup (the

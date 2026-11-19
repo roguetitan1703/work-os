@@ -157,6 +157,61 @@ test('askRun: a dispatched run (key and ref), an ordinary session (null), and an
   await assert.rejects(run.askRun({ runKey: async () => ({ dispatched: false }) }, 'bad'), /bad session id/);
 });
 
+test('askRuns, isRun and releaseRun: one request for many; refusals and odd answers are errors, never "ordinary"', async () => {
+  const [a, b, c, d] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+  const got = await run.askRuns({ runKeys: async () => ({ runs: [{ sessionId: a, key: runKey, ref: 3 }, { sessionId: b, dispatched: false }, { sessionId: c, refused: 'nope' }, { sessionId: d, dispatched: false, key: runKey }] }) }, [a, b, c, d, a.toUpperCase()]);
+  assert.deepEqual([...got.keys()], [a, b, c, d]);
+  assert.deepEqual(got.get(a), { ref: 3, key: runKey }); assert.equal(got.get(b), null);
+  assert.deepEqual(got.get(c), { error: 'nope' }); assert.match(got.get(d).error, /unexpected/);
+  assert.match((await run.askRuns({ runKeys: async () => ({ runs: [] }) }, [a])).get(a).error, /no answer/);
+  await assert.rejects(run.askRuns({ runKeys: async () => { throw Object.assign(new Error('HTTP 429'), { status: 429 }); } }, [a]), (e) => e.busy === true);
+  await assert.rejects(run.askRuns({}, [a]), /cannot ask/);
+  await assert.rejects(run.askRuns({ runKeys: async () => ({ runs: [] }) }, ['bad']), /bad session id/);
+  assert.equal(await run.isRun({ runCheck: async () => ({ dispatched: true }) }, a), true);
+  assert.equal(await run.isRun({ runCheck: async () => ({ dispatched: false }) }, a), false);
+  for (const api of [{}, { runCheck: async () => { throw new Error('HTTP 500'); } }, { runCheck: async () => ({}) }]) await assert.rejects(run.isRun(api, a), /dispatched run/);
+  const rel = [];
+  assert.equal(await run.releaseRun({ runRelease: async (s, k) => (rel.push([s, k]), { released: true }) }, a.toUpperCase(), runKey), true);
+  assert.deepEqual(rel, [[a, runKey]]);
+  assert.equal(await run.releaseRun({ runRelease: async () => { throw new Error('HTTP 500'); } }, a, runKey), false, 'best effort');
+  assert.equal(await run.releaseRun({ runRelease: async () => { throw new Error('never sent'); } }, a, personKey), false, 'only a run key is ever sent back');
+});
+
+test('Open in VS Code never opens a dispatched run: remembered here, known to the server, or the server cannot say', async () => {
+  const { createCore } = await import('../core.mjs');
+  const root = path.join(tmp, 'vscode-root');
+  const app = path.join(root, 'app');
+  fs.mkdirSync(app, { recursive: true });
+  const S = randomUUID();
+  const mk = (runCheck) => {
+    const opened = [];
+    const checks = [];
+    const state = { ids: {}, folders: { f1: app }, sessions: {}, markers: {}, doneJobs: [], reopen: [], openSet: [] };
+    const c = createCore({
+      getConfig: () => ({ roots: [root] }), state, save() {}, api: { runCheck: async (s) => (checks.push(s), runCheck()) },
+      launcher: async () => {}, listProcesses: async () => [], killPid: async () => {},
+      sessionLocal: () => ({ cwd: app, origin: 'vscode' }), openVscode: async (a) => void opened.push(a),
+    });
+    c.applyLinks([{ folderId: 'f1', projectId: 'p1', projectName: 'Proj' }]);
+    return { c, state, opened, checks };
+  };
+  const plain = mk(async () => ({ dispatched: false }));
+  assert.equal((await plain.c.handleJob({ id: 'v0', kind: 'vscode', sessionId: S })).ok, true);
+  assert.equal(plain.opened.length, 1); assert.deepEqual(plain.checks, [S]);
+  const srv = mk(async () => ({ dispatched: true }));
+  const r1 = await srv.c.handleJob({ id: 'v1', kind: 'vscode', sessionId: S });
+  assert.equal(r1.ok, false); assert.match(r1.error, /runs on its own key: use Resume/); assert.equal(srv.opened.length, 0);
+  const down = mk(async () => { throw new Error('HTTP 503'); });
+  const r2 = await down.c.handleJob({ id: 'v2', kind: 'vscode', sessionId: S });
+  assert.equal(r2.ok, false); assert.match(r2.error, /could not check/); assert.equal(down.opened.length, 0);
+  for (const remember of [(st) => { st.sessions[S] = { folderId: 'f1', state: 'running', dispatched: 4 }; }, (st) => { st.openSet = [{ sessionId: S, dispatched: 4 }]; }, (st) => { st.reopen = [{ sessionId: S, origin: 'vscode', dispatched: 4 }]; }]) {
+    const m = mk(async () => ({ dispatched: false }));
+    remember(m.state);
+    const r = await m.c.handleJob({ id: 'v3', kind: 'vscode', sessionId: S });
+    assert.equal(r.ok, false); assert.match(r.error, /use Resume/); assert.equal(m.opened.length, 0);
+  }
+});
+
 test('the reopen set keeps a dispatched run\'s ref after the worker forgets the run (restart, upgrade), and Reopen all asks the server', async () => {
   const { trackOpenSet } = await import('../openset.mjs');
   const { createCore } = await import('../core.mjs');
@@ -177,30 +232,54 @@ test('the reopen set keeps a dispatched run\'s ref after the worker forgets the 
   const root = path.join(tmp, 'reopen-root');
   const app = path.join(root, 'app');
   fs.mkdirSync(app, { recursive: true });
-  const mk = (answers) => {
+  // answers: per session id, what the batched run-key call says (an Error for all: the request fails). launchFails: ids whose launch throws.
+  const mk = (answers, { launchFails = [] } = {}) => {
     const launched = [];
     const opened = [];
+    const calls = [];
+    const released = [];
     const state = { ids: {}, folders: { f1: app }, sessions: {}, markers: {}, doneJobs: [], reopen: [] };
     const c = createCore({
       getConfig: () => ({ roots: [root] }), state, save() {},
-      api: { runKey: async (s) => { const a = answers[s]; if (a instanceof Error) throw a; return a; } },
-      launcher: async (a) => void launched.push(a), listProcesses: async () => [], killPid: async () => {},
+      api: {
+        runKeys: async (ids) => { calls.push(ids); if (answers instanceof Error) throw answers; return { runs: ids.filter((s) => answers[s]).map((s) => ({ sessionId: s, ...answers[s] })) }; },
+        runRelease: async (s, key) => (released.push([s, key]), { released: true }),
+      },
+      launcher: async (a) => { if (launchFails.includes(a.sessionId)) throw new Error('wt not found'); launched.push(a); }, listProcesses: async () => [], killPid: async () => {},
       sessionLocal: () => ({ cwd: app, origin: 'cli' }), openVscode: async (a) => void opened.push(a),
     });
     c.applyLinks([{ folderId: 'f1', projectId: 'p1', projectName: 'Proj' }]);
-    return { c, state, launched, opened };
+    return { c, state, launched, opened, calls, released };
   };
-  // D dispatched per the server (a fresh key); P ordinary; U the server cannot answer: not opened.
-  const m = mk({ [D]: { key: runKey, ref: 9 }, [P]: { dispatched: false }, [U]: new Error('HTTP 503') });
-  m.state.reopen = [{ sessionId: D, origin: 'vscode', dispatched: 9 }, { sessionId: P, origin: 'cli' }, { sessionId: U, origin: 'cli' }];
+  // D dispatched per the server (a fresh key); P ordinary; U refused by the server; X missing from the answer: neither opened.
+  const X = randomUUID();
+  const m = mk({ [D]: { key: runKey, ref: 9 }, [P]: { dispatched: false }, [U]: { refused: 'a dispatched run that cannot be opened on this computer' } });
+  m.state.reopen = [{ sessionId: D, origin: 'vscode', dispatched: 9 }, { sessionId: P, origin: 'cli' }, { sessionId: U, origin: 'cli' }, { sessionId: X, origin: 'cli' }];
   const r = await m.c.handleJob({ id: 'r', kind: 'reopen' });
+  assert.equal(m.calls.length, 1, 'one request for all of them'); assert.deepEqual(m.calls[0], [D, P, U, X]);
   assert.equal(m.opened.length, 0, 'a dispatched run is never opened in VS Code');
   const d = m.launched.find((a) => a.sessionId === D);
   assert.equal(d.dispatched, 9); assert.deepEqual(d.run, { key: runKey }); assert.equal(d.kind, 'resume');
   assert.ok(!('dispatched' in m.launched.find((a) => a.sessionId === P)));
-  assert.ok(!m.launched.some((a) => a.sessionId === U), 'no answer: not opened');
-  assert.equal(r.ok, false); assert.match(r.error, /Opened 2 of 3.*could not check/);
+  assert.ok(!m.launched.some((a) => a.sessionId === U || a.sessionId === X), 'refused or no answer: not opened');
+  assert.equal(r.ok, false); assert.match(r.error, /Opened 2 of 4.*cannot be opened.*no answer/);
   assert.deepEqual({ ...m.state.sessions[D], startedAt: 0 }, { folderId: 'f1', state: 'running', startedAt: 0, dispatched: 9 });
+  assert.deepEqual(m.state.reopen.map((s) => s.sessionId), [U, X], 'the ones not opened stay, so Reopen all can be pressed again');
+  // The server cannot be reached, or is busy (429): nothing opens, nothing is dropped.
+  for (const [err, re] of [[new Error('HTTP 503'), /could not check/], [Object.assign(new Error('HTTP 429: too many requests'), { status: 429 }), /busy, try Reopen all again/]]) {
+    const b = mk(err);
+    b.state.reopen = [{ sessionId: D, origin: 'cli', dispatched: 9 }, { sessionId: P, origin: 'cli' }];
+    const rb = await b.c.handleJob({ id: 'rb', kind: 'reopen' });
+    assert.equal(b.launched.length + b.opened.length, 0); assert.match(rb.error, re);
+    assert.deepEqual(b.state.reopen.map((s) => s.sessionId), [D, P]);
+  }
+  // A launch that fails after its key was issued: the key is released (the server ends it and puts the row back); the session stays pending.
+  const f = mk({ [D]: { key: runKey, ref: 9 } }, { launchFails: [D] });
+  f.state.reopen = [{ sessionId: D, origin: 'cli', dispatched: 9 }];
+  const rf = await f.c.handleJob({ id: 'rf', kind: 'reopen' });
+  assert.match(rf.error, /Opened 0 of 1: wt not found/);
+  assert.deepEqual(f.released, [[D, runKey]]);
+  assert.ok(!f.state.sessions[D]); assert.deepEqual(f.state.reopen.map((s) => s.sessionId), [D]);
   // Remembered as dispatched here but ordinary to the server: refused, never opened as the person's own.
   const n = mk({ [D]: { dispatched: false } });
   n.state.reopen = [{ sessionId: D, origin: 'cli', dispatched: 9 }];
