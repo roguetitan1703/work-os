@@ -45,6 +45,7 @@ function workers(h) {
 
 try {
   const ONE = (await must(MCP, 'add_project', { name: 'H6 One', code: [{ remote: 'acme/h6-one' }] })).project.id;
+  await must(MCP, 'save_state', { project: 'H6 One', ops: [{ op: 'add_next', text: 'H6 line' }] });
   const pc = await deviceOf(ME, 'h6-pc');
   await rawDb.collection('workerFolders').insertOne(folder(pc, ME, 'f1', 'acme/h6-one', ONE));
   const ck = await cookieOf(EMAIL);
