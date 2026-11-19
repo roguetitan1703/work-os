@@ -1,6 +1,7 @@
 import Link from '@/components/intent-link';
 import {
   CheckCircle2,
+  MessageSquareWarning,
   MessageSquare,
   Pencil,
   Plus,
@@ -61,6 +62,7 @@ const ICONS: Record<ActivityType, React.ComponentType<{ className?: string }>> =
   project_renamed: Pencil,
   visibility_changed: Eye,
   session_ended: LogOut,
+  feedback: MessageSquareWarning,
 };
 
 /** What a row links to in a feed with `showTask`: the task (#12 Title), or the project and what changed there (Work OS · State). */

@@ -199,6 +199,7 @@ export const ACTIVITY_TYPES = [
   'project_renamed',
   'visibility_changed',
   'session_ended',
+  'feedback',
 ] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 
@@ -212,6 +213,9 @@ export const ACTIVITY_WHAT = ['tasks', 'state', 'notes', 'messages', 'needs', 'p
 export type ActivityWhat = (typeof ACTIVITY_WHAT)[number];
 
 export type FieldChange = { from: unknown; to: unknown };
+
+/** The tool, the Orders line and the refused Work OS calls (`tool:kind`) a friction line names. */
+export type FeedbackInfo = { tool?: string; rule?: string; refusals?: string[] };
 
 export type Activity = {
   id: string;
@@ -232,6 +236,8 @@ export type Activity = {
   type: ActivityType;
   changes?: Record<string, FieldChange>;
   note?: string;
+  /** `feedback` and `session_ended` rows: what got in the way (H10). */
+  feedback?: FeedbackInfo;
   /** Claude Code only: the X-Work-OS-Session / X-Work-OS-Repo headers of the request that made it. */
   session?: string;
   repo?: string;
