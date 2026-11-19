@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 92. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 94. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -41,4 +41,5 @@ Copy of the Work OS state, version 92. WORK-STATE.md is a copy of the State, wri
 - worker test hook-h7 #117 'wait: a wake keeps the ids' fails now and then under the full parallel worker run (passes alone; seen 4+ times on 19 Nov in slots A, B, S). Timing in the test, not the code (not checked). — waits on a fix slot
 - Idle wait ends ~1 h after a stop (hook timeout 3600 s): a session idle longer gets no messages and no later nudges until its next turn. Consider re-arming the wait (a fresh wait after a timeout) if sessions idle for hours should still be reached. — waits on nudges used for a week
 - Dark mode at 390 (Claude › Now, seen 20 Nov in the H11 step 8 screenshots): the selected pill of a segmented control (Now; All sessions) is light grey with white text, hard to read; Start Claude reads as disabled when no worker is linked. Not caused by the Claude items removal. — waits on the UI revamp (Next 3)
-<!-- work-os-copy sha1:6df8f1e6f75e3de160b8f31ce357caf1103ab3c8 -->
+- Notes search: Om says it doesn't work (19 Nov). Production data and the server regex are fine ("orders" matches 24 notes). Builder S is reproducing it in wos-s with a new flow-notes-search suite.
+<!-- work-os-copy sha1:7983e4a1b8a11525b4696c9ac74316dfde7dbdf7 -->
