@@ -225,6 +225,41 @@ export async function resolveProject(
   return insertProject(c, s, { name: nameOrId }, opts.actor);
 }
 
+/** How close two project names are, for "did you mean": 0 is the same name, higher is further. */
+function nameDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.includes(b) || b.includes(a)) return 1;
+  const m = a.length;
+  const n = b.length;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+
+/** Up to 3 visible project names closest to what was typed (substring or a few letters off). */
+export async function closestProjects(c: Collections, name: string): Promise<string[]> {
+  const key = name.trim().toLowerCase();
+  const docs = await c.projects.find({}, { projection: { name: 1, nameLower: 1 } }).toArray();
+  return docs
+    .map(d => ({ name: d.name, d: nameDistance(key, d.nameLower) }))
+    .filter(x => x.d <= Math.max(2, Math.floor(key.length / 3)))
+    .sort((x, y) => x.d - y.d)
+    .slice(0, 3)
+    .map(x => x.name);
+}
+
+/** The project by id or name, or an InputError saying it was not found (with the closest names). Nothing is created. */
+export async function requireProject(c: Collections, nameOrId: string): Promise<ProjectDoc> {
+  const found = await findProjectDoc(c, nameOrId);
+  if (found) return found;
+  const close = await closestProjects(c, nameOrId);
+  throw new InputError(`Project "${nameOrId}" was not found.${close.length ? ` Closest: ${close.map(n => `"${n}"`).join(', ')}.` : ''} To make a new project with that name, pass create_project: true.`);
+}
+
 export async function getProject(s: Scope, nameOrId: string): Promise<Project | null> {
   const c = await scoped(s);
   const d = await findProjectDoc(c, nameOrId);

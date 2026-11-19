@@ -48,6 +48,17 @@ try {
   check('F5: a done_since that does not parse is refused', badDone.isError && /done_since/.test(badDone.text), badDone.text);
   const okDone = await mcpH(cc, 'list_tasks', { project: NAME, done_since: 'today' });
   check('F5: done_since today is read', !okDone.isError, okDone.text);
+
+  // F8: first-call mistakes
+  const pNo = await mcpH(cc, 'add_task', { title: 'R8 typo project', project: 'R8A Projet' });
+  check('F8: add_task with an unknown project is refused, names the closest and create_project', pNo.isError && /not found/.test(pNo.text) && /"R8A Project"/.test(pNo.text) && /create_project/.test(pNo.text), pNo.text);
+  check('F8: â€¦and no project was made', !(await rawDb.collection('projects').findOne({ name: 'R8A Projet' })));
+  const pYes = await mcpH(cc, 'add_task', { title: 'R8 new project', project: 'R8A Fresh', create_project: true });
+  check('F8: add_task with create_project true makes the project', !pYes.isError && !!(await rawDb.collection('projects').findOne({ name: 'R8A Fresh' })), pYes.text);
+  const uNo = await mcpH(cc, 'update_task', { task: pYes.json?.created?.ref, project: 'R8A Nowhere' });
+  check('F8: update_task with an unknown project is refused', uNo.isError && /not found/.test(uNo.text) && !(await rawDb.collection('projects').findOne({ name: 'R8A Nowhere' })), uNo.text);
+  const sdNo = await mcpH(cc, 'set_doing', { project: NAME, task: 9999, session: 'r8int' });
+  check('F8: set_doing says which task was not found', sdNo.isError && /9999/.test(sdNo.text), sdNo.text);
 } catch (e) {
   check('flow-r8a (error)', false, e?.stack || String(e));
 }

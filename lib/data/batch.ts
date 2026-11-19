@@ -17,8 +17,8 @@ export const MAX_OPS = 100;
 type Key = string | number;
 
 export type BatchOp =
-  | ({ op: 'create_task'; as?: string; note?: string; subtasks?: TaskInput[] } & TaskInput)
-  | ({ op: 'update_task'; task: Key; note?: string } & TaskPatch)
+  | ({ op: 'create_task'; as?: string; note?: string; subtasks?: TaskInput[]; createProject?: boolean } & TaskInput)
+  | ({ op: 'update_task'; task: Key; note?: string; createProject?: boolean } & TaskPatch)
   | { op: 'log_progress'; task: Key; progress: number; note?: string; status?: TaskPatch['status']; blockedReason?: string }
   | { op: 'complete_task'; task: Key; note?: string }
   | { op: 'add_comment'; task: Key; text: string }
@@ -76,8 +76,8 @@ export async function applyChanges(s: Scope, ops: BatchOp[], actor: Actor, opts:
       try {
         switch (o.op) {
           case 'create_task': {
-            const { op: _op, as, note, subtasks, ...input } = o;
-            const r = await tasks.createTaskWithSubtasks(s, { ...input, dependsOn: keys(input.dependsOn), ...(input.parent != null ? { parent: key(input.parent) } : {}) }, subtasks ?? [], actor, { note });
+            const { op: _op, as, note, subtasks, createProject, ...input } = o;
+            const r = await tasks.createTaskWithSubtasks(s, { ...input, dependsOn: keys(input.dependsOn), ...(input.parent != null ? { parent: key(input.parent) } : {}) }, subtasks ?? [], actor, { note, createProject: createProject === true ? undefined : false });
             const t = r.task;
             if (as) {
               if (!as.startsWith('$')) throw new InputError(`"as" must start with $, e.g. "$handover"`);
@@ -89,8 +89,8 @@ export async function applyChanges(s: Scope, ops: BatchOp[], actor: Actor, opts:
             break;
           }
           case 'update_task': {
-            const { op: _op, task, note, ...patch } = o;
-            const t = await tasks.updateTask(s, key(task), { ...patch, ...(patch.dependsOn ? { dependsOn: keys(patch.dependsOn) } : {}), ...(patch.parent != null ? { parent: key(patch.parent) } : {}) }, actor, { note });
+            const { op: _op, task, note, createProject, ...patch } = o;
+            const t = await tasks.updateTask(s, key(task), { ...patch, ...(patch.dependsOn ? { dependsOn: keys(patch.dependsOn) } : {}), ...(patch.parent != null ? { parent: key(patch.parent) } : {}) }, actor, { note, createProject: createProject === true ? undefined : false });
             done(i, o.op, t);
             break;
           }

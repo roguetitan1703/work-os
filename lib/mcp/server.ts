@@ -315,7 +315,8 @@ function toPatch(a: FieldArgs): TaskPatch {
 
 const fieldShape = {
   description: z.string().optional().describe('Longer detail / context (markdown ok)'),
-  project: z.string().nullable().optional().describe('Project or client name (or id). Created if it does not exist; null clears'),
+  project: z.string().nullable().optional().describe('Project or client name (or id); null clears. An unknown name is refused unless create_project is true'),
+  create_project: z.boolean().optional().describe('true: make a new project of that name when it does not exist (default: refuse and name the closest)'),
   mode: ModeSchema.nullable().optional(),
   priority: PrioritySchema.optional(),
   tags: z.array(z.string()).optional(),
@@ -807,7 +808,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const { note, subtasks, ...fields } = a;
-      const r = await tasks.createTaskWithSubtasks(s, { ...toPatch(fields), title: a.title }, subtaskInputs(subtasks), ACTOR, { note });
+      const r = await tasks.createTaskWithSubtasks(s, { ...toPatch(fields), title: a.title }, subtaskInputs(subtasks), ACTOR, { note, createProject: fields.create_project === true ? undefined : false });
       return { created: await brief(r.task, ctx), ...(r.subtasks.length ? { subtasks: await Promise.all(r.subtasks.map(k => brief(k, ctx))) } : {}) };
     }),
   );
@@ -827,7 +828,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const { task, note, ...fields } = a;
       const watch = await watchTasks(caller, [watchTarget('update_task', a)!]);
-      const t = await tasks.updateTask(s, task, toPatch(fields), ACTOR, { note });
+      const t = await tasks.updateTask(s, task, toPatch(fields), ACTOR, { note, createProject: fields.create_project === true ? undefined : false });
       await notifyChanges(watch);
       return { updated: await brief(t, ctx), ...(await reviewNote(t, fields.status === 'Done')) };
     }),
@@ -1091,11 +1092,11 @@ export function createMcpServer(ctx: Ctx): McpServer {
   function toBatchOp(o: z.infer<typeof OpSchema>): BatchOp {
     if (o.op === 'create_task') {
       const { op, as, note, title, subtasks, ...fields } = o;
-      return { op, as, note, ...toPatch(fields), title, ...(subtasks?.length ? { subtasks: subtaskInputs(subtasks) } : {}) } as BatchOp;
+      return { op, as, note, createProject: fields.create_project === true, ...toPatch(fields), title, ...(subtasks?.length ? { subtasks: subtaskInputs(subtasks) } : {}) } as BatchOp;
     }
     if (o.op === 'update_task') {
       const { op, task, note, ...fields } = o;
-      return { op, task, note, ...toPatch(fields) } as BatchOp;
+      return { op, task, note, createProject: fields.create_project === true, ...toPatch(fields) } as BatchOp;
     }
     if (o.op === 'add_comment') {
       const text = o.note ?? o.text;
@@ -1319,7 +1320,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const t = a.task === undefined ? null : await tasks.getTask(s, a.task);
-      if (a.task !== undefined && !t) throw new NotFoundError('Task not found');
+      if (a.task !== undefined && !t) throw new NotFoundError(`Task ${typeof a.task === 'number' ? '#' : ''}${a.task} not found`);
       const ident = identOf('set_doing', [a]);
       const here = await presentRow(s, ident);
       if (!here) throw new InputError('You are not registered as present: call start_work first (and pass its session id)');
@@ -1889,7 +1890,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
         channel: z.string().optional().describe('Alternative to message_link: channel name or id'),
         message_id: z.string().optional(),
         title: z.string().optional().describe('Short, verb-first title; drafted from the message if omitted'),
-        project: z.string().nullable().optional(),
+        project: z.string().nullable().optional().describe('An existing project name or id; an unknown name is refused unless create_project is true'),
+        create_project: z.boolean().optional().describe('true: make a new project of that name when it does not exist'),
         mode: ModeSchema.nullable().optional(),
         priority: PrioritySchema.optional(),
         due: dateArg.nullable().optional().describe('Only if the message states a date'),
@@ -1903,7 +1905,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         s,
         link,
         { link: a.message_link, channel: a.channel, messageId: a.message_id },
-        { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note },
+        { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note, createProject: a.create_project === true ? undefined : false },
         ACTOR,
       );
       return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: r.message };
@@ -2028,7 +2030,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
       inputSchema: {
         ...msgRef,
         title: z.string().optional().describe('Short, verb-first title; from the subject if omitted'),
-        project: z.string().nullable().optional(),
+        project: z.string().nullable().optional().describe('An existing project name or id; an unknown name is refused unless create_project is true'),
+        create_project: z.boolean().optional().describe('true: make a new project of that name when it does not exist'),
         mode: ModeSchema.nullable().optional(),
         priority: PrioritySchema.optional(),
         due: dateArg.nullable().optional().describe('Only if the mail states a date'),
@@ -2037,7 +2040,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     handler(async a => {
-      const r = await mail.messageToTask(mailCtx(), a, { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note });
+      const r = await mail.messageToTask(mailCtx(), a, { title: a.title, project: a.project, mode: a.mode, priority: a.priority, due: a.due, note: a.note, createProject: a.create_project === true ? undefined : false });
       return { [r.existing ? 'alreadyTracked' : 'created']: await brief(r.task, ctx), message: mail.markUntrusted(r.message) };
     }),
   );
