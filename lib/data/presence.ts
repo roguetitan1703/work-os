@@ -89,7 +89,8 @@ export function labelPatch(ex: Pick<PresenceDoc, 'label' | 'labelSource' | 'disp
   if (!t) return null;
   const forced = !!ex?.dispatched;
   if (forced) return source === 'forced' ? { label: t, labelSource: 'forced', labelAt: new Date() } : null;
-  const was: LabelSource | undefined = ex?.labelSource ?? (ex?.label ? 'label' : undefined);
+  // Before Identity step 4 the start hook named every session "Claude Code" with no source: that is a fallback, not a chosen name.
+  const was: LabelSource | undefined = ex?.labelSource ?? (ex?.label ? (ex.label === 'Claude Code' ? 'fallback' : 'label') : undefined);
   const explicitWas = was === 'title' || was === 'label' || was === 'forced';
   const ok = source === 'forced' || source === 'title' || source === 'label' || (source === 'ai' && !explicitWas) || (source === 'fallback' && !ex?.label);
   return ok ? { label: t, labelSource: source, labelAt: new Date() } : null;
