@@ -7,7 +7,7 @@ import { listProjectsBasic } from '@/lib/data/projects';
 import { asCaller } from '@/lib/caller';
 import { userActor } from '@/lib/actors';
 import type { Scope } from '@/lib/scope';
-import { UNTITLED } from '@/lib/notes-shelves';
+import { UNTITLED, type Shelf } from '@/lib/notes-shelves';
 
 // Every action requires a signed-in caller (lib/caller.ts); proxy.ts is only the first gate. They act in the caller's
 // scope, as the caller (actor kind 'user').
@@ -54,6 +54,17 @@ export async function saveNoteAction(
   } catch (e) {
     if (e instanceof NoteConflictError) return { error: e.message, conflict: true };
     return { error: msg(e, 'Could not save') };
+  }
+}
+
+/** Moves a project note to a shelf (null puts it back where it belongs by default). */
+export async function setShelfAction(id: string, shelf: Shelf | null): Promise<{ ok: true } | { error: string }> {
+  try {
+    const { note } = await asCaller(c => writeNote(c, { noteId: id, shelf }, userActor(c.userId)));
+    refresh(note);
+    return { ok: true };
+  } catch (e) {
+    return { error: msg(e, 'Could not move the note') };
   }
 }
 

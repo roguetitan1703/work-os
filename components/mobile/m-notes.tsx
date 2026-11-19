@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { createNoteAction } from '@/app/(app)/notes/actions';
 import { cn } from '@/lib/utils';
 import { BottomSheet } from './sheet';
-import { UNTITLED } from '@/lib/notes-shelves';
+import { ARCHIVE, SHELVES, UNTITLED } from '@/lib/notes-shelves';
 
 type P = { id: string; name: string; private?: boolean };
 
@@ -23,6 +23,7 @@ export function MobileNoteFilters({ projects }: { projects: P[] }) {
   const state = sp.get('state') ?? 'active';
   const kind = sp.get('kind') ?? 'all';
   const project = sp.get('project') ?? '';
+  const shelf = sp.get('shelf') ?? '';
 
   const go = (patch: Record<string, string>) => {
     // Read the live URL: a debounced search can fire after a chip tap, and a stale `sp` would undo it.
@@ -77,6 +78,16 @@ export function MobileNoteFilters({ projects }: { projects: P[] }) {
         <Chip on={kind === 'project'} onClick={() => go({ kind: kind === 'project' ? 'all' : 'project' })}>
           Project notes
         </Chip>
+      </div>
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <Chip on={!shelf} onClick={() => go({ shelf: '' })}>
+          Any shelf
+        </Chip>
+        {[...SHELVES.map(x => ({ id: x.id as string, label: x.label })), { id: ARCHIVE, label: 'Archive' }].map(x => (
+          <Chip key={x.id} on={shelf === x.id} onClick={() => go({ shelf: shelf === x.id ? '' : x.id })}>
+            {x.label}
+          </Chip>
+        ))}
       </div>
       {projects.length > 0 && (
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

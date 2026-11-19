@@ -12,29 +12,32 @@ import { HubSegment } from '@/components/mobile/hub-segment';
 import { MobileNoteFilters, NewNoteSheetButton } from '@/components/mobile/m-notes';
 import { Suspense } from 'react';
 import { Select } from '@/components/ui/select';
+import { ARCHIVE, SHELVES, shelfLabel, type Shelf } from '@/lib/notes-shelves';
 
 export const metadata = { title: 'Notes · Work OS' };
 
 type State = 'active' | 'archived' | 'all';
 type Kind = 'all' | 'task' | 'project';
-type Props = { searchParams: Promise<{ state?: string; kind?: string; project?: string; q?: string }> };
+type Props = { searchParams: Promise<{ state?: string; kind?: string; project?: string; q?: string; shelf?: string }> };
 
 export default async function NotesPage({ searchParams }: Props) {
   const sp = await searchParams;
   const state: State = sp.state === 'archived' || sp.state === 'all' ? sp.state : 'active';
   const kind: Kind = sp.kind === 'task' || sp.kind === 'project' ? sp.kind : 'all';
+  const shelf = [...SHELVES.map(x => x.id as string), ARCHIVE].includes(sp.shelf ?? '') ? (sp.shelf as Shelf | typeof ARCHIVE) : undefined;
   const s = await requireScope();
   const [{ total, notes }, projects] = await Promise.all([
-    listNotes(s, { state, kind, project: sp.project || undefined, q: sp.q || undefined }),
+    listNotes(s, { state, kind, shelf, project: sp.project || undefined, q: sp.q || undefined }),
     listProjectsBasic(s),
   ]);
-  const href = (p: Partial<Record<'state' | 'kind' | 'project' | 'q', string>>) => {
+  const href = (p: Partial<Record<'state' | 'kind' | 'project' | 'q' | 'shelf', string>>) => {
     const u = new URLSearchParams();
-    const v = { state, kind, project: sp.project ?? '', q: sp.q ?? '', ...p };
+    const v = { state, kind, project: sp.project ?? '', q: sp.q ?? '', shelf: shelf ?? '', ...p };
     if (v.state !== 'active') u.set('state', v.state);
     if (v.kind !== 'all') u.set('kind', v.kind);
     if (v.project) u.set('project', v.project);
     if (v.q) u.set('q', v.q);
+    if (v.shelf) u.set('shelf', v.shelf);
     const s = u.toString();
     return s ? `/notes?${s}` : '/notes';
   };
@@ -44,7 +47,7 @@ export default async function NotesPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-4 md:space-y-5 max-w-4xl">
-      <MobileHeader title="Notes" subtitle={`${total} ${state === 'archived' ? 'archived' : 'notes'}`} right={<NewNoteSheetButton projects={sheetProjects} defaultProject={sp.project} />} />
+      <MobileHeader title="Notes" subtitle={`${total} ${state === 'archived' || shelf === ARCHIVE ? 'archived' : 'notes'}`} right={<NewNoteSheetButton projects={sheetProjects} defaultProject={sp.project} />} />
       <HubSegment active="notes" />
       <Suspense>
         <MobileNoteFilters projects={activeProjects.map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }))} />
@@ -74,6 +77,15 @@ export default async function NotesPage({ searchParams }: Props) {
             </option>
           ))}
         </Select>
+        <Select name="shelf" defaultValue={shelf ?? ''} aria-label="Shelf" className="h-9 rounded-md border border-border bg-background px-2 text-sm">
+          <option value="">Any shelf</option>
+          {SHELVES.map(x => (
+            <option key={x.id} value={x.id}>
+              {x.label}
+            </option>
+          ))}
+          <option value={ARCHIVE}>Archive</option>
+        </Select>
         <button className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium">Filter</button>
       </form>
 
@@ -88,7 +100,7 @@ export default async function NotesPage({ searchParams }: Props) {
 
       {notes.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-          {sp.q || sp.project ? 'No notes match.' : state === 'archived' ? 'No archived notes.' : 'No notes yet. Create one from a task or project, or with New note.'}
+          {sp.q || sp.project || shelf ? 'No notes match.' : state === 'archived' ? 'No archived notes.' : 'No notes yet. Create one from a task or project, or with New note.'}
         </div>
       ) : (
         <>
@@ -104,7 +116,7 @@ export default async function NotesPage({ searchParams }: Props) {
                   </div>
                   {n.firstLine && <p className="text-sm text-muted-foreground truncate">{n.firstLine}</p>}
                   <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-                    <span className="truncate">{n.taskRef ? `#${n.taskRef} ${n.taskTitle ?? ''}` : (n.projectName ?? '')}</span>
+                    <span className="truncate">{n.taskRef ? `#${n.taskRef} ${n.taskTitle ?? ''}` : (n.projectName ?? '')}{n.shelf ? ` · ${shelfLabel(n.shelf)}` : ''}</span>
                     <span className="ml-auto shrink-0">{fmtAgo(n.updatedAt)}</span>
                   </div>
                 </div>
@@ -134,6 +146,7 @@ export default async function NotesPage({ searchParams }: Props) {
                       <span className="flex items-center gap-1">
                         <FolderOpen className="w-3 h-3" />
                         {n.projectName}
+                        {n.shelf ? ` · ${shelfLabel(n.shelf)}` : ''}
                       </span>
                     )}
                     <span className="ml-auto shrink-0">
