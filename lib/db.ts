@@ -357,6 +357,10 @@ export type PresenceDoc = Placed & {
   doing?: { taskId: string; at: Date };
   /** The state the Claude Code hook last reported (POST /api/agent/event; the server decides it from the event). Absent for sessions with no hook token. */
   activity?: { state: PresenceState; at: Date; why?: 'prompt' };
+  /** Wake chain (lib/data/deliver.ts): the chain of the message that woke this session's current turn; -1 after a person's prompt. A message it sends carries this plus 1. */
+  turnChain?: number;
+  /** When the server last handed this session a wake (a message or an answered Need pushed to it while idle). */
+  wokeAt?: Date;
   /** Claude Code's own session UUID, only for the join with the worker daemon's session list. Never shown to anyone. */
   ccSession?: string;
   /** Set by end_work: the session said it stopped. The roster shows it as gone. A later start_work clears it. */
