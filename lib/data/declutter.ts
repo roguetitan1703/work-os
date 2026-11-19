@@ -106,7 +106,7 @@ export async function buildProposal(s: Scope, project: ProjectDoc, now = new Dat
   }
 
   // Needs open for 14 days, apart from review and release Needs (those are never old clutter).
-  const needs = await c.needs.find({ projectId: pid, status: 'open', kind: { $ne: 'review' }, release: { $ne: true }, createdAt: { $lt: new Date(now.getTime() - GROWTH.staleDays * DAY) } }, { projection: { ref: 1, ask: 1, createdAt: 1 } }).toArray();
+  const needs = await c.needs.find({ projectId: pid, status: 'open', kind: { $ne: 'review' }, release: { $ne: true }, declutter: { $exists: false }, createdAt: { $lt: new Date(now.getTime() - GROWTH.staleDays * DAY) } }, { projection: { ref: 1, ask: 1, createdAt: 1 } }).toArray();
   for (const n of needs) items.push({ id: itemId('need', n.ref), kind: 'withdraw_need', text: `#${n.ref} ${n.ask}`.slice(0, GROWTH.itemText), why: `open ${Math.floor((now.getTime() - n.createdAt.getTime()) / DAY)} days`, target: String(n.ref) });
 
   // Open Claude items move to tasks and Later lines (they retire; see the plan, decision 11).

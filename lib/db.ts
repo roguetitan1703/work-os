@@ -214,7 +214,10 @@ export type NeedDoc = Placed & {
   /** A release Need (an approve Need made with release: true): Yes or Yes for 24 hours opens production on the project until releaseUntil. */
   release?: true;
   releaseUntil?: Date;
+  /** A declutter Need (an approve Need with fixed options, lib/data/declutter.ts): the proposed changes, what the session will do on disk after Yes, what the person unticked and what the server did. */
+  declutter?: DeclutterNeed;
 };
+export type DeclutterNeed = { items: import('./declutter-core').DeclutterItem[]; disk: string[]; skip?: string[]; result?: { applied: string[]; failed: string[] } };
 
 export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {
   _id: string;
@@ -225,6 +228,8 @@ export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | '
   log: { at: Date; actor: Actor; session?: string; text: string }[];
   /** Claude Code key that created it (for the per-day cap). */
   keyId?: string;
+  /** Set when a Declutter moved the item: "#123" (a task) or "later:l_..." (a Later line). */
+  movedTo?: string;
   /** The project's "Small fixes and checks" item (not counted toward the cap; title/kind fixed). */
   group?: true;
 };

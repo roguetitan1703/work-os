@@ -8,10 +8,10 @@ const DAY = 86_400_000;
 
 export type DeclutterKind = 'archive_line' | 'done_next' | 'archive_note' | 'complete_task' | 'withdraw_need' | 'item_to_task' | 'item_to_later' | 'add_later' | 'add_task';
 /** One proposed change. `id` is `kind:target` and stays the same between calls, so `skip` works across them. */
-export type DeclutterItem = { id: string; kind: DeclutterKind; text: string; why: string; target?: string };
+export type DeclutterItem = { id: string; kind: DeclutterKind; text: string; why: string; target?: string; /** What a new Later line waits on (add_later, item_to_later). */ waits?: string };
 
 /** The id of a proposed change: what kind of thing and which one (a line id, note id, task ref, Need ref or item ref). */
-export function itemId(group: 'later' | 'next' | 'note' | 'task' | 'need' | 'item', target: string | number): string {
+export function itemId(group: 'later' | 'next' | 'note' | 'task' | 'need' | 'item' | 'add', target: string | number): string {
   return `${group}:${target}`;
 }
 
@@ -123,10 +123,10 @@ export function itemPlan(i: ItemLike, personName?: string): DeclutterItem | null
   if (i.waitingOn) {
     const who = personName || 'a person';
     const text = clip(`${i.title}: ${first || i.why}`.slice(0, 280));
-    return { id, kind: 'item_to_later', text, why: `Claude item C${i.ref} waits on ${who}${i.waitingText ? ` (${clip(i.waitingText, 80)})` : ''}; it becomes a Later line waiting on ${who}`, target: `C${i.ref}` };
+    return { id, kind: 'item_to_later', text, why: `Claude item C${i.ref} waits on ${who}${i.waitingText ? ` (${clip(i.waitingText, 80)})` : ''}; it becomes a Later line waiting on ${who}`, target: `C${i.ref}`, waits: clip(`${who}${i.waitingText ? `: ${i.waitingText}` : ''}`, 200) };
   }
   if (i.kind !== 'idea' && i.doneWhen?.trim()) {
     return { id, kind: 'item_to_task', text: clip(i.title), why: `Claude item C${i.ref} becomes a task (P3, tag from-claude-item)`, target: `C${i.ref}` };
   }
-  return { id, kind: 'item_to_later', text: clip(`${i.title}: ${first || i.why}`), why: `Claude item C${i.ref} (${i.kind === 'idea' ? 'an idea' : 'no done-when'}) becomes a Later line`, target: `C${i.ref}` };
+  return { id, kind: 'item_to_later', text: clip(`${i.title}: ${first || i.why}`), why: `Claude item C${i.ref} (${i.kind === 'idea' ? 'an idea' : 'no done-when'}) becomes a Later line`, target: `C${i.ref}`, ...(i.waitingText?.trim() ? { waits: clip(i.waitingText.trim(), 200) } : {}) };
 }
