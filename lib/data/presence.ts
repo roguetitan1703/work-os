@@ -339,7 +339,7 @@ async function recordState(
   const at = new Date(Math.min(now + SKEW_MS, Math.max(now - SKEW_MS, Number.isFinite(ev.at) ? ev.at! : now)));
   const before = await c.presence.findOneAndUpdate(
     { _id, userId: s.userId, $or: [{ activity: { $exists: false } }, { 'activity.at': { $lt: at } }] },
-    { $set: { activity: { state: next.state, at, ...(next.why ? { why: next.why } : {}), ...(ev.event === 'tool-start' ? { open: true as const } : {}) }, lastSeen: new Date(now) } },
+    { $set: { activity: { state: next.state, at, ...(next.why ? { why: next.why } : {}), ...(ev.event === 'tool-start' ? { open: true as const } : {}) }, lastSeen: new Date(now), ...(ev.event === 'prompt' ? { promptAt: at } : {}) } },
     { returnDocument: 'before', projection: { activity: 1 } },
   );
   if (before) return { state: next.state, changed: before.activity?.state !== next.state };

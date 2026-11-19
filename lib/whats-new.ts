@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'claude-moves-on',
+    date: '2026-11-19',
+    title: 'Claude moves on by itself',
+    line: 'A Claude session that stops with work left that waits on nobody is asked to carry on, and the one that holds Now is asked to declutter a long State; each project can turn this off.',
+    where: 'A project › Info › Nudges',
+    href: '/projects',
+  },
+  {
     id: 'messages-to-sessions',
     date: '2026-11-19',
     title: 'Messages go to sessions and people',
