@@ -9,6 +9,7 @@ import { matchesClaudeProcess } from './launch.mjs';
 import { writeMarker, removeMarker } from './markers.mjs';
 import { trustFolder } from './trust.mjs';
 import { handleCloneJob, projectsDirOf } from './clone.mjs';
+import { askRun } from './dispatch-run.mjs';
 
 import { bundleId } from './config.mjs';
 
@@ -112,15 +113,23 @@ export function createCore(deps) {
       if (running.has(s.sessionId)) continue;
       const l = locate(s.sessionId);
       if (l.error) { why.add(l.error); continue; }
-      // A dispatched run this worker started is reopened as one (its own run key, never the person's credential; never in VS Code).
-      const ref = state.sessions[s.sessionId] && Number.isInteger(state.sessions[s.sessionId].dispatched) ? state.sessions[s.sessionId].dispatched : undefined;
+      // A dispatched run is reopened as one (its own run key, never the person's credential; never in VS Code). The server says which
+      // sessions are (askRun, one call each; a dispatched one gets its run key there); when it cannot say, the session stays closed.
+      // What this worker remembers (the reopen entry, its session list) counts too: remembered as dispatched but not one to the server
+      // is a refusal, never an ordinary reopen.
+      const local = Number.isInteger(s.dispatched) ? s.dispatched : state.sessions[s.sessionId] && Number.isInteger(state.sessions[s.sessionId].dispatched) ? state.sessions[s.sessionId].dispatched : undefined;
+      let run = null;
+      try { run = await askRun(api, s.sessionId); } catch (e) { why.add(errMsg(e)); continue; }
+      if (!run && local !== undefined) { why.add('a dispatched run the server does not know as one: not reopened'); continue; }
       try {
-        if (s.origin === 'vscode' && ref === undefined) {
+        if (s.origin === 'vscode' && !run) {
           if (!deps.openVscode) throw new Error('VS Code not found');
           bg.push(deps.openVscode({ folder: l.dir, sessionId: s.sessionId }).catch((e) => log('vscode open failed: ' + errMsg(e))));
         } else {
           trustFolder(l.dir, log);
-          await launcher({ kind: 'resume', folder: l.dir, sessionId: s.sessionId, projectName: l.link.projectName || undefined, ...(ref !== undefined ? { dispatched: ref } : {}) });
+          await launcher({ kind: 'resume', folder: l.dir, sessionId: s.sessionId, projectName: l.link.projectName || undefined, ...(run ? { dispatched: run.ref, run: { key: run.key } } : {}) });
+          // A reopened dispatched run is this worker's again: it reports it (the server moved its row to starting) and remembers the ref.
+          if (run) state.sessions[s.sessionId] = { folderId: l.link.folderId, state: 'running', startedAt: now(), dispatched: run.ref };
         }
         opened++;
       } catch (e) { why.add(errMsg(e)); }
@@ -248,7 +257,7 @@ export function createCore(deps) {
         if (a && a.list) {
           body.activity = a.counts;
           body.claudeSessions = a.list;
-          trackOpenSet(state, a.list, now(), !tracked);
+          trackOpenSet(state, a.list, now(), !tracked, (sid) => (state.sessions[sid] ? state.sessions[sid].dispatched : undefined));
           tracked = true;
           body.reopen = reopenReport(state);
           const snap = JSON.stringify([state.openSet, state.reopen]);

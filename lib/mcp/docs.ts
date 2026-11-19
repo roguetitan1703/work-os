@@ -461,7 +461,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   propose_order: {
     title: 'Propose an Orders change',
     description:
-      'Propose a change to the organization Orders or a project\'s Orders when your person does not hold that layer (the holder\'s own Claude changes it with write_note instead). A dispatched run is refused on Orders, here as with write_note. Give project (any project you can read that the holder can too), layer (org or project), new (the line, up to 300 characters), why, and old when it replaces a line (it must occur exactly once now). incident names what happened (up to 80 characters); repeat: true marks a correction made before. It asks the holder as a Need, answered in the app with no phone alert; Accept writes it as one version, and the answer reaches this session.',
+      'Propose a change to the organization Orders or a project\'s Orders when your person does not hold that layer (the holder\'s own Claude changes it with write_note instead). A dispatched run is refused on Orders, here as with write_note: it tells the person in its report instead (its brief says change: none). Give project (any project you can read that the holder can too), layer (org or project), new (the line, up to 300 characters), why, and old when it replaces a line (it must occur exactly once now). incident names what happened (up to 80 characters); repeat: true marks a correction made before. It asks the holder as a Need, answered in the app with no phone alert; Accept writes it as one version, and the answer reaches this session.',
     writes: true,
     example: 'Propose to Om: one Blender at a time per PC',
   },

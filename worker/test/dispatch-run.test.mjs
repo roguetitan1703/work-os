@@ -40,6 +40,14 @@ test('scrubEnv drops WORK_OS_KEY and any variable holding a Work OS credential, 
 test('runSettings blanks WORK_OS_KEY and any settings env value holding a Work OS credential, nothing else', () => {
   assert.deepEqual(run.runSettings(home), { env: { WORK_OS_KEY: '', OTHER_TOKEN: '' } });
   assert.deepEqual(run.runSettings(path.join(tmp, 'nohome')), { env: { WORK_OS_KEY: '' } });
+  // the run's folder: its project and local settings env blocks count too
+  const repo = path.join(tmp, 'repo');
+  fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.claude', 'settings.json'), JSON.stringify({ env: { PROJ_KEY: tok('wos'), PLAIN: 'x' } }));
+  fs.writeFileSync(path.join(repo, '.claude', 'settings.local.json'), JSON.stringify({ env: { LOCAL_KEY: 'Bearer ' + tok('wst') } }));
+  assert.deepEqual(run.runSettings(home, repo), { env: { WORK_OS_KEY: '', OTHER_TOKEN: '', PROJ_KEY: '', LOCAL_KEY: '' } });
+  const f = run.writeRunFiles({ sessionId: randomUUID(), baseUrl: BASE, key: runKey, dir, home, folder: repo });
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.settings, 'utf8')).env, { WORK_OS_KEY: '', OTHER_TOKEN: '', PROJ_KEY: '', LOCAL_KEY: '' });
 });
 
 test('writeRunFiles: Work OS with the run key only, the other servers without any Work OS entry or credential, and the settings', () => {
@@ -129,12 +137,81 @@ test('sweepRunConfigs removes the run files of sessions that no longer run, neve
 test('runFor: asks the server for the run key of a dispatched start or resume; without one the run is not started', async () => {
   const sid = randomUUID();
   const asked = [];
-  const api = { runKey: async (s) => (asked.push(s), { key: runKey }) };
+  const api = { runKey: async (s) => (asked.push(s), { key: runKey, ref: 7 }) };
   assert.equal(await run.runFor({ sessionId: sid }, api), null);
   assert.deepEqual(await run.runFor({ sessionId: sid.toUpperCase(), dispatched: 7 }, api), { key: runKey });
   assert.deepEqual(asked, [sid]);
-  await assert.rejects(run.runFor({ sessionId: sid, dispatched: 7 }, { runKey: async () => { throw new Error('HTTP 400: not a dispatched session of this computer'); } }), /no run key .*not started/);
-  await assert.rejects(run.runFor({ sessionId: sid, dispatched: 7 }, { runKey: async () => ({ key: personKey }) }), /no run key/);
+  assert.deepEqual(await run.runFor({ sessionId: sid, dispatched: 7, run: { key: runKey } }, { runKey: async () => { throw new Error('not asked twice'); } }), { key: runKey });
+  await assert.rejects(run.runFor({ sessionId: sid, dispatched: 7 }, { runKey: async () => { throw new Error('HTTP 400: a dispatched run that cannot be opened'); } }), /no run key .*not started/);
+  await assert.rejects(run.runFor({ sessionId: sid, dispatched: 7 }, { runKey: async () => ({ key: personKey, ref: 7 }) }), /no run key/);
+  await assert.rejects(run.runFor({ sessionId: sid, dispatched: 7 }, { runKey: async () => ({ dispatched: false }) }), /does not know this as a dispatched run/);
+});
+
+test('askRun: a dispatched run (key and ref), an ordinary session (null), and anything else is an error, never "ordinary"', async () => {
+  const sid = randomUUID();
+  assert.deepEqual(await run.askRun({ runKey: async () => ({ key: runKey, ref: 4, expiresAt: 'x' }) }, sid), { ref: 4, key: runKey });
+  assert.equal(await run.askRun({ runKey: async () => ({ dispatched: false }) }, sid), null);
+  for (const api of [{}, { runKey: async () => { throw new Error('HTTP 500'); } }, { runKey: async () => ({}) }, { runKey: async () => null }, { runKey: async () => ({ dispatched: false, key: runKey }) }, { runKey: async () => ({ key: runKey }) }]) {
+    await assert.rejects(run.askRun(api, sid), /dispatched run/);
+  }
+  await assert.rejects(run.askRun({ runKey: async () => ({ dispatched: false }) }, 'bad'), /bad session id/);
+});
+
+test('the reopen set keeps a dispatched run\'s ref after the worker forgets the run (restart, upgrade), and Reopen all asks the server', async () => {
+  const { trackOpenSet } = await import('../openset.mjs');
+  const { createCore } = await import('../core.mjs');
+  const [D, P, U] = [randomUUID(), randomUUID(), randomUUID()];
+  // Before the restart: two runs open, D dispatched (#9) per the worker's own sessions; then the worker forgets D (marked dead, pruned).
+  const st = { sessions: { [D]: { folderId: 'f1', state: 'running', dispatched: 9 } }, reopen: [], openSet: [] };
+  const t0 = 1_000_000;
+  trackOpenSet(st, [{ sessionId: D, running: true, origin: 'cli' }, { sessionId: P, running: true, origin: 'cli' }], t0, true, (s) => st.sessions[s]?.dispatched);
+  delete st.sessions[D];
+  trackOpenSet(st, [{ sessionId: D, running: true, origin: 'cli' }, { sessionId: P, running: true, origin: 'cli' }], t0 + 60_000, false, () => undefined);
+  assert.equal(st.openSet.find((s) => s.sessionId === D).dispatched, 9, 'the ref stays on the open set without the worker\'s session entry');
+  assert.ok(!('dispatched' in st.openSet.find((s) => s.sessionId === P)));
+  // Restart: both gone, both pending.
+  trackOpenSet(st, [], t0 + 120_000, true, () => undefined);
+  assert.equal(st.reopen.find((s) => s.sessionId === D).dispatched, 9);
+
+  // Reopen all, against a fake server.
+  const root = path.join(tmp, 'reopen-root');
+  const app = path.join(root, 'app');
+  fs.mkdirSync(app, { recursive: true });
+  const mk = (answers) => {
+    const launched = [];
+    const opened = [];
+    const state = { ids: {}, folders: { f1: app }, sessions: {}, markers: {}, doneJobs: [], reopen: [] };
+    const c = createCore({
+      getConfig: () => ({ roots: [root] }), state, save() {},
+      api: { runKey: async (s) => { const a = answers[s]; if (a instanceof Error) throw a; return a; } },
+      launcher: async (a) => void launched.push(a), listProcesses: async () => [], killPid: async () => {},
+      sessionLocal: () => ({ cwd: app, origin: 'cli' }), openVscode: async (a) => void opened.push(a),
+    });
+    c.applyLinks([{ folderId: 'f1', projectId: 'p1', projectName: 'Proj' }]);
+    return { c, state, launched, opened };
+  };
+  // D dispatched per the server (a fresh key); P ordinary; U the server cannot answer: not opened.
+  const m = mk({ [D]: { key: runKey, ref: 9 }, [P]: { dispatched: false }, [U]: new Error('HTTP 503') });
+  m.state.reopen = [{ sessionId: D, origin: 'vscode', dispatched: 9 }, { sessionId: P, origin: 'cli' }, { sessionId: U, origin: 'cli' }];
+  const r = await m.c.handleJob({ id: 'r', kind: 'reopen' });
+  assert.equal(m.opened.length, 0, 'a dispatched run is never opened in VS Code');
+  const d = m.launched.find((a) => a.sessionId === D);
+  assert.equal(d.dispatched, 9); assert.deepEqual(d.run, { key: runKey }); assert.equal(d.kind, 'resume');
+  assert.ok(!('dispatched' in m.launched.find((a) => a.sessionId === P)));
+  assert.ok(!m.launched.some((a) => a.sessionId === U), 'no answer: not opened');
+  assert.equal(r.ok, false); assert.match(r.error, /Opened 2 of 3.*could not check/);
+  assert.deepEqual({ ...m.state.sessions[D], startedAt: 0 }, { folderId: 'f1', state: 'running', startedAt: 0, dispatched: 9 });
+  // Remembered as dispatched here but ordinary to the server: refused, never opened as the person's own.
+  const n = mk({ [D]: { dispatched: false } });
+  n.state.reopen = [{ sessionId: D, origin: 'cli', dispatched: 9 }];
+  const r2 = await n.c.handleJob({ id: 'r2', kind: 'reopen' });
+  assert.equal(n.launched.length, 0); assert.match(r2.error, /not reopened/);
+  // The worker's own entry for a dispatched session counts the same way.
+  const o = mk({ [D]: { dispatched: false } });
+  o.state.sessions[D] = { folderId: 'f1', state: 'running', dispatched: 9 };
+  o.state.reopen = [{ sessionId: D, origin: 'cli' }];
+  await o.c.handleJob({ id: 'r3', kind: 'reopen' });
+  assert.equal(o.launched.length, 0);
 });
 
 test('the wt command line carries the strict config and the settings through to the wrapper unchanged', () => {

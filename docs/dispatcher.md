@@ -176,14 +176,18 @@ A dispatched run is treated as possibly prompt-injected (its task text can come 
 person's own Work OS access (their MCP config, and `WORK_OS_KEY` from the settings `env` block in every command), so only labels
 and the hook stood between it and the Orders or the lead session, and it could curl `/api/mcp` itself.
 
-- **The credential:** a run key, `wdr_` + 32 random bytes (`lib/run-keys.ts`). The worker asks for one with its device key just
-  before it starts or resumes a dispatched session (`POST /api/worker/run-key {sessionId}`); the server makes it only for this
-  computer's own worker session row with `dispatched: true` and keeps only its hash on that row (`runKey {hash, keyHash, ref, at,
-  expiresAt}`, unique partial index). One live key per run: a resume replaces it. It dies after 24 hours, when the worker reports
-  the run stopped, dead or failed, when the computer is revoked or gets a new key (`keyHash`), or when its owner leaves.
+- **The credential:** a run key, `wdr_` + 32 random bytes (`lib/run-keys.ts`). The worker asks with its device key just before it
+  starts or resumes a dispatched session, and before it reopens any session (`POST /api/worker/run-key {sessionId}`): `{dispatched:
+  false}` when the person has no dispatched run with that id; `{key, expiresAt, ref}` for this computer's own dispatched run (a row
+  reported dead or stopped goes back to starting, since it is about to run again); 400 for a dispatched run that gets none (another
+  computer, failed, its task gone). Only the key's hash is kept on the row (`runKey {hash, keyHash, ref, at, expiresAt}`, unique
+  partial index). One live key per run: a resume replaces it. It dies after 24 hours, when the worker reports the run stopped, dead
+  or failed, when the computer is revoked or gets a new key (`keyHash`), or when its owner leaves. Resume in the app refuses a
+  dispatched session whose task is gone, and sets the row to starting before it makes the job.
 - **The server:** `/api/mcp` takes it (no other route does) as the person's Claude Code with `dispatched {taskId, ref, sessionId}`
   on the caller and in the request context, whatever the run sends. Then: `canEditOrders` is false (`lib/data/orders.ts`), so
-  Orders text is never writable and `propose_order` is the way; `mail_*` and `discord_*` tools are refused (`policy.ts`); a
+  Orders text is never writable, `propose_order` is refused too (as the hook does) and its brief says `change: 'none'`: a run
+  names an Orders change in its report to the person; `mail_*` and `discord_*` tools are refused (`policy.ts`); a
   session id in any tool's `session` argument or in `X-Work-OS-Session` that names a session of the person that is not a
   dispatched run on the same task is refused (`namesOtherSession`, in the tool wrapper, so it covers R8's `session` on every
   tool); `start_work` marks the session it starts (`dispatched`, the forced label), so set_now and the other dispatched rules
@@ -191,11 +195,16 @@ and the hook stood between it and the Orders or the lead session, and it could c
 - **The worker:** `worker/dispatch-run.mjs`. `runFor` gets the key (no key: the run is not started); `launch` writes two files in
   `<temp>/work-os-run/` (user-only): `run-<id>.json`, the MCP config with Work OS (`work-os`, so permission rules still match) on
   the run key plus the person's other user MCP servers (any on the Work OS host or holding a Work OS credential are left out),
-  and `run-<id>.settings.json`, which sets `WORK_OS_KEY` (and any settings env value holding a Work OS credential) to empty; claude
-  runs with `--strict-mcp-config --mcp-config <file> --settings <file>`, never with the key on its command line.
+  and `run-<id>.settings.json`, which sets `WORK_OS_KEY` (and any name holding a Work OS credential in the env block of the
+  person's settings or the folder's `.claude/settings.json` and `settings.local.json`) to empty; claude runs with
+  `--strict-mcp-config --mcp-config <file> --settings <file>`, never with the key on its command line. Checked on Claude Code
+  2.1.327 with a real `claude -p`: without the flag the run sees the person's claude.ai connectors and their Work OS server; with
+  it, no MCP tool at all (connectors and plugin servers are dropped too).
   `run-claude.mjs` drops the same variables from claude's environment (`scrubEnv`) and deletes both files when claude ends; the
-  worker sweeps files of runs that no longer run (a crash). A dispatched session the worker reopens after a restart is reopened
-  as one (the worker remembers the ref), never in VS Code. macOS: `env -u WORK_OS_KEY`, the sweep deletes the files.
+  worker sweeps files of runs that no longer run (a crash). **Reopen all** asks the server about every session it reopens
+  (`askRun`): a dispatched one opens with its run key (never in VS Code) and is the worker's again; no answer means not opened;
+  one this worker remembers as dispatched (the reopen entry keeps the ref for its 7 days, `openset.mjs`, and the worker's own
+  session list) but the server calls ordinary is refused. macOS: `env -u WORK_OS_KEY`, the sweep deletes the files.
 - **Not covered (same OS user):** the run can still read files its user can: the person's OAuth token store, `~/.claude.json`, the
   settings file and the worker's device key (DPAPI or Keychain, same user). The hook's shell guard (B1) catches the plain ways; a
   deliberate script can get past it on a PC. A run the person resumes by hand in their own terminal uses their own setup (the

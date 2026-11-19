@@ -96,7 +96,7 @@ export async function launch({ kind, folder, sessionId, projectName, prompt, cla
   const isRun = Number.isInteger(dispatched);
   if (isRun && !(run && run.key)) throw new Error('a dispatched run needs its own Work OS key; not started');
   if (mcpConfig && !(path.isAbsolute(mcpConfig) && fs.existsSync(mcpConfig))) throw new Error('mcpConfig must be an existing absolute path');
-  const runFiles = isRun ? writeRunFiles({ sessionId, baseUrl, key: run.key, ...(deps.runDir ? { dir: deps.runDir } : {}), ...(deps.home ? { home: deps.home } : {}) }) : null;
+  const runFiles = isRun ? writeRunFiles({ sessionId, baseUrl, key: run.key, folder, ...(deps.runDir ? { dir: deps.runDir } : {}), ...(deps.home ? { home: deps.home } : {}) }) : null;
   const cargs = claudeArgs({ kind, sessionId, projectName, prompt, mcpConfig, runFiles });
   const title = projectName || 'claude';
   const spawnIt = deps.spawn || spawnDetached;

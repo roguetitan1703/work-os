@@ -148,7 +148,7 @@ function mkCore(over = {}) {
   const state = { ids: {}, folders: { f_app: app }, sessions: {}, markers: {}, doneJobs: [], reopen: [] };
   const locals = { [SID]: { cwd: path.join(app, 'sub'), origin: 'vscode' }, [SID2]: { cwd: outside, origin: 'vscode' }, [SID3]: { cwd: app + '-evil', origin: 'cli' }, ...(over.locals || {}) };
   const c = createCore({
-    getConfig: () => ({ roots: [root] }), state, save() {}, api: {},
+    getConfig: () => ({ roots: [root] }), state, save() {}, api: over.api || { runKey: async () => ({ dispatched: false }) }, // reopen asks whether a session is a dispatched run
     launcher: async (a) => void launched.push(a), listProcesses: async () => over.procs || [], killPid: async () => {},
     sessionLocal: (sid) => locals[sid] || null,
     openVscode: async (a) => void opened.push(a),

@@ -480,7 +480,7 @@ async function guardOrders(s: Scope, actor: Actor, ids: (string | null | undefin
     // A Claude Code session the dispatcher started on a task (its text can come from a teammate), or any Claude Code call that
     // names no session, never edits Orders: only the holder's own interactive Claude Code or chat session does.
     if (!isPerson(actor) && actor.kind === 'agent' && actor.agent === 'claude-code') {
-      if (!(await isHookedInteractive(s, session))) throw new InputError('This page holds Orders; a Claude Code session started for a task (or one that names no session) cannot change them. Ask its holder in a session of their own, or use propose_order.');
+      if (!(await isHookedInteractive(s, session))) throw new InputError('This page holds Orders; a Claude Code session started for a task (or one that names no session) cannot change them. A dispatched run proposes nothing either: tell the person in your report what you would change. Any other session: name your own session.');
     }
   }
 }

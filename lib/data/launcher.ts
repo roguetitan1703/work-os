@@ -582,8 +582,16 @@ export async function resumeSession(scope: DeviceScope, projectId: string, sessi
   if (!(await c.workerFolders.findOne({ deviceId: s.deviceId, folderId: s.folderId, projectId }, { projection: { _id: 1 } }))) throw new InputError('That folder is no longer linked to this project; link it again first');
   // H15: a session the dispatcher started stays marked when the person resumes it (Reopen all included), so its hooks keep the refusals.
   const task = s.dispatched && s.taskId ? await c.tasks.findOne({ _id: s.taskId }, { projection: { ref: 1 } }) : null;
-  await addJob(scope, s.deviceId, { kind: 'resume', sessionId, folderId: s.folderId, projectId, ...(task && Number.isInteger(task.ref) ? { dispatched: task.ref } : {}) });
+  // A dispatched session whose task is gone (trashed or deleted) has no ref and could get no run key: it is never resumed as an ordinary one.
+  if (s.dispatched && !(task && Number.isInteger(task.ref))) throw new InputError("This session was started for a task that is gone, so it can't be resumed");
+  // The row is starting before the job exists: a worker woken at once asks for its run key while the row is no longer failed or dead.
   await c.workerSessions.updateOne({ _id: sessionId }, { $set: { state: 'starting', updatedAt: new Date() }, $unset: { error: '' } });
+  try {
+    await addJob(scope, s.deviceId, { kind: 'resume', sessionId, folderId: s.folderId, projectId, ...(task && Number.isInteger(task.ref) ? { dispatched: task.ref } : {}) });
+  } catch (e) {
+    await c.workerSessions.updateOne({ _id: sessionId, state: 'starting' }, { $set: { state: s.state, updatedAt: new Date(), ...(s.error ? { error: s.error } : {}) } });
+    throw e;
+  }
 }
 
 export async function stopSession(scope: DeviceScope, projectId: string, sessionId: string): Promise<void> {

@@ -27,13 +27,18 @@ const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex
 export type RunKeyOwner = { userId: string; orgId: string; deviceId: string; /** The worker session id (Claude Code's session UUID). */ sessionId: string; taskId: string; ref: number };
 
 /**
- * A new run key for this computer's dispatched session `sessionId`, replacing any earlier one, or null when there is no such
- * session (not dispatched, another computer or owner, failed, its task gone). Returns the key in full: the only time it exists.
+ * What the worker asks before it starts, resumes or reopens a session (POST /api/worker/run-key):
+ *   - `{ plain: true }`: the person has no dispatched run with this id, so the worker opens it as their own session;
+ *   - a new run key for this computer's dispatched session `sessionId` (replacing any earlier one; a row the worker had reported
+ *     dead or stopped is moved back to starting, since a resume or reopen is about to run it again);
+ *   - null: a dispatched run that gets no key (on another computer, failed, its task gone): the worker opens nothing.
+ * Returns the key in full: the only time it exists.
  */
-export async function mintRunKey(s: Scope, deviceId: string, sessionId: string): Promise<{ key: string; expiresAt: Date } | null> {
+export async function mintRunKey(s: Scope, deviceId: string, sessionId: string): Promise<{ key: string; expiresAt: Date; ref: number } | { plain: true } | null> {
   const c = await scoped(s);
-  const ws = await c.workerSessions.findOne({ _id: sessionId, deviceId, ownerId: s.userId, dispatched: true }, { projection: { taskId: 1, state: 1 } });
-  if (!ws?.taskId || ws.state === 'failed') return null;
+  const ws = await c.workerSessions.findOne({ _id: sessionId, ownerId: s.userId, dispatched: true }, { projection: { taskId: 1, state: 1, deviceId: 1 } });
+  if (!ws) return { plain: true };
+  if (ws.deviceId !== deviceId || !ws.taskId || ws.state === 'failed') return null;
   const task = await c.tasks.findOne({ _id: ws.taskId }, { projection: { ref: 1 } });
   if (!task || !Number.isInteger(task.ref)) return null;
   const dev = await (await collections()).devices.findOne({ _id: deviceId, ownerId: s.userId, orgId: s.orgId, revokedAt: null }, { projection: { hash: 1 } }); // scope-ok: the verified computer's own row, for its key hash
@@ -41,8 +46,9 @@ export async function mintRunKey(s: Scope, deviceId: string, sessionId: string):
   const key = RUN_KEY_PREFIX + randomBytes(32).toString('base64url');
   const now = new Date();
   const expiresAt = new Date(now.getTime() + RUN_KEY_TTL_MS);
-  const r = await c.workerSessions.updateOne({ _id: sessionId, deviceId, ownerId: s.userId, dispatched: true }, { $set: { runKey: { hash: sha256(key), keyHash: dev.hash, ref: task.ref, at: now, expiresAt } } });
-  return r.matchedCount ? { key, expiresAt } : null;
+  const back = ENDED.has(ws.state) ? { state: 'starting' as const, updatedAt: now } : {};
+  const r = await c.workerSessions.updateOne({ _id: sessionId, deviceId, ownerId: s.userId, dispatched: true, state: { $ne: 'failed' } }, { $set: { runKey: { hash: sha256(key), keyHash: dev.hash, ref: task.ref, at: now, expiresAt }, ...back } });
+  return r.matchedCount ? { key, expiresAt, ref: task.ref } : null;
 }
 
 /** The run behind a presented run key, or null: unknown, expired, its run ended, or its computer revoked or no longer its owner's. */

@@ -529,8 +529,9 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
   const layerName = { org: 'org', project: 'project', person: 'person' } as const;
   const served = await ordersFor(s, project);
-  // `change`: the tool that changes this layer for the caller (the holder writes the page, anyone else files a proposal).
-  const orders = (await Promise.all(served.map(async o => ({ o, edit: await ordersData.canEditOrders(s, { orders: o.layer, ownerId: o.ownerId, projectId: o.layer === 'project' ? project._id : null }) })))).map(({ o, edit }) => ({ change: (edit ? 'write_note' : 'propose_order') as 'write_note' | 'propose_order',
+  // `change`: the tool that changes this layer for the caller (the holder writes the page, anyone else files a proposal). A dispatched
+  // run changes none (its task text can come from a teammate): it names the change in its report to the person instead.
+  const orders = (await Promise.all(served.map(async o => ({ o, edit: await ordersData.canEditOrders(s, { orders: o.layer, ownerId: o.ownerId, projectId: o.layer === 'project' ? project._id : null }) })))).map(({ o, edit }) => ({ change: (dispatched ? 'none' : edit ? 'write_note' : 'propose_order') as 'write_note' | 'propose_order' | 'none',
     layer: layerName[o.layer],
     title: o.title,
     version: o.version,

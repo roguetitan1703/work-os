@@ -219,6 +219,7 @@ export async function beforeTool(caller: Caller, tool: string): Promise<void> {
   const keyId = budgetKey(caller);
   if (BLOCKED.has(tool)) throw new PolicyError(`${tool} is not available to Claude Code keys (permanent deletion and admin stay with you, in the app).`);
   if (caller.dispatched && DISPATCHED_REFUSED.test(tool)) throw new PolicyError(`${tool} is not available to a dispatched run (task #${caller.dispatched.ref}): mail and Discord stay with the person. add_comment on the task if you need something from them.`);
+  if (caller.dispatched && tool === 'propose_order') throw new PolicyError(`A dispatched run (task #${caller.dispatched.ref}) changes no Orders and proposes none: tell the person in your report what you would change.`);
   const call = await reserve(keyId, 'call', 1, new Date(Date.now() - 3_600_000), LIMITS.callsPerHour);
   if (!call.id) {
     throw new PolicyError(`Rate limit: this key made ${call.total} Work OS calls in the last hour (max ${LIMITS.callsPerHour}). Wait a few minutes, or batch work with apply_changes.`);

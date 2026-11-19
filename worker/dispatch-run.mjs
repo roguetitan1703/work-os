@@ -34,15 +34,19 @@ export function scrubEnv(env) {
 }
 
 /**
- * The run's settings: the person's settings env block (~/.claude/settings.json) can set WORK_OS_KEY for every command Claude Code
- * runs, so the same names (and any that hold a Work OS credential there) are set to empty for this run.
+ * The run's settings: a settings env block (the person's ~/.claude/settings.json, or the folder's .claude/settings.json and
+ * .claude/settings.local.json) can set WORK_OS_KEY for every command Claude Code runs, so that name, and any name that holds a Work
+ * OS credential in one of them, is set to empty for this run (--settings outranks all three).
  */
-export function runSettings(home = os.homedir()) {
+export function runSettings(home = os.homedir(), folder = null) {
   const env = Object.fromEntries(SCRUB_NAMES.map((k) => [k, '']));
-  try {
-    const s = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf8'));
-    for (const [k, v] of Object.entries((s && s.env) || {})) if (SECRET.test(String(v ?? ''))) env[k] = '';
-  } catch {}
+  const files = [path.join(home, '.claude', 'settings.json'), ...(folder ? [path.join(folder, '.claude', 'settings.json'), path.join(folder, '.claude', 'settings.local.json')] : [])];
+  for (const f of files) {
+    try {
+      const s = JSON.parse(fs.readFileSync(f, 'utf8'));
+      for (const [k, v] of Object.entries((s && s.env) || {})) if (SECRET.test(String(v ?? ''))) env[k] = '';
+    } catch {}
+  }
   return { env };
 }
 
@@ -65,9 +69,9 @@ export function otherServers(baseUrl, home = os.homedir()) {
 
 /**
  * Writes the run's two files, readable by this user only: the MCP config (Work OS with the run key, plus otherServers) and the
- * settings (runSettings). Returns their paths.
+ * settings (runSettings, for the run's folder). Returns their paths.
  */
-export function writeRunFiles({ sessionId, baseUrl, key, dir = runDir(), home = os.homedir() }) {
+export function writeRunFiles({ sessionId, baseUrl, key, dir = runDir(), home = os.homedir(), folder = null }) {
   if (!SID.test(String(sessionId || ''))) throw new Error('bad session id');
   if (!RUN_KEY_RE.test(String(key || ''))) throw new Error('bad run key');
   const base = String(baseUrl || '').replace(/\/+$/, '');
@@ -77,7 +81,7 @@ export function writeRunFiles({ sessionId, baseUrl, key, dir = runDir(), home = 
   const settings = runSettingsPath(sessionId, dir);
   const mcpServers = { ...otherServers(base, home), 'work-os': { type: 'http', url: base + '/api/mcp', headers: { Authorization: `Bearer ${key}` } } };
   fs.writeFileSync(mcpConfig, JSON.stringify({ mcpServers }, null, 1), { mode: 0o600 });
-  fs.writeFileSync(settings, JSON.stringify(runSettings(home), null, 1), { mode: 0o600 });
+  fs.writeFileSync(settings, JSON.stringify(runSettings(home, folder), null, 1), { mode: 0o600 });
   return { mcpConfig, settings };
 }
 
@@ -113,12 +117,27 @@ export function sweepRunConfigs(keep, dir = runDir(), { minAgeMs = 120_000, now 
  * null for a run that is not dispatched. Throws when a dispatched run cannot get one: it is then not started.
  */
 export async function runFor(a, api) {
+  if (a && a.run && RUN_KEY_RE.test(String(a.run.key || ''))) return { key: a.run.key }; // already asked (a reopen: askRun)
   if (!Number.isInteger(a && a.dispatched)) return null;
-  if (!SID.test(String(a.sessionId || ''))) throw new Error('a dispatched run needs its session id');
   let r;
-  try { r = await api.runKey(String(a.sessionId).toLowerCase()); } catch (e) { throw new Error('no run key for this dispatched run, not started (' + String((e && e.message) || e).slice(0, 120) + ')'); }
-  if (!r || !RUN_KEY_RE.test(String(r.key || ''))) throw new Error('no run key for this dispatched run, not started');
+  try { r = await askRun(api, a.sessionId); } catch (e) { throw new Error('no run key for this dispatched run, not started (' + String((e && e.message) || e).slice(0, 160) + ')'); }
+  if (!r) throw new Error('no run key: the server does not know this as a dispatched run, not started');
   return { key: r.key };
+}
+
+/**
+ * Asks the server whether `sessionId` is a dispatched run of this computer (POST /api/worker/run-key): { ref, key } for one (a fresh
+ * run key; the server also moves an ended row back to starting), null for a session that is not one. Throws when it cannot tell (no
+ * answer, a refusal, an answer of another shape): the caller then never opens it as an ordinary session.
+ */
+export async function askRun(api, sessionId) {
+  if (!SID.test(String(sessionId || ''))) throw new Error('bad session id');
+  if (!api || typeof api.runKey !== 'function') throw new Error('cannot ask the server whether this is a dispatched run');
+  let r;
+  try { r = await api.runKey(String(sessionId).toLowerCase()); } catch (e) { throw new Error('could not check whether this is a dispatched run (' + String((e && e.message) || e).slice(0, 120) + ')'); }
+  if (r && r.dispatched === false && !('key' in r)) return null;
+  if (r && RUN_KEY_RE.test(String(r.key || '')) && Number.isInteger(r.ref) && r.ref > 0) return { ref: r.ref, key: r.key };
+  throw new Error('could not check whether this is a dispatched run (unexpected answer)');
 }
 
 /** The run files a claude command line names (after --mcp-config and --settings), when they are ours. */

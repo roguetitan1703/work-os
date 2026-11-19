@@ -3,8 +3,11 @@
 // whatever the run sends: Orders are never writable (even naming the person's real session), a session id that is not the run's
 // is refused, mail and Discord are refused, and the sessions it starts are marked. The person's own key is unaffected.
 // Keys are generated test values and never printed (check() redacts). Seed profile: none.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { B, ME, MCP, api, check, finish, mkDevice, rawDb } from './lib.mjs';
+import { B, EMAIL, ME, MCP, PW, api, check, finish, mkDevice, rawDb } from './lib.mjs';
 import { must, mcpH, markOrders } from './flow-lib.mjs';
 
 const RUN_RE = /^wdr_[A-Za-z0-9_-]{43}$/;
@@ -12,6 +15,29 @@ const folderRow = (dev, fid, projectId) => ({ _id: `${dev.id}:${fid}`, deviceId:
 const wsRow = (dev, id, taskId, extra = {}) => ({ _id: id, orgId: ME.orgId, ownerId: ME.userId, deviceId: dev.id, folderId: 'fdk1', projectId: extra.projectId, state: 'running', startedAt: new Date(), updatedAt: new Date(), ...(taskId ? { dispatched: true, taskId } : {}), ...extra });
 const mint = (devKey, sessionId) => api(devKey, 'POST', '/api/worker/run-key', { sessionId });
 const ordersBody = async id => (await rawDb.collection('notes').findOne({ _id: id }))?.body ?? '';
+// Server actions by name from the build (as flow-h15 does).
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, '.next/server/server-reference-manifest.json'), 'utf8')).node;
+function actionOf(name, file) {
+  for (const [id, e] of Object.entries(MANIFEST)) {
+    const ws = e.exportedName ? [e] : Object.values(e.workers);
+    if (!ws.some(w => w.exportedName === name && file.test(w.filename))) continue;
+    const page = Object.keys(e.workers).find(x => !x.includes('[')) ?? Object.keys(e.workers)[0];
+    return { id, url: '/' + page.replace(/^app\//, '').replace(/\/page$/, '').split('/').filter(x => !/^\(.*\)$/.test(x)).join('/') };
+  }
+  return null;
+}
+async function signIn(email, password = PW) {
+  const r = await fetch(B + '/api/auth/sign-in/email', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ email, password }), redirect: 'manual' });
+  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).join('; ');
+}
+async function act(cookie, name, file, ...args) {
+  const a = actionOf(name, file);
+  if (!a) return { ok: false, text: `${name} not in the build` };
+  const r = await fetch(B + a.url, { method: 'POST', redirect: 'manual', headers: { cookie, origin: B, 'next-action': a.id, 'content-type': 'text/plain;charset=UTF-8', accept: 'text/x-component' }, body: JSON.stringify(args) });
+  const text = await r.text();
+  return { ok: /"ok":true/.test(text), text };
+}
 
 try {
   const proj = (await must(MCP, 'add_project', { name: 'DK One', code: [{ remote: 'acme/dk-one' }] })).project.id;
@@ -26,19 +52,34 @@ try {
   const orders = (await must(MCP, 'write_note', { project: 'DK One', title: 'DK Orders', body: 'Rule one.' })).created.id;
   await markOrders(orders, 'project');
   // Om's own interactive session on the project (his own key): the session a hijacked run would like to act as.
-  const lead = (await must(MCP, 'start_work', { project: 'DK One', label: 'DK · lead' })).session;
+  const leadBrief = await must(MCP, 'start_work', { project: 'DK One', label: 'DK · lead' });
+  const lead = leadBrief.session;
+  check('setup: the person\'s own brief still says write_note for the layer they hold', (leadBrief.orders ?? []).some(o => o.change === 'write_note'), JSON.stringify((leadBrief.orders ?? []).map(o => o.change)));
   check('setup: the person has a real session id', typeof lead === 'string' && lead.length > 8, String(lead));
 
   // ---- 1: minting: only the computer's own dispatched session, only with its device key ----
   const m1 = await mint(pc.key, cc);
   const runKey = m1.body?.key;
-  check('1: the device key gets a run key for its own dispatched session', m1.status === 200 && RUN_RE.test(runKey ?? '') && !!m1.body?.expiresAt, `${m1.status} ${JSON.stringify(m1.body)}`);
+  check('1: the device key gets a run key (and the task ref) for its own dispatched session', m1.status === 200 && RUN_RE.test(runKey ?? '') && !!m1.body?.expiresAt && m1.body?.ref === task.ref, `${m1.status} ${JSON.stringify(m1.body)}`);
   const stored = await rawDb.collection('workerSessions').findOne({ _id: cc });
   check('1: only its hash is stored, on the run\'s own session row', !!stored?.runKey?.hash && !JSON.stringify(stored).includes(runKey) && stored.runKey.ref === task.ref);
   const m2 = await mint(pc.key, plain);
-  check('1: an ordinary (not dispatched) session gets none', m2.status === 400 && !m2.body?.key, `${m2.status}`);
+  const m2b = await mint(pc.key, randomUUID());
+  check('1: an ordinary session, or one the server never saw, is "not dispatched" (no key): the worker opens it as the person\'s own', m2.status === 200 && m2.body?.dispatched === false && !m2.body?.key && m2b.status === 200 && m2b.body?.dispatched === false, JSON.stringify([m2, m2b]));
   const m3 = await mint(other.key, cc);
-  check('1: another computer gets none for this run', m3.status === 400 && !m3.body?.key, `${m3.status}`);
+  check('1: another computer gets no key for this run and is told so (400, never "not dispatched")', m3.status === 400 && !m3.body?.key, `${m3.status} ${JSON.stringify(m3.body)}`);
+  // A dispatched run the worker had reported dead (a reopen after a restart): the key moves the row back to starting, so the key works.
+  const dead = randomUUID();
+  await rawDb.collection('workerSessions').insertOne(wsRow(pc, dead, task.id, { projectId: proj, state: 'dead' }));
+  const md = await mint(pc.key, dead);
+  const deadRow = await rawDb.collection('workerSessions').findOne({ _id: dead });
+  const dk = md.body?.key ? await mcpH(md.body.key, 'get_task', { task: task.ref }) : { isError: true, text: 'no key' };
+  check('1: a key for a dead dispatched run moves its row to starting and works', md.status === 200 && deadRow?.state === 'starting' && !dk.isError, JSON.stringify([md.status, deadRow?.state, dk.text.slice(0, 80)]));
+  // A failed one gets none.
+  const failed = randomUUID();
+  await rawDb.collection('workerSessions').insertOne(wsRow(pc, failed, task.id, { projectId: proj, state: 'failed' }));
+  const mf = await mint(pc.key, failed);
+  check('1: a failed dispatched run gets no key (400)', mf.status === 400 && !mf.body?.key, `${mf.status}`);
   const m4 = await mint(MCP, cc);
   check('1: a Claude Code key cannot mint one (device key only)', m4.status === 401, `${m4.status}`);
   const m5 = await mint(runKey, cc);
@@ -49,6 +90,10 @@ try {
   const own = sw.json?.session;
   const row = own ? await rawDb.collection('presence').findOne({ session: own }) : null;
   check('2: start_work with the run key works and its session row is marked dispatched with the forced label', !sw.isError && row?.dispatched?.ref === task.ref && row?.label === `DK One · worker · #${task.ref}`, sw.text.slice(0, 300));
+  const ordersIn = sw.json?.orders ?? [];
+  check('2: its brief names no way to change the Orders (change: none)', ordersIn.length > 0 && ordersIn.every(o => o.change === 'none'), JSON.stringify(ordersIn.map(o => o.change)));
+  const po = await mcpH(runKey, 'propose_order', { project: 'DK One', layer: 'project', new: 'Injected rule.', why: 'x' }, { 'x-work-os-session': own });
+  check('2: propose_order is refused for a dispatched run (it tells the person in its report)', po.isError && /proposes none/.test(po.text), po.text.slice(0, 200));
   const leadRow = await rawDb.collection('presence').findOne({ session: lead });
   check('2: the person\'s own session row is not marked', !!leadRow && !leadRow.dispatched);
 
@@ -110,9 +155,28 @@ try {
   const e2 = await mcpH(runKey2, 'get_task', { task: task.ref });
   check('5: an expired key is refused', e2.isError && /Unauthorized/.test(e2.text), e2.text.slice(0, 100));
   const runKey3 = (await mint(pc.key, cc)).body?.key;
+  const pcHash = (await rawDb.collection('devices').findOne({ _id: pc.id })).hash;
   await rawDb.collection('devices').updateOne({ _id: pc.id }, { $set: { hash: 'f'.repeat(64) } });
   const e3 = await mcpH(runKey3, 'get_task', { task: task.ref });
   check('5: a device key replace ends the run key made with the old one', RUN_RE.test(runKey3 ?? '') && e3.isError && /Unauthorized/.test(e3.text), e3.text.slice(0, 100));
+  await rawDb.collection('devices').updateOne({ _id: pc.id }, { $set: { hash: pcHash } });
+
+  // ---- 6: Resume from the app: the row is starting before the job; a dispatched session whose task is gone is not resumed ----
+  const cookie = await signIn(EMAIL);
+  const rs1 = randomUUID();
+  await rawDb.collection('workerSessions').insertOne(wsRow(pc, rs1, task.id, { projectId: proj, state: 'failed' }));
+  const a1 = await act(cookie, 'resumeSessionAction', /launcher-actions\.ts$/, proj, rs1);
+  const j1 = await rawDb.collection('workerJobs').findOne({ sessionId: rs1, kind: 'resume' });
+  const s1row = await rawDb.collection('workerSessions').findOne({ _id: rs1 });
+  check('6: resuming a failed dispatched session: starting, and the job carries the task ref', a1.ok && j1?.dispatched === task.ref && s1row?.state === 'starting', JSON.stringify([a1.text.slice(0, 120), j1?.dispatched, s1row?.state]));
+  const rs2 = randomUUID();
+  await rawDb.collection('workerSessions').insertOne(wsRow(pc, rs2, 'gone-task-id', { projectId: proj, state: 'dead' }));
+  const a2 = await act(cookie, 'resumeSessionAction', /launcher-actions\.ts$/, proj, rs2);
+  const j2 = await rawDb.collection('workerJobs').findOne({ sessionId: rs2 });
+  const s2row = await rawDb.collection('workerSessions').findOne({ _id: rs2 });
+  check('6: a dispatched session whose task is gone is not resumed (no job, row unchanged)', !a2.ok && /task that is gone/.test(a2.text) && !j2 && s2row?.state === 'dead', JSON.stringify([a2.text.slice(0, 160), !!j2, s2row?.state]));
+  const m7 = await mint(pc.key, rs2);
+  check('6: and it gets no run key either', m7.status === 400 && !m7.body?.key, `${m7.status}`);
   void B;
 } catch (e) {
   check('suite ran without throwing', false, e?.stack || String(e));

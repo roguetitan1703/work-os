@@ -1646,9 +1646,9 @@ function AUDIT() {
   add('route GET /api/timetable/today', route('GET', '/api/timetable/today'), route('GET', '/api/timetable/today', { label: 'chat key', useKey: true }));
   add('route POST /api/worker/folders', worker('POST', '/api/worker/folders', () => ({ folders: [{ id: 'lkqf0001', name: 'lkq probe folder', path: 'C:/lkq', git: false }] }), { label: 'own scan' }));
   add('route GET /api/worker/jobs', worker('GET', '/api/worker/jobs'));
-  // A run key only for the computer's own dispatched session (A's session is an ordinary one, so the owner is refused too; the
-  // mint itself is in tests/e2e/dispatch-key.mjs). Another persona naming A's session must not write A's row.
-  add('route POST /api/worker/run-key', worker('POST', '/api/worker/run-key', t => ({ sessionId: t.session }), { label: 'their session id', ok: r => two(r.status) && /wdr_/.test(r.text), controlOk: r => r.status === 400 && !/wdr_/.test(r.text) }));
+  // A run key only for the computer's own dispatched session (A's session is an ordinary one: "not dispatched" for the owner too; the
+  // mint itself is in tests/e2e/dispatch-key.mjs). Another persona naming A's session gets the made-up id's answer and writes nothing.
+  add('route POST /api/worker/run-key', worker('POST', '/api/worker/run-key', t => ({ sessionId: t.session }), { label: 'their session id', ok: r => two(r.status) && /wdr_/.test(r.text), controlOk: r => r.status === 200 && /"dispatched":false/.test(r.text) && !/wdr_/.test(r.text) }));
   add('route POST /api/worker/status', worker('POST', '/api/worker/status', t => ({ worker: { version: '0.1.0', os: 'win32', allowPrompts: false }, jobs: [{ id: t.job, ok: false, error: 'lkq' }], sessions: [{ sessionId: t.session, state: 'dead' }] }), { label: 'their job and session ids', controlOk: r => two(r.status), stage: 1 }));
   add('route GET /api/worker/stream', { kind: 'worker', ok: r => r.status === 200, call: ({ p }) => streamPeek('/api/worker/stream', p.wkr ? { authorization: `Bearer ${p.wkr}` } : {}) });
   // The hook's sign-in (device key): A's private project by its folder (the hook sends the worker folder ids; the remote is information).
