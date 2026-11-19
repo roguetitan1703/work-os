@@ -198,6 +198,7 @@ export const ACTIVITY_TYPES = [
   'project_created',
   'project_renamed',
   'visibility_changed',
+  'production',
   'session_ended',
 ] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];

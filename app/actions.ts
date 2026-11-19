@@ -13,6 +13,7 @@ import { userActor, type Actor } from '@/lib/actors';
 import type { Scope } from '@/lib/scope';
 import * as tasks from '@/lib/data/tasks';
 import * as projects from '@/lib/data/projects';
+import * as production from '@/lib/data/production';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 import type {
   Activity,
@@ -142,6 +143,11 @@ export async function projectSharingImpactAction(id: string, keep: string[] = []
 
 export async function updateProjectAction(id: string, patch: Partial<ProjectInput>): Promise<Result<Project>> {
   return run(s => projects.updateProject(s, id, patch));
+}
+
+/** What counts as production on a project (H8): the app only, never an agent's tool. null = back to the default. */
+export async function setProductionAction(projectId: string, input: production.ProductionInput | null): Promise<Result<production.ProductionView>> {
+  return run(s => production.setProduction(s, String(projectId), input));
 }
 
 // ── Session ─────────────────────────────────────────────────────────────────
