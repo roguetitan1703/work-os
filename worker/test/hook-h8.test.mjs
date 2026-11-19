@@ -1,0 +1,407 @@
+// H8 hook side: the production blocks (worker/hook-release.mjs, hook-pre-tool.mjs) and block 3, the WORK-STATE.md copy, as a
+// test of record. Part 1: the parser table against temp git repos (every case expects a match or null). Part 2: the installed
+// copy against a stub server for /api/agent/release and /api/agent/state. No network beyond 127.0.0.1; nothing is pushed.
+import { test, after } from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-hook-h8-'));
+process.env.WORK_OS_HOOK_DIR = path.join(tmp, 'markers');
+process.env.WORK_OS_WORKER_DIR = path.join(tmp, 'cfg');
+Object.assign(process.env, { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' });
+delete process.env.WORK_OS_KEY;
+delete process.env.WORK_OS_URL;
+const { prodAction, splitCommands, releaseDeny } = await import('../hook-release.mjs');
+const { FILES } = await import('../hooks-install.mjs');
+const fwd = (p) => p.split(path.sep).join('/');
+
+const sh = (cwd, ...a) => execFileSync('git', a, { cwd, stdio: 'ignore' });
+function mkRepo(name, branch = 'master') {
+  const d = path.join(tmp, name);
+  fs.mkdirSync(d);
+  sh(d, 'init', '-q', '-b', 'master');
+  sh(d, 'remote', 'add', 'origin', 'https://github.com/acme/prod.git');
+  sh(d, 'remote', 'add', 'delpat', 'https://github.com/acme/mirror.git');
+  fs.writeFileSync(path.join(d, 'a.txt'), '1');
+  sh(d, 'add', '.');
+  sh(d, 'commit', '-qm', 'init');
+  sh(d, 'tag', 'v1');
+  if (branch !== 'master') sh(d, 'checkout', '-q', '-b', branch);
+  sh(d, 'update-ref', `refs/remotes/origin/${branch}`, 'HEAD');
+  sh(d, 'config', `branch.${branch}.remote`, 'origin');
+  sh(d, 'config', `branch.${branch}.merge`, `refs/heads/${branch}`);
+  return d;
+}
+const onMaster = mkRepo('on-master');
+const onDev = mkRepo('on-dev', 'dev');
+const elsewhere = path.join(tmp, 'elsewhere');
+fs.mkdirSync(elsewhere);
+const linked = mkRepo('linked');
+fs.mkdirSync(path.join(linked, 'supabase', '.temp'), { recursive: true });
+fs.writeFileSync(path.join(linked, 'supabase', '.temp', 'project-ref'), 'prodref123\n');
+const PROD = { remotes: ['acme/prod'], branches: ['main', 'master'], targets: ['prodref123'] };
+
+const act = (command, cwd = onMaster, prod = PROD) => prodAction({ command, cwd }, prod);
+const shape = (a) => (a ? `${a.what}:${a.name}` : null);
+
+test('splitCommands: operators outside quotes, quotes removed, call operator dropped, variables marked', () => {
+  const w = (c) => splitCommands(c).map((x) => x.map(String));
+  assert.deepEqual(w('git status && git push origin master; echo done | cat'), [['git', 'status'], ['git', 'push', 'origin', 'master'], ['echo', 'done'], ['cat']]);
+  assert.deepEqual(w('git commit -m "a && b; c" && git push'), [['git', 'commit', '-m', 'a && b; c'], ['git', 'push']]);
+  assert.deepEqual(w("echo 'x;y'\ngit push"), [['echo', 'x;y'], ['git', 'push']]);
+  assert.deepEqual(w('& git push origin master'), [['git', 'push', 'origin', 'master']]);
+  assert.deepEqual(w('git push origin master 2>&1'), [['git', 'push', 'origin', 'master', '2>&1']]);
+  assert.equal(splitCommands('git push $R master')[0][2].dyn, true);
+  assert.equal(splitCommands('git push "$R" master')[0][2].dyn, true);
+  assert.equal(splitCommands('git push origin master')[0][2].dyn, false);
+});
+
+const GIT = [
+  ['git push', 'push:master'],
+  ['git push origin master', 'push:master'],
+  ['git push origin dev', null],
+  ['git push origin HEAD', 'push:master'],
+  ['git push origin HEAD:master', 'push:master'],
+  ['git push origin +dev:master', 'push:master'],
+  ['git push origin :master', 'push:master'],
+  ['git push origin refs/heads/master', 'push:master'],
+  ['git push origin dev:refs/heads/master', 'push:master'],
+  ['git push origin main', 'push:main'],
+  ['git push -u origin master', 'push:master'],
+  ['git push --force-with-lease origin master', 'push:master'],
+  ['git push -f origin master', 'push:master'],
+  ['git push -o ci.skip origin dev', null],
+  ['git push origin dev master', 'push:master'],
+  ['git push --tags origin', 'tag:tags'],
+  ['git push origin --follow-tags', 'tag:follow-tags'],
+  ['git push --all origin', 'push:all'],
+  ['git push --mirror origin', 'push:mirror'],
+  ['git push origin v1', 'tag:v1'],
+  ['git push origin refs/tags/v2', 'tag:v2'],
+  ['git push origin v9', null],
+  ['git push --dry-run origin master', null],
+  ['git push -n origin master', null],
+  ['git push delpat master', null],
+  ['git push --tags delpat', null],
+  ['git push https://github.com/acme/prod.git master', 'push:master'],
+  ['git push git@github.com:acme/prod.git master', 'push:master'],
+  ['git push https://github.com/acme/other.git master', null],
+  ['git push $R master', null],
+  ['git push origin $B', null],
+  ['git push "$R" master', null],
+  ['bash -c "git push origin master"', null],
+  ['echo git push origin master', null],
+  ['git status && git push origin master', 'push:master'],
+  ['git add . | git commit -m x', null],
+  ['cd . ; git push origin master', 'push:master'],
+  ['& git push origin master', 'push:master'],
+  ['GIT_TRACE=1 git push origin master', 'push:master'],
+  ['sudo git push origin master', 'push:master'],
+  ['git commit -m "git push origin master"', null],
+  ['git log origin/master', null],
+  ['git tag v3', null],
+  ['git push origin master --dry-run', null],
+];
+for (const [cmd, want] of GIT) {
+  test(`git: ${cmd} -> ${want ?? 'passes'}`, () => assert.equal(shape(act(cmd)), want));
+}
+
+test('git: no refspec on another branch passes; -C names the repo; a push from outside a repo passes', () => {
+  assert.equal(shape(act('git push', onDev)), null, 'dev is not production');
+  assert.equal(shape(act('git push origin', onDev)), null);
+  assert.equal(shape(act(`git -C "${fwd(onMaster)}" push origin master`, elsewhere)), 'push:master');
+  assert.equal(shape(act(`git -C ${fwd(onDev)} push origin master`, onMaster)), 'push:master', 'the refspec still names master');
+  assert.equal(shape(act(`git -C ${fwd(onDev)} push`, onMaster)), null, '-C moves to the dev repo');
+  assert.equal(shape(act('git push origin master', elsewhere)), null, 'no repo here: the remote name resolves to nothing');
+  assert.equal(shape(act(`cd ${fwd(onMaster)} && git push`, elsewhere)), 'push:master', 'cd in the same command line');
+});
+
+test('git: a branch list with a prefix pattern, other remotes listed, nothing listed', () => {
+  assert.equal(shape(act('git push origin release/1.0', onMaster, { ...PROD, branches: ['release/*'] })), 'push:release/1.0');
+  assert.equal(shape(act('git push origin master', onMaster, { ...PROD, branches: ['release/*'] })), null);
+  assert.equal(shape(act('git push delpat master', onMaster, { ...PROD, remotes: ['acme/prod', 'acme/mirror'] })), 'push:master', 'the mirror counts when it is listed');
+  assert.equal(shape(act('git push origin master', onMaster, { remotes: [], branches: ['master'], targets: [] })), null);
+  assert.equal(shape(act('git push origin master', onMaster, null)), null);
+  assert.equal(shape(act('git push origin refs/heads/*:refs/heads/*')), 'push:all branches');
+});
+
+const GH = [
+  ['gh release create v1 -R acme/prod', 'release:release create'],
+  ['gh release create v1 --repo acme/prod', 'release:release create'],
+  ['gh release create v1 --repo=acme/prod', 'release:release create'],
+  ['gh release upload v1 a.zip -R https://github.com/acme/prod', 'release:release upload'],
+  ['gh release create v1 -R acme/other', null],
+  ['gh release create v1', 'release:release create'],
+  ['gh release delete v1 -y', 'release:release delete'],
+  ['gh release edit v1', 'release:release edit'],
+  ['gh release list', null],
+  ['gh release view v1', null],
+  ['gh pr merge 4', null],
+  ['gh release create v1 -R $REPO', null],
+];
+for (const [cmd, want] of GH) test(`gh: ${cmd} -> ${want ?? 'passes'}`, () => assert.equal(shape(act(cmd)), want));
+test('gh release from a folder whose remotes are not production passes', () => assert.equal(shape(act('gh release create v1', elsewhere)), null));
+
+const CLI = [
+  ['vercel --prod', 'cli:vercel'],
+  ['vercel deploy --prod', 'cli:vercel'],
+  ['vercel deploy --prod --yes', 'cli:vercel'],
+  ['vercel --target production', 'cli:vercel'],
+  ['vercel deploy --target=production', 'cli:vercel'],
+  ['vercel deploy --target preview', null],
+  ['vercel env add X production', 'cli:vercel'],
+  ['vercel env add X production --force', 'cli:vercel'],
+  ['vercel env rm X production -y', 'cli:vercel'],
+  ['vercel env update X production', 'cli:vercel'],
+  ['vercel env add X preview', null],
+  ['vercel env add X preview feature-branch', null],
+  ['vercel env add X', null],
+  ['vercel env pull', null],
+  ['vercel env ls', null],
+  ['vercel deploy', null],
+  ['vercel promote dpl_123', 'cli:vercel'],
+  ['vercel rollback', 'cli:vercel'],
+  ['vercel dev', null],
+  ['npx vercel --prod', 'cli:vercel'],
+  ['npx -y vercel@latest --prod', 'cli:vercel'],
+  ['pnpm dlx vercel --prod', 'cli:vercel'],
+  ['bunx vercel --prod', 'cli:vercel'],
+  ['VERCEL_ORG_ID=x vercel --prod', 'cli:vercel'],
+  ['vercel --prod --token $VERCEL_TOKEN', null],
+  ['netlify deploy --prod', 'cli:netlify'],
+  ['netlify deploy', null],
+  ['netlify status', null],
+  ['supabase db push --project-ref prodref123', 'cli:supabase'],
+  ['supabase db push --project-ref=prodref123', 'cli:supabase'],
+  ['supabase db push --project-ref otherref', null],
+  ['supabase secrets set A=b --project-ref prodref123', 'cli:supabase'],
+  ['supabase db reset', null],
+  ['supabase status', null],
+  ['supabase start', null],
+];
+for (const [cmd, want] of CLI) test(`cli: ${cmd} -> ${want ?? 'passes'}`, () => assert.equal(shape(act(cmd, onMaster)), want));
+
+test('supabase: the linked project ref file, --linked, --local, --db-url, and no targets listed', () => {
+  assert.equal(shape(act('supabase db push', linked)), 'cli:supabase');
+  assert.equal(shape(act('supabase db reset --linked', linked)), 'cli:supabase');
+  assert.equal(shape(act('supabase db reset', linked)), null, 'db reset without --linked is the local database');
+  assert.equal(shape(act('supabase secrets set A=b', linked)), 'cli:supabase');
+  assert.equal(shape(act('supabase secrets unset A', linked)), 'cli:supabase');
+  assert.equal(shape(act('supabase migration up', linked)), 'cli:supabase');
+  assert.equal(shape(act('supabase migration repair 1 --status applied', linked)), 'cli:supabase');
+  assert.equal(shape(act('supabase functions deploy hello', linked)), 'cli:supabase');
+  assert.equal(shape(act('supabase functions delete hello', linked)), 'cli:supabase');
+  assert.equal(shape(act('supabase config push', linked)), 'cli:supabase');
+  assert.equal(shape(act('supabase functions serve', linked)), null);
+  assert.equal(shape(act('supabase db push --local', linked)), null);
+  assert.equal(shape(act('supabase db push --db-url postgres://x', linked)), null);
+  assert.equal(shape(act('supabase db push', onMaster)), null, 'no project ref known here');
+  assert.equal(shape(act('supabase db push', linked, { ...PROD, targets: [] })), null, 'no targets listed');
+  assert.equal(shape(act('supabase db push --project-ref prodref123', onMaster, { ...PROD, targets: [] })), null);
+  assert.equal(shape(act(`supabase db push --workdir ${fwd(linked)}`, onMaster)), 'cli:supabase');
+});
+
+test('a command without git, gh, vercel, netlify or supabase makes no git call at all', () => {
+  assert.equal(prodAction({ command: 'npm run build && ls -la', cwd: '/nonexistent' }, PROD), null);
+  assert.equal(prodAction({ command: '', cwd: onMaster }, PROD), null);
+  assert.equal(prodAction({ command: 5, cwd: onMaster }, PROD), null);
+});
+
+test('releaseDeny: names what to do, under 600 characters, in the Words', () => {
+  const a = { what: 'push', name: 'master', label: 'push (master to acme/prod)' };
+  const texts = [releaseDeny(a, { allowed: false, owner: 'Om' }, 'Work OS'), releaseDeny(a, { allowed: false, open: 41 }, 'Work OS'), releaseDeny(a, 'no-token', 'Work OS'), releaseDeny(a, 'unconfirmed', 'Work OS'), releaseDeny(a, { allowed: false, owner: 'x'.repeat(500) }, 'p'.repeat(500))]
+    .map((o) => o.hookSpecificOutput);
+  for (const o of texts) {
+    assert.equal(o.permissionDecision, 'deny');
+    assert.ok(o.permissionDecisionReason.length <= 600, String(o.permissionDecisionReason.length));
+    assert.doesNotMatch(o.permissionDecisionReason, /plugin|approval marker|\buser\b/i);
+    assert.match(o.permissionDecisionReason, /release Need/);
+  }
+  assert.match(texts[0].permissionDecisionReason, /ask \{project: "Work OS", kind: "approve", release: true, ask: "Release master"\}/);
+  assert.match(texts[0].permissionDecisionReason, /Production push \(master to acme\/prod\)/);
+  assert.match(texts[1].permissionDecisionReason, /Need #41, which is open: wait for its answer/);
+  assert.match(texts[2].permissionDecisionReason, /no Work OS session token/);
+});
+
+// ---- the installed copy against a stub server ----
+const WKR = 'wkr_' + 'D'.repeat(43);
+const TOKEN = 'wst_' + 't'.repeat(43);
+const seen = [];
+let mode = 'allowed'; // allowed | refused | open | http500 | http401 | hang | garbled
+let stateLine = '- ship it';
+const md = (v, line) => `Copy of the Work OS state, version ${v}. Edit it in Work OS (https://x/projects/p1); this file is its copy.\n\n# Work state: Demo\n\n## Now\n${line}\n`;
+const server = http.createServer((req, res) => {
+  let b = '';
+  req.on('data', (d) => (b += d));
+  req.on('end', () => {
+    const body = b ? JSON.parse(b) : {};
+    seen.push({ url: req.url, auth: req.headers.authorization, hook: req.headers['x-work-os-hook'], body });
+    const json = (status, o) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
+    if (req.url === '/api/agent/start') {
+      const brief = { project: { id: 'p1', name: 'Demo' }, session: 's-1', orders: 'none', state: { now: { text: 'x' } }, stateVersion: 2, production: PROD };
+      return json(200, { brief, token: TOKEN, expiresAt: new Date(Date.now() + 3600e3).toISOString() });
+    }
+    if (req.url === '/api/agent/release') {
+      if (req.headers.authorization !== `Bearer ${TOKEN}`) return json(401, { error: 'unauthorized' });
+      if (mode === 'hang') return;
+      if (mode === 'http500') return json(500, { error: 'x' });
+      if (mode === 'http401') return json(401, { error: 'unauthorized' });
+      if (mode === 'garbled') return json(200, { fine: true });
+      if (mode === 'open') return json(200, { allowed: false, open: 41, owner: 'Om' });
+      if (mode === 'refused') return json(200, { allowed: false, owner: 'Om' });
+      return json(200, { allowed: true, until: new Date(Date.now() + 3600e3).toISOString(), need: 41 });
+    }
+    if (req.url === '/api/agent/state') {
+      if (body.edit) stateLine = body.edit.new ? `- ${body.edit.new.replace(/^- /, '')}` : '- (empty)';
+      return json(200, { project: 'p1', version: 12, markdown: md(12, stateLine), ...(body.edit ? { applied: { version: 12, closedTasks: [], sentForReview: [] } } : {}) });
+    }
+    json(404, {});
+  });
+});
+server.keepAliveTimeout = 1;
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const URL_ = `http://127.0.0.1:${server.address().port}`;
+after(() => { server.closeAllConnections?.(); server.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
+
+const home = path.join(tmp, 'w');
+fs.mkdirSync(path.join(home, 'hooks'), { recursive: true });
+for (const f of FILES) fs.copyFileSync(fileURLToPath(new URL(`../${f}`, import.meta.url)), path.join(home, 'hooks', f));
+fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ baseUrl: URL_ }));
+const dev = await import(pathToFileURL(path.join(home, 'hooks', 'hook.mjs')).href);
+const preMod = await import(pathToFileURL(path.join(home, 'hooks', 'hook-pre-tool.mjs')).href);
+const libMod = await import(pathToFileURL(path.join(home, 'hooks', 'hook-lib.mjs')).href);
+dev.deps.deviceKey = (dir) => (dir === home ? WKR : null);
+
+const transcript = path.join(tmp, 't.jsonl');
+fs.writeFileSync(transcript, '{"type":"user"}\n');
+const startSid = (sid, cwd = onMaster) => dev.main('session-start', JSON.stringify({ session_id: sid, cwd, transcript_path: transcript }));
+const pre = async (sid, command, { cwd = onMaster, tool = 'Bash', permission_mode = 'default' } = {}) => {
+  const out = await dev.main('pre-tool', JSON.stringify({ session_id: sid, cwd, tool_name: tool, tool_input: { command }, permission_mode }));
+  return out ? JSON.parse(out).hookSpecificOutput : null;
+};
+const releases = () => seen.filter((s) => s.url === '/api/agent/release');
+const readMarkerFile = (sid) => JSON.parse(fs.readFileSync(path.join(process.env.WORK_OS_HOOK_DIR, `${sid}.json`), 'utf8'));
+
+test('session start keeps the brief production in the marker; a brief without it keeps none', async () => {
+  assert.ok(await startSid('p1'));
+  assert.deepEqual(readMarkerFile('p1').production, PROD);
+  assert.ok(readMarkerFile('p1').project === 'Demo');
+});
+
+test('an allowed check lets the command through and sends only what and name', async () => {
+  seen.length = 0; mode = 'allowed';
+  const out = await pre('p1', 'git push origin master');
+  assert.equal(out, null);
+  assert.equal(releases().length, 1);
+  assert.deepEqual(releases()[0].body, { what: 'push', name: 'master' }, 'no command, no cwd, no remote address');
+  assert.equal(releases()[0].auth, `Bearer ${TOKEN}`);
+  assert.equal(releases()[0].hook, '2');
+});
+
+test('a refusal names the ask call; a waiting Need is named; both under 600 characters', async () => {
+  seen.length = 0; mode = 'refused';
+  const out = await pre('p1', 'git push origin master');
+  assert.equal(out.permissionDecision, 'deny');
+  assert.match(out.permissionDecisionReason, /Production push \(master to acme\/prod\) needs an answered release Need\. Call ask \{project: "Demo", kind: "approve", release: true/);
+  assert.ok(out.permissionDecisionReason.length < 600);
+  mode = 'open';
+  const o2 = await pre('p1', 'git push origin master');
+  assert.match(o2.permissionDecisionReason, /release Need #41, which is open/);
+});
+
+test('PowerShell is checked the same way, and a chain asks once', async () => {
+  seen.length = 0; mode = 'refused';
+  const out = await pre('p1', 'git status; git push origin master; git tag v9', { tool: 'PowerShell' });
+  assert.equal(out.permissionDecision, 'deny');
+  assert.equal(releases().length, 1);
+});
+
+test('commands that are not production never reach the server', async () => {
+  seen.length = 0; mode = 'refused';
+  for (const c of ['git push origin dev', 'git push delpat master', 'git tag v1', 'git push --dry-run origin master', 'git status', 'ls', 'npm test', 'vercel env add X preview', 'vercel env pull', 'git push $R master', 'bash -c "git push origin master"', 'gh release list']) {
+    assert.equal(await pre('p1', c), null, c);
+  }
+  assert.equal(releases().length, 0);
+});
+
+test('fails closed on an exact match: server error, 401, a garbled answer, unreachable', async () => {
+  for (const m of ['http500', 'http401', 'garbled']) {
+    mode = m;
+    const out = await pre('p1', 'git push origin master');
+    assert.equal(out.permissionDecision, 'deny', m);
+    assert.match(out.permissionDecisionReason, /could not confirm a release Need/, m);
+  }
+  const down = path.join(tmp, 'w2');
+  fs.cpSync(home, down, { recursive: true });
+  fs.writeFileSync(path.join(down, 'config.json'), JSON.stringify({ baseUrl: 'http://127.0.0.1:9' }));
+  const d2 = await import(pathToFileURL(path.join(down, 'hooks', 'hook.mjs')).href);
+  const out = await d2.main('pre-tool', JSON.stringify({ session_id: 'p1', cwd: onMaster, tool_name: 'Bash', tool_input: { command: 'git push origin master' } }));
+  assert.equal(JSON.parse(out).hookSpecificOutput.permissionDecision, 'deny');
+});
+
+test('a session with no token (the key path, cloud) is refused on a production match and untouched otherwise', async () => {
+  fs.writeFileSync(path.join(process.env.WORK_OS_HOOK_DIR, 'nt.json'), JSON.stringify({ status: 'x', offset: 0, stopped: false, project: 'Demo', production: PROD }));
+  seen.length = 0;
+  const out = await pre('nt', 'git push origin master');
+  assert.equal(out.permissionDecision, 'deny');
+  assert.match(out.permissionDecisionReason, /no Work OS session token/);
+  assert.equal(await pre('nt', 'git push origin dev'), null);
+  assert.equal(seen.length, 0);
+});
+
+test('no marker, or a marker without production: nothing is checked, nothing is sent', async () => {
+  fs.writeFileSync(path.join(process.env.WORK_OS_HOOK_DIR, 'np.json'), JSON.stringify({ status: 'x', offset: 0, stopped: false, project: 'Demo' }));
+  seen.length = 0; mode = 'refused';
+  assert.equal(await pre('np', 'git push origin master'), null);
+  assert.equal(await pre('nosuchsession', 'git push origin master'), null);
+  assert.equal(releases().length, 0);
+});
+
+test('out of time: timeoutAnswer refuses once a production action was found and the server had not answered', async () => {
+  mode = 'hang'; seen.length = 0;
+  libMod.run.prod = null;
+  const input = { session_id: 'p1', cwd: onMaster, tool_name: 'Bash', tool_input: { command: 'git push origin master' } };
+  assert.equal(preMod.timeoutAnswer(JSON.stringify(input)), null, 'nothing found yet');
+  const pending = dev.main('pre-tool', JSON.stringify(input));
+  await new Promise((r) => setTimeout(r, 400));
+  const late = preMod.timeoutAnswer(JSON.stringify(input));
+  assert.equal(JSON.parse(JSON.stringify(late)).hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(late.hookSpecificOutput.permissionDecisionReason, /could not confirm a release Need/);
+  const out = await pending; // the 3 s call ends in a refusal too
+  assert.equal(JSON.parse(out).hookSpecificOutput.permissionDecision, 'deny');
+  libMod.run.prod = null;
+  assert.equal(preMod.timeoutAnswer(JSON.stringify({ ...input, tool_input: { command: 'ls' } })), null);
+  mode = 'allowed';
+});
+
+// ---- block 3, the WORK-STATE.md copy, as a test of record ----
+test('block 3: Edit of one line is forwarded, Write is refused, shell writes are refused, other files are untouched', async () => {
+  mode = 'allowed'; seen.length = 0;
+  const copy = path.join(onMaster, 'WORK-STATE.md');
+  fs.writeFileSync(copy, md(9, '- ship it'));
+  assert.ok(await startSid('b3'));
+  const run = (tool_name, tool_input, permission_mode = 'acceptEdits') => dev.main('pre-tool', JSON.stringify({ session_id: 'b3', cwd: onMaster, tool_name, tool_input, permission_mode }));
+  const edit = JSON.parse(await run('Edit', { file_path: copy, old_string: 'ship it', new_string: 'shipped' })).hookSpecificOutput;
+  assert.equal(edit.permissionDecision, 'deny');
+  assert.match(edit.permissionDecisionReason, /Applied to Work OS State v12/);
+  const posted = seen.filter((s) => s.url === '/api/agent/state');
+  assert.equal(posted.length, 1);
+  assert.deepEqual(posted[0].body, { edit: { old: '- ship it', new: '- shipped' } });
+  assert.match(fs.readFileSync(copy, 'utf8'), /- shipped/);
+  seen.length = 0;
+  for (const [tool, input] of [['Write', { file_path: copy, content: 'x' }], ['MultiEdit', { file_path: copy, edits: [] }], ['NotebookEdit', { notebook_path: copy }], ['Bash', { command: 'echo x > WORK-STATE.md' }], ['Bash', { command: 'sed -i s/a/b/ WORK-STATE.md' }], ['PowerShell', { command: 'Set-Content WORK-STATE.md x' }]]) {
+    const o = JSON.parse(await run(tool, input)).hookSpecificOutput;
+    assert.equal(o.permissionDecision, 'deny', tool);
+    assert.match(o.permissionDecisionReason, /save_state/, tool);
+  }
+  assert.equal(seen.length, 0, 'only the one-line Edit is forwarded');
+  assert.equal(await run('Write', { file_path: path.join(onMaster, 'other.txt'), content: 'x' }), '');
+  assert.equal(await run('Bash', { command: 'cat WORK-STATE.md' }), '');
+  // out of time on a write of the copy: the plain refusal, as before
+  assert.equal(JSON.parse(JSON.stringify(preMod.timeoutAnswer(JSON.stringify({ session_id: 'b3', tool_name: 'Write', tool_input: { file_path: copy } })))).hookSpecificOutput.permissionDecision, 'deny');
+});
