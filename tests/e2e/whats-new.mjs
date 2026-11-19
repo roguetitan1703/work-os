@@ -1,7 +1,7 @@
 // What's new and the Needs page (docs/HANDOVER.md "What's new", "Needs page"). run.sh pins "today" to 2026-11-20
 // (mode whatsnew): the four entries of 2026-11-15, the hook sign-in and digest of 2026-11-18 and Activity of
 // 2026-11-19 are all new (Mail and the report intake are not set up here):
-//   - Today's "New in Work OS" card (phone and desktop): three entries and "8 more"; Try it marks one seen; Dismiss all;
+//   - Today's "New in Work OS" card (phone and desktop): three entries and "9 more"; Try it marks one seen; Dismiss all;
 //   - the Menu row and the sidebar entry carry a dot while something is unseen; opening /whats-new clears it;
 //   - /whats-new lists every entry newest first, one line and where to find it, "New" while new;
 //   - the Needs row (Menu, sidebar) has a "New" badge and the open count; /needs lists the open Need, answers it with a
@@ -18,7 +18,7 @@ const settle = (p, ms = 700) => p.waitForTimeout(ms);
 const seenOf = async () => (await rawDb.collection('settings').findOne({ _id: `profile:${ME.userId}` }))?.whatsNewSeen ?? [];
 const resetSeen = () => rawDb.collection('settings').updateOne({ _id: `profile:${ME.userId}` }, { $unset: { whatsNewSeen: '' } });
 const shot = (p, name) => p.screenshot({ path: `${SP}/whats-new-${name}.png`, fullPage: true });
-const ALL = ['messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
+const ALL = ['agents-feedback', 'messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
 
 const b = await launch();
 try {
@@ -60,13 +60,13 @@ try {
       const o = await overflow(p); check(`no horizontal scroll /today ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
 
       // Try it marks that one seen and goes there
-      await card.locator('[data-whats-new-try="end-work-handover"]').tap();
+      await card.locator('[data-whats-new-try="messages-reach-sessions"]').tap();
       await p.waitForURL(u => u.pathname === '/projects', { timeout: 10000 });
       check('Try it: opens where the feature lives (/projects)', new URL(p.url()).pathname === '/projects');
-      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['end-work-handover']), JSON.stringify(await seenOf()));
+      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['messages-reach-sessions']), JSON.stringify(await seenOf()));
       await p.goto(B + '/today'); await settle(p);
       const ids2 = await p.locator('[data-section="whats-new"]:visible [data-whats-new]').evaluateAll(els => els.map(e => e.getAttribute('data-whats-new')));
-      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'end-work-handover').slice(0, 3)), JSON.stringify(ids2));
+      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'messages-reach-sessions').slice(0, 3)), JSON.stringify(ids2));
       await resetSeen();
     }
 
