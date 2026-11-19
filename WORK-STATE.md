@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 115. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 117. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -10,7 +10,7 @@ Copy of the Work OS state, version 115. WORK-STATE.md is a copy of the State, wr
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
 3. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
 4. Need answers reach whoever holds the work now: a Need asked by a session that is off is delivered to the project's Now holder or the session that picked up its handover, and start_work lists answered Needs since the last lead's session; withdraw_need on an answered or closed Need says so with the answer and time. Fold into the lanes design (note after 2afd68cb00).
-5. R8 (note 954f4550f8): batch A, the stopgap (ab06462) and run keys for dispatched runs (2cfc999) merged in wos-int branch r8-int; tsc, words and worker 424 pass. Full e2e and an Opus joint re-review running; then merge into dev and ask Om.
+5. R8 (note 954f4550f8): batch A, the stopgap (ab06462) and run keys for dispatched runs (2cfc999) merged in wos-int branch r8-int; tsc, words and worker 424 pass. Re-reviews: Reopen all and resume closed; builder A fixing the Open in VS Code HIGH; then a final check, full e2e, dev, and ask Om.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -37,6 +37,5 @@ Copy of the Work OS state, version 115. WORK-STATE.md is a copy of the State, wr
 - flow-dc1 'a review Need gets no buttons in its DM' fails about 2 runs in 3: the test inserts the review Need's alert after the asks, so the DM sometimes misses the batch. Test race; the alerts code didn't change in R7.
 - The SIGTERM fix does not work: on R7 (59cb0edb5693) a systemctl restart still waits the full 30 s stop-sigterm timeout, then SIGKILL (journal 20 Nov 01:44 IST). Something keeps next-server open (SSE /live streams, the wait route, or Mongo). Each deploy is about 30 s down.
 - Declutter cache still counted "7 open Claude items" on 20 Nov after the migration moved them all: the cached daily reasons are not refreshed after a migration or apply. — waits on a fix slot (small)
-- R8 stopgap (builder-b ab06462) blocks invented and dispatched session ids for Orders writes, but not a copied real hooked id passed as the session argument. The dispatch credential (slot A) closes that. Re-review both together before merge. — waits on slot A's dispatch credential
-- R8 re-check of 1afed4c: Reopen all and resume are closed. New HIGH: 'Open in VS Code' resumes a dispatched session on Om's key. Builder A is fixing that and two LOWs. Not closed yet. 'Reopen all' after a worker restart reopens dispatched runs on Om's key (the reopen set has no ref), plus MEDIUMs: a resume with the task gone, a dead row reopened with no Work OS. Builder A is fixing; then re-merge into r8-int and run one more check. — waits on builder A's fixes
-<!-- work-os-copy sha1:c87aee4eff3f8cca4790d3be7e257da7ed7f2f34 -->
+- Run keys, small leftovers from the final re-check (09277d5): the release update has no state guard (run-keys.ts:73); a worker crash mid Reopen-all leaves rows in starting with live keys until 24 h; the worker trusts the server on a resume job with no dispatched flag. — waits on a fix slot (small)
+<!-- work-os-copy sha1:4847306fc3c107c62ef75c5d79f035577e6160ec -->
