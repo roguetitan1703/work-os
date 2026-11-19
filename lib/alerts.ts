@@ -326,7 +326,7 @@ async function buildDigest(
     .sort((a, b) => a.text.localeCompare(b.text));
   if (moved.length) sections.push({ head: '🔄 **Since yesterday**', rows: moved });
 
-  // 4. Agents: working and waiting sessions, stalled ones (idle or gone while their project has unblocked Next lines), stops,
+  // 4. Agents: working and waiting sessions, stalled ones (idle or off while their project has unblocked Next lines), stops,
   // and projects that could be running and are not. The roster comes through the person's own door.
   const r = await roster(s);
   const nextByProject = await unblockedNext(s, [...new Set(r.workers.map(w => w.project.id))]);
@@ -340,7 +340,7 @@ async function buildDigest(
       running++;
       agents.push({ rank: 0, text: `Running: ${workerName(w)}`, detail: w.machine ? `on ${neutralAlertText(w.machine)}` : undefined });
     } else if (w.state === 'waiting') agents.push({ rank: 1, text: `Waiting on a Need: ${workerName(w)}` });
-    else if (left) {
+    else if (left && (w.state === 'idle' || w.state === 'off')) {
       stalled++;
       agents.push({ rank: 2, text: `Stalled: ${workerName(w)}`, detail: `quiet ${quietFor(Date.now() - Date.parse(w.lastSeen))}, ${plural(left, 'Next line')} ready` });
     }

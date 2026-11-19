@@ -1,7 +1,8 @@
 import 'server-only';
-import type { PresenceDoc } from '../db';
+import type { PresenceDoc, PresenceState } from '../db';
 import { orgWide, scoped, type Scope } from '../scope';
 import { memberNames } from '../people';
+import { presenceState, WORKING_MIN, GONE_MIN, type DaemonSays } from './presence-state';
 import { openNeedRows } from './roster-needs';
 import { slotHolders, machineKey } from './slots';
 
@@ -9,21 +10,17 @@ import { slotHolders, machineKey } from './slots';
 // (presence rows, lib/data/presence.ts, grown with model, account, machine, branch, doing, parent and slot). The rows
 // come through the scoped door, so a viewer sees only the workers on projects they can read.
 //
-// A worker's state is computed on every read, never typed by anyone:
-//   working   seen in the last 10 minutes
-//   waiting   has an open Need (asked a person something; slice 4, read through roster-needs.ts)
-//   idle      seen 10 to 30 minutes ago; "with Next work" when its project's State has unblocked Next lines
-//   gone      not seen for 30 minutes and, where the daemon reports, its process is gone. Its task is shown unheld.
-// Waiting wins over working (it is why it is quiet); gone wins over everything.
+// A worker's state is computed on every read, never typed by anyone, by presenceState (presence-state.ts, the one
+// function; its header has the rules): on, working, waiting, idle or off. Off sessions show their task unheld.
+// A session's Claude Code hook reports its own state (activity); other clients show working or idle from their last call.
 
-export const WORKING_MIN = 10;
-export const GONE_MIN = 30;
+export { WORKING_MIN, GONE_MIN };
 /** Workers last seen longer ago than this are not listed at all. */
 const LIST_HOURS = 24;
 /** A daemon's session list older than this says nothing about whether the process still runs. */
 const DAEMON_FRESH_MS = 5 * 60_000;
 
-export type WorkerState = 'working' | 'waiting' | 'idle' | 'gone';
+export type WorkerState = PresenceState;
 
 export type WorkerRow = {
   id: string;
@@ -38,8 +35,12 @@ export type WorkerRow = {
   branch: string;
   label: string;
   slot: string;
-  doing: { ref: number; title: string; /** false when the worker is gone: nobody holds the task */ held: boolean } | null;
+  doing: { ref: number; title: string; /** false when the worker is off: nobody holds the task */ held: boolean } | null;
   state: WorkerState;
+  /** For a waiting worker: an open Need, or (own sessions only) a permission prompt in its terminal. */
+  waitingOn?: 'need' | 'prompt';
+  /** When the state began (the hook's last event, else the last call). */
+  since: string;
   /** For an idle worker: how many unblocked Next lines its project has. */
   nextWork: number;
   lastSeen: string;
@@ -50,14 +51,11 @@ export type WorkerRow = {
 export type CouldBeRunning = { projectId: string; projectName: string; unblocked: number; first: string };
 export type Roster = { workers: WorkerRow[]; couldBeRunning: CouldBeRunning[]; machines: { machine: string; held: number; cap: number }[] };
 
-type Raw = { row: PresenceDoc; running: boolean };
+type Raw = { row: PresenceDoc; daemon: DaemonSays };
 
-/** Pure: the state of one worker at `now`. `running` = the daemon reports its process alive; `needs` = it has an open Need. */
-export function workerState(row: Pick<PresenceDoc, 'lastSeen'>, o: { now: number; running?: boolean; needs?: boolean }): WorkerState {
-  const ageMin = (o.now - row.lastSeen.getTime()) / 60_000;
-  if (ageMin > GONE_MIN && !o.running) return 'gone';
-  if (o.needs) return 'waiting';
-  return ageMin <= WORKING_MIN ? 'working' : 'idle';
+/** Pure: the state of one worker at `now` (presenceState). `daemon` = what the worker daemon's fresh list says about its process; `needs` = it has an open Need. */
+export function workerState(row: Pick<PresenceDoc, 'lastSeen' | 'activity'> & { endedAt?: Date | null }, o: { now: number; daemon?: DaemonSays; needs?: boolean }): WorkerState {
+  return presenceState(row, o).state;
 }
 
 const OPEN_LINE_STATUS: ('Done' | 'Dropped' | 'Blocked')[] = ['Done', 'Dropped', 'Blocked'];
@@ -89,22 +87,24 @@ async function loadRaw(s: Scope, hours: number, projectId?: string): Promise<Raw
   const c = await scoped(s);
   const rows = await c.presence.find({ lastSeen: { $gt: new Date(Date.now() - hours * 3_600_000) }, ...(projectId ? { projectId } : {}) }).sort({ lastSeen: -1 }).limit(300).toArray();
   if (!rows.length) return [];
-  // Where the daemon reports, a session whose process still runs is not gone however quiet it is. The daemon belongs to
-  // the worker's own person, so it is read for the whole organization (it answers only "running or not").
-  // Only rows quiet for over 30 minutes can be saved by it, so a roster of busy workers costs no extra read.
-  const quiet = rows.filter(r => r.session && r.machineName && Date.now() - r.lastSeen.getTime() > GONE_MIN * 60_000);
-  const alive = new Set<string>();
-  if (quiet.length) {
+  // Where the daemon reports, a session whose process still runs is not off however quiet it is, and one it lists as
+  // stopped is off at once. The daemon belongs to the worker's own person, so it is read for the whole organization
+  // (it answers only "running or not"). Rows a hook reports on are checked always; other rows only when quiet for over 30 minutes.
+  // The daemon names a session by Claude Code's own UUID (ccSession; a call-based row's session id is that UUID too).
+  const nowMs = Date.now();
+  const ccOf = (r: PresenceDoc) => r.ccSession ?? r.session;
+  const check = rows.filter(r => ccOf(r) && r.machineName && (r.activity || nowMs - r.lastSeen.getTime() > GONE_MIN * 60_000));
+  const says = new Map<string, DaemonSays>();
+  if (check.length) {
     // A device counts only for the person who owns it (a session cannot claim someone else's computer).
-    const devs = await (await orgWide(s.orgId)).devices.find({ $or: quiet.map(r => ({ _id: r.machine, ownerId: r.userId })), revokedAt: null }, { projection: { claudeSessions: 1 } }).toArray();
-    const nowMs = Date.now();
+    const devs = await (await orgWide(s.orgId)).devices.find({ $or: check.map(r => ({ _id: r.machine, ownerId: r.userId })), revokedAt: null }, { projection: { claudeSessions: 1 } }).toArray();
     for (const d of devs) {
       const list = d.claudeSessions;
       if (!list || nowMs - list.at.getTime() > DAEMON_FRESH_MS) continue;
-      for (const it of list.items) if (it.running) alive.add(`${d._id}:${it.sessionId}`);
+      for (const it of list.items) says.set(`${d._id}:${it.sessionId}`, it.running ? 'running' : 'stopped');
     }
   }
-  return rows.map(row => ({ row, running: !!row.session && alive.has(`${row.machine}:${row.session}`) }));
+  return rows.map(row => ({ row, daemon: (ccOf(row) && says.get(`${row.machine}:${ccOf(row)}`)) || 'unknown' }));
 }
 
 /** The kind of client, for people who are not the key's owner (a key's name is its owner's own label). */
@@ -125,14 +125,16 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
   const now = Date.now();
   const rows: (WorkerRow & { _parent?: string; _uid: string })[] = raw
     .filter(r => x.pname.has(r.row.projectId))
-    .map(({ row, running }) => {
-      const state = workerState(row, { now, running, needs: x.needs.has(row._id) });
+    .map(({ row, daemon }) => {
+      const st = presenceState(row, { now, daemon, needs: x.needs.has(row._id) });
+      const state = st.state;
+      const mine = row.userId === s.userId;
       return {
         id: row._id,
         session: row.session ?? null,
         person: x.names[row.userId] || 'a member',
-        mine: row.userId === s.userId,
-        ai: row.userId === s.userId ? row.ai : clientWord(row.agent), // a key name is its owner's label: others see the kind of client
+        mine,
+        ai: mine ? row.ai : clientWord(row.agent), // a key name is its owner's label: others see the kind of client
         model: row.model ?? '',
         account: row.account ?? '',
         machine: row.machineName ?? row.machine,
@@ -140,8 +142,11 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
         branch: row.branch ?? '',
         label: row.label,
         slot: row.slot ?? '',
-        doing: row.doing && x.tasks.get(row.doing.taskId) ? { ...x.tasks.get(row.doing.taskId)!, held: state !== 'gone' } : null,
+        doing: row.doing && x.tasks.get(row.doing.taskId) ? { ...x.tasks.get(row.doing.taskId)!, held: state !== 'off' } : null,
         state,
+        // A permission prompt is the owner's business; teammates see only that it waits on a person.
+        ...(state === 'waiting' ? { waitingOn: st.why === 'prompt' && !mine ? ('need' as const) : st.why } : {}),
+        since: st.since.toISOString(),
         nextWork: state === 'idle' ? x.nextCount(row.projectId) : 0,
         lastSeen: row.lastSeen.toISOString(),
         depth: 0 as const,
@@ -150,7 +155,7 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
       };
     });
   // Builders under their orchestrator (the one whose session id they named, same person).
-  const rank: Record<WorkerState, number> = { working: 0, waiting: 1, idle: 2, gone: 3 };
+  const rank: Record<WorkerState, number> = { working: 0, waiting: 1, on: 2, idle: 3, off: 4 };
   const bySession = new Map(rows.filter(r => r.session).map(r => [`${r._uid}:${r.session}`, r]));
   const kids = new Map<string, typeof rows>();
   const tops: typeof rows = [];
@@ -199,7 +204,7 @@ function strip(r: WorkerRow & { _parent?: string; _uid?: string }, depth: 0 | 1)
 
 /**
  * "Could be running and isn't": active projects the caller can read whose State has unblocked Next lines and no live
- * worker (a worker seen in the last 30 minutes, or one whose process the daemon reports). The digest calls this too.
+ * worker (a session not off: seen in the last 30 minutes, or one whose process the daemon reports). The digest calls this too.
  */
 export async function couldBeRunning(s: Scope, loaded?: Raw[]): Promise<CouldBeRunning[]> {
   const c = await scoped(s);
@@ -207,7 +212,7 @@ export async function couldBeRunning(s: Scope, loaded?: Raw[]): Promise<CouldBeR
   if (!next.size) return [];
   const raw = loaded ?? (await loadRaw(s, 1));
   const now = Date.now();
-  const live = new Set(raw.filter(r => workerState(r.row, { now, running: r.running }) !== 'gone').map(r => r.row.projectId));
+  const live = new Set(raw.filter(r => workerState(r.row, { now, daemon: r.daemon }) !== 'off').map(r => r.row.projectId));
   const ids = [...next.keys()].filter(id => !live.has(id));
   if (!ids.length) return [];
   const projects = await c.projects.find({ _id: { $in: ids }, status: 'active' }, { projection: { name: 1, nameLower: 1 } }).sort({ nameLower: 1 }).toArray();
@@ -216,7 +221,7 @@ export async function couldBeRunning(s: Scope, loaded?: Raw[]): Promise<CouldBeR
 
 /**
  * For a project page, which already holds the project, its State, its open tasks and the member names: the workers on
- * it (not gone) and whether it could be running and isn't. One read of its own (the presence rows), plus the daemon's
+ * it (not off) and whether it could be running and isn't. One read of its own (the presence rows), plus the daemon's
  * list or open Needs only when there are such rows.
  */
 export async function projectRoster(
@@ -231,8 +236,8 @@ export async function projectRoster(
   const lines = (state?.next ?? []).filter(l => !l.waitsOn && !(l.ref && !live.has(l.ref)));
   const needs = raw.length ? await openNeedRows(s, raw.map(r => r.row)) : new Set<string>();
   const tasks = await taskInfo(s, raw.flatMap(r => (r.row.doing ? [r.row.doing.taskId] : [])));
-  const workers = buildWorkers(s, raw, { tasks, names, pname: new Map([[project.id, project.name]]), needs, nextCount: () => lines.length }).filter(w => w.state !== 'gone');
+  const workers = buildWorkers(s, raw, { tasks, names, pname: new Map([[project.id, project.name]]), needs, nextCount: () => lines.length }).filter(w => w.state !== 'off');
   const now = Date.now();
-  const anyLive = raw.some(r => workerState(r.row, { now, running: r.running }) !== 'gone');
+  const anyLive = raw.some(r => workerState(r.row, { now, daemon: r.daemon }) !== 'off');
   return { workers, couldBeRunning: project.status === 'active' && lines.length && !anyLive ? { projectId: project.id, projectName: project.name, unblocked: lines.length, first: lines[0].text.slice(0, 160) } : null };
 }

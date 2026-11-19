@@ -191,7 +191,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   set_doing: {
     title: 'Set what you are doing',
-    description: 'Tell the roster which task you are working on now (a ref or id; omit it to clear). Needs a session from start_work. The Workers tab on the Claude page shows it beside your name; if you stop calling Work OS for 30 minutes you count as gone and the task shows as unheld, so others can pick it up. Change it when you move to another task.',
+    description: 'Tell the roster which task you are working on now (a ref or id; omit it to clear). Needs a session from start_work. The Workers tab on the Claude page shows it beside your name; if you stop calling Work OS for 30 minutes you count as off and the task shows as unheld, so others can pick it up. Change it when you move to another task.',
     writes: false,
     example: 'I am starting task #42 now',
   },

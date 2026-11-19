@@ -7,8 +7,9 @@ import { card, H2 } from './ui';
 const STATE: Record<WorkerState, { text: string; cls: string }> = {
   working: { text: 'Working', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' },
   waiting: { text: 'Waiting on a person', cls: 'bg-amber-500/15 text-amber-800 dark:text-amber-300' },
+  on: { text: 'On', cls: 'bg-muted text-muted-foreground' },
   idle: { text: 'Idle', cls: 'bg-muted text-muted-foreground' },
-  gone: { text: 'Gone', cls: 'bg-red-500/10 text-red-700 dark:text-red-300' },
+  off: { text: 'Off', cls: 'bg-red-500/10 text-red-700 dark:text-red-300' },
 };
 
 /** The roster (docs/flows/plan-1-3.md slice 7): who is working on what and where. Builders sit under their orchestrator. */
@@ -80,7 +81,7 @@ function Row({ w }: { w: WorkerRow }) {
         </span>
         {w.slot && <span className="text-[11px] px-1.5 py-px rounded bg-muted text-muted-foreground font-medium">slot {w.slot}</span>}
         <span className={cn('text-[11px] px-1.5 py-px rounded font-medium', st.cls)} data-worker-state>
-          {st.text}
+          {w.state === 'waiting' && w.waitingOn === 'prompt' ? 'Waiting on you' : st.text}
           {w.state === 'idle' && w.nextWork > 0 ? ` · ${w.nextWork} Next line${w.nextWork === 1 ? '' : 's'} waiting` : ''}
         </span>
         <span className="ml-auto text-[13px] md:text-xs text-muted-foreground" data-worker-seen>
