@@ -12,7 +12,6 @@ import path from 'node:path';
 import { git } from './hook-lib.mjs';
 import { normalizeRemote } from './remote.mjs';
 
-const OPS = [['&&'], ['||'], [';'], ['|'], ['&'], ['\n']];
 
 /**
  * A command line as a list of commands, each a list of words. Splits on && || ; | & and newlines outside quotes; quotes are
@@ -64,7 +63,6 @@ export function splitCommands(cmd) {
     }
   }
   endCmd();
-  void OPS;
   return cmds;
 }
 
@@ -153,7 +151,7 @@ function gitPush(w, cwd, prod) {
     const up = git(cwd, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{push}']);
     const slash = up.indexOf('/');
     if (slash > 0) { remote = up.slice(0, slash); defaultBranch = up.slice(slash + 1); } else remote = 'origin';
-  } else if (repo) pos.unshift(...[]);
+  }
   const name = remoteOf(cwd, remote);
   if (!name || !prod.remotes.includes(name)) return null;
   const to = `${name}`;

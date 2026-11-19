@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'agents-ask-before-production',
+    date: '2026-11-19',
+    title: 'Agents ask before production',
+    line: 'A push or release to production now waits for your yes on a release Need; Yes for 24 hours covers the day.',
+    where: 'Needs, and the project page under Code › Production',
+    href: '/needs',
+  },
+  {
     id: 'messages-reach-sessions',
     date: '2026-11-19',
     title: 'Messages reach Claude Code sessions',

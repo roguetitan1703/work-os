@@ -520,7 +520,7 @@ folder. It refuses to start with under 1.5 GB free under `/srv` (`MIN_FREE_MB`):
 `mongodb+srv://….mongodb.net` (Work OS uses Atlas only). That is a guard against a slip, not a guarantee: it reads
 `/etc/work-os/env` by name, and `ALLOW_NON_ATLAS=1` in `/etc/work-os/deploy.conf` turns it off. One deploy at a time (a lock). The app never reads `/etc/work-os/env` at build time.
 
-Pushing to `master` builds (Actions) but does not deploy: deploys are this command.
+Pushing to `master` builds (Actions); the build goes live at 03:00 IST (the nightly timer runs this command) or when you run it by hand.
 
 **What depends on the Next version** (check after a Next upgrade, e.g. 16.2 to 16.4):
 - `work-os.service` starts `node_modules/next/dist/bin/next start -H … -p …`: the path and flags of `next start`.
