@@ -422,6 +422,23 @@ export async function ownFolderById(scope: DeviceScope, folderId: string): Promi
   return mine[0];
 }
 
+/**
+ * The project of the first of `folderIds` (longest folder first, as the hook sends them) that is linked on this computer
+ * and still reported, or null. The caller is the computer's owner (the device-key route acts for them). H13: this is how a
+ * session's folder decides its project; a remote never does.
+ */
+export async function linkedFolderProject(scope: DeviceScope, deviceId: string, folderIds: string[]): Promise<{ projectId: string; folderId: string } | null> {
+  const ids = folderIds.filter(id => FOLDER_ID.test(id)).slice(0, 8);
+  if (!ids.length) return null;
+  const c = await scoped(scope);
+  const rows = await c.workerFolders.find({ deviceId, folderId: { $in: ids }, projectId: { $ne: null }, missing: false }).toArray();
+  for (const id of ids) {
+    const f = rows.find(r => r.folderId === id);
+    if (f?.projectId) return { projectId: f.projectId, folderId: f.folderId };
+  }
+  return null;
+}
+
 /** The folders linked to a project on one of the caller's computers, as project name and folder name (for suggestions); only projects the caller can read. */
 export async function devicesLinked(scope: DeviceScope, deviceId: string): Promise<{ project: string; folder: string }[]> {
   const c = await scoped(scope);

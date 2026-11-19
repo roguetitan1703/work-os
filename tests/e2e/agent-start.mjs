@@ -151,6 +151,13 @@ try {
   check('a linked folder the worker reports missing: 404', r5g.status === 404, r5g.status);
   const r6 = await post(pc1.key, at('acme/x-secret'));
   check("another organization's project (even with a folder of its remote here): 404, no name", r6.status === 404 && !/X Secret/.test(r6.text), `${r6.status} ${r6.text.slice(0, 160)}`);
+  await rawDb.collection('workerFolders').insertMany([folder(pc1, A, 'h13link', 'acme/agent-one', one), folder(pc1, A, 'h13free', 'acme/agent-bare', null)]);
+  // H13: with `folders` (the worker folder ids that contain the session's folder) the folder decides; the answer for an unfiled folder says so.
+  const rF1 = await post(pc1.key, { ...at('acme/agent-one'), folders: ['h13free', 'h13link'] });
+  check('H13: folders [unlinked, linked]: the linked folder decides (200, the project of f1)', rF1.status === 200 && rF1.json?.brief?.project?.id === one, `${rF1.status} ${rF1.text.slice(0, 160)}`);
+  const rF2 = await post(pc1.key, { ...at('acme/agent-one'), folders: ['h13free'] });
+  check('H13: only an unlinked folder, with the remote of a linked project: 404 unfiled (the remote never decides)', rF2.status === 404 && rF2.json?.unfiled === true && !rF2.json?.quiet && rF2.json?.error === r4none.json?.error, `${rF2.status} ${rF2.text.slice(0, 200)}`);
+  check('H13: every 404 of the route says unfiled', [r4, r4none, r5, r5g, r6].every(r => r.json?.unfiled === true));
   const r7 = await post(pc2.key, at('acme/agent-two'));
   check('the PC that has the folder opens it', r7.status === 200 && r7.json?.brief?.project?.id === two, r7.status);
   const T2 = r7.json?.token ?? '';

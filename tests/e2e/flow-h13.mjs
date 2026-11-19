@@ -1,7 +1,7 @@
 // H13 "the folder decides the project" (docs/flows/agent-system.md section 11): a remote never decides; a path location
 // does (longest wins, narrowed to one computer by `machine`); a session in a folder no project owns is "unfiled". Seed
 // profile: none. Steps 1-4 of the plan (matcher, quiet list, link from a session, the device-key route) are checked here.
-import { ME, check, finish, makeUser, mkDevice, mkKey, rawDb } from './lib.mjs';
+import { B, ME, check, finish, makeUser, mkDevice, mkKey, rawDb } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
 
 const pid = async name => (await rawDb.collection('projects').findOne({ name }))._id;
@@ -131,6 +131,58 @@ try {
   check('H13 onThisPc: another member, another organization, and a call without folder get no onThisPc, and no error', [un2, un3, un4].every(r => !r.isError && r.json?.unmatched === true && !('onThisPc' in r.json)), [un2, un3, un4].map(r => r.text.slice(0, 120)).join(' | '));
   const gp2 = await mcpH(cc, 'get_project', { path: 'C:/h13/zzz-none' });
   check('H13 get_project: stays read-only (no link, no quiet, no onThisPc)', gp2.json?.unmatched === true && !('onThisPc' in gp2.json), gp2.text.slice(0, 200));
+
+  // ── 4. The device-key route: the folder ids decide the project; unfiled and quiet answers
+  const post = async (cred, body = {}) => {
+    const r = await fetch(`${B}/api/agent/start`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json', authorization: `Bearer ${cred}` }, body: JSON.stringify(body) });
+    const text = await r.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* not JSON */ }
+    return { status: r.status, text, json };
+  };
+  await must(cc, 'add_project', { name: 'H13 Route A', code: [{ remote: 'acme/h13-route' }] });
+  await must(cc, 'add_project', { name: 'H13 Route B' });
+  const RA = await pid('H13 Route A');
+  const RB = await pid('H13 Route B');
+  await rawDb.collection('workerFolders').insertMany([
+    fold(pc1, ME, 'rtparent', RA), fold(pc1, ME, 'rtchild', RB), fold(pc1, ME, 'rtfree'), { ...fold(pc1, ME, 'rtgone', RA), missing: true }, fold(pc2, ME, 'rtother', RA),
+    fold(tPc, T, 'rttess'),
+  ]);
+  const at = (folders, extra = {}) => ({ folders, remote: 'https://github.com/acme/h13-route.git', branch: 'main', path: 'C:/h13/rt', machine: 'rt-pc', label: 'Claude Code', ...extra });
+  const r1 = await post(pc1.key, at(['rtchild', 'rtparent']));
+  check('H13 route: the first linked folder in the order given decides (the longest, a nested folder of another project)', r1.status === 200 && r1.json?.brief?.project?.id === RB && /^wst_/.test(r1.json?.token ?? ''), `${r1.status} ${r1.text.slice(0, 200)}`);
+  const r2 = await post(pc1.key, at(['rtfree', 'rtparent']));
+  check('H13 route: an unlinked folder first falls through to the linked folder above it', r2.status === 200 && r2.json?.brief?.project?.id === RA, `${r2.status} ${r2.text.slice(0, 200)}`);
+  const r3 = await post(pc1.key, at(['rtfree']));
+  check('H13 route: an unlinked folder whose remote is a linked project\'s remote gets 404 unfiled, not that project (the old hole)', r3.status === 404 && r3.json?.unfiled === true && !r3.json?.quiet && !/H13|Route/.test(r3.text), `${r3.status} ${r3.text}`);
+  const r3b = await post(pc1.key, at([]));
+  check('H13 route: no folder ids at all, with that remote: 404 unfiled as well', r3b.status === 404 && r3b.json?.unfiled === true, `${r3b.status} ${r3b.text}`);
+  const r4 = await post(pc1.key, at(['rtgone']));
+  const r5 = await post(pc1.key, at(['rtother']));
+  const r6 = await post(pc1.key, at(['nosuchfolder']));
+  check('H13 route: a missing folder, a folder linked on another computer, and an unknown id are all the same 404', [r4, r5, r6].every(r => r.status === 404 && r.text === r3.text), [r4, r5, r6].map(r => `${r.status} ${r.text.slice(0, 80)}`).join(' | '));
+  const r7 = await post(tPc.key, at(['rtparent']));
+  const r7b = await post(xPc.key, at(['rtparent']));
+  check('H13 route: another member\'s and another organization\'s computer cannot use the owner\'s folder id (404)', r7.status === 404 && r7b.status === 404 && r7.text === r3.text, `${r7.status} ${r7b.status}`);
+  const old = await post(pc1.key, { remote: 'https://github.com/acme/h13-route.git', branch: 'main', path: 'C:/h13/rt', machine: 'rt-pc', label: 'Claude Code' });
+  check('H13 route: a body without folders (an old hook) still finds the project the old way, until step 8', old.status === 200 && old.json?.brief?.project?.id === RA, `${old.status} ${old.text.slice(0, 200)}`);
+  const T1 = r1.json?.token ?? '';
+  const tOk = await post(T1, at(['rtchild']));
+  const tOther = await post(T1, at(['rtparent']));
+  check('H13 route: a session token is for its own project: its own folder works, another project\'s folder is 403', tOk.status === 200 && tOther.status === 403, `${tOk.status} ${tOther.status}`);
+  const bad = [['nine ids', at(Array.from({ length: 9 }, (_, i) => `rtfold${i}`))], ['a bad id', at(['a b!'])], ['too short', at(['ab'])], ['not an array', at('rtparent')]];
+  for (const [what, b] of bad) check(`H13 route: folders with ${what} is a 400`, (await post(pc1.key, b)).status === 400);
+
+  // Quiet: the person's "not Work OS" list, consulted only when no folder is linked
+  const qa = await post(pc1.key, at(['rtfree'], { path: 'D:/Scratch/Thing/sub/deeper', machine: 'PC-One' }));
+  check('H13 quiet route: a folder below one marked not Work OS gets 404 with quiet: true', qa.status === 404 && qa.json?.unfiled === true && qa.json?.quiet === true, `${qa.status} ${qa.text}`);
+  const qb = await post(pc1.key, at(['rtfree'], { path: 'D:/Scratch/Thing/sub/deeper', machine: 'other-pc' }));
+  const qc = await post(pc1.key, at(['rtfree'], { path: 'D:/Scratch/Thingy', machine: 'pc-one' }));
+  check('H13 quiet route: the same path on another computer, or a sibling folder with the same prefix, is not quiet', !qb.json?.quiet && !qc.json?.quiet && qb.status === 404 && qc.status === 404, `${qb.text} ${qc.text}`);
+  const qd = await post(pc1.key, at(['rtparent'], { path: 'D:/Scratch/Thing', machine: 'pc-one' }));
+  check('H13 quiet route: a linked folder is never silenced by the list (still 200)', qd.status === 200 && qd.json?.brief?.project?.id === RA, `${qd.status} ${qd.text.slice(0, 160)}`);
+  const qe = await post(tPc.key, at(['rttess'], { path: 'D:/Scratch/Thing/sub', machine: 'pc-one' }));
+  check('H13 quiet route: another member\'s computer does not see the owner\'s list', qe.status === 404 && !qe.json?.quiet, `${qe.status} ${qe.text}`);
 
 } catch (e) {
   check('flow-h13 threw', false, String(e?.stack || e));
