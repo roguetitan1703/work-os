@@ -1192,6 +1192,8 @@ function AUDIT() {
     M('start_work', t => ({ remote: t.remote }), { label: 'by remote (H13: unmatched, the remote only ranks candidates)', ok: r => r.ok && r.json?.unmatched === true && r.json?.candidates?.[0]?.why === 'same remote', aim: true, aimKeys: ['remote'] }),
     Mc('start_work', t => ({ project: t.project }), aim(['project'], { label: 'code key' })),
     M('start_work', { path: 'C:/lkq/quiet', machine: 'lkq', not_work_os: true }, { label: 'not_work_os (own quiet list)' }),
+    M('start_work', t => ({ project: t.project, folder: 'lkqf0001', link: true }), aim(['project'], { label: 'link (project, own folder id)' })),
+    M('start_work', t => ({ project: t.project, path: 'C:/lkq/linkpath', machine: 'lkq', link: true }), aim(['project'], { label: 'link by path and machine' })),
     M('start_work', { project: 'constructor' }, { label: 'prototype key', aim: true, aimKeys: [], control: false }),
   );
   add('mcp get_state', M('get_state', t => ({ project: t.project }), aim(['project'])), M('get_state', t => ({ project: t.projectName }), aim(['projectName'], { label: 'by name' })), Mc('get_state', t => ({ project: t.project }), aim(['project'], { label: 'code key' })));

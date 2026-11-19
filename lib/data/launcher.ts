@@ -408,6 +408,30 @@ async function sessionDoc(scope: DeviceScope, projectId: string, sessionId: stri
   return s;
 }
 
+/**
+ * The caller's own folder with this worker folder id (what the hook prints; start_work link). Only folders on the
+ * caller's own, non-revoked computers: another person's is "not found", exactly as no folder at all, and so is an id that
+ * two of the caller's computers both report.
+ */
+export async function ownFolderById(scope: DeviceScope, folderId: string): Promise<WorkerFolderDoc> {
+  if (!FOLDER_ID.test(folderId)) throw new NotFoundError('Folder not found');
+  const c = await scoped(scope);
+  const [rows, devices] = await Promise.all([c.workerFolders.find({ folderId }).limit(5).toArray(), deviceMap(scope)]);
+  const mine = rows.filter(f => devices.has(f.deviceId));
+  if (mine.length !== 1) throw new NotFoundError('Folder not found');
+  return mine[0];
+}
+
+/** The folders linked to a project on one of the caller's computers, as project name and folder name (for suggestions); only projects the caller can read. */
+export async function devicesLinked(scope: DeviceScope, deviceId: string): Promise<{ project: string; folder: string }[]> {
+  const c = await scoped(scope);
+  if (!(await deviceMap(scope)).has(deviceId)) throw new NotFoundError('Device not found');
+  const rows = await c.workerFolders.find({ deviceId, projectId: { $ne: null }, missing: false }).sort({ name: 1 }).limit(50).toArray();
+  const projects = await c.projects.find({ _id: { $in: [...new Set(rows.map(f => f.projectId as string))] } }, { projection: { name: 1 } }).toArray();
+  const name = new Map(projects.map(p => [p._id, p.name]));
+  return rows.filter(f => name.has(f.projectId as string)).map(f => ({ project: name.get(f.projectId as string) as string, folder: f.name }));
+}
+
 export async function linkFolder(scope: DeviceScope, projectId: string, key: string): Promise<void> {
   const c = await scoped(scope);
   if (!(await c.projects.findOne({ _id: projectId }, { projection: { _id: 1 } }))) throw new NotFoundError('Project not found');
