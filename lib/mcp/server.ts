@@ -38,6 +38,8 @@ import { endPresence, setOrdersSeen, othersPresent, presentRow, readerRow, regis
 import { presenceState } from '../data/presence-state';
 import { clientWord, roster, taskInfo } from '../data/roster';
 import * as handovers from '../data/handovers';
+import * as declutterData from '../data/declutter';
+import * as declutterApply from '../data/declutter-apply';
 import type { HandoverFields } from '../db';
 import { holderOf, machineKey, MAX_WAIT_S, POLL_MS, prepareSlot, releaseSlot, tryAcquire } from '../data/slots';
 import { forYouAfter, forYouBefore } from './for-you';
@@ -550,6 +552,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     ...(orgOrders && shortFormForSubagent(orgOrders) ? { shortOrders: shortFormForSubagent(orgOrders), shortOrdersVersion: orgOrders.version } : {}),
     ...(needsBlock.answered.length || needsBlock.forYou.length ? { needs: { ...(needsBlock.answered.length ? { answeredForYou: needsBlock.answered } : {}), ...(needsBlock.forYou.length ? { openForYou: needsBlock.forYou } : {}) } } : {}),
     state: state ? await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names) : NO_STATE,
+    ...(await declutterData.briefField(s, project, state)),
     inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names, { cut: 500, unread: inb.unreadIds.has(m._id) })) } : 'no messages',
     openTasks: { total: open.length, tasks: open.slice(0, 25).map(t => briefTask(t, pn, { baseUrl: ctx.baseUrl, who })), ...(open.length > 25 ? { more: `${open.length - 25} more: list_tasks project:"${project.name}"` } : {}) },
     alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
@@ -586,6 +589,8 @@ async function needOutOf(ctx: BriefCtx, n: needsData.Need) {
     word: n.from.word,
     ...(n.from.label ? { session: n.from.label } : {}),
     createdAt: n.createdAt,
+    // A declutter Need: how many changes, what the session said it will do on disk, and (once answered) what the server did.
+    ...(n.declutter ? { declutter: { changes: n.declutter.items.length, ...(n.declutter.disk.length ? { disk: n.declutter.disk } : {}), ...(n.declutter.skip?.length ? { unticked: n.declutter.skip } : {}), ...(n.declutter.result ? { applied: n.declutter.result.applied, failed: n.declutter.result.failed } : {}) } } : {}),
     ...(n.answer
       ? {
           answer: { option: n.answer.option, ...(n.answer.text ? { text: n.answer.text } : {}), by: who(n.answer.by), via: n.answer.via, at: n.answer.at, ...(answeredBy ? { writtenBy: answeredBy } : {}) },
@@ -1446,6 +1451,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ...(archivedHandovers.length ? { archivedHandovers } : {}),
         ...(handover ? { handover } : {}),
         ...(handoverError ? { handoverError } : {}),
+        ...(await declutterData.briefField(s, r.project, r.state)),
       };
     }),
   );
@@ -1469,6 +1475,38 @@ export function createMcpServer(ctx: Ctx): McpServer {
       if ('limit' in r) throw new InputError(`Nothing was written: that is ${handovers.FEEDBACK_PER_HOUR} feedback lines this hour. Put the rest in the friction line of end_work.`);
       const refusals = recentRefusals(sessionKey(ident));
       return 'duplicate' in r || !refusals.length ? r : { ...r, refusals };
+    }),
+  );
+
+  tool(
+    'declutter',
+    {
+      inputSchema: {
+        project: z.string().describe('Project name or id'),
+        ask: z.boolean().optional().describe('true: file the proposal as one Need to the project owner (default: only read the proposal)'),
+        skip: z.array(z.string().max(80)).max(100).optional().describe('Item ids to leave out (with ask)'),
+        add: z
+          .array(z.object({ later: z.string().max(500).optional().describe('A Later line to add'), waits_on: z.string().max(200).optional().describe('What that Later line waits on'), task: z.string().max(500).optional().describe('Or a task to add') }))
+          .max(40)
+          .optional()
+          .describe('Lines or tasks to add with the clean-up (with ask): either later or task in each'),
+        disk: z.array(z.string().max(300)).max(20).optional().describe('What you will do on disk after a Yes (worktrees, branches, files); Work OS only shows it (with ask)'),
+        session: sessionArg,
+      },
+      annotations: { destructiveHint: false },
+    },
+    handler(async a => {
+      const ident = identOf('declutter', [a]);
+      if (!a.ask) {
+        // Read only, as the caller: the proposal never names what they cannot read. A project they cannot read is "not found".
+        const { project, state } = await stateData.getState(s, a.project);
+        const due = await declutterData.dueFor(s, project, state);
+        const p = await declutterData.buildProposal(s, project);
+        return { project: project.name, ...(due.text ? { due: due.text } : { due: 'not due' }), items: p.items, ...(p.fyi.length ? { fyi: p.fyi } : {}), counts: p.counts, next: p.items.length ? 'Check these against the code and the disk, add what you see, then call declutter with ask: true (skip: ids to leave out, add, disk).' : 'Nothing to tidy.', textRule: textRule() };
+      }
+      const r = await declutterApply.askDeclutter(s, { project: a.project, skip: a.skip, add: a.add, disk: a.disk, actor: ACTOR, word: WORD, session: ident.session, keyId: caller.keyId });
+      const owner = (await whoIs())(r.need.to);
+      return { need: await needOut(r.need), changes: r.items, message: `Need #${r.need.ref} is with ${owner}; you hear the answer here. No alert goes to the phone. Nothing is deleted: lines, pages and old Claude items are archived and can be put back. After a Yes, do the disk lines you gave.` };
     }),
   );
 

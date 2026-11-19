@@ -6,7 +6,7 @@
 // that count only their own claims. A project shared with chosen people (A and B): a third member of the organization
 // (Dee) off the list sees nothing of it through MCP, pages, search, note files or alerts, and cannot be assigned or
 // waited on in it. Seed profile: none (this suite makes its own people and data).
-import { B, CRON, EMAIL, ME, MCP, PW, check, db, finish, launch, login, makeUser, mkKey, rawDb, setProfile, setSchedule, sha } from './lib.mjs';
+import { B, CRON, EMAIL, ME, MCP, PW, check, db, finish, launch, login, makeUser, mkClaudeItem, mkKey, rawDb, setProfile, setSchedule, sha } from './lib.mjs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { scopeViolations } from '../scope-check.mjs';
 
@@ -70,7 +70,7 @@ try {
   const pNote = (await must(kA, 'write_note', { task: p1.ref, body: 'Hidden note body' })).created;
   const vMemo = (await must(kA, 'write_note', { project: 'Hidden Vault', title: 'Hidden memo', body: 'Hidden memo body' })).created;
   const zMemo = (await must(kA, 'write_note', { project: 'Zephyr Shared', title: 'Zephyr memo', body: 'Zephyr memo body' })).created;
-  await must(kA, 'update_claude_items', { ops: [{ op: 'add', project: 'Hidden Vault', kind: 'feature', title: 'Hidden vault item for the tenancy check', why, done_when: 'The tenancy suite passes.' }] });
+  await mkClaudeItem({ project: 'Hidden Vault', kind: 'feature', title: 'Hidden vault item for the tenancy check', why, doneWhen: 'The tenancy suite passes.' }); // fixture: Claude items are no longer added through MCP (H11)
   await must(kA, 'delete_task', { task: pv2.ref, title: 'Hidden vault trash me' });
   const p1Detail = await must(kA, 'get_task', { task: p1.ref });
   check('A: a task with no project is private', p1Detail.visibility === 'private', p1Detail.visibility);
@@ -100,8 +100,8 @@ try {
   const c1 = (await must(kC, 'add_task', { title: 'Quokka task by Cy' })).created;
   check('refs: a second organization starts at #1', c1.ref === 1, String(c1.ref));
   await must(kC, 'add_project', { name: 'Quokka Project' });
-  const ci = await must(kC, 'update_claude_items', { ops: [{ op: 'add', project: 'Quokka Project', kind: 'feature', title: 'Quokka item numbering check for tenancy', why, done_when: 'The tenancy suite passes.' }] });
-  check('refs: Claude items start at C1 in a second organization', ci.results?.[0]?.ref === 'C1', JSON.stringify(ci.results));
+  const ci = await mkClaudeItem({ project: 'Quokka Project', kind: 'feature', title: 'Quokka item numbering check for tenancy', why, doneWhen: 'The tenancy suite passes.', userId: Cu.userId, orgId: Cu.orgId });
+  check('refs: Claude items start at C1 in a second organization', ci.ref === 1, JSON.stringify(ci));
   const cZephyr = await as(kC, 'add_project', { name: 'Zephyr Shared' });
   check('names: another organization may use the same project name', !cZephyr.isError, cZephyr.text);
   check('ids: new project ids are the name plus a random tail', /^hidden-vault-[0-9a-f]{8}$/.test(vault.id) && /^zephyr-shared-[0-9a-f]{8}$/.test(zephyr.id), `${vault.id} ${zephyr.id}`);
@@ -167,15 +167,18 @@ try {
 
   // ---- inbox notices go to their recipient, by the recipient's own settings ----
   await rawDb.collection('settings').insertOne({ _id: `notify:${A.userId}`, area: 'notify', orgId: A.orgId, userId: A.userId, notify: { kinds: { claude_waiting: false } } });
+  const zB = await mkClaudeItem({ project: 'Zephyr Shared', kind: 'feature', title: 'Zephyr question for Bea in the tenancy run', why, doneWhen: 'Bea has answered the question.' });
+  const zO = await mkClaudeItem({ project: 'Zephyr Shared', kind: 'feature', title: 'Zephyr question for the owner in this run', why, doneWhen: 'The owner has answered the question.' });
   await must(kA, 'update_claude_items', { ops: [
-    { op: 'add', project: 'Zephyr Shared', kind: 'feature', title: 'Zephyr question for Bea in the tenancy run', why, done_when: 'Bea has answered the question.', waiting_on_om: 'Bea: pick a colour', waiting_on: 'bea@example.test' },
-    { op: 'add', project: 'Zephyr Shared', kind: 'feature', title: 'Zephyr question for the owner in this run', why, done_when: 'The owner has answered the question.', waiting_on_om: 'Owner: pick a size' },
+    { op: 'block', item: `C${zB.ref}`, waiting_on_om: 'Bea: pick a colour', waiting_on: 'bea@example.test' },
+    { op: 'block', item: `C${zO.ref}`, waiting_on_om: 'Owner: pick a size' },
   ] });
   const waitB = await rawDb.collection('notifications').countDocuments({ userId: Bu.userId, kind: 'claude_waiting' });
   const waitA = await rawDb.collection('notifications').countDocuments({ userId: A.userId, kind: 'claude_waiting' });
   check('inbox: the item waiting on B tells B', waitB === 1, String(waitB));
   check('inbox: A turned "Claude is asking" off, so A gets none (A\'s own settings)', waitA === 0, String(waitA));
-  const bad = await as(kA, 'update_claude_items', { ops: [{ op: 'add', project: 'Zephyr Shared', kind: 'feature', title: 'Zephyr question for an outsider in this run', why, done_when: 'Nobody can answer this one.', waiting_on_om: 'x', waiting_on: 'cy@example.test' }] });
+  const zX = await mkClaudeItem({ project: 'Zephyr Shared', kind: 'feature', title: 'Zephyr question for an outsider in this run', why, doneWhen: 'Nobody can answer this one.' });
+  const bad = await as(kA, 'update_claude_items', { ops: [{ op: 'block', item: `C${zX.ref}`, waiting_on_om: 'x', waiting_on: 'cy@example.test' }] });
   check('waiting_on: someone outside the organization is refused', bad.isError, bad.text);
   // B's Claude Code changes A's shared task: A (its recipient) is told, B is not
   await must(kBcode, 'update_task', { task: s1.ref, priority: 'P1' });
@@ -215,7 +218,7 @@ try {
   await must(kB, 'add_comment', { task: ct.ref, note: 'Circle comment text' });
   const cMemo = (await must(kA, 'write_note', { project: 'Circle Room', title: 'Circle memo', body: 'Circle memo body' })).created;
   const cTaskNote = (await must(kA, 'write_note', { task: ct.ref, body: 'Circle task note body' })).created;
-  await must(kA, 'update_claude_items', { ops: [{ op: 'add', project: 'Circle Room', kind: 'feature', title: 'Circle item for the tenancy check run', why, done_when: 'The tenancy suite passes.' }] });
+  await mkClaudeItem({ project: 'Circle Room', kind: 'feature', title: 'Circle item for the tenancy check run', why, doneWhen: 'The tenancy suite passes.' });
   await must(kB, 'delete_task', { task: ctB.ref, title: 'Circle task by Bea' });
   const placedDocs = await Promise.all(['tasks', 'activity', 'notes', 'claudeItems', 'trash'].map(n => rawDb.collection(n).find({ orgId: A.orgId, $or: [{ projectId: circle.id }, { taskId: ct.id }, { 'task.projectId': circle.id }] }).toArray()));
   check('list: everything in it carries the list (tasks, history, notes, Claude items, trash)', placedDocs.every(ds => ds.length > 0 && ds.every(d => d.visibility === 'members' && d.sharedWith?.includes(Bu.userId) && !d.sharedWith.includes(Du.userId))), placedDocs.map(ds => ds.length).join(','));
@@ -251,7 +254,8 @@ try {
   }
   const dAssign = await as(kA, 'update_task', { task: ct.ref, assignee: 'dee@example.test' });
   check('Dee: cannot be assigned a task in it', dAssign.isError && /chosen people/.test(dAssign.text), dAssign.text);
-  const dWait = await as(kA, 'update_claude_items', { ops: [{ op: 'add', project: 'Circle Room', kind: 'feature', title: 'Circle question for Dee in this run', why, done_when: 'Dee has answered the question in the app.', waiting_on_om: 'x', waiting_on: 'dee@example.test' }] });
+  const cD = await mkClaudeItem({ project: 'Circle Room', kind: 'feature', title: 'Circle question for Dee in this run', why, doneWhen: 'Dee has answered the question in the app.' });
+  const dWait = await as(kA, 'update_claude_items', { ops: [{ op: 'block', item: `C${cD.ref}`, waiting_on_om: 'x', waiting_on: 'dee@example.test' }] });
   check('Dee: a Claude item in it cannot wait on her', dWait.isError && /chosen people/.test(dWait.text), dWait.text);
   // A task in it that waits on a task Dee closes: the "unblocked" alert goes to the owner, never to Dee.
   const dTask = (await must(kD, 'add_task', { title: 'Dee shared step', project: 'Zephyr Shared' })).created;

@@ -104,6 +104,7 @@ export type ToolName =
   | 'slot'
   | 'end_work'
   | 'feedback'
+  | 'declutter'
   | 'list_sessions'
   | 'ask'
   | 'propose_order'
@@ -223,6 +224,13 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
     writes: true,
     example: 'save_state refused my edit twice; tell Om',
   },
+  declutter: {
+    title: 'Declutter (tidy a project that grew)',
+    description:
+      'Work OS says “Declutter due” in the start brief and in end_work when a project grew: Later over 25 lines, Next over 10, a line nobody waits on untouched for 14 days, two pages with one title, or open Claude items. Call this to see what it proposes (read only: stale and repeated Later lines, Next lines with no task, finished tasks, old Needs, repeated pages, open Claude items that move into tasks and Later lines). Check the items against the code and the disk, then call it again with ask: true, skip (item ids to leave out), add (up to 40 Later lines {later, waits_on?} or tasks {task} of your own) and disk (up to 20 lines for you to do after a Yes: worktrees, branches, files; Work OS only shows them). That files one Need to the project’s owner, who ticks what goes and answers in the app; the server applies the ticked changes as that person. Nothing is deleted: lines, pages and old Claude items are archived and can be put back. You hear the answer here. A project is quiet for 14 days after an answer. At most 3 asks per project an hour; another session’s open declutter Need must be answered first.',
+    writes: true,
+    example: 'The brief says Declutter due: look at what Work OS proposes for this project',
+  },
   list_sessions: {
     title: 'List sessions',
     description:
@@ -239,7 +247,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   save_state: {
     title: 'Save State',
     description:
-      'Change the project’s State with ops, in one call: set_now {text, holder?}; add_next {text, ref?, waits_on?}; move_next {id|find, to: top|bottom|a position}; done_next {id|find}; add_later {text, waits_on?}; promote_later {id|find, priority?} (the line becomes a task); add_decision {text}; archive_decision {id|find} (app only: not available through MCP); edit_line {find, new} (replaces find with new inside the one Now, Next or Later line that holds it; an empty new removes the line: a Next line counts as done, a Later line as dropped, both kept in the history; the edited line becomes yours). find is text inside exactly one line, case-sensitive; no match or several = an error naming the candidates and nothing written, so use more of the line. Decisions are never edited. set_where {machine, branch?, head?, dirty?, worktrees?}. only set_now needs base_version (the State version you read): if it is stale nothing is written and the current State comes back, so merge and retry. The other ops are checked line by line. Every write bumps the version. The answer is short: the new version, a message, and any Next lines whose tasks finished or went to review. ' + STATE_COPY + '; never edit it by hand. Call it on stop and at every merge; any agent may append, but only the project’s orchestrator rewrites Now or reorders Next.',
+      'Change the project’s State with ops, in one call: set_now {text, holder?}; add_next {text, ref?, waits_on?}; move_next {id|find, to: top|bottom|a position}; done_next {id|find}; add_later {text, waits_on?}; promote_later {id|find, priority?} (the line becomes a task); add_decision {text}; archive_decision {id|find} (app only: not available through MCP); archive_line {id|find, why?} (takes a Next or Later line off the State and keeps its text in the archived lines; a person puts it back in the app); edit_line {find, new} (replaces find with new inside the one Now, Next or Later line that holds it; an empty new removes the line: a Next line counts as done, a Later line as dropped and archived with its text; the edited line becomes yours). find is text inside exactly one line, case-sensitive; no match or several = an error naming the candidates and nothing written, so use more of the line. Decisions are never edited. set_where {machine, branch?, head?, dirty?, worktrees?}. only set_now needs base_version (the State version you read): if it is stale nothing is written and the current State comes back, so merge and retry. The other ops are checked line by line. Every write bumps the version. The answer is short: the new version, a message, and any Next lines whose tasks finished or went to review. ' + STATE_COPY + '; never edit it by hand. Call it on stop and at every merge; any agent may append, but only the project’s orchestrator rewrites Now or reorders Next.',
     writes: true,
     example: 'Add "wire the webhook" to Next and note that we chose Mongo',
   },
@@ -477,7 +485,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   update_claude_items: {
     title: 'Update Claude items',
     description:
-      'Claude Code’s own work list per project (refs like C12), separate from people’s tasks: never in anyone’s to-do, no priority or due date. get_project returns them (claudeItems: takeNext, answered = people’s answers to your waiting_on_om questions, open items in order, recently done). One call per checkpoint with ops: add (discovered work: kind idea, bug, feature or debt; small: true for under ~30 minutes so it joins the "Small fixes and checks" item), start (claims it for your session; refused while another session holds it), block (blocked_by another item, or waiting_on_om = what a person must decide, and waiting_on = who: a member id or email, default you; they are notified), done (ref = branch or commit), note (a decision worth keeping), release (back to the queue), edit, parts. An item belongs to the project whose code it changes. Items must read clearly to a session with no chat history: the title names the thing, why says what and where, done_when says how to tell it is finished. Vague or near-duplicate items are refused, at most 10 new items per project per day, and items are never deleted.',
+      'Retired: use save_state add_later or a task. Still moves an item you hold to done or release until your project’s items are migrated (add is refused: a Declutter moves open items into tasks and Later lines).',
     writes: true,
     example: 'Start C9 on wt/debt-4t; file the flaky picker test as a bug',
   },

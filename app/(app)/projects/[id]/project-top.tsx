@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from '@/components/intent-link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ChevronLeft, FolderGit2, MoreHorizontal, Pencil, Archive, Play } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, FolderGit2, ListChecks, MoreHorizontal, Pencil, Archive, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { updateProjectAction } from '@/app/actions';
 import { BackLink } from '@/components/back-link';
@@ -11,6 +11,7 @@ import { ConfirmSheet, ResponsiveSheet } from '@/components/responsive-sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { PROJECT_STATUSES, type Project, type ProjectInput } from '@/lib/types';
 import { AddTaskButton } from './add-task-button';
+import { DeclutterDialog } from './declutter-dialog';
 import { PeopleBadge, PrivateBadge } from '@/components/private-badge';
 import { useApp } from '@/components/app-context';
 import { Select } from '@/components/ui/select';
@@ -29,6 +30,7 @@ export function ProjectTop({ project, tab }: { project: Project; tab: string }) 
   const [sheet, setSheet] = useState(false);
   const [menu, setMenu] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [decluttering, setDecluttering] = useState(false);
   const [, start] = useTransition();
   const nameRef = useRef<HTMLInputElement>(null);
   const { people } = useApp();
@@ -73,6 +75,18 @@ export function ProjectTop({ project, tab }: { project: Project; tab: string }) 
             <div role="menu" className="absolute right-0 top-full z-50 w-44 rounded-xl border border-border bg-popover shadow-lg p-1">
               <button role="menuitem" type="button" onClick={edit} className="w-full flex items-center gap-2 px-3 min-h-11 md:min-h-9 rounded-lg text-sm text-left hover:bg-muted">
                 <Pencil className="w-4 h-4" /> Edit
+              </button>
+              <button
+                role="menuitem"
+                type="button"
+                data-project-declutter
+                onClick={() => {
+                  setMenu(false);
+                  setDecluttering(true);
+                }}
+                className="w-full flex items-center gap-2 px-3 min-h-11 md:min-h-9 rounded-lg text-sm text-left hover:bg-muted"
+              >
+                <ListChecks className="w-4 h-4" /> Declutter
               </button>
               <button
                 role="menuitem"
@@ -165,6 +179,7 @@ export function ProjectTop({ project, tab }: { project: Project; tab: string }) 
       </Link>
 
       {sheet && <EditSheet project={project} onClose={() => setSheet(false)} onSave={patch => save(patch, 'Saved', () => setSheet(false))} />}
+      {decluttering && <DeclutterDialog projectId={project.id} onClose={() => setDecluttering(false)} />}
       {archiving && (
         <ConfirmSheet
           title="Archive project"

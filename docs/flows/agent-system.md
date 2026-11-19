@@ -115,10 +115,11 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
   it first and marks it read. This is Akash's "move chats between tools" (#165), option 1. Tools without MCP use the
   app's paste import.
 - **declutter** {project}: Work OS lists what has grown: Later lines done, duplicated or untouched for 30 days; Next
-  lines without a task or with a finished one; notes with matching titles or untouched for 30 days; done-but-open tasks;
+  lines without a task or with a finished one; notes with matching titles or untouched for 14 days; done-but-open tasks;
   unanswered Needs. The session adds what it sees on disk (extra worktrees, branches, stray files). It proposes one batch
   as a single Need. On yes it applies it. **Triggered by growth** (Om): start_work and wrap_up say "Declutter due" when
   Later passes 25, Next passes 10, a line sits for 14 days, or notes duplicate. Also on demand from the app (project ⋯).
+  *Built in H11:* `declutter {project, ask?}`; lines untouched 14 days (never one that waits on someone), notes duplicated by title or untouched 30 days; see docs/HANDOVER.md section 3 (Declutter).
 - **propose_order** {project, layer (org or project), old?, new, why, incident?, repeat?}: for a teammate's Claude. A Need for
   the holder (Om for the org layer, the project owner for a project) with the old and new line and no phone alert;
   Accept applies it as one version. The holder's own Claude uses write_note instead. **Built in H9** (section 16.15).

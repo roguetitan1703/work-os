@@ -7,6 +7,7 @@ import Link from '@/components/intent-link';
 import { answerNeedAction } from '@/app/(app)/needs/actions';
 import { actorLabel } from '@/lib/actors';
 import { Ago } from './ago';
+import { DeclutterList, DiskLines } from './declutter-list';
 import type { Need } from '@/lib/data/needs';
 import { cn } from '@/lib/utils';
 import { useApp } from './app-context';
@@ -23,10 +24,14 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
   const open = need.status === 'open';
   const asker = actorLabel(need.from.actor, me, people);
   const project = projectName(need.projectId);
+  // A declutter Need: every change starts ticked; what the person unticks goes with a Yes as `skip`.
+  const [ticked, setTicked] = useState(() => new Set((need.declutter?.items ?? []).map(i => i.id)));
+  const toggle = (id: string) => setTicked(t => (t.has(id) ? new Set([...t].filter(x => x !== id)) : new Set([...t, id])));
 
   function answer(option: string) {
     start(async () => {
-      const r = await answerNeedAction(need.id, option, text.trim() || undefined);
+      const skip = need.declutter && option === 'yes' ? need.declutter.items.filter(i => !ticked.has(i.id)).map(i => i.id) : undefined;
+      const r = await answerNeedAction(need.id, option, text.trim() || undefined, skip);
       if (!r.ok) return void toast.error(r.error);
       toast.success(`Need #${need.ref} answered`);
       onAnswered?.(need.id);
@@ -82,6 +87,18 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
             </div>
           )}
         </div>
+      )}
+      {need.declutter && (open || need.declutter.result) && (
+        <>
+          <DeclutterList
+            items={need.declutter.items}
+            ticked={open && canAnswer ? ticked : undefined}
+            onToggle={open && canAnswer ? toggle : undefined}
+            result={need.declutter.result ? { applied: need.declutter.result.applied, failed: need.declutter.result.failed } : undefined}
+            phone={phone}
+          />
+          <DiskLines lines={need.declutter.disk} phone={phone} />
+        </>
       )}
       {need.example && <p className={cn('rounded-lg bg-muted/50 px-3 py-2 text-muted-foreground whitespace-pre-wrap break-words', phone ? 'text-[14px]' : 'text-xs')}>For example: {need.example}</p>}
       {open && canAnswer && (

@@ -6,7 +6,7 @@
 // real worker/push.mjs client), and that removing a member closes their streams. Ends with the request counts of an
 // idle Claude page for an hour, push off (the old poll) and on (docs/cpu.md). Seed profile: none.
 import { randomBytes, randomUUID } from 'node:crypto';
-import { B, EMAIL, ME, MCP, PW, check, finish, launch, login, makeUser, mkKey, rawDb, sha } from './lib.mjs';
+import { B, EMAIL, ME, MCP, PW, check, finish, launch, login, makeUser, mkClaudeItem, mkKey, rawDb, sha } from './lib.mjs';
 import { connectPush } from '../../worker/push.mjs';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -166,7 +166,9 @@ try {
     await as(kA, 'add_task', { title: 'Push circle task', project: 'Push Circle' });
     check('list: someone on it gets "tasks"', !!(await until(() => sB.hints('tasks').length > bT)));
     await as(kB, 'add_task', { title: 'Push circle task by Bea', project: 'Push Circle' });
-    await as(kA, 'update_claude_items', { ops: [{ op: 'add', project: 'Push Circle', kind: 'bug', title: 'Push circle item for the hint check', why: 'Push check: a teammate off the list of this project must get no hint of it.', done_when: 'Cal got no hint while this item was added.' }] });
+    // Claude items are no longer added through MCP (H11): the item is a fixture, and the change that must reach nobody off the list is a note on it.
+    const circleItem = await mkClaudeItem({ project: 'Push Circle', title: 'Push circle item for the hint check', why: 'Push check: a teammate off the list of this project must get no hint of it.', doneWhen: 'Cal got no hint while this item changed.' });
+    await as(kA, 'update_claude_items', { ops: [{ op: 'note', item: `C${circleItem.ref}`, text: 'a note for the hint check' }] });
     await sleep(1500);
     check('list: a teammate off it gets nothing (project, tasks, Claude items)', sC.hints().length === c0, JSON.stringify(sC.hints().slice(c0)));
     // Cal's own write still reaches only who can read it: her private task tells nobody else
@@ -198,7 +200,8 @@ try {
   await sleep(500);
   const itemTitle = 'Teammate pushed item ' + randomBytes(3).toString('hex');
   rscAfter = 0;
-  await as(kB, 'update_claude_items', { project: 'Push Team', ops: [{ op: 'add', project: 'Push Team', kind: 'bug', title: itemTitle, why: 'Push check: an open Claude page (Queue tab) must follow a change a teammate makes elsewhere.', done_when: 'The open page lists this item without a reload.' }] });
+  const teamItem = await mkClaudeItem({ project: 'Push Team', title: 'Push team fixture item before the edit', why: 'Push check: an open Claude page (Queue tab) must follow a change a teammate makes elsewhere.', doneWhen: 'The open page lists the new title without a reload.' });
+  await as(kB, 'update_claude_items', { project: 'Push Team', ops: [{ op: 'edit', item: `C${teamItem.ref}`, title: itemTitle }] });
   check('Claude page shows a teammate\'s new item without a reload', !!(await until(async () => (await pA.getByText(itemTitle).count()) > 0, 10000)));
 
   // ── the worker gets a job pushed ──

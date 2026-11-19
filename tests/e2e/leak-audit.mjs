@@ -23,7 +23,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, createPrivateKey, randomBytes, randomUUID, sign } from 'node:crypto';
 import { ObjectId } from 'mongodb';
-import { B, CRON, EMAIL, ME, MCP, PW, check, finish, makeUser, mkKey, rawDb, setOrgGuild, setProfile, setSchedule, sha } from './lib.mjs';
+import { B, CRON, EMAIL, ME, MCP, PW, check, finish, makeUser, mkClaudeItem, mkKey, rawDb, setOrgGuild, setProfile, setSchedule, sha } from './lib.mjs';
 import { entryPoints, unlistedBuilt } from './entry-points.mjs';
 
 const T0 = Date.now();
@@ -441,8 +441,8 @@ try {
   S.noteTitle = can('shmemo', ['A', 'T']);
   S.note = (await mustMcp(A.chat, 'write_note', { project: S.projectName, title: S.noteTitle, body: can('shmemobody', ['A', 'T']) })).created?.id;
   const why = 'Fixture for the leak audit on the throwaway app; nothing real happens with this item at all.';
-  await mustMcp(A.chat, 'update_claude_items', { ops: [{ op: 'add', project: P.projectName, kind: 'feature', title: can('pvitem', ['A']) + ' item for the audit', why: can('pvitemwhy', ['A']) + ' ' + why, done_when: can('pvitemdone', ['A']), waiting_on_om: can('pvitemwait', ['A']) }] });
-  await mustMcp(A.chat, 'update_claude_items', { ops: [{ op: 'add', project: S.projectName, kind: 'feature', title: can('shitem', ['A', 'T']) + ' item for the audit', why: can('shitemwhy', ['A', 'T']) + ' ' + why, done_when: 'The audit passes for this one.' }] });
+  await mkClaudeItem({ project: P.projectName, kind: 'feature', title: can('pvitem', ['A']) + ' item for the audit', why: can('pvitemwhy', ['A']) + ' ' + why, doneWhen: can('pvitemdone', ['A']), waitingText: can('pvitemwait', ['A']) });
+  await mkClaudeItem({ project: S.projectName, kind: 'feature', title: can('shitem', ['A', 'T']) + ' item for the audit', why: can('shitemwhy', ['A', 'T']) + ' ' + why, doneWhen: 'The audit passes for this one.' });
   // Needs (slice 4): asks to A, in the private project (only A reads them) and the shared one (A and T read them, only A may answer).
   // Two per project: one for the answer control and one for the withdraw control (each destroys its Need).
   {
@@ -495,7 +495,7 @@ try {
   XO.taskRef = await mkTask(X.chat, { title: can('xtask', ['X']), project: XO.projectName });
   XO.note = (await mustMcp(X.chat, 'write_note', { project: XO.projectName, title: can('xmemo', ['X']), body: can('xmemobody', ['X']) })).created?.id;
   await mustMcp(X.chat, 'add_comment', { task: XO.taskRef, note: can('xcomment', ['X']) });
-  await mustMcp(X.chat, 'update_claude_items', { ops: [{ op: 'add', project: XO.projectName, kind: 'feature', title: can('xitem', ['X']) + ' item for the audit', why, done_when: 'The audit passes for this one.' }] });
+  await mkClaudeItem({ project: XO.projectName, userId: X.userId, orgId: X.orgId, kind: 'feature', title: can('xitem', ['X']) + ' item for the audit', why, doneWhen: 'The audit passes for this one.' });
   await mkTask(R.chat, { title: can('rptask', []) });
 
   // Personal documents of A (and one of X): inbox, push devices, alerts, reviews, routine logs, computers' folders,
@@ -719,6 +719,28 @@ try {
     const extra = (listed ?? []).filter(n => !enumerated.has(n));
     const gone = [...enumerated].filter(n => listed && !listed.includes(n));
     check(`mcp: tools/list as the owner names exactly the ${enumerated.size} enumerated tools`, !!listed && !extra.length && !gone.length, listed ? `not enumerated: ${extra.join(', ') || '-'}; not listed: ${gone.join(', ') || '-'}` : `${r.status} ${r.text.slice(0, 200)}`);
+  }
+  // H11 review: a teammate asks a Declutter on the owner's org project. The Need holds what only the owner can read (a private task's
+  // title), so it is private to the owner: the teammate gets counts, never the title, from the ask, the Needs tool or the project's Needs.
+  {
+    const marker = `lkqdecl${hex(5)}`;
+    const q = `lkqdeclproj${hex(3)}`;
+    await mustMcp(A.chat, 'add_project', { name: q, visibility: 'org' });
+    const tk = (await mustMcp(A.chat, 'add_task', { title: `${marker} owner private finished task`, project: q })).created;
+    await rawDb.collection('tasks').updateOne({ ref: tk.ref }, { $set: { visibility: 'private', ownerId: A.userId, progress: 100, status: 'In Progress' } });
+    const tRead = await mcpCall(T.chat, 'declutter', { project: q });
+    const tAsk = await mcpCall(T.chat, 'declutter', { project: q, ask: true, add: [{ later: 'lkq teammate added line' }] });
+    const doc = await rawDb.collection('needs').findOne({ ask: new RegExp(`^Declutter ${q}`) });
+    const tNeeds = await mcpCall(T.chat, 'needs', { project: q, status: 'all' });
+    const tAll = await mcpCall(T.chat, 'needs', { status: 'all' });
+    const tProj = await mcpCall(T.chat, 'get_project', { project: q, depth: 'full' });
+    const aSees = await mcpCall(A.chat, 'needs', { project: q, status: 'all' });
+    check('declutter: the proposal holds the private task title of the owner (so the check below means something)', JSON.stringify(doc?.declutter?.items ?? []).includes(marker), JSON.stringify(doc?.declutter?.items ?? []).slice(0, 200));
+    check('declutter: a teammate reading the proposal does not name the private task', tRead.ok && !tRead.text.includes(marker), tRead.text.slice(0, 200));
+    check('declutter: a teammate asking works and its answer holds counts, not the title', tAsk.ok && !tAsk.text.includes(marker) && /"changes": [1-9]/.test(tAsk.text), tAsk.text.slice(0, 200));
+    check('declutter: the Need is private to the owner (stamped, not shared)', doc?.visibility === 'private' && doc.ownerId === A.userId && !(doc.sharedWith ?? []).length, JSON.stringify([doc?.visibility, doc?.ownerId === A.userId]));
+    check('declutter: the Needs reads of the teammate (this project, all, the project page) show no title and not the Need', ![tNeeds, tAll, tProj].some(r => r.text.includes(marker) || /Declutter lkqdeclproj/.test(r.text)), [tNeeds, tAll, tProj].map(r => r.text.length).join(','));
+    check('declutter: the owner sees it', aSees.ok && /Declutter lkqdeclproj/.test(aSees.text), aSees.text.slice(0, 120));
   }
   // Needs (slice 4): no MCP path answers a Need, for any key (no tool, no batch op), and a project made private takes its
   // Needs along (a member who read them before cannot read, answer or ask on them after).
@@ -1202,8 +1224,7 @@ function AUDIT() {
   add('mcp update_claude_items',
     M('update_claude_items', t => ({ ops: [{ op: 'note', item: t.item, text: 'lkq note' }] }), aim(['item'])),
     M('update_claude_items', t => ({ ops: [{ op: 'edit', item: t.item, title: 'lkq edited title of the item' }] }), aim(['item'], { label: 'edit' })),
-    M('update_claude_items', t => ({ ops: [{ op: 'add', project: t.project, kind: 'idea', title: 'lkq idea into someone else project', why: 'Probe of the leak audit on the throwaway app; nothing real happens with this idea at all.' }] }), aim(['project'], { label: 'add into their project' })),
-    { ...M('update_claude_items', []), label: 'blocked_by theirs', aim: true, aimKeys: ['item'], control: false, call: ({ cred, o: t, p }) => mcpCall(cred, 'update_claude_items', { ops: [{ op: 'add', project: p.ownProject ?? 'lkq none', kind: 'idea', title: 'lkq idea blocked by theirs here', why: 'Probe of the leak audit on the throwaway app; nothing real happens with this idea at all.', blocked_by: t.item }] }) },
+    // (H11: update_claude_items add is retired for every caller, so its 'add into their project' and 'blocked_by theirs' probes are gone; the refusal is checked in flow-h11.)
   );
   add('mcp delete_task', M('delete_task', t => ({ task: t.ref, title: 'lkq' }), aim(['ref'], { label: 'wrong title', control: false })), M('delete_task', t => ({ task: t.looseRef, title: 'lkqpvloose' }), aim(['looseRef'], { label: 'title start', stage: 2 })));
   add('mcp restore_task', M('restore_task', t => ({ task: t.trashRef }), aim(['trashRef'], { stage: 1 })));
@@ -1261,6 +1282,10 @@ function AUDIT() {
   add('mcp feedback',
     M('feedback', t => ({ project: t.project, text: 'lkq sneaked feedback', tool: 'lkq', rule: 'lkq' }), aim(['project'])),
     M('feedback', t => ({ project: t.projectName, text: 'lkq sneaked feedback by name' }), aim(['projectName'], { label: 'by name' })),
+  );
+  add('mcp declutter',
+    M('declutter', t => ({ project: t.projectName }), aim(['projectName'], { label: 'read their project' })),
+    M('declutter', t => ({ project: t.projectName, ask: true, add: [{ later: 'lkq probe line' }] }), aim(['projectName'], { label: 'ask into their project', control: false })),
   );
   add('mcp list_sessions', M('list_sessions', { include_gone: true }), M('list_sessions', t => ({ project: t.project, include_gone: true }), aim(['project'], { label: 'by project', control: false, ok: r => r.ok && r.json?.sessions?.length > 0 })));
   add('mcp slot', M('slot', { action: 'acquire', machine: 'lkq-slot-box' }, { label: 'acquire' }), M('slot', { action: 'release', machine: 'lkq-slot-box' }, { label: 'release' }));
@@ -1365,6 +1390,11 @@ function AUDIT() {
   add(`action ${IA}messageStatusAction`, act(IA + 'messageStatusAction', t => [t.project, t.msg, 'seen'], aim(['project', 'msg'])), act(IA + 'messageStatusAction', t => [t.project, t.msg, 'rejected', 'lkq'], aim(['project', 'msg'], { label: 'rejected', control: false })));
   add(`action ${IA}makeTaskFromMessageAction`, act(IA + 'makeTaskFromMessageAction', t => [t.project, t.msgReq], aim(['project', 'msgReq'], { control: false })));
   add(`action ${SA}saveStateAction`, act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_next', text: 'lkq action sneak' }]], aim(['project'])), act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_decision', text: 'lkq action decision' }, { op: 'add_later', text: 'lkq action later' }]], aim(['project'], { label: 'decision and later' })));
+  // H11: Declutter in the app. The project's owner (the control) sees and applies; a member who is not the owner and anyone without access get the same answer as for a made-up project (not found, or the owner-only line), and a made-up archived line is refused alike.
+  const DC = 'app/(app)/projects/[id]/declutter-actions.ts#';
+  add(`action ${DC}declutterProposalAction`, act(DC + 'declutterProposalAction', t => [t.project], aim(['project'], { ok: r => actOk(r) && Array.isArray(r.value.items) })));
+  add(`action ${DC}applyDeclutterAction`, act(DC + 'applyDeclutterAction', t => [t.project, ['later:lkqnone']], aim(['project'], { control: false })));
+  add(`action ${SA}restoreLineAction`, act(SA + 'restoreLineAction', t => [t.project, 'lkqnoline'], aim(['project'], { control: false })));
   add(`action ${OA}setOrdersAction`, act(OA + 'setOrdersAction', t => [t.ordersNote, 'project'], aim(['ordersNote'])), act(OA + 'setOrdersAction', t => [t.ordersNote, null], aim(['ordersNote'], { label: 'clearing it' })));
   // H9: undo writes the text before a version back; the holder only. The probe's page is not Orders (the flag on it is the setOrdersAction probe's), so the owner's control is answered "not found", the same as everyone's.
   add(`action ${OA}undoOrdersAction`, act(OA + 'undoOrdersAction', t => [t.ordersNote, 2], aim(['ordersNote'], { controlOk: r => actOk(r) || /not found/i.test(r.text) })));

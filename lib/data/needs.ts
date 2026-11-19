@@ -5,7 +5,7 @@ import type { Document } from 'mongodb';
 import { signalSessions } from '../live';
 import { requestContext } from '../request-context';
 import type { HandInResult } from '../types';
-import { inTransaction, nextSeq, type NeedDoc, type TaskDoc, type NeedKind, type NeedOption, type NeedStatus, type NeedWord } from '../db';
+import { inTransaction, nextSeq, type DeclutterNeed, type NeedDoc, type TaskDoc, type NeedKind, type NeedOption, type NeedStatus, type NeedWord } from '../db';
 import { orgWide, readable, scoped, type Scope, type ScopedCollections as Collections } from '../scope';
 import type { Actor } from '../actors';
 import { isMember } from '../people';
@@ -58,6 +58,8 @@ export type Need = {
   /** A release Need (H8): Yes or Yes for 24 hours opens production on the project until releaseUntil. */
   release?: true;
   releaseUntil?: string;
+  /** A declutter Need: the proposed changes (session text inside them is the agent's), the disk lines, what was unticked and what the server did. */
+  declutter?: DeclutterNeed;
 };
 
 export function toNeed(d: NeedDoc): Need {
@@ -84,6 +86,7 @@ export function toNeed(d: NeedDoc): Need {
     ...(d.order ? { order: { noteId: d.order.noteId, layer: d.order.layer, ...(d.order.applied ? { applied: d.order.applied } : {}) } } : {}),
     ...(d.release ? { release: true as const } : {}),
     ...(d.releaseUntil ? { releaseUntil: d.releaseUntil.toISOString() } : {}),
+    ...(d.declutter ? { declutter: d.declutter } : {}),
   };
 }
 
@@ -131,6 +134,12 @@ export const RELEASE_OPTIONS: NeedOption[] = [
   { id: 'yes', label: 'Yes, release', means: 'Open production on this project for 1 hour: pushes, tags, releases and production commands may go ahead.' },
   { id: 'day', label: 'Yes, for 24 hours', means: 'Open production on this project for 24 hours.' },
   { id: 'no', label: 'No', means: 'Do not release.' },
+];
+
+/** A declutter Need's options are fixed by the server too: the asker cannot word them (H11, docs/flows/agent-system.md section 7). */
+export const DECLUTTER_OPTIONS: NeedOption[] = [
+  { id: 'yes', label: 'Yes, apply', means: 'Apply the ticked changes. Nothing is deleted: lines, pages and old Claude items are archived and can be put back.' },
+  { id: 'no', label: 'No', means: 'Apply nothing. Work OS stays quiet about this project for 14 days.' },
 ];
 
 /** 2 to 4 options with unique short ids; the first is the recommendation. A kind with defaults needs none given. */
@@ -186,6 +195,8 @@ export type AskInput = {
   noAlert?: boolean;
   /** A release Need: kind approve, to the project's owner, fixed options, app only. */
   release?: boolean;
+  /** A declutter Need (lib/data/declutter.ts askDeclutter): kind approve, to the project's owner, fixed options, no alert; replaces the project's open one. */
+  declutter?: { items: DeclutterNeed['items']; disk: string[] };
   /** Who asks and how the call came in: set by the server, never by an argument. */
   actor: Actor;
   word: NeedWord;
@@ -219,7 +230,8 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
   if (!REPEAT_KINDS.includes(input.kind)) throw new InputError('Unknown kind of Need.');
   if (input.release && input.kind !== 'approve') throw new InputError('A release Need is kind approve.');
   if (input.release && input.task !== undefined && input.task !== null && String(input.task).trim() !== '') throw new InputError('A release Need is about the project, not a task: leave task out.');
-  const options = input.release ? RELEASE_OPTIONS : optionsFor(input.kind, input.options);
+  if (input.declutter && (input.kind !== 'approve' || input.release || (input.task !== undefined && input.task !== null && String(input.task).trim() !== ''))) throw new InputError('A declutter Need is kind approve and about the project, not a task.');
+  const options = input.release ? RELEASE_OPTIONS : input.declutter ? DECLUTTER_OPTIONS : optionsFor(input.kind, input.options);
   const actorId = 'userId' in input.actor && input.actor.userId ? input.actor.userId : s.userId;
 
   return inTransaction(async () => {
@@ -227,6 +239,7 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
     const project = await resolveProject(c, s, input.project, { create: false });
     if (!project) throw new NotFoundError(`Project "${input.project}" not found`);
     if (input.release && input.to !== project.ownerId) throw new InputError("A release Need goes to the project's owner: they decide releases.");
+    if (input.declutter && input.to !== project.ownerId) throw new InputError("A declutter Need goes to the project's owner: they decide what is tidied.");
     if (!(await isMember(s.orgId, input.to)) || !readable(project, input.to)) throw new InputError('That person cannot see this project, so they cannot be asked about it here. Pick someone who can, or share the project first.');
     let task: { _id: string; ref: number } | null = null;
     if (input.task !== undefined && input.task !== null && String(input.task).trim() !== '') {
@@ -237,7 +250,12 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
     // The same kind on the same task from the same asker is replaced, so it is not counted against the limit.
     // (A review Need is the system's, made when an agent closes work: it counts against no limit.)
     const mine = { status: 'open' as const, 'from.actor.userId': actorId, 'from.word': input.word, kind: { $ne: 'review' as const } };
-    const replaced = task ? await c.needs.find({ ...mine, taskId: task._id, kind: input.kind }).toArray() : [];
+    // A declutter Need replaces the project's open one (whoever asked it): one batch at a time per project.
+    // A declutter Need is private to the owner (below), so the asker's own door cannot see the one it replaces: read it org-wide.
+    const org = await orgWide(s.orgId);
+    const replaced = input.declutter
+      ? await org.needs.find({ projectId: project._id, status: 'open', declutter: { $exists: true } }).toArray()
+      : task ? await c.needs.find({ ...mine, taskId: task._id, kind: input.kind }).toArray() : [];
     const replacedIds = new Set(replaced.map(n => n._id));
     // The limit holds under a race because the `need:<org>` counter (nextSeq below) is the lock: two asks at once both write
     // that one document in their transactions, the second gets a write conflict, withTransaction retries it, and the retry
@@ -255,7 +273,9 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
     const lastAlert = replaced.map(n => n.alertedAt?.getTime() ?? 0).reduce((a, b) => Math.max(a, b), 0);
     const quiet = lastAlert > now.getTime() - NEED_LIMITS.replaceAlertMs;
     const id = randomUUID();
-    const place = placeIn(project, s.userId);
+    // A declutter Need names what the owner can read (private pages, tasks, other people's Needs): it is private to the owner, who
+    // is the one it is addressed to, so no other reader of the project sees it, in the app or through a tool.
+    const place = input.declutter ? { ownerId: project.ownerId, visibility: 'private' as const, sharedWith: [] as string[] } : placeIn(project, s.userId);
     const doc: NeedDoc = {
       _id: id,
       orgId: s.orgId,
@@ -269,11 +289,13 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
       to: input.to,
       from: { actor: input.actor, word: input.word, ...(input.session ? { session: input.session.slice(0, 80) } : {}), ...(input.keyId ? { keyId: input.keyId.slice(0, 80) } : {}), ...(input.label ? { label: input.label.slice(0, 80) } : {}) },
       kind: input.kind,
-      ask,
+      // A declutter Need's ask is written by the server; the session's own words are only inside the items.
+      ask: input.declutter ? `Declutter ${project.name}: ${input.declutter.items.length} change${input.declutter.items.length === 1 ? '' : 's'}`.slice(0, NEED_LIMITS.ask) : ask,
       ...(example ? { example } : {}),
       options,
       status: 'open',
       ...(input.release ? { release: true as const } : {}),
+      ...(input.declutter ? { declutter: { items: input.declutter.items, disk: input.declutter.disk }, noAlert: true } : {}),
       appOnly: input.release === true || input.appOnly === true || isSensitiveNeed([ask, example, ...options.flatMap(o => [o.label, o.means])]),
       createdAt: now,
       answeredAt: null,
@@ -282,11 +304,15 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
       ...(input.noAlert ? { noAlert: true } : {}),
     };
     await c.needs.insertOne(doc);
-    if (replaced.length) await c.needs.updateMany({ _id: { $in: [...replacedIds] }, status: 'open' }, { $set: { status: 'replaced', closedAt: now, replacedBy: id } });
+    if (replaced.length) await (input.declutter ? org : c).needs.updateMany({ _id: { $in: [...replacedIds] }, status: 'open' }, { $set: { status: 'replaced', closedAt: now, replacedBy: id } });
     await syncTaskNeed(await orgWide(s.orgId), doc.taskId);
     await logNeed(c, doc, input.actor, 'need_asked');
+    if (input.declutter) {
+      // The State remembers the open Need, so the start brief says "Declutter Need #n is open" without another read.
+      await c.states.updateOne({ _id: project._id }, { $set: { 'declutter.needId': id, 'declutter.needRef': doc.ref } } as never);
+    }
     // One alert per Need, sent at once (like "assigned"): to the addressee, even when they asked themselves through their own agent.
-    if (!quiet && !input.noAlert) {
+    if (!quiet && !input.noAlert && !input.declutter) {
       await (await orgWide(s.orgId)).alertQueue.updateOne(
         { _id: `need:${id}` },
         { $setOnInsert: { userId: input.to, kind: 'need', taskId: task?._id ?? '', byTaskId: '', needId: id, createdAt: now, sentAt: null } },
@@ -415,10 +441,11 @@ export async function withNeedWaits<T extends { next: { ref?: number; waitsOn?: 
  * Records who, how ('app'), when and how long it waited. Taken once, atomically: a second answer finds it closed.
  * Not found, not readable and not addressed to the caller read the same.
  */
-export async function answerNeed(s: Scope, id: string, answer: { option: string; text?: string }, via: 'app' | 'phone' | 'discord' = 'app'): Promise<Need> {
+export async function answerNeed(s: Scope, id: string, answer: { option: string; text?: string; /** A declutter Need: the item ids the person unticked (the app only; a Discord Yes applies all). */ skip?: string[] }, via: 'app' | 'phone' | 'discord' = 'app'): Promise<Need> {
   const text = answer.text?.trim() || undefined;
+  const skip = Array.isArray(answer.skip) ? [...new Set(answer.skip.filter((x): x is string => typeof x === 'string').map(x => x.slice(0, 80)))].slice(0, 100) : [];
   if (text && text.length > NEED_LIMITS.answerText) throw new InputError(`The answer text is at most ${NEED_LIMITS.answerText} characters.`);
-  const answered = await inTransaction(async () => {
+  let answered = await inTransaction(async () => {
     const c = await scoped(s);
     const cur = await c.needs.findOne({ _id: id, to: s.userId });
     if (!cur) throw new NotFoundError('That Need does not exist, or it is not addressed to you.');
@@ -433,7 +460,7 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
     const hours = cur.release && !own ? RELEASE_HOURS[answer.option as keyof typeof RELEASE_HOURS] : undefined;
     const done = await c.needs.findOneAndUpdate(
       { _id: id, to: s.userId, status: 'open' },
-      { $set: { ...(hours ? { releaseUntil: new Date(now.getTime() + hours * 3_600_000) } : {}), status: 'answered', answer: { option: answer.option, ...(text ? { text } : {}), by: s.userId, via, at: now }, answeredAt: now, closedAt: now, waitedMs: now.getTime() - cur.createdAt.getTime() } },
+      { $set: { ...(hours ? { releaseUntil: new Date(now.getTime() + hours * 3_600_000) } : {}), ...(cur.declutter && skip.length ? { 'declutter.skip': skip.filter(x => cur.declutter!.items.some(i => i.id === x)) } : {}), status: 'answered', answer: { option: answer.option, ...(text ? { text } : {}), by: s.userId, via, at: now }, answeredAt: now, closedAt: now, waitedMs: now.getTime() - cur.createdAt.getTime() } },
       { returnDocument: 'after' },
     );
     if (!done) throw new InputError('This Need is already answered.');
@@ -442,6 +469,12 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
     if (done.kind === 'review') return toNeed(await applyReview(s, done, answer.option, text));
     return toNeed(done);
   });
+  // A declutter Need: Yes applies the ticked changes as the person who answered (their own door, not the asker's), No only
+  // keeps Work OS quiet. Either way the project is quiet for 14 days and the Need no longer counts as open on the State.
+  if (answered.declutter) {
+    const { applyAnswer } = await import('./declutter-apply');
+    answered = await applyAnswer(s, answered, answer.option === 'yes');
+  }
   // A proposed change of Orders is applied by the Accept, as the holder, after the answer is saved (a failed apply never loses the answer).
   if (answered.order && answer.option === 'accept') {
     const { applyOrderAnswer } = await import('./orders');
@@ -584,6 +617,7 @@ export async function withdrawNeed(s: Scope, id: string, by: Withdrawer = 'app')
     const now = new Date();
     const done = await c.needs.findOneAndUpdate({ _id: id, 'from.actor.userId': s.userId, status: 'open' }, { $set: { status: 'withdrawn', closedAt: now } }, { returnDocument: 'after' });
     if (!done) throw new InputError('This Need is already closed.');
+    await clearDeclutterNeed(c, done);
     await syncTaskNeed(await orgWide(s.orgId), done.taskId);
     // From the app the person; through MCP the asker itself (only the same word, session and key may withdraw it).
     await logNeed(c, done, by === 'app' ? { kind: 'user', userId: s.userId } : done.from.actor, 'need_withdrawn');
@@ -591,10 +625,35 @@ export async function withdrawNeed(s: Scope, id: string, by: Withdrawer = 'app')
   });
 }
 
+/** A declutter Need closed (withdrawn): the State no longer says it is open. Answered ones are handled by lib/data/declutter.ts applyAnswer. */
+async function clearDeclutterNeed(c: Collections, n: Pick<NeedDoc, '_id' | 'projectId' | 'declutter'>): Promise<void> {
+  if (!n.declutter) return;
+  await c.states.updateOne({ _id: n.projectId, 'declutter.needId': n._id }, { $unset: { 'declutter.needId': '', 'declutter.needRef': '' } } as never);
+}
+
+/**
+ * A declutter apply withdraws an old open Need of the project (not a review or release one). The person answering may not
+ * be the one who asked it, so this is not withdrawNeed: it is the declutter's own step, through the answerer's door.
+ */
+export async function withdrawForDeclutter(s: Scope, projectId: string, ref: number): Promise<'withdrawn' | 'gone'> {
+  return inTransaction(async () => {
+    const c = await scoped(s);
+    const cur = await c.needs.findOne({ projectId, ref });
+    if (!cur || cur.status !== 'open') return 'gone' as const;
+    if (cur.kind === 'review' || cur.release || cur.declutter) throw new InputError(`Need #${ref} is a ${cur.kind === 'review' ? 'review' : cur.release ? 'release' : 'declutter'} Need: it is not withdrawn by a declutter.`);
+    const done = await c.needs.findOneAndUpdate({ _id: cur._id, status: 'open' }, { $set: { status: 'withdrawn', closedAt: new Date(), withdrawnReason: 'declutter' } }, { returnDocument: 'after' });
+    if (!done) return 'gone' as const;
+    await syncTaskNeed(await orgWide(s.orgId), done.taskId);
+    await logNeed(c, done, { kind: 'user', userId: s.userId }, 'need_withdrawn');
+    return 'withdrawn' as const;
+  });
+}
+
 async function closeBySystem(c: Collections, dead: NeedDoc[], reason: string): Promise<number> {
   if (!dead.length) return 0;
   const now = new Date();
   await c.needs.updateMany({ _id: { $in: dead.map(n => n._id) }, status: 'open' }, { $set: { status: 'withdrawn', closedAt: now, withdrawnReason: reason } });
+  for (const n of dead) await clearDeclutterNeed(c, n);
   for (const t of new Set(dead.map(n => n.taskId).filter((x): x is string => !!x))) await syncTaskNeed(c, t);
   return dead.length;
 }

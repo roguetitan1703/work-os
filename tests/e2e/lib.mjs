@@ -291,3 +291,26 @@ export const overflow = p => p.evaluate(() => {
   return { docScroll: document.documentElement.scrollWidth > w + 1, mainScroll: main ? main.scrollWidth > main.clientWidth + 1 : false, offenders: bad.slice(0, 3).map(e => `${e.tagName}.${String(e.className).slice(0, 60)}`) };
 });
 export const okO = o => !o.docScroll && !o.mainScroll && !o.offenders.length;
+
+/**
+ * A Claude item made as a fixture (H11 retired adding items through MCP: update_claude_items refuses `add`, so suites that
+ * need an item write one the way addItem does). `project` is a name or id; `userId` is who made it (and, by default, who
+ * a waiting item waits on). Returns { ref, id }.
+ */
+export async function mkClaudeItem({ project, title, kind = 'bug', why, doneWhen = 'The check that uses this fixture passes.', waitingText = '', waitingOn = null, userId = ME.userId, orgId = ME.orgId, state, next = false, note = '' }) {
+  const p = await rawDb.collection('projects').findOne({ orgId, $or: [{ name: project }, { _id: project }] });
+  if (!p) throw new Error(`mkClaudeItem: no project ${project}`);
+  const seq = (await rawDb.collection('counters').findOneAndUpdate({ _id: `claudeItems:${orgId}` }, { $inc: { seq: 1 } }, { upsert: true, returnDocument: 'after' })).seq;
+  const last = await rawDb.collection('claudeItems').find({ projectId: p._id }).sort({ order: -1 }).limit(1).next();
+  const now = new Date();
+  const id = randomUUID();
+  const waiting = waitingText.trim();
+  const place = p.visibility === 'private' ? { ownerId: p.ownerId, visibility: 'private', sharedWith: [] } : p.visibility === 'members' ? { ownerId: p.ownerId, visibility: 'members', sharedWith: p.sharedWith ?? [] } : { ownerId: userId, visibility: 'org', sharedWith: [] };
+  const actor = { kind: 'agent', agent: 'claude-code', userId };
+  await rawDb.collection('claudeItems').insertOne({
+    _id: id, orgId, ...place, ref: seq, projectId: p._id, title, kind, why: why ?? `Fixture item "${title}" made by a test, with enough words to read clearly on its own.`, doneWhen, note, parts: [], state: state ?? (waiting ? 'blocked' : 'queued'),
+    next: kind === 'idea' ? false : next, order: (last?.order ?? 0) + 1, blockedBy: null, waitingOn: waiting ? (waitingOn ?? userId) : null, waitingText: waiting, gitRef: '', claimedBy: null,
+    createdBy: actor, createdAt: now, updatedAt: now, doneAt: null, log: [{ at: now, actor, text: 'created' }],
+  });
+  return { ref: seq, id };
+}

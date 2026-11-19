@@ -505,6 +505,16 @@ export async function omUpdate(s: Scope, key: string | number, f: OmPatch): Prom
   return toItem(await update(c, d, set, ctx, said.join('; ')));
 }
 
+/**
+ * A Declutter moved an open item into a task ("#12") or a Later line ("later:l_..."): it is dropped (a person's step, as the
+ * person who said Yes) and keeps where it went in `movedTo`. Done and dropped items are left as history.
+ */
+export async function migrateItem(s: Scope, key: string | number, movedTo: string): Promise<ClaudeItem> {
+  const item = await omUpdate(s, key, { state: 'dropped', note: `Moved by a Declutter: ${movedTo}` });
+  await (await scoped(s)).claudeItems.updateOne({ _id: item.id }, { $set: { movedTo } });
+  return item;
+}
+
 /** Move an item `steps` places up/down within its project's open order (one transaction), or to the top. */
 export async function moveItem(s: Scope, key: string | number, dir: 'up' | 'down' | 'top', steps = 1): Promise<void> {
   await inTransaction(async () => {
@@ -562,6 +572,8 @@ export async function applyItemOps(s: Scope, ops: ItemOp[], ctx: ItemCtx): Promi
         let grouped: true | undefined;
         switch (o.op) {
           case 'add': {
+            // Claude items are retired (H11, decision 14): new work goes to a Later line or a task.
+            if (isAgent(ctx.actor)) throw new InputError('Claude items are retired: add a Later line (save_state add_later) or a task (add_task). Items you already hold can still be moved to done or released.');
             const { op: _o, ...input } = o;
             const r = await addItem(s, input, ctx);
             it = r.item;
