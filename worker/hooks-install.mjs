@@ -24,7 +24,7 @@ export const settingsPath = () => process.env.CLAUDE_SETTINGS_PATH || path.join(
 export const hooksDir = () => path.join(configDir(), 'hooks');
 // The files the installed copy runs: the router, one file per event (and hook-lib, hook-copy), config.mjs and secret.mjs (the
 // start hook reads this PC's device key with it: the worker's own code, so the key stays in DPAPI / Keychain).
-export const FILES = ['hook.mjs', 'hook-lib.mjs', 'hook-copy.mjs', 'hook-session-start.mjs', 'hook-stop.mjs', 'hook-pre-tool.mjs', 'hook-post-tool.mjs', 'config.mjs', 'secret.mjs'];
+export const FILES = ['hook.mjs', 'hook-lib.mjs', 'hook-copy.mjs', 'hook-session-start.mjs', 'hook-stop.mjs', 'hook-pre-tool.mjs', 'hook-post-tool.mjs', 'hook-user-prompt.mjs', 'hook-notification.mjs', 'hook-session-end.mjs', 'config.mjs', 'secret.mjs'];
 const VERSION_FILE = 'hooks.version';
 /** How the start brief signs in on this PC: 'key' (WORK_OS_KEY set), 'worker' (the worker is set up), or null. */
 function signIn(settings) {
@@ -45,11 +45,11 @@ export function installedVersion() {
 const OURS_RE = new RegExp('[\\\\/]hooks[\\\\/]hook\\.mjs"\\s+(' + EVENTS.map((e) => e.event).join('|') + ')(\\s|$)');
 
 /** The hook entries, by Claude Code event. `hook` is the absolute path of the installed hook.mjs; `flags` is appended to each command (a repo's: ` --cloud --server <url>`). */
-export function entries(hook, flags = '') {
+export function entries(hook, flags = '', { cloud = false } = {}) {
   const h = hook.split(path.sep).join('/');
-  const c = (e, t) => ({ type: 'command', command: `node "${h}" ${e}${flags}`, timeout: t });
+  const c = (e) => ({ type: 'command', command: `node "${h}" ${e.event}${flags}`, timeout: e.timeoutS, ...(e.async ? { async: true } : {}) });
   const out = {};
-  for (const e of EVENTS) out[e.claudeEvent] = [{ ...(e.matcher ? { matcher: e.matcher } : {}), hooks: [c(e.event, e.timeoutS)] }];
+  for (const e of EVENTS) if (!(cloud && e.localOnly)) out[e.claudeEvent] = [{ ...(e.matcher ? { matcher: e.matcher } : {}), hooks: [c(e)] }];
   return out;
 }
 
@@ -195,7 +195,7 @@ export function repo(folder = process.cwd(), { server } = {}) {
   const s = read(file);
   const hooks = {};
   for (const [ev, groups] of Object.entries(s.hooks || {})) { const keep = (groups || []).filter((g) => !repoOurs(g)); if (keep.length) hooks[ev] = keep; }
-  for (const [ev, groups] of Object.entries(entries(`$CLAUDE_PROJECT_DIR/${REPO_MARK}`, ` --cloud --server "${origin}"`))) hooks[ev] = [...(hooks[ev] || []), ...groups];
+  for (const [ev, groups] of Object.entries(entries(`$CLAUDE_PROJECT_DIR/${REPO_MARK}`, ` --cloud --server "${origin}"`, { cloud: true }))) hooks[ev] = [...(hooks[ev] || []), ...groups];
   fs.writeFileSync(file, JSON.stringify({ ...s, hooks }, null, 2) + '\n');
   return { dir, settings: file, server: origin };
 }

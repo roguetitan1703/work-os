@@ -14,7 +14,7 @@ function mk(hooksStatus) {
 }
 
 test('the status body carries worker.hooks', async () => {
-  const h = { version: '1a2b3c4d5e6f', events: 4, stale: false, signIn: 'worker' };
+  const h = { version: '1a2b3c4d5e6f', events: 7, stale: false, signIn: 'worker' };
   const m = mk(() => h);
   await m.core.sendStatus();
   assert.deepEqual(m.reports.at(-1).worker.hooks, h);

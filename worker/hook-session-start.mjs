@@ -34,6 +34,9 @@ async function agentStart(body, kept) {
   return { brief: r.b.brief, token, until };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SOURCES = ['startup', 'resume', 'clear', 'compact'];
+
 /** SessionStart: the hook's JSON answer (or null for "print nothing"). */
 export async function sessionStart(input) {
   const cwd = input.cwd || process.cwd();
@@ -44,20 +47,23 @@ export async function sessionStart(input) {
   const where = { ...(remote ? { remote } : {}), subdir: git(cwd, ['rev-parse', '--show-prefix']), branch, path: cwd, machine: os.hostname().slice(0, 40), label: 'Claude Code' };
   const old = sid ? readMarker(sid) : null; // after compaction the baseline stays the one from the real start
   let r;
+  let reports = false; // signed in with the worker (a session token): Work OS gets this session's state events
   if (process.env.WORK_OS_KEY) {
     const text = await mcpCall('start_work', where);
     if (!text) return null;
     try { r = JSON.parse(text); } catch { return null; }
   } else {
     // head, dirty and worktrees fill Where on the server without a State version bump (the key path's start_work does not take them).
-    const a = await agentStart({ ...where, ...repoFacts(cwd) }, sid ? readKept(sid) : null);
+    const ids = { ...(UUID_RE.test(sid || '') ? { ccSession: sid } : {}), ...(SOURCES.includes(input.source) ? { source: input.source } : {}) };
+    const a = await agentStart({ ...where, ...repoFacts(cwd), ...ids }, sid ? readKept(sid) : null);
     if (!a) return null;
+    reports = true;
     r = a.brief;
     if (a.token && sid) keepToken(sid, a.token, a.until);
   }
   if (!r || r.unmatched || !r.project) return null;
   if (sid) {
-    writeMarker(sid, { status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project });
+    writeMarker(sid, { status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
   }
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: formatBrief(r) } };
 }
