@@ -13,10 +13,10 @@ type Result = { ok: true; need: Need } | { ok: false; error: string };
  * the person it is addressed to: answerNeed reads it through their own scope, so anyone else gets "not found".
  * No MCP tool, key or OAuth client reaches this: it needs the signed-in session (requireCaller reads the session cookie).
  */
-export async function answerNeedAction(id: string, option: string, text?: string): Promise<Result> {
+export async function answerNeedAction(id: string, option: string, text?: string, skip?: string[]): Promise<Result> {
   try {
     const caller = await requireCaller();
-    const need = await withCaller(caller, () => answerNeed({ userId: caller.userId, orgId: caller.orgId }, String(id), { option: String(option), text: typeof text === 'string' ? text : undefined }, 'app'));
+    const need = await withCaller(caller, () => answerNeed({ userId: caller.userId, orgId: caller.orgId }, String(id), { option: String(option), text: typeof text === 'string' ? text : undefined, skip: Array.isArray(skip) ? skip.map(String) : undefined }, 'app'));
     revalidatePath('/', 'layout');
     return { ok: true, need };
   } catch (err) {

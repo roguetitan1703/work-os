@@ -562,6 +562,17 @@ export function stateOut(d: StateDoc, reader: string, names: Names): StateOut {
   };
 }
 
+/** An archived line as the State card shows it (the page only: the MCP State and the brief never carry archived lines). */
+export type ArchivedOut = { id: string; text: string; from: 'Next' | 'Later'; waitsOn?: string; archivedAt: string; archivedBy: string; why?: string };
+
+/** The newest 50 archived lines, newest first, with who archived them as a name. */
+export function archivedOut(d: StateDoc, names: Names): ArchivedOut[] {
+  return [...(d.archived ?? [])]
+    .reverse()
+    .slice(0, 50)
+    .map(a => ({ id: a.id, text: a.text, from: a.from, ...(a.waitsOn ? { waitsOn: a.waitsOn } : {}), archivedAt: a.archivedAt.toISOString(), archivedBy: names[a.archivedBy] || 'a former member', ...(a.why ? { why: a.why } : {}) }));
+}
+
 
 /** One line of the copy: the file shows prefix + text + suffix; only text is the line's own words. */
 export type CopyLine = { section: 'Now' | 'Next' | 'Later'; id?: string; line: string; prefix: string; text: string; suffix: string };

@@ -6,7 +6,7 @@ import { SafeError } from '@/lib/auth';
 import { requireCaller, withCaller } from '@/lib/caller';
 import { userActor } from '@/lib/actors';
 import { memberNames } from '@/lib/people';
-import { saveState, stateOut, type StateOut } from '@/lib/data/states';
+import { archivedOut, restoreLine, saveState, stateOut, type ArchivedOut, type StateOut } from '@/lib/data/states';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 
 // The State card's writes: the same versioned save as the MCP tool (lib/data/states.ts), as the signed-in person.
@@ -25,6 +25,27 @@ export async function saveStateAction(projectId: string, ops: unknown, baseVersi
     return { ok: true, state: stateOut(r.state, caller.userId, names) };
   } catch (err) {
     if (err instanceof ZodError) return { ok: false, error: err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') };
+    if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
+    console.error(err);
+    return { ok: false, error: err instanceof SafeError ? err.message : 'Something went wrong' };
+  }
+}
+
+export type RestoreResult = { ok: true; state: StateOut; archived: ArchivedOut[] } | { ok: false; error: string };
+
+/**
+ * Puts an archived line back at the end of Later. A person only: the caller's own door reads the State (a project they cannot
+ * read is "not found"), and restoreLine refuses an agent actor.
+ */
+export async function restoreLineAction(projectId: string, archivedId: string): Promise<RestoreResult> {
+  try {
+    const caller = await requireCaller();
+    const s = { userId: caller.userId, orgId: caller.orgId };
+    const r = await withCaller(caller, () => restoreLine(s, String(projectId), String(archivedId), userActor(caller.userId)));
+    const names = await memberNames(caller.orgId);
+    revalidatePath(`/projects/${projectId}`);
+    return { ok: true, state: stateOut(r.state, caller.userId, names), archived: archivedOut(r.state, names) };
+  } catch (err) {
     if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
     console.error(err);
     return { ok: false, error: err instanceof SafeError ? err.message : 'Something went wrong' };

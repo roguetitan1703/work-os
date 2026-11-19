@@ -301,6 +301,120 @@ try {
   const etaItem = await mkClaudeItem({ project: 'H11 Eta', kind: 'bug', title: 'H11 eta item still open', why: WHY, doneWhen: DONE });
   const note = await mcpH(cc, 'update_claude_items', { ops: [{ op: 'note', item: `C${etaItem.ref}`, text: 'a note on an open item is still allowed' }] });
   check('H11 update_claude_items: the other ops still work until the migration ends', !note.isError, note.text.slice(0, 200));
+
+  // ══ Part 4 (step 5): the screens: the Need card with ticks, the project's Declutter dialog, the archived lines on the State card ══
+  const SHOTS = 'D:/Work/Delpat/builds/e2e-h11/shots';
+  const dark = async p => { await p.evaluate(() => document.documentElement.classList.add('dark')); await p.waitForTimeout(200); };
+  const light = async p => { await p.evaluate(() => document.documentElement.classList.remove('dark')); await p.waitForTimeout(200); };
+  const shotOf = async (p, target, name, theme) => { await (theme === 'dark' ? dark(p) : light(p)); await (target ? p.locator(target).first() : p).screenshot({ path: `${SHOTS}/${name}-${theme}.png` }).catch(() => {}); };
+  const ago = d => new Date(Date.now() - d * 86_400_000);
+
+  // a) the Need card: three changes, one unticked before Yes
+  const TH = 'H11 Theta';
+  const THID = (await must(cc, 'add_project', { name: TH, visibility: 'org' })).project.id;
+  await must(cc, 'save_state', { project: TH, ops: [{ op: 'add_later', text: 'Theta stale line one that nobody touched' }, { op: 'add_later', text: 'Theta stale line two that nobody touched' }, { op: 'add_later', text: 'Theta stale line three, kept by the person' }] });
+  const stTh = await stateOf(THID);
+  for (const l of stTh.later) await rawDb.collection('states').updateOne({ _id: stTh._id, 'later.id': l.id }, { $set: { 'later.$.at': ago(30) } });
+  const askTh = await must(cc, 'declutter', { project: TH, ask: true, disk: ['remove worktree wos-s3 (merged)'] }, hdr('h11th'));
+  const thRef = askTh.need.ref;
+  await page.goto(`${B}/needs`);
+  await page.waitForSelector(`[data-need="${thRef}"] [data-declutter-box]`, { timeout: 20000 });
+  const boxes = await page.locator(`[data-need="${thRef}"] [data-declutter-box]`).count();
+  check('H11 UI: the Need card lists the 3 changes with a box each, all ticked, and the disk lines under them', boxes === 3 && (await page.locator(`[data-need="${thRef}"] [data-declutter-state="ticked"]`).count()) === 3 && (await page.locator(`[data-need="${thRef}"] [data-declutter-disk] li`).count()) === 1, `boxes ${boxes}`);
+  check('H11 UI: the buttons are the Need own: Yes, apply first, then No', (await page.locator(`[data-need="${thRef}"] [data-need-option]`).evaluateAll(es => es.map(e => e.getAttribute('data-need-option')))).join() === 'yes,no' && /^Yes, apply/.test(await page.locator(`[data-need="${thRef}"] [data-need-option="yes"]`).innerText()), '');
+  await shotOf(page, `[data-need="${thRef}"]`, 'h11-need-card-desk', 'light');
+  await shotOf(page, `[data-need="${thRef}"]`, 'h11-need-card-desk', 'dark');
+  await light(page);
+  const keepId = `later:${stTh.later[2].id}`;
+  await page.locator(`[data-need="${thRef}"] [data-declutter-box="${keepId}"]`).click();
+  check('H11 UI: unticking a box marks it unticked', (await page.locator(`[data-need="${thRef}"] [data-declutter-item="${keepId}"]`).getAttribute('data-declutter-state')) === 'unticked');
+  await page.locator(`[data-need="${thRef}"] [data-need-option="yes"]`).click();
+  await page.waitForFunction(r => !document.querySelector(`[data-need="${r}"] [data-need-option]`), thRef, { timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(800);
+  const thDoc = await rawDb.collection('needs').findOne({ ref: thRef });
+  const thState = await stateOf(THID);
+  check('H11 UI: Yes with one unticked applies the other two, stores skip, keeps the unticked line', JSON.stringify(thDoc.declutter.skip) === JSON.stringify([keepId]) && thDoc.declutter.result.applied.length === 2 && thState.later.length === 1 && thState.later[0].text.includes('kept by the person') && thState.archived.length === 2, JSON.stringify([thDoc.declutter.skip, thDoc.declutter.result]));
+  check('H11 UI: the answered card shows what happened: two applied, one left out', (await page.locator(`[data-need="${thRef}"] [data-declutter-state="applied"]`).count()) === 2 && (await page.locator(`[data-need="${thRef}"] [data-declutter-state="left"]`).count()) === 1, '');
+  await shotOf(page, `[data-need="${thRef}"]`, 'h11-need-card-answered-desk', 'light');
+
+  // b) the project's Declutter dialog: untick one, apply the rest
+  const IO = 'H11 Iota';
+  const IOID = (await must(cc, 'add_project', { name: IO, visibility: 'org' })).project.id;
+  await must(cc, 'save_state', { project: IO, ops: [{ op: 'add_later', text: 'Iota stale line to archive' }, { op: 'add_later', text: 'Iota second stale line to keep' }] });
+  const stIo = await stateOf(IOID);
+  for (const l of stIo.later) await rawDb.collection('states').updateOne({ _id: stIo._id, 'later.id': l.id }, { $set: { 'later.$.at': ago(30) } });
+  await page.goto(`${B}/projects/${IOID}`);
+  await page.locator('[data-project-menu]').click();
+  await page.locator('[data-project-declutter]').click();
+  await page.waitForSelector('[data-declutter-dialog] [data-declutter-box]', { timeout: 20000 });
+  check('H11 dialog: it lists the same kind of rows, all ticked, with an Apply button on the right', (await page.locator('[data-declutter-dialog] [data-declutter-box]').count()) === 2 && /Apply ticked \(2\)/.test(await page.locator('[data-declutter-apply]').innerText()), '');
+  await shotOf(page, null, 'h11-dialog-desk', 'light');
+  await shotOf(page, null, 'h11-dialog-desk', 'dark');
+  await light(page);
+  await page.locator(`[data-declutter-dialog] [data-declutter-box="later:${stIo.later[1].id}"]`).click();
+  await page.locator('[data-declutter-apply]').click();
+  await page.waitForSelector('[data-declutter-dialog] [data-declutter-state="applied"]', { timeout: 20000 });
+  const ioState = await stateOf(IOID);
+  check('H11 dialog: Apply ticked archives the ticked line only, and the dialog says so', ioState.later.length === 1 && ioState.later[0].text.includes('to keep') && ioState.archived.length === 1 && (await page.locator('[data-declutter-dialog] [data-declutter-state="applied"]').count()) === 1 && ioState.declutter?.quietUntil, JSON.stringify(ioState.archived?.map(a => a.text)));
+  check('H11 dialog: a feed row says what the person applied', (await rawDb.collection('activity').countDocuments({ type: 'declutter_applied', projectId: IOID })) === 1);
+  await page.reload();
+  await page.locator('[data-project-menu]').click();
+  await page.locator('[data-project-declutter]').click();
+  // the one line left is now fresh in the proposal? It is still stale (30 days): ticked again, but the project is quiet only for the brief, not for the dialog.
+  await page.waitForSelector('[data-declutter-dialog]', { timeout: 20000 });
+  await page.waitForFunction(() => !!document.querySelector('[data-declutter-box]') || !!document.querySelector('[data-declutter-empty]'), null, { timeout: 20000 });
+  await page.keyboard.press('Escape');
+
+  // c) the archived lines on the State card, and Put back
+  await page.goto(`${B}/projects/${IOID}`);
+  await page.waitForSelector('[data-part="archived"]', { timeout: 20000 });
+  check('H11 State card: "Archived lines · 1" sits under Later, collapsed', (await page.locator('[data-part="archived"] summary').textContent()).includes('Archived lines · 1') && !(await page.locator('[data-part="archived"]').evaluate(e => e.open)), '');
+  await page.locator('[data-part="archived"] summary').click();
+  await shotOf(page, '[data-card="state"]', 'h11-state-archived-desk', 'light');
+  await shotOf(page, '[data-card="state"]', 'h11-state-archived-desk', 'dark');
+  await light(page);
+  await page.locator('[data-archived-restore]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-part="archived"]'), null, { timeout: 20000 }).catch(() => {});
+  const back = await stateOf(IOID);
+  check('H11 Put back: the line is at the end of Later with its text and author, and leaves the archive', back.later.length === 2 && back.later[1].text.includes('to archive') && back.later[1].by === ME.userId && !(back.archived ?? []).length, JSON.stringify(back.later.map(l => l.text)));
+  check('H11 Put back: a Later line added feed row, and an agent cannot do it (no MCP path)', (await rawDb.collection('activity').countDocuments({ type: 'later_added', projectId: IOID, note: /to archive/ })) >= 1);
+
+  // d) a teammate who is not the owner cannot declutter (read or apply)
+  const ctxT = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const pageT = await ctxT.newPage();
+  await login(pageT, { phone: false, next: `/projects/${IOID}`, email: 'tess-h11@example.test' });
+  await pageT.locator('[data-project-menu]').click();
+  await pageT.locator('[data-project-declutter]').click();
+  await pageT.waitForSelector('[data-declutter-error]', { timeout: 20000 });
+  check('H11 dialog: a member who is not the owner is told only the owner can declutter, and sees no changes', /Only the project's owner/.test(await pageT.locator('[data-declutter-error]').innerText()) && (await pageT.locator('[data-declutter-box]').count()) === 0, '');
+  await ctxT.close();
+
+  // e) phone: the Need card and the dialog at 390
+  const ctxP = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const pageP = await ctxP.newPage();
+  const TH2 = 'H11 Kappa';
+  const TH2ID = (await must(cc, 'add_project', { name: TH2, visibility: 'org' })).project.id;
+  await must(cc, 'save_state', { project: TH2, ops: [{ op: 'add_later', text: 'Kappa stale line for the phone check' }, { op: 'add_later', text: 'Kappa another stale line for the phone check' }] });
+  const stK = await stateOf(TH2ID);
+  for (const l of stK.later) await rawDb.collection('states').updateOne({ _id: stK._id, 'later.id': l.id }, { $set: { 'later.$.at': ago(30) } });
+  const askK = await must(cc, 'declutter', { project: TH2, ask: true, disk: ['delete the old branch builder-k'] }, hdr('h11k'));
+  await login(pageP, { phone: true, next: '/needs' });
+  await pageP.waitForSelector(`[data-need="${askK.need.ref}"] [data-declutter-box]`, { timeout: 20000 });
+  await shotOf(pageP, `[data-need="${askK.need.ref}"]`, 'h11-need-card-phone', 'light');
+  await shotOf(pageP, `[data-need="${askK.need.ref}"]`, 'h11-need-card-phone', 'dark');
+  await light(pageP);
+  const o1 = await pageP.evaluate(() => ({ doc: document.documentElement.scrollWidth > innerWidth + 1 }));
+  check('H11 phone: the Need card does not scroll sideways at 390', !o1.doc, JSON.stringify(o1));
+  await pageP.goto(`${B}/projects/${TH2ID}`);
+  await pageP.locator('[data-project-menu]').click();
+  await pageP.locator('[data-project-declutter]').click();
+  await pageP.waitForSelector('[data-declutter-dialog] [data-declutter-box]', { timeout: 20000 });
+  await shotOf(pageP, null, 'h11-dialog-phone', 'light');
+  await shotOf(pageP, null, 'h11-dialog-phone', 'dark');
+  await light(pageP);
+  const o2 = await pageP.evaluate(() => ({ doc: document.documentElement.scrollWidth > innerWidth + 1 }));
+  check('H11 phone: the Declutter sheet does not scroll sideways at 390', !o2.doc, JSON.stringify(o2));
+  await ctxP.close();
   void randomUUID;
 } catch (e) {
   check('flow-h11 (error)', false, e?.stack || String(e));

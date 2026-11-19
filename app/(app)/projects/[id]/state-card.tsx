@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { ArrowUp, Check, Pencil, Plus, SquareArrowOutUpRight } from 'lucide-react';
+import { ArchiveRestore, ArrowUp, Check, Pencil, Plus, SquareArrowOutUpRight } from 'lucide-react';
 import { toast } from 'sonner';
-import type { StateOut } from '@/lib/data/states';
-import { saveStateAction } from './state-actions';
+import type { ArchivedOut, StateOut } from '@/lib/data/states';
+import { restoreLineAction, saveStateAction } from './state-actions';
 
 const field =
   'w-full min-w-0 h-11 md:h-9 rounded-xl md:rounded-md border border-input bg-background dark:bg-input/30 px-3 text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
@@ -19,13 +19,15 @@ type Op = Record<string, unknown>;
  * meantime is never overwritten silently (the card then shows the current State and asks again). Lines someone else wrote
  * say who.
  */
-export function StateCard({ projectId, initial }: { projectId: string; initial: StateOut | null }) {
+export function StateCard({ projectId, initial, archived: archivedInitial = [] }: { projectId: string; initial: StateOut | null; archived?: ArchivedOut[] }) {
   // The page's State follows the server: a new version (a teammate's or an agent's save, or ours coming back) replaces the local copy.
   const [state, setState] = useState<StateOut | null>(initial);
+  const [archived, setArchived] = useState<ArchivedOut[]>(archivedInitial);
   const [seen, setSeen] = useState(initial?.version ?? -1);
   if ((initial?.version ?? -1) !== seen) {
     setSeen(initial?.version ?? -1);
     setState(initial);
+    setArchived(archivedInitial);
   }
   const [pending, start] = useTransition();
   const [editNow, setEditNow] = useState(false);
@@ -149,6 +151,41 @@ export function StateCard({ projectId, initial }: { projectId: string; initial: 
             <p className="text-sm text-muted-foreground">Nothing parked.</p>
           )}
           <AddLine label="Add to Later" value={laterText} onChange={setLaterText} pending={pending} onAdd={() => addTo('add_later', laterText, () => setLaterText(''))} data="later" />
+          {archived.length > 0 && (
+            <details className="group pt-1" data-part="archived">
+              <summary className={`${H3} cursor-pointer min-h-11 md:min-h-9 flex items-center list-none [&::-webkit-details-marker]:hidden`}>Archived lines · {archived.length}</summary>
+              <ul className="divide-y divide-border/60">
+                {archived.map(a => (
+                  <li key={a.id} className="flex items-center gap-1 min-h-11 md:min-h-9" data-archived-id={a.id}>
+                    <span className="min-w-0 flex-1 text-[15px] md:text-sm text-muted-foreground">
+                      {a.text}
+                      {a.waitsOn && <span> · waits on {a.waitsOn}</span>}
+                      <span> · from {a.from}, archived {a.archivedAt.slice(0, 10)} by {a.archivedBy}{a.why ? ` (${a.why})` : ''}</span>
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Put back: ${a.text}`}
+                      disabled={pending}
+                      onClick={() =>
+                        start(async () => {
+                          const r = await restoreLineAction(projectId, a.id);
+                          if (!r.ok) return void toast.error(r.error);
+                          setState(r.state);
+                          setArchived(r.archived);
+                          setSeen(r.state.version);
+                          toast.success('Put back in Later');
+                        })
+                      }
+                      className={icon}
+                      data-archived-restore
+                    >
+                      <ArchiveRestore className="w-4 h-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
 
         <div className="space-y-1" data-part="decisions">
