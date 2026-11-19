@@ -25,16 +25,19 @@ const give = (t, who) => tasks.updateOne({ _id: t.doc._id }, { $set: { ownerId: 
 // ME: a finished run, an overdue task, a due-today task, a quiet task, and a visible project that moved yesterday.
 await call('add_project', { name: 'B4 Alpha' });
 const fin = await mk('B4 agent result', { project: 'B4 Alpha' });
-const over = await mk('B4 overdue one', { project: 'B4 Alpha', due: '2026-11-10' });
+// P3: Today's top 3 takes overdue P1/P2 only, so this one is the "+1 overdue" line.
+const over = await mk('B4 overdue one', { project: 'B4 Alpha', due: '2026-11-10', priority: 'P3' });
 const today = await mk('B4 due today one', { due: '2026-11-18' });
 const quiet = await mk('B4 gone quiet one', { project: 'B4 Alpha' });
 await tasks.updateOne({ _id: quiet.doc._id }, { $set: { status: 'In Progress', updatedAt: D('2026-11-10T06:00:00Z') } });
 const overP1 = await mk('B4 overdue P1', { project: 'B4 Alpha', due: '2026-11-10', priority: 'P1' });
 // A fixture day: two projects whose State changed yesterday, a running worker on one and a stalled (gone) one on the other.
 await call('add_project', { name: 'B4 Beta' });
-await call('save_state', { project: 'B4 Alpha', ops: [{ op: 'set_now', text: 'B4 ship the alpha' }, { op: 'add_decision', text: 'B4 go with plan A' }] });
-await call('save_state', { project: 'B4 Beta', ops: [{ op: 'add_next', text: 'B4 beta first' }, { op: 'add_next', text: 'B4 beta second' }] });
-await call('save_state', { project: 'B4 Beta', ops: [{ op: 'done_next', find: 'B4 beta first' }] });
+// set_now and done_next need base_version (lib/data/states.ts); a refused save would leave the fixture day half made.
+const saveOk = async args => { const r = await call('save_state', args); if (!r || r.ERROR || /stale/.test(r.message ?? '')) throw new Error('save_state refused: ' + JSON.stringify(r).slice(0, 300)); return r; };
+await saveOk({ project: 'B4 Alpha', base_version: 0, ops: [{ op: 'set_now', text: 'B4 ship the alpha' }, { op: 'add_decision', text: 'B4 go with plan A' }] });
+await saveOk({ project: 'B4 Beta', ops: [{ op: 'add_next', text: 'B4 beta first' }, { op: 'add_next', text: 'B4 beta second' }] });
+await saveOk({ project: 'B4 Beta', base_version: (await call('get_state', { project: 'B4 Beta' })).version, ops: [{ op: 'done_next', find: 'B4 beta first' }] });
 const projId = async name => (await rawDb.collection('projects').findOne({ orgId: ME.orgId, name }))._id;
 await rawDb.collection('states').updateMany({ projectId: { $in: [await projId('B4 Alpha'), await projId('B4 Beta')] } }, { $set: { 'log.$[].at': new Date('2026-11-17T08:00:00Z') } });
 const wKey = await mkKey({ agent: 'claude-code', name: 'B4 worker' });
@@ -67,7 +70,8 @@ const ix = ['Today', 'Since yesterday', 'Agents'].map(h => text.indexOf(h));
 check('dry: Today, Since yesterday and Agents are there, in order (no Needs yet)', ix.every(i => i >= 0) && ix.every((v, i) => i === 0 || v > ix[i - 1]) && !/Needs you/.test(text), JSON.stringify(ix) + text.slice(0, 900));
 check('dry: the old sections are gone', !/Due and overdue|Gone quiet|What agents finished|Moved yesterday|Idle with Next work/.test(text), text.slice(0, 600));
 check('dry: the header line has the date and the counts', /📋 \*\*Wed 18 Nov · 3 for today/.test(text) && /2 projects moved/.test(text) && /1 running, 1 stalled/.test(text), text.slice(0, 300));
-check('dry: one digest for ME (Q and Dee are quiet, H waits for 14:00, O has it off)', (text.match(/Your daily digest/g) ?? []).length === 1, String((text.match(/Your daily digest/g) ?? []).length));
+// The digest's first line is its header (📋 date and counts), one per digest in the preview.
+check('dry: one digest for ME (Q and Dee are quiet, H waits for 14:00, O has it off)', (text.match(/📋 \*\*/g) ?? []).length === 1, String((text.match(/📋 \*\*/g) ?? []).length));
 check('dry: Today names the overdue P1 and the due-today task, and counts the other overdue one', [overP1, today].every(t => text.includes(`/tasks/${t.ref}>`)) && /\+1 overdue, on Today/.test(text) && !text.includes(`/tasks/${over.ref}>`), text.slice(0, 900));
 check('dry: Since yesterday has one line per project that changed (Next lines, Now, decision, tasks done)', /B4 Alpha · .*Now changed.*1 decision.*1 task done/.test(text) && /B4 Beta · .*1 Next line done.*2 added/.test(text), text.slice(0, 900));
 check('dry: Agents has the running and the stalled worker', /Running: B4 Alpha · builder A/.test(text) && /Stalled: B4 Beta · builder S .*quiet 4\d min, 1 Next line ready/.test(text), text.slice(0, 900));

@@ -116,6 +116,7 @@ export function Computers({ initial }: { initial?: DeviceInfo[] }) {
                   <div className="text-[13px] md:text-xs text-muted-foreground truncate" suppressHydrationWarning>
                     <code className="font-mono">{d.prefix}…</code> · {d.lastSeenAt ? <Ago iso={d.lastSeenAt} prefix="seen " /> : 'waiting for this PC to connect'}
                     {d.os ? ` · ${d.os === 'win32' ? 'Windows' : d.os === 'darwin' ? 'macOS' : d.os}` : ''}
+                    {d.hooks ? ` · ${hooksText(d.hooks)}` : ''}
                     {stale(d, info) && (
                       <>
                         {' · '}
@@ -199,6 +200,12 @@ export function Computers({ initial }: { initial?: DeviceInfo[] }) {
       )}
     </div>
   );
+}
+
+/** What a computer's row says about its Claude Code hooks (Work OS brief, stop check, WORK-STATE.md copy). */
+function hooksText(h: NonNullable<DeviceInfo['hooks']>): string {
+  if (h.events < 4) return 'no hooks';
+  return h.stale ? 'hooks out of date' : 'hooks on';
 }
 
 /** A downloaded worker older than the one this site serves (repo runs and not-yet-reported ones never show it). */

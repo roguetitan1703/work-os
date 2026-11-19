@@ -35,7 +35,8 @@ async function run() {
   };
   const openDesktop = ({ folder, prompt }) => openInDesktop({ folder, prompt });
   const onlyRoots = () => { const c = loadConfig(); return c.sessionsInRootsOnly ? c.roots : null; };
-  const core = createCore({ getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, sessionLocal: (sid) => sessionLocal(sid), openVscode, openDesktop, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots() }) });
+  const hooksStatus = () => { const h = hooksInstall.status(); return { version: h.version, events: h.events.length, stale: h.stale, signIn: h.signIn }; };
+  const core = createCore({ hooksStatus, getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, sessionLocal: (sid) => sessionLocal(sid), openVscode, openDesktop, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots() }) });
   let loop = null;
   const push = connectPush({ getCfg: loadConfig, getToken, onWake: () => loop?.wake(), onUp: (up) => { log(up ? 'push connected' : 'push disconnected'); loop?.wake(); }, log });
   loop = createLoop({ core, getConfig: loadConfig, state, log, pushUp: () => push.up });
@@ -87,7 +88,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       try { console.log(hooksInstall.remove() ? 'Work OS hooks removed' : 'no Work OS hooks installed'); } catch (e) { console.log(`hooks not removed: ${String(e.message || e).split('\n')[0].slice(0, 300)}`); }
     }
     else if (cmd === 'status') status();
-    else if (cmd === 'hooks') (await import('./hooks-install.mjs')).cli(process.argv[3]);
+    else if (cmd === 'hooks') await (await import('./hooks-install.mjs')).cli(process.argv[3], process.argv.slice(4));
     else if (cmd === 'activity') {
       const c = loadConfig();
       const r = await collectActivity({ listProcesses, withSessions: true, onlyRoots: c.sessionsInRootsOnly ? c.roots : null });
@@ -105,7 +106,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         console.log(JSON.stringify(found.map(publicFolder), null, 2));
         console.log(`${found.length} folders (dry run, nothing sent)`);
       } else console.log(`sent ${await scanAndSend()} folders`);
-    } else { console.error('usage: node worker.mjs [run|setup|set-token|install|uninstall|status|scan [--dry]|activity|hooks install|hooks remove|hooks status]'); process.exit(2); }
+    } else { console.error('usage: node worker.mjs [run|setup [--no-autostart]|set-token|install|uninstall|status|scan [--dry]|activity|hooks install [--force]|hooks remove|hooks status|hooks check [folder]]'); process.exit(2); }
   } catch (e) { console.error(String(e.message || e)); process.exit(1); }
   if (cmd !== 'run') process.exit(0);
 }

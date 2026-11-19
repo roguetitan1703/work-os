@@ -34,7 +34,7 @@ daily without friction.
 | Tool descriptions and answers | Per tool | Every tool | Teach the routine at the moment it's used; answers say what to do next |
 | start_work brief | Orders + State + tasks + who else + messages | Every tool | The session's starting context |
 | forYou line | One line on any answer | Every tool | "2 messages, Need #41 answered, Orders changed": ids and counts |
-| Hooks (Work OS plugin) | Small programs Claude Code runs at start, on tool calls and at turn end | Claude Code on PCs and cloud | Delivers the brief and messages, keeps WORK-STATE.md, the three blocks, presence |
+| Hooks (worker setup) | Small programs Claude Code runs at start, on tool calls and at turn end | Claude Code on PCs and cloud | Delivers the brief and messages, keeps WORK-STATE.md, the three blocks, presence |
 | The worker on a PC | The Work OS background program, with this PC's device key | Om's and Akash's PCs | Runs sessions it's asked to; gives the hooks their key (section 4) |
 | The app (web and phone) | Screens for people | Om, Akash | Needs, State card, Workers/Sessions, Orders editing, review |
 | Discord and push | Alerts | Om, Akash | Needs and digests reach the phone |
@@ -189,7 +189,7 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
 - **Message text is pushed with its frame** (who sent it, how it came in, what it may and may not ask). Shipping, money
   and credentials stay server-side as Needs.
 - **Install:**
-  - One plugin for Om's and Akash's PCs.
+  - The worker setup installs the hooks on Om's and Akash's PCs (no plugin; a plugin only on a real need, Om 19 Nov).
   - One line per repo for cloud.
   - claude.ai chat uses the MCP only.
 - **Hand check (18 Nov, desktop app):** all three delivery routes worked. Still to check: VS Code, the terminal,
@@ -212,7 +212,7 @@ stopped on 18 Nov with work in their worktrees.
 |---|---|
 | A (Opus: access, security) | 1. Hook routes on the worker's device key (no extra key); hook-only and cloud keys. 2. Per-session ids (seen state, to_session). 3. The three blocks in the plugin. 4. propose_order and the Orders version. 5. Message frame and delivery (PostToolBatch, Stop, asyncRewake) |
 | B (Opus: features) | 1. edit_state, edit/remove ops, short answers, auto Where, Next↔task, line limits. 2. Hook forwards WORK-STATE.md edits. 3. wrap_up, hand_over, declutter (with growth triggers), who, feedback. 4. Claude items migration |
-| S (Sonnet: mechanical) | 1. Wording pass and the drift test (section 9). 2. Fold the three old designs into this one. 3. Package the hook as the plugin with an install command for Akash |
+| S (Sonnet: mechanical) | 1. Wording pass and the drift test (section 9). 2. Fold the three old designs into this one. 3. Hooks on a new PC from the worker setup, with the install command for Akash (a plugin only on a real need, Om 19 Nov) |
 | Om | Paste the new Orders (rename to "Delpat Orders"). Say yes to the global CLAUDE.md swap. Answer the Declutter pilot Need for this repo's 169 old lines. Install on Akash's PC with him |
 
 Each piece ships through dev, a full test run, then master. Security review before merge for A's work.
@@ -269,6 +269,9 @@ Each piece ships through dev, a full test run, then master. Security review befo
     split into one file per event, packaging: the worker's update refreshes the hooks and reports their version). Then A
     (session token, per-session ids, the hook files) and B (line edit with `find`, remove, short answers in states.ts and
     the State tools) in parallel. Then A: blocks, propose_order, delivery; B: end_work, declutter, the migration.
+    **H2 built (19 Nov):** hook.mjs split into a router and one file per event (`EVENTS` table), atomic install, `hooks check`
+    and `hooks repo` (cloud), the worker reports its hooks (Computers shows hooks on / out of date / none), Link them for a
+    computer's matching folders; see docs/HANDOVER.md "Claude Code hooks" and docs/setup-pc.md.
 
 ## 17. The dispatcher (fleet plan of 14 Nov, task #259 and note 71d785b03c, folded in here)
 - **What it is:** a session with role `dispatcher` that takes tasks marked "Give to Claude" and runs one worker per

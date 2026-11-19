@@ -17,13 +17,13 @@ export const DEVICE_KEY_PREFIX = 'wkr_';
 const SEEN_EVERY_MS = 60_000;
 const MAX_DEVICES = 10;
 
-export type DeviceInfo = { id: string; name: string; prefix: string; createdAt: string; lastSeenAt: string | null; os: string | null; version: string | null; /** Which downloaded worker bundle it runs (first 12 hex of its sha256); null when run from the repo or not yet reported. */ bundle: string | null; /** When its key was last replaced (Replace key), or null. */ keyReplacedAt: string | null };
+export type DeviceInfo = { id: string; name: string; prefix: string; createdAt: string; lastSeenAt: string | null; os: string | null; version: string | null; /** Which downloaded worker bundle it runs (first 12 hex of its sha256); null when run from the repo or not yet reported. */ bundle: string | null; /** When its key was last replaced (Replace key), or null. */ keyReplacedAt: string | null; /** Its Claude Code hooks as the worker reports them; null when the worker does not report them (older workers). */ hooks: { version: string | null; events: number; stale: boolean } | null };
 export type VerifiedDevice = { id: string; name: string; ownerId?: string; orgId?: string };
 
 const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
 
 function toInfo(d: DeviceDoc): DeviceInfo {
-  return { id: d._id, name: d.name, prefix: d.prefix, createdAt: d.createdAt.toISOString(), lastSeenAt: d.lastSeenAt?.toISOString() ?? null, os: d.worker?.os ?? null, version: d.worker?.version ?? null, bundle: d.worker?.bundle ?? null, keyReplacedAt: d.keyReplacedAt?.toISOString() ?? null };
+  return { id: d._id, name: d.name, prefix: d.prefix, createdAt: d.createdAt.toISOString(), lastSeenAt: d.lastSeenAt?.toISOString() ?? null, os: d.worker?.os ?? null, version: d.worker?.version ?? null, bundle: d.worker?.bundle ?? null, keyReplacedAt: d.keyReplacedAt?.toISOString() ?? null, hooks: d.worker?.hooks ? { version: d.worker.hooks.version, events: d.worker.hooks.events, stale: d.worker.hooks.stale } : null };
 }
 
 /** The caller's own computers, in their organization. Devices from before sign-in by user (no ownerId) match no one. */

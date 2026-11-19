@@ -12,6 +12,7 @@ const ANSWERED_DAYS = 14;
 export default async function NeedsPage() {
   const me = await requireCaller();
   const s = { userId: me.userId, orgId: me.orgId };
+  // eslint-disable-next-line react-hooks/purity -- a server render runs once per request
   const since = Date.now() - ANSWERED_DAYS * 86_400_000;
   const [open, answered] = await Promise.all([
     openNeedsToMe(s).catch(() => []),

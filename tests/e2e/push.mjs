@@ -118,17 +118,23 @@ try {
   // ── a write reaches the people who can read it ──
   await as(kA, 'add_project', { name: 'Push Shared' });
   check('shared project: the writer and the teammate get "projects"', !!(await until(() => sA.hints('projects').length && sB.hints('projects').length)));
+  // A new project also writes a feed row (topic "tasks"): wait for it to arrive, so the task's hints below are told apart.
+  await until(() => sA.hints('tasks').length && sB.hints('tasks').length, 3000);
+  await sleep(600);
+  const [a0, b0] = [sA.hints('tasks').length, sB.hints('tasks').length];
   const SECRET = 'Zebra-Quartz invoice for Push';
   const t1 = (await as(kA, 'add_task', { title: SECRET, project: 'Push Shared' })).created;
-  check('shared task: the teammate gets "tasks"', !!(await until(() => sB.hints('tasks').length)));
-  check('shared task: the writer gets "tasks" marked as their own (s: 1)', !!(await until(() => sA.hints('tasks').some(e => e.data.s === 1))));
+  check('shared task: the teammate gets "tasks"', !!(await until(() => sB.hints('tasks').length > b0)));
+  check('shared task: the writer gets "tasks" marked as their own (s: 1)', !!(await until(() => sA.hints('tasks').slice(a0).some(e => e.data.s === 1))));
   check('shared task: the teammate\'s hint is not marked as theirs', sB.hints('tasks').every(e => !e.data.s));
+  await sleep(600); // hints arrive in batches of 250 ms: the last of A's own lands before the count below
   const aBefore = sA.hints().length;
+  const b1 = sB.hints('tasks').length;
   const priv = (await as(kB, 'add_task', { title: 'Bea private Zebra-Quartz plan' })).created;
-  check('private task: its owner gets "tasks"', !!(await until(() => sB.hints('tasks').length >= 2)));
+  check('private task: its owner gets "tasks"', !!(await until(() => sB.hints('tasks').length > b1)));
   await as(kB, 'update_task', { task: priv.ref, priority: 'P1' });
   await as(kB, 'log_progress', { task: priv.ref, progress: 30, note: 'Zebra-Quartz progress' });
-  await until(() => sB.hints('tasks').length >= 4, 4000);
+  await until(() => sB.hints('tasks').length >= b1 + 3, 4000);
   await sleep(1500);
   check('private task: someone else in the organization gets nothing', sA.hints().length === aBefore, JSON.stringify(sA.hints().slice(aBefore)));
   check('another organization gets nothing at all', sO.hints().length === 0, JSON.stringify(sO.hints()));
