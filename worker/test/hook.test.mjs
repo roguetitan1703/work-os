@@ -118,7 +118,11 @@ test('SessionStart fails open: nothing printed for every failure', async () => {
   for (const m of ['unmatched', 'toolerror', 'garbage', 'http500']) { mode = m; assert.equal(await start(), '', m); }
   mode = 'ok';
   assert.equal(typeof (await main('session-start', 'not json')), 'string', 'garbage stdin does not throw');
-  assert.equal(await main('session-start', JSON.stringify({ session_id: 'x', cwd: tmp })), '', 'not a git folder');
+  // H13: a folder that is not a git repo is no longer skipped; the server decides (the key path asks start_work with the path).
+  assert.ok(await main('session-start', JSON.stringify({ session_id: 'x', cwd: tmp })), 'not a git folder: the server is asked, and a match is briefed');
+  mode = 'unmatched';
+  assert.equal(await main('session-start', JSON.stringify({ session_id: 'x2', cwd: tmp })), '', 'not a git folder, no project owns it: a temp folder stays quiet');
+  mode = 'ok';
   const keep = process.env.WORK_OS_KEY;
   delete process.env.WORK_OS_KEY; assert.equal(await start(), '', 'no key');
   process.env.WORK_OS_KEY = 'wkr_' + 'A'.repeat(43); assert.equal(await start(), '', 'a worker key is not an MCP key');
@@ -419,13 +423,13 @@ test('startCheck: the reason a folder gets no brief, and the project and sign-in
   agentMode = 'http404';
   const nl = await startCheck(repo);
   assert.equal(nl.ok, false);
-  assert.match(nl.reason, /not linked on this PC/);
+  assert.match(nl.reason, /not filed in Work OS/); // H13: was "not linked on this PC"
   agentMode = 'http500';
   assert.match((await startCheck(repo)).reason, /HTTP 500/);
   agentMode = 'ok'; devKey = null;
   assert.match((await startCheck(repo)).reason, /no device key/);
   devKey = WKR;
-  assert.match((await startCheck(tmp)).reason, /not a git folder/);
+  assert.deepEqual(await startCheck(tmp), { ok: true, via: 'worker', project: 'Demo' }, 'H13: a folder that is not a git repo is no longer refused here');
   process.env.WORK_OS_URL = URL_; // the key path is the one with WORK_OS_KEY set
   process.env.WORK_OS_KEY = KEY; mode = 'ok';
   // worker and key together: the worker first, the key when the worker gives no brief

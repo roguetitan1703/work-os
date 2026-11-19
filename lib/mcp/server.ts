@@ -7,7 +7,7 @@ import { briefTask, dailySummary } from '../data/summary';
 import { applyChanges, MAX_OPS, type BatchOp } from '../data/batch';
 import { getProjectTree } from '../data/tree';
 import * as notesData from '../data/notes';
-import { addQuietFolder } from '../data/quiet-folders';
+import { addQuietFolder, quietFolder } from '../data/quiet-folders';
 import { devicesLinked, linkFolder, ownFolderById } from '../data/launcher';
 import { authorLabel, isMine, outsideTitleLabel, taskAuthors } from '../data/authors';
 import * as items from '../data/claude-items';
@@ -1216,6 +1216,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
             unmatched: true,
             candidates: m.candidates,
             ...(a.folder ? await onThisPc(a.folder) : {}),
+            ...(a.path && a.machine && (await quietFolder(s, a.machine, a.path)) ? { quiet: true } : {}),
             hint: UNMATCHED_HINT,
           };
         }
