@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 98. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 100. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -15,7 +15,7 @@ Copy of the Work OS state, version 98. WORK-STATE.md is a copy of the State, wri
 7. R6 = session identity (note 2afd68cb00; builder-b ecc8d8a, steps 1-7). Opus security review 19 Nov: no high; slot B fixing seen-message read bypass, reply note, PID reuse, leftover 'inbox' text, fix script scope, oauth 'chat' word check. Then merge dev, full e2e, release on Om's chat yes, reinstall hooks, fix-message-word on production (dry run first). (note 2afd68cb00): Opus plan, then build in slot B, Opus security review, then into R5 or right after it; reinstall hooks on the PCs.
 8. Need answers reach whoever holds the work now: a Need asked by a session that is off is delivered to the project's Now holder or the session that picked up its handover, and start_work lists answered Needs since the last lead's session; withdraw_need on an answered or closed Need says so with the answer and time. Fold into the lanes design (note after 2afd68cb00).
 9. Nudges (Om 19 Nov, note ce434ed759): idle 20 min with Next work not waiting on anyone wakes the holder through the idle wait (backoff 1/2/4 h, 4 a day, not when the person typed in the last 20 min); Declutter-due nudge to the Now holder once a day at turn end. Build in R7 after lanes step 1.
-10. Release R7 from dev 251197f: full e2e green except two test-timing failures. Then time systemctl stop, reinstall hooks, run the Claude items dry run on prod, and install the /transfer alias. — waits on Om's chat yes
+10. Claude items migration on production: the dry run found 14 open items (AKAR 5 -> 2 tasks + 3 Later, PMS 2 -> 2 tasks, Work OS 7 -> 7 tasks). R7 hides the Claude items page, so they are invisible until moved. Apply with --apply. — waits on Om's yes
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -45,4 +45,5 @@ Copy of the Work OS state, version 98. WORK-STATE.md is a copy of the State, wri
 - Notes search fixed on dev d5b1454 (desktop Filter sent the Select's empty marker as project/shelf); ships with R7. (19 Nov). Production data and the server regex are fine ("orders" matches 24 notes). Builder S is reproducing it in wos-s with a new flow-notes-search suite.
 - oauth e2e 'settings: phone: no sideways scroll' fails some runs at 390, each time on a different row, with docScroll and mainScroll false: the page never scrolls. Likely measured while the panel slides in. The test should wait for the animation. fails about 3 runs in 4 on the Add passkey row (Settings › Account › Security at 390). Cause not found: it is not inside a closed details, and 740cd1f's helper change is not the fix. Check by eye at 390, and check the panel slide-in timing.
 - flow-dc1 'a review Need gets no buttons in its DM' fails about 2 runs in 3: the test inserts the review Need's alert after the asks, so the DM sometimes misses the batch. Test race; the alerts code didn't change in R7.
-<!-- work-os-copy sha1:51729f8351093ce71ecf1c280647658131e90f2a -->
+- The SIGTERM fix does not work: on R7 (59cb0edb5693) a systemctl restart still waits the full 30 s stop-sigterm timeout, then SIGKILL (journal 20 Nov 01:44 IST). Something keeps next-server open (SSE /live streams, the wait route, or Mongo). Each deploy is about 30 s down.
+<!-- work-os-copy sha1:a6196e75aa04b00d0fbef95c202d6d03daf47d93 -->
