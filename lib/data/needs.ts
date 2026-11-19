@@ -668,6 +668,28 @@ async function applyReview(s: Scope, need: NeedDoc, option: string, text: string
   return filed ? { ...need, filed } : need;
 }
 
+/** "17:00 19 Nov" in the person's timezone. */
+function clockDay(d: Date, tz: string): string {
+  try {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', hour12: false, timeZone: tz }).formatToParts(d).map(x => [x.type, x.value]));
+    return `${p.hour}:${p.minute} ${p.day} ${p.month}`;
+  } catch {
+    return d.toISOString().slice(11, 16);
+  }
+}
+
+/** What withdrawing an answered Need says: which answer, when and by whom (Lanes step 2); one line, labels only. */
+async function answeredText(s: Scope, n: NeedDoc): Promise<string> {
+  const { memberNames } = await import('../people');
+  const { timezoneOf } = await import('../profile');
+  const a = n.answer;
+  const [names, tz] = await Promise.all([memberNames(s.orgId), timezoneOf(s)]);
+  const flat = (v: string, max: number) => v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  const option = flat(n.options.find(o => o.id === a?.option)?.label ?? (a?.option === 'other' ? 'own answer' : (a?.option ?? '')), 120);
+  const by = a ? (Object.hasOwn(names, a.by) ? flat(names[a.by], 60) : 'a former member') : 'a person';
+  return `Need #${n.ref} is already answered: "${option}", ${clockDay(a?.at ?? n.answeredAt ?? new Date(), tz)} by ${by}. Read it with needs; nothing to withdraw.`;
+}
+
 /** Who is withdrawing: the app (the person), or an MCP call with the word the server gave it and the session / key behind it. */
 export type Withdrawer = 'app' | { word: NeedWord; session?: string; keyId?: string };
 
@@ -685,6 +707,7 @@ export async function withdrawNeed(s: Scope, id: string, by: Withdrawer = 'app')
       (by === 'app' ||
         (cur.from.word !== 'person' && cur.kind !== 'review' && cur.from.word === by.word && (!cur.from.session || cur.from.session === by.session) && (!cur.from.keyId || cur.from.keyId === by.keyId)));
     if (!cur || !mine) throw new NotFoundError('That Need does not exist, or you did not ask it.');
+    if (cur.status === 'answered') throw new InputError(await answeredText(s, cur));
     if (cur.status !== 'open') throw new InputError(`This Need is already ${cur.status}.`);
     const now = new Date();
     const done = await c.needs.findOneAndUpdate({ _id: id, 'from.actor.userId': s.userId, status: 'open' }, { $set: { status: 'withdrawn', closedAt: now } }, { returnDocument: 'after' });

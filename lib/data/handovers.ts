@@ -5,6 +5,7 @@ import type { Actor } from '../types';
 import { isMember } from '../people';
 import { InputError } from './errors';
 import { writeNote } from './notes';
+import { moveSession } from './pickup';
 
 // A handover (docs/flows/agent-system.md 5.5, built in H5): the note a session leaves for the next one when it stops
 // (end_work). A project note with the `handover` field; one per (project, title, writer), rewritten whole each time. It
@@ -81,7 +82,18 @@ export async function writeHandover(s: Scope, w: WriteHandover, actor: Actor): P
   return { id: note.id, title: note.title, created };
 }
 
-export type BriefHandover = { id: string; title: string; label: string; by: string; at: Date; markdown: string; /** Who created and who last edited the note (read before the pick-up line is appended): any text by someone else is labelled for the reader. */ createdBy: Actor; updatedBy: Actor };
+/** The handover's writer (`by`, session row key `from`) hands its work to the picking session (`to`, its row key). Never breaks the brief. */
+async function pickUpWork(s: Scope, projectId: string, by: string, from: string, to: string, handoverAt: Date): Promise<void> {
+  try {
+    const c = await scoped(s);
+    const [a, b] = await Promise.all([c.presence.findOne({ projectId, userId: by, key: from }), c.presence.findOne({ projectId, userId: s.userId, key: to })]);
+    if (a && b) await moveSession(s, projectId, a, b, Date.now(), { handoverAt });
+  } catch {
+    // the handover is still shown; the sweep hands the work on later
+  }
+}
+
+export type BriefHandover ={ id: string; title: string; label: string; by: string; at: Date; markdown: string; /** Who created and who last edited the note (read before the pick-up line is appended): any text by someone else is labelled for the reader. */ createdBy: Actor; updatedBy: Actor };
 
 /**
  * The handovers a start_work shows (newest first, at most 2 in full, the rest as id and title). `me` is the caller's
@@ -112,6 +124,8 @@ export async function handoversForBrief(s: Scope, projectId: string, o: { me: st
       const at = new Date();
       const claimed = await c.notes.updateOne({ _id: d._id, 'handover.pickedUp': { $exists: false } }, { $set: { 'handover.pickedUp': { session: o.me, ...(o.label ? { label: o.label } : {}), at, by: s.userId } } });
       if (!claimed.modifiedCount) continue;
+      // Lanes: the session that wrote it hands its work (Needs, unread messages, Now hold, held lines) to this one, when it ended or is not busy.
+      if (h.session) await pickUpWork(s, projectId, h.by, h.session, o.me, d.updatedAt);
       const line = `Picked up by ${o.label || 'a session'}, ${at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
       body = `${body}\n\n${line}`;
       // The note shows who took it; a failed rewrite must not hide the handover from the session that was handed it.

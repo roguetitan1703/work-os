@@ -8,6 +8,7 @@ import { scoped, type Scope } from '../scope';
 import { addressed, frameBody, frameDeliveries, frameLine, markSeenFor, NO_APPROVAL, unreadFor, type Reader } from './messages';
 import { markOrdersDelivered, ordersChangesFor, ordersFor, shortFormForSubagent, type OrdersChange } from './orders';
 import { hookRowId } from './presence';
+import { sweepGone } from './pickup';
 
 // Messages pushed into a Claude Code session (docs/flows/agent-system.md 5.6 and 16.12; plan note 6dfdb98f4f). The hook asks
 // through POST /api/agent/event (deliver: true, on a prompt, a tool batch or a stop) or POST /api/agent/wait (an idle
@@ -154,6 +155,8 @@ export async function deliverFor(s: Scope, sid: string, projectId: string | null
   // A session with no project (projectId null) is handed the messages addressed to it that no project holds: no Needs, no Orders.
   const project = projectId ? await c.projects.findOne({ _id: projectId }, { projection: { name: 1, ownerId: 1 } }) : null;
   if (projectId && !project) return { delivery: null };
+  // Lanes: the caller's own sessions that have been off for 30 minutes hand their Needs and messages on first, so they arrive in this turn.
+  if (mode === 'turn' && projectId) await sweepGone(s, projectId, row._id).catch(() => undefined);
   const reader = readerOf(s, sid, row);
   const unread = (await unreadFor(s, reader, { projectId })).reverse(); // oldest first
   const msgs = mode === 'turn' ? unread : unread.filter(m => wakeWorthy(m, reader, project?.ownerId));
