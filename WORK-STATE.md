@@ -1,9 +1,9 @@
-Copy of the Work OS state, version 103. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 104. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
 ## Now
-- Ship Harness end to end (#276, docs/flows/agent-system.md): parts H0-H16 as subtasks #277-#293. Per part: Opus writes the implementation plan, Sonnet builds in its slot, Opus reviews, dev, tests; production per release with Om's go. Stop and ask Om on drift or duplication.
+- Ship Harness end to end (#276, docs/flows/agent-system.md): R6 and R7 are live. Now: the Fable tool-calling review and its fixes, H16 measuring until about 3 Dec, then H17. Per part: Opus plans, Sonnet builds in its slot, Opus reviews, dev, tests; production per release with Om's go.
 
 ## Next
 1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel.
@@ -42,4 +42,4 @@ Copy of the Work OS state, version 103. WORK-STATE.md is a copy of the State, wr
 - flow-dc1 'a review Need gets no buttons in its DM' fails about 2 runs in 3: the test inserts the review Need's alert after the asks, so the DM sometimes misses the batch. Test race; the alerts code didn't change in R7.
 - The SIGTERM fix does not work: on R7 (59cb0edb5693) a systemctl restart still waits the full 30 s stop-sigterm timeout, then SIGKILL (journal 20 Nov 01:44 IST). Something keeps next-server open (SSE /live streams, the wait route, or Mongo). Each deploy is about 30 s down.
 - write_note has no session parameter, so a lead session can't edit the Orders through MCP: it is refused as 'one that names no session'. Add session to write_note or expose propose_order. For the H17 tool-calling review.
-<!-- work-os-copy sha1:5ebe1c8b92d20b3ee07c55d90388c9c8957ae315 -->
+<!-- work-os-copy sha1:4f0511c334805e1b7a55ba66766c4ddd3be00c63 -->
