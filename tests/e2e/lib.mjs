@@ -279,6 +279,8 @@ export const overflow = p => p.evaluate(() => {
   const bad = [...document.querySelectorAll('body *')].filter(el => {
     const r = el.getBoundingClientRect(); const st = getComputedStyle(el);
     if (r.width === 0 || st.visibility === 'hidden' || st.display === 'none') return false;
+    // the content of a closed <details> (the Advanced fold) is not rendered, though Chrome can report a stale box for it
+    if (el.closest('details:not([open])') && !el.closest('summary')) return false;
     if (el.closest('[class*="overflow-x-auto"]') || el.closest('[data-sonner-toaster]') || el.closest('.toaster')) return false;
     if (!(r.right > w + 1 || r.left < -1)) return false;
     // text clipped with an ellipsis (truncate) by a parent that itself sits inside the viewport is not an overflow

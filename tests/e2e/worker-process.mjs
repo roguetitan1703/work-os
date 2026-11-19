@@ -20,9 +20,9 @@ try {
   const ONE = (await must(MCP, 'add_project', { name: P, code: [{ remote: 'acme/process-one' }] })).project.id;
   const pc = await mkDevice('process-pc');
   await rawDb.collection('devices').updateOne({ _id: pc.id }, { $set: { ownerId: ME.userId, orgId: ME.orgId, name: 'Process-PC' } });
-  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:f1`, deviceId: pc.id, folderId: 'f1', name: 'C:/code/f1', git: true, remote: 'acme/process-one', projectId: ONE, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
+  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:fold1`, deviceId: pc.id, folderId: 'fold1', name: 'C:/code/f1', git: true, remote: 'acme/process-one', projectId: ONE, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
   const cc = randomUUID();
-  const st = await call('/api/agent/start', pc.key, { remote: 'https://github.com/acme/process-one.git', branch: 'main', path: 'C:/code/f1', label: 'proc', ccSession: cc, source: 'startup' });
+  const st = await call('/api/agent/start', pc.key, { folders: ['fold1'], remote: 'https://github.com/acme/process-one.git', branch: 'main', path: 'C:/code/f1', label: 'proc', ccSession: cc, source: 'startup' });
   const sid = st.json.brief.session;
   const rowId = `${ME.userId}:s:${sid}:${ONE}`;
   const stateOf = async () => (await must(MCP, 'list_sessions', { project: P, include_off: true })).sessions.find(x => x.session === sid)?.state;

@@ -26,7 +26,7 @@ async function deviceOf(who, name) {
   await rawDb.collection('devices').updateOne({ _id: dev.id }, { $set: { ownerId: who.userId, orgId: who.orgId, name } });
   return dev;
 }
-const body0 = { remote: 'https://github.com/acme/h6-one.git', branch: 'main', path: 'C:/code/h6-one', label: 'Claude Code' };
+const body0 = { folders: ['fold1'], remote: 'https://github.com/acme/h6-one.git', branch: 'main', path: 'C:/code/h6-one', label: 'Claude Code' };
 const ago = min => new Date(Date.now() - min * 60_000);
 async function cookieOf(email) {
   const r = await fetch(B + '/api/auth/sign-in/email', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PW }), redirect: 'manual' });
@@ -49,7 +49,7 @@ try {
   const ONE = (await must(MCP, 'add_project', { name: 'H6 One', code: [{ remote: 'acme/h6-one' }] })).project.id;
   await must(MCP, 'save_state', { project: 'H6 One', ops: [{ op: 'add_next', text: 'H6 line' }] });
   const pc = await deviceOf(ME, 'h6-pc');
-  await rawDb.collection('workerFolders').insertOne(folder(pc, ME, 'f1', 'acme/h6-one', ONE));
+  await rawDb.collection('workerFolders').insertOne(folder(pc, ME, 'fold1', 'acme/h6-one', ONE));
   const ck = await cookieOf(EMAIL);
   const rowId = sid => `${ME.userId}:s:${sid}:${ONE}`;
   const prow = sid => rawDb.collection('presence').findOne({ _id: rowId(sid) });
@@ -219,8 +219,8 @@ try {
   const otherHtml = await page(await cookieOf('h6-other@example.test'));
   check('another organization sees no worker of this one', !workers(otherHtml).some(w => w.id.startsWith(ME.userId)) && !otherHtml.includes(wrow.ccSession));
   const pcT = await deviceOf(tess, 'tess-pc');
-  await rawDb.collection('workerFolders').insertOne(folder(pcT, tess, 'tf', 'acme/h6-one', ONE));
-  const tt = (await start(pcT.key, body0)).json;
+  await rawDb.collection('workerFolders').insertOne(folder(pcT, tess, 'tfold', 'acme/h6-one', ONE));
+  const tt = (await start(pcT.key, { ...body0, folders: ['tfold'] })).json;
   const before = JSON.stringify((await prow(W.sid)).activity);
   const te = await ev(tt.token, { event: 'end' });
   const tRow = await rawDb.collection('presence').findOne({ _id: `${tess.userId}:s:${tt.brief.session}:${ONE}` });

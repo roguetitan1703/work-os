@@ -202,8 +202,8 @@ try {
   await rawDb.collection('devices').updateOne({ _id: pc.id }, { $set: { ownerId: ME.userId, orgId: ME.orgId, name: 'h9-pc' } });
   await must(MCP, 'update_project', { project: 'H9 One', code: [{ remote: 'acme/h9-one' }] });
   const projId = (await rawDb.collection('projects').findOne({ name: 'H9 One' }))._id;
-  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:f1`, deviceId: pc.id, folderId: 'f1', name: 'C:/code/h9-one', git: true, remote: 'acme/h9-one', projectId: projId, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
-  const hs = await post('/api/agent/start', pc.key, { remote: 'https://github.com/acme/h9-one.git', branch: 'main', path: 'C:/code/h9-one', label: 'H9 · hook builder', ccSession: randomUUID(), source: 'startup' });
+  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:fold1`, deviceId: pc.id, folderId: 'fold1', name: 'C:/code/h9-one', git: true, remote: 'acme/h9-one', projectId: projId, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
+  const hs = await post('/api/agent/start', pc.key, { folders: ['fold1'], remote: 'https://github.com/acme/h9-one.git', branch: 'main', path: 'C:/code/h9-one', label: 'H9 · hook builder', ccSession: randomUUID(), source: 'startup' });
   const HT = hs.json?.token ?? '';
   const hsid = hs.json?.brief?.session ?? '';
   check('4: a hook session starts with a token and the Orders version in its brief', hs.status === 200 && HT.startsWith('wst_') && hs.json.brief.orders.some(o => o.layer === 'organisation' && o.version === 7), hs.text.slice(0, 200));

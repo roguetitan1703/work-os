@@ -37,7 +37,6 @@
   "nav Today": { "requests": 3 },
   "complete a task on Today": { "requests": 3 },
   "nav Claude": { "requests": 5 },
-  "a teammate adds a Claude item (push hint)": { "requests": 3 },
   "a teammate edits a task (push hint)": { "requests": 2 },
   "nav Notes": { "requests": 4 }
  },
