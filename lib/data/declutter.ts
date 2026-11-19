@@ -6,11 +6,13 @@ import { memberNames } from '../people';
 import { setDeclutterCache } from './states';
 import {
   GROWTH,
+  dueReasons,
   duplicateGroups,
   itemId,
   itemPlan,
   noteItems,
   stateItems,
+  type Due,
   type DeclutterItem,
 } from '../declutter-core';
 
@@ -59,6 +61,23 @@ export async function refreshCache(s: Scope, project: ProjectDoc, state: StateDo
 
 /** True when the cached check is older than a day (or missing). */
 export const cacheStale = (state: StateDoc | null, now = new Date()) => !!state && (!state.declutter?.checkedAt || now.getTime() - state.declutter.checkedAt.getTime() > DAY);
+
+/**
+ * Is this project due? The brief and end_work call it with the State they already loaded: counts and stale lines cost nothing,
+ * and the cached notes and Claude items check is refreshed at most once a day (a failure there never breaks a start).
+ */
+export async function dueFor(s: Scope, project: ProjectDoc, state: StateDoc | null, now = new Date()): Promise<Due> {
+  let st = state;
+  if (st && cacheStale(st, now) && !st.declutter?.needId) {
+    try {
+      const reasons = await refreshCache(s, project, st, now);
+      st = { ...st, declutter: { ...(st.declutter ?? {}), checkedAt: now, reasons } };
+    } catch (e) {
+      console.error('[declutter cache]', e);
+    }
+  }
+  return dueReasons(st, now, project.name);
+}
 
 export type Proposal = {
   items: DeclutterItem[];
@@ -130,4 +149,10 @@ export async function buildProposal(s: Scope, project: ProjectDoc, now = new Dat
     fyi,
     counts: { later: state?.later.length ?? 0, next: state?.next.length ?? 0, notes: groups.reduce((n, g) => n + g.length, 0), tasks, needs: needs.length, claudeItems },
   };
+}
+
+/** The start brief's and end_work's one field: `{ declutter: "Declutter due: ..." }`, or nothing. */
+export async function briefField(s: Scope, project: ProjectDoc, state: StateDoc | null): Promise<{ declutter?: string }> {
+  const d = await dueFor(s, project, state);
+  return d.text ? { declutter: d.text } : {};
 }

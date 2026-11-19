@@ -23,7 +23,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, createPrivateKey, randomBytes, randomUUID, sign } from 'node:crypto';
 import { ObjectId } from 'mongodb';
-import { B, CRON, EMAIL, ME, MCP, PW, check, finish, makeUser, mkKey, rawDb, setOrgGuild, setProfile, setSchedule, sha } from './lib.mjs';
+import { B, CRON, EMAIL, ME, MCP, PW, check, finish, makeUser, mkClaudeItem, mkKey, rawDb, setOrgGuild, setProfile, setSchedule, sha } from './lib.mjs';
 import { entryPoints, unlistedBuilt } from './entry-points.mjs';
 
 const T0 = Date.now();
@@ -441,8 +441,8 @@ try {
   S.noteTitle = can('shmemo', ['A', 'T']);
   S.note = (await mustMcp(A.chat, 'write_note', { project: S.projectName, title: S.noteTitle, body: can('shmemobody', ['A', 'T']) })).created?.id;
   const why = 'Fixture for the leak audit on the throwaway app; nothing real happens with this item at all.';
-  await mustMcp(A.chat, 'update_claude_items', { ops: [{ op: 'add', project: P.projectName, kind: 'feature', title: can('pvitem', ['A']) + ' item for the audit', why: can('pvitemwhy', ['A']) + ' ' + why, done_when: can('pvitemdone', ['A']), waiting_on_om: can('pvitemwait', ['A']) }] });
-  await mustMcp(A.chat, 'update_claude_items', { ops: [{ op: 'add', project: S.projectName, kind: 'feature', title: can('shitem', ['A', 'T']) + ' item for the audit', why: can('shitemwhy', ['A', 'T']) + ' ' + why, done_when: 'The audit passes for this one.' }] });
+  await mkClaudeItem({ project: P.projectName, kind: 'feature', title: can('pvitem', ['A']) + ' item for the audit', why: can('pvitemwhy', ['A']) + ' ' + why, doneWhen: can('pvitemdone', ['A']), waitingText: can('pvitemwait', ['A']) });
+  await mkClaudeItem({ project: S.projectName, kind: 'feature', title: can('shitem', ['A', 'T']) + ' item for the audit', why: can('shitemwhy', ['A', 'T']) + ' ' + why, doneWhen: 'The audit passes for this one.' });
   // Needs (slice 4): asks to A, in the private project (only A reads them) and the shared one (A and T read them, only A may answer).
   // Two per project: one for the answer control and one for the withdraw control (each destroys its Need).
   {
@@ -495,7 +495,7 @@ try {
   XO.taskRef = await mkTask(X.chat, { title: can('xtask', ['X']), project: XO.projectName });
   XO.note = (await mustMcp(X.chat, 'write_note', { project: XO.projectName, title: can('xmemo', ['X']), body: can('xmemobody', ['X']) })).created?.id;
   await mustMcp(X.chat, 'add_comment', { task: XO.taskRef, note: can('xcomment', ['X']) });
-  await mustMcp(X.chat, 'update_claude_items', { ops: [{ op: 'add', project: XO.projectName, kind: 'feature', title: can('xitem', ['X']) + ' item for the audit', why, done_when: 'The audit passes for this one.' }] });
+  await mkClaudeItem({ project: XO.projectName, userId: X.userId, orgId: X.orgId, kind: 'feature', title: can('xitem', ['X']) + ' item for the audit', why, doneWhen: 'The audit passes for this one.' });
   await mkTask(R.chat, { title: can('rptask', []) });
 
   // Personal documents of A (and one of X): inbox, push devices, alerts, reviews, routine logs, computers' folders,
@@ -1175,8 +1175,7 @@ function AUDIT() {
   add('mcp update_claude_items',
     M('update_claude_items', t => ({ ops: [{ op: 'note', item: t.item, text: 'lkq note' }] }), aim(['item'])),
     M('update_claude_items', t => ({ ops: [{ op: 'edit', item: t.item, title: 'lkq edited title of the item' }] }), aim(['item'], { label: 'edit' })),
-    M('update_claude_items', t => ({ ops: [{ op: 'add', project: t.project, kind: 'idea', title: 'lkq idea into someone else project', why: 'Probe of the leak audit on the throwaway app; nothing real happens with this idea at all.' }] }), aim(['project'], { label: 'add into their project' })),
-    { ...M('update_claude_items', []), label: 'blocked_by theirs', aim: true, aimKeys: ['item'], control: false, call: ({ cred, o: t, p }) => mcpCall(cred, 'update_claude_items', { ops: [{ op: 'add', project: p.ownProject ?? 'lkq none', kind: 'idea', title: 'lkq idea blocked by theirs here', why: 'Probe of the leak audit on the throwaway app; nothing real happens with this idea at all.', blocked_by: t.item }] }) },
+    // (H11: update_claude_items add is retired for every caller, so its 'add into their project' and 'blocked_by theirs' probes are gone; the refusal is checked in flow-h11.)
   );
   add('mcp delete_task', M('delete_task', t => ({ task: t.ref, title: 'lkq' }), aim(['ref'], { label: 'wrong title', control: false })), M('delete_task', t => ({ task: t.looseRef, title: 'lkqpvloose' }), aim(['looseRef'], { label: 'title start', stage: 2 })));
   add('mcp restore_task', M('restore_task', t => ({ task: t.trashRef }), aim(['trashRef'], { stage: 1 })));
@@ -1231,6 +1230,10 @@ function AUDIT() {
   add('mcp feedback',
     M('feedback', t => ({ project: t.project, text: 'lkq sneaked feedback', tool: 'lkq', rule: 'lkq' }), aim(['project'])),
     M('feedback', t => ({ project: t.projectName, text: 'lkq sneaked feedback by name' }), aim(['projectName'], { label: 'by name' })),
+  );
+  add('mcp declutter',
+    M('declutter', t => ({ project: t.projectName }), aim(['projectName'], { label: 'read their project' })),
+    M('declutter', t => ({ project: t.projectName, ask: true, add: [{ later: 'lkq probe line' }] }), aim(['projectName'], { label: 'ask into their project', control: false })),
   );
   add('mcp list_sessions', M('list_sessions', { include_gone: true }), M('list_sessions', t => ({ project: t.project, include_gone: true }), aim(['project'], { label: 'by project', control: false, ok: r => r.ok && r.json?.sessions?.length > 0 })));
   add('mcp slot', M('slot', { action: 'acquire', machine: 'lkq-slot-box' }, { label: 'acquire' }), M('slot', { action: 'release', machine: 'lkq-slot-box' }, { label: 'release' }));

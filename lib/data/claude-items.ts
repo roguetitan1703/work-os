@@ -572,6 +572,8 @@ export async function applyItemOps(s: Scope, ops: ItemOp[], ctx: ItemCtx): Promi
         let grouped: true | undefined;
         switch (o.op) {
           case 'add': {
+            // Claude items are retired (H11, decision 14): new work goes to a Later line or a task.
+            if (isAgent(ctx.actor)) throw new InputError('Claude items are retired: add a Later line (save_state add_later) or a task (add_task). Items you already hold can still be moved to done or released.');
             const { op: _o, ...input } = o;
             const r = await addItem(s, input, ctx);
             it = r.item;
