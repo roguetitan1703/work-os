@@ -46,11 +46,11 @@ export async function projectOnDevice(s: Scope, deviceId: string, projectId: str
  * A new session token for one project on one computer, made with `deviceKey` (its hash is kept on the row and must
  * still be the computer's key when the token is shown). Returns the token in full: the only time it exists.
  */
-export async function createAgentSession(s: Scope, deviceId: string, projectId: string, deviceKey: string): Promise<{ token: string; id: string; expiresAt: Date }> {
+export async function createAgentSession(s: Scope, deviceId: string, projectId: string, deviceKey: string, dispatched?: { taskId: string; ref: number } | null): Promise<{ token: string; id: string; expiresAt: Date }> {
   const token = AGENT_TOKEN_PREFIX + randomBytes(32).toString('base64url');
   const hash = sha256(token);
   const now = new Date();
-  const doc: AgentSessionDoc = { _id: idOf(hash), hash, keyHash: sha256(deviceKey), deviceId, orgId: s.orgId, ownerId: s.userId, projectId, createdAt: now, expiresAt: new Date(now.getTime() + TOKEN_TTL_MS) };
+  const doc: AgentSessionDoc = { _id: idOf(hash), hash, keyHash: sha256(deviceKey), deviceId, orgId: s.orgId, ownerId: s.userId, projectId, createdAt: now, expiresAt: new Date(now.getTime() + TOKEN_TTL_MS), ...(dispatched ? { dispatched } : {}) };
   await (await collections()).agentSessions.insertOne(doc); // scope-ok: session tokens: written for the verified device's owner and organization
   return { token, id: doc._id, expiresAt: doc.expiresAt };
 }
@@ -70,6 +70,25 @@ export async function verifyAgentToken(token: string | null | undefined): Promis
   if (!d || d.revokedAt || d.ownerId !== doc.ownerId || d.orgId !== doc.orgId) return null;
   if (!doc.keyHash || d.hash !== doc.keyHash) return null; // made with a key the computer no longer has (a replace raced it)
   return { id: doc._id, deviceId: doc.deviceId, deviceName: d.name, orgId: doc.orgId, ownerId: doc.ownerId, projectId: doc.projectId, expiresAt: doc.expiresAt };
+}
+
+/**
+ * H15: the task the dispatcher started this Claude Code session for, or null. Only this PC's own worker session row counts
+ * (same device, same owner and organization, `dispatched: true`; its id is the session id the worker gave Claude Code), so a
+ * session the person started by hand, or on another PC, is never marked. The mark only adds refusals (hook-pre-tool.mjs).
+ */
+export async function dispatchedSession(s: Scope, deviceId: string, ccSession: string): Promise<{ taskId: string; ref: number } | null> {
+  const c = await scoped(s);
+  const ws = await c.workerSessions.findOne({ _id: ccSession, deviceId, ownerId: s.userId, dispatched: true }, { projection: { taskId: 1 } });
+  if (!ws?.taskId) return null;
+  const t = await c.tasks.findOne({ _id: ws.taskId }, { projection: { ref: 1 } });
+  return t && Number.isInteger(t.ref) ? { taskId: ws.taskId, ref: t.ref } : null;
+}
+
+/** The mark a session token's row carries (a later start with the token, after a compaction, answers it again). */
+export async function dispatchedOfToken(sessionId: string): Promise<{ taskId: string; ref: number } | null> {
+  const doc = await (await collections()).agentSessions.findOne({ _id: sessionId }, { projection: { dispatched: 1 } }); // scope-ok: session tokens: found by the verified session's own id
+  return doc?.dispatched ?? null;
 }
 
 /** Ends every session token of a computer (its key was replaced, or it was revoked). */

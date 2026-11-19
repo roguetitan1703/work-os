@@ -129,4 +129,25 @@ test('the server hands the task ref to the worker in the job, and the core passe
   assert.match(clone, /dispatched: Number\.isInteger\(job\.dispatched\)/);
 });
 
+test('H15: the server mark in the session marker counts like the variable (a resumed run with no variable stays refused); a bad or missing mark does not', async () => {
+  const marked = (sid, d) => lib.writeMarker(sid, { status: 's', offset: 0, stopped: false, project: 'Demo', orders: ORDERS, ...(d === undefined ? {} : { dispatched: d }) });
+  const c = (sid) => call('mcp__work-os__write_note', { note_id: 'ordersProj2', append: 'x' }, sid);
+  marked('m1', 301);
+  assert.ok(denied(pre.ordersDeny(c('m1'), {})), 'marker only, no variable: refused');
+  assert.ok(denied(pre.ordersDeny(call('mcp__work-os__propose_order', { project: 'p' }, 'm1'), {})));
+  assert.ok(denied(await pre.preTool(c('m1'))), 'preTool reads the marker too');
+  assert.ok(pre.isDispatched({ session_id: 'm1' }, {}));
+  for (const [sid, d] of [['m2', undefined], ['m3', 0], ['m4', '301'], ['m5', -4], ['m6', 1.5], ['m7', true]]) {
+    marked(sid, d);
+    assert.equal(pre.ordersDeny(c(sid), {}), null, 'mark ' + String(d));
+  }
+  assert.equal(pre.ordersDeny(c('no-marker'), {}), null);
+  assert.equal(pre.isDispatched({}, {}), false, 'no session id');
+  // a run that deletes its own marker is accepted (the mark only adds refusals); with the variable it is still refused
+  fs.rmSync(path.join(process.env.WORK_OS_HOOK_DIR), { recursive: true, force: true });
+  assert.equal(pre.ordersDeny(c('m1'), {}), null);
+  marked('m8', 301);
+  assert.ok(denied(pre.ordersDeny(c('m8'), env)));
+});
+
 test('cleanup', () => { fs.rmSync(tmp, { recursive: true, force: true }); });

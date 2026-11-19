@@ -96,8 +96,18 @@ export async function preTool(input) {
   return plainDeny();
 }
 
+/** A dispatched run: the worker's environment variable, or the server's mark in this session's marker (H15). The mark only adds refusals. */
+export function isDispatched(input, env = process.env) {
+  try {
+    if (/^[0-9]{1,9}$/.test(String(env.WORK_OS_DISPATCHED || ''))) return true;
+    const d = readMarker(input.session_id)?.dispatched;
+    return Number.isInteger(d) && d > 0;
+  } catch { return false; }
+}
+
 /**
- * A run the task dispatcher started (the worker sets WORK_OS_DISPATCHED=<task ref> in its environment) shares the person's key,
+ * A run the task dispatcher started (the worker sets WORK_OS_DISPATCHED=<task ref> in its environment, and the server marks the session in its start answer, kept in the
+ * session marker as `dispatched`: either one counts, H15, so a run the worker resumed or that lost the variable stays refused) shares the person's key,
  * so the server cannot tell it from the person's own session by anything the run sends. It may not change an Orders page: the
  * brief's Orders note ids (kept in the session marker) are refused for write_note and apply_changes, and propose_order, which
  * always targets Orders, is refused outright. Fails closed only for those: no marker, no ids, any other note or tool passes.
@@ -105,7 +115,7 @@ export async function preTool(input) {
 const ORDERS_TOOL = /^mcp__.+__(write_note|propose_order|apply_changes)$/;
 export function ordersDeny(input, env = process.env) {
   try {
-    if (!/^[0-9]{1,9}$/.test(String(env.WORK_OS_DISPATCHED || ''))) return null;
+    if (!isDispatched(input, env)) return null;
     const m = ORDERS_TOOL.exec(String(input.tool_name || ''));
     if (!m) return null;
     const ids = new Set(Array.isArray(readMarker(input.session_id)?.orders) ? readMarker(input.session_id).orders : []);
