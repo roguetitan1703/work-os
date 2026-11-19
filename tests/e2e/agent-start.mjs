@@ -106,6 +106,16 @@ try {
   check('more than 20 worktrees: 400', (await post(T1, { worktrees: Array.from({ length: 21 }, (_, i) => `w${i}`) })).status === 400);
   check('a head over 80 characters: 400', (await post(T1, { head: 'h'.repeat(81) })).status === 400);
   check('dirty must be a boolean: 400', (await post(T1, { dirty: 'yes' })).status === 400);
+  // H6: Claude Code's own session id and what began the session (the row's state), and the device as machine.
+  const CC = '3f2b8c1e-5d4a-4e7b-9c6d-1a2b3c4d5e6f';
+  check('a ccSession that is not a UUID: 400', (await post(T1, { ccSession: 'not-a-uuid' })).status === 400 && (await post(T1, { ccSession: 'a'.repeat(32) })).status === 400);
+  check('a source that is not one of the four: 400', (await post(T1, { source: 'other' })).status === 400);
+  check('a ccSession and a startup source: accepted, the row is on, ccSession kept, machine is the device (not the hostname the body names)', (await post(T1, { ccSession: CC, source: 'startup', machine: 'some-hostname' })).status === 200 && await (async () => {
+    const pr = await rawDb.collection('presence').findOne({ session: sid });
+    return pr?.activity?.state === 'on' && pr.ccSession === CC && pr.machine === pc1.id && pr.machineName === 'agent-pc-1' && !JSON.stringify(pr).includes('some-hostname');
+  })());
+  check('a compaction start puts the row to working', (await post(T1, { ccSession: CC, source: 'compact' })).status === 200 && (await rawDb.collection('presence').findOne({ session: sid }))?.activity?.state === 'working');
+  check('a start with neither field leaves the activity as it was', (await post(T1, {})).status === 200 && (await rawDb.collection('presence').findOne({ session: sid }))?.activity?.state === 'working');
 
   // The hook's session id, passed as `session` on an MCP call with a wos_ key of the same owner, is the same session (H3).
   const kSame = await mkKey({ agent: 'claude-code', name: 'agent-start same owner' });
