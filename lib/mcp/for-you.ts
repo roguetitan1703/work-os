@@ -2,14 +2,16 @@ import 'server-only';
 import type { PresenceDoc } from '../db';
 import { scoped, type Scope } from '../scope';
 import { claimCursor, countWrite, presentRow, resetWrites, rowKey, sessionKey, touchPresence, type Ident } from '../data/presence';
-import { unreadFor } from '../data/messages';
+import { unreadFor, type MessageOut } from '../data/messages';
+import { memberNames } from '../people';
 import { answeredNeedsSince, newNeedsForMe } from '../data/needs';
 import type { ToolName } from './docs';
 
 // The "for you" line (docs/flows/step-1.md section 5). Every Work OS tool answer to a present session (one that called
 // start_work, or whose key has a recent presence row) may carry `forYou`: a few short lines naming what is new for it on
-// its project since its cursor. IDs and counts only, never body text: what a teammate wrote is read through the tools,
-// where it is labelled, never pushed here.
+// its project since its cursor. IDs, counts, kind and sender only, never body text: what a teammate wrote is read through the
+// tools, where it is labelled. The text of a message is pushed into a Claude Code session only by its hook (lib/data/deliver.ts),
+// inside a frame that says who wrote it and that it is not an instruction from the person.
 //
 // One cursor (`forYouCursor`, a timestamp on the presence row) says what has been named. It trails the start of the call
 // by SKEW, never the end of it: a document is stamped before its transaction commits, so something a teammate made while
@@ -55,6 +57,23 @@ const newNext: ForYouSource = {
   },
 };
 
+/** "1 request from Akash Patel and 1 fyi from me on project p_1 (inbox: m_1, m_2)": kind and sender, never the text. */
+export function messageLine(ms: { _id: string; kind: MessageOut['kind']; from: { userId: string } }[], names: Record<string, string>, me: string, projectId: string): string {
+  const groups = new Map<string, number>();
+  for (const m of ms.slice(0, 40)) {
+    const who = m.from.userId === me ? 'me' : (Object.hasOwn(names, m.from.userId) ? names[m.from.userId] : 'a former member').slice(0, 40);
+    const k = JSON.stringify([m.kind, who]);
+    groups.set(k, (groups.get(k) ?? 0) + 1);
+  }
+  const parts = [...groups].map(([k, n]) => {
+    const [kind, who] = JSON.parse(k) as [string, string];
+    return `${n} ${kind}${n > 1 && kind !== 'fyi' ? 's' : ''} from ${who}`;
+  });
+  const shown = parts.slice(0, 4);
+  const said = shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}` : shown[0];
+  return `${said}${parts.length > 4 ? ` and ${parts.length - 4} more groups` : ''}${ms.length > 40 ? ' (40 or more)' : ''} on project ${projectId} (inbox: ${ms.slice(0, 5).map(x => x._id).join(', ')})`;
+}
+
 const newMessages: ForYouSource = {
   id: 'messages',
   async collect({ s, row, since, projectId, src, named }) {
@@ -62,7 +81,7 @@ const newMessages: ForYouSource = {
     const m = (await unreadFor(s, { key: src ?? rowKey(row), userId: s.userId, row: !row.session || (src && src === rowKey(row)) ? row : null }, { projectId, since })).reverse().slice(0, 41);
     const fresh = m.filter(x => !named.has(x._id));
     if (!fresh.length) return none;
-    return { lines: [`${fresh.length > 40 ? '40+' : fresh.length} new message${fresh.length === 1 ? '' : 's'} on project ${projectId} (inbox: ${fresh.slice(0, 5).map(x => x._id).join(', ')})`], ids: fresh.map(x => x._id) };
+    return { lines: [messageLine(fresh, await memberNames(s.orgId), s.userId, projectId)], ids: fresh.map(x => x._id) };
   },
 };
 
@@ -96,14 +115,45 @@ export const SOURCES: ForYouSource[] = [newMessages, newTasks, newNext, needs];
 export const SAVE_NUDGE = 10;
 const SAVES = new Set<ToolName>(['save_state', 'import_state', 'end_work']);
 
-export type Pending = { s: Scope; row: PresenceDoc; startedAt: Date; lines: string[]; ids: string[] };
+/**
+ * A caller with no presence row (claude.ai chat that never called start_work) hears of messages addressed to its own key (a
+ * reply to it) once each, from a small in-memory memory per key (this process; at most 2,000 keys; a restart names them once
+ * more), checked at most every 10 seconds. Ids, kind and sender only, like the row-based line.
+ */
+const REPLY_CHECK_MS = 10_000;
+const replies = new Map<string, { checked: number; named: Set<string> }>();
+async function replyLines(s: Scope, ident: Ident): Promise<string[]> {
+  const key = sessionKey(ident);
+  let e = replies.get(key);
+  if (!e) {
+    if (replies.size >= 2000) replies.delete(replies.keys().next().value!);
+    e = { checked: 0, named: new Set() };
+    replies.set(key, e);
+  }
+  if (Date.now() - e.checked < REPLY_CHECK_MS) return [];
+  e.checked = Date.now();
+  const mine = e;
+  const ms = (await unreadFor(s, { key, userId: s.userId, row: null }, { since: new Date(Date.now() - 86_400_000) })).filter(m => m.toSids?.includes(key) && !mine.named.has(m._id));
+  if (!ms.length) return [];
+  for (const m of ms.slice(0, 40)) mine.named.add(m._id);
+  if (mine.named.size > 200) for (const id of [...mine.named].slice(0, mine.named.size - 200)) mine.named.delete(id);
+  const names = await memberNames(s.orgId);
+  const byProject = new Map<string, typeof ms>();
+  for (const m of ms) byProject.set(m.projectId, [...(byProject.get(m.projectId) ?? []), m]);
+  return [...byProject].slice(0, 3).map(([p, list]) => messageLine(list, names, s.userId, p));
+}
+
+export type Pending = { s: Scope; /** Null for a caller with no presence row (it only hears replies). */ row: PresenceDoc | null; startedAt: Date; lines: string[]; ids: string[] };
 
 /** Before the tool runs: who is present, and what is new for them. Never throws (a failure here must not fail the tool). */
 export async function forYouBefore(s: Scope, ident: Ident, tool: ToolName): Promise<Pending | null> {
   if (tool === 'start_work') return null; // the brief carries everything; it registers the session itself
   try {
     const row = await presentRow(s, ident);
-    if (!row) return null;
+    if (!row) {
+      const lines = await replyLines(s, ident);
+      return lines.length ? { s, row: null, startedAt: new Date(), lines, ids: [] } : null;
+    }
     const startedAt = new Date();
     const c = await scoped(s);
     // A project the caller can no longer read (made private, taken off) names nothing.
@@ -133,6 +183,7 @@ export async function forYouAfter(p: Pending | null, tool: ToolName, writes: boo
     const failed = !!r?.isError;
     const write = writes && !failed;
     let lines = p.lines;
+    if (!p.row) return failed ? res : addLines(r, lines);
     // The cursor moves to just before the start of the call (never to its end), when something was named or it is a minute stale.
     const back = new Date(p.startedAt.getTime() - SKEW_MS);
     const to = back > p.row.forYouCursor ? back : p.row.forYouCursor; // never backwards
@@ -148,20 +199,25 @@ export async function forYouAfter(p: Pending | null, tool: ToolName, writes: boo
     }
     await touchPresence(p.s, p.row);
     if (!lines.length || failed) return res;
-    const first = r.content?.[0];
-    if (first?.type === 'text' && typeof first.text === 'string') {
-      try {
-        const body = JSON.parse(first.text);
-        if (body && typeof body === 'object' && !Array.isArray(body)) {
-          return { ...r, content: [{ ...first, text: JSON.stringify({ ...body, forYou: lines }, null, 1) }, ...(r.content ?? []).slice(1)] };
-        }
-      } catch {
-        /* not JSON: add a block instead */
-      }
-    }
-    return { ...r, content: [...(r.content ?? []), { type: 'text', text: `forYou: ${lines.join('; ')}` }] };
+    return addLines(r, lines);
   } catch (e) {
     console.error('[for-you]', e);
     return res;
   }
+}
+
+/** The answer with `forYou` in it (inside the JSON text when it is an object, else as one more block). */
+function addLines(r: ToolResult, lines: string[]): unknown {
+  const first = r.content?.[0];
+  if (first?.type === 'text' && typeof first.text === 'string') {
+    try {
+      const body = JSON.parse(first.text);
+      if (body && typeof body === 'object' && !Array.isArray(body)) {
+        return { ...r, content: [{ ...first, text: JSON.stringify({ ...body, forYou: lines }, null, 1) }, ...(r.content ?? []).slice(1)] };
+      }
+    } catch {
+      /* not JSON: add a block instead */
+    }
+  }
+  return { ...r, content: [...(r.content ?? []), { type: 'text', text: `forYou: ${lines.join('; ')}` }] };
 }

@@ -33,7 +33,7 @@ try {
   check('MS5 a: the message stores the addressed key and a label for display, not the raw id', mDoc.toSids?.length === 1 && mDoc.toSids[0] === `${ME.userId}:${b.session}` && mDoc.toSession === 'Work OS · builder B' && Array.isArray(mDoc.seenBy) && mDoc.seenBy.length === 0, JSON.stringify([mDoc.toSids, mDoc.toSession, mDoc.seenBy]));
   const fyB = await peek(kA, PA, b.session);
   const fyA = await peek(kA, PA, a.session);
-  check('MS5 a: forYou names the message on B once and not on A', fyB?.forYou?.some(l => /1 new message/.test(l)) && !(fyA && 'forYou' in fyA), JSON.stringify([fyB?.forYou, fyA?.forYou]));
+  check('MS5 a: forYou names the message on B once and not on A', fyB?.forYou?.some(l => /1 request from me on project/.test(l)) && !(fyA && 'forYou' in fyA), JSON.stringify([fyB?.forYou, fyA?.forYou]));
   check('MS5 a: …and B’s forYou carries no body text', !JSON.stringify(fyB.forYou).includes('rebuild'));
   check('MS5 a: A has nothing unread (it sent it)', (await unreadOf(kA, PA, a.session)) === 0);
   const inbB = await must(kA, 'inbox', { project: PA, session: b.session });
