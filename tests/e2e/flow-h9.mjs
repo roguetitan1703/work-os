@@ -95,6 +95,62 @@ try {
   check('1: no list, read or brief carries the log or the before-text key', !/ordersLog|"before"/.test(grab) && grab.includes('Rule four.'), grab.slice(0, 200));
   const found = await mcpH(MCP, 'recent_activity', { what: 'notes' });
   check('1: recent_activity names the Orders change as a note change', !found.isError && /Orders|orders/.test(found.text), found.text.slice(0, 300));
+
+  // ---- 2: the holder's own Claude edits the text, with a why; nobody else's does ----
+  const T = await makeUser({ email: 'tess-h9@example.test', name: 'Tess', orgId: ME.orgId, role: 'member' });
+  const kCode = await mkKey({ agent: 'claude-code', name: 'H9 Code' });
+  const kTess = await mkKey({ agent: 'claude-code', userId: T.userId, name: 'Tess Code' });
+  const cur = async () => (await noteDoc(org));
+  const w1 = await mcpH(kCode, 'write_note', { note_id: org, edits: [{ find: 'Rule four.', replace: 'Rule four, by the holder Claude Code.' }], why: 'H9 test: edits' });
+  const c1 = await cur();
+  check('2: the holder Claude Code key edits the organization Orders with edits and a why: v4, and the answer says so', !w1.isError && w1.json?.orders?.version === 4 && w1.json.orders.layer === 'org' && /^\d+ of 40$/.test(w1.json.orders.lines) && w1.json.orders.removed === 1 && w1.json.orders.added === 1 && c1.ordersV === 4 && c1.ordersLog.at(-1).why === 'H9 test: edits' && c1.ordersLog.at(-1).by?.kind === 'agent' && c1.ordersLog.at(-1).by.agent === 'claude-code' && c1.ordersLog.at(-1).by.userId === ME.userId, w1.text.slice(0, 300));
+  const w2 = await mcpH(MCP, 'write_note', { note_id: org, body: 'Rule one.\n\nRule two changed again.\n\nRule three.\n\nRule four, by the holder Claude Code.\n\nRule five.', why: 'H9 test: body' });
+  const c2 = await cur();
+  check('2: the holder chat key rewrites the whole page with body: v5 (an agent write is never folded)', !w2.isError && w2.json?.orders?.version === 5 && c2.ordersV === 5 && c2.ordersLog.length === 4 && c2.ordersLog.at(-1).by.agent === 'claude' && /Rule five\./.test(c2.body), w2.text.slice(0, 300));
+  const w3 = await mcpH(kCode, 'write_note', { note_id: org, append: 'Rule six.' });
+  check('2: an agent write without a why is refused and changes nothing', w3.isError && /why/.test(w3.text) && (await cur()).ordersV === 5, w3.text.slice(0, 200));
+  const bodyBefore = (await cur()).body;
+  const wt = await mcpH(kTess, 'write_note', { note_id: org, append: 'Injected.', why: 'x' });
+  check('2: a teammate Claude Code key cannot change the organization Orders, even with a why', wt.isError && /Orders/.test(wt.text) && (await cur()).body === bodyBefore && (await cur()).ordersV === 5, wt.text.slice(0, 200));
+  const batch = await mcpH(kTess, 'apply_changes', { ops: [{ op: 'write_note', note_id: org, append: 'Injected via batch.', why: 'x' }] });
+  check('2: nor through apply_changes', batch.isError && (await cur()).body === bodyBefore, batch.text.slice(0, 200));
+  const batchOk = await mcpH(kCode, 'apply_changes', { ops: [{ op: 'write_note', note_id: org, edits: [{ find: 'Rule five.', replace: 'Rule five, batch.' }], why: 'H9 test: batch' }] });
+  check('2: the holder own apply_changes write_note op works and makes v6 (its result names the version)', !batchOk.isError && (await cur()).ordersV === 6 && /Orders org v6/.test(batchOk.text), batchOk.text.slice(0, 300));
+  const arch = await mcpH(kCode, 'write_note', { note_id: org, archived: true, why: 'x' });
+  check('2: the holder Claude cannot archive the Orders page', arch.isError && /Orders/.test(arch.text) && !(await cur()).archived, arch.text.slice(0, 200));
+  const sub = await mcpH(kCode, 'write_note', { parent_id: org, title: 'H9 sub', why: 'x' });
+  check('2: nor add a sub-page to it', sub.isError && /Orders/.test(sub.text), sub.text.slice(0, 200));
+  const del = await mcpH(kCode, 'delete_note', { note_id: org, title: (await cur()).title });
+  check('2: nor move it to the trash', del.isError && /Orders/.test(del.text) && !(await cur()).deletedAt, del.text.slice(0, 200));
+  const ti = await mcpH(kCode, 'write_note', { note_id: org, title: 'H9 Delpat Orders (by Claude)', why: 'H9 title' });
+  check('2: the title may change (no new version for a rename alone)', !ti.isError && (await cur()).title === 'H9 Delpat Orders (by Claude)' && (await cur()).ordersV === 6, ti.text.slice(0, 200));
+
+  // The holder person layer is theirs; the project layer belongs to the project owner.
+  const own = await mcpH(kCode, 'write_note', { note_id: mine, append: 'My second rule.', why: 'H9 mine' });
+  check('2: the holder Claude may change the holder own person Orders (a version, no feed row)', !own.isError && (await noteDoc(mine)).ordersV === 3 && (await feed(mine)).length === 0, own.text.slice(0, 200));
+  const projNote = await mk('H9 One', 'H9 project Orders', 'Project rule.');
+  await rawDb.collection('notes').updateOne({ _id: projNote }, { $set: { visibility: 'org' } }); // readable by the teammate, so the refusal is about Orders
+  await markOrders(projNote, 'project', ME.userId);
+  const tp = await mcpH(kTess, 'write_note', { note_id: projNote, append: 'Tess rule.', why: 'x' });
+  check('2: a teammate Claude cannot change the project Orders', tp.isError && /Orders/.test(tp.text) && (await noteDoc(projNote)).body === 'Project rule.', tp.text.slice(0, 200));
+  const op = await mcpH(kCode, 'write_note', { note_id: projNote, append: 'Project rule two.', why: 'H9 project' });
+  check('2: the project owner Claude may', !op.isError && op.json?.orders?.layer === 'project' && op.json.orders.lines === '2' && (await noteDoc(projNote)).ordersV === 2, op.text.slice(0, 200));
+
+  // ---- the org budget: 40 rule lines; one in, one out ----
+  const lines40 = Array.from({ length: 40 }, (_, i) => `Budget rule ${i + 1}.`);
+  const big = await mk('H9 One', 'H9 Budget Orders', lines40.join('\n\n'));
+  await rawDb.collection('notes').updateOne({ _id: big }, { $set: { visibility: 'org' } });
+  await markOrders(big, 'org', ME.userId);
+  const over = await mcpH(kCode, 'write_note', { note_id: big, append: 'Budget rule 41.', why: 'H9 budget' });
+  check('2: an agent write that leaves the organization Orders above 40 lines is refused, naming the count', over.isError && /40 lines at most \(now 41\)/.test(over.text) && !(await noteDoc(big)).ordersV && !(await noteDoc(big)).body.includes('rule 41'), over.text.slice(0, 250));
+  const swap = await mcpH(kCode, 'write_note', { note_id: big, edits: [{ find: 'Budget rule 40.', replace: 'Budget rule 40, swapped.' }], why: 'H9 one in one out' });
+  check('2: one in, one out (40 lines) is allowed and carries no warning', !swap.isError && swap.json?.orders?.lines === '40 of 40' && !swap.json.orders.warning, swap.text.slice(0, 250));
+  const retired = await mcpH(kCode, 'write_note', { note_id: mine, append: 'Never write a boilerplate note.', why: 'H9 retired' });
+  check('2: a retired phrase is saved and the answer carries a warning naming it', !retired.isError && /boilerplate/.test(retired.json?.orders?.warning ?? '') && /boilerplate/.test((await noteDoc(mine)).body), retired.text.slice(0, 300));
+  const clean = await mcpH(kCode, 'write_note', { note_id: mine, append: 'A clean rule.', why: 'H9 clean' });
+  check('2: a later write of other lines carries no warning (only the lines added are checked)', !clean.isError && !clean.json?.orders?.warning, clean.text.slice(0, 300));
+  const fr = await feed(org);
+  check('2: every agent version has its own feed row with the why (no folding), attributed to the agent', fr.length === 5 && fr.filter(r => r.actor?.kind === 'agent').length === 3 && /· H9 test: edits$/.test(fr[2].note), JSON.stringify(fr.map(r => [r.actor?.kind, r.note])));
 } catch (e) {
   check('suite ran without throwing', false, e?.stack || String(e));
 }

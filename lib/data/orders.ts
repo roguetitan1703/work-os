@@ -10,9 +10,11 @@ import { InputError, NotFoundError } from './errors';
 //            organization; the note must be shared with everyone, or the people it steers could not read it
 //   project  a note of the project marked as its Orders: set by the project's owner
 //   person   one of the person's own notes: set by its owner, served to that person's AIs only
-// The flag is set in the app only (no MCP tool sets it), and a note that carries it is changed, moved to the trash or
-// restored by a person in the app only, and only by the one who holds that layer (lib/data/notes.ts guardOrders): one
-// prompt-injected agent, or one teammate, cannot rewrite the rules every agent follows.
+// The flag is set in the app only (no MCP tool sets it). The text of a note that carries it is changed by the one who
+// holds that layer, in the app or through their own Claude (write_note, with a why); every change keeps a version (below)
+// with undo, and every session the layer steers is told of it. The trash, restore, archive and moving stay with that person
+// in the app; a teammate's agent, Discord and everyone else are refused (lib/data/notes.ts guardOrders), and a teammate's
+// Claude files propose_order, which the holder accepts or declines.
 
 export type OrdersLayer = 'org' | 'project' | 'person';
 const MAX_TEXT = 20_000;
@@ -207,6 +209,6 @@ export async function ordersHistory(s: Scope, noteId: string): Promise<OrdersHis
     version: n.ordersV ?? 1,
     updatedAt: n.updatedAt.toISOString(),
     canEdit: await canEditOrders(s, n),
-    log: (n.ordersLog ?? []).slice().reverse().map(({ before: _before, at, ...v }) => ({ ...v, at: new Date(at).toISOString() })),
+    log: (n.ordersLog ?? []).slice().reverse().map(v => ({ v: v.v, at: new Date(v.at).toISOString(), by: v.by, ...(v.session ? { session: v.session } : {}), ...(v.label ? { label: v.label } : {}), ...(v.why ? { why: v.why } : {}), removed: v.removed, added: v.added, ...(v.need ? { need: v.need } : {}), ...(v.undoOf ? { undoOf: v.undoOf } : {}) })),
   };
 }

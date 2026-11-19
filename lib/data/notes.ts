@@ -7,8 +7,10 @@ import { actorUserId, asActor, isPerson } from '../actors';
 import { CLOSED_STATUSES, type Actor } from '../types';
 import type { NoteBlock } from '../notes-schema';
 import { blockOutline, blocksToMarkdown, cloneBlocks, findBlock, markdownToBlocks, plainText } from '../notes-convert';
+import { requestContext } from '../request-context';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, placeOf, resolveProject, type Placement } from './projects';
+import { RETIRED } from '../mcp/docs';
 import { canEditOrders, planVersion, ruleLines, ORG_RULE_LINES } from './orders';
 
 // Notes are Notion-style pages (editor blocks) attached to a task or a project, optionally
@@ -389,21 +391,27 @@ async function guardBoilerplate(s: Scope, actor: Actor, ids: (string | null | un
 }
 
 /**
- * A note that carries Orders (lib/data/orders.ts) steers every AI that starts work, so only a person in the app, and only
- * the one who holds its layer, may change, move to the trash, restore or purge it, or add a sub-page to it: no MCP key,
- * Discord or anyone else. (The flag itself is set in the app only.)
+ * A note that carries Orders (lib/data/orders.ts) steers every AI that starts work. Its text (and title) may be changed by
+ * the person who holds that layer, in the app, and by that person's own Claude (an agent acting for the same user, through
+ * any of their keys); every such change keeps a version with undo. Everything else about it (the trash, restore, purge,
+ * archive, moving, adding a sub-page) stays with that person in the app; Discord, a teammate's keys and anyone else
+ * are refused. (The flag itself is set in the app only.) A teammate's Claude files propose_order instead.
  */
-async function guardOrders(s: Scope, actor: Actor, ids: (string | null | undefined)[]): Promise<void> {
+async function guardOrders(s: Scope, actor: Actor, ids: (string | null | undefined)[], op: 'content' | 'other' = 'other'): Promise<void> {
   const list = [...new Set(ids.filter((x): x is string => !!x))];
   if (!list.length) return;
   const flagged = await (await scoped(s)).notes.find({ _id: { $in: list }, orders: { $exists: true } }, { projection: { orders: 1, ownerId: 1, projectId: 1 } }).toArray();
   for (const n of flagged) {
-    if (!isPerson(actor)) throw new InputError('This page holds standing Orders that every AI reads first; a person changes it in the app, not through Claude or any other connection.');
+    const own = isPerson(actor) || (op === 'content' && actor.kind === 'agent' && actor.userId === s.userId);
+    if (!own) throw new InputError('This page holds Orders; only the person who holds that layer, or their own Claude, can change its text. Trash, restore, archive and moving stay in the app.');
     if (!(await canEditOrders(s, n))) throw new InputError('This page holds Orders; only the person who holds that layer (the organization owner, the project owner, or its own person) can change it.');
   }
 }
 
-export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{ note: Note; created: boolean; orders?: { layer: 'org' | 'project' | 'person'; version: number; lines: string; removed: number; added: number } }> {
+/** The words of an Orders text that the Words retired (docs/HANDOVER.md section 3), for a warning. */
+const retiredIn = (text: string): string[] => RETIRED.map(re => re.exec(text)?.[0]).filter((x): x is string => !!x);
+
+export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{ note: Note; created: boolean; orders?: { layer: 'org' | 'project' | 'person'; version: number; lines: string; removed: number; added: number; warning?: string } }> {
   const c = await scoped(s);
   const now = new Date();
 
@@ -429,7 +437,9 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
 
   await guardBoilerplate(s, actor, [cur?._id, cur?.parentId, parent?._id]);
 
-  await guardOrders(s, actor, [cur?._id, cur?.parentId, parent?._id]);
+  // Text and title of an Orders page: its holder, and the holder's own Claude. Archiving and sub-pages: the holder in the app.
+  await guardOrders(s, actor, [cur?._id], w.archived === undefined ? 'content' : 'other');
+  await guardOrders(s, actor, [cur?.parentId, parent?._id]);
   if (cur) {
     if (w.expectUpdatedAt && cur.updatedAt.toISOString() !== w.expectUpdatedAt) throw new NoteConflictError();
     const next = await applyContent(await noteBlocks(cur), w);
@@ -442,8 +452,14 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     if (w.archived !== undefined) set.archived = w.archived;
     if (set.blocks || set.title) await takeBackTaskOnNoteEdit(s, c, cur, actor);
     if (set.title && cur.parentId) await renamePageBlock(c, cur.parentId, cur._id, set.title);
+    if (cur.orders && actor.kind === 'agent' && !w.why?.trim()) throw new InputError("Say why in why: it shows beside the change in the Orders' versions.");
+    if (cur.orders === 'org' && set.body !== undefined && actor.kind === 'agent') {
+      const after = ruleLines(set.body).length;
+      if (after > ORG_RULE_LINES && after > ruleLines(cur.body).length) throw new InputError(`The organisation Orders hold ${ORG_RULE_LINES} lines at most (now ${after}): take one out in the same edit (one in, one out).`);
+    }
     // An Orders page keeps a version of every change of its text, in the same update as the text (lib/data/orders.ts).
-    const ver = cur.orders && set.body !== undefined ? planVersion(cur, set.body, actor, { why: w.why, session: w.session, label: w.label, need: w.need, undoOf: w.undoOf }, now) : null;
+    const sess = w.session ?? (actor.kind === 'agent' ? requestContext().sid : undefined);
+    const ver = cur.orders && set.body !== undefined ? planVersion(cur, set.body, actor, { why: w.why, session: sess, label: w.label, need: w.need, undoOf: w.undoOf }, now) : null;
     if (ver) {
       const r = await c.notes.updateOne({ _id: cur._id, updatedAt: cur.updatedAt }, { $set: { ...set, ...ver.set }, ...(ver.push ? { $push: ver.push } : {}) } as never);
       if (!r.matchedCount) throw new NoteConflictError();
@@ -451,7 +467,8 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     } else await c.notes.updateOne({ _id: cur._id }, { $set: set });
     if (ver) await logOrders(c, { ...cur, ...set }, actor, ver, w.why);
     else if (set.blocks || set.title) await logNote(c, { ...cur, ...set }, actor, 'note_edited', set.title !== undefined && set.title !== cur.title);
-    const orders = ver ? { layer: cur.orders!, version: ver.v, lines: cur.orders === 'org' ? `${ruleLines(set.body!).length} of ${ORG_RULE_LINES}` : `${ruleLines(set.body!).length}`, removed: ver.nRemoved, added: ver.nAdded } : undefined;
+    const retired = ver ? retiredIn(ver.added.join('\n')) : [];
+    const orders = ver ? { layer: cur.orders!, version: ver.v, lines: cur.orders === 'org' ? `${ruleLines(set.body!).length} of ${ORG_RULE_LINES}` : `${ruleLines(set.body!).length}`, removed: ver.nRemoved, added: ver.nAdded, ...(retired.length ? { warning: `Saved. These Orders now use ${retired.map(x => '"' + x + '"').join(', ')}, a word the Words retired: use the current word (docs/HANDOVER.md section 3).` } : {}) } : undefined;
     return { note: (await hydrate(c, [{ ...cur, ...set }]))[0], created: false, ...(orders ? { orders } : {}) };
   }
 

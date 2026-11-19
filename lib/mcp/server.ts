@@ -964,6 +964,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         .optional(),
       edits: z.array(z.object({ find: z.string().min(1), replace: z.string() })).optional(),
       archived: z.boolean().optional(),
+      why: z.string().min(1).max(200).optional(),
     }),
     z.object({ op: z.literal('delete_note'), note_id: z.string(), title: z.string() }),
     z.object({ op: z.literal('add_project'), name: z.string().min(1), client: z.string().optional(), description: z.string().optional(), status: ProjectStatusSchema.optional(), visibility: VisibilitySchema.optional(), shared_with: z.array(z.string().min(1).max(200)).max(500).optional(), code: codeShape }),
@@ -1659,16 +1660,17 @@ export function createMcpServer(ctx: Ctx): McpServer {
         block_ops: z.array(blockOp).optional().describe('Per-block changes using block ids from read_note; untouched blocks keep their formatting'),
         edits: z.array(z.object({ find: z.string().min(1), replace: z.string() })).optional().describe('Text replacements; each find must occur exactly once in the page; only that block is rewritten'),
         archived: z.boolean().optional(),
+        why: z.string().min(1).max(200).optional().describe('An Orders page you hold: why you change it (shown beside the change; required there, ignored on other notes)'),
       },
       annotations: { destructiveHint: false },
     },
     handler(async a => {
       const r = await notesData.writeNote(
         s,
-        { noteId: a.note_id, task: a.task, project: a.project, parentId: a.parent_id, title: a.title, body: a.body, append: a.append, blockOps: a.block_ops, edits: a.edits, archived: a.archived },
+        { noteId: a.note_id, task: a.task, project: a.project, parentId: a.parent_id, title: a.title, body: a.body, append: a.append, blockOps: a.block_ops, edits: a.edits, archived: a.archived, why: a.why },
         ACTOR,
       );
-      return { [r.created ? 'created' : 'updated']: noteOut(r.note, false, await byOf(ctx)) };
+      return { [r.created ? 'created' : 'updated']: noteOut(r.note, false, await byOf(ctx)), ...(r.orders ? { orders: r.orders } : {}) };
     }),
   );
 

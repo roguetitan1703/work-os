@@ -947,11 +947,29 @@ try {
     f = await flag(T, S.note, 'person');
     check('Orders: nor mark a page they do not own as their own', /own pages/.test(JSON.stringify(f.value)) && !(await rawDb.collection('notes').findOne({ _id: S.note })).orders, JSON.stringify(f.value));
     const before = (await rawDb.collection('notes').findOne({ _id: S.ordersNote })).body;
-    for (const [label, key] of [['chat key', T.chat], ['code key', T.code], ['owner chat key', A.chat]]) {
-      const w = await mcpCall(key, 'write_note', { note_id: S.ordersNote, append: 'lkq injected orders' });
+    // H9: a teammate's keys (with a why, even) are still refused; the holder's own Claude may change the text, with a why.
+    for (const [label, key] of [['chat key', T.chat], ['code key', T.code]]) {
+      const w = await mcpCall(key, 'write_note', { note_id: S.ordersNote, append: 'lkq injected orders', why: 'lkq injected' });
       check(`Orders: an MCP write to the organization Orders page is refused (${label})`, !w.ok && /Orders/.test(w.text), w.text.slice(0, 200));
     }
     check('Orders: the page is unchanged', (await rawDb.collection('notes').findOne({ _id: S.ordersNote })).body === before);
+    const noWhy = await mcpCall(A.chat, 'write_note', { note_id: S.ordersNote, append: 'lkq owner orders' });
+    check('Orders: the owner’s own Claude is asked to say why (no why: refused, unchanged)', !noWhy.ok && /why/.test(noWhy.text) && (await rawDb.collection('notes').findOne({ _id: S.ordersNote })).body === before, noWhy.text.slice(0, 200));
+    const ownerW = await mcpCall(A.chat, 'write_note', { note_id: S.ordersNote, append: 'lkq owner orders', why: 'lkq audit' });
+    const afterOwner = await rawDb.collection('notes').findOne({ _id: S.ordersNote });
+    check('Orders: the owner’s own Claude changes the organization Orders with a why, and it makes version 2 (changed from: refused for every key)', ownerW.ok && ownerW.json?.orders?.version === 2 && afterOwner.body.includes('lkq owner orders') && afterOwner.ordersV === 2 && afterOwner.ordersLog?.[0]?.why === 'lkq audit', ownerW.text.slice(0, 200));
+    for (const [label, key] of [['chat key', T.chat], ['code key', T.code]]) {
+      await mcpCall(key, 'write_note', { note_id: S.ordersNote, body: 'lkq replaced', why: 'lkq injected' });
+    }
+    check('Orders: after the teammates’ second tries the page is still the owner’s version 2', (await rawDb.collection('notes').findOne({ _id: S.ordersNote })).ordersV === 2 && (await rawDb.collection('notes').findOne({ _id: S.ordersNote })).body === afterOwner.body);
+    for (const [label, key] of [['chat key', T.chat], ['code key', T.code], ['owner chat key', A.chat]]) {
+      for (const args of [{ note_id: S.ordersNote, archived: true, why: 'lkq' }, { parent_id: S.ordersNote, title: 'lkq sub of orders', why: 'lkq' }]) {
+        const w = await mcpCall(key, 'write_note', args);
+        check(`Orders: archiving the page or adding a sub-page through MCP is refused (${label}, ${args.archived ? 'archive' : 'sub-page'})`, !w.ok && /Orders/.test(w.text), w.text.slice(0, 200));
+      }
+    }
+    const del = await mcpCall(A.chat, 'delete_note', { note_id: S.ordersNote, title: afterOwner.title });
+    check('Orders: …and the owner’s Claude cannot trash it either', !del.ok && /Orders/.test(del.text) && !(await rawDb.collection('notes').findOne({ _id: S.ordersNote })).deletedAt, del.text.slice(0, 200));
     const start = await mcpCall(T.chat, 'start_work', { project: S.projectName });
     scan('T', 'start_work (orders)', start.text);
     check('Orders: the organization Orders reach a teammate’s start_work', start.ok && start.text.includes(CANARIES.find(c => c.tag === 'shordersbody').s), start.text.slice(0, 200));

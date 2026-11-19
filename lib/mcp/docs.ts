@@ -353,7 +353,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   write_note: {
     title: 'Write note',
     description:
-      'Create or update a note (a Notion-style page). Update by note_id, or by task (a task has one note; created if missing). New project note: project + title, only when no existing note fits (get_project / list_notes show what a project holds). New sub-page: parent_id + title. Change content with ONE of: block_ops (replace/insert/delete by block id from read_note; keeps formatting elsewhere; preferred), edits [{find, replace}] (rewrites only the block containing it), append (markdown at the end), or body (replaces the whole page). Link tasks/projects as [#12 Title](/tasks/12) or [Name](/projects/<id>); they become mentions. archived:true archives a note. Keep task descriptions short; longer text goes in the task\'s note.',
+      'Create or update a note (a Notion-style page). Update by note_id, or by task (a task has one note; created if missing). New project note: project + title, only when no existing note fits (get_project / list_notes show what a project holds). New sub-page: parent_id + title. Change content with ONE of: block_ops (replace/insert/delete by block id from read_note; keeps formatting elsewhere; preferred), edits [{find, replace}] (rewrites only the block containing it), append (markdown at the end), or body (replaces the whole page). Link tasks/projects as [#12 Title](/tasks/12) or [Name](/projects/<id>); they become mentions. archived:true archives a note. An Orders page you hold: say why in why; it keeps a version with undo. Keep task descriptions short; longer text goes in the task\'s note.',
     writes: true,
     example: 'Put the Terrah handover in a note on #76',
   },
