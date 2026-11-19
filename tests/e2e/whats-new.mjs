@@ -138,7 +138,7 @@ try {
     // Empty states on a project with nothing in it
     await p.goto(`${B}/projects/${quiet}`); await settle(p);
     const st = p.locator('[data-card="state"] [data-state-empty]');
-    check(`project ${tag}: State empty state says how it fills`, (await st.count()) === 1 && /No State yet/.test(await st.innerText()) && /Claude sessions save/.test(await st.innerText()));
+    check(`project ${tag}: State empty state says how it fills`, (await st.count()) === 1 && /No State yet/.test(await st.innerText()) && /Sessions save Now, Next, Later/.test(await st.innerText()));
     await shot(p, `state-empty-${tag}`);
     await p.goto(`${B}/projects/${quiet}?tab=inbox`); await settle(p);
     const ib = p.locator('[data-inbox-empty]');
