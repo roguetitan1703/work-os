@@ -1175,6 +1175,28 @@ try {
     const mcpTok = await mcpCall(tok, 'list_sessions', {});
     check('noproject: its token is not an MCP credential', !mcpTok.ok && !mcpTok.text.includes(cn), mcpTok.text.slice(0, 120));
   }
+  // Lanes step 4: the lanes in a brief and in get_state name sessions by label only. A teammate who reads the project sees the owner's lane
+  // (label, state, last result marked writtenBy) but never its session id; a person of another organization sees no lane at all.
+  {
+    const sid = `lkqlane${hex(6)}`;
+    const sidT = `lkqlaneT${hex(4)}`;
+    const lbl = `lkqlanelabel${hex(4)}`;
+    CANARIES.push({ s: sid, tag: 'lane session id', allow: new Set(['A']) });
+    const pr = await mustMcp(A.code, 'add_project', { name: `Lane ${hex(3)}`, visibility: 'org' });
+    const pid = pr.project.id;
+    await mcpCall(A.code, 'start_work', { project: pid, session: sid, label: lbl }, { 'X-Work-OS-Session': sid });
+    await rawDb.collection('presence').updateOne({ session: sid }, { $set: { lastResult: { text: 'lkq lane result', at: new Date() } } });
+    const tr = await mcpCall(T.code, 'start_work', { project: pid, session: sidT, label: 'lane reader' }, { 'X-Work-OS-Session': sidT });
+    scan('T', 'start_work lanes', tr.text);
+    const lane = (tr.json?.lanes ?? []).find(l => l.label === lbl);
+    check('lanes: a teammate sees the owner\'s lane by label, its last result marked writtenBy', !!lane && lane.writtenBy === true && lane.lastResult?.text === 'lkq lane result', JSON.stringify(tr.json?.lanes ?? tr.text.slice(0, 160)));
+    check('lanes: no session id of the owner appears in the teammate\'s brief', !tr.text.includes(sid), tr.text.slice(0, 160));
+    const gs = await mcpCall(T.code, 'get_state', { project: pid, session: sidT }, { 'X-Work-OS-Session': sidT });
+    scan('T', 'get_state lanes', gs.text);
+    check('lanes: get_state shows no session id of the owner', !gs.text.includes(sid), gs.text.slice(0, 160));
+    const xr = await mcpCall(X.code, 'start_work', { project: pid, session: `lkqlaneX${hex(4)}` });
+    check('lanes: a person of another organization gets no lane and no label', !xr.text.includes(lbl) && !xr.text.includes(sid), xr.text.slice(0, 160));
+  }
   await sleep(500);
   for (const s of [sX, wT, wX]) s.close();
   // (X's own probes make hints marked as X's own, s:1; anything else came from someone else's write)

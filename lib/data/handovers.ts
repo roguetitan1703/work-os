@@ -5,7 +5,7 @@ import type { Actor } from '../types';
 import { isMember } from '../people';
 import { InputError } from './errors';
 import { writeNote } from './notes';
-import { moveSession } from './pickup';
+import { moveSession, type MoveResult } from './pickup';
 
 // A handover (docs/flows/agent-system.md 5.5, built in H5): the note a session leaves for the next one when it stops
 // (end_work). A project note with the `handover` field; one per (project, title, writer), rewritten whole each time. It
@@ -135,6 +135,51 @@ export async function handoversForBrief(s: Scope, projectId: string, o: { me: st
   }
   const more = eligible.slice(2).map(d => ({ id: d._id, title: d.title }));
   return { shown, more };
+}
+
+/**
+ * start_work `pick_up: <note id>`: the caller's session takes the work of one named handover. The note must be a handover on this project
+ * for the caller or for "anyone" (never one this very session wrote, never one another session picked up). It is marked picked up, then
+ * the writer's work moves (moveSession: same rules as the brief's pickup). Refuses with a plain reason; nothing moves on a refusal.
+ */
+export async function pickUpHandover(s: Scope, projectId: string, noteId: string, o: { me: string; label: string; actor: Actor }): Promise<{ brief: BriefHandover; move: MoveResult | null; again: boolean }> {
+  const c = await scoped(s);
+  const d = await c.notes.findOne({ _id: noteId, deletedAt: null });
+  const h = d?.handover;
+  if (!d || !h) throw new InputError('That note is not a handover. pick_up takes the id of a handover (the pickUp line end_work gave).');
+  if (d.projectId !== projectId) throw new InputError('That handover is on another project. Start work on the project it belongs to, then pick it up.');
+  if (h.for !== s.userId && h.for !== 'anyone') throw new InputError('That handover is for another person. Nothing was picked up.');
+  if (h.by === s.userId && h.session === o.me) throw new InputError('That handover was written by this very session. Nothing was picked up.');
+  const again = !!h.pickedUp && h.pickedUp.session === o.me && h.pickedUp.by === s.userId;
+  if (h.pickedUp && !again) throw new InputError(`That handover was already picked up${h.pickedUp.label ? ` by "${h.pickedUp.label}"` : ''}. Nothing was picked up.`);
+  let body = d.body;
+  if (!again) {
+    const at = new Date();
+    const claimed = await c.notes.updateOne({ _id: d._id, 'handover.pickedUp': { $exists: false } }, { $set: { 'handover.pickedUp': { session: o.me, ...(o.label ? { label: o.label } : {}), at, by: s.userId } } });
+    if (!claimed.modifiedCount) throw new InputError('That handover was just picked up by another session. Nothing was picked up.');
+    const line = `Picked up by ${o.label || 'a session'}, ${at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+    body = `${body}\n\n${line}`;
+    await writeNote(s, { noteId: d._id, append: `\n\n${line}` }, o.actor).catch(() => null);
+  }
+  let move: MoveResult | null = null;
+  if (h.session) {
+    const [a, b] = await Promise.all([c.presence.findOne({ projectId, userId: h.by, key: h.session }), c.presence.findOne({ projectId, userId: s.userId, key: o.me })]);
+    if (a && b) move = await moveSession(s, projectId, a, b, Date.now(), { handoverAt: d.updatedAt });
+  }
+  return { brief: { id: d._id, title: d.title, label: h.label ?? '', by: h.by, at: d.updatedAt, markdown: body, createdBy: d.createdBy, updatedBy: d.updatedBy }, move, again };
+}
+
+/** What a pick-up moved, in plain words. */
+export function pickUpText(m: MoveResult | null, again: boolean): string {
+  const lead = again ? 'You had already picked this handover up. ' : '';
+  if (!m) return `${lead}Nothing moved: the session that wrote it has no record on this project.`;
+  if (!m.moved) {
+    const why = m.reason === 'busy' ? 'the session that wrote it is still working or waiting at a prompt' : m.reason === 'already moved' ? 'its work was already handed on' : 'it is not a session of this project';
+    return `${lead}Nothing moved: ${why}. The handover is yours to read; ask again once that session has stopped.`;
+  }
+  const n = (k: number, w: string) => `${k} ${w}${k === 1 ? '' : 's'}`;
+  const parts = [n(m.needs, 'Need'), n(m.messages, 'unread message'), n(m.lines, 'held line'), ...(m.now ? ['the Now hold'] : [])];
+  return `${lead}Moved to you: ${parts.join(', ')}.`;
 }
 
 /** Archives every handover this session picked up, except `keepId` (the one it is rewriting). Returns their ids. */
