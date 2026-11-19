@@ -970,6 +970,15 @@ try {
     }
     const del = await mcpCall(A.chat, 'delete_note', { note_id: S.ordersNote, title: afterOwner.title });
     check('Orders: …and the owner’s Claude cannot trash it either', !del.ok && /Orders/.test(del.text) && !(await rawDb.collection('notes').findOne({ _id: S.ordersNote })).deletedAt, del.text.slice(0, 200));
+    // H9 review: the owner's own Claude Code key needs a real session; a session the dispatcher started (its text can come from a teammate) and a call that names none are refused.
+    const ownerNoSess = await mcpCall(A.code, 'write_note', { note_id: S.ordersNote, append: 'lkq code nosession', why: 'lkq audit' });
+    check('Orders: the owner’s Claude Code key with no session cannot change the Orders (unchanged)', !ownerNoSess.ok && /Orders/.test(ownerNoSess.text) && !(await rawDb.collection('notes').findOne({ _id: S.ordersNote })).body.includes('lkq code nosession'), ownerNoSess.text.slice(0, 200));
+    await mustMcp(A.code, 'start_work', { project: S.projectName, label: 'lkq dispatched · worker · #77', session: 'lkqdispsess' });
+    const disp = await mcpCall(A.code, 'write_note', { note_id: S.ordersNote, append: 'lkq dispatched injected', why: 'lkq audit', session: 'lkqdispsess' }, { 'X-Work-OS-Session': 'lkqdispsess' });
+    check('Orders: a session the dispatcher started (label "worker · #ref") cannot change the Orders (unchanged)', !disp.ok && /Orders/.test(disp.text) && !(await rawDb.collection('notes').findOne({ _id: S.ordersNote })).body.includes('lkq dispatched injected'), disp.text.slice(0, 200));
+    await mustMcp(A.code, 'start_work', { project: S.projectName, label: 'lkq interactive', session: 'lkqintsess' });
+    const ownerCode = await mcpCall(A.code, 'write_note', { note_id: S.ordersNote, append: 'lkq owner code orders', why: 'lkq audit' }, { 'X-Work-OS-Session': 'lkqintsess' });
+    check('Orders: the owner’s Claude Code key in a real session changes the Orders with a why (version 3)', ownerCode.ok && ownerCode.json?.orders?.version === 3 && (await rawDb.collection('notes').findOne({ _id: S.ordersNote })).body.includes('lkq owner code orders'), ownerCode.text.slice(0, 200));
     const start = await mcpCall(T.chat, 'start_work', { project: S.projectName });
     scan('T', 'start_work (orders)', start.text);
     check('Orders: the organization Orders reach a teammate’s start_work', start.ok && start.text.includes(CANARIES.find(c => c.tag === 'shordersbody').s), start.text.slice(0, 200));
@@ -1049,6 +1058,8 @@ try {
     await mustMcp(A.code, 'start_work', { project: nm, machine: cn + 'box', label: cn + 'label', branch: cn + 'br', session: 'lkqh5sess' });
     const ended = await mustMcp(A.code, 'end_work', { project: nm, base_version: 0, state: [{ op: 'set_now', text: cn + 'now' }], friction: cn + 'friction', handover: { step: cn + 'step', in_flight: [cn + 'flight'] }, session: 'lkqh5sess' });
     await mustMcp(A.code, 'start_work', { project: nm, machine: cn + 'box', label: cn + 'label2', session: 'lkqh5live' });
+    // H10: a feedback line on the private project (its text, tool and rule carry the canary) is a row on the project's State
+    await mustMcp(A.code, 'feedback', { project: nm, text: cn + 'feedbacktext', tool: cn + 'fbtool', rule: cn + 'fbrule', session: 'lkqh5sess' });
     const mine = await mcpCall(A.code, 'list_sessions', { include_gone: true });
     check('h5: the owner sees their sessions in list_sessions (live and gone)', mine.ok && mine.text.includes(cn + 'label') && mine.text.includes(cn + 'label2'), mine.text.slice(0, 200));
     for (const p of [T, R, X]) {
@@ -1064,7 +1075,9 @@ try {
       scan(p.name, 'read_note (handover)', rn.text);
       check(`h5: ${p.name} cannot read the handover note`, !rn.ok || !rn.text.includes(cn), rn.text.slice(0, 120));
       const fd = await mcpCall(k, 'recent_activity', { limit: 50 });
-      scan(p.name, 'recent_activity (session_ended)', fd.text);
+      scan(p.name, 'recent_activity (session_ended, feedback)', fd.text);
+      const fb = await mcpCall(k, 'feedback', { project: nm, text: 'probe' });
+      check(`h10: ${p.name} cannot send feedback to the private project`, !fb.ok, fb.text.slice(0, 120));
       const ew = await mcpCall(k, 'end_work', { project: nm, state: [{ op: 'set_where', machine: 'x', branch: 'y' }], friction: 'probe', handover: { step: 'probe' } });
       check(`h5: ${p.name} cannot end work on, or leave a handover in, the private project`, !ew.ok, ew.text.slice(0, 120));
     }
@@ -1241,6 +1254,11 @@ function AUDIT() {
     M('end_work', t => ({ project: t.project, state: [{ op: 'add_next', text: 'lkq sneaked end line' }], friction: 'lkq probe', handover: { step: 'lkq sneaked handover' } }), aim(['project'])),
     M('end_work', t => ({ project: t.projectName, base_version: 0, state: [{ op: 'set_now', text: 'lkq sneaked end goal' }], friction: 'lkq probe', handover: { step: 'lkq by name', for: 'anyone' } }), aim(['projectName'], { label: 'set_now, by name' })),
   );
+  // H10: feedback writes a feed row on the project's State, so each probe is aimed at a project the caller cannot read
+  add('mcp feedback',
+    M('feedback', t => ({ project: t.project, text: 'lkq sneaked feedback', tool: 'lkq', rule: 'lkq' }), aim(['project'])),
+    M('feedback', t => ({ project: t.projectName, text: 'lkq sneaked feedback by name' }), aim(['projectName'], { label: 'by name' })),
+  );
   add('mcp list_sessions', M('list_sessions', { include_gone: true }), M('list_sessions', t => ({ project: t.project, include_gone: true }), aim(['project'], { label: 'by project', control: false, ok: r => r.ok && r.json?.sessions?.length > 0 })));
   add('mcp slot', M('slot', { action: 'acquire', machine: 'lkq-slot-box' }, { label: 'acquire' }), M('slot', { action: 'release', machine: 'lkq-slot-box' }, { label: 'release' }));
   const dOk = r => r.ok;
@@ -1298,6 +1316,7 @@ function AUDIT() {
   add(`action ${A_}editCommentAction`, act(A_ + 'editCommentAction', t => [t.comment, 'lkq edited'], aim(['comment'])));
   add(`action ${A_}deleteCommentAction`, act(A_ + 'deleteCommentAction', t => [t.comment], aim(['comment'], { stage: 2 })));
   add(`action ${A_}createProjectAction`, act(A_ + 'createProjectAction', [{ name: `lkq own project ${hex(3)}`, visibility: 'private' }]));
+  add(`action ${A_}setProductionAction`, act(A_ + 'setProductionAction', t => [t.project, null], aim(['project'])), act(A_ + 'setProductionAction', ['constructor', null], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add(`action ${A_}updateProjectAction`, act(A_ + 'updateProjectAction', t => [t.project, { description: 'lkq hacked' }], aim(['project'])), act(A_ + 'updateProjectAction', ['constructor', { description: 'x' }], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add(`action ${A_}projectSharingImpactAction`, act(A_ + 'projectSharingImpactAction', t => [t.project], aim(['project'])));
   add(`action ${A_}logoutAction`, act(A_ + 'logoutAction', [], { ok: r => !!r.redirect && /login/.test(r.redirect), public: true, only: ['N'], control: false /* it would sign the persona out for the rest of its probes; the misuse checks sign out a spare session */ }));
@@ -1538,6 +1557,14 @@ function AUDIT() {
     await req('POST', '/api/agent/event', { bearer: token, body: { event: 'prompt' } });
     return req('POST', '/api/agent/wait', { bearer: token, body: {} });
   }, controlOk: r => r.status === 200 && /"busy":true/.test(r.text) }));
+  // The hook's production check (session token only, H8): the same sign-in, then the check with that token (or a made-up one where
+  // the computer got none). Only A, whose computer has the folder, gets an answer; nobody's other credential opens it (misuse list below).
+  add('route POST /api/agent/release', worker('POST', '/api/agent/release', {}, { ok: r => r.status === 200, label: 'a production check by a token', call: async ({ p, o: t }) => {
+    const s = await req('POST', '/api/agent/start', { bearer: p.wkr, body: { remote: t.remote, branch: 'main' } });
+    let token = 'wst_' + 'a'.repeat(43);
+    try { token = JSON.parse(s.text).token ?? token; } catch { /* no token: the made-up one is refused */ }
+    return req('POST', '/api/agent/release', { bearer: token, body: { what: 'push', name: 'main' } });
+  }, controlOk: r => r.status === 200 && /"allowed":false/.test(r.text) }));
   add('route GET /icons/[size]', route('GET', '/icons/192', { public: true }));
   // OAuth discovery documents (RFC 9728, RFC 8414): public by design, the same for everyone, nothing about any organization.
   for (const [name, has] of [['oauth-protected-resource', /authorization_servers/], ['oauth-authorization-server', /code_challenge_methods_supported/]]) {
@@ -1681,12 +1708,15 @@ function MISUSE({ A, T, X, R }) {
     L(`${label} on /api/agent/event`, () => req('POST', '/api/agent/event', { bearer, cookie, body: { event: 'prompt' } }), r => r.status === 401);
     L(`${label} on /api/agent/event with deliver`, () => req('POST', '/api/agent/event', { bearer, cookie, body: { event: 'tool', deliver: true } }), r => r.status === 401);
     L(`${label} on /api/agent/wait`, () => req('POST', '/api/agent/wait', { bearer, cookie, body: {} }), r => r.status === 401);
+    L(`${label} on /api/agent/release`, () => req('POST', '/api/agent/release', { bearer, cookie, body: { what: 'push', name: 'main' } }), r => r.status === 401);
   }
   L('the device key in X-API-Key on /api/agent/start', () => req('POST', '/api/agent/start', { headers: { 'x-api-key': A.wkr }, body: { remote: 'lkqmisuse/repo' } }), r => r.status === 401);
   L('a wst_ token in X-API-Key on /api/agent/state', () => req('POST', '/api/agent/state', { headers: { 'x-api-key': 'wst_' + 'a'.repeat(43) }, body: {} }), r => r.status === 401);
   L('a wst_ token in X-API-Key on /api/agent/event', () => req('POST', '/api/agent/event', { headers: { 'x-api-key': 'wst_' + 'a'.repeat(43) }, body: { event: 'prompt' } }), r => r.status === 401);
   L('a wst_ token in X-API-Key on /api/agent/wait', () => req('POST', '/api/agent/wait', { headers: { 'x-api-key': 'wst_' + 'a'.repeat(43) }, body: {} }), r => r.status === 401);
   L('a made-up wst_ token on /api/agent/wait', () => req('POST', '/api/agent/wait', { bearer: 'wst_' + 'a'.repeat(43), body: {} }), r => r.status === 401);
+  L('a wst_ token in X-API-Key on /api/agent/release', () => req('POST', '/api/agent/release', { headers: { 'x-api-key': 'wst_' + 'a'.repeat(43) }, body: { what: 'push' } }), r => r.status === 401);
+  L('a made-up wst_ token on /api/agent/release', () => req('POST', '/api/agent/release', { bearer: 'wst_' + 'a'.repeat(43), body: { what: 'push' } }), r => r.status === 401);
   for (const [label, bearer] of [['a Claude Code key', A.code], ['a wkr_ key', A.wkr], ['a removed member\'s chat key', R.chat]]) {
     L(`${label} on /api/admin/health`, () => req('GET', '/api/admin/health', { bearer }));
     L(`${label} on /api/admin/discord/register`, () => req('GET', '/api/admin/discord/register', { bearer }));

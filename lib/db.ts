@@ -117,6 +117,8 @@ export type ActivityDoc = Placed & {
   type: ActivityType;
   changes?: Record<string, FieldChange>;
   note?: string;
+  /** Only `feedback` and `session_ended` rows (H10). */
+  feedback?: import('./types').FeedbackInfo;
   /** Claude Code session / repo headers (lib/request-context.ts). */
   session?: string;
   repo?: string;
@@ -139,6 +141,10 @@ export type ProjectDoc = Placed & {
   /** true public, false private, null unknown (GitHub did not answer); see lib/data/repo-visibility.ts for how long each is kept. */
   repoPublic?: boolean | null;
   repoPublicAt?: Date;
+  /** What counts as this project's production for the Work OS hook (lib/data/production.ts); unset = the default from `code`. Set in the app only. */
+  production?: { remotes: string[]; branches: string[]; targets: string[]; off?: boolean };
+  /** Who last set `production`. */
+  productionBy?: string;
   /** The Delpat OS project it was imported from (lib/delpat-os.ts); unique per organization among shared projects, per owner among private ones. */
   delpatOsId?: string;
   createdAt: Date;
@@ -210,6 +216,9 @@ export type NeedDoc = Placed & {
    * as the holder, one version, once. `applied` is set by the Accept: the version it made, or why it could not.
    */
   order?: { noteId: string; layer: 'org' | 'project'; base: number; old?: string; new: string; why: string; incident?: string; repeat?: boolean; applied?: { v: number } | { error: string } };
+  /** A release Need (an approve Need made with release: true): Yes or Yes for 24 hours opens production on the project until releaseUntil. */
+  release?: true;
+  releaseUntil?: Date;
 };
 
 export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {
@@ -833,6 +842,7 @@ export function toActivity(d: ActivityDoc): Activity {
     type: d.type,
     ...(d.changes ? { changes: d.changes } : {}),
     ...(d.note ? { note: d.note } : {}),
+    ...(d.feedback ? { feedback: d.feedback } : {}),
     ...(d.session ? { session: d.session } : {}),
     ...(d.repo ? { repo: d.repo } : {}),
   };

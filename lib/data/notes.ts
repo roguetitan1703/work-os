@@ -6,6 +6,7 @@ import { scoped, usersWithSetting, type Scope, type ScopedCollections as Collect
 import { actorUserId, asActor, isPerson } from '../actors';
 import { CLOSED_STATUSES, type Actor } from '../types';
 import type { NoteBlock } from '../notes-schema';
+import { locate, locateExact, locateFolded } from '../notes-match';
 import { blockOutline, blocksToMarkdown, cloneBlocks, findBlock, markdownToBlocks, plainText } from '../notes-convert';
 import { requestContext } from '../request-context';
 import { InputError, NotFoundError } from './errors';
@@ -326,21 +327,23 @@ async function applyContent(blocks: NoteBlock[], w: NoteWrite): Promise<NoteBloc
   }
   for (const e of w.edits ?? []) {
     const outline = await blockOutline(out);
-    // Exported lists use "*"; accept "-" too.
-    const candidates = [e.find, e.find.replace(/^(\s*)- /gm, '$1* ')];
-    let find = e.find;
-    let hits: typeof outline = [];
-    let count = 0;
-    for (const f of candidates) {
-      hits = outline.filter(x => x.markdown.includes(f));
-      count = hits.reduce((n, x) => n + x.markdown.split(f).length - 1, 0);
-      find = f;
-      if (count) break;
+    // Exact text first; only when nothing matches, the folded match (quotes, dashes, list numbers, padding, escapes).
+    let per = outline.map(x => locateExact(x.markdown, e.find));
+    if (!per.some(h => h.length)) per = outline.map(x => locateFolded(x.markdown, e.find));
+    const count = per.reduce((n, h) => n + h.length, 0);
+    const quoted = `"${e.find.slice(0, 60)}"`;
+    if (count > 1) throw new InputError(`Edit text occurs ${count} times: ${quoted}. Add words around it so it is unique, or use block_ops.`);
+    if (!count) {
+      const page = await blocksToMarkdown(out);
+      if (locate(page, e.find).length) throw new InputError(`Edit text spans two blocks: use one edit per block, or block_ops. ${quoted}`);
+      throw new InputError(`Edit text not found: ${quoted}. edits match the blocks' markdown in read_note (blocks[].markdown); read the note again.`);
     }
-    if (count !== 1) throw new InputError(`Edit text ${count ? 'occurs ' + count + ' times' : 'not found'}: "${e.find.slice(0, 60)}". Make it unique, or use block_ops.`);
-    const loc = findBlock(out, hits[0].id)!;
-    const nb = await markdownToBlocks(hits[0].markdown.replace(find, () => e.replace.replace(/^(\s*)- /gm, '$1* ')));
-    if (nb.length) nb[0] = { ...nb[0], id: hits[0].id } as NoteBlock;
+    const i = per.findIndex(h => h.length);
+    const hit = per[i][0];
+    const md = outline[i].markdown;
+    const loc = findBlock(out, outline[i].id)!;
+    const nb = await markdownToBlocks(md.slice(0, hit.start) + e.replace.replace(/^(\s*)- /gm, '$1* ') + md.slice(hit.end));
+    if (nb.length) nb[0] = { ...nb[0], id: outline[i].id } as NoteBlock;
     loc.list.splice(loc.index, 1, ...nb);
   }
   return w.blockOps?.length || w.edits?.length ? out : null;

@@ -69,7 +69,7 @@ export async function sessionStart(input) {
   } else return null;
   if (!r || r.unmatched || !r.project) return null;
   if (sid) {
-    writeMarker(sid, { status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
+    writeMarker(sid, { status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
   }
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: formatBrief(r) } };
 }

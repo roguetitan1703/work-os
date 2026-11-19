@@ -3,6 +3,7 @@ import type { NoteDoc, OrdersVersion, ProjectDoc } from '../db';
 import { scoped, type Scope } from '../scope';
 import { isPerson, userActor, type Actor } from '../actors';
 import { memberNames } from '../people';
+import { locate } from '../notes-match';
 import { InputError, NotFoundError } from './errors';
 
 // Orders: standing rules served to every AI that starts work on a project (docs/flows/step-1.md section 2). Three layers,
@@ -325,7 +326,7 @@ export async function proposeOrder(s: Scope, input: ProposeInput, ctx: { actor: 
   const holder = input.layer === 'org' ? note.ordersBy : (await c.projects.findOne({ _id: project._id }, { projection: { ownerId: 1 } }))?.ownerId;
   if (!holder) throw new InputError('This layer has no holder to ask.');
   if (old) {
-    const hits = note.body.split(old).length - 1;
+    const hits = locate(note.body, old).length;
     if (hits !== 1) throw new InputError(`old must occur exactly once in the ${input.layer === 'org' ? 'organization' : 'project'} Orders (found ${hits}): quote the line as it is now, or leave old out to add the line.`);
   }
   const { askNeed } = await import('./needs');

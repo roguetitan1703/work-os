@@ -16,6 +16,7 @@ import {
   type Activity,
   type ActivitySubject,
   type ActivityType,
+  type FeedbackInfo,
   type ActivityWhat,
   type Actor,
   type ChecklistItem,
@@ -351,6 +352,8 @@ export type ChangeRow = {
   /** Rows not about a task: the project (the row follows its placement). */
   projectId?: string | null;
   note?: string;
+  /** `feedback` and `session_ended` rows: tool, rule and refusals (H10). */
+  feedback?: FeedbackInfo;
   changes?: Record<string, FieldChange>;
   /** Who wrote `note`, when it is not the actor (a user id). */
   textBy?: string;
@@ -383,7 +386,8 @@ export async function logChange(c: Collections, placed: Pick<Placed, 'orgId' | '
   };
   if (row.changes && Object.keys(row.changes).length) doc.changes = row.changes;
   // A session's friction line (up to 300 characters, plus its handover id) is kept whole for the sessions report.
-  if (row.note?.trim()) doc.note = clip(row.note, type === 'session_ended' || type === 'orders_changed' ? 340 : 140);
+  if (row.note?.trim()) doc.note = clip(row.note, type === 'session_ended' || type === 'feedback' || type === 'orders_changed' ? 340 : 140);
+  if (row.feedback && (type === 'feedback' || type === 'session_ended') && Object.keys(row.feedback).length) doc.feedback = row.feedback;
   if (row.textBy && row.textBy !== actorUserId(actor)) doc.textBy = row.textBy;
   if (row.titleBy && row.titleBy !== actorUserId(actor)) doc.titleBy = row.titleBy;
   const rc = requestContext();

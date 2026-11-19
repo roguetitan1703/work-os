@@ -121,7 +121,7 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
 - **propose_order** {project, layer (org or project), old?, new, why, incident?, repeat?}: for a teammate's Claude. A Need for
   the holder (Om for the org layer, the project owner for a project) with the old and new line and no phone alert;
   Accept applies it as one version. The holder's own Claude uses write_note instead. **Built in H9** (section 16.15).
-- **feedback** {text, rule?}: "this got in my way", attached to the project with tool names and refusal codes.
+- **feedback** {text, rule?}: "this got in my way", attached to the project with tool names and refusal codes. *Built in H10:* `feedback {project, text, tool?, rule?}`; refusal codes are the server's own `tool:kind` list; see docs/HANDOVER.md (feedback, H10).
 - **who** {project?}: live sessions (name, machine, tool, state, task).
 - Check in stays start_work.
 
@@ -165,6 +165,7 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
   2. A production-linked CLI not aimed at the test target (vercel env, supabase secrets, `--prod`).
   3. Writing WORK-STATE.md (forwarded, section 6).
   Everything else is the Orders plus the turn-end save check. No word detectors.
+  **Built (H8, 19 Nov):** blocks 1 and 2 are one grant. `ask` with `release: true` makes a release Need (approve, to the project's owner, fixed options, app only); Yes opens production on the project for 1 hour, Yes for 24 hours for 24. The pre-tool hook decides locally whether a Bash or PowerShell command is a production push, tag or release or a production CLI command (`worker/hook-release.mjs`, from the brief's `production`: remotes, branches, CLI targets; set in the app on the project page, never by an agent) and asks `POST /api/agent/release` (session token only) only then, sending what and a name. Refused with what to do; fails closed only on an exact match (no token, a slow or failing server). Block 3 is H4's hook (`hook-pre-tool.mjs`), proved by `worker/test/hook-h8.test.mjs`. See docs/HANDOVER.md section 3.
 - **Subagents** get a ten-line short form of the Orders at their start (hook), so rules don't depend on the brief.
 - **Monday block in the digest:** four numbers (sessions that saved State, PCs with no hooks, refused edits, Om's
   repeats) and at most three proposals. Silence means keep.
@@ -214,7 +215,7 @@ stopped on 18 Nov with work in their worktrees.
 
 | Builder | Work, in order |
 |---|---|
-| A (Opus: access, security) | 1. Hook routes on the worker's device key (no extra key); hook-only and cloud keys. 2. Per-session ids (seen state, to_session). 3. The three blocks in the plugin. 4. propose_order and the Orders version. 5. Message frame and delivery (PostToolBatch, Stop, asyncRewake) |
+| A (Opus: access, security) | 1. Hook routes on the worker's device key (no extra key); hook-only and cloud keys. 2. Per-session ids (seen state, to_session). 3. The three blocks, in the hooks (no plugin). 4. propose_order and the Orders version. 5. Message frame and delivery (PostToolBatch, Stop, asyncRewake) |
 | B (Opus: features) | 1. edit_state, edit/remove ops, short answers, auto Where, Next↔task, line limits. 2. Hook forwards WORK-STATE.md edits. 3. wrap_up, hand_over, declutter (with growth triggers), who, feedback. 4. Claude items migration |
 | S (Sonnet: mechanical) | 1. Wording pass and the drift test (section 9). 2. Fold the three old designs into this one. 3. Hooks on a new PC from the worker setup, with the install command for Akash (a plugin only on a real need, Om 19 Nov) |
 | Om | Paste the new Orders (rename to "Delpat Orders"). Say yes to the global CLAUDE.md swap. Answer the Declutter pilot Need for this repo's 169 old lines. Install on Akash's PC with him |

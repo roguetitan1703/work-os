@@ -213,3 +213,15 @@ test('hooks repo quotes the server origin and refuses a linked .claude/work-os',
     assert.equal(fs.readdirSync(target).length, 1, 'nothing was written through the link');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(target, { recursive: true, force: true }); }
 });
+
+test('H8: the production blocks ship with the hooks (hook-release.mjs and remote.mjs are in FILES) and import only files that ship; no new event', async () => {
+  assert.ok(m.FILES.includes('hook-release.mjs') && m.FILES.includes('remote.mjs'));
+  for (const f of ['hook-release.mjs', 'remote.mjs', 'hook-pre-tool.mjs']) {
+    const src = fs.readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
+    for (const imp of src.matchAll(/from '\.\/([\w.-]+\.mjs)'/g)) assert.ok(m.FILES.includes(imp[1]), `${f} imports ${imp[1]}, which is not in FILES`);
+  }
+  const { EVENTS } = await import('../hook-lib.mjs');
+  assert.equal(EVENTS.filter(r => r.event === 'pre-tool').length, 1);
+  assert.match(EVENTS.find(r => r.event === 'pre-tool').matcher, /Bash\|PowerShell/, 'the one pre-tool row already covers Bash and PowerShell');
+  assert.equal(EVENTS.length, 11, 'H8 adds no event row (ten, plus H9 subagent-start)');
+});

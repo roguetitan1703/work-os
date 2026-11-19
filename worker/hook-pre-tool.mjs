@@ -5,7 +5,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { COPY, COPY_REASON, markSaved, projectOf, writeCopy } from './hook-copy.mjs';
-import { postAgent, postEvent, readKept, readMarker } from './hook-lib.mjs';
+import { postAgent, postEvent, readKept, readMarker, run } from './hook-lib.mjs';
+import { prodAction, releaseDeny } from './hook-release.mjs';
 
 const EDIT_TIMEOUT_MS = 3500; // the pre-tool hook is given 5 s (hook-lib.mjs EVENTS)
 // PreToolUse runs before Claude Code's permission check, so an Edit is forwarded only when the session would let it through
@@ -76,6 +77,8 @@ export function writesCopy(cmd) {
 /** PreToolUse: refuse hand edits of WORK-STATE.md, saying what to do instead. */
 export async function preTool(input) {
   if (!hitsCopy(input)) {
+    const blocked = await productionBlock(input);
+    if (blocked) return blocked;
     await pingWorking(input);
     return null;
   }
@@ -83,6 +86,39 @@ export async function preTool(input) {
     try { const f = await forwardEdit(input); if (f) return f; } catch {}
   }
   return plainDeny();
+}
+
+const RELEASE_TIMEOUT_MS = 3000; // the route call; the hook as a whole has 5 s
+/**
+ * The production blocks (docs/flows/agent-system.md section 10): a Bash or PowerShell command that pushes, tags or releases to
+ * the project's production, or runs a production CLI command, is refused unless the project's owner answered a release Need.
+ * The hook decides locally whether the command is a production one (hook-release.mjs; the brief's `production` in the
+ * marker) and asks Work OS only then, sending { what, name }, never the command. Fails closed on an exact match only: no
+ * token, an unreachable, slow or refusing server all refuse; everything else (no marker, no production setting, a command
+ * that is not an exact match) passes untouched. Returns the hook's deny answer or null.
+ */
+async function productionBlock(input) {
+  try {
+    const t = input.tool_name || '';
+    const cmd = (input.tool_input || {}).command;
+    const sid = input.session_id;
+    if (!/^(Bash|PowerShell)$/.test(t) || typeof cmd !== 'string' || !sid) return null;
+    if (!/\b(git|gh|vercel|netlify|supabase)\b/.test(cmd)) return null;
+    const marker = readMarker(sid);
+    if (!marker?.production) return null;
+    const action = prodAction({ command: cmd, cwd: input.cwd }, marker.production);
+    if (!action) return null;
+    run.prod = action;
+    const token = readKept(sid);
+    if (!token) return releaseDeny(action, 'no-token', marker.project);
+    let r = null;
+    try { r = await postAgent('/api/agent/release', token, { what: action.what, name: action.name }, RELEASE_TIMEOUT_MS); } catch { r = null; }
+    if (r?.status === 200 && r.b?.allowed === true) { run.prod = null; return null; }
+    if (r?.status === 200 && r.b && r.b.allowed === false) return releaseDeny(action, r.b, marker.project);
+    return releaseDeny(action, 'unconfirmed', marker.project);
+  } catch {
+    return null;
+  }
 }
 
 const PING_EVERY_MS = 5 * 60_000;
@@ -114,7 +150,13 @@ export const plainDeny = () => ({ hookSpecificOutput: { hookEventName: 'PreToolU
 
 /** For hook.mjs when the hook runs out of time: the plain refusal for a call that writes the copy, else nothing (fails closed for the copy only). */
 export function timeoutAnswer(stdinText) {
-  try { const input = JSON.parse(stdinText || '{}'); return hitsCopy(input) ? plainDeny() : null; } catch { return null; }
+  try {
+    const input = JSON.parse(stdinText || '{}');
+    if (hitsCopy(input)) return plainDeny();
+    // A production action was found and Work OS had not answered yet: refuse (the hook cannot confirm a release Need in time).
+    if (run.prod) return releaseDeny(run.prod, 'unconfirmed', readMarker(input.session_id)?.project);
+    return null;
+  } catch { return null; }
 }
 
 export const handle = preTool;

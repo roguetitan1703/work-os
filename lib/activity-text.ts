@@ -51,11 +51,27 @@ export function activityHref(a: Pick<Activity, 'subject' | 'taskRef' | 'projectI
   }
 }
 
+/** `save_state:input` ×2 → "save_state:input ×2". */
+function refusalsText(list: string[]): string {
+  const counts = new Map<string, number>();
+  for (const r of list) counts.set(r, (counts.get(r) ?? 0) + 1);
+  return [...counts].map(([k, n]) => (n > 1 ? `${k} ×${n}` : k)).join(', ');
+}
+
+/** The tool, Orders line and refused calls a friction line names, in brackets (H10). */
+function frictionSuffix(f: Activity['feedback'], withTool: boolean): string {
+  const parts: string[] = [];
+  if (withTool && f?.tool) parts.push(f.tool);
+  if (f?.rule) parts.push(`rule ${f.rule}`);
+  if (f?.refusals?.length) parts.push(`refused: ${refusalsText(f.refusals)}`);
+  return parts.length ? ` (${parts.join('; ')})` : '';
+}
+
 /**
  * A row about something other than a task (State, a note, a message, a Need, a project), in words; null for a task row.
  * Only the subject's own text is shown: a message's body and a Need's answer text are never in a row.
  */
-export function describeChange(a: Pick<Activity, 'type' | 'changes' | 'note' | 'subject'>): string | null {
+export function describeChange(a: Pick<Activity, 'type' | 'changes' | 'note' | 'subject'> & Partial<Pick<Activity, 'feedback'>>): string | null {
   const t = a.subject?.title ?? '';
   const n = a.note ?? '';
   const need = `Need${a.subject?.ref ? ` #${a.subject.ref}` : ''}`;
@@ -79,7 +95,9 @@ export function describeChange(a: Pick<Activity, 'type' | 'changes' | 'note' | '
     case 'orders_changed':
       return `Orders "${t}" ${n || 'changed'}`;
     case 'session_ended':
-      return `Session ended: ${n || 'none'}`;
+      return `Session ended: ${n || 'none'}${frictionSuffix(a.feedback, false)}`;
+    case 'feedback':
+      return `Feedback: ${n || '…'}${frictionSuffix(a.feedback, true)}`;
     case 'message_sent':
       return `Sent a message${t ? ` (${t})` : ''}`;
     case 'need_asked':
@@ -94,12 +112,14 @@ export function describeChange(a: Pick<Activity, 'type' | 'changes' | 'note' | '
       return `Renamed project "${fmt(c.name?.from)}" → "${fmt(c.name?.to)}"`;
     case 'visibility_changed':
       return `Who sees it: ${fmt(c.visibility?.from)} → ${fmt(c.visibility?.to)}`;
+    case 'production':
+      return n || 'Production changed';
     default:
       return null;
   }
 }
 
-export function describeActivity(a: Pick<Activity, 'type' | 'changes' | 'note'> & Partial<Pick<Activity, 'subject'>>): string {
+export function describeActivity(a: Pick<Activity, 'type' | 'changes' | 'note'> & Partial<Pick<Activity, 'subject' | 'feedback'>>): string {
   const other = describeChange(a);
   if (other !== null) return other;
   const parts: string[] = [];

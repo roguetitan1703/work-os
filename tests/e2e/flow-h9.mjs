@@ -8,7 +8,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { B, EMAIL, ME, MCP, PW, SP, check, finish, launch, login, makeUser, mkDevice, mkKey, okO, overflow, rawDb } from './lib.mjs';
-import { mcpH, must, markOrders } from './flow-lib.mjs';
+import { mcpH as mcpRaw, must, markOrders } from './flow-lib.mjs';
+// The holder's Claude Code writes Orders only from a real session (H9 review): its calls carry one session id.
+let kCodeKey = null;
+const mcpH = (k, t, a, h = {}) => mcpRaw(k, t, a, k === kCodeKey && !('X-Work-OS-Session' in h) ? { ...h, 'X-Work-OS-Session': 'h9interactive' } : h);
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 // Server actions, the way the leak audit calls them: the build's manifest gives each export its id and a page that serves it.
@@ -102,6 +105,8 @@ try {
   const T = await makeUser({ email: 'tess-h9@example.test', name: 'Tess', orgId: ME.orgId, role: 'member' });
   const kCode = await mkKey({ agent: 'claude-code', name: 'H9 Code' });
   const kTess = await mkKey({ agent: 'claude-code', userId: T.userId, name: 'Tess Code' });
+  kCodeKey = kCode;
+  await must(kCode, 'start_work', { project: 'H9 One', label: 'H9 · interactive', session: 'h9interactive' });
   const cur = async () => (await noteDoc(org));
   const w1 = await mcpH(kCode, 'write_note', { note_id: org, edits: [{ find: 'Rule four.', replace: 'Rule four, by the holder Claude Code.' }], why: 'H9 test: edits' });
   const c1 = await cur();
@@ -365,6 +370,56 @@ try {
   const projProp = await mcpH(kTess, 'propose_order', { project: 'H9 One', layer: 'project', new: 'Project line from Tess.', why: 'H9 test: project layer' });
   const ppDoc = projProp.json?.need?.id ? await rawDb.collection('needs').findOne({ _id: projProp.json.need.id }) : null;
   check('6: a project layer proposal goes to the project owner and Accept appends the line', !projProp.isError && ppDoc?.to === ME.userId && ppDoc.order.layer === 'project' && (await action('app/(app)/needs/actions.ts#answerNeedAction', [ppDoc._id, 'accept'], cookie)).value?.ok === true && (await noteDoc(projNote)).body.includes('Project line from Tess.') && (await noteDoc(projNote)).ordersLog.at(-1).need === ppDoc.ref);
+
+  // ---- 7: review fixes: delivered versions never fold; dispatched and sessionless Claude Code never edit Orders; the short form; folded propose_order ----
+  {
+    const lines0 = ruleLinesOf((await cur()).body);
+    const v0 = (await cur()).ordersV;
+    const f1 = await action(NA + 'saveNoteAction', [org, { blocks: blocksOf([...lines0, 'Fold line one.']) }], cookie);
+    const f2 = await action(NA + 'saveNoteAction', [org, { blocks: blocksOf([...lines0, 'Fold line one.', 'Fold line two.']) }], cookie);
+    const nf = await cur();
+    check('7: autosaves by the holder fold into one version while no session was told of it', f1.value?.ok === true && f2.value?.ok === true && nf.ordersV === v0 + 1 && !nf.ordersLog.at(-1).delivered && nf.ordersLog.at(-1).added.includes('Fold line two.'), JSON.stringify([nf.ordersV, v0, nf.ordersLog.at(-1)]));
+    await must(kCode, 'start_work', { project: 'H9 One', label: 'H9 · told', session: 'h9-told' });
+    const told = await cur();
+    check('7: a session told of the version (start_work) marks it delivered', told.ordersLog.at(-1).delivered === true, JSON.stringify(told.ordersLog.at(-1)));
+    const f3 = await action(NA + 'saveNoteAction', [org, { blocks: blocksOf([...lines0, 'Fold line one.', 'Fold line two.', 'Fold line three.']) }], cookie);
+    const n3 = await cur();
+    check('7: the next autosave starts a new version instead of folding into a delivered one', f3.value?.ok === true && n3.ordersV === v0 + 2 && n3.ordersLog.at(-1).added.join() === 'Fold line three.', JSON.stringify([n3.ordersV, n3.ordersLog.at(-1)?.added]));
+    const wasDelivered = await action(NA + 'saveNoteAction', [org, { blocks: blocksOf([...lines0, 'Fold line one.', 'Fold line two.', 'Fold line three.', 'Fold line four.']) }], cookie);
+    const n4 = await cur();
+    check('7: …and that new version folds again until a session is told of it', wasDelivered.value?.ok === true && n4.ordersV === v0 + 2 && n4.ordersLog.at(-1).added.includes('Fold line four.'));
+
+    // Claude Code without a session, or in a dispatched session (label "worker · #ref"), never edits Orders
+    const vBefore = (await cur()).ordersV;
+    const noSess = await mcpRaw(kCode, 'write_note', { note_id: org, append: 'No session line.', why: 'H9 test: no session' });
+    check('7: the holder\'s Claude Code key with no session is refused (unchanged)', noSess.isError && /Orders/.test(noSess.text) && (await cur()).ordersV === vBefore, noSess.text.slice(0, 200));
+    const unknownSess = await mcpRaw(kCode, 'write_note', { note_id: org, append: 'Unknown session line.', why: 'H9 test: unknown session' }, { 'X-Work-OS-Session': 'h9-nowhere' });
+    check('7: …and with a session id that has no row it is refused too', unknownSess.isError && (await cur()).ordersV === vBefore, unknownSess.text.slice(0, 200));
+    await must(kCode, 'start_work', { project: 'H9 One', label: 'H9 One · worker · #286', session: 'h9-dispatched' });
+    const disp = await mcpRaw(kCode, 'write_note', { note_id: org, append: 'Dispatched line.', why: 'H9 test: dispatched' }, { 'X-Work-OS-Session': 'h9-dispatched' });
+    check('7: a session the dispatcher started (label "worker · #ref") is refused (unchanged)', disp.isError && /Orders/.test(disp.text) && (await cur()).ordersV === vBefore && !(await cur()).body.includes('Dispatched line.'), disp.text.slice(0, 200));
+    const dispBatch = await mcpRaw(kCode, 'apply_changes', { ops: [{ op: 'write_note', note_id: org, append: 'Dispatched batch line.', why: 'H9 test' }] }, { 'X-Work-OS-Session': 'h9-dispatched' });
+    check('7: …also through apply_changes', !/Dispatched batch line/.test(JSON.stringify(await cur())) && (await cur()).ordersV === vBefore, dispBatch.text.slice(0, 200));
+    const ok7 = await mcpH(kCode, 'write_note', { note_id: org, append: 'Interactive line.', why: 'H9 test: interactive' });
+    check('7: the interactive session still edits with a why', !ok7.isError && (await cur()).ordersV === vBefore + 1, ok7.text.slice(0, 200));
+    const chatOk = await mcpRaw(MCP, 'write_note', { note_id: org, append: 'Chat line.', why: 'H9 test: chat' });
+    check('7: the holder\'s chat key (a chat session) still edits with a why', !chatOk.isError && (await cur()).body.includes('Chat line.'), chatOk.text.slice(0, 200));
+
+    // The short form for subagents leaves out text its holder did not write
+    const brief1 = await must(kCode, 'start_work', { project: 'H9 One', label: 'H9 · short', session: 'h9-short' });
+    check('7: the short form is given while the holder wrote the text', typeof brief1.shortOrders === 'string' && brief1.shortOrders.length > 0, JSON.stringify(Object.keys(brief1)));
+    await rawDb.collection('notes').updateOne({ _id: org }, { $set: { updatedBy: { kind: 'user', userId: T.userId } } });
+    const brief2 = await must(kCode, 'start_work', { project: 'H9 One', label: 'H9 · short', session: 'h9-short' });
+    check('7: …and left out once another member edited the page (the full text carries writtenBy)', brief2.shortOrders === undefined && JSON.stringify(brief2.orders).includes('writtenBy'), JSON.stringify(brief2.shortOrders));
+    await rawDb.collection('notes').updateOne({ _id: org }, { $set: { updatedBy: { kind: 'user', userId: ME.userId } } });
+
+    // propose_order finds the old line the way write_note edits do (curly quotes and dashes)
+    await mcpH(kCode, 'write_note', { note_id: org, append: 'Don\'t say "done" - show it.', why: 'H9 test: for the folded match' });
+    const folded = await mcpH(kTess, 'propose_order', { project: 'H9 One', layer: 'org', old: 'Don’t say “done” – show it.', new: 'Show it before saying done.', why: 'H9 test: folded old line' });
+    check('7: propose_order accepts an old line that differs in quotes and dashes', !folded.isError && !!folded.json?.need?.id, folded.text.slice(0, 200));
+    const fAcc = await action('app/(app)/needs/actions.ts#answerNeedAction', [folded.json.need.id, 'accept'], cookie);
+    check('7: Accept replaces it', fAcc.value?.ok === true && (await cur()).body.includes('Show it before saying done.') && !(await cur()).body.includes('show it.'), JSON.stringify(fAcc.value));
+  }
 } catch (e) {
   check('suite ran without throwing', false, e?.stack || String(e));
 }

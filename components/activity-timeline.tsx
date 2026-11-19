@@ -1,6 +1,7 @@
 import Link from '@/components/intent-link';
 import {
   CheckCircle2,
+  MessageSquareWarning,
   MessageSquare,
   Pencil,
   Plus,
@@ -24,6 +25,7 @@ import {
   Undo2,
   FolderPlus,
   Eye,
+  ShieldCheck,
   LogOut,
 } from 'lucide-react';
 import { WHAT_LABEL, activityHref, describeActivity, whatOf } from '@/lib/activity-text';
@@ -61,7 +63,9 @@ const ICONS: Record<ActivityType, React.ComponentType<{ className?: string }>> =
   project_created: FolderPlus,
   project_renamed: Pencil,
   visibility_changed: Eye,
+  production: ShieldCheck,
   session_ended: LogOut,
+  feedback: MessageSquareWarning,
 };
 
 /** What a row links to in a feed with `showTask`: the task (#12 Title), or the project and what changed there (Work OS · State). */
