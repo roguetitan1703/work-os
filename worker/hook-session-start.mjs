@@ -12,7 +12,7 @@
 //                 the fallback on a PC with one when the worker gives no brief (folder not linked, key refused, no
 //                 network). That session has no token, so it sends no state events.
 import os from 'node:os';
-import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, git, mcpCall, postAgent, readKept, readMarker, keepToken, repoFacts, sizeOf, statusHash, str, workerHome, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, frameInbox, git, mcpCall, postAgent, readKept, readMarker, keepToken, repoFacts, sizeOf, statusHash, str, workerHome, writeMarker } from './hook-lib.mjs';
 
 /**
  * The brief through the worker's device key (POST /api/agent/start), or null. A session token kept from this session's
@@ -107,8 +107,9 @@ export function formatBrief(r) {
   } else sections.push(`## State\n${cut(r.state, 300)}`);
   if (r.needs) sections.push(`## Needs\n${cut(r.needs, 1200)}`);
   if (r.inbox && typeof r.inbox === 'object') {
-    const msgs = (r.inbox.messages || []).slice(0, 5).map(m => `- from ${cut(m.from?.name ?? m.from ?? '?', 40)}${m.from?.name && m.from.name !== 'me' ? ' (writtenBy)' : ''}: ${cut(m.body ?? m.text ?? m, 200)}`);
-    sections.push(`## Inbox (${r.inbox.unread ?? msgs.length} unread; inbox for all)\n${msgs.join('\n')}`);
+    // Each message between two markers with a nonce, with who wrote it and what to do with it (the server's own treat line).
+    const blocks = frameInbox(r.inbox.messages);
+    sections.push(`## Inbox (${r.inbox.unread ?? 0} unread; inbox for all; reply with reply {id}, close with message_status)${blocks ? '\n' + blocks : ''}`);
   }
   const ot = r.openTasks;
   if (ot && Array.isArray(ot.tasks)) {

@@ -86,14 +86,15 @@ test('session start sends ccSession (UUID session ids only) and source, and reco
   assert.equal(marker(UUID2).presence.state, 'working', 'after a compaction the session was working');
 });
 
-test('user-prompt posts prompt with the kept token, prints nothing, and the marker says working', async () => {
+test('user-prompt posts prompt (asking for a delivery) with the kept token, prints nothing when there is none, and the marker says working', async () => {
   reset();
   assert.equal(await run('user-prompt', UUID, { prompt: 'secret words' }), '');
   assert.equal(events().length, 1);
   assert.equal(events()[0].auth, `Bearer ${TOKEN}`);
   assert.equal(events()[0].body.event, 'prompt');
   assert.equal(typeof events()[0].body.at, 'number');
-  assert.deepEqual(Object.keys(events()[0].body).sort(), ['at', 'event'], 'nothing of the prompt is sent');
+  assert.deepEqual(Object.keys(events()[0].body).sort(), ['at', 'deliver', 'event'], 'nothing of the prompt is sent');
+  assert.equal(events()[0].body.deliver, true);
   assert.equal(marker(UUID).presence.state, 'working');
 });
 
@@ -145,9 +146,11 @@ test('stop posts stop when it does not block, and nothing when it holds the sess
   fs.writeFileSync(path.join(repo, 'changed.txt'), 'x'); // files changed, State not saved
   const out = await run('stop', UUID);
   assert.equal(JSON.parse(out).decision, 'block');
-  assert.equal(events().length, 0, 'the session goes on working');
+  assert.equal(events().length, 1, 'the session goes on working: only a tool event asks for what is waiting, no stop');
+  assert.equal(events()[0].body.event, 'tool');
   assert.equal(await run('stop', UUID), '', 'asked once: the next stop is the end of the turn');
-  assert.equal(events().length, 1);
+  assert.equal(events().length, 2);
+  assert.equal(events()[1].body.event, 'stop');
   fs.rmSync(path.join(repo, 'changed.txt'));
 });
 

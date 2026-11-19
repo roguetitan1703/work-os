@@ -306,6 +306,8 @@ export type MessageDoc = Placed & {
   senderCommit?: string;
   /** The session or key that sent it (the "for you" line does not name a session's own messages back to it). */
   src?: string;
+  /** Wake chain: how many agent-started wakes led to this message. Missing = 0 (a person's, the app's and chat's word); an agent's word is the sending session's turnChain plus 1. A message at 2 or more never wakes a session (lib/data/deliver.ts). */
+  chain?: number;
   /** Who set the status, and when. */
   statusBy?: string;
   statusAt?: Date;
@@ -357,6 +359,12 @@ export type PresenceDoc = Placed & {
   doing?: { taskId: string; at: Date };
   /** The state the Claude Code hook last reported (POST /api/agent/event; the server decides it from the event). Absent for sessions with no hook token. */
   activity?: { state: PresenceState; at: Date; why?: 'prompt' };
+  /** What the server last offered this session's hook to print (lib/data/deliver.ts): kept until the hook acknowledges it (`ack`) or the lease runs out. */
+  offered?: { ids: string[]; needs: string[]; mode: 'turn' | 'stop' | 'wake'; chain: number; at: Date; first: Date; tries: number };
+  /** Wake chain (lib/data/deliver.ts): the chain of the message that woke this session's current turn; -1 after a person's prompt. A message it sends carries this plus 1. */
+  turnChain?: number;
+  /** When the server last handed this session a wake (a message or an answered Need pushed to it while idle). */
+  wokeAt?: Date;
   /** Claude Code's own session UUID, only for the join with the worker daemon's session list. Never shown to anyone. */
   ccSession?: string;
   /** Set by end_work: the session said it stopped. The roster shows it as gone. A later start_work clears it. */

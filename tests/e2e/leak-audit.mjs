@@ -1504,6 +1504,16 @@ function AUDIT() {
     try { token = JSON.parse(s.text).token ?? token; } catch { /* no token: the made-up one is refused */ }
     return req('POST', '/api/agent/event', { bearer: token, body: { event: 'prompt' } });
   }, controlOk: r => r.status === 200 && /"state":"working"/.test(r.text) }));
+  // The idle session's wait (session token only): the same sign-in, then a prompt event (the session is working, so the wait answers
+  // busy at once instead of holding the call), then the wait. Only A, whose computer has the folder, gets an answer; nobody's other
+  // credential opens it (misuse list below).
+  add('route POST /api/agent/wait', worker('POST', '/api/agent/wait', {}, { ok: r => r.status === 200, label: 'the wait of a session by a token', call: async ({ p, o: t }) => {
+    const s = await req('POST', '/api/agent/start', { bearer: p.wkr, body: { remote: t.remote, branch: 'main' } });
+    let token = 'wst_' + 'a'.repeat(43);
+    try { token = JSON.parse(s.text).token ?? token; } catch { /* no token: the made-up one is refused */ }
+    await req('POST', '/api/agent/event', { bearer: token, body: { event: 'prompt' } });
+    return req('POST', '/api/agent/wait', { bearer: token, body: {} });
+  }, controlOk: r => r.status === 200 && /"busy":true/.test(r.text) }));
   add('route GET /icons/[size]', route('GET', '/icons/192', { public: true }));
   // OAuth discovery documents (RFC 9728, RFC 8414): public by design, the same for everyone, nothing about any organization.
   for (const [name, has] of [['oauth-protected-resource', /authorization_servers/], ['oauth-authorization-server', /code_challenge_methods_supported/]]) {
@@ -1645,10 +1655,14 @@ function MISUSE({ A, T, X, R }) {
     L(`${label} on /api/agent/start`, () => req('POST', '/api/agent/start', { bearer, cookie, body: { remote: 'lkqmisuse/repo' } }), r => r.status === 401);
     L(`${label} on /api/agent/state`, () => req('POST', '/api/agent/state', { bearer, cookie, body: {} }), r => r.status === 401);
     L(`${label} on /api/agent/event`, () => req('POST', '/api/agent/event', { bearer, cookie, body: { event: 'prompt' } }), r => r.status === 401);
+    L(`${label} on /api/agent/event with deliver`, () => req('POST', '/api/agent/event', { bearer, cookie, body: { event: 'tool', deliver: true } }), r => r.status === 401);
+    L(`${label} on /api/agent/wait`, () => req('POST', '/api/agent/wait', { bearer, cookie, body: {} }), r => r.status === 401);
   }
   L('the device key in X-API-Key on /api/agent/start', () => req('POST', '/api/agent/start', { headers: { 'x-api-key': A.wkr }, body: { remote: 'lkqmisuse/repo' } }), r => r.status === 401);
   L('a wst_ token in X-API-Key on /api/agent/state', () => req('POST', '/api/agent/state', { headers: { 'x-api-key': 'wst_' + 'a'.repeat(43) }, body: {} }), r => r.status === 401);
   L('a wst_ token in X-API-Key on /api/agent/event', () => req('POST', '/api/agent/event', { headers: { 'x-api-key': 'wst_' + 'a'.repeat(43) }, body: { event: 'prompt' } }), r => r.status === 401);
+  L('a wst_ token in X-API-Key on /api/agent/wait', () => req('POST', '/api/agent/wait', { headers: { 'x-api-key': 'wst_' + 'a'.repeat(43) }, body: {} }), r => r.status === 401);
+  L('a made-up wst_ token on /api/agent/wait', () => req('POST', '/api/agent/wait', { bearer: 'wst_' + 'a'.repeat(43), body: {} }), r => r.status === 401);
   for (const [label, bearer] of [['a Claude Code key', A.code], ['a wkr_ key', A.wkr], ['a removed member\'s chat key', R.chat]]) {
     L(`${label} on /api/admin/health`, () => req('GET', '/api/admin/health', { bearer }));
     L(`${label} on /api/admin/discord/register`, () => req('GET', '/api/admin/discord/register', { bearer }));

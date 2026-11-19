@@ -17,7 +17,7 @@ const SCANNED_DIRS = [
   ['worker', /\.mjs$/],
   ['app/(app)/claude', /\.(ts|tsx)$/],
 ];
-const SCANNED_FILES = ['lib/data/states.ts', 'lib/data/dispatcher.ts', 'lib/data/notes.ts', 'app/(app)/projects/[id]/state-card.tsx'];
+const SCANNED_FILES = ['lib/data/states.ts', 'lib/data/dispatcher.ts', 'lib/data/notes.ts', 'lib/data/messages.ts', 'lib/data/deliver.ts', 'app/(app)/projects/[id]/state-card.tsx'];
 
 function* walk(dir, re) {
   for (const f of readdirSync(dir)) {

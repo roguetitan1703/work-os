@@ -24,7 +24,7 @@ export const settingsPath = () => process.env.CLAUDE_SETTINGS_PATH || path.join(
 export const hooksDir = () => path.join(configDir(), 'hooks');
 // The files the installed copy runs: the router, one file per event (and hook-lib, hook-copy), config.mjs and secret.mjs (the
 // start hook reads this PC's device key with it: the worker's own code, so the key stays in DPAPI / Keychain).
-export const FILES = ['hook.mjs', 'hook-lib.mjs', 'hook-copy.mjs', 'hook-session-start.mjs', 'hook-stop.mjs', 'hook-pre-tool.mjs', 'hook-post-tool.mjs', 'hook-user-prompt.mjs', 'hook-notification.mjs', 'hook-session-end.mjs', 'config.mjs', 'secret.mjs'];
+export const FILES = ['hook.mjs', 'hook-lib.mjs', 'hook-copy.mjs', 'hook-session-start.mjs', 'hook-stop.mjs', 'hook-pre-tool.mjs', 'hook-post-tool.mjs', 'hook-user-prompt.mjs', 'hook-notification.mjs', 'hook-session-end.mjs', 'hook-tool-batch.mjs', 'hook-wait.mjs', 'config.mjs', 'secret.mjs'];
 const VERSION_FILE = 'hooks.version';
 /** How the start brief signs in on this PC, first choice: 'worker' (the worker is set up; a WORK_OS_KEY is only its fallback), 'key' (WORK_OS_KEY set, no worker), or null. */
 function signIn(settings) {
@@ -47,9 +47,10 @@ const OURS_RE = new RegExp('[\\\\/]hooks[\\\\/]hook\\.mjs"\\s+(' + EVENTS.map((e
 /** The hook entries, by Claude Code event. `hook` is the absolute path of the installed hook.mjs; `flags` is appended to each command (a repo's: ` --cloud --server <url>`). */
 export function entries(hook, flags = '', { cloud = false } = {}) {
   const h = hook.split(path.sep).join('/');
-  const c = (e) => ({ type: 'command', command: `node "${h}" ${e.event}${flags}`, timeout: e.timeoutS, ...(e.async ? { async: true } : {}) });
+  const c = (e) => ({ type: 'command', command: `node "${h}" ${e.event}${flags}`, timeout: e.timeoutS, ...(e.async ? { async: true } : {}), ...(e.asyncRewake ? { asyncRewake: true } : {}) });
   const out = {};
-  for (const e of EVENTS) if (!(cloud && e.localOnly)) out[e.claudeEvent] = [{ ...(e.matcher ? { matcher: e.matcher } : {}), hooks: [c(e)] }];
+  // Several rows of one Claude Code event (Stop: the stop check and the idle wait) are several groups under it.
+  for (const e of EVENTS) if (!(cloud && e.localOnly)) out[e.claudeEvent] = [...(out[e.claudeEvent] || []), { ...(e.matcher ? { matcher: e.matcher } : {}), hooks: [c(e)] }];
   return out;
 }
 

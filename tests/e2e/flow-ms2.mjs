@@ -16,8 +16,8 @@ try {
   const m1 = await must(MCP, 'send_message', { project: NAME, kind: 'request', body: `First ${CANARY}` });
   const m2 = await must(MCP, 'send_message', { project: NAME, kind: 'fyi', body: `Second ${CANARY}` });
   const got = await mcpH(cc, 'get_state', { project: NAME, session: sid });
-  const line = (got.json?.forYou ?? []).find(l => /new message/.test(l));
-  check('MS2: the next answer names both messages once, by id', !!line && /2 new messages/.test(line) && line.includes(m1.id) && line.includes(m2.id), JSON.stringify(got.json?.forYou));
+  const line = (got.json?.forYou ?? []).find(l => /inbox: m_/.test(l));
+  check('MS2: the next answer names both messages once, by id', !!line && /1 request from me and 1 fyi from me on project/.test(line) && line.includes(m1.id) && line.includes(m2.id), JSON.stringify(got.json?.forYou));
   const fy = JSON.stringify(got.json?.forYou ?? []);
   check('MS2: forYou carries ids and counts only: no body text, no canary, no project name', !fy.includes(CANARY) && !fy.includes(NAME) && fy.includes(project._id), fy);
   const again = await mcpH(cc, 'list_tasks', { project: NAME });
@@ -25,7 +25,7 @@ try {
 
   const m3 = await must(MCP, 'send_message', { project: NAME, kind: 'question', body: 'A third' });
   const g3 = await mcpH(cc, 'get_state', { project: NAME, session: sid });
-  check('MS2: a later message is named once more (1 new message)', /1 new message /.test((g3.json?.forYou ?? []).join(' ')) && (g3.json?.forYou ?? []).join(' ').includes(m3.id), JSON.stringify(g3.json?.forYou));
+  check('MS2: a later message is named once more (1 question from me)', /1 question from me /.test((g3.json?.forYou ?? []).join(' ')) && (g3.json?.forYou ?? []).join(' ').includes(m3.id), JSON.stringify(g3.json?.forYou));
 
   const own = await mcpH(cc, 'send_message', { project: NAME, kind: 'fyi', body: 'From the session itself', session: sid });
   const afterOwn = await mcpH(cc, 'get_state', { project: NAME, session: sid });

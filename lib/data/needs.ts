@@ -2,6 +2,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { cache } from 'react';
 import type { Document } from 'mongodb';
+import { signalSessions } from '../live';
 import { requestContext } from '../request-context';
 import type { HandInResult } from '../types';
 import { inTransaction, nextSeq, type NeedDoc, type TaskDoc, type NeedKind, type NeedOption, type NeedStatus, type NeedWord } from '../db';
@@ -387,7 +388,7 @@ export async function withNeedWaits<T extends { next: { ref?: number; waitsOn?: 
 export async function answerNeed(s: Scope, id: string, answer: { option: string; text?: string }, via: 'app' | 'phone' | 'discord' = 'app'): Promise<Need> {
   const text = answer.text?.trim() || undefined;
   if (text && text.length > NEED_LIMITS.answerText) throw new InputError(`The answer text is at most ${NEED_LIMITS.answerText} characters.`);
-  return inTransaction(async () => {
+  const answered = await inTransaction(async () => {
     const c = await scoped(s);
     const cur = await c.needs.findOne({ _id: id, to: s.userId });
     if (!cur) throw new NotFoundError('That Need does not exist, or it is not addressed to you.');
@@ -409,6 +410,9 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
     if (done.kind === 'review') return toNeed(await applyReview(s, done, answer.option, text));
     return toNeed(done);
   });
+  // The session that asked is usually waiting on exactly this: tell it, if it sits idle waiting for a message (lib/data/deliver.ts).
+  if (answered.from.session && 'userId' in answered.from.actor) signalSessions(s.orgId, [`${answered.from.actor.userId}:${answered.from.session}`]);
+  return answered;
 }
 
 // ── Review (slice 5) ────────────────────────────────────────────────────────
