@@ -506,9 +506,10 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   // A refused pick_up shows no other handover: the session asked for one named note and must not silently claim another.
   const hv = picked ? { shown: [picked.brief], more: [] as { id: string; title: string }[] } : pickRefused.text ? { shown: [] as handovers.BriefHandover[], more: [] as { id: string; title: string }[] } : await handovers.handoversForBrief(s, project._id, { me: row.key, label: row.label, fresh: row.fresh, parent: row.parent, actor: agentActor(caller.agent, caller.userId) });
   // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
-  const layerName = { org: 'organisation', project: 'project', person: 'person' } as const;
+  const layerName = { org: 'org', project: 'project', person: 'person' } as const;
   const served = await ordersFor(s, project);
-  const orders = served.map(o => ({
+  // `change`: the tool that changes this layer for the caller (the holder writes the page, anyone else files a proposal).
+  const orders = (await Promise.all(served.map(async o => ({ o, edit: await ordersData.canEditOrders(s, { orders: o.layer, ownerId: o.ownerId, projectId: o.layer === 'project' ? project._id : null }) })))).map(({ o, edit }) => ({ change: (edit ? 'write_note' : 'propose_order') as 'write_note' | 'propose_order',
     layer: layerName[o.layer],
     title: o.title,
     version: o.version,

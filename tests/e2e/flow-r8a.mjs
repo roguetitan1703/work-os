@@ -1,6 +1,6 @@
 // R8 batch A: how agents call the MCP tools. Session on every tool, Orders rows say how to change them, list_tasks dates
 // parse like due, first-call mistakes, answer size, words that lie. Seed profile: none.
-import { ME, MCP, check, finish, mkKey, rawDb } from './lib.mjs';
+import { ME, MCP, check, finish, makeUser, mkKey, rawDb } from './lib.mjs';
 import { markOrders, mcpH, must } from './flow-lib.mjs';
 
 const NAME = 'R8A Project';
@@ -29,6 +29,13 @@ try {
   check('F1: the brief says to pass the session on every call', /session on every Work OS call/.test(start.sessionNote ?? ''), start.sessionNote);
   const dc = await mcpH(cc, 'declutter', { project: NAME, session: 'r8int' });
   check('F1: declutter takes session', !dc.isError, dc.text.slice(0, 200));
+
+  // F4: Orders rows say how to change them
+  check('F4: the holder's brief rows say write_note, with the layer word org', start.orders.length > 0 && start.orders.every(o => o.change === 'write_note') && start.orders.some(o => o.layer === 'org'), JSON.stringify(start.orders.map(o => [o.layer, o.change])));
+  const T = await makeUser({ email: 'r8tess@example.test', name: 'Tess', orgId: ME.orgId, role: 'member' });
+  const tk = await mkKey({ agent: 'claude-code', userId: T.userId, orgId: ME.orgId, name: 'Tess Code' });
+  const ts = await must(tk, 'start_work', { project: NAME, session: 'r8tess' });
+  check('F4: a teammate's brief rows say propose_order for the org layer', ts.orders.some(o => o.layer === 'org' && o.change === 'propose_order'), JSON.stringify(ts.orders));
 } catch (e) {
   check('flow-r8a (error)', false, e?.stack || String(e));
 }

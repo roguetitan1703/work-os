@@ -30,7 +30,7 @@ try {
   const a2 = await mustStart(ag, { path: 'c:\\code\\Flow-Alpha', remote: `git@github.com:${REMOTE}.git`, machine: 'desktop', label: 'antigravity, gemini' });
 
   check('S1: both clients get the same State version', a1.stateVersion === a2.stateVersion && a1.stateVersion === 1, `${a1.stateVersion} ${a2.stateVersion}`);
-  check('S1: both get the same Orders (organisation, project, person, in that order)', JSON.stringify(a1.orders) === JSON.stringify(a2.orders) && a1.orders.map(o => o.layer).join() === 'organisation,project,person', JSON.stringify(a1.orders).slice(0, 300));
+  check('S1: both get the same Orders (organisation, project, person, in that order)', JSON.stringify(a1.orders) === JSON.stringify(a2.orders) && a1.orders.map(o => o.layer).join() === 'org,project,person', JSON.stringify(a1.orders).slice(0, 300));
   check('S1: the Orders text is there, written by the owner (no writtenBy on their own)', a1.orders[0].text.includes('Always run the tests') && !a1.orders.some(o => o.writtenBy), JSON.stringify(a1.orders));
   check('S1: the project matched by its folder (path, either slash form; the remote does not decide since H13)', a1.project.id === project._id && a2.project.id === project._id && a1.project.matchedBy, JSON.stringify(a1.project));
   check('S1: each gets its own session id', typeof a1.session === 'string' && a1.session.length >= 8 && a1.session !== a2.session, `${a1.session} ${a2.session}`);
@@ -74,7 +74,7 @@ try {
   check('S1: the refused start made no presence row', (await rawDb.collection('presence').countDocuments({})) === before);
   const pub = await mustStart(kT, { project: NAME, machine: 'tess pc', label: 'tess' });
   check('S1: the teammate sees the shared project, and the owner sessions listed as the owner’s (labelled writtenBy)', pub.alsoHere.length >= 2 && pub.alsoHere.every(p => p.writtenBy && p.for !== 'me'), JSON.stringify(pub.alsoHere));
-  check('S1: the teammate gets the organisation Orders as rules, the owner’s project Orders labelled as information, and not the owner’s person Orders', pub.orders.some(o => o.layer === 'organisation' && !o.writtenBy) && pub.orders.some(o => o.layer === 'project' && o.writtenBy) && !pub.orders.some(o => o.layer === 'person'), JSON.stringify(pub.orders).slice(0, 400));
+  check('S1: the teammate gets the organisation Orders as rules, the owner’s project Orders labelled as information, and not the owner’s person Orders', pub.orders.some(o => o.layer === 'org' && !o.writtenBy) && pub.orders.some(o => o.layer === 'project' && o.writtenBy) && !pub.orders.some(o => o.layer === 'person'), JSON.stringify(pub.orders).slice(0, 400));
 } catch (e) {
   check('flow-s1 (error)', false, e?.stack || String(e));
 }
