@@ -5,6 +5,7 @@ import { isPerson, userActor, type Actor } from '../actors';
 import { memberNames } from '../people';
 import { locate } from '../notes-match';
 import { InputError, NotFoundError } from './errors';
+import { requestContext } from '../request-context';
 
 // Orders: standing rules served to every AI that starts work on a project (docs/flows/step-1.md section 2). Three layers,
 // each a note carrying the `orders` field:
@@ -39,8 +40,12 @@ export async function ordersFor(s: Scope, project: Pick<ProjectDoc, '_id'>): Pro
   return [...out('org', org), ...out('project', proj), ...out('person', mine)];
 }
 
-/** May this person change a note that carries Orders? The one who holds the layer (see the top of this file). */
+/**
+ * May this person change a note that carries Orders? The one who holds the layer (see the top of this file). Never in a call made
+ * with a dispatched run's own key (lib/run-keys.ts): a task's text can come from a teammate, so such a run proposes instead.
+ */
 export async function canEditOrders(s: Scope, note: Pick<NoteDoc, 'orders' | 'ownerId' | 'projectId'>): Promise<boolean> {
+  if (requestContext().dispatched) return false;
   if (note.orders === 'person') return note.ownerId === s.userId;
   if (note.orders === 'project') {
     if (!note.projectId) return false;

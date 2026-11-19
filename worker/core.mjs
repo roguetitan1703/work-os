@@ -112,13 +112,15 @@ export function createCore(deps) {
       if (running.has(s.sessionId)) continue;
       const l = locate(s.sessionId);
       if (l.error) { why.add(l.error); continue; }
+      // A dispatched run this worker started is reopened as one (its own run key, never the person's credential; never in VS Code).
+      const ref = state.sessions[s.sessionId] && Number.isInteger(state.sessions[s.sessionId].dispatched) ? state.sessions[s.sessionId].dispatched : undefined;
       try {
-        if (s.origin === 'vscode') {
+        if (s.origin === 'vscode' && ref === undefined) {
           if (!deps.openVscode) throw new Error('VS Code not found');
           bg.push(deps.openVscode({ folder: l.dir, sessionId: s.sessionId }).catch((e) => log('vscode open failed: ' + errMsg(e))));
         } else {
           trustFolder(l.dir, log);
-          await launcher({ kind: 'resume', folder: l.dir, sessionId: s.sessionId, projectName: l.link.projectName || undefined });
+          await launcher({ kind: 'resume', folder: l.dir, sessionId: s.sessionId, projectName: l.link.projectName || undefined, ...(ref !== undefined ? { dispatched: ref } : {}) });
         }
         opened++;
       } catch (e) { why.add(errMsg(e)); }
@@ -189,7 +191,7 @@ export function createCore(deps) {
       if (projectId && projectName) state.markers[job.folderId] = true;
       trustFolder(v.dir, log);
       await launcher({ kind: job.kind, folder: v.dir, sessionId: job.sessionId, projectName: projectName || undefined, prompt: job.kind === 'start' && getConfig().allowPrompts !== false ? job.prompt || undefined : undefined, dispatched: Number.isInteger(job.dispatched) ? job.dispatched : undefined });
-      state.sessions[job.sessionId] = { folderId: job.folderId, state: 'running', startedAt: now() };
+      state.sessions[job.sessionId] = { folderId: job.folderId, state: 'running', startedAt: now(), ...(Number.isInteger(job.dispatched) ? { dispatched: job.dispatched } : {}) };
       return { id, ok: true };
     } catch (e) {
       return { id, ok: false, error: errMsg(e) };
@@ -208,6 +210,8 @@ export function createCore(deps) {
 
   async function refreshSessions() {
     const ids = Object.keys(state.sessions).filter((k) => state.sessions[k].state === 'running');
+    // A dispatched run's MCP config left by a crash (the wrapper deletes it when claude ends): only runs that still run keep theirs.
+    if (deps.sweepRuns) { try { deps.sweepRuns(new Set(ids.map((k) => k.toLowerCase()))); } catch {} }
     if (!ids.length) return;
     const procs = await listProcesses();
     for (const sid of ids) {

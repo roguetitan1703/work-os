@@ -33,7 +33,7 @@ import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
 import * as ordersData from '../data/orders';
 import { ordersChangesFor, ordersFor, ordersWrittenBy, shortFormForSubagent } from '../data/orders';
-import { cleanLabel, endPresence, rowKey, setOrdersSeen, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
+import { cleanLabel, endPresence, namesOtherSession, rowKey, setOrdersSeen, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
 import { presenceState } from '../data/presence-state';
 import { laneOut, type LaneOut } from '../data/lanes';
 import { clientWord, roster, taskInfo } from '../data/roster';
@@ -510,7 +510,9 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   if (a.account && (/@|^\s*(sk-|wkr_|wos_|ghp_|xox)/i.test(a.account) || /[A-Za-z0-9_-]{32,}/.test(a.account))) throw new InputError('account is a short label such as "om-max": not an email, a key or a token');
   const mach = await resolveMachine(s, a.machine);
   // H15: a session the dispatcher started keeps its forced label and mark when it calls start_work itself (the session's own row says so).
-  const dispatched = a.dispatched ?? (sid ? await dispatchedOfToken(sid) : null) ?? undefined;
+  // A call with a run key (lib/run-keys.ts) is a dispatched run whatever it names, so its session is marked too.
+  const runOf = caller.dispatched ? { taskId: caller.dispatched.taskId, ref: caller.dispatched.ref } : null;
+  const dispatched = a.dispatched ?? runOf ?? (sid ? await dispatchedOfToken(sid) : null) ?? undefined;
   const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, ...labelFor(project.name, a, dispatched), tool: a.tool, dispatched, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
   // The handovers left for this person (a fresh session takes the newest first; a re-call after compaction shows its own again).
   // With pick_up the named handover is the one taken (and the old session's work moves to this one); without it the newest one for this person is shown.
@@ -720,6 +722,18 @@ export function createMcpServer(ctx: Ctx): McpServer {
           }
           console.error('[mcp policy]', err);
           return fail('Internal error');
+        }
+        // A dispatched run's own key (lib/run-keys.ts) acts only as its own sessions: a session id (argument of any tool, or the
+        // header) that names another session of the person (their lead session, say) is refused.
+        if (caller.dispatched) {
+          const arg = a[0] && typeof a[0] === 'object' ? (a[0] as { session?: unknown }).session : undefined;
+          const named = [sessionHeader(typeof arg === 'string' ? arg : null), requestContext().sid].filter((x): x is string => !!x);
+          for (const sid of new Set(named)) {
+            if (await namesOtherSession(s, sid, caller.dispatched.taskId)) {
+              noteRefusal(sessionKey(identOf(name, a)), name, 'policy');
+              return fail(`A dispatched run (task #${caller.dispatched.ref}) acts only as its own session: ${sid} is another session. Leave session out, or pass the id your own start_work returned.`);
+            }
+          }
         }
         // The "for you" line: who is present, what is new for them (before), and the line added to the answer (after).
         const ident = identOf(name, a);

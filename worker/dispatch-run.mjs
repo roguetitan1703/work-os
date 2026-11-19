@@ -1,0 +1,133 @@
+// A dispatched run's credentials (docs/dispatcher.md "Run keys"). The dispatcher starts Claude Code on a task whose text can come
+// from a teammate, so the run never gets its person's own Work OS credential:
+//   - the worker asks the server for a run key (wdr_, POST /api/worker/run-key) just before a dispatched start or resume
+//     (runFor), and refuses to start one without it;
+//   - Claude Code runs with --strict-mcp-config and the run's own MCP config file (writeRunFiles) holding Work OS with that key
+//     only, plus the person's other user MCP servers (any that point at Work OS or carry a Work OS credential are left out);
+//   - and with --settings <file> that blank WORK_OS_KEY (and any variable holding a Work OS credential) in the person's settings
+//     env block, which Claude Code would otherwise put in every command's environment;
+//   - the wrapper (run-claude.mjs) drops the same variables from claude's own environment (scrubEnv);
+//   - both files are deleted when claude exits (run-claude.mjs), and the worker sweeps any left by a crash (sweepRunConfigs).
+// Node built-ins only (shipped in the worker bundle). Never prints a key.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+export const RUN_DIR_NAME = 'work-os-run';
+export const runDir = (base = os.tmpdir()) => path.join(base, RUN_DIR_NAME);
+const SID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const FILE = /^run-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\.settings)?\.json$/;
+export const RUN_KEY_RE = /^wdr_[A-Za-z0-9_-]{43}$/;
+/** A Work OS credential anywhere in a text: a Claude Code key, an OAuth token, a device key, a session token or a run key. */
+const SECRET = /(?<![A-Za-z0-9])(?:wos|wosat|wkr|wst|wdr)_[A-Za-z0-9_-]{8,}/;
+/** Variables that are removed from a dispatched run's environment whatever they hold. */
+export const SCRUB_NAMES = ['WORK_OS_KEY'];
+
+export const runConfigPath = (sessionId, dir = runDir()) => path.join(dir, `run-${String(sessionId).toLowerCase()}.json`);
+export const runSettingsPath = (sessionId, dir = runDir()) => path.join(dir, `run-${String(sessionId).toLowerCase()}.settings.json`);
+
+/** A copy of env without WORK_OS_KEY and without any variable whose value is a Work OS credential. */
+export function scrubEnv(env) {
+  const out = { ...env };
+  for (const k of Object.keys(out)) if (SCRUB_NAMES.includes(k.toUpperCase()) || SECRET.test(String(out[k] ?? ''))) delete out[k];
+  return out;
+}
+
+/**
+ * The run's settings: the person's settings env block (~/.claude/settings.json) can set WORK_OS_KEY for every command Claude Code
+ * runs, so the same names (and any that hold a Work OS credential there) are set to empty for this run.
+ */
+export function runSettings(home = os.homedir()) {
+  const env = Object.fromEntries(SCRUB_NAMES.map((k) => [k, '']));
+  try {
+    const s = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf8'));
+    for (const [k, v] of Object.entries((s && s.env) || {})) if (SECRET.test(String(v ?? ''))) env[k] = '';
+  } catch {}
+  return { env };
+}
+
+/** The person's user-scope MCP servers (~/.claude.json mcpServers) other than Work OS: none named work-os, none on the Work OS host, none carrying a Work OS credential. */
+export function otherServers(baseUrl, home = os.homedir()) {
+  let host = '';
+  try { host = new URL(baseUrl).host.toLowerCase(); } catch {}
+  let all = {};
+  try { all = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8')).mcpServers || {}; } catch { return {}; }
+  const out = {};
+  for (const [name, cfg] of Object.entries(all)) {
+    if (!cfg || typeof cfg !== 'object' || /^work-?os$/i.test(name)) continue;
+    let h = '';
+    try { h = cfg.url ? new URL(cfg.url).host.toLowerCase() : ''; } catch {}
+    if ((h && h === host) || SECRET.test(JSON.stringify(cfg))) continue;
+    out[name] = cfg;
+  }
+  return out;
+}
+
+/**
+ * Writes the run's two files, readable by this user only: the MCP config (Work OS with the run key, plus otherServers) and the
+ * settings (runSettings). Returns their paths.
+ */
+export function writeRunFiles({ sessionId, baseUrl, key, dir = runDir(), home = os.homedir() }) {
+  if (!SID.test(String(sessionId || ''))) throw new Error('bad session id');
+  if (!RUN_KEY_RE.test(String(key || ''))) throw new Error('bad run key');
+  const base = String(baseUrl || '').replace(/\/+$/, '');
+  if (!/^https?:\/\//.test(base)) throw new Error('bad base url');
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const mcpConfig = runConfigPath(sessionId, dir);
+  const settings = runSettingsPath(sessionId, dir);
+  const mcpServers = { ...otherServers(base, home), 'work-os': { type: 'http', url: base + '/api/mcp', headers: { Authorization: `Bearer ${key}` } } };
+  fs.writeFileSync(mcpConfig, JSON.stringify({ mcpServers }, null, 1), { mode: 0o600 });
+  fs.writeFileSync(settings, JSON.stringify(runSettings(home), null, 1), { mode: 0o600 });
+  return { mcpConfig, settings };
+}
+
+/** Deletes a run file: only a file named run-<session id>[.settings].json in a work-os-run folder (whatever path a command line held). */
+export function removeRunConfig(file) {
+  try {
+    const f = path.resolve(String(file || ''));
+    if (!FILE.test(path.basename(f)) || path.basename(path.dirname(f)) !== RUN_DIR_NAME) return false;
+    fs.rmSync(f, { force: true });
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Deletes the run files of sessions not in `keep` (a Set of session ids that still run): what a crash or a killed wrapper left.
+ * A file younger than minAgeMs stays (a run being started right now is not in `keep` yet).
+ */
+export function sweepRunConfigs(keep, dir = runDir(), { minAgeMs = 120_000, now = Date.now() } = {}) {
+  let n = 0;
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return 0; }
+  for (const f of names) {
+    const m = FILE.exec(f);
+    if (!m || keep.has(m[1].toLowerCase())) continue;
+    try { if (now - fs.statSync(path.join(dir, f)).mtimeMs < minAgeMs) continue; } catch { continue; }
+    if (removeRunConfig(path.join(dir, f))) n++;
+  }
+  return n;
+}
+
+/**
+ * The run key for a dispatched start or resume, from the server (api.runKey: POST /api/worker/run-key with the device key), or
+ * null for a run that is not dispatched. Throws when a dispatched run cannot get one: it is then not started.
+ */
+export async function runFor(a, api) {
+  if (!Number.isInteger(a && a.dispatched)) return null;
+  if (!SID.test(String(a.sessionId || ''))) throw new Error('a dispatched run needs its session id');
+  let r;
+  try { r = await api.runKey(String(a.sessionId).toLowerCase()); } catch (e) { throw new Error('no run key for this dispatched run, not started (' + String((e && e.message) || e).slice(0, 120) + ')'); }
+  if (!r || !RUN_KEY_RE.test(String(r.key || ''))) throw new Error('no run key for this dispatched run, not started');
+  return { key: r.key };
+}
+
+/** The run files a claude command line names (after --mcp-config and --settings), when they are ours. */
+export function runFilesOf(args) {
+  const out = [];
+  for (const flag of ['--mcp-config', '--settings']) {
+    const i = args.indexOf(flag);
+    const f = i >= 0 ? args[i + 1] : null;
+    if (f && FILE.test(path.basename(f)) && path.basename(path.dirname(f)) === RUN_DIR_NAME) out.push(f);
+  }
+  return out;
+}

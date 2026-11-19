@@ -26,7 +26,10 @@ import { assigneesOf } from '../assignees';
 // policyEvents is per key (keyId), not organization data: it is read and written raw here (scope-ok).
 
 /** agent: the key's kind; keyId: the API key; userId/orgId: its owner and organization (lib/caller.ts). The MCP server acts for them. */
-export type Caller = { agent: AgentName; keyId?: string; keyName?: string; userId: string; orgId: string };
+export type Caller = { agent: AgentName; keyId?: string; keyName?: string; userId: string; orgId: string; /** A dispatched run's own key (lib/run-keys.ts): the task, and the worker session it runs as. */ dispatched?: { taskId: string; ref: number; sessionId: string } };
+
+/** Tools a dispatched run never gets: the person's own mail and Discord (a task's text can come from a teammate). */
+const DISPATCHED_REFUSED = /^(mail_|discord_)/;
 
 /** The data scope a caller acts in. */
 export const callerScope = (c: Caller): Scope => ({ userId: c.userId, orgId: c.orgId });
@@ -215,6 +218,7 @@ export async function beforeTool(caller: Caller, tool: string): Promise<void> {
   if (!isCode(caller)) return mailGuard(caller, tool);
   const keyId = budgetKey(caller);
   if (BLOCKED.has(tool)) throw new PolicyError(`${tool} is not available to Claude Code keys (permanent deletion and admin stay with you, in the app).`);
+  if (caller.dispatched && DISPATCHED_REFUSED.test(tool)) throw new PolicyError(`${tool} is not available to a dispatched run (task #${caller.dispatched.ref}): mail and Discord stay with the person. add_comment on the task if you need something from them.`);
   const call = await reserve(keyId, 'call', 1, new Date(Date.now() - 3_600_000), LIMITS.callsPerHour);
   if (!call.id) {
     throw new PolicyError(`Rate limit: this key made ${call.total} Work OS calls in the last hour (max ${LIMITS.callsPerHour}). Wait a few minutes, or batch work with apply_changes.`);

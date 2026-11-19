@@ -20,5 +20,7 @@ export function makeApi(getCfg, getToken) {
     postFolders: (folders) => req('POST', '/api/worker/folders', { folders }),
     getJobs: () => req('GET', '/api/worker/jobs'),
     postStatus: (body) => req('POST', '/api/worker/status', body),
+    // A dispatched run's own Work OS key (dispatch-run.mjs runFor): { key, expiresAt }. Never logged.
+    runKey: (sessionId) => req('POST', '/api/worker/run-key', { sessionId }),
   };
 }

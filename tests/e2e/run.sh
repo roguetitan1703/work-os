@@ -37,6 +37,7 @@ dispatcher-backend|dispatcher-backend.mjs|none|plain
 dispatcher-backend-2|dispatcher-backend-2.mjs|base|plain
 dispatcher-ui|dispatcher-ui.mjs|none|plain
 dispatcher-trust|dispatcher-trust.mjs|none|discord
+dispatch-key|dispatch-key.mjs|none|plain
 launcher-backend|launcher-backend.mjs|none|plain
 turbo|turbo.mjs|none|plain
 vscode-reopen|vscode-reopen.mjs|none|plain

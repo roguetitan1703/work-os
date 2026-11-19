@@ -23,6 +23,8 @@ export type RequestContext = {
   hook?: number;
   /** The API key or OAuth client behind an MCP call (rate limits are per key). */
   keyId?: string;
+  /** The call came with a dispatched run's own key (lib/run-keys.ts): the task it runs for. Only ever adds refusals (Orders). */
+  dispatched?: { taskId: string; ref: number };
   /** Set by the MCP handler when a call was refused: what kind of refusal (lib/mcp/refusals.ts). */
   failKind?: 'policy' | 'input' | 'not_found' | 'internal';
 };
