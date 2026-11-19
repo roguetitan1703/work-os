@@ -120,6 +120,15 @@ try {
   const rew2 = await must(cc, 'end_work', { project: P, state: [{ op: 'set_where', machine: 'h5box', branch: 'builder-b' }], friction: 'rewrite unarchives', handover: { step: 'third version' }, session: 'h5s3' }, hdr('h5s3'));
   check('H5 lifecycle: a rewrite unarchives it', rew2.handover?.id === hid && (await noteOf(hid)).archived === false);
 
+  // ── 7b. A teammate's edit of my handover is labelled in my next brief (any project reader can edit a note)
+  const edited = await must(cc, 'end_work', { project: P, state: [{ op: 'set_where', machine: 'h5box', branch: 'main' }], friction: 'edit probe', handover: { step: 'my own handover, before an edit', title: 'Handover: edit probe' }, session: 'h5s2' }, hdr('h5s2'));
+  const own1 = await start(cc, 'h5fresh5');
+  check('H5 label: my own unedited handover carries no writtenBy', own1.handover?.some(h => h.id === edited.handover.id && !('writtenBy' in h)), JSON.stringify(own1.handover?.map(h => [h.id, h.writtenBy])));
+  await rawDb.collection('notes').updateOne({ _id: edited.handover.id }, { $unset: { 'handover.pickedUp': '' } });
+  await must(kT, 'write_note', { note_id: edited.handover.id, append: 'Tess added a line here' });
+  const own2 = await start(cc, 'h5fresh6');
+  check('H5 label: after a teammate edited it, my next brief marks the handover writtenBy that teammate', own2.handover?.some(h => h.id === edited.handover.id && /Tess/.test(h.writtenBy ?? '') && h.markdown.includes('Tess added a line here')), JSON.stringify(own2.handover?.map(h => [h.id, h.writtenBy])));
+
   // ── 8. For another member: Om's next session does not get it, Tess's does, marked writtenBy
   const forT = await must(cc, 'end_work', { project: P, state: [{ op: 'set_where', machine: 'h5box', branch: 'main' }], friction: 'for tess', handover: { step: 'Tess takes the review from here', for: 'Tess', title: 'Handover: for Tess' }, session: 'h5s2' }, hdr('h5s2'));
   check('H5 for: the answer says who it is for', forT.handover?.for === 'Tess', JSON.stringify(forT));

@@ -81,7 +81,7 @@ export async function writeHandover(s: Scope, w: WriteHandover, actor: Actor): P
   return { id: note.id, title: note.title, created };
 }
 
-export type BriefHandover = { id: string; title: string; label: string; by: string; at: Date; markdown: string };
+export type BriefHandover = { id: string; title: string; label: string; by: string; at: Date; markdown: string; /** Who created and who last edited the note (read before the pick-up line is appended): any text by someone else is labelled for the reader. */ createdBy: Actor; updatedBy: Actor };
 
 /**
  * The handovers a start_work shows (newest first, at most 2 in full, the rest as id and title). `me` is the caller's
@@ -117,7 +117,7 @@ export async function handoversForBrief(s: Scope, projectId: string, o: { me: st
       // The note shows who took it; a failed rewrite must not hide the handover from the session that was handed it.
       await writeNote(s, { noteId: d._id, append: `\n\n${line}` }, o.actor).catch(() => null);
     }
-    shown.push({ id: d._id, title: d.title, label: h.label ?? '', by: h.by, at: d.updatedAt, markdown: body });
+    shown.push({ id: d._id, title: d.title, label: h.label ?? '', by: h.by, at: d.updatedAt, markdown: body, createdBy: d.createdBy, updatedBy: d.updatedBy });
   }
   const more = eligible.slice(2).map(d => ({ id: d._id, title: d.title }));
   return { shown, more };

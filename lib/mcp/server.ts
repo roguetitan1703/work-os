@@ -488,7 +488,11 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
             from: h.label || 'a session',
             at: h.at.toISOString(),
             markdown: h.markdown,
-            ...(h.by !== s.userId ? { writtenBy: names[h.by] || 'another member' } : {}),
+            ...(() => {
+              // Whoever wrote or last edited the note, when it is not the reader (any project reader can edit a note).
+              const ws = [...new Set([...[h.createdBy, h.updatedBy].map(label), h.by !== s.userId ? names[h.by] || 'another member' : undefined].filter((x): x is string => !!x))];
+              return ws.length ? { writtenBy: ws.join('; ') } : {};
+            })(),
           })),
           ...(hv.more.length ? { moreHandovers: hv.more.map(m => `${m.id}, ${m.title}`) } : {}),
         }

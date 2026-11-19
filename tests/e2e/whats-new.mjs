@@ -60,13 +60,13 @@ try {
       const o = await overflow(p); check(`no horizontal scroll /today ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
 
       // Try it marks that one seen and goes there
-      await card.locator('[data-whats-new-try="activity-everything"]').tap();
-      await p.waitForURL(u => u.pathname === '/review', { timeout: 10000 });
-      check('Try it: opens where the feature lives (/review)', new URL(p.url()).pathname === '/review');
-      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['activity-everything']), JSON.stringify(await seenOf()));
+      await card.locator('[data-whats-new-try="needs-typed-answer"]').tap();
+      await p.waitForURL(u => u.pathname === '/needs', { timeout: 10000 });
+      check('Try it: opens where the feature lives (/needs)', new URL(p.url()).pathname === '/needs');
+      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['needs-typed-answer']), JSON.stringify(await seenOf()));
       await p.goto(B + '/today'); await settle(p);
       const ids2 = await p.locator('[data-section="whats-new"]:visible [data-whats-new]').evaluateAll(els => els.map(e => e.getAttribute('data-whats-new')));
-      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'activity-everything').slice(0, 3)), JSON.stringify(ids2));
+      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'needs-typed-answer').slice(0, 3)), JSON.stringify(ids2));
       await resetSeen();
     }
 
