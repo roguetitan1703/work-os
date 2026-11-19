@@ -29,8 +29,8 @@ import { otherChangeOut } from '../data/summary';
 import { ACTIVITY_WHAT } from '../types';
 import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
-import { ordersFor } from '../data/orders';
-import { endPresence, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
+import { ordersChangesFor, ordersFor, ordersWrittenBy, shortForm } from '../data/orders';
+import { endPresence, setOrdersSeen, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
 import { presenceState } from '../data/presence-state';
 import { clientWord, roster, taskInfo } from '../data/roster';
 import * as handovers from '../data/handovers';
@@ -440,15 +440,36 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   const hv = await handovers.handoversForBrief(s, project._id, { me: row.key, label: row.label, fresh: row.fresh, parent: row.parent, actor: agentActor(caller.agent, caller.userId) });
   // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
   const layerName = { org: 'organisation', project: 'project', person: 'person' } as const;
-  const orders = (await ordersFor(s, project)).map(o => {
-    // Text that its layer's holder (who set the flag) did not write, and project rules the reader did not write, are information.
-    const odd = (a: unknown) => {
-      const u = (a as { userId?: string } | null)?.userId;
-      return o.ordersBy && u !== o.ordersBy ? (u && names[u]) || 'another member' : undefined;
-    };
-    const ws = [...new Set([...(o.layer === 'project' ? [o.createdBy, o.updatedBy].map(label) : []), odd(o.createdBy), odd(o.updatedBy)].filter((x): x is string => !!x))];
-    return { layer: layerName[o.layer], title: o.title, by: by(o.updatedBy), ...(ws.length ? { writtenBy: ws.join('; ') } : {}), text: o.text, ...(o.truncated ? { truncated: 'read the note for the rest', noteId: o.noteId } : {}) };
-  });
+  const served = await ordersFor(s, project);
+  const orders = served.map(o => ({
+    layer: layerName[o.layer],
+    title: o.title,
+    version: o.version,
+    by: by(o.updatedBy),
+    ...(ordersWrittenBy(o, names, label) ? { writtenBy: ordersWrittenBy(o, names, label) } : {}),
+    text: o.text,
+    noteId: o.noteId,
+    ...(o.truncated ? { truncated: 'read the note for the rest' } : {}),
+  }));
+  // What changed in the Orders in the last 48 hours (at most 5, cut to 1,200 characters): who, when, why, the lines out and in.
+  // The session is then told these pages' versions, so a later change reaches it as news (forYou, delivery).
+  const changed = (await ordersChangesFor(s, project._id, { since: new Date(Date.now() - 48 * 3_600_000), limit: 5, notSession: sid })).map(ch => ({
+    layer: layerName[ch.layer],
+    title: ch.title,
+    version: ch.version,
+    at: ch.at.toISOString(),
+    by: ch.by.kind === 'user' && ch.by.userId === s.userId ? 'me' : by(ch.by),
+    ...(ch.label ? { session: ch.label } : {}),
+    ...(ch.why ? { why: ch.why } : {}),
+    removed: ch.removed.slice(0, 10),
+    added: ch.added.slice(0, 10),
+    noteId: ch.noteId,
+    ...(ch.ordersBy === s.userId && (ch.by as { userId?: string }).userId === s.userId ? { own: true } : {}),
+    ...(ch.ordersBy && (ch.by as { userId?: string }).userId !== ch.ordersBy ? { writtenBy: names[(ch.by as { userId?: string }).userId ?? ''] || 'another member' } : {}),
+  }));
+  while (changed.length && JSON.stringify(changed).length > 1200) changed.pop();
+  const orgOrders = served.find(o => o.layer === 'org');
+  await setOrdersSeen(s, row._id, Object.fromEntries(served.map(o => [o.noteId, o.version])));
   // 3. The inbox: unread messages first (they become seen: the sender can tell they arrived).
   const inb = await messageData.inbox(s, { project: project._id, limit: 15, reader: { key: sessionKey({ userId: s.userId, agent: caller.agent, keyId: caller.keyId, session: sid }), userId: s.userId, row } });
   // 4. The project's open tasks, in brief.
@@ -503,6 +524,9 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     textRule: textRule(),
     sessionNote: !sid ? 'This connector is your session: no id to pass. Messages for you and the unread count follow it on every call.' : 'Pass this session id as session on save_state, end_work, get_state, inbox, send_message, reply and message_status (and as the X-Work-OS-Session header on every call, if your client can).',
     orders: orders.length ? orders : 'no Orders set',
+    ...(orders.length ? { ordersVersion: orders.map(o => `${o.layer} v${o.version}`).join(', ') } : {}),
+    ...(changed.length ? { ordersChanged: changed } : {}),
+    ...(orgOrders && shortForm(orgOrders.text) ? { shortOrders: shortForm(orgOrders.text) } : {}),
     ...(needsBlock.answered.length || needsBlock.forYou.length ? { needs: { ...(needsBlock.answered.length ? { answeredForYou: needsBlock.answered } : {}), ...(needsBlock.forYou.length ? { openForYou: needsBlock.forYou } : {}) } } : {}),
     state: state ? await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names) : NO_STATE,
     inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names, { cut: 500, unread: inb.unreadIds.has(m._id) })) } : 'no messages',

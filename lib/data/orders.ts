@@ -21,7 +21,7 @@ const MAX_TEXT = 20_000;
 /** Version logs hold up to 20 whole earlier texts: list-like reads never load them (ordersHistory does). */
 const NO_LOG = { projection: { ordersLog: 0 } } as const;
 
-export type OrdersNote = { layer: OrdersLayer; noteId: string; title: string; text: string; truncated: boolean; createdBy: unknown; updatedBy: unknown; ownerId: string; ordersBy?: string };
+export type OrdersNote = { layer: OrdersLayer; noteId: string; title: string; text: string; truncated: boolean; createdBy: unknown; updatedBy: unknown; ownerId: string; ordersBy?: string; /** The page's Orders version (1 until its first change). */ version: number; updatedAt: Date };
 
 /** The Orders in force for a person starting work on a project: organization, project, person, in that order. */
 export async function ordersFor(s: Scope, project: Pick<ProjectDoc, '_id'>): Promise<OrdersNote[]> {
@@ -33,7 +33,7 @@ export async function ordersFor(s: Scope, project: Pick<ProjectDoc, '_id'>): Pro
     c.notes.find({ orders: 'person', ownerId: s.userId, ordersBy: s.userId, ...live }, NO_LOG).sort({ createdAt: 1 }).limit(5).toArray(),
   ]);
   const out = (layer: OrdersLayer, list: NoteDoc[]): OrdersNote[] =>
-    list.map(n => ({ layer, noteId: n._id, title: n.title, text: n.body.slice(0, MAX_TEXT), truncated: n.body.length > MAX_TEXT, createdBy: n.createdBy, updatedBy: n.updatedBy, ownerId: n.ownerId, ordersBy: n.ordersBy }));
+    list.map(n => ({ layer, noteId: n._id, title: n.title, text: n.body.slice(0, MAX_TEXT), truncated: n.body.length > MAX_TEXT, createdBy: n.createdBy, updatedBy: n.updatedBy, ownerId: n.ownerId, ordersBy: n.ordersBy, version: n.ordersV ?? 1, updatedAt: n.updatedAt }));
   return [...out('org', org), ...out('project', proj), ...out('person', mine)];
 }
 
@@ -211,4 +211,60 @@ export async function ordersHistory(s: Scope, noteId: string): Promise<OrdersHis
     canEdit: await canEditOrders(s, n),
     log: (n.ordersLog ?? []).slice().reverse().map(v => ({ v: v.v, at: new Date(v.at).toISOString(), by: v.by, ...(v.session ? { session: v.session } : {}), ...(v.label ? { label: v.label } : {}), ...(v.why ? { why: v.why } : {}), removed: v.removed, added: v.added, ...(v.need ? { need: v.need } : {}), ...(v.undoOf ? { undoOf: v.undoOf } : {}) })),
   };
+}
+
+/**
+ * Who wrote this Orders text, when it is not the reader's own say: text that its layer's holder (who set the flag) did not
+ * write is information, and so are project rules the reader did not write. Used by the brief and by delivery, so both label alike.
+ * `label` names an author other than the reader (undefined for the reader's own).
+ */
+export function ordersWrittenBy(o: Pick<OrdersNote, 'layer' | 'ordersBy' | 'createdBy' | 'updatedBy'>, names: Record<string, string>, label: (a: unknown) => string | undefined): string | undefined {
+  const odd = (a: unknown) => {
+    const u = (a as { userId?: string } | null)?.userId;
+    return o.ordersBy && u !== o.ordersBy ? (u && names[u]) || 'another member' : undefined;
+  };
+  const ws = [...new Set([...(o.layer === 'project' ? [o.createdBy, o.updatedBy].map(label) : []), odd(o.createdBy), odd(o.updatedBy)].filter((x): x is string => !!x))];
+  return ws.length ? ws.join('; ') : undefined;
+}
+
+export type OrdersChange = {
+  noteId: string;
+  layer: OrdersLayer;
+  title: string;
+  version: number;
+  at: Date;
+  by: Actor;
+  session?: string;
+  label?: string;
+  why?: string;
+  removed: string[];
+  added: string[];
+  undoOf?: number;
+  need?: number;
+  ordersBy?: string;
+  ownerId: string;
+};
+
+/**
+ * Versions of the Orders layers served to this reader on this project (organization, project, their own person layer:
+ * the reader's own door, so another person's Orders or a project the reader cannot see never appear), newest first. A page
+ * with `seen[noteId]` gives the versions above it; a page not in `seen` gives the versions made after `since`. A version made
+ * by session `notSession` is left out (a session is not told of its own change).
+ */
+export async function ordersChangesFor(s: Scope, projectId: string, opts: { since?: Date; seen?: Record<string, number>; notSession?: string; limit?: number } = {}): Promise<OrdersChange[]> {
+  const served = (await ordersFor(s, { _id: projectId })).filter(o => o.version > 1);
+  if (!served.length) return [];
+  const c = await scoped(s);
+  const docs = await c.notes.find({ _id: { $in: served.map(o => o.noteId) } }, { projection: { ordersLog: 1 } }).toArray();
+  const logs = new Map(docs.map(d => [d._id, d.ordersLog ?? []]));
+  const out: OrdersChange[] = [];
+  for (const o of served) {
+    const base = opts.seen?.[o.noteId];
+    for (const e of logs.get(o.noteId) ?? []) {
+      if (base !== undefined ? e.v <= base : !!opts.since && new Date(e.at) <= opts.since) continue;
+      if (opts.notSession && e.session === opts.notSession) continue;
+      out.push({ noteId: o.noteId, layer: o.layer, title: o.title, version: e.v, at: new Date(e.at), by: e.by, ...(e.session ? { session: e.session } : {}), ...(e.label ? { label: e.label } : {}), ...(e.why ? { why: e.why } : {}), removed: e.removed, added: e.added, ...(e.undoOf ? { undoOf: e.undoOf } : {}), ...(e.need ? { need: e.need } : {}), ...(o.ordersBy ? { ordersBy: o.ordersBy } : {}), ownerId: o.ownerId });
+    }
+  }
+  return out.sort((x, y) => y.at.getTime() - x.at.getTime()).slice(0, opts.limit ?? 5);
 }

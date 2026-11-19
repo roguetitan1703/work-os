@@ -151,6 +151,37 @@ try {
   check('2: a later write of other lines carries no warning (only the lines added are checked)', !clean.isError && !clean.json?.orders?.warning, clean.text.slice(0, 300));
   const fr = await feed(org);
   check('2: every agent version has its own feed row with the why (no folding), attributed to the agent', fr.length === 5 && fr.filter(r => r.actor?.kind === 'agent').length === 3 && /· H9 test: edits$/.test(fr[2].note), JSON.stringify(fr.map(r => [r.actor?.kind, r.note])));
+
+  // ---- 3: the version in the brief; one forYou line for a session that was not told; none for the one that made it ----
+  await rawDb.collection('projects').updateOne({ name: 'H9 One' }, { $set: { visibility: 'org' } });
+  const S1 = await must(kCode, 'start_work', { project: 'H9 One', label: 'H9 · builder' });
+  const H1 = { 'X-Work-OS-Session': S1.session };
+  const orgO = S1.orders.find(o => o.layer === 'organisation');
+  check('3: the brief carries each Orders page with its version and note id', orgO?.version === 6 && orgO.noteId === org && S1.orders.every(o => Number.isInteger(o.version) && o.noteId) && /organisation v6/.test(S1.ordersVersion) && /project v2/.test(S1.ordersVersion), JSON.stringify([S1.ordersVersion, S1.orders.map(o => [o.layer, o.version])]));
+  check('3: it lists the changes of the last 48 hours (newest first, at most 5), with layer, who, why and the lines', S1.ordersChanged?.length === 5 && S1.ordersChanged.every((c, k, a) => c.layer && c.noteId && c.version > 1 && c.at && Array.isArray(c.removed) && Array.isArray(c.added) && (k === 0 || a[k - 1].at >= c.at)) && S1.ordersChanged.some(c => c.why === 'H9 retired' || c.why === 'H9 clean'), JSON.stringify(S1.ordersChanged?.slice(0, 2)));
+  check('3: …and a short form of the organization Orders for the hook (the first ten rule lines)', typeof S1.shortOrders === 'string' && S1.shortOrders.startsWith('Rule one.') && S1.shortOrders.split('\n').length <= 10 && S1.shortOrders.length <= 1200, String(S1.shortOrders));
+  const row1 = await rawDb.collection('presence').findOne({ session: S1.session });
+  check('3: the session row remembers the version of each page it was told', row1?.ordersSeen?.[org] === 6 && row1.ordersSeen[projNote] === 2, JSON.stringify(row1?.ordersSeen));
+  const W = await must(MCP, 'start_work', { project: 'H9 One', label: 'H9 · lead' });
+  const HW = { 'X-Work-OS-Session': W.session };
+  const w7 = await mcpH(MCP, 'write_note', { note_id: org, edits: [{ find: 'Rule one.', replace: 'Rule one, sharper.' }], why: 'H9 test: for the others' }, HW);
+  const orgDoc = await cur();
+  check('3: a write from a session stores that session and its label on the version', !w7.isError && w7.json?.orders?.version === 7 && orgDoc.ordersLog.at(-1).session === W.session && orgDoc.ordersLog.at(-1).label === 'H9 · lead', w7.text.slice(0, 200));
+  const f1 = await mcpH(kCode, 'list_tasks', {}, H1);
+  const line1 = (f1.json?.forYou ?? []).filter(l => /^Orders changed/.test(l));
+  check('3: the other session hears of it once, naming layer, version and the note to read', line1.length === 1 && line1[0] === `Orders changed: organisation v7 (read_note ${org})`, JSON.stringify(f1.json?.forYou));
+  const f2 = await mcpH(kCode, 'list_tasks', {}, H1);
+  check('3: …and not a second time', !(f2.json?.forYou ?? []).some(l => /^Orders changed/.test(l)), JSON.stringify(f2.json?.forYou));
+  const fW = await mcpH(MCP, 'list_tasks', {}, HW);
+  check('3: the session that made the change is not told of it', !(fW.json?.forYou ?? []).some(l => /^Orders changed/.test(l)), JSON.stringify(fW.json?.forYou));
+  check('3: the forYou line carries no rule text (ids and the page only)', !/sharper|Rule one/.test(JSON.stringify(f1.json?.forYou)));
+  const S3 = await must(kCode, 'start_work', { project: 'H9 One', label: 'H9 · new' });
+  check('3: a new session\'s brief lists it first, with the session label and why', S3.ordersChanged?.[0]?.version === 7 && S3.ordersChanged[0].session === 'H9 · lead' && S3.ordersChanged[0].why === 'H9 test: for the others' && S3.ordersChanged[0].removed[0] === 'Rule one.' && S3.ordersChanged[0].added[0] === 'Rule one, sharper.', JSON.stringify(S3.ordersChanged?.[0]));
+  const W2 = await must(MCP, 'start_work', { project: 'H9 One', label: 'H9 · lead', session: W.session });
+  check('3: the session that made the change is not shown its own change again', !(W2.ordersChanged ?? []).some(c => c.version === 7), JSON.stringify(W2.ordersChanged?.map(c => c.version)));
+  // A teammate is steered by the organization Orders too: it hears and reads the change, never the holder's person layer.
+  const TS = await must(kTess, 'start_work', { project: 'H9 One', label: 'Tess · session' });
+  check('3: a teammate\'s brief carries the organization version and the change (not the holder\'s person Orders)', TS.orders.some(o => o.layer === 'organisation' && o.version === 7) && TS.ordersChanged?.some(c => c.version === 7 && c.layer === 'organisation') && !TS.orders.some(o => o.layer === 'person') && !JSON.stringify(TS).includes('My second rule') && !/ordersLog|"before"/.test(JSON.stringify(TS)), JSON.stringify(TS.ordersVersion));
 } catch (e) {
   check('suite ran without throwing', false, e?.stack || String(e));
 }

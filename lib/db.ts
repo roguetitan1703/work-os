@@ -384,7 +384,9 @@ export type PresenceDoc = Placed & {
   /** The state the Claude Code hook last reported (POST /api/agent/event; the server decides it from the event). Absent for sessions with no hook token. */
   activity?: { state: PresenceState; at: Date; why?: 'prompt' };
   /** What the server last offered this session's hook to print (lib/data/deliver.ts): kept until the hook acknowledges it (`ack`) or the lease runs out. */
-  offered?: { ids: string[]; needs: string[]; mode: 'turn' | 'stop' | 'wake'; chain: number; at: Date; first: Date; tries: number };
+  offered?: { ids: string[]; needs: string[]; /** Orders versions offered as `ord:<noteId>:<v>`. */ orders?: string[]; mode: 'turn' | 'stop' | 'wake'; chain: number; at: Date; first: Date; tries: number; /** The text of the organization Orders short form, when the offer carried one. */ short?: boolean };
+  /** The Orders version of each page this session was last told (start_work, an acknowledged delivery), by note id. */
+  ordersSeen?: Record<string, number>;
   /** Wake chain (lib/data/deliver.ts): the chain of the message that woke this session's current turn; -1 after a person's prompt. A message it sends carries this plus 1. */
   turnChain?: number;
   /** When the server last handed this session a wake (a message or an answered Need pushed to it while idle). */

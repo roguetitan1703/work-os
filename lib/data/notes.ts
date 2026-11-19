@@ -459,7 +459,8 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     }
     // An Orders page keeps a version of every change of its text, in the same update as the text (lib/data/orders.ts).
     const sess = w.session ?? (actor.kind === 'agent' ? requestContext().sid : undefined);
-    const ver = cur.orders && set.body !== undefined ? planVersion(cur, set.body, actor, { why: w.why, session: sess, label: w.label, need: w.need, undoOf: w.undoOf }, now) : null;
+    const lbl = w.label ?? (cur.orders && sess && actor.kind === 'agent' ? (await c.presence.findOne({ userId: actor.userId, session: sess }, { projection: { label: 1 } }))?.label : undefined);
+    const ver = cur.orders && set.body !== undefined ? planVersion(cur, set.body, actor, { why: w.why, session: sess, label: lbl, need: w.need, undoOf: w.undoOf }, now) : null;
     if (ver) {
       const r = await c.notes.updateOne({ _id: cur._id, updatedAt: cur.updatedAt }, { $set: { ...set, ...ver.set }, ...(ver.push ? { $push: ver.push } : {}) } as never);
       if (!r.matchedCount) throw new NoteConflictError();

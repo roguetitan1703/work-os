@@ -251,3 +251,9 @@ export async function endPresence(s: Scope, row: PresenceDoc): Promise<void> {
   await (await scoped(s)).presence.updateOne({ _id: row._id }, { $unset: { doing: '' }, $set: { endedAt: new Date() } });
   for (const k of [...none.keys()]) if (k.startsWith(`${row.userId}|`)) none.delete(k);
 }
+
+/** The session was told these Orders versions (start_work, an acknowledged delivery): later changes reach it as news. */
+export async function setOrdersSeen(s: Scope, rowId: string, seen: Record<string, number>): Promise<void> {
+  const set = Object.fromEntries(Object.entries(seen).map(([id, v]) => [`ordersSeen.${id}`, v]));
+  if (Object.keys(set).length) await (await scoped(s)).presence.updateOne({ _id: rowId, userId: s.userId }, { $set: set });
+}
