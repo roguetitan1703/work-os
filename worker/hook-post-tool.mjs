@@ -8,12 +8,13 @@ import os from 'node:os';
 import { answerOf, copyState, markSaved, stateMarkdown } from './hook-copy.mjs';
 import { git, mcpCall, postAgent, readKept, readMarker, repoFacts, writeMarker } from './hook-lib.mjs';
 
-/** The copy (WORK-STATE.md text) of `project` from the server, or null. */
+/** The copy (WORK-STATE.md text) of `project` from the server, and whether this session commits it (Lanes step 6: the server says so, absent means yes), or null. */
 async function fetchCopy(input, cwd, project, saving) {
   const sid = input.session_id;
   const marker = sid ? readMarker(sid) : null;
   if (!marker?.project || marker.project !== project) return null; // only this repo's project
   let md = null;
+  let commit = true;
   try {
     if (process.env.WORK_OS_KEY) {
       const text = await mcpCall('get_state', { project, copy: true });
@@ -24,9 +25,10 @@ async function fetchCopy(input, cwd, project, saving) {
       const where = saving ? { machine: os.hostname().slice(0, 40), branch: git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).slice(0, 120), ...repoFacts(cwd) } : null;
       const r = await postAgent('/api/agent/state', token, where ? { where } : {});
       md = r?.status === 200 ? r.b?.markdown : null;
+      if (r?.status === 200 && r.b?.commit === false) commit = false;
     }
   } catch { return null; }
-  return typeof md === 'string' && stateMarkdown(JSON.stringify({ markdown: md })) ? md : null;
+  return typeof md === 'string' && stateMarkdown(JSON.stringify({ markdown: md })) ? { md, commit } : null;
 }
 
 /** PostToolUse on save_state / import_state / get_state / end_work: write WORK-STATE.md and commit that file alone. */
@@ -56,8 +58,13 @@ export async function postTool(input) {
   const marked = saved || (saving && !!stateMarkdown(input.tool_response));
   try {
     let md = stateMarkdown(input.tool_response);
-    if (!md && ans && (saving || reading) && !ans.error && typeof ans.project === 'string') md = await fetchCopy(input, cwd, ans.project, saving);
-    return copyState(input, cwd, md);
+    let commit = true;
+    if (!md && ans && (saving || reading) && !ans.error && typeof ans.project === 'string') {
+      const got = await fetchCopy(input, cwd, ans.project, saving);
+      md = got ? got.md : null;
+      commit = got ? got.commit : true;
+    }
+    return copyState(input, cwd, md, commit);
   } finally { if (marked) markSaved(input, cwd); }
 }
 

@@ -65,7 +65,7 @@ function whereOf(cwd) {
 /** The marker of a session whose brief was shown: the baseline, project, production block and presence. */
 function briefMarker(sid, input, cwd, old, r, reports, dispatched) {
   const transcript = typeof input.transcript_path === 'string' && input.transcript_path ? input.transcript_path : old?.transcript;
-  writeMarker(sid, { ...(old?.promptAt ? { promptAt: old.promptAt } : {}), ...(transcript ? { transcript, ident: identityKey(identityOf(transcript)) } : {}), ...(dispatched ?? old?.dispatched ? { dispatched: dispatched ?? old.dispatched } : {}), status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(Array.isArray(r.orders) ? { orders: r.orders.map((o) => o && o.noteId).filter((i) => typeof i === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(i)).slice(0, 10) } : old?.orders ? { orders: old.orders } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
+  writeMarker(sid, { ...(old?.promptAt ? { promptAt: old.promptAt } : {}), ...(transcript ? { transcript, ident: identityKey(identityOf(transcript)) } : {}), ...(dispatched ?? old?.dispatched ? { dispatched: dispatched ?? old.dispatched } : {}), status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(Array.isArray(r.orders) ? { orders: r.orders.map((o) => o && o.noteId).filter((i) => typeof i === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(i)).slice(0, 10) } : old?.orders ? { orders: old.orders } : {}), ...(sameFolderText(r.sameFolder) ? { sameFolder: sameFolderText(r.sameFolder) } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
 }
 
 /**
@@ -163,6 +163,14 @@ export async function refile(input, timeoutMs = 2000) {
   return { filed: k.project.name };
 }
 
+/** Lanes step 6: the same-folder warning for a brief's sameFolder ({ label, state, more? }), or ''. Labels are the caller's own sessions'; others only as a count. */
+export function sameFolderText(sf) {
+  if (!sf || typeof sf !== 'object') return '';
+  const state = ['on', 'working', 'waiting', 'idle'].includes(sf.state) ? sf.state : 'on';
+  const more = Number.isInteger(sf.more) && sf.more > 0 ? ` and ${sf.more} more` : '';
+  return `Another session works in this folder: "${cut(str(sf.label) || 'another session', 60)}" (${state})${more}. Commits and the WORK-STATE.md copy collide; use a worktree.`;
+}
+
 /** The start_work answer as plain text, most important first; whole sections are added while they fit MAX_BRIEF. */
 export function formatBrief(r) {
   const head = [
@@ -178,6 +186,9 @@ export function formatBrief(r) {
     sections.push(`## Handover (note ${h.id}, from ${cut(h.from || 'a session', 60)}${time ? `, ${time}` : ''}${h.writtenBy ? `, writtenBy ${cut(h.writtenBy, 40)}` : ''})\n${str(h.markdown).trim()}`);
   }
   if (Array.isArray(r.moreHandovers) && r.moreHandovers.length) sections.push(`## More handovers\n${r.moreHandovers.slice(0, 5).map(m => `- ${cut(m, 160)}`).join('\n')}\nRead one with read_note.`);
+  const same = sameFolderText(r.sameFolder);
+  if (same) sections.push(`## Same folder
+${same}`);
   const orders = Array.isArray(r.orders) ? r.orders : [];
   sections.push(orders.length
     ? orders.map(o => `## Orders (${o.layer}: ${o.title}${Number.isInteger(o.version) ? `, v${o.version}` : ''}${o.writtenBy ? `, writtenBy ${o.writtenBy}` : ''})\n${str(o.text).trim()}`).join('\n\n')

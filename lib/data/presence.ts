@@ -1,6 +1,7 @@
 import 'server-only';
 import type { PresenceDoc, PresenceState, ProjectDoc } from '../db';
-import { eventState, type EventKind, type EventName } from './presence-state';
+import { createHash } from 'node:crypto';
+import { eventState, presenceState, type EventKind, type EventName } from './presence-state';
 import { scoped, type Scope } from '../scope';
 import { placeIn } from './projects';
 
@@ -361,4 +362,53 @@ export async function setOrdersSeen(s: Scope, rowId: string, seen: Record<string
   await (await scoped(s)).presence.updateOne({ _id: rowId, userId: s.userId }, { $set: set });
   const { markOrdersDelivered } = await import('./orders');
   for (const [id, v] of Object.entries(seen)) await markOrdersDelivered(s, id, v);
+}
+
+/** Lanes step 6: the key of the checkout a session works in: sha1(machine + normalised path). Never the path itself, which is not kept. Null without a path. */
+export function folderKeyOf(machine: string, path: string | undefined | null): string | null {
+  const p = (path ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  if (!p || !machine) return null;
+  return createHash('sha1').update(`${machine}\n${p}`).digest('hex');
+}
+
+/** Stores the folder key on the token's own row (the hook's start, after the row exists). Never creates a row. */
+export async function setFolderKey(s: Scope, r: { sid: string; projectId: string | null }, key: string | null): Promise<void> {
+  if (!key) return;
+  await (await scoped(s)).presence.updateOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { $set: { folderKey: key } });
+}
+
+/** Live (not off) rows of a project that work in this folder, oldest first; the session's own row is left out when `exceptId` is given. */
+export async function folderRows(s: Scope, projectId: string, key: string, exceptId?: string): Promise<PresenceDoc[]> {
+  const now = Date.now();
+  const rows = await (await scoped(s)).presence.find({ projectId, folderKey: key, endedAt: { $exists: false }, ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).sort({ createdAt: 1 }).limit(30).toArray();
+  return rows.filter(r => presenceState(r, { now }).state !== 'off');
+}
+
+/**
+ * The same-folder warning for the start brief: the caller's own other live sessions in this folder by label and state, and a count of
+ * anyone else's (no label, no person). Null when the folder holds nobody else.
+ */
+export async function sameFolderOf(s: Scope, projectId: string, key: string | null, exceptId: string): Promise<{ label: string; state: PresenceState; more?: number } | null> {
+  if (!key) return null;
+  const rows = await folderRows(s, projectId, key, exceptId);
+  if (!rows.length) return null;
+  const mine = rows.filter(r => r.userId === s.userId);
+  const first = mine[0];
+  const others = rows.length - (first ? 1 : 0);
+  const label = first ? cleanLabel(first.label) || 'unnamed session' : 'another session';
+  return { label, state: presenceState(first ?? rows[0], { now: Date.now() }).state, ...(others > 0 ? { more: others } : {}) };
+}
+
+/**
+ * Whether this session's hook commits WORK-STATE.md: the Now holder's session; else, when no live session of this folder holds Now,
+ * the oldest live row of the folder. A row with no folder key is alone as far as the server knows: it commits.
+ */
+export async function commitFlag(s: Scope, projectId: string, row: PresenceDoc | null, holder: string | undefined, holdsNow: boolean): Promise<boolean> {
+  if (holdsNow) return true;
+  if (!row?.folderKey) return true;
+  const rows = await folderRows(s, projectId, row.folderKey);
+  if (holder && rows.some(r => rowKey(r) === holder && r._id !== row._id)) return false;
+  const all = rows.some(r => r._id === row._id) ? rows : [...rows, row].sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
+  const oldest = all.find(r => r.userId === s.userId) ?? all[0];
+  return oldest._id === row._id;
 }

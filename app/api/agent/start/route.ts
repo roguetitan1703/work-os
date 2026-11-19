@@ -6,6 +6,7 @@ import { roleOf } from '@/lib/caller';
 import { reserveAgent } from '@/lib/mcp/policy';
 import { registerUnfiledSession, startWorkBrief } from '@/lib/mcp/server';
 import { linkedFolderProject } from '@/lib/data/launcher';
+import { folderKeyOf, hookRowId, sameFolderOf, setFolderKey } from '@/lib/data/presence';
 import { quietFolder } from '@/lib/data/quiet-folders';
 import { setWhere } from '@/lib/data/states';
 import { hookHeader, runWithRequestContext } from '@/lib/request-context';
@@ -178,7 +179,11 @@ export async function POST(req: Request): Promise<Response> {
       if (b.head || b.dirty !== undefined || b.worktrees || b.branch) await setWhere(s, projectId, b.machine || device.name, { branch: b.branch, head: b.head, dirty: b.dirty, worktrees: b.worktrees });
       // Hook protocol: the X-Work-OS-Hook header; a start without it is the old hook (1, still gets the copy in answers).
       const brief = await startWorkBrief(ctx, projectId, session.id, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, ...(dispatched ? { dispatched } : {}) });
-      return reply(200, { brief, ...(dispatched ? { dispatched: dispatched.ref } : {}), ...(token ? { token } : {}), expiresAt: session.expiresAt.toISOString() });
+      // Lanes step 6: the folder's key (sha1 of the computer and the path, never the path) goes on the row; another live session in it is the brief's sameFolder.
+      const fk = folderKeyOf(device.id, b.path);
+      await setFolderKey(s, { sid: session.id, projectId }, fk);
+      const sameFolder = await sameFolderOf(s, projectId, fk, hookRowId(s.userId, session.id, projectId));
+      return reply(200, { brief: sameFolder ? { ...brief, sameFolder } : brief, ...(dispatched ? { dispatched: dispatched.ref } : {}), ...(token ? { token } : {}), expiresAt: session.expiresAt.toISOString() });
     });
   } catch (err) {
     if (err instanceof InputError || err instanceof NotFoundError) return reply(400, { error: err.message });
