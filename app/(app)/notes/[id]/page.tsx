@@ -5,7 +5,9 @@ import { getNote, getNoteWithBlocks } from '@/lib/data/notes';
 import { fmtAgo } from '@/lib/format';
 import { getCaller, requireScope } from '@/lib/caller';
 import { scoped } from '@/lib/scope';
+import { ORG_RULE_LINES, ordersHistory, ruleLines } from '@/lib/data/orders';
 import { OrdersSwitch } from './orders-switch';
+import { OrdersChanges } from './orders-changes';
 import { ActorName } from '@/components/actor-badge';
 import { NoteEditor } from './note-editor';
 import { MobileBack } from '@/components/mobile/sub-header';
@@ -32,6 +34,9 @@ export default async function NotePage({ params, searchParams }: Props) {
     if (proj && proj.ownerId === me.userId) ordersOptions.push('project');
     if (me.role === 'owner') ordersOptions.push('org');
   }
+  // An Orders page: its version, how many rule lines it holds, and its changes (readers of the page; the holder may undo).
+  const history = note.orders ? await ordersHistory(await requireScope(), note.id) : null;
+  const ruleCount = note.orders ? ruleLines(note.body).length : 0;
   // Back rule: where you came from, else the note's project (a task note: its task; a sub-page: its parent).
   const parent = note.parentId
     ? { href: `/notes/${note.parentId}`, label: note.parentTitle ?? 'Parent' }
@@ -64,13 +69,24 @@ export default async function NotePage({ params, searchParams }: Props) {
         </span>
         {note.archived && <span className="px-1.5 py-px rounded bg-muted">Archived · {note.archivedBecause}</span>}
         {(ordersOptions.length > 0 || note.orders) && <OrdersSwitch noteId={note.id} current={note.orders ?? null} options={ordersOptions} updatedAt={new Date(note.updatedAt).getTime()} />}
+        {history && (
+          <span
+            className={`px-1.5 py-px rounded ${note.orders === 'org' && ruleCount > ORG_RULE_LINES ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : 'bg-muted'}`}
+            title={note.orders === 'org' ? `The organization Orders hold ${ORG_RULE_LINES} rule lines at most for Claude (you may go over in the app)` : 'Version of this Orders page'}
+            data-orders-version={history.version}
+          >
+            v{history.version}
+            {note.orders === 'org' ? ` · ${ruleCount}/${ORG_RULE_LINES} lines` : ''}
+          </span>
+        )}
       </div>
       <NoteEditor
-        key={note.id}
+        key={`${note.id}:${history?.version ?? 0}`}
         note={{ id: note.id, title: note.title, updatedAt: note.updatedAt, isTaskNote: !!note.taskId, ownArchived: note.archivedBecause === 'archived', parentId: note.parentId }}
         blocks={blocks}
         focusTitle={sp.new === '1' || sp.edit === '1'}
       />
+      {history && <OrdersChanges history={history} />}
     </div>
   );
 }

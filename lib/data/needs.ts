@@ -53,6 +53,8 @@ export type Need = {
   /** A review Need: what was handed in, and (once answered with "file what is left") the numbers of the tasks made. */
   result?: HandInResult;
   filed?: number[];
+  /** A proposed change of Orders: which page, and (once answered) the version Accept made or why it could not be applied. */
+  order?: { noteId: string; layer: 'org' | 'project'; applied?: { v: number } | { error: string } };
   /** A release Need (H8): Yes or Yes for 24 hours opens production on the project until releaseUntil. */
   release?: true;
   releaseUntil?: string;
@@ -81,6 +83,7 @@ export function toNeed(d: NeedDoc): Need {
     waitedMs: d.waitedMs ?? null,
     ...(d.result ? { result: d.result } : {}),
     ...(d.filed ? { filed: d.filed } : {}),
+    ...(d.order ? { order: { noteId: d.order.noteId, layer: d.order.layer, ...(d.order.applied ? { applied: d.order.applied } : {}) } } : {}),
     ...(d.release ? { release: true as const } : {}),
     ...(d.releaseUntil ? { releaseUntil: d.releaseUntil.toISOString() } : {}),
     ...(d.declutter ? { declutter: d.declutter } : {}),
@@ -186,6 +189,10 @@ export type AskInput = {
   options?: { id?: string; label: string; means?: string }[];
   task?: string | number;
   appOnly?: boolean;
+  /** A proposed change of Orders (propose_order only): stored as given; Accept applies it (lib/data/orders.ts applyOrderAnswer). */
+  order?: NeedDoc['order'];
+  /** No alert for this Need: it waits on the Needs page (rule proposals; the Monday digest lists them). */
+  noAlert?: boolean;
   /** A release Need: kind approve, to the project's owner, fixed options, app only. */
   release?: boolean;
   /** A declutter Need (lib/data/declutter.ts askDeclutter): kind approve, to the project's owner, fixed options, no alert; replaces the project's open one. */
@@ -293,6 +300,8 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
       createdAt: now,
       answeredAt: null,
       ...(quiet ? { alertedAt: new Date(lastAlert) } : { alertedAt: now }),
+      ...(input.order ? { order: input.order } : {}),
+      ...(input.noAlert ? { noAlert: true } : {}),
     };
     await c.needs.insertOne(doc);
     if (replaced.length) await (input.declutter ? org : c).needs.updateMany({ _id: { $in: [...replacedIds] }, status: 'open' }, { $set: { status: 'replaced', closedAt: now, replacedBy: id } });
@@ -303,7 +312,7 @@ export async function askNeed(s: Scope, input: AskInput): Promise<{ need: Need; 
       await c.states.updateOne({ _id: project._id }, { $set: { 'declutter.needId': id, 'declutter.needRef': doc.ref } } as never);
     }
     // One alert per Need, sent at once (like "assigned"): to the addressee, even when they asked themselves through their own agent.
-    if (!quiet && !input.declutter) {
+    if (!quiet && !input.noAlert && !input.declutter) {
       await (await orgWide(s.orgId)).alertQueue.updateOne(
         { _id: `need:${id}` },
         { $setOnInsert: { userId: input.to, kind: 'need', taskId: task?._id ?? '', byTaskId: '', needId: id, createdAt: now, sentAt: null } },
@@ -465,6 +474,13 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
   if (answered.declutter) {
     const { applyAnswer } = await import('./declutter-apply');
     answered = await applyAnswer(s, answered, answer.option === 'yes');
+  }
+  // A proposed change of Orders is applied by the Accept, as the holder, after the answer is saved (a failed apply never loses the answer).
+  if (answered.order && answer.option === 'accept') {
+    const { applyOrderAnswer } = await import('./orders');
+    await applyOrderAnswer(s, answered.id);
+    const fresh = await getNeed(s, answered.id);
+    if (fresh) Object.assign(answered, { order: fresh.order });
   }
   // The session that asked is usually waiting on exactly this: tell it, if it sits idle waiting for a message (lib/data/deliver.ts).
   if (answered.from.session && 'userId' in answered.from.actor) signalSessions(s.orgId, [`${answered.from.actor.userId}:${answered.from.session}`]);

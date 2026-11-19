@@ -12,7 +12,7 @@ const m = await import('../hooks-install.mjs');
 const awaitedChildProcess = await import('node:child_process');
 const settings = () => JSON.parse(fs.readFileSync(process.env.CLAUDE_SETTINGS_PATH, 'utf8'));
 
-test('install copies the hook, merges eight events (nine entries), keeps other settings and hooks, and is safe to rerun', () => {
+test('install copies the hook, merges nine events (ten entries), keeps other settings and hooks, and is safe to rerun', () => {
   fs.mkdirSync(path.dirname(process.env.CLAUDE_SETTINGS_PATH), { recursive: true });
   const other = { type: 'command', command: 'node other.mjs' };
   fs.writeFileSync(process.env.CLAUDE_SETTINGS_PATH, JSON.stringify({ model: 'opus', env: { A: '1' }, hooks: { Stop: [{ hooks: [other] }] } }));
@@ -31,7 +31,7 @@ test('install copies the hook, merges eight events (nine entries), keeps other s
   let s = settings();
   assert.equal(s.model, 'opus');
   assert.deepEqual(s.env, { A: '1' });
-  assert.deepEqual(Object.keys(s.hooks).sort(), ['Notification', 'PostToolBatch', 'PostToolUse', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'UserPromptSubmit']);
+  assert.deepEqual(Object.keys(s.hooks).sort(), ['Notification', 'PostToolBatch', 'PostToolUse', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'SubagentStart', 'UserPromptSubmit']);
   assert.equal(s.hooks.UserPromptSubmit[0].hooks[0].async, undefined, 'the prompt hook is awaited: a message waiting for the session goes into its context');
   assert.equal(s.hooks.UserPromptSubmit[0].hooks[0].timeout, 3);
   assert.equal(s.hooks.PostToolBatch[0].hooks[0].timeout, 3);
@@ -55,7 +55,7 @@ test('install copies the hook, merges eight events (nine entries), keeps other s
   s = settings();
   assert.equal(s.hooks.Stop.length, 3, 'rerun replaces its own entries, no duplicates');
   assert.equal(s.hooks.SessionStart.length, 2);
-  assert.deepEqual(m.status().events.sort(), ['Notification', 'PostToolBatch', 'PostToolUse', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'UserPromptSubmit']);
+  assert.deepEqual(m.status().events.sort(), ['Notification', 'PostToolBatch', 'PostToolUse', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'SubagentStart', 'UserPromptSubmit']);
   assert.ok(fs.readdirSync(path.dirname(process.env.CLAUDE_SETTINGS_PATH)).some((f) => f.startsWith('settings.json.bak-')), 'a backup is kept');
 });
 
@@ -82,7 +82,7 @@ test('install copies every FILES entry, removes a stray hook-*.mjs, and writes t
   assert.ok(fs.existsSync(path.join(hooksOf(dir), 'notes.txt')));
 });
 
-test('the entries equal the strings older workers wrote, except the PostToolUse matcher that now also lists end_work (H5) the session-state rows (H6) and the message rows (H7: PostToolBatch, the idle wait)', () => {
+test('the entries equal the strings older workers wrote, except the PostToolUse matcher that now also lists end_work (H5) the session-state rows (H6) and the message rows (H7: PostToolBatch, the idle wait) and the subagent row (H9: SubagentStart)', () => {
   const h = 'C:/Users/x/AppData/Roaming/work-os-worker/hooks/hook.mjs';
   const c = (e, t) => ({ type: 'command', command: `node "${h}" ${e}`, timeout: t });
   const old = {
@@ -91,7 +91,9 @@ test('the entries equal the strings older workers wrote, except the PostToolUse 
     PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', hooks: [c('pre-tool', 5)] }],
     PostToolUse: [{ matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', hooks: [c('post-tool', 20)] }],
   };
-  assert.deepEqual(m.entries(h, '', { cloud: true }), old, 'a repo gets the four cloud entries only');
+  // H9: the subagent row reads only the session's marker (no network), so a repo's cloud entries have it too.
+  const sub = { SubagentStart: [{ hooks: [c('subagent-start', 2)] }] };
+  assert.deepEqual(m.entries(h, '', { cloud: true }), { ...old, ...sub }, 'a repo gets the four cloud entries and the subagent one only');
   const rewake = (e) => ({ ...c(e, 3600), asyncRewake: true });
   assert.deepEqual(m.entries(h), {
     ...old,
@@ -101,6 +103,7 @@ test('the entries equal the strings older workers wrote, except the PostToolUse 
     PostToolBatch: [{ hooks: [c('tool-batch', 3)] }],
     Notification: [{ matcher: 'permission_prompt|idle_prompt|elicitation_dialog', hooks: [{ ...c('notification', 3), async: true }] }],
     SessionEnd: [{ hooks: [c('session-end', 2)] }],
+    ...sub,
   });
 });
 
@@ -147,7 +150,7 @@ test('a second worker folder does not take over the global hooks, and its refres
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-test('hooks repo: files under .claude/work-os, four cloud entries, other settings kept, safe to rerun', () => {
+test('hooks repo: files under .claude/work-os, five cloud entries (the four and the subagent one), other settings kept, safe to rerun', () => {
   const { execFileSync } = awaitedChildProcess;
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-hooks-repo-'));
   try {
@@ -161,7 +164,7 @@ test('hooks repo: files under .claude/work-os, four cloud entries, other setting
     const first = fs.readFileSync(r.settings, 'utf8');
     let s = read();
     assert.deepEqual(s.permissions, { allow: ['Bash(ls)'] }, 'permissions untouched');
-    assert.deepEqual(Object.keys(s.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'Stop']);
+    assert.deepEqual(Object.keys(s.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'Stop', 'SubagentStart']);
     assert.equal(s.hooks.Stop.length, 2);
     assert.equal(s.hooks.SessionStart[0].hooks[0].command, 'node "$CLAUDE_PROJECT_DIR/.claude/work-os/hook.mjs" session-start --cloud --server \"https://work.example\"');
     assert.equal(s.hooks.PostToolUse[0].hooks[0].timeout, 20);
@@ -187,7 +190,7 @@ test('a worker folder not named work-os-worker: two installs leave no duplicates
     const s = JSON.parse(fs.readFileSync(process.env.CLAUDE_SETTINGS_PATH, 'utf8'));
     assert.equal(s.hooks.Stop.length, 2, 'the stop check and the idle wait');
     assert.equal(s.hooks.SessionStart.length, 2, 'the brief and the idle wait');
-    assert.equal(m.status().events.length, 8);
+    assert.equal(m.status().events.length, 9);
     assert.equal(m.refreshIfStale(), null);
     assert.equal(m.remove(), true);
     assert.equal(m.status().events.length, 0);
@@ -220,5 +223,5 @@ test('H8: the production blocks ship with the hooks (hook-release.mjs and remote
   const { EVENTS } = await import('../hook-lib.mjs');
   assert.equal(EVENTS.filter(r => r.event === 'pre-tool').length, 1);
   assert.match(EVENTS.find(r => r.event === 'pre-tool').matcher, /Bash\|PowerShell/, 'the one pre-tool row already covers Bash and PowerShell');
-  assert.equal(EVENTS.length, 10, 'H8 adds no event row');
+  assert.equal(EVENTS.length, 11, 'H8 adds no event row (ten, plus H9 subagent-start)');
 });

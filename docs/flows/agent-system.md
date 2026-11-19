@@ -44,7 +44,7 @@ daily without friction.
 | Document | Holds | Written by | Never holds |
 |---|---|---|---|
 | Global CLAUDE.md (per PC) | Bootstrap (start_work, follow the Orders) and facts about this PC | The PC's owner | How to work, status |
-| Orders: org / project / person | How agents work. Rule ids, at most 40 lines for org, versioned | Om / the owner, in the app; agents propose with propose_order | Status, PC facts |
+| Orders: org / project / person | How agents work. Rule ids, at most 40 lines for org, versioned | The holder in the app; the holder's own Claude with write_note (a version, with why); a teammate's Claude proposes with propose_order | Status, PC facts |
 | State (Now, Next, Later, Decisions, Where) | Where the project stands | Agents (save_state / edit_state), people in the app | Rules, how-tos, history |
 | Tasks | Deliverables a person tracks: owner, due date, review | People and agents | A copy of every Next line |
 | Needs | One question for one person | Agents (ask) | Status |
@@ -119,8 +119,9 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
   as a single Need. On yes it applies it. **Triggered by growth** (Om): start_work and wrap_up say "Declutter due" when
   Later passes 25, Next passes 10, a line sits for 14 days, or notes duplicate. Also on demand from the app (project ⋯).
   *Built in H11:* `declutter {project, ask?}`; lines untouched 14 days (never one that waits on someone), notes duplicated by title or untouched 30 days; see docs/HANDOVER.md section 3 (Declutter).
-- **propose_order** {line, replaces?, why, incident}: a Need for Om with the old and new line; Accept applies it.
-  Repeats of a correction are counted.
+- **propose_order** {project, layer (org or project), old?, new, why, incident?, repeat?}: for a teammate's Claude. A Need for
+  the holder (Om for the org layer, the project owner for a project) with the old and new line and no phone alert;
+  Accept applies it as one version. The holder's own Claude uses write_note instead. **Built in H9** (section 16.15).
 - **feedback** {text, rule?}: "this got in my way", attached to the project with tool names and refusal codes. *Built in H10:* `feedback {project, text, tool?, rule?}`; refusal codes are the server's own `tool:kind` list; see docs/HANDOVER.md (feedback, H10).
 - **who** {project?}: live sessions (name, machine, tool, state, task).
 - Check in stays start_work.
@@ -157,8 +158,9 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
 
 ## 10. Rules and enforcement
 - **Orders are the one rulebook.** Org rules have ids and at most 40 lines (one in, one out). Each carries its date and
-  incident. Orders have a version: a change shows in forYou and the hook re-injects it, so open sessions don't keep the
-  old rule.
+  incident. Orders have a version (the last 20 kept, undo in the app): a change shows in forYou and
+  is delivered into an open session at its next turn (H7 delivery), so sessions don't keep the old rule. The holder's own
+  Claude may change the text itself (H9; this replaces "set in the app only").
 - **Three blocks only,** exact and irreversible (four of seven sessions asked for them):
   1. Push, tag or release to production without an answered Need.
   2. A production-linked CLI not aimed at the test target (vercel env, supabase secrets, `--prod`).
@@ -276,6 +278,14 @@ Each piece ships through dev, a full test run, then master. Security review befo
     **H2 built (19 Nov):** hook.mjs split into a router and one file per event (`EVENTS` table), atomic install, `hooks check`
     and `hooks repo` (cloud), the worker reports its hooks (Computers shows hooks on / out of date / none), Link them for a
     computer's matching folders; see docs/HANDOVER.md "Claude Code hooks" and docs/setup-pc.md.
+
+15. **Orders versions and edits (H9, 19 Nov; overrides the app-only rule in sections 5 and 10 and the Orders row in section 3).**
+    The holder of a layer, and that person's own Claude (write_note, text and title only, `why` required), may change the
+    Orders; Discord, a teammate's keys, archive, sub-pages, trash and restore stay refused or in the app. Every change is a
+    version (last 20; person autosaves within 10 minutes fold); undo is the holder's, in the app. A teammate's Claude uses
+    propose_order (a Need, no alert, Accept applies it as the holder). The brief, forYou and the turn delivery carry
+    changes; a subagent gets the short form from the SubagentStart hook. **H9 built (19 Nov):** see docs/HANDOVER.md
+    section 3, Orders.
 
 ## 17. The dispatcher (fleet plan of 14 Nov, task #259 and note 71d785b03c, folded in here)
 - **What it is:** a session with role `dispatcher` that takes tasks marked "Give to Claude" and runs one worker per

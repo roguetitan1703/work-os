@@ -211,6 +211,11 @@ export type NeedDoc = Placed & {
   noAlert?: boolean;
   /** A review Need made because an agent wanted to drop or archive the task: what Accept then does (default: close it as Done). */
   closing?: 'Dropped' | 'archived';
+  /**
+   * A proposed change of Orders (propose_order, lib/data/orders.ts proposeOrder): Accept writes `new` over `old` (or appends it)
+   * as the holder, one version, once. `applied` is set by the Accept: the version it made, or why it could not.
+   */
+  order?: { noteId: string; layer: 'org' | 'project'; base: number; old?: string; new: string; why: string; incident?: string; repeat?: boolean; applied?: { v: number } | { error: string } };
   /** A release Need (an approve Need made with release: true): Yes or Yes for 24 hours opens production on the project until releaseUntil. */
   release?: true;
   releaseUntil?: Date;
@@ -245,6 +250,10 @@ export type NoteDoc = Placed & {
   orders?: 'org' | 'project' | 'person';
   /** Who set the Orders flag (the holder of the layer). A person-layer note is served only when this equals its owner and the reader. */
   ordersBy?: string;
+  /** Version of an Orders page (lib/data/orders.ts); absent reads as 1: the text found at the time versions began is the base. */
+  ordersV?: number;
+  /** Earlier versions of an Orders page, newest last, at most 20. Never read by list or search reads, never output raw. */
+  ordersLog?: OrdersVersion[];
   taskId: string | null; // task note (at most one live per task)
   projectId: string | null; // project note (when taskId is null)
   archived: boolean;
@@ -256,6 +265,28 @@ export type NoteDoc = Placed & {
   updatedAt: Date;
   deletedAt: Date | null;
   deletedBy?: Actor;
+};
+
+/**
+ * One change of an Orders page: v is the version it made, `before` the whole text it replaced (for undo), removed and
+ * added the changed rule lines (for readers). A person's autosaves within ten minutes fold into one entry.
+ */
+export type OrdersVersion = {
+  v: number;
+  at: Date;
+  by: Actor;
+  session?: string;
+  label?: string;
+  why?: string;
+  before: string;
+  removed: string[];
+  added: string[];
+  /** The Need whose Accept made this version. */
+  need?: number;
+  /** This version undid version N. */
+  undoOf?: number;
+  /** A session was told of this version (brief, delivery or its ack): a later autosave starts the next version instead of folding into it. */
+  delivered?: boolean;
 };
 
 /** What a session leaves when it stops (end_work): the fields the writer gave, each capped (lib/data/handovers.ts). */
@@ -381,7 +412,9 @@ export type PresenceDoc = Placed & {
   /** The state the Claude Code hook last reported (POST /api/agent/event; the server decides it from the event). Absent for sessions with no hook token. */
   activity?: { state: PresenceState; at: Date; why?: 'prompt' };
   /** What the server last offered this session's hook to print (lib/data/deliver.ts): kept until the hook acknowledges it (`ack`) or the lease runs out. */
-  offered?: { ids: string[]; needs: string[]; mode: 'turn' | 'stop' | 'wake'; chain: number; at: Date; first: Date; tries: number };
+  offered?: { ids: string[]; needs: string[]; /** Orders versions offered as `ord:<noteId>:<v>`. */ orders?: string[]; mode: 'turn' | 'stop' | 'wake'; chain: number; at: Date; first: Date; tries: number; /** The text of the organization Orders short form, when the offer carried one. */ short?: boolean };
+  /** The Orders version of each page this session was last told (start_work, an acknowledged delivery), by note id. */
+  ordersSeen?: Record<string, number>;
   /** Wake chain (lib/data/deliver.ts): the chain of the message that woke this session's current turn; -1 after a person's prompt. A message it sends carries this plus 1. */
   turnChain?: number;
   /** When the server last handed this session a wake (a message or an answered Need pushed to it while idle). */
