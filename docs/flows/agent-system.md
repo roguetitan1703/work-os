@@ -207,7 +207,8 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
     wake work as for any session.
   - **The roster says what is true:** the session name (rename, label, Claude's title), tool and model come from the
     hook; running comes from the worker's evidence (session files, `CLAUDE_PID`, command line); idle after 10 quiet
-    minutes, off after 30 unless the worker says it runs; `word` is `chat` only for the claude.ai connector with no session.
+    minutes, off after 30 unless the worker says it runs (a running Bash or PowerShell call keeps it working: the hook's
+    `tool-start`, while the worker says it runs or for 2 hours); `word` is `chat` only for the claude.ai connector with no session.
   - See docs/HANDOVER.md section 3 (Words, Messages, Claude Code hooks).
 - **Message text is pushed with its frame** (who sent it, how it came in, what it may and may not ask). Shipping, money
   and credentials stay server-side as Needs.

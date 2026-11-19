@@ -447,7 +447,7 @@ export type PresenceDoc = Placed & {
   /** Lanes: set once the sweep has moved this off session's Needs and messages on. */
   swept?: Date;
   /** The state the Claude Code hook last reported (POST /api/agent/event; the server decides it from the event). Absent for sessions with no hook token. */
-  activity?: { state: PresenceState; at: Date; why?: 'prompt' };
+  activity?: { state: PresenceState; at: Date; why?: 'prompt'; /** A Bash or PowerShell call began (tool-start) and no later event came: keeps the session working (presenceState). */ open?: boolean };
   /** The last Stop the hook counted (H12, the Monday numbers): were the changed files saved to the State, and was the session reminded first. Last stop wins. Counts only, never text. */
   stopCheck?: { files: 'saved' | 'unsaved'; reminded?: true; at: Date };
   /** WORK-STATE.md hand edits of this session (H12): refused (by the hook or the server), and forwarded to the State. Counts only. */

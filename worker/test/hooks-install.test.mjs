@@ -50,6 +50,9 @@ test('install copies the hook, merges ten events (eleven entries), keeps other s
   assert.equal(s.hooks.SessionStart.find(g => /hook\.mjs" wait$/.test(g.hooks[0].command)).hooks[0].asyncRewake, true);
   assert.match(s.hooks.PostToolUse.find(h => /hook\.mjs" post-tool$/.test(h.hooks[0].command)).matcher, /\(save_state\|import_state\|get_state\|end_work\|log_progress\|set_doing\|hand_in\|complete_task\)$/, 'end_work is a save the copy follows, and a lane call counts as heard from');
   assert.match(s.hooks.PreToolUse[0].hooks[0].command, /hook\.mjs" pre-tool$/);
+  assert.equal(s.hooks.PreToolUse[1].matcher, 'Bash|PowerShell');
+  assert.match(s.hooks.PreToolUse[1].hooks[0].command, /hook\.mjs" tool-start$/);
+  assert.equal(s.hooks.PreToolUse[1].hooks[0].async, true, 'tool-start never delays the tool');
   assert.doesNotMatch(s.hooks.PreToolUse[0].hooks[0].command, /\\/, 'forward slashes only');
   m.install();
   s = settings();
@@ -103,6 +106,7 @@ test('the entries equal the strings older workers wrote, except the PostToolUse 
     PostToolBatch: [{ hooks: [c('tool-batch', 3)] }],
     Notification: [{ matcher: 'permission_prompt|idle_prompt|elicitation_dialog', hooks: [{ ...c('notification', 3), async: true }] }],
     SessionEnd: [{ hooks: [c('session-end', 2)] }],
+    PreToolUse: [...old.PreToolUse, { matcher: 'Bash|PowerShell', hooks: [{ ...c('tool-start', 3), async: true }] }], // a running tool keeps the session working: async, a PC's own hook
     SubagentStop: [{ hooks: [c('subagent-stop', 3)] }], // Lanes step 3: a PC's own hook (localOnly), so a repo's cloud entries leave it out
     ...sub,
   });
@@ -224,7 +228,7 @@ test('H8: the production blocks ship with the hooks (hook-release.mjs and remote
   const { EVENTS } = await import('../hook-lib.mjs');
   assert.equal(EVENTS.filter(r => r.event === 'pre-tool').length, 1);
   assert.match(EVENTS.find(r => r.event === 'pre-tool').matcher, /Bash\|PowerShell/, 'the one pre-tool row already covers Bash and PowerShell');
-  assert.equal(EVENTS.length, 12, 'H8 adds no event row (ten, plus H9 subagent-start, plus Lanes step 3 subagent-stop)');
+  assert.equal(EVENTS.length, 13, 'H8 adds no event row (ten, plus H9 subagent-start, plus Lanes step 3 subagent-stop, plus tool-start)');
 });
 
 test('H13 hooks repo --project: the project id goes into the four entries, a name is refused, none keeps the old entries', () => {
