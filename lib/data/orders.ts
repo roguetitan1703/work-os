@@ -268,3 +268,23 @@ export async function ordersChangesFor(s: Scope, projectId: string, opts: { sinc
   }
   return out.sort((x, y) => y.at.getTime() - x.at.getTime()).slice(0, opts.limit ?? 5);
 }
+
+/**
+ * Undo: writes the text before version `v` as a new version (why "undo of vN", undoOf set). The holder of the layer only, a
+ * person in the app. The page must be as the person last saw it (`expectedUpdatedAt`), so a change made since is looked at first.
+ * Offered on every kept version; on an older one it brings back the text from before that change (later changes stay in the list).
+ */
+export async function undoOrders(s: Scope, noteId: string, v: number, actor: Actor, expectedUpdatedAt?: number): Promise<{ version: number }> {
+  if (!isPerson(actor)) throw new InputError('Undo is done by a person in the app. An agent writes the old text back with write_note.');
+  const c = await scoped(s);
+  const n = await c.notes.findOne({ _id: noteId, deletedAt: null, orders: { $exists: true } });
+  if (!n?.orders) throw new NotFoundError(`Note ${noteId} not found`);
+  if (!(await canEditOrders(s, n))) throw new InputError('Only the person who holds this layer can undo its changes.');
+  if (expectedUpdatedAt !== undefined && n.updatedAt.getTime() !== expectedUpdatedAt) throw new InputError('This page changed since you opened it. Reload it, look at the changes, then undo.');
+  const e = (n.ordersLog ?? []).find(x => x.v === v);
+  if (!e) throw new InputError('That version is no longer kept (a page keeps its last 20).');
+  const { writeNote } = await import('./notes');
+  await writeNote(s, { noteId, body: e.before, why: `undo of v${v}`, undoOf: v }, actor);
+  const after = await c.notes.findOne({ _id: noteId }, { projection: { ordersV: 1 } });
+  return { version: after?.ordersV ?? (n.ordersV ?? 1) };
+}

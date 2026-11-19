@@ -10,7 +10,8 @@ const NAMES: Record<Layer, string> = { org: 'the organization’s Orders', proje
 
 /**
  * Marks this page as standing Orders: rules every AI reads first when it starts work (start_work). A page marked so is
- * changed here, in the app, by the person who holds that layer, never through Claude.
+ * changed by the person who holds that layer, here or through their own Claude (write_note, with a why); every change keeps a
+ * version with undo (Changes, under the page). The flag itself is set here only.
  */
 export function OrdersSwitch({ noteId, current, options, updatedAt }: { noteId: string; current: Layer | null; options: Layer[]; updatedAt: number }) {
   const [layer, setLayer] = useState<Layer | null>(current);

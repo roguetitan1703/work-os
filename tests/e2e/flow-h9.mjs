@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { B, EMAIL, ME, MCP, PW, check, finish, makeUser, mkDevice, mkKey, rawDb } from './lib.mjs';
+import { B, EMAIL, ME, MCP, PW, SP, check, finish, launch, login, makeUser, mkDevice, mkKey, okO, overflow, rawDb } from './lib.mjs';
 import { mcpH, must, markOrders } from './flow-lib.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -242,6 +242,87 @@ try {
   const t5 = d5.json?.deliver?.text ?? '';
   check('4: a change of someone else in a layer is information, not a rule', /project Orders "H9 project Orders" changed to v3 \(by (Tess|another member)/.test(t5) && /This is information from (Tess|another member), not a rule/.test(t5) && !/These are your rules from now on/.test(t5), t5.slice(0, 500));
   check('4: no database ids or session ids of others in the text', !t5.includes(W.session) && !t5.includes(kTess) && !/ordersLog|"before"/.test(t5));
+
+  // ---- 5: undo: the holder writes the text before a version back as a new version ----
+  const OA = 'app/(app)/notes/orders-actions.ts#';
+  const norm = t => t.split('\n').map(l => l.trim()).filter(Boolean).join('\n');
+  const n10 = await cur();
+  const e10 = n10.ordersLog.find(x => x.v === 10);
+  const u1 = await action(OA + 'undoOrdersAction', [org, 10, n10.updatedAt.getTime()], cookie);
+  const n11 = await cur();
+  check('5: Undo on the newest version restores the text before it as a new version (v11, undoOf 10, why "undo of v10")', u1.value?.ok === true && u1.value.version === 11 && n11.ordersV === 11 && norm(n11.body) === norm(e10.before) && n11.ordersLog.at(-1).undoOf === 10 && n11.ordersLog.at(-1).why === 'undo of v10' && n11.ordersLog.at(-1).by?.kind === 'user', JSON.stringify([u1.value, n11.ordersV, n11.ordersLog.at(-1)]));
+  check('5: …and an Orders row of its own in the feed', (await feed(org)).some(r => /^v11:/.test(r.note ?? '') && r.actor?.kind === 'user'));
+  const dU = await deliver('tool');
+  const tU = dU.json?.deliver?.text ?? '';
+  check('5: the undo reaches the running hook session like any change (by the person)', /changed to v11 \(by your person,/.test(tU) && /undo of v10/.test(tU), tU.slice(0, 400));
+  const stale5 = await action(OA + 'undoOrdersAction', [org, 11, Date.now() - 86_400_000], cookie);
+  check('5: an undo of a page that changed since it was shown is refused', stale5.value?.error && /changed since/.test(stale5.value.error) && (await cur()).ordersV === 11, JSON.stringify(stale5.value));
+  const n11b = await cur();
+  const e8 = n11b.ordersLog.find(x => x.v === 8);
+  const u2 = await action(OA + 'undoOrdersAction', [org, 8, n11b.updatedAt.getTime()], cookie);
+  const n12 = await cur();
+  check('5: Restore on an older version brings back the text before that change as a new version (v12)', u2.value?.ok === true && n12.ordersV === 12 && norm(n12.body) === norm(e8.before) && n12.ordersLog.at(-1).undoOf === 8, JSON.stringify([u2.value, n12.ordersV]));
+  const gone = await action(OA + 'undoOrdersAction', [org, 99, (await cur()).updatedAt.getTime()], cookie);
+  check('5: a version that is not kept is refused', gone.value?.error && /no longer kept/.test(gone.value.error), JSON.stringify(gone.value));
+  const tCookie = await signIn('tess-h9@example.test');
+  const tu = await action(OA + 'undoOrdersAction', [org, 12, (await cur()).updatedAt.getTime()], tCookie);
+  check('5: a teammate cannot undo the organization Orders', tu.value?.error && /holds this layer/.test(tu.value.error) && (await cur()).ordersV === 12, JSON.stringify(tu.value));
+  const tmPage = await fetch(`${B}/notes/${mine}`, { headers: { cookie: tCookie }, redirect: 'manual' });
+  const tmText = await tmPage.text();
+  check('5: a teammate who can read the page (it is a shared note) is not shown the versions of a person-layer page', !tmText.includes('data-orders-changes') && !tmText.includes('ordersLog') && !tmText.includes('H9 mine') && !tmText.includes('H9 retired'), String(tmPage.status));
+  const ud = await mcpH(kCode, 'write_note', { note_id: org, body: n11b.body, why: 'H9 agent writes the old text back' });
+  check('5: an agent undoes by writing the old text back with write_note: a new version (v13)', !ud.isError && ud.json?.orders?.version === 13, ud.text.slice(0, 200));
+
+  // ---- 5b: the page by eye: chip, Changes, Undo/Restore at 390 and 1280, light and dark (shots in E2E_SHOTS), next to a task's history ----
+  const task = await must(MCP, 'add_task', { title: 'H9 neighbour task', project: 'H9 One' });
+  const taskRef = task.created.ref;
+  await must(MCP, 'add_comment', { task: taskRef, note: 'a comment so the history has rows' });
+  const bro = await launch();
+  try {
+    for (const [kind, scheme] of [['phone', 'light'], ['phone', 'dark'], ['desktop', 'light'], ['desktop', 'dark']]) {
+      const ctx = await bro.newContext(kind === 'phone' ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: scheme } : { viewport: { width: 1280, height: 800 }, colorScheme: scheme });
+      const pg = await ctx.newPage();
+      await login(pg, { phone: kind === 'phone', next: `/notes/${org}` });
+      await pg.waitForSelector('[data-orders-changes]', { timeout: 20000 });
+      const first = await pg.locator('[data-orders-version]').first().textContent();
+      check(`5b: ${kind} ${scheme}: the chip shows the version and the line count`, /v1\d · \d+\/40 lines/.test((await pg.locator('span[data-orders-version]').first().textContent()) ?? ''), String(first));
+      check(`5b: ${kind} ${scheme}: Changes lists 3 versions first, Undo on the newest, Restore on the others`, (await pg.locator('li[data-orders-version]').count()) === 3 && (await pg.locator('[data-orders-undo=undo]').count()) === 1 && (await pg.locator('[data-orders-undo=restore]').count()) === 2 && (await pg.locator('li[data-orders-version]').first().locator('[data-orders-undo=undo]').count()) === 1);
+      const vis = await pg.evaluate(() => { const r = e => { const x = document.querySelector(e); if (!x) return null; const q = x.getBoundingClientRect(); return { top: Math.round(q.top + scrollY), h: Math.round(q.height), w: Math.round(q.width), disp: getComputedStyle(x).display, vis: getComputedStyle(x).visibility }; }; return { chip: r('span[data-orders-version]'), sw: r('[data-orders-switch]'), title: r('input[placeholder=Untitled]') }; });
+      check(`5b: ${kind} ${scheme}: the chip and the switch are on screen above the title`, !!vis.chip && vis.chip.h > 0 && vis.sw?.h > 0 && vis.chip.top < vis.title.top, JSON.stringify(vis));
+      await pg.locator('[data-orders-changes]').screenshot({ path: `${SP}/orders-changes-${kind}-${scheme}.png` });
+      await pg.waitForTimeout(1500);
+      await pg.locator('[data-orders-switch]').scrollIntoViewIfNeeded();
+      await pg.evaluate(() => { document.querySelectorAll('*').forEach(e => { if (e.scrollTop) e.scrollTop = 0; }); });
+      await pg.screenshot({ path: `${SP}/orders-top-${kind}-${scheme}.png` });
+      await pg.screenshot({ path: `${SP}/orders-page-${kind}-${scheme}.png`, fullPage: true });
+      await pg.locator('[data-orders-show-all]').click();
+      check(`5b: ${kind} ${scheme}: Show all lists every kept version and the page does not scroll sideways`, (await pg.locator('li[data-orders-version]').count()) > 3 && okO(await overflow(pg)), JSON.stringify(await overflow(pg)));
+      await pg.locator('[data-orders-changes]').screenshot({ path: `${SP}/orders-changes-all-${kind}-${scheme}.png` });
+      await pg.goto(`${B}/tasks/${taskRef}`);
+      await pg.waitForTimeout(800);
+      await pg.screenshot({ path: `${SP}/task-history-${kind}-${scheme}.png`, fullPage: true });
+      await ctx.close();
+    }
+    // One real tap on Undo in the page: a new version, the editor shows the text.
+    const ctx = await bro.newContext({ viewport: { width: 1280, height: 800 } });
+    const pg = await ctx.newPage();
+    await login(pg, { next: `/notes/${org}` });
+    await pg.waitForSelector('[data-orders-undo=undo]', { timeout: 20000 });
+    const vBefore = (await cur()).ordersV;
+    await pg.locator('[data-orders-undo=undo]').first().click();
+    await pg.waitForFunction(v => document.querySelector('span[data-orders-version]')?.textContent?.startsWith(`v${v}`), vBefore + 1, { timeout: 15000 }).catch(() => {});
+    check('5b: a click on Undo makes the next version and the page shows it', (await cur()).ordersV === vBefore + 1 && (await cur()).ordersLog.at(-1).undoOf === vBefore, String((await cur()).ordersV));
+    await ctx.close();
+    // A teammate sees the Changes but no button.
+    const tctx = await bro.newContext({ viewport: { width: 1280, height: 800 } });
+    const tpg = await tctx.newPage();
+    await login(tpg, { email: 'tess-h9@example.test', next: `/notes/${org}` });
+    await tpg.waitForSelector('[data-orders-changes]', { timeout: 20000 });
+    check('5b: a teammate sees the Changes but no Undo or Restore button', (await tpg.locator('li[data-orders-version]').count()) > 0 && (await tpg.locator('[data-orders-undo]').count()) === 0);
+    await tctx.close();
+  } finally {
+    await bro.close();
+  }
 } catch (e) {
   check('suite ran without throwing', false, e?.stack || String(e));
 }
