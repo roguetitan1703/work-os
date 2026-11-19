@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { COPY, COPY_REASON, markSaved, projectOf, writeCopy } from './hook-copy.mjs';
-import { postAgent, readKept, readMarker } from './hook-lib.mjs';
+import { postAgent, postEvent, readKept, readMarker } from './hook-lib.mjs';
 
 const EDIT_TIMEOUT_MS = 3500; // the pre-tool hook is given 5 s (hook-lib.mjs EVENTS)
 // PreToolUse runs before Claude Code's permission check, so an Edit is forwarded only when the session would let it through
@@ -75,11 +75,30 @@ export function writesCopy(cmd) {
 
 /** PreToolUse: refuse hand edits of WORK-STATE.md, saying what to do instead. */
 export async function preTool(input) {
-  if (!hitsCopy(input)) return null;
+  if (!hitsCopy(input)) {
+    await pingWorking(input);
+    return null;
+  }
   if (input.tool_name === 'Edit') {
     try { const f = await forwardEdit(input); if (f) return f; } catch {}
   }
   return plainDeny();
+}
+
+const PING_EVERY_MS = 5 * 60_000;
+const PING_TIMEOUT_MS = 1000;
+/**
+ * Keeps Work OS's view of the session fresh: a tool call means working, so tell it once the marker says waiting (the prompt
+ * was answered) or working but quiet for 5 minutes. Otherwise a local file read only. Never throws, never changes the answer.
+ */
+async function pingWorking(input) {
+  try {
+    const sid = input.session_id;
+    const p = sid ? readMarker(sid)?.presence : null;
+    if (!p) return;
+    const fresh = Date.now() - (p.postedAt || 0) < PING_EVERY_MS;
+    if ((p.state === 'waiting' && !(p.failed && fresh)) || (p.state === 'working' && !fresh)) await postEvent(sid, 'tool', {}, PING_TIMEOUT_MS);
+  } catch {}
 }
 
 /** True when this tool call writes WORK-STATE.md. */

@@ -1,9 +1,15 @@
 // Stop hook: files changed since the session started and no save_state since: block once.
 import fs from 'node:fs';
-import { readMarker, sizeOf, statusHash, writeMarker } from './hook-lib.mjs';
+import { postEvent, readMarker, sizeOf, statusHash, writeMarker } from './hook-lib.mjs';
 
-/** Stop: the hook's JSON answer (or null). Blocks at most once per session. */
+/** Stop: the hook's JSON answer (or null). Blocks at most once per session. Not blocking means the turn ended: Work OS is told (idle). */
 export async function stop(input) {
+  const r = await decide(input);
+  if (!r && input.session_id) await postEvent(input.session_id, 'stop');
+  return r;
+}
+
+async function decide(input) {
   const sid = input.session_id;
   if (!sid || input.stop_hook_active) return null;
   const m = readMarker(sid);

@@ -29,6 +29,11 @@ export const EVENTS = [
   { event: 'pre-tool', claudeEvent: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', timeoutS: 5 },
   // After a State save or read: write WORK-STATE.md from the answer and commit that file alone.
   { event: 'post-tool', claudeEvent: 'PostToolUse', matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', timeoutS: 20 },
+  // Session state (POST /api/agent/event, a session token only: a PC's own hooks, so a repo's cloud entries leave these out).
+  // The first two run in the background (async) so a prompt never waits on the network.
+  { event: 'user-prompt', claudeEvent: 'UserPromptSubmit', matcher: null, timeoutS: 3, async: true, localOnly: true },
+  { event: 'notification', claudeEvent: 'Notification', matcher: 'permission_prompt|idle_prompt|elicitation_dialog', timeoutS: 3, async: true, localOnly: true },
+  { event: 'session-end', claudeEvent: 'SessionEnd', matcher: null, timeoutS: 2, localOnly: true },
 ];
 
 export const SESSION_TOKEN_RE = /^wst_[A-Za-z0-9_-]{43}$/;
@@ -43,6 +48,30 @@ export function keepToken(sid, token, until) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(tokenFile(sid), JSON.stringify({ token, until: until || Date.now() + 24 * 3600e3 }), { mode: 0o600 });
   try { for (const f of fs.readdirSync(dir)) { const p = path.join(dir, f); if (Date.now() - fs.statSync(p).mtimeMs > 2 * 86_400_000) fs.rmSync(p, { force: true }); } } catch {}
+}
+
+const PRESENCE_AFTER = { prompt: 'working', tool: 'working', stop: 'idle', end: 'off' };
+/**
+ * Tells Work OS what this session just did (POST /api/agent/event, the kept session token only; nothing without one).
+ * `event` is prompt, tool, notify, stop or end; `extra` is { kind } for notify. Never throws and never sends text of the
+ * session. Records presence { state, at, postedAt } in the session's marker so the pre-tool hook knows when to ping again:
+ * postedAt is set on every try, so a down server is tried once per 5 minutes and not on every tool call. Returns the
+ * answer ({ status, b }) or null.
+ */
+export async function postEvent(sid, event, extra = {}, timeoutMs = 1500) {
+  try {
+    const token = sid ? readKept(sid) : null;
+    if (!token) return null;
+    const at = Date.now();
+    let r = null;
+    try { r = await postAgent('/api/agent/event', token, { event, ...extra, at }, timeoutMs); } catch {}
+    const m = readMarker(sid);
+    if (m) {
+      const state = event === 'notify' ? (extra.kind === 'idle_prompt' ? 'idle' : 'waiting') : PRESENCE_AFTER[event];
+      writeMarker(sid, { ...m, presence: r?.status === 200 ? { state, at, postedAt: at } : { ...(m.presence || {}), postedAt: at, failed: true } });
+    }
+    return r;
+  } catch { return null; }
 }
 
 /** Set by hook.mjs from the command line: the server address a cloud repo's settings name (--server), used when WORK_OS_URL is not set. */
