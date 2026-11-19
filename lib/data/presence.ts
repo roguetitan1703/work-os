@@ -73,7 +73,7 @@ export type RosterReport = { hook?: number; model?: string; account?: string; pa
 const clip = (v: string | undefined, n: number) => (v ?? '').trim().slice(0, n);
 
 /** `fresh`: this call made the row (a new session), not a re-call of one that was there (after compaction, or a later start_work). */
-export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, o: { machine?: string; label?: string; /** Claude Code's own session UUID (the hook's start only). */ ccSession?: string; /** The state this start puts the session in (the hook's start only: on, or working after a compaction). */ activity?: 'on' | 'working' } & RosterReport): Promise<PresenceDoc & { fresh: boolean }> {
+export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, o: { machine?: string; label?: string; /** Claude Code's own session UUID (the hook's start only). */ ccSession?: string; /** The state this start puts the session in (the hook's start only: on, or working after a compaction). */ activity?: 'on' | 'working'; /** H15: the task the dispatcher started it for. */ dispatched?: { taskId: string; ref: number } } & RosterReport): Promise<PresenceDoc & { fresh: boolean }> {
   const c = await scoped(s);
   const now = new Date();
   const _id = rowId(i, project._id);
@@ -101,6 +101,7 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
         ...(clip(o.branch, 120) ? { branch: clip(o.branch, 120) } : {}),
         ...(o.machine && o.machineName ? { machineName: o.machineName } : {}),
         ...(o.ccSession ? { ccSession: o.ccSession } : {}),
+        ...(o.dispatched ? { dispatched: o.dispatched } : {}),
         ...(o.activity ? { activity: { state: o.activity, at: now } } : {}),
         lastSeen: now,
         // start_work hands over everything there is, so what is "new for you" starts here.

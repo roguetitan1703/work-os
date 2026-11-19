@@ -26,7 +26,7 @@ export const EVENTS = [
   // Files changed and State not saved: hold the session once and ask for save_state.
   { event: 'stop', claudeEvent: 'Stop', matcher: null, timeoutS: 8 },
   // Refuse hand edits of WORK-STATE.md (it is a copy of the Work OS State).
-  { event: 'pre-tool', claudeEvent: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|mcp__.*__(write_note|propose_order|apply_changes)', timeoutS: 5 },
+  { event: 'pre-tool', claudeEvent: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|Read|Grep|Glob|mcp__.*__(write_note|propose_order|apply_changes)', timeoutS: 5 },
   // After a State save or read: write WORK-STATE.md from the answer and commit that file alone.
   { event: 'post-tool', claudeEvent: 'PostToolUse', matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', timeoutS: 20 },
   // Session state and messages (POST /api/agent/event and /api/agent/wait, a session token only: a PC's own hooks, so a repo's cloud

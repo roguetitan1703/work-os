@@ -223,6 +223,36 @@ try {
   const rM = await post(pcM.key, at('acme/agent-one'));
   check('a device whose owner left the organization: 401', rM.status === 401, `${rM.status} ${rM.text.slice(0, 120)}`);
 
+  // ---- H15: a dispatched session is marked whatever started it (this PC's own worker session row says so) ----
+  const dCreated = (await must(MCP, 'add_task', { title: 'H15 dispatched task', project: 'Agent One' })).created;
+  const dTask = { ref: dCreated.ref, id: (await rawDb.collection('tasks').findOne({ ref: dCreated.ref }))._id };
+  const pcP = await deviceOf(A, 'agent-pc-p');
+  await rawDb.collection('workerFolders').insertOne(folder(pcP, A, 'fp', 'acme/agent-one', one));
+  const DCC = '5a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const wsRow = (deviceId, ownerId, extra = {}) => ({ _id: DCC, orgId: A.orgId, ownerId, deviceId, folderId: 'fp', projectId: one, state: 'running', startedAt: new Date(), updatedAt: new Date(), dispatched: true, taskId: dTask.id, ...extra });
+  await rawDb.collection('workerSessions').insertOne(wsRow(pcP.id, A.userId));
+  const pcD = await deviceOf(A, 'agent-pc-d');
+  await rawDb.collection('workerFolders').insertOne(folder(pcD, A, 'fd', 'acme/agent-one', one));
+  const rD = await post(pcP.key, { ...at('acme/agent-one'), ccSession: DCC, source: 'startup' });
+  const sD = rD.json?.brief?.session;
+  check('H15: this PC own dispatched session row: the answer carries dispatched = the task ref', rD.status === 200 && rD.json?.dispatched === dTask.ref, `${rD.status} ${rD.text.slice(0, 200)}`);
+  const pD = await rawDb.collection('presence').findOne({ session: sD });
+  check('H15: its presence row carries dispatched and the label is forced to "<Project> · worker · #ref" (the hook label ignored)', pD?.dispatched?.ref === dTask.ref && pD.dispatched.taskId === dTask.id && pD.label === `Agent One · worker · #${dTask.ref}`, JSON.stringify([pD?.dispatched, pD?.label]));
+  check('H15: its agentSessions row carries dispatched', (await rawDb.collection('agentSessions').findOne({ _id: sD }))?.dispatched?.ref === dTask.ref);
+  const rDc = await post(rD.json?.token ?? '', { ...at('acme/agent-one'), ccSession: DCC, source: 'compact' });
+  check('H15: a compaction start with the token answers dispatched again and the label stays', rDc.status === 200 && rDc.json?.dispatched === dTask.ref && !('token' in (rDc.json ?? {})) && (await rawDb.collection('presence').findOne({ session: sD }))?.label === `Agent One · worker · #${dTask.ref}`);
+  const rDx = await post(pcD.key, { ...at('acme/agent-one'), ccSession: DCC, source: 'startup' });
+  check('H15: the same session id from another computer of the same owner is not marked', rDx.status === 200 && !('dispatched' in (rDx.json ?? {})) && !(await rawDb.collection('presence').findOne({ session: rDx.json?.brief?.session }))?.dispatched);
+  await rawDb.collection('workerSessions').updateOne({ _id: DCC }, { $set: { ownerId: X.userId } });
+  const rDo = await post(pcP.key, { ...at('acme/agent-one'), ccSession: DCC, source: 'startup' });
+  check('H15: a session row of another owner does not mark', rDo.status === 200 && !('dispatched' in (rDo.json ?? {})));
+  await rawDb.collection('workerSessions').updateOne({ _id: DCC }, { $set: { ownerId: A.userId, dispatched: false } });
+  const rDn = await post(pcP.key, { ...at('acme/agent-one'), ccSession: DCC, source: 'startup' });
+  check('H15: a session row that is not dispatched does not mark', rDn.status === 200 && !('dispatched' in (rDn.json ?? {})));
+  const rDu = await post(pcP.key, at('acme/agent-one'));
+  check('H15: a start with no ccSession is never marked and keeps its own label', rDu.status === 200 && !('dispatched' in (rDu.json ?? {})) && (await rawDb.collection('presence').findOne({ session: rDu.json?.brief?.session }))?.label === 'Claude Code');
+  await rawDb.collection('workerSessions').deleteOne({ _id: DCC });
+
   // ---- hourly limits ----
   const pc4 = await deviceOf(A, 'agent-pc-4');
   await rawDb.collection('workerFolders').insertOne(folder(pc4, A, 'f4', 'acme/agent-one', one));

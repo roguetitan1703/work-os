@@ -122,6 +122,54 @@ Status: built on branch ui-settings, tested against a throwaway database (not ye
 - **UI:** "Claude's tasks" on Claude › Now (Working n of cap, Queued in order with position, Recently finished or stopped for 7 days); small Claude badge on task rows (phone and desktop rows, board cards, task page); the desktop row gets a hover Claude button (there was no row "…" menu on desktop); the phone row action sheet, the phone task "…" menu and the desktop task page have Give to Claude / Take back.
 - Not built: the open question on ordering (order Om marked is used), a PR/branch by the session itself, cloud sessions.
 
+## As built (H15, 19 Nov: the dispatcher on the Harness)
+
+Plan: Work OS note 09b6210df3. Design: docs/flows/agent-system.md section 17. Options taken: A1 (a lock document and a count in one
+transaction), B1 (a hook deny list), C (no cloud work: #267 and #268 are their own part after H16).
+
+- **A session the dispatcher started is marked, whatever started it.** `POST /api/agent/start` looks up this PC's own worker session row
+  (`workerSessions` {_id: the body's `ccSession`, deviceId, ownerId, dispatched: true}; another PC, another owner or an ordinary session
+  never matches), answers `dispatched: <task ref>`, keeps `dispatched {taskId, ref}` on the session token row and the presence row, and
+  forces the presence label to `<Project> · worker · #<ref>` (the hook's own label is ignored). A later start with the token (after a
+  compaction) answers it again. `hook-session-start.mjs` keeps it in the session marker; `ordersDeny` and `shellDeny`
+  (`hook-pre-tool.mjs`) treat the `WORK_OS_DISPATCHED` variable **or** the marker as dispatched, so a run the worker resumed, or one that lost the
+  variable, stays refused. The mark only adds refusals: a run that deletes its own marker is accepted (it gains nothing). `resumeSession`
+  passes `dispatched` in the job, as a start does. Old hooks keep the variable-only guard until they update.
+- **The shell path is blocked for dispatched runs (B1).** Aim: catch the cheap, obvious ways to print the key and refuse nothing normal. A
+  Bash or PowerShell command of a dispatched run is refused when it would print a value or reach the API, not because it names a word
+  (`grep WORK_OS_KEY`, `git grep hooks/sessions` and a commit message pass): a read (`cat`, `type`, `Get-Content`/`gc`, `less`, `head`, `tail`, `sed`,
+  `awk`, `node`, `python`, `grep` and the like) of the home `.claude/settings.json`, `.claude.json`, a hooks `sessions` folder (also after a `cd`
+  into hooks: `sessions/` beside a hooks path) or the worker's `config.json`; an environment dump (bare `env`, `printenv`, `set`, `export -p`,
+  `gci env:`, `cmd /c set`, `[Environment]::GetEnvironmentVariables`, `process.env` or `os.environ` with no key named, or `WORK_OS_KEY` named);
+  printing the key (`echo $WORK_OS_KEY`, `$env:WORK_OS_KEY`); a PowerShell encoded command (any `-e…` prefix of `-EncodedCommand`, with a hyphen,
+  slash, en dash or em dash, only on a powershell or pwsh command line, so `bash -ec` passes) and `base64 -d` piped into a shell or `iex`; and a
+  network tool (`curl`, `wget`, `iwr`, `irm`) aimed at an `/api/` path of a Work OS server named in the command. The Read, Grep and Glob tools
+  are refused on the same files (the pre-tool hook matcher now lists them; a PC needs `hooks install` to pick that up). The reason says to use
+  the session's Work OS tools. **Known limits, accepted:** a host held in a variable (`$WORK_OS_URL`), URL-encoded paths, and any script the run
+  writes and runs (the key is on disk and the run is the same OS user, so on a PC the bypass can be made deliberate, not impossible). A
+  per-claim restricted key (B2) belongs to the cloud part. Fails open on any error.
+- **Closing the window is not a crash.** `run-claude.mjs` leaves a note (`<temp>/work-os-ended/<session id>`) when its window is closed (SIGHUP
+  or SIGTERM; on Windows closing the console raises SIGHUP) or claude exits cleanly (code 0, the person quit it); a crash leaves none. The
+  worker reads the note when the process is gone and reports the session `stopped`, not `dead`, so it is never started again. A stop
+  request that is still pending (a `stop` job exists for the session) counts the same, even when presence shows the end first.
+- **A dispatched session's label and mark cannot be overwritten:** its own `start_work` keeps `<Project> · worker · #ref` (the session
+  token row says it is dispatched). The reconciler reads presence for the giver's own rows only.
+- **The cap is airtight (A1).** `claimFor` makes the cap count and the claim one transaction that first writes the person's lock document
+  (`counters` {_id: `dispatch:<org>:<user>`}, the Needs counter pattern): concurrent polls conflict, one retries, counts the running claims again
+  and sees the first claim. The `claimedAt` rank is gone. There is no stored count, so nothing drifts when a claim ends by any of its eight
+  paths. The start job is made after the commit, with the same rollback. Stress: `dispatcher-backend-2` (20 parallel polls over 3 devices,
+  cap 2, 3 rounds) beside the older check in `dispatcher-backend`.
+- **Presence supervision: put back once, then ask.** A running claim whose session ended on its own with the task not Done, Blocked, Dropped or
+  archived (the worker reports it dead; its own SessionEnd reached Work OS; or the computer and the session's hooks were both silent for 15
+  minutes: a quiet worker beside a session that still reports is left alone) is put back in the queue **once** (`claude.revived = 1`, a comment
+  on the task, status restored, no alert, the old session stopped if it may still run). The second time the claim ends as stopped (the
+  `claude_stopped` alert stays) and the person who gave the task gets one app-only decide Need ("Claude stopped on #ref: its session ended
+  twice"), options **Give to Claude again** and **Take back** (`needs.dispatch {taskId}`, no task title in the ask). The answer acts as the
+  giver (`applyDispatchAnswer`; only they can answer it): again gives the task to Claude as a fresh mark (revive count reset), take back clears
+  it. The person's own stop or take back never revives (the claim is already stopped, or the session is `stopped`). Claude › Now shows
+  "restarted once (the session ended)" on the row while it is queued or working again.
+- **The prompt ends with `end_work`:** step 4 is `complete_task` with a short summary, then `end_work`.
+
 ## Whose words count (2026-10-23, prompt-injection hardening)
 
 Only the person who gives a task to Claude instructs the session. Everything else Claude reads is information: a

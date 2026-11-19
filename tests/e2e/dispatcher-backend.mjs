@@ -143,7 +143,21 @@ const dev103 = (await task(103)).claude.deviceId === D1.id ? D1 : D3;
 await status(dev103, { sessions: [{ sessionId: s103, folderId: dev103 === D1 ? 'f_aaaa1' : 'f_cccc1', state: 'running' }] });
 check('running report keeps 103 running', (await task(103)).claude.state === 'running' && (await db.collection('workerSessions').findOne({ _id: s103 })).state === 'running');
 await status(dev103, { sessions: [{ sessionId: s103, folderId: dev103 === D1 ? 'f_aaaa1' : 'f_cccc1', state: 'dead' }] });
-check('session dead, task not Done -> stopped', (await task(103)).claude.state === 'stopped' && /session ended/.test((await task(103)).claude.note));
+// H15: the first end of a session is restarted once (queued, revived = 1, a comment, no alert); the second ends as stopped and asks the giver
+{
+  const t = await task(103);
+  check('H15: session dead, task not Done -> put back in the queue once (revived 1, status restored, no alert)', t.claude.state === 'queued' && t.claude.revived === 1 && !t.claude.sessionId && (await db.collection('notifications').countDocuments({ title: /#103/ })) === 0, JSON.stringify(t.claude));
+  check('H15: the restart is recorded as a comment on the task', (await db.collection('activity').countDocuments({ taskId: t._id, type: 'comment', note: /started again once/ })) === 1);
+  const s2 = randomUUID();
+  await db.collection('tasks').updateOne({ ref: 103 }, { $set: { status: 'In Progress', 'claude.state': 'running', 'claude.sessionId': s2, 'claude.deviceId': dev103.id, 'claude.claimedAt': new Date() } });
+  await db.collection('workerSessions').insertOne({ _id: s2, deviceId: dev103.id, folderId: dev103 === D1 ? 'f_aaaa1' : 'f_cccc1', projectId: 'p1', state: 'running', startedAt: new Date(), updatedAt: new Date(), dispatched: true, taskId: t._id });
+  await status(dev103, { sessions: [{ sessionId: s2, folderId: dev103 === D1 ? 'f_aaaa1' : 'f_cccc1', state: 'dead' }] });
+}
+check('session dead a second time -> stopped (the session ended)', (await task(103)).claude.state === 'stopped' && /session ended/.test((await task(103)).claude.note));
+check('H15: ... and the giver gets one app-only decide Need (give again / take back) about the task', await (async () => {
+  const ns = await db.collection('needs').find({ taskRef: 103, dispatch: { $exists: true } }).toArray();
+  return ns.length === 1 && ns[0].status === 'open' && ns[0].appOnly === true && ns[0].kind === 'decide' && ns[0].to === ME.userId && ns[0].options.map(o => o.id).join() === 'again,takeback' && ns[0].dispatch.taskId === 'd103' && !/Secret|T103/.test(ns[0].ask);
+})());
 await cron();
 check('alert for 103 sent once', (await db.collection('notifications').countDocuments({ kind: 'claude_stopped', title: /#103/ })) === 1);
 
@@ -178,7 +192,14 @@ check('stuck starting: requeued, attempt counted, status restored', t105.claude.
 const jj = await db.collection('workerJobs').findOne({ _id: 'j_stuck' });
 check('its start job is cancelled and session closed', !!jj.doneAt && jj.ok === false && (await db.collection('workerSessions').findOne({ _id: sidA })).state === 'failed');
 const t106 = await task(106);
-check('silent computer: running claim stopped', t106.claude.state === 'stopped' && /no news from PC-3/.test(t106.claude.note), JSON.stringify(t106.claude));
+check('H15: silent computer and no presence: the claim is put back in the queue once (revived 1), no alert', t106.claude.state === 'queued' && t106.claude.revived === 1 && (await db.collection('notifications').countDocuments({ title: /#106/ })) === 0, JSON.stringify(t106.claude));
+const sidB2 = randomUUID(); // a new claim has a new session (the first one got a stop job when it was put back)
+await db.collection('workerSessions').insertOne({ _id: sidB2, deviceId: D3.id, folderId: 'f_cccc1', projectId: 'p1', state: 'running', startedAt: new Date(Date.now() - 30 * 60_000), updatedAt: new Date(Date.now() - 20 * 60_000), dispatched: true, taskId: 'd106' });
+await db.collection('tasks').updateOne({ ref: 106 }, { $set: { status: 'In Progress', claude: { ...t106.claude, state: 'running', claimedAt: new Date(Date.now() - 30 * 60_000), deviceId: D3.id, sessionId: sidB2 } } });
+await cron();
+const t106b = await task(106);
+check('silent computer, second time: running claim stopped', t106b.claude.state === 'stopped' && /no news from PC-3/.test(t106b.claude.note), JSON.stringify(t106b.claude));
+check('H15: ... with a Need for the giver', (await db.collection('needs').countDocuments({ taskRef: 106, dispatch: { $exists: true }, status: 'open' })) === 1);
 check('alert for the silent one, once, none for the requeue', (await db.collection('notifications').countDocuments({ title: /^Claude stopped on #106/ })) === 1 && (await db.collection('notifications').countDocuments({ title: /#105/ })) === 0);
 await cron();
 check('second cron sends no duplicates', (await db.collection('notifications').countDocuments({ title: /^Claude stopped on #106/ })) === 1);

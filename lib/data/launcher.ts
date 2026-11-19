@@ -576,7 +576,9 @@ export async function resumeSession(scope: DeviceScope, projectId: string, sessi
   const c = await scoped(scope);
   const s = await sessionDoc(scope, projectId, sessionId);
   if (!(await c.workerFolders.findOne({ deviceId: s.deviceId, folderId: s.folderId, projectId }, { projection: { _id: 1 } }))) throw new InputError('That folder is no longer linked to this project; link it again first');
-  await addJob(scope, s.deviceId, { kind: 'resume', sessionId, folderId: s.folderId, projectId });
+  // H15: a session the dispatcher started stays marked when the person resumes it (Reopen all included), so its hooks keep the refusals.
+  const task = s.dispatched && s.taskId ? await c.tasks.findOne({ _id: s.taskId }, { projection: { ref: 1 } }) : null;
+  await addJob(scope, s.deviceId, { kind: 'resume', sessionId, folderId: s.folderId, projectId, ...(task && Number.isInteger(task.ref) ? { dispatched: task.ref } : {}) });
   await c.workerSessions.updateOne({ _id: sessionId }, { $set: { state: 'starting', updatedAt: new Date() }, $unset: { error: '' } });
 }
 

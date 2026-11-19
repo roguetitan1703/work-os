@@ -45,6 +45,7 @@ import { holderOf, machineKey, MAX_WAIT_S, POLL_MS, prepareSlot, releaseSlot, tr
 import { forYouAfter, forYouBefore } from './for-you';
 import { requestContext, runWithRequestContext, sessionHeader } from '../request-context';
 import { noteRefusal, recentRefusals } from './refusals';
+import { dispatchedOfToken } from '../agent-sessions';
 import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
 import { CLAUDE_ITEM_KINDS, ModeSchema, PrioritySchema, ProjectStatusSchema, RATINGS, RESULT_KINDS, RecurrenceSchema, StatusSchema, VisibilitySchema, type ClaudeItem, type Task, type TaskPatch } from '../types';
 
@@ -441,7 +442,7 @@ function conflictOut(r: { state: Parameters<typeof stateData.stateOut>[0] | null
 }
 
 /** start_work's arguments after the project is found (the session id is decided by the caller). */
-export type StartWorkArgs = { hook?: number; /** Claude Code's own session UUID and what began the session (the hook's start route only). */ ccSession?: string; source?: 'startup' | 'resume' | 'clear' | 'compact'; branch?: string; machine?: string; label?: string; model?: string; account?: string; parent?: string; slot?: string };
+export type StartWorkArgs = { hook?: number; /** Claude Code's own session UUID and what began the session (the hook's start route only). */ ccSession?: string; source?: 'startup' | 'resume' | 'clear' | 'compact'; branch?: string; machine?: string; label?: string; model?: string; account?: string; parent?: string; slot?: string; /** H15: the task the dispatcher started this session for (the start route only): forces the label and marks the row. */ dispatched?: { taskId: string; ref: number } };
 
 /**
  * The start brief for one project and session: registers the session as present, marks the unread messages it hands
@@ -458,7 +459,9 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   const by = await byOf(ctx);
   if (a.account && (/@|^\s*(sk-|wkr_|wos_|ghp_|xox)/i.test(a.account) || /[A-Za-z0-9_-]{32,}/.test(a.account))) throw new InputError('account is a short label such as "om-max": not an email, a key or a token');
   const mach = await resolveMachine(s, a.machine);
-  const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, label: a.label, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
+  // H15: a session the dispatcher started keeps its forced label and mark when it calls start_work itself (the session's own row says so).
+  const dispatched = a.dispatched ?? (sid ? await dispatchedOfToken(sid) : null) ?? undefined;
+  const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, label: dispatched ? `${project.name} · worker · #${dispatched.ref}`.slice(0, 120) : a.label, dispatched, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
   // The handovers left for this person (a fresh session takes the newest first; a re-call after compaction shows its own again).
   const hv = await handovers.handoversForBrief(s, project._id, { me: row.key, label: row.label, fresh: row.fresh, parent: row.parent, actor: agentActor(caller.agent, caller.userId) });
   // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.

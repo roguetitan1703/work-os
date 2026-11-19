@@ -470,6 +470,7 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
   const text = answer.text?.trim() || undefined;
   const skip = Array.isArray(answer.skip) ? [...new Set(answer.skip.filter((x): x is string => typeof x === 'string').map(x => x.slice(0, 80)))].slice(0, 100) : [];
   if (text && text.length > NEED_LIMITS.answerText) throw new InputError(`The answer text is at most ${NEED_LIMITS.answerText} characters.`);
+  let dispatchTask: string | null = null; // H15: set when the Need is a dispatcher Need
   let answered = await inTransaction(async () => {
     const c = await scoped(s);
     const cur = await c.needs.findOne({ _id: id, to: s.userId });
@@ -489,6 +490,7 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
       { returnDocument: 'after' },
     );
     if (!done) throw new InputError('This Need is already answered.');
+    dispatchTask = done.dispatch?.taskId ?? null;
     await syncTaskNeed(await orgWide(s.orgId), done.taskId);
     await logNeed(c, done, via === 'discord' ? { kind: 'discord', userId: s.userId } : { kind: 'user', userId: s.userId }, 'need_answered', done.options.find(o => o.id === answer.option)?.label ?? (answer.option === 'other' ? 'Own answer' : answer.option));
     if (done.kind === 'review') return toNeed(await applyReview(s, done, answer.option, text));
@@ -499,6 +501,11 @@ export async function answerNeed(s: Scope, id: string, answer: { option: string;
   if (answered.declutter) {
     const { applyAnswer } = await import('./declutter-apply');
     answered = await applyAnswer(s, answered, answer.option === 'yes');
+  }
+  // A dispatcher Need: the answer acts as the person who answered, who is the giver (it was addressed to them and nobody else can answer it).
+  if (dispatchTask) {
+    const result = await (await import('./dispatcher')).applyDispatchAnswer(s, dispatchTask, answer.option);
+    await (await orgWide(s.orgId)).needs.updateOne({ _id: answered.id }, { $set: { 'dispatch.result': result } });
   }
   // A proposed change of Orders is applied by the Accept, as the holder, after the answer is saved (a failed apply never loses the answer).
   if (answered.order && answer.option === 'accept') {
@@ -563,6 +570,53 @@ export async function createReviewNeed(s: Scope, t: TaskDoc, actor: Actor, resul
     await syncTaskNeed(org, t._id);
     // A review never reaches the phone (reachesPhone): it is on Today, the Needs page and the daily digest.
     return toNeed(doc);
+  });
+}
+
+/** A dispatcher Need's options are fixed by the server (H15, docs/dispatcher.md "As built (H15)"): the asker is the dispatcher, nobody words them. */
+export const DISPATCH_OPTIONS: NeedOption[] = [
+  { id: 'again', label: 'Give to Claude again', means: 'Put the task in the queue for Claude again, as a fresh run.' },
+  { id: 'takeback', label: 'Take back', means: 'Clear the task from Claude. Nothing runs; the task stays as it is.' },
+];
+
+/**
+ * H15: the task's session ended twice (the dispatcher started it again once): one app-only Need to the person who gave it to
+ * Claude, with fixed options. The ask names the task number only (a title may hold words someone else wrote). An open one on
+ * the same task is replaced. No alert of its own: the "Claude stopped" alert of the same moment is the one that reaches the phone.
+ */
+export async function createDispatchNeed(s: Scope, t: Pick<TaskDoc, '_id' | 'ref' | 'orgId' | 'ownerId' | 'visibility' | 'sharedWith' | 'projectId'>, giver: string, actor: Actor): Promise<void> {
+  await inTransaction(async () => {
+    const org = await orgWide(s.orgId);
+    const open = await org.needs.find({ taskId: t._id, dispatch: { $exists: true }, status: 'open' }).toArray();
+    const now = new Date();
+    const id = randomUUID();
+    const place = placeOf(t);
+    const doc: NeedDoc = {
+      _id: id,
+      orgId: s.orgId,
+      ownerId: place.ownerId,
+      visibility: place.visibility,
+      ...(place.visibility === 'members' ? { sharedWith: place.sharedWith } : {}),
+      ref: await nextSeq(org.counters, needCounter(s)),
+      projectId: t.projectId ?? '',
+      taskId: t._id,
+      taskRef: t.ref,
+      to: giver,
+      from: { actor, word: 'agent' },
+      kind: 'decide',
+      ask: `Claude stopped on #${t.ref}: its session ended twice. Give it to Claude again, or take it back?`.slice(0, NEED_LIMITS.ask),
+      options: DISPATCH_OPTIONS,
+      status: 'open',
+      appOnly: true,
+      createdAt: now,
+      answeredAt: null,
+      noAlert: true,
+      dispatch: { taskId: t._id },
+    };
+    await org.needs.insertOne(doc);
+    if (open.length) await org.needs.updateMany({ _id: { $in: open.map(n => n._id) }, status: 'open' }, { $set: { status: 'replaced', closedAt: now, replacedBy: id } });
+    await logNeed(org, doc, actor, 'need_asked');
+    await syncTaskNeed(org, t._id);
   });
 }
 

@@ -88,7 +88,7 @@ test('the entries equal the strings older workers wrote, except the PostToolUse 
   const old = {
     SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [c('session-start', 8)] }],
     Stop: [{ hooks: [c('stop', 8)] }],
-    PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|mcp__.*__(write_note|propose_order|apply_changes)', hooks: [c('pre-tool', 5)] }],
+    PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|Read|Grep|Glob|mcp__.*__(write_note|propose_order|apply_changes)', hooks: [c('pre-tool', 5)] }],
     PostToolUse: [{ matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', hooks: [c('post-tool', 20)] }],
   };
   // H9: the subagent row reads only the session's marker (no network), so a repo's cloud entries have it too.

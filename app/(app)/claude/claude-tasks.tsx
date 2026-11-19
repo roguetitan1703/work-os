@@ -95,6 +95,7 @@ function Line({ r, busy, onAct }: { r: ClaudeTaskRow; busy: boolean; onAct: () =
   const when = r.state === 'running' ? r.lastActiveAt ?? r.claimedAt : r.state === 'queued' ? r.markedAt : r.endedAt;
   const meta = [
     r.state === 'queued' && r.position ? `#${r.position} in line` : st.label,
+    r.restarted && (r.state === 'queued' || r.state === 'running') ? 'restarted once (the session ended)' : null,
     r.projectName,
     r.deviceName,
     r.state === 'running' ? (when ? `active ${agoShort(when)}` : 'starting') : agoShort(when),

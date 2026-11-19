@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { verifyDeviceKey, DEVICE_KEY_PREFIX } from '@/lib/devices';
-import { AGENT_TOKEN_PREFIX, createAgentSession, projectOnDevice } from '@/lib/agent-sessions';
+import { AGENT_TOKEN_PREFIX, createAgentSession, dispatchedOfToken, dispatchedSession, projectOnDevice } from '@/lib/agent-sessions';
 import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf as bearer, readCapped } from '@/lib/agent-auth';
 import { roleOf } from '@/lib/caller';
 import { reserveAgent } from '@/lib/mcp/policy';
@@ -31,8 +31,10 @@ import type { Scope } from '@/lib/scope';
 // UUID, kept on the presence row only to join the worker's session list; never shown) and source (startup, resume, clear, compact:
 // the session is then on, or working after a compaction). The row's machine is the device itself, whatever hostname the body names. The X-Work-OS-Hook header marks the
 // hook's protocol (new hooks send 2; none means 1, which still gets the copy in save answers).
-//   200 { brief, token?, expiresAt } · 400 bad body · 401 no or bad credential · 403 a token for another project
+//   200 { brief, token?, expiresAt, dispatched? } · 400 bad body · 401 no or bad credential · 403 a token for another project
 //   404 { error, unfiled: true, quiet? } no project with a folder on this computer owns this folder (quiet: the person marked it not Work OS) · 413 body too large · 429 over the hourly limit
+// dispatched (H15): the task ref, answered when this PC's own worker session row for ccSession says the task dispatcher started
+// it; the presence row then carries it and its label is forced to "<Project> · worker · #<ref>".
 // proxy.ts lets this exact path through untouched: this route checks its own credential.
 
 export const runtime = 'nodejs';
@@ -141,18 +143,21 @@ export async function POST(req: Request): Promise<Response> {
       // Checked again with a token: the folder may have been unlinked since the session began.
       if (!(await projectOnDevice(s, device.id, projectId))) return unfiled(s, b);
       let token: string | undefined;
+      // H15: a session the task dispatcher started is marked whatever started it (the PC's own worker session row says so).
+      let dispatched: { taskId: string; ref: number } | null = null;
       if (!session) {
-        const made = await createAgentSession(s, device.id, projectId, cred);
+        dispatched = b.ccSession ? await dispatchedSession(s, device.id, b.ccSession) : null;
+        const made = await createAgentSession(s, device.id, projectId, cred, dispatched);
         token = made.token;
         session = { id: made.id, projectId, expiresAt: made.expiresAt };
-      }
+      } else dispatched = await dispatchedOfToken(session.id);
       const ctx = { baseUrl: baseUrl(req), caller: { agent: 'claude-code' as const, keyName: `Claude Code on ${device.name}`.slice(0, 80), userId: s.userId, orgId: s.orgId } };
       // The session id is the token row's id (the first 32 hex of the token's SHA-256), never the token.
       // Where this session works: no version bump (lib/data/states.ts setWhere). Only when the hook sent something to show.
       if (b.head || b.dirty !== undefined || b.worktrees || b.branch) await setWhere(s, projectId, b.machine || device.name, { branch: b.branch, head: b.head, dirty: b.dirty, worktrees: b.worktrees });
       // Hook protocol: the X-Work-OS-Hook header; a start without it is the old hook (1, still gets the copy in answers).
-      const brief = await startWorkBrief(ctx, projectId, session.id, { hook: hook ?? 1, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, model: b.model });
-      return reply(200, { brief, ...(token ? { token } : {}), expiresAt: session.expiresAt.toISOString() });
+      const brief = await startWorkBrief(ctx, projectId, session.id, { hook: hook ?? 1, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, model: b.model, ...(dispatched ? { dispatched } : {}) });
+      return reply(200, { brief, ...(dispatched ? { dispatched: dispatched.ref } : {}), ...(token ? { token } : {}), expiresAt: session.expiresAt.toISOString() });
     });
   } catch (err) {
     if (err instanceof InputError || err instanceof NotFoundError) return reply(400, { error: err.message });

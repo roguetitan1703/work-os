@@ -32,7 +32,7 @@ async function agentStart(body, kept, timeoutMs) {
   const post = (cred) => postAgent('/api/agent/start', cred, body, timeoutMs);
   if (kept && SESSION_TOKEN_RE.test(kept)) {
     const r = await post(kept);
-    if (r.status === 200 && r.b?.brief) return { brief: r.b.brief };
+    if (r.status === 200 && r.b?.brief) return { brief: r.b.brief, ...dispatchedOf(r.b) };
     if (r.status !== 401 && r.status !== 403) return null; // over the limit, server trouble: no brief this time
   }
   const key = deps.deviceKey(home);
@@ -42,8 +42,11 @@ async function agentStart(body, kept, timeoutMs) {
   if (r.status !== 200 || !r.b?.brief) return null;
   const token = SESSION_TOKEN_RE.test(r.b.token || '') ? r.b.token : undefined;
   const until = Date.parse(r.b.expiresAt || '') || undefined;
-  return { brief: r.b.brief, token, until };
+  return { brief: r.b.brief, token, until, ...dispatchedOf(r.b) };
 }
+
+/** H15: the task ref when the server says the task dispatcher started this session (whatever started it on this PC); kept in the marker. */
+const dispatchedOf = (b) => (Number.isInteger(b?.dispatched) && b.dispatched > 0 && b.dispatched < 1e9 ? { dispatched: b.dispatched } : {});
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SOURCES = ['startup', 'resume', 'clear', 'compact'];
@@ -56,8 +59,8 @@ function whereOf(cwd) {
 }
 
 /** The marker of a session whose brief was shown: the baseline, project, production block and presence. */
-function briefMarker(sid, input, cwd, old, r, reports) {
-  writeMarker(sid, { status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(Array.isArray(r.orders) ? { orders: r.orders.map((o) => o && o.noteId).filter((i) => typeof i === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(i)).slice(0, 10) } : old?.orders ? { orders: old.orders } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
+function briefMarker(sid, input, cwd, old, r, reports, dispatched) {
+  writeMarker(sid, { ...(dispatched ?? old?.dispatched ? { dispatched: dispatched ?? old.dispatched } : {}), status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(Array.isArray(r.orders) ? { orders: r.orders.map((o) => o && o.noteId).filter((i) => typeof i === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(i)).slice(0, 10) } : old?.orders ? { orders: old.orders } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
 }
 
 /**
@@ -105,7 +108,7 @@ export async function sessionStart(input) {
   else return null;
   if (unfiled) return unfiledAnswer(sid, input, cwd, remote, folders, unfiled.candidates);
   if (!r || r.unmatched || !r.project) return null;
-  if (sid) briefMarker(sid, input, cwd, old, r, reports);
+  if (sid) briefMarker(sid, input, cwd, old, r, reports, a?.brief ? a.dispatched : undefined);
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: formatBrief(r) } };
 }
 
@@ -126,7 +129,7 @@ export async function refile(input, timeoutMs = 2000) {
     if (a?.unfiled && a.quiet) return { unfiled: true, quiet: true };
     if (a?.brief?.project) {
       if (a.token) keepToken(sid, a.token, a.until);
-      briefMarker(sid, { ...input, source: 'startup' }, cwd, null, a.brief, true);
+      briefMarker(sid, { ...input, source: 'startup' }, cwd, null, a.brief, true, a.dispatched);
       return { filed: a.brief.project.name };
     }
     if (!a?.unfiled || !process.env.WORK_OS_KEY) return a?.unfiled ? { unfiled: true } : null;

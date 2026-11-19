@@ -25,8 +25,8 @@ await runAssertSuite('dispatcher-ui', async () => {
     T(12, 'No folder task', { projectId: 'p3' }),
     T(13, 'No project task'),
     T(14, 'Queued first task', { projectId: 'p2', claude: mark('queued') }),
-    T(15, 'Queued second task', { projectId: 'p1', claude: mark('queued', { markedAt: new Date(Date.now() - 2e5) }) }),
-    T(16, 'Running task', { projectId: 'p1', status: 'In Progress', claude: mark('running', { claimedAt: new Date(Date.now() - 6e5), deviceId: dev, sessionId: randomUUID(), prevStatus: 'Not Started' }) }),
+    T(15, 'Queued second task', { projectId: 'p1', claude: mark('queued', { markedAt: new Date(Date.now() - 2e5), revived: 1 }) }),
+    T(16, 'Running task', { projectId: 'p1', status: 'In Progress', claude: mark('running', { claimedAt: new Date(Date.now() - 6e5), deviceId: dev, sessionId: randomUUID(), prevStatus: 'Not Started', revived: 1 }) }),
     T(17, 'Finished task', { projectId: 'p1', status: 'Done', doneAt: now, doneOn: '2026-10-16', doneBy: 'claude-code', claude: mark('finished', { endedAt: new Date(Date.now() - 36e5), claimedAt: new Date(Date.now() - 72e5), deviceId: dev }) }),
     T(18, 'Stopped task', { projectId: 'p2', status: 'In Progress', claude: mark('stopped', { endedAt: new Date(Date.now() - 18e5), note: 'blocked: needs prod credentials' }) }),
   ]);
@@ -125,9 +125,17 @@ await runAssertSuite('dispatcher-ui', async () => {
     assert.ok(sec.indexOf('Queued first task') < sec.indexOf('Queued second task'), 'queue in marked order');
     assert.ok(/Recently finished or stopped/.test(sec) && /Finished task/.test(sec) && /needs prod credentials/.test(sec), 'recent');
     assert.ok(await p.locator('[data-claude-banner=off]').count() === 1, 'off banner');
+    // H15: a task restarted once says so while it is queued or working again, and only then
+    assert.equal(await p.locator('[data-claude-task="16"]').innerText().then(t => /restarted once \(the session ended\)/.test(t)), true, 'restarted line on the running row');
+    assert.equal(await p.locator('[data-claude-task="15"]').innerText().then(t => /restarted once \(the session ended\)/.test(t)), true, 'restarted line on the queued row');
+    assert.equal(await p.locator('[data-claude-task="14"]').innerText().then(t => /restarted once/.test(t)), false, 'no restarted line on a row that was not restarted');
     await btnH('[data-section=claude-tasks] button');
     await noScroll('claude now');
     await p.screenshot({ path: `${SP}/d-${label}-now.png`, fullPage: true });
+    await p.emulateMedia({ colorScheme: 'dark' });
+    await p.waitForTimeout(300);
+    await p.screenshot({ path: `${SP}/d-${label}-now-dark.png`, fullPage: true });
+    await p.emulateMedia({ colorScheme: 'light' });
     // take back a queued one from the page
     await p.getByRole('button', { name: 'Take back #14' }).click();
     await p.locator('[data-confirm]').click();
