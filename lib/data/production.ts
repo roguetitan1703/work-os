@@ -112,6 +112,12 @@ export async function setProduction(s: Scope, projectId: string, input: unknown 
   return view;
 }
 
+/** The brief's production field for the hook: the effective setting of one project, or null when it has no block. */
+export async function productionForBrief(s: Scope, projectId: string): Promise<ProductionConfig | null> {
+  const p = await (await scoped(s)).projects.findOne({ _id: projectId }, { projection: { code: 1, production: 1 } });
+  return p ? effectiveProduction(p) : null;
+}
+
 export type ReleaseGrant = { until: Date; ref: number } | { open: number } | null;
 
 /**

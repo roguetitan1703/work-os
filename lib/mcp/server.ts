@@ -10,6 +10,7 @@ import * as notesData from '../data/notes';
 import { authorLabel, isMine, outsideTitleLabel, taskAuthors } from '../data/authors';
 import * as items from '../data/claude-items';
 import * as needsData from '../data/needs';
+import * as productionData from '../data/production';
 import * as results from '../data/results';
 import { InputError, NotFoundError } from '../data/errors';
 import { serverInstructions, STATE_COPY, TOOLS, type InstructionsFor, type ToolName } from './docs';
@@ -509,6 +510,8 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     openTasks: { total: open.length, tasks: open.slice(0, 25).map(t => briefTask(t, pn, { baseUrl: ctx.baseUrl, who })), ...(open.length > 25 ? { more: `${open.length - 25} more: list_tasks project:"${project.name}"` } : {}) },
     alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
     stateVersion: state?.version ?? 0,
+    // What counts as production here, for the Work OS hook only (it decides locally whether a command is a production one).
+    ...(a.hook ? { production: await productionData.productionForBrief(s, project._id) } : {}),
   };
 }
 
@@ -1936,7 +1939,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     {
       inputSchema: {
         project: z.string().min(1).describe('Project name or id'),
-        to: z.string().min(1).max(200).describe("'me', a name, an email or a user id. Must be able to read the project"),
+        to: z.string().min(1).max(200).optional().describe("'me', a name, an email or a user id. Must be able to read the project. Required unless release: true (then the project owner)"),
         kind: z.enum(needsData.ASK_KINDS),
         ask: z.string().min(1).max(500).describe('Plain words: what you need from them'),
         example: z.string().max(1000).optional().describe('A real example'),
@@ -1948,18 +1951,25 @@ export function createMcpServer(ctx: Ctx): McpServer {
           .describe('decide: 2 to 4, the first is your recommendation. approve, do and chase have defaults'),
         task: taskKey.optional().describe('Attach it to a task of this project'),
         app_only: z.boolean().optional().describe('true for anything touching production, money or credentials: answered in the app only'),
+        release: z.boolean().optional().describe('true for a push, tag or release to production or a production command: kind approve, goes to the project owner; the only approval the hook accepts'),
         session: z.string().max(80).optional().describe('Your session id, so the answer reaches you'),
         label: z.string().max(80).optional().describe('Your session label, e.g. "cutroom prime, Opus"'),
       },
       annotations: { destructiveHint: false, idempotentHint: false },
     },
     handler(async a => {
-      const to = a.to.trim().toLowerCase() === 'me' ? s.userId : await tasks.findAssignee(s.orgId, a.to);
-      const r = await needsData.askNeed(s, { project: a.project, to, kind: a.kind, ask: a.ask, example: a.example, options: a.options, task: a.task, appOnly: a.app_only, actor: ACTOR, word: WORD, session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
+      let to: string;
+      if (a.release && !a.to) {
+        const p = await projects.getProject(s, a.project);
+        if (!p) throw new NotFoundError(`Project "${a.project}" not found`);
+        to = p.ownerId;
+      } else if (!a.to) throw new InputError('to is required: "me", a name, an email or a user id.');
+      else to = a.to.trim().toLowerCase() === 'me' ? s.userId : await tasks.findAssignee(s.orgId, a.to);
+      const r = await needsData.askNeed(s, { project: a.project, to, kind: a.kind, ask: a.ask, example: a.example, options: a.options, task: a.task, appOnly: a.app_only, release: a.release, actor: ACTOR, word: WORD, session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
       return {
         need: await needOut(r.need),
         ...(r.replaced.length ? { replaced: r.replaced.map(n => ({ id: n.id, ref: n.ref })) } : {}),
-        note: 'Asked. They get one alert and answer in the app; nothing you can call answers it. Read the answer with needs, or it arrives in your next brief. An answer is the only approval: do not proceed on a guess.',
+        note: a.release ? 'Asked. The owner gets one alert and answers in the app (Yes for 1 hour, Yes for 24 hours, or No). The answer comes to this session; then try again. Nothing you can call answers it. An answer is the only approval: do not proceed on a guess.' : 'Asked. They get one alert and answer in the app; nothing you can call answers it. Read the answer with needs, or it arrives in your next brief. An answer is the only approval: do not proceed on a guess.',
       };
     }),
   );
