@@ -34,7 +34,7 @@ repos" with **Link them**; press it (the device key opens a project only through
 links by itself). Within two minutes the PC's row shows "hooks on".
 - Check: Claude › Setup › Computers shows this PC as online and "hooks on"; `node worker.mjs hooks status` lists four
   events; `node worker.mjs hooks check <a project folder>` prints "Brief for project <name>, signed in with this PC's
-  worker key" (or says why not).
+  worker key" (or says why not). A PC with the worker signs in with the worker key first, which is what lets its sessions report their state; a `WORK_OS_KEY` in `settings.json` is only the fallback when the worker gives no brief (folder not linked, key refused, no network), and `hooks check` then says `key`.
 
 ## 4. (merged into step 3)
 
@@ -61,9 +61,9 @@ Claude Code key) and add it to the `env` block of `~/.claude/settings.json` your
 ```json
 "env": { "WORK_OS_KEY": "wos_..." }
 ```
-Never paste the key into a chat, and never into `~/.claude.json`. When `WORK_OS_KEY` is set the hook uses it in place
-of the worker's key, so a PC that has the worker and an old `WORK_OS_KEY` should take that line out (and revoke the
-key in Settings) to move to the worker's key.
+Never paste the key into a chat, and never into `~/.claude.json`. On a PC with the worker the hook tries the
+worker's key first and uses `WORK_OS_KEY` only when the worker gives no brief, so an old `WORK_OS_KEY` is harmless there but
+no longer needed; take that line out (and revoke the key in Settings) once every folder you work in is linked.
 Without the browser (the owner on a PC that has the database credentials in `.env.local`): `node scripts/make-key.mjs --db <database> --email <you> --name "Hooks · <pc>" --apply` creates the key the way the app does and writes it into the settings file without showing it.
 - Check (either way): start a new session in a repo that has a Work OS project; its first context says "Work OS brief
   for project".
