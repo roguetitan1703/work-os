@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'lanes',
+    date: '2026-11-19',
+    title: 'One plan, many sessions',
+    line: 'Each Claude session shows its own lane (branch, task, last result); only the session holding Now changes the plan.',
+    where: 'Project › Overview, State and Working on it now',
+    href: '/projects',
+  },
+  {
     id: 'claude-moves-on',
     date: '2026-11-19',
     title: 'Claude moves on by itself',

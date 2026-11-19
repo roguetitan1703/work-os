@@ -92,7 +92,13 @@ export function StateCard({ projectId, initial, archived: archivedInitial = [] }
           ) : state?.now ? (
             <p className="text-[16px] md:text-sm" data-state-now>
               {state.now.text}
-              {state.now.holder && <span className="text-muted-foreground"> · {state.now.holder}</span>}
+              {state.now.holder && (
+                <span className="text-muted-foreground" data-now-holder>
+                  {' '}
+                  · held by {state.now.holder}
+                  {state.now.holderState ? ` (${state.now.holderState})` : ''}
+                </span>
+              )}
               {state.now.writtenBy && <span className="text-muted-foreground"> · by {state.now.writtenBy}</span>}
             </p>
           ) : (
@@ -111,7 +117,9 @@ export function StateCard({ projectId, initial, archived: archivedInitial = [] }
                     {l.text}
                     {l.ref && <span className="text-muted-foreground"> #{l.ref}</span>}
                     {l.waitsOn && <span className="text-muted-foreground"> · waits on {l.waitsOn}</span>}
+                    {l.holder && <span className="text-muted-foreground" data-line-holder> · {l.holder}</span>}
                     {l.writtenBy && <span className="text-muted-foreground"> · {l.writtenBy}</span>}
+                    {l.left && !l.holder && <span className="block text-[13px] md:text-xs text-muted-foreground" data-line-left>{l.left}</span>}
                   </span>
                   {i > 0 && (
                     <button type="button" aria-label={`Move line ${i + 1} up`} disabled={pending} onClick={() => save([{ op: 'move_next', id: l.id, to: i }])} className={icon} data-next-up>
@@ -139,7 +147,9 @@ export function StateCard({ projectId, initial, archived: archivedInitial = [] }
                   <span className="min-w-0 flex-1 text-[15px] md:text-sm">
                     {l.text}
                     {l.waitsOn && <span className="text-muted-foreground"> · waits on {l.waitsOn}</span>}
+                    {l.holder && <span className="text-muted-foreground" data-line-holder> · {l.holder}</span>}
                     {l.writtenBy && <span className="text-muted-foreground"> · {l.writtenBy}</span>}
+                    {l.left && !l.holder && <span className="block text-[13px] md:text-xs text-muted-foreground" data-line-left>{l.left}</span>}
                   </span>
                   <button type="button" aria-label={`Make a task: ${l.text}`} disabled={pending} onClick={() => save([{ op: 'promote_later', id: l.id }], () => toast.success('Made a task'))} className={icon} data-later-promote>
                     <SquareArrowOutUpRight className="w-4 h-4" />

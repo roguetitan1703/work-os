@@ -31,7 +31,7 @@ import { projectNeeds, withNeedWaits } from '@/lib/data/needs';
 import { NeedsTab } from '@/components/needs';
 import { StateCard } from './state-card';
 import { CouldBeRunning } from '../../claude/workers-tab';
-import { projectRoster } from '@/lib/data/roster';
+import { projectRoster, withLaneMarks } from '@/lib/data/roster';
 import { archivedOut, stateOfProject, stateOut } from '@/lib/data/states';
 import { memberNames } from '@/lib/people';
 
@@ -76,7 +76,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     projectNeeds(sc, project.id),
   ]);
   const projectWorkers = await projectRoster(sc, { id: project.id, name: project.name, status: project.status }, stateDoc, names, open);
-  const stateView = stateDoc ? await withNeedWaits(sc, project.id, stateOut(stateDoc, me.userId, names), names) : null;
+  const stateView = stateDoc ? await withLaneMarks(sc, project.id, stateDoc, await withNeedWaits(sc, project.id, stateOut(stateDoc, me.userId, names), names)) : null;
   const needsOpenForMe = needs.filter(n => n.status === 'open' && n.to === me.userId).length;
   const turbo = await turboInfo(me, project.id, launcher);
   // A project's notes sit on shelves (lib/notes-shelves.ts); task notes, sub-pages and archived notes sit elsewhere.
@@ -151,8 +151,22 @@ export default async function ProjectPage({ params, searchParams }: Props) {
             <ul className={cn(CARD, 'divide-y divide-border/60')}>
               {projectWorkers.workers.map(w => (
                 <li key={w.id} className={cn('px-4 md:px-3 py-2 text-[15px] md:text-sm', w.depth === 1 && 'pl-8 bg-muted/20')} data-project-worker={w.id}>
-                  <span className="font-semibold">{w.person}</span> · {[w.ai, w.model].filter(Boolean).join(' · ')}
-                  <span className="text-muted-foreground text-[13px] md:text-xs"> · {w.state === 'working' ? 'working' : w.state === 'waiting' ? 'waiting on a person' : 'idle'}{w.doing ? ` · #${w.doing.ref}` : ''}</span>
+                  <span className="font-semibold">{w.label || w.person}</span> · {[w.ai, w.model].filter(Boolean).join(' · ')}
+                  <span className="text-muted-foreground text-[13px] md:text-xs">
+                    {w.branch ? ` · ${w.branch}` : ''}
+                    {w.slot ? ` · slot ${w.slot}` : ''}
+                    {` · ${w.state === 'working' ? 'working' : w.state === 'waiting' ? 'waiting on a person' : 'idle'}`}
+                  </span>
+                  {w.doing && (
+                    <Link href={`/tasks/${w.doing.ref}`} className="text-[13px] md:text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline" data-lane-task>
+                      {' · '}#{w.doing.ref}
+                    </Link>
+                  )}
+                  {w.lastResult && (
+                    <div className="text-[13px] md:text-xs text-muted-foreground italic truncate" data-lane-result title="Written by the agent, not checked">
+                      last: {w.lastResult.text.replace(/\s+/g, ' ')}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
