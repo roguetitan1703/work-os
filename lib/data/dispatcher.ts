@@ -2,7 +2,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { ActivityDoc, ClaudeMark, TaskDoc, WorkerFolderDoc } from '../db';
 import { forUser, getUserSetting, scoped, setUserSetting, takeUserSetting, type Scope, type ScopedCollections as Collections } from '../scope';
-import { afterCommit } from '../db';
+import { afterCommit, inTransaction, nextSeq } from '../db';
 import { wake } from '../live';
 import { requestContext } from '../request-context';
 import { actorUserId, agentActor, userActor, viaLabel, type Actor } from '../actors';
@@ -33,6 +33,9 @@ export const STUCK_MS = 20 * 60_000;
 export const MAX_ATTEMPTS = 3;
 /** Ended runs stay in "Claude's tasks" this long. */
 const RECENT_DAYS = 7;
+
+/** The per-person lock document of the claim cap (a counter row, written inside the claim's transaction; claimFor). */
+const dispatchLock = (s: Scope) => `dispatch:${s.orgId}:${s.userId}`;
 
 const CLAIMABLE: Status[] = ['Not Started', 'In Progress'];
 
@@ -295,7 +298,8 @@ export async function dispatchFor(s: Scope, deviceId: string): Promise<{ ref: nu
 async function claimFor(c: Collections, s: Scope, deviceId: string, set: DispatcherSettings): Promise<number | null> {
   const dev = await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { worker: 1, ownerId: 1, orgId: 1 } });
   if (dev?.worker?.allowPrompts !== true) return null;
-  // The cap counts this person's own running tasks (their computers, their limit).
+  // The cap counts this person's own running tasks (their computers, their limit). This read only spares a transaction when full;
+  // the claim below counts again inside its transaction, which is what holds the cap.
   if ((await c.tasks.countDocuments({ 'claude.state': 'running', ...mine(s) })) >= set.maxConcurrent) return null;
 
   const queued = await c.tasks
@@ -319,28 +323,27 @@ async function claimFor(c: Collections, s: Scope, deviceId: string, set: Dispatc
 
     const sessionId = randomUUID();
     const now = new Date();
-    // The claim: one conditional update. Whoever wins starts it; a loser stops (it does not take the next task, so the cap is not overshot).
-    // It needs the mark still "queued": a teammate's edit takes the task back before it is written (takeBackOnEdit).
-    const claimed = await c.tasks.findOneAndUpdate(
-      { _id: t._id, 'claude.state': 'queued', archived: false, status: { $in: CLAIMABLE } },
-      {
-        $set: { 'claude.state': 'running', 'claude.claimedAt': now, 'claude.deviceId': deviceId, 'claude.sessionId': sessionId, 'claude.prevStatus': t.status, status: 'In Progress', updatedAt: now },
-        $unset: { 'claude.endedAt': '', 'claude.note': '' },
-      },
-      { returnDocument: 'after' },
-    );
-    if (!claimed) return null;
-    // The cap check above is a separate read, so polls that ran at the same moment can each pass it. Rank this person's
-    // running claims (oldest claim first); a claim beyond maxConcurrent goes straight back to the queue (no attempt counted,
-    // no start job), so the oldest claims win and the cap holds.
-    const rank = await c.tasks.countDocuments({
-      'claude.state': 'running', ...mine(s),
-      $or: [{ 'claude.claimedAt': { $lt: now } }, { 'claude.claimedAt': now, _id: { $lte: claimed._id } }],
+    // The claim (H15, A1): the cap check and the conditional update are one transaction that first writes this person's lock
+    // document (`dispatch:<org>:<user>`, the Needs counter pattern: lib/data/needs.ts). Two polls at once both write that one
+    // document, the second gets a write conflict, withTransaction retries it, and the retry counts the running claims again and
+    // sees the first one's. So the cap holds for every claim path, with no stored number to drift (a claim ends in eight
+    // places: endRun, requeue, take back, take back on edit, foreign end, trash, delete, the reconciler; the count reads them all).
+    // Whoever wins starts it; a loser stops (it does not take the next task). It needs the mark still "queued": a teammate's
+    // edit takes the task back before it is written (takeBackOnEdit). The start job is made after the commit, with the rollback below.
+    const claim = await inTransaction(async () => {
+      await nextSeq(c.counters, dispatchLock(s));
+      if ((await c.tasks.countDocuments({ 'claude.state': 'running', ...mine(s) })) >= set.maxConcurrent) return 'full' as const;
+      return c.tasks.findOneAndUpdate(
+        { _id: t._id, 'claude.state': 'queued', archived: false, status: { $in: CLAIMABLE } },
+        {
+          $set: { 'claude.state': 'running', 'claude.claimedAt': now, 'claude.deviceId': deviceId, 'claude.sessionId': sessionId, 'claude.prevStatus': t.status, status: 'In Progress', updatedAt: now },
+          $unset: { 'claude.endedAt': '', 'claude.note': '' },
+        },
+        { returnDocument: 'after' },
+      );
     });
-    if (rank > set.maxConcurrent) {
-      await requeue(c, claimed, false);
-      return null;
-    }
+    if (!claim || claim === 'full') return null;
+    const claimed = claim;
     try {
       if (f) await createStartJob(s, f, claimed.projectId!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId, ref: claimed.ref });
       else await createCloneJob(s, deviceId, claimed.projectId!, clone!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId, ref: claimed.ref });

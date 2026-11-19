@@ -77,4 +77,36 @@ await db.collection('workerJobs').insertOne({ _id: 'j_once', deviceId: D1.id, ki
 const ps = await Promise.all(Array.from({ length: 8 }, () => poll(D1)));
 check('8 simultaneous polls: the job is handed out once', ps.flatMap(x => x.body.jobs).filter(j => j.id === 'j_once').length === 1);
 
+// 8. H15 step 3: the cap is airtight under concurrent polls (a per-person lock document in the claim's transaction):
+//    20 parallel polls over 3 devices, cap 2, three rounds. Never more than 2 running, no session twice, every claim has its session row and start job.
+{
+  for (const n of ['tasks', 'workerSessions', 'workerJobs', 'workerFolders', 'devices', 'counters']) await db.collection(n).deleteMany(n === 'counters' ? { _id: /^dispatch:/ } : {});
+  await db.collection('counters').updateOne({ _id: 'task' }, { $set: { seq: 1000 } }, { upsert: true });
+  await db.collection('settings').updateOne({ _id: 'dispatcher' }, { $set: { enabled: true, maxConcurrent: 2 } }, { upsert: true });
+  const devs = [await mkDevice('S-1'), await mkDevice('S-2'), await mkDevice('S-3')];
+  await db.collection('workerFolders').insertMany(devs.map((d, i) => link(d, 'f_stress' + i, 'p1')));
+  for (const d of devs) await status(d);
+  await db.collection('tasks').insertMany([1101, 1102, 1103, 1104, 1105, 1106, 1107, 1108].map((n, i) => mk(n, 'h15 stress ' + n, { projectId: 'p1', claude: mark(i) })));
+  let worst = 0, least = 9, dup = 0, orphans = 0, slowest = 0, started = 0;
+  for (let round = 0; round < 3; round++) {
+    const times = await Promise.all(Array.from({ length: 20 }, async (_, i) => { const t0 = Date.now(); await poll(devs[i % 3]); return Date.now() - t0; }));
+    slowest = Math.max(slowest, ...times);
+    const run = await db.collection('tasks').find({ 'claude.state': 'running' }).toArray();
+    worst = Math.max(worst, run.length);
+    least = Math.min(least, run.length);
+    if (new Set(run.map(t => t.claude.sessionId)).size !== run.length) dup++;
+    for (const t of run) {
+      const rows = await db.collection('workerSessions').countDocuments({ _id: t.claude.sessionId, taskId: t._id });
+      const jobs = await db.collection('workerJobs').countDocuments({ sessionId: t.claude.sessionId, kind: 'start' });
+      if (rows !== 1 || jobs !== 1) orphans++;
+    }
+    started += run.length;
+    await db.collection('tasks').updateMany({ 'claude.state': 'running' }, { $set: { 'claude.state': 'finished', status: 'Done' } });
+  }
+  check('H15 stress: 3 rounds of 20 parallel polls over 3 devices, cap 2: never more than 2 running, at least 1, no session twice', worst <= 2 && least >= 1 && dup === 0, `worst ${worst}, least ${least}, dup ${dup}`);
+  check('H15 stress: every running claim has exactly one session row and one start job; no claim was left half made', orphans === 0 && started >= 3, `orphans ${orphans}, started ${started}`);
+  check('H15 stress: the lock document exists once for the person and polls stay fast (slowest under 6 s)', (await db.collection('counters').countDocuments({ _id: /^dispatch:/ })) === 1 && slowest < 6000, `slowest ${slowest} ms`);
+  console.log(`  (info) slowest of 60 parallel polls: ${slowest} ms`);
+}
+
 await finish();
