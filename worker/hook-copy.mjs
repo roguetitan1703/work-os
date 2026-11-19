@@ -12,15 +12,20 @@ const STAMP = /\n?<!-- work-os-copy sha1:([0-9a-f]{40}) -->\s*$/;
 const sha1 = (s) => createHash('sha1').update(s).digest('hex');
 export const COPY_REASON = 'WORK-STATE.md is a copy of the State, written by the Work OS hook after every save_state; never edit it. Change the State with save_state (set_now, add_next, done_next, edit_line, add_later, add_decision) and the file follows. If get_state says "no State yet", make it now as its answer says.';
 
-/** The markdown a Work OS State tool answered with, or null. */
-export function stateMarkdown(resp) {
+/** What a Work OS tool answered, as an object, or null (an error text, not JSON, nothing). */
+export function answerOf(resp) {
   let text = resp;
   if (Array.isArray(resp)) text = resp.find((c) => c?.type === 'text')?.text;
   else if (resp && typeof resp === 'object' && Array.isArray(resp.content)) text = resp.content.find((c) => c?.type === 'text')?.text;
   if (typeof text !== 'string') return null;
-  try { const md = JSON.parse(text).markdown; return typeof md === 'string' && COPY_HEAD.test(md) ? md : null; } catch { return null; }
+  try { const a = JSON.parse(text); return a && typeof a === 'object' ? a : null; } catch { return null; }
 }
-const projectOf = (md) => (md.match(/^# Work state: (.+)$/m) || [])[1]?.trim() || '';
+/** The markdown a Work OS State tool answered with, or null. */
+export function stateMarkdown(resp) {
+  const md = answerOf(resp)?.markdown;
+  return typeof md === 'string' && COPY_HEAD.test(md) ? md : null;
+}
+export const projectOf = (md) => (md.match(/^# Work state: (.+)$/m) || [])[1]?.trim() || '';
 
 /** After a save seen by post-tool: the next stop compares against this point, and may ask again after later changes. */
 export function markSaved(input, cwd) {
@@ -29,9 +34,14 @@ export function markSaved(input, cwd) {
   if (m) writeMarker(sid, { ...m, status: statusHash(cwd), stopped: false, offset: sizeOf(input.transcript_path) });
 }
 
-/** The WORK-STATE.md write for a State answer: the hook output, or null for nothing to do. */
-export function copyState(input, cwd) {
-  const md = stateMarkdown(input.tool_response);
+/** The WORK-STATE.md write for a State answer (or for md, a copy fetched from the server): the hook output, or null for nothing to do. */
+export function copyState(input, cwd, md = stateMarkdown(input.tool_response)) {
+  const w = writeCopy(input.session_id, cwd, md);
+  return w ? { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: w.notes.join('\n\n').slice(0, MAX_BRIEF) } } : null;
+}
+
+/** Writes and commits WORK-STATE.md from md (commit: false writes only: the pre-tool hook must not run git commit, so a file it wrote is committed by the next post-tool). Returns { version, committed, notes }, or null when nothing was written. */
+export function writeCopy(sid, cwd, md, { commit = true } = {}) {
   if (!md) return null;
   const top = git(cwd, ['rev-parse', '--show-toplevel']);
   if (!top) return null;
@@ -42,7 +52,6 @@ export function copyState(input, cwd) {
   let old = null;
   try { old = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n'); } catch {}
   // Only this repo's project: from the session's start_work, else from the copy already here.
-  const sid = input.session_id;
   const want = (sid && readMarker(sid)?.project) || (old ? projectOf(old) : '');
   if (!want || want !== projectOf(md)) return null;
   const vNew = Number(md.match(COPY_HEAD)[1]);
@@ -51,10 +60,13 @@ export function copyState(input, cwd) {
   const body = md.replace(/\r\n/g, '\n').trimEnd() + '\n';
   const next = `${body}<!-- work-os-copy sha1:${sha1(body)} -->\n`;
   const notes = [];
-  if (old !== null && old === next) return null;
+  const doCommit = commit && process.env.WORK_OS_COPY_COMMIT !== '0';
+  const same = old !== null && old === next;
   // Only the version line differs: no write, no commit (a save every few minutes for weeks would be hundreds of commits).
   const lines = (s) => s.replace(STAMP, '').replace(/\r\n/g, '\n').split('\n').filter((l) => !COPY_HEAD.test(l)).join('\n').trimEnd();
-  if (old !== null && lines(old) === lines(body)) return null;
+  const sameLines = old !== null && lines(old) === lines(body);
+  // Nothing new to write: done, unless an earlier write (an Edit forwarded by pre-tool) is still waiting for its commit.
+  if ((same || sameLines) && !(doCommit && git(top, ['status', '--porcelain', '--', COPY]))) return null;
   if (old !== null) {
     const m = old.match(STAMP);
     const clean = m && sha1(old.replace(STAMP, '').trimEnd() + '\n') === m[1];
@@ -71,7 +83,7 @@ export function copyState(input, cwd) {
   let committed = false;
   const branch = git(top, ['rev-parse', '--abbrev-ref', 'HEAD']);
   const busy = ['MERGE_HEAD', 'REBASE_HEAD', 'CHERRY_PICK_HEAD', 'rebase-merge', 'rebase-apply'].some((f) => fs.existsSync(path.join(gitDir, f)));
-  if (process.env.WORK_OS_COPY_COMMIT !== '0' && branch && branch !== 'HEAD' && !busy) {
+  if (doCommit && branch && branch !== 'HEAD' && !busy) {
     try {
       execFileSync('git', ['add', '--', COPY], { cwd: top, stdio: 'ignore', timeout: 5000 });
       execFileSync('git', ['commit', '--only', '-q', '-m', `WORK-STATE.md: copy of the Work OS State v${vNew}`, '--', COPY], { cwd: top, stdio: 'ignore', timeout: 15000 });
@@ -79,5 +91,5 @@ export function copyState(input, cwd) {
     } catch {}
   }
   notes.unshift(`WORK-STATE.md now holds the Work OS State v${vNew}${committed ? ', committed on its own' : ' (not committed: a merge or rebase is under way, or no branch; the next save commits it)'}. Nothing to do: never edit that file.`);
-  return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: notes.join('\n\n').slice(0, MAX_BRIEF) } };
+  return { version: vNew, committed, notes };
 }

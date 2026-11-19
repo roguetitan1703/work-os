@@ -14,6 +14,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EVENTS, run } from './hook-lib.mjs';
+import { timeoutAnswer } from './hook-pre-tool.mjs';
 
 // What tests and flows import from here.
 export { deps } from './hook-lib.mjs';
@@ -50,7 +51,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (opts.cloud && process.env.CLAUDE_CODE_REMOTE !== 'true') process.exit(0);
   let buf = '';
   process.stdin.setEncoding('utf8');
-  const t = setTimeout(() => process.exit(0), row.timeoutS * 1000 - 500); // never hold a session
+  const t = setTimeout(() => {
+    // Never hold a session. Out of time in pre-tool: refuse a write of the copy (as the plain refusal) rather than let it through.
+    const late = row.event === 'pre-tool' ? timeoutAnswer(buf) : null;
+    if (late) process.stdout.write(JSON.stringify(late) + '\n', () => process.exit(0));
+    else process.exit(0);
+  }, row.timeoutS * 1000 - 500);
   process.stdin.on('end', async () => {
     const out = await main(row.event, buf, opts);
     if (out) process.stdout.write(out + '\n');
