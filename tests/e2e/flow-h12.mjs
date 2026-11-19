@@ -5,6 +5,8 @@
 //           Monday Need is not in the daily "Needs you".
 //   part 2  the counters: POST /api/agent/event takes files / reminded (stop) and copy (tool) and counts them on the token's own row;
 //           POST /api/agent/state counts an applied edit as forwarded and a refused one as refused, once.
+//   part 3  the Monday block in the owner's digest (?at= a Monday and a Tuesday): the four numbers, the proposals and their cap,
+//           a member who is not an owner has none, nothing of a private project or another member's PC.
 // Seed profile: none.
 import { B, check, cron, finish, makeUser, mkDevice, mkKey, rawDb, setProfile, ME, MCP } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
@@ -168,6 +170,88 @@ const ask = async (sid, extra = {}) => (await must(kA, 'ask', { project: 'H12 Pr
   const gone = await post('/api/agent/event', T, { event: 'stop', files: 'saved' });
   await post('/api/agent/event', T, { event: 'tool', copy: 'refused' });
   check('the counts never create a presence row', gone.status === 200 && gone.json?.state === null && !(await row()), JSON.stringify(gone.json));
+}
+
+// ======== part 3: the Monday block ========
+{
+  const D = iso => new Date(iso);
+  const MON = '2026-11-23T05:00:00Z'; // Mon 23 Nov, 10:30 IST: the week is 16-22 Nov
+  const TUE = '2026-11-24T05:00:00Z';
+  const M = await makeUser({ email: 'h12-member@example.test', name: 'H12 Member', orgId: ME.orgId, role: 'member' });
+  const kM = await mkKey({ agent: 'claude-code', userId: M.userId, orgId: ME.orgId, name: 'h12 member code' });
+  await setProfile(M, { quietStart: 0, quietEnd: 0 });
+  // clean slate for the counts: no other computers, no other presence rows with counts
+  await rawDb.collection('devices').deleteMany({ orgId: ME.orgId });
+  await rawDb.collection('presence').deleteMany({ orgId: ME.orgId, $or: [{ stopCheck: { $exists: true } }, { copyEdits: { $exists: true } }] });
+
+  // 9 sessions that changed files in the week: 7 saved (2 only after the reminder), 2 not; 2 refused and 1 forwarded copy edits
+  const prow = (i, extra) => ({ _id: `h12-s${i}`, orgId: ME.orgId, ownerId: ME.userId, visibility: 'org', projectId: proj, userId: ME.userId, key: `h12-s${i}`, session: `h12-s${i}`, label: 'x', machine: 'x', ai: 'x', agent: 'claude-code', lastSeen: D('2026-11-19T04:00:00Z'), forYouCursor: D('2026-11-19T04:00:00Z'), writesSinceSave: 0, ...extra });
+  const at = D('2026-11-18T10:00:00Z');
+  const rows = [];
+  for (let i = 0; i < 5; i++) rows.push(prow(i, { stopCheck: { files: 'saved', at } }));
+  for (let i = 5; i < 7; i++) rows.push(prow(i, { stopCheck: { files: 'saved', reminded: true, at } }));
+  for (let i = 7; i < 9; i++) rows.push(prow(i, { stopCheck: { files: 'unsaved', reminded: true, at }, ...(i === 7 ? { copyEdits: { refused: 2, forwarded: 1 } } : {}) }));
+  // outside the week: not counted
+  rows.push(prow(9, { stopCheck: { files: 'unsaved', at: D('2026-11-09T10:00:00Z') }, copyEdits: { refused: 50, forwarded: 50 }, lastSeen: D('2026-11-09T10:00:00Z') }));
+  await rawDb.collection('presence').insertMany(rows);
+  // computers: one current, one out of date, one with no hooks; a revoked one and one not seen this week are left out
+  const dev = (id, extra) => ({ _id: id, name: `H12 PC ${id}`, ownerId: ME.userId, orgId: ME.orgId, hash: id, prefix: id, createdAt: D('2026-10-01T00:00:00Z'), lastSeenAt: D('2026-11-20T00:00:00Z'), revokedAt: null, ...extra });
+  await rawDb.collection('devices').insertMany([
+    dev('d1', { worker: { version: '1', os: 'win', hooks: { version: 'abc', events: 5, stale: false, signIn: 'worker' } } }),
+    dev('d2', { worker: { version: '1', os: 'win', hooks: { version: 'old', events: 5, stale: true, signIn: 'worker' } } }),
+    dev('d3', { name: 'H12 OTHER MEMBERS PC', ownerId: M.userId, worker: { version: '1', os: 'win' } }),
+    dev('d4', { revokedAt: D('2026-11-01T00:00:00Z') }),
+    dev('d5', { lastSeenAt: D('2026-11-01T00:00:00Z') }),
+  ]);
+  // Monday proposals: two open Monday Needs (one older than 14 days is left out), and friction lines through the feed
+  const base = await rawDb.collection('needs').findOne({ kind: 'decide', status: 'open' });
+  const mneed = (id, ref, ask, createdAt) => ({ ...base, _id: id, ref, ask, batch: 'monday', status: 'open', createdAt, answeredAt: null });
+  await rawDb.collection('needs').deleteOne({ _id: 'h12-monday-need' }); // part 1's Monday Need would be a proposal too
+  await rawDb.collection('needs').insertMany([mneed('h12-m1', 9201, 'H12 MONDAY ONE declutter the State', D('2026-11-12T09:00:00Z')), mneed('h12-m2', 9202, 'H12 MONDAY TWO propose a rule', D('2026-11-16T09:00:00Z')), mneed('h12-m3', 9203, 'H12 MONDAY OLD', D('2026-10-20T09:00:00Z'))]);
+  const fb = (key, sid, args) => mcpH(key, 'feedback', { project: 'H12 Proj', session: sid, ...args }, { 'x-work-os-session': sid });
+  for (let i = 0; i < 5; i++) await fb(kA, `h12-f${i % 3}`, { text: `end_work friction number ${i}`, tool: 'end_work' }); // 5 lines, 3 sessions
+  for (let i = 0; i < 3; i++) await fb(kA, 'h12-f0', { text: `ask the rule line ${i}`, rule: 'Ask before anything irreversible' }); // 3 lines, 1 session
+  for (let i = 0; i < 2; i++) await fb(kA, 'h12-f0', { text: `hand_in small ${i}`, tool: 'get_state' }); // 2 lines, 1 session: below the bar
+  await fb(kA, 'h12-f1', { text: 'hand_in other session', tool: 'hand_in' });
+  await fb(kA, 'h12-f2', { text: 'hand_in third session', tool: 'hand_in' }); // 2 lines, 2 sessions: in
+  // a private project of the member: its friction is not the owner's to see
+  await must(kM, 'add_project', { name: 'H12 Member Secret', visibility: 'private' });
+  for (let i = 0; i < 4; i++) await mcpH(kM, 'feedback', { project: 'H12 Member Secret', text: `secret friction ${i}`, tool: 'secret_tool', session: `h12-m${i}` }, { 'x-work-os-session': `h12-m${i}` });
+
+  const dry = await cron('&dry=1' + AT(MON));
+  const text = (dry.preview ?? []).join(String.fromCharCode(10));
+  // the owner's digest ends with the block; another person's digest (a member's) may follow it in the preview
+  const from = Math.max(0, text.lastIndexOf('Monday numbers**') - 4);
+  const next = text.indexOf('📋', from);
+  const block = text.slice(from, next > 0 ? next : undefined);
+  console.log('--- the Monday block as the Discord DM shows it ---' + String.fromCharCode(10) + block + String.fromCharCode(10) + '---');
+  check('monday: the owner has the block, last in the digest, headed with the week', /📏 \*\*Monday numbers\*\* \(16 Nov-22 Nov\)/.test(text) && text.lastIndexOf('Monday numbers') > text.indexOf('Today'), text.slice(0, 200));
+  check('monday: the header summary says Monday numbers', /Mon 23 Nov.*Monday numbers/.test(text.split(String.fromCharCode(10))[0]), text.slice(0, 300));
+  check('monday: sessions that changed files and saved State: 7 of 9, 2 after the reminder, with the target', /Sessions that changed files and saved State: 7 of 9 .?\(2 after the reminder.?\) · target 9 of 10/.test(block), block.slice(0, 500));
+  check('monday: PCs with no hooks: 1 of 3 seen this week (a revoked and a quiet one left out), 1 out of date', /PCs with no hooks: 1 of 3 .?\(1 out of date.?\)/.test(block), block.slice(0, 500));
+  check('monday: WORK-STATE.md edits counted over the week only', /WORK-STATE\.md edits: 2 refused, 1 forwarded/.test(block), block.slice(0, 500));
+  check("monday: Om's repeats says not counted yet", /Om's repeats: not counted yet/.test(block), block.slice(0, 500));
+  check('monday: proposals are numbered, silence means keep; open Monday Needs first (oldest first), older than 14 days left out', /Proposals\*\* \(silence means keep\)/.test(block) && /1\. .*MONDAY ONE/.test(block) && /2\. .*MONDAY TWO/.test(block) && !/MONDAY OLD/.test(block), block.slice(0, 900));
+  check('monday: then friction by size: end_work (5 lines, 3 sessions); at most three lines, then "+N more in the app"', /3\. Friction: end.?_work, 5 lines from 3 sessions this week/.test(block) && /\+2 more.* in the app/.test(block) && !/4\. Friction/.test(block), block.slice(0, 900));
+  check('monday: a rule friction (3 lines) and a tool from 2 sessions were counted but are past the cap; one from a single session with 2 lines is not a proposal', !/get_state/.test(block), block.slice(0, 900));
+  check("monday: another member's private project's friction and PC name are not in it", !/secret_tool|secret friction|H12 OTHER MEMBERS PC|H12 Member Secret/.test(text), text.slice(0, 200));
+  check('monday: the block is at most 10 lines and the whole DM stays in messages of at most 1,900 characters', block.split(String.fromCharCode(10)).filter(l => l.trim()).length <= 12 && (dry.preview ?? []).every(m => m.length <= 1900), String(block.split(String.fromCharCode(10)).length));
+
+  // a Tuesday has none; a member who is not an owner never has it, even on a Monday
+  const tue = (await cron('&dry=1' + AT(TUE))).preview?.join(String.fromCharCode(10)) ?? '';
+  check('tuesday: no Monday block', !/Monday numbers/.test(tue), tue.slice(0, 200));
+  await rawDb.collection('tasks').insertOne({ _id: 'h12-m-task', ref: 9301, orgId: ME.orgId, ownerId: M.userId, visibility: 'private', projectId: null, title: 'H12 member task', status: 'Not Started', archived: false, priority: 'P1', due: '2026-11-23', progress: 0, createdAt: D('2026-11-17T05:00:00Z'), updatedAt: D('2026-11-17T05:00:00Z'), assigneeIds: [] });
+  await cron(AT(MON));
+  const mine = await rawDb.collection('notifications').find({ userId: ME.userId, kind: 'digest' }).toArray();
+  const theirs = await rawDb.collection('notifications').find({ userId: M.userId, kind: 'digest' }).toArray();
+  check('monday: the owner got a digest with the Monday numbers in its summary', mine.length >= 1 && mine.some(n => /Monday numbers/.test(n.body)), JSON.stringify(mine.map(n => n.body)));
+  check('monday: a member who is not an owner got a digest on the same Monday with no Monday numbers', theirs.length === 1 && !/Monday numbers/.test(theirs[0].body), JSON.stringify(theirs.map(n => n.body)));
+
+  // a Monday with nothing counted: the numbers say so rather than 0 of 0
+  await rawDb.collection('presence').deleteMany({ orgId: ME.orgId, stopCheck: { $exists: true } });
+  await rawDb.collection('devices').deleteMany({ orgId: ME.orgId });
+  const quiet = (await cron('&dry=1' + AT('2026-11-30T05:00:00Z'))).preview?.join(String.fromCharCode(10)) ?? '';
+  check('monday: a week with no counted sessions or PCs says so (no 0 of 0)', /saved State: none counted yet/.test(quiet) && /no PC seen this week/.test(quiet) && !/0 of 0/.test(quiet), quiet.slice(0, 500));
 }
 
 await finish();

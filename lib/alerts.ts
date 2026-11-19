@@ -26,7 +26,8 @@ import { needButtons } from './discord/need-buttons';
 //   due_tomorrow   18:00 the day before, P1/P2
 //   digest         once a day at the person's own hour (profile.digestHour, default 9), claimed by alertLog key
 //                  digest:<date>:<userId>: Needs you (answerable from Discord), Today (top 3 by rule), Since yesterday (one line per
-//                  project that changed), Agents (running, stalled, could run). While it is on (kinds.digest) the
+//                  project that changed), Agents (running, stalled, could run); on Mondays, for the organization's owner, the
+//                  Monday numbers and up to three proposals (lib/monday.ts). While it is on (kinds.digest) the
 //                  three alerts below wait for it and go into it; their log keys are claimed with it. After it has gone
 //                  out, a task that becomes due, overdue or quiet still alerts on its own on the next run. Off = the
 //                  alerts below work as they always did.
@@ -365,6 +366,13 @@ async function buildDigest(
   const shown = agents.slice(0, MAX_AGENT_LINES);
   if (shown.length) sections.push({ head: '🤖 **Agents**', rows: shown.map(a => ({ text: a.text, detail: a.detail })) });
 
+  // 5. Mondays, for the organization's owner only: four numbers and up to three proposals (lib/monday.ts). Silence means keep.
+  let monday = false;
+  if (weekday(today) === 1 && (await (await import('./caller')).roleOf(s.userId, s.orgId)) === 'owner') {
+    sections.push(...(await (await import('./monday')).mondayBlock(s, { tz, today })));
+    monday = true;
+  }
+
   // The header line, also the inbox body and the push text.
   const summary = [
     dayLabel(today),
@@ -372,6 +380,7 @@ async function buildDigest(
     picks.length && `${picks.length} for today`,
     moved.length && `${plural(moved.length, 'project')} moved`,
     (running || stalled) && [running && `${running} running`, stalled && `${stalled} stalled`].filter(Boolean).join(', '),
+    monday && 'Monday numbers',
   ].filter(Boolean).join(' · ');
   // The first digest says why the morning alerts changed.
   const first = !(await c.alertLog.findOne({ kind: 'digest', empty: { $ne: true } }, { projection: { _id: 1 } }));
