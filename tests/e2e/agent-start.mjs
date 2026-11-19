@@ -8,6 +8,7 @@
 // owner is no longer a member (401), every other credential (wos_ keys, X-API-Key, a session cookie, junk: 401), bad
 // bodies (400, 413), GET (405), the hourly limits (429 for a computer's new sessions and for one token's briefs), and the
 // token nowhere in the brief or the database. Seed profile: none.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -96,6 +97,15 @@ try {
   check('H5: a second fresh session is not shown the handover again', rH2.status === 200 && !rH2.json?.brief?.handover, `${rH2.status} ${rH2.text.slice(0, 200)}`);
   check('no-store on the answer', /no-store/.test(r1.headers.get('cache-control') ?? ''));
   check('the session is present on the project', !!(await rawDb.collection('presence').findOne({ session: sid, projectId: one })));
+  // Lanes step 6: the folder's key (never its path) is on the row; a second live session in the same folder is told, a different folder is not.
+  const rowS = await rawDb.collection('presence').findOne({ session: sid, projectId: one });
+  const keyOf = (p) => crypto.createHash('sha1').update(`${pc1.id}\n${p.toLowerCase()}`).digest('hex');
+  check('Lanes 6: the presence row carries sha1(device + path) and the path is not stored', rowS?.folderKey === keyOf('c:/code/agent-one') && !JSON.stringify(rowS).includes('code/agent-one'), String(rowS?.folderKey));
+  check('Lanes 6: the first session in a folder has no sameFolder; the next one in the same folder does (label, state, text)', !('sameFolder' in (r1.json?.brief ?? {})) && rH2.json?.brief?.sameFolder?.label === rowS?.label && ['on', 'working', 'idle', 'waiting'].includes(rH2.json?.brief?.sameFolder?.state), JSON.stringify(rH2.json?.brief?.sameFolder));
+  const rOther = await post(pc1.key, at('acme/agent-one', { path: 'C:/other/checkout' }));
+  check('Lanes 6: a session in another folder has no sameFolder', rOther.status === 200 && !('sameFolder' in (rOther.json?.brief ?? {})), JSON.stringify(rOther.json?.brief?.sameFolder));
+  const rBack = await post(pc1.key, at('acme/agent-one', { path: 'c:' + String.fromCharCode(92) + 'CODE/agent-one/' }));
+  check('Lanes 6: the same folder spelled another way (case, slashes, trailing slash) is the same folder', rBack.status === 200 && !!rBack.json?.brief?.sameFolder, JSON.stringify(rBack.json?.brief?.sameFolder));
   const row = await rawDb.collection('agentSessions').findOne({ _id: sid });
   check('agentSessions row: hash only, one project, about 24 h', !!row && row.projectId === one && row.deviceId === pc1.id && /^[0-9a-f]{64}$/.test(row.hash) && Math.abs(row.expiresAt - row.createdAt - 24 * 3600e3) < 5000);
   check('agentSessions row: the hash of the key it was made with', row?.keyHash === (await rawDb.collection('devices').findOne({ _id: pc1.id }))?.hash);

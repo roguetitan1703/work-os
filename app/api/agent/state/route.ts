@@ -2,9 +2,10 @@ import { z } from 'zod';
 import { projectOnDevice } from '@/lib/agent-sessions';
 import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf, noProject, readCapped } from '@/lib/agent-auth';
 import { reserveAgent } from '@/lib/mcp/policy';
+import { scoped } from '@/lib/scope';
 import { agentActor } from '@/lib/actors';
 import { editCopyLine, getState, holdsNowOf, setWhere, stateCopy } from '@/lib/data/states';
-import { countCopyEdit } from '@/lib/data/presence';
+import { commitFlag, countCopyEdit, hookRowId } from '@/lib/data/presence';
 import { hookHeader, runWithRequestContext } from '@/lib/request-context';
 import { timezoneOf } from '@/lib/profile';
 import { InputError, NotFoundError } from '@/lib/data/errors';
@@ -19,9 +20,9 @@ import { InputError, NotFoundError } from '@/lib/data/errors';
 //          as the Claude Code agent of the token's owner. Several lines, the header, Decisions and the marks of a line are refused.
 //          Each edit is counted once on the session's own row (copyEdits.forwarded or .refused, H12): numbers only.
 // Always answers the copy of the token's project (the same text get_state copy:true gives), so the hook can write the file,
-// and holdsNow: whether this session holds the State's Now (Lanes step 1).
+// and holdsNow: whether this session holds the State's Now (Lanes step 1), and commit: whether its hook commits the copy (Lanes step 6: the Now holder's session, else the oldest live session of the same folder).
 // Rate limited per session token, lib/mcp/policy.ts AGENT_PER_HOUR.state.
-//   200 { project, version, markdown, holdsNow, applied? } · 400 bad body or an edit refused · 401 no or bad credential
+//   200 { project, version, markdown, holdsNow, commit, applied? } · 400 bad body or an edit refused · 401 no or bad credential
 //   404 the project has no folder on this computer any more · 413 body too large · 429 over the hourly limit
 // proxy.ts lets this exact path through untouched: this route checks its own credential.
 
@@ -102,7 +103,11 @@ export async function POST(req: Request): Promise<Response> {
       if (!state) return reply(404, { error: 'The project has no State yet.' });
       const baseUrl = (process.env.APP_URL || new URL(req.url).origin).replace(/\/+$/, '');
       const markdown = await stateCopy(s, project, state, baseUrl);
-      return reply(200, { project: project._id, version: state.version, markdown, holdsNow: holdsNowOf(state, src), ...(applied ? { applied } : {}) });
+      // Lanes step 6: whether this session's hook commits the copy (the Now holder's session, else the oldest live one of its folder).
+      const holds = holdsNowOf(state, src);
+      const row = await (await scoped(s)).presence.findOne({ _id: hookRowId(s.userId, session.id, projectId), userId: s.userId });
+      const commit = await commitFlag(s, projectId, row, state.now?.hold?.key, holds);
+      return reply(200, { project: project._id, version: state.version, markdown, holdsNow: holds, commit, ...(applied ? { applied } : {}) });
     });
   } catch (err) {
     if (err instanceof InputError) return reply(400, { error: err.message });

@@ -42,7 +42,8 @@ export async function userPrompt(input) {
   const r = m?.unfiled && !line.startsWith('Filed') && !readKept(sid) ? null : await postEvent(sid, 'prompt', { deliver: true, ...(woke ? { woke: true } : {}) }, PROMPT_POST_MS);
   const after = readMarker(sid);
   if (after && (!after.unfiled || readKept(sid))) {
-    const { wokeAt, turnStatus, ...rest } = after;
+    const { wokeAt, turnStatus, sameFolder, ...rest } = after;
+    void sameFolder; // shown once: the marker drops it with this prompt (Lanes step 6)
     void wokeAt; void turnStatus;
     // The Declutter nudge fires only on a turn that changed no files: the Now holder's turn starts from this snapshot (hook-stop.mjs quietTurn).
     if (rest.holdsNow === true) rest.turnStatus = statusHash(input.cwd || process.cwd());
@@ -50,8 +51,9 @@ export async function userPrompt(input) {
     writeMarker(sid, { ...rest, lastTool: Date.now(), ...(typed ? { promptAt: Date.now() } : rest.promptAt ? { promptAt: rest.promptAt } : {}) }); // promptAt: the person's last prompt in this main session (H8 attended rule: hook-pre-tool.mjs attended()); the tool-batch hook posts again in 20 s
   }
   const out = deliverOut('UserPromptSubmit', r, sid);
-  if (!line) return out;
-  const text = [line, out?.hookSpecificOutput?.additionalContext].filter(Boolean).join('\n\n');
+  const same = typeof now?.sameFolder === 'string' ? now.sameFolder : '';
+  if (!line && !same) return out;
+  const text = [line, same, out?.hookSpecificOutput?.additionalContext].filter(Boolean).join('\n\n');
   return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } };
 }
 
