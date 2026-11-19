@@ -1385,7 +1385,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     {
       inputSchema: {
         project: z.string().describe('Project name or id'),
-        ops: z.array(stateData.StateOpSchema).min(1).max(30).describe('Changes, applied in order'),
+        ops: z.array(stateData.AgentStateOpSchema).min(1).max(30).describe('Changes, applied in order'),
         base_version: z.number().int().min(0).optional().describe('The State version you read. Needed only with set_now; stale = nothing written and the current State comes back'),
       },
       annotations: { destructiveHint: false },
@@ -1404,7 +1404,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     {
       inputSchema: {
         project: z.string().describe('Project name or id'),
-        state: z.array(stateData.StateOpSchema).min(1).max(30).describe('save_state ops, applied first (if nothing changed, a set_where). A project with no State yet needs a set_now'),
+        state: z.array(stateData.AgentStateOpSchema).min(1).max(30).describe('save_state ops, applied first (if nothing changed, a set_where). A project with no State yet needs a set_now'),
         base_version: z.number().int().min(0).optional().describe('The State version you read. Needed only with set_now; stale = nothing happens and the current State comes back'),
         friction: z.string().trim().min(1).max(300).describe('One line: what slowed you down or went wrong in Work OS ("none" is allowed)'),
         handover: z

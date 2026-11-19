@@ -185,7 +185,7 @@ export function formatBrief(r) {
     const time = at ? new Date(at).toTimeString().slice(0, 5) : '';
     sections.push(`## Handover (note ${h.id}, from ${cut(h.from || 'a session', 60)}${time ? `, ${time}` : ''}${h.writtenBy ? `, writtenBy ${cut(h.writtenBy, 40)}` : ''})\n${str(h.markdown).trim()}`);
   }
-  if (Array.isArray(r.moreHandovers) && r.moreHandovers.length) sections.push(`## More handovers\n${r.moreHandovers.slice(0, 5).map(m => `- ${cut(m, 160)}`).join('\n')}\nRead one with read_note.`);
+  if (Array.isArray(r.moreHandovers) && r.moreHandovers.length) sections.push(`## More handovers\n${r.moreHandovers.slice(0, 5).map(m => `- ${cut(m, 160)}`).join('\n')}\nPick one up with start_work pick_up (the note id).`);
   const same = sameFolderText(r.sameFolder);
   if (same) sections.push(`## Same folder
 ${same}`);

@@ -70,7 +70,7 @@ const ago = (ms: number) => {
  * What the message is, for the note on how it will reach a session: its kind, whether it names a session, and its chain (a message
  * at WAKE_CHAIN or more never wakes anyone).
  */
-export type Sending = { kind: MessageDoc['kind']; direct: boolean; chain: number };
+export type Sending = { kind: MessageDoc['kind']; direct: boolean; chain: number; wakes?: boolean };
 /** A message at this chain or more never wakes a session or makes a Stop continue (lib/data/deliver.ts). */
 export const WAKE_CHAIN = 2;
 
@@ -80,12 +80,12 @@ async function hookNote(who: string, r: PresenceDoc, m: Sending): Promise<string
   if (st.state === 'off') return `${who}: off; it gets this when it starts`;
   if (st.state === 'working') return `${who}: working; it gets this after its next step`;
   if (st.state === 'waiting' && st.why === 'prompt') return `${who}: waiting at a prompt; it gets this when it carries on`;
-  if (m.kind === 'fyi') return `${who}: idle; an fyi does not wake it, it gets this on its next turn`;
+  if (m.kind === 'fyi' && !m.wakes) return `${who}: idle; an fyi does not wake it, it gets this on its next turn`;
   if (!m.direct) return `${who}: idle; a message to the project does not wake it, it gets this on its next turn`;
   if (m.chain >= WAKE_CHAIN) return `${who}: idle; this message follows a wake by another agent, so it does not wake it: it gets this on its next turn`;
   const used = r.session ? await agentUsed('wake', r.session).catch(() => 0) : 0;
   if (used >= AGENT_PER_HOUR.wake) return `${who}: idle and woken ${used} times this hour; it gets this on its next turn`;
-  return `${who}: idle; a direct ${m.kind} wakes it`;
+  return `${who}: idle; ${m.wakes ? 'a reply to your question or request' : `a direct ${m.kind}`} wakes it`;
 }
 
 /** Who is on the receiving end, in words: "cutroom: off, last active 3 h ago; it gets this when it starts". `sending` says how a session with the Work OS hook gets it. */
@@ -167,7 +167,7 @@ export async function sendMessage(
   target: SendTarget,
   raw: unknown,
   from: From,
-  o: { thread?: string } = {},
+  o: { thread?: string; wakes?: boolean } = {},
 ): Promise<{ message: MessageDoc; project: ProjectDoc | null; target: string }> {
   const input = SendSchema.parse(raw);
   const c = await scoped(s);
@@ -211,15 +211,16 @@ export async function sendMessage(
     ...(input.sender_commit ? { senderCommit: input.sender_commit } : {}),
     ...(from.src ? { src: from.src } : {}),
     ...(chain ? { chain } : {}),
+    ...(o.wakes ? { wakes: true } : {}),
     at: new Date(),
   };
   await c.messages.insertOne(doc);
   // An idle session waiting for a message hears there may be one (no data in the signal; it reads through its own door). An fyi never wakes a session.
-  if (toSids.length && input.kind !== 'fyi') signalSessions(s.orgId, toSids);
+  if (toSids.length && (input.kind !== 'fyi' || o.wakes)) signalSessions(s.orgId, toSids);
   // The feed says a message came, never what it says (the body stays with its reader): placed like the message.
   const actor = from.actor ?? (from.word === 'person' ? userActor(s.userId) : agentActor('claude', s.userId));
   await logChange(c, doc, actor, 'message_sent', { subject: { kind: 'message', id: _id, title: input.kind }, ...(project ? { projectId: project._id } : {}), at: doc.at });
-  const sending: Sending = { kind: input.kind, direct: toSids.length > 0, chain };
+  const sending: Sending = { kind: input.kind, direct: toSids.length > 0, chain, ...(o.wakes ? { wakes: true } : {}) };
   let note: string;
   if (target.kind === 'person') note = `${target.name}: it shows under Messages for you on their Claude › Now`;
   else {
@@ -258,7 +259,7 @@ export async function reply(s: Scope, id: string, body: string, from: From, read
   // session of the same person (a pickup), the reply goes to where it moved, at most 3 hops (lib/data/pickup.ts followMoved).
   const src = parent.src.startsWith(`${parent.from.userId}:`) ? parent.src : `${parent.from.userId}:${parent.src}`;
   const dest = await followMoved(s, parent.projectId, src);
-  return sendMessage(s, { kind: 'reply', project, toSids: [dest], ...(to ? { toLabel: to } : {}) }, { kind: 'fyi', body }, from, { thread: parent.thread });
+  return sendMessage(s, { kind: 'reply', project, toSids: [dest], ...(to ? { toLabel: to } : {}) }, { kind: 'fyi', body }, from, { thread: parent.thread, wakes: parent.kind === 'question' || parent.kind === 'request' });
 }
 
 export type Names = Record<string, string>;

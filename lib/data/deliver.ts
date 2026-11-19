@@ -21,7 +21,7 @@ import { sweepGone } from './pickup';
 //   stop  the turn ended with messages that came during it: only those that may wake a session, at most 20 an hour.
 //   wake  an idle session: only those that may wake it, at most 6 an hour (AGENT_PER_HOUR.wake), the row's wokeAt set.
 // May wake (wakeWorthy): addressed to this session by id or label (never an untargeted project message, which is the
-// owner's by default), a request, question or decision (never an fyi, and a reply is an fyi), chain below WAKE_CHAIN_MAX.
+// owner's by default), a request, question or decision (never an fyi, and a reply is an fyi that wakes only the asker of a question or request), chain below WAKE_CHAIN_MAX.
 // An answered Need the session asked always may. The chain (MessageDoc.chain, PresenceDoc.turnChain) stops two agents that
 // keep messaging each other from keeping each other awake: a person's word is chain 0, an agent's is the sender's turn
 // chain plus 1, and chain 2 waits for the session's next turn.
@@ -41,9 +41,9 @@ export type Delivery = { text: string; /** Ids of the messages in the text. */ i
 /** The session as a reader of messages: its key, the person, its presence row. */
 export const readerOf = (s: Scope, sid: string, row: PresenceDoc): Reader => ({ key: `${s.userId}:${sid}`, userId: s.userId, row });
 
-/** May this unread message wake the session? (Directly addressed; a request, question or decision; chain below the limit.) */
+/** May this unread message wake the session? (Directly addressed; a request, question, decision or a reply to a question or request; chain below the limit.) */
 export function wakeWorthy(m: MessageDoc, reader: Reader, ownerId: string | undefined): boolean {
-  if (m.kind === 'fyi') return false;
+  if (m.kind === 'fyi' && !m.wakes) return false;
   if (!m.toSids?.length && !m.toSession) return false;
   if ((m.chain ?? 0) >= WAKE_CHAIN_MAX) return false;
   return addressed(m, reader, ownerId);

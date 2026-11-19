@@ -904,7 +904,7 @@ try {
     const pidNm = (await rawDb.collection('projects').findOne({ orgId: A.orgId, name: nm }))._id;
     const decId = (await mustMcp(A.chat, 'get_state', { project: nm })).state.decisions[0].id;
     const viaMcp = await mcpCall(A.chat, 'save_state', { project: nm, ops: [{ op: 'archive_decision', id: decId }] });
-    check('State: archive_decision through MCP is refused, even for the owner', !viaMcp.ok && /in the app/.test(viaMcp.text), viaMcp.text.slice(0, 200));
+    check('State: archive_decision through MCP is refused, even for the owner', !viaMcp.ok && /archive_decision|op/.test(viaMcp.text), viaMcp.text.slice(0, 200));
     const archAct = (who) => action('app/(app)/projects/[id]/state-actions.ts#saveStateAction', [pidNm, [{ op: 'archive_decision', id: decId }]], { cookie: who.cookie });
     const tArch = await archAct(T);
     check('State: a teammate who does not own the project cannot archive a decision in the app', tArch.value?.ok === false && /owner/.test(tArch.value?.error ?? ''), JSON.stringify(tArch.value));

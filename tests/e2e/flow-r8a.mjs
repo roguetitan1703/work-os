@@ -72,6 +72,19 @@ try {
   check('F7: start_work gives Later as the first 5 lines plus a count and a pointer to get_state', sw.state.later.length === 5 && sw.state.laterCount === 7 && /get_state/.test(sw.state.laterMore ?? ''), JSON.stringify(sw.state.later?.length));
   const full = await must(cc, 'get_state', { project: NAME, session: 'r8int' });
   check('F7: get_state still has every Later line', full.state.later.length === 7);
+
+  // F9: a reply to a question or a request wakes the asker
+  await must(cc, 'start_work', { project: NAME, label: 'r8 helper', session: 'r8help' });
+  const q = await must(cc, 'send_message', { to: 'r8help', project: NAME, kind: 'question', body: 'R8 which way?', session: 'r8int' });
+  const rq = await must(cc, 'reply', { id: q.message?.id ?? q.id, body: 'R8 this way', session: 'r8help' });
+  const rdoc = await rawDb.collection('messages').findOne({ body: 'R8 this way' });
+  check('F9: a reply to a question is marked as waking the asker', rdoc?.kind === 'fyi' && rdoc.wakes === true, JSON.stringify(rdoc));
+  const f = await must(cc, 'send_message', { to: 'r8help', project: NAME, kind: 'fyi', body: 'R8 just so you know', session: 'r8int' });
+  await must(cc, 'reply', { id: f.message?.id ?? f.id, body: 'R8 noted', session: 'r8help' });
+  const rf = await rawDb.collection('messages').findOne({ body: 'R8 noted' });
+  check('F9: a reply to an fyi does not wake', rf && !rf.wakes, JSON.stringify(rf));
+  const ad = await mcpH(cc, 'save_state', { project: NAME, session: 'r8int', ops: [{ op: 'archive_decision', id: 'x' }] });
+  check('F3: archive_decision is not in the agent schema', ad.isError && /archive_decision|op/.test(ad.text), ad.text.slice(0, 200));
 } catch (e) {
   check('flow-r8a (error)', false, e?.stack || String(e));
 }
