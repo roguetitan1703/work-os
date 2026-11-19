@@ -38,6 +38,8 @@ export const EVENTS = [
   { event: 'tool-batch', claudeEvent: 'PostToolBatch', matcher: null, timeoutS: 3, localOnly: true },
   // The idle wait: kept running after a turn ends (Stop) or at the start; a message that may wake the session ends it with exit 2,
   // which wakes the session (asyncRewake). One hour, then it ends quietly and the next turn's Stop starts another.
+  // A Bash or PowerShell call is about to run (async, never delays it): Work OS keeps the session working until a later event, however long the call takes.
+  { event: 'tool-start', claudeEvent: 'PreToolUse', matcher: 'Bash|PowerShell', timeoutS: 3, async: true, localOnly: true },
   { event: 'wait', claudeEvent: 'Stop', matcher: null, timeoutS: 3600, asyncRewake: true, localOnly: true },
   { event: 'wait', claudeEvent: 'SessionStart', matcher: 'startup|resume|clear|compact', timeoutS: 3600, asyncRewake: true, localOnly: true },
   { event: 'notification', claudeEvent: 'Notification', matcher: 'permission_prompt|idle_prompt|elicitation_dialog', timeoutS: 3, async: true, localOnly: true },
@@ -216,7 +218,7 @@ export async function postEvent(sid, event, extra = {}, timeoutMs = 1500) {
     if (m && ident && r?.status === 200) m.ident = ident.key; // the server has it
     if (m && sent && r?.status === 200) delete m.ack; // the server has it
     if (m) {
-      if (event === 'result') return r; // a lane result changes no session state
+      if (event === 'result' || event === 'tool-start') return r; // a lane result changes no session state
       const state = event === 'notify' ? (extra.kind === 'idle_prompt' ? 'idle' : 'waiting') : PRESENCE_AFTER[event];
       writeMarker(sid, { ...m, presence: r?.status === 200 ? { state, at, postedAt: at } : { ...(m.presence || {}), postedAt: at, failed: true } });
     }
@@ -305,7 +307,7 @@ export function frameInbox(messages) {
  * Extra request headers every hook call sends. X-Work-OS-Hook is the hook protocol version: 2 = this hook fetches the copy
  * itself (get_state copy:true, POST /api/agent/state), so the server's save answers leave out the markdown. An old hook sends
  * nothing and is marked protocol 1 (it still gets the markdown in answers). 3 = the hook also sends the session's identity (its name,
- * Claude's title, the model, the tool) at the start and on change (Identity step 4). 4 = a subagent's last message goes to the server as the lane's `result` (Lanes step 3);
+ * Claude's title, the model, the tool) at the start and on change (Identity step 4). 4 = a subagent's last message goes to the server as the lane's `result` (Lanes step 3), and a Bash or PowerShell call's start as `tool-start` (a running tool keeps the session working);
  * the server still accepts 1 to 3.
  */
 export const HOOK_PROTOCOL = 4;

@@ -255,6 +255,31 @@ try {
   const stillOk = await ev(F.token, { event: 'stop' });
   check('400 tool events while working: none is refused, and a state change after them is still accepted', free === 400 && stillOk.status === 200 && stillOk.json?.state === 'idle', `${free} ${stillOk.status}`);
 
+  // ---- a running tool keeps the session working (tool-start, hook protocol 4) ----
+  const TS = await newSession({ ccSession: randomUUID(), source: 'startup' });
+  await daemonList([]);
+  await ev(TS.token, { event: 'prompt' });
+  const ts1 = await ev(TS.token, { event: 'tool-start' });
+  check('tool-start: accepted, working, and the row is marked open', ts1.status === 200 && ts1.json?.state === 'working' && (await prow(TS.sid)).activity.open === true, JSON.stringify(ts1.json));
+  const ts2 = await ev(TS.token, { event: 'tool-start' });
+  check('tool-start: a repeat within a minute of an open row is free and changes nothing', ts2.status === 200 && ts2.json?.state === 'working');
+  await setRow(TS, { 'activity.at': ago(15), lastSeen: ago(15) });
+  await want('tool-start then 15 minutes with no event: still working (the call is running)', TS, 'working');
+  await setRow(TS, { 'activity.at': ago(3 * 60), lastSeen: ago(3 * 60) });
+  await want('tool-start 3 hours ago, nothing since, no daemon word: the normal rules (off)', TS, 'off');
+  await daemonList([item(await ccOfRow(TS), true)]);
+  await want('tool-start 3 hours ago but the daemon says its process runs: still working', TS, 'working');
+  await daemonList([]);
+  await setRow(TS, { 'activity.at': ago(15), lastSeen: ago(15) });
+  const tl = await ev(TS.token, { event: 'tool' });
+  const tsRow = await prow(TS.sid);
+  check('a tool event after a tool-start clears open (written, not free)', tl.status === 200 && tsRow.activity.open === undefined && tsRow.activity.state === 'working');
+  await setRow(TS, { 'activity.at': ago(15), lastSeen: ago(15) });
+  await want('after the tool event, 15 quiet minutes: idle by the normal rules', TS, 'idle');
+  const ts3 = await ev(TS.token, { event: 'tool-start' });
+  const ts4 = await ev(TS.token, { event: 'stop' });
+  check('a stop after a tool-start clears open and the session is idle', ts3.status === 200 && ts4.json?.state === 'idle' && (await prow(TS.sid)).activity.open === undefined);
+
   // ---- the token is nowhere in the database ----
   const found = [];
   for (const { name } of await rawDb.listCollections({}, { nameOnly: true }).toArray()) {

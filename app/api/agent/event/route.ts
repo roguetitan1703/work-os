@@ -8,7 +8,7 @@ import { hint } from '@/lib/live';
 import { applyAck, deliverFor, startTurn, type Delivery } from '@/lib/data/deliver';
 
 // The Work OS hook's session-state route (docs/flows/agent-system.md section 11; the worker's hook files report to it).
-// POST /api/agent/event, JSON body { event: 'prompt'|'tool'|'notify'|'stop'|'end', kind?: 'permission_prompt'|'idle_prompt'|
+// POST /api/agent/event, JSON body { event: 'prompt'|'tool'|'tool-start'|'notify'|'stop'|'end', kind?: 'permission_prompt'|'idle_prompt'|
 // 'elicitation_dialog'|'auth_success'|'other', at?: number }.
 //   Authorization: Bearer wst_…  the session token from /api/agent/start, for its own session only. Nothing else opens it:
 //                                no device key, no Work OS API key, no OAuth token, no session cookie, no X-API-Key.
@@ -25,6 +25,8 @@ import { applyAck, deliverFor, startTurn, type Delivery } from '@/lib/data/deliv
 //   ack      ids (messages, Needs) the hook printed from the last `deliver`: only then are they read; one not acknowledged is offered
 //            again after 20 s (at most 3 offers, then 2 minutes' rest). A wake or a Stop continue is charged when acknowledged.
 //   woke     true on a prompt that is a wake the hook just got (kept only when the server handed out a wake under a minute ago).
+//   tool-start (protocol 4, PreToolUse Bash|PowerShell, async) sets working with `open`: a long call sends no tool event until it ends, so presenceState keeps an
+//            open working row working (the daemon says running, or under 2 hours); any later event clears open. No text: never the command.
 //   files, reminded  (stop only) H12: whether the changed files were saved to the State ('saved' | 'unsaved') and whether the session
 //            was reminded first. copy: 'refused' (tool only): a WORK-STATE.md write the hook refused that never reached this server.
 //            Counted on the token's own row (stopCheck, copyEdits) for the owner's Monday numbers; words and a flag, no text or path.

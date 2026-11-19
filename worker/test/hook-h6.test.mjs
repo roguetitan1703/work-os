@@ -221,3 +221,16 @@ test('the brief shows each other session with its state and age', async () => {
   assert.match(b, /Akash lead, Akash \(waiting, 9 min ago\)/);
   assert.match(b, /old client, me \(20 min ago\)/);
 });
+
+test('tool-start posts the event alone (never the command) and leaves the marker alone', async () => {
+  reset();
+  const cmd = 'npm test -- --secret-flag';
+  assert.equal(await run('tool-start', UUID, { tool_name: 'Bash', tool_input: { command: cmd } }), '');
+  assert.equal(events().length, 1);
+  assert.deepEqual(Object.keys(events()[0].body).sort(), ['at', 'event']);
+  assert.equal(events()[0].body.event, 'tool-start');
+  assert.doesNotMatch(JSON.stringify(seen), /secret-flag/);
+  reset();
+  assert.equal(await run('tool-start', 'never-started', { tool_name: 'Bash' }), '');
+  assert.equal(seen.length, 0, 'no token: nothing is posted');
+});

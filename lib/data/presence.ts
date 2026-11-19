@@ -263,7 +263,8 @@ export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string 
   if (ev.files || ev.copy || ev.identity || ev.result !== undefined) return { free: false, state: row.activity?.state ?? null };
   const a = row.activity;
   if (!next) return { free: true, state: a?.state ?? null, ignored: true };
-  const same = !!a && a.state === next.state && a.why === next.why && Date.now() - a.at.getTime() < REPEAT_MS;
+  // A tool-start is a repeat only of an already open working row; any other event is a repeat only when nothing is open (it must clear `open`).
+  const same = !!a && a.state === next.state && a.why === next.why && Date.now() - a.at.getTime() < REPEAT_MS && !!a.open === (ev.event === 'tool-start');
   return { free: same, state: a?.state ?? null };
 }
 
@@ -337,7 +338,7 @@ async function recordState(
   const at = new Date(Math.min(now + SKEW_MS, Math.max(now - SKEW_MS, Number.isFinite(ev.at) ? ev.at! : now)));
   const before = await c.presence.findOneAndUpdate(
     { _id, userId: s.userId, $or: [{ activity: { $exists: false } }, { 'activity.at': { $lt: at } }] },
-    { $set: { activity: { state: next.state, at, ...(next.why ? { why: next.why } : {}) }, lastSeen: new Date(now) } },
+    { $set: { activity: { state: next.state, at, ...(next.why ? { why: next.why } : {}), ...(ev.event === 'tool-start' ? { open: true as const } : {}) }, lastSeen: new Date(now) } },
     { returnDocument: 'before', projection: { activity: 1 } },
   );
   if (before) return { state: next.state, changed: before.activity?.state !== next.state };

@@ -7,6 +7,7 @@
 //                  commit that file alone.
 //   user-prompt    UserPromptSubmit: tell Work OS the session is working; a message waiting for the session goes into its context.
 //   tool-batch     PostToolBatch: at most every 20 s, tell Work OS it is still working and hand over a message waiting for it.
+//   tool-start     PreToolUse (Bash|PowerShell, async): tell Work OS a tool began, so a long call keeps the session working. No output.
 //   wait           Stop and SessionStart (asyncRewake): the idle session's long poll on /api/agent/wait; a message that may wake the
 //                  session ends it with exit code 2 and the framed text on stderr, which wakes the session.
 //   notification   Notification (permission_prompt|idle_prompt|elicitation_dialog, async): waiting at a prompt, or idle. No output.
