@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 87. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 90. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -38,4 +38,6 @@ Copy of the Work OS state, version 87. WORK-STATE.md is a copy of the State, wri
 - Dispatcher cap: e9fd820 ranks claims by claimedAt, which is stamped before the write, so two claims written in the opposite order to their timestamps can still each pass. Make it airtight with an atomic per-person slot counter (inc when claiming, dec when a run ends). — waits on R5 out
 - H8 attended rule: the automated-prompt list in worker/hook-user-prompt.mjs (AUTOMATED_PROMPT) must be kept current; a new Claude Code wrapper would count as typed until added. — waits on a new automated prompt kind appearing
 - work-os.service stop times out (30 s, then SIGKILL) on most deploys: 10 times in 3 days. Likely the hooks' long-poll waits (/api/agent/wait up to 1 h) hold the server open; close waits on SIGTERM. — waits on a fix slot (small, with R7)
-<!-- work-os-copy sha1:d8b553cee53e0fda1067436b8292519fdf005c1a -->
+- worker test hook-h7 #117 'wait: a wake keeps the ids' fails now and then under the full parallel worker run (passes alone; seen 4+ times on 19 Nov in slots A, B, S). Timing in the test, not the code (not checked). — waits on a fix slot
+- Idle wait ends ~1 h after a stop (hook timeout 3600 s): a session idle longer gets no messages and no later nudges until its next turn. Consider re-arming the wait (a fresh wait after a timeout) if sessions idle for hours should still be reached. — waits on nudges used for a week
+<!-- work-os-copy sha1:e966e500db656022313680caf34444c8a8f13341 -->
