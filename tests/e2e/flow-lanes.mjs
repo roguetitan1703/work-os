@@ -228,8 +228,8 @@ try {
   // ── 13. the hook's State route: a bare session id is normalised to userId:sid (holds and stamps), the copy has no holder
   const pc = await mkDevice('ln-pc');
   await rawDb.collection('devices').updateOne({ _id: pc.id }, { $set: { ownerId: ME.userId, orgId: ME.orgId, name: 'LN-PC' } });
-  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:f1`, deviceId: pc.id, folderId: 'f1', name: 'C:/code/ln', git: true, remote: 'acme/ln-alpha', projectId: PID, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
-  const hs = await call('/api/agent/start', pc.key, { remote: 'https://github.com/acme/ln-alpha.git', branch: 'main', path: 'C:/code/ln', ccSession: randomUUID(), source: 'startup' });
+  await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:fold1`, deviceId: pc.id, folderId: 'fold1', name: 'C:/code/ln', git: true, remote: 'acme/ln-alpha', projectId: PID, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
+  const hs = await call('/api/agent/start', pc.key, { folders: ['fold1'], remote: 'https://github.com/acme/ln-alpha.git', branch: 'main', path: 'C:/code/ln', ccSession: randomUUID(), source: 'startup' });
   const TOK = hs.json?.token;
   const SID = hs.json?.brief?.session;
   check('route setup: a hook session of Om on the project', hs.status === 200 && /^wst_/.test(TOK ?? '') && !!SID, hs.text.slice(0, 160));
