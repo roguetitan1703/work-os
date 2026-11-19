@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 72. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 78. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -13,6 +13,7 @@ Copy of the Work OS state, version 72. WORK-STATE.md is a copy of the State, wri
 5. H8 release waits on Om's answer to Need #11 (release yes always a tap, or chat yes enough). Built in slot B with the default. (#285) — waits on Om (Need #11)
 6. Before R5, harden H9 fix 2: dispatched runs share the wos_ key and the label/session check is agent-controlled, so a hijacked run could pass Om's session id and edit Orders. Fix: worker launches dispatched claude with WORK_OS_DISPATCHED=<ref>; the PreToolUse hook refuses write_note/propose_order on Orders pages in such runs; server check stays as a second layer. Next free slot. (#286)
 7. Session identity and detection (note 2afd68cb00): Opus plan, then build in slot B, Opus security review, then into R5 or right after it; reinstall hooks on the PCs.
+8. Need answers reach whoever holds the work now: a Need asked by a session that is off is delivered to the project's Now holder or the session that picked up its handover, and start_work lists answered Needs since the last lead's session; withdraw_need on an answered or closed Need says so with the answer and time. Fold into the lanes design (note after 2afd68cb00).
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -34,4 +35,4 @@ Copy of the Work OS state, version 72. WORK-STATE.md is a copy of the State, wri
 - Dispatched-run Orders block: a resumed dispatched session isn't marked WORK_OS_DISPATCHED, and a hijacked run could call /api/mcp from the shell with WORK_OS_KEY. A server-side marker would need dispatched runs on their own key. — waits on H15 (dispatcher on the Harness)
 - flow-hooks crashed 3 times in slot S only (wos-s, ports 27284/3284/4404) with ECONNRESET at its start_work link call (flow-hooks.mjs:84); 28/0 in slot A on the same commits. Something about that slot or the load, not the code; look if it repeats. — waits on it repeating in a full e2e
 - Dispatcher cap: e9fd820 ranks claims by claimedAt, which is stamped before the write, so two claims written in the opposite order to their timestamps can still each pass. Make it airtight with an atomic per-person slot counter (inc when claiming, dec when a run ends). — waits on R5 out
-<!-- work-os-copy sha1:e006b199ef8789ff816b45014a1b0b20f1082d00 -->
+<!-- work-os-copy sha1:6c672f7605849bf3726497005144917d5caee6c3 -->
