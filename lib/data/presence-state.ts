@@ -53,3 +53,26 @@ export function presenceState(row: StateRow, o: { now: number; daemon?: DaemonSa
   if (o.needs) return { state: 'waiting', why: 'need', since };
   return { state: a.state === 'on' ? 'on' : 'idle', since };
 }
+
+/** What the hook reports (POST /api/agent/event). The server decides the state from the event; the hook never sends one. */
+export const EVENT_NAMES = ['prompt', 'tool', 'notify', 'stop', 'end'] as const;
+export type EventName = (typeof EVENT_NAMES)[number];
+export const EVENT_KINDS = ['permission_prompt', 'idle_prompt', 'elicitation_dialog', 'auth_success', 'other'] as const;
+export type EventKind = (typeof EVENT_KINDS)[number];
+
+/** The state an event puts a session in, or null for an event that changes nothing (other notification kinds). */
+export function eventState(ev: { event: EventName; kind?: EventKind }): { state: PresenceState; why?: 'prompt' } | null {
+  switch (ev.event) {
+    case 'prompt':
+    case 'tool':
+      return { state: 'working' };
+    case 'stop':
+      return { state: 'idle' };
+    case 'end':
+      return { state: 'off' };
+    case 'notify':
+      if (ev.kind === 'permission_prompt' || ev.kind === 'elicitation_dialog') return { state: 'waiting', why: 'prompt' };
+      if (ev.kind === 'idle_prompt') return { state: 'idle' };
+      return null;
+  }
+}
