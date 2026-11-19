@@ -24,6 +24,7 @@ import {
   Undo2,
   FolderPlus,
   Eye,
+  LogOut,
 } from 'lucide-react';
 import { WHAT_LABEL, activityHref, describeActivity, whatOf } from '@/lib/activity-text';
 import { fmtDateTime } from '@/lib/format';
@@ -59,6 +60,7 @@ const ICONS: Record<ActivityType, React.ComponentType<{ className?: string }>> =
   project_created: FolderPlus,
   project_renamed: Pencil,
   visibility_changed: Eye,
+  session_ended: LogOut,
 };
 
 /** What a row links to in a feed with `showTask`: the task (#12 Title), or the project and what changed there (Work OS · State). */

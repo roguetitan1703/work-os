@@ -22,6 +22,6 @@ export async function stop(input) {
   writeMarker(sid, { ...m, stopped: true, offset: sizeOf(f) });
   return { decision: 'block', reason: 'Files changed in this session and the State was not saved since. Call save_state (with the session id from start_work) with what is now true: Now, Next, Later and any decision. Then finish. Asked once until the next save.' };
 }
-const SAVE_CALL = /"name"\s*:\s*"mcp__[^"]+__(save_state|import_state)"/;
+const SAVE_CALL = /"name"\s*:\s*"mcp__[^"]+__(save_state|import_state|end_work)"/;
 
 export const handle = stop;

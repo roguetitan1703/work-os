@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'end-work-handover',
+    date: '2026-11-19',
+    title: 'Sessions hand over through Work OS',
+    line: 'A session that stops leaves a handover note on the project, and your next session, in Claude Code or Claude chat, picks it up.',
+    where: "The project's notes",
+    href: '/projects',
+  },
+  {
     id: 'pc-setup-one-go',
     date: '2026-11-19',
     title: 'Set up a new PC in one go',

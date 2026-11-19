@@ -94,7 +94,7 @@ export const SOURCES: ForYouSource[] = [newMessages, newTasks, newNext, needs];
 
 /** A session that has made this many writes since its last save_state is reminded (and again at each multiple). */
 export const SAVE_NUDGE = 10;
-const SAVES = new Set<ToolName>(['save_state', 'import_state']);
+const SAVES = new Set<ToolName>(['save_state', 'import_state', 'end_work']);
 
 export type Pending = { s: Scope; row: PresenceDoc; startedAt: Date; lines: string[]; ids: string[] };
 

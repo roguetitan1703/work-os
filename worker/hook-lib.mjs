@@ -28,7 +28,7 @@ export const EVENTS = [
   // Refuse hand edits of WORK-STATE.md (it is a copy of the Work OS State).
   { event: 'pre-tool', claudeEvent: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', timeoutS: 5 },
   // After a State save or read: write WORK-STATE.md from the answer and commit that file alone.
-  { event: 'post-tool', claudeEvent: 'PostToolUse', matcher: 'mcp__.*__(save_state|import_state|get_state)', timeoutS: 20 },
+  { event: 'post-tool', claudeEvent: 'PostToolUse', matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', timeoutS: 20 },
 ];
 
 export const SESSION_TOKEN_RE = /^wst_[A-Za-z0-9_-]{43}$/;

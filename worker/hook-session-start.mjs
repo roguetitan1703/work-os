@@ -69,6 +69,14 @@ export function formatBrief(r) {
     r.textRule ? `Text rule: ${r.textRule}` : '',
   ].filter(Boolean).join('\n');
   const sections = [];
+  // A handover from the last session on this project (end_work) comes first: it says where to continue.
+  const hv = Array.isArray(r.handover) ? r.handover : r.handover && typeof r.handover === 'object' ? [r.handover] : [];
+  for (const h of hv) {
+    const at = Date.parse(h.at || '');
+    const time = at ? new Date(at).toTimeString().slice(0, 5) : '';
+    sections.push(`## Handover (note ${h.id}, from ${cut(h.from || 'a session', 60)}${time ? `, ${time}` : ''}${h.writtenBy ? `, writtenBy ${cut(h.writtenBy, 40)}` : ''})\n${str(h.markdown).trim()}`);
+  }
+  if (Array.isArray(r.moreHandovers) && r.moreHandovers.length) sections.push(`## More handovers\n${r.moreHandovers.slice(0, 5).map(m => `- ${cut(m, 160)}`).join('\n')}\nRead one with read_note.`);
   const orders = Array.isArray(r.orders) ? r.orders : [];
   sections.push(orders.length
     ? orders.map(o => `## Orders (${o.layer}: ${o.title}${o.writtenBy ? `, writtenBy ${o.writtenBy}` : ''})\n${str(o.text).trim()}`).join('\n\n')

@@ -85,7 +85,7 @@ update_claude_items goes away (and its lines in the server instructions).
 4. **Turn end** (hook): files changed and State not saved → hold once and ask. Messages that came during the turn → the
    session continues to read them.
 5. **Stopping or handing over:** wrap_up (State, leftovers, one friction line) or hand_over (for another session or
-   tool).
+   tool). Built in H5: `end_work` (section 16.5 folds both into one call; see HANDOVER.md section 3).
 6. **Idle** (hook): a direct message or question wakes the session (asyncRewake, tested 18 Nov).
 
 ## 6. Making State as easy as a file (builder B)
@@ -106,6 +106,7 @@ update_claude_items goes away (and its lines in the server instructions).
 
 ## 7. Actions: routines served as Work OS tools
 Tools reach every surface and an agent working alone; prompts and skills don't (Fable). Each answer says what is left.
+- **Built in H5: end_work** (one call replaces wrap_up and hand_over, section 16.5) and **list_sessions** (the roster as a tool).
 - **wrap_up** {project, state edits, changed, checked, left, friction}: saves State, lists leftovers (processes,
   uncommitted files, open slots, Needs), records the friction line. One call at the end of a stretch of work.
 - **hand_over** {to: session, person, tool or "next"; step, tried, dropped, why, children}: capped fields, so it's a
@@ -127,7 +128,7 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
 
 | Group | Tools | Change |
 |---|---|---|
-| Session | start_work, set_doing, slot, get_state, save_state, import_state | save_state: edit/remove ops, short answer, drop "write it to the repo". Add edit_state, wrap_up, hand_over, who. import_state: run by the hook when a repo with a hand-kept file first meets Work OS |
+| Session | start_work, end_work, list_sessions, set_doing, slot, get_state, save_state, import_state | save_state: edit/remove ops, short answer, drop "write it to the repo". Add edit_state, wrap_up, hand_over, who. import_state: run by the hook when a repo with a hand-kept file first meets Work OS |
 | Tasks | list_tasks, get_task, add_task, update_task, log_progress, complete_task, hand_in, add_comment, update_checklist, delete_task, restore_task, list_trash, apply_changes | Keep |
 | Claude items | update_claude_items | Retire after migration (section 3) |
 | Projects | list_projects, add_project, update_project, get_project, daily_summary, recent_activity | get_project's "start here from a repo" text → start_work |

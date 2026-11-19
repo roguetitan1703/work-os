@@ -1,4 +1,4 @@
-// PostToolUse hook (mcp__.*__(save_state|import_state|get_state)): write WORK-STATE.md in the repo's main folder and commit
+// PostToolUse hook (mcp__.*__(save_state|import_state|get_state|end_work)): write WORK-STATE.md in the repo's main folder and commit
 // that file alone. Skips builder worktrees, other projects, older versions, merges and rebases.
 // Where the text comes from: an answer that still carries `markdown` (an old server or a protocol 1 session), else this hook
 // fetches the copy itself, for the marker's project only: POST /api/agent/state with the session token (also sends Where
@@ -28,14 +28,14 @@ async function fetchCopy(input, cwd, project, saving) {
   return typeof md === 'string' && stateMarkdown(JSON.stringify({ markdown: md })) ? md : null;
 }
 
-/** PostToolUse on save_state / import_state / get_state: write WORK-STATE.md and commit that file alone. */
+/** PostToolUse on save_state / import_state / get_state / end_work: write WORK-STATE.md and commit that file alone. */
 export async function postTool(input) {
   const cwd = input.cwd || process.cwd();
   const name = input.tool_name || '';
-  const saving = /__(save_state|import_state)$/.test(name);
+  const saving = /__(save_state|import_state|end_work)$/.test(name);
   const reading = /__get_state$/.test(name);
   const ans = answerOf(input.tool_response);
-  const saved = saving && !!ans && (ans.saved === true || !!ans.imported);
+  const saved = saving && !!ans && (ans.saved === true || ans.ended === true || !!ans.imported);
   const marked = saved || (saving && !!stateMarkdown(input.tool_response));
   try {
     let md = stateMarkdown(input.tool_response);
