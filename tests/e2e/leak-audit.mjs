@@ -475,8 +475,9 @@ try {
   // Slice 1 (docs/flows/step-1.md): a State, a present session and an Orders page on the private and on the shared project
   for (const [o, tg, allow] of [[P, 'pv', ['A']], [S, 'sh', ['A', 'T']]]) {
     o.stateNext = can(`${tg}statenext`, allow);
-    await mustMcp(A.chat, 'save_state', { project: o.projectName, base_version: 0, ops: [{ op: 'set_now', text: can(`${tg}statenow`, allow) }, { op: 'add_next', text: o.stateNext }, { op: 'add_later', text: can(`${tg}statelater`, allow), waits_on: can(`${tg}statewait`, allow) }, { op: 'add_decision', text: can(`${tg}statedecision`, allow) }, { op: 'set_where', machine: can(`${tg}statemach`, allow), branch: can(`${tg}statebranch`, allow) }] });
+    // Started first: Now is set by a session Work OS knows (Lanes)
     o.sid = (await mustMcp(A.chat, 'start_work', { project: o.projectName, machine: can(`${tg}presmach`, allow), label: can(`${tg}preslabel`, allow) })).session;
+    await mustMcp(A.chat, 'save_state', { project: o.projectName, base_version: 0, session: o.sid, ops: [{ op: 'set_now', text: can(`${tg}statenow`, allow) }, { op: 'add_next', text: o.stateNext }, { op: 'add_later', text: can(`${tg}statelater`, allow), waits_on: can(`${tg}statewait`, allow) }, { op: 'add_decision', text: can(`${tg}statedecision`, allow) }, { op: 'set_where', machine: can(`${tg}statemach`, allow), branch: can(`${tg}statebranch`, allow) }] });
   }
   for (const [o, tg, allow] of [[P, 'pv', ['A']], [S, 'sh', ['A', 'T']]]) {
     // to the owner's own session on the project, sent from that session (so a reply has a session to go back to)
@@ -944,13 +945,17 @@ try {
     const lnLine = lnS.state.next.find(l => l.text === cn)?.id;
     const lnA = await mcpCall(A.chat, 'save_state', { project: nm, base_version: lnS.version, session: aSid, ops: [{ op: 'set_now', text: `${cn} goal` }, { op: 'edit_line', id: lnLine, find: cn, new: `${cn} held` }] });
     check('Lanes: the owner’s session takes Now and holds the line it edited (holdsNow true)', lnA.ok && lnA.json?.holdsNow === true, lnA.text.slice(0, 200));
+    const tSid = tStart.json?.session;
     const lnT = [
-      await mcpCall(T.code, 'save_state', { project: nm, base_version: lnA.json?.version, ops: [{ op: 'set_now', text: 'lkq T takes Now' }] }),
-      await mcpCall(T.code, 'save_state', { project: nm, ops: [{ op: 'edit_line', find: `${cn} goal`, new: 'lkq T edits Now' }] }),
-      await mcpCall(T.code, 'save_state', { project: nm, ops: [{ op: 'done_next', id: lnLine }] }),
-      await mcpCall(T.code, 'save_state', { project: nm, ops: [{ op: 'archive_line', id: lnLine }] }),
+      await mcpCall(T.code, 'save_state', { project: nm, session: tSid, base_version: lnA.json?.version, ops: [{ op: 'set_now', text: 'lkq T takes Now' }] }),
+      await mcpCall(T.code, 'save_state', { project: nm, session: tSid, base_version: lnA.json?.version, ops: [{ op: 'edit_line', find: `${cn} goal`, new: 'lkq T edits Now' }] }),
+      await mcpCall(T.code, 'save_state', { project: nm, session: tSid, ops: [{ op: 'done_next', id: lnLine }] }),
+      await mcpCall(T.code, 'save_state', { project: nm, session: tSid, ops: [{ op: 'archive_line', id: lnLine }] }),
     ];
-    const lnTg = await mcpCall(T.code, 'get_state', { project: nm });
+    const lnTn = await mcpCall(T.code, 'save_state', { project: nm, base_version: lnA.json?.version, ops: [{ op: 'set_now', text: 'lkq T takes Now, no session' }] });
+    scan('T', 'lanes refusal, no session', lnTn.text);
+    check('Lanes: a teammate’s set_now naming no session is refused (sessions Work OS knows), with no session id in it', !lnTn.ok && /pass the session id start_work gave you/.test(lnTn.text) && aSessions.every(sid => !lnTn.text.includes(sid)), lnTn.text.slice(0, 200));
+    const lnTg = await mcpCall(T.code, 'get_state', { project: nm, session: tSid });
     lnT.forEach((r, i) => scan('T', `lanes refusal ${i}`, r.text));
     scan('T', 'lanes get_state', lnTg.text);
     check('Lanes: a teammate’s set_now and edit of Now are refused while the holder works, by its label and person', lnT.slice(0, 2).every(r => !r.ok && /^(Error: )?Now is held by "[^"]+" \([^,]+, working, \d+ min ago\)\. Nothing was written\./.test(r.text)), lnT.slice(0, 2).map(r => r.text.slice(0, 160)).join(' | '));

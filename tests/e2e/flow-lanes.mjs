@@ -83,10 +83,18 @@ try {
   const noIds = t => !['lnA', 'lnB', 'lnT', 'lnD', ME.userId, T.userId].some(x => t.includes(x));
   const NOW_HELD = (label, person, state) => new RegExp(`^Now is held by "${label}" \\(${person}, ${state}, \\d+ min ago\\)\\. Nothing was written\\. Keep your lane instead: set_doing your task, log_progress, add_next or add_decision\\. Now passes to you once that session is not working, or your person changes it in the app\\.$`);
 
+  // ── 0. Now is held by sessions Work OS knows: a call naming no session, or a session with no row here, is refused
+  const NO_SESSION = 'Now is held by sessions Work OS knows: pass the session id start_work gave you (session) and call again. Nothing was written.';
+  const r0 = await mcpH(ccA, 'save_state', { project: P, base_version: 0, ops: [{ op: 'set_now', text: 'LN no session' }] });
+  const r0b = await save(ccA, 'lnNope', [{ op: 'set_now', text: 'LN unknown session' }], 0);
+  check('known: set_now naming no session, or a session that never started work here, is refused; nothing written', r0.isError && r0.text.replace(/^Error: /, '') === NO_SESSION && r0b.isError && r0b.text === NO_SESSION && !(await stateDoc())?.now, `${r0.text} | ${r0b.text}`);
+
   // ── 1. no holder: the first set_now takes Now; add_next holds nothing; the copy has no holder
   const r1 = await save(ccA, 'lnA', [{ op: 'set_now', text: 'LN goal one' }, { op: 'add_next', text: 'LN line one' }, { op: 'add_next', text: 'LN line two' }], 0);
   let st = await stateDoc();
-  check('take: the first set_now makes the caller the Now holder (key userId:session, its label), holdsNow true', !r1.isError && r1.json?.holdsNow === true && st.now.hold?.key === K('lnA') && st.now.hold.label === 'LN A', r1.text.slice(0, 200));
+  check('take: the first set_now makes the caller the Now holder (key userId:session, its label), holdsNow true for that session', !r1.isError && r1.json?.holdsNow === true && r1.json.holdsNowFor === 'lnA' && st.now.hold?.key === K('lnA') && st.now.hold.label === 'LN A', r1.text.slice(0, 200));
+  const gNo = await must(ccA, 'get_state', { project: P });
+  check('get_state naming no session: holdsNow false and no holdsNowFor (the hook keeps nothing from it)', gNo.holdsNow === false && !('holdsNowFor' in gNo), JSON.stringify([gNo.holdsNow, gNo.holdsNowFor]));
   check('take: add_next holds no line', st.next.every(l => !l.hold), JSON.stringify(st.next));
   const g1 = await must(ccA, 'get_state', { project: P, copy: true, session: 'lnA' }, hdr('lnA'));
   check('get_state: holdsNow true for the holder, now.holder is its label, the copy has the Now line without a holder', g1.holdsNow === true && g1.state.now.holder === 'LN A' && g1.markdown.includes('\n## Now\n- LN goal one\n'), JSON.stringify([g1.holdsNow, g1.state.now]));
@@ -99,7 +107,7 @@ try {
   // ── 3. another session is refused while the holder works (set_now and edit_line on Now)
   let v = await ver();
   const r3 = await save(ccB, 'lnB', [{ op: 'set_now', text: 'LN B goal' }], v);
-  const r3b = await save(ccB, 'lnB', [{ op: 'edit_line', find: 'goal two', new: 'goal three' }]);
+  const r3b = await save(ccB, 'lnB', [{ op: 'edit_line', find: 'goal two', new: 'goal three' }], v);
   check('busy: set_now by another session while the holder works is refused with the holder label, person and state', r3.isError && NOW_HELD('LN A', 'E2E Owner', 'working').test(r3.text) && noIds(r3.text), r3.text);
   check('busy: edit_line on Now is refused the same way', r3b.isError && NOW_HELD('LN A', 'E2E Owner', 'working').test(r3b.text), r3b.text);
   check('busy: nothing was written', (await ver()) === v && (await stateDoc()).now.text === 'LN goal two');
@@ -124,7 +132,7 @@ try {
   const r7 = await save(kT, 'lnT', [{ op: 'set_now', text: 'LN Tess goal' }], v);
   check('person: a teammate\'s session is refused while the holder works; the text names the label and its person, no ids', r7.isError && NOW_HELD('LN B', 'E2E Owner', 'working').test(r7.text) && noIds(r7.text), r7.text);
   const gT = await must(kT, 'get_state', { project: P, session: 'lnT' }, hdr('lnT'));
-  check('person: the teammate\'s get_state says holdsNow false, holder by label, no session id', gT.holdsNow === false && gT.state.now.holder === 'LN B' && noIds(JSON.stringify(gT)), JSON.stringify(gT.state.now));
+  check('person: the teammate\'s get_state says holdsNow false, holder by label, no session id', gT.holdsNow === false && gT.state.now.holder === 'LN B' && gT.holdsNowFor === 'lnT' && noIds(JSON.stringify({ ...gT, holdsNowFor: undefined })), JSON.stringify(gT.state.now));
 
   // ── 7. a dispatched run never sets Now
   await start(ccD, 'lnD', 'LN D');
@@ -133,7 +141,7 @@ try {
   const r8 = await save(ccD, 'lnD', [{ op: 'set_now', text: 'LN D goal' }], v);
   check('dispatched: refused, naming the holder and the ops that work', r8.isError && r8.text === `A dispatched run never sets Now (held by "LN B", working). log_progress on #${tD.ref}, hand_in when done, or add_next.`, r8.text);
   await setRow('lnB', { lastSeen: ago(15) });
-  const r8b = await save(ccD, 'lnD', [{ op: 'edit_line', find: 'LN B goal', new: 'LN D goal' }]);
+  const r8b = await save(ccD, 'lnD', [{ op: 'edit_line', find: 'LN B goal', new: 'LN D goal' }], v);
   check('dispatched: refused even when the holder is not busy (edit_line on Now too)', r8b.isError && r8b.text.startsWith('A dispatched run never sets Now (held by "LN B", idle).'), r8b.text);
   check('dispatched: nothing was written', (await ver()) === v && (await stateDoc()).now.hold.key === K('lnB'));
   await setRow('lnB', { lastSeen: new Date() });
@@ -181,6 +189,23 @@ try {
   check('doing: set_doing says the session holds the task\'s Next line, and writes nothing to the State', /You hold its Next line l_[0-9a-f]+ while you are on it/.test(sd.note) && (await ver()) === vDo && !lt.hold, JSON.stringify(sd));
   const rD = await save(ccA, 'lnA', [{ op: 'done_next', id: lt.id }]);
   check('doing: another session is refused, the text says which task the holder is on', rD.isError && rD.text === `Next line ${lt.id} "LN task line" is held by "LN T" (working, on #${t2.ref}). Nothing was written. That session, the Now holder "LN B" or a person in the app can finish or edit it; add_next a new line, or send_message "LN T".` && noIds(rD.text), rD.text);
+  const vB = await ver();
+  const rDB = await save(ccB, 'lnB', [{ op: 'done_next', id: lt.id }]);
+  check('doing: the Now holder is refused finishing a busy session\'s line too (it is that session\'s or a person\'s)', rDB.isError && rDB.text.startsWith(`Next line ${lt.id} "LN task line" is held by "LN T" (working, on #${t2.ref}).`) && (await ver()) === vB, rDB.text);
+  const mA = await save(ccA, 'lnA', [{ op: 'move_next', id: lt.id, to: 'top' }]);
+  check('doing: another session is refused move_next on a busy session\'s line', mA.isError && mA.text.startsWith(`Next line ${lt.id} "LN task line" is held by "LN T"`) && (await ver()) === vB, mA.text);
+  const mB = await save(ccB, 'lnB', [{ op: 'move_next', id: lt.id, to: 'top' }]);
+  check('doing: the Now holder may reorder it', !mB.isError && (await stateDoc()).next[0]?.id === lt.id, mB.text.slice(0, 200));
+  // Taking Now from an idle holder and finishing a busy session's line in the same call does not get around the line's hold.
+  await start(ccA, 'lnO', 'LN O');
+  await setRow('lnB', { lastSeen: ago(15) });
+  const vO = await ver();
+  const msgO = await rawDb.collection('messages').countDocuments({});
+  const rTk = await save(ccA, 'lnO', [{ op: 'set_now', text: 'LN O goal' }, { op: 'done_next', id: lt.id }], vO);
+  const stO = await stateDoc();
+  check('doing: take Now + done_next on a busy session\'s line in one call is refused; nothing written, no message', rTk.isError && rTk.text.startsWith(`Next line ${lt.id} "LN task line" is held by "LN T"`) && (await ver()) === vO && stO.now.hold.key === K('lnB') && (await rawDb.collection('messages').countDocuments({})) === msgO, rTk.text);
+  await setRow('lnB', { lastSeen: new Date() });
+  await setRow('lnO', { endedAt: new Date() });
   const rD2 = await save(kT, 'lnT', [{ op: 'edit_line', id: lt.id, find: 'task line', new: 'task line, by Tess' }]);
   check('doing: the session on the task edits its line', !rD2.isError && (await line('LN task line, by Tess'))?.hold?.key === `${T.userId}:lnT`, rD2.text.slice(0, 200));
 
@@ -224,11 +249,16 @@ try {
   const ew = await must(ccA, 'end_work', { project: P, state: [{ op: 'set_where', machine: 'lnbox', branch: 'main' }], friction: 'none', session: 'lnA' }, hdr('lnA'));
   const ewB = await must(ccB, 'end_work', { project: P, state: [{ op: 'set_where', machine: 'lnbox', branch: 'main' }], friction: 'none', session: 'lnB' }, hdr('lnB'));
   check('end_work: the answer carries holdsNow (true for the holder, false for another)', ew.ended === true && ew.holdsNow === true && ewB.holdsNow === false, JSON.stringify([ew.holdsNow, ewB.holdsNow]));
+  // A holder whose session has ended is not told when Now moves (nobody would read it).
+  await start(ccB, 'lnB', 'LN B');
+  const msgE = await rawDb.collection('messages').countDocuments({});
+  const rE = await save(ccB, 'lnB', [{ op: 'set_now', text: 'LN B back' }], await ver());
+  check('ended: Now moves from an ended holder with no message to it', !rE.isError && rE.json.holdsNow === true && (await stateDoc()).now.hold.key === K('lnB') && (await rawDb.collection('messages').countDocuments({})) === msgE, rE.text.slice(0, 200));
 
   // ── 15. a legacy free-text holder is shown by get_state but not in the copy
   await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'now.holder': 'old lead' }, $unset: { 'now.hold': '' } });
   const g15 = await must(kT, 'get_state', { project: P, copy: true, session: 'lnT' }, hdr('lnT'));
-  check('legacy: get_state shows the old holder text; the copy never has a holder suffix', g15.state.now.holder === 'old lead' && g15.markdown.includes('\n- LN A again\n') && !g15.markdown.includes('old lead'), JSON.stringify(g15.state.now));
+  check('legacy: get_state shows the old holder text; the copy never has a holder suffix', g15.state.now.holder === 'old lead' && g15.markdown.includes('\n- LN B back\n') && !g15.markdown.includes('old lead'), JSON.stringify(g15.state.now));
 } catch (e) {
   check('flow-lanes (error)', false, e?.stack || String(e));
 }

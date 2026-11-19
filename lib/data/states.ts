@@ -101,6 +101,9 @@ export function holdKeyOf(userId: string, src: string | undefined | null): strin
 /** Does the session `key` (`userId:key`) hold this State's Now? */
 export const holdsNowOf = (d: Pick<StateDoc, 'now'> | null | undefined, key: string | undefined): boolean => !!key && d?.now?.hold?.key === key;
 
+/** set_now or an edit of Now from a session Work OS has no presence row for (on this project). */
+export const NO_SESSION = 'Now is held by sessions Work OS knows: pass the session id start_work gave you (session) and call again. Nothing was written.';
+
 const splitKey = (k: string) => {
   const i = k.indexOf(':');
   return { userId: k.slice(0, i), key: k.slice(i + 1) };
@@ -187,6 +190,9 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
       const hRow = h && h.key !== me ? await rowOf(h.key) : null;
       const hState = hRow ? presenceState(hRow, { now: t }) : null;
       if (mine?.dispatched) throw new InputError(dispatchedText({ label: h && h.key !== me ? h.label || labelOf(hRow) : '', state: hState ? stateWord(hState) : 'off', ref: mine.dispatched.ref }));
+      // Only a session Work OS knows (a presence row of the caller on this project) holds Now: a call that names no session, or one
+      // that never started work here, would leave a hold nobody can see working.
+      if (!mine) throw new InputError(NO_SESSION);
       if (h && h.key === me) {
         nowHold = { key: me, label: mine?.label || h.label, at: h.at };
         return;
@@ -194,32 +200,50 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
       if (h && hRow && busy(hRow, t)) {
         throw new InputError(nowHeldText({ label: h.label || labelOf(hRow), person: await nameOf(hRow.userId), state: stateWord(hState!), at: hState!.since }, t));
       }
-      // No holder, or a holder that is not busy (or has no row on this project any more): the hold is the caller's.
-      if (h && hRow) took.from = { row: hRow, label: labelOf(mine), mine };
+      // No holder, or a holder that is not busy (or has no row on this project any more): the hold is the caller's. A holder whose
+      // session has ended is not told (nobody would read it).
+      if (h && hRow && !hRow.endedAt) took.from = { row: hRow, label: labelOf(mine), mine };
       nowHold = { key: me, label: labelOf(mine), at: now };
     };
-    // Who may finish or edit a line: rows of sessions on a task (set_doing) or named by a line's hold, with the task ref each is on.
-    let lineRows: (PresenceDoc & { key: string; ref?: number })[] | null = null;
-    const loadLineRows = async () => {
-      if (lineRows) return lineRows;
-      const held = [...st0.next, ...st0.later].flatMap(l => (l.hold ? [splitKey(l.hold.key)] : []));
-      const found = await c.presence.find({ projectId: project._id, $or: [{ doing: { $exists: true } }, ...held] } as never).sort({ lastSeen: -1 }).limit(200).toArray();
-      const ids = [...new Set(found.flatMap(r => (r.doing ? [r.doing.taskId] : [])))];
-      const refs = new Map((ids.length ? await c.tasks.find({ _id: { $in: ids } } as never, { projection: { ref: 1 } }).toArray() : []).map(t => [t._id, t.ref]));
-      lineRows = found.map(r => ({ ...r, key: `${r.userId}:${r.key}`, ...(r.doing && refs.has(r.doing.taskId) ? { ref: refs.get(r.doing.taskId) } : {}) }));
-      return lineRows;
+    // Who may change a line: the row its hold names and the rows of sessions on its task (set_doing) on this project, each with the
+    // task ref it is on. Read per line, only the rows that line needs.
+    const lineRows = new Map<string, Promise<(PresenceDoc & { key: string; ref?: number })[]>>();
+    const rowsFor = (l: StateLine) => {
+      if (!lineRows.has(l.id)) {
+        lineRows.set(
+          l.id,
+          (async () => {
+            const out: (PresenceDoc & { key: string; ref?: number })[] = [];
+            if (l.ref != null) {
+              const task = await c.tasks.findOne({ ref: l.ref } as never, { projection: { _id: 1 } });
+              if (task) for (const r of await c.presence.find({ projectId: project._id, 'doing.taskId': task._id } as never).toArray()) out.push({ ...r, key: `${r.userId}:${r.key}`, ref: l.ref });
+            }
+            const held = l.hold ? await rowOf(l.hold.key) : null;
+            if (held && !out.some(r => r._id === held._id)) out.push({ ...held, key: `${held.userId}:${held.key}` });
+            return out;
+          })(),
+        );
+      }
+      return lineRows.get(l.id)!;
     };
-    /** Refuses the op unless the caller may change the line; returns whether another live session holds it (an edit then keeps that hold). */
-    const checkLine = async (l: StateLine, list: 'Next' | 'Later'): Promise<boolean> => {
+    /**
+     * Refuses the op unless the caller may change the line; returns whether another live session holds it (an edit then keeps that
+     * hold). Its holder and a person always may. The Now holder (merges) and a session on the line's task (set_doing) may only while
+     * that holder is not busy. `move`: reordering, which only a busy holder's line refuses, and never to the Now holder.
+     */
+    const checkLine = async (l: StateLine, list: 'Next' | 'Later', o2: { move?: boolean } = {}): Promise<boolean> => {
       if (person) return false;
       if (!l.hold && l.ref == null) return false;
       const t = Date.now();
-      const live = await loadLineRows();
+      const live = await rowsFor(l);
       const h = lineHolder(l, live, r => r.ref, t);
       if (!h || h.key === me) return false;
-      // The Now holder may (merges), and so may a session on the line's task (set_doing).
-      if (nowHold?.key === me) return true;
-      if (l.ref != null && live.some(r => r.key === me && r.ref === l.ref && presenceState(r, { now: t }).state !== 'off')) return true;
+      const hBusy = busy(h, t);
+      if (o2.move && (!hBusy || nowHold?.key === me)) return true;
+      if (!o2.move && !hBusy) {
+        if (nowHold?.key === me) return true;
+        if (l.ref != null && live.some(r => r.key === me && r.ref === l.ref && presenceState(r, { now: t }).state !== 'off')) return true;
+      }
       const text = lineHeldText({ id: l.id, text: l.text, label: labelOf(h), state: stateWord(presenceState(h, { now: t })), ref: l.ref, nowHolder: nowHold?.label });
       throw new InputError(list === 'Later' ? text.replace(/^Next line/, 'Later line') : text);
     };
@@ -292,6 +316,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
         case 'move_next': {
           nextEdited = true;
           const l = take(next, op.find !== undefined ? findLine(op.find, ['Next']).id! : op.id!, 'Next');
+          await checkLine(l, 'Next', { move: true });
           log[oi].id = l.id;
           const at = op.to === 'top' ? 0 : op.to === 'bottom' ? next.length : Math.min(op.to - 1, next.length);
           next.splice(at, 0, l);
@@ -346,6 +371,10 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           if (h.where === 'Now') {
             if (!replaced) throw new InputError('Now cannot be removed: replace it with set_now.');
             if (replaced.length > LIMITS.now) throw new InputError(`Now would be ${replaced.length} characters (max ${LIMITS.now}).`);
+            // An edit of Now by a session overwrites the goal like set_now: the same base_version rule, the same conflict answer. A
+            // person in the app is never refused.
+            if (!person && o.baseVersion === undefined) throw new InputError('edit_line on Now needs base_version: the version of the State you read (start_work, get_state and every save_state answer carry it). Nothing was written.');
+            if (!person && st0.version !== o.baseVersion) return { conflict: true as const, state: st0, project, holdsNow: holdsNowOf(st0, me) };
             await claimNow();
             nowSet = { text: replaced, ...(nowHold ? { hold: nowHold } : {}), by, at: now };
             feed.push({ type: 'state_now', text: replaced });
@@ -776,5 +805,6 @@ export async function editCopyLine(s: Scope, projectKey: string, oldText: string
   if (!edited.trim() || edited.trim() === hit.prefix.trim()) middle = '';
   else if (edited.startsWith(hit.prefix) && edited.endsWith(hit.suffix) && edited.length >= hit.prefix.length + hit.suffix.length) middle = edited.slice(hit.prefix.length, edited.length - hit.suffix.length).trim();
   else throw new InputError('Change only the words of the line. The number, the task (#12) and the waits-on change with save_state.');
-  return saveState(s, project._id, [{ op: 'edit_line', find: hit.text, new: middle, ...(hit.id ? { id: hit.id } : {}) }], { actor: o.actor, via: o.via });
+  // The version the line was found in: an edit of Now needs it (a newer State is a conflict, as for set_now); line edits ignore it.
+  return saveState(s, project._id, [{ op: 'edit_line', find: hit.text, new: middle, ...(hit.id ? { id: hit.id } : {}) }], { actor: o.actor, via: o.via, baseVersion: state.version });
 }

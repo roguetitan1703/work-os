@@ -16,8 +16,11 @@ try {
   await must(MCP, 'add_project', { name: NAME });
   const kT = await mkKey({ agent: 'claude-code', userId: T.userId, name: 'Edith Claude Code' });
 
+  // Now is set and edited by a session Work OS knows (Lanes): one started here; the line edits below name no session.
+  await must(MCP, 'start_work', { project: NAME, session: 'fse1' });
   const seed = await must(MCP, 'save_state', {
     project: NAME,
+    session: 'fse1',
     ops: [
       { op: 'set_now', text: 'Building the editor' },
       { op: 'add_next', text: 'Write the migration script' },
@@ -40,10 +43,16 @@ try {
   check('edit_line: the line keeps its id and place', e1.state.next[0].id === idBefore && e1.state.next.length === 4, JSON.stringify(e1.state.next));
   check('edit_line: the version went up by one', v === seed.version + 1, `${seed.version} -> ${v}`);
   const heldDoc = await rawDb.collection('states').findOne({ projectId: (await rawDb.collection('projects').findOne({ name: NAME }))._id });
-  check('edit_line: the edited line is held by the calling session (Lanes: key userId:…), and Now by the session that set it', heldDoc.next[0].hold?.key?.startsWith(`${ME.userId}:`) && heldDoc.now.hold?.key === heldDoc.next[0].hold.key && !heldDoc.now.holder, JSON.stringify([heldDoc.now, heldDoc.next[0]]));
+  check('edit_line: the edited line is held by the calling key (Lanes: userId:…), and Now by the session that set it', heldDoc.next[0].hold?.key?.startsWith(`${ME.userId}:`) && heldDoc.now.hold?.key === `${ME.userId}:fse1` && !heldDoc.now.holder, JSON.stringify([heldDoc.now, heldDoc.next[0]]));
 
-  // Now can be edited too
-  const eN = await must(MCP, 'save_state', { project: NAME, base_version: v, ops: [{ op: 'edit_line', find: 'the editor', new: 'the State editor' }] });
+  // Now can be edited too: like set_now it needs base_version and a session Work OS knows (Lanes review)
+  const eNoBase = await mcpH(MCP, 'save_state', { project: NAME, session: 'fse1', ops: [{ op: 'edit_line', find: 'the editor', new: 'the State editor' }] });
+  check('edit_line on Now: without base_version it is refused with the reason', eNoBase.isError && /edit_line on Now needs base_version/.test(eNoBase.text), eNoBase.text.slice(0, 200));
+  const eStale = await must(MCP, 'save_state', { project: NAME, session: 'fse1', base_version: v - 1, ops: [{ op: 'edit_line', find: 'the editor', new: 'the State editor' }] });
+  check('edit_line on Now: a stale base_version is a conflict and nothing is written', eStale.conflict === true && eStale.state.now.text === 'Building the editor', JSON.stringify(eStale).slice(0, 200));
+  const eNoSess = await mcpH(MCP, 'save_state', { project: NAME, base_version: v, ops: [{ op: 'edit_line', find: 'the editor', new: 'the State editor' }] });
+  check('edit_line on Now: a call naming no session is refused (Now is held by sessions Work OS knows)', eNoSess.isError && /pass the session id start_work gave you/.test(eNoSess.text), eNoSess.text.slice(0, 200));
+  const eN = await must(MCP, 'save_state', { project: NAME, session: 'fse1', base_version: v, ops: [{ op: 'edit_line', find: 'the editor', new: 'the State editor' }] });
   v = eN.version;
   check('edit_line: Now can be edited', eN.state.now.text === 'Building the State editor', JSON.stringify(eN.state.now));
 

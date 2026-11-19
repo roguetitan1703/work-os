@@ -429,17 +429,20 @@ export function savedAnswer(
   };
 }
 
-/** Lanes step 1: whether the calling session holds Now (the hook keeps it for its Stop reminder), and notes on how ops were taken. */
-function laneExtra(r: { holdsNow: boolean; notes?: string[] }): Record<string, unknown> {
-  return { holdsNow: r.holdsNow, ...(r.notes?.length ? { note: r.notes.join(' ') } : {}) };
+/**
+ * Lanes step 1: whether the calling session holds Now, and notes on how ops were taken. holdsNowFor echoes the session id the answer was
+ * worked out for (only when the call named one): the hook keeps holdsNow for its Stop reminder only when that is its own session.
+ */
+function laneExtra(r: { holdsNow?: boolean; notes?: string[] }, session: string | undefined): Record<string, unknown> {
+  return { holdsNow: !!r.holdsNow, ...(session ? { holdsNowFor: session } : {}), ...(r.notes?.length ? { note: r.notes.join(' ') } : {}) };
 }
 
 /** The answer to a save that found the State at another version: nothing was written, the current State comes back. */
-function conflictOut(r: { state: Parameters<typeof stateData.stateOut>[0] | null; holdsNow?: boolean }, reader: string, names: Parameters<typeof stateData.stateOut>[2], tool: 'save_state' | 'end_work') {
+function conflictOut(r: { state: Parameters<typeof stateData.stateOut>[0] | null; holdsNow?: boolean }, reader: string, names: Parameters<typeof stateData.stateOut>[2], tool: 'save_state' | 'end_work', session?: string) {
   return {
     saved: false,
     conflict: true,
-    holdsNow: !!r.holdsNow,
+    ...laneExtra(r, session),
     message: `base_version was stale: nothing was written. The State is at version ${r.state?.version ?? 0}: merge your change into it and call ${tool} again with that base_version.`,
     textRule: textRule(),
     version: r.state?.version ?? 0,
@@ -1363,7 +1366,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       if (!state) return { project: project.name, state: NO_STATE, version: 0 };
       const names = await memberNames(s.orgId);
       const markdown = a.copy ? await stateData.stateCopy(s, project, state, ctx.baseUrl) : await legacyCopy(a, project, state);
-      return { textRule: textRule(), project: project.name, version: state.version, holdsNow: stateData.holdsNowOf(state, requestContext().src), state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), ...(markdown ? { markdown } : {}) };
+      return { textRule: textRule(), project: project.name, version: state.version, ...laneExtra({ holdsNow: stateData.holdsNowOf(state, requestContext().src) }, identOf('get_state', [a]).session), state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), ...(markdown ? { markdown } : {}) };
     }),
   );
 
@@ -1381,8 +1384,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller, sessionHeader(a.session ?? null) ?? requestContext().sid) === 'chat' ? 'chat' : 'code' });
       const names = await memberNames(s.orgId);
-      if (r.conflict) return conflictOut(r, s.userId, names, 'save_state');
-      return savedAnswer(r, { markdown: await legacyCopy(a, r.project, r.state), extra: laneExtra(r) });
+      const mine = identOf('save_state', [a]).session;
+      if (r.conflict) return conflictOut(r, s.userId, names, 'save_state', mine);
+      return savedAnswer(r, { markdown: await legacyCopy(a, r.project, r.state), extra: laneExtra(r, mine) });
     }),
   );
 
@@ -1427,7 +1431,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       }
       const r = await stateData.saveState(s, a.project, a.state, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller, sessionHeader(a.session ?? null) ?? requestContext().sid) === 'chat' ? 'chat' : 'code' });
       const names = await memberNames(s.orgId);
-      if (r.conflict) return { ended: false, ...conflictOut(r, s.userId, names, 'end_work') };
+      if (r.conflict) return { ended: false, ...conflictOut(r, s.userId, names, 'end_work', ident.session) };
 
       // What this session held: its heavy slots and its task; what it leaves open is named, never closed.
       const released: { slots?: string[]; doing?: string } = {};
@@ -1480,7 +1484,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       } catch (e) {
         console.error('[end_work after]', e);
       }
-      const out: Record<string, unknown> = { ended: true, ...savedAnswer(r, { markdown: await legacyCopy(a, r.project, r.state), extra: laneExtra(r) }) };
+      const out: Record<string, unknown> = { ended: true, ...savedAnswer(r, { markdown: await legacyCopy(a, r.project, r.state), extra: laneExtra(r, ident.session) }) };
       delete out.saved;
       return {
         ...out,

@@ -41,7 +41,10 @@ try {
   const say = (key, sess, to, body, kind = 'request') => must(key, 'send_message', { to, kind, body, session: sess }, hdr(sess));
   const handover = (key, sess, title, extra = {}) => must(key, 'end_work', { project: P, state: [{ op: 'set_where', machine: 'pkbox', branch: `br-${sess}` }], friction: 'none', handover: { step: `PK ${title}`, title, ...extra }, session: sess }, hdr(sess));
 
-  await must(cc, 'save_state', { project: P, base_version: 0, ops: [{ op: 'set_now', text: 'PK goal: hand work over' }, { op: 'add_next', text: 'PK line one, long enough to matter' }, { op: 'add_next', text: 'PK line two, long enough to matter' }] });
+  // set_now needs a session Work OS knows (Lanes): a fixture session, whose row is removed again so no pickup or sweep sees it.
+  await start(cc, 'pk-fixture');
+  await must(cc, 'save_state', { project: P, base_version: 0, session: 'pk-fixture', ops: [{ op: 'set_now', text: 'PK goal: hand work over' }, { op: 'add_next', text: 'PK line one, long enough to matter' }, { op: 'add_next', text: 'PK line two, long enough to matter' }] });
+  await rawDb.collection('presence').deleteMany({ session: 'pk-fixture' });
   let st = await stateDoc();
   check('setup: a State with two Next lines', st?.next?.length === 2, JSON.stringify(st?.next));
   const L1 = st.next[0].id;

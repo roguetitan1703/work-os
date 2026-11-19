@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-hook-lanes-'));
@@ -198,22 +199,32 @@ test('post-tool: for a session with holdsNow false, lane calls mark the session 
   }
 });
 
-test('post-tool (Lanes step 1): holdsNow from a save_state, end_work or get_state answer is kept in the marker; a subagent\'s answer, another tool or no holdsNow leave it', async () => {
+test('post-tool (Lanes step 1): holdsNow from a save_state, end_work or get_state answer for this session and the marker’s project is kept in the marker; anything else leaves it', async () => {
   const ans = (o) => JSON.stringify(o);
-  start('l-holds');
-  await run('post-tool', { session_id: 'l-holds', tool_name: 'mcp__work-os__save_state', tool_response: ans({ saved: true, project: 'p1', version: 3, holdsNow: false }) });
-  assert.equal(readMarker('l-holds').holdsNow, false, 'save_state: not the holder');
-  await run('post-tool', { session_id: 'l-holds', tool_name: 'mcp__work-os__get_state', tool_response: ans({ project: 'p1', version: 3, holdsNow: true }) });
-  assert.equal(readMarker('l-holds').holdsNow, true, 'get_state: the holder now');
-  await run('post-tool', { session_id: 'l-holds', tool_name: 'mcp__work-os__end_work', tool_response: ans({ ended: true, project: 'p1', version: 4, holdsNow: false }), agent_id: 'a1' });
-  assert.equal(readMarker('l-holds').holdsNow, true, 'a subagent\'s answer changes nothing');
-  await run('post-tool', { session_id: 'l-holds', tool_name: 'mcp__work-os__save_state', tool_response: ans({ saved: true, project: 'p1', version: 4 }) });
-  assert.equal(readMarker('l-holds').holdsNow, true, 'no holdsNow (an older server): kept');
-  await run('post-tool', { session_id: 'l-holds', tool_name: 'mcp__work-os__end_work', tool_response: ans({ ended: true, project: 'p1', version: 5, holdsNow: false }) });
-  assert.equal(readMarker('l-holds').holdsNow, false, 'end_work');
+  const sid = 'l-holds';
+  lib.keepToken(sid, TOKEN);
+  const W = createHash('sha256').update(TOKEN, 'utf8').digest('hex').slice(0, 32); // the Work OS session id of that token
+  const post = (tool, o, extra = {}) => run('post-tool', { session_id: sid, tool_name: `mcp__work-os__${tool}`, tool_response: ans(o), ...extra });
+  start(sid);
+  await post('save_state', { saved: true, project: 'p1', version: 3, holdsNow: false, holdsNowFor: W });
+  assert.equal(readMarker(sid).holdsNow, false, 'save_state: not the holder');
+  await post('get_state', { project: 'p1', version: 3, holdsNow: true, holdsNowFor: W });
+  assert.equal(readMarker(sid).holdsNow, true, 'get_state: the holder now');
+  await post('end_work', { ended: true, project: 'p1', version: 4, holdsNow: false, holdsNowFor: W }, { agent_id: 'a1' });
+  assert.equal(readMarker(sid).holdsNow, true, 'a subagent’s answer changes nothing');
+  await post('get_state', { project: 'p2', version: 1, holdsNow: false, holdsNowFor: W });
+  assert.equal(readMarker(sid).holdsNow, true, 'another project’s answer changes nothing');
+  await post('save_state', { saved: true, project: 'p1', version: 4, holdsNow: false });
+  assert.equal(readMarker(sid).holdsNow, true, 'an answer for no session (a call without session) changes nothing');
+  await post('save_state', { saved: true, project: 'p1', version: 4, holdsNow: false, holdsNowFor: 'f'.repeat(32) });
+  assert.equal(readMarker(sid).holdsNow, true, 'an answer for another session changes nothing');
+  await post('save_state', { saved: true, project: 'p1', version: 4 });
+  assert.equal(readMarker(sid).holdsNow, true, 'no holdsNow (an older server): kept');
+  await post('end_work', { ended: true, project: 'p1', version: 5, holdsNow: false, holdsNowFor: W });
+  assert.equal(readMarker(sid).holdsNow, false, 'end_work');
   // With holdsNow false from the server, a lane call now counts as heard from (Lanes step 3 reads it).
   fs.writeFileSync(path.join(repo, 'l-holds.txt'), 'x');
-  await run('post-tool', { session_id: 'l-holds', tool_name: 'mcp__work-os__log_progress', tool_response: ans({ ok: true }) });
-  assert.equal(await run('stop', { session_id: 'l-holds' }), '');
+  await post('log_progress', { ok: true });
+  assert.equal(await run('stop', { session_id: sid }), '');
   fs.rmSync(path.join(repo, 'l-holds.txt'));
 });

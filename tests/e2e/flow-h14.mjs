@@ -227,6 +227,7 @@ try {
     const wk = await mkKey({ agent: 'claude-code', userId: writer.userId, orgId: ME.orgId, name: 'H14 writer' });
     const hdr = sid => ({ 'X-Work-OS-Session': sid });
     const hin = { step: 'flow-h14 part 3 passes; next: write the shelves part', check: ['tests/e2e/run.sh flow-h14'] };
+    await must(cc, 'start_work', { project: P2, session: 'h14h0' }, hdr('h14h0')); // set_now needs a session Work OS knows (Lanes)
     await must(cc, 'end_work', { project: P2, base_version: 0, state: [{ op: 'set_now', text: 'H14 goal: handovers on shelves' }, { op: 'add_next', text: 'H14 first next step, long enough to matter' }, { op: 'add_next', text: 'H14 second next step, also long enough' }], friction: 'none', session: 'h14h0' }, hdr('h14h0'));
     await must(cc, 'start_work', { project: P2, session: 'h14h1', label: 'H14 same label' }, hdr('h14h1'));
     await must(wk, 'start_work', { project: P2, session: 'h14h2', label: 'H14 same label' }, hdr('h14h2'));

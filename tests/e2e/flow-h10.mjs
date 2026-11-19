@@ -100,6 +100,7 @@ try {
   const rfKey = await mcpH(chat, 'feedback', { project: R, text: 'another key, nothing refused' });
   check('H10 refusals: another key refusals are not attached', rfKey.json?.recorded === true && !('refusals' in rfKey.json), rfKey.text);
   // end_work: the session_ended row carries them too; the friction line is unchanged
+  await must(cc, 'start_work', { project: R, session: 'h10r1' }, hdr('h10r1')); // set_now needs a session Work OS knows (Lanes)
   const ew = await mcpH(cc, 'end_work', { project: R, base_version: 0, state: [{ op: 'set_now', text: 'h10 refusals' }], friction: 'none', session: 'h10r1' }, hdr('h10r1'));
   const ended = (await feed('session_ended')).find(x => x.session === 'h10r1');
   check('H10 refusals: the end_work session_ended row carries them, its note is still the friction line', !ew.isError && ended?.note === 'none' && JSON.stringify(ended.feedback?.refusals) === JSON.stringify(kinds), JSON.stringify(ended));
