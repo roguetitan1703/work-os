@@ -147,7 +147,9 @@ try {
   check('H5 list_sessions: after end_work the session is off (listed only with include_off)', s3?.state === 'off' && !(await ls(cc, { project: P })).sessions.some(x => x.session === 'h5s3'), JSON.stringify(s3));
   await start(cc, 'h5s3');
   const s3b = (await ls(cc, { project: P })).sessions.find(x => x.session === 'h5s3');
-  check('H5 list_sessions: live again after a new start_work (waiting: its Need is still open)', s3b?.state === 'waiting' && s3b.person === 'me' && s3b.project === P && s3b.branch === 'builder-b', JSON.stringify(s3b));
+  // Lanes step 2: the chat session that picked up the handover (case 5) was given h5s3's open Need, so h5s3 is working, not waiting.
+  const openNeed = await rawDb.collection('needs').findOne({ status: 'open' });
+  check('H5 list_sessions: live again after a new start_work (working: its open Need went with the handover to the session that picked it up)', s3b?.state === 'working' && s3b.person === 'me' && s3b.project === P && s3b.branch === 'builder-b' && openNeed?.from.session === chatSid, JSON.stringify([s3b, openNeed?.from]));
   const tList = await ls(kT, {});
   check('H5 list_sessions: a teammate sees the sessions on the shared project without their session ids', tList.sessions.some(x => x.project === P) && tList.sessions.every(x => !('session' in x) || x.person === 'me'), JSON.stringify(tList).slice(0, 300));
   await must(kX, 'add_project', { name: 'H5 Other Project' });

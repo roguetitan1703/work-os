@@ -5,6 +5,7 @@ import { inTransaction, type MessageDoc, type PresenceDoc, type ProjectDoc } fro
 import { AGENT_PER_HOUR, agentUsed } from '../mcp/policy';
 import { idShaped, matchSessions, rowKey } from './presence';
 import { presenceState } from './presence-state';
+import { followMoved } from './pickup';
 import { signalSessions } from '../live';
 import { forUser, scoped, type Scope } from '../scope';
 import { memberNames } from '../people';
@@ -253,7 +254,11 @@ export async function reply(s: Scope, id: string, body: string, from: From, read
   const project = parent.projectId ? await c.projects.findOne({ _id: parent.projectId }) : null;
   if (parent.projectId && !project) throw new NotFoundError('Project not found');
   const to = parent.from.label || parent.from.ai;
-  return sendMessage(s, { kind: 'reply', project, toSids: [parent.src], ...(to ? { toLabel: to } : {}) }, { kind: 'fyi', body }, from, { thread: parent.thread });
+  // src has two forms (a bare session id from the state route, userId:session from MCP): normalised. If that session's work moved to another
+  // session of the same person (a pickup), the reply goes to where it moved, at most 3 hops (lib/data/pickup.ts followMoved).
+  const src = parent.src.startsWith(`${parent.from.userId}:`) ? parent.src : `${parent.from.userId}:${parent.src}`;
+  const dest = await followMoved(s, parent.projectId, src);
+  return sendMessage(s, { kind: 'reply', project, toSids: [dest], ...(to ? { toLabel: to } : {}) }, { kind: 'fyi', body }, from, { thread: parent.thread });
 }
 
 export type Names = Record<string, string>;
