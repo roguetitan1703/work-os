@@ -113,7 +113,7 @@ try {
   const rt = await withState(cc, await must(cc, 'import_state', { project: 'Flow Roundtrip', markdown: round.markdown }), 'Flow Roundtrip');
   check('S2: a saved copy imports back to the same Now and Next (its version header is skipped)', rt.state.now.text.startsWith('2026-11-15') && rt.state.next.length === 3, JSON.stringify(rt.state).slice(0, 300));
 
-  // An MCP write to an Orders note is refused for every key, whatever the tool
+  // An MCP write to an Orders note: only the holder's own Claude, with a why, may change its text (H9); every other key and tool is refused
   const rules = (await must(MCP, 'write_note', { project: NAME, title: 'The rules', body: 'Original orders text.' })).created.id;
   await markOrders(rules, 'org');
   const attempts = [

@@ -41,6 +41,9 @@ export const EVENTS = [
   { event: 'wait', claudeEvent: 'SessionStart', matcher: 'startup|resume|clear|compact', timeoutS: 3600, asyncRewake: true, localOnly: true },
   { event: 'notification', claudeEvent: 'Notification', matcher: 'permission_prompt|idle_prompt|elicitation_dialog', timeoutS: 3, async: true, localOnly: true },
   { event: 'session-end', claudeEvent: 'SessionEnd', matcher: null, timeoutS: 2, localOnly: true },
+  // A subagent starts with the short form of the organization Orders (the first ten rule lines; the full Orders are in its parent's
+  // brief). It reads only the session's marker and makes no network call, so a cloud repo's entry has it too.
+  { event: 'subagent-start', claudeEvent: 'SubagentStart', matcher: null, timeoutS: 2 },
 ];
 
 export const SESSION_TOKEN_RE = /^wst_[A-Za-z0-9_-]{43}$/;
@@ -169,13 +172,18 @@ export const deliverText = (r) => (r && r.status === 200 && typeof r.b?.deliver?
 /** The ids to acknowledge for what an answer handed over: kept in the marker once the text is being printed, sent with the next call (`ack`). Until then the server counts the messages unread and offers them again after 20 s. */
 export const keepAck = (sid, r) => {
   const d = r?.status === 200 ? r.b?.deliver : null;
-  const ids = [...(Array.isArray(d?.ids) ? d.ids : []), ...(Array.isArray(d?.needs) ? d.needs : [])].filter((i) => typeof i === 'string').slice(0, 12);
+  const ids = [...(Array.isArray(d?.ids) ? d.ids : []), ...(Array.isArray(d?.needs) ? d.needs : []), ...(Array.isArray(d?.orders) ? d.orders : [])].filter((i) => typeof i === 'string').slice(0, 12);
   const m = sid && ids.length ? readMarker(sid) : null;
   if (m) writeMarker(sid, { ...m, ack: ids });
 };
 export const deliverOut = (hookEventName, r, sid) => {
   const text = deliverText(r);
   if (text && sid) keepAck(sid, r);
+  // The organization Orders changed: the new short form (what a subagent starts with) replaces the one kept at the start.
+  if (text && sid && typeof r.b?.deliver?.short === 'string') {
+    const m = readMarker(sid);
+    if (m) { const { short: _old, shortV: _oldV, ...rest } = m; writeMarker(sid, { ...rest, ...(r.b.deliver.short ? { short: r.b.deliver.short.slice(0, 1200), ...(Number.isInteger(r.b.deliver.shortV) ? { shortV: r.b.deliver.shortV } : {}) } : {}) }); }
+  }
   return text ? { hookSpecificOutput: { hookEventName, additionalContext: text } } : null;
 };
 

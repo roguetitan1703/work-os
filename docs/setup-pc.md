@@ -80,7 +80,7 @@ Only rules that hold in every repo go here; a project's own test hosts, cloud pr
   - Work OS reads: `start_work get_state get_project get_task list_projects list_tasks list_notes read_note inbox
     needs recent_activity daily_summary message_status`.
   - Work OS writes of the agent's own work (the Orders: always theirs): `save_state import_state set_doing
-    log_progress complete_task write_note add_task add_comment update_checklist ask withdraw_need hand_in slot`.
+    log_progress complete_task write_note add_task add_comment update_checklist ask withdraw_need propose_order hand_in slot`.
   - Each written as `mcp__work-os__<tool>`. Not allowed, so they still ask: deletes, `update_task`,
     `apply_changes`, `send_message`, every mail tool.
   - Test env files: `Read(**/.env.test.local)`, `Bash(grep * .env.test.local)`, `Bash(cut * .env.test.local)`,

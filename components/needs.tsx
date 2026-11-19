@@ -149,7 +149,7 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
       {!open && (
         <p className={cn('text-muted-foreground', phone ? 'text-[14px]' : 'text-xs')} data-need-closed>
           {need.status === 'answered' && need.answer
-            ? `Answered${need.answer.option ? ': ' + (need.options.find(o => o.id === need.answer!.option)?.label ?? (need.answer.option === 'other' ? 'own answer' : need.answer.option)) : ''}${need.filed?.length ? ` · filed ${need.filed.map(r => '#' + r).join(', ')}` : ''}${need.answer.text ? ` · "${need.answer.text}"` : ''}${need.waitedMs !== null ? ` · waited ${fmtWait(need.waitedMs)}` : ''}`
+            ? `Answered${need.answer.option ? ': ' + (need.options.find(o => o.id === need.answer!.option)?.label ?? (need.answer.option === 'other' ? 'own answer' : need.answer.option)) : ''}${need.filed?.length ? ` · filed ${need.filed.map(r => '#' + r).join(', ')}` : ''}${need.order?.applied ? ('v' in need.order.applied ? ` · applied as v${need.order.applied.v}` : ` · not applied: ${need.order.applied.error}`) : ''}${need.answer.text ? ` · "${need.answer.text}"` : ''}${need.waitedMs !== null ? ` · waited ${fmtWait(need.waitedMs)}` : ''}`
             : need.status === 'withdrawn'
               ? 'Withdrawn by the asker'
               : 'Replaced by a newer ask'}

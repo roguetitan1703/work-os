@@ -5,6 +5,7 @@ import { claimCursor, countWrite, presentRow, resetWrites, rowKey, sessionKey, t
 import { frameLine, unreadFor, type MessageOut } from '../data/messages';
 import { memberNames } from '../people';
 import { answeredNeedsSince, newNeedsForMe } from '../data/needs';
+import { ordersChangesFor } from '../data/orders';
 import type { ToolName } from './docs';
 
 // The "for you" line (docs/flows/step-1.md section 5). Every Work OS tool answer to a present session (one that called
@@ -108,8 +109,21 @@ const needs: ForYouSource = {
   },
 };
 
+/** Orders changed (H9): the layers served to this session have a version it was not told of. Ids (ord:<noteId>:<v>) and the page only; the diff comes through start_work or delivery, never in this line. Does not mark the version as seen. */
+const ordersChanged: ForYouSource = {
+  id: 'orders',
+  async collect({ s, row, since, projectId, named }) {
+    const ch = (await ordersChangesFor(s, projectId, { since, seen: row.ordersSeen, notSession: row.session, limit: 20 })).filter(x => !named.has(`ord:${x.noteId}:${x.version}`));
+    if (!ch.length) return none;
+    const newest = new Map<string, (typeof ch)[number]>();
+    for (const x of ch) if (!newest.has(x.noteId) || newest.get(x.noteId)!.version < x.version) newest.set(x.noteId, x);
+    const layer = { org: 'organisation', project: 'project', person: 'person' } as const;
+    return { lines: [...newest.values()].slice(0, 3).map(x => `Orders changed: ${layer[x.layer]} v${x.version} (read_note ${x.noteId})`), ids: ch.map(x => `ord:${x.noteId}:${x.version}`) };
+  },
+};
+
 /** The sources, in the order their lines appear. */
-export const SOURCES: ForYouSource[] = [newMessages, newTasks, newNext, needs];
+export const SOURCES: ForYouSource[] = [newMessages, newTasks, newNext, needs, ordersChanged];
 
 /** A session that has made this many writes since its last save_state is reminded (and again at each multiple). */
 export const SAVE_NUDGE = 10;
