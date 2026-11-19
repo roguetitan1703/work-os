@@ -39,6 +39,8 @@ try {
   check('edit_line: the text is replaced inside the line', e1.state.next[0].text === 'Write the data migration', JSON.stringify(e1.state.next));
   check('edit_line: the line keeps its id and place', e1.state.next[0].id === idBefore && e1.state.next.length === 4, JSON.stringify(e1.state.next));
   check('edit_line: the version went up by one', v === seed.version + 1, `${seed.version} -> ${v}`);
+  const heldDoc = await rawDb.collection('states').findOne({ projectId: (await rawDb.collection('projects').findOne({ name: NAME }))._id });
+  check('edit_line: the edited line is held by the calling session (Lanes: key userId:…), and Now by the session that set it', heldDoc.next[0].hold?.key?.startsWith(`${ME.userId}:`) && heldDoc.now.hold?.key === heldDoc.next[0].hold.key && !heldDoc.now.holder, JSON.stringify([heldDoc.now, heldDoc.next[0]]));
 
   // Now can be edited too
   const eN = await must(MCP, 'save_state', { project: NAME, base_version: v, ops: [{ op: 'edit_line', find: 'the editor', new: 'the State editor' }] });

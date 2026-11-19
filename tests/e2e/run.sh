@@ -49,6 +49,7 @@ flow-h1|flow-h1.mjs|none|plain
 flow-h4|flow-h4.mjs|none|plain
 flow-h5|flow-h5.mjs|none|plain
 flow-pickup|flow-pickup.mjs|none|plain
+flow-lanes|flow-lanes.mjs|none|plain
 flow-h6|flow-h6.mjs|none|plain
 flow-h7|flow-h7.mjs|none|plain
 flow-h9|flow-h9.mjs|none|plain

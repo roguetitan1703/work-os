@@ -2,9 +2,11 @@ import 'server-only';
 import { requestContext } from '../request-context';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { inTransaction, type ArchivedLine, type DeclutterCache, type ProjectDoc, type StateDoc, type StateLine } from '../db';
+import { inTransaction, type ArchivedLine, type DeclutterCache, type PresenceDoc, type ProjectDoc, type StateDoc, type StateLine } from '../db';
 import { scoped, type Scope } from '../scope';
 import { isPerson, userActor, type Actor } from '../actors';
+import { busy, dispatchedText, lineHeldText, lineHolder, nowHeldText, stateWord } from './lanes';
+import { presenceState } from './presence-state';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, resolveProject } from './projects';
 import { decisionsInCopy } from './repo-visibility';
@@ -21,6 +23,15 @@ import type { Priority } from '../types';
 // comes back. Every other op names its line (id or find) and is checked per line: the text or id must still be there. Appends (add_next, add_later, add_decision) and set_where are $push / $set
 // on their own field, so two sessions' appends both land. The whole call is one transaction: of two calls that meet,
 // one is retried by the driver.
+//
+// Lanes step 1 (plan note 666b20a6e9): the Now holder and held lines. A person (the app, Discord, Declutter) is never refused and
+// keeps whatever hold there is. A session is named by its key `userId:key` (the form presence rows and pickup.ts use; the hook's
+// State route sends a bare session id, normalised here).
+//   Now (set_now, edit_line on Now): no holder -> the caller takes it; the caller holds it -> fine; the holder is busy (working,
+//     or at a permission prompt) -> refused; else the hold moves and the old holder gets an fyi message. A dispatched run never
+//     sets Now. set_now's `holder` argument is ignored.
+//   Held lines (done_next, edit_line, archive_line, promote_later): only by the line's holder (its `hold`, or a live session on
+//     its task by set_doing), the Now holder or a person. edit_line by a session holds the line.
 
 export const LIMITS = { line: 500, now: 1000, decision: 1000, next: 100, later: 300, decisions: 500 } as const;
 
@@ -81,12 +92,30 @@ export async function stateOfProject(s: Scope, projectId: string): Promise<State
   return (await scoped(s)).states.findOne({ _id: projectId });
 }
 
+/** A session's key as holds name it (`userId:key`): an MCP src already has the form, the hook's State route sends a bare session id. */
+export function holdKeyOf(userId: string, src: string | undefined | null): string | undefined {
+  if (!src) return undefined;
+  return src.startsWith(`${userId}:`) ? src : `${userId}:${src}`;
+}
+
+/** Does the session `key` (`userId:key`) hold this State's Now? */
+export const holdsNowOf = (d: Pick<StateDoc, 'now'> | null | undefined, key: string | undefined): boolean => !!key && d?.now?.hold?.key === key;
+
+const splitKey = (k: string) => {
+  const i = k.indexOf(':');
+  return { userId: k.slice(0, i), key: k.slice(i + 1) };
+};
+
 export type SaveResult =
-  | { conflict: true; state: StateDoc | null; project: ProjectDoc }
+  | { conflict: true; state: StateDoc | null; project: ProjectDoc; holdsNow: boolean }
   | {
       conflict?: false;
       state: StateDoc;
       project: ProjectDoc;
+      /** True when the calling session holds Now after this save (always false for a person). */
+      holdsNow: boolean;
+      /** Things the caller should know about how its ops were taken (set_now's holder ignored). */
+      notes: string[];
       done: string[];
       dropped: string[];
       promoted: { ref: number; title: string }[];
@@ -102,8 +131,15 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
   const ops = StateOpsSchema.parse(rawOps);
   // Refs of Next lines finished by this call: their tasks finish after the transaction (the line is gone already, so there is no loop back).
   const doneRefs: number[] = [];
+  // The session whose Now hold this save moved away (it gets an fyi after the transaction).
+  const took: { from: { row: PresenceDoc; label: string; mine: PresenceDoc | null } | null } = { from: null };
+  const rc0 = requestContext();
+  // A person (the app, Discord, Declutter) is never refused by a hold and never takes one.
+  const person = isPerson(o.actor) || o.actor.kind === 'discord';
+  const me = holdKeyOf(s.userId, rc0.src) ?? `${s.userId}:${rc0.keyId ?? 'agent'}`;
   const r = await inTransaction(async () => {
     doneRefs.length = 0;
+    took.from = null;
     const c = await scoped(s);
     const project = await resolveProject(c, s, projectKey, { create: false });
     if (!project) throw new NotFoundError(`Project "${projectKey.trim().slice(0, 120)}" not found`);
@@ -111,7 +147,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     if (ops.some(x => VERSIONED.has(x.op))) {
       if (o.baseVersion === undefined) throw new InputError('set_now needs base_version: the version of the State you read (start_work, get_state and every save_state answer carry it).');
       // Nothing is written; the caller merges and retries.
-      if ((cur?.version ?? 0) !== o.baseVersion) return { conflict: true as const, state: cur, project };
+      if ((cur?.version ?? 0) !== o.baseVersion) return { conflict: true as const, state: cur, project, holdsNow: !person && holdsNowOf(cur, me) };
     }
     const now = new Date();
     if (!cur) {
@@ -126,8 +162,67 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     }
     const by = s.userId;
     const rc = requestContext();
-    const src = rc.src;
+    const src = rc.src ? me : undefined;
     const stamp = { by, ...(src ? { src } : {}) };
+    const notes: string[] = [];
+    // ── Lanes: holds. Presence rows are read once, only when an op needs them.
+    const st0 = cur;
+    const rows = new Map<string, Promise<PresenceDoc | null>>();
+    const rowOf = (k: string) => {
+      if (!rows.has(k)) rows.set(k, c.presence.findOne({ projectId: project._id, ...splitKey(k) } as never, { sort: { lastSeen: -1 } }));
+      return rows.get(k)!;
+    };
+    let names: Names | null = null;
+    const nameOf = async (userId: string) => (names ??= await memberNames(s.orgId))[userId] || 'a former member';
+    const labelOf = (r: PresenceDoc | null) => r?.label || 'a session';
+    // The Now hold as it stands after the ops so far (a person's save keeps it as it is).
+    let nowHold: NonNullable<StateDoc['now']>['hold'] | undefined = cur.now?.hold;
+    let nowChecked = false;
+    const claimNow = async () => {
+      if (person || nowChecked) return;
+      nowChecked = true;
+      const t = Date.now();
+      const mine = await rowOf(me);
+      const h = st0.now?.hold;
+      const hRow = h && h.key !== me ? await rowOf(h.key) : null;
+      const hState = hRow ? presenceState(hRow, { now: t }) : null;
+      if (mine?.dispatched) throw new InputError(dispatchedText({ label: h && h.key !== me ? h.label || labelOf(hRow) : '', state: hState ? stateWord(hState) : 'off', ref: mine.dispatched.ref }));
+      if (h && h.key === me) {
+        nowHold = { key: me, label: mine?.label || h.label, at: h.at };
+        return;
+      }
+      if (h && hRow && busy(hRow, t)) {
+        throw new InputError(nowHeldText({ label: h.label || labelOf(hRow), person: await nameOf(hRow.userId), state: stateWord(hState!), at: hState!.since }, t));
+      }
+      // No holder, or a holder that is not busy (or has no row on this project any more): the hold is the caller's.
+      if (h && hRow) took.from = { row: hRow, label: labelOf(mine), mine };
+      nowHold = { key: me, label: labelOf(mine), at: now };
+    };
+    // Who may finish or edit a line: rows of sessions on a task (set_doing) or named by a line's hold, with the task ref each is on.
+    let lineRows: (PresenceDoc & { key: string; ref?: number })[] | null = null;
+    const loadLineRows = async () => {
+      if (lineRows) return lineRows;
+      const held = [...st0.next, ...st0.later].flatMap(l => (l.hold ? [splitKey(l.hold.key)] : []));
+      const found = await c.presence.find({ projectId: project._id, $or: [{ doing: { $exists: true } }, ...held] } as never).sort({ lastSeen: -1 }).limit(200).toArray();
+      const ids = [...new Set(found.flatMap(r => (r.doing ? [r.doing.taskId] : [])))];
+      const refs = new Map((ids.length ? await c.tasks.find({ _id: { $in: ids } } as never, { projection: { ref: 1 } }).toArray() : []).map(t => [t._id, t.ref]));
+      lineRows = found.map(r => ({ ...r, key: `${r.userId}:${r.key}`, ...(r.doing && refs.has(r.doing.taskId) ? { ref: refs.get(r.doing.taskId) } : {}) }));
+      return lineRows;
+    };
+    /** Refuses the op unless the caller may change the line; returns whether another live session holds it (an edit then keeps that hold). */
+    const checkLine = async (l: StateLine, list: 'Next' | 'Later'): Promise<boolean> => {
+      if (person) return false;
+      if (!l.hold && l.ref == null) return false;
+      const t = Date.now();
+      const live = await loadLineRows();
+      const h = lineHolder(l, live, r => r.ref, t);
+      if (!h || h.key === me) return false;
+      // The Now holder may (merges), and so may a session on the line's task (set_doing).
+      if (nowHold?.key === me) return true;
+      if (l.ref != null && live.some(r => r.key === me && r.ref === l.ref && presenceState(r, { now: t }).state !== 'off')) return true;
+      const text = lineHeldText({ id: l.id, text: l.text, label: labelOf(h), state: stateWord(presenceState(h, { now: t })), ref: l.ref, nowHolder: nowHold?.label });
+      throw new InputError(list === 'Later' ? text.replace(/^Next line/, 'Later line') : text);
+    };
     const log: NonNullable<StateDoc['log']> = ops.map(op => ({ at: now, by, ...(rc.keyId ? { key: rc.keyId } : {}), ...(src ? { src } : {}), via: o.via, op: op.op, ...('id' in op && op.id ? { id: op.id } : {}) }));
     // At most 30 decisions an hour from one key: a runaway agent cannot bury the real ones.
     if (ops.some(x => x.op === 'add_decision')) {
@@ -182,7 +277,9 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
       }
       switch (op.op) {
         case 'set_now':
-          nowSet = { text: op.text, ...(op.holder ? { holder: op.holder } : {}), by, at: now };
+          await claimNow();
+          if (op.holder !== undefined && !person && !notes.length) notes.push("set_now's holder is ignored: Work OS records the session that sets Now as its holder.");
+          nowSet = { text: op.text, ...(nowHold ? { hold: nowHold } : {}), by, at: now };
           feed.push({ type: 'state_now', text: op.text });
           break;
         case 'add_next': {
@@ -203,6 +300,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
         case 'done_next': {
           nextEdited = true;
           const l = take(next, op.find !== undefined ? findLine(op.find, ['Next']).id! : op.id!, 'Next');
+          await checkLine(l, 'Next');
           log[oi].id = l.id;
           if (l.ref) doneRefs.push(l.ref);
           done.push(l.text);
@@ -219,6 +317,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
         case 'promote_later': {
           laterEdited = true;
           const l = take(later, op.find !== undefined ? findLine(op.find, ['Later']).id! : op.id!, 'Later');
+          await checkLine(l, 'Later');
           log[oi].id = l.id;
           // It becomes a task in this project, by the caller (the line's words become the title).
           const t = await createTask(s, { title: l.text.slice(0, 300), project: project._id, priority: (op.priority ?? 'P3') as Priority, ...(l.text.length > 300 ? { description: l.text } : {}) }, o.actor, l.by !== by ? { authors: { title: userActor(l.by), ...(l.text.length > 300 ? { description: userActor(l.by) } : {}) } } : {});
@@ -247,11 +346,13 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           if (h.where === 'Now') {
             if (!replaced) throw new InputError('Now cannot be removed: replace it with set_now.');
             if (replaced.length > LIMITS.now) throw new InputError(`Now would be ${replaced.length} characters (max ${LIMITS.now}).`);
-            nowSet = { ...(nowSet ?? cur.now!), text: replaced, by, at: now };
+            await claimNow();
+            nowSet = { text: replaced, ...(nowHold ? { hold: nowHold } : {}), by, at: now };
             feed.push({ type: 'state_now', text: replaced });
             break;
           }
           if (replaced.length > LIMITS.line) throw new InputError(`The line would be ${replaced.length} characters (max ${LIMITS.line}).`);
+          const heldByOther = await checkLine(h.line!, h.where as 'Next' | 'Later');
           const list = h.where === 'Next' ? next : later;
           if (h.where === 'Next') nextEdited = true;
           else laterEdited = true;
@@ -263,9 +364,12 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
             if (h.where === 'Next' && h.line!.ref) doneRefs.push(h.line!.ref);
             if (h.where === 'Next') feed.push({ type: 'next_done', text: h.text, by: h.line!.by });
           } else {
-            const { src: oldSrc, ...rest } = h.line!;
+            const { src: oldSrc, hold: oldHold, left: oldLeft, ...rest } = h.line!;
             void oldSrc;
-            list[h.i] = { ...rest, ...stamp, text: replaced, at: now };
+            // A session that edits a line holds it. A person's edit, and the Now holder's edit of a line another live session holds,
+            // keep the hold (and where a released one stood) as it was.
+            const keep = person || heldByOther ? { ...(oldHold ? { hold: oldHold } : {}), ...(oldLeft ? { left: oldLeft } : {}) } : { hold: { key: me, at: now } };
+            list[h.i] = { ...rest, ...stamp, ...keep, text: replaced, at: now };
           }
           break;
         }
@@ -284,6 +388,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
             lid2 = op.id!;
           } else throw new InputError(`Next and Later have no line ${op.id} (read the State again for current ids)`);
           const l = take(from === 'Next' ? next : later, lid2, from);
+          await checkLine(l, from);
           if (from === 'Next') nextEdited = true;
           else laterEdited = true;
           log[oi].id = l.id;
@@ -317,8 +422,9 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     // Placed like the State (its project's readers), and moved with the project (setProjectPlacement, by projectId).
     for (const f of feed) await logChange(c, cur, o.actor, f.type, { subject: { kind: 'state', id: project._id, title: 'State' }, projectId: project._id, note: f.text, ...(f.by ? { textBy: f.by } : {}), at: now });
     const state = (await c.states.findOne({ _id: cur._id }))!;
-    return { state, project, done, dropped, promoted, closedTasks: [] as number[], sentForReview: [] as number[], leftOpen: [] as string[] };
+    return { state, project, holdsNow: !person && holdsNowOf(state, me), notes, done, dropped, promoted, closedTasks: [] as number[], sentForReview: [] as number[], leftOpen: [] as string[] };
   });
+  if (!r.conflict && took.from) await tellOldHolder(s, r.project, r.state, took.from, me, o);
   if (r.conflict || !doneRefs.length) return r;
   // A Next line with a task ref finishes its task. A person closes it; an agent closing code, data or client work opens a review instead.
   for (const ref of [...new Set(doneRefs)]) {
@@ -332,6 +438,21 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     }
   }
   return r;
+}
+
+/**
+ * The Now hold moved from a session that was not busy: that session gets an fyi on its own key (labels only, never a session id).
+ * Never fails the save: a message that cannot be sent (the hourly limit) is skipped.
+ */
+async function tellOldHolder(s: Scope, project: ProjectDoc, state: StateDoc, from: { row: PresenceDoc; label: string; mine: PresenceDoc | null }, me: string, o: { actor: Actor; via: Via }): Promise<void> {
+  try {
+    const { sendMessage } = await import('./messages');
+    const goal = state.now?.text ?? '';
+    const body = `"${from.label}" took over Now on ${project.name}: ${goal.length > 200 ? `${goal.slice(0, 200)}…` : goal}. You no longer hold Now. Keep your lane: set_doing your task, log_progress, add_next or add_decision; send_message "${from.label}" if Now should change.`;
+    await sendMessage(s, { kind: 'session', rows: [from.row], project }, { kind: 'fyi', body }, { word: o.via === 'chat' ? 'chat' : 'agent', ...(from.mine?.session ? { session: from.mine.session } : {}), label: from.label, ...(from.mine?.keyId ? { keyId: from.mine.keyId } : {}), src: me, actor: o.actor });
+  } catch (e) {
+    console.error('[state now moved]', e instanceof Error ? e.name : 'error');
+  }
 }
 
 /**
@@ -559,7 +680,8 @@ export function stateOut(d: StateDoc, reader: string, names: Names): StateOut {
   };
   return {
     version: d.version,
-    now: d.now ? { text: d.now.text, ...(d.now.holder ? { holder: d.now.holder } : {}), at: d.now.at.toISOString(), ...w(d.now.by) } : null,
+    // holder: the label of the session that holds Now (never its id); a legacy free-text holder is shown until a save replaces it.
+    now: d.now ? { text: d.now.text, ...(d.now.hold?.label || d.now.holder ? { holder: d.now.hold?.label || d.now.holder } : {}), at: d.now.at.toISOString(), ...w(d.now.by) } : null,
     next: d.next.map(l => ({ id: l.id, text: l.text, ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...w(l.by) })),
     later: d.later.map(l => ({ id: l.id, text: l.text, ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...w(l.by) })),
     decisions: d.decisions.filter(x => !x.archivedAt).map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', via: x.via, text: x.text, ...(x.msg ? { message: x.msg } : {}), ...(x.word ? { word: x.word } : {}), ...w(x.author ?? x.by) })),
@@ -589,7 +711,8 @@ const waitSuffix = (l: StateLine) => (l.waitsOn && !l.text.toLowerCase().include
 export function copyLines(d: StateDoc): CopyLine[] {
   const out: CopyLine[] = [];
   const row = (section: CopyLine['section'], prefix: string, text: string, suffix: string, id?: string) => out.push({ section, ...(id ? { id } : {}), line: prefix + text + suffix, prefix, text, suffix });
-  if (d.now) row('Now', '- ', d.now.text, d.now.holder ? ` (${d.now.holder})` : '');
+  // No holder in the copy (Lanes): it would commit a new copy whenever the hold moves.
+  if (d.now) row('Now', '- ', d.now.text, '');
   d.next.forEach((l, i) => row('Next', `${i + 1}. `, l.text, `${l.ref ? ` (#${l.ref})` : ''}${waitSuffix(l)}`, l.id));
   for (const l of d.later) row('Later', '- ', l.text, waitSuffix(l), l.id);
   return out;
@@ -652,6 +775,6 @@ export async function editCopyLine(s: Scope, projectKey: string, oldText: string
   let middle: string;
   if (!edited.trim() || edited.trim() === hit.prefix.trim()) middle = '';
   else if (edited.startsWith(hit.prefix) && edited.endsWith(hit.suffix) && edited.length >= hit.prefix.length + hit.suffix.length) middle = edited.slice(hit.prefix.length, edited.length - hit.suffix.length).trim();
-  else throw new InputError('Change only the words of the line. The number, the task (#12), the waits-on and the holder change with save_state.');
+  else throw new InputError('Change only the words of the line. The number, the task (#12) and the waits-on change with save_state.');
   return saveState(s, project._id, [{ op: 'edit_line', find: hit.text, new: middle, ...(hit.id ? { id: hit.id } : {}) }], { actor: o.actor, via: o.via });
 }

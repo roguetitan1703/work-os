@@ -429,11 +429,17 @@ export function savedAnswer(
   };
 }
 
+/** Lanes step 1: whether the calling session holds Now (the hook keeps it for its Stop reminder), and notes on how ops were taken. */
+function laneExtra(r: { holdsNow: boolean; notes?: string[] }): Record<string, unknown> {
+  return { holdsNow: r.holdsNow, ...(r.notes?.length ? { note: r.notes.join(' ') } : {}) };
+}
+
 /** The answer to a save that found the State at another version: nothing was written, the current State comes back. */
-function conflictOut(r: { state: Parameters<typeof stateData.stateOut>[0] | null }, reader: string, names: Parameters<typeof stateData.stateOut>[2], tool: 'save_state' | 'end_work') {
+function conflictOut(r: { state: Parameters<typeof stateData.stateOut>[0] | null; holdsNow?: boolean }, reader: string, names: Parameters<typeof stateData.stateOut>[2], tool: 'save_state' | 'end_work') {
   return {
     saved: false,
     conflict: true,
+    holdsNow: !!r.holdsNow,
     message: `base_version was stale: nothing was written. The State is at version ${r.state?.version ?? 0}: merge your change into it and call ${tool} again with that base_version.`,
     textRule: textRule(),
     version: r.state?.version ?? 0,
@@ -1312,7 +1318,10 @@ export function createMcpServer(ctx: Ctx): McpServer {
       // The roster is read by everyone who can read the project: it may only name a task of that project, and it stores only the id.
       if (t && t.projectId !== here.projectId) throw new InputError('That task is not on the project you started work on: call start_work on its project first');
       await setDoing(s, ident, t ? t.id : null);
-      return { doing: t ? { ref: t.ref, title: t.title } : null, note: 'The roster shows this task as yours while you keep working; if you stop calling Work OS for 30 minutes it shows as unheld.' };
+      // Lanes: while the session is on the task, its Next line is held by it (derived at read, no State write).
+      const lines = t && here.projectId ? ((await stateData.stateOfProject(s, here.projectId))?.next ?? []).filter(l => l.ref === t.ref).map(l => l.id) : [];
+      const held = lines.length ? ` You hold its Next line ${lines.join(', ')} while you are on it: you, the Now holder or a person finish or edit it.` : '';
+      return { doing: t ? { ref: t.ref, title: t.title } : null, note: `The roster shows this task as yours while you keep working; if you stop calling Work OS for 30 minutes it shows as unheld.${held}` };
     }),
   );
 
@@ -1354,7 +1363,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       if (!state) return { project: project.name, state: NO_STATE, version: 0 };
       const names = await memberNames(s.orgId);
       const markdown = a.copy ? await stateData.stateCopy(s, project, state, ctx.baseUrl) : await legacyCopy(a, project, state);
-      return { textRule: textRule(), project: project.name, version: state.version, state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), ...(markdown ? { markdown } : {}) };
+      return { textRule: textRule(), project: project.name, version: state.version, holdsNow: stateData.holdsNowOf(state, requestContext().src), state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), ...(markdown ? { markdown } : {}) };
     }),
   );
 
@@ -1373,7 +1382,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const r = await stateData.saveState(s, a.project, a.ops, { baseVersion: a.base_version, actor: ACTOR, via: messageData.wordOf(caller, sessionHeader(a.session ?? null) ?? requestContext().sid) === 'chat' ? 'chat' : 'code' });
       const names = await memberNames(s.orgId);
       if (r.conflict) return conflictOut(r, s.userId, names, 'save_state');
-      return savedAnswer(r, { markdown: await legacyCopy(a, r.project, r.state) });
+      return savedAnswer(r, { markdown: await legacyCopy(a, r.project, r.state), extra: laneExtra(r) });
     }),
   );
 
@@ -1471,7 +1480,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       } catch (e) {
         console.error('[end_work after]', e);
       }
-      const out: Record<string, unknown> = { ended: true, ...savedAnswer(r, { markdown: await legacyCopy(a, r.project, r.state) }) };
+      const out: Record<string, unknown> = { ended: true, ...savedAnswer(r, { markdown: await legacyCopy(a, r.project, r.state), extra: laneExtra(r) }) };
       delete out.saved;
       return {
         ...out,

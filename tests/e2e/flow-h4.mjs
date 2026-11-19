@@ -102,6 +102,11 @@ try {
   const g = await stateOf(A, true);
   check('H4 copy: Decisions are not in the repo copy when the repo is unknown, but are in the State', !g.markdown.includes('Secret pricing decision') && !g.markdown.includes('## Decisions') && g.state.decisions.some(d => d.text === 'Secret pricing decision'), g.markdown);
   check('H4 copy: no Where section and no author labels in the copy', !g.markdown.includes('## Where') && !/\(by /.test(g.markdown), g.markdown);
+  // Lanes step 1: the Now line has no holder in the copy (a legacy holder text included), so the copy does not change when the hold moves
+  await must(MCP, 'save_state', { project: A, base_version: g.version, ops: [{ op: 'set_now', text: 'H4 goal', holder: 'H4 lead' }] });
+  await rawDb.collection('states').updateOne({ _id: (await rawDb.collection('projects').findOne({ name: A }))._id }, { $set: { 'now.holder': 'H4 legacy lead' } });
+  const gh = await stateOf(A, true);
+  check('H4 copy: the Now line has no holder suffix (neither the hold nor a legacy holder text)', gh.markdown.includes('\n## Now\n- H4 goal\n') && !gh.markdown.includes('lead'), gh.markdown.slice(0, 300));
   // …and they are in it once the repo is known private (cached answer, as the 7-day cache would hold it)
   await rawDb.collection('projects').updateOne({ name: A }, { $set: { code: [{ remote: 'acme/h4-alpha' }], repoPublic: false, repoPublicAt: new Date() } });
   const priv = await stateOf(A, true);

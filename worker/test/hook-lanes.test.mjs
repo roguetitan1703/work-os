@@ -197,3 +197,23 @@ test('post-tool: for a session with holdsNow false, lane calls mark the session 
     fs.rmSync(path.join(repo, `${sid}.txt`));
   }
 });
+
+test('post-tool (Lanes step 1): holdsNow from a save_state, end_work or get_state answer is kept in the marker; a subagent\'s answer, another tool or no holdsNow leave it', async () => {
+  const ans = (o) => JSON.stringify(o);
+  start('l-holds');
+  await run('post-tool', { session_id: 'l-holds', tool_name: 'mcp__work-os__save_state', tool_response: ans({ saved: true, project: 'p1', version: 3, holdsNow: false }) });
+  assert.equal(readMarker('l-holds').holdsNow, false, 'save_state: not the holder');
+  await run('post-tool', { session_id: 'l-holds', tool_name: 'mcp__work-os__get_state', tool_response: ans({ project: 'p1', version: 3, holdsNow: true }) });
+  assert.equal(readMarker('l-holds').holdsNow, true, 'get_state: the holder now');
+  await run('post-tool', { session_id: 'l-holds', tool_name: 'mcp__work-os__end_work', tool_response: ans({ ended: true, project: 'p1', version: 4, holdsNow: false }), agent_id: 'a1' });
+  assert.equal(readMarker('l-holds').holdsNow, true, 'a subagent\'s answer changes nothing');
+  await run('post-tool', { session_id: 'l-holds', tool_name: 'mcp__work-os__save_state', tool_response: ans({ saved: true, project: 'p1', version: 4 }) });
+  assert.equal(readMarker('l-holds').holdsNow, true, 'no holdsNow (an older server): kept');
+  await run('post-tool', { session_id: 'l-holds', tool_name: 'mcp__work-os__end_work', tool_response: ans({ ended: true, project: 'p1', version: 5, holdsNow: false }) });
+  assert.equal(readMarker('l-holds').holdsNow, false, 'end_work');
+  // With holdsNow false from the server, a lane call now counts as heard from (Lanes step 3 reads it).
+  fs.writeFileSync(path.join(repo, 'l-holds.txt'), 'x');
+  await run('post-tool', { session_id: 'l-holds', tool_name: 'mcp__work-os__log_progress', tool_response: ans({ ok: true }) });
+  assert.equal(await run('stop', { session_id: 'l-holds' }), '');
+  fs.rmSync(path.join(repo, 'l-holds.txt'));
+});
