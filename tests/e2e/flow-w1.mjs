@@ -185,6 +185,16 @@ try {
   check('W1: the project page for it now shows the line and no one working', /data-could-run/.test(await html(`/projects/${await pid(NAME)}`)) && !/data-card="workers"/.test(await html(`/projects/${await pid(NAME)}`)));
   for (const sid of ['w1-orch', 'w1-ba', 'w1-bs']) await seen(sid, 1);
 
+  // Lanes on the project page (Lanes step 5): the Now holder, a held line, a line left by a session, two lanes with a last result
+  const hdrS = sid => ({ 'X-Work-OS-Session': sid });
+  await must(cc, 'save_state', { project: NAME, session: 'w1-orch', base_version: (await must(cc, 'get_state', { project: NAME })).version, ops: [{ op: 'set_now', text: 'Ship the roster' }, { op: 'add_next', text: 'Held line for builder A' }, { op: 'add_next', text: 'Line a session left behind' }, { op: 'add_next', text: 'Plain line nobody holds' }] }, hdrS('w1-orch'));
+  const stDoc = await rawDb.collection('states').findOne({ _id: PID });
+  const baKey = (await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-ba:${PID}` })).key;
+  await rawDb.collection('states').updateOne({ _id: PID }, { $set: { 'next.1.hold': { key: `${ME.userId}:${baKey}`, at: new Date() }, 'next.2.left': { label: 'builder S', branch: 'builder-s', log: 'half done, tests red', at: new Date() } } });
+  await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:w1-ba:${PID}` }, { $set: { lastResult: { text: 'Merged the roster change. All 12 checks pass, nothing left over, and a very long tail follows so the line has to be cut to one row on a phone screen.', at: new Date() } } });
+  await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:w1-orch:${PID}` }, { $set: { lastResult: { text: 'Plan written', at: new Date() } } });
+  check('W1: Now is held by the session that set it', stDoc.now.hold?.key?.startsWith(`${ME.userId}:`), JSON.stringify(stDoc.now));
+
   // The Workers tab at 390 and 1280
   const browser = await launch();
   try {
@@ -234,6 +244,24 @@ try {
       await p.screenshot({ path: `${SP}/w1-states-${vp}-dark.png`, fullPage: true });
       await p.evaluate(() => document.documentElement.classList.remove('dark'));
       await rawDb.collection('presence').deleteMany({ _id: { $in: extra.map(([sid]) => `${ME.userId}:s:${sid}:${PID}`) } });
+
+      // Lanes on the project page: Now holder, held mark, left text, lanes with last result
+      await p.goto(B + `/projects/${PID}`);
+      await p.waitForSelector('[data-card="state"]');
+      const nowTxt = await p.locator('[data-state-now]').innerText();
+      check(T('the State card says "held by orchestrator (working)" for Now'), /held by orchestrator \(working\)/.test(nowTxt) && !nowTxt.includes('w1-orch'), nowTxt);
+      check(T('a held line shows the holder label; an unheld line with left shows its left text; the plain line shows neither'), /builder A/.test(await p.locator('[data-next-id] [data-line-holder]').first().innerText()) && (await p.locator('[data-line-holder]').count()) === 1 && /left by builder S · builder-s · last: half done, tests red/.test(await p.locator('[data-line-left]').innerText()) && (await p.locator('[data-line-left]').count()) === 1);
+      const lanes = await p.locator('[data-project-worker]').count();
+      const resTxt = (await p.locator('[data-lane-result]').allInnerTexts()).join(' | ');
+      check(T('Working on it now lists a lane per session with branch, slot, task link and last result on one line'), lanes === 3 && (await p.locator('[data-lane-task]').count()) === 3 && (await p.locator('[data-lane-result]').count()) === 2 && /last: Plan written/.test(resTxt) && /last: Merged the roster change\. All 12 checks/.test(resTxt) && /builder-a · slot A/.test(await p.locator('[data-project-worker]').allInnerTexts().then(t => t.join(' '))), resTxt);
+      const lr = await p.locator('[data-lane-result]').evaluateAll(els => els.map(e => e.getBoundingClientRect().height < 24 && e.scrollWidth >= 0));
+      check(T('a last result is one line'), lr.length === 2 && lr.every(Boolean), JSON.stringify(lr));
+      const o4 = await overflow(p);
+      check(T('no horizontal scroll on the project page with lanes'), okO(o4), JSON.stringify(o4));
+      await p.locator('[data-view="overview"] > div').first().screenshot({ path: `${SP}/w1-lanes-${vp}-light.png` });
+      await p.evaluate(() => document.documentElement.classList.add('dark'));
+      await p.locator('[data-view="overview"] > div').first().screenshot({ path: `${SP}/w1-lanes-${vp}-dark.png` });
+      await p.evaluate(() => document.documentElement.classList.remove('dark'));
       await ctx.close();
     }
   } finally {

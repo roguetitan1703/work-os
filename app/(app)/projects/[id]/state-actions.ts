@@ -6,6 +6,7 @@ import { SafeError } from '@/lib/auth';
 import { requireCaller, withCaller } from '@/lib/caller';
 import { userActor } from '@/lib/actors';
 import { memberNames } from '@/lib/people';
+import { withLaneMarks } from '@/lib/data/roster';
 import { archivedOut, restoreLine, saveState, stateOut, type ArchivedOut, type StateOut } from '@/lib/data/states';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 
@@ -21,8 +22,8 @@ export async function saveStateAction(projectId: string, ops: unknown, baseVersi
     const r = await withCaller(caller, () => saveState(s, projectId, ops, { baseVersion, actor: userActor(caller.userId), via: 'app' }));
     const names = await memberNames(caller.orgId);
     revalidatePath(`/projects/${projectId}`);
-    if (r.conflict) return { ok: false, conflict: true, error: 'Someone changed the State since you opened it. It is refreshed: try again.', state: r.state ? stateOut(r.state, caller.userId, names) : null };
-    return { ok: true, state: stateOut(r.state, caller.userId, names) };
+    if (r.conflict) return { ok: false, conflict: true, error: 'Someone changed the State since you opened it. It is refreshed: try again.', state: r.state ? await withLaneMarks(s, projectId, r.state, stateOut(r.state, caller.userId, names)) : null };
+    return { ok: true, state: await withLaneMarks(s, projectId, r.state, stateOut(r.state, caller.userId, names)) };
   } catch (err) {
     if (err instanceof ZodError) return { ok: false, error: err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') };
     if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
@@ -44,7 +45,7 @@ export async function restoreLineAction(projectId: string, archivedId: string): 
     const r = await withCaller(caller, () => restoreLine(s, String(projectId), String(archivedId), userActor(caller.userId)));
     const names = await memberNames(caller.orgId);
     revalidatePath(`/projects/${projectId}`);
-    return { ok: true, state: stateOut(r.state, caller.userId, names), archived: archivedOut(r.state, names) };
+    return { ok: true, state: await withLaneMarks(s, projectId, r.state, stateOut(r.state, caller.userId, names)), archived: archivedOut(r.state, names) };
   } catch (err) {
     if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
     console.error(err);

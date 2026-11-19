@@ -693,12 +693,21 @@ const label = (names: Names, reader: string, by: string): string | undefined => 
 
 export type StateOut = {
   version: number;
-  now: { text: string; holder?: string; at: string; writtenBy?: string } | null;
-  next: { id: string; text: string; ref?: number; waitsOn?: string; writtenBy?: string }[];
-  later: { id: string; text: string; waitsOn?: string; writtenBy?: string }[];
+  /** holder: label of the session that holds Now; holderState: its state word (working, idle, ...), set by the page (roster.withLaneMarks). */
+  now: { text: string; holder?: string; holderState?: string; at: string; writtenBy?: string } | null;
+  /** holder: label of the session that holds the line (set by the page); left: where a released line stood, as one line of text. */
+  next: { id: string; text: string; ref?: number; waitsOn?: string; holder?: string; left?: string; writtenBy?: string }[];
+  later: { id: string; text: string; waitsOn?: string; holder?: string; left?: string; writtenBy?: string }[];
   decisions: { id: string; at: string; by: string; via: string; text: string; message?: string; word?: string; writtenBy?: string }[];
   where: Record<string, { branch?: string; head?: string; dirty?: boolean; worktrees?: string[]; at: string; writtenBy?: string }>;
   updatedAt: string;
+};
+
+/** An unheld line's `left`: who left it, on which branch, and the last log, as one line (labels only). */
+const leftOut = (l: StateLine): { left?: string } => {
+  if (!l.left || l.hold) return {};
+  const parts = [`left by ${l.left.label}`, l.left.branch, l.left.log ? `last: ${l.left.log}` : l.left.head].filter(Boolean);
+  return { left: parts.join(' · ') };
 };
 
 /** The State as plain data (dates as ISO strings), lines by anyone but the reader labelled `writtenBy`. */
@@ -711,8 +720,8 @@ export function stateOut(d: StateDoc, reader: string, names: Names): StateOut {
     version: d.version,
     // holder: the label of the session that holds Now (never its id); a legacy free-text holder is shown until a save replaces it.
     now: d.now ? { text: d.now.text, ...(d.now.hold?.label || d.now.holder ? { holder: d.now.hold?.label || d.now.holder } : {}), at: d.now.at.toISOString(), ...w(d.now.by) } : null,
-    next: d.next.map(l => ({ id: l.id, text: l.text, ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...w(l.by) })),
-    later: d.later.map(l => ({ id: l.id, text: l.text, ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...w(l.by) })),
+    next: d.next.map(l => ({ id: l.id, text: l.text, ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...leftOut(l), ...w(l.by) })),
+    later: d.later.map(l => ({ id: l.id, text: l.text, ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...leftOut(l), ...w(l.by) })),
     decisions: d.decisions.filter(x => !x.archivedAt).map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', via: x.via, text: x.text, ...(x.msg ? { message: x.msg } : {}), ...(x.word ? { word: x.word } : {}), ...w(x.author ?? x.by) })),
     where: Object.fromEntries(Object.entries(d.where ?? {}).map(([m, v]) => [m, { ...(v.branch ? { branch: v.branch } : {}), ...(v.head ? { head: v.head } : {}), ...(v.dirty !== undefined ? { dirty: v.dirty } : {}), ...(v.worktrees?.length ? { worktrees: v.worktrees } : {}), at: v.at.toISOString(), ...w(v.by) }])),
     updatedAt: d.updatedAt.toISOString(),

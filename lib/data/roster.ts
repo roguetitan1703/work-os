@@ -1,9 +1,10 @@
 import 'server-only';
 import { createHash } from 'node:crypto';
-import type { PresenceDoc, PresenceState } from '../db';
+import type { PresenceDoc, PresenceState, StateLine } from '../db';
 import { orgWide, scoped, type Scope } from '../scope';
 import { memberNames } from '../people';
 import { presenceState, WORKING_MIN, GONE_MIN, type DaemonSays } from './presence-state';
+import { lineHolder } from './lanes';
 import { openNeedRows } from './roster-needs';
 import { slotHolders, machineKey } from './slots';
 
@@ -50,6 +51,8 @@ export type WorkerRow = {
   lastSeen: string;
   /** 0, or 1 for a builder shown under its orchestrator. */
   depth: 0 | 1;
+  /** What the session last reported (a subagent's final message), cut to 300 characters. Only on a project's own roster; written by that agent, never checked. */
+  lastResult?: { text: string; at: string };
   /** A builder's orchestrator session id: only on the viewer's own rows (another person's session ids are not shown). */
   parent?: string;
 };
@@ -127,7 +130,7 @@ export async function taskInfo(s: Scope, ids: string[]): Promise<Map<string, { r
 /** What a row is called to someone who does not own it: the row id holds the session id, so they get a one-way label of it. */
 const opaqueId = (rowId: string) => createHash('sha256').update(`worker-row:${rowId}`).digest('hex').slice(0, 16);
 
-type Ctx = { tasks: Map<string, { ref: number; title: string }>; names: Record<string, string>; pname: Map<string, string>; needs: Set<string>; nextCount: (projectId: string) => number };
+type Ctx = { results?: boolean; tasks: Map<string, { ref: number; title: string }>; names: Record<string, string>; pname: Map<string, string>; needs: Set<string>; nextCount: (projectId: string) => number };
 
 /** Rows for the screen: state computed, builders placed under their orchestrators, orchestrators ordered working first. */
 function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
@@ -160,6 +163,7 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
         since: st.since.toISOString(),
         nextWork: state === 'idle' && row.projectId ? x.nextCount(row.projectId) : 0,
         lastSeen: row.lastSeen.toISOString(),
+        ...(x.results && row.lastResult?.text ? { lastResult: { text: row.lastResult.text.slice(0, 300), at: row.lastResult.at.toISOString() } } : {}),
         depth: 0 as const,
         ...(row.userId === s.userId && row.parent ? { parent: row.parent } : {}),
         _parent: row.parent,
@@ -252,8 +256,51 @@ export async function projectRoster(
   const lines = (state?.next ?? []).filter(l => !l.waitsOn && !(l.ref && !live.has(l.ref)));
   const needs = raw.length ? await openNeedRows(s, raw.map(r => r.row)) : new Set<string>();
   const tasks = await taskInfo(s, raw.flatMap(r => (r.row.doing ? [r.row.doing.taskId] : [])));
-  const workers = buildWorkers(s, raw, { tasks, names, pname: new Map([[project.id, project.name]]), needs, nextCount: () => lines.length }).filter(w => w.state !== 'off');
+  const workers = buildWorkers(s, raw, { results: true, tasks, names, pname: new Map([[project.id, project.name]]), needs, nextCount: () => lines.length }).filter(w => w.state !== 'off');
   const now = Date.now();
   const anyLive = raw.some(r => workerState(r.row, { now, daemon: r.daemon }) !== 'off');
   return { workers, couldBeRunning: project.status === 'active' && lines.length && !anyLive ? { projectId: project.id, projectName: project.name, unblocked: lines.length, first: lines[0].text.slice(0, 160) } : null };
+}
+
+/**
+ * Lanes marks for a project's State card: the Now holder's state word and the label of the session that holds each Next or
+ * Later line (a hold, or a live session on the line's task by set_doing). Labels only, never a session id. One read of the
+ * project's presence rows; nothing when the State has no holder and no held line.
+ */
+export async function withLaneMarks<T extends { now: { holder?: string; holderState?: string } | null; next: { id: string; ref?: number; holder?: string }[]; later: { id: string; holder?: string }[] }>(
+  s: Scope,
+  projectId: string,
+  doc: { now?: { hold?: { key: string } } | null; next: StateLine[]; later: StateLine[] } | null,
+  out: T,
+): Promise<T> {
+  if (!doc) return out;
+  const lines = [...doc.next, ...doc.later];
+  const nowKey = doc.now?.hold?.key;
+  if (!nowKey && !lines.some(l => l.hold || l.ref != null)) return out;
+  const c = await scoped(s);
+  const rows = await c.presence.find({ projectId, lastSeen: { $gt: new Date(Date.now() - LIST_HOURS * 3_600_000) } }).limit(300).toArray();
+  if (!rows.length) return out;
+  const tasks = await taskInfo(s, rows.flatMap(r => (r.doing ? [r.doing.taskId] : [])));
+  const now = Date.now();
+  const live = rows.map(r => ({ ...r, key: `${r.userId}:${r.key}`, ref: r.doing ? tasks.get(r.doing.taskId)?.ref : undefined }));
+  const word = (r: (typeof live)[number]) => {
+    const st = presenceState(r, { now });
+    return st.state === 'waiting' ? 'waiting' : st.state;
+  };
+  const holder = (l: StateLine) => {
+    const r = lineHolder(l, live, x => x.ref, now);
+    return r ? r.label : undefined;
+  };
+  const mark = <L extends { id: string; holder?: string }>(list: L[], src: StateLine[]): L[] =>
+    list.map(l => {
+      const h = holder(src.find(x => x.id === l.id)!);
+      return h ? { ...l, holder: h } : l;
+    });
+  const nowRow = nowKey ? live.find(r => r.key === nowKey) : undefined;
+  return {
+    ...out,
+    now: out.now && nowRow ? { ...out.now, holder: out.now.holder ?? nowRow.label, holderState: word(nowRow) } : out.now,
+    next: mark(out.next, doc.next),
+    later: mark(out.later, doc.later),
+  };
 }
