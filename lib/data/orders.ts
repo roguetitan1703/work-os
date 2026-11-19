@@ -1,7 +1,8 @@
 import 'server-only';
 import type { NoteDoc, OrdersVersion, ProjectDoc } from '../db';
 import { scoped, type Scope } from '../scope';
-import { isPerson, type Actor } from '../actors';
+import { isPerson, userActor, type Actor } from '../actors';
+import { memberNames } from '../people';
 import { InputError, NotFoundError } from './errors';
 
 // Orders: standing rules served to every AI that starts work on a project (docs/flows/step-1.md section 2). Three layers,
@@ -287,4 +288,88 @@ export async function undoOrders(s: Scope, noteId: string, v: number, actor: Act
   await writeNote(s, { noteId, body: e.before, why: `undo of v${v}`, undoOf: v }, actor);
   const after = await c.notes.findOne({ _id: noteId }, { projection: { ordersV: 1 } });
   return { version: after?.ordersV ?? (n.ordersV ?? 1) };
+}
+
+// ── propose_order ───────────────────────────────────────────────────────────
+// An agent whose person does not hold a layer files a proposal: a Need to the holder (Accept or Decline), on the Needs page and
+// in the digest, no phone alert. Accept writes the change as the holder, one version, with why "proposed by <name>'s Claude
+// (Need #n)". The holder's own agents never propose (they write_note), and nobody proposes into a person layer.
+
+export type ProposeInput = { project: string; layer: 'org' | 'project'; old?: string; new: string; why: string; incident?: string; repeat?: boolean };
+
+/** Files a proposal to change an Orders layer. The Need goes to the holder; nothing changes until they Accept. */
+export async function proposeOrder(s: Scope, input: ProposeInput, ctx: { actor: Actor; word: import('../db').NeedWord; session?: string; keyId?: string; label?: string }): Promise<{ need: import('./needs').Need }> {
+  if (input.layer !== 'org' && input.layer !== 'project') throw new InputError('layer is org or project. Your own person Orders you change with write_note, and nobody proposes into someone else\'s.');
+  const text = input.new.trim();
+  if (!text || text.length > 300) throw new InputError('new is the line you propose, 1 to 300 characters.');
+  const why = input.why.trim();
+  if (!why || why.length > 300) throw new InputError('why is 1 to 300 characters.');
+  const old = input.old?.trim() || undefined;
+  if (old && old.length > 300) throw new InputError('old is at most 300 characters.');
+  const incident = input.incident?.trim().slice(0, 80) || undefined;
+  const c = await scoped(s);
+  const { resolveProject } = await import('./projects');
+  const project = await resolveProject(c, s, input.project, { create: false });
+  if (!project) throw new NotFoundError(`Project "${input.project}" not found`);
+  const served = (await ordersFor(s, project)).filter(o => o.layer === input.layer);
+  const target = served[0];
+  if (!target) throw new InputError(`There are no ${input.layer === 'org' ? 'organization' : 'project'} Orders on this project to change. Its holder marks a page as Orders in the app first.`);
+  const note = await c.notes.findOne({ _id: target.noteId }, { projection: { orders: 1, ownerId: 1, projectId: 1, body: 1, ordersV: 1, ordersBy: 1 } });
+  if (!note?.orders) throw new NotFoundError('Orders page not found');
+  if (await canEditOrders(s, note)) throw new InputError('You hold this layer: change it with write_note (say why in why).');
+  const holder = input.layer === 'org' ? note.ordersBy : (await c.projects.findOne({ _id: project._id }, { projection: { ownerId: 1 } }))?.ownerId;
+  if (!holder) throw new InputError('This layer has no holder to ask.');
+  if (old) {
+    const hits = note.body.split(old).length - 1;
+    if (hits !== 1) throw new InputError(`old must occur exactly once in the ${input.layer === 'org' ? 'organization' : 'project'} Orders (found ${hits}): quote the line as it is now, or leave old out to add the line.`);
+  }
+  const { askNeed } = await import('./needs');
+  const example = `${old ? `Old: ${old}\n` : ''}New: ${text}\nWhy: ${why}${incident ? ` (${incident})` : ''}`;
+  const r = await askNeed(s, {
+    project: project._id,
+    to: holder,
+    kind: 'approve',
+    ask: `Change the ${input.layer === 'org' ? 'organization' : 'project'} Orders: ${text.length > 80 ? text.slice(0, 79) + '…' : text}`,
+    example,
+    options: [
+      { id: 'accept', label: 'Accept', means: old ? 'Put the new line in place of the old one now.' : 'Add the new line to the Orders now.' },
+      { id: 'decline', label: 'Decline', means: 'Leave the Orders as they are.' },
+    ],
+    appOnly: true,
+    noAlert: true,
+    order: { noteId: note._id, layer: input.layer, base: note.ordersV ?? 1, ...(old ? { old } : {}), new: text, why, ...(incident ? { incident } : {}), ...(input.repeat ? { repeat: true } : {}) },
+    actor: ctx.actor,
+    word: ctx.word,
+    session: ctx.session,
+    keyId: ctx.keyId,
+    label: ctx.label,
+  });
+  return { need: r.need };
+}
+
+/**
+ * The holder answered a proposal with Accept (called by answerNeed after its transaction): the change is written as the holder
+ * (a person, so no why is required of an agent; the version says "proposed by <name>'s Claude (Need #n)"). If `old` is no longer
+ * found exactly once, or the holder no longer holds the layer, nothing is written and `order.applied` says why; the answer stays.
+ */
+export async function applyOrderAnswer(s: Scope, needId: string): Promise<void> {
+  const c = await scoped(s);
+  const n = await c.needs.findOne({ _id: needId });
+  const o = n?.order;
+  if (!n || !o || n.answer?.option !== 'accept') return;
+  const record = (applied: { v: number } | { error: string }) => c.needs.updateOne({ _id: needId }, { $set: { 'order.applied': applied } });
+  try {
+    const note = await c.notes.findOne({ _id: o.noteId, deletedAt: null, orders: o.layer });
+    if (!note) throw new InputError('The Orders page is gone, or no longer holds Orders.');
+    if (!(await canEditOrders(s, note))) throw new InputError('You no longer hold that layer.');
+    const names = await memberNames(s.orgId);
+    const askerId = 'userId' in n.from.actor ? n.from.actor.userId : undefined;
+    const who = (askerId && names[askerId]) || 'a member';
+    const { writeNote } = await import('./notes');
+    await writeNote(s, { noteId: o.noteId, ...(o.old ? { edits: [{ find: o.old, replace: o.new }] } : { append: o.new }), why: `proposed by ${who}'s Claude (Need #${n.ref})`.slice(0, 300), need: n.ref }, userActor(s.userId));
+    const after = await c.notes.findOne({ _id: o.noteId }, { projection: { ordersV: 1 } });
+    await record({ v: after?.ordersV ?? (note.ordersV ?? 1) });
+  } catch (e) {
+    await record({ error: (e instanceof Error ? e.message : 'Could not apply it').slice(0, 200) });
+  }
 }

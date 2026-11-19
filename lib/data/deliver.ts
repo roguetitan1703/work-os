@@ -69,6 +69,7 @@ function needBlock(n: NeedDoc, names: Record<string, string>, me: string): strin
   const nonce = randomBytes(3).toString('hex');
   return [
     `Work OS: your Need #${n.ref} was answered by ${by} ${VIA[a?.via ?? 'app']}: ${frameLine(label, 120)}. ${tail}`,
+    ...(n.order?.applied ? [`Orders: ${'v' in n.order.applied ? `your proposal is now version ${n.order.applied.v} of the ${n.order.layer === 'org' ? 'organisation' : 'project'} Orders.` : `your proposal was not applied: ${frameLine(n.order.applied.error, 200)}`}`] : []),
     ...(a?.text ? [`[[work-os need ${n.ref} ${nonce}]]`, 'Text:', frameBody(a.text, `Need #${n.ref}`, 1000), `[[end need ${n.ref} ${nonce}]]`] : []),
   ].join('\n');
 }

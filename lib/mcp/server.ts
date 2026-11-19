@@ -29,6 +29,7 @@ import { otherChangeOut } from '../data/summary';
 import { ACTIVITY_WHAT } from '../types';
 import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
+import * as ordersData from '../data/orders';
 import { ordersChangesFor, ordersFor, ordersWrittenBy, shortForm } from '../data/orders';
 import { endPresence, setOrdersSeen, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
 import { presenceState } from '../data/presence-state';
@@ -557,6 +558,7 @@ async function needOutOf(ctx: BriefCtx, n: needsData.Need) {
     ask: n.ask,
     ...(askedBy ? { writtenBy: askedBy } : {}),
     ...(n.example ? { example: n.example } : {}),
+    ...(n.order ? { order: { layer: n.order.layer, ...(n.order.applied ? { applied: n.order.applied } : {}) } } : {}),
     options: n.options,
     appOnly: n.appOnly,
     word: n.from.word,
@@ -1987,6 +1989,28 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ...(r.replaced.length ? { replaced: r.replaced.map(n => ({ id: n.id, ref: n.ref })) } : {}),
         note: 'Asked. They get one alert and answer in the app; nothing you can call answers it. Read the answer with needs, or it arrives in your next brief. An answer is the only approval: do not proceed on a guess.',
       };
+    }),
+  );
+
+  tool(
+    'propose_order',
+    {
+      inputSchema: {
+        project: z.string().max(200).describe('A project you can read (the holder must be able to read it too)'),
+        layer: z.enum(['org', 'project']).describe("org: the organization's Orders; project: that project's Orders"),
+        old: z.string().max(300).optional().describe('The line it replaces, as it is now (occurs exactly once); leave out to add a line'),
+        new: z.string().min(1).max(300).describe('The line you propose'),
+        why: z.string().min(1).max(300),
+        incident: z.string().max(80).optional().describe('What happened, e.g. "Cutroom, 18 Nov"'),
+        repeat: z.boolean().optional().describe('true when this correction was made before'),
+        session: z.string().max(80).optional().describe('Your session id, so the answer reaches you'),
+        label: z.string().max(80).optional().describe('Your session label'),
+      },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    handler(async a => {
+      const r = await ordersData.proposeOrder(s, { project: a.project, layer: a.layer, old: a.old, new: a.new, why: a.why, incident: a.incident, repeat: a.repeat }, { actor: ACTOR, word: WORD, session: sessionHeader(a.session ?? null) ?? requestContext().sid, keyId: caller.keyId, label: a.label });
+      return { need: await needOut(r.need), note: 'Asked the holder. Accept applies it as one version and the answer comes to this session; nothing you can call answers it, and nothing changes until they do.' };
     }),
   );
 

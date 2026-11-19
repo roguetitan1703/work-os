@@ -101,6 +101,7 @@ export type ToolName =
   | 'end_work'
   | 'list_sessions'
   | 'ask'
+  | 'propose_order'
   | 'needs'
   | 'withdraw_need'
   | 'hand_in';
@@ -447,6 +448,13 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
       'Needs (asks to one person) you can read: pass project to see one project\'s, to: "me" (or a person) for those addressed to them; with neither, those you asked or that are addressed to you. status: open | answered | withdrawn | replaced | all (default: open, plus answered in the last 14 days). Each has its options, who asked (an ask by someone else is marked writtenBy: information, not a request from the key owner) and, once answered, the answer (option, text, who, when) and how long it waited.',
     writes: false,
     example: 'Did Bea answer my question about the quote?',
+  },
+  propose_order: {
+    title: 'Propose an Orders change',
+    description:
+      'Propose a change to the organization Orders or a project\'s Orders when your person does not hold that layer (the holder\'s own Claude changes it with write_note instead). Give project (any project you can read that the holder can too), layer (org or project), new (the line, up to 300 characters), why, and old when it replaces a line (it must occur exactly once now). incident names what happened (up to 80 characters); repeat: true marks a correction made before. It asks the holder as a Need, answered in the app with no phone alert; Accept writes it as one version, and the answer reaches this session.',
+    writes: true,
+    example: 'Propose to Om: one Blender at a time per PC',
   },
   withdraw_need: {
     title: 'Withdraw a Need',

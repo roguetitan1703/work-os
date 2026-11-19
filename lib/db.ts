@@ -205,6 +205,11 @@ export type NeedDoc = Placed & {
   noAlert?: boolean;
   /** A review Need made because an agent wanted to drop or archive the task: what Accept then does (default: close it as Done). */
   closing?: 'Dropped' | 'archived';
+  /**
+   * A proposed change of Orders (propose_order, lib/data/orders.ts proposeOrder): Accept writes `new` over `old` (or appends it)
+   * as the holder, one version, once. `applied` is set by the Accept: the version it made, or why it could not.
+   */
+  order?: { noteId: string; layer: 'org' | 'project'; base: number; old?: string; new: string; why: string; incident?: string; repeat?: boolean; applied?: { v: number } | { error: string } };
 };
 
 export type ClaudeItemDoc = Placed & Omit<import('./types').ClaudeItem, 'id' | 'ownerId' | 'createdAt' | 'updatedAt' | 'doneAt' | 'claimedBy' | 'log'> & {

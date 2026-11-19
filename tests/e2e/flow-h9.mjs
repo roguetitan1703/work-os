@@ -46,6 +46,7 @@ async function signIn(email, password = PW) {
 const NA = 'app/(app)/notes/actions.ts#';
 const paragraph = (text, i) => ({ id: `p${i}-${Math.random().toString(36).slice(2, 8)}`, type: 'paragraph', props: {}, content: [{ type: 'text', text, styles: {} }], children: [] });
 const blocksOf = lines => lines.map(paragraph);
+const ruleLinesOf = body => body.split('\n').map(l => l.trim()).filter(l => l && !/^#{1,6}(\s|$)/.test(l));
 const noteDoc = id => rawDb.collection('notes').findOne({ _id: id });
 const feed = id => rawDb.collection('activity').find({ 'subject.id': id, type: 'orders_changed' }).sort({ at: 1 }).toArray();
 
@@ -323,6 +324,47 @@ try {
   } finally {
     await bro.close();
   }
+
+  // ---- 6: propose_order: a teammate Claude proposes; the holder's Accept applies it as one version ----
+  const lineOne = ruleLinesOf((await cur()).body)[0];
+  const ordersV0 = (await cur()).ordersV;
+  const alertsBefore = await rawDb.collection('alertQueue').countDocuments({ kind: 'need' });
+  const pr = await mcpH(kTess, 'propose_order', { project: 'H9 One', layer: 'org', old: lineOne, new: 'Rule one, as Tess proposes.', why: 'H9 test: a repeated correction', incident: 'H9, 19 Nov', repeat: true, label: 'Tess · session' });
+  const needDoc = pr.json?.need?.id ? await rawDb.collection('needs').findOne({ _id: pr.json.need.id }) : null;
+  check('6: a teammate Claude proposes a change: a Need to the holder (appOnly, no alert), the example shows old, new, why', !pr.isError && needDoc?.to === ME.userId && needDoc.kind === 'approve' && needDoc.appOnly === true && needDoc.noAlert === true && needDoc.status === 'open' && needDoc.options.map(o => o.id).join() === 'accept,decline' && needDoc.example.includes(`Old: ${lineOne}`) && needDoc.example.includes('New: Rule one, as Tess proposes.') && needDoc.example.includes('Why: H9 test: a repeated correction (H9, 19 Nov)') && needDoc.order?.base === ordersV0 && needDoc.order.repeat === true && /^Change the organization Orders: Rule one, as Tess proposes\./.test(needDoc.ask), pr.text.slice(0, 400));
+  check('6: …no alert is queued for it, and the Orders are unchanged until the holder answers', (await rawDb.collection('alertQueue').countDocuments({ kind: 'need' })) === alertsBefore && (await cur()).ordersV === ordersV0 && (await cur()).body.includes(lineOne));
+  const holderSees = await mcpH(kCode, 'needs', { project: 'H9 One', status: 'open' });
+  check('6: the holder\'s Claude sees it in needs, with the proposer\'s words labelled as theirs', !holderSees.isError && holderSees.text.includes('Rule one, as Tess proposes.') && /writtenBy/.test(holderSees.text), holderSees.text.slice(0, 300));
+  const own6 = await mcpH(kCode, 'propose_order', { project: 'H9 One', layer: 'org', new: 'Own line', why: 'x' });
+  check('6: the holder\'s own agent is refused: it writes with write_note', own6.isError && /You hold this layer/.test(own6.text), own6.text.slice(0, 200));
+  const per6 = await mcpH(kTess, 'propose_order', { project: 'H9 One', layer: 'person', new: 'x', why: 'x' });
+  check('6: nobody proposes into a person layer', per6.isError, per6.text.slice(0, 200));
+  const bad6 = await mcpH(kTess, 'propose_order', { project: 'H9 One', layer: 'org', old: 'a line that is not there', new: 'x', why: 'x' });
+  check('6: an old line that does not occur exactly once is refused', bad6.isError && /exactly once in the organization Orders \(found 0\)/.test(bad6.text), bad6.text.slice(0, 200));
+  const none6 = await mcpH(kTess, 'propose_order', { project: 'No such project', layer: 'org', new: 'x', why: 'x' });
+  check('6: a project that is not readable reads as not found', none6.isError && /not found/.test(none6.text));
+  const ac = await action('app/(app)/needs/actions.ts#answerNeedAction', [needDoc._id, 'accept'], cookie);
+  const afterAcc = await cur();
+  const needAfter = await rawDb.collection('needs').findOne({ _id: needDoc._id });
+  check('6: Accept applies it as the holder: version +1 with the Need number, the line replaced', ac.value?.ok === true && afterAcc.ordersV === ordersV0 + 1 && afterAcc.body.includes('Rule one, as Tess proposes.') && !afterAcc.body.includes(lineOne) && afterAcc.ordersLog.at(-1).need === needDoc.ref && afterAcc.ordersLog.at(-1).by?.kind === 'user' && afterAcc.ordersLog.at(-1).by.userId === ME.userId && /^proposed by .+'s Claude \(Need #\d+\)$/.test(afterAcc.ordersLog.at(-1).why) && needAfter.order.applied?.v === ordersV0 + 1, JSON.stringify([ac.value, afterAcc.ordersV, afterAcc.ordersLog.at(-1)?.why, needAfter.order]));
+  const asker = await mcpH(kTess, 'needs', { project: 'H9 One', status: 'answered' });
+  check('6: the asker reads that it was applied (needs shows order.applied)', !asker.isError && new RegExp(`"v": ${ordersV0 + 1}`).test(asker.text), asker.text.slice(0, 300));
+  // The line changed meanwhile: the answer is kept, nothing is written, the error says why.
+  const lineTwo = ruleLinesOf((await cur()).body)[1];
+  const pr2 = await mcpH(kTess, 'propose_order', { project: 'H9 One', layer: 'org', old: lineTwo, new: 'Rule two, as Tess proposes.', why: 'H9 test: stale' });
+  const w2b = await mcpH(kCode, 'write_note', { note_id: org, edits: [{ find: lineTwo, replace: 'Rule two, rewritten meanwhile.' }], why: 'H9 test: edited meanwhile' });
+  const vMid = (await cur()).ordersV;
+  const ac2 = await action('app/(app)/needs/actions.ts#answerNeedAction', [pr2.json.need.id, 'accept'], cookie);
+  const need2 = await rawDb.collection('needs').findOne({ _id: pr2.json.need.id });
+  check('6: Accept after the line changed records the answer, writes nothing, and says why in order.applied', !w2b.isError && ac2.value?.ok === true && need2.status === 'answered' && need2.answer.option === 'accept' && typeof need2.order.applied?.error === 'string' && /Edit text/.test(need2.order.applied.error) && (await cur()).ordersV === vMid, JSON.stringify([ac2.value, need2.order]));
+  const pr3 = await mcpH(kTess, 'propose_order', { project: 'H9 One', layer: 'org', new: 'A declined line.', why: 'H9 test: decline' });
+  const dc = await action('app/(app)/needs/actions.ts#answerNeedAction', [pr3.json.need.id, 'decline'], cookie);
+  check('6: Decline changes nothing', dc.value?.ok === true && (await cur()).ordersV === vMid && !(await cur()).body.includes('A declined line.') && !(await rawDb.collection('needs').findOne({ _id: pr3.json.need.id })).order.applied);
+  const tAns = await action('app/(app)/needs/actions.ts#answerNeedAction', [(await mcpH(kTess, 'propose_order', { project: 'H9 One', layer: 'org', new: 'Another.', why: 'H9 test: only the holder' })).json.need.id, 'accept'], tCookie);
+  check('6: only the addressed holder can answer (the proposer cannot accept their own proposal)', tAns.value?.ok === false && (await cur()).ordersV === vMid && !(await cur()).body.includes('Another.'), JSON.stringify(tAns.value));
+  const projProp = await mcpH(kTess, 'propose_order', { project: 'H9 One', layer: 'project', new: 'Project line from Tess.', why: 'H9 test: project layer' });
+  const ppDoc = projProp.json?.need?.id ? await rawDb.collection('needs').findOne({ _id: projProp.json.need.id }) : null;
+  check('6: a project layer proposal goes to the project owner and Accept appends the line', !projProp.isError && ppDoc?.to === ME.userId && ppDoc.order.layer === 'project' && (await action('app/(app)/needs/actions.ts#answerNeedAction', [ppDoc._id, 'accept'], cookie)).value?.ok === true && (await noteDoc(projNote)).body.includes('Project line from Tess.') && (await noteDoc(projNote)).ordersLog.at(-1).need === ppDoc.ref);
 } catch (e) {
   check('suite ran without throwing', false, e?.stack || String(e));
 }

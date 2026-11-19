@@ -1262,6 +1262,10 @@ function AUDIT() {
     M('ask', t => ({ project: t.projectName, to: 'me', kind: 'approve', ask: 'lkq probe ask' }), aim(['projectName'], { label: 'into their project' })),
     M('ask', (t, ctx) => ({ project: t.projectName, to: ctx.T.email, kind: 'approve', ask: 'lkq ask someone who cannot read the project' }), { label: 'to someone who cannot read the project', ownerOnly: true, ok: r => !r.ok && /cannot see this project/.test(r.text) }),
   );
+  // H9: a proposal to change Orders is a Need to the holder. The owner holds the layer (so the control call is refused with that sentence); everyone else is aimed at a project they cannot read.
+  add('mcp propose_order',
+    M('propose_order', t => ({ project: t.projectName, layer: 'org', new: 'lkq probe line', why: 'lkq probe' }), aim(['projectName'], { label: 'into their project', ok: r => r.ok || /You hold this layer/.test(r.text) })),
+  );
   add('mcp needs',
     M('needs', { status: 'all' }),
     Mc('needs', {}, { label: 'code key, my own list' }),
@@ -1340,6 +1344,8 @@ function AUDIT() {
   add(`action ${IA}makeTaskFromMessageAction`, act(IA + 'makeTaskFromMessageAction', t => [t.project, t.msgReq], aim(['project', 'msgReq'], { control: false })));
   add(`action ${SA}saveStateAction`, act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_next', text: 'lkq action sneak' }]], aim(['project'])), act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_decision', text: 'lkq action decision' }, { op: 'add_later', text: 'lkq action later' }]], aim(['project'], { label: 'decision and later' })));
   add(`action ${OA}setOrdersAction`, act(OA + 'setOrdersAction', t => [t.ordersNote, 'project'], aim(['ordersNote'])), act(OA + 'setOrdersAction', t => [t.ordersNote, null], aim(['ordersNote'], { label: 'clearing it' })));
+  // H9: undo writes the text before a version back; the holder only. The probe's page is not Orders (the flag on it is the setOrdersAction probe's), so the owner's control is answered "not found", the same as everyone's.
+  add(`action ${OA}undoOrdersAction`, act(OA + 'undoOrdersAction', t => [t.ordersNote, 2], aim(['ordersNote'], { controlOk: r => actOk(r) || /not found/i.test(r.text) })));
   const CI = 'app/(app)/projects/[id]/claude-items-actions.ts#';
   add(`action ${CI}updateClaudeItemAction`, act(CI + 'updateClaudeItemAction', t => [t.itemProject, t.item, { note: 'lkq hacked' }], aim(['itemProject', 'item'])));
   add(`action ${CI}moveClaudeItemAction`, act(CI + 'moveClaudeItemAction', t => [t.itemProject, t.item, 'top'], aim(['itemProject', 'item'])));

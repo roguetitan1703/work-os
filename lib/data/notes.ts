@@ -403,7 +403,7 @@ async function guardOrders(s: Scope, actor: Actor, ids: (string | null | undefin
   const flagged = await (await scoped(s)).notes.find({ _id: { $in: list }, orders: { $exists: true } }, { projection: { orders: 1, ownerId: 1, projectId: 1 } }).toArray();
   for (const n of flagged) {
     const own = isPerson(actor) || (op === 'content' && actor.kind === 'agent' && actor.userId === s.userId);
-    if (!own) throw new InputError('This page holds Orders; only the person who holds that layer, or their own Claude, can change its text. Trash, restore, archive and moving stay in the app.');
+    if (!own) throw new InputError('This page holds Orders; only the person who holds that layer, or their own Claude, can change its text; a teammate can have their Claude propose a change with propose_order. Trash, restore, archive and moving stay in the app.');
     if (!(await canEditOrders(s, n))) throw new InputError('This page holds Orders; only the person who holds that layer (the organization owner, the project owner, or its own person) can change it.');
   }
 }
