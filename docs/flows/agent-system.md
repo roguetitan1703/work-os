@@ -66,7 +66,7 @@ update_claude_items goes away (and its lines in the server instructions).
   that key on new hook-only routes (`/api/agent/start`, `/api/agent/event`, `/api/agent/wait`), which can do only what
   a hook needs: brief, State, presence, messages. They can't do mail or deletes. A PC with no worker (cloud) gets a
   project-scoped hook key in its environment. Built 18 Nov: `/api/agent/start` (the start brief and the session token
-  of section 16 item 8; docs/HANDOVER.md "Claude Code hooks"). `/api/agent/event` and `/api/agent/wait` are not built.
+  of section 16 item 8; docs/HANDOVER.md "Claude Code hooks"). `/api/agent/event` is built (H6); `/api/agent/wait` is not.
 - **Two Work OS connections in a session.** The PC's connection (Claude Code, user level) and the claude.ai connector
   (from the account) reach the same server. Both work (checked 18 Nov). Having both lists every tool twice and costs
   tokens on each turn. Rule: Claude Code uses the PC connection; the claude.ai connector stays off in Code sessions
@@ -179,7 +179,8 @@ Tools reach every surface and an agent working alone; prompts and skills don't (
   - Working: UserPromptSubmit.
   - Idle: Stop.
   - Waiting: Notification.
-  - Off: SessionEnd or a stopped heartbeat.
+  - Off: SessionEnd, or the worker's session list saying the process is not running.
+  **Built (H6, 19 Nov):** `POST /api/agent/event` (wst_ token only), seven hook events, the five words on, working, waiting, idle, off, and `presenceState` as the one function (docs/HANDOVER.md section 3, "Session state"). The heartbeat is the worker's session list plus a pre-tool ping every 5 minutes while working (no plugin). Teammates see "waiting on a person", never why. Sessions without a token (WORK_OS_KEY, cloud, claude.ai) keep call-based state.
 - **Delivery, any surface:**
   - After any tool call: PostToolBatch, a command hook (an http hook cannot send the per-session token, which lives in a file); posts at most every 20 s.
   - At turn end: Stop continue.

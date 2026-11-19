@@ -45,6 +45,14 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
     href: '/projects',
   },
   {
+    id: 'claude-session-state',
+    date: '2026-11-19',
+    title: 'Each Claude session shows its real state',
+    line: 'The Claude page shows each Claude Code session as working, waiting on you, idle or off, straight from Claude Code.',
+    where: 'Claude › Now and Workers',
+    href: '/claude',
+  },
+  {
     id: 'end-work-handover',
     date: '2026-11-19',
     title: 'Sessions hand over through Work OS',

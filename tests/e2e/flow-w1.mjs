@@ -95,6 +95,20 @@ try {
   check('W1: the daemon says the process is gone: off', row(workers(await html('/claude?tab=workers')), 'w1-ba').state === 'off');
   await seen('w1-ba', 1);
 
+  // A session its own hook reports on: on (nothing asked yet, no "since"), idle with the time it stopped, waiting on a person
+  const baId = `${ME.userId}:s:w1-ba:${PID}`;
+  await rawDb.collection('devices').updateOne({ _id: devId }, { $unset: { claudeSessions: '' } });
+  await rawDb.collection('presence').updateOne({ _id: baId }, { $set: { activity: { state: 'on', at: ago(2) } } });
+  const onRow = row(workers(await html('/claude?tab=workers')), 'w1-ba');
+  check('W1: a session its hook reports as on shows "On" and no "since" time', onRow.state === 'on' && / On /.test(onRow.text) && !/since/.test(onRow.text), onRow.text);
+  await rawDb.collection('presence').updateOne({ _id: baId }, { $set: { activity: { state: 'idle', at: ago(3) } } });
+  const idleRow = row(workers(await html('/claude?tab=workers')), 'w1-ba');
+  check('W1: an idle session shows "since HH:MM"', idleRow.state === 'idle' && /since \d\d:\d\d/.test(idleRow.text), idleRow.text);
+  await rawDb.collection('presence').updateOne({ _id: baId }, { $set: { activity: { state: 'waiting', at: ago(1), why: 'prompt' } } });
+  const waitRow = row(workers(await html('/claude?tab=workers')), 'w1-ba');
+  check('W1: a session waiting at its own prompt shows "Waiting on you" and "since HH:MM" to its owner', waitRow.state === 'waiting' && /Waiting on you/.test(waitRow.text) && /since \d\d:\d\d/.test(waitRow.text), waitRow.text);
+  await rawDb.collection('presence').updateOne({ _id: baId }, { $unset: { activity: '' } });
+
   // A gone worker that calls again is back, and keeps what it reported before
   await must(ag, 'start_work', { project: NAME, machine: 'laptop-x', label: 'builder S', session: 'w1-bs' });
   const back = await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-bs:${PID}` });
@@ -204,6 +218,22 @@ try {
       check(T('no horizontal scroll'), okO(o2), JSON.stringify(o2));
       check(T('no script errors'), errs.length === 0, errs.join(' | '));
       await p.screenshot({ path: `${SP}/w1-workers-${vp}.png`, fullPage: true });
+      // All five states side by side (a session its hook reports on), light and dark: looked at by eye, no overflow
+      const orchDoc = await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-orch:${PID}` });
+      const extra = [['w1-x1', 'on'], ['w1-x2', 'idle'], ['w1-x3', 'waiting'], ['w1-x4', 'off']];
+      for (const [sid, st] of extra) await rawDb.collection('presence').insertOne({ ...orchDoc, _id: `${ME.userId}:s:${sid}:${PID}`, session: sid, key: sid, parent: undefined, label: `hook session ${st}`, doing: undefined, activity: { state: st, at: ago(st === 'off' ? 60 : 5), ...(st === 'waiting' ? { why: 'prompt' } : {}) } });
+      await p.goto(B + '/claude?tab=workers');
+      await p.waitForSelector('[data-section="workers"]');
+      const states = await p.locator('[data-worker]').evaluateAll(els => els.map(e => e.getAttribute('data-state')));
+      check(T('five states shown: on, idle, waiting, off beside the working ones'), ['on', 'idle', 'waiting', 'off', 'working'].every(x => states.includes(x)), states.join());
+      check(T('idle and waiting rows say "since HH:MM", the on row does not'), (await p.locator('[data-worker-since]').count()) === 2);
+      const o3 = await overflow(p);
+      check(T('no horizontal scroll with five states'), okO(o3), JSON.stringify(o3));
+      await p.screenshot({ path: `${SP}/w1-states-${vp}-light.png`, fullPage: true });
+      await p.evaluate(() => document.documentElement.classList.add('dark'));
+      await p.screenshot({ path: `${SP}/w1-states-${vp}-dark.png`, fullPage: true });
+      await p.evaluate(() => document.documentElement.classList.remove('dark'));
+      await rawDb.collection('presence').deleteMany({ _id: { $in: extra.map(([sid]) => `${ME.userId}:s:${sid}:${PID}`) } });
       await ctx.close();
     }
   } finally {

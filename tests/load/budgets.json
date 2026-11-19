@@ -20,6 +20,7 @@
   "stream /api/stream (connect)": { "kb": 1, "ops": 3, "docsExamined": 3, "collscans": 0 },
   "api /api/worker/jobs": { "kb": 1, "ops": 10, "docsExamined": 12, "collscans": 0 },
   "api /api/worker/status": { "kb": 1, "ops": 8, "docsExamined": 5, "collscans": 0 },
+ "api /api/agent/event": { "kb": 1, "ops": 8, "docsExamined": 14, "collscans": 0 },
   "mcp list_tasks": { "kb": 1, "ops": 9, "docsExamined": 212, "collscans": 0 },
   "mcp get_task": { "kb": 1, "ops": 12, "docsExamined": 388, "collscans": 0 },
   "mcp update_task": { "kb": 1, "ops": 11, "docsExamined": 70, "collscans": 0 },
