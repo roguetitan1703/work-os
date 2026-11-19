@@ -30,7 +30,7 @@ import { ACTIVITY_WHAT } from '../types';
 import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
 import * as ordersData from '../data/orders';
-import { ordersChangesFor, ordersFor, ordersWrittenBy, shortForm } from '../data/orders';
+import { ordersChangesFor, ordersFor, ordersWrittenBy, shortFormForSubagent } from '../data/orders';
 import { endPresence, setOrdersSeen, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
 import { presenceState } from '../data/presence-state';
 import { clientWord, roster, taskInfo } from '../data/roster';
@@ -527,7 +527,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     orders: orders.length ? orders : 'no Orders set',
     ...(orders.length ? { ordersVersion: orders.map(o => `${o.layer} v${o.version}`).join(', ') } : {}),
     ...(changed.length ? { ordersChanged: changed } : {}),
-    ...(orgOrders && shortForm(orgOrders.text) ? { shortOrders: shortForm(orgOrders.text), shortOrdersVersion: orgOrders.version } : {}),
+    ...(orgOrders && shortFormForSubagent(orgOrders) ? { shortOrders: shortFormForSubagent(orgOrders), shortOrdersVersion: orgOrders.version } : {}),
     ...(needsBlock.answered.length || needsBlock.forYou.length ? { needs: { ...(needsBlock.answered.length ? { answeredForYou: needsBlock.answered } : {}), ...(needsBlock.forYou.length ? { openForYou: needsBlock.forYou } : {}) } } : {}),
     state: state ? await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names) : NO_STATE,
     inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names, { cut: 500, unread: inb.unreadIds.has(m._id) })) } : 'no messages',

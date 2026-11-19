@@ -397,7 +397,7 @@ async function guardBoilerplate(s: Scope, actor: Actor, ids: (string | null | un
  * archive, moving, adding a sub-page) stays with that person in the app; Discord, a teammate's keys and anyone else
  * are refused. (The flag itself is set in the app only.) A teammate's Claude files propose_order instead.
  */
-async function guardOrders(s: Scope, actor: Actor, ids: (string | null | undefined)[], op: 'content' | 'other' = 'other'): Promise<void> {
+async function guardOrders(s: Scope, actor: Actor, ids: (string | null | undefined)[], op: 'content' | 'other' = 'other', session?: string): Promise<void> {
   const list = [...new Set(ids.filter((x): x is string => !!x))];
   if (!list.length) return;
   const flagged = await (await scoped(s)).notes.find({ _id: { $in: list }, orders: { $exists: true } }, { projection: { orders: 1, ownerId: 1, projectId: 1 } }).toArray();
@@ -405,8 +405,16 @@ async function guardOrders(s: Scope, actor: Actor, ids: (string | null | undefin
     const own = isPerson(actor) || (op === 'content' && actor.kind === 'agent' && actor.userId === s.userId);
     if (!own) throw new InputError('This page holds Orders; only the person who holds that layer, or their own Claude, can change its text; a teammate can have their Claude propose a change with propose_order. Trash, restore, archive and moving stay in the app.');
     if (!(await canEditOrders(s, n))) throw new InputError('This page holds Orders; only the person who holds that layer (the organization owner, the project owner, or its own person) can change it.');
+    // A Claude Code session the dispatcher started on a task (its text can come from a teammate), or any Claude Code call that
+    // names no session, never edits Orders: only the holder's own interactive Claude Code or chat session does.
+    if (!isPerson(actor) && actor.kind === 'agent' && actor.agent === 'claude-code') {
+      const row = session ? await (await scoped(s)).presence.findOne({ userId: s.userId, $or: [{ session }, { key: session }] }, { projection: { label: 1 } }) : null;
+      if (!session || !row || DISPATCHED_LABEL.test(row.label)) throw new InputError('This page holds Orders; a Claude Code session started for a task (or one that names no session) cannot change them. Ask its holder in a session of their own, or use propose_order.');
+    }
   }
 }
+/** The dispatcher names its sessions "<Project> · worker · #<ref>" (docs/dispatcher.md). */
+const DISPATCHED_LABEL = /·\s*worker\s*·\s*#\d+/i;
 
 /** The words of an Orders text that the Words retired (docs/HANDOVER.md section 3), for a warning. */
 const retiredIn = (text: string): string[] => RETIRED.map(re => re.exec(text)?.[0]).filter((x): x is string => !!x);
@@ -438,7 +446,7 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
   await guardBoilerplate(s, actor, [cur?._id, cur?.parentId, parent?._id]);
 
   // Text and title of an Orders page: its holder, and the holder's own Claude. Archiving and sub-pages: the holder in the app.
-  await guardOrders(s, actor, [cur?._id], w.archived === undefined ? 'content' : 'other');
+  await guardOrders(s, actor, [cur?._id], w.archived === undefined ? 'content' : 'other', w.session ?? (actor.kind === 'agent' ? requestContext().sid : undefined));
   await guardOrders(s, actor, [cur?.parentId, parent?._id]);
   if (cur) {
     if (w.expectUpdatedAt && cur.updatedAt.toISOString() !== w.expectUpdatedAt) throw new NoteConflictError();

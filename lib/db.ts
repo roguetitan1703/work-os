@@ -271,6 +271,8 @@ export type OrdersVersion = {
   need?: number;
   /** This version undid version N. */
   undoOf?: number;
+  /** A session was told of this version (brief, delivery or its ack): a later autosave starts the next version instead of folding into it. */
+  delivered?: boolean;
 };
 
 /** What a session leaves when it stops (end_work): the fields the writer gave, each capped (lib/data/handovers.ts). */

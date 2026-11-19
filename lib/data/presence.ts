@@ -255,5 +255,8 @@ export async function endPresence(s: Scope, row: PresenceDoc): Promise<void> {
 /** The session was told these Orders versions (start_work, an acknowledged delivery): later changes reach it as news. */
 export async function setOrdersSeen(s: Scope, rowId: string, seen: Record<string, number>): Promise<void> {
   const set = Object.fromEntries(Object.entries(seen).map(([id, v]) => [`ordersSeen.${id}`, v]));
-  if (Object.keys(set).length) await (await scoped(s)).presence.updateOne({ _id: rowId, userId: s.userId }, { $set: set });
+  if (!Object.keys(set).length) return;
+  await (await scoped(s)).presence.updateOne({ _id: rowId, userId: s.userId }, { $set: set });
+  const { markOrdersDelivered } = await import('./orders');
+  for (const [id, v] of Object.entries(seen)) await markOrdersDelivered(s, id, v);
 }

@@ -6,7 +6,7 @@ import { memberNames } from '../people';
 import { timezoneOf } from '../profile';
 import { scoped, type Scope } from '../scope';
 import { addressed, frameBody, frameDeliveries, frameLine, markSeenFor, NO_APPROVAL, unreadFor, type Reader } from './messages';
-import { ordersChangesFor, ordersFor, shortForm, type OrdersChange } from './orders';
+import { markOrdersDelivered, ordersChangesFor, ordersFor, shortFormForSubagent, type OrdersChange } from './orders';
 import { hookRowId } from './presence';
 
 // Messages pushed into a Claude Code session (docs/flows/agent-system.md 5.6 and 16.12; plan note 6dfdb98f4f). The hook asks
@@ -184,9 +184,14 @@ export async function deliverFor(s: Scope, sid: string, projectId: string, mode:
     { $set: { offered: { ids, needs: needIds, ...(ordIds.length ? { orders: ordIds } : {}), mode, chain: maxChain, at: now, first: tries > MAX_TRIES ? now : first, tries: tries > MAX_TRIES ? 1 : tries } } },
   );
   if (!got.matchedCount) return { delivery: null };
+  for (const i of ordIds) {
+    const m = /^ord:([^:]+):(\d+)$/.exec(i);
+    if (m) await markOrdersDelivered(s, m[1], Number(m[2]));
+  }
   const text = [framed.text, ...shownNeeds.map(n => needBlock(n, names, s.userId)), ob?.text].filter(Boolean).join('\n');
   // The new short form of the organization Orders, for subagents (the hook keeps it in the session's marker).
-  const short = ob?.layers.has('org') ? shortForm((await ordersFor(s, { _id: projectId })).find(o => o.layer === 'org')?.text ?? '') : undefined;
+  const orgNow = ob?.layers.has('org') ? (await ordersFor(s, { _id: projectId })).find(o => o.layer === 'org') : undefined;
+  const short = ob?.layers.has('org') ? (() => { const o = orgNow; return o ? shortFormForSubagent(o) : ''; })() : undefined;
   return { delivery: { text, ids, needs: needIds, orders: ordIds, ...(short !== undefined ? { short, ...(ob?.orgV ? { shortV: ob.orgV } : {}) } : {}), wakeable: mode !== 'turn' || shownNeeds.length > 0 || msgs.some(m => ids.includes(m._id) && wakeWorthy(m, reader, project.ownerId)) } };
 }
 
@@ -211,7 +216,10 @@ export async function applyAck(s: Scope, sid: string, projectId: string, ack: re
   // Orders handed over: the session now knows these versions (ids are ord:<noteId>:<v>; $max never steps back).
   for (const i of ords) {
     const m = /^ord:([^:]+):(\d+)$/.exec(i);
-    if (m) await c.presence.updateOne({ _id: row._id, userId: s.userId }, { $max: { [`ordersSeen.${m[1]}`]: Number(m[2]) } });
+    if (m) {
+      await c.presence.updateOne({ _id: row._id, userId: s.userId }, { $max: { [`ordersSeen.${m[1]}`]: Number(m[2]) } });
+      await markOrdersDelivered(s, m[1], Number(m[2]));
+    }
   }
   if (!ids.length && !needs.length) return;
   await markSeenFor(c, ids, `${s.userId}:${sid}`, s.userId);

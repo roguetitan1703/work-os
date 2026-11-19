@@ -164,7 +164,7 @@ export function planVersion(cur: Pick<NoteDoc, 'body' | 'ordersV' | 'ordersLog'>
   const log = cur.ordersLog ?? [];
   const last = log[log.length - 1];
   const v0 = cur.ordersV ?? 1;
-  const fold = !!last && isPerson(actor) && !meta.need && !meta.undoOf && last.v === v0 && isPerson(last.by) && sameActor(last.by, actor) && !last.need && !last.undoOf && now.getTime() - new Date(last.at).getTime() < FOLD_MS;
+  const fold = !!last && isPerson(actor) && !meta.need && !meta.undoOf && last.v === v0 && isPerson(last.by) && sameActor(last.by, actor) && !last.need && !last.undoOf && !last.delivered && now.getTime() - new Date(last.at).getTime() < FOLD_MS;
   const base = fold ? last.before : cur.body;
   const d = lineDiff(base, next);
   if (fold) {
@@ -228,6 +228,11 @@ export function ordersWrittenBy(o: Pick<OrdersNote, 'layer' | 'ordersBy' | 'crea
   return ws.length ? ws.join('; ') : undefined;
 }
 
+/** The short form of an organization Orders text for a subagent, or '' when someone other than its holder wrote it (a subagent has no writtenBy label to show, so it gets none). */
+export function shortFormForSubagent(o: Pick<OrdersNote, 'layer' | 'ordersBy' | 'createdBy' | 'updatedBy' | 'text'>): string {
+  return ordersWrittenBy(o, {}, () => undefined) ? '' : shortForm(o.text);
+}
+
 export type OrdersChange = {
   noteId: string;
   layer: OrdersLayer;
@@ -285,7 +290,7 @@ export async function undoOrders(s: Scope, noteId: string, v: number, actor: Act
   const e = (n.ordersLog ?? []).find(x => x.v === v);
   if (!e) throw new InputError('That version is no longer kept (a page keeps its last 20).');
   const { writeNote } = await import('./notes');
-  await writeNote(s, { noteId, body: e.before, why: `undo of v${v}`, undoOf: v }, actor);
+  await writeNote(s, { noteId, body: e.before, why: `undo of v${v}`, undoOf: v, expectUpdatedAt: n.updatedAt.toISOString() }, actor);
   const after = await c.notes.findOne({ _id: noteId }, { projection: { ordersV: 1 } });
   return { version: after?.ordersV ?? (n.ordersV ?? 1) };
 }
@@ -372,4 +377,9 @@ export async function applyOrderAnswer(s: Scope, needId: string): Promise<void> 
   } catch (e) {
     await record({ error: (e instanceof Error ? e.message : 'Could not apply it').slice(0, 200) });
   }
+}
+
+/** A session was told of version `v` of this Orders page: further autosaves of the same person start the next version, so what they type next reaches sessions too. */
+export async function markOrdersDelivered(s: Scope, noteId: string, v: number): Promise<void> {
+  await (await scoped(s)).notes.updateOne({ _id: noteId, 'ordersLog.v': v }, { $set: { 'ordersLog.$[e].delivered': true } }, { arrayFilters: [{ 'e.v': v }] });
 }
