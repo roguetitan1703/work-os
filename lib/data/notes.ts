@@ -9,7 +9,7 @@ import type { NoteBlock } from '../notes-schema';
 import { blockOutline, blocksToMarkdown, cloneBlocks, findBlock, markdownToBlocks, plainText } from '../notes-convert';
 import { InputError, NotFoundError } from './errors';
 import { placeIn, placeOf, resolveProject, type Placement } from './projects';
-import { canEditOrders } from './orders';
+import { canEditOrders, planVersion, ruleLines, ORG_RULE_LINES } from './orders';
 
 // Notes are Notion-style pages (editor blocks) attached to a task or a project, optionally
 // nested as sub-pages. Blocks are the source of truth; `body` is derived markdown used for
@@ -274,6 +274,13 @@ export type NoteWrite = {
   linkInParent?: boolean;
   /** Optimistic concurrency: refuse if the note changed since this version (ISO updatedAt). */
   expectUpdatedAt?: string;
+  /** An Orders page only: why it changed (shown beside the version), and which session and label made it. */
+  why?: string;
+  session?: string;
+  label?: string;
+  /** An Orders page only: the Need whose Accept made this change, or the version this change undoes. */
+  need?: number;
+  undoOf?: number;
 };
 
 export class NoteConflictError extends InputError {
@@ -396,7 +403,7 @@ async function guardOrders(s: Scope, actor: Actor, ids: (string | null | undefin
   }
 }
 
-export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{ note: Note; created: boolean }> {
+export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{ note: Note; created: boolean; orders?: { layer: 'org' | 'project' | 'person'; version: number; lines: string; removed: number; added: number } }> {
   const c = await scoped(s);
   const now = new Date();
 
@@ -435,9 +442,17 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     if (w.archived !== undefined) set.archived = w.archived;
     if (set.blocks || set.title) await takeBackTaskOnNoteEdit(s, c, cur, actor);
     if (set.title && cur.parentId) await renamePageBlock(c, cur.parentId, cur._id, set.title);
-    await c.notes.updateOne({ _id: cur._id }, { $set: set });
-    if (set.blocks || set.title) await logNote(c, { ...cur, ...set }, actor, 'note_edited', set.title !== undefined && set.title !== cur.title);
-    return { note: (await hydrate(c, [{ ...cur, ...set }]))[0], created: false };
+    // An Orders page keeps a version of every change of its text, in the same update as the text (lib/data/orders.ts).
+    const ver = cur.orders && set.body !== undefined ? planVersion(cur, set.body, actor, { why: w.why, session: w.session, label: w.label, need: w.need, undoOf: w.undoOf }, now) : null;
+    if (ver) {
+      const r = await c.notes.updateOne({ _id: cur._id, updatedAt: cur.updatedAt }, { $set: { ...set, ...ver.set }, ...(ver.push ? { $push: ver.push } : {}) } as never);
+      if (!r.matchedCount) throw new NoteConflictError();
+      set.ordersV = ver.v;
+    } else await c.notes.updateOne({ _id: cur._id }, { $set: set });
+    if (ver) await logOrders(c, { ...cur, ...set }, actor, ver, w.why);
+    else if (set.blocks || set.title) await logNote(c, { ...cur, ...set }, actor, 'note_edited', set.title !== undefined && set.title !== cur.title);
+    const orders = ver ? { layer: cur.orders!, version: ver.v, lines: cur.orders === 'org' ? `${ruleLines(set.body!).length} of ${ORG_RULE_LINES}` : `${ruleLines(set.body!).length}`, removed: ver.nRemoved, added: ver.nAdded } : undefined;
+    return { note: (await hydrate(c, [{ ...cur, ...set }]))[0], created: false, ...(orders ? { orders } : {}) };
   }
 
   // Create
@@ -492,6 +507,22 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
  * so its rows move, go to the trash and come back with the task; a project's note carries the project and moves with
  * it. Edits make one row per editor per hour. A person's own Orders page makes none (nobody else may read about it).
  */
+/** The feed row of one Orders version: its own row per version (never folded like a note edit), none for a person's own Orders. */
+async function logOrders(c: Collections, n: NoteDoc, actor: Actor, ver: { v: number; folded: boolean; nRemoved: number; nAdded: number }, why?: string): Promise<void> {
+  if (n.orders === 'person') return;
+  const { logChange, actorQueryOf } = await import('./tasks');
+  const text = `v${ver.v}: -${ver.nRemoved} +${ver.nAdded}${why ? ` · ${why}` : ''}`;
+  // A person's autosaves folded into one version stay one row (the row shows the version's current size).
+  if (ver.folded) {
+    const row = await c.activity.findOne({ 'subject.id': n._id, type: 'orders_changed', note: { $regex: `^v${ver.v}:` }, ...actorQueryOf(actor) }, { sort: { at: -1 }, projection: { _id: 1 } });
+    if (row) {
+      await c.activity.updateOne({ _id: row._id }, { $set: { at: new Date(), note: text.slice(0, 340) } });
+      return;
+    }
+  }
+  await logChange(c, n, actor, 'orders_changed', { subject: { kind: 'note', id: n._id, title: n.title }, task: null, projectId: n.projectId, note: text });
+}
+
 async function logNote(c: Collections, n: NoteDoc, actor: Actor, type: 'note_created' | 'note_edited', renamed = false): Promise<void> {
   if (n.orders === 'person') return;
   const { logChange, actorQueryOf } = await import('./tasks');

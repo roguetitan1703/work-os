@@ -231,6 +231,10 @@ export type NoteDoc = Placed & {
   orders?: 'org' | 'project' | 'person';
   /** Who set the Orders flag (the holder of the layer). A person-layer note is served only when this equals its owner and the reader. */
   ordersBy?: string;
+  /** Version of an Orders page (lib/data/orders.ts); absent reads as 1: the text found at the time versions began is the base. */
+  ordersV?: number;
+  /** Earlier versions of an Orders page, newest last, at most 20. Never read by list or search reads, never output raw. */
+  ordersLog?: OrdersVersion[];
   taskId: string | null; // task note (at most one live per task)
   projectId: string | null; // project note (when taskId is null)
   archived: boolean;
@@ -242,6 +246,26 @@ export type NoteDoc = Placed & {
   updatedAt: Date;
   deletedAt: Date | null;
   deletedBy?: Actor;
+};
+
+/**
+ * One change of an Orders page: v is the version it made, `before` the whole text it replaced (for undo), removed and
+ * added the changed rule lines (for readers). A person's autosaves within ten minutes fold into one entry.
+ */
+export type OrdersVersion = {
+  v: number;
+  at: Date;
+  by: Actor;
+  session?: string;
+  label?: string;
+  why?: string;
+  before: string;
+  removed: string[];
+  added: string[];
+  /** The Need whose Accept made this version. */
+  need?: number;
+  /** This version undid version N. */
+  undoOf?: number;
 };
 
 /** What a session leaves when it stops (end_work): the fields the writer gave, each capped (lib/data/handovers.ts). */

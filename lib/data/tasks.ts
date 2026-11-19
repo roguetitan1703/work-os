@@ -383,7 +383,7 @@ export async function logChange(c: Collections, placed: Pick<Placed, 'orgId' | '
   };
   if (row.changes && Object.keys(row.changes).length) doc.changes = row.changes;
   // A session's friction line (up to 300 characters, plus its handover id) is kept whole for the sessions report.
-  if (row.note?.trim()) doc.note = clip(row.note, type === 'session_ended' ? 340 : 140);
+  if (row.note?.trim()) doc.note = clip(row.note, type === 'session_ended' || type === 'orders_changed' ? 340 : 140);
   if (row.textBy && row.textBy !== actorUserId(actor)) doc.textBy = row.textBy;
   if (row.titleBy && row.titleBy !== actorUserId(actor)) doc.titleBy = row.titleBy;
   const rc = requestContext();

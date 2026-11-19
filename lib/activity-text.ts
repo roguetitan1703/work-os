@@ -76,6 +76,8 @@ export function describeChange(a: Pick<Activity, 'type' | 'changes' | 'note' | '
       return `Created note "${t}"`;
     case 'note_edited':
       return `Edited note "${t}"`;
+    case 'orders_changed':
+      return `Orders "${t}" ${n || 'changed'}`;
     case 'session_ended':
       return `Session ended: ${n || 'none'}`;
     case 'message_sent':

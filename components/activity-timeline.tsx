@@ -53,6 +53,7 @@ const ICONS: Record<ActivityType, React.ComponentType<{ className?: string }>> =
   decision: Gavel,
   note_created: FilePlus,
   note_edited: FileText,
+  orders_changed: FileText,
   message_sent: Mail,
   need_asked: CircleHelp,
   need_answered: Reply,

@@ -191,6 +191,7 @@ export const ACTIVITY_TYPES = [
   'decision',
   'note_created',
   'note_edited',
+  'orders_changed',
   'message_sent',
   'need_asked',
   'need_answered',
