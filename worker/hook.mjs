@@ -12,6 +12,7 @@
 //   notification   Notification (permission_prompt|idle_prompt|elicitation_dialog, async): waiting at a prompt, or idle. No output.
 //   session-end    SessionEnd: tell Work OS the session is off. No output.
 //   subagent-start SubagentStart: the short form of the organization Orders (from the session's marker, no network) as context.
+//   subagent-stop  SubagentStop: the subagent's last message (300 characters) as its parent session's lane result (event { result }).
 //                  These and the stop and pre-tool pings use POST /api/agent/event with the session token (postEvent in
 //                  hook-lib.mjs); no token (WORK_OS_KEY, cloud) sends nothing, and a failure is silent.
 //   Flags: --cloud (do nothing unless CLAUDE_CODE_REMOTE=true), --server <url> and --project <id> (the project a cloud repo's

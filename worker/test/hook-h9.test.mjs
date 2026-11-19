@@ -79,7 +79,7 @@ test('subagent-start: prints the marker short form with its version, and nothing
   lib.writeMarker('h9-sub', { status: 'x', short: 'Rule one.\nRule two.', shortV: 14 });
   const out = JSON.parse(await main('subagent-start', JSON.stringify({ session_id: 'h9-sub', agent_id: 'a1', agent_type: 'Explore', hook_event_name: 'SubagentStart' })));
   assert.equal(out.hookSpecificOutput.hookEventName, 'SubagentStart');
-  assert.equal(out.hookSpecificOutput.additionalContext, "## Work OS Orders, short form (v14; the full Orders are in your parent's brief)\nRule one.\nRule two.");
+  assert.equal(out.hookSpecificOutput.additionalContext, "## Work OS Orders, short form (v14; the full Orders are in your parent's brief)\nYour parent records the State; never call save_state, import_state or end_work.\nRule one.\nRule two.");
   lib.writeMarker('h9-sub2', { status: 'x', short: 'Only.' });
   assert.match(JSON.parse(await main('subagent-start', JSON.stringify({ session_id: 'h9-sub2' }))).hookSpecificOutput.additionalContext, /^## Work OS Orders, short form \(the full Orders/, 'no version known: the heading says so by leaving it out');
   lib.writeMarker('h9-none', { status: 'x' });

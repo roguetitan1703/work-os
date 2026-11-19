@@ -81,6 +81,8 @@ export function writesCopy(cmd) {
 
 /** PreToolUse: refuse hand edits of WORK-STATE.md, saying what to do instead. */
 export async function preTool(input) {
+  const sa = subagentDeny(input);
+  if (sa) return sa;
   const od = ordersDeny(input);
   if (od) return od;
   const sd = shellDeny(input);
@@ -98,6 +100,19 @@ export async function preTool(input) {
   // A plain refusal that never reached the server is counted here, once, with a short timeout (the answer does not wait on it).
   if (!seen.reached) await countRefused(input);
   return plainDeny();
+}
+
+/**
+ * Lanes step 3: a subagent shares its parent's session, so the server cannot tell it from the parent. Claude Code puts `agent_id` in the
+ * hook input of a subagent's tool calls (and not in the main session's); with it, the State writes are refused. Main sessions are unaffected.
+ */
+const STATE_WRITE = /^mcp__.+__(save_state|import_state|end_work)$/;
+export const SUBAGENT_REASON = "Work OS: you are a subagent; your parent session records the State (save_state, import_state, end_work). Nothing was sent. Put what you found in your final message: it becomes your parent's lane result.";
+export function subagentDeny(input) {
+  try {
+    if (!input.agent_id || !STATE_WRITE.test(String(input.tool_name || ''))) return null;
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: SUBAGENT_REASON } };
+  } catch { return null; }
 }
 
 /** A dispatched run: the worker's environment variable, or the server's mark in this session's marker (H15). The mark only adds refusals. */
@@ -335,6 +350,8 @@ export const plainDeny = () => ({ hookSpecificOutput: { hookEventName: 'PreToolU
 export function timeoutAnswer(stdinText) {
   try {
     const input = JSON.parse(stdinText || '{}');
+    const sa = subagentDeny(input);
+    if (sa) return sa;
     if (hitsCopy(input)) return plainDeny();
     const od = ordersDeny(input);
     if (od) return od;
