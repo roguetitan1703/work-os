@@ -5,8 +5,9 @@
 // (the next deliver is empty, forYou does not name it again), nothing leaks (seenBy, toSids, tokens, other session ids), an
 // unlinked folder stops delivery, a stop delivers only what may wake, the chain and the answered Need. Seed profile: none.
 import { randomBytes, randomUUID } from 'node:crypto';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { B, ME, MCP, check, finish, makeUser, mkDevice, mkKey, rawDb } from './lib.mjs';
-import { mcpH, must } from './flow-lib.mjs';
+import { mcpH, mkOAuth, must } from './flow-lib.mjs';
 
 const call = async (url, cred, body = {}, { headers = {}, raw, method = 'POST' } = {}) => {
   const r = await fetch(B + url, { method, redirect: 'manual', headers: { 'content-type': 'application/json', ...(cred ? { authorization: `Bearer ${cred}` } : {}), ...headers }, body: method === 'GET' ? undefined : (raw ?? JSON.stringify(body)) });
@@ -23,6 +24,7 @@ async function deviceOf(who, name) {
   await rawDb.collection('devices').updateOne({ _id: dev.id }, { $set: { ownerId: who.userId, orgId: who.orgId, name } });
   return dev;
 }
+const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const H = sid => ({ 'X-Work-OS-Session': sid });
 
 try {
@@ -169,6 +171,174 @@ try {
     const dn2 = await deliver('stop');
     check('g: and only once', !('deliver' in (dn2.json ?? {})));
   }
+
+  // ---- h) the idle session's wait: POST /api/agent/wait ----
+  const wait = (cred, body = {}) => call('/api/agent/wait', cred, body);
+  const timed = async p => { const t0 = Date.now(); const r = await p; return { ...r, ms: Date.now() - t0 }; };
+  const settled = async (p, ms) => { let v; const w = p.then(r => (v = r)); await Promise.race([w, new Promise(r => setTimeout(r, ms))]); return v; };
+  const pause = ms => new Promise(r => setTimeout(r, ms));
+  await ev(S.token, { event: 'stop' }); // idle
+  // one quiet wait for the session, and one for the session on the other project: an fyi and untargeted messages never wake
+  await ev(s2.json.token, { event: 'stop' });
+  const quietWait = timed(wait(S.token));
+  const s2wait = timed(wait(s2.json.token));
+  await pause(400);
+  await send('an fyi to the idle session', 'fyi');
+  await must(kT, 'send_message', { project: 'H7 One', kind: 'request', body: 'untargeted, for the project owner' });
+  await must(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'untargeted from the same person' });
+  check('h: an fyi to the session and untargeted requests never wake it (still waiting after 6 s)', (await settled(quietWait, 6000)) === undefined);
+  // a request addressed to the session wakes it within a few seconds, once, with the frame
+  const w1 = timed(wait(S.token));
+  await pause(300);
+  const req1 = await send('please run the tests again', 'request');
+  const woke1 = await w1;
+  check('h: a request addressed to the idle session wakes it within about 5 s with the framed text', woke1.status === 200 && woke1.json?.wake === true && woke1.ms < 8000 && /please run the tests again/.test(woke1.json.text) && /\[\[work-os message m_/.test(woke1.json.text), woke1.text.slice(0, 200) + ' ' + woke1.ms);
+  // the older waiter of the same session was replaced by the newer one: it answered again at once
+  const qw = await settled(quietWait, 3000);
+  check('h: a newer waiter for the same session replaces the older one (again)', qw?.status === 200 && qw.json?.again === true, JSON.stringify(qw?.json));
+  check('h: waking handed it over as read, set wokeAt and the turn chain (0)', (await rawDb.collection('messages').findOne({ _id: req1.id })).seenBy.includes(KEY) && !!(await row()).wokeAt && (await row()).turnChain === 0, JSON.stringify([(await row()).wokeAt, (await row()).turnChain]));
+  check('h: the fyi and the untargeted ones are still unread for it (the next turn has them)', (await must(kA, 'inbox', { project: 'H7 One', session: S.sid })).unread >= 1);
+  // busy while working
+  await ev(S.token, { event: 'prompt', woke: true });
+  const busy = await timed(wait(S.token));
+  check('h: a session that is working is answered busy at once', busy.json?.busy === true && busy.ms < 3000, busy.text);
+  // chain: S at turn chain 0 sends a request to a second hook session: chain 1 wakes it; its question back is chain 2 and wakes nobody
+  const S3 = await newSession('H7 · tester');
+  await ev(S3.token, { event: 'stop' });
+  await ev(S.token, { event: 'stop' });
+  const w3 = timed(wait(S3.token));
+  await pause(300);
+  await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:${S.sid}:${ONE}` }, { $set: { turnChain: 0 } });
+  const toS3 = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'S3 please check the build', to_session: S3.sid, session: S.sid });
+  check('h: a request from a session at turn chain 0 has chain 1', (await rawDb.collection('messages').findOne({ _id: toS3.json?.id }))?.chain === 1, toS3.text);
+  const woke3 = await w3;
+  check('h: …and still wakes the second session (chain 1)', woke3.json?.wake === true && /check the build/.test(woke3.json.text), woke3.text.slice(0, 200));
+  check('h: the second session’s turn chain is now 1', (await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:${S3.sid}:${ONE}` })).turnChain === 1);
+  const back = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'question', body: 'S, is it green?', to_session: S.sid, session: S3.sid });
+  check('h: its question back has chain 2', (await rawDb.collection('messages').findOne({ _id: back.json?.id }))?.chain === 2, back.text);
+  const wS = timed(wait(S.token));
+  check('h: chain 2 wakes nobody (the first session is still waiting after 6 s)', (await settled(wS, 6000)) === undefined);
+  // a request at chain 0 wakes it, together with what is waiting
+  await send('person level again', 'request');
+  const wakeS = await wS;
+  check('h: a request at chain 0 wakes it with its own text, and the chain 2 question waiting is not part of the wake', wakeS.json?.wake === true && /person level again/.test(wakeS.json.text) && !/is it green/.test(wakeS.json.text), wakeS.text.slice(0, 300));
+  check('h: …it is handed over in the next turn instead', /is it green/.test((await ev(S.token, { event: 'tool', deliver: true })).json?.deliver?.text ?? ''));
+  // the wake cap: 6 an hour per session; the 7th is not a wake but is still handed over in a turn
+  await rawDb.collection('policyEvents').deleteMany({ keyId: `agent-wake:${S3.sid}` });
+  let wakes = 0;
+  for (let i = 0; i < 7; i++) {
+    await ev(S3.token, { event: 'stop' });
+    await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: `cap ${i}`, to_session: S3.sid, session: other.session });
+    const r = await settled(timed(wait(S3.token)), 9000);
+    if (r?.json?.wake) wakes++;
+    else break;
+  }
+  check('h: at most 6 wakes an hour per session (the 7th message does not wake it)', wakes === 6, String(wakes));
+  const capNote = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'cap note check', to_session: S3.sid, session: other.session });
+  check('h: the sender’s note says it was woken 6 times this hour and gets it on its next turn', /H7 · tester: idle and woken 6 times this hour; it gets this on its next turn/.test(capNote.json?.target ?? ''), capNote.text.slice(0, 300));
+  const turn7 = await ev(S3.token, { event: 'tool', deliver: true });
+  check('h: …but the message the cap held back is handed over in the next turn', /cap 6/.test(turn7.json?.deliver?.text ?? ''), turn7.text.slice(0, 200));
+  // an answered Need wakes the session that asked it
+  await ev(S3.token, { event: 'stop' });
+  const asked3 = await mcpH(kA, 'ask', { project: 'H7 One', to: 'me', kind: 'approve', ask: 'May S3 push the build?', session: S3.sid });
+  const need3 = await rawDb.collection('needs').findOne({ ref: asked3.json?.need?.ref });
+  await rawDb.collection('needs').updateOne({ _id: need3._id }, { $set: { status: 'answered', answeredAt: new Date(), closedAt: new Date(), answer: { option: need3.options[0].id, by: ME.userId, via: 'app', at: new Date() } } });
+  await rawDb.collection('policyEvents').deleteMany({ keyId: `agent-wake:${S3.sid}` });
+  const needWake = await settled(timed(wait(S3.token)), 9000);
+  check('h: an answered Need wakes the session that asked it', needWake?.json?.wake === true && new RegExp(`your Need #${need3.ref} was answered`).test(needWake.json.text), needWake?.text?.slice(0, 200));
+  // the session on the other project heard nothing of all this, and its wait with nothing for it ends in again after about 50 s
+  const s2r = await s2wait;
+  check('h: the session on the other project was not woken, and its wait ended in again after about 50 s', s2r.json?.again === true && s2r.ms > 45_000 && s2r.ms < 56_000, s2r.text + ' ' + s2r.ms);
+  // bad bodies and limits
+  check('h: a body with anything but since is a 400, bad JSON a 400', (await wait(S.token, { deliver: true })).status === 400 && (await call('/api/agent/wait', S.token, {}, { raw: '{nope' })).status === 400);
+  check('h: a body over 1 KB is a 413', (await call('/api/agent/wait', S.token, {}, { raw: JSON.stringify({ since: 'x'.repeat(2000) }) })).status === 413);
+  check('h: GET is a 405', (await call('/api/agent/wait', S.token, {}, { method: 'GET' })).status === 405);
+
+
+  // ---- i) forYou names kind and sender; target notes say how it will arrive; a chat with no row hears a reply ----
+  await ev(S.token, { event: 'stop' });
+  const nt1 = await send('note check request', 'request');
+  check('i: the target note for an idle session: "a direct request wakes it"', /H7 · builder B: idle; a direct request wakes it/.test(nt1.target), nt1.target);
+  const nt2 = await send('note check fyi', 'fyi');
+  check('i: …an fyi: it does not wake it, it gets it on its next turn', /idle; an fyi does not wake it, it gets this on its next turn/.test(nt2.target), nt2.target);
+  await ev(S.token, { event: 'prompt' });
+  const nt3 = await send('note check working', 'request');
+  check('i: a working session: "gets it after its next step"', /H7 · builder B: working; it gets this after its next step/.test(nt3.target), nt3.target);
+  await ev(S.token, { event: 'notify', kind: 'permission_prompt' });
+  check('i: a session at a permission prompt: gets it when it carries on', /waiting at a prompt; it gets this when it carries on/.test((await send('note check waiting', 'request')).target));
+  await ev(S.token, { event: 'end' });
+  check('i: a session that ended: off, gets it when it starts', /off; it gets this when it starts/.test((await send('note check off', 'request')).target));
+  await ev(S.token, { event: 'prompt' });
+  const fyS = await mcpH(kA, 'list_tasks', { project: 'H7 One' }, H(S.sid));
+  const fyLine = (fyS.json?.forYou ?? []).find(l => /from/.test(l)) ?? '';
+  check('i: forYou names kind and sender and still no text', /\d+ requests? from me/.test(fyLine) && /fyi from me/.test(fyLine) && /inbox: m_/.test(fyLine) && !/note check/.test(fyLine), JSON.stringify(fyS.json?.forYou));
+  // a claude.ai chat that never called start_work (no presence row) hears of a reply to it, once
+  const chatTok = await mkOAuth({ userId: ME.userId, orgId: ME.orgId, name: 'H7 chat' });
+  const chatSent = await must(chatTok, 'send_message', { project: 'H7 One', kind: 'question', body: 'chat asks: is it merged?' });
+  check('i: setup: the chat has no presence row', (await rawDb.collection('presence').countDocuments({ keyId: { $regex: '^oauth_' } })) === 0);
+  const rep = await mcpH(kA, 'reply', { id: chatSent.id, body: 'yes, merged', session: other.session });
+  check('i: the reply goes to the chat’s own key', (await rawDb.collection('messages').findOne({ _id: rep.json?.id }))?.toSids?.[0]?.startsWith(`${ME.userId}:oauth_`), rep.text);
+  await pause(11_000); // a chat is checked at most every 10 s
+  const c1 = await mcpH(chatTok, 'list_tasks', { project: 'H7 One' });
+  const cl = (c1.json?.forYou ?? []).join(' ');
+  check('i: the chat’s next Work OS answer names the reply: kind, sender, id, no text', /1 fyi from me on project/.test(cl) && cl.includes(rep.json?.id) && !/merged/.test(cl), JSON.stringify(c1.json?.forYou ?? c1.text.slice(0, 200)));
+  await pause(11_000);
+  const c2 = await mcpH(chatTok, 'list_tasks', { project: 'H7 One' });
+  check('i: …and only once', !('forYou' in (c2.json ?? {})), JSON.stringify(c2.json?.forYou));
+
+
+  // ---- j) real hook processes against this server: tool-batch, user-prompt and the idle wait ----
+  const { spawn, spawnSync } = await import('node:child_process');
+  const fsx = await import('node:fs');
+  const osx = await import('node:os');
+  const pathx = await import('node:path');
+  const { FILES } = await import(pathToFileURL(pathx.join(ROOT, 'worker/hooks-install.mjs')).href);
+  const tmpJ = fsx.mkdtempSync(pathx.join(process.env.TMPDIR || osx.tmpdir(), 'h7-hooks-'));
+  try {
+    const wh = pathx.join(tmpJ, 'w');
+    fsx.mkdirSync(pathx.join(wh, 'hooks', 'sessions'), { recursive: true });
+    for (const f of FILES) fsx.copyFileSync(pathx.join(ROOT, 'worker', f), pathx.join(wh, 'hooks', f));
+    fsx.writeFileSync(pathx.join(wh, 'config.json'), JSON.stringify({ baseUrl: B }));
+    const markers = pathx.join(tmpJ, 'markers');
+    fsx.mkdirSync(markers);
+    const CC = randomUUID();
+    fsx.writeFileSync(pathx.join(wh, 'hooks', 'sessions', `${CC}.json`), JSON.stringify({ token: S.token, until: Date.now() + 3_600_000 }));
+    const env = { ...process.env, WORK_OS_HOOK_DIR: markers };
+    delete env.WORK_OS_KEY;
+    const marker = state => fsx.writeFileSync(pathx.join(markers, `${CC}.json`), JSON.stringify({ project: 'H7 One', presence: { state, at: Date.now(), postedAt: Date.now() } }));
+    const hookArgs = ev => [pathx.join(wh, 'hooks', 'hook.mjs'), ev];
+    const runHook = (ev, input) => spawnSync(process.execPath, hookArgs(ev), { env, input: JSON.stringify({ session_id: CC, cwd: tmpJ, ...input }), encoding: 'utf8', timeout: 20_000 });
+    for (let i = 0; i < 4; i++) await deliver('tool'); // the backlog of the earlier parts is read first
+    await ev(S.token, { event: 'stop' });
+    marker('working');
+    const jm = await send('hook process: run the tool batch hook', 'request');
+    const tb = runHook('tool-batch', { hook_event_name: 'PostToolBatch' });
+    const tbOut = (() => { try { return JSON.parse(tb.stdout); } catch { return null; } })();
+    check('j: the tool-batch hook prints the framed text as PostToolBatch additionalContext', tb.status === 0 && tbOut?.hookSpecificOutput?.hookEventName === 'PostToolBatch' && /hook process: run the tool batch hook/.test(tbOut.hookSpecificOutput.additionalContext) && /\[\[work-os message m_/.test(tbOut.hookSpecificOutput.additionalContext), tb.stdout.slice(0, 300) + tb.stderr.slice(0, 200));
+    check('j: …and the message is read by the session', (await rawDb.collection('messages').findOne({ _id: jm.id })).seenBy.includes(KEY));
+    check('j: the next batch within 20 s makes no call and prints nothing', runHook('tool-batch', { hook_event_name: 'PostToolBatch' }).stdout === '');
+    await send('hook process: user prompt', 'request');
+    const up = runHook('user-prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'hello' });
+    check('j: the user-prompt hook prints it as UserPromptSubmit additionalContext', /UserPromptSubmit/.test(up.stdout) && /hook process: user prompt/.test(up.stdout), up.stdout.slice(0, 300) + up.stderr.slice(0, 200));
+    check('j: no token and no secret in anything the hooks printed', !/wst_|wkr_/.test(tb.stdout + tb.stderr + up.stdout + up.stderr));
+    // the idle wait: a real process, woken by a message
+    await ev(S.token, { event: 'stop' });
+    marker('idle');
+    const child = spawn(process.execPath, hookArgs('wait'), { env, stdio: ['pipe', 'ignore', 'pipe'] });
+    let err = '';
+    child.stderr.on('data', d => (err += d));
+    child.stdin.end(JSON.stringify({ session_id: CC, cwd: tmpJ, hook_event_name: 'Stop' }));
+    const exited = new Promise(res => child.on('exit', code => res(code)));
+    await new Promise(r => setTimeout(r, 1500));
+    await send('hook process: wake up', 'request');
+    const code = await Promise.race([exited, new Promise(r => setTimeout(() => r('timeout'), 20_000))]);
+    if (code === 'timeout') child.kill();
+    check('j: the waiter exits 2 with the framed text on stderr when a request comes for the idle session', code === 2 && /hook process: wake up/.test(err) && /\[\[work-os message m_/.test(err) && !/wst_/.test(err), `${code} ${err.slice(0, 300)}`);
+    check('j: …and the lock file is gone, the marker records the wake', !fsx.readdirSync(pathx.join(wh, 'hooks', 'sessions')).some(f => f.endsWith('.wait')) && JSON.parse(fsx.readFileSync(pathx.join(markers, `${CC}.json`), 'utf8')).wokeAt > 0);
+  } finally {
+    fsx.rmSync(tmpJ, { recursive: true, force: true });
+  }
+
   await rawDb.collection('workerFolders').deleteMany({ deviceId: pc.id });
   void kT;
 } catch (e) {
