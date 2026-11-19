@@ -107,7 +107,8 @@ export async function runProbe({ team, person, reps = 10, only = null, log = con
     await sleep(700); // after() work: alert flush, usage log, push fan-out
     const m1 = await meter();
     const t1 = new Date();
-    const p = await rawDb.collection('system.profile').find({ ts: { $gte: t0, $lt: t1 }, ns: { $not: /system\.profile|\$cmd$|\.indexes$/ }, op: { $ne: 'getmore' } }).project({ docsExamined: 1, keysExamined: 1, nreturned: 1, planSummary: 1, ns: 1 }).toArray();
+    // requestStats is the usage counter's batched flush (lib/usage.ts, 400 ms after the first request of a burst): one write that lands in whichever window the timer fires in, not a read of the request.
+    const p = await rawDb.collection('system.profile').find({ ts: { $gte: t0, $lt: t1 }, ns: { $not: /system\.profile|\$cmd$|\.indexes$|\.requestStats$/ }, op: { $ne: 'getmore' } }).project({ docsExamined: 1, keysExamined: 1, nreturned: 1, planSummary: 1, ns: 1 }).toArray();
     const acc = { ops: p.length, docsExamined: 0, keysExamined: 0, nreturned: 0, collscans: 0, clientKB: kb, sentKB: 0, cpuMs: 0, ms };
     const scans = new Set();
     for (const d of p) {

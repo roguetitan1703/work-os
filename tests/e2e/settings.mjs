@@ -32,7 +32,8 @@ await runAssertSuite('settings', async () => {
     // A link clicked while the page is still hydrating is sometimes swallowed by the client router; click again until the URL changes.
     const open = async (loc, url) => { for (let n = 0; n < 4; n++) { await loc.click(); try { await p.waitForURL(url, { timeout: 5000 }); return; } catch (e) { if (n === 3) throw e; } } };
     // A toggle saves through a server action; every click waits for the action's response before moving on.
-    const toggle = async sw => { const done = p.waitForResponse(r => r.request().method() === 'POST' && r.url().startsWith(B + '/settings'), { timeout: 20000 }); await sw.click(); await done; };
+    // `has` (optional) narrows to the POST whose body holds that text: the page also POSTs on its own (push device list on mount), and that answer must not stand in for the save.
+    const toggle = async (sw, has) => { const done = p.waitForResponse(r => r.request().method() === 'POST' && r.url().startsWith(B + '/settings') && (!has || (r.request().postData() || '').includes(has)), { timeout: 20000 }); await sw.click(); await done; };
 
     // old ?section= names go to where they live now
     for (const [from, want] of [
@@ -121,11 +122,11 @@ await runAssertSuite('settings', async () => {
     assert.equal(await p.locator('[data-quiet-hours]').count(), 1);
     const sw = p.getByRole('switch', { name: 'Overdue', exact: true });
     const was = await sw.getAttribute('aria-checked');
-    await toggle(sw);
+    await toggle(sw, '"kinds"');
     await p.reload(); await p.waitForSelector('table');
     const now = await p.getByRole('switch', { name: 'Overdue', exact: true }).getAttribute('aria-checked');
     assert.notStrictEqual(was, now, 'alert toggle persisted'); console.log(label, 'alerts toggle persisted', was, '->', now);
-    await toggle(p.getByRole('switch', { name: 'Overdue', exact: true }));
+    await toggle(p.getByRole('switch', { name: 'Overdue', exact: true }), '"kinds"');
     await p.screenshot({ path: `${SP}/${label}-notifications.png`, fullPage: true });
     await noOverflow('notifications');
     const small = await p.evaluate(() => [...document.querySelectorAll('table button')].filter(e => e.getBoundingClientRect().height < 31).length); assert.equal(small, 0);
