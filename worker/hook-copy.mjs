@@ -37,13 +37,13 @@ export function markSaved(input, cwd) {
   writeMarker(sid, { ...m, status, stopped: false, offset: sizeOf(input.transcript_path), ...(status !== m.status ? { changed: true, counted: null, ...(m.counted ? { reminded: false } : {}) } : {}) });
 }
 
-/** The WORK-STATE.md write for a State answer (or for md, a copy fetched from the server): the hook output, or null for nothing to do. */
-export function copyState(input, cwd, md = stateMarkdown(input.tool_response)) {
-  const w = writeCopy(input.session_id, cwd, md);
+/** The WORK-STATE.md write for a State answer (or for md, a copy fetched from the server): the hook output, or null for nothing to do. commit false (Lanes step 6: another session of this folder commits the copy) writes the file only. */
+export function copyState(input, cwd, md = stateMarkdown(input.tool_response), commit = true) {
+  const w = writeCopy(input.session_id, cwd, md, { commit });
   return w ? { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: w.notes.join('\n\n').slice(0, MAX_BRIEF) } } : null;
 }
 
-/** Writes and commits WORK-STATE.md from md (commit: false writes only: the pre-tool hook must not run git commit, so a file it wrote is committed by the next post-tool). Returns { version, committed, notes }, or null when nothing was written. */
+/** Writes and commits WORK-STATE.md from md (commit: false writes only: the pre-tool hook must not run git commit, so a file it wrote is committed by the next post-tool; the server also says commit: false to a session that is not the folder's committer). Returns { version, committed, notes }, or null when nothing was written. */
 export function writeCopy(sid, cwd, md, { commit = true } = {}) {
   if (!md) return null;
   const top = git(cwd, ['rev-parse', '--show-toplevel']);
@@ -93,6 +93,7 @@ export function writeCopy(sid, cwd, md, { commit = true } = {}) {
       committed = true;
     } catch {}
   }
-  notes.unshift(`WORK-STATE.md now holds the Work OS State v${vNew}${committed ? ', committed on its own' : ' (not committed: a merge or rebase is under way, or no branch; the next save commits it)'}. Nothing to do: never edit that file.`);
+  const why = !commit ? ' (not committed: another session in this folder commits it)' : ' (not committed: a merge or rebase is under way, or no branch; the next save commits it)';
+  notes.unshift(`WORK-STATE.md now holds the Work OS State v${vNew}${committed ? ', committed on its own' : why}. Nothing to do: never edit that file.`);
   return { version: vNew, committed, notes };
 }

@@ -24,7 +24,7 @@ async function deviceOf(who, name) {
   await rawDb.collection('devices').updateOne({ _id: dev.id }, { $set: { ownerId: who.userId, orgId: who.orgId } });
   return dev;
 }
-const at = remote => ({ remote: `https://github.com/${remote}.git`, branch: 'main', path: `C:/code/${remote.split('/')[1]}`, machine: 'state-pc', label: 'Claude Code' });
+const at = remote => ({ folders: [{ 'acme/state-one': 'fold1', 'acme/state-two': 'fold2' }[remote]].filter(Boolean), remote: `https://github.com/${remote}.git`, branch: 'main', path: `C:/code/${remote.split('/')[1]}`, machine: 'state-pc', label: 'Claude Code' });
 const stateDoc = async id => rawDb.collection('states').findOne({ _id: id });
 
 try {
@@ -45,7 +45,7 @@ try {
   await must(MCP, 'save_state', { project: 'State Two', ops: [{ op: 'add_next', text: 'Two only line' }] });
 
   const pc = await deviceOf(ME, 'state-pc-1');
-  await rawDb.collection('workerFolders').insertMany([folder(pc, ME, 'f1', 'acme/state-one', one), folder(pc, ME, 'f2', 'acme/state-two', two)]);
+  await rawDb.collection('workerFolders').insertMany([folder(pc, ME, 'fold1', 'acme/state-one', one), folder(pc, ME, 'fold2', 'acme/state-two', two)]);
   const s1 = await start(pc.key, at('acme/state-one'));
   const T1 = s1.json?.token ?? '';
   const sid = s1.json?.brief?.session;
@@ -58,6 +58,13 @@ try {
   const cp = await must(await mkKey({ agent: 'claude-code', name: 'state copy reader' }), 'get_state', { project: 'State One', copy: true });
   check('an empty body: 200 with project, version and the copy', a0.status === 200 && a0.json?.project === one && a0.json?.version === cp.version && typeof a0.json?.markdown === 'string' && !('applied' in a0.json), `${a0.status} ${a0.text.slice(0, 200)}`);
   check('the copy is the same text get_state copy:true gives', a0.json?.markdown === cp.markdown, a0.json?.markdown);
+  // Lanes step 6: one session per checkout commits the copy: the oldest live one when nobody there holds Now.
+  const s1b = await start(pc.key, at('acme/state-one')); // the same folder, a later session
+  const T1b = s1b.json?.token ?? '';
+  const c1 = await st(T1, {});
+  const c1b = await st(T1b, {});
+  check('Lanes 6: commit true for the oldest live session of the folder, false for the later one', c1.json?.commit === true && c1b.json?.commit === false, `${c1.json?.commit} ${c1b.json?.commit}`);
+  check('Lanes 6: a session in another project has its own folder and commits', (await st(T2, {})).json?.commit === true);
   check('no Decisions and no Where in the copy (repo not known private)', !a0.json?.markdown.includes('Secret pricing') && !a0.json?.markdown.includes('## Where'), a0.json?.markdown);
   check('no-store on the answer', /no-store/.test(a0.headers.get('cache-control') ?? ''));
   const a2 = await st(T2, {});
@@ -125,26 +132,26 @@ try {
 
   // ---- an unlinked folder, a revoked computer, a member who left ----
   const pc2 = await deviceOf(ME, 'state-pc-2');
-  await rawDb.collection('workerFolders').insertOne(folder(pc2, ME, 'g1', 'acme/state-one', one));
-  const T3 = (await start(pc2.key, at('acme/state-one'))).json?.token ?? '';
+  await rawDb.collection('workerFolders').insertOne(folder(pc2, ME, 'fold-g', 'acme/state-one', one));
+  const T3 = (await start(pc2.key, { ...at('acme/state-one'), folders: ['fold-g'] })).json?.token ?? '';
   check('a second computer’s token works', !!T3 && (await st(T3, {})).status === 200);
-  await rawDb.collection('workerFolders').updateOne({ _id: `${pc2.id}:g1` }, { $set: { projectId: null, linkedAt: null } });
+  await rawDb.collection('workerFolders').updateOne({ _id: `${pc2.id}:fold-g` }, { $set: { projectId: null, linkedAt: null } });
   const unl = await st(T3, {});
   check('a folder unlinked since the session began: 404, no copy', unl.status === 404 && !/Copy of/.test(unl.text), `${unl.status} ${unl.text.slice(0, 120)}`);
   await rawDb.collection('devices').updateOne({ _id: pc2.id }, { $set: { revokedAt: new Date() } });
   check('a revoked computer’s token: 401', (await st(T3, {})).status === 401);
   const M = await makeUser({ email: 'state-m@example.test', name: 'Moe', orgId: ME.orgId, role: 'member' });
   const pcM = await deviceOf(M, 'state-moe-pc');
-  await rawDb.collection('workerFolders').insertOne(folder(pcM, M, 'm1', 'acme/state-one', one));
-  const TM = (await start(pcM.key, at('acme/state-one'))).json?.token ?? '';
+  await rawDb.collection('workerFolders').insertOne(folder(pcM, M, 'fold-m', 'acme/state-one', one));
+  const TM = (await start(pcM.key, { ...at('acme/state-one'), folders: ['fold-m'] })).json?.token ?? '';
   check('a member’s token works while they are a member', !!TM && (await st(TM, {})).status === 200);
   // (A removed member's token is refused by the same roleOf check as the device key in agent-start.mjs; roles are cached for a
   // minute in the server, so it cannot be shown here after the token has been used.)
 
   // ---- hourly limit: 240 State calls per token ----
   const pc4 = await deviceOf(ME, 'state-pc-4');
-  await rawDb.collection('workerFolders').insertOne(folder(pc4, ME, 'h1', 'acme/state-one', one));
-  const T4 = (await start(pc4.key, at('acme/state-one'))).json?.token ?? '';
+  await rawDb.collection('workerFolders').insertOne(folder(pc4, ME, 'fold-h', 'acme/state-one', one));
+  const T4 = (await start(pc4.key, { ...at('acme/state-one'), folders: ['fold-h'] })).json?.token ?? '';
   let ok = 0;
   for (let i = 0; i < 245 && T4; i++) if ((await st(T4, {})).status === 200) ok++;
   const over = await st(T4, {});
