@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 111. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 112. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -37,4 +37,5 @@ Copy of the Work OS state, version 111. WORK-STATE.md is a copy of the State, wr
 - flow-dc1 'a review Need gets no buttons in its DM' fails about 2 runs in 3: the test inserts the review Need's alert after the asks, so the DM sometimes misses the batch. Test race; the alerts code didn't change in R7.
 - The SIGTERM fix does not work: on R7 (59cb0edb5693) a systemctl restart still waits the full 30 s stop-sigterm timeout, then SIGKILL (journal 20 Nov 01:44 IST). Something keeps next-server open (SSE /live streams, the wait route, or Mongo). Each deploy is about 30 s down.
 - Declutter cache still counted "7 open Claude items" on 20 Nov after the migration moved them all: the cached daily reasons are not refreshed after a migration or apply. — waits on a fix slot (small)
-<!-- work-os-copy sha1:368217fb06dc800862659968a0a31d0a09c6bb1b -->
+- R8 stopgap (builder-b ab06462) blocks invented and dispatched session ids for Orders writes, but not a copied real hooked id passed as the session argument. The dispatch credential (slot A) closes that. Re-review both together before merge. — waits on slot A's dispatch credential
+<!-- work-os-copy sha1:fd1a6a6087275593a70e732751683dc60fc87d11 -->
