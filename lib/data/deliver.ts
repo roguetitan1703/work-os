@@ -35,7 +35,7 @@ import { hookRowId } from './presence';
 
 export const WAKE_CHAIN_MAX = 2;
 export type Mode = 'turn' | 'stop' | 'wake';
-export type Delivery = { text: string; /** Ids of the messages in the text. */ ids: string[]; /** Ids of the answered Needs in it. */ needs: string[]; /** Orders versions in it, as `ord:<noteId>:<v>` (one per page: the newest). */ orders: string[]; /** The new short form of the organization Orders, when that layer changed (the hook keeps it for subagents). */ short?: string; /** Whether anything in it may wake a session. */ wakeable: boolean };
+export type Delivery = { text: string; /** Ids of the messages in the text. */ ids: string[]; /** Ids of the answered Needs in it. */ needs: string[]; /** Orders versions in it, as `ord:<noteId>:<v>` (one per page: the newest). */ orders: string[]; /** The new short form of the organization Orders, when that layer changed (the hook keeps it for subagents), and the version it is of. */ short?: string; shortV?: number; /** Whether anything in it may wake a session. */ wakeable: boolean };
 
 /** The session as a reader of messages: its key, the person, its presence row. */
 export const readerOf = (s: Scope, sid: string, row: PresenceDoc): Reader => ({ key: `${s.userId}:${sid}`, userId: s.userId, row });
@@ -91,13 +91,14 @@ function clockOf(d: Date, tz?: string): string {
  * it. Text the layer's holder did not write (a project layer someone else wrote) is information, not a rule. Several unread
  * versions of one page are shown together under the newest version.
  */
-function ordersBlocks(chs: OrdersChange[], names: Record<string, string>, me: string, tz: string | undefined): { text: string; ids: string[]; layers: Set<string>; notes: string[] } {
+function ordersBlocks(chs: OrdersChange[], names: Record<string, string>, me: string, tz: string | undefined): { text: string; ids: string[]; layers: Set<string>; notes: string[]; orgV?: number } {
   const byNote = new Map<string, OrdersChange[]>();
   for (const x of chs) byNote.set(x.noteId, [...(byNote.get(x.noteId) ?? []), x]);
   const blocks: string[] = [];
   const ids: string[] = [];
   const notes: string[] = [];
   const layers = new Set<string>();
+  let orgV: number | undefined;
   let used = 0;
   for (const [noteId, list] of [...byNote].slice(0, 2)) {
     const asc = [...list].sort((a, b) => a.version - b.version);
@@ -129,8 +130,9 @@ function ordersBlocks(chs: OrdersChange[], names: Record<string, string>, me: st
     ids.push(`ord:${noteId}:${last.version}`);
     notes.push(noteId);
     layers.add(last.layer);
+    if (last.layer === 'org' && orgV === undefined) orgV = last.version;
   }
-  return { text: blocks.join('\n'), ids, layers, notes };
+  return { text: blocks.join('\n'), ids, layers, notes, orgV };
 }
 
 /** An offer not acknowledged within this long may be offered again (a hook that timed out or dropped it); a second call inside it is not offered the same. */
@@ -185,7 +187,7 @@ export async function deliverFor(s: Scope, sid: string, projectId: string, mode:
   const text = [framed.text, ...shownNeeds.map(n => needBlock(n, names, s.userId)), ob?.text].filter(Boolean).join('\n');
   // The new short form of the organization Orders, for subagents (the hook keeps it in the session's marker).
   const short = ob?.layers.has('org') ? shortForm((await ordersFor(s, { _id: projectId })).find(o => o.layer === 'org')?.text ?? '') : undefined;
-  return { delivery: { text, ids, needs: needIds, orders: ordIds, ...(short !== undefined ? { short } : {}), wakeable: mode !== 'turn' || shownNeeds.length > 0 || msgs.some(m => ids.includes(m._id) && wakeWorthy(m, reader, project.ownerId)) } };
+  return { delivery: { text, ids, needs: needIds, orders: ordIds, ...(short !== undefined ? { short, ...(ob?.orgV ? { shortV: ob.orgV } : {}) } : {}), wakeable: mode !== 'turn' || shownNeeds.length > 0 || msgs.some(m => ids.includes(m._id) && wakeWorthy(m, reader, project.ownerId)) } };
 }
 
 /**

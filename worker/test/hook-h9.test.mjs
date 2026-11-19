@@ -72,3 +72,41 @@ test('deliverOut: the short form of a changed organization Orders replaces the o
   assert.equal(lib.readMarker('h9-keep').short, 'kept', 'a delivery without Orders leaves the short form alone');
   assert.equal(lib.deliverOut('PostToolBatch', { status: 200, b: {} }, 'h9-keep'), null);
 });
+
+// ---- step 7: the subagent short form ----
+test('subagent-start: prints the marker short form with its version, and nothing without one', async () => {
+  const { main } = await import('../hook.mjs');
+  lib.writeMarker('h9-sub', { status: 'x', short: 'Rule one.\nRule two.', shortV: 14 });
+  const out = JSON.parse(await main('subagent-start', JSON.stringify({ session_id: 'h9-sub', agent_id: 'a1', agent_type: 'Explore', hook_event_name: 'SubagentStart' })));
+  assert.equal(out.hookSpecificOutput.hookEventName, 'SubagentStart');
+  assert.equal(out.hookSpecificOutput.additionalContext, "## Work OS Orders, short form (v14; the full Orders are in your parent's brief)\nRule one.\nRule two.");
+  lib.writeMarker('h9-sub2', { status: 'x', short: 'Only.' });
+  assert.match(JSON.parse(await main('subagent-start', JSON.stringify({ session_id: 'h9-sub2' }))).hookSpecificOutput.additionalContext, /^## Work OS Orders, short form \(the full Orders/, 'no version known: the heading says so by leaving it out');
+  lib.writeMarker('h9-none', { status: 'x' });
+  assert.equal(await main('subagent-start', JSON.stringify({ session_id: 'h9-none' })), '');
+  assert.equal(await main('subagent-start', JSON.stringify({ session_id: 'h9-never-started' })), '');
+  assert.equal(await main('subagent-start', '{}'), '');
+  assert.equal(await main('subagent-start', 'not json'), '');
+});
+
+test('subagent-start: reads the marker only (no key, no token, no network) and is in EVENTS for cloud too', async () => {
+  const { EVENTS } = lib;
+  const row = EVENTS.find((e) => e.event === 'subagent-start');
+  assert.deepEqual({ claudeEvent: row.claudeEvent, matcher: row.matcher, timeoutS: row.timeoutS, local: !!row.localOnly }, { claudeEvent: 'SubagentStart', matcher: null, timeoutS: 2, local: false });
+  const src = fs.readFileSync(new URL('../hook-subagent-start.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /fetch|postAgent|postEvent|mcpCall|http/i);
+});
+
+test('the session start stores the short form and its version in the marker', async () => {
+  const start = await import('../hook-session-start.mjs');
+  assert.equal(typeof start.formatBrief, 'function');
+  const src = fs.readFileSync(new URL('../hook-session-start.mjs', import.meta.url), 'utf8');
+  assert.match(src, /short: r\.shortOrders\.slice\(0, 1200\)/);
+  assert.match(src, /shortV: r\.shortOrdersVersion/);
+});
+
+test('deliverOut keeps the version of the new short form with it', () => {
+  lib.writeMarker('h9-v', { status: 'x', short: 'old', shortV: 3 });
+  lib.deliverOut('PostToolBatch', { status: 200, b: { deliver: { text: 't', ids: [], needs: [], orders: ['ord:a:5'], short: 'new line', shortV: 5 } } }, 'h9-v');
+  assert.deepEqual([lib.readMarker('h9-v').short, lib.readMarker('h9-v').shortV], ['new line', 5]);
+});
