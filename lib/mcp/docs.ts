@@ -193,7 +193,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   set_doing: {
     title: 'Set what you are doing',
-    description: 'Tell the roster which task you are working on now (a ref or id; omit it to clear). Needs a session from start_work. The Workers tab on the Claude page shows it beside your name; if you stop calling Work OS for 30 minutes you count as gone and the task shows as unheld, so others can pick it up. Change it when you move to another task.',
+    description: 'Tell the roster which task you are working on now (a ref or id; omit it to clear). Needs a session from start_work. The Workers tab on the Claude page shows it beside your name; if you stop calling Work OS for 30 minutes you count as off and the task shows as unheld, so others can pick it up. Change it when you move to another task.',
     writes: false,
     example: 'I am starting task #42 now',
   },
@@ -213,7 +213,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   list_sessions: {
     title: 'List sessions',
     description:
-      'The sessions working on the projects you can read, as the roster shows them: session id, name (its label), person, tool, model, machine, project, branch, doing (task), state (working, waiting, idle or gone), minutesAgo and parent (for a builder), plus how full each machine is (machines). project: only that project; include_gone: true also lists sessions that stopped. At most 30. Use it to see who is on what before you start; it never shows other organizations or projects you cannot read.',
+      'The sessions working on the projects you can read, as the roster shows them: session id, name (its label), person, tool, model, machine, project, branch, doing (task), state (on, working, waiting, idle or off), minutesAgo and parent (for a builder), plus how full each machine is (machines). project: only that project; include_off: true also lists sessions that are off. At most 30. Use it to see who is on what before you start; it never shows other organizations or projects you cannot read.',
     writes: false,
     example: 'Who is working on Grant Leads right now?',
   },

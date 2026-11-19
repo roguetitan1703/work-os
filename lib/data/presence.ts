@@ -1,5 +1,6 @@
 import 'server-only';
-import type { PresenceDoc, ProjectDoc } from '../db';
+import type { PresenceDoc, PresenceState, ProjectDoc } from '../db';
+import { eventState, type EventKind, type EventName } from './presence-state';
 import { scoped, type Scope } from '../scope';
 import { placeIn } from './projects';
 
@@ -58,7 +59,9 @@ export async function readerRow(s: Scope, i: Ident): Promise<PresenceDoc | null>
   return null;
 }
 
-const rowId = (i: Ident, projectId: string) => (i.session ? `${i.userId}:s:${i.session}:${projectId}` : `${i.userId}:k:${i.keyId ?? i.agent}:${projectId}`);
+/** The row id of a hook session: the person, the session token's id and the project (the shape rowId makes for a session id). */
+export const hookRowId = (userId: string, sid: string, projectId: string) => `${userId}:s:${sid}:${projectId}`;
+const rowId = (i: Ident, projectId: string) => (i.session ? hookRowId(i.userId, i.session, projectId) : `${i.userId}:k:${i.keyId ?? i.agent}:${projectId}`);
 
 // "No row for this caller" is remembered for a few seconds, so a caller who never calls start_work costs no read per tool call.
 const none = new Map<string, number>();
@@ -70,7 +73,7 @@ export type RosterReport = { hook?: number; model?: string; account?: string; pa
 const clip = (v: string | undefined, n: number) => (v ?? '').trim().slice(0, n);
 
 /** `fresh`: this call made the row (a new session), not a re-call of one that was there (after compaction, or a later start_work). */
-export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, o: { machine?: string; label?: string } & RosterReport): Promise<PresenceDoc & { fresh: boolean }> {
+export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, o: { machine?: string; label?: string; /** Claude Code's own session UUID (the hook's start only). */ ccSession?: string; /** The state this start puts the session in (the hook's start only: on, or working after a compaction). */ activity?: 'on' | 'working' } & RosterReport): Promise<PresenceDoc & { fresh: boolean }> {
   const c = await scoped(s);
   const now = new Date();
   const _id = rowId(i, project._id);
@@ -97,6 +100,8 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc, 
         ...(clip(o.slot, 20) ? { slot: clip(o.slot, 20) } : {}),
         ...(clip(o.branch, 120) ? { branch: clip(o.branch, 120) } : {}),
         ...(o.machine && o.machineName ? { machineName: o.machineName } : {}),
+        ...(o.ccSession ? { ccSession: o.ccSession } : {}),
+        ...(o.activity ? { activity: { state: o.activity, at: now } } : {}),
         lastSeen: now,
         // start_work hands over everything there is, so what is "new for you" starts here.
         forYouCursor: now,
@@ -190,7 +195,58 @@ export async function setDoing(s: Scope, i: Ident, taskId: string | null): Promi
   return (await c.presence.findOne({ _id: row._id }))!;
 }
 
-/** end_work: the session stops. Clears what it is doing and marks the row ended (the roster shows it gone). */
+const SKEW_MS = 5 * 60_000;
+/** A repeat of the state already stored, within this long of the last event, needs no write (and no budget). */
+const REPEAT_MS = 60_000;
+
+/**
+ * Is this event a repeat that changes nothing: a kind of notification with no effect, or the state the row already has,
+ * recorded less than a minute ago? Such an event is answered from the row without a write and costs no hourly budget, so a
+ * session making many tool calls never runs out of events. `state` is null when the row is gone (not free: it is charged).
+ */
+export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string }, ev: { event: EventName; kind?: EventKind }): Promise<{ free: boolean; state: PresenceState | null; ignored?: boolean }> {
+  const next = eventState(ev);
+  const row = await (await scoped(s)).presence.findOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { projection: { activity: 1 } });
+  if (!row) return { free: false, state: null };
+  const a = row.activity;
+  if (!next) return { free: true, state: a?.state ?? null, ignored: true };
+  const same = !!a && a.state === next.state && a.why === next.why && Date.now() - a.at.getTime() < REPEAT_MS;
+  return { free: same, state: a?.state ?? null };
+}
+
+/**
+ * One event from a session's Claude Code hook (POST /api/agent/event): sets `activity` from what happened and refreshes
+ * lastSeen. Only the row `hookRowId(...)` is touched, never upserted. `at` is the hook's clock (ms), clamped to the server's
+ * now plus or minus 5 minutes; an event not newer than the stored one changes nothing (async hooks arrive out of order).
+ * Answers the state after the event (the stored one when the event was stale), `state: null` when the row is gone,
+ * `ignored` for an event that changes nothing, and `changed` when the state differs from before.
+ */
+export async function recordEvent(
+  s: Scope,
+  r: { sid: string; projectId: string },
+  ev: { event: EventName; kind?: EventKind; at?: number },
+): Promise<{ state: PresenceState | null; changed: boolean; ignored?: boolean }> {
+  const next = eventState(ev);
+  const c = await scoped(s);
+  const _id = hookRowId(s.userId, r.sid, r.projectId);
+  if (!next) {
+    const row = await c.presence.findOne({ _id }, { projection: { activity: 1 } });
+    return { state: row ? (row.activity?.state ?? null) : null, changed: false, ignored: true };
+  }
+  const now = Date.now();
+  const at = new Date(Math.min(now + SKEW_MS, Math.max(now - SKEW_MS, Number.isFinite(ev.at) ? ev.at! : now)));
+  const before = await c.presence.findOneAndUpdate(
+    { _id, userId: s.userId, $or: [{ activity: { $exists: false } }, { 'activity.at': { $lt: at } }] },
+    { $set: { activity: { state: next.state, at, ...(next.why ? { why: next.why } : {}) }, lastSeen: new Date(now) } },
+    { returnDocument: 'before', projection: { activity: 1 } },
+  );
+  if (before) return { state: next.state, changed: before.activity?.state !== next.state };
+  // Not updated: the row is gone, or the stored state is newer than this event.
+  const row = await c.presence.findOne({ _id }, { projection: { activity: 1 } });
+  return { state: row ? (row.activity?.state ?? null) : null, changed: false };
+}
+
+/** end_work: the session stops. Clears what it is doing and marks the row ended (the roster shows it off). */
 export async function endPresence(s: Scope, row: PresenceDoc): Promise<void> {
   await (await scoped(s)).presence.updateOne({ _id: row._id }, { $unset: { doing: '' }, $set: { endedAt: new Date() } });
   for (const k of [...none.keys()]) if (k.startsWith(`${row.userId}|`)) none.delete(k);

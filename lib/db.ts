@@ -315,6 +315,8 @@ export type MessageDoc = Placed & {
 };
 
 /** A session working on a project (docs/flows/step-1.md section 5), stamped with the project's placement. `forYouCursor`: what the "for you" line has already named. */
+/** What a session is doing, as the Work OS hook or the call-based rules say (lib/data/presence-state.ts). */
+export type PresenceState = 'on' | 'working' | 'waiting' | 'idle' | 'off';
 export type PresenceDoc = Placed & {
   _id: string;
   projectId: string;
@@ -353,6 +355,10 @@ export type PresenceDoc = Placed & {
   machineName?: string;
   /** The task the worker says it is on (set_doing): only its id. Its number and title are read through the scoped door when shown, so a viewer who cannot read the task sees nothing of it. */
   doing?: { taskId: string; at: Date };
+  /** The state the Claude Code hook last reported (POST /api/agent/event; the server decides it from the event). Absent for sessions with no hook token. */
+  activity?: { state: PresenceState; at: Date; why?: 'prompt' };
+  /** Claude Code's own session UUID, only for the join with the worker daemon's session list. Never shown to anyone. */
+  ccSession?: string;
   /** Set by end_work: the session said it stopped. The roster shows it as gone. A later start_work clears it. */
   endedAt?: Date;
 };

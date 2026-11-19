@@ -142,9 +142,9 @@ try {
 
   // ── 9. list_sessions: gone after end_work, working after a new start_work; nobody else's sessions
   const ls = async (key, args = {}) => must(key, 'list_sessions', args);
-  const listed = await ls(cc, { project: P, include_gone: true });
+  const listed = await ls(cc, { project: P, include_off: true });
   const s3 = listed.sessions.find(x => x.session === 'h5s3');
-  check('H5 list_sessions: after end_work the session is gone (listed only with include_gone)', s3?.state === 'gone' && !(await ls(cc, { project: P })).sessions.some(x => x.session === 'h5s3'), JSON.stringify(s3));
+  check('H5 list_sessions: after end_work the session is off (listed only with include_off)', s3?.state === 'off' && !(await ls(cc, { project: P })).sessions.some(x => x.session === 'h5s3'), JSON.stringify(s3));
   await start(cc, 'h5s3');
   const s3b = (await ls(cc, { project: P })).sessions.find(x => x.session === 'h5s3');
   check('H5 list_sessions: live again after a new start_work (waiting: its Need is still open)', s3b?.state === 'waiting' && s3b.person === 'me' && s3b.project === P && s3b.branch === 'builder-b', JSON.stringify(s3b));
@@ -152,13 +152,13 @@ try {
   check('H5 list_sessions: a teammate sees the sessions on the shared project without their session ids', tList.sessions.some(x => x.project === P) && tList.sessions.every(x => !('session' in x) || x.person === 'me'), JSON.stringify(tList).slice(0, 300));
   await must(kX, 'add_project', { name: 'H5 Other Project' });
   await must(kX, 'start_work', { project: 'H5 Other Project', label: 'h5-xavier-canary', session: 'h5x1' }, hdr('h5x1'));
-  const omAll = JSON.stringify(await ls(cc, { include_gone: true }));
-  const tAll = JSON.stringify(await ls(kT, { include_gone: true }));
-  const xAll = JSON.stringify(await ls(kX, { include_gone: true }));
+  const omAll = JSON.stringify(await ls(cc, { include_off: true }));
+  const tAll = JSON.stringify(await ls(kT, { include_off: true }));
+  const xAll = JSON.stringify(await ls(kX, { include_off: true }));
   check('H5 list_sessions: another organization\'s sessions are never listed', !omAll.includes('h5-xavier-canary') && !tAll.includes('h5-xavier-canary') && !omAll.includes('H5 Other Project'), omAll.slice(0, 200));
   check('H5 list_sessions: the other organization sees none of ours', xAll.includes('h5-xavier-canary') && !xAll.includes('H5 builder') && !xAll.includes(P), xAll.slice(0, 200));
   await must(cc, 'start_work', { project: Q, label: 'h5-private-canary', session: 'h5q1' }, hdr('h5q1'));
-  const tNoQ = JSON.stringify(await ls(kT, { include_gone: true }));
+  const tNoQ = JSON.stringify(await ls(kT, { include_off: true }));
   check('H5 list_sessions: a teammate does not see a session on a private project', !tNoQ.includes('h5-private-canary') && !tNoQ.includes(Q));
 } catch (e) {
   check('flow-h5 (error)', false, e?.stack || String(e));

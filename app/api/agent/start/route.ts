@@ -24,7 +24,9 @@ import type { Scope } from '@/lib/scope';
 // Nothing else opens it: no Work OS API key, no OAuth token, no session cookie, no X-API-Key. The device's owner must
 // still be a member of its organization on every call. Rate limited per computer (new sessions) and per session (briefs),
 // lib/mcp/policy.ts AGENT_PER_HOUR. The token never goes into the brief, the database or the log.
-// Body also takes head, dirty and worktrees (Where, written without a State version bump). The X-Work-OS-Hook header marks the
+// Body also takes head, dirty and worktrees (Where, written without a State version bump), ccSession (Claude Code's own session
+// UUID, kept on the presence row only to join the worker's session list; never shown) and source (startup, resume, clear, compact:
+// the session is then on, or working after a compaction). The row's machine is the device itself, whatever hostname the body names. The X-Work-OS-Hook header marks the
 // hook's protocol (new hooks send 2; none means 1, which still gets the copy in save answers).
 //   200 { brief, token?, expiresAt } · 400 bad body · 401 no or bad credential · 403 a token for another project
 //   404 no project with a folder on this computer matches · 413 body too large · 429 over the hourly limit
@@ -46,6 +48,8 @@ const Body = z
     machine: z.string().max(40).optional(),
     label: z.string().max(120).optional(),
     model: z.string().max(60).optional(),
+    ccSession: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i).optional(),
+    source: z.enum(['startup', 'resume', 'clear', 'compact']).optional(),
     head: z.string().max(80).optional(),
     dirty: z.boolean().optional(),
     worktrees: z.array(z.string().max(200)).max(20).optional(),
@@ -131,7 +135,7 @@ export async function POST(req: Request): Promise<Response> {
       // Where this session works: no version bump (lib/data/states.ts setWhere). Only when the hook sent something to show.
       if (b.head || b.dirty !== undefined || b.worktrees || b.branch) await setWhere(s, projectId, b.machine || device.name, { branch: b.branch, head: b.head, dirty: b.dirty, worktrees: b.worktrees });
       // Hook protocol: the X-Work-OS-Hook header; a start without it is the old hook (1, still gets the copy in answers).
-      const brief = await startWorkBrief(ctx, projectId, session.id, { hook: hook ?? 1, branch: b.branch, machine: b.machine, label: b.label, model: b.model });
+      const brief = await startWorkBrief(ctx, projectId, session.id, { hook: hook ?? 1, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, model: b.model });
       return reply(200, { brief, ...(token ? { token } : {}), expiresAt: session.expiresAt.toISOString() });
     });
   } catch (err) {

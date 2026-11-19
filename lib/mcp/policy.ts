@@ -165,10 +165,10 @@ export async function reserveIntake(source: IntakeSource): Promise<{ ok: true; r
 
 /**
  * The Work OS hook's route (POST /api/agent/start, lib/agent-sessions.ts), per rolling hour: new sessions a computer's
- * device key may open, briefs one session token may fetch (start and every compaction), and State calls (POST /api/agent/state) one session token may make. Its own counters, apart
+ * device key may open, briefs one session token may fetch (start and every compaction), State calls (POST /api/agent/state) and session events (POST /api/agent/event) one session token may make. Its own counters, apart
  * from the key budgets above and the worker routes' per-minute limit.
  */
-export const AGENT_PER_HOUR = { device: 30, session: 20, state: 240 } as const;
+export const AGENT_PER_HOUR = { device: 30, session: 20, state: 240, event: 300 } as const;
 
 /** One slot of that budget (the same race-safe reserve as the key budgets); false when it is used up. */
 export async function reserveAgent(kind: keyof typeof AGENT_PER_HOUR, id: string): Promise<boolean> {

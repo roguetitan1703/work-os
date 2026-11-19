@@ -1,12 +1,15 @@
 // Flow W1 (docs/flows/plan-1-3.md slice 7): the roster. Workers (present sessions) carry model, account, machine, branch
-// and the task they are on; builders show under their orchestrator; a worker that stops calling shows as gone within one
+// and the task they are on; builders show under their orchestrator; a worker that stops calling shows as off within one
 // cycle (its state is computed on every read, so there is no cycle to wait for) and its task as unheld; a quiet worker is
 // idle; a worker with an open Need waits on a person; "could be running and isn't" lists projects with unblocked Next
 // lines and no live worker. The Workers tab at 390 and 1280. lastSeen is backdated through the raw database.
 // Seed profile: none.
 import { randomUUID } from 'node:crypto';
 import { B, ME, MCP, EMAIL, PW, SP, check, finish, launch, login, makeUser, mkKey, overflow, okO, rawDb } from './lib.mjs';
+import { createHash } from 'node:crypto';
 import { mcpH, must, sleep } from './flow-lib.mjs';
+// Another person's row is labelled by a one-way hash of its id (lib/data/roster.ts opaqueId).
+const opq = id => createHash('sha256').update(`worker-row:${id}`).digest('hex').slice(0, 16);
 
 const NAME = 'Flow Roster';
 let PID = ''; // presence rows are keyed user:s:session:project
@@ -73,29 +76,29 @@ try {
   h = await html('/claude?tab=workers');
   ws = workers(h);
   const bs = row(ws, 'w1-bs');
-  check('W1: a worker not seen for 40 minutes shows as gone, still under its orchestrator (its task shows unheld: checked in the browser below)', bs.state === 'gone' && bs.depth === 1 && ws.findIndex(w => w.id === bs.id) > 0, JSON.stringify(bs).slice(0, 900));
+  check('W1: a worker not seen for 40 minutes shows as off, still under its orchestrator (its task shows unheld: checked in the browser below)', bs.state === 'off' && bs.depth === 1 && ws.findIndex(w => w.id === bs.id) > 0, JSON.stringify(bs).slice(0, 900));
   await seen('w1-bs', 25);
-  check('W1: seen 25 minutes ago it is idle, not gone', row(workers(await html('/claude?tab=workers')), 'w1-bs').state === 'idle');
+  check('W1: seen 25 minutes ago it is idle, not off', row(workers(await html('/claude?tab=workers')), 'w1-bs').state === 'idle');
   await seen('w1-ba', 15);
   check('W1: seen 15 minutes ago is idle too', row(workers(await html('/claude?tab=workers')), 'w1-ba').state === 'idle');
   await seen('w1-bs', 40);
 
-  // Where the daemon reports it, a process that still runs is not gone however quiet it is
+  // Where the daemon reports it, a process that still runs is not off however quiet it is
   await seen('w1-ba', 45);
-  check('W1: 45 quiet minutes and no daemon report: gone', row(workers(await html('/claude?tab=workers')), 'w1-ba').state === 'gone');
+  check('W1: 45 quiet minutes and no daemon report: off', row(workers(await html('/claude?tab=workers')), 'w1-ba').state === 'off');
   const rep = running => rawDb.collection('devices').updateOne({ _id: devId }, { $set: { claudeSessions: { at: new Date(), items: [{ sessionId: 'w1-ba', folder: 'f', title: 't', lastActiveAt: new Date(), subagentsActive: 0, startedByWorkOs: false, running }] } } });
   await rep(true);
   h = await html('/claude?tab=workers');
   const live = row(workers(h), 'w1-ba');
-  check('W1: the daemon says its process runs: not gone (idle), its task still held ', live.state === 'idle', JSON.stringify(live).slice(0, 300));
+  check('W1: the daemon says its process runs: not off (idle), its task still held ', live.state === 'idle', JSON.stringify(live).slice(0, 300));
   await rep(false);
-  check('W1: the daemon says the process is gone: gone', row(workers(await html('/claude?tab=workers')), 'w1-ba').state === 'gone');
+  check('W1: the daemon says the process is gone: off', row(workers(await html('/claude?tab=workers')), 'w1-ba').state === 'off');
   await seen('w1-ba', 1);
 
   // A gone worker that calls again is back, and keeps what it reported before
   await must(ag, 'start_work', { project: NAME, machine: 'laptop-x', label: 'builder S', session: 'w1-bs' });
   const back = await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:w1-bs:${PID}` });
-  check('W1: a gone worker that calls start_work again is working, with its model, account and parent kept', row(workers(await html('/claude?tab=workers')), 'w1-bs').state === 'working' && back.model === 'Sonnet 5.5' && back.account === 'om-api' && back.parent === 'w1-orch', JSON.stringify([back.model, back.account, back.parent]));
+  check('W1: an off worker that calls start_work again is working, with its model, account and parent kept', row(workers(await html('/claude?tab=workers')), 'w1-bs').state === 'working' && back.model === 'Sonnet 5.5' && back.account === 'om-api' && back.parent === 'w1-orch', JSON.stringify([back.model, back.account, back.parent]));
 
   // Waiting on a person: a Need the worker asked that is still open (lib/data/needs.ts; matched on its session, else on the client kind plus project)
   const st = sid => row(workers(htmlNow), sid)?.state;
@@ -120,11 +123,11 @@ try {
   await must(kT, 'start_work', { project: NAME, machine: 'tess-box', label: 'tess builder', parent: 'w1-ba', session: 'w1-tb' });
   await must(kT, 'start_work', { project: NAME, machine: 'tess-box', label: 'tess twin', session: 'w1-orch' });
   await snap();
-  const tb = workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-tb:${PID}`);
+  const tb = workers(htmlNow).find(w => w.id === opq(`${tess.userId}:s:w1-tb:${PID}`));
   check('W1: a builder whose parent names another person’s orchestrator stays top level', tb?.depth === 0, JSON.stringify(tb)?.slice(0, 300));
   const nT = await must(kT, 'ask', { project: NAME, to: EMAIL, kind: 'approve', ask: 'Tess asks: ship?', session: 'w1-orch' });
   await snap();
-  check('W1: another person’s Need with the same session id does not make this person’s worker wait (only their own twin does)', st('w1-orch') === 'working' && workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-orch:${PID}`)?.state === 'waiting', [st('w1-orch'), workers(htmlNow).find(w => w.id === `${tess.userId}:s:w1-orch:${PID}`)?.state].join());
+  check('W1: another person’s Need with the same session id does not make this person’s worker wait (only their own twin does)', st('w1-orch') === 'working' && workers(htmlNow).find(w => w.id === opq(`${tess.userId}:s:w1-orch:${PID}`))?.state === 'waiting', [st('w1-orch'), workers(htmlNow).find(w => w.id === opq(`${tess.userId}:s:w1-orch:${PID}`))?.state].join());
   await must(kT, 'withdraw_need', { id: nT.need.ref, session: 'w1-orch' });
   await rawDb.collection('presence').deleteMany({ userId: tess.userId }); // her rows must not keep the project busy in the cases below
 
@@ -164,7 +167,7 @@ try {
   check('W1: the project page lists who is working on it', /data-card="workers"/.test(await html(`/projects/${await pid(NAME)}`)));
   for (const sid of ['w1-orch', 'w1-ba', 'w1-bs']) await seen(sid, 40);
   h = await html('/claude?tab=workers');
-  check('W1: when every worker is gone the project joins the list', couldRun(h).includes(await pid(NAME)) && workers(h).every(w => w.state === 'gone'), JSON.stringify(couldRun(h)));
+  check('W1: when every worker is gone the project joins the list', couldRun(h).includes(await pid(NAME)) && workers(h).every(w => w.state === 'off'), JSON.stringify(couldRun(h)));
   check('W1: the project page for it now shows the line and no one working', /data-could-run/.test(await html(`/projects/${await pid(NAME)}`)) && !/data-card="workers"/.test(await html(`/projects/${await pid(NAME)}`)));
   for (const sid of ['w1-orch', 'w1-ba', 'w1-bs']) await seen(sid, 1);
 
@@ -184,7 +187,7 @@ try {
       await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:w1-bs:${PID}` }, { $set: { lastSeen: ago(40) } });
       await p.goto(B + '/claude?tab=workers');
       await p.waitForSelector('[data-section="workers"]');
-      check(T('a gone worker shows "Gone" and its task "unheld"'), (await p.locator(`[data-worker="${ME.userId}:s:w1-bs:${PID}"][data-state="gone"] [data-unheld]`).count()) === 1 && (await p.locator('[data-unheld]').count()) === 1);
+      check(T('an off worker shows "Off" and its task "unheld"'), (await p.locator(`[data-worker="${ME.userId}:s:w1-bs:${PID}"][data-state="off"] [data-unheld]`).count()) === 1 && (await p.locator('[data-unheld]').count()) === 1);
       await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:w1-bs:${PID}` }, { $set: { lastSeen: ago(1) } });
       await p.goto(B + '/claude?tab=workers');
       await p.waitForSelector('[data-section="workers"]');
