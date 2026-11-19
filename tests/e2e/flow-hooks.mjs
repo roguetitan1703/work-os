@@ -76,6 +76,18 @@ try {
   fs.appendFileSync(transcript, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__work-os__save_state', input: {} }] } }) + '\n');
   const after = hook('stop', stopIn('hk5'));
   check('stop: after a save_state in the session: no block', after.status === 0 && after.stdout === '', after.stdout + JSON.stringify(saved).slice(0, 100));
+
+  // H4: a hook (protocol 2) gets a short save answer; the post-tool hook fetches the copy with get_state copy:true and writes the copy file
+  const short = await fetch(B + '/api/mcp', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: 'Bearer ' + key, 'x-work-os-hook': '2' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'save_state', arguments: { project: NAME, session: sess, ops: [{ op: 'add_later', text: 'Short answer line' }] } } }),
+  }).then(async (r) => { const t = await r.text(); const d = t.split('\n').find((l) => l.startsWith('data:')); return JSON.parse(d ? d.slice(5) : t).result?.content?.[0]?.text ?? ''; });
+  check('H4: a protocol 2 save answers short, with no markdown and no state', /"saved":true/.test(short) && !/"markdown"/.test(short) && !/"state"/.test(short) && short.length < 400, short.slice(0, 200));
+  const gitEnv = { ...env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+  const p = hook('post-tool', { session_id: 'hk5', transcript_path: transcript, cwd: repo, hook_event_name: 'PostToolUse', tool_name: 'mcp__work-os__save_state', tool_input: {}, tool_response: [{ type: 'text', text: short }] }, gitEnv);
+  const copy = (() => { try { return fs.readFileSync(path.join(repo, 'WORK-STATE' + '.md'), 'utf8'); } catch { return ''; } })();
+  check('H4: post-tool wrote the copy file through get_state copy:true (has the new line, no Where)', p.status === 0 && /^Copy of the Work OS state, version \d+\./.test(copy) && copy.includes('Short answer line') && !/## Where/.test(copy), p.stdout + p.stderr + copy.slice(0, 200));
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
