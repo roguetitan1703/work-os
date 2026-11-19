@@ -3,7 +3,7 @@ import { projectOnDevice } from '@/lib/agent-sessions';
 import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf, noProject, readCapped } from '@/lib/agent-auth';
 import { reserveAgent } from '@/lib/mcp/policy';
 import { agentActor } from '@/lib/actors';
-import { editCopyLine, getState, setWhere, stateCopy } from '@/lib/data/states';
+import { editCopyLine, getState, holdsNowOf, setWhere, stateCopy } from '@/lib/data/states';
 import { countCopyEdit } from '@/lib/data/presence';
 import { hookHeader, runWithRequestContext } from '@/lib/request-context';
 import { timezoneOf } from '@/lib/profile';
@@ -18,9 +18,10 @@ import { InputError, NotFoundError } from '@/lib/data/errors';
 //   edit   One line of WORK-STATE.md changed by an Edit tool call: applied to the State as an edit_line (editCopyLine),
 //          as the Claude Code agent of the token's owner. Several lines, the header, Decisions and the marks of a line are refused.
 //          Each edit is counted once on the session's own row (copyEdits.forwarded or .refused, H12): numbers only.
-// Always answers the copy of the token's project (the same text get_state copy:true gives), so the hook can write the file.
+// Always answers the copy of the token's project (the same text get_state copy:true gives), so the hook can write the file,
+// and holdsNow: whether this session holds the State's Now (Lanes step 1).
 // Rate limited per session token, lib/mcp/policy.ts AGENT_PER_HOUR.state.
-//   200 { project, version, markdown, applied? } · 400 bad body or an edit refused · 401 no or bad credential
+//   200 { project, version, markdown, holdsNow, applied? } · 400 bad body or an edit refused · 401 no or bad credential
 //   404 the project has no folder on this computer any more · 413 body too large · 429 over the hourly limit
 // proxy.ts lets this exact path through untouched: this route checks its own credential.
 
@@ -72,7 +73,9 @@ export async function POST(req: Request): Promise<Response> {
 
     const hook = hookHeader(req.headers.get('x-work-os-hook'));
     const tz = await timezoneOf(s);
-    return await runWithRequestContext({ userId: s.userId, tz, hook, sid: session.id, src: session.id }, async () => {
+    // src as MCP calls name a session (userId:sid): holds and line stamps compare it (Lanes step 1).
+    const src = `${s.userId}:${session.id}`;
+    return await runWithRequestContext({ userId: s.userId, tz, hook, sid: session.id, src }, async () => {
       // Checked on every call: the folder may have been unlinked since the session began.
       if (!(await projectOnDevice(s, device.id, sessionProject))) return reply(404, { error: 'This project has no folder on this computer any more.' });
       const projectId = sessionProject;
@@ -99,7 +102,7 @@ export async function POST(req: Request): Promise<Response> {
       if (!state) return reply(404, { error: 'The project has no State yet.' });
       const baseUrl = (process.env.APP_URL || new URL(req.url).origin).replace(/\/+$/, '');
       const markdown = await stateCopy(s, project, state, baseUrl);
-      return reply(200, { project: project._id, version: state.version, markdown, ...(applied ? { applied } : {}) });
+      return reply(200, { project: project._id, version: state.version, markdown, holdsNow: holdsNowOf(state, src), ...(applied ? { applied } : {}) });
     });
   } catch (err) {
     if (err instanceof InputError) return reply(400, { error: err.message });

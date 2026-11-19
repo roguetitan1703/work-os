@@ -46,7 +46,12 @@ try {
   r = await withState(cc, r);
   check('S2: the first save makes the State at version 1', r.saved && r.version === 1 && r.state.next.length === 1 && r.state.later[0].waitsOn === 'the bucket', JSON.stringify(r).slice(0, 300));
   const v1 = r.version;
-  r = await must(cc, 'save_state', { project: NAME, ops: [{ op: 'set_now', text: 'Build the brief' }], base_version: v1 });
+  // Now is set by a session Work OS knows (Lanes): a call naming none is refused
+  await must(cc, 'start_work', { project: NAME, session: 's2cc' });
+  const noSess = await mcpH(cc, 'save_state', { project: NAME, ops: [{ op: 'set_now', text: 'Build the brief' }], base_version: v1 });
+  check('S2: set_now from a call that names no session is refused, nothing written (Lanes)', noSess.isError && /pass the session id start_work gave you/.test(noSess.text) && (await state(cc)).version === v1, noSess.text.slice(0, 200));
+  r = await must(cc, 'save_state', { project: NAME, session: 's2cc', ops: [{ op: 'set_now', text: 'Build the brief', holder: 'S2 lead' }], base_version: v1 });
+  check('S2: set_now makes the caller the Now holder; its holder argument is ignored and the answer says so (Lanes)', r.holdsNow === true && r.holdsNowFor === 's2cc' && /holder is ignored/.test(r.note ?? ''), JSON.stringify(r).slice(0, 300));
   r = await withState(cc, r);
   check('S2: set_now with the current base_version is saved and bumps the version', r.saved && r.version === v1 + 1 && r.state.now.text === 'Build the brief', JSON.stringify(r).slice(0, 200));
   const before = await rawDb.collection('states').findOne({ _id: project._id });
@@ -94,6 +99,7 @@ try {
   check('S2: the copy (get_state copy:true) is headed with the version it came from', copyNow.markdown.startsWith(`Copy of the Work OS state, version ${r.version}.`), copyNow.markdown.slice(0, 120));
   check('S2: the markdown has Now, Next and Later; Where is not in it, and Decisions only when the repo is known private (H4)', ['## Now', '## Next', '## Later'].every(h => copyNow.markdown.includes(h)) && !copyNow.markdown.includes('## Where') && !copyNow.markdown.includes('## Decisions'), copyNow.markdown);
   check('S2: Where is still in the State itself after the repo copy drops it', !!r.state.where.laptop, JSON.stringify(r.state.where));
+  check('S2: the copy\'s Now line has no holder (Lanes)', copyNow.markdown.includes('\n## Now\n- Build the brief\n') && !copyNow.markdown.includes('S2 lead'), copyNow.markdown.slice(0, 300));
 
   // Import, once
   await must(MCP, 'add_project', { name: 'Flow Import' });

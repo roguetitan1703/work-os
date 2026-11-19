@@ -475,8 +475,9 @@ try {
   // Slice 1 (docs/flows/step-1.md): a State, a present session and an Orders page on the private and on the shared project
   for (const [o, tg, allow] of [[P, 'pv', ['A']], [S, 'sh', ['A', 'T']]]) {
     o.stateNext = can(`${tg}statenext`, allow);
-    await mustMcp(A.chat, 'save_state', { project: o.projectName, base_version: 0, ops: [{ op: 'set_now', text: can(`${tg}statenow`, allow) }, { op: 'add_next', text: o.stateNext }, { op: 'add_later', text: can(`${tg}statelater`, allow), waits_on: can(`${tg}statewait`, allow) }, { op: 'add_decision', text: can(`${tg}statedecision`, allow) }, { op: 'set_where', machine: can(`${tg}statemach`, allow), branch: can(`${tg}statebranch`, allow) }] });
+    // Started first: Now is set by a session Work OS knows (Lanes)
     o.sid = (await mustMcp(A.chat, 'start_work', { project: o.projectName, machine: can(`${tg}presmach`, allow), label: can(`${tg}preslabel`, allow) })).session;
+    await mustMcp(A.chat, 'save_state', { project: o.projectName, base_version: 0, session: o.sid, ops: [{ op: 'set_now', text: can(`${tg}statenow`, allow) }, { op: 'add_next', text: o.stateNext }, { op: 'add_later', text: can(`${tg}statelater`, allow), waits_on: can(`${tg}statewait`, allow) }, { op: 'add_decision', text: can(`${tg}statedecision`, allow) }, { op: 'set_where', machine: can(`${tg}statemach`, allow), branch: can(`${tg}statebranch`, allow) }] });
   }
   for (const [o, tg, allow] of [[P, 'pv', ['A']], [S, 'sh', ['A', 'T']]]) {
     // to the owner's own session on the project, sent from that session (so a reply has a session to go back to)
@@ -938,6 +939,29 @@ try {
     const tAll3 = tib.text + tStart.text + tNoSession.text + (await mcpCall(T.code, 'message_status', { id: tm.id })).text;
     check('Messages: seenBy and toSids are never in an output', !/seenBy|toSids/.test(tAll3) && !/seenBy|toSids/.test(tib.text), '');
     check('Messages: no other person’s session id in alsoHere, the target or a message', aSessions.length > 0 && aSessions.every(sid => !tAll3.includes(sid)), String(aSessions.length));
+    // Lanes step 1: the owner's session holds Now and a line; a teammate's session is refused while it works, and no refusal or
+    // answer carries the owner's session id or user id (labels and names only)
+    const lnS = await mustMcp(A.chat, 'get_state', { project: nm });
+    const lnLine = lnS.state.next.find(l => l.text === cn)?.id;
+    const lnA = await mcpCall(A.chat, 'save_state', { project: nm, base_version: lnS.version, session: aSid, ops: [{ op: 'set_now', text: `${cn} goal` }, { op: 'edit_line', id: lnLine, find: cn, new: `${cn} held` }] });
+    check('Lanes: the owner’s session takes Now and holds the line it edited (holdsNow true)', lnA.ok && lnA.json?.holdsNow === true, lnA.text.slice(0, 200));
+    const tSid = tStart.json?.session;
+    const lnT = [
+      await mcpCall(T.code, 'save_state', { project: nm, session: tSid, base_version: lnA.json?.version, ops: [{ op: 'set_now', text: 'lkq T takes Now' }] }),
+      await mcpCall(T.code, 'save_state', { project: nm, session: tSid, base_version: lnA.json?.version, ops: [{ op: 'edit_line', find: `${cn} goal`, new: 'lkq T edits Now' }] }),
+      await mcpCall(T.code, 'save_state', { project: nm, session: tSid, ops: [{ op: 'done_next', id: lnLine }] }),
+      await mcpCall(T.code, 'save_state', { project: nm, session: tSid, ops: [{ op: 'archive_line', id: lnLine }] }),
+    ];
+    const lnTn = await mcpCall(T.code, 'save_state', { project: nm, base_version: lnA.json?.version, ops: [{ op: 'set_now', text: 'lkq T takes Now, no session' }] });
+    scan('T', 'lanes refusal, no session', lnTn.text);
+    check('Lanes: a teammate’s set_now naming no session is refused (sessions Work OS knows), with no session id in it', !lnTn.ok && /pass the session id start_work gave you/.test(lnTn.text) && aSessions.every(sid => !lnTn.text.includes(sid)), lnTn.text.slice(0, 200));
+    const lnTg = await mcpCall(T.code, 'get_state', { project: nm, session: tSid });
+    lnT.forEach((r, i) => scan('T', `lanes refusal ${i}`, r.text));
+    scan('T', 'lanes get_state', lnTg.text);
+    check('Lanes: a teammate’s set_now and edit of Now are refused while the holder works, by its label and person', lnT.slice(0, 2).every(r => !r.ok && /^(Error: )?Now is held by "[^"]+" \([^,]+, working, \d+ min ago\)\. Nothing was written\./.test(r.text)), lnT.slice(0, 2).map(r => r.text.slice(0, 160)).join(' | '));
+    check('Lanes: a teammate’s done_next and archive_line on the held line are refused, naming the holder by label', lnT.slice(2).every(r => !r.ok && new RegExp(`^(Error: )?Next line ${lnLine} ".+" is held by "`).test(r.text)), lnT.slice(2).map(r => r.text.slice(0, 160)).join(' | '));
+    check('Lanes: get_state for the teammate says holdsNow false and names the holder by label', lnTg.ok && lnTg.json?.holdsNow === false && lnTg.json.state.now.holder === `${cn}p`, lnTg.text.slice(0, 200));
+    check('Lanes: no refusal or answer carries the owner’s session id or user id', [...lnT, lnTg].every(r => aSessions.every(sid => !r.text.includes(sid)) && !r.text.includes(A.userId)), '');
     // Activity (note e56029b458): the State and message rows of a shared project reach the teammate's feed until it goes private
     const tActBefore = await mcpCall(T.chat, 'recent_activity', { since: '1d', limit: 300 });
     check('Activity: a teammate’s feed has the shared project’s State and message rows', tActBefore.ok && tActBefore.text.includes(cn) && (tActBefore.json?.events ?? []).some(e => e.project === nm && e.type === 'message_sent'), tActBefore.text.slice(0, 200));

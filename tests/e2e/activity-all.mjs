@@ -104,7 +104,10 @@ try {
 
   // State: Now, Next, Later, a decision; T marks A's Next line done (T's row, A's words)
   const S = { now: mark('now'), next: mark('next'), later: mark('later'), decision: mark('decision') };
-  await must(A.chat, 'save_state', { project: SP, base_version: 0, ops: [{ op: 'set_now', text: S.now }, { op: 'add_next', text: S.next }, { op: 'add_later', text: S.later }, { op: 'add_decision', text: S.decision }] });
+  // set_now needs a session Work OS knows (Lanes): a fixture session, whose row is removed again.
+  await must(A.chat, 'start_work', { project: SP, session: 'actq-fixture' });
+  await must(A.chat, 'save_state', { project: SP, base_version: 0, session: 'actq-fixture', ops: [{ op: 'set_now', text: S.now }, { op: 'add_next', text: S.next }, { op: 'add_later', text: S.later }, { op: 'add_decision', text: S.decision }] });
+  await rawDb.collection('presence').deleteMany({ session: 'actq-fixture' });
   const v = (await must(T.chat, 'get_state', { project: SP })).state.version;
   await must(T.chat, 'save_state', { project: SP, base_version: v, ops: [{ op: 'done_next', find: S.next }] });
 
@@ -182,7 +185,9 @@ try {
 
   // ── a private project: its rows reach nobody else ──
   const P = { now: mark('pvnow'), note: mark('pvnote'), msg: mark('pvmsg'), need: mark('pvneed') };
-  await must(A.chat, 'save_state', { project: PP, base_version: 0, ops: [{ op: 'set_now', text: P.now }, { op: 'add_decision', text: P.now + 'd' }] });
+  await must(A.chat, 'start_work', { project: PP, session: 'actq-fixture' });
+  await must(A.chat, 'save_state', { project: PP, base_version: 0, session: 'actq-fixture', ops: [{ op: 'set_now', text: P.now }, { op: 'add_decision', text: P.now + 'd' }] });
+  await rawDb.collection('presence').deleteMany({ session: 'actq-fixture' });
   await must(A.chat, 'write_note', { project: PP, title: P.note, body: 'x' });
   const ppSid = (await must(A.code, 'start_work', { project: PP, label: 'actq private' })).session;
   await must(A.chat, 'send_message', { to: ppSid, kind: 'request', body: P.msg });

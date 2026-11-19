@@ -3,9 +3,10 @@
 // Where the text comes from: an answer that still carries `markdown` (an old server or a protocol 1 session), else this hook
 // fetches the copy itself, for the marker's project only: POST /api/agent/state with the session token (also sends Where
 // after a save), or get_state copy:true with WORK_OS_KEY. Fails open: no token, no network or a refusal write nothing.
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import { answerOf, copyState, markSaved, stateMarkdown } from './hook-copy.mjs';
-import { git, mcpCall, postAgent, readKept, readMarker, repoFacts } from './hook-lib.mjs';
+import { git, mcpCall, postAgent, readKept, readMarker, repoFacts, writeMarker } from './hook-lib.mjs';
 
 /** The copy (WORK-STATE.md text) of `project` from the server, or null. */
 async function fetchCopy(input, cwd, project, saving) {
@@ -42,6 +43,15 @@ export async function postTool(input) {
   const saving = /__(save_state|import_state|end_work)$/.test(name);
   const reading = /__get_state$/.test(name);
   const ans = answerOf(input.tool_response);
+  // Lanes step 1: the server says in save_state, end_work and get_state answers whether this session holds Now; the Stop reminder reads it.
+  // Kept only for the marker's own project and when the answer was worked out for this session (holdsNowFor is the Work OS session id,
+  // the first 32 hex of the SHA-256 of the session token): a call on another project, or one naming no or another session, changes nothing.
+  if ((saving || reading) && typeof ans?.holdsNow === 'boolean' && !input.agent_id) {
+    const m = readMarker(input.session_id);
+    const token = m && ans.project === m.project && typeof ans.holdsNowFor === 'string' ? readKept(input.session_id) : null;
+    const mine = token && ans.holdsNowFor === createHash('sha256').update(token, 'utf8').digest('hex').slice(0, 32);
+    if (mine && m.holdsNow !== ans.holdsNow) writeMarker(input.session_id, { ...m, holdsNow: ans.holdsNow });
+  }
   const saved = saving && !!ans && (ans.saved === true || ans.ended === true || !!ans.imported);
   const marked = saved || (saving && !!stateMarkdown(input.tool_response));
   try {

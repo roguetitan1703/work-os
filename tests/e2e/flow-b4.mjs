@@ -35,7 +35,10 @@ const overP1 = await mk('B4 overdue P1', { project: 'B4 Alpha', due: '2026-11-10
 await call('add_project', { name: 'B4 Beta' });
 // set_now and done_next need base_version (lib/data/states.ts); a refused save would leave the fixture day half made.
 const saveOk = async args => { const r = await call('save_state', args); if (!r || r.ERROR || /stale/.test(r.message ?? '')) throw new Error('save_state refused: ' + JSON.stringify(r).slice(0, 300)); return r; };
-await saveOk({ project: 'B4 Alpha', base_version: 0, ops: [{ op: 'set_now', text: 'B4 ship the alpha' }, { op: 'add_decision', text: 'B4 go with plan A' }] });
+// set_now needs a session Work OS knows (Lanes): a fixture session, whose row is removed again so the roster shows only the workers below.
+await call('start_work', { project: 'B4 Alpha', session: 'b4-fixture' });
+await saveOk({ project: 'B4 Alpha', base_version: 0, session: 'b4-fixture', ops: [{ op: 'set_now', text: 'B4 ship the alpha' }, { op: 'add_decision', text: 'B4 go with plan A' }] });
+await rawDb.collection('presence').deleteMany({ session: 'b4-fixture' });
 await saveOk({ project: 'B4 Beta', ops: [{ op: 'add_next', text: 'B4 beta first' }, { op: 'add_next', text: 'B4 beta second' }] });
 await saveOk({ project: 'B4 Beta', base_version: (await call('get_state', { project: 'B4 Beta' })).version, ops: [{ op: 'done_next', find: 'B4 beta first' }] });
 const projId = async name => (await rawDb.collection('projects').findOne({ orgId: ME.orgId, name }))._id;

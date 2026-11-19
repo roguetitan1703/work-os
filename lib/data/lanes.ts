@@ -98,9 +98,10 @@ export function lineHeldText(l: { id: string; text: string; label: string; state
   return `Next line ${l.id} "${text}" is held by "${l.label}" (${l.state}${on}). Nothing was written. That session, ${holder} or a person in the app can finish or edit it; add_next a new line, or send_message "${l.label}".`;
 }
 
-/** A dispatched run tried to set Now. */
+/** A dispatched run tried to set Now. An empty label: no session holds Now. */
 export function dispatchedText(h: { label: string; state: string; ref?: number }): string {
-  return `A dispatched run never sets Now (held by "${h.label}", ${h.state}). log_progress on #${h.ref ?? 'REF'}, hand_in when done, or add_next.`;
+  const held = h.label ? `held by "${h.label}", ${h.state}` : 'no session holds it';
+  return `A dispatched run never sets Now (${held}). log_progress on #${h.ref ?? 'REF'}, hand_in when done, or add_next.`;
 }
 
 export { stateWord };

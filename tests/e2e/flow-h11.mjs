@@ -17,6 +17,8 @@ try {
   const cc = await mkKey({ agent: 'claude-code', name: 'H11 cc' });
   P1 = (await must(cc, 'add_project', { name: P, visibility: 'org' })).project.id;
   const save = (ops, extra = {}) => mcpH(cc, 'save_state', { project: P, ops, ...extra });
+  // set_now needs a session Work OS knows (Lanes): a fixture session, whose row is removed again.
+  await must(cc, 'start_work', { project: P, session: 'h11-fixture' });
   const seed = await save([
     { op: 'set_now', text: 'Declutter' },
     { op: 'add_next', text: 'Next one to keep' },
@@ -25,7 +27,8 @@ try {
     { op: 'add_later', text: 'Later B to remove with edit_line' },
     { op: 'add_later', text: 'Later C to archive by find' },
     { op: 'add_later', text: 'Later D stays' },
-  ], { base_version: 0 });
+  ], { base_version: 0, session: 'h11-fixture' });
+  await rawDb.collection('presence').deleteMany({ session: 'h11-fixture' });
   check('H11 setup: the State is saved', !seed.isError, seed.text.slice(0, 200));
   let st = await stateDoc();
   check('H11 setup: no archived lines yet', !st.archived || st.archived.length === 0, JSON.stringify(st.archived));

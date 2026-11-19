@@ -72,7 +72,10 @@ try {
   };
   for (const name of ['TT Shared', 'TT Private', 'TT Chosen', 'TT Quiet']) await must(MCP, 'add_project', { name });
   const first = await must(MCP, 'save_state', { project: 'TT Shared', ops: [{ op: 'add_next', text: 'Wait for sign-off', waits_on: 'Dana from the client' }] });
-  await must(MCP, 'save_state', { project: 'TT Shared', ops: [{ op: 'set_now', text: 'Ship it [re-login](https://evil.example/login) now @everyone' }], base_version: first.version });
+  // set_now needs a session Work OS knows (Lanes): a fixture session, whose row is removed again.
+  await must(MCP, 'start_work', { project: 'TT Shared', session: 'tt-fixture' });
+  await must(MCP, 'save_state', { project: 'TT Shared', session: 'tt-fixture', ops: [{ op: 'set_now', text: 'Ship it [re-login](https://evil.example/login) now @everyone' }], base_version: first.version });
+  await rawDb.collection('presence').deleteMany({ session: 'tt-fixture' });
   await must(MCP, 'save_state', { project: 'TT Private', ops: [{ op: 'add_next', text: 'PRIVATE-LINE', waits_on: 'PRIVATE-WAIT' }] });
   await must(MCP, 'save_state', { project: 'TT Chosen', ops: [{ op: 'add_next', text: 'CHOSEN-LINE', waits_on: 'CHOSEN-WAIT' }] });
   await done('Shared finished [click here](https://evil.example/x) yesterday', 'TT Shared');
