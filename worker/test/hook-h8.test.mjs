@@ -55,7 +55,13 @@ test('splitCommands: operators outside quotes, quotes removed, call operator dro
   assert.deepEqual(w('git commit -m "a && b; c" && git push'), [['git', 'commit', '-m', 'a && b; c'], ['git', 'push']]);
   assert.deepEqual(w("echo 'x;y'\ngit push"), [['echo', 'x;y'], ['git', 'push']]);
   assert.deepEqual(w('& git push origin master'), [['git', 'push', 'origin', 'master']]);
-  assert.deepEqual(w('git push origin master 2>&1'), [['git', 'push', 'origin', 'master', '2>&1']]);
+  assert.deepEqual(w('git push origin master 2>&1'), [['git', 'push', 'origin', 'master']], 'a redirect is not an argument');
+  assert.deepEqual(w('git push 2>&1 | tail -3'), [['git', 'push'], ['tail', '-3']]);
+  assert.deepEqual(w('git push > out.txt 2> err.txt < in.txt'), [['git', 'push']]);
+  assert.deepEqual(w('git push >>log &>/dev/null'), [['git', 'push']]);
+  assert.deepEqual(w('(cd x && git push origin master)'), [['cd', 'x'], ['git', 'push', 'origin', 'master']]);
+  assert.deepEqual(w('{ git push origin master; }'), [['git', 'push', 'origin', 'master']]);
+  assert.deepEqual(w('git push origin HEAD@{push}'), [['git', 'push', 'origin', 'HEAD@{push}']], 'braces inside a word stay');
   assert.equal(splitCommands('git push $R master')[0][2].dyn, true);
   assert.equal(splitCommands('git push "$R" master')[0][2].dyn, true);
   assert.equal(splitCommands('git push origin master')[0][2].dyn, false);
@@ -78,7 +84,14 @@ const GIT = [
   ['git push -o ci.skip origin dev', null],
   ['git push origin dev master', 'push:master'],
   ['git push --tags origin', 'tag:tags'],
-  ['git push origin --follow-tags', 'tag:follow-tags'],
+  ['git push origin --follow-tags', 'push:master'], // the refspec (here the current branch, master) decides
+  ['git push origin master --follow-tags', 'push:master'],
+  ['git push origin dev --follow-tags', null],
+  ['git push 2>&1 | tail -3', 'push:master'],
+  ['git push origin master 2>&1', 'push:master'],
+  ['(cd . && git push origin master)', 'push:master'],
+  ['{ git push origin master; }', 'push:master'],
+  ['(git push origin dev)', null],
   ['git push --all origin', 'push:all'],
   ['git push --mirror origin', 'push:mirror'],
   ['git push origin v1', 'tag:v1'],
@@ -154,6 +167,8 @@ const CLI = [
   ['vercel --target production', 'cli:vercel'],
   ['vercel deploy --target=production', 'cli:vercel'],
   ['vercel deploy --target preview', null],
+  ['vercel build --prod', null], // a local build
+  ['vercel pull --yes --environment production', null],
   ['vercel env add X production', 'cli:vercel'],
   ['vercel env add X production --force', 'cli:vercel'],
   ['vercel env rm X production -y', 'cli:vercel'],
@@ -192,7 +207,9 @@ test('supabase: the linked project ref file, --linked, --local, --db-url, and no
   assert.equal(shape(act('supabase db reset', linked)), null, 'db reset without --linked is the local database');
   assert.equal(shape(act('supabase secrets set A=b', linked)), 'cli:supabase');
   assert.equal(shape(act('supabase secrets unset A', linked)), 'cli:supabase');
-  assert.equal(shape(act('supabase migration up', linked)), 'cli:supabase');
+  assert.equal(shape(act('supabase migration up', linked)), null, 'migration up is the local database by default');
+  assert.equal(shape(act('supabase migration up --linked', linked)), 'cli:supabase');
+  assert.equal(shape(act('supabase db push --dry-run', linked)), null, 'a dry run writes nothing');
   assert.equal(shape(act('supabase migration repair 1 --status applied', linked)), 'cli:supabase');
   assert.equal(shape(act('supabase functions deploy hello', linked)), 'cli:supabase');
   assert.equal(shape(act('supabase functions delete hello', linked)), 'cli:supabase');
@@ -204,6 +221,12 @@ test('supabase: the linked project ref file, --linked, --local, --db-url, and no
   assert.equal(shape(act('supabase db push', linked, { ...PROD, targets: [] })), null, 'no targets listed');
   assert.equal(shape(act('supabase db push --project-ref prodref123', onMaster, { ...PROD, targets: [] })), null);
   assert.equal(shape(act(`supabase db push --workdir ${fwd(linked)}`, onMaster)), 'cli:supabase');
+});
+
+test('git push --follow-tags on a feature branch is not production', () => {
+  assert.equal(shape(act('git push --follow-tags', onDev)), null);
+  assert.equal(shape(act('git push origin --follow-tags', onDev)), null);
+  assert.equal(shape(act('git push --follow-tags origin master', onDev)), 'push:master');
 });
 
 test('a command without git, gh, vercel, netlify or supabase makes no git call at all', () => {

@@ -48,6 +48,19 @@ export function productionView(p: Pick<ProjectDoc, 'code' | 'production'>): Prod
   return { remotes: codeRemotes(p), branches: DEFAULT_PRODUCTION_BRANCHES, targets: [], off: false, isDefault: true };
 }
 
+/**
+ * An agent changes a project's code locations while production is unset: the default would follow the new list, and `code: []`
+ * would switch the block off. So the default as it is now is saved first, when the change would drop a remote from it.
+ * Returns the setting to store, or undefined when nothing needs saving (a person's change, a set production, nothing dropped).
+ */
+export function productionKeptOnCodeChange(cur: Pick<ProjectDoc, 'code' | 'production'>, nextCode: ProjectDoc['code'], actor: Actor): NonNullable<ProjectDoc['production']> | undefined {
+  if (actor.kind === 'user' || cur.production) return undefined;
+  const before = codeRemotes(cur);
+  const after = codeRemotes({ code: nextCode });
+  if (!before.some(r => !after.includes(r))) return undefined;
+  return { remotes: before, branches: DEFAULT_PRODUCTION_BRANCHES, targets: [] };
+}
+
 /** What the hook gets in the brief: the effective setting, or null when this project has no production block. */
 export function effectiveProduction(p: Pick<ProjectDoc, 'code' | 'production'>): ProductionConfig | null {
   const v = productionView(p);

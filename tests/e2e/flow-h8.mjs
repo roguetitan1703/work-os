@@ -68,7 +68,7 @@ try {
   const swh = await mcpH(kOm, 'start_work', { project: 'H8 One' }, HOOK);
   check('b: start_work with the hook header carries it', !swh.isError && JSON.stringify(swh.json?.production?.remotes) === '["acme/h8-one","acme/h8-site"]', swh.text.slice(0, 200));
   const up = await mcpH(kOm, 'update_project', { project: 'H8 One', production: { off: true, remotes: [], branches: [], targets: [] }, description: 'h8 touched' });
-  const ac = await mcpH(kOm, 'apply_changes', { changes: [{ op: 'update_project', project: 'H8 One', production: { off: true, remotes: [], branches: [], targets: [] } }] });
+  const ac = await mcpH(kOm, 'apply_changes', { ops: [{ op: 'update_project', project: 'H8 One', production: { off: true, remotes: [], branches: [], targets: [] } }] });
   check('b: update_project and apply_changes cannot set production (nothing is stored)', !(await one()).production && !(await one()).productionBy, JSON.stringify([up.text.slice(0, 120), ac.text.slice(0, 120)]));
   // ---- c) the grant route: credentials, body, scope ----
   const sess = st.json;
@@ -248,6 +248,31 @@ try {
     await c.close();
   }
   await browser2.close();
+  // ---- g) review fixes: a release Need never moves with a task; an agent cannot switch the default block off through code ----
+  const tk = await must(MCP, 'add_task', { title: 'h8 g task', project: 'H8 One' });
+  const gRef = tk.created.ref;
+  const gAsk = await mcpH(kOm, 'ask', { project: 'H8 One', kind: 'approve', release: true, task: gRef, ask: 'Release, tied to a task' });
+  check('g: a release Need with a task is refused (it is about the project)', gAsk.isError && /task/.test(gAsk.text), gAsk.text.slice(0, 200));
+  const gOk = await mcpH(kOm, 'ask', { project: 'H8 One', kind: 'approve', release: true, ask: 'Release for the move test' });
+  const gDoc = await needDoc(gOk.json.need.ref);
+  const until = new Date(Date.now() + 3600_000);
+  await rawDb.collection('needs').updateOne({ _id: gDoc._id }, { $set: { taskId: (await rawDb.collection('tasks').findOne({ orgId: ME.orgId, ref: gRef }))._id, status: 'answered', releaseUntil: until, answer: { option: 'yes', by: ME.userId, via: 'app', at: new Date() }, answeredAt: new Date(), closedAt: new Date() } });
+  await must(MCP, 'update_task', { task: gRef, project: 'H8 Two' });
+  const gAfter = await needDoc(gDoc.ref);
+  check('g: moving a task leaves a release Need on its own project (the window does not travel)', gAfter.projectId === ONE, String(gAfter.projectId));
+  const GP = (await must(kOm, 'add_project', { name: 'H8 Code', code: [{ remote: 'acme/h8-code' }] })).project.id;
+  const gp = () => rawDb.collection('projects').findOne({ _id: GP });
+  await mcpH(kOm, 'update_project', { project: 'H8 Code', code: [{ remote: 'acme/h8-code' }, { remote: 'acme/h8-more' }] });
+  check('g: adding a remote drops none: production stays unset', (await gp()).production === undefined);
+  await mcpH(kOm, 'update_project', { project: 'H8 Code', code: [] });
+  const keep = (await gp()).production;
+  check('g: an agent emptying code first saves the default as the project\'s production', JSON.stringify(keep) === JSON.stringify({ remotes: ['acme/h8-code', 'acme/h8-more'], branches: ['main', 'master'], targets: [] }), JSON.stringify(keep));
+  const gBrief = await mcpH(kOm, 'start_work', { project: 'H8 Code' }, HOOK);
+  check('g: the hook brief still blocks those remotes after code: []', JSON.stringify(gBrief.json?.production?.remotes) === '["acme/h8-code","acme/h8-more"]', JSON.stringify(gBrief.json?.production));
+  const GP2 = (await must(kOm, 'add_project', { name: 'H8 Code Two', code: [{ remote: 'acme/h8-two' }] })).project.id;
+  const gAc = await mcpH(kOm, 'apply_changes', { ops: [{ op: 'update_project', project: 'H8 Code Two', code: [{ path: 'C:/code/two' }] }] });
+  const k2 = (await rawDb.collection('projects').findOne({ _id: GP2 })).production;
+  check('g: apply_changes swapping the remote for a path keeps the block too', JSON.stringify(k2?.remotes) === '["acme/h8-two"]', JSON.stringify(k2) + gAc.text.slice(0, 300));
   void TESS;
 } catch (e) {
   check('flow-h8 ran to the end', false, String(e?.stack ?? e));

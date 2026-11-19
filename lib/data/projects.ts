@@ -17,6 +17,7 @@ import { cleanCodeLocations, codeCandidates, matchCodeLocation, type CodeQuery }
 import { assigneesOf, unassignableFilter, unassignPull } from '../assignees';
 import type { CodeLocation } from '../types';
 import { userActor, type Actor } from '../actors';
+import { productionKeptOnCodeChange as productionKept } from './production';
 
 export function slugify(name: string): string {
   return (
@@ -436,6 +437,9 @@ export async function updateProject(s: Scope, id: string, patch: Partial<Project
     if (JSON.stringify(set.code) !== JSON.stringify(cur.code ?? [])) {
       set.codeBy = s.userId;
       codeChanged = true;
+      // An agent cannot switch the production block off by emptying the code list (H8): the default is saved first.
+      const kept = productionKept(cur, set.code, actor);
+      if (kept) set.production = kept;
     }
   }
   // Who sees it: Shared with everyone ('org'), Shared with chosen people ('members' + sharedWith), Private. A list given

@@ -24,7 +24,18 @@ export function splitCommands(cmd) {
   let has = false;
   let dyn = false;
   const endWord = () => { if (has) { const w = new String(cur); w.dyn = dyn; words.push(w); } cur = ''; has = false; dyn = false; };
-  const endCmd = () => { endWord(); if (words.length) cmds.push(words); words = []; };
+  // Redirections are not arguments: `2>&1`, `>f`, `>> f`, `< f`, `&>f` and their targets are dropped, so `git push 2>&1 | tail` is a push.
+  const noRedirects = (ws) => {
+    const out = [];
+    for (let k = 0; k < ws.length; k++) {
+      const m = /^(?:\d*|&)(?:>>?|<)(&\d+|&-)?(.*)$/s.exec(String(ws[k]));
+      if (!m) { out.push(ws[k]); continue; }
+      if (!m[1] && !m[2]) k++; // `> file`: the next word is the target
+    }
+    return out;
+  };
+  // `{` and `}` standing alone are a group's braces (`{ git push; }`), not words.
+  const endCmd = () => { endWord(); words = noRedirects(words).filter((w) => !(String(w) === '{' || String(w) === '}')); if (words.length) cmds.push(words); words = []; };
   const s = String(cmd ?? '');
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
@@ -47,8 +58,8 @@ export function splitCommands(cmd) {
       cur += s[++i];
     } else if (c === ' ' || c === '\t' || c === '\r') {
       endWord();
-    } else if (c === '\n' || c === ';') {
-      endCmd();
+    } else if (c === '\n' || c === ';' || ((c === '(' || c === ')') && cur !== '$')) {
+      endCmd(); // a subshell's parentheses start and end a command: `(cd x && git push)`
     } else if (c === '&' || c === '|') {
       const two = s[i + 1] === c;
       // PowerShell's call operator `& 'x'` starts a command: dropped. A redirect like 2>&1 stays inside its word.
@@ -142,7 +153,8 @@ function gitPush(w, cwd, prod) {
   }
   if (flags.has('--dry-run')) return null;
   if (pos.some((x) => isDyn(x)) || isDyn(repo)) return null;
-  const everything = ['--tags', '--follow-tags', '--all', '--branches', '--mirror'].some((f) => flags.has(f));
+  // --follow-tags pushes only the tags of the commits it pushes: the refspec decides, not the flag.
+  const everything = ['--tags', '--all', '--branches', '--mirror'].some((f) => flags.has(f));
   let remote = repo ?? pos.shift();
   let current = null;
   const cur = () => (current ??= git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']));
@@ -156,8 +168,8 @@ function gitPush(w, cwd, prod) {
   if (!name || !prod.remotes.includes(name)) return null;
   const to = `${name}`;
   if (everything) {
-    const f = ['--mirror', '--all', '--branches', '--tags', '--follow-tags'].find((x) => flags.has(x));
-    return { what: f === '--tags' || f === '--follow-tags' ? 'tag' : 'push', name: f.slice(2), label: `push (${f} to ${to})` };
+    const f = ['--mirror', '--all', '--branches', '--tags'].find((x) => flags.has(x));
+    return { what: f === '--tags' ? 'tag' : 'push', name: f.slice(2), label: `push (${f} to ${to})` };
   }
   const specs = pos.length ? pos : [defaultBranch ?? cur()];
   for (const raw of specs) {
@@ -227,10 +239,11 @@ const SUPABASE_VALUE = new Set(['--project-ref', '--workdir', '--db-url', '--pas
  */
 export const PROD_CLI = {
   vercel(w) {
+    const p = positionals(w.slice(1), VERCEL_VALUE);
+    if (/^(build|dev|pull)$/.test(p[0] ?? '')) return false; // local: a build or a pull deploys and writes nothing
     if (w.slice(1).some((a) => a === '--prod' || a === '--production' || a === '--prod=true')) return true;
     const t = flagValue(w, '--target');
     if (t && t.toLowerCase() === 'production') return true;
-    const p = positionals(w.slice(1), VERCEL_VALUE);
     if (p[0] === 'promote' || p[0] === 'rollback') return true;
     if (p[0] === 'env' && /^(add|rm|remove|update)$/.test(p[1] ?? '')) return (p[3] ?? '').toLowerCase() === 'production' || ['--environment', '-e'].some((f) => (flagValue(w, f) ?? '').toLowerCase() === 'production');
     return false;
@@ -246,10 +259,11 @@ export const PROD_CLI = {
       (a === 'secrets' && /^(set|unset)$/.test(b ?? '')) ||
       (a === 'db' && b === 'push') ||
       (a === 'db' && b === 'reset' && w.includes('--linked')) ||
-      (a === 'migration' && /^(up|repair)$/.test(b ?? '')) ||
+      (a === 'migration' && b === 'up' && w.includes('--linked')) || // `migration up` is local unless --linked
+      (a === 'migration' && b === 'repair') ||
       (a === 'functions' && /^(deploy|delete)$/.test(b ?? '')) ||
       (a === 'config' && b === 'push');
-    if (!hit || w.includes('--local') || flagValue(w, '--db-url') !== null) return false;
+    if (!hit || w.includes('--local') || w.includes('--dry-run') || flagValue(w, '--db-url') !== null) return false;
     let ref = flagValue(w, '--project-ref');
     if (ref === null) {
       const dirs = [path.resolve(cwd, flagValue(w, '--workdir') ?? '.')];
