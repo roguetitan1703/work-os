@@ -144,6 +144,13 @@ try {
   const pr = await must(MCP, 'save_state', { project: NAME, ops: [{ op: 'promote_later', find: 'new chart library', priority: 'P2' }] });
   check('promote_later by find makes the task and takes the line off Later', pr.promotedToTasks?.length === 1 && /new chart library/.test(pr.promotedToTasks[0]) && !texts(pr.state.later).some(t => t.includes('new chart library')), JSON.stringify(pr.promotedToTasks));
 
+  // Lanes step 5: a released line keeps `left`, which the State shows as one line (labels only); a held line shows no left
+  const pidL = (await rawDb.collection('projects').findOne({ name: NAME }))._id;
+  const stL = await rawDb.collection('states').findOne({ projectId: pidL });
+  await rawDb.collection('states').updateOne({ projectId: pidL }, { $set: { 'next.0.left': { label: 'builder Z', branch: 'builder-z', log: 'stopped mid-way', at: new Date() }, 'next.1.left': { label: 'builder Y', at: new Date() }, 'next.1.hold': { key: `${ME.userId}:nobody`, at: new Date() } } });
+  const gl = await must(MCP, 'get_state', { project: NAME });
+  check('left: an unheld line with left shows who left it, the branch and the last log; a held line shows none', stL.next.length >= 2 && gl.state.next[0].left === 'left by builder Z · builder-z · last: stopped mid-way' && !('left' in gl.state.next[1]), JSON.stringify(gl.state.next.slice(0, 2)));
+
   // Decisions stay append-only: edit_line does not reach them
   await must(MCP, 'save_state', { project: NAME, ops: [{ op: 'add_decision', text: 'Use the zebra pattern' }] });
   const dec = await mcpH(MCP, 'save_state', { project: NAME, base_version: pr.version + 1, ops: [{ op: 'edit_line', find: 'zebra', new: 'horse' }] });
