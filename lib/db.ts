@@ -91,6 +91,8 @@ export type ClaudeMark = {
   prevStatus?: Status;
   /** Times the reconciler rolled a claim back (3 is the limit). */
   attempts?: number;
+  /** H15: 1 once a session that ended on its own was started again (once per mark: the second time the giver chooses, a Need). */
+  revived?: number;
 };
 
 /**
@@ -223,6 +225,8 @@ export type NeedDoc = Placed & {
   /** A release Need (an approve Need made with release: true): Yes or Yes for 24 hours opens production on the project until releaseUntil. */
   release?: true;
   releaseUntil?: Date;
+  /** H15: a dispatcher Need ("Claude stopped on #ref": give it to Claude again, or take it back): the task it is about. The answer acts as the giver, whose Need it is. */
+  dispatch?: { taskId: string; result?: string };
   /** A declutter Need (an approve Need with fixed options, lib/data/declutter.ts): the proposed changes, what the session will do on disk after Yes, what the person unticked and what the server did. */
   declutter?: DeclutterNeed;
 };

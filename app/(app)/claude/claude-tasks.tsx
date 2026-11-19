@@ -99,6 +99,7 @@ function Line({ r, busy, onAct }: { r: ClaudeTaskRow; busy: boolean; onAct: () =
     r.deviceName,
     r.state === 'running' ? (when ? `active ${agoShort(when)}` : 'starting') : agoShort(when),
     r.note && r.state !== 'running' ? r.note : null,
+    r.restarted && (r.state === 'queued' || r.state === 'running') ? 'restarted once (the session ended)' : null,
   ].filter(Boolean);
   return (
     <li className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 pl-4 md:pl-3 pr-1 py-1 min-h-14 md:min-h-10" data-claude-task={r.ref} data-state={r.state}>

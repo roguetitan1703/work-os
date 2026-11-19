@@ -182,7 +182,8 @@ async function queueOutcome(s: Scope, t: TaskDoc, kind: 'claude_finished' | 'cla
 
 // ── Outcomes ────────────────────────────────────────────────────────────────
 
-type End = { to: 'finished' | 'stopped' | 'failed'; note?: string };
+/** `revive` (H15): the session ended on its own with the task not done: started again once, then the giver chooses (settleEnd). */
+type End = { to: 'finished' | 'stopped' | 'failed'; note?: string; revive?: boolean };
 
 /** Running -> an end state, once (conditional on the task still being "running" under the same claim). Returns true if this call did it. */
 async function endRun(c: Collections, s: Scope, t: TaskDoc, end: End, quiet = false): Promise<boolean> {
@@ -230,7 +231,7 @@ function outcomeOf(t: TaskDoc, session: { state: string; error?: string } | null
   if (t.archived) return { to: 'stopped', note: 'the task was archived' };
   if (!session) return null;
   if (session.state === 'failed') return { to: 'failed', note: session.error ? `could not start: ${session.error}` : 'could not start' };
-  if (session.state === 'dead') return { to: 'stopped', note: 'the session ended before the task was done' };
+  if (session.state === 'dead') return { to: 'stopped', note: 'the session ended before the task was done', revive: true };
   if (session.state === 'stopped') return { to: 'stopped', note: 'the session was stopped' };
   return null;
 }
@@ -244,7 +245,7 @@ export async function onTaskChanged(c: Collections, s: Scope, t: TaskDoc): Promi
   const marker = forUser(s, t.claude.markedByUserId ?? t.ownerId);
   const session = t.claude.sessionId ? await (await scoped(marker)).workerSessions.findOne({ _id: t.claude.sessionId }) : null;
   const o = outcomeOf(t, session);
-  if (o) await endRun(c, s, t, o);
+  if (o) await settleEnd(c, s, t, o);
 }
 
 /** The person's running claims (tasks they gave to Claude). */
@@ -258,7 +259,7 @@ export async function settleDispatched(s: Scope, c?: Collections): Promise<numbe
   for (const t of running) {
     const session = t.claude?.sessionId ? await col.workerSessions.findOne({ _id: t.claude.sessionId }) : null;
     const o = outcomeOf(t, session);
-    if (o && (await endRun(col, s, t, o))) n++;
+    if (o && (await settleEnd(col, s, t, o))) n++;
   }
   // A queued task whose chosen folder is no longer linked to its project (unlinked, or the project changed) would wait forever.
   const picked = await col.tasks.find({ 'claude.state': 'queued', 'claude.folderKey': { $exists: true }, ...mine(s) }).toArray();
@@ -370,16 +371,72 @@ function wakeMarker(t: TaskDoc): void {
 }
 
 /** Puts a claimed task back in the queue and restores its status. countAttempt: the reconciler's rollback counts toward the limit. */
-async function requeue(c: Collections, t: TaskDoc, countAttempt: boolean): Promise<void> {
+async function requeue(c: Collections, t: TaskDoc, countAttempt: boolean, revived = false): Promise<boolean> {
   const m = t.claude;
-  if (!m || m.state !== 'running') return;
+  if (!m || m.state !== 'running') return false;
   const now = new Date();
   const claim = { _id: t._id, 'claude.state': 'running' as const, 'claude.sessionId': m.sessionId };
-  const back = { 'claude.state': 'queued', updatedAt: now, ...(countAttempt ? { 'claude.attempts': (m.attempts ?? 0) + 1 } : {}) };
+  const back = { 'claude.state': 'queued', updatedAt: now, ...(countAttempt ? { 'claude.attempts': (m.attempts ?? 0) + 1 } : {}), ...(revived ? { 'claude.revived': 1 } : {}) };
   const unset = { 'claude.claimedAt': '', 'claude.deviceId': '', 'claude.sessionId': '', 'claude.prevStatus': '' } as const;
   // Restore prevStatus only while the task is still In Progress (a status the person changed meanwhile is kept).
   const r = m.prevStatus ? await c.tasks.updateOne({ ...claim, status: 'In Progress' }, { $set: { ...back, status: m.prevStatus }, $unset: unset }) : null;
-  if (!r?.modifiedCount) await c.tasks.updateOne(claim, { $set: back, $unset: unset });
+  if (r?.modifiedCount) return true;
+  return (await c.tasks.updateOne(claim, { $set: back, $unset: unset })).modifiedCount > 0;
+}
+
+/**
+ * H15: a running claim's session ended on its own (dead, or its own SessionEnd, or its computer and the session both silent for 15
+ * minutes) with the task not done. The first time the task goes back in the queue once (claude.revived = 1, a comment, no alert, the
+ * old session stopped if it may still run); the second time the claim ends as stopped (the "Claude stopped" alert stays) and the giver
+ * gets one app-only Need: give it to Claude again, or take it back (createDispatchNeed). A cause that is not revivable (the person
+ * stopped it or took it back, Blocked, Dropped, archived) ends as before, with no Need. Returns what happened, or null.
+ */
+async function settleEnd(c: Collections, s: Scope, t: TaskDoc, end: End): Promise<'revived' | 'ended' | null> {
+  if (end.revive && (t.claude?.revived ?? 0) < 1) return (await reviveRun(c, s, t, end.note)) ? 'revived' : null;
+  if (!(await endRun(c, s, t, end))) return null;
+  if (end.revive) {
+    const giver = t.claude?.markedByUserId ?? t.ownerId;
+    try {
+      const { createDispatchNeed } = await import('./needs');
+      await createDispatchNeed(forUser(s, giver), t, giver, dispatcherActor(t));
+    } catch (e) {
+      console.error('[dispatcher] could not ask the giver', e instanceof Error ? e.message : e);
+    }
+  }
+  return 'ended';
+}
+
+async function reviveRun(c: Collections, s: Scope, t: TaskDoc, why?: string): Promise<boolean> {
+  const m = t.claude;
+  if (!m || m.state !== 'running') return false;
+  const gs = forUser(s, m.markedByUserId ?? t.ownerId);
+  const old = m.sessionId ? await c.workerSessions.findOne({ _id: m.sessionId }, { projection: { state: 1 } }) : null;
+  if (!(await requeue(c, t, false, true))) return false;
+  // A session that may still run (a silent computer that comes back) must not run beside the new one.
+  if (old && old.state !== 'dead' && t.projectId && m.sessionId) await stopSession(gs, t.projectId, m.sessionId).catch(() => {});
+  wakeMarker(t);
+  await logTask(c, t, dispatcherActor(t), 'comment', { note: `Dispatcher: ${why ?? 'the session ended'}; started again once. If it ends again, you choose: give it to Claude again, or take it back.`.slice(0, 400) });
+  return true;
+}
+
+/** The giver answered a dispatcher Need (lib/data/needs.ts answerNeed; `s` is the giver): do what they chose, as them. Returns a short result for the Need. */
+export async function applyDispatchAnswer(s: Scope, taskId: string, option: string): Promise<string> {
+  const c = await scoped(s);
+  const t = await c.tasks.findOne({ _id: taskId });
+  if (!t) return 'the task is gone';
+  try {
+    if (option === 'again') {
+      await giveToClaude(s, `#${t.ref}`, t.claude?.folderKey);
+      return 'given to Claude again';
+    }
+    if (option === 'takeback') {
+      await takeBackFromClaude(s, `#${t.ref}`);
+      return 'taken back from Claude';
+    }
+  } catch (e) {
+    return (e instanceof Error ? e.message : 'could not do it').slice(0, 200);
+  }
+  return 'nothing done';
 }
 
 // ── Reconciler (runs in the alerts cron, every 15 minutes) ──────────────────
@@ -415,8 +472,18 @@ export async function reconcileDispatched(s: Scope, now: Date = new Date()): Pro
     if (session && (session.state === 'starting' || session.state === 'running')) {
       const dev = m.deviceId ? devices.get(m.deviceId) : undefined;
       const seen = dev?.lastSeenAt?.getTime() ?? 0;
-      if (now.getTime() - seen > NO_REPORT_MS) {
-        if (await endRun(c, s, t, { to: 'stopped', note: `no news from ${dev?.name ?? 'the computer'} for 15 minutes` })) out.stopped++;
+      // H15: the session's own hooks report through presence (the newest row with this Claude Code session id): a session that
+      // ended itself, or a computer and a session both silent for 15 minutes, is over; a quiet worker beside a session that still
+      // reports is not.
+      const pres = m.sessionId ? (await c.presence.find({ ccSession: m.sessionId }).sort({ lastSeen: -1 }).limit(1).toArray())[0] : undefined;
+      const ended = !!pres && (!!pres.endedAt || pres.activity?.state === 'off');
+      const silent = now.getTime() - seen > NO_REPORT_MS;
+      const reporting = !!pres && !ended && now.getTime() - pres.lastSeen.getTime() < NO_REPORT_MS;
+      if (ended || (silent && !reporting)) {
+        const note = ended ? 'the session ended on its own before the task was done' : `no news from ${dev?.name ?? 'the computer'} for 15 minutes`;
+        const r = await settleEnd(c, s, t, { to: 'stopped', note, revive: true });
+        if (r === 'revived') out.requeued++;
+        else if (r === 'ended') out.stopped++;
       }
     }
   }
@@ -660,6 +727,8 @@ export type ClaudeTaskRow = {
   /** Session still open as far as the computer knows. */
   live: boolean;
   lastActiveAt: string | null;
+  /** H15: the session ended on its own and the task was started again once (a second end asks the giver). */
+  restarted: boolean;
   position?: number;
 };
 export type ClaudeTasks = { settings: DispatcherSettings; running: ClaudeTaskRow[]; queued: ClaudeTaskRow[]; recent: ClaudeTaskRow[] };
@@ -702,6 +771,7 @@ export async function claudeTasks(scope: DeviceScope): Promise<ClaudeTasks> {
       sessionId: m.sessionId ?? null,
       live: st === 'starting' || st === 'running',
       lastActiveAt: m.sessionId ? lastActive.get(m.sessionId)?.toISOString() ?? null : null,
+      restarted: (m.revived ?? 0) >= 1,
     };
   });
   const queued = rows.filter(r => r.state === 'queued').map((r, n) => ({ ...r, position: n + 1 }));
