@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'folder-decides-project',
+    date: '2026-11-19',
+    title: 'A new folder asks which project it is for',
+    line: 'A Claude session in a new folder asks which project it is for and files it; folders you say are not Work OS stay quiet (Claude › Setup › Computers).',
+    where: 'Claude › Setup › Computers, Not Work OS folders, and the Sessions list on Claude › Now',
+    href: '/claude?tab=setup',
+  },
+  {
     id: 'agents-feedback',
     date: '2026-11-19',
     title: 'Agents tell you what got in their way',

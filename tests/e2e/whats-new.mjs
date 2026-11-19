@@ -18,7 +18,7 @@ const settle = (p, ms = 700) => p.waitForTimeout(ms);
 const seenOf = async () => (await rawDb.collection('settings').findOne({ _id: `profile:${ME.userId}` }))?.whatsNewSeen ?? [];
 const resetSeen = () => rawDb.collection('settings').updateOne({ _id: `profile:${ME.userId}` }, { $unset: { whatsNewSeen: '' } });
 const shot = (p, name) => p.screenshot({ path: `${SP}/whats-new-${name}.png`, fullPage: true });
-const ALL = ['agents-feedback', 'agents-ask-before-production', 'messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
+const ALL = ['folder-decides-project', 'agents-feedback', 'agents-ask-before-production', 'messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
 
 const b = await launch();
 try {
@@ -60,13 +60,13 @@ try {
       const o = await overflow(p); check(`no horizontal scroll /today ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
 
       // Try it marks that one seen and goes there
-      await card.locator('[data-whats-new-try="messages-reach-sessions"]').tap();
-      await p.waitForURL(u => u.pathname === '/projects', { timeout: 10000 });
-      check('Try it: opens where the feature lives (/projects)', new URL(p.url()).pathname === '/projects');
-      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['messages-reach-sessions']), JSON.stringify(await seenOf()));
+      await card.locator('[data-whats-new-try="agents-ask-before-production"]').tap();
+      await p.waitForURL(u => u.pathname === '/needs', { timeout: 10000 });
+      check('Try it: opens where the feature lives (/needs)', new URL(p.url()).pathname === '/needs');
+      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['agents-ask-before-production']), JSON.stringify(await seenOf()));
       await p.goto(B + '/today'); await settle(p);
       const ids2 = await p.locator('[data-section="whats-new"]:visible [data-whats-new]').evaluateAll(els => els.map(e => e.getAttribute('data-whats-new')));
-      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'messages-reach-sessions').slice(0, 3)), JSON.stringify(ids2));
+      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'agents-ask-before-production').slice(0, 3)), JSON.stringify(ids2));
       await resetSeen();
     }
 

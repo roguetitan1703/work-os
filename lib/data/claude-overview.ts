@@ -35,6 +35,8 @@ export type SessionRow = {
   folder: string;
   projectId: string | null;
   projectName: string | null;
+  /** H13: no project owns the session's folder ("not filed"); this is the one unlinked folder of that name on its computer, for the Link to project picker. */
+  folderKey?: string;
   deviceId: string;
   deviceName: string;
   state: SessionRowState;
@@ -148,9 +150,11 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
   const wsAll = [...live, ...ended].filter(s => !!s.projectId);
   const folderIds = [...new Set(wsAll.map(s => `${s.deviceId}:${s.folderId}`))];
   const deviceIds = [...devices.keys()];
-  const [folderDocs, linkedFolders] = await Promise.all([
+  const [folderDocs, linkedFolders, openFolders] = await Promise.all([
     folderIds.length ? c.workerFolders.find({ _id: { $in: folderIds } }).toArray() : Promise.resolve([]),
     deviceIds.length ? c.workerFolders.find({ deviceId: { $in: deviceIds }, projectId: { $ne: null }, missing: false }, { projection: { deviceId: 1, name: 1, projectId: 1 } }).toArray() : Promise.resolve([]),
+    // Unlinked folders by (computer, name): a session in a folder no project owns can be filed from its row (H13).
+    deviceIds.length ? c.workerFolders.find({ deviceId: { $in: deviceIds }, projectId: null, missing: false }, { projection: { deviceId: 1, name: 1 } }).limit(3000).toArray() : Promise.resolve([]),
   ]);
   const folderOf = new Map(folderDocs.map(f => [f._id, f]));
   const projByFolder = new Map<string, Set<string>>();
@@ -158,6 +162,15 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
     const k = `${f.deviceId}:${lastSeg(f.name)}`;
     (projByFolder.get(k) ?? projByFolder.set(k, new Set()).get(k)!).add(f.projectId!);
   }
+  const unlinkedBy = new Map<string, string[]>();
+  for (const f of openFolders) {
+    const k = `${f.deviceId}:${lastSeg(f.name)}`;
+    unlinkedBy.set(k, [...(unlinkedBy.get(k) ?? []), f._id]);
+  }
+  const folderKeyFor = (deviceId: string, folder: string) => {
+    const l = unlinkedBy.get(`${deviceId}:${folder}`);
+    return l && l.length === 1 ? l[0] : undefined;
+  };
   const projectFor = (deviceId: string, folder: string) => {
     const s = projByFolder.get(`${deviceId}:${folder}`);
     return s && s.size === 1 ? [...s][0] : null;
@@ -200,6 +213,7 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
         folder: it.folder,
         projectId,
         projectName: projectId ? pname(projectId) : null,
+        ...(!projectId && folderKeyFor(d._id, it.folder) ? { folderKey: folderKeyFor(d._id, it.folder) } : {}),
         deviceId: d._id,
         deviceName: dev.name,
         state,

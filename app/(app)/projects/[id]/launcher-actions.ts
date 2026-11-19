@@ -7,6 +7,7 @@ import { requireCaller, withCaller, type Caller } from '@/lib/caller';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 import { dismissReopen, jobOutcome, linkFolder, linkMatchingFolders, matchingFolders, type MatchingFolders, openSessionInVscode, projectLauncher, relinkFolder, reopenAll, removeSession, resumeSession, searchFolders, startSession, stopSession, unhideSession, unlinkFolder, type FolderView } from '@/lib/data/launcher';
 import { listProjectsNav } from '@/lib/data/projects';
+import { listQuietFolders, removeQuietFolder, type QuietFolder } from '@/lib/data/quiet-folders';
 import { startProjects, type StartProject } from '@/lib/data/claude-overview';
 import { turboInfo, turboStart, type TurboInfo } from '@/lib/data/turbo';
 
@@ -72,6 +73,19 @@ export async function relinkFolderAction(key: string, projectId: string | null):
   return run(projectId, async c => {
     await relinkFolder(c, Id.parse(key), projectId === null ? null : Id.parse(projectId));
     return null;
+  });
+}
+
+/** Claude › Setup › Computers, "Not Work OS folders": the folders this person told a session are not Work OS (H13). */
+export async function quietFoldersAction(): Promise<R<QuietFolder[]>> {
+  return run(null, c => listQuietFolders(c));
+}
+
+/** "Remove" on a not-Work-OS folder: sessions there ask which project again. */
+export async function removeQuietFolderAction(machine: string, path: string): Promise<R<QuietFolder[]>> {
+  return run(null, async c => {
+    await removeQuietFolder(c, z.string().min(1).max(40).parse(machine), z.string().min(1).max(500).parse(path));
+    return listQuietFolders(c);
   });
 }
 

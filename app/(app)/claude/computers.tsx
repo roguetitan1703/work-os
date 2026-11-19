@@ -12,6 +12,7 @@ import { needsReauth, useReauth } from '@/components/reauth';
 import { createDeviceAction, listDevicesAction, replaceDeviceKeyAction, revokeDeviceAction, workerInstallInfoAction } from './setup-actions';
 import { InstallCommands } from './worker-install';
 import { ComputerFolders } from './computer-folders';
+import { QuietFolders } from './quiet-folders';
 import type { InstallInfo } from '@/lib/worker-install';
 
 const field =
@@ -157,6 +158,7 @@ export function Computers({ initial }: { initial?: DeviceInfo[] }) {
             </button>
           </div>
         </div>
+        <QuietFolders />
         {showUpdate && info && (
           <div className="mt-3 rounded-lg border border-border/70 p-3 space-y-2">
             <p className="text-[13px] text-foreground">To update, run this on that computer again. Its settings and key are kept: press Enter at each question.</p>

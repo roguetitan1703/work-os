@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from '@/components/intent-link';
-import { ChevronDown, ChevronRight, MonitorUp, RotateCcw, Square, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Link2, MonitorUp, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmSheet } from '@/components/responsive-sheet';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,7 @@ import { write } from './auto-refresh';
 import { dispatcherSettingsAction } from './dispatcher-actions';
 import { ClaudeTasksSection } from './claude-tasks';
 import { ReopenBanner } from './reopen-banner';
+import { LinkSessionFolder } from './link-session-folder';
 import { trackJob } from './job-toast';
 import { btnOutline, card, field, ghost, H2 } from './ui';
 
@@ -243,6 +244,7 @@ function Sessions({ sessions, hasComputers }: { sessions: SessionRow[]; hasCompu
   const [stopping, setStopping] = useState<SessionRow | null>(null);
   const [gone, setGone] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
+  const [linking, setLinking] = useState<SessionRow | null>(null);
 
   const call = async (key: string, fn: () => Promise<{ ok: boolean; error?: string; data?: unknown }>, done?: (data?: unknown) => void) => {
     setBusy(key);
@@ -352,12 +354,13 @@ function Sessions({ sessions, hasComputers }: { sessions: SessionRow[]; hasCompu
             {g.name && <h3 className="px-1 md:px-0 text-[13px] md:text-xs font-semibold text-muted-foreground">{g.name}</h3>}
             <ul className={cn(card, 'divide-y divide-border/60')}>
               {g.rows.map(s => (
-                <SessionLine key={s.key} s={s} busy={busy} onStop={setStopping} onRemove={remove} onResume={onResume} onVscode={onVscode} />
+                <SessionLine key={s.key} s={s} busy={busy} onStop={setStopping} onRemove={remove} onResume={onResume} onVscode={onVscode} onLink={setLinking} />
               ))}
             </ul>
           </div>
         ))
       )}
+      {linking?.folderKey && <LinkSessionFolder folderKey={linking.folderKey} deviceId={linking.deviceId} folder={linking.folder} onClose={() => setLinking(null)} />}
       {stopping && (
         <ConfirmSheet
           title="Stop session"
@@ -377,7 +380,7 @@ function Sessions({ sessions, hasComputers }: { sessions: SessionRow[]; hasCompu
   );
 }
 
-function SessionLine({ s, busy, onStop, onRemove, onResume, onVscode }: { s: SessionRow; busy: string | null; onStop: (s: SessionRow) => void; onRemove: (s: SessionRow) => void; onResume: (s: SessionRow) => void; onVscode: (s: SessionRow) => void }) {
+function SessionLine({ s, busy, onStop, onRemove, onResume, onVscode, onLink }: { s: SessionRow; busy: string | null; onStop: (s: SessionRow) => void; onRemove: (s: SessionRow) => void; onResume: (s: SessionRow) => void; onVscode: (s: SessionRow) => void; onLink: (s: SessionRow) => void }) {
   const st = stateOf(s);
   const off = busy === s.key;
   const subs = s.subagents > 0 ? `${s.subagents} ${s.subagents === 1 ? 'subagent' : 'subagents'}` : '';
@@ -401,7 +404,7 @@ function SessionLine({ s, busy, onStop, onRemove, onResume, onVscode }: { s: Ses
           <span className={st.tone}>{st.label}</span>
           {subs && ` · ${subs}`}
           {` · ${s.folder}`}
-          {s.projectName && ` · ${s.projectName}`}
+          {s.projectId ? s.projectName && ` · ${s.projectName}` : ' · not filed'}
           {` · ${s.deviceName}`}
           <span suppressHydrationWarning>{` · ${agoShort(s.lastActiveAt)}`}</span>
           {s.error && ` · ${s.error}`}
@@ -413,7 +416,9 @@ function SessionLine({ s, busy, onStop, onRemove, onResume, onVscode }: { s: Ses
             <span className="text-foreground">{s.projectName}</span> · {s.folder}
           </Link>
         ) : (
-          s.folder
+          <span data-not-filed>
+            <span className="text-amber-600 dark:text-amber-400">not filed</span> · {s.folder}
+          </span>
         )}
       </div>
       <div className="hidden md:block text-xs text-muted-foreground truncate" data-col="computer">
@@ -432,6 +437,11 @@ function SessionLine({ s, busy, onStop, onRemove, onResume, onVscode }: { s: Ses
         <span suppressHydrationWarning>{agoShort(s.lastActiveAt)}</span>
       </div>
       <div className="flex items-center justify-end col-start-3 row-start-1 md:col-start-auto md:row-start-auto min-w-0">
+        {!s.projectId && s.folderKey && (
+          <button type="button" className={ghost} disabled={off} onClick={() => onLink(s)} aria-label={`Link ${s.folder} to a project`} title="This folder is not filed under a project" data-link-folder>
+            <Link2 className="w-4 h-4" /> Link
+          </button>
+        )}
         {s.canVscode && (
           <button type="button" className={ghost} disabled={off} onClick={() => onVscode(s)} aria-label={`Open ${s.title} in VS Code`} title="Open this session in VS Code on its computer" data-open-vscode data-origin={s.origin ?? ''}>
             <MonitorUp className="w-4 h-4" /> Open in VS Code

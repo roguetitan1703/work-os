@@ -1339,6 +1339,8 @@ function AUDIT() {
   add(`action ${CI}updateClaudeItemAction`, act(CI + 'updateClaudeItemAction', t => [t.itemProject, t.item, { note: 'lkq hacked' }], aim(['itemProject', 'item'])));
   add(`action ${CI}moveClaudeItemAction`, act(CI + 'moveClaudeItemAction', t => [t.itemProject, t.item, 'top'], aim(['itemProject', 'item'])));
   const L_ = 'app/(app)/projects/[id]/launcher-actions.ts#';
+  add(`action ${L_}quietFoldersAction`, act(L_ + 'quietFoldersAction', [])); // the caller's own not-Work-OS list (per person), nothing of anyone else's
+  add(`action ${L_}removeQuietFolderAction`, act(L_ + 'removeQuietFolderAction', ['lkq', 'c:/lkq/quiet']));
   add(`action ${L_}searchFoldersAction`, act(L_ + 'searchFoldersAction', t => [t.device, ''], aim(['device'], { ok: r => actOk(r) && r.value.data?.length > 0 })));
   // Another person's computer (same organization or another) is 'not found' for both, exactly as a made-up id; the owner's own call works (nothing matches the canary remotes, so nothing is linked).
   add(`action ${L_}matchingFoldersAction`, act(L_ + 'matchingFoldersAction', t => [t.device], aim(['device'], { ok: r => actOk(r) && Array.isArray(r.value.data?.matches) })));

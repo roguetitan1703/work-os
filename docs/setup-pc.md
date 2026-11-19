@@ -107,13 +107,14 @@ In a repo with a Work OS project:
 ## Cloud repos (Claude Code on the web)
 A cloud session has no worker, so the repo carries the hooks. From a PC with the worker, in the repo:
 ```bash
-node worker.mjs hooks repo [folder] [--server https://work.delpat.in]
+node worker.mjs hooks repo [folder] [--server https://work.delpat.in] [--project <project id>]
 ```
 It copies the hook files to `.claude/work-os/` and merges four entries into `.claude/settings.json` (hooks only, never
 permissions; other settings and hooks stay; rerun to update). Commit both. The entries carry `--cloud`, so they do
 nothing on a PC (the global hooks run there) and run only when `CLAUDE_CODE_REMOTE=true`. In the cloud environment:
 set `WORK_OS_KEY` in its variables to a Claude Code key made for that environment (Claude › Setup › Claude Code key),
 and allow `work.delpat.in` in its network settings.
+`--project` is the id of the project the repo's cloud sessions start on (the last part of its Work OS address, for example `cutroom-a1b2c3d4`); without it a cloud session in the repo is unfiled: it asks its person which project it is for.
 - Check: one cloud session on the repo starts with "Work OS brief for project".
 
 ## Not covered yet
