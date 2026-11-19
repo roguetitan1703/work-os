@@ -9,8 +9,10 @@
 
 import { InputError } from './errors';
 
-export type CodeLocation = { remote?: string; path?: string; subdir?: string; branch?: string; host?: string; machine?: string };
-export type CodeQuery = { remote?: string; path?: string; subdir?: string; branch?: string; machine?: string };
+/** `by`: the person whose link made a path location (start_work link with path and machine). Two people can have a computer of the same name and the same path, so a location with `by` matches only its person; none (made in the app, old data) = anyone. */
+export type CodeLocation = { remote?: string; path?: string; subdir?: string; branch?: string; host?: string; machine?: string; by?: string };
+export type CodeQuery = { remote?: string; path?: string; subdir?: string; branch?: string; machine?: string; /** The asking person (the scope's user). */ by?: string };
+const USER_ID = /^[A-Za-z0-9_-]{1,80}$/;
 export type CodeProject = { id: string; name: string; code?: CodeLocation[] };
 export type CodeMatch = { project: CodeProject; score: number; location: CodeLocation; how: string };
 
@@ -109,6 +111,8 @@ export function cleanCodeLocations(input: CodeLocation[] | null | undefined): Co
         if (mach.length > 40 || !/^[a-z0-9._-]+$/.test(mach)) throw new InputError('Bad machine name: at most 40 of a-z, 0-9, dot, dash, underscore');
         loc.machine = mach;
       }
+      const by = (l.by ?? '').trim();
+      if (by && USER_ID.test(by)) loc.by = by;
     }
     if (!loc.remote && !loc.path) throw new InputError('A code location needs a remote or a path');
     const sub = normalizeSubdir(l.subdir);
@@ -121,7 +125,7 @@ export function cleanCodeLocations(input: CodeLocation[] | null | undefined): Co
       if (br.length > 200 || /\s/.test(br)) throw new InputError(`Bad branch "${l.branch}"`);
       loc.branch = br;
     }
-    const k = JSON.stringify([loc.remote, loc.path && normalizePath(loc.path), loc.subdir, loc.branch, loc.host, loc.machine]);
+    const k = JSON.stringify([loc.remote, loc.path && normalizePath(loc.path), loc.subdir, loc.branch, loc.host, loc.machine, loc.by]);
     if (!seen.has(k)) {
       seen.add(k);
       out.push(loc);
@@ -140,8 +144,9 @@ export function within(child: string, parent: string): boolean {
 }
 
 /** Score of one location against a query; 0 = no match. Only a path location decides (longer prefix wins); a remote never does. */
-function scoreLocation(loc: CodeLocation, q: { path: string | null; machine: string }): { score: number; how: string } {
+function scoreLocation(loc: CodeLocation, q: { path: string | null; machine: string; by: string }): { score: number; how: string } {
   if (!loc.path || !q.path) return { score: 0, how: '' };
+  if (loc.by && loc.by !== q.by) return { score: 0, how: '' }; // another person's link (the same computer name and path can be anyone's)
   // A location written for one machine matches only there; an old one without `machine` matches on any.
   if (loc.machine && loc.machine !== q.machine) return { score: 0, how: '' };
   const lp = normalizePath(loc.path);
@@ -153,7 +158,7 @@ function scoreLocation(loc: CodeLocation, q: { path: string | null; machine: str
  * The old rule, where a remote decided: remote + subdir + branch > remote + subdir | remote + branch > remote > longest path.
  * Kept for one release for the device-key route's body without `folders` (an old hook); step 8 of H13 removes it.
  */
-function scoreLegacy(loc: CodeLocation, q: { remote: string | null; path: string | null; subdir: string; branch: string }): { score: number; how: string } {
+function scoreLegacy(loc: CodeLocation, q: { remote: string | null; path: string | null; subdir: string; branch: string; by: string }): { score: number; how: string } {
   let best = { score: 0, how: '' };
   if (loc.remote && q.remote && normalizeRemote(loc.remote) === q.remote) {
     const sub = normalizeSubdir(loc.subdir);
@@ -165,7 +170,7 @@ function scoreLegacy(loc: CodeLocation, q: { remote: string | null; path: string
       best = { score, how: ['remote', sub && 'subdir', br && 'branch'].filter(Boolean).join(' + ') };
     }
   }
-  if (loc.path && q.path) {
+  if (loc.path && q.path && !(loc.by && loc.by !== q.by)) {
     const lp = normalizePath(loc.path);
     if (lp && within(q.path, lp)) {
       const score = 1 + Math.min(lp.length, 999) / 1000;
@@ -183,6 +188,7 @@ export function matchCodeLocation(projects: CodeProject[], query: CodeQuery, opt
     subdir: normalizeSubdir(query.subdir),
     branch: normalizeBranch(query.branch),
     machine: cleanMachine(query.machine),
+    by: (query.by ?? '').trim(),
   };
   if (opts.legacyRemote ? !q.remote && !q.path : !q.path) return null;
   let best: CodeMatch | null = null;

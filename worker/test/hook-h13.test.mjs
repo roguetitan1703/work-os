@@ -44,12 +44,12 @@ const server = http.createServer((req, res) => {
     if (req.url === '/api/agent/start') {
       if (mode === 'hang') return;
       if (mode === 'http429') return json(429, { error: 'too many' });
-      if (mode === 'unfiled') return json(404, { error: 'No project linked to a folder on this computer matches this folder.', unfiled: true });
+      if (mode === 'unfiled' || mode === 'unfkey') return json(404, { error: 'No project linked to a folder on this computer matches this folder.', unfiled: true });
       if (mode === 'quiet') return json(404, { error: 'x', unfiled: true, quiet: true });
       return json(200, { brief, token: TOKEN, expiresAt: new Date(Date.now() + 3600e3).toISOString() });
     }
     if (req.url === '/api/mcp') {
-      const out = mode === 'keyok' ? { ...brief } : mode === 'keyquiet' ? { unmatched: true, quiet: true, candidates: [] } : { unmatched: true, candidates: cands ?? [] };
+      const out = mode === 'keyok' || mode === 'unfkey' ? { ...brief } : mode === 'keyquiet' ? { unmatched: true, quiet: true, candidates: [] } : { unmatched: true, candidates: cands ?? [] };
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       return res.end(`event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify(out) }], isError: false } })}\n\n`);
     }
@@ -143,13 +143,16 @@ test('SessionStart in an unfiled folder: the fixed unfiled text, the marker, and
   assert.ok(b.remote, 'the remote goes along as information');
 });
 
-test('SessionStart: no folder id at all still sends folders: [] (a new hook never uses the old lookup)', async () => {
+test('SessionStart: no folder id at all still sends folders: [] (a new hook never uses the old lookup); on a PC with the worker the text sends the person to Claude › Setup › Computers, not to a path link', async () => {
   fs.rmSync(path.join(home, 'state.json'), { force: true });
   seen.length = 0;
   const out = text(await start('u2', path.join(app, 'src')));
   assert.deepEqual(starts()[0].body.folders, []);
   assert.ok(out.includes('path: ') && !out.includes('folder id:'), out);
-  assert.ok(/start_work \{ project: "<name>", path: ".*", machine: ".*", link: true \}/.test(out), 'without a folder id the link call names path and machine');
+  assert.ok(!/link: true/.test(out), 'a path link would never be read on a PC with the worker (/api/agent/start takes folder ids only)');
+  assert.match(out, /Claude › Setup › Computers/);
+  assert.match(out, /not_work_os: true/, 'not Work OS still works by path');
+  assert.equal(marker('u2').unfiled, true);
 });
 
 test('SessionStart: a folder that is not a git repo gets the unfiled text too', async () => {
@@ -282,4 +285,51 @@ test('unfiledText: path, remote and names are data: cleaned and cut, never able 
   assert.ok(!t.includes('`'), 'no backticks from the folder');
   const plainText = lib.unfiledText({ path: 'D:/code/app', remote: 'acme/app', folder: 'idApp001', machine: 'pc1' });
   assert.ok(plainText.length < 700, `without suggestions the text is under 700 characters (${plainText.length})`);
+});
+
+test('the prompt hook: a folder the worker has no id for gets a reminder that names Claude › Setup › Computers (no path link), under 160 characters', async () => {
+  mode = 'unfiled';
+  fs.rmSync(path.join(home, 'state.json'), { force: true });
+  await start('n1', path.join(app, 'src'));
+  assert.equal(marker('n1').unfiled, true);
+  const still = text(await prompt('n1', path.join(app, 'src')));
+  assert.ok(still.length > 0 && still.length < 160, `${still.length}: ${still}`);
+  assert.match(still, /Claude › Setup › Computers/);
+  assert.ok(!/link: true/.test(still));
+  assert.equal(lib.unfiledReminder('idApp001', true).includes('folder: "idApp001"'), true, 'with a folder id the reminder still names the folder call');
+  assert.equal(lib.unfiledReminder(null, false).includes('path, machine'), true, 'without the worker (cloud) a path link is still offered');
+});
+
+test('unfiledText: without the worker a folder with no id still offers the path link; with the worker it does not', () => {
+  const a = { path: 'C:/x/y', remote: '', folder: null, machine: 'pc', candidates: [] };
+  assert.match(lib.unfiledText({ ...a, worker: false }), /link: true/);
+  const w = lib.unfiledText({ ...a, worker: true });
+  assert.ok(!/link: true/.test(w) && /Setup › Computers/.test(w) && /not_work_os: true/.test(w), w);
+  assert.match(lib.unfiledText({ ...a, folder: 'idApp001', worker: true }), /folder: "idApp001", link: true/);
+});
+
+test('the prompt hook: the worker says unfiled but the key path (a path location made with start_work link) matches: the session is filed, no token, one line', async () => {
+  fs.rmSync(path.join(home, 'state.json'), { force: true });
+  mode = 'unfiled';
+  await start('kp1', path.join(app, 'src'));
+  assert.equal(marker('kp1').unfiled, true);
+  mode = 'unfkey';
+  process.env.WORK_OS_KEY = 'wos_' + 'k'.repeat(40);
+  process.env.WORK_OS_URL = URL_;
+  try {
+    seen.length = 0;
+    const filed = text(await prompt('kp1', path.join(app, 'src')));
+    assert.equal(filed, 'Filed under Demo; Work OS hooks are on for this session.');
+    assert.equal(marker('kp1').unfiled, undefined);
+    assert.equal(marker('kp1').project, 'Demo');
+    assert.ok(seen.some((x) => x.url === '/api/mcp' && x.body.params?.name === 'start_work' && x.body.params.arguments.path), 'start_work was asked with the folder path');
+    assert.equal(lib.readKept('kp1'), null, 'a key-path match has no session token');
+    // a key that finds nothing leaves it unfiled
+    mode = 'unfiled';
+    await start('kp2', path.join(app, 'src'));
+    seen.length = 0;
+    const still = text(await prompt('kp2', path.join(app, 'src')));
+    assert.match(still, /not filed yet/);
+    assert.equal(marker('kp2').unfiled, true);
+  } finally { delete process.env.WORK_OS_KEY; delete process.env.WORK_OS_URL; mode = 'unfiled'; }
 });

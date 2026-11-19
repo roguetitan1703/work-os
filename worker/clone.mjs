@@ -227,7 +227,7 @@ export async function handleCloneJob(job, deps) {
     const trust = shouldTrust({ serverTrusted: job.clone.trusted, key, found, dest: dir, untrusted: state.untrustedOwners });
     if (trust) trustFolder(dir, log);
     else { const o = ownerKey(key); if (o && !state.untrustedOwners.includes(o)) state.untrustedOwners.push(o); } // Claude Code asks on first run
-    await launcher({ kind: 'start', folder: dir, sessionId: job.sessionId, projectName: job.projectName, prompt: getConfig().allowPrompts !== false ? job.prompt || undefined : undefined });
+    await launcher({ kind: 'start', folder: dir, sessionId: job.sessionId, projectName: job.projectName, prompt: getConfig().allowPrompts !== false ? job.prompt || undefined : undefined, dispatched: Number.isInteger(job.dispatched) ? job.dispatched : undefined });
     state.sessions[job.sessionId] = { folderId, state: 'running', startedAt: now() };
     save();
     return { id, ok: true, folderId, ...(trust ? {} : { untrusted: true }) };

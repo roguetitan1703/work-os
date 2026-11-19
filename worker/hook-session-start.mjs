@@ -57,7 +57,7 @@ function whereOf(cwd) {
 
 /** The marker of a session whose brief was shown: the baseline, project, production block and presence. */
 function briefMarker(sid, input, cwd, old, r, reports) {
-  writeMarker(sid, { status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
+  writeMarker(sid, { status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(Array.isArray(r.orders) ? { orders: r.orders.map((o) => o && o.noteId).filter((i) => typeof i === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(i)).slice(0, 10) } : old?.orders ? { orders: old.orders } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
 }
 
 /**
@@ -68,7 +68,7 @@ function unfiledAnswer(sid, input, cwd, remote, folders, candidates) {
   if (quietPath(cwd)) return null;
   const folder = folders[0] || null;
   if (sid) writeMarker(sid, { status: statusHash(cwd), offset: sizeOf(input.transcript_path), stopped: true, unfiled: true, folder, path: cwd });
-  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: unfiledText({ path: cwd, remote, folder, machine: os.hostname().slice(0, 40), candidates }) } };
+  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: unfiledText({ path: cwd, remote, folder, machine: os.hostname().slice(0, 40), candidates, worker: !!workerHome() }) } };
 }
 
 /** SessionStart: the hook's JSON answer (or null for "print nothing"). */
@@ -117,16 +117,28 @@ export async function sessionStart(input) {
 export async function refile(input, timeoutMs = 2000) {
   const cwd = input.cwd || process.cwd();
   const sid = input.session_id;
-  if (!sid || !workerHome()) return null;
+  if (!sid || (!workerHome() && !process.env.WORK_OS_KEY)) return null;
   const { where } = whereOf(cwd);
   const ids = { ...(UUID_RE.test(sid) ? { ccSession: sid } : {}), source: 'startup' };
   let a = null;
-  try { a = await agentStart({ ...where, folders: folderCandidates(cwd), ...repoFacts(cwd), ...ids }, null, timeoutMs); } catch { return null; }
-  if (a?.unfiled) return { unfiled: true, quiet: a.quiet };
-  if (!a?.brief?.project) return null;
-  if (a.token) keepToken(sid, a.token, a.until);
-  briefMarker(sid, { ...input, source: 'startup' }, cwd, null, a.brief, true);
-  return { filed: a.brief.project.name };
+  if (workerHome()) {
+    try { a = await agentStart({ ...where, folders: folderCandidates(cwd), ...repoFacts(cwd), ...ids }, null, timeoutMs); } catch { return null; }
+    if (a?.unfiled && a.quiet) return { unfiled: true, quiet: true };
+    if (a?.brief?.project) {
+      if (a.token) keepToken(sid, a.token, a.until);
+      briefMarker(sid, { ...input, source: 'startup' }, cwd, null, a.brief, true);
+      return { filed: a.brief.project.name };
+    }
+    if (!a?.unfiled || !process.env.WORK_OS_KEY) return a?.unfiled ? { unfiled: true } : null;
+  }
+  // The key path (a PC without the worker, or a path link made with start_work link): start_work decides by the folder's path.
+  let k = null;
+  try { const t = await Promise.race([mcpCall('start_work', run.project ? { ...where, project: run.project } : where), new Promise((res) => setTimeout(() => res(null), timeoutMs))]); k = t ? JSON.parse(t) : null; } catch { return workerHome() ? { unfiled: true } : null; }
+  if (!k) return workerHome() ? { unfiled: true } : null;
+  if (k.quiet) return { unfiled: true, quiet: true };
+  if (k.unmatched || !k.project) return { unfiled: true };
+  briefMarker(sid, { ...input, source: 'startup' }, cwd, null, k, false);
+  return { filed: k.project.name };
 }
 
 /** The start_work answer as plain text, most important first; whole sections are added while they fit MAX_BRIEF. */

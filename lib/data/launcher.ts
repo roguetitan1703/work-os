@@ -87,7 +87,7 @@ export type JobsResponse = {
   enabled: boolean;
   pollSeconds: number;
   links: { folderId: string; projectId: string; projectName: string }[];
-  jobs: { id: string; kind: WorkerJobDoc['kind']; folderId?: string; projectId?: string; projectName?: string; sessionId?: string; prompt?: string; clone?: { repo: string; trusted: boolean } }[];
+  jobs: { id: string; kind: WorkerJobDoc['kind']; folderId?: string; projectId?: string; projectName?: string; sessionId?: string; prompt?: string; clone?: { repo: string; trusted: boolean }; dispatched?: number }[];
 };
 
 export async function pollJobs(s: Scope, deviceId: string): Promise<JobsResponse> {
@@ -130,6 +130,7 @@ export async function pollJobs(s: Scope, deviceId: string): Promise<JobsResponse
       ...(j.projectId ? { projectId: j.projectId, projectName: names.get(j.projectId) ?? j.projectId } : {}),
       ...(j.prompt ? { prompt: j.prompt } : {}),
       ...(j.clone ? { clone: j.clone } : {}),
+      ...(Number.isInteger(j.dispatched) ? { dispatched: j.dispatched } : {}),
     })),
   };
 }
@@ -533,7 +534,7 @@ export async function unlinkFolder(scope: DeviceScope, projectId: string, key: s
   afterCommit(() => wake(scope.orgId, scope.userId, f.deviceId));
 }
 
-export async function addJob(scope: DeviceScope, deviceId: string, job: { kind: WorkerJobDoc['kind']; sessionId?: string; folderId?: string; projectId?: string; prompt?: string; clone?: { repo: string; trusted: boolean } }): Promise<string> {
+export async function addJob(scope: DeviceScope, deviceId: string, job: { kind: WorkerJobDoc['kind']; sessionId?: string; folderId?: string; projectId?: string; prompt?: string; clone?: { repo: string; trusted: boolean }; dispatched?: number }): Promise<string> {
   const c = await scoped(scope);
   if (!(await c.devices.findOne({ _id: deviceId, revokedAt: null }, { projection: { _id: 1 } }))) throw new InputError('That device was revoked; add it again under Claude › Setup');
   const open = await c.workerJobs.countDocuments({ deviceId, doneAt: null });
@@ -556,14 +557,14 @@ export async function startSession(scope: DeviceScope, projectId: string, key: s
  * The session row and the start job. Also used by the dispatcher (docs/dispatcher.md), which passes `dispatched`
  * (the fixed template is the prompt, never task text) and a session id it already recorded on the task.
  */
-export async function createStartJob(scope: DeviceScope, f: WorkerFolderDoc, projectId: string, text: string, dispatched?: { taskId: string; sessionId: string }): Promise<string> {
+export async function createStartJob(scope: DeviceScope, f: WorkerFolderDoc, projectId: string, text: string, dispatched?: { taskId: string; sessionId: string; ref: number }): Promise<string> {
   if (text.length > MAX_PROMPT) throw new InputError(`First message is too long (max ${MAX_PROMPT} characters)`);
   const sessionId = dispatched?.sessionId ?? randomUUID();
   const c = await scoped(scope);
   const now = new Date();
   await c.workerSessions.insertOne({ _id: sessionId, orgId: scope.orgId, ownerId: scope.userId, deviceId: f.deviceId, folderId: f.folderId, projectId, state: 'starting', startedAt: now, updatedAt: now, ...(dispatched ? { dispatched: true, taskId: dispatched.taskId } : {}) });
   try {
-    await addJob(scope, f.deviceId, { kind: 'start', sessionId, folderId: f.folderId, projectId, ...(text ? { prompt: text } : {}) });
+    await addJob(scope, f.deviceId, { kind: 'start', sessionId, folderId: f.folderId, projectId, ...(text ? { prompt: text } : {}), ...(dispatched ? { dispatched: dispatched.ref } : {}) });
   } catch (err) {
     await c.workerSessions.deleteOne({ _id: sessionId }); // no orphan "starting" row when the job is refused
     throw err;

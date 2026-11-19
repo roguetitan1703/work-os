@@ -3,7 +3,7 @@
 // prompt's context. Waits for the answer (0.6 s at most, the hook is given 3); no token, a slow or failed call: no output.
 // A session that started unfiled (no project owns its folder, H13) tries to sign in again first (2 s): once its person filed the folder
 // it gets its token and one line, "Filed under X"; still unfiled it gets a one-line reminder; marked not Work OS it is left alone.
-import { deliverOut, postEvent, readMarker, unfiledReminder, writeMarker } from './hook-lib.mjs';
+import { deliverOut, postEvent, readMarker, unfiledReminder, workerHome, writeMarker } from './hook-lib.mjs';
 import { refile } from './hook-session-start.mjs';
 
 const WOKE_MS = 60_000;
@@ -17,7 +17,7 @@ async function unfiledStep(input, m) {
   const r = await refile(input, REFILE_MS).catch(() => null);
   if (r?.filed) return `Filed under ${r.filed}; Work OS hooks are on for this session.`;
   if (r?.unfiled && r.quiet) { const { unfiled, ...rest } = readMarker(input.session_id) ?? m; void unfiled; writeMarker(input.session_id, rest); return ''; }
-  return r?.unfiled ? unfiledReminder(m.folder) : '';
+  return r?.unfiled ? unfiledReminder(m.folder, !!workerHome()) : '';
 }
 
 export async function userPrompt(input) {

@@ -184,6 +184,24 @@ try {
   const qe = await post(tPc.key, at(['rttess'], { path: 'D:/Scratch/Thing/sub', machine: 'pc-one' }));
   check('H13 quiet route: another member\'s computer does not see the owner\'s list', qe.status === 404 && !qe.json?.quiet, `${qe.status} ${qe.text}`);
 
+  // ── 8. A path link belongs to the person who made it: two people with a same-named computer and the same path do not collide
+  await must(cc, 'add_project', { name: 'H13 Mine' });
+  await must(kT, 'add_project', { name: 'H13 Tess Own' });
+  const lk1 = await mcpH(cc, 'start_work', { project: 'H13 Mine', path: 'C:/h13/shared', machine: 'Same-PC', link: true });
+  const stored8 = (await rawDb.collection('projects').findOne({ name: 'H13 Mine' })).code.find(l => l.path);
+  check('H13 by: start_work link with a path stores the linking person on the location', !lk1.isError && stored8?.by === ME.userId && stored8?.machine === 'same-pc', JSON.stringify(stored8) + lk1.text.slice(0, 120));
+  const mine8 = await mcpH(cc, 'start_work', { path: 'C:/h13/shared/sub', machine: 'same-pc', label: 'h13 by owner' });
+  const hers8 = await mcpH(kT, 'start_work', { path: 'C:/h13/shared/sub', machine: 'same-pc', label: 'h13 by tess' });
+  check('H13 by: the linking person matches their own link; a member with the same computer name and path gets no match', mine8.json?.project?.name === 'H13 Mine' && hers8.json?.unmatched === true && !hers8.json?.project, `${mine8.text.slice(0, 100)} | ${hers8.text.slice(0, 160)}`);
+  const gp8 = await mcpH(kT, 'get_project', { path: 'C:/h13/shared', machine: 'same-pc', depth: 'project' });
+  check('H13 by: get_project by that path is unmatched for the other member too', gp8.json?.unmatched === true, gp8.text.slice(0, 160));
+  const lk2 = await mcpH(kT, 'start_work', { project: 'H13 Tess Own', path: 'C:/h13/shared', machine: 'Same-PC', link: true });
+  check('H13 by: the other member can link the same path on a same-named computer (it is not "already filed")', !lk2.isError, lk2.text.slice(0, 200));
+  const hers8b = await mcpH(kT, 'start_work', { path: 'C:/h13/shared/sub', machine: 'same-pc', label: 'h13 by tess 2' });
+  const mine8b = await mcpH(cc, 'start_work', { path: 'C:/h13/shared/sub', machine: 'same-pc', label: 'h13 by owner 2' });
+  check('H13 by: each person then finds their own project at the same path', hers8b.json?.project?.name === 'H13 Tess Own' && mine8b.json?.project?.name === 'H13 Mine', `${hers8b.text.slice(0, 100)} | ${mine8b.text.slice(0, 100)}`);
+  const lk3 = await mcpH(cc, 'start_work', { project: 'H13 Other', path: 'C:/h13/shared', machine: 'Same-PC', link: true });
+  check('H13 by: one person still cannot file the same folder under a second project', lk3.isError && /already filed/i.test(lk3.text), lk3.text.slice(0, 200));
 } catch (e) {
   check('flow-h13 threw', false, String(e?.stack || e));
 }

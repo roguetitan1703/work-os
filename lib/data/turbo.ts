@@ -75,7 +75,7 @@ export async function turboAvailable(scope: Scope, projectId: string): Promise<{
 }
 
 /** The session row (state starting, cloning) and the clone-and-start job. Also used by the dispatcher (`dispatched`: the fixed template is the prompt). */
-export async function createCloneJob(scope: Scope, deviceId: string, projectId: string, r: { spec: string; repo: string }, text: string, dispatched?: { taskId: string; sessionId: string }): Promise<string> {
+export async function createCloneJob(scope: Scope, deviceId: string, projectId: string, r: { spec: string; repo: string }, text: string, dispatched?: { taskId: string; sessionId: string; ref: number }): Promise<string> {
   if (text.length > 4000) throw new InputError('First message is too long (max 4000 characters)');
   const sessionId = dispatched?.sessionId ?? randomUUID();
   const c = await scoped(scope);
@@ -85,7 +85,7 @@ export async function createCloneJob(scope: Scope, deviceId: string, projectId: 
   const trusted = (pr?.codeBy ?? pr?.ownerId) === scope.userId;
   await c.workerSessions.insertOne({ _id: sessionId, orgId: scope.orgId, ownerId: scope.userId, deviceId, folderId: '', projectId, cloning: true, repo: r.repo, state: 'starting', startedAt: now, updatedAt: now, ...(dispatched ? { dispatched: true, taskId: dispatched.taskId } : {}) });
   try {
-    await addJob(scope, deviceId, { kind: 'start', sessionId, projectId, clone: { repo: r.spec, trusted }, ...(text ? { prompt: text } : {}) });
+    await addJob(scope, deviceId, { kind: 'start', sessionId, projectId, clone: { repo: r.spec, trusted }, ...(text ? { prompt: text } : {}), ...(dispatched ? { dispatched: dispatched.ref } : {}) });
   } catch (err) {
     await c.workerSessions.deleteOne({ _id: sessionId });
     throw err;

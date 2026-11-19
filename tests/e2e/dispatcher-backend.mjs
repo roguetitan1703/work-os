@@ -45,6 +45,7 @@ check('allowPrompts:false device gets nothing', r.body.jobs.length === 0 && (awa
 await status(D2, {}, true);
 r = await poll(D2);
 check('same device once it reports allowPrompts true: claims its own project task', r.body.jobs.length === 1 && (await task(105)).claude.state === 'running', JSON.stringify(r.body));
+check('H9 dispatched: the dispatcher\'s start job carries the task ref (the worker puts it in claude\'s environment)', r.body.jobs[0]?.kind === 'start' && r.body.jobs[0].dispatched === 105, JSON.stringify(r.body.jobs[0]));
 // put 105 back so it does not hold a slot
 await db.collection('workerJobs').deleteMany({}); await db.collection('workerSessions').deleteMany({});
 await db.collection('tasks').updateOne({ ref: 105 }, { $set: { claude: null, status: 'Not Started' } });

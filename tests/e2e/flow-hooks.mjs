@@ -7,7 +7,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { B, MCP, check, finish, mkKey, rawDb } from './lib.mjs';
-import { must } from './flow-lib.mjs';
+import { markOrders, must } from './flow-lib.mjs';
 
 const HOOK = fileURLToPath(new URL('../../worker/hook.mjs', import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-hooks-e2e-'));
@@ -101,6 +101,24 @@ try {
   check('H13 hook: claude -p (entrypoint sdk-cli) prints nothing, even in an unfiled folder', c7.status === 0 && c7.stdout === '', c7.stdout);
   const c8 = hook('session-start', { session_id: 'h13h', transcript_path: transcript, cwd: plainDir }, { ...envOut, WORK_OS_KEY: 'wos_' + 'x'.repeat(40) });
   check('H13 hook: a key the server refuses still prints nothing (fail open, also unfiled)', c8.status === 0 && c8.stdout === '', c8.stdout);
+
+  // H9 hardening: a dispatched run (WORK_OS_DISPATCHED=<task ref>, set by the worker) shares the person's key; the pre-tool hook
+  // refuses Orders edits there, using the Orders note ids the brief named (kept in the session marker).
+  const ordersNote = (await must(MCP, 'write_note', { project: NAME, title: 'Hooks project Orders', body: 'Hooks rule one.' })).created.id;
+  await markOrders(ordersNote, 'project');
+  fresh();
+  const d1 = hook('session-start', { session_id: 'hkd1', transcript_path: transcript, cwd: repo, hook_event_name: 'SessionStart', source: 'startup' });
+  const dm = (() => { try { return JSON.parse(fs.readFileSync(path.join(tmp, 'markers', 'hkd1.json'), 'utf8')); } catch { return null; } })();
+  check('H9 dispatched: the session marker keeps the brief\'s Orders note ids', d1.status === 0 && Array.isArray(dm?.orders) && dm.orders.includes(ordersNote), JSON.stringify(dm?.orders));
+  const denyOut = r => { try { return JSON.parse(r.stdout).hookSpecificOutput?.permissionDecision === 'deny'; } catch { return false; } };
+  const denv = { ...env, WORK_OS_DISPATCHED: '290' };
+  const wn = (id, e) => hook('pre-tool', { session_id: 'hkd1', cwd: repo, tool_name: 'mcp__work-os__write_note', tool_input: { note_id: id, append: 'x', why: 'x' } }, e);
+  check('H9 dispatched: write_note on the Orders page is refused in a dispatched run, and the person\'s own session passes', denyOut(wn(ordersNote, denv)) && wn(ordersNote, env).stdout === '', wn(ordersNote, denv).stdout.slice(0, 200));
+  check('H9 dispatched: write_note on another note and a task\'s note passes in a dispatched run', wn('notAnOrdersNote1', denv).stdout === '');
+  const po = hook('pre-tool', { session_id: 'hkd1', cwd: repo, tool_name: 'mcp__work-os__propose_order', tool_input: { project: NAME, layer: 'project', new: 'x', why: 'x' } }, denv);
+  check('H9 dispatched: propose_order is refused in a dispatched run', denyOut(po), po.stdout.slice(0, 200));
+  const pl = hook('pre-tool', { session_id: 'hkd1', cwd: repo, tool_name: 'mcp__work-os__write_note', tool_input: { note_id: ordersNote, append: 'x' } }, { ...denv, WORK_OS_DISPATCHED: 'yes' });
+  check('H9 dispatched: a value that is not a task ref is not a dispatched run', pl.stdout === '');
 
   // Stop: quiet with nothing changed, blocks once after a change
   const stopIn = (sid, extra = {}) => ({ session_id: sid, transcript_path: transcript, cwd: repo, hook_event_name: 'Stop', stop_hook_active: false, ...extra });

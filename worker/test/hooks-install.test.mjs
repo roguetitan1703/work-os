@@ -88,7 +88,7 @@ test('the entries equal the strings older workers wrote, except the PostToolUse 
   const old = {
     SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [c('session-start', 8)] }],
     Stop: [{ hooks: [c('stop', 8)] }],
-    PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', hooks: [c('pre-tool', 5)] }],
+    PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|mcp__.*__(write_note|propose_order|apply_changes)', hooks: [c('pre-tool', 5)] }],
     PostToolUse: [{ matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', hooks: [c('post-tool', 20)] }],
   };
   // H9: the subagent row reads only the session's marker (no network), so a repo's cloud entries have it too.
@@ -234,7 +234,7 @@ test('H13 hooks repo --project: the project id goes into the four entries, a nam
     assert.equal(r.project, 'cutroom-a1b2c3d4');
     const s = JSON.parse(fs.readFileSync(r.settings, 'utf8'));
     const cmds = Object.values(s.hooks).flat().flatMap((g) => g.hooks.map((h) => h.command));
-    assert.equal(cmds.length, 4);
+    assert.equal(cmds.length, 5); // H9 added the SubagentStart entry after this test was written (4 then)
     assert.ok(cmds.every((c) => c.endsWith(' --project "cutroom-a1b2c3d4"') && c.includes(' --cloud ')), cmds.join('\n'));
     for (const bad of ['Cutroom Site', 'a"b', 'x; rm -rf', '../up', '', 'A']) assert.throws(() => m.repo(dir, { server: 'https://work.example', project: bad }), /project id/, bad);
     const again = m.repo(dir, { server: 'https://work.example' });

@@ -26,7 +26,7 @@ export const EVENTS = [
   // Files changed and State not saved: hold the session once and ask for save_state.
   { event: 'stop', claudeEvent: 'Stop', matcher: null, timeoutS: 8 },
   // Refuse hand edits of WORK-STATE.md (it is a copy of the Work OS State).
-  { event: 'pre-tool', claudeEvent: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', timeoutS: 5 },
+  { event: 'pre-tool', claudeEvent: 'PreToolUse', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|mcp__.*__(write_note|propose_order|apply_changes)', timeoutS: 5 },
   // After a State save or read: write WORK-STATE.md from the answer and commit that file alone.
   { event: 'post-tool', claudeEvent: 'PostToolUse', matcher: 'mcp__.*__(save_state|import_state|get_state|end_work)', timeoutS: 20 },
   // Session state and messages (POST /api/agent/event and /api/agent/wait, a session token only: a PC's own hooks, so a repo's cloud
@@ -105,20 +105,27 @@ const plain = (v, n) => str(v).replace(/[^\w ./:\\()@+~-]/g, '?').slice(0, n);
  * What a session is told in a folder no project owns: fixed words, with the folder's path, remote and id (cut and cleaned:
  * a hostile folder name is data), the calls that file it, and suggestions from Work OS (names cleaned the same way).
  */
-export function unfiledText({ path: p, remote, folder, machine, candidates }) {
+export function unfiledText({ path: p, remote, folder, machine, candidates, worker = false }) {
   const P = plain(p, 100);
   const M = plain(machine, 40);
   const where = `path: ${P}${remote ? `; remote: ${plain(remote, 80)}` : ''}${folder ? `; folder id: ${plain(folder, 40)}` : ''}`;
   const link = folder ? `{ project: "<name>", folder: "${plain(folder, 40)}", link: true }` : `{ project: "<name>", path: "${P}", machine: "${M}", link: true }`;
+  // A PC with the worker links by folder id only (/api/agent/start never reads a path link). A folder the worker has not scanned
+  // has no id: the person adds or links it in the app, then the next prompt finds it.
+  const noId = worker && !folder;
   const names = (Array.isArray(candidates) ? candidates : []).slice(0, 3).map((c) => `${plain(c?.name, 40)}${c?.why ? ' (same remote)' : ''}`).filter(Boolean);
   return [
     `This folder is not filed in Work OS (${where}). A remote never picks the project. Ask your person once which project this folder is for.`,
-    `Then call start_work ${link} to file it (a new project: add_project first, then the same call), or { path: "${P}", machine: "${M}", not_work_os: true } if it is not Work OS.`,
+    noId
+      ? `The worker on this computer has not scanned this folder, so it cannot be filed from here. Ask your person to add or link it in Work OS under Claude › Setup › Computers (a new project: add_project first), or call start_work { path: "${P}", machine: "${M}", not_work_os: true } if it is not Work OS.`
+      : `Then call start_work ${link} to file it (a new project: add_project first, then the same call), or { path: "${P}", machine: "${M}", not_work_os: true } if it is not Work OS.`,
     names.length ? `Suggestions: ${names.join(', ')}.` : 'Suggestions: start_work { path, remote } lists candidates.',
   ].join('\n');
 }
 /** The one line a session sees on each prompt while its folder is still unfiled. */
-export const unfiledReminder = (folder) => `Work OS: this folder is not filed yet. Ask your person which project, then start_work { project, ${folder ? `folder: "${plain(folder, 40)}", ` : 'path, machine, '}link: true }.`;
+export const unfiledReminder = (folder, worker = false) => (worker && !folder
+  ? 'Work OS: this folder is not filed yet. Ask your person to add or link it in Claude › Setup › Computers.'
+  : `Work OS: this folder is not filed yet. Ask your person which project, then start_work { project, ${folder ? `folder: "${plain(folder, 40)}", ` : 'path, machine, '}link: true }.`);
 
 const PRESENCE_AFTER = { prompt: 'working', tool: 'working', stop: 'idle', end: 'off' };
 /**

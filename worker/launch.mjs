@@ -29,8 +29,12 @@ const wtEsc = (s) => String(s).replace(/;/g, '\\;');
 // wt runs `node run-claude.mjs <claudePath> <args...>`: the wrapper runs claude (no shell) and exits 0
 // when it ends, so wt closes the tab (including after Stop kills claude).
 export const WRAPPER = fileURLToPath(new URL('./run-claude.mjs', import.meta.url));
-export function windowsWtArgs(folder, title, claudePath, cargs, nodePath = process.execPath, wrapper = WRAPPER) {
-  return ['-w', 'new', '-d', folder, '--title', title, nodePath, wrapper, claudePath, ...cargs].map(wtEsc);
+// dispatched (the task ref of a dispatcher-started run): the wrapper puts WORK_OS_DISPATCHED=<ref> in claude's environment,
+// where the PreToolUse hook reads it (hook-pre-tool.mjs, Orders pages). It rides on the command line because wt may start the
+// tab from an already running Terminal whose environment is not this worker's.
+export const dispatchedArg = (ref) => (Number.isInteger(ref) && ref > 0 ? ['--work-os-dispatched=' + ref] : []);
+export function windowsWtArgs(folder, title, claudePath, cargs, nodePath = process.execPath, wrapper = WRAPPER, dispatched = null) {
+  return ['-w', 'new', '-d', folder, '--title', title, nodePath, wrapper, ...dispatchedArg(dispatched), claudePath, ...cargs].map(wtEsc);
 }
 
 // Absolute path of claude, never from inside an allowed root (a planted claude.exe / claude.cmd in a
@@ -78,20 +82,20 @@ function spawnDetached(cmd, args, opts = {}) {
   });
 }
 
-export async function launch({ kind, folder, sessionId, projectName, prompt, claudePath, mcpConfig }) {
+export async function launch({ kind, folder, sessionId, projectName, prompt, claudePath, mcpConfig, dispatched }) {
   if (!claudePath) throw new Error('claude not found on PATH outside the allowed roots');
   if (mcpConfig && !(path.isAbsolute(mcpConfig) && fs.existsSync(mcpConfig))) throw new Error('mcpConfig must be an existing absolute path');
   const cargs = claudeArgs({ kind, sessionId, projectName, prompt, mcpConfig });
   const title = projectName || 'claude';
   if (process.platform === 'win32') {
     try {
-      await spawnDetached('wt.exe', windowsWtArgs(folder, title, claudePath, cargs));
+      await spawnDetached('wt.exe', windowsWtArgs(folder, title, claudePath, cargs, process.execPath, WRAPPER, dispatched));
     } catch (e) {
       if (e && e.code === 'ENOENT') throw new Error('Install Windows Terminal (wt.exe)');
       throw e;
     }
   } else if (process.platform === 'darwin') {
-    const cmd = macScript(folder, claudePath, cargs.map((c) => c.replace(/\r?\n/g, ' '))) + '; exit';
+    const cmd = macScript(folder, claudePath, cargs.map((c) => c.replace(/\r?\n/g, ' ')), dispatched) + '; exit';
     await execFileP('osascript', ['-e', `tell application "Terminal" to do script "${asEscape(cmd)}"`]);
   } else throw new Error('unsupported platform');
 }

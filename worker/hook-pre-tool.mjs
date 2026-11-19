@@ -1,4 +1,5 @@
-// PreToolUse hook (Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell): refuse hand edits of WORK-STATE.md, naming save_state.
+// PreToolUse hook (Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell, and the Work OS tools write_note, propose_order and
+// apply_changes): refuse hand edits of WORK-STATE.md, naming save_state; refuse Orders edits from a dispatched run.
 // One exception: an Edit that changes one line of the file is forwarded to the Work OS State (POST /api/agent/state, session
 // token only), the file is then written from the answer, and the Edit is refused with "Applied to Work OS State vN". Write,
 // MultiEdit, NotebookEdit and shell writes are only refused. No token, a timeout or any failure: the plain refusal.
@@ -76,6 +77,8 @@ export function writesCopy(cmd) {
 
 /** PreToolUse: refuse hand edits of WORK-STATE.md, saying what to do instead. */
 export async function preTool(input) {
+  const od = ordersDeny(input);
+  if (od) return od;
   if (!hitsCopy(input)) {
     const blocked = await productionBlock(input);
     if (blocked) return blocked;
@@ -86,6 +89,26 @@ export async function preTool(input) {
     try { const f = await forwardEdit(input); if (f) return f; } catch {}
   }
   return plainDeny();
+}
+
+/**
+ * A run the task dispatcher started (the worker sets WORK_OS_DISPATCHED=<task ref> in its environment) shares the person's key,
+ * so the server cannot tell it from the person's own session by anything the run sends. It may not change an Orders page: the
+ * brief's Orders note ids (kept in the session marker) are refused for write_note and apply_changes, and propose_order, which
+ * always targets Orders, is refused outright. Fails closed only for those: no marker, no ids, any other note or tool passes.
+ */
+const ORDERS_TOOL = /^mcp__.+__(write_note|propose_order|apply_changes)$/;
+export function ordersDeny(input, env = process.env) {
+  try {
+    if (!/^[0-9]{1,9}$/.test(String(env.WORK_OS_DISPATCHED || ''))) return null;
+    const m = ORDERS_TOOL.exec(String(input.tool_name || ''));
+    if (!m) return null;
+    const ids = new Set(Array.isArray(readMarker(input.session_id)?.orders) ? readMarker(input.session_id).orders : []);
+    const tool = m[1];
+    const hit = tool === 'propose_order' || (ids.size > 0 && JSON.stringify(input.tool_input ?? {}).match(/[A-Za-z0-9_-]{6,64}/g)?.some((w) => ids.has(w)));
+    if (!hit) return null;
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Work OS: this run was started by the task dispatcher, and a dispatched run does not change Orders pages (' + tool + '). Say what you found in your report or with the feedback tool; the person edits Orders.' } };
+  } catch { return null; }
 }
 
 const RELEASE_TIMEOUT_MS = 3000; // the route call; the hook as a whole has 5 s
@@ -153,6 +176,8 @@ export function timeoutAnswer(stdinText) {
   try {
     const input = JSON.parse(stdinText || '{}');
     if (hitsCopy(input)) return plainDeny();
+    const od = ordersDeny(input);
+    if (od) return od;
     // A production action was found and Work OS had not answered yet: refuse (the hook cannot confirm a release Need in time).
     if (run.prod) return releaseDeny(run.prod, 'unconfirmed', readMarker(input.session_id)?.project);
     return null;

@@ -628,7 +628,7 @@ export async function addPathLocation(s: Scope, projectId: string, path: string,
   let have = false;
   for (const p of all) {
     for (const l of p.code ?? []) {
-      if (!l.path || normalizePath(l.path) !== norm || (l.machine && l.machine !== mach)) continue;
+      if (!l.path || normalizePath(l.path) !== norm || (l.machine && l.machine !== mach) || (l.by && l.by !== s.userId)) continue; // another person's link on a same-named computer does not count
       if (p._id !== projectId) throw new InputError(`This folder is already filed under ${p.name}`);
       have = true; // the same computer, or a location for any computer: already covered
     }
@@ -637,7 +637,7 @@ export async function addPathLocation(s: Scope, projectId: string, path: string,
   if (!cur) throw new NotFoundError('Project not found');
   if (have) return false;
   if ((cur.code?.length ?? 0) >= MAX_CODE_LOCATIONS) throw new InputError(`At most ${MAX_CODE_LOCATIONS} code locations per project`);
-  const [loc] = cleanCodeLocations([{ path, machine: mach }]);
+  const [loc] = cleanCodeLocations([{ path, machine: mach, by: s.userId }]);
   await c.projects.updateOne({ _id: projectId }, { $push: { code: loc }, $set: { updatedAt: new Date() } });
   return true;
 }
@@ -651,7 +651,7 @@ export async function findProjectByCode(s: Scope, q: CodeQuery, opts: { legacyRe
   const c = await scoped(s);
   const docs = await c.projects.find({}, { projection: { name: 1, code: 1, status: 1 } }).toArray();
   const list = docs.map(d => ({ id: d._id, name: d.name, code: d.code }));
-  const m = matchCodeLocation(list, q, opts);
+  const m = matchCodeLocation(list, { ...q, by: s.userId }, opts);
   if (m) {
     const doc = await c.projects.findOne({ _id: m.project.id });
     if (doc) return { matched: true, project: toProject(doc), how: m.how, location: m.location };
