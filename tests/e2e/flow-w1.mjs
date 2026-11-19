@@ -248,8 +248,8 @@ try {
       // Lanes on the project page: Now holder, held mark, left text, lanes with last result
       await p.goto(B + `/projects/${PID}`);
       await p.waitForSelector('[data-card="state"]');
-      const nowTxt = await p.locator('[data-state-now]').innerText();
-      check(T('the State card says "held by orchestrator (working)" for Now'), /held by orchestrator \(working\)/.test(nowTxt) && !nowTxt.includes('w1-orch'), nowTxt);
+      const nowTxt = await p.locator('[data-card="purpose"]').innerText();
+      check(T('the purpose header says "held by orchestrator (working)" for Now'), /held by orchestrator \(working\)/.test(nowTxt) && !nowTxt.includes('w1-orch'), nowTxt);
       check(T('a held line shows the holder label; an unheld line with left shows its left text; the plain line shows neither'), /builder A/.test(await p.locator('[data-next-id] [data-line-holder]').first().innerText()) && (await p.locator('[data-line-holder]').count()) === 1 && /left by builder S · builder-s · last: half done, tests red/.test(await p.locator('[data-line-left]').innerText()) && (await p.locator('[data-line-left]').count()) === 1);
       const lanes = await p.locator('[data-project-worker]').count();
       const resTxt = (await p.locator('[data-lane-result]').allInnerTexts()).join(' | ');

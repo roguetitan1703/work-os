@@ -92,6 +92,19 @@ export async function stateOfProject(s: Scope, projectId: string): Promise<State
   return (await scoped(s)).states.findOne({ _id: projectId });
 }
 
+/** One project's goal for the Projects list: Now's text, the first Next line and the State version. */
+export type NowLine = { now: string | null; next: string | null; version: number };
+
+/**
+ * The Now and first Next line of many projects in one query (the Projects list): only those fields are read, never the whole
+ * State. Through the caller's door like every read, so a project the caller cannot read has no entry.
+ */
+export async function nowOfProjects(s: Scope, ids: string[]): Promise<Record<string, NowLine>> {
+  if (!ids.length) return {};
+  const rows = await (await scoped(s)).states.find({ _id: { $in: ids } }, { projection: { 'now.text': 1, next: { $slice: 1 }, version: 1 } }).toArray();
+  return Object.fromEntries(rows.map(d => [String(d._id), { now: d.now?.text ?? null, next: d.next?.[0]?.text ?? null, version: d.version }]));
+}
+
 /** A session's key as holds name it (`userId:key`): an MCP src already has the form, the hook's State route sends a bare session id. */
 export function holdKeyOf(userId: string, src: string | undefined | null): string | undefined {
   if (!src) return undefined;

@@ -245,7 +245,7 @@ try {
     const card = p.locator('[data-card=state]');
     await card.waitFor({ timeout: 20000 });
     const v0 = Number(await card.getAttribute('data-state-version'));
-    check(`S2 app (${tag}): the State card shows Now, Next with its lines and the version`, (await card.locator('[data-state-now]').textContent()).includes('Build the brief') && (await card.locator('[data-next-id]').count()) >= 2 && v0 >= 1, String(v0));
+    check(`S2 app (${tag}): the State card shows Now, Next with its lines and the version`, (await p.locator('[data-card=purpose] [data-state-now]').textContent()).includes('Build the brief') && (await card.locator('[data-next-id]').count()) >= 2 && v0 >= 1, String(v0));
     check(`S2 app (${tag}): a line by someone else says who`, (await card.innerText()).includes('Tess'));
     const line = `Added in the app at ${tag}`;
     await card.locator('[data-state-add=next]').fill(line);
@@ -258,10 +258,11 @@ try {
     await p.waitForFunction(t => !document.querySelector('[data-card=state]')?.textContent?.includes(t), line, { timeout: 15000 });
     check(`S2 app (${tag}): Done removes the line (a versioned write)`, (await rawDb.collection('states').findOne({ _id: project._id })).version === v0 + 2);
     // A change made elsewhere meanwhile: the card's next versioned write is refused and shows the current State
-    await card.locator('[data-state-edit-now]').click();
+    const head = p.locator('[data-card=purpose]');
+    await head.locator('[data-state-edit-now]').click();
     await must(cc, 'save_state', { project: NAME, ops: [{ op: 'add_next', text: `Agent line ${tag}` }] });
-    await card.locator('input[aria-label=Now]').fill(`Now from the app at ${tag}`);
-    await card.locator('button:has-text("Save")').click();
+    await head.locator('[aria-label=Now]').fill(`Now from the app at ${tag}`);
+    await head.locator('button:has-text("Save")').click();
     await p.waitForTimeout(1500);
     const d2 = await rawDb.collection('states').findOne({ _id: project._id });
     check(`S2 app (${tag}): a stale Now save from the card writes nothing`, d2.now.text !== `Now from the app at ${tag}`, d2.now.text);
