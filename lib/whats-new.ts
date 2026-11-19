@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'dispatcher-restart-once',
+    date: '2026-11-19',
+    title: 'Claude tasks restart once',
+    line: "Claude's tasks restart once on their own if the session dies; after that you choose. Never more running at once than you set.",
+    where: "Claude › Now, Claude's tasks",
+    href: '/claude',
+  },
+  {
     id: 'notes-shelves',
     date: '2026-11-19',
     title: 'Notes on shelves',

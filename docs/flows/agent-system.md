@@ -305,6 +305,10 @@ Each piece ships through dev, a full test run, then master. Security review befo
   environment).
 - **How it fits this design:** it starts and ends every worker with start_work and end_work, names them
   `<Project> · worker · #ref`, and is supervised by Work OS through presence (section 11): no heartbeat means a fresh
-  dispatcher, a dead worker's task is re-queued once, then goes to Om as a Need.
+  dispatcher, a dead worker's task is re-queued once, then goes to Om as a Need. **Built (H15, 19 Nov):** the server marks a dispatched
+  session (this PC's own worker session row), its hooks refuse Orders edits and shell calls to the Work OS key and API, the claim cap is one
+  transaction behind a per-person lock document, a session that ends on its own is put back once and then an app-only Need goes to the
+  giver (Give to Claude again / Take back), and the prompt ends with end_work; see docs/dispatcher.md "As built (H15)". The cloud
+  dispatcher (#267, #268) is its own part after H16.
 - **Order:** after builder A's session tokens and per-session ids and builder B's end_work, because the dispatcher
   needs both. #259's subtasks 2 (Needs) and parts of 4 and 5 are built already; Declutter brings that task up to date.
