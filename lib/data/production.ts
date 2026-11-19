@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ProjectDoc } from '../db';
-import { userActor } from '../actors';
+import { userActor, type Actor } from '../actors';
+import { memberNames } from '../people';
 import { scoped, type Scope } from '../scope';
 import { normalizeRemote } from './code-locations';
 import { InputError, NotFoundError } from './errors';
@@ -116,6 +117,31 @@ export async function setProduction(s: Scope, projectId: string, input: unknown 
 export async function productionForBrief(s: Scope, projectId: string): Promise<ProductionConfig | null> {
   const p = await (await scoped(s)).projects.findOne({ _id: projectId }, { projection: { code: 1, production: 1 } });
   return p ? effectiveProduction(p) : null;
+}
+
+export const RELEASE_WHAT = ['push', 'tag', 'release', 'cli'] as const;
+export type ReleaseWhat = (typeof RELEASE_WHAT)[number];
+const WHAT_WORD: Record<ReleaseWhat, string> = { push: 'push', tag: 'tag', release: 'release', cli: 'command' };
+
+/**
+ * The hook asks: may this production action go ahead? (POST /api/agent/release, the session token's own project.) Answers
+ * { allowed: true, until, need } when a release Need to the owner is answered and its window is open, and then writes one
+ * feed row on the project ("Production push (master) under Need #41": what and a name, never a command). Else
+ * { allowed: false, open?, owner } (open: the number of a release Need waiting for its answer; owner: their first name).
+ */
+export async function checkRelease(s: Scope, projectId: string, what: ReleaseWhat, name: string | undefined, actor: Actor): Promise<{ allowed: true; until: string; need: number } | { allowed: false; open?: number; owner: string }> {
+  const g = await releaseGrant(s, projectId);
+  const c = await scoped(s);
+  const p = await c.projects.findOne({ _id: projectId });
+  if (!p) throw new NotFoundError('Project not found');
+  if (g && 'until' in g) {
+    const label = String(name ?? '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+    const { logChange } = await import('./tasks');
+    await logChange(c, p, actor, 'production', { subject: { kind: 'project', id: p._id, title: p.name }, projectId: p._id, note: `Production ${WHAT_WORD[what]}${label ? ` (${label})` : ''} under Need #${g.ref}` });
+    return { allowed: true, until: g.until.toISOString(), need: g.ref };
+  }
+  const owner = (await memberNames(s.orgId))[p.ownerId] ?? '';
+  return { allowed: false, ...(g && 'open' in g ? { open: g.open } : {}), owner: owner.split(/\s+/)[0] ?? '' };
 }
 
 export type ReleaseGrant = { until: Date; ref: number } | { open: number } | null;
