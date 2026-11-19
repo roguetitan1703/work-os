@@ -1,12 +1,31 @@
 // Stop hook: files changed since the session started and no save_state since: block once.
 import fs from 'node:fs';
-import { postEvent, readMarker, sizeOf, statusHash, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, deliverText, postEvent, readMarker, sizeOf, statusHash, writeMarker } from './hook-lib.mjs';
 
-/** Stop: the hook's JSON answer (or null). Blocks at most once per session. Not blocking means the turn ended: Work OS is told (idle). */
+/**
+ * Stop: the hook's JSON answer (or null). The save check blocks at most once per session; messages that came during the turn ride
+ * along in its reason (one reason, the save request first). Not blocking means the turn ended: Work OS is told (idle), and when it
+ * answers with a message that may wake the session (a direct request, question or decision, or an answered Need) and this stop is
+ * not itself the answer to a block, the turn goes on once with that text as the reason.
+ */
 export async function stop(input) {
+  const sid = input.session_id;
   const r = await decide(input);
-  if (!r && input.session_id) await postEvent(input.session_id, 'stop');
-  return r;
+  if (r) {
+    const a = sid ? await postEvent(sid, 'tool', { deliver: true }) : null; // still working: it is delivered inside the turn
+    const text = deliverText(a);
+    return text ? { ...r, reason: `${r.reason}\n\n${text}`.slice(0, MAX_BRIEF) } : r;
+  }
+  if (!sid) return null;
+  const again = !!input.stop_hook_active;
+  const a = await postEvent(sid, 'stop', again ? {} : { deliver: true });
+  const d = a?.status === 200 ? a.b?.deliver : null;
+  if (!again && d?.wakeable === true && deliverText(a)) {
+    const m = readMarker(sid);
+    if (m) writeMarker(sid, { ...m, lastTool: 0 }); // the turn goes on: the next tool batch tells Work OS it is working again
+    return { decision: 'block', reason: deliverText(a) };
+  }
+  return null;
 }
 
 async function decide(input) {

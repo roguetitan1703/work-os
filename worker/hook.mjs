@@ -5,10 +5,13 @@
 //   pre-tool       PreToolUse: refuse hand edits of WORK-STATE.md, naming save_state.
 //   post-tool      PostToolUse (save_state|import_state|get_state|end_work): write WORK-STATE.md from the answer's markdown and
 //                  commit that file alone.
-//   user-prompt    UserPromptSubmit (async): tell Work OS the session is working. No output.
+//   user-prompt    UserPromptSubmit: tell Work OS the session is working; a message waiting for the session goes into its context.
+//   tool-batch     PostToolBatch: at most every 20 s, tell Work OS it is still working and hand over a message waiting for it.
+//   wait           Stop and SessionStart (asyncRewake): the idle session's long poll on /api/agent/wait; a message that may wake the
+//                  session ends it with exit code 2 and the framed text on stderr, which wakes the session.
 //   notification   Notification (permission_prompt|idle_prompt|elicitation_dialog, async): waiting at a prompt, or idle. No output.
 //   session-end    SessionEnd: tell Work OS the session is off. No output.
-//                  These three and the stop and pre-tool pings use POST /api/agent/event with the session token (postEvent in
+//                  These and the stop and pre-tool pings use POST /api/agent/event with the session token (postEvent in
 //                  hook-lib.mjs); no token (WORK_OS_KEY, cloud) sends nothing, and a failure is silent.
 //   Flags: --cloud (do nothing unless CLAUDE_CODE_REMOTE=true) and --server <url>, written by `hooks repo`.
 // Each reads Claude Code's hook JSON on stdin and answers in its hook JSON on stdout. They FAIL OPEN: no key, no network,
@@ -66,7 +69,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const out = await main(row.event, buf, opts);
     if (out) process.stdout.write(out + '\n');
     clearTimeout(t);
-    process.exit(0);
+    // The idle wait ends with exit 2 and the text on stderr to wake the session; every other hook ends 0.
+    if (run.stderr) process.stderr.write(run.stderr + '\n', () => process.exit(run.exitCode || 0));
+    else process.exit(run.exitCode || 0);
   });
   process.stdin.on('data', (d) => (buf += d));
 }
