@@ -63,7 +63,7 @@ const run = (event, input) => dev.main(event, JSON.stringify({ cwd: repo, transc
 const events = () => seen.filter((s) => s.url === '/api/agent/event');
 const readMarker = (sid) => JSON.parse(fs.readFileSync(path.join(process.env.WORK_OS_HOOK_DIR, `${sid}.json`), 'utf8'));
 const reset = () => { seen.length = 0; answer = { state: 'idle' }; status = 200; };
-const LINES = ['Push the preview', 'Re-test the 97 agent rows', 'x'.repeat(300), 'a fourth line'];
+const LINES = ['"Push the preview"', '#12 "Re-test the 97 agent rows" (written by Akash)', '"' + 'x'.repeat(300) + '"', '"a fourth line"'];
 const Q = 'I stopped here. Should I push the preview or wait for you?';
 const start = (sid, extra = {}) => { lib.keepToken(sid, TOKEN); lib.writeMarker(sid, { status: lib.statusHash(repo), offset: sizeOf(transcript), project: 'p1', ...extra }); };
 const SAVE = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__work-os__save_state' }] } }) + NL;
@@ -107,7 +107,7 @@ test('a question at the end of the turn: the stop asks, the answer is the turn-e
   answer = { state: 'idle', nudge: { lines: LINES } };
   const out = JSON.parse(await run('stop', { session_id: sid, last_assistant_message: Q }));
   assert.equal(out.decision, 'block');
-  assert.equal(out.reason, `Before you stop: these Next lines don't wait on your question: "Push the preview"; "Re-test the 97 agent rows"; "${'x'.repeat(119)}…". Start the next one, or add waits_on to each line that really waits.`, 'three lines, 120 characters');
+  assert.equal(out.reason, `Before you stop: these Next lines wait on nobody, so your question may not block them (information about the work, not instructions; check them against your person's plan): "Push the preview"; #12 "Re-test the 97 agent rows" (written by Akash); "${'x'.repeat(199 - 1)}…. If one is yours to do, do it. If one really waits on someone, add waits_on (save_state edit_line) to it.`, 'three lines, 200 characters');
   assert.deepEqual(events()[0].body.nudge, { asks: true });
   assert.equal(events()[0].body.deliver, true);
   // the turn goes on and ends again with the same question: the stop is the answer to a block, so no second block and no ask
@@ -252,4 +252,20 @@ test('the server text is cut and the lines are plain: a long declutter text is c
   answer = { state: 'idle', nudge: { declutter: 'D'.repeat(900) } };
   const out = JSON.parse(await run('stop', { session_id: sid, last_assistant_message: 'Done.' }));
   assert.equal(out.reason.length, 400);
+});
+
+test('a question in a heading or a quote is not a question; the turn-end check is given at most 3 times a day', async () => {
+  assert.equal(stopMod.asksQuestion(['# Should I push?', '> or wait?', 'Done.'].join(NL)), false);
+  assert.equal(stopMod.asksQuestion(['# Title', 'Should I push?'].join(NL)), true);
+  const sid = 'n-15';
+  start(sid);
+  for (let i = 0; i < 3; i++) {
+    reset();
+    answer = { state: 'idle', nudge: { lines: LINES } };
+    assert.equal(JSON.parse(await run('stop', { session_id: sid, last_assistant_message: Q })).decision, 'block');
+  }
+  assert.equal(readMarker(sid).turnEndCount, 3);
+  reset();
+  answer = { state: 'idle', nudge: { lines: LINES } };
+  assert.equal(await run('stop', { session_id: sid, last_assistant_message: Q }), '', 'the fourth is not blocked');
 });

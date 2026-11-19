@@ -152,6 +152,11 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
       // Nothing is written; the caller merges and retries.
       if ((cur?.version ?? 0) !== o.baseVersion) return { conflict: true as const, state: cur, project, holdsNow: !person && holdsNowOf(cur, me) };
     }
+    // An edit_line on Now by a session is checked up front like set_now (nothing runs on a conflict, so earlier ops of the batch such as promote_later leave nothing behind).
+    if (!person && cur?.now && ops.some(x => x.op === 'edit_line' && !x.id && cur!.now!.text.includes(x.find))) {
+      if (o.baseVersion === undefined) throw new InputError('edit_line on Now needs base_version: the version of the State you read (start_work, get_state and every save_state answer carry it). Nothing was written.');
+      if (cur.version !== o.baseVersion) return { conflict: true as const, state: cur, project, holdsNow: holdsNowOf(cur, me) };
+    }
     const now = new Date();
     if (!cur) {
       // The first write makes the State, stamped with the project's placement.
@@ -193,6 +198,8 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
       // Only a session Work OS knows (a presence row of the caller on this project) holds Now: a call that names no session, or one
       // that never started work here, would leave a hold nobody can see working.
       if (!mine) throw new InputError(NO_SESSION);
+      // A session that has ended can neither take nor keep Now.
+      if (mine.endedAt) throw new InputError('This session has ended, so it cannot set or hold Now. Start work again to get a session.');
       if (h && h.key === me) {
         nowHold = { key: me, label: mine?.label || h.label, at: h.at };
         return;

@@ -50,6 +50,10 @@ try {
   check('edit_line on Now: without base_version it is refused with the reason', eNoBase.isError && /edit_line on Now needs base_version/.test(eNoBase.text), eNoBase.text.slice(0, 200));
   const eStale = await must(MCP, 'save_state', { project: NAME, session: 'fse1', base_version: v - 1, ops: [{ op: 'edit_line', find: 'the editor', new: 'the State editor' }] });
   check('edit_line on Now: a stale base_version is a conflict and nothing is written', eStale.conflict === true && eStale.state.now.text === 'Building the editor', JSON.stringify(eStale).slice(0, 200));
+  const projDoc = await rawDb.collection('projects').findOne({ name: NAME });
+  const tasksBefore = await rawDb.collection('tasks').countDocuments({ projectId: projDoc._id });
+  const eStale2 = await must(MCP, 'save_state', { project: NAME, session: 'fse1', base_version: v - 1, ops: [{ op: 'promote_later', find: 'compare sizes' }, { op: 'edit_line', find: 'the editor', new: 'the State editor' }] });
+  check('edit_line on Now: a stale base_version in a batch with promote_later is a conflict before any op runs (no task is created, the line stays in Later)', eStale2.conflict === true && (await rawDb.collection('tasks').countDocuments({ projectId: projDoc._id })) === tasksBefore && eStale2.state.later.some(l => l.text.includes('compare sizes')), JSON.stringify(eStale2).slice(0, 200));
   const eNoSess = await mcpH(MCP, 'save_state', { project: NAME, base_version: v, ops: [{ op: 'edit_line', find: 'the editor', new: 'the State editor' }] });
   check('edit_line on Now: a call naming no session is refused (Now is held by sessions Work OS knows)', eNoSess.isError && /pass the session id start_work gave you/.test(eNoSess.text), eNoSess.text.slice(0, 200));
   const eN = await must(MCP, 'save_state', { project: NAME, session: 'fse1', base_version: v, ops: [{ op: 'edit_line', find: 'the editor', new: 'the State editor' }] });

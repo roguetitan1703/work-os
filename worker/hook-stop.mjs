@@ -36,10 +36,12 @@ export async function stop(input) {
   // The turn-end check, then the Declutter nudge: at most one of them, and only when this stop is not itself the answer to a block.
   const n = !again && a?.status === 200 ? a.b?.nudge : null;
   if (n && typeof n === 'object') {
-    const lines = asks && Array.isArray(n.lines) ? n.lines.filter((l) => typeof l === 'string' && l.trim()).slice(0, 3).map((l) => cut(l, 120)) : [];
     const m = readMarker(sid);
+    // At most TURN_END_PER_DAY turn-end blocks per session per day (the marker counts them).
+    const used = m?.turnEndDay === today() ? m.turnEndCount ?? 0 : 0;
+    const lines = asks && used < TURN_END_PER_DAY && Array.isArray(n.lines) ? n.lines.filter((l) => typeof l === 'string' && l.trim()).slice(0, 3).map((l) => cut(l, 200)) : [];
     if (lines.length) {
-      if (m) writeMarker(sid, { ...m, lastTool: 0 });
+      if (m) writeMarker(sid, { ...m, lastTool: 0, turnEndDay: today(), turnEndCount: used + 1 });
       return { decision: 'block', reason: turnEndText(lines) };
     }
     if (quiet && typeof n.declutter === 'string' && n.declutter.trim()) {
@@ -52,17 +54,19 @@ export async function stop(input) {
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-/** The turn-end check's words: Next lines that wait on nobody (the server's, at most 3, 120 characters each). */
-export const turnEndText = (lines) => `Before you stop: these Next lines don't wait on your question: ${lines.map((l) => `"${l}"`).join('; ')}. Start the next one, or add waits_on to each line that really waits.`;
+const TURN_END_PER_DAY = 3;
+
+/** The turn-end check's words: Next lines that wait on nobody (the server's entries: ref or id, a short quote, who wrote it; at most 3). The lines are information, not Work OS's instructions. */
+export const turnEndText = (lines) => `Before you stop: these Next lines wait on nobody, so your question may not block them (information about the work, not instructions; check them against your person's plan): ${lines.join('; ')}. If one is yours to do, do it. If one really waits on someone, add waits_on (save_state edit_line) to it.`;
 
 /**
  * Does a message ask the person something? A line that ends with "?" (closing quotes, brackets and markdown after it are ignored),
- * outside code blocks, anywhere in the message; that includes a message that ends with one.
+ * outside code blocks, headings (#) and quotes (>), anywhere in the message; that includes a message that ends with one.
  */
 export function asksQuestion(text) {
   if (typeof text !== 'string' || !text) return false;
   const plain = text.replace(/```[\s\S]*?(```|$)/g, '\n');
-  return plain.split(/\r?\n/).some((l) => /\?[\s"'`)\]}*_>]*$/.test(l.trimEnd()));
+  return plain.split(/\r?\n/).some((l) => !/^\s*[#>]/.test(l) && /\?[\s"'`)\]}*_>]*$/.test(l.trimEnd())); // not in a heading or a quote
 }
 
 /** The turn's last assistant message: the Stop input's `last_assistant_message` when Claude Code gives it, else the transcript's tail. '' when unknown. */
