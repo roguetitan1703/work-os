@@ -31,11 +31,23 @@ try {
   check('F1: declutter takes session', !dc.isError, dc.text.slice(0, 200));
 
   // F4: Orders rows say how to change them
-  check('F4: the holder's brief rows say write_note, with the layer word org', start.orders.length > 0 && start.orders.every(o => o.change === 'write_note') && start.orders.some(o => o.layer === 'org'), JSON.stringify(start.orders.map(o => [o.layer, o.change])));
+  check('F4: the holder is brief rows say write_note, with the layer word org', start.orders.length > 0 && start.orders.every(o => o.change === 'write_note') && start.orders.some(o => o.layer === 'org'), JSON.stringify(start.orders.map(o => [o.layer, o.change])));
   const T = await makeUser({ email: 'r8tess@example.test', name: 'Tess', orgId: ME.orgId, role: 'member' });
   const tk = await mkKey({ agent: 'claude-code', userId: T.userId, orgId: ME.orgId, name: 'Tess Code' });
   const ts = await must(tk, 'start_work', { project: NAME, session: 'r8tess' });
-  check('F4: a teammate's brief rows say propose_order for the org layer', ts.orders.some(o => o.layer === 'org' && o.change === 'propose_order'), JSON.stringify(ts.orders));
+  check('F4: a teammate is brief rows say propose_order for the org layer', ts.orders.some(o => o.layer === 'org' && o.change === 'propose_order'), JSON.stringify(ts.orders));
+
+  // F5: list_tasks dates
+  await must(cc, 'add_task', { title: 'R8 due today', project: NAME, due: 'today' });
+  await must(cc, 'add_task', { title: 'R8 due much later', project: NAME, due: '+30d' });
+  const lt = await must(cc, 'list_tasks', { project: NAME, due_from: 'today', due_to: 'today' });
+  check('F5: list_tasks due_from today and due_to today return that day only', lt.total === 1 && lt.tasks.some(t => /due today/.test(t.title)), JSON.stringify(lt).slice(0, 300));
+  const badDate = await mcpH(cc, 'list_tasks', { project: NAME, due_to: 'soonish' });
+  check('F5: a due_to that does not parse is refused, naming the field', badDate.isError && /due_to/.test(badDate.text), badDate.text);
+  const badDone = await mcpH(cc, 'list_tasks', { project: NAME, done_since: '31/12' });
+  check('F5: a done_since that does not parse is refused', badDone.isError && /done_since/.test(badDone.text), badDone.text);
+  const okDone = await mcpH(cc, 'list_tasks', { project: NAME, done_since: 'today' });
+  check('F5: done_since today is read', !okDone.isError, okDone.text);
 } catch (e) {
   check('flow-r8a (error)', false, e?.stack || String(e));
 }

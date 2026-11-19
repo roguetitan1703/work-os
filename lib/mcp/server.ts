@@ -46,7 +46,7 @@ import { forYouAfter, forYouBefore } from './for-you';
 import { requestContext, runWithRequestContext, sessionHeader } from '../request-context';
 import { noteRefusal, recentRefusals } from './refusals';
 import { dispatchedOfToken } from '../agent-sessions';
-import { addDays, isDateStr, startOfDay, todayStr, weekday } from '../dates';
+import { addDays, isDateStr, resolveDate, startOfDay, todayStr, weekday } from '../dates';
 import { ModeSchema, PrioritySchema, ProjectStatusSchema, RATINGS, RESULT_KINDS, RecurrenceSchema, StatusSchema, VisibilitySchema, type Task, type TaskPatch } from '../types';
 
 /**
@@ -102,6 +102,14 @@ function handler<A>(fn: (args: A) => Promise<unknown>) {
 
 const taskKey = z.union([z.number().int(), z.string()]).describe('Task ref (12 or "#12") or task id');
 const dateArg = z.string().describe('YYYY-MM-DD, today, tomorrow, a weekday name, +3d …');
+
+/** A list_tasks date filter: the same words as `due` (today, +3d, a weekday …); anything else is refused, naming the field. */
+function dateFilter(v: string | undefined, field: string): string | undefined {
+  if (v === undefined) return undefined;
+  const r = resolveDate(v);
+  if (r === undefined) throw new InputError(`Couldn't read ${field} "${v}". Use YYYY-MM-DD, today, tomorrow, yesterday, a weekday name or +3d.`);
+  return r ?? undefined;
+}
 
 function parseSince(s: string | undefined): Date | undefined {
   if (!s) return undefined;
@@ -724,9 +732,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
         tag: z.string().optional(),
         priority: z.array(PrioritySchema).optional(),
         due: z.enum(['overdue', 'today', 'today_or_overdue', 'this_week', 'next_7_days', 'no_date', 'has_date']).optional(),
-        due_from: z.string().optional().describe('YYYY-MM-DD inclusive'),
-        due_to: z.string().optional().describe('YYYY-MM-DD inclusive'),
-        done_since: z.string().optional().describe('YYYY-MM-DD: only tasks completed on/after this date (implies Done)'),
+        due_from: z.string().optional().describe('Inclusive: YYYY-MM-DD, today, +3d, a weekday …'),
+        due_to: z.string().optional().describe('Inclusive: YYYY-MM-DD, today, +3d, a weekday …'),
+        done_since: z.string().optional().describe('YYYY-MM-DD, today or yesterday: only tasks completed on/after this date (implies Done)'),
         query: z.string().optional().describe('Text search in title, description and tags'),
         assignee: z.string().max(200).optional().describe("Only tasks this member is one of the assignees of: 'me', a name, an email or a user id"),
         parent: z.union([z.number().int(), z.string()]).optional().describe('Only the subtasks of this task (ref)'),
@@ -737,6 +745,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
       annotations: { readOnlyHint: true },
     },
     handler(async a => {
+      const dueFrom = dateFilter(a.due_from, 'due_from');
+      const dueTo = dateFilter(a.due_to, 'due_to');
+      const doneSince = dateFilter(a.done_since, 'done_since');
       let assignee: string | undefined;
       if (a.assignee) {
         const v = a.assignee.trim();
@@ -745,19 +756,19 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const all = await tasks.listTasks(s, {
         assignee,
         parent: a.parent,
-        status: a.done_since ? ['Done'] : a.status,
-        open: !a.status?.length && !a.include_closed && !a.done_since,
+        status: doneSince ? ['Done'] : a.status,
+        open: !a.status?.length && !a.include_closed && !doneSince,
         project: a.project,
         mode: a.mode,
         tag: a.tag,
         priority: a.priority,
         due: a.due,
-        dueFrom: a.due_from,
-        dueTo: a.due_to,
-        doneFrom: a.done_since,
+        dueFrom,
+        dueTo,
+        doneFrom: doneSince,
         q: a.query,
         archived: a.archived ? 'only' : 'exclude',
-        sort: a.sort ?? (a.done_since ? 'done' : 'priority'),
+        sort: a.sort ?? (doneSince ? 'done' : 'priority'),
       });
       const limit = a.limit ?? 50;
       const names = await projects.projectNameMap(s);
