@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 112. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 113. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -10,7 +10,7 @@ Copy of the Work OS state, version 112. WORK-STATE.md is a copy of the State, wr
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
 3. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
 4. Need answers reach whoever holds the work now: a Need asked by a session that is off is delivered to the project's Now holder or the session that picked up its handover, and start_work lists answered Needs since the last lead's session; withdraw_need on an answered or closed Need says so with the answer and time. Fold into the lanes design (note after 2afd68cb00).
-5. R8 batch A (note 954f4550f8): built on builder-b 4e2d630. The Opus review found a HIGH: a dispatched run can pass Om's session id to write the Orders. Slot B: stopgap guard plus chain and date fixes; slot A (Opus): a dispatch-only credential. Merge only after both are re-checked. F1 (session on every tool), F4, F5, F8, F7, F3/F9. Then an independent review (it touches the Orders guard and session identity), merge, and F2 in slot S after the nudge fix.
+5. R8 (note 954f4550f8): batch A, the stopgap (ab06462) and run keys for dispatched runs (2cfc999) merged in wos-int branch r8-int; tsc, words and worker 424 pass. Full e2e and an Opus joint re-review running; then merge into dev and ask Om.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -38,4 +38,4 @@ Copy of the Work OS state, version 112. WORK-STATE.md is a copy of the State, wr
 - The SIGTERM fix does not work: on R7 (59cb0edb5693) a systemctl restart still waits the full 30 s stop-sigterm timeout, then SIGKILL (journal 20 Nov 01:44 IST). Something keeps next-server open (SSE /live streams, the wait route, or Mongo). Each deploy is about 30 s down.
 - Declutter cache still counted "7 open Claude items" on 20 Nov after the migration moved them all: the cached daily reasons are not refreshed after a migration or apply. — waits on a fix slot (small)
 - R8 stopgap (builder-b ab06462) blocks invented and dispatched session ids for Orders writes, but not a copied real hooked id passed as the session argument. The dispatch credential (slot A) closes that. Re-review both together before merge. — waits on slot A's dispatch credential
-<!-- work-os-copy sha1:fd1a6a6087275593a70e732751683dc60fc87d11 -->
+<!-- work-os-copy sha1:63681e2285aecb4dc262f7556363d7493cd802ec -->
