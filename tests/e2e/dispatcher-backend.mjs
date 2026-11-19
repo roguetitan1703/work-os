@@ -51,6 +51,30 @@ await db.collection('workerJobs').deleteMany({}); await db.collection('workerSes
 await db.collection('tasks').updateOne({ ref: 105 }, { $set: { claude: null, status: 'Not Started' } });
 await status(D2, {}, false);
 
+// ── stress: the cap holds when many polls pass the cap check at the same moment ──
+{
+  const orig = await db.collection('tasks').find({ ref: { $in: [101, 102, 103] } }).toArray();
+  await db.collection('settings').updateOne({ _id: 'dispatcher' }, { $set: { maxConcurrent: 2 } });
+  await db.collection('tasks').insertMany([201, 202, 203, 204, 205, 206].map((n, i) => mk(n, 'stress ' + n, { projectId: 'p1', claude: mark(10 + i) })));
+  // 3 rounds: the worker routes allow 60 requests a minute per device, so more would trip the rate limit (429) for the checks after
+  let worst = 0, dup = 0;
+  for (let round = 0; round < 3; round++) {
+    await Promise.all(Array.from({ length: 12 }, (_, i) => poll(i % 2 ? D3 : D1)));
+    const run = await db.collection('tasks').find({ 'claude.state': 'running' }).toArray();
+    worst = Math.max(worst, run.length);
+    if (new Set(run.map(t => t.claude.sessionId)).size !== run.length) dup++;
+    // free the slots (as if the sessions finished) so the next round races again
+    await db.collection('tasks').updateMany({ 'claude.state': 'running' }, { $set: { 'claude.state': 'finished', status: 'Done' } });
+  }
+  const jobs = await db.collection('workerJobs').countDocuments({ kind: 'start' });
+  check('stress: 3 rounds of 12 concurrent polls never run more than the cap, no session twice', worst <= 2 && worst >= 1 && dup === 0, `worst ${worst}, dup ${dup}`);
+  check('stress: start jobs never exceed the claimable tasks (rolled-back claims wrote none)', jobs <= 9 && jobs >= 3, String(jobs));
+  await db.collection('tasks').deleteMany({ ref: { $gte: 201, $lte: 206 } });
+  await db.collection('tasks').deleteMany({ ref: { $in: [101, 102, 103] } });
+  await db.collection('tasks').insertMany(orig);
+  await db.collection('workerJobs').deleteMany({}); await db.collection('workerSessions').deleteMany({});
+}
+
 // ── concurrent polls: never the same task ──
 const ps = await Promise.all([poll(D1), poll(D3), poll(D1), poll(D3), poll(D1), poll(D3)]);
 const running = (await db.collection('tasks').find({ 'claude.state': 'running' }).toArray()).sort((a, b) => a.ref - b.ref);

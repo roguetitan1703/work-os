@@ -330,6 +330,17 @@ async function claimFor(c: Collections, s: Scope, deviceId: string, set: Dispatc
       { returnDocument: 'after' },
     );
     if (!claimed) return null;
+    // The cap check above is a separate read, so polls that ran at the same moment can each pass it. Rank this person's
+    // running claims (oldest claim first); a claim beyond maxConcurrent goes straight back to the queue (no attempt counted,
+    // no start job), so the oldest claims win and the cap holds.
+    const rank = await c.tasks.countDocuments({
+      'claude.state': 'running', ...mine(s),
+      $or: [{ 'claude.claimedAt': { $lt: now } }, { 'claude.claimedAt': now, _id: { $lte: claimed._id } }],
+    });
+    if (rank > set.maxConcurrent) {
+      await requeue(c, claimed, false);
+      return null;
+    }
     try {
       if (f) await createStartJob(s, f, claimed.projectId!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId, ref: claimed.ref });
       else await createCloneJob(s, deviceId, claimed.projectId!, clone!, buildPrompt(claimed.ref, set.boilerplateNoteId), { taskId: claimed._id, sessionId, ref: claimed.ref });
