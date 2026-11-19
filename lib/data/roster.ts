@@ -29,6 +29,8 @@ export type WorkerRow = {
   person: string;
   mine: boolean;
   ai: string;
+  /** Where it runs, as its hook says: desktop, vscode or terminal ('' when no hook said). */
+  tool: string;
   model: string;
   account: string;
   machine: string;
@@ -142,6 +144,7 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
         person: x.names[row.userId] || 'a member',
         mine,
         ai: mine ? row.ai : clientWord(row.agent), // a key name is its owner's label: others see the kind of client
+        tool: row.tool ?? '',
         model: row.model ?? '',
         account: row.account ?? '',
         machine: row.machineName ?? row.machine,

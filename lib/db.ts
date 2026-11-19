@@ -396,6 +396,12 @@ export type PresenceDoc = Placed & {
   /** The Work OS hook protocol the session signed in with: 1 = an old hook (still sent the copy in every save answer), 2 and up = the new hook. Unset for other clients. */
   hook?: number;
   label: string;
+  /** Where the label came from (Identity step 4): title (the session's own name, /rename), label (start_work's), ai (Claude's title for it), fallback (project + Claude Code), forced (the dispatcher's). Absent on older rows (a non-empty label then counts as label). */
+  labelSource?: 'title' | 'label' | 'ai' | 'fallback' | 'forced';
+  /** When the label was last written. */
+  labelAt?: Date;
+  /** Where the session runs, as its hook says: desktop, vscode or terminal. */
+  tool?: 'desktop' | 'vscode' | 'terminal';
   machine: string;
   /** The client's name (key name / OAuth client name). */
   ai: string;

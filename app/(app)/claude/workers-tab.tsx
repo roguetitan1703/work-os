@@ -75,9 +75,13 @@ function sinceText(iso: string, tz: string): string {
   }
 }
 
+const TOOL_NAME: Record<string, string> = { desktop: 'Desktop', vscode: 'VS Code', terminal: 'Terminal' };
+
 function Row({ w, tz }: { w: WorkerRow; tz: string }) {
   const st = STATE[w.state];
-  const who = [w.ai, w.model].filter(Boolean).join(' · ');
+  // The session's own name leads; where it runs and its model follow, small (Identity step 4).
+  const name = w.label || w.ai;
+  const via = [TOOL_NAME[w.tool] ?? (w.label ? w.ai : ''), w.model].filter(Boolean).join(' · ');
   const where = [w.machine, w.branch].filter(Boolean).join(' · ');
   return (
     <li className={cn('px-4 md:px-3 py-2.5 md:py-2 min-h-11 space-y-0.5', w.depth === 1 && 'pl-8 md:pl-8 bg-muted/20')} data-worker={w.id} data-depth={w.depth} data-state={w.state}>
@@ -86,8 +90,13 @@ function Row({ w, tz }: { w: WorkerRow; tz: string }) {
           {w.person}
         </span>
         <span className="text-[15px] md:text-sm text-foreground" data-worker-ai>
-          {who}
+          {name}
         </span>
+        {via && (
+          <span className="text-[13px] md:text-xs text-muted-foreground" data-worker-via>
+            {via}
+          </span>
+        )}
         {w.slot && <span className="text-[11px] px-1.5 py-px rounded bg-muted text-muted-foreground font-medium">slot {w.slot}</span>}
         <span className={cn('text-[11px] px-1.5 py-px rounded font-medium', st.cls)} data-worker-state>
           {w.state === 'waiting' && w.waitingOn === 'prompt' ? 'Waiting on you' : st.text}

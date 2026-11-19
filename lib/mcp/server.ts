@@ -34,7 +34,7 @@ import * as stateData from '../data/states';
 import * as messageData from '../data/messages';
 import * as ordersData from '../data/orders';
 import { ordersChangesFor, ordersFor, ordersWrittenBy, shortFormForSubagent } from '../data/orders';
-import { endPresence, setOrdersSeen, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
+import { cleanLabel, endPresence, setOrdersSeen, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
 import { presenceState } from '../data/presence-state';
 import { clientWord, roster, taskInfo } from '../data/roster';
 import * as handovers from '../data/handovers';
@@ -442,7 +442,21 @@ function conflictOut(r: { state: Parameters<typeof stateData.stateOut>[0] | null
 }
 
 /** start_work's arguments after the project is found (the session id is decided by the caller). */
-export type StartWorkArgs = { hook?: number; /** Claude Code's own session UUID and what began the session (the hook's start route only). */ ccSession?: string; source?: 'startup' | 'resume' | 'clear' | 'compact'; branch?: string; machine?: string; label?: string; model?: string; account?: string; parent?: string; slot?: string; /** H15: the task the dispatcher started this session for (the start route only): forces the label and marks the row. */ dispatched?: { taskId: string; ref: number } };
+export type StartWorkArgs = { hook?: number; /** True for the hook's start route: such a session always gets a name. */ viaHook?: boolean; /** Claude Code's own session UUID and what began the session (the hook's start route only). */ ccSession?: string; source?: 'startup' | 'resume' | 'clear' | 'compact'; branch?: string; machine?: string; label?: string; /** The hook's identity (protocol 3): the session's own name (a /rename), Claude's title for it, and where it runs. */ title?: string; aiTitle?: string; tool?: string; model?: string; account?: string; parent?: string; slot?: string; /** H15: the task the dispatcher started this session for (the start route only): forces the label and marks the row. */ dispatched?: { taskId: string; ref: number } };
+
+/**
+ * The label a start writes and where it comes from (Identity step 4). A dispatched session: the forced label. Else the first that is there of
+ * the session's own name, the label start_work was given, Claude's title; a hook session (it has a Claude Code id) with none of them gets
+ * "<project> · Claude Code" so no row is just "Claude Code". An old hook's plain "Claude Code" label is no name.
+ */
+function labelFor(projectName: string, a: StartWorkArgs, dispatched?: { ref: number } | null): { label?: string; labelSource?: 'title' | 'label' | 'ai' | 'fallback' | 'forced' } {
+  if (dispatched) return { label: `${projectName} · worker · #${dispatched.ref}`.slice(0, 120), labelSource: 'forced' };
+  if (cleanLabel(a.title)) return { label: a.title, labelSource: 'title' };
+  if (cleanLabel(a.label)) return { label: a.label, labelSource: 'label' };
+  if (cleanLabel(a.aiTitle)) return { label: a.aiTitle, labelSource: 'ai' };
+  if (a.ccSession || a.viaHook) return { label: `${projectName} · Claude Code`, labelSource: 'fallback' };
+  return {};
+}
 
 /**
  * The start brief for one project and session: registers the session as present, marks the unread messages it hands
@@ -461,7 +475,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   const mach = await resolveMachine(s, a.machine);
   // H15: a session the dispatcher started keeps its forced label and mark when it calls start_work itself (the session's own row says so).
   const dispatched = a.dispatched ?? (sid ? await dispatchedOfToken(sid) : null) ?? undefined;
-  const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, label: dispatched ? `${project.name} · worker · #${dispatched.ref}`.slice(0, 120) : a.label, dispatched, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
+  const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, ...labelFor(project.name, a, dispatched), tool: a.tool, dispatched, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
   // The handovers left for this person (a fresh session takes the newest first; a re-call after compaction shows its own again).
   const hv = await handovers.handoversForBrief(s, project._id, { me: row.key, label: row.label, fresh: row.fresh, parent: row.parent, actor: agentActor(caller.agent, caller.userId) });
   // 1. Orders: organization, project, person. Project Orders someone else wrote are information, not rules.
@@ -1264,7 +1278,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const sid = sessionHeader(a.session ?? null) ?? requestContext().sid ?? (caller.keyId?.startsWith('oauth_') ? undefined : randomUUID());
       // The hook protocol: the header; a call without it from the old hook (key label "Claude Code") counts as protocol 1.
       const hook = requestContext().hook ?? (a.label === 'Claude Code' ? 1 : undefined);
-      const brief = await startWorkBrief(ctx, key, sid, { ...a, hook }, matchedBy);
+      const brief = await startWorkBrief(ctx, key, sid, { ...a, hook, viaHook: hook !== undefined }, matchedBy);
       return filed ? { ...brief, filed } : brief;
     }),
   );
@@ -1540,7 +1554,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
           ...(w.mine && w.session ? { session: w.session } : {}),
           name: w.label,
           person: w.mine ? 'me' : w.person,
-          tool: w.ai,
+          tool: w.tool || w.ai, // desktop, vscode or terminal when the hook said; else the kind of client
           model: w.model,
           machine: w.machine,
           project: w.project.name,

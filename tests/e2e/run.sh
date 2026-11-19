@@ -68,6 +68,7 @@ flow-ms5|flow-ms5.mjs|none|plain
 messages-word|messages-word.mjs|none|plain
 detection|detection.mjs|none|plain
 worker-process|worker-process.mjs|none|plain
+hook-identity|hook-identity.mjs|none|plain
 flow-w1|flow-w1.mjs|none|plain
 flow-w3|flow-w3.mjs|none|plain
 usage|usage.mjs|none|plain

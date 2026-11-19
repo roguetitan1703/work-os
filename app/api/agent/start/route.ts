@@ -17,7 +17,7 @@ import type { Scope } from '@/lib/scope';
 // The Work OS hook's sign-in (worker/hook.mjs; docs/flows/agent-system.md sections 4 and 16 item 8; lib/agent-sessions.ts).
 // POST /api/agent/start, JSON body { folders?, remote?, subdir?, branch?, path?, machine?, label?, model? } (the folder the
 // Claude Code session runs in: the worker folder ids that contain it decide the project, H13; remote, subdir and branch are
-// information, and decide only for an old hook that sends no folders).
+// information, and decide only for an old hook that sends no folders). title, aiTitle, tool and model (protocol 3) name the session on the roster.
 //   Authorization: Bearer wkr_…  the PC's worker device key: opens a new session on the project of that folder, only
 //                                when a folder on that PC is linked to the project (projectOnDevice; a folder's remote
 //                                alone never counts, the worker reports it itself). Answers the start brief and
@@ -55,6 +55,10 @@ const Body = z
     machine: z.string().max(40).optional(),
     label: z.string().max(120).optional(),
     model: z.string().max(60).optional(),
+    // Hook protocol 3 (Identity step 4): the session's own name (a /rename), Claude's title for it and where it runs. One line each, cut to 120 characters on the server.
+    title: z.string().max(300).optional(),
+    aiTitle: z.string().max(300).optional(),
+    tool: z.enum(['desktop', 'vscode', 'terminal']).optional(),
     ccSession: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i).optional(),
     source: z.enum(['startup', 'resume', 'clear', 'compact']).optional(),
     head: z.string().max(80).optional(),
@@ -156,7 +160,7 @@ export async function POST(req: Request): Promise<Response> {
       // Where this session works: no version bump (lib/data/states.ts setWhere). Only when the hook sent something to show.
       if (b.head || b.dirty !== undefined || b.worktrees || b.branch) await setWhere(s, projectId, b.machine || device.name, { branch: b.branch, head: b.head, dirty: b.dirty, worktrees: b.worktrees });
       // Hook protocol: the X-Work-OS-Hook header; a start without it is the old hook (1, still gets the copy in answers).
-      const brief = await startWorkBrief(ctx, projectId, session.id, { hook: hook ?? 1, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, model: b.model, ...(dispatched ? { dispatched } : {}) });
+      const brief = await startWorkBrief(ctx, projectId, session.id, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, ...(dispatched ? { dispatched } : {}) });
       return reply(200, { brief, ...(dispatched ? { dispatched: dispatched.ref } : {}), ...(token ? { token } : {}), expiresAt: session.expiresAt.toISOString() });
     });
   } catch (err) {

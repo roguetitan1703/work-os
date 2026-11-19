@@ -12,6 +12,7 @@
 //                 the fallback on a PC with one when the worker gives no brief (folder not linked, key refused, no
 //                 network). That session has no token, so it sends no state events.
 import os from 'node:os';
+import { identityKey, identityOf } from './hook-identity.mjs';
 import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, keepProc, mcpCall, postAgent, quietPath, quietRun, readKept, readMarker, keepToken, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
 
 // The folder decides the project (H13): the body carries the ids of the worker folders that contain the session's folder
@@ -55,12 +56,13 @@ const SOURCES = ['startup', 'resume', 'clear', 'compact'];
 function whereOf(cwd) {
   const remote = git(cwd, ['remote', 'get-url', 'origin']);
   const branch = git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
-  return { remote, where: { ...(remote ? { remote } : {}), subdir: git(cwd, ['rev-parse', '--show-prefix']), branch, path: cwd, machine: os.hostname().slice(0, 40), label: 'Claude Code' } };
+  return { remote, where: { ...(remote ? { remote } : {}), subdir: git(cwd, ['rev-parse', '--show-prefix']), branch, path: cwd, machine: os.hostname().slice(0, 40) } };
 }
 
 /** The marker of a session whose brief was shown: the baseline, project, production block and presence. */
 function briefMarker(sid, input, cwd, old, r, reports, dispatched) {
-  writeMarker(sid, { ...(dispatched ?? old?.dispatched ? { dispatched: dispatched ?? old.dispatched } : {}), status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(Array.isArray(r.orders) ? { orders: r.orders.map((o) => o && o.noteId).filter((i) => typeof i === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(i)).slice(0, 10) } : old?.orders ? { orders: old.orders } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
+  const transcript = typeof input.transcript_path === 'string' && input.transcript_path ? input.transcript_path : old?.transcript;
+  writeMarker(sid, { ...(transcript ? { transcript, ident: identityKey(identityOf(transcript)) } : {}), ...(dispatched ?? old?.dispatched ? { dispatched: dispatched ?? old.dispatched } : {}), status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(Array.isArray(r.orders) ? { orders: r.orders.map((o) => o && o.noteId).filter((i) => typeof i === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(i)).slice(0, 10) } : old?.orders ? { orders: old.orders } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
 }
 
 /**
@@ -89,9 +91,12 @@ export async function sessionStart(input) {
   // The worker first (a session token, so the state events are sent); the key only when the worker gives no brief.
   // head, dirty and worktrees fill Where on the server without a State version bump (the key path's start_work does not take them).
   const ids = { ...(UUID_RE.test(sid || '') ? { ccSession: sid } : {}), ...(SOURCES.includes(input.source) ? { source: input.source } : {}) };
+  // Protocol 3: who the session is. The worker route takes title, aiTitle, model and tool; start_work (the key path) takes the name as its label and the model.
+  const identity = identityOf(input.transcript_path);
+  const keyIdentity = { ...(identity.title || identity.aiTitle ? { label: identity.title || identity.aiTitle } : {}), ...(identity.model ? { model: identity.model } : {}) };
   let a = null;
   if (workerHome()) {
-    try { a = await agentStart({ ...where, folders, ...repoFacts(cwd), ...ids }, sid ? readKept(sid) : null); } catch { a = null; }
+    try { a = await agentStart({ ...where, folders, ...repoFacts(cwd), ...ids, ...identity }, sid ? readKept(sid) : null); } catch { a = null; }
   }
   if (a?.brief) {
     reports = true;
@@ -99,7 +104,7 @@ export async function sessionStart(input) {
     if (a.token && sid) keepToken(sid, a.token, a.until);
   } else if (a?.unfiled && a.quiet) return null; // the person said this folder is not Work OS
   else if (process.env.WORK_OS_KEY) {
-    const text = await mcpCall('start_work', run.project ? { ...where, project: run.project } : where); // a cloud repo filed with --project starts on it
+    const text = await mcpCall('start_work', { ...where, ...keyIdentity, ...(run.project ? { project: run.project } : {}) }); // a cloud repo filed with --project starts on it
     if (text) { try { r = JSON.parse(text); } catch { r = null; } }
     if (r?.quiet) return null;
     if (r?.unmatched) unfiled = { candidates: r.candidates };
@@ -126,7 +131,7 @@ export async function refile(input, timeoutMs = 2000) {
   const ids = { ...(UUID_RE.test(sid) ? { ccSession: sid } : {}), source: 'startup' };
   let a = null;
   if (workerHome()) {
-    try { a = await agentStart({ ...where, folders: folderCandidates(cwd), ...repoFacts(cwd), ...ids }, null, timeoutMs); } catch { return null; }
+    try { a = await agentStart({ ...where, folders: folderCandidates(cwd), ...repoFacts(cwd), ...ids, ...identityOf(input.transcript_path) }, null, timeoutMs); } catch { return null; }
     if (a?.unfiled && a.quiet) return { unfiled: true, quiet: true };
     if (a?.brief?.project) {
       if (a.token) keepToken(sid, a.token, a.until);

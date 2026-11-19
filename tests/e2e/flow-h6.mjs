@@ -90,7 +90,7 @@ try {
   await bad('an extra field (a state)', { event: 'prompt', state: 'off' });
   await bad('an extra field (the message text)', { event: 'notify', kind: 'permission_prompt', message: 'Claude needs your permission to run git push' });
   await bad('at that is not a number', { event: 'prompt', at: 'now' });
-  check('a body over 1 KB: 413', (await ev(S.token, { event: 'prompt', kind: 'x'.repeat(1100) })).status === 413);
+  check('a body over 2 KB: 413 (Identity step 4 raised the cap from 1 KB so a rename can ride along)', (await ev(S.token, { event: 'prompt', kind: 'x'.repeat(2100) })).status === 413);
   check('the refused bodies changed nothing', (await prow(S.sid)).activity.state === 'on');
 
   // ---- the sequence through the real start route ----

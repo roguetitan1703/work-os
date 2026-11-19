@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkBaseUrl, loadConfig } from './config.mjs';
 import { getToken } from './secret.mjs';
+import { identityKey, transcriptMeta } from './hook-identity.mjs';
 
 /** What the device-key path reads the key with; tests replace it (in process only, never from the environment). */
 export const deps = { deviceKey: (dir) => getToken(dir) };
@@ -194,10 +195,19 @@ export async function postEvent(sid, event, extra = {}, timeoutMs = 1500) {
     if (!token) return null;
     const at = Date.now();
     let r = null;
-    const ack = readMarker(sid)?.ack;
+    const m0 = readMarker(sid);
+    const ack = m0?.ack;
     const sent = Array.isArray(ack) && ack.length ? ack.slice(0, 12) : null;
-    try { r = await postAgent('/api/agent/event', token, { event, ...extra, ...(sent ? { ack: sent } : {}), at }, timeoutMs); } catch {}
+    // Protocol 3: the session's own name, Claude's title and the model go with a prompt or a stop, once per change (the start sent the first).
+    let ident = null;
+    if ((event === 'prompt' || event === 'stop') && typeof m0?.transcript === 'string') {
+      const meta = transcriptMeta(m0.transcript);
+      const k = identityKey(meta);
+      if (k !== (m0.ident ?? '')) ident = { key: k, send: { ...(meta.title ? { title: meta.title } : {}), ...(meta.aiTitle ? { aiTitle: meta.aiTitle } : {}), ...(meta.model ? { model: meta.model } : {}) } };
+    }
+    try { r = await postAgent('/api/agent/event', token, { event, ...extra, ...(ident && Object.keys(ident.send).length ? { identity: ident.send } : {}), ...(sent ? { ack: sent } : {}), at }, timeoutMs); } catch {}
     const m = readMarker(sid);
+    if (m && ident && r?.status === 200) m.ident = ident.key; // the server has it
     if (m && sent && r?.status === 200) delete m.ack; // the server has it
     if (m) {
       const state = event === 'notify' ? (extra.kind === 'idle_prompt' ? 'idle' : 'waiting') : PRESENCE_AFTER[event];
@@ -287,9 +297,10 @@ export function frameInbox(messages) {
 /**
  * Extra request headers every hook call sends. X-Work-OS-Hook is the hook protocol version: 2 = this hook fetches the copy
  * itself (get_state copy:true, POST /api/agent/state), so the server's save answers leave out the markdown. An old hook sends
- * nothing and is marked protocol 1 (it still gets the markdown in answers).
+ * nothing and is marked protocol 1 (it still gets the markdown in answers). 3 = the hook also sends the session's identity (its name,
+ * Claude's title, the model, the tool) at the start and on change (Identity step 4).
  */
-export const HOOK_PROTOCOL = 2;
+export const HOOK_PROTOCOL = 3;
 export const hookHeaders = () => ({ 'x-work-os-hook': String(HOOK_PROTOCOL) });
 
 /**

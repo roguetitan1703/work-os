@@ -326,7 +326,7 @@ test('an allowed check lets the command through and sends only what and name', a
   assert.equal(releases().length, 1);
   assert.deepEqual(releases()[0].body, { what: 'push', name: 'master' }, 'no command, no cwd, no remote address');
   assert.equal(releases()[0].auth, `Bearer ${TOKEN}`);
-  assert.equal(releases()[0].hook, '2');
+  assert.equal(releases()[0].hook, '3');
 });
 
 test('a refusal names the ask call; a waiting Need is named; both under 600 characters', async () => {

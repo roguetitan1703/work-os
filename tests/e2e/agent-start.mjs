@@ -250,7 +250,7 @@ try {
   const rDn = await post(pcP.key, { ...at('acme/agent-one'), ccSession: DCC, source: 'startup' });
   check('H15: a session row that is not dispatched does not mark', rDn.status === 200 && !('dispatched' in (rDn.json ?? {})));
   const rDu = await post(pcP.key, at('acme/agent-one'));
-  check('H15: a start with no ccSession is never marked and keeps its own label', rDu.status === 200 && !('dispatched' in (rDu.json ?? {})) && (await rawDb.collection('presence').findOne({ session: rDu.json?.brief?.session }))?.label === 'Claude Code');
+  check('H15: a start with no ccSession is never marked and keeps its own label', rDu.status === 200 && !('dispatched' in (rDu.json ?? {})) && (await rawDb.collection('presence').findOne({ session: rDu.json?.brief?.session }))?.label === 'Agent One · Claude Code');
   await rawDb.collection('workerSessions').deleteOne({ _id: DCC });
 
   // ---- hourly limits ----
