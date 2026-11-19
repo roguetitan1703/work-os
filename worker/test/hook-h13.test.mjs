@@ -33,6 +33,7 @@ const TOKEN = 'wst_' + 't'.repeat(43);
 const seen = [];
 let mode = 'unfiled'; // ok | unfiled | quiet | http429 | hang
 let cands = null; // candidates the stub MCP answer carries
+let eventDeliver = null; // a delivery the stub event answer carries (Identity step 6)
 const brief = { project: { id: 'p1', name: 'Demo' }, session: 's-1', orders: 'none', state: { now: { text: 'x' } }, stateVersion: 2 };
 const server = http.createServer((req, res) => {
   let b = '';
@@ -55,7 +56,7 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       return res.end(`event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify(out) }], isError: false } })}\n\n`);
     }
-    if (req.url === '/api/agent/event') return json(200, { state: 'working' });
+    if (req.url === '/api/agent/event') return json(200, { state: 'working', ...(eventDeliver ? { deliver: eventDeliver } : {}) });
     json(404, {});
   });
 });
@@ -389,4 +390,21 @@ test('protocol 3: marked not Work OS and a temp folder print nothing but still r
   assert.equal(text(await start('n4', path.join(app, 'src'))), '');
   delete process.env.CLAUDE_CODE_ENTRYPOINT;
   assert.equal(starts().length, 0, 'claude -p and the SDK never register');
+});
+
+test('Identity step 6: a session outside any project is handed the messages for it on its prompt, through its token', async () => {
+  mode = 'unf3';
+  setFolders({});
+  await start('d1', path.join(tmp, 'nowhere-d1'));
+  assert.equal(marker('d1').unfiled, true);
+  assert.ok(lib.readKept('d1'), 'the no-project token is kept for events and waits');
+  const framed = ['[[work-os message m_7 aa11bb]]', 'from: your own session "planner"', 'please summarise', '[[end m_7 aa11bb]]'].join(String.fromCharCode(10));
+  eventDeliver = { text: framed, ids: ['m_7'], wakeable: true };
+  seen.length = 0;
+  const out = text(await prompt('d1', path.join(tmp, 'nowhere-d1')));
+  eventDeliver = null;
+  assert.ok(out.includes('please summarise'), `the message is in the prompt's context: ${out}`);
+  const ev = seen.find((x) => x.url === '/api/agent/event');
+  assert.equal(ev.auth, `Bearer ${TOKEN}`, 'the event goes with the no-project token');
+  assert.equal(ev.body.deliver, true);
 });

@@ -79,7 +79,7 @@ export async function POST(req: Request): Promise<Response> {
       const st = row.activity || row.endedAt ? presenceState({ lastSeen: new Date(Math.max(row.lastSeen.getTime(), seenNow)), activity: row.activity, endedAt: row.endedAt }, { now: Date.now() }) : { state: 'on' as const, why: undefined };
       // Mid-turn (working, or stopped at a permission prompt) or gone: the hook stops waiting and delivery inside the turn has it.
       if (st.state === 'working' || st.state === 'off' || (st.state === 'waiting' && st.why === 'prompt')) return reply(200, { busy: true });
-      if (projectId && (await wakesLeft(sid)) > 0 && (await wakeWaiting(s, sid, projectId))) {
+      if ((await wakesLeft(sid)) > 0 && (await wakeWaiting(s, sid, projectId))) {
         // What came together goes out together: look again after a short pause, then hand it all over once.
         if (!batched && end - Date.now() >= 8_000) {
           batched = true;

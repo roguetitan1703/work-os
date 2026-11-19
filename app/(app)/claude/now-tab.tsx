@@ -16,21 +16,26 @@ import { dispatcherSettingsAction } from './dispatcher-actions';
 import { ClaudeTasksSection } from './claude-tasks';
 import { ReopenBanner } from './reopen-banner';
 import { LinkSessionFolder } from './link-session-folder';
+import { MessagesForYou } from './messages-for-you';
+import type { MessageForYou } from '@/lib/data/messages';
 import { trackJob } from './job-toast';
 import { btnOutline, card, field, ghost, H2 } from './ui';
 
-type Props = { needsYou: NeedsYouItem[]; sessions: SessionRow[]; summary: SessionSummary; hasComputers: boolean; claudeTasks: ClaudeTasks; reopen?: ReopenPrompt[] };
+type Props = { needsYou: NeedsYouItem[]; sessions: SessionRow[]; summary: SessionSummary; hasComputers: boolean; claudeTasks: ClaudeTasks; reopen?: ReopenPrompt[]; messages?: MessageForYou[] };
 
-export function NowTab({ needsYou, sessions, summary, hasComputers, claudeTasks, reopen = [] }: Props) {
+export function NowTab({ needsYou, sessions, summary, hasComputers, claudeTasks, reopen = [], messages = [] }: Props) {
   // Hide an answered row at once; it stays hidden until the server copy changes (a late refresh must not bring it back).
   const [answered, setAnswered] = useState<Record<string, string>>({});
   const shown = needsYou.filter(i => answered[i.id] !== i.updatedAt);
+  const [handled, setHandled] = useState<Record<string, true>>({}); // a message dealt with disappears at once; the server copy follows
+  const msgs = messages.filter(m => !handled[m.id]);
   return (
     <div className="space-y-4">
       <SetupBanner hasComputers={hasComputers} enabled={claudeTasks.settings.enabled} hasNote={!!claudeTasks.settings.boilerplateNoteId} />
       <ReopenBanner prompts={reopen} />
       <Summary summary={summary} needs={shown.length} hasComputers={hasComputers} />
       {shown.length > 0 && <NeedsYou items={shown} onAnswered={i => setAnswered(a => ({ ...a, [i.id]: i.updatedAt }))} />}
+      {msgs.length > 0 && <MessagesForYou items={msgs} onDone={m => setHandled(h => ({ ...h, [m.id]: true }))} />}
       <ClaudeTasksSection data={claudeTasks} />
       <Sessions sessions={sessions} hasComputers={hasComputers} />
     </div>

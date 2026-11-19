@@ -265,7 +265,7 @@ export function frameText(text, id, max = 600) {
     .replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, '')
     .replace(/\[+\[/g, '[ [')
     .replace(/\]\]/g, '] ]');
-  return clean.length > max ? `${clean.slice(0, max)}\n... (read the rest with inbox ${id})` : clean;
+  return clean.length > max ? `${clean.slice(0, max)}\n... (read the rest with message_status {id: "${id}"})` : clean;
 }
 
 /**

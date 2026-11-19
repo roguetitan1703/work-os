@@ -125,7 +125,7 @@ try {
 
   // The hook's session id, passed as `session` on an MCP call with a wos_ key of the same owner, is the same session (H3).
   const kSame = await mkKey({ agent: 'claude-code', name: 'agent-start same owner' });
-  const toHook = await must(MCP, 'send_message', { project: 'Agent One', kind: 'fyi', body: 'to the hook session', to_session: sid });
+  const toHook = await must(MCP, 'send_message', { project: 'Agent One', kind: 'fyi', body: 'to the hook session', to: sid });
   const viaKey = await mcpH(kSame, 'list_tasks', { project: 'Agent One' }, { 'X-Work-OS-Session': sid });
   check('the brief session id on an MCP call finds the same presence row (one row) and forYou names the message', (await rawDb.collection('presence').countDocuments({ session: sid, projectId: one })) === 1 && viaKey.json?.forYou?.some(l => /1 \w+ from me on project/.test(l)), JSON.stringify(viaKey.json?.forYou));
   check('…and the message is addressed to that session by its key', (await rawDb.collection('messages').findOne({ _id: toHook.id }))?.toSids?.[0] === `${A.userId}:${sid}`);

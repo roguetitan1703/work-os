@@ -142,10 +142,10 @@ try {
     check(`project ${tag}: State empty state says how it fills`, (await st.count()) === 1 && /No State yet/.test(await st.innerText()) && /Sessions save Now, Next, Later/.test(await st.innerText()));
     await shot(p, `state-empty-${tag}`);
     await p.goto(`${B}/projects/${quiet}?tab=inbox`); await settle(p);
-    const ib = p.locator('[data-inbox-empty]');
-    check(`project ${tag}: Inbox empty state says who sends and that you can send`, (await ib.count()) === 1 && /No messages yet/.test(await ib.innerText()) && /send one above/.test(await ib.innerText()));
-    await shot(p, `inbox-empty-${tag}`);
-    o = await overflow(p); check(`no horizontal scroll project inbox ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
+    // Rewritten for Identity step 6: the project Inbox tab is gone (messages go to sessions and people, on Claude > Now), so there is no Inbox tab and no inbox view
+    check(`project ${tag}: no Inbox tab (messages are for sessions and people now)`, (await p.locator('[data-tab=inbox]').count()) === 0 && (await p.locator('[data-view=inbox]').count()) === 0 && (await p.locator('[data-inbox-empty]').count()) === 0);
+    await shot(p, `no-inbox-tab-${tag}`);
+    o = await overflow(p); check(`no horizontal scroll project page with an old inbox link ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
     await p.goto(`${B}/projects/${quiet}?tab=needs`); await settle(p);
     const nt = p.locator('[data-view="needs"] [data-needs-empty]');
     check(`project ${tag}: Needs tab empty state says what appears`, (await nt.count()) === 1 && /hands in work for review/.test(await nt.innerText()));
@@ -204,8 +204,7 @@ try {
     check(`sidebar ${tag}: the dot is gone once seen`, (await aside.locator('a[href="/whats-new"] [data-new-dot]').count()) === 0);
 
     await p.goto(`${B}/projects/${quiet}?tab=inbox`); await settle(p);
-    check(`desktop project ${tag}: Inbox empty state`, /No messages yet/.test(await p.locator('[data-inbox-empty]').innerText()));
-    await shot(p, `inbox-empty-${tag}`);
+    check(`desktop project ${tag}: no Inbox tab (rewritten for Identity step 6)`, (await p.locator('[data-tab=inbox]').count()) === 0 && (await p.locator('[data-inbox-empty]').count()) === 0);
     await p.goto(`${B}/projects/${quiet}`); await settle(p);
     check(`desktop project ${tag}: State empty state`, (await p.locator('[data-state-empty]:visible').count()) === 1);
     await shot(p, `state-empty-${tag}`);

@@ -12,7 +12,7 @@ export const GROUPS: { title: string; tools: ToolName[] }[] = [
   { title: 'Overview', tools: ['daily_summary', 'recent_activity'] },
   { title: 'Tasks', tools: ['list_tasks', 'get_task', 'add_task', 'update_task', 'log_progress', 'complete_task', 'add_comment', 'update_checklist'] },
   { title: 'Starting work and State', tools: ['start_work', 'get_state', 'save_state', 'import_state', 'end_work', 'feedback', 'declutter'] },
-  { title: 'Messages', tools: ['send_message', 'inbox', 'message_status', 'reply'] },
+  { title: 'Messages', tools: ['send_message', 'message_status', 'reply'] },
   { title: 'Roster and machines', tools: ['set_doing', 'slot', 'list_sessions'] },
   { title: 'Projects', tools: ['list_projects', 'get_project', 'add_project', 'update_project'] },
   { title: 'Notes', tools: ['write_note', 'read_note', 'list_notes', 'delete_note'] },

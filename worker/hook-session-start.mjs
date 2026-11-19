@@ -215,7 +215,7 @@ export function formatBrief(r) {
   if (r.inbox && typeof r.inbox === 'object') {
     // Each message between two markers with a nonce, with who wrote it and what to do with it (the server's own treat line).
     const blocks = frameInbox(r.inbox.messages);
-    sections.push(`## Inbox (${r.inbox.unread ?? 0} unread; inbox for all; reply with reply {id}, close with message_status)${blocks ? '\n' + blocks : ''}`);
+    sections.push(`## Messages for this session (${r.inbox.unread ?? 0} unread; read one in full with message_status {id}, answer with reply {id}, close with message_status and a status)${blocks ? '\n' + blocks : ''}`);
   }
   const ot = r.openTasks;
   if (ot && Array.isArray(ot.tasks)) {

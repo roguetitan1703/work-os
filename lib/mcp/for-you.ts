@@ -58,7 +58,7 @@ const newNext: ForYouSource = {
   },
 };
 
-/** "1 request from Akash Patel and 1 fyi from me on project p_1 (inbox: m_1, m_2)": kind and sender, never the text. */
+/** "1 request from Akash Patel and 1 fyi from me on project p_1 (message_status reads one: m_1, m_2)": kind and sender, never the text. */
 export function messageLine(ms: { _id: string; kind: MessageOut['kind']; from: { userId: string } }[], names: Record<string, string>, me: string, projectId: string): string {
   const groups = new Map<string, number>();
   for (const m of ms.slice(0, 40)) {
@@ -72,13 +72,13 @@ export function messageLine(ms: { _id: string; kind: MessageOut['kind']; from: {
   });
   const shown = parts.slice(0, 4);
   const said = shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}` : shown[0];
-  return `${said}${parts.length > 4 ? ` and ${parts.length - 4} more groups` : ''}${ms.length > 40 ? ' (40 or more)' : ''} on project ${projectId} (inbox: ${ms.slice(0, 5).map(x => x._id).join(', ')})`;
+  return `${said}${parts.length > 4 ? ` and ${parts.length - 4} more groups` : ''}${ms.length > 40 ? ' (40 or more)' : ''} on project ${projectId} (message_status reads one: ${ms.slice(0, 5).map(x => x._id).join(', ')})`;
 }
 
 const newMessages: ForYouSource = {
   id: 'messages',
   async collect({ s, row, since, projectId, src, named }) {
-    // Only what is unread for this session (the same rule as inbox and the brief), oldest first.
+    // Only what is unread for this session (the same rule as the brief), oldest first.
     const m = (await unreadFor(s, { key: src ?? rowKey(row), userId: s.userId, row: !row.session || (src && src === rowKey(row)) ? row : null }, { projectId, since })).reverse().slice(0, 41);
     const fresh = m.filter(x => !named.has(x._id));
     if (!fresh.length) return none;
@@ -153,7 +153,7 @@ async function replyLines(s: Scope, ident: Ident): Promise<string[]> {
   if (mine.named.size > 200) for (const id of [...mine.named].slice(0, mine.named.size - 200)) mine.named.delete(id);
   const names = await memberNames(s.orgId);
   const byProject = new Map<string, typeof ms>();
-  for (const m of ms) byProject.set(m.projectId, [...(byProject.get(m.projectId) ?? []), m]);
+  for (const m of ms) if (m.projectId) byProject.set(m.projectId, [...(byProject.get(m.projectId) ?? []), m]); // a message of two no-project sessions has no project's line
   return [...byProject].slice(0, 3).map(([p, list]) => messageLine(list, names, s.userId, p));
 }
 

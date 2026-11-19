@@ -15,6 +15,7 @@ import { AutoRefresh } from './auto-refresh';
 import { NowTab } from './now-tab';
 import { QueueTab } from './queue-tab';
 import { SetupTab } from './setup-tab';
+import { messagesForYou } from '@/lib/data/messages';
 import { WorkersTab } from './workers-tab';
 
 export const metadata = { title: 'Claude · Work OS' };
@@ -37,6 +38,7 @@ export default async function ClaudePage({ searchParams }: Props) {
   const [data, tasks] = tab === 'setup' || tab === 'workers' ? [null, null] : await Promise.all([claudeOverview(me), tab === 'now' ? claudeTasks(me) : Promise.resolve(null)]);
   // Start Claude has nothing to start on until a computer exists; until then the page offers Set up Claude instead.
   const hasComputers = data ? data.hasComputers : (await deviceMap(me)).size > 0;
+  const messages = tab === 'now' ? await messagesForYou({ userId: me.userId, orgId: me.orgId }) : [];
   const workers = tab === 'workers' ? await roster({ userId: me.userId, orgId: me.orgId }) : null;
   const tz = workers ? await timezoneOf({ userId: me.userId, orgId: me.orgId }) : 'UTC';
   const url = tab === 'setup' ? `${await baseUrl()}/api/mcp` : '';
@@ -94,7 +96,7 @@ export default async function ClaudePage({ searchParams }: Props) {
       {/* Set up refreshes too: it waits for a computer to connect and shows it when it does. */}
       {/* eslint-disable-next-line react-hooks/purity -- a server render runs once per request; the stamp marks it */}
       <AutoRefresh stamp={Date.now()} />
-      {tab === 'now' && data && tasks && <NowTab claudeTasks={tasks} needsYou={data.needsYou} sessions={data.sessions} summary={data.summary} hasComputers={data.hasComputers} reopen={data.reopen} />}
+      {tab === 'now' && data && tasks && <NowTab claudeTasks={tasks} needsYou={data.needsYou} sessions={data.sessions} summary={data.summary} hasComputers={data.hasComputers} reopen={data.reopen} messages={messages} />}
       {tab === 'queue' && data && <QueueTab groups={data.queue} />}
       {tab === 'workers' && workers && <WorkersTab data={workers} tz={tz} />}
       {tab === 'setup' && <SetupTab url={url} />}

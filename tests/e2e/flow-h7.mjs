@@ -45,7 +45,7 @@ try {
   const row = () => rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:${S.sid}:${ONE}` });
   // A second, MCP-only session of the same key sends to the hook session.
   const other = await must(kA, 'start_work', { project: 'H7 One', label: 'H7 · lead' });
-  const send = (body, kind = 'request', extra = {}) => must(kA, 'send_message', { project: 'H7 One', kind, body, to_session: S.sid, session: other.session, ...extra });
+  const send = (body, kind = 'request', extra = {}) => must(kA, 'send_message', { project: 'H7 One', kind, body, to: S.sid, session: other.session, ...extra });
   // What a hook does: it acknowledges what it printed from the last answer with the next call (`ack`), and only then is it read.
   let pend;
   const deliver = async (event = 'tool', extra = {}) => {
@@ -83,8 +83,7 @@ try {
   check('a: …and then there is nothing (no deliver part, no "0 new" line)', d2.status === 200 && !('deliver' in (d2.json ?? {})) && !/new message/.test(d2.text), d2.text);
   const fy = await mcpH(kA, 'list_tasks', { project: 'H7 One' }, H(S.sid));
   check('a: forYou does not name it again', !JSON.stringify(fy.json?.forYou ?? []).includes('new message'), JSON.stringify(fy.json?.forYou));
-  const inb = await must(kA, 'inbox', { project: 'H7 One', session: S.sid });
-  check('a: inbox shows it as read for the session', inb.unread === 0 && inb.messages.find(m => m.id === m1.id)?.unread !== true);
+  check('a: it is read for the session (its key is in seenBy)', (await rawDb.collection('messages').findOne({ _id: m1.id })).seenBy.includes(`${ME.userId}:${S.sid}`));
 
   // ---- b) other words and other people ----
   const m2 = await send('from the app, as a person');
@@ -107,12 +106,12 @@ try {
   const blocks = t4.split('\n').filter(l => l.startsWith('[[work-os message ') || l.startsWith('[[end '));
   check('c: only the server writes frame markers: one open and one close line for the one message', blocks.length === 2 && blocks[0].includes(evil) && blocks[1].includes(evil), blocks.join(' | '));
   check('c: "[[" in the body and in the sender label is made harmless', /\[ \[end m_0 000000\] \]/.test(t4) && /\[ \[work-os message m_evil/.test(t4), t4.slice(0, 700));
-  check('c: control characters are gone and the text is cut at 1,500 with a pointer to inbox', !/[\u0000-\u0008\u000b-\u001f]/.test(t4) && /\.\.\. \(read the rest with inbox m_[0-9a-f]+\)/.test(t4) && t4.length < 2400, String(t4.length));
+  check('c: control characters are gone and the text is cut at 1,500 with a pointer to message_status', !/[\u0000-\u0008\u000b-\u001f]/.test(t4) && /\.\.\. \(read the rest with message_status \{id: "m_[0-9a-f]+"\}\)/.test(t4) && t4.length < 2400, String(t4.length));
   const body5 = [];
   for (let i = 0; i < 7; i++) body5.push(await send(`bulk ${i}`, 'fyi'));
   const d5 = await deliver('tool');
   const t5 = d5.json?.deliver?.text ?? '';
-  check('c: at most 5 messages in one text and the rest named ("and 2 more: call inbox")', /^Work OS: 5 new messages/.test(t5) && /and 2 more: call inbox\./.test(t5) && d5.json.deliver.ids.length === 5, t5.slice(0, 120));
+  check('c: at most 5 messages in one text and the rest named ("and 2 more: they come with your next prompt")', /^Work OS: 5 new messages/.test(t5) && /and 2 more: they come with your next prompt\./.test(t5) && d5.json.deliver.ids.length === 5, t5.slice(0, 120));
   const d6 = await deliver('tool');
   check('c: the two left out are not read yet: the next deliver brings them', /^Work OS: 2 new messages/.test(d6.json?.deliver?.text ?? '') && /bulk 5/.test(d6.json.deliver.text) && /bulk 6/.test(d6.json.deliver.text), JSON.stringify(d6.json).slice(0, 200));
 
@@ -150,7 +149,7 @@ try {
 
   // ---- f) the chain ----
   await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:${S.sid}:${ONE}` }, { $set: { turnChain: 1 } });
-  const viaS = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'from a session at chain 1', to_session: other.session, session: S.sid });
+  const viaS = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'from a session at chain 1', to: other.session, session: S.sid });
   const chained = await rawDb.collection('messages').findOne({ _id: viaS.json?.id });
   check('f: a message sent from a session at turn chain 1 has chain 2', chained?.chain === 2, JSON.stringify(chained?.chain));
   const fromPerson = await send('chain zero', 'request');
@@ -197,10 +196,9 @@ try {
   const quietWait = timed(wait(S.token));
   const s2wait = timed(wait(s2.json.token));
   await pause(400);
-  await send('an fyi to the idle session', 'fyi');
-  await must(kT, 'send_message', { project: 'H7 One', kind: 'request', body: 'untargeted, for the project owner' });
-  await must(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'untargeted from the same person' });
-  check('h: an fyi to the session and untargeted requests never wake it (still waiting after 6 s)', (await settled(quietWait, 6000)) === undefined);
+  const fyiIdle = await send('an fyi to the idle session', 'fyi');
+  await must(kT, 'send_message', { to: 'E2E Owner', project: 'H7 One', kind: 'request', body: 'a request to the person, not to a session' });
+  check('h: an fyi to the session and a request to the person never wake it (still waiting after 6 s)', (await settled(quietWait, 6000)) === undefined);
   // a request addressed to the session wakes it within a few seconds, once, with the frame
   await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:${S.sid}:${ONE}` }, { $unset: { wokeAt: '' } });
   const w1 = timed(wait(S.token));
@@ -214,7 +212,7 @@ try {
   check('h: a wake carries the ids to acknowledge, and until then nothing is read, no wake is charged, no wokeAt is set', Array.isArray(woke1.json.ack) && woke1.json.ack.includes(req1.id) && !(await rawDb.collection('messages').findOne({ _id: req1.id })).seenBy.includes(KEY) && !(await row()).wokeAt && (await rawDb.collection('policyEvents').countDocuments({ keyId: `agent-wake:${S.sid}` })) === 0, JSON.stringify(woke1.json.ack));
   await ev(S.token, { event: 'tool', ack: woke1.json.ack });
   check('h: acknowledged: it is read, wokeAt and the turn chain (0) are set and the wake is charged once', (await rawDb.collection('messages').findOne({ _id: req1.id })).seenBy.includes(KEY) && !!(await row()).wokeAt && (await row()).turnChain === 0 && (await rawDb.collection('policyEvents').countDocuments({ keyId: `agent-wake:${S.sid}` })) === 1, JSON.stringify([(await row()).wokeAt, (await row()).turnChain]));
-  check('h: the fyi and the untargeted ones are still unread for it (the next turn has them)', (await must(kA, 'inbox', { project: 'H7 One', session: S.sid })).unread >= 1);
+  check('h: the fyi is still unread for it (the next turn has it)', !(await rawDb.collection('messages').findOne({ _id: fyiIdle.id })).seenBy.includes(KEY));
   // busy while working
   await ev(S.token, { event: 'prompt', woke: true });
   const busy = await timed(wait(S.token));
@@ -226,13 +224,13 @@ try {
   const w3 = timed(wait(S3.token));
   await pause(300);
   await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:${S.sid}:${ONE}` }, { $set: { turnChain: 0 } });
-  const toS3 = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'S3 please check the build', to_session: S3.sid, session: S.sid });
+  const toS3 = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'S3 please check the build', to: S3.sid, session: S.sid });
   check('h: a request from a session at turn chain 0 has chain 1', (await rawDb.collection('messages').findOne({ _id: toS3.json?.id }))?.chain === 1, toS3.text);
   const woke3 = await w3;
   check('h: …and still wakes the second session (chain 1)', woke3.json?.wake === true && /check the build/.test(woke3.json.text), woke3.text.slice(0, 200));
   await ev(S3.token, { event: 'tool', ack: woke3.json.ack });
   check('h: the second session’s turn chain is now 1', (await rawDb.collection('presence').findOne({ _id: `${ME.userId}:s:${S3.sid}:${ONE}` })).turnChain === 1);
-  const back = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'question', body: 'S, is it green?', to_session: S.sid, session: S3.sid });
+  const back = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'question', body: 'S, is it green?', to: S.sid, session: S3.sid });
   check('h: its question back has chain 2', (await rawDb.collection('messages').findOne({ _id: back.json?.id }))?.chain === 2, back.text);
   const wS = timed(wait(S.token));
   check('h: chain 2 wakes nobody (the first session is still waiting after 6 s)', (await settled(wS, 6000)) === undefined);
@@ -247,13 +245,13 @@ try {
   let wakes = 0;
   for (let i = 0; i < 7; i++) {
     await ev(S3.token, { event: 'stop' });
-    await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: `cap ${i}`, to_session: S3.sid, session: other.session });
+    await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: `cap ${i}`, to: S3.sid, session: other.session });
     const r = await settled(timed(wait(S3.token)), 9000);
     if (r?.json?.wake) { wakes++; await ev(S3.token, { event: 'tool', ack: r.json.ack }); } // charged when acknowledged
     else break;
   }
   check('h: at most 6 wakes an hour per session (the 7th message does not wake it)', wakes === 6, String(wakes));
-  const capNote = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'cap note check', to_session: S3.sid, session: other.session });
+  const capNote = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'cap note check', to: S3.sid, session: other.session });
   check('h: the sender’s note says it was woken 6 times this hour and gets it on its next turn', /H7 · tester: idle and woken 6 times this hour; it gets this on its next turn/.test(capNote.json?.target ?? ''), capNote.text.slice(0, 300));
   const turn7 = await ev(S3.token, { event: 'tool', deliver: true });
   check('h: …but the message the cap held back is handed over in the next turn', /cap 6/.test(turn7.json?.deliver?.text ?? ''), turn7.text.slice(0, 200));
@@ -291,10 +289,10 @@ try {
   await ev(S.token, { event: 'prompt' });
   const fyS = await mcpH(kA, 'list_tasks', { project: 'H7 One' }, H(S.sid));
   const fyLine = (fyS.json?.forYou ?? []).find(l => /from/.test(l)) ?? '';
-  check('i: forYou names kind and sender and still no text', /\d+ requests? from me/.test(fyLine) && /fyi from me/.test(fyLine) && /inbox: m_/.test(fyLine) && !/note check/.test(fyLine), JSON.stringify(fyS.json?.forYou));
+  check('i: forYou names kind and sender and still no text', /\d+ requests? from me/.test(fyLine) && /fyi from me/.test(fyLine) && /message_status reads one: m_/.test(fyLine) && !/note check/.test(fyLine), JSON.stringify(fyS.json?.forYou));
   // a claude.ai chat that never called start_work (no presence row) hears of a reply to it, once
   const chatTok = await mkOAuth({ userId: ME.userId, orgId: ME.orgId, name: 'H7 chat' });
-  const chatSent = await must(chatTok, 'send_message', { project: 'H7 One', kind: 'question', body: 'chat asks: is it merged?' });
+  const chatSent = await must(chatTok, 'send_message', { to: other.session, kind: 'question', body: 'chat asks: is it merged?' });
   check('i: setup: the chat has no presence row', (await rawDb.collection('presence').countDocuments({ keyId: { $regex: '^oauth_' } })) === 0);
   const rep = await mcpH(kA, 'reply', { id: chatSent.id, body: 'yes, merged', session: other.session });
   check('i: the reply goes to the chat’s own key', (await rawDb.collection('messages').findOne({ _id: rep.json?.id }))?.toSids?.[0]?.startsWith(`${ME.userId}:oauth_`), rep.text);
@@ -394,7 +392,7 @@ try {
   const r1 = await row();
   await rawDb.collection('presence').updateOne({ _id: r1._id }, { $set: { turnChain: 0, lastSeen: new Date() } });
   await rawDb.collection('presence').insertOne({ ...r1, _id: `${ME.userId}:s:${S.sid}:${TWO}`, projectId: TWO, turnChain: 3, lastSeen: new Date(Date.now() - 600_000) });
-  const k3 = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'k3 from a session with two rows', to_session: other.session, session: S.sid });
+  const k3 = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'k3 from a session with two rows', to: other.session, session: S.sid });
   check('k3: the chain of a message is the highest turn chain across the session’s rows plus one (4), not the newest row’s (1)', (await rawDb.collection('messages').findOne({ _id: k3.json?.id }))?.chain === 4, JSON.stringify((await rawDb.collection('messages').findOne({ _id: k3.json?.id }))?.chain));
   await rawDb.collection('presence').deleteOne({ _id: `${ME.userId}:s:${S.sid}:${TWO}` });
   // k4: a Need’s answer text is inside a frame with a nonce, and a member name cannot break the line
@@ -418,7 +416,7 @@ try {
   const done = [];
   for (const h of held) { const v = await settled(h.p, 10); if (v !== undefined) done.push(v); }
   check('k5: past the cap (20 for one person) the new waiters are answered at once with again, retryAfter 60 and a Retry-After header; no waiter is bumped (no plain again)', done.length >= 1 && done.length <= 2 && done.every(d => d.json?.again === true && d.json?.retryAfter === 60 && d.headers.get('retry-after') === '60'), JSON.stringify(done.map(d => d.json)));
-  for (const n of waiters) await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'k5 release', to_session: n.sid, session: other.session });
+  for (const n of waiters) await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'k5 release', to: n.sid, session: other.session });
   await Promise.all(held.map(h => h.p));
   // k6: a call the hook has already dropped (aborted) is not offered anything: nothing is claimed for nobody
   const n6 = await newSession('H7 · aborted');
@@ -426,7 +424,7 @@ try {
   const ctl = new AbortController();
   const ab = fetch(B + '/api/agent/wait', { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json', authorization: `Bearer ${n6.token}` }, body: '{}' }).catch(() => null);
   await pause(400);
-  const k6m = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'k6 for the aborted wait', to_session: n6.sid, session: other.session });
+  const k6m = await mcpH(kA, 'send_message', { project: 'H7 One', kind: 'request', body: 'k6 for the aborted wait', to: n6.sid, session: other.session });
   ctl.abort();
   await ab;
   await pause(5000); // the 3 s batch ends

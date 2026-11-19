@@ -36,7 +36,7 @@ try {
     const out = await must(MCP, 'list_sessions', { project: P, include_off: true });
     return out.sessions.find(x => x.session === sid)?.state;
   };
-  const note = async body => (await must(MCP, 'send_message', { project: P, kind: 'fyi', body, to_session: 'detective' })).target;
+  const note = async body => (await must(MCP, 'send_message', { project: P, kind: 'fyi', body, to: 'detective' })).target;
 
   await daemonList([]);
   const A = await sess();

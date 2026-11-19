@@ -350,8 +350,11 @@ export type StateDoc = Placed & {
  */
 export type MessageDoc = Placed & {
   _id: string;
-  projectId: string;
-  /** Who should act, for display: a session label or client name (a pending label when no session matched at send time): a hint, not a privacy line. Never a raw session id. */
+  /** Null: a message between two of one person's own sessions, one of which has no project (Identity step 6); it is placed private to that person. */
+  projectId: string | null;
+  /** A person the message is for (it shows under Messages for you on their Claude › Now; their sessions do not get it). Needs a project both read. */
+  toUser?: string;
+  /** Who should act, for display: the addressed session's name (old messages: a label or client name, a hint). Never a raw session id. */
   toSession?: string;
   /** The session keys (userId:session) the message was addressed to at send time (at most 10). Never shown. */
   toSids?: string[];

@@ -147,23 +147,24 @@ const GIVE_UP_MS = 120_000;
  * with `ack` on its next call (applyAck), which marks messages read, Needs handed over, and charges the wake. An offer not
  * acknowledged is offered again after LEASE_MS; a second call inside it gets nothing, so two hooks never both print one message.
  */
-export async function deliverFor(s: Scope, sid: string, projectId: string, mode: Mode): Promise<{ delivery: Delivery | null; capped?: boolean }> {
+export async function deliverFor(s: Scope, sid: string, projectId: string | null, mode: Mode): Promise<{ delivery: Delivery | null; capped?: boolean }> {
   const row = await sessionRow(s, sid, projectId);
   if (!row) return { delivery: null };
   const c = await scoped(s);
-  const project = await c.projects.findOne({ _id: projectId }, { projection: { name: 1, ownerId: 1 } });
-  if (!project) return { delivery: null };
+  // A session with no project (projectId null) is handed the messages addressed to it that no project holds: no Needs, no Orders.
+  const project = projectId ? await c.projects.findOne({ _id: projectId }, { projection: { name: 1, ownerId: 1 } }) : null;
+  if (projectId && !project) return { delivery: null };
   const reader = readerOf(s, sid, row);
   const unread = (await unreadFor(s, reader, { projectId })).reverse(); // oldest first
-  const msgs = mode === 'turn' ? unread : unread.filter(m => wakeWorthy(m, reader, project.ownerId));
-  const needs = await answeredNeeds(s, sid, projectId);
+  const msgs = mode === 'turn' ? unread : unread.filter(m => wakeWorthy(m, reader, project?.ownerId));
+  const needs = projectId ? await answeredNeeds(s, sid, projectId) : [];
   // Orders changes the session was not told of, made by another session (turn mode only: they never wake or continue anything).
-  const chs = mode === 'turn' ? await ordersChangesFor(s, projectId, { seen: row.ordersSeen, since: row.createdAt, notSession: sid, limit: 20 }) : [];
+  const chs = mode === 'turn' && projectId ? await ordersChangesFor(s, projectId, { seen: row.ordersSeen, since: row.createdAt, notSession: sid, limit: 20 }) : [];
   if (!msgs.length && !needs.length && !chs.length) return { delivery: null };
   if (mode !== 'turn' && (await agentUsed(mode === 'wake' ? 'wake' : 'cont', sid)) >= AGENT_PER_HOUR[mode === 'wake' ? 'wake' : 'cont']) return { delivery: null, capped: true };
 
   const [names, tz] = await Promise.all([memberNames(s.orgId), timezoneOf(s)]);
-  const framed = frameDeliveries(msgs, s.userId, { names, project: project.name, session: row.label || 'Claude Code', tz });
+  const framed = frameDeliveries(msgs, s.userId, { names, project: project?.name ?? '', session: row.label || 'Claude Code', tz });
   const shownNeeds = needs.slice(0, 5);
   const ob = chs.length ? ordersBlocks(chs, names, s.userId, tz) : null;
   if (!framed.shown.length && !shownNeeds.length && !ob?.ids.length) return { delivery: null };
@@ -190,9 +191,9 @@ export async function deliverFor(s: Scope, sid: string, projectId: string, mode:
   }
   const text = [framed.text, ...shownNeeds.map(n => needBlock(n, names, s.userId)), ob?.text].filter(Boolean).join('\n');
   // The new short form of the organization Orders, for subagents (the hook keeps it in the session's marker).
-  const orgNow = ob?.layers.has('org') ? (await ordersFor(s, { _id: projectId })).find(o => o.layer === 'org') : undefined;
+  const orgNow = ob?.layers.has('org') && projectId ? (await ordersFor(s, { _id: projectId })).find(o => o.layer === 'org') : undefined;
   const short = ob?.layers.has('org') ? (() => { const o = orgNow; return o ? shortFormForSubagent(o) : ''; })() : undefined;
-  return { delivery: { text, ids, needs: needIds, orders: ordIds, ...(short !== undefined ? { short, ...(ob?.orgV ? { shortV: ob.orgV } : {}) } : {}), wakeable: mode !== 'turn' || shownNeeds.length > 0 || msgs.some(m => ids.includes(m._id) && wakeWorthy(m, reader, project.ownerId)) } };
+  return { delivery: { text, ids, needs: needIds, orders: ordIds, ...(short !== undefined ? { short, ...(ob?.orgV ? { shortV: ob.orgV } : {}) } : {}), wakeable: mode !== 'turn' || shownNeeds.length > 0 || msgs.some(m => ids.includes(m._id) && wakeWorthy(m, reader, project?.ownerId)) } };
 }
 
 /**
@@ -233,14 +234,14 @@ export async function applyAck(s: Scope, sid: string, projectId: string | null, 
 }
 
 /** Is something waiting that would wake this idle session right now (an answered Need, or a message that may wake it)? Reads only: nothing is marked or reserved. */
-export async function wakeWaiting(s: Scope, sid: string, projectId: string): Promise<boolean> {
+export async function wakeWaiting(s: Scope, sid: string, projectId: string | null): Promise<boolean> {
   const row = await sessionRow(s, sid, projectId);
   if (!row) return false;
-  const project = await (await scoped(s)).projects.findOne({ _id: projectId }, { projection: { ownerId: 1 } });
-  if (!project) return false;
+  const project = projectId ? await (await scoped(s)).projects.findOne({ _id: projectId }, { projection: { ownerId: 1 } }) : null;
+  if (projectId && !project) return false;
   const reader = readerOf(s, sid, row);
-  if ((await unreadFor(s, reader, { projectId })).some(m => wakeWorthy(m, reader, project.ownerId))) return true;
-  return (await answeredNeeds(s, sid, projectId)).length > 0;
+  if ((await unreadFor(s, reader, { projectId })).some(m => wakeWorthy(m, reader, project?.ownerId))) return true;
+  return projectId ? (await answeredNeeds(s, sid, projectId)).length > 0 : false;
 }
 
 /** Has this session used its hour's wakes (the sender's note says so, and a waiter does not wake it)? */

@@ -19,7 +19,8 @@ try {
   const chatTok = await mkOAuth({ userId: ME.userId, orgId: ME.orgId, name: 'Word chat' });
   const codeTok = await mkOAuth({ userId: ME.userId, orgId: ME.orgId, name: 'Word code oauth' });
   await rawDb.collection('oauthClient').updateOne({ name: 'Word code oauth' }, { $set: { redirectUris: ['http://localhost:51234/callback'] } });
-  const send = (key, body, headers = {}) => must(key, 'send_message', { project: NAME, kind: 'fyi', body, word: 'person' }, headers);
+  const to = (await must(cc, 'start_work', { project: NAME, label: 'word session' })).session; // a message goes to a session of Om's
+  const send = (key, body, headers = {}) => must(key, 'send_message', { to, kind: 'fyi', body, word: 'person' }, headers);
 
   const a = await send(chatTok, 'from the claude.ai chat, no session');
   check('word: claude.ai over OAuth with no session is chat', (await word(a.id)) === 'chat' && a.word === 'chat', JSON.stringify(a));

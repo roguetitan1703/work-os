@@ -32,8 +32,6 @@ import { CouldBeRunning } from '../../claude/workers-tab';
 import { projectRoster } from '@/lib/data/roster';
 import { archivedOut, stateOfProject, stateOut } from '@/lib/data/states';
 import { memberNames } from '@/lib/people';
-import { inbox as inboxOf, messageOut } from '@/lib/data/messages';
-import { InboxTab } from './inbox-tab';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -41,7 +39,6 @@ const TABS = [
   { id: 'claude', label: 'Claude' },
   { id: 'needs', label: 'Needs' },
   { id: 'notes', label: 'Notes' },
-  { id: 'inbox', label: 'Inbox' },
   { id: 'info', label: 'Info' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
@@ -282,7 +279,6 @@ export default async function ProjectPage({ params, searchParams }: Props) {
         </section>
       )}
 
-      {tab === 'inbox' && <InboxTab projectId={project.id} messages={(await inboxOf(sc, { project: project.id, limit: 60, markSeen: false })).messages.map(m => messageOut(m, me.userId, names))} />}
 
       {tab === 'info' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-6 items-start" data-view="info">
