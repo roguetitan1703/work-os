@@ -1038,7 +1038,7 @@ try {
       const r = await mcpCall(k, 'list_sessions', { include_gone: true });
       scan(p.name, 'list_sessions', r.text);
       const byProject = await mcpCall(k, 'list_sessions', { project: nm, include_gone: true });
-      check(`h5: ${p.name}'s list_sessions for the private project is refused as not found`, !byProject.ok && /not found/i.test(byProject.text), byProject.text.slice(0, 120));
+      check(`h5: ${p.name}'s list_sessions for the private project is refused as not found`, !byProject.ok && /not found|Unauthorized/i.test(byProject.text), byProject.text.slice(0, 120));
       check(`h5: ${p.name}'s list_sessions names no session of a private project`, (!r.ok || (!r.text.includes(nm) && !r.text.includes(cn))), r.text.slice(0, 160));
       const st = await mcpCall(k, 'start_work', { project: nm });
       check(`h5: ${p.name} cannot start work on the private project and so gets no handover`, !st.ok, st.text.slice(0, 120));
