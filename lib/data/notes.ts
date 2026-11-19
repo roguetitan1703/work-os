@@ -6,7 +6,8 @@ import { scoped, usersWithSetting, type Scope, type ScopedCollections as Collect
 import { actorUserId, asActor, isPerson } from '../actors';
 import { CLOSED_STATUSES, type Actor } from '../types';
 import type { NoteBlock } from '../notes-schema';
-import { hasMarkdown, locate, locateExact, locateFolded } from '../notes-match';
+import { hasMarkdown, locate, locateExact, locateFolded, titleKey } from '../notes-match';
+import { UNTITLED } from '../notes-shelves';
 import { blockOutline, blocksToMarkdown, cloneBlocks, editInPlace, findBlock, markdownToBlocks, plainText } from '../notes-convert';
 import { requestContext } from '../request-context';
 import { InputError, NotFoundError } from './errors';
@@ -273,6 +274,10 @@ export type NoteWrite = {
   /** Text replacements; each `find` must occur in exactly one block, exactly once. Only that block is rewritten. */
   edits?: { find: string; replace: string }[];
   archived?: boolean;
+  /** Internal (never in an MCP schema): skip the duplicate-title check (end_work's handovers keep their own per-writer rule). */
+  allowSameTitle?: boolean;
+  /** Internal: on a rename into a duplicate title, 'keep' saves the rest and keeps the old title (the editor's autosave); default 'refuse'. */
+  titleClash?: 'refuse' | 'keep';
   /** Sub-page only: false when the caller (the editor) inserts the page block itself. Default true. */
   linkInParent?: boolean;
   /** Optimistic concurrency: refuse if the note changed since this version (ISO updatedAt). */
@@ -285,6 +290,48 @@ export type NoteWrite = {
   need?: number;
   undoOf?: number;
 };
+
+/** A second note with the same title beside an existing one (H14): refused with the existing note's id. */
+export class DuplicateTitleError extends InputError {
+  constructor(
+    message: string,
+    public existing: { id: string; title: string; archived: boolean },
+  ) {
+    super(message);
+    this.name = 'DuplicateTitleError';
+  }
+}
+
+type Sibling = { id: string; title: string; archived: boolean; updatedAt: Date };
+
+/**
+ * The sibling that already has this title (top-level notes of one project, or the sub-pages of one page), or null. Read
+ * through the caller's scope, so it can only name a note the caller can read. Archived siblings count, trashed ones don't;
+ * a task's note, a handover, an Orders page and "Untitled" are not compared. No unique index: two simultaneous creates can
+ * both pass (Declutter lists notes with matching titles, by titleKey).
+ */
+async function sameTitle(c: Collections, at: { projectId: string | null; parentId: string | null }, title: string, excludeId?: string): Promise<Sibling | null> {
+  const key = titleKey(title);
+  if (!key || key === titleKey(UNTITLED)) return null;
+  if (!at.parentId && !at.projectId) return null;
+  const sibs = await c.notes
+    .find(
+      { ...live, taskId: null, ...(at.parentId ? { parentId: at.parentId } : { parentId: null, projectId: at.projectId }), handover: { $exists: false }, orders: { $exists: false } },
+      { projection: { title: 1, archived: 1, updatedAt: 1 } },
+    )
+    .toArray();
+  const hit = sibs.find(n => n._id !== excludeId && titleKey(n.title) === key);
+  return hit ? { id: hit._id, title: hit.title, archived: !!hit.archived, updatedAt: hit.updatedAt } : null;
+}
+
+function dupMessage(d: Sibling, where: string): string {
+  return `A note titled "${d.title}" is already in ${where} (note_id ${d.id}, ${d.archived ? 'archived, ' : ''}edited ${d.updatedAt.toISOString().slice(0, 10)}): write to it with note_id${d.archived ? ' (archived:false brings it back)' : ''}, or give another title. Nothing was saved.`;
+}
+
+async function whereIs(c: Collections, projectId: string | null, parentId: string | null): Promise<string> {
+  if (parentId || !projectId) return 'this page';
+  return (await c.projects.findOne({ _id: projectId }, { projection: { name: 1 } }))?.name ?? 'this project';
+}
 
 export class NoteConflictError extends InputError {
   constructor() {
@@ -430,7 +477,7 @@ const DISPATCHED_LABEL = /·\s*worker\s*·\s*#\d+/i;
 /** The words of an Orders text that the Words retired (docs/HANDOVER.md section 3), for a warning. */
 const retiredIn = (text: string): string[] => RETIRED.map(re => re.exec(text)?.[0]).filter((x): x is string => !!x);
 
-export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{ note: Note; created: boolean; orders?: { layer: 'org' | 'project' | 'person'; version: number; lines: string; removed: number; added: number; warning?: string } }> {
+export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{ note: Note; created: boolean; titleRefused?: { id: string; title: string }; orders?: { layer: 'org' | 'project' | 'person'; version: number; lines: string; removed: number; added: number; warning?: string } }> {
   const c = await scoped(s);
   const now = new Date();
 
@@ -468,6 +515,15 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
       set.body = await blocksToMarkdown(next);
     }
     if (w.title?.trim() && w.title.trim() !== cur.title) set.title = w.title.trim();
+    let titleRefused: { id: string; title: string } | undefined;
+    if (set.title && !cur.taskId && !cur.orders && !cur.handover && !w.allowSameTitle) {
+      const dup = await sameTitle(c, { projectId: cur.projectId ?? null, parentId: cur.parentId ?? null }, set.title, cur._id);
+      if (dup) {
+        if (w.titleClash !== 'keep') throw new DuplicateTitleError(dupMessage(dup, await whereIs(c, cur.projectId ?? null, cur.parentId ?? null)), dup);
+        delete set.title;
+        titleRefused = { id: dup.id, title: dup.title };
+      }
+    }
     if (w.archived !== undefined) set.archived = w.archived;
     if (set.blocks || set.title) await takeBackTaskOnNoteEdit(s, c, cur, actor);
     if (set.title && cur.parentId) await renamePageBlock(c, cur.parentId, cur._id, set.title);
@@ -489,7 +545,7 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
     else if (set.blocks || set.title) await logNote(c, { ...cur, ...set }, actor, 'note_edited', set.title !== undefined && set.title !== cur.title);
     const retired = ver ? retiredIn(ver.added.join('\n')) : [];
     const orders = ver ? { layer: cur.orders!, version: ver.v, lines: cur.orders === 'org' ? `${ruleLines(set.body!).length} of ${ORG_RULE_LINES}` : `${ruleLines(set.body!).length}`, removed: ver.nRemoved, added: ver.nAdded, ...(retired.length ? { warning: `Saved. These Orders now use ${retired.map(x => '"' + x + '"').join(', ')}, a word the Words retired: use the current word (docs/HANDOVER.md section 3).` } : {}) } : undefined;
-    return { note: (await hydrate(c, [{ ...cur, ...set }]))[0], created: false, ...(orders ? { orders } : {}) };
+    return { note: (await hydrate(c, [{ ...cur, ...set }]))[0], created: false, ...(titleRefused ? { titleRefused } : {}), ...(orders ? { orders } : {}) };
   }
 
   // Create
@@ -509,12 +565,17 @@ export async function writeNote(s: Scope, w: NoteWrite, actor: Actor): Promise<{
   } else {
     place = taskPlace!;
   }
+  const title = (w.title ?? UNTITLED).trim() || UNTITLED;
+  if (!taskId && !w.allowSameTitle) {
+    const dup = await sameTitle(c, { projectId, parentId: parent?._id ?? null }, title);
+    if (dup) throw new DuplicateTitleError(dupMessage(dup, await whereIs(c, projectId, parent?._id ?? null)), dup);
+  }
   const blocks = (await applyContent([], { blocks: w.blocks, body: w.body ?? w.append })) ?? [];
   const doc: NoteDoc = {
     _id: newId(),
     orgId: s.orgId,
     ...place,
-    title: (w.title ?? 'Untitled').trim() || 'Untitled',
+    title,
     blocks,
     body: await blocksToMarkdown(blocks),
     parentId: parent?._id ?? null,

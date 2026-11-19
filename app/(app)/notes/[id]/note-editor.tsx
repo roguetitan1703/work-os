@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import type { NoteBlock } from '@/lib/notes-schema';
 import { deleteNoteAction, restoreNoteAction, saveNoteAction } from '../actions';
 import type { SaveState } from './block-editor';
+import { UNTITLED } from '@/lib/notes-shelves';
 
 // The block editor touches the DOM on load, so it only renders in the browser.
 const BlockEditor = dynamic(() => import('./block-editor').then(m => m.BlockEditor), {
@@ -20,7 +21,7 @@ type NoteProps = { id: string; title: string; updatedAt: string; isTaskNote: boo
 
 export function NoteEditor({ note, blocks, focusTitle }: { note: NoteProps; blocks: NoteBlock[]; focusTitle: boolean }) {
   const router = useRouter();
-  const [title, setTitle] = useState(note.title === 'Untitled' && focusTitle ? '' : note.title);
+  const [title, setTitle] = useState(note.title === UNTITLED && focusTitle ? '' : note.title);
   const [state, setState] = useState<SaveState>('saved');
   const [, start] = useTransition();
 
@@ -77,7 +78,7 @@ export function NoteEditor({ note, blocks, focusTitle }: { note: NoteProps; bloc
           </button>
         </div>
       </div>
-      <BlockEditor noteId={note.id} initialBlocks={blocks} updatedAt={note.updatedAt} title={title} onState={setState} />
+      <BlockEditor noteId={note.id} initialBlocks={blocks} updatedAt={note.updatedAt} title={title} onState={setState} onTitleKept={setTitle} />
     </div>
   );
 }

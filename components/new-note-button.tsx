@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { createNoteAction } from '@/app/(app)/notes/actions';
 import { cn } from '@/lib/utils';
 import { Select } from '@/components/ui/select';
+import { UNTITLED } from '@/lib/notes-shelves';
 
 /**
  * New note. With `task`, opens (or creates) that task's note. With `project`, creates a project note.
@@ -47,7 +48,7 @@ export function NewNoteButton({
         className="flex items-center gap-2"
         onSubmit={e => {
           e.preventDefault();
-          create({ project: pick, title: title.trim() || 'Untitled' });
+          create({ project: pick, title: title.trim() || UNTITLED });
         }}
       >
         <input autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" className="h-9 w-48 rounded-md border border-border bg-background px-3 text-sm" />
@@ -71,7 +72,7 @@ export function NewNoteButton({
   return (
     <button
       disabled={pending}
-      onClick={() => (projects ? setPicking(true) : create({ task, project, title: task ? undefined : 'Untitled' }))}
+      onClick={() => (projects ? setPicking(true) : create({ task, project, title: task ? undefined : UNTITLED }))}
       className={cn(
         'inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border bg-background text-sm font-medium hover:bg-muted disabled:opacity-50',
         className,

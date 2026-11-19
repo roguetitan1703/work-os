@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { noteSchema, type NoteBlock } from '@/lib/notes-schema';
 import { createSubPageAction, saveNoteAction, searchMentionsAction } from '../actions';
 import { useApp } from '@/components/app-context';
+import { UNTITLED } from '@/lib/notes-shelves';
 
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
 
@@ -37,6 +38,7 @@ export function BlockEditor({
   updatedAt,
   title,
   onState,
+  onTitleKept,
 }: {
   noteId: string;
   initialBlocks: NoteBlock[];
@@ -44,6 +46,8 @@ export function BlockEditor({
   updatedAt: string;
   title: string;
   onState: (s: SaveState) => void;
+  /** The title field goes back to this (a sibling already has the typed title). */
+  onTitleKept: (title: string) => void;
 }) {
   const router = useRouter();
   const { resolvedTheme } = useTheme();
@@ -87,8 +91,8 @@ export function BlockEditor({
     if (inFlight.current) await inFlight.current;
     const blocks = editor.document;
     const json = JSON.stringify(blocks);
-    const t = titleRef.current.trim() || 'Untitled';
-    const titleChanged = t !== (savedTitle.current.trim() || 'Untitled');
+    const t = titleRef.current.trim() || UNTITLED;
+    const titleChanged = t !== (savedTitle.current.trim() || UNTITLED);
     if (json === lastSaved.current && !titleChanged) return onState('saved');
     onState('saving');
     const run = (async () => {
@@ -112,13 +116,21 @@ export function BlockEditor({
       version.current = r.updatedAt;
       lastSaved.current = json;
       savedTitle.current = t;
-      const dirty = JSON.stringify(editor.document) !== json || (titleRef.current.trim() || 'Untitled') !== t;
+      if (r.titleRefused) {
+        // The blocks saved; the title stays as it was (a sibling already has the typed one).
+        const { id, kept } = r.titleRefused;
+        titleRef.current = kept;
+        savedTitle.current = kept;
+        onTitleKept(kept);
+        toast.error('A note with this title is already here', { action: { label: 'Open', onClick: () => router.push(`/notes/${id}`) } });
+      }
+      const dirty = JSON.stringify(editor.document) !== json || (titleRef.current.trim() || UNTITLED) !== t;
       onState(dirty ? 'dirty' : 'saved');
     })();
     inFlight.current = run;
     await run;
     inFlight.current = null;
-  }, [editor, noteId, onState]);
+  }, [editor, noteId, onState, onTitleKept, router]);
 
   const schedule = useCallback(() => {
     onState('dirty');

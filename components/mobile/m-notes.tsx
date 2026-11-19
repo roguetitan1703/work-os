@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { createNoteAction } from '@/app/(app)/notes/actions';
 import { cn } from '@/lib/utils';
 import { BottomSheet } from './sheet';
+import { UNTITLED } from '@/lib/notes-shelves';
 
 type P = { id: string; name: string; private?: boolean };
 
@@ -121,7 +122,7 @@ function NewNoteSheet({ projects, defaultProject, onClose }: { projects: P[]; de
   const create = () =>
     start(async () => {
       if (!project) return void toast.error('Pick a project');
-      const r = await createNoteAction({ project, title: title.trim() || 'Untitled' });
+      const r = await createNoteAction({ project, title: title.trim() || UNTITLED });
       if ('error' in r) return void toast.error(r.error);
       onClose();
       router.push(`/notes/${r.id}?new=1`);
