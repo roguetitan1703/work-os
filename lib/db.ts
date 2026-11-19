@@ -306,6 +306,8 @@ export type MessageDoc = Placed & {
   senderCommit?: string;
   /** The session or key that sent it (the "for you" line does not name a session's own messages back to it). */
   src?: string;
+  /** Wake chain: how many agent-started wakes led to this message. Missing = 0 (a person's, the app's and chat's word); an agent's word is the sending session's turnChain plus 1. A message at 2 or more never wakes a session (lib/data/deliver.ts). */
+  chain?: number;
   /** Who set the status, and when. */
   statusBy?: string;
   statusAt?: Date;
