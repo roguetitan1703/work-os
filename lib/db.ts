@@ -207,8 +207,12 @@ export type NeedDoc = Placed & {
   withdrawnReason?: string;
   /** When an alert for this Need (or the one it replaced) was last queued: a replacement within 10 minutes of it sends none. */
   alertedAt?: Date;
-  /** A review Need made past the hourly alert limit: no alert was queued for it. */
+  /** No alert was queued for it (a proposal of Orders). Older review Needs made past an hourly alert limit carry it too. */
   noAlert?: boolean;
+  /** Part of the owner's Monday digest (H12): a Need that waits for it and never reaches the phone. Server-only; set by propose_order and declutter. */
+  batch?: 'monday';
+  /** A correction a person gave twice (H12 counts it among Om's repeats). Server-only. */
+  repeat?: true;
   /** A review Need made because an agent wanted to drop or archive the task: what Accept then does (default: close it as Done). */
   closing?: 'Dropped' | 'archived';
   /**

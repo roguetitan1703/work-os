@@ -143,7 +143,7 @@ try {
     const qc = await q(dc);
     const qr = await q(dr);
     check('dispatched code: the run ends as finished, "sent to review", and the task stays open', dc.claude.state === 'finished' && dc.claude.note === 'sent to review' && dc.status !== 'Done', JSON.stringify(dc.claude));
-    check('dispatched code: the review alert replaces "Claude finished" (one alert, not two)', qc.filter(x => x.kind === 'claude_finished').length === 0 && qc.filter(x => x.kind === 'need').length === 1, JSON.stringify(qc.map(x => x.kind)));
+    check('dispatched code: the review replaces "Claude finished" and sends no phone alert at all (H12: a review waits on Today and the digest)', qc.filter(x => x.kind === 'claude_finished').length === 0 && qc.filter(x => x.kind === 'need').length === 0 && (await col('needs').countDocuments({ taskId: dc._id, kind: 'review', status: 'open' })) === 1, JSON.stringify(qc.map(x => x.kind)));
     check('dispatched with no kind: finishes as today, with its "Claude finished" alert and no review', dr.status === 'Done' && qr.some(x => x.kind === 'claude_finished') && !qr.some(x => x.kind === 'need'), JSON.stringify(qr.map(x => x.kind)));
   }
 

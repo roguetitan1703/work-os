@@ -13,7 +13,7 @@ import { listActivity, recipientFilter, recipientsOf } from './data/tasks';
 import { assigneesOf } from './assignees';
 import { isMember, memberNames } from './people';
 import { actorLabel } from './actors';
-import { shortAsk } from './data/needs';
+import { reachesPhone, shortAsk } from './data/needs';
 import { roster, unblockedNext } from './data/roster';
 import { needButtons } from './discord/need-buttons';
 
@@ -214,8 +214,8 @@ async function buildDigest(
   const since = lastAny ? lastAny.sentAt : previousWorkdayStart(today, tz);
   const projectNames = new Map((await c.projects.find({}, { projection: { name: 1 } }).toArray()).map(p => [p._id, p.name]));
 
-  // 1. Needs you: the open Needs addressed to this person, oldest first. Review Needs are folded in. Through their own door.
-  const allNeeds = await c.needs.find({ to: s.userId, status: 'open' }).sort({ createdAt: 1 }).limit(60).toArray();
+  // 1. Needs you: the open Needs addressed to this person, oldest first. Review Needs are folded in; Monday Needs wait for the Monday block. Through their own door.
+  const allNeeds = await c.needs.find({ to: s.userId, status: 'open', batch: { $ne: 'monday' } }).sort({ createdAt: 1 }).limit(60).toArray();
   if (allNeeds.length) {
     const people = await memberNames(s.orgId);
     const rows: DigestSection['rows'] = allNeeds.slice(0, MAX_NEED_LINES).map(n => {
@@ -396,6 +396,8 @@ async function queuedItems(c: Collections, ids?: string[]): Promise<AlertItem[]>
         // Dropped if it was answered, withdrawn or replaced before it went out, or the person can no longer read it.
         const n = needById.get(q.needId ?? '');
         if (!n || n.status !== 'open') continue;
+        // And when the session that asked has ended or gone off since it was queued (H12), or it never reaches the phone.
+        if (!(await reachesPhone(await orgWide(q.orgId), n, Date.now()))) continue;
         const who = neutralAlertText(actorLabel(n.from.actor, q.userId, people));
         const ask = neutralAlertText(shortAsk(n.ask));
         items.push({
