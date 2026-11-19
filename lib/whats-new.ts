@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'notes-shelves',
+    date: '2026-11-19',
+    title: 'Notes on shelves',
+    line: "A project's notes sit on shelves (Overview, Designs, Runbooks, Handovers), and a second note with the same title is refused.",
+    where: "A project's Notes tab, and the shelf filter on Notes",
+    href: '/notes',
+  },
+  {
     id: 'orders-versions',
     date: '2026-11-19',
     title: 'Your Claude can now fix your Orders',

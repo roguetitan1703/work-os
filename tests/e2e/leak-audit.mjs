@@ -1353,6 +1353,7 @@ function AUDIT() {
   add(`action ${N_}createNoteAction`, act(N_ + 'createNoteAction', t => [{ task: t.ref, title: 'lkq' }], aim(['ref'], { ok: r => actOk(r) && !!r.value?.id, controlOk: r => actOk(r) || /already/i.test(r.text) })), act(N_ + 'createNoteAction', t => [{ project: t.project, title: 'lkq memo' }], aim(['project'], { label: 'project note', ok: r => actOk(r) && !!r.value?.id })));
   add(`action ${N_}createSubPageAction`, act(N_ + 'createSubPageAction', t => [t.note, 'lkq sub by action'], aim(['note'], { ok: r => actOk(r) && !!r.value?.id })));
   add(`action ${N_}saveNoteAction`, act(N_ + 'saveNoteAction', t => [t.note, { title: 'lkq hacked' }], aim(['note'])), act(N_ + 'saveNoteAction', t => [t.taskNote, { archived: true }], aim(['taskNote'], { label: 'archive a task note' })));
+  add(`action ${N_}setShelfAction`, act(N_ + 'setShelfAction', t => [t.note, 'runbooks'], aim(['note'])));
   add(`action ${N_}deleteNoteAction`, act(N_ + 'deleteNoteAction', t => [t.sub], aim(['sub'], { stage: 1 })));
   add(`action ${N_}restoreNoteAction`, act(N_ + 'restoreNoteAction', t => [t.sub], aim(['sub'], { stage: 2 })));
   // (sub2 is put in the trash by mcp delete_note earlier in stage 2; this deletes it for good)

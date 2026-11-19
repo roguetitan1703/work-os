@@ -5,8 +5,9 @@
 // <tag> text stay; a replacement with markdown takes the markdown path.
 // Part 3 (step 3, sameTitle): a second note with the same title beside one is refused with its id (project notes, sub-pages),
 // folded and case-blind, archived ones count; task notes, Untitled and handovers are exempt; the editor keeps the blocks.
-// Later parts ( duplicate titles, shelves) are added by the later steps. Seed profile: none.
-import { ME, SP, check, finish, launch, login, makeUser, mkKey, rawDb } from './lib.mjs';
+// Part 4 (step 4, shelves data and MCP): shelf on write_note and list_notes, defaults, refusals.
+// Later parts (the shelves UI) are added by the later steps. Seed profile: none.
+import { B, ME, SP, check, finish, launch, login, makeUser, mkKey, pick, rawDb } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
 
 const BS = String.fromCharCode(92); // a backslash, spelled so no tool or editor can swallow it
@@ -221,12 +222,17 @@ try {
     check('H14 dup: an Orders page is not compared', !r.isError, r.text.slice(0, 200));
   }
   {
-    // end_work: a handover title repeats between writers and is never refused by the title rule
-    const bob = await mkKey({ agent: 'claude-code', name: 'H14 bob' });
+    // end_work: two writers with one handover title both write (the title rule is not applied to handovers)
+    const writer = await makeUser({ email: 'h14-writer@example.test', name: 'H14 Writer', orgId: ME.orgId });
+    const wk = await mkKey({ agent: 'claude-code', userId: writer.userId, orgId: ME.orgId, name: 'H14 writer' });
     const hdr = sid => ({ 'X-Work-OS-Session': sid });
-    const a = await mcpH(cc, 'end_work', { project: P2, state: [{ op: 'set_now', text: 'H14 handover goal for one' }], friction: 'none', handover: { step: 'one' }, session: 'h14h1' }, hdr('h14h1'));
-    const b = await mcpH(bob, 'end_work', { project: P2, state: [{ op: 'set_now', text: 'H14 handover goal for two' }], friction: 'none', handover: { step: 'two' }, session: 'h14h2' }, hdr('h14h2'));
-    check('H14 dup: end_work from two writers with one default title both write', !/already in/.test(a.text + b.text), a.text.slice(0, 200) + ' | ' + b.text.slice(0, 200));
+    const hin = { step: 'flow-h14 part 3 passes; next: write the shelves part', check: ['tests/e2e/run.sh flow-h14'] };
+    await must(cc, 'end_work', { project: P2, base_version: 0, state: [{ op: 'set_now', text: 'H14 goal: handovers on shelves' }, { op: 'add_next', text: 'H14 first next step, long enough to matter' }, { op: 'add_next', text: 'H14 second next step, also long enough' }], friction: 'none', session: 'h14h0' }, hdr('h14h0'));
+    await must(cc, 'start_work', { project: P2, session: 'h14h1', label: 'H14 same label' }, hdr('h14h1'));
+    await must(wk, 'start_work', { project: P2, session: 'h14h2', label: 'H14 same label' }, hdr('h14h2'));
+    const a = await mcpH(cc, 'end_work', { project: P2, state: [{ op: 'set_where', machine: 'h14box', branch: 'one' }], friction: 'none', handover: hin, session: 'h14h1' }, hdr('h14h1'));
+    const b = await mcpH(wk, 'end_work', { project: P2, state: [{ op: 'set_where', machine: 'h14box', branch: 'two' }], friction: 'none', handover: hin, session: 'h14h2' }, hdr('h14h2'));
+    check('H14 dup: end_work from two writers with one handover title both write', !a.isError && !b.isError && a.json?.handover?.id && b.json?.handover?.id && a.json.handover.id !== b.json.handover.id && a.json.handover.title === b.json.handover.title, a.text.slice(0, 250) + ' | ' + b.text.slice(0, 250));
   }
   {
     // the editor: the blocks save, the title goes back (saveNoteAction keeps the old title)
@@ -257,6 +263,103 @@ try {
     } finally {
       await bro.close();
     }
+  }
+  // ── 9. Part 4: shelves (data and MCP)
+  {
+    const sh = await must(cc, 'write_note', { project: P, title: 'H14 shelf note', body: 'plain' });
+    const r0 = await must(cc, 'read_note', { note_id: sh.created.id });
+    check('H14 shelf: a note nobody moved sits on Designs', r0.shelf === 'designs', JSON.stringify(r0.shelf));
+    const r1 = await mcpH(cc, 'write_note', { note_id: sh.created.id, shelf: 'runbooks' });
+    const r2 = await must(cc, 'read_note', { note_id: sh.created.id });
+    check('H14 shelf: write_note moves it to Runbooks', !r1.isError && r2.shelf === 'runbooks', r1.text.slice(0, 200));
+    const l = await must(cc, 'list_notes', { project: P, shelf: 'runbooks' });
+    check('H14 shelf: list_notes shelf returns it, and only the Runbooks', l.notes.some(n => n.id === sh.created.id) && l.notes.every(n => n.shelf === 'runbooks'), JSON.stringify(l.notes.map(n => [n.title, n.shelf])));
+    const l2 = await must(cc, 'list_notes', { project: P, shelf: 'designs' });
+    check('H14 shelf: the Designs listing no longer holds it', !l2.notes.some(n => n.id === sh.created.id) && l2.notes.length > 0, JSON.stringify(l2.notes.map(n => n.title)));
+    const born = await must(cc, 'write_note', { project: P, title: 'H14 born on overview', body: 'o', shelf: 'overview' });
+    check('H14 shelf: a note can be created on a shelf', (await must(cc, 'read_note', { note_id: born.created.id })).shelf === 'overview');
+    const bt = await must(cc, 'apply_changes', { ops: [{ op: 'write_note', note_id: sh.created.id, shelf: 'overview' }] }).catch(e => ({ error: String(e) }));
+    check('H14 shelf: apply_changes carries shelf', !bt.error && (await must(cc, 'read_note', { note_id: sh.created.id })).shelf === 'overview', JSON.stringify(bt).slice(0, 300));
+    // refusals
+    const hv = await mcpH(cc, 'write_note', { note_id: sh.created.id, shelf: 'handovers' });
+    check('H14 shelf: handovers is not a shelf write_note can give', hv.isError, hv.text.slice(0, 200));
+    const tk = await must(cc, 'add_task', { title: 'H14 shelf task', project: P });
+    const tn = await must(cc, 'write_note', { task: tk.created.ref, body: 't', title: 'H14 shelf task note' });
+    const rt = await mcpH(cc, 'write_note', { note_id: tn.created.id, shelf: 'runbooks' });
+    check('H14 shelf: refused on a task note, with the reason', rt.isError && /task's note and a sub-page sit with/.test(rt.text), rt.text.slice(0, 250));
+    check('H14 shelf: a task note has no shelf', (await must(cc, 'read_note', { note_id: tn.created.id })).shelf === undefined);
+    const sp = await must(cc, 'write_note', { parent_id: sh.created.id, title: 'H14 shelf sub', body: 's' });
+    const rs = await mcpH(cc, 'write_note', { note_id: sp.created.id, shelf: 'runbooks' });
+    const rs2 = await mcpH(cc, 'write_note', { parent_id: sh.created.id, title: 'H14 shelf sub two', body: 's', shelf: 'runbooks' });
+    check('H14 shelf: refused on a sub-page (move and create)', rs.isError && rs2.isError && (await must(cc, 'read_note', { note_id: sp.created.id })).shelf === undefined, rs.text.slice(0, 150) + ' | ' + rs2.text.slice(0, 150));
+    // handovers, archive, Orders
+    const hl = await must(cc, 'list_notes', { project: P2, shelf: 'handovers' });
+    check('H14 shelf: end_work\'s notes sit on Handovers', hl.notes.length >= 1 && hl.notes.every(n => n.shelf === 'handovers'), JSON.stringify(hl.notes.map(n => [n.title, n.shelf])));
+    const hm = await mcpH(cc, 'write_note', { note_id: hl.notes[0].id, shelf: 'designs' });
+    check('H14 shelf: an agent cannot move a handover off Handovers', hm.isError, hm.text.slice(0, 200));
+    const al = await must(cc, 'list_notes', { project: P, shelf: 'archive' });
+    check('H14 shelf: list_notes shelf archive returns the archived project notes', al.notes.some(n => n.title === 'H8 plan: the three blocks') && al.notes.every(n => n.archived), JSON.stringify(al.notes.map(n => [n.title, n.archived])));
+    const ov = await must(cc, 'list_notes', { project: P, shelf: 'overview' });
+    const orders = (await rawDb.collection('notes').findOne({ projectId: (await rawDb.collection('projects').findOne({ name: P }))._id, orders: 'person' }));
+    check('H14 shelf: an Orders page defaults to Overview', ov.notes.some(n => n.id === orders._id), JSON.stringify(ov.notes.map(n => n.title)));
+    const om = await mcpH(cc, 'write_note', { note_id: orders._id, shelf: 'runbooks', why: 'h14 shelf test' });
+    check('H14 shelf: an agent cannot move an Orders page (guardOrders still holds)', om.isError, om.text.slice(0, 200));
+    const noShelf = await must(cc, 'list_notes', { project: P });
+    check('H14 shelf: every project note in a plain listing carries its shelf', noShelf.notes.filter(n => !/task/.test(n.attachedTo ?? '') && !/sub-page/.test(n.attachedTo ?? '')).every(n => n.shelf), JSON.stringify(noShelf.notes.filter(n => !n.shelf).map(n => n.title)));
+  }
+  // ── 10. Part 5: shelves in the app (project Notes tab, Notes filter, note header), looked at on both widths and themes
+  {
+    const pid = (await rawDb.collection('projects').findOne({ name: P }))._id;
+    const rb = await must(cc, 'write_note', { project: P, title: 'H14 ui runbook', body: 'How to run it.', shelf: 'runbooks' });
+    const dn = await must(cc, 'write_note', { project: P, title: 'H14 ui design', body: 'The design.' });
+    const bro = await launch();
+    try {
+      for (const kind of ['desktop', 'phone']) {
+        for (const scheme of ['light', 'dark']) {
+          const ctx = await bro.newContext(kind === 'phone' ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: scheme } : { viewport: { width: 1280, height: 800 }, colorScheme: scheme });
+          const pg = await ctx.newPage();
+          await login(pg, { phone: kind === 'phone', next: `/projects/${pid}?tab=notes` });
+          const tag = `${kind}-${scheme}`;
+          const grp = pg.locator('[data-view="notes"] [data-shelf="runbooks"]');
+          await grp.waitFor({ timeout: 20000 });
+          if (tag === 'desktop-light') {
+            const heads = await pg.locator('[data-view="notes"] [data-shelf] h3').allInnerTexts();
+            check('H14 shelves UI: the Notes tab groups notes by shelf, in shelf order, empty shelves hidden', heads.length >= 2 && heads.findIndex(h => /^designs/i.test(h)) < heads.findIndex(h => /^runbooks/i.test(h)) && heads.findIndex(h => /^overview/i.test(h)) < heads.findIndex(h => /^designs/i.test(h)) && !heads.some(h => /^handovers/i.test(h)), JSON.stringify(heads));
+            check('H14 shelves UI: a runbook sits under Runbooks only', (await grp.innerText()).includes('H14 ui runbook') && !(await grp.innerText()).includes('H14 ui design'));
+          }
+          await pg.screenshot({ path: `${SP}/h14-shelves-project-${tag}.png`, fullPage: true });
+          await pg.goto(B + '/notes?shelf=runbooks');
+          await pg.locator('text=H14 ui runbook >> visible=true').first().waitFor({ timeout: 20000 });
+          if (tag === 'desktop-light') {
+            const txt = await pg.locator('main').innerText();
+            check('H14 shelves UI: /notes?shelf=runbooks lists the runbook, not the design, and the row names its shelf', txt.includes('H14 ui runbook') && !txt.includes('H14 ui design') && /H14 Alpha · Runbooks/.test(txt), txt.slice(0, 300));
+          }
+          await pg.screenshot({ path: `${SP}/h14-shelves-notes-${tag}.png` });
+          if (kind === 'phone') {
+            const before = pg.url();
+            await pg.getByRole('button', { name: 'Any shelf' }).tap();
+            await pg.waitForURL(u => !u.search.includes('shelf='), { timeout: 10000 });
+            check('H14 shelves UI: the phone chips set and clear the shelf', before.includes('shelf=runbooks') && !pg.url().includes('shelf='), before + ' -> ' + pg.url());
+          }
+          await pg.goto(B + `/notes/${dn.created.id}`);
+          await pg.locator('[data-shelf-switch]').waitFor({ timeout: 20000 });
+          if (tag === 'desktop-light') {
+            check('H14 shelves UI: the note header shows the shelf', (await pg.locator('[data-shelf-switch]').getAttribute('data-shelf')) === 'designs');
+            await pick(pg, '[data-shelf-select]', 'runbooks');
+            for (let k = 0; k < 40 && (await rawDb.collection('notes').findOne({ _id: dn.created.id })).shelf !== 'runbooks'; k++) await pg.waitForTimeout(250);
+            const moved = await rawDb.collection('notes').findOne({ _id: dn.created.id });
+            check('H14 shelves UI: picking a shelf in the header moves the note (setShelfAction)', moved.shelf === 'runbooks', JSON.stringify(moved.shelf));
+            await pick(pg, '[data-shelf-select]', 'designs');
+            for (let k = 0; k < 40 && (await rawDb.collection('notes').findOne({ _id: dn.created.id })).shelf !== 'designs'; k++) await pg.waitForTimeout(250);
+          }
+          await pg.screenshot({ path: `${SP}/h14-shelves-note-${tag}.png` });
+          await ctx.close();
+        }
+      }
+    } finally {
+      await bro.close();
+    }
+    void rb;
   }
 } catch (e) {
   check('flow-h14 (error)', false, e?.stack || String(e));
