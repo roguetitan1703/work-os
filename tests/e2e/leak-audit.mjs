@@ -1600,14 +1600,14 @@ function AUDIT() {
   add('route GET /api/worker/jobs', worker('GET', '/api/worker/jobs'));
   add('route POST /api/worker/status', worker('POST', '/api/worker/status', t => ({ worker: { version: '0.1.0', os: 'win32', allowPrompts: false }, jobs: [{ id: t.job, ok: false, error: 'lkq' }], sessions: [{ sessionId: t.session, state: 'dead' }] }), { label: 'their job and session ids', controlOk: r => two(r.status), stage: 1 }));
   add('route GET /api/worker/stream', { kind: 'worker', ok: r => r.status === 200, call: ({ p }) => streamPeek('/api/worker/stream', p.wkr ? { authorization: `Bearer ${p.wkr}` } : {}) });
-  // The hook's sign-in (device key): A's private project by its remote. A's computer has a folder linked to it (the
-  // control); anyone else's computer gets the same 404 as for a remote no project has, or 401.
-  add('route POST /api/agent/start', worker('POST', '/api/agent/start', t => ({ remote: t.remote, branch: 'main' }), { ok: r => r.status === 200, aim: true, aimKeys: ['remote'], label: 'a project by its remote', controlOk: r => r.status === 200 && /"token":"wst_/.test(r.text) }));
-  // The hook's State route (session token only): each person's computer first signs in for A's project by its remote (the
+  // The hook's sign-in (device key): A's private project by its folder (the hook sends the worker folder ids; the remote is information).
+  // A's computer has the folder linked to it (the control); anyone else's computer gets the same 404 as for a folder no project owns, or 401.
+  add('route POST /api/agent/start', worker('POST', '/api/agent/start', t => ({ folders: ['lkqf0001'], remote: t.remote, branch: 'main' }), { ok: r => r.status === 200, aim: true, aimKeys: ['remote'], label: 'a project by its folder', controlOk: r => r.status === 200 && /"token":"wst_/.test(r.text) }));
+  // The hook's State route (session token only): each person's computer first signs in for A's project by its folder (the
   // token exists only for A, whose computer has the folder), then asks for the copy with that token or, where there is none,
   // with a made-up one. Nobody but A gets the copy, and nobody's other credential opens it (misuse list below).
   add('route POST /api/agent/state', worker('POST', '/api/agent/state', {}, { ok: r => r.status === 200, label: 'the copy of a project by a token', call: async ({ p, o: t }) => {
-    const s = await req('POST', '/api/agent/start', { bearer: p.wkr, body: { remote: t.remote, branch: 'main' } });
+    const s = await req('POST', '/api/agent/start', { bearer: p.wkr, body: { folders: ['lkqf0001'], remote: t.remote, branch: 'main' } });
     let token = 'wst_' + 'a'.repeat(43);
     try { token = JSON.parse(s.text).token ?? token; } catch { /* no token: the made-up one is refused */ }
     return req('POST', '/api/agent/state', { bearer: token, body: {} });
@@ -1616,7 +1616,7 @@ function AUDIT() {
   // made-up one where the computer got none). Only A, whose computer has the folder, gets a state; nobody's other credential
   // opens it (misuse list below).
   add('route POST /api/agent/event', worker('POST', '/api/agent/event', {}, { ok: r => r.status === 200, label: 'a session event by a token', call: async ({ p, o: t }) => {
-    const s = await req('POST', '/api/agent/start', { bearer: p.wkr, body: { remote: t.remote, branch: 'main' } });
+    const s = await req('POST', '/api/agent/start', { bearer: p.wkr, body: { folders: ['lkqf0001'], remote: t.remote, branch: 'main' } });
     let token = 'wst_' + 'a'.repeat(43);
     try { token = JSON.parse(s.text).token ?? token; } catch { /* no token: the made-up one is refused */ }
     return req('POST', '/api/agent/event', { bearer: token, body: { event: 'prompt' } });
@@ -1625,7 +1625,7 @@ function AUDIT() {
   // busy at once instead of holding the call), then the wait. Only A, whose computer has the folder, gets an answer; nobody's other
   // credential opens it (misuse list below).
   add('route POST /api/agent/wait', worker('POST', '/api/agent/wait', {}, { ok: r => r.status === 200, label: 'the wait of a session by a token', call: async ({ p, o: t }) => {
-    const s = await req('POST', '/api/agent/start', { bearer: p.wkr, body: { remote: t.remote, branch: 'main' } });
+    const s = await req('POST', '/api/agent/start', { bearer: p.wkr, body: { folders: ['lkqf0001'], remote: t.remote, branch: 'main' } });
     let token = 'wst_' + 'a'.repeat(43);
     try { token = JSON.parse(s.text).token ?? token; } catch { /* no token: the made-up one is refused */ }
     await req('POST', '/api/agent/event', { bearer: token, body: { event: 'prompt' } });
@@ -1634,7 +1634,7 @@ function AUDIT() {
   // The hook's production check (session token only, H8): the same sign-in, then the check with that token (or a made-up one where
   // the computer got none). Only A, whose computer has the folder, gets an answer; nobody's other credential opens it (misuse list below).
   add('route POST /api/agent/release', worker('POST', '/api/agent/release', {}, { ok: r => r.status === 200, label: 'a production check by a token', call: async ({ p, o: t }) => {
-    const s = await req('POST', '/api/agent/start', { bearer: p.wkr, body: { remote: t.remote, branch: 'main' } });
+    const s = await req('POST', '/api/agent/start', { bearer: p.wkr, body: { folders: ['lkqf0001'], remote: t.remote, branch: 'main' } });
     let token = 'wst_' + 'a'.repeat(43);
     try { token = JSON.parse(s.text).token ?? token; } catch { /* no token: the made-up one is refused */ }
     return req('POST', '/api/agent/release', { bearer: token, body: { what: 'push', name: 'main' } });

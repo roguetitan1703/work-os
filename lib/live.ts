@@ -28,7 +28,7 @@ type Conn = {
   userId: string;
   deviceId?: string;
   send: (event: string, data: unknown) => void;
-  close: (reason?: 'closed' | 'limit') => void;
+  close: (reason?: 'closed' | 'limit' | 'ttl') => void;
   /** Hints waiting for the next flush: topic -> every write was this person's own. */
   pending?: Map<Topic, boolean>;
   timer?: ReturnType<typeof setTimeout>;
@@ -146,6 +146,22 @@ export function waitFor(orgId: string, sessionKey: string, ms: number): Promise<
 /** Tell these sessions (keys: userId:session) of an organization that something may be waiting for them. */
 export function signalSessions(orgId: string, keys: readonly string[]): void {
   for (const k of keys) hub.waiters.get(waitKey(orgId, k))?.done('signal');
+}
+
+/**
+ * Shutdown (SIGTERM): every pending wait answers 'bumped' (the route says `again`; the hook asks the new server) and every
+ * stream ends with bye 'ttl' (clients reconnect), so nothing long-lived holds the old process open until systemd kills it.
+ * Next (node_modules/next/dist/docs/01-app/02-guides/self-hosting.md, "Graceful shutdowns"; start-server.js) closes the server
+ * and exits on SIGTERM itself, so this never calls process.exit.
+ */
+export function releaseAll(): void {
+  for (const w of [...hub.waiters.values()]) w.done('bumped');
+  for (const c of [...hub.conns.values()]) c.close('ttl');
+}
+const sig = globalThis as unknown as { __workosLiveSigterm?: boolean };
+if (!sig.__workosLiveSigterm && typeof process !== 'undefined' && typeof process.on === 'function' && process.env.NEXT_RUNTIME !== 'edge') {
+  sig.__workosLiveSigterm = true; // once per process, whichever copy of this module loads first
+  process.on('SIGTERM', releaseAll);
 }
 
 /** Idle sessions waiting right now (tests and the status panel). */
