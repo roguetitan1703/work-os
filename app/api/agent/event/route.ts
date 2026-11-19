@@ -5,7 +5,7 @@ import { reserveAgent } from '@/lib/mcp/policy';
 import { isFreeEvent, recordEvent } from '@/lib/data/presence';
 import { EVENT_KINDS, EVENT_NAMES } from '@/lib/data/presence-state';
 import { hint } from '@/lib/live';
-import { deliverFor, startTurn, type Delivery } from '@/lib/data/deliver';
+import { applyAck, deliverFor, startTurn, type Delivery } from '@/lib/data/deliver';
 
 // The Work OS hook's session-state route (docs/flows/agent-system.md section 11; the worker's hook files report to it).
 // POST /api/agent/event, JSON body { event: 'prompt'|'tool'|'notify'|'stop'|'end', kind?: 'permission_prompt'|'idle_prompt'|
@@ -22,6 +22,8 @@ import { deliverFor, startTurn, type Delivery } from '@/lib/data/deliver';
 //            unread for the session (lib/data/deliver.ts), framed and read by handing it over: a prompt and a tool batch get
 //            everything, a stop only what may wake a session. Needs a folder on the token's computer for the project (checked
 //            every call) and one of 360 reads an hour; without them the answer is the state alone.
+//   ack      ids (messages, Needs) the hook printed from the last `deliver`: only then are they read; one not acknowledged is offered
+//            again after 20 s (at most 3 offers, then 2 minutes' rest). A wake or a Stop continue is charged when acknowledged.
 //   woke     true on a prompt that is a wake the hook just got (kept only when the server handed out a wake under a minute ago).
 // The only row it writes is the token's own presence row (state, turn chain) (the person, the token's session and project), and never creates one.
 // No State, feed, activity or Needs writes. The owner's own pages are told to refresh only when the state changes.
@@ -43,6 +45,7 @@ const Body = z
     at: z.number().finite().optional(),
     deliver: z.boolean().optional(),
     woke: z.boolean().optional(),
+    ack: z.array(z.string().max(40)).max(12).optional(),
   })
   .strict();
 
@@ -76,6 +79,8 @@ export async function POST(req: Request): Promise<Response> {
 
     // The answer; a prompt starts a turn (its chain restarts), and a hook that asked for it is handed what is waiting for the session.
     async function answer(out: { state: string | null; ignored?: boolean }): Promise<Response> {
+      // What the hook printed from the last offer is acknowledged first: it is read, and a wake is charged and sets the chain the prompt keeps.
+      if (ev.ack?.length) await applyAck(s, session.id, session.projectId, ev.ack);
       if (ev.event === 'prompt') await startTurn(s, session.id, session.projectId, ev.woke === true);
       if (ev.deliver && out.state && (ev.event === 'prompt' || ev.event === 'tool' || ev.event === 'stop')) {
         // Checked on every call: the folder may have been unlinked since the session began. A used-up read budget answers the state alone.

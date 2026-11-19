@@ -50,14 +50,18 @@ export async function wait(input) {
         continue;
       }
       let r = null;
-      try { r = await postAgent('/api/agent/wait', token, {}, POLL_TIMEOUT_MS); } catch { r = null; }
+      const ack = readMarker(sid)?.ack;
+      const sent = Array.isArray(ack) && ack.length ? ack.slice(0, 12) : null;
+      try { r = await postAgent('/api/agent/wait', token, sent ? { ack: sent } : {}, POLL_TIMEOUT_MS); } catch { r = null; }
+      if (sent && r?.status === 200) { const k = readMarker(sid); if (k) { delete k.ack; writeMarker(sid, k); } }
       if (!holds(sid, lock)) return null;
       if (r?.status === 200 && r.b) {
         backoff = clock.backoffStart;
         if (r.b.wake === true && typeof r.b.text === 'string' && r.b.text) {
           if (working(sid)) return null; // a turn began while the call was open: the text was handed over and is in the inbox
           const m = readMarker(sid);
-          if (m) writeMarker(sid, { ...m, wokeAt: clock.now() });
+          const ids = Array.isArray(r.b.ack) ? r.b.ack.filter((i) => typeof i === 'string').slice(0, 12) : [];
+          if (m) writeMarker(sid, { ...m, wokeAt: clock.now(), ...(ids.length ? { ack: ids } : {}) });
           run.stderr = r.b.text.slice(0, MAX_BRIEF);
           run.exitCode = 2;
           return null;
@@ -67,7 +71,8 @@ export async function wait(input) {
           await clock.sleep(SETTLE_MS);
           continue;
         }
-        settle = 0; // again: ask again
+        settle = 0; // again: ask again (not sooner than the server says when it has too many waiters)
+        if (typeof r.b.retryAfter === 'number' && r.b.retryAfter > 0) await clock.sleep(Math.min(r.b.retryAfter, 300) * 1000);
         continue;
       }
       if (r && r.status >= 400 && r.status < 500 && r.status !== 429) return null; // refused (token, folder, session gone): nothing to wait for

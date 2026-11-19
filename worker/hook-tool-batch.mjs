@@ -15,7 +15,7 @@ export async function toolBatch(input) {
   const r = await postEvent(sid, 'tool', { deliver: true });
   const after = readMarker(sid);
   if (after) writeMarker(sid, { ...after, lastTool: Date.now() });
-  return deliverOut('PostToolBatch', r);
+  return deliverOut('PostToolBatch', r, sid);
 }
 
 export const handle = toolBatch;

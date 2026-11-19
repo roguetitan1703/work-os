@@ -1,6 +1,6 @@
 // Stop hook: files changed since the session started and no save_state since: block once.
 import fs from 'node:fs';
-import { MAX_BRIEF, deliverText, postEvent, readMarker, sizeOf, statusHash, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, deliverText, keepAck, postEvent, readMarker, sizeOf, statusHash, writeMarker } from './hook-lib.mjs';
 
 /**
  * Stop: the hook's JSON answer (or null). The save check blocks at most once per session; messages that came during the turn ride
@@ -14,6 +14,7 @@ export async function stop(input) {
   if (r) {
     const a = sid ? await postEvent(sid, 'tool', { deliver: true }) : null; // still working: it is delivered inside the turn
     const text = deliverText(a);
+    if (text) keepAck(sid, a);
     return text ? { ...r, reason: `${r.reason}\n\n${text}`.slice(0, MAX_BRIEF) } : r;
   }
   if (!sid) return null;
@@ -23,6 +24,7 @@ export async function stop(input) {
   if (!again && d?.wakeable === true && deliverText(a)) {
     const m = readMarker(sid);
     if (m) writeMarker(sid, { ...m, lastTool: 0 }); // the turn goes on: the next tool batch tells Work OS it is working again
+    keepAck(sid, a);
     return { decision: 'block', reason: deliverText(a) };
   }
   return null;

@@ -2,7 +2,7 @@ import 'server-only';
 import type { PresenceDoc } from '../db';
 import { scoped, type Scope } from '../scope';
 import { claimCursor, countWrite, presentRow, resetWrites, rowKey, sessionKey, touchPresence, type Ident } from '../data/presence';
-import { unreadFor, type MessageOut } from '../data/messages';
+import { frameLine, unreadFor, type MessageOut } from '../data/messages';
 import { memberNames } from '../people';
 import { answeredNeedsSince, newNeedsForMe } from '../data/needs';
 import type { ToolName } from './docs';
@@ -61,7 +61,7 @@ const newNext: ForYouSource = {
 export function messageLine(ms: { _id: string; kind: MessageOut['kind']; from: { userId: string } }[], names: Record<string, string>, me: string, projectId: string): string {
   const groups = new Map<string, number>();
   for (const m of ms.slice(0, 40)) {
-    const who = m.from.userId === me ? 'me' : (Object.hasOwn(names, m.from.userId) ? names[m.from.userId] : 'a former member').slice(0, 40);
+    const who = m.from.userId === me ? 'me' : frameLine(Object.hasOwn(names, m.from.userId) ? names[m.from.userId] : 'a former member', 40);
     const k = JSON.stringify([m.kind, who]);
     groups.set(k, (groups.get(k) ?? 0) + 1);
   }

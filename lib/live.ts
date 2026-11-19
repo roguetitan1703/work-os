@@ -34,7 +34,7 @@ type Conn = {
   timer?: ReturnType<typeof setTimeout>;
 };
 
-type Waiter = { id: number; key: string; done: (r: 'signal' | 'timeout' | 'bumped') => void };
+type Waiter = { id: number; key: string; done: (r: 'signal' | 'timeout' | 'bumped' | 'refused') => void };
 type Hub = { conns: Map<number, Conn>; next: number; closed: Map<string, number>; waiters: Map<string, Waiter>; nextWaiter: number };
 // On globalThis: route handlers, actions and pages can each load their own copy of this module in one process.
 const g = globalThis as unknown as { __workosLive?: Hub };
@@ -114,17 +114,19 @@ export function wake(orgId: string, userId: string, deviceId?: string): void {
 
 /**
  * Idle Claude Code sessions waiting for a message (POST /api/agent/wait): one waiter per session key, at most WAITER_CAP in
- * all. A new waiter for a session answers the old one 'bumped' (a session has one hook waiting at a time); past the cap the
- * oldest of all is bumped. Signals carry a session key and no data: the waiter reads the database itself, through its own door.
+ * all, WAITER_PER_USER for one person. A new waiter for a session answers the old one 'bumped' (a session has one hook waiting at
+ * a time); past either cap the new waiter is 'refused' (nobody else's waiter is ended). Signals carry a session key and no data: the waiter reads the database itself, through its own door.
  */
 export const WAITER_CAP = 500;
+export const WAITER_PER_USER = 20;
 const waitKey = (orgId: string, sessionKey: string) => `${orgId}|${sessionKey}`;
 
-/** Resolves 'signal' when signalSessions names this session, 'timeout' after `ms`, 'bumped' when a newer waiter took its place. */
-export function waitFor(orgId: string, sessionKey: string, ms: number): Promise<'signal' | 'timeout' | 'bumped'> {
+/** Resolves 'signal' when signalSessions names this session, 'timeout' after `ms`, 'bumped' when a newer waiter took its place, 'refused' at once past a cap. */
+export function waitFor(orgId: string, sessionKey: string, ms: number): Promise<'signal' | 'timeout' | 'bumped' | 'refused'> {
   const key = waitKey(orgId, sessionKey);
   hub.waiters.get(key)?.done('bumped');
-  while (hub.waiters.size >= WAITER_CAP) hub.waiters.values().next().value?.done('bumped');
+  const mine = `${orgId}|${sessionKey.split(':')[0]}:`;
+  if (hub.waiters.size >= WAITER_CAP || [...hub.waiters.keys()].filter(k => k.startsWith(mine)).length >= WAITER_PER_USER) return Promise.resolve('refused');
   return new Promise(resolve => {
     const id = hub.nextWaiter++;
     const timer = setTimeout(() => w.done('timeout'), Math.max(0, ms));

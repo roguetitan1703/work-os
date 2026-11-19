@@ -147,8 +147,9 @@ export async function sendMessage(
   // The wake chain: an agent's word carries the chain of the turn it was sent in plus one (docs/flows/agent-system.md 16.12); a person's, the app's and chat's word start at 0.
   let chain = 0;
   if (from.word === 'agent' && from.session) {
-    const sender = await c.presence.findOne({ userId: s.userId, session: from.session }, { sort: { lastSeen: -1 }, projection: { turnChain: 1 } });
-    chain = Math.min(9, Math.max(0, (sender?.turnChain ?? -1) + 1));
+    // The highest chain across every row of this session (it may have a row on another project): a row with chain 0 cannot hide a higher one.
+    const rows = await c.presence.find({ userId: s.userId, session: from.session }, { projection: { turnChain: 1 } }).limit(20).toArray();
+    chain = Math.min(9, Math.max(0, ...rows.map(r => (r.turnChain ?? -1) + 1)));
   }
   const doc: MessageDoc = {
     _id,

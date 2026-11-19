@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { projectOnDevice } from '@/lib/agent-sessions';
 import { agentReply as reply, agentUnauthorized as unauthorized, authAgentToken, bearerOf, readCapped } from '@/lib/agent-auth';
 import { reserveAgent } from '@/lib/mcp/policy';
-import { deliverFor, sessionRow, wakeWaiting, wakesLeft } from '@/lib/data/deliver';
+import { applyAck, deliverFor, sessionRow, wakeWaiting, wakesLeft } from '@/lib/data/deliver';
 import { presenceState } from '@/lib/data/presence-state';
 import { waitFor } from '@/lib/live';
 
@@ -19,7 +19,9 @@ import { waitFor } from '@/lib/live';
 //                                project message, never a message at chain 2 or more), or an answer to a Need it asked: handed
 //                                over as read (lib/data/deliver.ts), framed, the session's wokeAt set. At most 6 an hour.
 //     200 { busy: true }         the session is working (or off): in-turn delivery has it; the hook stops waiting
-//     200 { again: true }        nothing: ask again (a newer waiter for the session, or the time is up)
+//     200 { again: true }        nothing: ask again (a newer waiter for the session, or the time is up); with retryAfter (and a
+//                                Retry-After header) when too many sessions are waiting: ask again no sooner than that
+//   body { since?, ack? }: ack = ids the hook printed from the last offer (see the event route); applied first.
 //   401 no or bad credential · 404 no such session or no folder on this computer any more · 400 bad body · 413 too large
 //   429 over the hourly limit of 120 polls (Retry-After)
 // Several messages that come close together go out as one wake (WAKE_BATCH_MS). The wait is in this process (lib/live.ts); the
@@ -33,7 +35,7 @@ const MAX_BODY = 1024;
 const WAIT_MS = 50_000;
 const WAKE_BATCH_MS = 3_000;
 
-const Body = z.object({ since: z.string().max(40).optional() }).strict();
+const Body = z.object({ since: z.string().max(40).optional(), ack: z.array(z.string().max(40)).max(12).optional() }).strict();
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 export async function POST(req: Request): Promise<Response> {
@@ -54,12 +56,14 @@ export async function POST(req: Request): Promise<Response> {
         return reply(400, { error: 'The body is not JSON.' });
       }
     }
-    if (!Body.safeParse(raw).success) return reply(400, { error: 'The body may have a since and nothing else.' });
+    const body = Body.safeParse(raw);
+    if (!body.success) return reply(400, { error: 'The body may have a since and an ack and nothing else.' });
 
     const sid = session.id;
     const projectId = session.projectId;
     // Checked on every call (and again after each wait): the folder may have been unlinked since the session began.
     if (!(await projectOnDevice(s, device.id, projectId))) return reply(404, { error: 'This project has no folder on this computer any more.' });
+    if (body.data.ack?.length) await applyAck(s, sid, projectId, body.data.ack);
     const key = `${s.userId}:${sid}`;
     const end = Date.now() + WAIT_MS;
     let batched = false;
@@ -72,18 +76,22 @@ export async function POST(req: Request): Promise<Response> {
       if (st.state === 'working' || st.state === 'off' || (st.state === 'waiting' && st.why === 'prompt')) return reply(200, { busy: true });
       if ((await wakesLeft(sid)) > 0 && (await wakeWaiting(s, sid, projectId))) {
         // What came together goes out together: look again after a short pause, then hand it all over once.
-        if (!batched) {
+        if (!batched && end - Date.now() >= 8_000) {
           batched = true;
           await sleep(WAKE_BATCH_MS);
           continue;
         }
+        // The hook has gone (its call timed out): nothing is offered to nobody.
+        if (req.signal.aborted) return reply(200, { again: true });
         const r = await deliverFor(s, sid, projectId, 'wake');
-        if (r.delivery) return reply(200, { wake: true, text: r.delivery.text });
+        if (r.delivery) return reply(200, { wake: true, text: r.delivery.text, ack: [...r.delivery.ids, ...r.delivery.needs] });
       }
       const left = end - Date.now();
       if (left <= 0) return reply(200, { again: true });
       const how = await waitFor(s.orgId, key, left);
       if (how === 'bumped') return reply(200, { again: true });
+      // Too many waiters (this person's or all): not held; the hook waits at least this long before asking again.
+      if (how === 'refused') return reply(200, { again: true, retryAfter: 60 }, { 'Retry-After': '60' });
       if (!(await projectOnDevice(s, device.id, projectId))) return reply(404, { error: 'This project has no folder on this computer any more.' });
     }
   } catch (err) {

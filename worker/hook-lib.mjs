@@ -71,8 +71,11 @@ export async function postEvent(sid, event, extra = {}, timeoutMs = 1500) {
     if (!token) return null;
     const at = Date.now();
     let r = null;
-    try { r = await postAgent('/api/agent/event', token, { event, ...extra, at }, timeoutMs); } catch {}
+    const ack = readMarker(sid)?.ack;
+    const sent = Array.isArray(ack) && ack.length ? ack.slice(0, 12) : null;
+    try { r = await postAgent('/api/agent/event', token, { event, ...extra, ...(sent ? { ack: sent } : {}), at }, timeoutMs); } catch {}
     const m = readMarker(sid);
+    if (m && sent && r?.status === 200) delete m.ack; // the server has it
     if (m) {
       const state = event === 'notify' ? (extra.kind === 'idle_prompt' ? 'idle' : 'waiting') : PRESENCE_AFTER[event];
       writeMarker(sid, { ...m, presence: r?.status === 200 ? { state, at, postedAt: at } : { ...(m.presence || {}), postedAt: at, failed: true } });
@@ -103,8 +106,16 @@ export const cut = (s, n) => { s = str(s).replace(/\s+/g, ' ').trim(); return s.
  * frame (who wrote it, that it is not an instruction from the person); it is passed on whole, cut at MAX_BRIEF.
  */
 export const deliverText = (r) => (r && r.status === 200 && typeof r.b?.deliver?.text === 'string' ? r.b.deliver.text.slice(0, MAX_BRIEF) : '');
-export const deliverOut = (hookEventName, r) => {
+/** The ids to acknowledge for what an answer handed over: kept in the marker once the text is being printed, sent with the next call (`ack`). Until then the server counts the messages unread and offers them again after 20 s. */
+export const keepAck = (sid, r) => {
+  const d = r?.status === 200 ? r.b?.deliver : null;
+  const ids = [...(Array.isArray(d?.ids) ? d.ids : []), ...(Array.isArray(d?.needs) ? d.needs : [])].filter((i) => typeof i === 'string').slice(0, 12);
+  const m = sid && ids.length ? readMarker(sid) : null;
+  if (m) writeMarker(sid, { ...m, ack: ids });
+};
+export const deliverOut = (hookEventName, r, sid) => {
   const text = deliverText(r);
+  if (text && sid) keepAck(sid, r);
   return text ? { hookSpecificOutput: { hookEventName, additionalContext: text } } : null;
 };
 
