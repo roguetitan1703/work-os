@@ -153,6 +153,9 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
             : need.status === 'withdrawn'
               ? 'Withdrawn by the asker'
               : 'Replaced by a newer ask'}
+          {need.status === 'answered' && need.releaseUntil && (
+            <ReleaseWindow iso={need.releaseUntil} />
+          )}
         </p>
       )}
     </article>
@@ -165,6 +168,24 @@ function hostOf(url: string): string {
   } catch {
     return url;
   }
+}
+
+/** How long a release Need's window runs: "Release open until 15:20" while it is open, "Release ended" after. */
+function ReleaseWindow({ iso }: { iso: string }) {
+  const [now] = useState(() => Date.now());
+  return (
+    <span data-need-release suppressHydrationWarning>
+      {' · '}
+      {Date.parse(iso) > now ? `Release open until ${untilLabel(iso)}` : 'Release ended'}
+    </span>
+  );
+}
+
+/** "15:20", or "Fri 15:20" when it is not today: when a release window ends. */
+function untilLabel(iso: string): string {
+  const d = new Date(iso);
+  const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  return d.toDateString() === new Date().toDateString() ? t : `${d.toLocaleDateString([], { weekday: 'short' })} ${t}`;
 }
 
 function fmtWait(ms: number): string {

@@ -5,6 +5,7 @@ import { memberNames } from '../people';
 import { scoped, type Scope } from '../scope';
 import { normalizeRemote } from './code-locations';
 import { InputError, NotFoundError } from './errors';
+import { productionSummary, type ProductionConfig, type ProductionView } from '../production-view';
 
 // Production per project, and the release grant (docs/flows/agent-system.md section 10, "Three blocks only"; H8).
 // The Work OS hook refuses an agent's push, tag or release to a project's production, and a production CLI command, unless the
@@ -15,9 +16,7 @@ import { InputError, NotFoundError } from './errors';
 // The setting is changed in the app only (setProductionAction): no MCP tool and not updateProject take it, so an agent cannot
 // switch its own block off.
 
-export type ProductionConfig = { remotes: string[]; branches: string[]; targets: string[] };
-/** What the project page shows and edits: the effective setting, whether it is the default, whether it is off. */
-export type ProductionView = ProductionConfig & { off: boolean; isDefault: boolean };
+export type { ProductionConfig, ProductionView } from '../production-view';
 
 export const PRODUCTION_LIMITS = { remotes: 5, branches: 5, branch: 200, targets: 10 } as const;
 export const DEFAULT_PRODUCTION_BRANCHES = ['main', 'master'];
@@ -79,15 +78,6 @@ export function cleanProduction(input: unknown): NonNullable<ProjectDoc['product
   return { remotes, branches, targets, ...(i.off ? { off: true } : {}) };
 }
 
-/** A line for the feed and the page: "main or master on owner/name". */
-export function productionSummary(v: ProductionView): string {
-  if (v.off) return 'none';
-  const b = v.branches.length ? v.branches.join(' or ') : 'no branch';
-  const r = v.remotes.length ? v.remotes.join(', ') : 'no remote';
-  const t = v.targets.length ? `, CLI targets ${v.targets.join(', ')}` : '';
-  return `${b} on ${r}${t}${v.isDefault ? ' (default)' : ''}`;
-}
-
 /** The setting of one project the caller can read (the project page). */
 export async function getProduction(s: Scope, projectId: string): Promise<ProductionView> {
   const p = await (await scoped(s)).projects.findOne({ _id: projectId }, { projection: { code: 1, production: 1 } });
@@ -109,7 +99,7 @@ export async function setProduction(s: Scope, projectId: string, input: unknown 
   const after = { ...cur, production: next ?? undefined };
   const view = productionView(after);
   const { logChange } = await import('./tasks');
-  await logChange(c, cur, userActor(s.userId), 'production', { subject: { kind: 'project', id: cur._id, title: cur.name }, projectId: cur._id, note: next ? `Production now: ${productionSummary(view)}` : 'Production back to the default' });
+  await logChange(c, cur, userActor(s.userId), 'production', { subject: { kind: 'project', id: cur._id, title: cur.name }, projectId: cur._id, note: next ? `Production now: ${productionSummary(view)}` : `Production back to the default (${productionSummary(view)})` });
   return view;
 }
 

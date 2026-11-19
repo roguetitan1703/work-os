@@ -126,6 +126,9 @@ try {
   const yes = await rel(sess.token, { what: 'push', name: 'main' });
   const hrs = ms => ms / 3_600_000;
   check('d: "Yes, release" opens production for about 1 hour: allowed true, until, the Need number', yes.status === 200 && yes.json?.allowed === true && yes.json?.need === d1.ref && Math.abs(hrs(Date.parse(yes.json.until) - Date.now()) - 1) < 0.05, yes.text);
+  const openLine = await page.locator(`[data-need="${d1.ref}"] [data-need-release]`).first().innerText().catch(() => '');
+  check('d: the answered Need says "Release open until HH:MM" in its closed line', /Release open until (\w{3} )?\d\d:\d\d/.test(openLine), openLine);
+  await page.locator(`[data-need="${d1.ref}"]`).first().screenshot({ path: `${process.env.E2E_SHOTS || 'D:/Work/Delpat/builds/e2e-h8/shots'}/h8-needs-answered-open-desk-light.png` }).catch(() => {});
   const feed = await rawDb.collection('activity').find({ orgId: ME.orgId, type: 'production', projectId: ONE }).sort({ at: -1 }).toArray();
   check('d: an allowed check writes one feed row on the project: what and name, as the agent, no command', feed.length === 1 && feed[0].note === `Production push (main) under Need #${d1.ref}` && feed[0].actor?.kind === 'agent', JSON.stringify(feed.map(f => f.note)));
   await rel(sess.token, { what: 'cli', name: 'vercel' });
@@ -178,6 +181,73 @@ try {
     if (last.status === 429 && !firstBad) firstBad = i;
   }
   check('e: 60 checks an hour per session token, the 61st is 429 with Retry-After', firstBad === 61 && last.status === 429 && last.headers.get('retry-after') === '600', `${firstBad} ${last.status}`);
+  // ---- f) the Production row, the "open until" line, looked at by eye ----
+  const SHOTS = process.env.E2E_SHOTS || 'D:/Work/Delpat/builds/e2e-h8/shots';
+  const browser2 = await launch();
+  const open10 = await mcpH(kOm, 'ask', { project: 'H8 One', kind: 'approve', release: true, ask: 'Release H8 One to production (tag v2 and the site)' });
+  const d10 = await needDoc(open10.json.need.ref);
+  const variants = [['phone', 'light'], ['phone', 'dark'], ['desk', 'light'], ['desk', 'dark']];
+  for (const [kind, scheme] of variants) {
+    const phone = kind === 'phone';
+    const c = await browser2.newContext(phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: scheme } : { viewport: { width: 1280, height: 900 }, colorScheme: scheme });
+    const p = await c.newPage();
+    await login(p, { phone, next: '/needs' });
+    // the Needs page: an open release Need beside an ordinary approve Need, and an answered one with its window
+    await p.locator(`[data-need="${d10.ref}"]`).waitFor({ timeout: 20000 });
+    const relLine = await p.locator(`[data-need="${d1.ref}"] [data-need-release]`).first().innerText().catch(() => '');
+    check(`f: ${kind} ${scheme}: the answered release Need says its window ended (the test expired it)`, /Release ended/.test(relLine), relLine);
+    const openCard = p.locator(`[data-need="${d10.ref}"]`);
+    check(`f: ${kind} ${scheme}: the open release Need shows its three options like any approve Need`, (await openCard.locator('[data-need-option]').allInnerTexts()).map(t => t.split('\n')[0]).join('|') === 'Yes, release|Yes, for 24 hours|No', '');
+    await openCard.scrollIntoViewIfNeeded();
+    await p.screenshot({ path: `${SHOTS}/h8-needs-${kind}-${scheme}.png`, fullPage: false });
+    const pageX = await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+    check(`f: ${kind} ${scheme}: no horizontal scroll on /needs`, pageX);
+    // the project page: Production under Repository
+    await p.goto(`${B}/projects/${ONE}?tab=info`);
+    const row = p.locator('[data-part="production"]');
+    await row.waitFor({ timeout: 20000 });
+    const sum = await row.locator('[data-production-summary]').innerText();
+    check(`f: ${kind} ${scheme}: the row shows the default: branches, repositories, "Default"`, /^main or master on acme\/h8-one, acme\/h8-site$/.test(sum) && /Default/.test(await row.innerText()), sum);
+    const btnBox = await row.locator('[data-production-change]').boundingBox();
+    check(`f: ${kind} ${scheme}: one Change button on the right, tap-sized on the phone`, !!btnBox && (!phone || btnBox.height >= 43.5) && btnBox.x > (phone ? 250 : 300), JSON.stringify(btnBox));
+    await row.scrollIntoViewIfNeeded();
+    await p.screenshot({ path: `${SHOTS}/h8-project-${kind}-${scheme}.png`, fullPage: false });
+    if (scheme === 'light') {
+      // the sheet: change, save, switch off, back to the default (each is read back from the database and the hook's brief)
+      await row.locator('[data-production-change]').click();
+      const sheet = p.locator('[data-production-sheet]');
+      await sheet.waitFor({ timeout: 10000 });
+      await p.screenshot({ path: `${SHOTS}/h8-sheet-${kind}-${scheme}.png` });
+      await sheet.getByLabel('Branches').fill('release');
+      await sheet.getByLabel('Command targets').fill('prodref123');
+      await sheet.locator('[data-production-save]').click();
+      await p.locator('[data-production-sheet]').waitFor({ state: 'detached', timeout: 15000 });
+      const set = (await rawDb.collection('projects').findOne({ _id: ONE })).production;
+      check(`f: ${kind}: Save stores what was typed (remotes kept, branch release, one target) and who set it`, JSON.stringify(set) === JSON.stringify({ remotes: ['acme/h8-one', 'acme/h8-site'], branches: ['release'], targets: ['prodref123'] }) && (await one()).productionBy === ME.userId, JSON.stringify(set));
+      check(`f: ${kind}: the row now reads the set value, without "Default"`, /^release on acme\/h8-one, acme\/h8-site, commands on prodref123$/.test(await row.locator('[data-production-summary]').innerText()) && /Set by you/.test(await row.innerText()));
+      const brief = await mcpH(kOm, 'start_work', { project: 'H8 One' }, HOOK);
+      check(`f: ${kind}: the hook's brief follows at once`, JSON.stringify(brief.json?.production) === JSON.stringify({ remotes: ['acme/h8-one', 'acme/h8-site'], branches: ['release'], targets: ['prodref123'] }), JSON.stringify(brief.json?.production));
+      const f1 = await rawDb.collection('activity').find({ type: 'production', projectId: ONE, note: /^Production now:/ }).toArray();
+      check(`f: ${kind}: the change is in the project feed, as the person`, f1.length >= 1 && f1[f1.length - 1].actor?.kind === 'user', JSON.stringify(f1.map(f => f.note)));
+      await row.locator('[data-production-change]').click();
+      await sheet.waitFor({ timeout: 10000 });
+      await sheet.locator('[data-production-off]').click();
+      await sheet.locator('[data-production-save]').click();
+      await sheet.waitFor({ state: 'detached', timeout: 15000 });
+      check(`f: ${kind}: "No production here" is stored as off and reads "none"`, (await one()).production?.off === true && (await row.locator('[data-production-summary]').innerText()) === 'none');
+      const brief2 = await mcpH(kOm, 'start_work', { project: 'H8 One' }, HOOK);
+      check(`f: ${kind}: off gives the hook no production at all (null)`, brief2.json && 'production' in brief2.json && brief2.json.production === null, JSON.stringify(brief2.json?.production));
+      await row.locator('[data-production-change]').click();
+      await sheet.waitFor({ timeout: 10000 });
+      await sheet.locator('[data-production-default]').click();
+      await sheet.waitFor({ state: 'detached', timeout: 15000 });
+      check(`f: ${kind}: Use the default unsets it, and the default is back`, (await one()).production === undefined && /^main or master on acme\/h8-one, acme\/h8-site$/.test(await row.locator('[data-production-summary]').innerText()));
+      const bad = await mcpH(kOm, 'get_project', { project: 'H8 One' });
+      check(`f: ${kind}: no MCP read shows the production field (it stays in the app and the hook brief)`, !bad.isError && !bad.text.includes('productionBy'), bad.text.slice(0, 120));
+    }
+    await c.close();
+  }
+  await browser2.close();
   void TESS;
 } catch (e) {
   check('flow-h8 ran to the end', false, String(e?.stack ?? e));
