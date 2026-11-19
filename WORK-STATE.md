@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 82. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 86. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -36,4 +36,5 @@ Copy of the Work OS state, version 82. WORK-STATE.md is a copy of the State, wri
 - flow-hooks crashed 3 times in slot S only (wos-s, ports 27284/3284/4404) with ECONNRESET at its start_work link call (flow-hooks.mjs:84); 28/0 in slot A on the same commits. Something about that slot or the load, not the code; look if it repeats. — waits on it repeating in a full e2e
 - Dispatcher cap: e9fd820 ranks claims by claimedAt, which is stamped before the write, so two claims written in the opposite order to their timestamps can still each pass. Make it airtight with an atomic per-person slot counter (inc when claiming, dec when a run ends). — waits on R5 out
 - H8 attended rule: the automated-prompt list in worker/hook-user-prompt.mjs (AUTOMATED_PROMPT) must be kept current; a new Claude Code wrapper would count as typed until added. — waits on a new automated prompt kind appearing
-<!-- work-os-copy sha1:a2eb76baf59d511fc5e1861ce2ee9bb7b88be04a -->
+- work-os.service stop times out (30 s, then SIGKILL) on most deploys: 10 times in 3 days. Likely the hooks' long-poll waits (/api/agent/wait up to 1 h) hold the server open; close waits on SIGTERM. — waits on a fix slot (small, with R7)
+<!-- work-os-copy sha1:a3d25da136c26416d952cc7606588ee75b4a671c -->
