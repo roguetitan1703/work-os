@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 51. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 53. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -10,6 +10,7 @@ Copy of the Work OS state, version 51. WORK-STATE.md is a copy of the State, wri
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om).
 3. UI revamp so the purpose of the work always shows first (Om 18 Nov): design after the agent-system review, then build.
 4. Harness R3 = H6 (session state from hooks): steps 1-4 on dev 3caa047 (security-reviewed, fixes re-checked); steps 5-6 (UI, docs, What's new, budgets) building in slot A; then full e2e of dev, release R3, step 7 (refresh hooks on Om's PC, hand check in the desktop app and VS Code). Then H7 (plan 6dfdb98f4f) per #276. (#283)
+5. H8 release waits on Om's answer to Need #11 (release yes always a tap, or chat yes enough). Built in slot B with the default. (#285) — waits on Om (Need #11)
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -28,4 +29,4 @@ Copy of the Work OS state, version 51. WORK-STATE.md is a copy of the State, wri
 - next build under an agent stops once with a SecurityFatalError upgrade nudge (16.4.6, the latest stable); find the advisory and its target before upgrading. — waits on R1 fixes
 - done_next on a Next line naming a parent task with open subtasks sends the parent to review (19 Nov: finishing the R2 line opened review Need #10 for #276, withdrawn). Fix: don't send a task to review while it has open subtasks; also, a release line should name its part (#282) not the parent. — waits on a fix slot (small, with H8 or the next batch)
 - Claude > Now sessions table at 1280: columns don't line up row to row (project, machine, state start at different x per row); 'since HH:MM' beside 'N minutes ago' on Workers reads as redundant. — waits on the UI revamp (Next 3)
-<!-- work-os-copy sha1:221e35c316e3d8b75aa4c6e11c3dc683d12f7d19 -->
+<!-- work-os-copy sha1:fa309a3ae9b7847d277512327e31bd4171c86d00 -->
