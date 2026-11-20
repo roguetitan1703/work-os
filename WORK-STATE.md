@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 254. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 255. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -16,6 +16,7 @@ Copy of the Work OS state, version 254. WORK-STATE.md is a copy of the State, wr
 8. Next.js: no upgrade needed, already 16.4.6 (c638a01). The build stop came from worktrees with stale installs (wos-b, wos-s, wos-s2, wos-mail, work-os-demo): npm ci in each before its next build.: `next build` now stops once with SecurityFatalError (npm advisories) and passes on retry. The release build (GitHub runner, server-build.yml) may stop the same way at 03:00. Upgrade Next.js to the patched version (Om said yes, 20 Nov): Opus in slot A, full suite, merge, then release at 03:00. — waits on Om's go for the Next.js upgrade
 9. Lead not woken by a Work OS message while a background subagent runs (Om saw it 21 Nov): a subagent's Bash tool-start marks the lead working, so the wait hook gives up. Fix: tool-start ignores subagent calls. Slot A (Opus), then worker release.
 10. Per-key limit raised 300 to 1,000/h on dev 41b928a (Om, 21 Nov); master waits on Om's yes. Slot A: session+tool per call, top sessions in the refusal, State saves never blocked; review. (300 calls/h on the shared key) blocked Grant Leads' save_state on 20 Nov (message m_a143da3e7b6f): find what counts, name top sessions in the refusal, never block a State save for another session's use. Slot A (Opus), independent review.
+11. Session states on the Sessions list (Om, 21 Nov): one state table with word, colour and live dot; On merged into Idle; a lead with running subagents reads as working; Quiet after 2 h with no activity (opening a session isn't activity); default filter mine + active; person on the subline. Slot B (Opus) building.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -81,4 +82,4 @@ Copy of the Work OS state, version 254. WORK-STATE.md is a copy of the State, wr
 
 ## Parked
 - 1 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:ee9502c908d424ba9b88e40d92bc84295e72e13f -->
+<!-- work-os-copy sha1:2bd05a842e9029c66c8ff5d6fea0861deb1e6080 -->
