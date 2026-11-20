@@ -23,6 +23,9 @@ export async function releaseMember(orgId: string, userId: string): Promise<{ co
   }
   // Their Claude usage rows in this organization (lib/data/claude-usage.ts) go with them.
   await theirs.claudeUsage.deleteMany({});
+  await theirs.claudeUsageBuckets.deleteMany({});
+  await theirs.claudeUsageEvents.deleteMany({});
+  await theirs.claudeAccounts.deleteMany({});
   // Alerts queued for them and not sent yet (an assignment, a finished Claude task) are dropped.
   await theirs.alertQueue.deleteMany({ sentAt: null });
   // System work over the whole organization: their claims may sit on shared tasks, and assignments are on others' tasks.

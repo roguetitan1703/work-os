@@ -316,8 +316,8 @@ export function createCore(deps) {
       try {
         lastUsageScan = now();
         const u = deps.usage(state);
-        if (u && u.rows.length) { body.usage = { rows: u.rows, sessions: u.sessions }; usageCommit = u.commit; }
-        else if (u) u.commit(); // only offsets moved (nothing in a counted day): remember them
+        if (u && (u.rows.length || (u.buckets && u.buckets.length) || (u.events && u.events.length))) { body.usage = { rows: u.rows, sessions: u.sessions, buckets: u.buckets || [], events: u.events || [], accounts: u.accounts || [] }; usageCommit = u.commit; }
+        else if (u) u.commit(); // only offsets moved (nothing in a counted day, no bucket, no event): remember them
       } catch (e) { log('usage scan failed: ' + errMsg(e)); }
     }
     return body;

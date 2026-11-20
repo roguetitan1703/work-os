@@ -76,6 +76,8 @@ export async function revokeDevice(caller: Caller, id: string): Promise<void> {
   if (!r.matchedCount) throw new SafeError('That device is already revoked or does not exist.');
   await c.workerJobs.updateMany({ deviceId: id, doneAt: null }, { $set: { doneAt: new Date(), ok: false, error: 'device revoked' } });
   await c.claudeUsage.deleteMany({ deviceId: id, ownerId: caller.userId, orgId: caller.orgId }); // scope-ok: the caller's own device's rows; its usage rows (lib/data/claude-usage.ts) go with it
+  await c.claudeUsageBuckets.deleteMany({ deviceId: id, ownerId: caller.userId, orgId: caller.orgId }); // scope-ok: the same, its 5-minute buckets
+  await c.claudeUsageEvents.deleteMany({ deviceId: id, ownerId: caller.userId, orgId: caller.orgId }); // scope-ok: the same, its limit hits and compactions
   closeDevice(id); // its push stream ends now; a reconnect is refused (revoked key)
   await endDeviceSessions(id); // the hook's session tokens too (they are also refused for a revoked computer)
 }

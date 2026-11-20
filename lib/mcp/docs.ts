@@ -489,7 +489,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   usage: {
     title: 'Claude usage',
     description:
-      'Which of your sessions, their subagents, models, projects and days used your Claude, as an estimated share from token counts (weighted by model and kind of token; not a share of your plan limit). Your own sessions only. range: week (since your plan week starts, Tuesday 16:30 IST unless changed; the default), 7d or today. Sessions are cut to 20, subagents to 10 per session.',
+      'Which of your sessions, their subagents, models, projects and days used your Claude, as an estimated share from token counts (weighted by model and kind of token; not a share of your plan limit). Your own sessions only. range: week (since your plan week starts, Tuesday 16:30 IST unless changed; the default), 7d or today. Sessions are cut to 20, subagents to 10 per session. It also gives the share per Claude account (byAccount), the limit hits of the range with their reset time (limits) and compactions per session (compactions); summary has them in two short lines each.',
     writes: false,
     example: 'Which of my sessions used the most this week?',
   },

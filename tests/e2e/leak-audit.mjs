@@ -249,7 +249,7 @@ const SKIP_COLS = new Set(['requestStats', 'policyEvents', 'rateLimit', 'authLim
 const SHARED = new Set(['projects', 'tasks', 'activity', 'notes', 'claudeItems', 'trash']);
 for (const c of ['states', 'presence', 'messages']) SHARED.add(c); // slice 1: a project's State and the sessions present on it carry the project's placement
 SHARED.add('needs'); // slice 4: a Need follows its project's placement like a task
-const OWNED = new Set(['reviews', 'ritualLogs', 'devices', 'workerFolders', 'workerJobs', 'workerSessions', 'agentSessions', 'claudeUsage']); // agentSessions: the hook's session tokens (hash only), its computer owner's
+const OWNED = new Set(['reviews', 'ritualLogs', 'devices', 'workerFolders', 'workerJobs', 'workerSessions', 'agentSessions', 'claudeUsage', 'claudeUsageBuckets', 'claudeUsageEvents', 'claudeAccounts']); // agentSessions: the hook's session tokens (hash only), its computer owner's
 const RECIP = new Set(['notifications', 'pushSubs', 'alertLog', 'alertQueue']);
 let WHO = {}; // user id -> persona
 let ORG = {}; // org id -> { members: [personas], admins: [personas] }
@@ -520,7 +520,12 @@ try {
     await rawDb.collection('workerSessions').insertOne({ _id: p.session, orgId: p.orgId, ownerId: p.userId, deviceId: p.dev, folderId: 'lkqf0001', projectId: p === A ? P.project : 'none', state: 'running', startedAt: now, updatedAt: now });
     // A day of Claude usage on the computer (the `usage` tool): its session title and folder are the owner's alone.
     const uday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
-    await rawDb.collection('claudeUsage').insertOne({ _id: `${p.dev}:${p.session}:main:claude-opus-4-5:${uday}`, orgId: p.orgId, ownerId: p.userId, deviceId: p.dev, sessionId: p.session, part: 'main', model: 'claude-opus-4-5', day: uday, dayAt: new Date(uday + 'T00:00:00Z'), i: 10, cw: 100, cr: 1000, o: 50, title: can(`${p.name.toLowerCase()}usagetitle`, al), folder: can(`${p.name.toLowerCase()}usagefolder`, al), origin: 'cli', updatedAt: now });
+    await rawDb.collection('claudeUsage').insertOne({ _id: `${p.dev}:${p.session}:main:claude-opus-4-5:${uday}`, orgId: p.orgId, ownerId: p.userId, deviceId: p.dev, sessionId: p.session, part: 'main', model: 'claude-opus-4-5', day: uday, dayAt: new Date(uday + 'T00:00:00Z'), i: 10, cw: 100, cr: 1000, o: 50, title: can(`${p.name.toLowerCase()}usagetitle`, al), folder: can(`${p.name.toLowerCase()}usagefolder`, al), origin: 'cli', updatedAt: now, acct: '0123456789abcdef', ov: 0 });
+    // The account label, a 5-minute bucket and a limit hit of that day (plan note e6036c777f): the owner's alone.
+    await rawDb.collection('claudeAccounts').insertOne({ _id: `${p.userId}:0123456789abcdef`, orgId: p.orgId, ownerId: p.userId, id: '0123456789abcdef', label: can(`${p.name.toLowerCase()}acctlabel`, al), lastSeen: now });
+    const bat = new Date(Math.floor(Date.now() / 300_000) * 300_000);
+    await rawDb.collection('claudeUsageBuckets').insertOne({ _id: `${p.dev}:${p.session}:main:claude-opus-4-5:${bat.toISOString()}`, orgId: p.orgId, ownerId: p.userId, deviceId: p.dev, sessionId: p.session, part: 'main', model: 'claude-opus-4-5', at: bat, acct: '0123456789abcdef', i: 1, cw: 1, cw1h: 0, cr: 1, o: 1, n: 1, ov: 0, updatedAt: now });
+    await rawDb.collection('claudeUsageEvents').insertOne({ _id: `${p.dev}:${randomUUID()}`, orgId: p.orgId, ownerId: p.userId, deviceId: p.dev, sessionId: p.session, part: 'main', kind: 'limit', at: now, acct: '0123456789abcdef', which: '5h', resetAt: null, ov: 0, createdAt: now });
     // The computer's own report of sessions and of what was open before a restart (sent as the worker sends it, with
     // extra fields that must not be kept), so Open in VS Code / Reopen all have something real to act on.
     {
