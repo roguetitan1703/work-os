@@ -47,6 +47,23 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  /* UI library tokens (components/ui; gallery at /dev/ui). Type steps: text-label/meta/body/title/page. */
+  --text-label: 11px;
+  --text-label--line-height: 1.3;
+  --text-meta: 13px;
+  --text-meta--line-height: 1.4;
+  --text-body: 15px;
+  --text-body--line-height: 1.45;
+  --text-title: 17px;
+  --text-title--line-height: 1.35;
+  --text-page: 28px;
+  --text-page--line-height: 1.15;
+  /* Radii: rounded-card, rounded-control, rounded-pill. */
+  --radius-card: 1rem;
+  --radius-control: 0.75rem;
+  --radius-pill: 9999px;
+  /* One page width: max-w-page. */
+  --container-page: 56rem;
 }
 
 :root {
@@ -74,6 +91,7 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
+  --row-h: 2.75rem; /* 44px on phones; 36px from md (media query at the end) */
   /* Shared look tokens (see lib/ui-tokens.ts): row heights, icon size and stroke. */
   --row-nav: 2.25rem;
   --row-menu: 2.25rem;
@@ -136,6 +154,10 @@
     @apply font-sans;
   }
 }
+/* Row height: h-row / min-h-row. */
+@utility h-row { height: var(--row-h); }
+@utility min-h-row { min-height: var(--row-h); }
+
 /* ── Notes editor (BlockNote) ─────────────────────────────────────────────── */
 .wo-editor .bn-container {
   --bn-font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
@@ -194,4 +216,8 @@
     opacity: 0.55;
     transition-duration: 0ms;
   }
+}
+
+@media (min-width: 768px) {
+  :root { --row-h: 2.25rem; }
 }
