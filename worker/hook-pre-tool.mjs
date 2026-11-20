@@ -10,6 +10,7 @@ import { COPY, COPY_REASON, markSaved, projectOf, writeCopy } from './hook-copy.
 import { postAgent, postEvent, readKept, readMarker, run, workerHome } from './hook-lib.mjs';
 import { loadConfig } from './config.mjs';
 import { prodAction, releaseDeny } from './hook-release.mjs';
+import { contextWarning } from './hook-context.mjs';
 
 const COUNT_TIMEOUT_MS = 500; // H12: telling Work OS about a refusal that never reached it; the refusal never waits longer
 const EDIT_TIMEOUT_MS = 3500; // the pre-tool hook is given 5 s (hook-lib.mjs EVENTS)
@@ -91,7 +92,7 @@ export async function preTool(input) {
     const blocked = await productionBlock(input);
     if (blocked) return blocked;
     if (!input.agent_id) await pingWorking(input); // a subagent's call never reports its parent's state (hooks review M4; hook-gate.mjs)
-    return null;
+    return contextWarning(input); // the project's context warning: a local read of the agent's own transcript, nothing when the project has none (hook-context.mjs)
   }
   const seen = { reached: false };
   if (input.tool_name === 'Edit') {

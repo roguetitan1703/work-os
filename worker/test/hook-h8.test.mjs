@@ -258,6 +258,7 @@ const seen = [];
 let stateMode = 'ok'; // ok | http500 | http400 (what /api/agent/state answers)
 let mode = 'allowed'; // allowed | refused | open | http500 | http401 | hang | garbled
 let stateLine = '- ship it';
+let ctxWarnAnswer; // the brief's contextWarn: undefined = the field is absent
 const md = (v, line) => `Copy of the Work OS state, version ${v}. Edit it in Work OS (https://x/projects/p1); this file is its copy.\n\n# Work state: Demo\n\n## Now\n${line}\n`;
 const server = http.createServer((req, res) => {
   let b = '';
@@ -267,7 +268,7 @@ const server = http.createServer((req, res) => {
     seen.push({ url: req.url, auth: req.headers.authorization, hook: req.headers['x-work-os-hook'], body });
     const json = (status, o) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
     if (req.url === '/api/agent/start') {
-      const brief = { project: { id: 'p1', name: 'Demo' }, session: 's-1', orders: 'none', state: { now: { text: 'x' } }, stateVersion: 2, production: PROD };
+      const brief = { project: { id: 'p1', name: 'Demo' }, session: 's-1', orders: 'none', state: { now: { text: 'x' } }, stateVersion: 2, production: PROD, ...(ctxWarnAnswer !== undefined ? { contextWarn: ctxWarnAnswer } : {}) };
       return json(200, { brief, token: TOKEN, expiresAt: new Date(Date.now() + 3600e3).toISOString() });
     }
     if (req.url === '/api/agent/release') {
@@ -317,6 +318,23 @@ test('session start keeps the brief production in the marker; a brief without it
   assert.ok(await startSid('p1'));
   assert.deepEqual(readMarkerFile('p1').production, PROD);
   assert.ok(readMarkerFile('p1').project === 'Demo');
+});
+
+test('session start keeps the brief contextWarn as ctxWarn; an answer without it keeps the old value, null clears it (context warning)', async () => {
+  ctxWarnAnswer = 150;
+  assert.ok(await startSid('cw1'));
+  assert.equal(readMarkerFile('cw1').ctxWarn, 150);
+  { const mf = path.join(process.env.WORK_OS_HOOK_DIR, 'cw1.json'); const m = JSON.parse(fs.readFileSync(mf, 'utf8')); fs.writeFileSync(mf, JSON.stringify({ ...m, ctxSteps: { main: 1, abc: 0 } })); }
+  ctxWarnAnswer = undefined;
+  assert.ok(await dev.main('session-start', JSON.stringify({ session_id: 'cw1', cwd: onMaster, transcript_path: transcript, source: 'compact' })));
+  assert.equal(readMarkerFile('cw1').ctxWarn, 150, 'an answer without the field keeps it');
+  assert.deepEqual(readMarkerFile('cw1').ctxSteps, { abc: 0 }, 'a compaction drops the main agent step: it is warned again');
+  ctxWarnAnswer = null;
+  assert.ok(await dev.main('session-start', JSON.stringify({ session_id: 'cw1', cwd: onMaster, transcript_path: transcript, source: 'compact' })));
+  assert.equal('ctxWarn' in readMarkerFile('cw1'), false, 'null (the setting turned off) clears it');
+  ctxWarnAnswer = undefined;
+  assert.ok(await startSid('cw2'));
+  assert.equal('ctxWarn' in readMarkerFile('cw2'), false);
 });
 
 test('an allowed check lets the command through and sends only what and name', async () => {

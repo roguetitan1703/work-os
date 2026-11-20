@@ -4,7 +4,7 @@
 // (POST /api/agent/wait): a main session idle 20 minutes, not typed in, holding work, with a free Next line: a wake with the exact text;
 // not when every line waits, not when the person typed lately, not for a dispatched run or a session that holds nothing; the backoff
 // (1 h, 2 h, 4 h) and 4 a day on the presence row; an answered Need wakes as before and is not doubled. (c) The project's switch in the
-// app (Info › Nudges), at 390 and 1280 px, light and dark. Seed profile: none.
+// app (Info › Nudges, and the Context warning row below it), at 390 and 1280 px, light and dark. Seed profile: none.
 import { randomUUID } from 'node:crypto';
 import { B, ME, MCP, SP, check, finish, launch, login, mkDevice, mkKey, rawDb } from './lib.mjs';
 import { must } from './flow-lib.mjs';
@@ -30,11 +30,12 @@ try {
   await rawDb.collection('workerFolders').insertOne({ _id: `${pc.id}:fold1`, deviceId: pc.id, folderId: 'fold1', name: 'C:/code/ng-one', git: true, remote: 'acme/ng-one', projectId: PID, linkedAt: new Date(), seenAt: new Date(), missing: false, orgId: ME.orgId, ownerId: ME.userId });
   const newSession = async label => {
     const r = await call('/api/agent/start', pc.key, { folders: ['fold1'], remote: 'https://github.com/acme/ng-one.git', branch: 'main', path: 'C:/code/ng-one', label, ccSession: randomUUID(), source: 'startup' });
-    return { token: r.json?.token ?? '', sid: r.json?.brief?.session ?? '', ok: r.status === 200 };
+    return { token: r.json?.token ?? '', sid: r.json?.brief?.session ?? '', ok: r.status === 200, brief: r.json?.brief };
   };
   const S = await newSession('NG holder');
   const S2 = await newSession('NG other');
   check('setup: two hook sessions of the owner on the project', S.ok && S2.ok && /^wst_/.test(S.token) && S.sid !== S2.sid, JSON.stringify([S.ok, S2.ok]));
+  check('context warning: the start brief carries contextWarn null while the project has none', S.brief && 'contextWarn' in S.brief && S.brief.contextWarn === null, JSON.stringify(S.brief?.contextWarn));
   const rowId = sid => `${ME.userId}:s:${sid}:${PID}`;
   const row = sid => rawDb.collection('presence').findOne({ _id: rowId(sid) });
   const setRow = (sid, set, unset) => rawDb.collection('presence').updateOne({ _id: rowId(sid) }, { ...(set ? { $set: set } : {}), ...(unset ? { $unset: unset } : {}) });
@@ -176,6 +177,30 @@ try {
       check(`c: ${kind} ${scheme}: no horizontal scroll`, await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
       await box.scrollIntoViewIfNeeded();
       await p.screenshot({ path: `${SP}/nudges-${kind}-${scheme}.png`, fullPage: false });
+      // Context warning (note 3e92845ac0): the row below Nudges, Off by default, one control on the right.
+      const cbox = p.locator('[data-part="context-warn"]');
+      const crow = cbox.locator('[data-context-warn-row]');
+      await crow.waitFor({ timeout: 20000 });
+      const cmine = await crow.boundingBox();
+      const nudgeBox = await box.boundingBox();
+      const cctl = await cbox.locator('[data-slot="select-trigger"]').boundingBox();
+      check(`c: ${kind} ${scheme}: Context warning sits right below Nudges, reads Off, one control on the right (tap-sized on the phone), a row as tall as Nudges' row`, (await crow.locator('[data-context-warn-summary]').innerText()).trim() === 'Off' && cmine.y > nudgeBox.y + nudgeBox.height - 4 && cmine.height >= mine.height - 1 && cmine.height <= mine.height + 1 && cctl.x > cmine.x + cmine.width / 2 && (!phone || cctl.height >= 43), JSON.stringify([cmine, mine, cctl]));
+      check(`c: ${kind} ${scheme}: Context warning has no horizontal scroll`, await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+      await cbox.scrollIntoViewIfNeeded();
+      await p.screenshot({ path: `${SP}/context-warn-${kind}-${scheme}.png`, fullPage: false });
+      if (scheme === 'light') {
+        await cbox.locator('[data-slot="select-trigger"]').click();
+        await p.getByRole('option', { name: '150k' }).click();
+        await p.waitForFunction(() => document.querySelector('[data-context-warn-summary]')?.textContent === 'At 150k', null, { timeout: 15000 });
+        check(`c: ${kind}: choosing 150k stores contextWarn: 150 on the project`, (await rawDb.collection('projects').findOne({ _id: PID })).contextWarn === 150);
+        const S3 = await newSession('NG warn');
+        check(`c: ${kind}: and the start brief carries contextWarn 150`, S3.ok && S3.brief?.contextWarn === 150, JSON.stringify(S3.brief?.contextWarn));
+        await p.screenshot({ path: `${SP}/context-warn-${kind}-150.png`, fullPage: false });
+        await cbox.locator('[data-slot="select-trigger"]').click();
+        await p.getByRole('option', { name: 'Off' }).click();
+        await p.waitForFunction(() => document.querySelector('[data-context-warn-summary]')?.textContent === 'Off', null, { timeout: 15000 });
+        check(`c: ${kind}: choosing Off removes the field`, (await rawDb.collection('projects').findOne({ _id: PID })).contextWarn === undefined);
+      }
       if (scheme === 'light') {
         await nrow.locator('[data-nudges-toggle]').click();
         await p.waitForFunction(() => document.querySelector('[data-nudges-summary]')?.textContent === 'Off', null, { timeout: 15000 });

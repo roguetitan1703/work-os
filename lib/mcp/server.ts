@@ -14,6 +14,7 @@ import { authorLabel, isMine, outsideTitleLabel, taskAuthors } from '../data/aut
 import * as needsData from '../data/needs';
 import * as usageData from '../data/claude-usage';
 import * as productionData from '../data/production';
+import * as contextWarnData from '../data/context-warn';
 import * as results from '../data/results';
 import { InputError, NotFoundError } from '../data/errors';
 import { serverInstructions, STATE_COPY, TOOLS, UNMATCHED_HINT, type InstructionsFor, type ToolName } from './docs';
@@ -645,7 +646,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
     stateVersion: state?.version ?? 0,
     // What counts as production here, for the Work OS hook only (it decides locally whether a command is a production one).
-    ...(a.hook ? { production: await productionData.productionForBrief(s, project._id) } : {}),
+    ...(a.hook ? { production: await productionData.productionForBrief(s, project._id), contextWarn: await contextWarnData.contextWarnForBrief(s, project._id) } : {}),
   };
 }
 
