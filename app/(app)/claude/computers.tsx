@@ -219,7 +219,7 @@ const stale = (d: DeviceInfo, info: InstallInfo | null) => !!info && !!d.bundle 
  * updates itself to signed releases; an older one needs the install command once; a repo run never updates itself.
  */
 function WorkerLine({ d, info, onUpdate }: { d: DeviceInfo; info: InstallInfo | null; onUpdate: () => void }) {
-  const link = 'underline underline-offset-2';
+  const link = 'underline underline-offset-2 text-left';
   const u = d.selfUpdate;
   let tail: ReactNode = null;
   if (!d.bundle) tail = 'from the repo';
@@ -239,7 +239,8 @@ function WorkerLine({ d, info, onUpdate }: { d: DeviceInfo; info: InstallInfo | 
       </button>
     );
   return (
-    <div className="text-[13px] md:text-xs text-muted-foreground truncate" data-worker-line suppressHydrationWarning>
+    // Wraps instead of truncating: a refusal must be readable and tappable at 390 px.
+    <div className="text-[13px] md:text-xs text-muted-foreground break-words" data-worker-line suppressHydrationWarning>
       Worker {d.version}
       {tail && <> · {tail}</>}
     </div>
