@@ -219,7 +219,8 @@ ${same}`);
       `Now: ${st.now?.text ? cut(st.now.text, 600) : '(not set)'}`,
       next.length ? `Next:\n${next.join('\n')}` : 'Next: (empty)',
       `Later: ${(st.later || []).length} lines (get_state for them).`,
-      dec.length ? `Latest decisions:\n${dec.join('\n')}` : '',
+      Number(st.parkedTotal) > 0 ? `Parked: ${Number(st.parkedTotal)} lines (list_parked).` : '',
+      dec.length ? `Latest decisions (${Number.isInteger(st.decisionsTotal) ? st.decisionsTotal : (st.decisions || []).length} in all; list_decisions):\n${dec.join('\n')}` : '',
     ].filter(Boolean).join('\n'));
   } else sections.push(`## State\n${cut(r.state, 300)}`);
   if (r.needs) sections.push(`## Needs\n${cut(r.needs, 1200)}`);

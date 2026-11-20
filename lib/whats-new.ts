@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'parked-list',
+    date: '2026-11-20',
+    title: 'Park ideas without cluttering the plan',
+    line: 'Parked keeps ideas and features set aside, dated, out of the plan every session reads.',
+    where: 'A project › State › Parked',
+    href: '/projects',
+  },
+  {
     id: 'sessions-first',
     date: '2026-11-20',
     title: 'One list of sessions, and what finished today',

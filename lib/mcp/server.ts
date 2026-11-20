@@ -1438,6 +1438,33 @@ export function createMcpServer(ctx: Ctx): McpServer {
   );
 
   tool(
+    'list_parked',
+    {
+      inputSchema: {
+        project: z.string().describe('Project name or id'),
+        query: z.string().trim().max(200).optional().describe('A case-insensitive piece of the line or of when to bring it back'),
+        limit: z.number().int().min(1).max(500).optional().describe('Default 100'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    handler(async a => stateData.listParked(s, a.project, { query: a.query, limit: a.limit })),
+  );
+
+  tool(
+    'list_decisions',
+    {
+      inputSchema: {
+        project: z.string().describe('Project name or id'),
+        since: z.string().optional().describe('yesterday | 48h | 7d | YYYY-MM-DD | ISO datetime'),
+        query: z.string().trim().max(200).optional().describe('A case-insensitive piece of the decision'),
+        limit: z.number().int().min(1).max(500).optional().describe('Default 50'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    handler(async a => stateData.listDecisions(s, a.project, { since: parseSince(a.since), query: a.query, limit: a.limit })),
+  );
+
+  tool(
     'save_state',
     {
       inputSchema: {
@@ -1693,7 +1720,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         verb: 'Imported',
         markdown: await legacyCopy(a, r.project, r.state),
         extra: {
-          imported: { now: r.imported.now, next: r.imported.next, later: r.imported.later },
+          imported: { now: r.imported.now, next: r.imported.next, later: r.imported.later, ...(r.imported.parked ? { parked: r.imported.parked } : {}) },
           ...(r.skipped.length ? { notImported: notImportedText(r.skipped) } : {}),
           ...(r.shortened ? { shortened: `${r.shortened} lines were longer than 500 characters and were cut at a sentence; put the rest in a note.` } : {}),
         },

@@ -11,6 +11,7 @@ Installed by the Work OS worker (it replaces this folder when a newer version sh
 2. Make the State: the State is always saved first. If the project has no State yet, put `set_now` (with `base_version`) among end_work's `state` ops; otherwise record what changed (if nothing did, `set_where`).
 3. Call Work OS `end_work` for this project with a `handover` (its description says what goes in: where things stand, the branch, the next step, what to check first) and one line of `friction`.
 4. Give your person the line end_work's answer gives (it names the handover note id), so they can paste it into the new session.
+5. Parked lines and decisions stay in Work OS; the handover never copies them.
 
 ## Pick up ("pick up <note id>")
 

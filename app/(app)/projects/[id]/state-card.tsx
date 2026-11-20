@@ -17,10 +17,11 @@ const fold = 'group border-t border-border/60';
 const summary = 'flex items-center gap-2 px-4 min-h-11 md:min-h-9 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden active:bg-muted/60';
 
 type Op = Record<string, unknown>;
-type Kind = 'next' | 'later' | 'decision';
-const KINDS: { id: Kind; label: string; op: 'add_next' | 'add_later' | 'add_decision'; hint: string }[] = [
+type Kind = 'next' | 'later' | 'parked' | 'decision';
+const KINDS: { id: Kind; label: string; op: 'add_next' | 'add_later' | 'park' | 'add_decision'; hint: string }[] = [
   { id: 'next', label: 'Next', op: 'add_next', hint: 'Add to Next' },
   { id: 'later', label: 'Later', op: 'add_later', hint: 'Add to Later' },
+  { id: 'parked', label: 'Parked', op: 'park', hint: 'Park an idea' },
   { id: 'decision', label: 'Decision', op: 'add_decision', hint: 'Record a decision' },
 ];
 
@@ -70,7 +71,7 @@ export function StateCard({ projectId, initial, archived: archivedInitial = [] }
       setText('');
       // Show what was added: the whole Next list, or say where it went (Later and Decisions stay folded).
       if (kind === 'next') setAllNext(true);
-      else toast.success(kind === 'later' ? 'Added to Later' : 'Decision recorded');
+      else toast.success(kind === 'later' ? 'Added to Later' : kind === 'parked' ? 'Parked' : 'Decision recorded');
     });
   };
   const next = state?.next ?? [];
@@ -211,6 +212,35 @@ export function StateCard({ projectId, initial, archived: archivedInitial = [] }
                 ))}
               </ul>
             </details>
+          )}
+        </div>
+      </details>
+
+      <details className={fold} data-part="parked">
+        <summary className={summary}>
+          <h3 className={H3}>Parked · {state?.parkedTotal ?? 0}</h3>
+          <ChevronDown className="ml-auto w-4 h-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
+        </summary>
+        <div className="px-4 pb-2">
+          {state?.parked?.length ? (
+            <ul className="divide-y divide-border/60">
+              {state.parked.map(l => (
+                <li key={l.id} className="flex items-center gap-1 min-h-11 md:min-h-9" data-parked-id={l.id}>
+                  <span className="min-w-0 flex-1 text-body md:text-meta">
+                    {l.text}
+                    {l.ref && <span className="text-muted-foreground"> #{l.ref}</span>}
+                    <span className="text-muted-foreground"> · {l.at}</span>
+                    {l.when && <span className="text-muted-foreground" data-parked-when> · bring back when {l.when}</span>}
+                    {l.writtenBy && <span className="text-muted-foreground"> · {l.writtenBy}</span>}
+                  </span>
+                  <Button variant="ghost" size="touch" className="px-3 text-muted-foreground" disabled={pending} aria-label={`Unpark: ${l.text}`} onClick={() => save([{ op: 'unpark', id: l.id }], () => toast.success('Moved to Later'))} data-parked-unpark>
+                    Unpark
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-meta text-muted-foreground py-1">Nothing parked.</p>
           )}
         </div>
       </details>
