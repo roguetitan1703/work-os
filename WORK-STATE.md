@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 215. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 216. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -15,7 +15,7 @@ Copy of the Work OS state, version 215. WORK-STATE.md is a copy of the State, wr
 7. When Parked and list_decisions are live: rewrite the Orders start bullet (Later for findings to pick up soon, Parked with when for features set aside, add_decision, list_decisions, list_parked); not before, or sessions are told about tools that don't exist yet. — waits on the release with Parked
 8. Parked and decisions out of the State document (Om, 20 Nov: they must not live in State directly): own collections, one dated row per entry, no cap, search and paging; State keeps counts; move the existing decisions. Before releasing Parked. — waits on Om's go on the storage plan
 9. Usage recording, Fable's 7 steps plus the weekly improve loop (design in note a289ffec58): Opus plan, then Sonnet build — waits on Om's account switch
-10. Messaging fixes (Om's chat, 20 Nov): send_message with only a project is refused today (to is needed): deliver it to one session only, the project's lead (holds Now), never to all; instant: every kind wakes an idle recipient; find out why the chat saw no session ids in list_sessions; one short address per session; a chat gets a session so replies reach it; teammates' sessions on shared projects. Design note first — waits on Om's account switch
+10. Messaging fixes (Om's chat, 20 Nov): send_message with only a project is refused today (to is needed): deliver it to one session only, the project's lead (holds Now), never to all; instant: every kind wakes an idle recipient; find out why the chat saw no session ids in list_sessions; one short address per session; a chat gets a session so replies reach it; any session to any session across people; a person's message goes to their lead session. Design first — waits on Om's account switch
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -71,4 +71,4 @@ Copy of the Work OS state, version 215. WORK-STATE.md is a copy of the State, wr
 - Full run on e8b392f: Claude › Set up phone check overflowed once (summary row of a Disclosure) and Today complete ran 47 database ops against a budget of 45; both rerun alone on a52351f before the release
 - Claude chat feedback 20 Nov: its Work OS tool list is from before 19 Nov (quotes the removed to_session text), claude.ai does not refresh it; also read-only get_message, say whether chats call start_work, state the no-teammate-sessions rule in send_message, a one-line glossary, server instructions get truncated, recent_activity says hook where chats have none — waits on messaging design note after Om's switch
 - Bug: a Claude chat's start_work on Work OS (no pick_up) attached the lead's 13:49 handover and stamped it picked up by the chat; a chat must never take over a Code session's handover; check whether Needs or held lines moved (Om's chat, m_890469b90393)
-<!-- work-os-copy sha1:cc35ed732c51147841a95c18ff3dc7522ed34e47 -->
+<!-- work-os-copy sha1:bdae1bcb823c2aeec7898ab00e6df2bfc4183fc3 -->
