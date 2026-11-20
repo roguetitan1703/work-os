@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 270. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 271. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -13,7 +13,7 @@ Copy of the Work OS state, version 270. WORK-STATE.md is a copy of the State, wr
 5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 4 and 6. — waits on redesign steps 4 and 6
 6. Usage recording, Fable's 7 steps plus the weekly improve loop (design a289ffec58). Build plan 1 (account tag, limit hits, compactions, 5-minute buckets, note e6036c777f) merged to dev 4922e5b after independent review and re-check, 20 Nov; server ships before the worker. Plan 2 (steps 3, 5-7, weekly report) after it. (design in note a289ffec58): Opus plan, then Sonnet build — waits on Om's account switch
 7. Next.js: no upgrade needed, already 16.4.6 (c638a01). The build stop came from worktrees with stale installs (wos-b, wos-s, wos-s2, wos-mail, work-os-demo): npm ci in each before its next build.: `next build` now stops once with SecurityFatalError (npm advisories) and passes on retry. The release build (GitHub runner, server-build.yml) may stop the same way at 03:00. Upgrade Next.js to the patched version (Om said yes, 20 Nov): Opus in slot A, full suite, merge, then release at 03:00. — waits on Om's go for the Next.js upgrade
-8. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
+8. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; (waits on 23 Nov) on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
 9. Context warning per project (Om, 21 Nov; Grant Leads asked): pre-tool hook reads each agent's context locally, warns at the project's line (150k for Grant Leads, off elsewhere), peak context in usage. Plan note 3e92845ac0; Sonnet builds after A's hook merge. — waits on builder A's hook-gate merge
 
 ## Later
@@ -83,4 +83,4 @@ Copy of the Work OS state, version 270. WORK-STATE.md is a copy of the State, wr
 
 ## Parked
 - 1 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:f78ad7896025d9f8cd4168b161e9fc72bfb95d3b -->
+<!-- work-os-copy sha1:1fff89b61255279071c6aa5caaf058b5c5a63bbc -->
