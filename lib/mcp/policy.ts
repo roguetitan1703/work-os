@@ -134,16 +134,21 @@ async function record(keyId: string, kind: EventKind, n = 1, sid?: string): Prom
 
 type CallCount = { key: number; session: number };
 type CallOver = 'hard' | 'session' | 'key';
-/** Why a call is over budget, or null when it fits (the counts include the call itself). */
-function overCall(t: CallCount, saving: boolean): CallOver | null {
+/**
+ * Why a call is over budget, or null when it fits (the counts include the call itself). A call with no session id (the key's own
+ * fallback: a client that passes no session) has no share of its own: it gets the key's budget, and no saving-write exemption,
+ * since no share bounds it (independent review, 21 Nov).
+ */
+function overCall(t: CallCount, saving: boolean, hasSession: boolean): CallOver | null {
   if (t.key > CALLS.hard) return 'hard';
+  if (!hasSession) return t.key > CALLS.key ? 'key' : null;
   if (t.session > (saving ? CALLS.sessionSave : CALLS.session)) return 'session';
   if (t.key > CALLS.key && !saving) return 'key';
   return null;
 }
 
 /** One call slot of a key for one session (`sid`): the race-safe reserve below, with the session's share and the saving-write rule. */
-async function reserveCall(keyId: string, sid: string, saving: boolean): Promise<{ id: string } | { id: null; why: CallOver; total: CallCount }> {
+async function reserveCall(keyId: string, sid: string, saving: boolean, hasSession: boolean): Promise<{ id: string } | { id: null; why: CallOver; total: CallCount }> {
   const count = async (): Promise<CallCount> => {
     const since = new Date(Date.now() - 3_600_000);
     const [key, session] = await Promise.all([countSince(keyId, 'call', since), countSince(keyId, 'call', since, sid)]);
@@ -153,14 +158,14 @@ async function reserveCall(keyId: string, sid: string, saving: boolean): Promise
   for (let attempt = 0; attempt < 6; attempt++) {
     const id = await record(keyId, 'call', 1, sid);
     total = await count();
-    if (!overCall(total, saving)) return { id };
+    if (!overCall(total, saving, hasSession)) return { id };
     await unrecord(id);
     await new Promise(r => setTimeout(r, 10 + Math.random() * 40 * (attempt + 1)));
     const settled = await count();
-    const why = overCall({ key: settled.key + 1, session: settled.session + 1 }, saving);
+    const why = overCall({ key: settled.key + 1, session: settled.session + 1 }, saving, hasSession);
     if (why) return { id: null, why, total: settled };
   }
-  return { id: null, why: overCall(total, saving) ?? 'key', total: { key: total.key - 1, session: total.session - 1 } };
+  return { id: null, why: overCall(total, saving, hasSession) ?? 'key', total: { key: total.key - 1, session: total.session - 1 } };
 }
 
 /** The 3 sessions of this key with the most calls this hour, by label. A key is one person's, so these are the caller's own sessions. */
@@ -286,7 +291,7 @@ export async function beforeTool(caller: Caller, tool: string, o: { session?: st
   if (caller.dispatched && DISPATCHED_REFUSED.test(tool)) throw new PolicyError(`${tool} is not available to a dispatched run (task #${caller.dispatched.ref}): mail and Discord stay with the person. add_comment on the task if you need something from them.`);
   if (caller.dispatched && tool === 'propose_order') throw new PolicyError(`A dispatched run (task #${caller.dispatched.ref}) changes no Orders and proposes none: tell the person in your report what you would change.`);
   const saving = SAVING_TOOLS.has(tool);
-  const call = await reserveCall(keyId, o.session || caller.keyId || caller.agent, saving);
+  const call = await reserveCall(keyId, o.session || caller.keyId || caller.agent, saving, !!o.session);
   if (call.id === null) {
     const t = call.total;
     const head =
@@ -294,7 +299,9 @@ export async function beforeTool(caller: Caller, tool: string, o: { session?: st
         ? `Rate limit: this session made ${t.session} Work OS calls in the last hour (its share is ${CALLS.session}, or ${CALLS.sessionSave} for a write that saves State).`
         : call.why === 'hard'
           ? `Rate limit: this key made ${t.key} Work OS calls in the last hour (max ${CALLS.hard}, shared by every session of the key; this session made ${t.session}).`
-          : `Rate limit: this key made ${t.key} Work OS calls in the last hour (max ${CALLS.key} for reads and most writes, shared by every session of the key; this session made ${t.session}). Saving State (save_state, end_work, set_doing, log_progress, complete_task, hand_in) still works while this session is under ${CALLS.sessionSave}.`;
+          : !o.session
+            ? `Rate limit: this key made ${t.key} Work OS calls in the last hour (max ${CALLS.key}, shared by every session of the key). This call passed no session, so it has no share of its own: pass session (the id start_work gave you) to get one.`
+            : `Rate limit: this key made ${t.key} Work OS calls in the last hour (max ${CALLS.key} for reads and most writes, shared by every session of the key; this session made ${t.session}). Saving State (save_state, end_work, set_doing, log_progress, complete_task, hand_in) still works while this session is under ${CALLS.sessionSave}.`;
     throw new PolicyError(`${head}${await topSessions(caller, keyId)} Wait a few minutes, or batch work with apply_changes.`);
   }
   if (TRASH_TOOLS.has(tool)) {

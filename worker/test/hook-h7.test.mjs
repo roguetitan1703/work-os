@@ -274,7 +274,7 @@ test('wait: a wake keeps the ids to acknowledge; the next poll sends them; retry
   void p;
 });
 
-test('wait: busy answers no longer end it (hooks review H3): a short settle, then it backs off 30 s doubling to 5 min and a later wake still wakes; a session that stays working never gets a call and ends at the hook time', async () => {
+test('wait: busy answers no longer end it (hooks review H3): a short settle, then it backs off 30 s doubling to 5 min and a later wake still wakes; a marker that stays working is checked with the server after the settle', async () => {
   reset();
   setMarker(SID, { presence: { state: 'idle', at: Date.now(), postedAt: Date.now() } });
   const slept = [];
@@ -291,11 +291,14 @@ test('wait: busy answers no longer end it (hooks review H3): a short settle, the
     assert.ok(slept.length >= 9 && JSON.stringify(slept.slice(6)) === JSON.stringify([30000, 60000, 120000, 240000].slice(0, slept.length - 6)), `then the back-off, doubling: ${slept}`);
     reset();
     slept.length = 0;
-    setMarker(SID, { presence: { state: 'working', at: Date.now(), postedAt: Date.now() } });
+    // A marker that says working (a stop hook that never posted): six settles, then the server is asked (independent review, 21 Nov)
+    setMarker(SID, { presence: { state: 'working', at: fake, postedAt: fake } });
+    waitAnswers.push({ status: 200, body: { busy: true } }, { status: 200, body: { wake: true, text: framed } });
     assert.equal(await run('wait', SID), '');
-    assert.equal(waits().length, 0, 'a working session: no call');
-    assert.equal(lib.run.exitCode, 0);
-    assert.ok(slept.some((ms) => ms === 300000), 'it waited at the 5-minute cap, then ended at the hook time');
+    assert.deepEqual(slept.slice(0, 6), [2000, 2000, 2000, 2000, 2000, 2000], 'six settles on the working marker, no call');
+    assert.equal(waits().length, 2, 'then the server is asked: busy (backed off), then the wake');
+    assert.equal(slept[6], 30000, 'a busy answer backs off');
+    assert.equal(lib.run.exitCode, 2, 'a stale working marker never stops a wake');
   } finally {
     waiter.clock.now = realNow;
     waiter.clock.sleep = async () => {};

@@ -20,6 +20,7 @@ delete process.env.WORK_OS_URL;
 delete process.env.CLAUDE_CODE_ENTRYPOINT;
 const { FILES } = await import('../hooks-install.mjs');
 const repoHook = await import('../hook.mjs');
+repoHook.deps.userUrl = () => process.env.WORK_OS_URL || ''; // tests only: the key path's server would come from the person's ~/.claude/settings.json
 
 // os.tmpdir() reads these at call time: a folder under `tmp` is "in a temp folder" only while they point at `realTmp` or `tmp`.
 const TMPVARS = ['TEMP', 'TMP', 'TMPDIR'];

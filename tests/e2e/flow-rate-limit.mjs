@@ -75,6 +75,15 @@ try {
   const fresh = await call(randomUUID(), 'save_state', { project: P, ops: [{ op: 'add_later', text: 'RL a new session id' }] });
   check('hard cap: a new session id does not get round it', fresh.isError && /max 1500/.test(fresh.text), fresh.text.slice(0, 200));
 
+  // 5. Calls with no session id (the key's fallback) get the key's budget, not a 300 share (independent review, 21 Nov)
+  await reset();
+  await seed(keyId, 400);
+  const noSess = await mcpH(cc, 'get_state', { project: P });
+  check('no session id: past 300 (here 400) a call is not refused: no share applies, only the key budget', !noSess.isError, noSess.text.slice(0, 200));
+  await seed('rlOther', 599);
+  const noSessOver = await mcpH(cc, 'get_state', { project: P });
+  check('no session id: past the key budget it is refused, saying to pass session', noSessOver.isError && /passed no session, so it has no share of its own: pass session/.test(noSessOver.text), noSessOver.text.slice(0, 300));
+
   // 4. Tess's key: her own budget, and nothing of Om's sessions in her refusal
   await reset();
   await seed('rlBusy', 300, tessKey);

@@ -17,6 +17,7 @@ delete process.env.WORK_OS_KEY;
 delete process.env.WORK_OS_URL;
 delete process.env.WORK_OS_DISPATCHED;
 const lib = await import('../hook-lib.mjs');
+lib.deps.userUrl = () => process.env.WORK_OS_URL || ''; // tests only: the key path's server would come from the person's ~/.claude/settings.json
 const pre = await import('../hook-pre-tool.mjs');
 const launch = await import('../launch.mjs');
 const { macScript } = await import('../quote.mjs');

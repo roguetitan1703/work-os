@@ -26,7 +26,7 @@
 // process are decided there, once, for all of them (RULES).
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EVENTS, run } from './hook-lib.mjs';
+import { EVENTS, clearPromptWait, run } from './hook-lib.mjs';
 import { gate } from './hook-gate.mjs';
 import { timeoutAnswer } from './hook-pre-tool.mjs';
 
@@ -56,7 +56,12 @@ export async function main(event, stdinText, { cloud = false, server = null, pro
     let input = {};
     try { input = JSON.parse(stdinText || '{}'); } catch {}
     const g = gate(event, input);
-    if (!g.run) return '';
+    if (!g.run) {
+      // A subagent's tool call reports nothing, but it means a permission prompt the marker shows was answered: clear that wait
+      // (never set working). Independent review, 21 Nov: a lead left "waiting" while its subagent ran on.
+      if (g.why === 'subagent' && (event === 'tool-batch' || event === 'tool-start')) await clearPromptWait(g.sid);
+      return '';
+    }
     const out = await (await import(`./hook-${event}.mjs`)).handle(input, g);
     return out ? JSON.stringify(out) : '';
   } catch {

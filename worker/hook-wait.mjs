@@ -64,10 +64,13 @@ export async function wait(input, g = gate('wait', input)) {
       if (!holds(sid, lock)) return null; // a newer waiter took over
       if (gone()) return null; // the session's Claude Code process ended: nobody to wake, take nothing
       if (clock.now() + POLL_TIMEOUT_MS > end) return null;
-      if (working(sid)) {
-        await settleOrBackOff(); // a turn is running (delivery inside it has the messages) or the marker is behind
+      // A turn is running (delivery inside it has the messages) or the marker is behind. After the settle tries the server is asked
+      // instead: it answers busy when the session really works, and a stale marker never stops the wait (independent review, 21 Nov).
+      if (working(sid) && settle < SETTLE_TRIES) {
+        await settleOrBackOff();
         continue;
       }
+      const pollAt = clock.now();
       let r = null;
       const ack = readMarker(sid)?.ack;
       const sent = Array.isArray(ack) && ack.length ? ack.slice(0, 12) : null;
@@ -81,7 +84,8 @@ export async function wait(input, g = gate('wait', input)) {
       if (r?.status === 200 && r.b) {
         backoff = clock.backoffStart;
         if (r.b.wake === true && typeof r.b.text === 'string' && r.b.text) {
-          if (working(sid)) return null; // a turn began while the call was open: the text was handed over and is in the inbox
+          const p = readMarker(sid)?.presence;
+          if (p?.state === 'working' && (p.at || 0) >= pollAt) return null; // a turn began while the call was open: the text was handed over and is in the inbox
           const ids = Array.isArray(r.b.ack) ? r.b.ack.filter((i) => typeof i === 'string').slice(0, 12) : [];
           updateMarker(sid, (m) => ({ ...m, wokeAt: clock.now(), ...(ids.length ? { ack: ids } : {}) }));
           run.stderr = r.b.text.slice(0, MAX_BRIEF);

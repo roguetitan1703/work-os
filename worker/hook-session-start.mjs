@@ -13,7 +13,7 @@
 //                 network). That session has no token, so it sends no state events.
 import os from 'node:os';
 import { identityKey, identityOf } from './hook-identity.mjs';
-import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, keepProc, mcpCall, postAgent, quietPath, readKept, readMarker, keepToken, withinDeadline, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, keepProc, mcpCall, pruneOld, quickProcess, postAgent, quietPath, readKept, readMarker, keepToken, withinDeadline, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
 
 // The folder decides the project (H13): the body carries the ids of the worker folders that contain the session's folder
 // (`folders`, longest first); the server takes the first one linked on this PC. The git remote is sent as information only.
@@ -90,12 +90,15 @@ const transcriptOf = (input) => (typeof input.transcript_path === 'string' ? inp
 
 /** SessionStart: the hook's JSON answer (or null for "print nothing"). */
 export async function sessionStart(input) {
+  // Which process the session runs in, for the worker (Identity step 3) and the wait's parent check; every start, so a resume names
+  // its new process. The pid first, before the brief (CLAUDE_PID: cheap and local); its start time after the brief and only with
+  // time left (hooks review M7: on Windows that is a PowerShell call).
+  if (input.session_id) keepProc(input.session_id, quickProcess);
   try {
     return await startBrief(input);
   } finally {
-    // Which process the session runs in, for the worker (Identity step 3) and the wait's parent check; every start, so a resume names
-    // its new process. After the brief and only with time left (hooks review M7): on Windows it is a PowerShell call.
     if (input.session_id && withinDeadline(5000) > 1500) keepProc(input.session_id);
+    pruneOld();
   }
 }
 

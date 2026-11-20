@@ -24,7 +24,7 @@ export const RULES = {
   'user-prompt': { subagent: 'skip', quiet: 'skip', dispatched: 'run' }, // a subagent's prompt is not the person's
   'tool-batch': { subagent: 'skip', quiet: 'skip', dispatched: 'run' },
   'tool-start': { subagent: 'skip', quiet: 'skip', dispatched: 'run' },
-  notification: { subagent: 'run', quiet: 'skip', dispatched: 'run' }, // a subagent at a permission prompt: the session really waits for its person
+  notification: { subagent: 'skip', quiet: 'skip', dispatched: 'run' }, // a subagent's notify posts nothing; its next tool call clears a prompt wait (hook.mjs)
   stop: { subagent: 'skip', quiet: 'run', dispatched: 'run' }, // Stop is the main conversation's; a -p run that changed files is still asked to save State once
   wait: { subagent: 'skip', quiet: 'skip', dispatched: 'skip' }, // and it ends when the parent claude process is gone
   'session-end': { subagent: 'skip', quiet: 'skip', dispatched: 'run' },
