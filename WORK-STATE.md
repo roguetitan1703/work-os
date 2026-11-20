@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 280. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 281. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -80,8 +80,7 @@ Copy of the Work OS state, version 280. WORK-STATE.md is a copy of the State, wr
 - Partial tools (Om, 21 Nov): agents should see a small core of Work OS tools and load the rest when needed. First check whether Claude Code's deferred tool loading (tool search) already does this for leads and subagents, by measuring tool text per call. If not: the server exposes about 12 core tools plus the rest on request (tools list_changed), measured before and after.
 - Release hook (21 Nov): Om's "Yes, release now" in chat was refused for the master push about 40 min later (a release Need was asked instead), though the same hook let a chat yes through earlier that night. Check how long a chat yes counts, and say it in the refusal.
 - Delete the state-lists backup on the box (~/backups/state-lists-20261120-2056) after 5 Dec.
-- Coolify login and password posted in plain text in #brahmasuitev2 (17 Nov); told Om 21 Nov: delete the message and change the password.
 
 ## Parked
-- 1 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:aa5ff6a0282c24ab983a9c64b42a560b8151c17b -->
+- 2 lines in Work OS: list_parked, or the project page.
+<!-- work-os-copy sha1:ffb6d9a03c95b7488be59024be02df09bbfb9e1d -->
