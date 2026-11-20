@@ -100,7 +100,7 @@ const E4 = randomUUID();
 const resetAt = new Date(Date.now() + 3600_000).toISOString();
 // The organization's Orders (version 3): ov must be that number.
 await rawDb.collection('notes').insertOne({ _id: 'orders-org-usage', orgId: ME.orgId, ownerId: ME.userId, visibility: 'org', orders: 'org', ordersV: 3, title: 'Orders', body: 'x', createdAt: new Date(), updatedAt: new Date(), deletedAt: null, archived: false, blocks: [] });
-const bucketOf = (o) => ({ sessionId: S1, part: 'main', model: OPUS, i: 10, cw: 20, cw1h: 5, cr: 30, o: 4, n: 2, acct: ACCT_A, ...o });
+const bucketOf = (o) => ({ sessionId: S1, part: 'main', model: OPUS, i: 10, cw: 20, cw1h: 5, cr: 30, o: 4, n: 2, acct: ACCT_A, peakCtx: 162000, ...o });
 const withAcct = await api(dev.key, 'POST', '/api/worker/status', {
   usage: {
     rows: [{ ...row(S1, 'main', OPUS, today, C1), acct: ACCT_A }, { ...row(S2, 'main', SONNET, today, C2), acct: 'not-a-hash' }],
@@ -125,10 +125,14 @@ const withAcct = await api(dev.key, 'POST', '/api/worker/status', {
 check('the report with buckets and events is accepted', withAcct.status === 200, JSON.stringify(withAcct.body));
 const bks = await rawDb.collection('claudeUsageBuckets').find({}).toArray();
 check('two buckets are stored, the three bad ones dropped', bks.length === 2, String(bks.length));
-const BFIELDS = ['_id', 'orgId', 'ownerId', 'deviceId', 'sessionId', 'part', 'model', 'at', 'acct', 'i', 'cw', 'cw1h', 'cr', 'o', 'n', 'ov', 'updatedAt'];
+const BFIELDS = ['_id', 'orgId', 'ownerId', 'deviceId', 'sessionId', 'part', 'model', 'at', 'acct', 'i', 'cw', 'cw1h', 'cr', 'o', 'n', 'peakCtx', 'ov', 'updatedAt'];
 check('buckets keep only the known fields, owner and organization set', bks.every(b => Object.keys(b).every(k => BFIELDS.includes(k)) && b.ownerId === ME.userId && b.orgId === ME.orgId && b.deviceId === dev.id), JSON.stringify(bks[0]));
 const b1 = bks.find(b => b.at.getTime() === at1.getTime());
 check('a bucket has its counts, account and cw1h', b1 && b1.i === 10 && b1.cw === 20 && b1.cw1h === 5 && b1.cr === 30 && b1.o === 4 && b1.n === 2 && b1.acct === ACCT_A, JSON.stringify(b1));
+check('a bucket keeps its peak context (peakCtx)', b1 && b1.peakCtx === 162000, JSON.stringify(b1?.peakCtx));
+const pk = await mcpH(MCP, 'usage', {});
+const pkS1 = (pk.json?.bySession ?? []).find(x => x.sessionId === S1);
+check('the usage tool returns the session peak context (peakCtx), a number for every subagent', pkS1?.peakCtx === 162000 && (pkS1.subagents?.items ?? []).every(x => typeof x.peakCtx === 'number'), JSON.stringify(pkS1?.peakCtx));
 const evs = await rawDb.collection('claudeUsageEvents').find({}).toArray();
 check('three events are stored, the two bad ones dropped', evs.length === 3, String(evs.length));
 const EFIELDS = ['_id', 'orgId', 'ownerId', 'deviceId', 'sessionId', 'part', 'kind', 'at', 'acct', 'which', 'resetAt', 'trigger', 'pre', 'post', 'ov', 'createdAt'];

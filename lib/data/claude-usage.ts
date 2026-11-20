@@ -1,6 +1,6 @@
 import 'server-only';
 import type { ClaudeUsageDoc, ClaudeUsageEventDoc, SessionOrigin } from '../db';
-import { addDays, clockInTz, dateInTz, isTimeZone } from '../dates';
+import { addDays, clockInTz, dateInTz, isTimeZone, startOfDay } from '../dates';
 import { getUserSetting, scoped, setUserSetting, type Scope } from '../scope';
 import { quietly } from '../live';
 import { InputError } from './errors';
@@ -96,7 +96,7 @@ const dateOf = (v: unknown): Date | null => {
 };
 
 type CleanRow = { sessionId: string; part: string; partName: string; model: string; day: string; i: number; cw: number; cr: number; o: number; acct: string };
-type CleanBucket = { sessionId: string; part: string; model: string; at: Date; acct: string; i: number; cw: number; cw1h: number; cr: number; o: number; n: number };
+type CleanBucket = { sessionId: string; part: string; model: string; at: Date; acct: string; i: number; cw: number; cw1h: number; cr: number; o: number; n: number; peakCtx: number };
 type CleanEvent = { id: string; sessionId: string; part: string; kind: 'limit' | 'compact'; at: Date; acct: string; which?: '5h' | 'weekly' | 'other'; resetAt?: Date | null; trigger?: string; pre?: number; post?: number };
 type Cleaned = {
   rows: CleanRow[];
@@ -135,7 +135,7 @@ export function cleanUsage(raw: unknown): Cleaned {
     if (!at || at.getTime() % BUCKET_MS !== 0 || at.getTime() < bEarliest || at.getTime() > Date.now() + 2 * 86_400_000) continue;
     const model = line(o.model, 80);
     if (!model || model === '<synthetic>') continue;
-    buckets.push({ sessionId: o.sessionId, part: o.part, model, at, acct: acctOf(o.acct), i: count(o.i), cw: count(o.cw), cw1h: count(o.cw1h), cr: count(o.cr), o: count(o.o), n: count(o.n) });
+    buckets.push({ sessionId: o.sessionId, part: o.part, model, at, acct: acctOf(o.acct), i: count(o.i), cw: count(o.cw), cw1h: count(o.cw1h), cr: count(o.cr), o: count(o.o), n: count(o.n), peakCtx: count(o.peakCtx) });
   }
 
   // Limit hits and compactions.
@@ -201,7 +201,7 @@ export async function saveUsage(s: Scope, deviceId: string, raw: unknown): Promi
         buckets.map(x => ({
           updateOne: {
             filter: { _id: `${deviceId}:${x.sessionId}:${x.part}:${x.model}:${x.at.toISOString()}` },
-            update: { $set: { deviceId, sessionId: x.sessionId, part: x.part, model: x.model, at: x.at, acct: x.acct, i: x.i, cw: x.cw, cw1h: x.cw1h, cr: x.cr, o: x.o, n: x.n, ov, updatedAt: now } },
+            update: { $set: { deviceId, sessionId: x.sessionId, part: x.part, model: x.model, at: x.at, acct: x.acct, i: x.i, cw: x.cw, cw1h: x.cw1h, cr: x.cr, o: x.o, n: x.n, ...(x.peakCtx ? { peakCtx: x.peakCtx } : {}), ov, updatedAt: now } },
             upsert: true,
           },
         })) as never,
@@ -255,7 +255,9 @@ export type UsageSession = {
   share: number;
   tokens: number;
   models: UsageSlice[];
-  subagents: { count: number; weight: number; share: number; items: { id: string; name: string; weight: number; share: number; models: UsageSlice[] }[] };
+  /** The largest context one call of the session's own conversation carried (last 7 days of 5-minute buckets; 0 when none recorded). */
+  peakCtx: number;
+  subagents: { count: number; weight: number; share: number; items: { id: string; name: string; weight: number; share: number; peakCtx: number; models: UsageSlice[] }[] };
   lastDay: string;
 };
 export type UsageReport = {
@@ -346,6 +348,12 @@ export async function usageReport(s: Scope, opts: { range?: string; tz: string; 
     bump(p.models, mn, mn, w);
   }
 
+  // Peak context per (computer, session, part) from the 5-minute buckets (the last 7 days): the largest context one call carried.
+  const peak = new Map<string, number>();
+  try {
+    const bks = (await c.claudeUsageBuckets.aggregate([{ $match: { at: { $gte: startOfDay(from, opts.tz) }, peakCtx: { $gt: 0 } } }, { $group: { _id: { deviceId: '$deviceId', sessionId: '$sessionId', part: '$part' }, peakCtx: { $max: '$peakCtx' } } }]).toArray()) as { _id: { deviceId: string; sessionId: string; part: string }; peakCtx: number }[];
+    for (const x of bks) { if (revoked.has(x._id.deviceId)) continue; peak.set(`${x._id.deviceId}|${x._id.sessionId}|${x._id.part}`, x.peakCtx); }
+  } catch { /* no buckets: no peaks */ }
   const bySession: UsageSession[] = [];
   const byProject = new Map<string, { name: string; weight: number }>();
   for (const [key, a] of sessions) {
@@ -364,6 +372,7 @@ export async function usageReport(s: Scope, opts: { range?: string; tz: string; 
       project: pid && pname ? { id: pid, name: pname } : null,
       weight: Math.round(a.total),
       share: total ? a.total / total : 0,
+      peakCtx: peak.get(`${deviceId}|${a.meta.sessionId}|main`) ?? 0,
       tokens: a.tokens,
       models: slices(a.models, a.total, 4),
       subagents: {
@@ -373,7 +382,7 @@ export async function usageReport(s: Scope, opts: { range?: string; tz: string; 
         items: subs
           .sort((x, y) => y[1].weight - x[1].weight)
           .slice(0, 20)
-          .map(([id, p]) => ({ id, name: p.name, weight: Math.round(p.weight), share: total ? p.weight / total : 0, models: slices(p.models, p.weight, 3) })),
+          .map(([id, p]) => ({ id, name: p.name, weight: Math.round(p.weight), share: total ? p.weight / total : 0, peakCtx: peak.get(`${deviceId}|${a.meta.sessionId}|${id}`) ?? 0, models: slices(p.models, p.weight, 3) })),
       },
       lastDay: a.lastDay,
     });
