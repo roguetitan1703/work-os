@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 133. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 134. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -10,6 +10,7 @@ Copy of the Work OS state, version 133. WORK-STATE.md is a copy of the State, wr
 2. UI revamp so the purpose of the work always shows first (Om 18 Nov; phase 1 on dev 1ce66ba; phases 1 and 2 on dev 799c85f, seen at 390/1280 light+dark; phase 3 (task header): builder S Sonnet building on builder-s): design note b961e1600e (purpose header A, then Today B, then chips C; 5 phases). Phase 1 built on builder-s 32374a5 (flow-ui-p1 52; looked at 390/1280 light and dark): merge with R8.
 3. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
 4. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
+5. Declutter: close #281 H4, #287 H10, #289 H12, #291 H14, #292 H15 (checklists 100%, built and merged). — waits on Om: yes or no (asked 20 Nov)
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -39,4 +40,4 @@ Copy of the Work OS state, version 133. WORK-STATE.md is a copy of the State, wr
 - The idle nudge says "add waits_on (save_state edit_line)", but edit_line silently ignores waits_on (20 Nov): an agent following the nudge changes nothing. Make edit_line take waits_on, or fix the nudge text. Unknown op fields are stripped with no error. — waits on R8 batch B or H17
 - (20 Nov); builder S (Sonnet) finding the cause on builder-s.
 - Projects now card: a stray space before " · 1 session" after the project name (seen 20 Nov at 390 and 1280).
-<!-- work-os-copy sha1:00e868d45fd8a9a279b27d09c54e38ef6137e7f0 -->
+<!-- work-os-copy sha1:f9930d3432072d7ba1ada24f46e9fcee5532b118 -->
