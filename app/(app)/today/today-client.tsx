@@ -19,6 +19,8 @@ import { ClaudeCard, type ClaudeCardData } from "./claude-card";
 import { ChecklistCard } from "./checklist-card";
 import { WhatsNewCard, type WhatsNewCardData } from "./whats-new-card";
 import { NeedsYou } from "@/components/needs";
+import type { ProjectNowRow } from "@/lib/data/today-projects";
+import { ProjectsNowCard } from "./projects-now-card";
 import type { Need } from "@/lib/data/needs";
 import type { Checklist } from "@/lib/get-started";
 import { useTodayModel, type Wd } from "./today-model";
@@ -32,6 +34,7 @@ type Props = {
   noteTaskIds: string[];
   claude: ClaudeCardData | null;
   needs: Need[];
+  projectRows: ProjectNowRow[];
   checklist: Checklist | null;
   /** Unseen entries from lib/whats-new.ts (null: none). */
   whatsNew: WhatsNewCardData | null;
@@ -59,7 +62,7 @@ export function TodayClient(props: Props) {
   );
 }
 
-function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, waiting, noteTaskIds, claude, needs, checklist, whatsNew, welcome }: Props & { variant: Variant }) {
+function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, waiting, noteTaskIds, claude, needs, projectRows, checklist, whatsNew, welcome }: Props & { variant: Variant }) {
   const m = useTodayModel({ tasks: openTasks, waiting, isNaturallyWeekend, weekday });
   const phone = variant === "phone";
   const [importOpen, setImportOpen] = useState(false);
@@ -170,6 +173,7 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
         <div className={cn("flex gap-2", !m.hasSchedule && "justify-end")}>{buttons}</div>
         {checklist && <div className="mt-3"><ChecklistCard list={checklist} where="today" welcome={welcome} /></div>}
         <NeedsYou needs={needs} phone />
+        <ProjectsNowCard rows={projectRows} phone />
         <div className="mt-3 space-y-3">
           <NowLine m={m} row={row} />
           <ClaudeCard data={claude} />
@@ -193,6 +197,7 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
       </div>
       {checklist && <ChecklistCard list={checklist} where="today" welcome={welcome} />}
       <NeedsYou needs={needs} phone={false} />
+      <ProjectsNowCard rows={projectRows} phone={false} />
       <QuickAddBar defaults={{ mode: (m.nowMode as Mode | null) ?? undefined }} />
       <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5 items-start">
         <div className="min-w-0">{sections}</div>
@@ -310,14 +315,14 @@ function NowLine({ m, row }: { m: Model; row: (t: Task) => React.ReactNode }) {
       <button onClick={() => setOpen(o => !o)} aria-expanded={open} className="w-full min-h-[52px] flex items-center gap-2 px-4 text-left active:bg-muted/50">
         <Zap className="w-4 h-4 shrink-0" style={{ color: m.hex }} />
         <span className="min-w-0 flex-1 truncate text-[15px]">
-          <span className="font-bold" style={{ color: m.hex }}>NOW</span> <span className="text-foreground">{m.liveBlock.block}</span> <span className="text-muted-foreground">· {m.rawBlockMode}</span>
+          <span className="font-bold text-foreground">{m.liveBlock.block}</span> <span className="text-muted-foreground">· {m.liveBlock.start}–{m.liveBlock.end} · {m.rawBlockMode}</span>
         </span>
         <span className="text-xs text-muted-foreground shrink-0">{extra ? `${extra} to do` : ""}</span>
         <ChevronDown className={cn("w-4 h-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
       {open && (
         <div className="border-t border-border/60 bg-card">
-          <p className="px-4 py-2 text-[13px] text-muted-foreground">{m.liveBlock.start}–{m.liveBlock.end} · {m.liveBlock.notes}</p>
+          <p className="px-4 py-2 text-[13px] text-muted-foreground">{m.liveBlock.notes}</p>
           {!m.nowMode ? (
             <p className="px-4 pb-3 text-[15px] text-muted-foreground">{m.rawBlockMode} block, no tasks tracked here.</p>
           ) : extra === 0 ? (
@@ -338,7 +343,7 @@ function NowNext({ m, row }: { m: Model; row: (t: Task) => React.ReactNode }) {
   return (
     <section className="rounded-lg border border-border bg-card overflow-hidden" data-section="now-next">
       <div className="flex items-center justify-between px-3 min-h-10 border-b border-border/60">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Now &amp; next</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Schedule</h2>
         <Link href="/timetable" className="text-xs text-muted-foreground hover:text-foreground">
           Full schedule ›
         </Link>
@@ -354,7 +359,7 @@ function NowNext({ m, row }: { m: Model; row: (t: Task) => React.ReactNode }) {
               <button onClick={() => setOpen(o => !o)} aria-expanded={open} className="w-full flex items-center gap-2 px-3 min-h-10 text-left hover:bg-muted/30">
                 <Zap className="w-3.5 h-3.5 shrink-0" style={{ color: m.hex }} />
                 <span className="flex-1 min-w-0 truncate text-sm">
-                  <span className="font-bold text-xs" style={{ color: m.hex }}>NOW</span> {m.liveBlock.block} <span className="text-muted-foreground">· {m.rawBlockMode}</span>
+                  <span className="font-medium">{m.liveBlock.block}</span> <span className="text-muted-foreground">· {m.rawBlockMode}</span>
                 </span>
                 <span className="font-mono text-xs text-muted-foreground">{m.liveBlock.start}–{m.liveBlock.end}</span>
                 <ChevronDown className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform", open && "rotate-180")} />

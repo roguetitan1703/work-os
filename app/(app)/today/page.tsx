@@ -13,6 +13,7 @@ import type { ClaudeCardData } from './claude-card';
 import { openNeedsToMe } from '@/lib/data/needs';
 import { whatsNewState } from '@/lib/whats-new-seen';
 import type { WhatsNewCardData } from './whats-new-card';
+import { projectsNow } from '@/lib/data/today-projects';
 
 const WHATS_NEW_MAX = 3;
 
@@ -28,6 +29,10 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const openP = listTasks(s, { open: true, forList: true });
   const [open, schedule, overview, checklist] = await Promise.all([openP, getSchedule(s), claudeOverview(me, { card: true }).catch(() => null), openP.then(o => getChecklist(me, { skipIfHidden: true, hasOpenTask: o.length > 0 })).catch(() => null)]);
   const [waiting, notes, needs, news] = await Promise.all([unmetDependencies(s, open), taskIdsWithNotes(s, open.map(t => t.id)), openNeedsToMe(s).catch(() => []), whatsNewState(me).catch(() => null)]);
+  const projectRows = await projectsNow(s, {
+    needProjects: needs.map(n => n.projectId),
+    taskProjects: open.filter(t => t.projectId && t.assigneeIds.includes(me.userId)).map(t => t.projectId as string),
+  }).catch(() => []);
   const whatsNew: WhatsNewCardData | null = news?.unseen.length ? { entries: news.unseen.slice(0, WHATS_NEW_MAX), more: Math.max(0, news.unseen.length - WHATS_NEW_MAX) } : null;
   const waitingRefs = Object.fromEntries([...waiting].map(([id, deps]) => [id, deps.map(d => `#${d.ref}`)]));
   const dayName = format(new Date(today + 'T12:00:00Z'), 'EEEE, MMMM d');
@@ -43,6 +48,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       noteTaskIds={[...notes]}
       claude={claude}
       needs={needs}
+      projectRows={projectRows}
       checklist={checklist}
       whatsNew={whatsNew}
       welcome={sp.welcome ? `Welcome, ${(me.name || me.email).split(/[ @]/)[0]}.` : null}
