@@ -1,7 +1,7 @@
 'use client';
 
 import { Ago } from '@/components/ago';
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useState, useTransition, type ReactNode } from 'react';
 import { Check, Copy, FolderGit2, KeyRound, Laptop, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { DeviceInfo } from '@/lib/devices';
@@ -29,7 +29,7 @@ export function Computers({ initial }: { initial?: DeviceInfo[] }) {
   const [devices, setDevices] = useState<DeviceInfo[] | null>(initial ?? null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<InstallInfo | null>(null);
-  const [showUpdate, setShowUpdate] = useState(false);
+  const [showUpdate, setShowUpdate] = useState<string | null>(null); // the computer whose manual update command is open
   const [name, setName] = useState('');
   const [fresh, setFresh] = useState<{ key: string; name: string } | null>(null);
   const [confirm, setConfirm] = useState<DeviceInfo | null>(null);
@@ -118,15 +118,8 @@ export function Computers({ initial }: { initial?: DeviceInfo[] }) {
                     <code className="font-mono">{d.prefix}…</code> · {d.lastSeenAt ? <Ago iso={d.lastSeenAt} prefix="seen " /> : 'waiting for this PC to connect'}
                     {d.os ? ` · ${d.os === 'win32' ? 'Windows' : d.os === 'darwin' ? 'macOS' : d.os}` : ''}
                     {d.hooks ? ` · ${hooksText(d.hooks)}` : ''}
-                    {stale(d, info) && (
-                      <>
-                        {' · '}
-                        <button type="button" className="underline underline-offset-2 text-foreground" onClick={() => setShowUpdate(v => !v)}>
-                          update available
-                        </button>
-                      </>
-                    )}
                   </div>
+                  {d.version && <WorkerLine d={d} info={info} onUpdate={() => setShowUpdate(v => (v === d.id ? null : d.id))} />}
                 </div>
                 <button type="button" className={iconBtn} onClick={() => setFoldersOf(v => (v === d.id ? null : d.id))} aria-expanded={foldersOf === d.id} aria-label={`Folders on ${d.name}`} title="Folders and their projects">
                   <FolderGit2 className="w-4 h-4" />
@@ -159,12 +152,20 @@ export function Computers({ initial }: { initial?: DeviceInfo[] }) {
           </div>
         </div>
         <QuietFolders />
-        {showUpdate && info && (
-          <div className="mt-3 rounded-lg border border-border/70 p-3 space-y-2">
-            <p className="text-[13px] text-foreground">To update, run this on that computer again. Its settings and key are kept: press Enter at each question.</p>
-            <InstallCommands info={info} />
-          </div>
-        )}
+        {(() => {
+          const d = showUpdate && info ? devices?.find(x => x.id === showUpdate) : null;
+          if (!d || !info) return null;
+          return (
+            <div className="mt-3 rounded-lg border border-border/70 p-3 space-y-2" data-manual-update={d.name}>
+              <p className="text-[13px] text-foreground">
+                {d.selfUpdate
+                  ? `"${d.name}" keeps running worker ${d.version} (${d.selfUpdate.problem ?? 'no update yet'}). To update it by hand, run this on it. Its settings and key are kept: press Enter at each question.`
+                  : `"${d.name}" runs a worker from before self-update. Run this on it once (its settings and key are kept: press Enter at each question); from then on it updates itself.`}
+              </p>
+              <InstallCommands info={info} />
+            </div>
+          );
+        })()}
       </div>
 
       {fresh && !phone && (
@@ -210,8 +211,40 @@ function hooksText(h: NonNullable<DeviceInfo['hooks']>): string {
   return h.stale ? 'hooks out of date' : 'hooks on';
 }
 
-/** A downloaded worker older than the one this site serves (repo runs and not-yet-reported ones never show it). */
+/** A downloaded worker other than the one this site serves (repo runs and not-yet-reported ones never show it). */
 const stale = (d: DeviceInfo, info: InstallInfo | null) => !!info && !!d.bundle && d.bundle !== info.sha256.slice(0, 12);
+
+/**
+ * The row's second line: the worker version and how it updates (worker/update.mjs). A downloaded worker from 0.5.0 on
+ * updates itself to signed releases; an older one needs the install command once; a repo run never updates itself.
+ */
+function WorkerLine({ d, info, onUpdate }: { d: DeviceInfo; info: InstallInfo | null; onUpdate: () => void }) {
+  const link = 'underline underline-offset-2';
+  const u = d.selfUpdate;
+  let tail: ReactNode = null;
+  if (!d.bundle) tail = 'from the repo';
+  else if (u?.problem)
+    tail = (
+      <button type="button" className={`${link} text-red-600 dark:text-red-400`} onClick={onUpdate} data-update-problem>
+        {u.problem}
+      </button>
+    );
+  else if (u && stale(d, info)) tail = `updates itself to ${info?.version} within 6 hours`;
+  else if (u?.updatedAt) tail = <Ago iso={u.updatedAt} prefix="updated itself " />;
+  else if (u) tail = 'updates itself';
+  else if (stale(d, info))
+    tail = (
+      <button type="button" className={`${link} text-foreground`} onClick={onUpdate}>
+        update available
+      </button>
+    );
+  return (
+    <div className="text-[13px] md:text-xs text-muted-foreground truncate" data-worker-line suppressHydrationWarning>
+      Worker {d.version}
+      {tail && <> · {tail}</>}
+    </div>
+  );
+}
 
 function NewDevice({ fresh, info, onDone }: { fresh: { key: string; name: string }; info: InstallInfo | null; onDone: () => void }) {
   const [copied, setCopied] = useState(false);

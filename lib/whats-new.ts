@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'worker-updates-itself',
+    date: '2026-11-20',
+    title: 'The worker on your computer updates itself',
+    line: 'After one last run of the install command, the Work OS worker installs new versions by itself, only ones signed with the Work OS release key, and each computer shows its version and when it last updated.',
+    where: 'Claude › Setup › Computers',
+    href: '/claude?tab=setup',
+  },
+  {
     id: 'task-place-chips',
     date: '2026-11-20',
     title: 'Task rows show where they sit in the plan',

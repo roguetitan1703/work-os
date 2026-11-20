@@ -14,7 +14,7 @@ import { collectActivity, sessionLocal } from './activity.mjs';
 import { openInVscode, resolveCode } from './vscode.mjs';
 import { openInDesktop } from './desktop.mjs';
 import { connectPush } from './push.mjs';
-import { startUpdateCheck } from './update.mjs';
+import { startSelfUpdate, updateReport, readUpdateStatus } from './update.mjs';
 import * as hooksInstall from './hooks-install.mjs';
 import { runFor, sweepRunConfigs } from './dispatch-run.mjs';
 
@@ -41,7 +41,7 @@ async function run() {
   const openDesktop = ({ folder, prompt }) => openInDesktop({ folder, prompt });
   const onlyRoots = () => { const c = loadConfig(); return c.sessionsInRootsOnly ? c.roots : null; };
   const hooksStatus = () => { const h = hooksInstall.status(); return { version: h.version, events: h.events.length, stale: h.stale, signIn: h.signIn }; };
-  const core = createCore({ hooksStatus, sweepRuns: (keep) => sweepRunConfigs(keep), getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, sessionLocal: (sid) => sessionLocal(sid), openVscode, openDesktop, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots(), procDir: path.join(hooksInstall.hooksDir(), 'sessions') }) });
+  const core = createCore({ hooksStatus, selfUpdate: () => updateReport(), sweepRuns: (keep) => sweepRunConfigs(keep), getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, sessionLocal: (sid) => sessionLocal(sid), openVscode, openDesktop, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots(), procDir: path.join(hooksInstall.hooksDir(), 'sessions') }) });
   let loop = null;
   const push = connectPush({ getCfg: loadConfig, getToken, onWake: () => loop?.wake(), onUp: (up) => { log(up ? 'push connected' : 'push disconnected'); loop?.wake(); }, log });
   loop = createLoop({ core, getConfig: loadConfig, state, log, pushUp: () => push.up });
@@ -49,7 +49,7 @@ async function run() {
   // After an update the unpacked code is new: bring the installed hooks up to date too (a no-op when none are installed).
   const refreshed = hooksInstall.refreshIfStale();
   if (refreshed) log(`hooks refreshed to ${refreshed}`);
-  startUpdateCheck({ getBaseUrl: () => loadConfig().baseUrl, log });
+  startSelfUpdate({ getBaseUrl: () => loadConfig().baseUrl, version: VERSION, log });
   await loop.run();
 }
 
@@ -58,7 +58,11 @@ function status() {
   const state = loadState();
   console.log('config file:', configPath());
   console.log(JSON.stringify(cfg, null, 2));
-  console.log('worker code:', bundleId() ? `downloaded bundle ${bundleId().slice(0, 12)}` : 'run from the repo');
+  console.log('worker code:', `version ${VERSION},`, bundleId() ? `downloaded bundle ${bundleId().slice(0, 12)}` : 'run from the repo');
+  if (bundleId()) {
+    const u = readUpdateStatus();
+    console.log('self-update:', `on${u.updatedAt ? `, last updated ${u.updatedAt} from ${u.from}` : ''}${u.problem ? `; last check: ${u.problem}` : ''}`);
+  }
   { const h = hooksInstall.status(); console.log('hooks:', h.events.length ? `installed, version ${h.version || 'unknown'}${h.stale ? ` (stale, this worker carries ${h.current}; run: hooks install)` : ' (current)'}` : 'not installed'); }
   console.log('device key set:', getToken() ? 'yes' : 'no');
   console.log('last scan:', state.lastScan ? new Date(state.lastScan).toISOString() : 'never');

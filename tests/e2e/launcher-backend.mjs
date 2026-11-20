@@ -1,6 +1,13 @@
 // Backend checks for the session launcher: worker API auth, folder validation, job isolation, rate limit. Seed profile: none.
 import { B, check, db, mkDevice, mkWos, api, mcp, MCP, finish } from './lib.mjs';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID, createHash, generateKeyPairSync } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { bundleFrom } from '../../worker/bundle/build.mjs';
+import { signRelease, verifyRelease, publicKeyText } from '../../worker/release.mjs';
 
 // The worker download: public (no cookie, no key), the same bytes every time, the sha256 the app shows, no secrets.
 {
@@ -15,6 +22,59 @@ import { randomUUID, createHash } from 'node:crypto';
   check('worker download: ETag is the sha256 (304 when unchanged)', nm.status === 304, nm.status);
   const other = await fetch(B + '/worker/other.mjs', { redirect: 'manual' });
   check('worker download: only these two paths are public', other.status !== 200, other.status);
+}
+
+// Self-update (docs/launcher.md "Self-update"): latest.json carries the release signature only when one was made for
+// this very bundle, and a downloaded worker carrying the signing key's public half installs that release from the
+// server. A throwaway key; the signature file sits where scripts/build-artifact.sh puts it (.next/worker-signature.json).
+{
+  const ROOT = fileURLToPath(new URL('../../', import.meta.url));
+  const sigFile = path.join(ROOT, '.next', 'worker-signature.json');
+  const saved = fs.existsSync(sigFile) ? fs.readFileSync(sigFile) : null;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-e2e-selfupdate-'));
+  try {
+    fs.rmSync(sigFile, { force: true });
+    const latest0 = await (await fetch(B + '/worker/latest.json')).json();
+    check('self-update: an unsigned release has no signature in latest.json', !('signature' in latest0), JSON.stringify(latest0).slice(0, 200));
+    const key = generateKeyPairSync('ed25519');
+    const pub = publicKeyText(key.publicKey);
+    const write = (rec) => fs.writeFileSync(sigFile, JSON.stringify(rec));
+    write({ version: latest0.version, sha256: 'a'.repeat(64), signature: signRelease({ version: latest0.version, sha256: 'a'.repeat(64) }, key.privateKey) });
+    const other = await (await fetch(B + '/worker/latest.json')).json();
+    check('self-update: a signature made for another bundle is not served', !('signature' in other));
+    const signature = signRelease(latest0, key.privateKey);
+    write({ version: latest0.version, sha256: latest0.sha256, signature });
+    const latest = await (await fetch(B + '/worker/latest.json')).json();
+    check('self-update: latest.json serves the signature of this bundle, and it verifies', latest.signature === signature && verifyRelease(latest, [pub]) && latest.sha256 === latest0.sha256);
+
+    // A worker installed from an older release (version 0.0.1) that carries the test key updates itself from the server.
+    const W = fileURLToPath(new URL('../../worker/', import.meta.url));
+    const files = {};
+    for (const f of fs.readdirSync(W).filter((n) => n.endsWith('.mjs'))) files[f] = fs.readFileSync(path.join(W, f), 'utf8');
+    files['core.mjs'] = files['core.mjs'].replace(/VERSION = '[^']+'/, "VERSION = '0.0.1'");
+    files['release-keys.mjs'] = `export const RELEASE_KEYS = ['${pub}'];\n`;
+    const old = bundleFrom(files, fs.readFileSync(path.join(W, 'bundle', 'loader.mjs'), 'utf8'));
+    const file = path.join(tmp, 'work-os-worker.mjs');
+    fs.writeFileSync(file, old.body);
+    const unpacked = spawnSync(process.execPath, [file, 'unpack'], { encoding: 'utf8' });
+    const probe = `const u = await import(${JSON.stringify(pathToFileURL(path.join(tmp, 'worker', 'update.mjs')).href)}); console.log(JSON.stringify(await u.selfUpdate({ baseUrl: ${JSON.stringify(B)}, version: '0.0.1', file: ${JSON.stringify(path.join(tmp, 'status.json'))} })));`;
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', timeout: 120000 });
+    const res = (() => { try { return JSON.parse(r.stdout.trim().split('\n').pop()); } catch { return null; } })();
+    const marker = (() => { try { return fs.readFileSync(path.join(tmp, 'worker', 'BUNDLE'), 'utf8').trim(); } catch { return ''; } })();
+    check('self-update: a downloaded worker with the key installs the signed release from the server', unpacked.status === 0 && res?.result === 'updated' && res.version === latest.version && marker === latest.sha256, `${r.stderr.slice(0, 300)} ${r.stdout.slice(0, 300)}`);
+    check('self-update: the new code is the server\'s', fs.readFileSync(file, 'utf8') === (await (await fetch(B + '/worker/work-os-worker.mjs')).text()));
+    // The same worker without the key refuses the release.
+    files['release-keys.mjs'] = `export const RELEASE_KEYS = ['${publicKeyText(generateKeyPairSync('ed25519').publicKey)}'];\n`;
+    const old2 = bundleFrom(files, fs.readFileSync(path.join(W, 'bundle', 'loader.mjs'), 'utf8'));
+    fs.writeFileSync(file, old2.body);
+    spawnSync(process.execPath, [file, 'unpack'], { encoding: 'utf8' });
+    const r2 = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', timeout: 120000 });
+    const res2 = (() => { try { return JSON.parse(r2.stdout.trim().split('\n').pop()); } catch { return null; } })();
+    check('self-update: a worker without that key refuses it and keeps its code', res2?.result === 'refused' && res2.reason === 'bad signature' && fs.readFileSync(path.join(tmp, 'worker', 'BUNDLE'), 'utf8').trim() === old2.sha256, r2.stdout.slice(0, 300));
+  } finally {
+    if (saved) fs.writeFileSync(sigFile, saved); else fs.rmSync(sigFile, { force: true });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 }
 const A = await mkDevice('dev-A'), Bd = await mkDevice('dev-B');
 const wos = await mkWos();

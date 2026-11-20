@@ -2,7 +2,8 @@
 // embedded below; the install command downloads it, checks its sha256 against the one shown on Claude › Setup,
 // and runs `node work-os-worker.mjs setup`. It unpacks the code into a `worker` folder next to itself and then
 // runs worker.mjs there with the same arguments. The autostart (`install`) runs from that folder.
-// Run it again with a newer download to update: the supervisor restarts the worker when the unpacked code changes.
+// The worker updates itself (update.mjs): it checks a newer release's signature, writes it here and runs it with
+// `unpack` (unpack only, nothing else runs); the supervisor restarts the worker when the unpacked code changes.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -35,6 +36,7 @@ if (current !== id) {
   fs.writeFileSync(marker, id + '\n');
   console.log(`worker unpacked: ${dir}`);
 }
+if (process.argv[2] === 'unpack') process.exit(0);
 
 const r = spawnSync(process.execPath, [path.join(dir, 'worker.mjs'), ...process.argv.slice(2)], { stdio: 'inherit' });
 process.exit(r.status ?? 1);

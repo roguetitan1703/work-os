@@ -15,7 +15,8 @@ const DISPATCHED_NO_VSCODE = 'This session was started for a task and runs on it
 
 import { bundleId } from './config.mjs';
 
-export const VERSION = '0.4.0';
+// Raise it with every change to the worker's code: a downloaded worker installs only a signed release with a higher one.
+export const VERSION = '0.5.0';
 const MISS_MS = 20000; // claude must be missing this long before the session counts as closed
 const OPEN_WINDOW_MS = 60_000;
 const OPEN_MAX_PER_MIN = 4;
@@ -286,6 +287,8 @@ export function createCore(deps) {
     const body = { worker: { version: VERSION, os: process.platform, ...(bundleId() ? { bundle: bundleId().slice(0, 12) } : {}), allowPrompts: getConfig().allowPrompts !== false, ...cloneInfo() }, jobs: pendingResults, sessions };
     // Whether this PC's Claude Code hooks are installed and current (Computers shows it). A failure leaves it out.
     if (deps.hooksStatus) { try { const h = deps.hooksStatus(); if (h) body.worker.hooks = h; } catch (e) { log('hooks status failed: ' + errMsg(e)); } }
+    // Self-update (update.mjs): that it is on, the last one installed and the last refusal or failure. Repo runs send none.
+    if (deps.selfUpdate) { try { const u = deps.selfUpdate(); if (u) body.worker.selfUpdate = u; } catch (e) { log('update status failed: ' + errMsg(e)); } }
     // Counts only (docs/launcher.md "Activity counts"); a failed count never blocks the heartbeat.
     if (deps.activity) {
       try {

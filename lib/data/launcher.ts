@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import type { DeviceActivity, DeviceHooks, ReopenItem, ReportedClaudeSession, SessionOrigin, WorkerFolderDoc, WorkerJobDoc, WorkerSessionDoc } from '../db';
+import type { DeviceActivity, DeviceHooks, DeviceSelfUpdate, ReopenItem, ReportedClaudeSession, SessionOrigin, WorkerFolderDoc, WorkerJobDoc, WorkerSessionDoc } from '../db';
 import { friendlyError } from '../worker-errors';
 import { scoped, type Scope } from '../scope';
 import { afterCommit } from '../db';
@@ -217,8 +217,19 @@ export function cleanHooks(v: unknown): DeviceHooks | undefined {
   return { version, events: h.events, stale: h.stale, signIn: h.signIn };
 }
 
+/** The self-update block a downloaded worker reports (worker/update.mjs): kept only when it says it is on; each field is checked and cut. */
+export function cleanSelfUpdate(v: unknown): DeviceSelfUpdate | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const u = v as Record<string, unknown>;
+  if (u.on !== true) return undefined;
+  const at = typeof u.updatedAt === 'string' && u.updatedAt.length <= 40 ? new Date(u.updatedAt) : null;
+  const from = typeof u.from === 'string' && /^\d{1,6}(\.\d{1,6}){0,3}$/.test(u.from) ? u.from : null;
+  const problem = typeof u.problem === 'string' ? u.problem.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 160) || null : null;
+  return { updatedAt: at && !Number.isNaN(at.getTime()) ? at : null, from, problem };
+}
+
 export async function reportStatus(s: Scope, deviceId: string, body: unknown): Promise<void> {
-  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; bundle?: unknown; allowPrompts?: unknown; allowClone?: unknown; projectsDir?: unknown; hooks?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown; reopen?: unknown };
+  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; bundle?: unknown; allowPrompts?: unknown; allowClone?: unknown; projectsDir?: unknown; hooks?: unknown; selfUpdate?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown; reopen?: unknown };
   const activity = b.activity === undefined ? null : cleanActivity(b.activity); // validate before any write
   const claudeSessions = b.claudeSessions === undefined ? null : cleanClaudeSessions(b.claudeSessions);
   const reopen = b.reopen === undefined ? undefined : cleanReopen(b.reopen);
@@ -240,7 +251,8 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
       // allowClone / projectsDir: turbo mode (lib/data/turbo.ts). The projects folder is the one path a worker sends, so the page can say where a clone will go.
       const dir = typeof b.worker.projectsDir === 'string' ? b.worker.projectsDir.replace(/[\u0000-\u001f]+/g, '').trim().slice(0, 200) : '';
       const hooks = cleanHooks(b.worker.hooks);
-      set.worker = { version, os, ...(bundle ? { bundle } : {}), allowPrompts: b.worker.allowPrompts === true, ...(typeof b.worker.allowClone === 'boolean' ? { allowClone: b.worker.allowClone && !!dir } : {}), ...(dir ? { projectsDir: dir } : {}), ...(hooks ? { hooks } : {}) };
+      const selfUpdate = cleanSelfUpdate(b.worker.selfUpdate);
+      set.worker = { version, os, ...(bundle ? { bundle } : {}), allowPrompts: b.worker.allowPrompts === true, ...(typeof b.worker.allowClone === 'boolean' ? { allowClone: b.worker.allowClone && !!dir } : {}), ...(dir ? { projectsDir: dir } : {}), ...(hooks ? { hooks } : {}), ...(selfUpdate ? { selfUpdate } : {}) };
       set.lastSeenAt = now;
     }
     if (Object.keys(set).length || (reopen && !reopen.length)) {
