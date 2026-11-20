@@ -117,6 +117,7 @@ agent-state|agent-state.mjs|none|plain
 flow-b4-team|flow-b4-team.mjs|none|discord
 flow-dc1|flow-dc1.mjs|none|discord
 discord-link|discord-link.mjs|none|discord
+discord-v4|discord-v4.mjs|none|discord
 leak-audit|leak-audit.mjs|none|discord
 activity-all|activity-all.mjs|none|plain
 flow-n1|flow-n1.mjs|none|plain
@@ -219,7 +220,7 @@ export DEFAULT_QUIET_HOURS=none
 export APP_URL="http://localhost:$APORT" E2E_BASE="http://localhost:$APORT"
 export E2E_MONGO_PORT=$MPORT E2E_DISCORD_PORT=$DPORT
 export E2E_SHOTS="${E2E_SHOTS:-$TMP/shots}"
-export DISCORD_BOT_TOKEN= DISCORD_PUBLIC_KEY= DISCORD_APPLICATION_ID= DISCORD_API_BASE=
+export DISCORD_BOT_TOKEN= DISCORD_PUBLIC_KEY= DISCORD_APPLICATION_ID= DISCORD_API_BASE= DISCORD_CLIENT_SECRET=
 export DELPAT_OS_CLIENT_ID= DELPAT_OS_CLIENT_SECRET= DELPAT_OS_ISSUER= DELPAT_OS_TOKEN_KEY=
 export MAILLOOM_AGENT_URL= MAILLOOM_WEB_URL= MAIL_KEY_SECRET= MAILLOOM_CLIENT_ID= MAILLOOM_CLIENT_SECRET=
 export MAILLOOM_INTAKE_TOKEN= MAILLOOM_INTAKE_PROJECT= MAILLOOM_NOTICE_CHANNEL=
@@ -260,9 +261,9 @@ start_server() {
   fi
   if [ "$1" = discord ] || [ "$1" = intake ]; then
     export DISCORD_BOT_TOKEN=test-bot-token DISCORD_APPLICATION_ID=222222222222222222
-    export DISCORD_PUBLIC_KEY="$E2E_DISCORD_PUB" DISCORD_API_BASE="http://127.0.0.1:$DPORT"
+    export DISCORD_PUBLIC_KEY="$E2E_DISCORD_PUB" DISCORD_API_BASE="http://127.0.0.1:$DPORT" DISCORD_CLIENT_SECRET=e2e-client-secret
   else
-    export DISCORD_BOT_TOKEN= DISCORD_APPLICATION_ID= DISCORD_PUBLIC_KEY= DISCORD_API_BASE=
+    export DISCORD_BOT_TOKEN= DISCORD_APPLICATION_ID= DISCORD_PUBLIC_KEY= DISCORD_API_BASE= DISCORD_CLIENT_SECRET=
   fi
   # mail: a fake Mailloom on the discord stub's port, with Connect (its client id and secret); mailpaste: no Connect client.
   if [ "$1" = mail ]; then
