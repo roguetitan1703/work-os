@@ -493,7 +493,7 @@ export async function registerUnfiledSession(ctx: BriefCtx, sid: string, a: Star
   const caller = ctx.caller;
   const s = sOf(ctx);
   const mach = await resolveMachine(s, a.machine);
-  await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, null, { machine: mach.machine, machineName: mach.machineName, ...labelFor(cleanLabel(folderName) || 'Claude Code', a, null), tool: a.tool, model: a.model, account: a.account, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
+  await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, null, { machine: mach.machine, machineName: mach.machineName, ...labelFor(cleanLabel(folderName) || 'Claude Code', a, null), tool: a.tool, model: a.model, account: a.account, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const), active: a.source !== 'resume' } : {}), ...(a.pick_up ? { active: true } : {}) });
 }
 
 /**
@@ -524,7 +524,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
   // A call with a run key (lib/run-keys.ts) is a dispatched run whatever it names, so its session is marked too.
   const runOf = caller.dispatched ? { taskId: caller.dispatched.taskId, ref: caller.dispatched.ref } : null;
   const dispatched = a.dispatched ?? runOf ?? (sid ? await dispatchedOfToken(sid) : null) ?? undefined;
-  const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, ...labelFor(project.name, a, dispatched), tool: a.tool, dispatched, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
+  const row = await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, project, { machine: mach.machine, machineName: mach.machineName, ...labelFor(project.name, a, dispatched), tool: a.tool, dispatched, model: a.model, account: a.account, parent: a.parent, slot: a.slot, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const), active: a.source !== 'resume' } : {}), ...(a.pick_up ? { active: true } : {}) });
   // The handovers left for this person (a fresh session takes the newest first; a re-call after compaction shows its own again).
   // With pick_up the named handover is the one taken (and the old session's work moves to this one); without it the newest one for this person is shown.
   const pickRefused: { text?: string } = {};

@@ -9,10 +9,14 @@ import { cleanResult, lastAssistantText as lastMainText, notAResult } from './ho
  * answers with a message that may wake the session (a direct request, question or decision, or an answered Need) and this stop is
  * not itself the answer to a block, the turn goes on once with that text as the reason.
  */
-export async function stop(input) {
+export async function stop(input, g) {
   const sid = input.session_id;
   const r = await decide(input);
+  const person = !!g && !g.subagent && !g.quiet && !g.dispatched; // the main conversation of a session with a person
   if (r) {
+    // The save reminder blocks this stop: a wrap_up ask found now is kept for the stop that answers the block (its last call is the save).
+    const q0 = sid && person ? wrapUpAsk(input.transcript_path) : '';
+    if (q0) updateMarker(sid, (m2) => ({ ...m2, pendingAsk: q0 }));
     const a = sid ? await postEvent(sid, 'tool', { deliver: true, holds: true }) : null; // still working: it is delivered inside the turn; holds: does this session hold Now
     // The marker did not know (no tool answer named this session): the server's answer decides, so a non-holder is not told to save the whole State.
     if (a?.status === 200 && a.b?.holdsNow === false && r.reason === NAG_HOLDER) { r.reason = NAG_LANE; updateMarker(sid, (m2) => ({ ...m2, holdsNow: false })); }
@@ -28,8 +32,15 @@ export async function stop(input) {
   const released = !again && releasedUnsaved(input);
   const nudge = asks || quiet || released ? { nudge: { ...(asks ? { asks: true } : {}), ...(quiet ? { quiet: true } : {}), ...(released ? { released: true } : {}) } } : {};
   const counts = stopCounts(input, sid);
-  let a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...counts, ...nudge });
-  if (a?.status === 400 && nudge.nudge) a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...counts }); // a server that does not know nudges yet
+  // The question the turn ended with (the app's wrap_up ask): the session waits on its person. Main conversation with a person only.
+  // A stop that answers a block also sends the ask kept when the block came; any stop clears the kept one.
+  const kept = readMarker(sid)?.pendingAsk;
+  const q = person ? wrapUpAsk(input.transcript_path) || (again && typeof kept === 'string' ? kept : '') : '';
+  const ask = q ? { ask: q } : {};
+  let a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...counts, ...nudge, ...ask });
+  if (a?.status === 400 && (nudge.nudge || q)) a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...counts }); // a server that does not know nudges or ask yet
+  // Cleared once sent, or by any stop that does not answer a block (a new turn: the kept ask is stale).
+  if (kept !== undefined && (!again || a?.status === 200)) updateMarker(sid, (m2) => { const { pendingAsk: _, ...rest } = m2; return rest; });
   if (!again && a?.status === 200) await sendResult(input, sid);
   const d =a?.status === 200 ? a.b?.deliver : null;
   if (!again && d?.wakeable === true && deliverText(a)) {
@@ -62,6 +73,60 @@ export async function stop(input) {
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+/** How much of the transcript's end wrapUpAsk reads, and how long it may take (the Stop hook's deadline is 3 seconds in all). */
+export const ASK_TAIL = 262144;
+export const ASK_MS = 50;
+const ASK_MAX = 200;
+const WRAP_UP = 'mcp__ccd_turn__wrap_up';
+
+/**
+ * The question this turn ended with: the `ask` of the turn's last tool call when that call is the app's wrap_up (Claude Code
+ * desktop's end-of-turn box), one line of at most 200 characters, never cut inside a surrogate pair. Reads the transcript's last
+ * 256 KB from the end back to the person's prompt; '' for any other last call, no call, a missing or garbage file, or past 50 ms.
+ */
+export function wrapUpAsk(f, startMs = Date.now()) {
+  if (!f) return '';
+  try {
+    const fd = fs.openSync(f, 'r');
+    let lines;
+    let cutFirst;
+    try {
+      const size = fs.fstatSync(fd).size;
+      const len = Math.min(size, ASK_TAIL);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, size - len);
+      lines = buf.toString('utf8').split('\n');
+      cutFirst = size > len;
+    } finally { fs.closeSync(fd); }
+    if (cutFirst) lines.shift(); // the first line may be cut
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (Date.now() - startMs > ASK_MS) return '';
+      if (!lines[i].trim()) continue;
+      let o;
+      try { o = JSON.parse(lines[i]); } catch { continue; }
+      if (o?.isSidechain === true) continue; // a subagent's line, not the main conversation's
+      const c = o?.message?.content;
+      if (o?.type === 'user') { if (Array.isArray(c) && c.length && c.every((b) => b?.type === 'tool_result')) continue; return ''; } // the person's prompt: no call this turn
+      if (o?.type !== 'assistant' || !Array.isArray(c)) continue;
+      const uses = c.filter((b) => b?.type === 'tool_use');
+      if (!uses.length) continue;
+      const last = uses[uses.length - 1];
+      if (last.name !== WRAP_UP) return '';
+      return askLine(last.input?.ask);
+    }
+    return '';
+  } catch { return ''; }
+}
+
+function askLine(v) {
+  if (typeof v !== 'string') return '';
+  const t = v.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (t.length <= ASK_MAX) return t;
+  let n = ASK_MAX - 1;
+  if (/[\ud800-\udbff]/.test(t[n - 1])) n--; // keep a surrogate pair whole
+  return t.slice(0, n) + '…';
+}
 
 /**
  * The session's last line (its lane result, `lastResult`): the main conversation's own last message at the end of a turn, cleaned to

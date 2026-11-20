@@ -1,5 +1,6 @@
 import Link from '@/components/intent-link';
 import { redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { getCaller } from '@/lib/caller';
 import { Activity, Play, SlidersHorizontal } from 'lucide-react';
 import { NavIcon } from '@/components/nav-icons';
@@ -8,7 +9,7 @@ import { claudeOverview } from '@/lib/data/claude-overview';
 import { claudeTasks } from '@/lib/data/dispatcher';
 import { deviceMap } from '@/lib/data/launcher';
 import { roster } from '@/lib/data/roster';
-import { mergeSessions } from '@/lib/session-item';
+import { FILTER_COOKIE, mergeSessions, parseFilter } from '@/lib/session-item';
 import { cn } from '@/lib/utils';
 import { baseUrl } from '../settings/base-url';
 import { AutoRefresh } from './auto-refresh';
@@ -102,6 +103,7 @@ export default async function ClaudePage({ searchParams }: Props) {
       {tab === 'sessions' && view && overview && tasks && workers && (
         <SessionsTab
           view={view}
+          filter={parseFilter((await cookies()).get(FILTER_COOKIE)?.value)}
           tz={me.tz}
           openId={sp.s}
           couldBeRunning={workers.couldBeRunning}

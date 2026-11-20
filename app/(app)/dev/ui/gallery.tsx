@@ -17,7 +17,7 @@ import { StatusBadge, TONES, type StatusKey } from '@/components/ui/status-badge
 import { Tabs } from '@/components/ui/tabs';
 
 const GROUPS: [string, StatusKey[]][] = [
-  ['Session state', ['On', 'Working', 'Waiting on you', 'Idle', 'Off']],
+  ['Session state', ['Working', 'Starting', 'Waiting on you', 'Waiting on a person', 'Idle', 'Quiet', 'Off', 'Failed', 'No news']],
   ['Task status', ['Not Started', 'In Progress', 'Blocked', 'Done', 'Dropped']],
   ['Need kind', ['decide', 'approve', 'review', 'do', 'chase']],
   ['Priority', ['P1', 'P2', 'P3', 'P4']],

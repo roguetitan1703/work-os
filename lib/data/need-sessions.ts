@@ -1,6 +1,6 @@
 import 'server-only';
 import { scoped, type Scope } from '../scope';
-import { presenceState } from './presence-state';
+import { isQuiet, presenceState } from './presence-state';
 import { opaqueId } from './roster';
 import type { Need } from './needs';
 
@@ -12,7 +12,7 @@ import type { Need } from './needs';
 // (`/claude?s=<id>`, the same id the roster gives the row: another person's row gets the one-way id).
 
 const JUST_ANSWERED_MS = 5 * 60_000;
-const WORD: Record<string, string> ={ working: 'Working', on: 'On', idle: 'Idle', off: 'Off', waiting: 'Waiting' };
+const WORD: Record<string, string> = { working: 'Working', idle: 'Idle', quiet: 'Quiet', off: 'Off', waiting: 'Waiting' };
 
 /** The open Needs to `me` by the asking session's row id (after withAskerSessions): a session row's Answer opens its Need in place. */
 export function asksBySession(needs: Need[], me: string): Record<string, Need> {
@@ -31,7 +31,7 @@ export async function withAskerSessions(s: Scope, needs: Need[]): Promise<Need[]
     const rows = await c.presence
       .find(
         { projectId: { $in: [...new Set(asked.map(n => n.projectId))] }, userId: { $in: [...new Set(asked.map(n => (n.from.actor as { userId: string }).userId))] }, $or: [{ session: { $in: sessions } }, { key: { $in: sessions } }] },
-        { projection: { userId: 1, projectId: 1, session: 1, key: 1, label: 1, lastSeen: 1, activity: 1, endedAt: 1 } },
+        { projection: { userId: 1, projectId: 1, session: 1, key: 1, label: 1, lastSeen: 1, activity: 1, endedAt: 1, activeAt: 1, promptAt: 1, createdAt: 1 } },
       )
       .limit(200)
       .toArray();
@@ -46,6 +46,7 @@ export async function withAskerSessions(s: Scope, needs: Need[]): Promise<Need[]
       // The answer wakes the session that asked (needs.ts answerNeed signals it); its hook reports working only once it
       // has started on it, so for the first minutes after the answer a session that is not off reads Working.
       if (!open && st !== 'off' && n.answeredAt && now - Date.parse(n.answeredAt) < JUST_ANSWERED_MS) st = 'working';
+      else if (st === 'idle' && isQuiet('idle', row, now)) st = 'quiet';
       const label = n.from.label || row.label || 'Claude';
       const word = open && st !== 'off' ? (n.to === s.userId ? 'waiting on you' : 'waiting') : WORD[st] ?? st;
       const id = row.userId === s.userId ? row._id : opaqueId(row._id);

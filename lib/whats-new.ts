@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'sessions-true-state',
+    date: '2026-11-21',
+    title: 'Sessions show at a glance who is live',
+    line: "A live session has a filled dot in its colour; a lead whose subagents run reads Working; sessions that did nothing for 2 hours are Quiet and, like teammates' sessions, sit behind a filter.",
+    where: "Today, the Claude page and a project's sessions",
+    href: '/claude',
+  },
+  {
     id: 'parked-decisions-no-limit',
     date: '2026-11-21',
     title: 'Parked and Decisions have no limit',

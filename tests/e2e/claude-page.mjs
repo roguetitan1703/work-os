@@ -166,7 +166,7 @@ async function suite(vp) {
   await p.goto(B + '/claude'); await p.waitForSelector('[data-section="sessions"]');
   const hrow = p.locator(`[data-session-row="${D1}:${CC}"]`);
   check(T('hook says waiting at a prompt: the row reads "waiting on you"'), (await hrow.count()) === 1 && /waiting on you/i.test(await hrow.innerText()) && (await p.locator(`[data-worker="${HOOKROW}"]`).count()) === 1 && (await p.locator(`[data-worker="${HOOKROW}"][data-session-row="${D1}:${CC}"]`).count()) === 1, await hrow.innerText().catch(() => 'no row'));
-  check(T('the row shows the Claude account'), (await hrow.locator('[data-session-account]').count()) === 1 && (await hrow.locator('[data-session-account]').innerText()) === 'tools', await hrow.innerText().catch(() => 'no row'));
+  check(T('the row shows the Claude account'), (await hrow.locator('[data-session-account]:visible').count()) === 1 && (await hrow.locator('[data-session-account]:visible').innerText()) === 'tools', await hrow.innerText().catch(() => 'no row'));
   check(T('Claude page no horizontal scroll with the waiting row'), await noScroll());
   await p.screenshot({ path: `${SP}/cl-${vp}-now-waiting.png` });
   await p.evaluate(() => document.documentElement.classList.add('dark'));

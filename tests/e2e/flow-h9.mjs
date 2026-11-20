@@ -44,7 +44,7 @@ async function action(name, args, cookie) {
 }
 async function signIn(email, password = PW) {
   const r = await fetch(B + '/api/auth/sign-in/email', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ email, password }), redirect: 'manual' });
-  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).join('; ');
+  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).concat('wos.sessions.filter=11').join('; '); // every session shows (lib.mjs setSessionFilter)
 }
 const NA = 'app/(app)/notes/actions.ts#';
 const paragraph = (text, i) => ({ id: `p${i}-${Math.random().toString(36).slice(2, 8)}`, type: 'paragraph', props: {}, content: [{ type: 'text', text, styles: {} }], children: [] });

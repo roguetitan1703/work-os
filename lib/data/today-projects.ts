@@ -1,6 +1,6 @@
 import 'server-only';
 import { scoped, type Scope } from '../scope';
-import { GONE_MIN, presenceState } from './presence-state';
+import { GONE_MIN, isQuiet, presenceState } from './presence-state';
 import { listProjectsNav } from './projects';
 import { nowOfProjects } from './states';
 import type { StateDoc } from '../db';
@@ -30,10 +30,14 @@ export async function projectsNow(
   const ids = projects.map(p => p.id);
   const now = Date.now();
   const rows = await (await scoped(s)).presence
-    .find({ projectId: { $in: ids }, lastSeen: { $gte: new Date(now - GONE_MIN * 60_000) } } as never, { projection: { projectId: 1, lastSeen: 1, activity: 1, endedAt: 1 } })
+    .find({ projectId: { $in: ids }, lastSeen: { $gte: new Date(now - GONE_MIN * 60_000) } } as never, { projection: { projectId: 1, lastSeen: 1, activity: 1, endedAt: 1, activeAt: 1, promptAt: 1, createdAt: 1 } })
     .toArray();
   const sessions = new Map<string, number>();
-  for (const r of rows) if (r.projectId && presenceState(r, { now }).state !== 'off') sessions.set(r.projectId, (sessions.get(r.projectId) ?? 0) + 1);
+  // Live and active: a quiet session (open, nothing done for 2 hours) is not counted, as on the Sessions list.
+  for (const r of rows) {
+    const st = r.projectId ? presenceState(r, { now }).state : 'off';
+    if (st !== 'off' && !isQuiet(st, r, now)) sessions.set(r.projectId!, (sessions.get(r.projectId!) ?? 0) + 1);
+  }
   const needs = new Set(o.needProjects);
   const mine = new Set(o.taskProjects);
   const chosen = projects

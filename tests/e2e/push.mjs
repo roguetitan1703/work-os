@@ -33,7 +33,7 @@ async function as(key, name, args = {}) {
 /** Session cookies for email (Better Auth sign-in over HTTP). */
 async function cookieFor(email) {
   const r = await fetch(B + '/api/auth/sign-in/email', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PW }), redirect: 'manual' });
-  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).join('; ');
+  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).concat('wos.sessions.filter=11').join('; '); // every session shows (lib.mjs setSessionFilter)
 }
 /** An SSE reader: events as { ev, data, raw }; ended once the server closes it. */
 function sse(path, headers) {

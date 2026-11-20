@@ -30,7 +30,7 @@ const body0 = { folders: ['fold1'], remote: 'https://github.com/acme/h6-one.git'
 const ago = min => new Date(Date.now() - min * 60_000);
 async function cookieOf(email) {
   const r = await fetch(B + '/api/auth/sign-in/email', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PW }), redirect: 'manual' });
-  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).join('; ');
+  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).concat('wos.sessions.filter=11').join('; '); // every session shows (lib.mjs setSessionFilter)
 }
 /** The label a teammate's page gives a row (lib/data/roster.ts opaqueId). */
 const opq = rowId => createHash('sha256').update(`worker-row:${rowId}`).digest('hex').slice(0, 16);
@@ -99,7 +99,7 @@ try {
     const got = await stateOf(S.sid);
     check(`${label}: answer ${want}, the Workers tab shows it`, r.status === 200 && r.json?.state === want && got?.state === want && (!test || test(got)), `${r.status} ${r.text.slice(0, 100)} / ${JSON.stringify(got)?.slice(0, 200)}`);
   };
-  check('a started session shows on', (await stateOf(S.sid))?.state === 'on');
+  check('a started session shows idle (On was merged into Idle), not quiet: a fresh start is activity', (await stateOf(S.sid))?.state === 'idle' && !/Quiet/.test((await stateOf(S.sid))?.text ?? ''));
   await seq('prompt', { event: 'prompt' }, 'working');
   await seq('notify permission_prompt', { event: 'notify', kind: 'permission_prompt' }, 'waiting', g => /Waiting on you/.test(g.text));
   check('the row keeps why: prompt', (await prow(S.sid)).activity.why === 'prompt');
@@ -110,9 +110,29 @@ try {
   const ig = await ev(S.token, { event: 'notify', kind: 'auth_success' });
   check('a notification of another kind changes nothing (ignored)', ig.status === 200 && ig.json?.ignored === true && (await prow(S.sid)).activity.state === 'idle', ig.text);
   await seq('elicitation_dialog', { event: 'notify', kind: 'elicitation_dialog' }, 'waiting');
+  // A turn that ends with a question for its person (the stop's ask): Waiting on you, the question on the row, until the next prompt.
+  await seq('stop with ask', { event: 'stop', ask: 'Release 0.26.1 with the two framework fixes?' }, 'waiting', g => /Waiting on you/.test(g.text) && /Release 0\.26\.1 with the two framework fixes\?/.test(g.text) && !/Idle/.test(g.text));
+  const q = (await prow(S.sid)).activity;
+  check('a stop with ask stores why question and the cleaned question', q.why === 'question' && q.ask === 'Release 0.26.1 with the two framework fixes?', JSON.stringify(q));
+  // The idle wait a minute later (notify idle_prompt) keeps the question (review fix 1).
+  await seq('notify idle_prompt after a question keeps Waiting on you', { event: 'notify', kind: 'idle_prompt' }, 'waiting', g => /Waiting on you/.test(g.text) && /Release 0\.26\.1/.test(g.text));
+  check('the idle wait left why question and the ask', (await prow(S.sid)).activity.why === 'question' && (await prow(S.sid)).activity.ask === q.ask);
+  // Cleaning (review fix 3): bidi and zero-width characters dropped; cut at 200 with an ellipsis, never inside a surrogate pair.
+  await ev(S.token, { event: 'prompt' });
+  await ev(S.token, { event: 'stop', ask: 'Ship\u200b \u202eit\u2066 now?' });
+  check('the ask drops bidi and zero-width characters', (await prow(S.sid)).activity.ask === 'Ship it now?', (await prow(S.sid)).activity.ask);
+  await ev(S.token, { event: 'prompt' });
+  await ev(S.token, { event: 'stop', ask: 'a'.repeat(198) + '\u{1F600}' + 'b'.repeat(50) });
+  const cut = (await prow(S.sid)).activity.ask;
+  check('a long ask is cut at 200 with an ellipsis, not inside a surrogate pair', cut === 'a'.repeat(198) + '…', JSON.stringify(cut?.slice(-4)));
+  const badAsk = await ev(S.token, { event: 'tool', ask: 'x' });
+  check('ask goes with a stop only', badAsk.status === 400, badAsk.text);
+  await seq('the next prompt clears the question', { event: 'prompt' }, 'working', g => !/Waiting/.test(g.text) && !/Release 0\.26/.test(g.text));
+  check('the prompt dropped why and ask', (await prow(S.sid)).activity.why === undefined && (await prow(S.sid)).activity.ask === undefined);
+  await seq('a stop without ask is idle again', { event: 'stop' }, 'idle');
   await seq('end', { event: 'end' }, 'off');
   const rs = await start(S.token, { ...body0, ccSession: CC, source: 'resume' });
-  check('a resume start with the kept token is on again', rs.status === 200 && !rs.json?.token && (await stateOf(S.sid))?.state === 'on', rs.text.slice(0, 120));
+  check('a resume start with the kept token is idle again (its row stores on)', rs.status === 200 && !rs.json?.token && (await stateOf(S.sid))?.state === 'idle' && (await prow(S.sid))?.activity?.state === 'on', rs.text.slice(0, 120));
   const cs = await start(S.token, { ...body0, ccSession: CC, source: 'compact' });
   check('a compaction start is working', cs.status === 200 && (await stateOf(S.sid))?.state === 'working');
 

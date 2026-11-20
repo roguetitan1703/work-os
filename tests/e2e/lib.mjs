@@ -268,14 +268,20 @@ export const cron = (extra = '') => fetch(`${B}/api/cron/alerts?run=1${extra}`, 
 // ---- browser helpers ----
 export const settle = (p, ms = 600) => p.waitForTimeout(ms);
 /** Fills the sign-in form once the page is ready (its button is disabled until then). */
-export async function fillLogin(p, { email = EMAIL, password = PW } = {}) {
+/**
+ * The Sessions filter cookie (components/session-filter.tsx): suites see every session (everyone, quiet and off) unless they
+ * pass `sessionFilter` ('00' is the app's default: own active sessions only; null leaves the cookie alone).
+ */
+export const setSessionFilter = (ctx, v) => ctx.addCookies([{ name: 'wos.sessions.filter', value: v, url: B }]);
+export async function fillLogin(p, { email = EMAIL, password = PW, sessionFilter = '11' } = {}) {
+  if (sessionFilter) await setSessionFilter(p.context(), sessionFilter);
   await p.waitForSelector('form button[type=submit]:not([disabled])', { timeout: 20000 });
   await p.fill('input[name=email]', email);
   await p.fill('input[name=password]', password);
 }
-export async function login(p, { phone = false, next = '/today', email = EMAIL, password = PW } = {}) {
+export async function login(p, { phone = false, next = '/today', email = EMAIL, password = PW, sessionFilter = '11' } = {}) {
   await p.goto(B + '/login?next=' + next);
-  await fillLogin(p, { email, password });
+  await fillLogin(p, { email, password, sessionFilter });
   const btn = p.locator('button[type=submit]');
   await (phone ? btn.tap() : btn.click());
   await p.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 20000 });

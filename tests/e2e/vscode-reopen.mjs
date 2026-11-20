@@ -44,7 +44,7 @@ async function suite(vp) {
   const crow = p.locator(`[data-session-row="${dev}:${sC}"]`);
   const krow = p.locator(`[data-session-row="${dev}:${sK}"]`);
   const orow = p.locator(`[data-session-row="${dev}:${sO}"]`);
-  const originOf = async row => (await row.locator('[data-origin]').count()) === 1 ? `${await row.locator('[data-origin]').getAttribute('data-origin')}:${await row.locator('[data-origin]').innerText()}` : (await row.locator('[data-origin]').count()) === 0 ? '' : 'many';
+  const originOf = async row => (await row.locator('[data-origin]:visible').count()) === 1 ? `${await row.locator('[data-origin]:visible').getAttribute('data-origin')}:${await row.locator('[data-origin]:visible').innerText()}` : (await row.locator('[data-origin]:visible').count()) === 0 ? '' : 'many';
   const origins = [await originOf(vrow), await originOf(crow), await originOf(krow), await originOf(orow)];
   check(T('origin labels: VS Code, Terminal, Desktop app, nothing for other'), JSON.stringify(origins) === JSON.stringify(['vscode:VS Code', 'cli:Terminal', 'desktop:Desktop app', '']), JSON.stringify(origins));
   // ── Open in VS Code: only in the sheet, only for a session that runs in VS Code ──
@@ -87,7 +87,7 @@ async function suite(vp) {
   await p.goto(B + '/claude?tab=now');
   const drow = p.locator(`[data-session-row="${dev}:${sD}"]`);
   await drow.waitFor();
-  check(T('Claude page: a dispatched run shows "Started from Work OS" (whatever runs it) and no Open in VS Code'), (await drow.locator('[data-open-vscode]').count()) === 0 && (await drow.locator('[data-origin]').getAttribute('data-origin')) === 'workos' && /^Started from Work OS$/.test(await drow.locator('[data-dispatched]').innerText().catch(() => '')));
+  check(T('Claude page: a dispatched run shows "Started from Work OS" (whatever runs it) and no Open in VS Code'), (await drow.locator('[data-open-vscode]').count()) === 0 && (await drow.locator('[data-origin]:visible').getAttribute('data-origin')) === 'workos' && /^Started from Work OS$/.test(await drow.locator('[data-dispatched]:visible').innerText().catch(() => '')));
   await click(drow.locator('button').first());
   await p.locator(`[data-session-sheet="${dev}:${sD}"]`).waitFor();
   check(T('and its sheet has no Open in VS Code'), (await p.locator(`[data-session-sheet="${dev}:${sD}"] [data-open-vscode]`).count()) === 0);

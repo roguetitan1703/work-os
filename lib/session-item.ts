@@ -10,7 +10,8 @@
 import type { SessionRow } from './data/claude-overview';
 import type { WorkerRow } from './data/roster';
 
-export type SessionState = 'working' | 'waiting' | 'on' | 'idle' | 'starting' | 'off' | 'failed' | 'unknown';
+/** quiet: open but idle with no prompt, tool use or turn end for over 2 hours (presence-state.ts isQuiet). There is no "on": a started session is idle. */
+export type SessionState = 'working' | 'waiting' | 'idle' | 'quiet' | 'starting' | 'off' | 'failed' | 'unknown';
 
 export type SessionItem = {
   /** Unique on the page; `/claude?s=<id>` opens it. Another person's session has an opaque id (roster.ts). */
@@ -30,6 +31,10 @@ export type SessionItem = {
   word: string;
   /** When it went idle or started waiting (ISO), for "since HH:MM". */
   since?: string;
+  /** The viewer's own session waiting on them because its turn ended with a question: the question (agent-written, not checked). */
+  ask?: string;
+  /** Subagents running for it (the worker daemon's count, or its working builders): it reads as working while any run. */
+  subagents: number;
   /** What it is on: its set_doing task ("#12 title", `ref` set), or the last result its hook reported. `held` false when it is off. */
   doing?: { text: string; ref?: number; held: boolean };
   /** The last result it reported (the main conversation's last message at the end of a turn, cut), written by the agent and never checked. */
@@ -58,7 +63,17 @@ export type SessionsView = {
   counts: { live: number; working: number; waiting: number; finished: number };
 };
 
-const RANK: Record<SessionState, number> = { working: 0, waiting: 1, starting: 2, on: 3, idle: 4, unknown: 5, off: 6, failed: 7 };
+/** Which sessions a list shows (Om, 21 Nov): by default the viewer's own active ones. Remembered per viewer (components/session-filter.tsx). */
+export type SessionFilter = { /** Teammates' sessions on shared projects too. */ everyone: boolean; /** Quiet, off and failed sessions too (and the Finished today and Earlier groups). */ quiet: boolean };
+export const DEFAULT_FILTER: SessionFilter = { everyone: false, quiet: false };
+/** The cookie that remembers the filter: two digits, everyone then quiet ("10": everyone, active only). */
+export const FILTER_COOKIE = 'wos.sessions.filter';
+export const filterCookieValue = (f: SessionFilter) => `${f.everyone ? 1 : 0}${f.quiet ? 1 : 0}`;
+export function parseFilter(v: string | undefined | null): SessionFilter {
+  return v && /^[01]{2}$/.test(v) ? { everyone: v[0] === '1', quiet: v[1] === '1' } : DEFAULT_FILTER;
+}
+
+const RANK: Record<SessionState, number> = { working: 0, waiting: 1, starting: 2, idle: 3, unknown: 4, quiet: 5, off: 6, failed: 7 };
 const isLive = (s: SessionState) => s !== 'off' && s !== 'failed';
 
 const TOOL_NAME: Record<string, string> = { desktop: 'Desktop', vscode: 'VS Code', terminal: 'Terminal' };
@@ -95,15 +110,17 @@ export function clockOf(iso: string, tz: string): string {
 
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 
-function overviewState(r: SessionRow): SessionState {
+/** presence-state.ts QUIET_MIN, repeated to keep this file import-free. */
+const QUIET_MS = 120 * 60_000;
+
+function overviewState(r: SessionRow, now?: number): SessionState {
   if (r.waiting && r.waitingWhy === 'prompt') return 'waiting';
   switch (r.state) {
     case 'working':
       return 'working';
     case 'open':
-      return 'on';
     case 'idle':
-      return 'idle';
+      return now !== undefined && r.lastActiveAt && now - Date.parse(r.lastActiveAt) > QUIET_MS ? 'quiet' : 'idle';
     case 'starting':
       return 'starting';
     case 'failed':
@@ -116,20 +133,20 @@ function overviewState(r: SessionRow): SessionState {
 }
 
 /** The state in words, as the badge says it. */
-function wordOf(state: SessionState, o: { mine: boolean; waitingOn?: 'need' | 'prompt'; nextWork?: number; control?: SessionRow }): string {
+function wordOf(state: SessionState, o: { mine: boolean; waitingOn?: 'need' | 'prompt' | 'question'; nextWork?: number; subagents?: number; control?: SessionRow }): string {
   const c = o.control;
   if (c?.needsTrust) return `Waiting for you to trust this new repo on ${c.deviceName}`;
   if (c?.cloning && state === 'starting') return `Cloning on ${c.deviceName}…`;
   if (c?.waiting && !c.waitingWhy && state === 'starting') return `Waiting: check the terminal on ${c.deviceName}`;
   switch (state) {
     case 'working':
-      return c && c.subagents > 0 ? `Working · ${plural(c.subagents, 'subagent')}` : 'Working';
+      return o.subagents ? `Working · ${plural(o.subagents, 'subagent')}` : 'Working';
     case 'waiting':
-      return o.waitingOn === 'prompt' && o.mine ? 'Waiting on you' : 'Waiting on a person';
-    case 'on':
-      return 'On';
+      return (o.waitingOn === 'prompt' || o.waitingOn === 'question') && o.mine ? 'Waiting on you' : 'Waiting on a person';
     case 'idle':
       return o.nextWork ? `Idle · ${plural(o.nextWork, 'Next line')} waiting` : 'Idle';
+    case 'quiet':
+      return 'Quiet';
     case 'starting':
       return 'Starting';
     case 'failed':
@@ -142,7 +159,7 @@ function wordOf(state: SessionState, o: { mine: boolean; waitingOn?: 'need' | 'p
 }
 
 function fromWorker(w: WorkerRow, c: SessionRow | undefined): SessionItem {
-  let state: SessionState = w.state;
+  let state: SessionState = w.state === 'on' ? 'idle' : w.state;
   let waitingOn = w.waitingOn;
   // The computer's list knows a permission prompt or a start that is still going when the hook has not said so yet.
   if (c && state !== 'off' && c.waiting && c.waitingWhy === 'prompt') {
@@ -150,8 +167,15 @@ function fromWorker(w: WorkerRow, c: SessionRow | undefined): SessionItem {
     waitingOn = 'prompt';
   }
   if (c && state !== 'off' && overviewState(c) === 'starting') state = 'starting';
+  const subagents = state === 'off' ? 0 : Math.max(w.subagents ?? 0, c?.subagents ?? 0);
+  // Display only (the session itself stays idle, so a message still wakes it): a lead whose subagents run reads as working.
+  if (state === 'idle' && subagents > 0) state = 'working';
+  else if (state === 'idle' && w.quiet) state = 'quiet';
   const via = [TOOL_NAME[w.tool] ?? '', w.ai, w.model].filter(Boolean).join(' · ');
-  const last = c?.lastActiveAt && c.lastActiveAt > w.lastSeen ? c.lastActiveAt : w.lastSeen;
+  // Last active is the last prompt, tool use or turn end: the newer of the session's own word and the computer's, then the last call.
+  // A quiet session keeps its own word: the computer's time also moves when a session is only reopened, which is not activity.
+  const ms = (t: string | null | undefined) => (t ? Date.parse(t) || 0 : 0);
+  const last = (!w.quiet && ms(c?.lastActiveAt) > ms(w.lastActive) ? c?.lastActiveAt : w.lastActive) || w.lastSeen;
   return {
     id: w.id,
     worker: w.id,
@@ -162,8 +186,10 @@ function fromWorker(w: WorkerRow, c: SessionRow | undefined): SessionItem {
     mine: w.mine,
     project: w.project ?? (c?.projectId ? { id: c.projectId, name: c.projectName ?? c.projectId } : null),
     state,
-    word: wordOf(state, { mine: w.mine, waitingOn, nextWork: w.nextWork, control: c }),
+    word: wordOf(state, { mine: w.mine, waitingOn, nextWork: w.nextWork, subagents, control: c }),
     ...(state === 'idle' || state === 'waiting' ? { since: w.since } : {}),
+    ...(state === 'waiting' && w.ask ? { ask: w.ask } : {}),
+    subagents,
     ...(w.doing ? { doing: { text: `#${w.doing.ref} ${w.doing.title}`, ref: w.doing.ref, held: w.doing.held } } : c?.doing ? { doing: { text: c.doing, held: true } } : {}),
     ...(w.lastResult ? { last: w.lastResult } : {}),
     via,
@@ -178,8 +204,8 @@ function fromWorker(w: WorkerRow, c: SessionRow | undefined): SessionItem {
   };
 }
 
-function fromRow(r: SessionRow): SessionItem {
-  const state = overviewState(r);
+function fromRow(r: SessionRow, now: number): SessionItem {
+  const state = overviewState(r, now);
   return {
     id: r.key,
     depth: 0,
@@ -189,7 +215,8 @@ function fromRow(r: SessionRow): SessionItem {
     mine: true,
     project: r.projectId ? { id: r.projectId, name: r.projectName ?? r.projectId } : null,
     state,
-    word: wordOf(state, { mine: true, waitingOn: r.waitingWhy, control: r }),
+    word: wordOf(state, { mine: true, waitingOn: r.waitingWhy, subagents: state === 'working' ? r.subagents : 0, control: r }),
+    subagents: state === 'off' ? 0 : r.subagents,
     ...(r.doing ? { doing: { text: r.doing, held: true } } : {}),
     via: r.origin === 'vscode' ? 'VS Code' : '',
     ...(whereOf(r) ? { origin: whereOf(r) } : {}),
@@ -224,7 +251,7 @@ export function mergeSessions(workers: WorkerRow[], rows: SessionRow[], o: { tz:
   for (const r of rows) {
     if (used.has(r.key)) continue;
     if (o.projectId && r.projectId !== o.projectId && r.controlProjectId !== o.projectId) continue;
-    groups.push([fromRow(r)]);
+    groups.push([fromRow(r, o.now)]);
   }
   const today = dayIn(new Date(o.now).toISOString(), o.tz);
   const rank = (g: SessionItem[]) => Math.min(...g.map(i => RANK[i.state]));
@@ -242,30 +269,57 @@ export function mergeSessions(workers: WorkerRow[], rows: SessionRow[], o: { tz:
   earlier.sort((a, b) => newest(b).localeCompare(newest(a)));
   const flat = (l: SessionItem[][]) => l.flat();
   const liveItems = flat(live);
+  return { live: liveItems, finished: flat(finished), earlier: flat(earlier), counts: countsOf(liveItems, flat(finished)) };
+}
+
+/** Live counts a quiet session out: it is open, but it does nothing. */
+function countsOf(live: SessionItem[], finished: SessionItem[]): SessionsView['counts'] {
   return {
-    live: liveItems,
-    finished: flat(finished),
-    earlier: flat(earlier),
-    counts: {
-      live: liveItems.filter(i => isLive(i.state)).length,
-      working: liveItems.filter(i => i.state === 'working').length,
-      waiting: liveItems.filter(i => i.state === 'waiting').length,
-      finished: flat(finished).length,
+    live: live.filter(isActive).length,
+    working: live.filter(i => i.state === 'working').length,
+    waiting: live.filter(i => i.state === 'waiting').length,
+    finished: finished.length,
+  };
+}
+
+/** Is it active: working, waiting, idle within 2 hours, starting or not heard of (No news). Quiet, off and failed are not. */
+export const isActive = (i: SessionItem) => isLive(i.state) && i.state !== 'quiet';
+
+/**
+ * The sessions a filter shows, and how many each choice would add (for the chips). Default: the viewer's own active sessions only;
+ * `everyone` adds teammates' sessions, `quiet` adds quiet, off and failed ones and the Finished today and Earlier groups.
+ */
+export function filterSessions(view: SessionsView, f: SessionFilter, keep?: string): SessionsView & { more: { everyone: number; quiet: number } } {
+  const who = (i: SessionItem) => f.everyone || i.mine;
+  const how = (i: SessionItem) => f.quiet || isActive(i);
+  // `keep`: the session a link opened (/claude?s=<id>) stays whatever the filter says.
+  const live = view.live.filter(i => i.id === keep || (who(i) && how(i)));
+  const finished = view.finished.filter(i => i.id === keep || (f.quiet && who(i)));
+  const earlier = view.earlier.filter(i => i.id === keep || (f.quiet && who(i)));
+  const all = [...view.live, ...view.finished, ...view.earlier];
+  return {
+    live,
+    finished,
+    earlier,
+    counts: countsOf(live, view.finished.filter(who)),
+    more: {
+      everyone: f.everyone ? 0 : all.filter(i => !i.mine && how(i) && (f.quiet || view.live.includes(i))).length,
+      quiet: f.quiet ? 0 : all.filter(i => who(i) && !isActive(i)).length,
     },
   };
 }
 
 /** The StatusBadge key for a state (components/ui/status-badge.tsx TONES). */
-export function badgeOf(s: SessionState, word: string): 'Working' | 'Waiting on you' | 'Waiting on a person' | 'On' | 'Idle' | 'Off' | 'Starting' | 'Failed' | 'No news' {
+export function badgeOf(s: SessionState, word: string): 'Working' | 'Waiting on you' | 'Waiting on a person' | 'Idle' | 'Quiet' | 'Off' | 'Starting' | 'Failed' | 'No news' {
   switch (s) {
     case 'working':
       return 'Working';
     case 'waiting':
       return word === 'Waiting on you' ? 'Waiting on you' : 'Waiting on a person';
-    case 'on':
-      return 'On';
     case 'idle':
       return 'Idle';
+    case 'quiet':
+      return 'Quiet';
     case 'starting':
       return word.startsWith('Waiting') ? 'Waiting on you' : 'Starting';
     case 'failed':

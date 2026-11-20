@@ -19,7 +19,7 @@ const seen = (sid, min) => rawDb.collection('presence').updateOne({ _id: `${ME.u
 
 async function cookie() {
   const r = await fetch(B + '/api/auth/sign-in/email', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ email: EMAIL, password: PW }), redirect: 'manual' });
-  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).join('; ');
+  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).concat('wos.sessions.filter=11').join('; '); // every session shows (lib.mjs setSessionFilter)
 }
 const ck = await cookie();
 const html = async p => { const r = await fetch(B + p, { headers: { cookie: ck } }); return r.text(); };
@@ -101,7 +101,7 @@ try {
   await rawDb.collection('devices').updateOne({ _id: devId }, { $unset: { claudeSessions: '' } });
   await rawDb.collection('presence').updateOne({ _id: baId }, { $set: { activity: { state: 'on', at: ago(2) } } });
   const onRow = row(workers(await html('/claude?tab=workers')), 'w1-ba');
-  check('W1: a session its hook reports as on shows "On" and no "since" time', onRow.state === 'on' && / On /.test(onRow.text) && !/since/.test(onRow.text), onRow.text);
+  check('W1: a session its hook reports as on shows "Idle" (On was merged into Idle)', onRow.state === 'idle' && /Idle/.test(onRow.text) && !/\bOn\b/.test(onRow.text), onRow.text);
   await rawDb.collection('presence').updateOne({ _id: baId }, { $set: { activity: { state: 'idle', at: ago(3) } } });
   const idleRow = row(workers(await html('/claude?tab=workers')), 'w1-ba');
   check('W1: an idle session shows "since HH:MM"', idleRow.state === 'idle' && /since \d\d:\d\d/.test(idleRow.text), idleRow.text);
@@ -221,7 +221,7 @@ try {
       const top = await p.locator('[data-could-run]').boundingBox();
       const first = await p.locator('[data-worker]').first().boundingBox();
       check(T('the could-run list is above the workers'), top.y < first.y, `${top.y} ${first.y}`);
-      const px = async l => (await p.locator(l).first().locator('[data-worker-person]').boundingBox()).x;
+      const px = async l => (await p.locator(l).first().locator('[data-session-label]').boundingBox()).x;
       const orchX = await px(`[data-worker="${ME.userId}:s:w1-orch:${PID}"]`);
       const bX = await px(`[data-worker="${ME.userId}:s:w1-ba:${PID}"]`);
       check(T('a builder is indented under its orchestrator'), bX > orchX + 8, `${orchX} ${bX}`);
@@ -247,8 +247,8 @@ try {
       await p.goto(B + '/claude?tab=workers');
       await p.waitForSelector('[data-section="workers"]');
       const states = await p.locator('[data-worker]').evaluateAll(els => els.map(e => e.getAttribute('data-state')));
-      check(T('five states shown: on, idle, waiting, off beside the working ones'), ['on', 'idle', 'waiting', 'off', 'working'].every(x => states.includes(x)), states.join());
-      check(T('idle and waiting rows say "since HH:MM", the on row does not'), (await p.locator('[data-worker-since]').count()) === 2);
+      check(T('the states shown: idle (twice: a started one and an idle one), waiting, off beside the working ones; no on'), ['idle', 'waiting', 'off', 'working'].every(x => states.includes(x)) && states.filter(x => x === 'idle').length >= 2 && !states.includes('on'), states.join());
+      check(T('idle and waiting rows say "since HH:MM" on the subline'), (await p.locator('[data-worker-since]:visible').count()) === 3);
       const o3 = await overflow(p);
       check(T('no horizontal scroll with five states'), okO(o3), JSON.stringify(o3));
       await p.screenshot({ path: `${SP}/w1-states-${vp}-light.png`, fullPage: true });

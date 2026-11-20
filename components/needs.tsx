@@ -199,7 +199,7 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered, inRow = fa
 
 /** The session that asked, as it is now: "Payout export: waiting on you", "Payout export: Working". Opens it on the Claude page. */
 function SessionChip({ session }: { session: NonNullable<Need['session']> }) {
-  const status: StatusKey = session.state === 'waiting' ? 'Waiting on you' : session.state === 'working' ? 'Working' : session.state === 'off' ? 'Off' : session.state === 'on' ? 'On' : 'Idle';
+  const status: StatusKey = session.state === 'waiting' ? 'Waiting on you' : session.state === 'working' ? 'Working' : session.state === 'off' ? 'Off' : session.state === 'quiet' ? 'Quiet' : 'Idle';
   return (
     <Link href={session.href} className="flex max-w-full min-h-11 md:min-h-0 items-center -my-2 md:my-0" data-need-session={session.state} title="Open this session on the Claude page">
       <StatusBadge status={status} label={`${session.label}: ${session.word}`} className="max-w-full truncate block leading-5" />

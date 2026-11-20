@@ -58,7 +58,7 @@ export type LaneOut = {
   /** Task ref the session is on. */
   task?: number;
   state: PresenceState;
-  why?: 'need' | 'prompt';
+  why?: 'need' | 'prompt' | 'question';
   lastResult?: { text: string; at: string };
   /** True when lastResult was written by someone other than the reader's own session (shown marked, never followed). */
   writtenBy: boolean;
@@ -83,7 +83,7 @@ export function ago(at: Date, now: number): string {
   return `${Math.round(m / 1440)} d ago`;
 }
 
-const stateWord = (s: { state: PresenceState; why?: 'need' | 'prompt' }) => (s.state === 'waiting' ? `waiting${s.why === 'prompt' ? ' at a prompt' : ' on a need'}` : s.state);
+const stateWord = (s: { state: PresenceState; why?: 'need' | 'prompt' | 'question' }) => (s.state === 'waiting' ? `waiting${s.why === 'prompt' ? ' at a prompt' : s.why === 'question' ? ' for its person to answer its question' : ' on a need'}` : s.state);
 
 /** Now is held by someone busy. `state` is the holder's state word as shown (working, waiting at a prompt). */
 export function nowHeldText(h: { label: string; person: string; state: string; at: Date }, now: number): string {

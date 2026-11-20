@@ -16,7 +16,7 @@ import { stateOfProject } from '@/lib/data/states';
 //                                no device key, no Work OS API key, no OAuth token, no session cookie, no X-API-Key.
 //                                The token's owner must still be a member of its organization on every call.
 //   event  What happened in the Claude Code session. The server decides the state from it (prompt and tool: working;
-//          stop: idle; end: off; notify permission_prompt or elicitation_dialog: waiting at a prompt; idle_prompt: idle;
+//          stop: idle (waiting, why question, when it carries ask: the question the turn ended with); end: off; notify permission_prompt or elicitation_dialog: waiting at a prompt; idle_prompt: idle (never over a question: that waits for the next prompt);
 //          other kinds change nothing). The hook never sends a state, a message text, a path or a session id (result, above, is the one text).
 //   at     The hook's clock in ms; clamped to the server's now plus or minus 5 minutes. An event not newer than the
 //          stored one changes nothing, so hooks that arrive out of order never step a session back.
@@ -77,12 +77,15 @@ const Body = z
     // Protocol 3 (Identity step 4), on a prompt or a stop, only when it changed since the last one: the session's own name, Claude's title for it, the model.
     // Protocol 4 (Lanes step 3), on a result event: the main conversation's last message at the end of a turn (Stop; older hooks sent a subagent's, from SubagentStop). The server cleans it and keeps 300 characters as the lane result of the token's own row.
     result: z.string().max(2000).optional(),
+    // On a stop: the question the turn ended with, for its person (the desktop wrap-up's question). The session then reads Waiting on you until the next prompt. Cleaned like result, 200 characters kept.
+    ask: z.string().max(400).optional(),
     identity: z.object({ title: z.string().max(300).optional(), aiTitle: z.string().max(300).optional(), model: z.string().max(60).optional(), account: z.string().max(400).optional() }).strict().optional(),
   })
   .strict()
   .refine(b => (b.files === undefined && b.reminded === undefined) || b.event === 'stop', { message: 'files and reminded belong to a stop' })
   .refine(b => b.reminded === undefined || b.files !== undefined, { message: 'reminded goes with files' })
   .refine(b => b.nudge === undefined || b.event === 'stop', { message: 'nudge belongs to a stop' })
+  .refine(b => b.ask === undefined || b.event === 'stop', { message: 'ask belongs to a stop' })
   .refine(b => b.holds === undefined || b.event === 'tool' || b.event === 'stop', { message: 'holds belongs to a tool or a stop event' })
   .refine(b => b.copy === undefined || b.event === 'tool', { message: 'copy belongs to a tool event' })
   .refine(b => (b.result === undefined) === (b.event !== 'result'), { message: 'result goes with a result event, and only with it' })
