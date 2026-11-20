@@ -10,6 +10,9 @@ import { taskIdsWithNotes } from '@/lib/data/notes';
 import { claudeOverview } from '@/lib/data/claude-overview';
 import type { ClaudeCardData } from './claude-card';
 import { openNeedsToMe } from '@/lib/data/needs';
+import { asksBySession, withAskerSessions } from '@/lib/data/need-sessions';
+import { roster } from '@/lib/data/roster';
+import { mergeSessions } from '@/lib/session-item';
 import { whatsNewState } from '@/lib/whats-new-seen';
 import type { WhatsNewCardData } from './whats-new-card';
 import { projectsNow } from '@/lib/data/today-projects';
@@ -29,8 +32,21 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const wd = weekday(today);
   const s = { userId: me.userId, orgId: me.orgId };
   const openP = listTasks(s, { open: true, forList: true });
-  const [open, overview, checklist] = await Promise.all([openP, claudeOverview(me, { card: true }).catch(() => null), openP.then(o => getChecklist(me, { skipIfHidden: true, hasOpenTask: o.length > 0 })).catch(() => null)]);
-  const [waiting, notes, needs, news] = await Promise.all([unmetDependencies(s, open), taskIdsWithNotes(s, open.map(t => t.id)), openNeedsToMe(s).catch(() => []), whatsNewState(me).catch(() => null)]);
+  // The Claude card counts the same sessions the Claude page lists: the roster merged with the computers' own lists.
+  const [open, overview, workers, checklist] = await Promise.all([
+    openP,
+    claudeOverview(me, { card: true }).catch(() => null),
+    roster(s, { lite: true, results: true }).catch(() => null),
+    openP.then(o => getChecklist(me, { skipIfHidden: true, hasOpenTask: o.length > 0 })).catch(() => null),
+  ]);
+  const [waiting, notes, needs, news] = await Promise.all([
+    unmetDependencies(s, open),
+    taskIdsWithNotes(s, open.map(t => t.id)),
+    openNeedsToMe(s)
+      .then(l => withAskerSessions(s, l))
+      .catch(() => []),
+    whatsNewState(me).catch(() => null),
+  ]);
   // One States read for the task chips and the Projects card: every project of an open task or a Need to me.
   const stateIds = [...new Set([...open.map(t => t.projectId), ...needs.map(n => n.projectId)].filter((x): x is string => !!x))];
   const states = await statesOfProjects(s, stateIds).then(r => ({ ...Object.fromEntries(stateIds.map(id => [id, { now: null, next: [], later: [] }])), ...r })).catch(() => undefined);
@@ -43,7 +59,9 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const whatsNew: WhatsNewCardData | null = news?.unseen.length ? { entries: news.unseen.slice(0, WHATS_NEW_MAX), more: Math.max(0, news.unseen.length - WHATS_NEW_MAX) } : null;
   const waitingRefs = Object.fromEntries([...waiting].map(([id, deps]) => [id, deps.map(d => `#${d.ref}`)]));
   const dayName = format(new Date(today + 'T12:00:00Z'), 'EEEE, MMMM d');
-  const claude: ClaudeCardData | null = overview ? { hasComputers: overview.hasComputers, running: overview.sessions.filter(r => r.state === 'working' || r.state === 'open' || r.state === 'idle' || r.state === 'starting').length, activity: overview.activity } : null;
+  // eslint-disable-next-line react-hooks/purity -- a server render runs once per request
+  const view = overview ? mergeSessions(workers?.workers ?? [], overview.sessions, { tz: me.tz, now: Date.now() }) : null;
+  const claude: ClaudeCardData | null = overview && view ? { hasComputers: overview.hasComputers, counts: view.counts, live: view.live.slice(0, 3), tz: me.tz, subagents: overview.activity.total.subagents, asks: asksBySession(needs, me.userId) } : null;
 
   return (
     <PlacesProvider places={places}>

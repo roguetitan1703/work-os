@@ -101,11 +101,12 @@ try {
         const p = await ctx.newPage();
         await login(p, { phone, next: '/claude?tab=workers' });
         await p.waitForSelector('[data-section="workers"]');
-        const box = p.locator('[data-workers-no-project]');
+        // One list: the no-project session is a row like the others, its project said as "No project" (no link).
+        const box = p.locator('[data-workers-list] [data-worker]', { has: p.locator('[data-session-project="none"]') }).first();
         await box.waitFor({ timeout: 8000 });
         const txt = await box.innerText();
-        check(T('Workers: a "No project" heading holds the no-project session, named, with the tool and no project link'), /No project/.test(txt) && /orchestrator-2 . Claude Code/.test(txt) && (await box.locator('a[href^="/projects/"]').count()) === 0, txt.slice(0, 200));
-        check(T("Workers: the project's session stays in the main list, not under No project"), (await p.locator('[data-workers-list]').innerText()).includes('Filed Project') && !txt.includes('Filed Project'), '');
+        check(T('Sessions: the no-project session is in the one list, named, reading "No project", with no project link'), /No project/.test(txt) && /orchestrator-2/.test(txt) && (await box.locator('a[href^="/projects/"]').count()) === 0, txt.slice(0, 200));
+        check(T("Sessions: the project's session names its project"), (await p.locator('[data-workers-list]').innerText()).includes('Filed Project') && !txt.includes('Filed Project'), '');
         check(T('Workers: no horizontal scroll'), await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
         await p.screenshot({ path: `${SP}/unfiled-${vp}-${scheme}-workers.png`, fullPage: true });
         await ctx.close();

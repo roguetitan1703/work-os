@@ -1,44 +1,50 @@
 import Link from '@/components/intent-link';
 import { redirect } from 'next/navigation';
 import { getCaller } from '@/lib/caller';
-import { Activity, Play, SlidersHorizontal, Users } from 'lucide-react';
+import { Activity, Play, SlidersHorizontal } from 'lucide-react';
 import { NavIcon } from '@/components/nav-icons';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { claudeOverview } from '@/lib/data/claude-overview';
 import { claudeTasks } from '@/lib/data/dispatcher';
 import { deviceMap } from '@/lib/data/launcher';
 import { roster } from '@/lib/data/roster';
-import { timezoneOf } from '@/lib/profile';
+import { mergeSessions } from '@/lib/session-item';
 import { cn } from '@/lib/utils';
 import { baseUrl } from '../settings/base-url';
 import { AutoRefresh } from './auto-refresh';
-import { NowTab } from './now-tab';
+import { SessionsTab } from './now-tab';
 import { SetupTab } from './setup-tab';
 import { messagesForYou } from '@/lib/data/messages';
-import { WorkersTab } from './workers-tab';
+import { openNeedsToMe } from '@/lib/data/needs';
+import { asksBySession, withAskerSessions } from '@/lib/data/need-sessions';
 
 export const metadata = { title: 'Claude · Work OS' };
 
 const TABS = [
-  { id: 'now', label: 'Now', icon: Activity },
-  { id: 'workers', label: 'Workers', icon: Users },
+  { id: 'sessions', label: 'Sessions', icon: Activity },
   { id: 'setup', label: 'Set up', icon: SlidersHorizontal },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
-type Props = { searchParams: Promise<{ tab?: string }> };
+type Props = { searchParams: Promise<{ tab?: string; s?: string }> };
 
 export default async function ClaudePage({ searchParams }: Props) {
-  const raw = (await searchParams).tab;
-  const tab: TabId = TABS.find(t => t.id === raw)?.id ?? 'now';
+  const sp = await searchParams;
+  // Old links: Now and Workers were two lists of the same sessions; both land on the one Sessions list.
+  const tab: TabId = sp.tab === 'setup' ? 'setup' : 'sessions';
   const me = await getCaller();
   if (!me) redirect('/login');
-  const [data, tasks] = tab === 'setup' || tab === 'workers' ? [null, null] : await Promise.all([claudeOverview(me), tab === 'now' ? claudeTasks(me) : Promise.resolve(null)]);
+  const sc = { userId: me.userId, orgId: me.orgId };
+  const [overview, tasks, workers, messages, needs] =
+    tab === 'sessions'
+      ? await Promise.all([claudeOverview(me), claudeTasks(me), roster(sc, { results: true }), messagesForYou(sc), openNeedsToMe(sc).then(n => withAskerSessions(sc, n))])
+      : [null, null, null, [], []];
+  const asks = asksBySession(needs, me.userId);
   // Start Claude has nothing to start on until a computer exists; until then the page offers Set up Claude instead.
-  const hasComputers = data ? data.hasComputers : (await deviceMap(me)).size > 0;
-  const messages = tab === 'now' ? await messagesForYou({ userId: me.userId, orgId: me.orgId }) : [];
-  const workers = tab === 'workers' ? await roster({ userId: me.userId, orgId: me.orgId }) : null;
-  const tz = workers ? await timezoneOf({ userId: me.userId, orgId: me.orgId }) : 'UTC';
+  const hasComputers = overview ? overview.hasComputers : (await deviceMap(me)).size > 0;
+  // eslint-disable-next-line react-hooks/purity -- a server render runs once per request
+  const now = Date.now();
+  const view = overview && workers ? mergeSessions(workers.workers, overview.sessions, { tz: me.tz, now }) : null;
   const url = tab === 'setup' ? `${await baseUrl()}/api/mcp` : '';
   const startBtn = !hasComputers ? (
     <Link
@@ -58,7 +64,7 @@ export default async function ClaudePage({ searchParams }: Props) {
       className="h-11 md:h-9 px-5 md:px-4 rounded-full md:rounded-md text-sm font-semibold inline-flex items-center justify-center gap-1.5 bg-foreground text-background"
     >
       <Play className="w-4 h-4" /> Start Claude
-      <kbd className="hidden md:inline ml-1 text-[10px] font-mono border border-background/40 rounded px-1">S</kbd>
+      <kbd className="hidden md:inline ml-1 text-label font-mono border border-background/40 rounded px-1">S</kbd>
     </Link>
   );
 
@@ -75,7 +81,7 @@ export default async function ClaudePage({ searchParams }: Props) {
         {TABS.map(t => (
           <Link
             key={t.id}
-            href={`/claude?tab=${t.id}`}
+            href={t.id === 'sessions' ? '/claude' : `/claude?tab=${t.id}`}
             replace
             scroll={false}
             aria-current={t.id === tab ? 'page' : undefined}
@@ -92,10 +98,21 @@ export default async function ClaudePage({ searchParams }: Props) {
       </nav>
 
       {/* Set up refreshes too: it waits for a computer to connect and shows it when it does. */}
-      {/* eslint-disable-next-line react-hooks/purity -- a server render runs once per request; the stamp marks it */}
-      <AutoRefresh stamp={Date.now()} />
-      {tab === 'now' && data && tasks && <NowTab claudeTasks={tasks} sessions={data.sessions} summary={data.summary} hasComputers={data.hasComputers} reopen={data.reopen} messages={messages} />}
-      {tab === 'workers' && workers && <WorkersTab data={workers} tz={tz} />}
+      <AutoRefresh stamp={now} />
+      {tab === 'sessions' && view && overview && tasks && workers && (
+        <SessionsTab
+          view={view}
+          tz={me.tz}
+          openId={sp.s}
+          couldBeRunning={workers.couldBeRunning}
+          machines={workers.machines}
+          hasComputers={overview.hasComputers}
+          claudeTasks={tasks}
+          reopen={overview.reopen}
+          messages={messages}
+          asks={asks}
+        />
+      )}
       {tab === 'setup' && <SetupTab url={url} />}
     </div>
   );

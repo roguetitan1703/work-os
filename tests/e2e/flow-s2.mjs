@@ -248,6 +248,7 @@ try {
     check(`S2 app (${tag}): the State card shows Now, Next with its lines and the version`, (await p.locator('[data-card=purpose] [data-state-now]').textContent()).includes('Build the brief') && (await card.locator('[data-next-id]').count()) >= 2 && v0 >= 1, String(v0));
     check(`S2 app (${tag}): a line by someone else says who`, (await card.innerText()).includes('Tess'));
     const line = `Added in the app at ${tag}`;
+    await card.locator('[data-state-add-open]').click(); // one Add control; Next is picked first
     await card.locator('[data-state-add=next]').fill(line);
     await card.locator('[data-state-add-button=next]').click();
     await card.locator(`text=${line}`).waitFor({ timeout: 15000 });

@@ -357,6 +357,7 @@ try {
 
   // c) the archived lines on the State card, and Put back
   await page.goto(`${B}/projects/${IOID}`);
+  await page.locator('[data-part="later"] > summary').click({ timeout: 20000 }); // Later is folded to its count
   await page.waitForSelector('[data-part="archived"]', { timeout: 20000 });
   check('H11 State card: "Archived lines · 1" sits under Later, collapsed', (await page.locator('[data-part="archived"] summary').textContent()).includes('Archived lines · 1') && !(await page.locator('[data-part="archived"]').evaluate(e => e.open)), '');
   await page.locator('[data-part="archived"] summary').click();

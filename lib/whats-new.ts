@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'sessions-first',
+    date: '2026-11-20',
+    title: 'One list of sessions, and what finished today',
+    line: 'Claude shows every session in one list, live first, with what each is on, where it runs and its last line, then what finished today. Each row has one button: Answer when it waits on you, Message to send it a word, Resume when it ended; the rest is a tap away. A Need names the session that asked, and a project opens with who works on it, its Needs and a folded State.',
+    where: 'Claude in the bar; a Need; a project page',
+    href: '/claude',
+  },
+  {
     id: 'claude-in-the-bar',
     date: '2026-11-20',
     title: 'Claude is in the bar, Menu is one list',

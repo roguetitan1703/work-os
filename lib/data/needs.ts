@@ -61,6 +61,8 @@ export type Need = {
   releaseUntil?: string;
   /** A declutter Need: the proposed changes (session text inside them is the agent's), the disk lines, what was unticked and what the server did. */
   declutter?: DeclutterNeed;
+  /** The session that asked, as it is now (lib/data/need-sessions.ts; only on screens that show it): its id (the roster's row id), label, state and the link that opens it on the Claude page. */
+  session?: { id: string; label: string; state: string; word: string; href: string };
 };
 
 export function toNeed(d: NeedDoc): Need {

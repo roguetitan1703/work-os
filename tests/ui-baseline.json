@@ -39,14 +39,6 @@
     "px": 6,
     "btn": 6
   },
-  "app/(app)/claude/now-tab.tsx": {
-    "px": 12,
-    "btn": 7
-  },
-  "app/(app)/claude/page.tsx": {
-    "px": 1,
-    "btn": 0
-  },
   "app/(app)/claude/quiet-folders.tsx": {
     "px": 2,
     "btn": 1
@@ -70,10 +62,6 @@
   "app/(app)/claude/worker-install.tsx": {
     "px": 4,
     "btn": 3
-  },
-  "app/(app)/claude/workers-tab.tsx": {
-    "px": 16,
-    "btn": 0
   },
   "app/(app)/notes/[id]/note-editor.tsx": {
     "px": 1,
@@ -99,10 +87,6 @@
     "px": 1,
     "btn": 1
   },
-  "app/(app)/projects/[id]/claude-card.tsx": {
-    "px": 5,
-    "btn": 1
-  },
   "app/(app)/projects/[id]/code-locations.tsx": {
     "px": 4,
     "btn": 4
@@ -124,7 +108,7 @@
     "btn": 0
   },
   "app/(app)/projects/[id]/page.tsx": {
-    "px": 18,
+    "px": 12,
     "btn": 0
   },
   "app/(app)/projects/[id]/production-setting.tsx": {
@@ -138,14 +122,6 @@
   "app/(app)/projects/[id]/project-top.tsx": {
     "px": 2,
     "btn": 7
-  },
-  "app/(app)/projects/[id]/sessions.tsx": {
-    "px": 4,
-    "btn": 4
-  },
-  "app/(app)/projects/[id]/state-card.tsx": {
-    "px": 8,
-    "btn": 5
   },
   "app/(app)/projects/delpat-os-picker.tsx": {
     "px": 0,
@@ -270,10 +246,6 @@
   "app/(app)/today/checklist-card.tsx": {
     "px": 10,
     "btn": 5
-  },
-  "app/(app)/today/claude-card.tsx": {
-    "px": 3,
-    "btn": 0
   },
   "app/(app)/today/projects-now-card.tsx": {
     "px": 4,

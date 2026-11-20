@@ -20,6 +20,9 @@ export const TONES = {
   'Waiting on a person': 'warn',
   Idle: 'muted',
   Off: 'muted',
+  Starting: 'info',
+  Failed: 'danger',
+  'No news': 'warn',
   // Task status
   'Not Started': 'neutral',
   'In Progress': 'info',
@@ -44,9 +47,9 @@ export type StatusKey = keyof typeof TONES;
 const PRIORITY = new Set(['P1', 'P2', 'P3', 'P4']);
 
 /** A small pill for a state, status, kind or priority. Pass `label` to show other words than the key. */
-export function StatusBadge({ status, label, className }: { status: StatusKey; label?: string; className?: string }) {
+export function StatusBadge({ status, label, className, ...rest }: { status: StatusKey; label?: React.ReactNode; className?: string } & { [k: `data-${string}`]: string | number | boolean | undefined }) {
   return (
-    <span className={cn('inline-flex h-5 items-center rounded-pill px-2 text-label font-medium whitespace-nowrap shrink-0', TONE[TONES[status]], PRIORITY.has(status) && 'font-mono', className)}>
+    <span className={cn('inline-flex h-5 items-center rounded-pill px-2 text-label font-medium whitespace-nowrap shrink-0', TONE[TONES[status]], PRIORITY.has(status) && 'font-mono', className)} {...rest}>
       {label ?? status}
     </span>
   );

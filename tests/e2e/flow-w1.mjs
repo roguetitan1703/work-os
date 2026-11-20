@@ -64,8 +64,9 @@ try {
   check('W1: three workers, all working', ws.length === 3 && ws.every(w => w.state === 'working'), JSON.stringify(ws.map(w => [w.id.slice(-8), w.state])));
   check('W1: the orchestrator comes first, its two builders right after it, indented (depth 1)', row(ws, 'w1-orch')?.depth === 0 && ws[0].id.includes(':w1-orch:') && ws.slice(1).every(w => w.depth === 1), JSON.stringify(ws.map(w => [w.id.slice(-8), w.depth])));
   const o = row(ws, 'w1-orch');
-  check('W1: a row has client name, model, account, machine (the device’s name), project, branch, what it is doing', /Claude Code/.test(o.text) && /Opus 4\.7/.test(o.text) && /om-max/.test(o.text) && /Om-PC/.test(o.text) && /Flow Roster/.test(o.text) && /master/.test(o.text) && new RegExp(`#${t1} Orchestrate it`).test(o.text), o.text);
-  check('W1: a builder row shows its own client, model, slot and task', /Antigravity/.test(row(ws, 'w1-bs').text) && /Sonnet 5\.5/.test(row(ws, 'w1-bs').text) && /slot S/.test(row(ws, 'w1-bs').text) && new RegExp(`#${t3}`).test(row(ws, 'w1-bs').text));
+  // The row says state, label, what it is doing, project and computer; client, model, account, branch and slot are in its sheet (checked in the browser below).
+  check('W1: a row has its label, machine (the device’s name), project and what it is doing', /orchestrator/.test(o.text) && /Om-PC/.test(o.text) && /Flow Roster/.test(o.text) && new RegExp(`#${t1} Orchestrate it`).test(o.text), o.text);
+  check('W1: a builder row shows its own task', new RegExp(`#${t3}`).test(row(ws, 'w1-bs').text));
   check('W1: nothing is unheld while everyone works', !/data-unheld/.test(h));
   check('W1: set_doing is refused for a task that does not exist and for a caller who is not present', (await mcpH(cc, 'set_doing', { task: 99999, session: 'w1-orch' })).isError && (await mcpH(await mkKey({ agent: 'claude-code', name: 'Ghost' }), 'set_doing', { task: t1, session: 'nobody-here' })).isError);
   const sd = await must(cc, 'set_doing', { task: t1, session: 'w1-orch' });
@@ -215,7 +216,7 @@ try {
       await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:w1-bs:${PID}` }, { $set: { lastSeen: ago(1) } });
       await p.goto(B + '/claude?tab=workers');
       await p.waitForSelector('[data-section="workers"]');
-      check(T('the Workers tab is in the tab bar and lit'), (await p.locator('a[data-tab="workers"][aria-current="page"]').count()) === 1 && /Workers/.test(await p.locator('a[data-tab="workers"]').innerText()));
+      check(T('an old Workers link opens the Sessions tab, lit'), (await p.locator('a[data-tab="sessions"][aria-current="page"]').count()) === 1 && /Sessions/.test(await p.locator('a[data-tab="sessions"]').innerText()));
       check(T('one row per worker (3), the could-run list on top'), (await p.locator('[data-worker]').count()) === 3 && (await p.locator('[data-could-run]').count()) === 1);
       const top = await p.locator('[data-could-run]').boundingBox();
       const first = await p.locator('[data-worker]').first().boundingBox();
@@ -224,6 +225,17 @@ try {
       const orchX = await px(`[data-worker="${ME.userId}:s:w1-orch:${PID}"]`);
       const bX = await px(`[data-worker="${ME.userId}:s:w1-ba:${PID}"]`);
       check(T('a builder is indented under its orchestrator'), bX > orchX + 8, `${orchX} ${bX}`);
+      // A tap on a row opens its sheet: client, model, account, machine, branch, slot.
+      const tapRow = async id => { const b = p.locator(`[data-worker="${id}"] button`).first(); await (phone ? b.tap() : b.click()); return p.locator(`[data-session-sheet="${id}"]`); };
+      const closeSheet = async () => { if (phone) await p.getByRole('dialog').locator('button[aria-label="Close"]').first().tap(); else await p.keyboard.press('Escape'); await p.locator('[data-session-sheet]').waitFor({ state: 'detached', timeout: 6000 }).catch(() => {}); };
+      const osh = await tapRow(`${ME.userId}:s:w1-orch:${PID}`);
+      const ot = await osh.innerText().catch(() => '');
+      check(T('the sheet has client name, model, account, machine, project, branch and the task'), /Claude Code/.test(ot) && /Opus 4\.7/.test(ot) && /om-max/.test(ot) && /Om-PC/.test(ot) && /Flow Roster/.test(ot) && /master/.test(ot) && new RegExp(`#\\d+ Orchestrate it`).test(ot), ot);
+      await closeSheet();
+      const bsh = await tapRow(`${ME.userId}:s:w1-bs:${PID}`);
+      const bt = await bsh.innerText().catch(() => '');
+      check(T("a builder's sheet shows its own client, model and slot"), /Antigravity/.test(bt) && /Sonnet 5\.5/.test(bt) && /slot S/.test(bt), bt);
+      await closeSheet();
       const o2 = await overflow(p);
       check(T('no horizontal scroll'), okO(o2), JSON.stringify(o2));
       check(T('no script errors'), errs.length === 0, errs.join(' | '));
@@ -253,9 +265,16 @@ try {
       check(T('a held line shows the holder label; an unheld line with left shows its left text; the plain line shows neither'), /builder A/.test(await p.locator('[data-next-id] [data-line-holder]').first().innerText()) && (await p.locator('[data-line-holder]').count()) === 1 && /left by builder S · builder-s · last: half done, tests red/.test(await p.locator('[data-line-left]').innerText()) && (await p.locator('[data-line-left]').count()) === 1);
       const lanes = await p.locator('[data-project-worker]').count();
       const resTxt = (await p.locator('[data-lane-result]').allInnerTexts()).join(' | ');
-      check(T('Working on it now lists a lane per session with branch, slot, task link and last result on one line'), lanes === 3 && (await p.locator('[data-lane-task]').count()) === 3 && (await p.locator('[data-lane-result]').count()) === 2 && /last: Plan written/.test(resTxt) && /last: Merged the roster change\. All 12 checks/.test(resTxt) && /builder A · [^·]+ · .*builder-a · slot A/.test(await p.locator('[data-project-worker]').allInnerTexts().then(t => t.join(' '))), resTxt);
-      check(T('a last result names who wrote it as visible text, not only a hover title'), (await p.locator('[data-lane-result-by]').count()) === 2 && /written by .+ of .+, not checked/.test(await p.locator('[data-lane-result-by]').first().innerText()));
-      const lr = await p.locator('[data-lane-result] > div:first-child').evaluateAll(els => els.map(e => e.getBoundingClientRect().height < 24 && e.scrollWidth >= 0));
+      check(T('Working on it now lists a lane per session with branch, slot, task link and last result on one line'), lanes === 3 && (await p.locator('[data-lane-task]').count()) === 3 && (await p.locator('[data-lane-result]').count()) === 2 && /last: Plan written/.test(resTxt) && /last: Merged the roster change\. All 12 checks/.test(resTxt) && /builder A/.test(await p.locator('[data-project-worker]').allInnerTexts().then(t => t.join(' '))), resTxt);
+      // Who wrote the last line, as visible text: in the session's sheet (the row says "last:" and carries it as a title).
+      const lb = p.locator(`[data-project-worker="${ME.userId}:s:w1-ba:${PID}"] button`).first();
+      await (phone ? lb.tap() : lb.click());
+      const lsh = p.locator(`[data-session-sheet="${ME.userId}:s:w1-ba:${PID}"]`);
+      await lsh.waitFor({ timeout: 6000 }).catch(() => {});
+      check(T('a last result names who wrote it as visible text, not only a hover title'), (await lsh.locator('[data-lane-result-by]').count()) === 1 && /written by .+ of .+, not checked/.test(await lsh.locator('[data-lane-result-by]').innerText()) && /builder-a/.test(await lsh.innerText()) && /slot A/.test(await lsh.innerText()));
+      if (phone) await p.getByRole('dialog').locator('button[aria-label="Close"]').first().tap(); else await p.keyboard.press('Escape');
+      await lsh.waitFor({ state: 'detached', timeout: 6000 }).catch(() => {});
+      const lr = await p.locator('[data-lane-result]').evaluateAll(els => els.map(e => e.getBoundingClientRect().height < 24 && e.scrollWidth >= 0));
       check(T('a last result is one line'), lr.length === 2 && lr.every(Boolean), JSON.stringify(lr));
       const o4 = await overflow(p);
       check(T('no horizontal scroll on the project page with lanes'), okO(o4), JSON.stringify(o4));

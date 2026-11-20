@@ -17,11 +17,11 @@ async function suite(vp) {
   await db.collection('devices').insertOne({ _id: dev, name: 'Om-PC', ownerId: ME.userId, orgId: ME.orgId, hash: sha(key), prefix: key.slice(0, 8), createdAt: new Date(), lastSeenAt: new Date(), revokedAt: null });
   const pid = (await mcp('add_project', { name: 'Alpha' })).project.id;
   await db.collection('workerFolders').insertOne({ _id: `${dev}:f_alpha1`, deviceId: dev, folderId: 'f_alpha1', name: 'alpha', git: false, projectId: pid, linkedAt: new Date(), seenAt: new Date(), missing: false });
-  const sV = randomUUID(), sC = randomUUID(), sF = randomUUID();
+  const sV = randomUUID(), sC = randomUUID(), sF = randomUUID(), sK = randomUUID(), sO = randomUUID();
   const item = (sessionId, title, origin) => ({ sessionId, folder: 'alpha', title, lastActiveAt: Date.now() - 5000, subagentsActive: 0, startedByWorkOs: false, running: true, origin });
   const status = body => api(key, 'POST', '/api/worker/status', { worker: { version: '0.2.0', os: 'win32' }, ...body });
   const worker = async () => (await api(key, 'GET', '/api/worker/jobs')).body.jobs;
-  await status({ claudeSessions: [item(sV, 'Fix the login page', 'vscode'), item(sC, 'Terminal chat', 'cli')], reopen: [] });
+  await status({ claudeSessions: [item(sV, 'Fix the login page', 'vscode'), item(sC, 'Terminal chat', 'cli'), item(sK, 'Desktop chat', 'desktop'), item(sO, 'Other chat', 'other')], reopen: [] });
   await db.collection('workerSessions').insertOne({ _id: sF, deviceId: dev, folderId: 'f_alpha1', projectId: pid, state: 'failed', error: 'claude not found on PATH outside the allowed roots', startedAt: new Date(), updatedAt: new Date() });
 
   const ctx = await browser.newContext(phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } : { viewport: { width: 1280, height: 800 } });
@@ -39,13 +39,33 @@ async function suite(vp) {
   await p.waitForURL(u => u.pathname === '/claude', { timeout: 20000 });
   await p.waitForSelector('[data-section="sessions"]');
 
-  // ── Open in VS Code ──
+  // ── Where each session runs: one label in the meta line ──
   const vrow = p.locator(`[data-session-row="${dev}:${sV}"]`);
   const crow = p.locator(`[data-session-row="${dev}:${sC}"]`);
-  check(T('VS Code session is badged, terminal session is not'), (await vrow.locator('[data-origin-badge]').count()) === 1 && (await crow.locator('[data-origin-badge]').count()) === 0);
-  check(T('Open in VS Code on a VS Code session and on a terminal one'), (await vrow.locator('[data-open-vscode]').count()) === 1 && (await crow.locator('[data-open-vscode]').count()) === 1);
-  if (phone) { const bb = await vrow.locator('[data-open-vscode]').boundingBox(); check(T('Open in VS Code target >= 44px'), bb && bb.height >= 43.5, JSON.stringify(bb)); }
-  await click(vrow.locator('[data-open-vscode]'));
+  const krow = p.locator(`[data-session-row="${dev}:${sK}"]`);
+  const orow = p.locator(`[data-session-row="${dev}:${sO}"]`);
+  const originOf = async row => (await row.locator('[data-origin]').count()) === 1 ? `${await row.locator('[data-origin]').getAttribute('data-origin')}:${await row.locator('[data-origin]').innerText()}` : (await row.locator('[data-origin]').count()) === 0 ? '' : 'many';
+  const origins = [await originOf(vrow), await originOf(crow), await originOf(krow), await originOf(orow)];
+  check(T('origin labels: VS Code, Terminal, Desktop app, nothing for other'), JSON.stringify(origins) === JSON.stringify(['vscode:VS Code', 'cli:Terminal', 'desktop:Desktop app', '']), JSON.stringify(origins));
+  // ── Open in VS Code: only in the sheet, only for a session that runs in VS Code ──
+  const closeSheet = async () => { if (phone) await click(p.getByRole('dialog').locator('button[aria-label="Close"]').first()); else await p.keyboard.press('Escape'); await p.locator('[data-session-sheet]').waitFor({ state: 'detached', timeout: 6000 }).catch(() => {}); };
+  check(T('no row has Open in VS Code'), (await p.locator('[data-session-row] [data-open-vscode]').count()) === 0);
+  await click(crow.locator('button').first());
+  const csh = p.locator(`[data-session-sheet="${dev}:${sC}"]`);
+  await csh.waitFor();
+  check(T('a terminal session\'s sheet has no Open in VS Code'), (await csh.locator('[data-open-vscode]').count()) === 0 && /Terminal/.test(await csh.innerText()));
+  await closeSheet();
+  await click(krow.locator('button').first());
+  const ksh = p.locator(`[data-session-sheet="${dev}:${sK}"]`);
+  await ksh.waitFor();
+  check(T('a desktop app session\'s sheet has no Open in VS Code'), (await ksh.locator('[data-open-vscode]').count()) === 0);
+  await closeSheet();
+  await click(vrow.locator('button').first());
+  const vsh = p.locator(`[data-session-sheet="${dev}:${sV}"]`);
+  await vsh.waitFor();
+  check(T('a VS Code session\'s sheet has Open in VS Code'), (await vsh.locator('[data-open-vscode]').count()) === 1);
+  if (phone) { const bb = await vsh.locator('[data-open-vscode]').boundingBox(); check(T('Open in VS Code target >= 44px'), bb && bb.height >= 43.5, JSON.stringify(bb)); }
+  await click(vsh.locator('[data-open-vscode]'));
   const job = await wait(async () => (await jobs({ kind: 'vscode' }))[0]);
   check(T('Open in VS Code queues one vscode job with only the session id'), !!job && job.sessionId === sV && !job.folderId && !job.prompt && (await jobs({ kind: 'vscode' })).length === 1, JSON.stringify(job));
   const got = (await worker()).find(j => j.kind === 'vscode');
@@ -53,20 +73,25 @@ async function suite(vp) {
   await status({ jobs: [{ id: got.id, ok: false, error: 'folder not linked to a project' }] });
   check(T('a failed open says it in plain words'), await toast(/Link this folder to a project first/));
   check(T('and does not touch any session'), (await db.collection('workerSessions').findOne({ _id: sF })).state === 'failed' && (await db.collection('workerSessions').countDocuments({})) === 1);
-  await click(crow.locator('[data-open-vscode]'));
-  const j2 = await wait(async () => (await jobs({ kind: 'vscode', sessionId: sC }))[0]);
+  await click(vsh.locator('[data-open-vscode]'));
+  const j2 = await wait(async () => (await jobs({ kind: 'vscode' })).length === 2 && (await jobs({ kind: 'vscode' }))[1]);
   const g2 = (await worker()).find(j => j.kind === 'vscode');
   await status({ jobs: [{ id: g2.id, ok: true }] });
   check(T('a successful open toasts Opened in VS Code'), !!j2 && (await toast(/Opened in VS Code/)));
+  await closeSheet();
 
-  // ── a dispatched run (started for a task) runs on its own key: no Open in VS Code (Resume opens it), a "For a task" badge ──
+  // ── a dispatched run (started for a task) runs on its own key: no Open in VS Code (Resume opens it), "Started from Work OS" ──
   const sD = randomUUID();
   await db.collection('workerSessions').insertOne({ _id: sD, orgId: ME.orgId, ownerId: ME.userId, deviceId: dev, folderId: 'f_alpha1', projectId: pid, state: 'running', dispatched: true, taskId: 'vr-task', startedAt: new Date(), updatedAt: new Date() });
-  await status({ claudeSessions: [item(sV, 'Fix the login page', 'vscode'), item(sC, 'Terminal chat', 'cli'), item(sD, 'Task run', 'cli')] });
+  await status({ claudeSessions: [item(sV, 'Fix the login page', 'vscode'), item(sC, 'Terminal chat', 'cli'), item(sK, 'Desktop chat', 'desktop'), item(sO, 'Other chat', 'other'), item(sD, 'Task run', 'vscode')] });
   await p.goto(B + '/claude?tab=now');
   const drow = p.locator(`[data-session-row="${dev}:${sD}"]`);
   await drow.waitFor();
-  check(T('Claude page: a dispatched run has no Open in VS Code and shows "For a task"'), (await drow.locator('[data-open-vscode]').count()) === 0 && /For a task/.test(await drow.locator('[data-dispatched]').innerText().catch(() => '')) && (await crow.locator('[data-open-vscode]').count()) === 1);
+  check(T('Claude page: a dispatched run shows "Started from Work OS" (whatever runs it) and no Open in VS Code'), (await drow.locator('[data-open-vscode]').count()) === 0 && (await drow.locator('[data-origin]').getAttribute('data-origin')) === 'workos' && /^Started from Work OS$/.test(await drow.locator('[data-dispatched]').innerText().catch(() => '')));
+  await click(drow.locator('button').first());
+  await p.locator(`[data-session-sheet="${dev}:${sD}"]`).waitFor();
+  check(T('and its sheet has no Open in VS Code'), (await p.locator(`[data-session-sheet="${dev}:${sD}"] [data-open-vscode]`).count()) === 0);
+  await closeSheet();
   for (const scheme of ['light', 'dark']) {
     await p.emulateMedia({ colorScheme: scheme });
     await drow.scrollIntoViewIfNeeded();
@@ -76,7 +101,7 @@ async function suite(vp) {
   await p.goto(B + `/projects/${pid}?tab=claude`);
   const prow = p.locator(`[data-session="${sD}"]`);
   await prow.waitFor();
-  check(T('project Sessions: a dispatched run has no Open in VS Code and says "for a task"'), (await prow.locator('[data-open-vscode]').count()) === 0 && /for a task/.test(await prow.innerText()));
+  check(T('project Sessions: a dispatched run has no Open in VS Code and says "Started from Work OS"'), (await prow.locator('[data-open-vscode]').count()) === 0 && /Started from Work OS/.test(await prow.innerText()));
   for (const scheme of ['light', 'dark']) {
     await p.emulateMedia({ colorScheme: scheme });
     await prow.scrollIntoViewIfNeeded();
@@ -93,8 +118,8 @@ async function suite(vp) {
   const ftxt = await frow.innerText();
   check(T('failed row shows the reason in plain words'), /Claude Code isn't installed on this PC/.test(ftxt) && !/outside the allowed roots/.test(ftxt), ftxt);
   if (!phone) {
-    const er = frow.locator('[data-col="state"] [data-session-error]');
-    check(T('desktop: reason sits next to the state, full text in a tooltip'), (await er.count()) === 1 && /isn't installed/.test((await er.getAttribute('title')) ?? ''));
+    const er = frow.locator('[data-session-error]');
+    check(T('desktop: reason sits on the row, full text in a tooltip'), (await er.count()) === 1 && /isn't installed/.test((await er.getAttribute('title')) ?? ''));
   }
 
   // ── Reopen after a restart ──

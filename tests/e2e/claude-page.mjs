@@ -68,7 +68,8 @@ async function suite(vp) {
   await fillLogin(p);
   await click(p.locator('button[type=submit]'));
   await p.waitForURL(u => u.pathname === '/claude', { timeout: 20000 });
-  await p.waitForSelector('[data-tab="now"]');
+  await p.waitForSelector('[data-tab="sessions"]');
+  check(T('two tabs: Sessions and Set up (Now and Workers are one list)'), (await p.locator('nav[aria-label="Claude sections"] a[data-tab]').count()) === 2 && (await p.locator('a[data-tab="sessions"][aria-current="page"]').count()) === 1);
 
   // ── Now ──
   check(T('no Claude is asking block, no answer box (Claude items retired)'), (await p.locator('[data-section="needs-you"]').count()) === 0 && (await p.locator('[data-needs-you]').count()) === 0);
@@ -96,13 +97,30 @@ async function suite(vp) {
   const sec = p.locator('[data-section="sessions"]');
   await sec.waitFor();
   const stx = await sec.innerText();
-  check(T('Sessions heading shows a count'), /Sessions\s*\d+/i.test(stx), stx.slice(0, 80));
+  check(T('Sessions heading shows a count'), /Sessions[^\n]*\n?\s*\d+/i.test(stx), stx.slice(0, 80));
+  check(T('ended sessions sit under Finished today (ended today), not in the live list'), (await p.locator(`[data-section="finished"] [data-session-row="${D1}:${sDead}"]`).count()) === 1 && (await sec.locator(`[data-session-row="${D1}:${sDead}"]`).count()) === 0);
+  // A tap on a row opens its sheet: everything about it and every action.
+  await click(p.locator(`[data-session-row="${D1}:${sRun}"] button`).first());
+  const sh = p.locator(`[data-session-sheet="${D1}:${sRun}"]`);
+  check(T('a row opens its sheet with the folder, the computer and Stop'), await sh.waitFor({ timeout: 6000 }).then(async () => /alpha/.test(await sh.innerText()) && /Om-PC/.test(await sh.innerText()) && (await sh.locator('[data-sheet-action="stop"]').count()) === 1, () => false));
+  if (phone) await click(p.getByRole('dialog').locator('button[aria-label="Close"]').first());
+  else await p.keyboard.press('Escape');
+  check(T('the sheet closes'), await sh.waitFor({ state: 'detached', timeout: 6000 }).then(() => true, () => false));
   const rrow = p.locator(`[data-session-row="${sRun}"]`).first();
   check(T('running session row present'), (await rrow.count()) === 1 || (await p.locator('[data-session-row]').count()) > 0, String(await p.locator('[data-session-row]').count()));
   const keys = await p.locator('[data-session-row]').evaluateAll(els => els.map(e => e.getAttribute('data-session-row') + ':' + e.getAttribute('data-state')));
   console.log('rows', JSON.stringify(keys));
-  const stopBtn = p.locator('[data-session-row] button:has-text("Stop")').first();
-  check(T('a Stop button exists on a live row'), (await stopBtn.count()) > 0);
+  // One control per row, by state: no Stop, Remove, Link or Open in VS Code on a row (they are in its sheet); an ended session
+  // with a project has Resume; a running one the roster does not list (no hook) has none (Message needs the session's own row).
+  check(T('no Stop, Remove, Link or Open in VS Code on any row'), (await p.locator('[data-session-row] [data-session-action="stop"], [data-session-row] [data-session-action="remove"], [data-session-row] [data-link-folder], [data-session-row] [data-open-vscode]').count()) === 0);
+  const deadRow = p.locator(`[data-session-row="${D1}:${sDead}"]`);
+  check(T('an ended session with a project: Resume is its one control'), (await deadRow.locator('[data-session-action]').count()) === 1 && (await deadRow.locator('[data-session-action="resume"]').count()) === 1, await deadRow.innerText().catch(() => ''));
+  await h44(deadRow.locator('[data-session-action="resume"]'), 'Resume');
+  check(T('a running session without a hook row has no control'), (await p.locator(`[data-session-row="${D1}:${sRun}"] [data-session-action]`).count()) === 0);
+  // Stop is in the sheet.
+  await click(p.locator(`[data-session-row="${D1}:${sRun}"] button`).first());
+  const stopBtn = sh.locator('[data-sheet-action="stop"]');
+  await stopBtn.waitFor({ timeout: 6000 }).catch(() => {});
   await h44(stopBtn, 'Stop');
   if (await stopBtn.count()) {
     await click(stopBtn);
@@ -115,9 +133,14 @@ async function suite(vp) {
     await click(stopBtn);
     await click(p.locator('button[data-confirm]'));
     check(T('confirmed Stop creates a stop job'), !!(await wait(async () => (await jobs({ kind: 'stop' })).length === 1)));
+    check(T('and closes the sheet'), await sh.waitFor({ state: 'detached', timeout: 6000 }).then(() => true, () => false));
     await db.collection('workerJobs').updateMany({}, { $set: { doneAt: new Date(), ok: true } });
-  }
-  const rmBtn = p.locator('[data-session-row] button:has-text("Remove")').first();
+  } else check(T('the sheet has Stop'), false);
+  // Remove is in the sheet of an ended session.
+  await click(deadRow.locator('button').first());
+  const dsh = p.locator(`[data-session-sheet="${D1}:${sDead}"]`);
+  const rmBtn = dsh.locator('[data-sheet-action="remove"]');
+  await rmBtn.waitFor({ timeout: 6000 }).catch(() => {});
   if (await rmBtn.count()) {
     const before = await p.locator('[data-session-row]').count();
     await click(rmBtn);
@@ -125,11 +148,11 @@ async function suite(vp) {
     const undo = await toast(/Removed from the list/);
     check(T('Remove hides the row'), !!(await gone()));
     check(T('Remove offers Undo'), undo);
+  } else {
+    check(T("an ended session's sheet has Remove"), false, await dsh.innerText().catch(() => 'no sheet'));
+    if (phone) await click(p.getByRole('dialog').locator('button[aria-label="Close"]').first());
+    else await p.keyboard.press('Escape');
   }
-  const fl = p.locator('button[aria-pressed]:has-text("Started from Work OS")');
-  await click(fl);
-  check(T('filter Started from Work OS toggles'), (await fl.getAttribute('aria-pressed')) === 'true');
-  await click(p.locator('button[aria-pressed]:has-text("All sessions")'));
   check(T('Claude page no horizontal scroll'), await noScroll());
   await p.screenshot({ path: `${SP}/cl-${vp}-sessions.png` });
 
@@ -142,7 +165,7 @@ async function suite(vp) {
   await db.collection('presence').updateOne({ _id: HOOKROW }, { $set: { ccSession: CC, activity: { state: 'waiting', at: new Date(), why: 'prompt' } } });
   await p.goto(B + '/claude'); await p.waitForSelector('[data-section="sessions"]');
   const hrow = p.locator(`[data-session-row="${D1}:${CC}"]`);
-  check(T('hook says waiting at a prompt: the row reads "waiting on you"'), (await hrow.count()) === 1 && /waiting on you/.test(await hrow.innerText()), await hrow.innerText().catch(() => 'no row'));
+  check(T('hook says waiting at a prompt: the row reads "waiting on you"'), (await hrow.count()) === 1 && /waiting on you/i.test(await hrow.innerText()) && (await p.locator(`[data-worker="${HOOKROW}"]`).count()) === 1 && (await p.locator(`[data-worker="${HOOKROW}"][data-session-row="${D1}:${CC}"]`).count()) === 1, await hrow.innerText().catch(() => 'no row'));
   check(T('Claude page no horizontal scroll with the waiting row'), await noScroll());
   await p.screenshot({ path: `${SP}/cl-${vp}-now-waiting.png` });
   await p.evaluate(() => document.documentElement.classList.add('dark'));
@@ -153,7 +176,7 @@ async function suite(vp) {
   check(T('hook says working although the transcript is 20 minutes old: working'), (await p.locator(`[data-session-row="${D1}:${CC}"]`).getAttribute('data-state')) === 'working');
   await db.collection('presence').updateOne({ _id: HOOKROW }, { $set: { activity: { state: 'off', at: new Date() } } });
   await p.goto(B + '/claude'); await p.waitForSelector('[data-section="sessions"]');
-  check(T('hook says off while the worker list still shows it running: closed'), (await p.locator(`[data-session-row="${D1}:${CC}"]`).getAttribute('data-state')) === 'closed');
+  check(T('hook says off while the worker list still shows it running: off, under Finished today'), (await p.locator(`[data-session-row="${D1}:${CC}"]`).getAttribute('data-state')) === 'off' && (await p.locator(`[data-section="finished"] [data-session-row="${D1}:${CC}"]`).count()) === 1);
   await db.collection('presence').deleteOne({ _id: HOOKROW });
   await db.collection('devices').updateOne({ _id: D1 }, { $unset: { claudeSessions: '' } });
 
@@ -313,7 +336,7 @@ async function suite(vp) {
   check(T('flow closed'), await p.locator('[data-start-step]').waitFor({ state: 'detached', timeout: 6000 }).then(() => true, () => false) && !p.url().includes('start='));
   await db.collection('workerJobs').updateMany({}, { $set: { doneAt: new Date(), ok: true } });
   await p.goto(B + '/claude'); await p.waitForSelector('[data-section="sessions"]');
-  check(T('new session shows under Running as starting'), await p.locator(`[data-section="sessions"] [data-session-row$=":${sj.sessionId}"]`).innerText().then(t => /starting/.test(t) && /Alpha/.test(t), () => false));
+  check(T('new session shows under Running as starting'), await p.locator(`[data-section="sessions"] [data-session-row$=":${sj.sessionId}"]`).innerText().then(t => /starting/i.test(t) && /Alpha/.test(t), () => false));
 
   // suggestion only: Bravo
   await p.goto(B + `/claude?start=${Bv}`);

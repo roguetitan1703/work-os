@@ -2,6 +2,7 @@ import { MobileHeader } from '@/components/mobile/tab-bar';
 import { MyNeeds } from '@/components/needs';
 import { requireCaller } from '@/lib/caller';
 import { listNeeds, openNeedsToMe } from '@/lib/data/needs';
+import { withAskerSessions } from '@/lib/data/need-sessions';
 
 export const metadata = { title: 'Needs · Work OS' };
 
@@ -14,12 +15,16 @@ export default async function NeedsPage() {
   const s = { userId: me.userId, orgId: me.orgId };
   // eslint-disable-next-line react-hooks/purity -- a server render runs once per request
   const since = Date.now() - ANSWERED_DAYS * 86_400_000;
-  const [open, answered] = await Promise.all([
+  const [openRaw, answeredRaw] = await Promise.all([
     openNeedsToMe(s).catch(() => []),
     listNeeds(s, { to: s.userId, status: ['answered'], limit: 50 })
       .then(l => l.filter(n => n.answeredAt && Date.parse(n.answeredAt) >= since).sort((a, b) => (b.answeredAt ?? '').localeCompare(a.answeredAt ?? '')).slice(0, 20))
       .catch(() => []),
   ]);
+  // Each Need names the session that asked it, as it is now (one read for both lists).
+  const both = await withAskerSessions(s, [...openRaw, ...answeredRaw]);
+  const open = both.slice(0, openRaw.length);
+  const answered = both.slice(openRaw.length);
   const subtitle = open.length ? `${open.length} waiting on you` : 'Nothing waits on you';
   return (
     <div className="max-w-xl md:max-w-3xl mx-auto">

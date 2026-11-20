@@ -148,13 +148,15 @@ async function seed() {
     lane(2, P.kestrel.id, 'Payout export', 'builder-b', 'Reconcile Kestrel invoices against Razorpay payouts', { state: 'waiting', why: 'prompt', at: mins(7) }, 'Matched 31 of 45 payout lines. Stopped at a permission prompt to read the Razorpay export folder.', { slot: 'B' }),
     lane(3, P.wos.id, 'Needs page polish', 'dev', 'Check the new Needs page on a real phone', { state: 'idle', at: mins(25) }, 'Needs page checked at 390 and 1280 in both themes; no overflow; card buttons are 44px.'),
     lane(4, P.site.id, 'Pricing page', 'main', 'Rewrite pricing page copy', { state: 'working', at: mins(0) }, 'Draft one of the three plan descriptions is in; the comparison table is next.'),
+    // ended earlier today: what Claude finished today (job 7)
+    lane(5, P.kestrel.id, 'Invoice CSV cleanup', 'builder-c', null, { state: 'off', at: mins(40) }, 'Removed the 3 duplicate columns from the invoice CSV; the export test passes.', { lastSeen: mins(40) }),
   ]);
   // Needs
-  const need = (id, ref, projectId, kind, ask, extra = {}) => ({ _id: id, ref, ...placed, projectId, taskId: null, taskRef: null, to: ME.userId, from: { actor: { kind: 'agent', name: 'Claude' }, word: 'agent', label: 'Claude Code', session: 'tour-s1' }, kind, ask, options: [], status: 'open', appOnly: false, createdAt: mins(30 + ref * 20), answeredAt: null, ...extra });
+  const need = (id, ref, projectId, kind, ask, extra = {}) => ({ _id: id, ref, ...placed, projectId, taskId: null, taskRef: null, to: ME.userId, from: { actor: { kind: 'agent', agent: 'claude-code', userId: ME.userId }, word: 'agent', label: 'Claude Code', session: 'tour-s1' }, kind, ask, options: [], status: 'open', appOnly: false, createdAt: mins(30 + ref * 20), answeredAt: null, ...extra });
   const stdNeeds = () => [
-    need('tour-need-1', 1, P.kestrel.id, 'decide', 'The 9 refund lines arrive as negative invoices. How should the payout export treat them before Friday?', { options: [{ id: 'a', label: 'Keep them negative for now', means: 'No data change during close; Acme finance subtracts them by hand.' }, { id: 'b', label: 'Tag them as refunds', means: 'A new type in the export; one more column for Acme to learn.' }, { id: 'c', label: 'Hold the export', means: 'Nothing goes to Acme until the model is settled.' }], from: { actor: { kind: 'agent', name: 'Claude' }, word: 'agent', label: 'Kestrel webhook fix', session: 'tour-s1' } }),
-    need('tour-need-2', 2, P.site.id, 'approve', 'Publish the new pricing page copy to the staging site so Priya can read it on her phone?', { options: [{ id: 'yes', label: 'Yes', means: 'Publish to staging only' }, { id: 'no', label: 'No', means: 'Keep it as a draft' }], from: { actor: { kind: 'agent', name: 'Claude' }, word: 'agent', label: 'Pricing page', session: 'tour-s4' } }),
-    need('tour-need-3', 3, P.wos.id, 'review', 'Review the hand-in for the notes search fix.', { options: [{ id: 'accept', label: 'Accept', means: 'It is good: close the task.' }, { id: 'send_back', label: 'Send back', means: 'It needs more work: write what to change.' }, { id: 'accept_file', label: 'Accept and file what is left', means: 'Close the task and make a task from what is left.' }], taskId: T('Review the hand-in for the notes search fix'), taskRef: REF['Review the hand-in for the notes search fix'].ref, from: { actor: { kind: 'agent', name: 'Claude' }, word: 'agent', label: 'Needs page polish', session: 'tour-s3' }, result: { changed: 'Notes search now matches words in the body, not only the title. The phone list searches live; the laptop list searches on Enter.', checked: 'Ran flow-notes-search at 390 and 1280; the body-only word is found in both and the other note is hidden.', rating: null, where: [{ url: 'https://github.com/delpat-tech/work-os/pull/412', label: 'Pull request 412' }, { url: 'https://example.test/notes?q=zorbulax', label: 'The notes list with the search applied' }], left: ['Highlight the matched word in the list'] } }),
+    need('tour-need-1', 1, P.kestrel.id, 'decide', 'The 9 refund lines arrive as negative invoices. How should the payout export treat them before Friday?', { options: [{ id: 'a', label: 'Keep them negative for now', means: 'No data change during close; Acme finance subtracts them by hand.' }, { id: 'b', label: 'Tag them as refunds', means: 'A new type in the export; one more column for Acme to learn.' }, { id: 'c', label: 'Hold the export', means: 'Nothing goes to Acme until the model is settled.' }], from: { actor: { kind: 'agent', agent: 'claude-code', userId: ME.userId }, word: 'agent', label: 'Kestrel webhook fix', session: 'tour-s1' } }),
+    need('tour-need-2', 2, P.site.id, 'approve', 'Publish the new pricing page copy to the staging site so Priya can read it on her phone?', { options: [{ id: 'yes', label: 'Yes', means: 'Publish to staging only' }, { id: 'no', label: 'No', means: 'Keep it as a draft' }], from: { actor: { kind: 'agent', agent: 'claude-code', userId: ME.userId }, word: 'agent', label: 'Pricing page', session: 'tour-s4' } }),
+    need('tour-need-3', 3, P.wos.id, 'review', 'Review the hand-in for the notes search fix.', { options: [{ id: 'accept', label: 'Accept', means: 'It is good: close the task.' }, { id: 'send_back', label: 'Send back', means: 'It needs more work: write what to change.' }, { id: 'accept_file', label: 'Accept and file what is left', means: 'Close the task and make a task from what is left.' }], taskId: T('Review the hand-in for the notes search fix'), taskRef: REF['Review the hand-in for the notes search fix'].ref, from: { actor: { kind: 'agent', agent: 'claude-code', userId: ME.userId }, word: 'agent', label: 'Needs page polish', session: 'tour-s3' }, result: { changed: 'Notes search now matches words in the body, not only the title. The phone list searches live; the laptop list searches on Enter.', checked: 'Ran flow-notes-search at 390 and 1280; the body-only word is found in both and the other note is hidden.', rating: null, where: [{ url: 'https://github.com/delpat-tech/work-os/pull/412', label: 'Pull request 412' }, { url: 'https://example.test/notes?q=zorbulax', label: 'The notes list with the search applied' }], left: ['Highlight the matched word in the list'] } }),
     need('tour-need-4', 4, P.kestrel.id, 'approve', 'Run the new payout export against the production Razorpay account to compare totals?', { appOnly: true, options: [{ id: 'yes', label: 'Yes, once', means: 'One read-only run, today' }, { id: 'no', label: 'No', means: 'Stay on the sandbox account' }] }),
   ];
   await rawDb.collection('needs').insertMany(stdNeeds());
@@ -226,7 +228,7 @@ async function tour(br, tag) {
   if (phone) { await p.evaluate(() => window.scrollTo(0, 0)); await shotOne(p, `${SP}/phone-header-bar-390-light.png`, true, false); index.push({ f: 'phone-header-bar-390-light.png', text: 'The phone header and bottom tab bar at rest, first screen of Today. Reached: /today, no scrolling' }); }
   await g('/projects');
   await screen(p, tag, 'projects-list', 'Open /projects', { shows: 'The projects list with Now lines' });
-  for (const [t, nm, shows] of [['overview', 'project-overview', 'Project Overview: State card (Now, Next, Later, Decisions), Claude card, tasks'], ['tasks', 'project-tasks', 'Project Tasks tab'], ['claude', 'project-claude', 'Project Claude tab: sessions working on it'], ['needs', 'project-needs', 'Project Needs tab'], ['notes', 'project-notes', 'Project Notes tab'], ['info', 'project-info', 'Project Info tab']]) {
+  for (const [t, nm, shows] of [['overview', 'project-overview', 'Project Overview: Now, who works on it, Needs, the folded State, tasks'], ['tasks', 'project-tasks', 'Project Tasks tab'], ['needs', 'project-needs', 'Project Needs tab'], ['notes', 'project-notes', 'Project Notes tab'], ['info', 'project-info', 'Project Info tab']]) {
     await g(`/projects/${kid}?tab=${t}`);
     await screen(p, tag, nm, `/projects/${kid}?tab=${t}`, { shows });
   }
@@ -269,9 +271,10 @@ async function tour(br, tag) {
   await g('/needs');
   await screen(p, tag, 'needs', '/needs', { shows: 'Needs page: decide with options, approve, review, one app-only' });
   await g('/claude');
-  await screen(p, tag, 'claude-now', '/claude', { shows: 'Claude page, Now tab: sessions and what waits' });
-  await g('/claude?tab=workers');
-  await screen(p, tag, 'claude-workers', '/claude?tab=workers', { shows: 'Claude page, Workers tab: the roster, state per session' });
+  await screen(p, tag, 'claude-sessions', '/claude', { shows: 'Claude page, Sessions: one list, live first, then Finished today' });
+  await g(`/claude?s=${encodeURIComponent(`${ME.userId}:s:tour-s1:${kid}`)}`);
+  await p.locator('[data-session-sheet]').waitFor({ timeout: 5000 }).catch(() => note(tag, 'the session sheet did not open from ?s='));
+  await screen(p, tag, 'claude-session-sheet', '/claude?s=<session>', { shows: "A session's sheet: everything about it and its actions", full: false });
   await g('/claude?tab=setup');
   await screen(p, tag, 'claude-setup', '/claude?tab=setup', { shows: 'Claude page, Set up tab' });
   await g('/notes');
@@ -457,20 +460,23 @@ async function jobs(br, tag) {
 
   await job(1, 'See what each Claude session is doing right now', async ({ step, hard }) => {
     await step(phone ? 'Claude in the bar' : 'Sidebar: Claude', () => T(p.locator(phone ? 'nav[aria-label=Main]:visible a[href="/claude"]' : 'aside a[href="/claude"]')));
-    await step('Workers tab (state per session)', () => T(p.locator('a[data-tab=workers]')));
     const body = await p.locator('main').innerText();
-    if (!/Kestrel webhook fix/.test(body)) hard('Workers tab does not list the session labels');
-    if (!/last:/.test(body)) hard('what each session last did ("last:") is not on the Workers tab; it is on Now or the project page');
+    if (!/Kestrel webhook fix/.test(body)) hard('the Sessions list does not show the session labels');
+    if (!/last:/.test(body)) hard('what each session last did ("last:") is not on the Sessions list');
+    if (!(await p.locator('[data-section="sessions"] [data-worker]').count())) hard('no session rows in the one Sessions list');
   });
   const BAR = `nav[aria-label=Main]:visible`;
   const tab = href => T(p.locator(phone ? `${BAR} a[href="${href}"]` : `aside a[href="${href}"]`));
   await job(2, 'Answer a Need that a Claude session asked, then check that session', async ({ step, hard }) => {
     await step(phone ? 'Needs tab in the bar' : 'Sidebar: Needs', () => tab('/needs'));
+    const before = await p.locator('[data-need="1"] [data-need-session]').innerText().catch(() => '');
+    if (!/Kestrel webhook fix: waiting on you/.test(before)) hard(`the Need does not name the session that asked ("${before}")`);
     await step('Pick the first option of the decide Need', () => T(p.locator('[data-need="1"] [data-need-option="a"]')));
-    await step('Confirm if asked (Send / Answer)', async () => { const b = p.locator('[data-need="1"] [data-need-send]'); if (await b.count()) await T(b); else hard('the option tap answered at once (no confirm step)'); });
-    await step(phone ? 'Claude in the bar' : 'Sidebar: Claude', () => tab('/claude'));
-    await step('Workers tab: that session now', () => T(p.locator('a[data-tab=workers]')));
-    hard('after answering, the session is checked on another page (/claude?tab=workers); the Need page does not show the session state');
+    await p.locator('[data-need="1"][data-need-status="answered"] [data-need-session]').waitFor({ timeout: 8000 }).catch(() => {});
+    const after = await p.locator('[data-need="1"] [data-need-session]').innerText().catch(() => '');
+    if (!/Kestrel webhook fix: Working/.test(after)) hard(`after the answer the session chip does not read Working ("${after}")`);
+    const href = await p.locator('[data-need="1"] [data-need-session]').getAttribute('href').catch(() => '');
+    if (!/^\/claude\?s=/.test(href ?? '')) hard('the session chip does not link to the session');
   });
   await job(3, 'Give Claude a task (Give to Claude) on an existing task', async ({ step, hard }) => {
     const ref = REF['Rewrite pricing page copy'].ref;
@@ -501,6 +507,9 @@ async function jobs(br, tag) {
     if (!/Get the October payout/.test(t)) hard('goal (Now) not visible on the project Overview first screen');
     if (!/Fix duplicate invoice\.paid/.test(t)) hard('Next lines not visible on Overview');
     if (!/Kestrel webhook fix|Working on it now|session/i.test(t)) hard('who is working on it is not visible on Overview');
+    const wy = await p.locator('[data-card="workers"]').boundingBox().catch(() => null);
+    const vh = p.viewportSize().height;
+    if (!wy || wy.y > vh) hard(`who is working on it is below the first screen (at ${wy ? Math.round(wy.y) : 'none'} px, screen ${vh})`);
   });
   await job(6, 'Find a note by a word in its title or body', async ({ step, hard }) => {
     if (phone) { await step('Projects in the bar (Notes sit under Projects on the phone)', () => tab('/projects')); await step('Notes link on the Projects page', () => T(p.locator('a[href="/notes"]:visible'))); }
@@ -511,12 +520,10 @@ async function jobs(br, tag) {
     await step('Open the note', () => T(p.locator('a[href^="/notes/"]:visible', { hasText: 'Kestrel migration plan' })));
   });
   await job(7, 'Check what Claude finished today', async ({ step, hard }) => {
-    await step(phone ? 'Menu' : 'Sidebar: account menu', () => T(p.locator(phone ? 'a[href="/menu"]:visible' : 'aside [data-account-button]')));
-    await step(phone ? 'Menu: Review' : 'Account menu: Review', () => T(p.locator(phone ? 'a[href^="/review"]:visible' : '[data-menu-review]')));
-    const t = await p.locator('main').innerText();
-    if (!/Done|done/.test(t)) hard('no Done list visible on Review');
-    if (!/Claude|hand/i.test(t)) hard('Review does not say which finished work was Claude\'s (no hand-ins or results here)');
-    hard('session results ("last:") live on Claude > Workers and the project Claude tab, not on Review');
+    await step(phone ? 'Claude in the bar' : 'Sidebar: Claude', () => tab('/claude'));
+    const fin = p.locator('[data-section="finished"]');
+    if (!(await fin.count())) hard('no "Finished today" on the Claude page');
+    else if (!/Finished today/.test(await fin.innerText()) || !(await fin.locator('[data-worker]').count())) hard('"Finished today" lists no session');
   });
   await job(8, 'Approve a review Need (look at the work first, then accept)', async ({ step, hard }) => {
     await step(phone ? 'Needs in the bar' : 'Sidebar: Needs', () => tab('/needs'));
@@ -558,6 +565,46 @@ async function jobs(br, tag) {
     // A settings link that lands on its section needs no further tap.
     if (!/section=notifications/.test(p.url())) await step('Notifications section', async () => { const l = p.locator('a[href*="section=notifications"]:visible').first(); if (await l.count()) await T(l); else hard('no Notifications link'); });
     if (!/section=notifications/.test(p.url())) hard(`did not land on the Notifications section (${new URL(p.url()).pathname + new URL(p.url()).search})`);
+  });
+  // A session row has one control, by state: Message (a working session of yours), Answer (waiting on you), Resume (ended).
+  await job(11, 'Message a working Claude session', async ({ step, hard }) => {
+    await rawDb.collection('needs').deleteMany({}); // nothing waits on a Need: the sessions read working
+    await rawDb.collection('messages').deleteMany({ body: /^Tour: / });
+    await go(p, '/today', tag);
+    const card = p.locator('[data-section="claude-card"]');
+    let row = card.locator('[data-worker="tour-lane-1"]');
+    if (!(await row.count())) {
+      hard("the working session is not on Today's Claude card");
+      await step(phone ? 'Claude in the bar' : 'Sidebar: Claude', () => tab('/claude'));
+      row = p.locator('[data-section="sessions"] [data-worker="tour-lane-1"]');
+    }
+    const ctl = await row.locator('[data-session-action]').getAttribute('data-session-action').catch(() => null);
+    if (ctl !== 'message') hard(`a working session's one control is "${ctl}", not Message`);
+    const idle = await p.locator('[data-worker="tour-lane-3"] [data-session-action]').getAttribute('data-session-action', { timeout: 1000 }).catch(() => null);
+    if (idle !== null && idle !== 'message') hard(`an idle session's control is "${idle}", not Message`);
+    await step('Message on the session row', () => T(row.locator('[data-session-action="message"]')));
+    await p.locator('[data-message-input]').fill('Tour: also check the refund path before Friday.');
+    await step('Send', () => T(p.locator('[data-message-send]')));
+    const m = await rawDb.collection('messages').findOne({ body: 'Tour: also check the refund path before Friday.' });
+    if (!m) hard('no message was sent');
+    else if (!(m.toSids ?? []).some(k => k.endsWith(':tour-s1')) || m.from?.word !== 'person' || m.kind !== 'request') hard(`the message is not a request from the person to that session (${JSON.stringify({ toSids: m.toSids, word: m.from?.word, kind: m.kind })})`);
+    if (await p.locator('[data-message-sheet]').count()) hard('the message sheet stayed open after Send');
+  });
+  await job(12, 'Answer a Need on the row of the session that asked', async ({ step, hard }) => {
+    let row = p.locator('[data-section="claude-card"] [data-worker="tour-lane-1"]');
+    if (!(await row.count())) {
+      await step(phone ? 'Claude in the bar (the session is not among the first three on Today)' : 'Sidebar: Claude (the session is not among the first three on Today)', () => tab('/claude'));
+      row = p.locator('[data-section="sessions"] [data-worker="tour-lane-1"]');
+    }
+    const ctl = await row.locator('[data-session-action]').getAttribute('data-session-action').catch(() => null);
+    if (ctl !== 'answer') hard(`a session waiting on a Need to you has "${ctl}", not Answer`);
+    if (!/Waiting on you/.test(await row.innerText().catch(() => ''))) hard('the session waiting on your Need does not read "Waiting on you"');
+    if (await p.locator('[data-worker="tour-lane-2"] [data-session-action]').count()) hard('a session at a permission prompt has a row control (nothing in Work OS answers a prompt)');
+    await step('Answer on the session row', () => T(row.locator('[data-session-action="answer"]')));
+    if (!(await p.locator('[data-answer-sheet] [data-need]').count())) hard('Answer did not open the Need in place');
+    await step('Pick the first option', () => T(p.locator('[data-answer-sheet] [data-need-option="a"]')));
+    const n = await rawDb.collection('needs').findOne({ _id: 'tour-need-1' });
+    if (n?.status !== 'answered') hard(`the Need is not answered (${n?.status})`);
   });
   await ctx.close();
 }
