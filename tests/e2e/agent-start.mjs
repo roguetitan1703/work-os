@@ -127,7 +127,8 @@ try {
   check('a start with account "tools" shows account tools in list_sessions', rAcct.status === 200 && (ls1.json?.sessions ?? []).find(x => x.session === sid)?.account === 'tools', rAcct.status + ' ' + JSON.stringify((ls1.json?.sessions ?? []).find(x => x.session === sid)));
   const rMail = await post(T1, { account: 'a@b.c' });
   check('an account that looks like an email is dropped and the start succeeds', rMail.status === 200 && (await rawDb.collection('presence').findOne({ session: sid }))?.account !== 'a@b.c' && !JSON.stringify(await rawDb.collection('presence').find({}).toArray()).includes('a@b.c'));
-  check('a start with an account over 40 characters: 400', (await post(T1, { account: 'x'.repeat(41) })).status === 400);
+  const rLong = await post(T1, { account: 'x'.repeat(41) });
+  check('an account over 40 characters is dropped and the start succeeds', rLong.status === 200 && !JSON.stringify(await rawDb.collection('presence').find({}).toArray()).includes('x'.repeat(41)));
   check('a head over 80 characters: 400', (await post(T1, { head: 'h'.repeat(81) })).status === 400);
   check('dirty must be a boolean: 400', (await post(T1, { dirty: 'yes' })).status === 400);
   // H6: Claude Code's own session id and what began the session (the row's state), and the device as machine.

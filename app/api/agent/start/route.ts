@@ -56,7 +56,7 @@ const Body = z
     label: z.string().max(120).optional(),
     model: z.string().max(60).optional(),
     // The Claude account's label (the email's part before @, worker/claude-account.mjs); one that looks like an email or a key is dropped, the start goes on.
-    account: z.string().max(40).optional(),
+    account: z.string().max(400).optional(), // longer than 40 is dropped below: a label never fails a start
     // Hook protocol 3 (Identity step 4): the session's own name (a /rename), Claude's title for it and where it runs. One line each, cut to 120 characters on the server.
     title: z.string().max(300).optional(),
     aiTitle: z.string().max(300).optional(),
@@ -125,7 +125,7 @@ export async function POST(req: Request): Promise<Response> {
     const parsed = Body.safeParse(raw);
     if (!parsed.success) return reply(400, { error: 'The body has fields this route does not take, or values that are too long.' });
     const b = parsed.data;
-    if (b.account && (/@|^\s*(sk-|wkr_|wos_|ghp_|xox)/i.test(b.account) || /[A-Za-z0-9_-]{32,}/.test(b.account))) delete b.account; // the same test as start_work's account
+    if (b.account && (b.account.length > 40 || /@|^\s*(sk-|wkr_|wos_|ghp_|xox)/i.test(b.account) || /[A-Za-z0-9_-]{32,}/.test(b.account))) delete b.account; // the same test as start_work's account
 
     const hook = hookHeader(req.headers.get('x-work-os-hook'));
     const tz = await timezoneOf(s);
