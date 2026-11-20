@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 132. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 133. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -6,11 +6,10 @@ Copy of the Work OS state, version 132. WORK-STATE.md is a copy of the State, wr
 - Ship Harness end to end (#276, docs/flows/agent-system.md): R6 and R7 are live. Now: the Fable tool-calling review and its fixes, H16 measuring until about 3 Dec, then H17. Per part: Opus plans, Sonnet builds in its slot, Opus reviews, dev, tests; production per release with Om's go.
 
 ## Next
-1. UI revamp so the purpose of the work always shows first (Om 18 Nov; phase 1 on dev 1ce66ba; phases 1 and 2 on dev 799c85f, seen at 390/1280 light+dark; phase 3 (task header): builder S Sonnet building on builder-s): design note b961e1600e (purpose header A, then Today B, then chips C; 5 phases). Phase 1 built on builder-s 32374a5 (flow-ui-p1 52; looked at 390/1280 light and dark): merge with R8.
-2. Need answers reach whoever holds the work now (design e62ea121eb; built on builder-s2 7379510, flow-need-handoff 21/21 + 12 Needs suites pass; merges into dev with R8): a Need asked by a session that is off is delivered to the project's Now holder or the session that picked up its handover, and start_work lists answered Needs since the last lead's session; withdraw_need on an answered or closed Need says so with the answer and time. Fold into the lanes design (note after 2afd68cb00).
-3. R8 (WAITS ON Om's release go, asked 20 Nov; dev 799c85f tested) (note 954f4550f8): batch A, the stopgap (ab06462) and run keys for dispatched runs (2cfc999) merged in wos-int branch r8-int; tsc, words and worker 424 pass. Re-reviews: Reopen all and resume closed; builder A fixing the Open in VS Code HIGH; then a final check, full e2e, dev, and ask Om.
-4. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
-5. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
+1. Release R8 (dev 799c85f, full e2e passed 20 Nov): batch A, run keys for dispatched runs, nudge fixes, Need hand-off (e62ea121eb), UI phases 1 and 2. After it: check the site, restart the worker, reinstall hooks. — waits on Om: release go (asked 20 Nov)
+2. UI revamp so the purpose of the work always shows first (Om 18 Nov; phase 1 on dev 1ce66ba; phases 1 and 2 on dev 799c85f, seen at 390/1280 light+dark; phase 3 (task header): builder S Sonnet building on builder-s): design note b961e1600e (purpose header A, then Today B, then chips C; 5 phases). Phase 1 built on builder-s 32374a5 (flow-ui-p1 52; looked at 390/1280 light and dark): merge with R8.
+3. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
+4. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -40,4 +39,4 @@ Copy of the Work OS state, version 132. WORK-STATE.md is a copy of the State, wr
 - The idle nudge says "add waits_on (save_state edit_line)", but edit_line silently ignores waits_on (20 Nov): an agent following the nudge changes nothing. Make edit_line take waits_on, or fix the nudge text. Unknown op fields are stripped with no error. — waits on R8 batch B or H17
 - (20 Nov); builder S (Sonnet) finding the cause on builder-s.
 - Projects now card: a stray space before " · 1 session" after the project name (seen 20 Nov at 390 and 1280).
-<!-- work-os-copy sha1:93adb2a851fe53d88a4c0a21c32ab736da476f60 -->
+<!-- work-os-copy sha1:00e868d45fd8a9a279b27d09c54e38ef6137e7f0 -->
