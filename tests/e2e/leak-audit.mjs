@@ -606,8 +606,8 @@ try {
   // A second target for owner calls that destroy one (each control needs its own; the attackers aim at the same one)
   Object.assign(TARGET.T, { trashRef2: P.trashRef, trashRef3: P.trashRef, trashRef4: P.trashRef, comment2: P.comment, sub2: P.subNote, invite2: A.invite, boiler: P.projNote, give: P.giveRef });
   Object.assign(TARGET.X, { trashRef2: S.trashRef, trashRef3: S.trashRef, trashRef4: S.trashRef, comment2: S.comment, sub2: P.subNote, invite2: A.invite, boiler: S.note, give: S.taskRef });
-  Object.assign(TARGET.T, { ordersNote: P.ordersNote, msg: P.msg, msgReq: P.msgReq, sid: P.sid, sidRow: (await rawDb.collection('presence').findOne({ session: P.sid }))?._id });
-  Object.assign(TARGET.X, { ordersNote: S.ordersNote, msg: S.msg, msgReq: S.msgReq, sid: S.sid, sidRow: (await rawDb.collection('presence').findOne({ session: S.sid }))?._id });
+  Object.assign(TARGET.T, { ordersNote: P.ordersNote, msg: P.msg, msgReq: P.msgReq, sid: P.sid, sidRow: (await rawDb.collection('presence').findOne({ _id: { $regex: ':s:' + P.sid } }))?._id });
+  Object.assign(TARGET.X, { ordersNote: S.ordersNote, msg: S.msg, msgReq: S.msgReq, sid: S.sid, sidRow: (await rawDb.collection('presence').findOne({ _id: { $regex: ':s:' + S.sid } }))?._id });
   Object.assign(FAKE, { trashRef2: 92001, trashRef3: 92002, trashRef4: 92003, comment2: fakeUuid(), sub2: mutate(P.subNote2), invite2: oid(), boiler: mutate(P.boiler), give: 94000 });
   // Needs: T aims at A's private ones (and at the shared ones it can read but may not answer or withdraw); X and R at the shared ones.
   Object.assign(TARGET.T, { needAns: P.needAns, needAnsS: S.needAns, needWd: P.needWd, needWdS: S.needWd });
@@ -626,6 +626,8 @@ try {
   OWN.msgReq = P.msgReq;
   FAKE.msg = mutate(P.msg);
   FAKE.msgReq = mutate(P.msgReq);
+  OWN.sidRow = TARGET.T.sidRow;
+  FAKE.sidRow = mutate(OWN.sidRow);
   OWN.sid = P.sid;
   FAKE.sid = mutate(P.sid);
   Object.assign(OWN, { needAns: P.needAns, needAnsS: S.needAns, needWd: P.needWd, needWdS: S.needWd });
