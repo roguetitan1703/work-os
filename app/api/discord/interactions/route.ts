@@ -1,18 +1,12 @@
 import { handleNeedPress } from '@/lib/discord/need-buttons';
 import { handleRecordedPress, RECORDED_PRESS } from '@/lib/discord/buttons';
-import { after, NextResponse } from 'next/server';
-import { discordConfig } from '@/lib/discord/client';
-import { flushQueuedAlerts } from '@/lib/alerts';
-import { markSeen } from '@/lib/notify';
-import { discordUser, timezoneOf } from '@/lib/profile';
-import { runWithRequestContext } from '@/lib/request-context';
-import { editOriginal, errorText, handleInteraction, InteractionType, linkAccount, NOT_LINKED, notAvailable, type Interaction } from '@/lib/discord/commands';
+import { NextResponse } from 'next/server';
+import { ephemeral, InteractionType, type Interaction } from '@/lib/discord/interaction';
 
 // Discord HTTP interactions endpoint (set as "Interactions Endpoint URL" in the Developer Portal).
 // Authenticated by Discord's Ed25519 signature, not by the app's proxy. The server it came from picks the organization
-// (discord:<orgId>.guildId); the sender must have linked their Discord account there (/link, lib/profile.ts) and still
-// be a member, and everything then acts as them, in their timezone. Anyone else gets "not linked". Work runs in after()
-// and edits the deferred response.
+// (discord:<orgId>.guildId). Only buttons arrive here: the ones under the bot's Recorded reply (lib/discord/buttons.ts, who
+// may press what is decided there) and, until they go, the Need buttons in a direct message. Every answer is immediate.
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -73,42 +67,12 @@ export async function POST(req: Request) {
     return NextResponse.json(await handleNeedPress(i, (process.env.APP_URL || new URL(req.url).origin).replace(/\/+$/, '')));
   }
 
-  const cfg = discordConfig();
-  const guildId = i.guild_id;
-  const discordId = i.member?.user?.id; // only in a server (commands are registered per server)
-  if (!cfg || !guildId || !discordId) return NextResponse.json(notAvailable(i));
-  if (i.type === InteractionType.COMMAND && i.data?.name === 'link') return NextResponse.json(await linkAccount(i));
-
-  // The buttons on the bot's Recorded reply: the poster may Undo without being linked, so this comes before the link check.
+  // The buttons and the select on the bot's Recorded reply. The poster may Undo without being linked, so who may do what is
+  // decided in lib/discord/buttons.ts, not here.
   if (i.type === InteractionType.COMPONENT && RECORDED_PRESS.test(i.data?.custom_id ?? '')) {
     return NextResponse.json(await handleRecordedPress(i, (process.env.APP_URL || new URL(req.url).origin).replace(/\/+$/, '')));
   }
 
-  // The Work OS person this Discord account is linked to, in the organization that owns the server.
-  const s = await discordUser(guildId, discordId);
-  if (!s) return NextResponse.json(notAvailable(i, NOT_LINKED));
-  const ctx = { userId: s.userId, tz: await timezoneOf(s) };
-  const baseUrl = (process.env.APP_URL || new URL(req.url).origin).replace(/\/+$/, '');
-  const plan = await runWithRequestContext(ctx, () => handleInteraction(i, { baseUrl, s, link: { orgId: s.orgId, guildId, discordId } }));
-
-  if (plan.work) {
-    const work = plan.work;
-    const appId = cfg.appId || i.application_id;
-    after(() => runWithRequestContext(ctx, async () => {
-      let reply;
-      try {
-        reply = await work();
-      } catch (err) {
-        reply = { content: errorText(err) };
-      }
-      try {
-        await editOriginal(appId, i.token, reply);
-        await flushQueuedAlerts(s, baseUrl);
-        await markSeen(s, 'discord');
-      } catch (err) {
-        console.error('[discord] edit original failed:', err instanceof Error ? err.message : String(err));
-      }
-    }));
-  }
-  return NextResponse.json(plan.response);
+  // Anything else (a button this version no longer has, an old command): nothing to do.
+  return NextResponse.json(ephemeral('Not available.'));
 }

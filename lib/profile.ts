@@ -1,8 +1,7 @@
 import 'server-only';
-import { createHash, randomInt } from 'node:crypto';
 import { DEFAULT_TZ, isTimeZone } from './dates';
 import { InputError } from './data/errors';
-import { getUserSetting, orgWithSetting, setUserSetting, takeUserSetting, usersWithSetting, type Scope } from './scope';
+import { getUserSetting, orgWithSetting, setUserSetting, usersWithSetting, type Scope } from './scope';
 import { isMember } from './people';
 import { orgGuildId, type DiscordLink } from './discord/client';
 import './request-context';
@@ -11,12 +10,12 @@ import './request-context';
 //   timezone      IANA zone; what "today" and alert hours mean for them (default APP_TZ, else UTC)
 //   quiet hours   quietStart–quietEnd (whole hours in their zone): alerts wait until it ends; equal = none
 //   digestHour    the hour their daily digest is sent (default 9)
-//   discordId     their linked Discord account: commands act as them, their alert DMs go there
+//   discordId     their linked Discord account: what they mark or press there is theirs, their reel and day-old Need DMs go there
+//   discordCardHidden  they hid the Connect Discord card on Today
 //
-// The Discord link is proven, never typed: Settings makes a short code (stored hashed, 10 minutes) and the person
-// runs /link <code> on the organization's Discord server; the signed interaction says which Discord account it was.
+// The Discord link is proven, never typed: Connect Discord (lib/discord/connect.ts) signs them in at Discord.
 
-export type Profile = { timezone: string; quietStart: number; quietEnd: number; /** The hour their daily digest is sent (alerts kind `digest`). */ digestHour: number; discordId: string | null };
+export type Profile = { timezone: string; quietStart: number; quietEnd: number; /** The hour their daily digest is sent (alerts kind `digest`). */ digestHour: number; discordId: string | null; /** Hid the Connect Discord card on Today. */ discordCardHidden: boolean };
 /**
  * Quiet hours for someone who has not set their own: 23:00–08:00, or DEFAULT_QUIET_HOURS ("22-7", or "none"; the e2e
  * runner sets none so alert suites pass at any hour).
@@ -48,6 +47,7 @@ export async function getProfile(s: Scope): Promise<Profile> {
     quietEnd: hour(d?.quietEnd, DEFAULT_QUIET.end),
     digestHour: hour(d?.digestHour, 9),
     discordId: typeof d?.discordId === 'string' && d.discordId ? d.discordId : null,
+    discordCardHidden: d?.discordCardHidden === true,
   };
   if (cache.size > 5000) cache.clear();
   cache.set(key(s), { at: Date.now(), p });
@@ -76,45 +76,32 @@ export function inQuietHours(p: Pick<Profile, 'quietStart' | 'quietEnd'>, h: num
 }
 
 // ── Discord link ────────────────────────────────────────────────────────────
-
-const LINK_TTL_MS = 10 * 60_000;
-const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
-const hashCode = (code: string) => createHash('sha256').update(`discord-link:${code.trim().toUpperCase()}`).digest('hex');
-
-/** A fresh one-time code for /link (shown once; replaces any earlier one). */
-export async function startDiscordLink(s: Scope): Promise<{ code: string; expiresAt: Date }> {
-  const code = Array.from({ length: 8 }, () => CODE_CHARS[randomInt(CODE_CHARS.length)]).join('');
-  const expiresAt = new Date(Date.now() + LINK_TTL_MS);
-  await setUserSetting(s, 'profile', { discordLink: { hash: hashCode(code), expiresAt } });
-  return { code, expiresAt };
-}
+// Made only by Connect Discord (lib/discord/connect.ts: Discord's own sign-in proves the account); there is no code to type.
 
 /**
- * /link <code> from Discord account `discordId` on the server `guildId`: links that account to the person who made the
- * code, in the organization that owns the server. Any earlier link of this Discord account in that organization is
- * moved. Returns the linked person, or null for an unknown or expired code.
+ * Links the Discord account `discordId` to this person, in their organization. One Discord account belongs to one person
+ * there: any earlier link of it to someone else is moved away.
  */
-export async function finishDiscordLink(guildId: string, discordId: string, code: string): Promise<Scope | null> {
-  if (!/^\d{15,22}$/.test(discordId) || !/^[A-Za-z0-9]{6,12}$/.test(code.trim())) return null;
-  const orgId = await orgWithSetting('discord', { guildId });
-  if (!orgId) return null;
-  // Used up in the same step it is found, so two /link calls with one code cannot both succeed.
-  const userId = await takeUserSetting(orgId, 'profile', { 'discordLink.hash': hashCode(code), 'discordLink.expiresAt': { $gt: new Date() } }, { discordLink: null });
-  if (!userId || !(await isMember(orgId, userId))) return null;
-  const s = { userId, orgId };
-  for (const other of await usersWithSetting(orgId, 'profile', { discordId })) {
-    if (other !== userId) {
-      await setUserSetting({ userId: other, orgId }, 'profile', { discordId: null });
-      cache.delete(key({ userId: other, orgId }));
+export async function linkDiscordAccount(s: Scope, discordId: string): Promise<void> {
+  if (!/^\d{15,22}$/.test(discordId)) throw new InputError('That is not a Discord account id');
+  for (const other of await usersWithSetting(s.orgId, 'profile', { discordId })) {
+    if (other !== s.userId) {
+      await setUserSetting({ userId: other, orgId: s.orgId }, 'profile', { discordId: null });
+      cache.delete(key({ userId: other, orgId: s.orgId }));
     }
   }
-  await setUserSetting(s, 'profile', { discordId, discordLink: null, linkedAt: new Date() });
+  await setUserSetting(s, 'profile', { discordId, discordConnect: null, discordCardHidden: false, linkedAt: new Date() });
   cache.delete(key(s));
-  return s;
 }
 
 export async function unlinkDiscord(s: Scope): Promise<void> {
-  await setUserSetting(s, 'profile', { discordId: null, discordLink: null });
+  await setUserSetting(s, 'profile', { discordId: null, discordConnect: null });
+  cache.delete(key(s));
+}
+
+/** The person hides the Connect Discord card on Today; Settings still has the button. */
+export async function hideDiscordCard(s: Scope): Promise<void> {
+  await setUserSetting(s, 'profile', { discordCardHidden: true });
   cache.delete(key(s));
 }
 

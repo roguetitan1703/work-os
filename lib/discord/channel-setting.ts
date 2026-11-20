@@ -51,7 +51,7 @@ export async function setDiscordChannel(s: Scope, projectId: string, input: { ch
   }
   const link = await discordLinkOf(s);
   if (!link) throw new InputError('This organization has no Discord server set.');
-  if (!link.discordId) throw new InputError('Connect your Discord first (Settings › Connections): you pick from the channels your account can see.');
+  if (!link.discordId) throw new InputError('Connect your Discord first (Settings › Notifications): you pick from the channels your account can see.');
   const choice = (await choicesFor(link)).find(x => x.id === input.channelId);
   if (!choice) throw new InputError('Pick a text channel your Discord account can see (not one marked sensitive).');
   const other = await (await orgWide(s.orgId)).projects.findOne({ _id: { $ne: projectId }, 'discordChannel.channelId': choice.id }, { projection: { name: 1 } });

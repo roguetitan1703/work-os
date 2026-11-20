@@ -7,7 +7,7 @@ import { isMember } from '../people';
 import { getProfile, timezoneOf } from '../profile';
 import { runWithRequestContext } from '../request-context';
 import { orgGuildId } from './client';
-import type { Interaction } from './commands';
+import type { Interaction } from './interaction';
 
 // Answering a Need from the Discord DM it came in (flow DC1). Buttons carry the custom id `wo:need:<need id>:<option id>`
 // (the same `wo:` family as the task buttons, so tests/e2e/entry-points.mjs audits it). A DM press has no server and no

@@ -1,49 +1,40 @@
 import type { Caller } from '@/lib/caller';
 import { discordConfig, orgGuildId } from '@/lib/discord/client';
+import { connectReady } from '@/lib/discord/connect';
 import { isOperator } from '@/lib/operator';
 import { getProfile } from '@/lib/profile';
 import { DiscordLink } from './discord-link';
-import { Disclosure } from './ui';
 
-/** Settings › Notifications › Discord: link your own account (the operator connects the server under Server). */
-export async function DiscordLinkPanel({ caller }: { caller: Caller }) {
-  if (!discordConfig()) return <p className="px-4 py-3 text-sm text-muted-foreground" data-discord-off>Discord is not set up on this Work OS, so there is nothing to link.</p>;
+/** What the person is told when they come back from Discord (the callback sends one fixed word). */
+const RESULTS: Record<string, string> = {
+  linked: 'Discord connected.',
+  failed: 'Discord did not connect. Try again.',
+  notready: 'Connecting is not set up on this Work OS yet.',
+  notserver: 'No Discord server is connected to this organization yet.',
+  notmember: 'Your Discord account is not on this organization\u2019s server. Join it, then connect again.',
+};
+
+/** Settings › Notifications › Discord: connect your own account (the operator connects the server under Server). */
+export async function DiscordLinkPanel({ caller, result }: { caller: Caller; result?: string }) {
+  if (!discordConfig()) return <p className="px-4 py-3 text-body md:text-meta text-muted-foreground" data-discord-off>Discord is not set up on this Work OS, so there is nothing to connect.</p>;
   const guildId = await orgGuildId(caller.orgId);
   if (!guildId)
     return (
-      <p className="px-4 py-3 text-sm text-muted-foreground" data-discord-off>
+      <p className="px-4 py-3 text-body md:text-meta text-muted-foreground" data-discord-off>
         No Discord server is connected to this organization yet. {isOperator(caller) ? 'Connect it under Settings › Server.' : 'The operator of this Work OS connects it.'}
       </p>
     );
   const { discordId } = await getProfile(caller);
+  const note = result && Object.hasOwn(RESULTS, result) ? RESULTS[result] : null;
   return (
     <div className="space-y-3">
+      {note && (
+        <p className="px-4 pt-3 text-body md:text-meta font-medium" data-discord-result={result} role="status">
+          {note}
+        </p>
+      )}
       <div className="px-4 py-3">
-        <DiscordLink linked={!!discordId} serverReady />
-      </div>
-      <div className="px-4 pb-3">
-        <Disclosure title="Commands" hint="Right-click, slash commands, tagging the bot">
-          <div className="-mx-4 -my-4 divide-y divide-border/60 text-sm">
-            {[
-              ['/link code', 'Links your Discord account to Work OS (the code comes from this page).'],
-              ['Right-click a message → Apps → Add to Work OS', 'Creates a task from the message (or says it’s already tracked), with buttons to set priority/due.'],
-              ['/task title [priority] [due] [project] [mode]', 'Adds a task. Due accepts today, tomorrow, fri, +3d, 2026-10-20.'],
-              ['/today', 'Overdue, due today, in progress and open P1s.'],
-              ['/done ref [note]', 'Completes a task (ref autocompletes from open tasks).'],
-              ['/progress ref percent [note]', 'Logs progress.'],
-              ['Tag the bot in any message', 'Nothing happens on Discord. Claude lists it as “flagged for later” (with the message you replied to) in discord_needs_attention and the brief.'],
-            ].map(([cmd, what]) => (
-              <div key={cmd} className="px-4 py-2.5">
-                <code className="text-xs font-semibold text-foreground break-words">{cmd}</code>
-                <p className="text-xs text-muted-foreground mt-0.5">{what}</p>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground pt-4">
-            Commands act as whoever linked the Discord account that runs them; an account that isn&apos;t linked gets &ldquo;not linked&rdquo;. Writes from Discord show in task
-            history as <b>You · Discord</b>. Personal DMs and group DMs are out of reach for bots and are not read.
-          </p>
-        </Disclosure>
+        <DiscordLink linked={!!discordId} ready={connectReady()} />
       </div>
     </div>
   );

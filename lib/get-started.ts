@@ -99,7 +99,7 @@ export async function getChecklist(c: Caller, opts: { hasOpenTask?: boolean; ski
   rows.push(
     { id: 'task', label: 'Add your first task', hint: 'Press N anywhere, or use the + button.', done: hasTask, action: 'quick-add', button: 'Add a task' },
     { id: 'alerts', label: 'Get alerts on your phone', hint: 'Install the app, allow notifications, send a test.', done: devicesN > 0, href: '/settings?section=notifications', button: 'Set up alerts' },
-    { id: 'discord', label: 'Link Discord', optional: true, hint: 'Optional. Commands and alert messages on Discord.', done: !!profile?.discordId, href: guild ? '/settings?section=notifications#discord' : '/settings?section=connections', button: 'Link Discord' },
+    { id: 'discord', label: 'Connect Discord', optional: true, hint: 'Optional. Mark messages with the track emoji; reel messages reach you on Discord.', done: !!profile?.discordId, href: guild ? '/settings?section=notifications#discord' : '/settings?section=connections', button: 'Connect Discord' },
     { id: 'claude', label: 'Connect Claude', hint: 'So Claude can see and update your tasks.', done: setup.step1.done, href: '/claude?tab=setup', button: 'Connect Claude' },
     { id: 'pc', label: 'Let Claude work on your PC', optional: true, hint: 'Optional. Claude opens a Claude Code window on your PC.', done: setup.step2.done && setup.step3.done, href: '/claude?tab=setup', button: 'Set up' },
   );

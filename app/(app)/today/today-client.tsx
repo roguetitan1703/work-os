@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { ClaudeCard, type ClaudeCardData } from "./claude-card";
 import { ChecklistCard } from "./checklist-card";
 import { WhatsNewCard, type WhatsNewCardData } from "./whats-new-card";
+import { DiscordCard } from "./discord-card";
 import { NeedsYou } from "@/components/needs";
 import type { ProjectNowRow } from "@/lib/data/today-projects";
 import { ProjectsNowCard } from "./projects-now-card";
@@ -38,6 +39,8 @@ type Props = {
   checklist: Checklist | null;
   /** Unseen entries from lib/whats-new.ts (null: none). */
   whatsNew: WhatsNewCardData | null;
+  /** Show the Connect Discord card (lib/discord/connect.ts showConnectCard). */
+  discordCard: boolean;
   welcome: string | null;
 };
 
@@ -62,7 +65,7 @@ export function TodayClient(props: Props) {
   );
 }
 
-function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, waiting, noteTaskIds, claude, needs, projectRows, checklist, whatsNew, welcome }: Props & { variant: Variant }) {
+function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, waiting, noteTaskIds, claude, needs, projectRows, checklist, whatsNew, discordCard, welcome }: Props & { variant: Variant }) {
   const m = useTodayModel({ tasks: openTasks, waiting, isNaturallyWeekend, weekday });
   const phone = variant === "phone";
   const [importOpen, setImportOpen] = useState(false);
@@ -181,6 +184,7 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
         {sections}
         {/* Last on the phone: tasks keep the first screen; the Menu button carries a dot while something is new. */}
         <WhatsNewCard data={whatsNew} phone />
+        <DiscordCard show={discordCard} phone />
         {dialogs}
       </div>
     );
@@ -205,6 +209,7 @@ function TodayView({ variant, dayName, isNaturallyWeekend, weekday, openTasks, w
           <ClaudeCard data={claude} />
           <NowNext m={m} row={row} />
           <WhatsNewCard data={whatsNew} phone={false} />
+          <DiscordCard show={discordCard} phone={false} />
         </div>
       </div>
       {dialogs}

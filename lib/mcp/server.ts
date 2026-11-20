@@ -725,7 +725,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
   const discordGate = async () => {
     const link = await discordLinkOf(s);
     if (!link) throw new InputError('Your organization has no Discord server connected to Work OS.');
-    if (!link.discordId) throw new InputError('Link your Discord account first: Work OS Settings › Connections, then /link <code> on the server.');
+    if (!link.discordId) throw new InputError('Connect your Discord account first: Work OS Settings › Notifications, Connect Discord.');
     return link;
   };
   /** Mail tools act as the caller only: their scope picks their own Mailloom key. The session id goes into Mailloom's audit log. */

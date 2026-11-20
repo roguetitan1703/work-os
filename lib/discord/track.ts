@@ -83,12 +83,12 @@ async function askToConnect(channelId: string, messageId: string, userId: string
   if (Date.now() - (noted.get(key) ?? 0) < 3_600_000) return;
   if (noted.size > 500) noted.clear();
   noted.set(key, Date.now());
-  const url = `${baseUrl}/settings?section=connections`;
+  const url = `${baseUrl}/settings?section=notifications`;
   try {
     await api(`/channels/${channelId}/messages`, {
       method: 'POST',
       body: {
-        content: `<@${userId}> Connect Discord in Work OS first: ${mdLink('Settings › Connections', url)}`,
+        content: `<@${userId}> Connect Discord in Work OS first: ${mdLink('Settings › Notifications', url)}`,
         message_reference: { message_id: messageId, fail_if_not_exists: false },
         allowed_mentions: { users: [userId], replied_user: false },
         flags: 1 << 2,

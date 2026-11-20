@@ -60,7 +60,7 @@ function ChannelSheet({ projectId, view, setting, onSaved, onClose }: { projectI
     <ResponsiveSheet title="Discord channel" onClose={onClose}>
       <div className="space-y-3 pb-2" data-discord-channel-sheet>
         {!view.linked ? (
-          <p className="text-meta text-muted-foreground">Connect your Discord in Settings › Connections first: you pick from the channels your account can see.</p>
+          <p className="text-meta text-muted-foreground">Connect your Discord in Settings › Notifications first: you pick from the channels your account can see.</p>
         ) : (
           <>
             <label className="block space-y-1">

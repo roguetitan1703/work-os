@@ -1,7 +1,7 @@
 // Work OS in Discord, plan v4 (Work OS note c7b491432a). The relay the live listener posts to, the bug channels, the track
 // emoji, the buttons on the bot's reply, Connect Discord (OAuth), the agent tools and the DMs, against a stub Discord API
 // (discord-stub.mjs) with signed interactions. Seed profile: none, server mode discord. Each section adds its checks here.
-import { B, CRON, ME, call, check, finish, launch, login, makeUser, mcp, pick, rawDb, setOrgGuild, setProfile } from './lib.mjs';
+import { B, CRON, ME, call, check, finish, launch, login, makeUser, mcp, mcpAs, mkKey, pick, rawDb, setOrgGuild, setProfile } from './lib.mjs';
 import { createPrivateKey, sign } from 'node:crypto';
 import { startStub, BOT } from './discord-stub.mjs';
 
@@ -80,6 +80,10 @@ try {
   const DC = '111111111111111134';
   const Cy = await makeUser({ email: 'cy@example.test', name: 'Cy Nair', orgId: A.orgId, role: 'member' });
   await setProfile(Cy, { discordId: DC, quietStart: 0, quietEnd: 0 });
+  // Dee and Eli have not connected Discord (the Connect tests); made here for the same reason.
+  const Dee = await makeUser({ email: 'dee@example.test', name: 'Dee Iyer', orgId: A.orgId, role: 'member' });
+  const Eli = await makeUser({ email: 'eli@example.test', name: 'Eli Das', orgId: A.orgId, role: 'member' });
+  for (const who of [Dee, Eli]) await setProfile(who, { quietStart: 0, quietEnd: 0 });
   const ch = (id, name, extra = {}) => ({ id, type: 0, name, guild_id: G1, parent_id: null, position: 0, permission_overwrites: [], ...extra });
   st.guilds[G1] = {
     channels: [ch(GEN, 'general'), ch(BUG, 'delpat-os'), ch(BLK, 'secrets')],
@@ -141,7 +145,7 @@ try {
   check('first set: the bot replies under the post with the task number and a link', !!reply1 && new RegExp(`^Recorded \\[#${k1?.ref}\\]\\(<[^>]*/tasks/${k1?.ref}>\\)$`).test(reply1.body.content), reply1?.body.content);
   const btns = reply1?.body.components ?? [];
   check('first set: the reply has Undo, Done and a For select', btns[0]?.components?.map(c => c.custom_id).join() === `wo:undo:${k1?.ref},wo:done:${k1?.ref}` && btns[1]?.components?.[0]?.custom_id === `wo:for:${k1?.ref}`, JSON.stringify(btns).slice(0, 300));
-  check('first set: the For select lists the organization\'s members', (btns[1]?.components?.[0]?.options ?? []).length === 3, JSON.stringify(btns[1]?.components?.[0]?.options));
+  check('first set: the For select lists the organization\'s members', (btns[1]?.components?.[0]?.options ?? []).length === 5, JSON.stringify(btns[1]?.components?.[0]?.options));
   check('first set: the reply is saved on the task', k1?.source?.replyId === reply1?.id, JSON.stringify(k1?.source));
   const c1 = await rawDb.collection('activity').find({ taskId: k1?._id, type: 'comment' }).toArray();
   check('first set: a reply in the window is a comment on its issue', c1.length === 1 && /iOS too/.test(c1[0].note ?? ''), JSON.stringify(c1.map(c => c.note)));
@@ -372,6 +376,119 @@ try {
   const done6 = await call('complete_task', { task: u6.t.ref, note: 'fixed' });
   const edit6 = await waitFor(() => st.edits.slice(edits0).find(e => e.body.content?.startsWith('Done')));
   check('buttons: completing the task elsewhere edits the bot reply to Done, with no buttons', !done6.ERROR && !!edit6 && new RegExp(`^Done \\[#${u6.t.ref}\\]`).test(edit6.body.content) && Array.isArray(edit6.body.components) && edit6.body.components.length === 0 && edit6.channel === BUG, JSON.stringify({ e: edit6, d: done6 }));
+  // ---- 5. Connect Discord (OAuth) ----
+  const DD = '111111111111111136'; // Dee's Discord account (on the server)
+  const DN = '111111111111111137'; // an account that is not on the server
+  st.guilds[G1].members[DD] = { roles: [], user: { id: DD, username: 'dee' } };
+  const mem = e => rawDb.collection('settings').findOne({ _id: `profile:${e.userId}` });
+  const cbOutcome = async (pg, qs) => {
+    const r = await pg.request.get(`${B}/api/discord/connect/callback?${qs}`, { maxRedirects: 0 });
+    return { status: r.status(), where: r.headers().location ?? '' };
+  };
+  const startConnect = async pg => {
+    const r = await pg.request.get(`${B}/api/discord/connect`, { maxRedirects: 0 });
+    const loc = r.headers().location ?? '';
+    return { status: r.status(), loc, state: loc ? new URL(loc).searchParams.get('state') : null };
+  };
+  const deeKey = await mkKey({ agent: 'claude', userId: Dee.userId, orgId: Dee.orgId, name: 'dee chat' });
+  const deeTool = await mcpAs(deeKey, 'discord_list_channels', {});
+  check('unconnected: the Discord tools ask to connect first', deeTool.isError && /Connect your Discord account/i.test(deeTool.text), deeTool.text.slice(0, 160));
+  const brC = await launch();
+  const cxD = await brC.newContext({ viewport: { width: 1280, height: 900 } });
+  const pgD = await cxD.newPage();
+  const anon = await fetch(`${B}/api/discord/connect`, { redirect: 'manual' });
+  check('connect: signed out, the start does not go to Discord', [303, 401].includes(anon.status) && !(anon.headers.get('location') ?? '').includes('oauth2'), `${anon.status} ${anon.headers.get('location')}`);
+  const anonCb = await fetch(`${B}/api/discord/connect/callback?code=abc&state=${'a'.repeat(32)}`, { redirect: 'manual' });
+  check('connect: signed out, the callback links nothing', [303, 401].includes(anonCb.status) && !(await rawDb.collection('settings').findOne({ discordId: 'abc' })));
+  await login(pgD, { email: 'dee@example.test', next: '/today' });
+  await pgD.goto(`${B}/today`);
+  check('today: an unconnected person sees the Connect Discord card', await pgD.locator('[data-section="discord"]:visible').waitFor({ timeout: 15000 }).then(() => true, () => false));
+  await pgD.goto(`${B}/settings?section=notifications`);
+  check('settings: the Discord group has a Connect Discord button and no code box', (await pgD.locator('[data-discord-connect]').count()) === 1 && (await pgD.locator('[data-discord-link-code]').count()) === 0);
+  const s1 = await startConnect(pgD);
+  const au1 = s1.loc ? new URL(s1.loc) : null;
+  check('connect: the start sends the person to Discord with the identify scope and our callback', s1.status === 303 && au1?.pathname === '/oauth2/authorize' && au1.searchParams.get('client_id') === '222222222222222222' && au1.searchParams.get('scope') === 'identify' && au1.searchParams.get('response_type') === 'code' && /\/api\/discord\/connect\/callback$/.test(au1.searchParams.get('redirect_uri') ?? '') && (s1.state ?? '').length >= 20, s1.loc);
+  check('connect: the state is stored hashed, not as sent', !!(await mem(Dee))?.discordConnect?.hash && !JSON.stringify(await mem(Dee)).includes(s1.state));
+  const bad1 = await cbOutcome(pgD, `code=whatever&state=${'z'.repeat(32)}`);
+  check('connect: a state we did not make links nothing', /discord=failed/.test(bad1.where) && !(await mem(Dee))?.discordId, bad1.where);
+  const bad2 = await cbOutcome(pgD, `code=unknown-code&state=${s1.state}`);
+  check('connect: a code Discord does not know links nothing', /discord=failed/.test(bad2.where) && !(await mem(Dee))?.discordId, bad2.where);
+  const bad3 = await cbOutcome(pgD, `code=unknown-code&state=${s1.state}`);
+  check('connect: a state is used up in one step', /discord=failed/.test(bad3.where) && !(await mem(Dee))?.discordConnect);
+  const s2 = await startConnect(pgD);
+  const cancelled = await cbOutcome(pgD, `error=access_denied&state=${s2.state}`);
+  check('connect: pressing Cancel at Discord links nothing', /discord=failed/.test(cancelled.where) && !(await mem(Dee))?.discordId);
+  const s3 = await startConnect(pgD);
+  st.codes['code-nonmember'] = { id: DN, username: 'outsider' };
+  const nm = await cbOutcome(pgD, `code=code-nonmember&state=${s3.state}`);
+  check('connect: an account that is not on the server is refused', /discord=notmember/.test(nm.where) && !(await mem(Dee))?.discordId, nm.where);
+  // another signed-in person cannot finish Dee's connect
+  const s4 = await startConnect(pgD);
+  const brB = await launch();
+  const cxB = await brB.newContext();
+  const pgB = await cxB.newPage();
+  await login(pgB, { email: 'bea@example.test', next: '/today' });
+  st.codes['code-stolen'] = { id: DD, username: 'dee' };
+  const stolen = await cbOutcome(pgB, `code=code-stolen&state=${s4.state}`);
+  check('connect: another person cannot finish someone else\'s connect', /discord=failed/.test(stolen.where) && (await mem(Bu))?.discordId === DB && !(await mem(Dee))?.discordId, stolen.where);
+  await cxB.close();
+  await brB.close();
+  // the good path
+  const s5 = await startConnect(pgD);
+  st.codes['code-dee'] = { id: DD, username: 'dee' };
+  const good = await cbOutcome(pgD, `code=code-dee&state=${s5.state}`);
+  const deeProf = await mem(Dee);
+  check('connect: a good code links the account to the signed-in person', /discord=linked/.test(good.where) && deeProf?.discordId === DD && !deeProf.discordConnect, JSON.stringify({ w: good.where, d: deeProf?.discordId }));
+  check('connect: the code is used up at Discord (token exchange sent the secret)', !st.codes['code-dee']);
+  const reuse = await cbOutcome(pgD, `code=code-dee&state=${s5.state}`);
+  check('connect: the same callback twice does nothing the second time', /discord=failed/.test(reuse.where));
+  await pgD.goto(`${B}/settings?section=notifications&discord=linked`);
+  check('settings: after connecting it says so and offers Unlink', await pgD.locator('[data-discord-linked]').waitFor({ timeout: 10000 }).then(() => true, () => false) && /Discord connected/.test(await pgD.locator('[data-discord-result="linked"]').innerText().catch(() => '')));
+  await pgD.goto(`${B}/today`);
+  await pgD.waitForLoadState('networkidle').catch(() => {});
+  check('today: the card is gone once connected', (await pgD.locator('[data-section="discord"]:visible').count()) === 0);
+  const asDee = await press(DD, `wo:undo:${ke1.ref}`);
+  check('connect: the new link is what the buttons use (Dee is not on the task, so she is refused as Dee)', eph(asDee) && /Only the people/.test(asDee.body.data.content), JSON.stringify(asDee.body));
+  // one Discord account belongs to one person: Dee unlinks, then connects Bea's account, which moves to her
+  await pgD.goto(`${B}/settings?section=notifications`);
+  await pgD.locator('[data-discord-unlink]').click();
+  await waitFor(async () => !(await mem(Dee))?.discordId);
+  check('settings: Unlink clears the link', !(await mem(Dee))?.discordId);
+  const s6 = await startConnect(pgD);
+  st.codes['code-beas'] = { id: DB, username: 'bea' };
+  await cbOutcome(pgD, `code=code-beas&state=${s6.state}`);
+  check('connect: one Discord account belongs to one person: it moved from Bea to Dee', (await mem(Dee))?.discordId === DB && !(await mem(Bu))?.discordId, JSON.stringify({ d: (await mem(Dee))?.discordId, b: (await mem(Bu))?.discordId }));
+  await cxD.close();
+  await brC.close();
+  // dismiss, remembered per person; and what it looks like
+  const shots = process.env.E2E_SHOTS || '.';
+  const brE = await launch();
+  for (const [w, h, scheme] of [[1280, 900, 'light'], [1280, 900, 'dark'], [390, 844, 'light'], [390, 844, 'dark']]) {
+    const cx = await brE.newContext({ viewport: { width: w, height: h }, colorScheme: scheme, hasTouch: w < 768 });
+    const pg = await cx.newPage();
+    await login(pg, { email: 'eli@example.test', next: '/today', phone: w < 768 });
+    await pg.goto(`${B}/today`);
+    await pg.locator('[data-section="discord"]:visible').waitFor({ timeout: 15000 });
+    await pg.locator('[data-section="discord"]:visible').screenshot({ path: `${shots}/v4-today-card-${w}-${scheme}.png` });
+    await pg.goto(`${B}/settings?section=notifications`);
+    await pg.locator('[data-notifications-discord]').waitFor({ timeout: 15000 });
+    await pg.locator('[data-notifications-discord]').screenshot({ path: `${shots}/v4-settings-${w}-${scheme}.png` });
+    await cx.close();
+  }
+  const cxE = await brE.newContext({ viewport: { width: 1280, height: 900 } });
+  const pgE = await cxE.newPage();
+  await login(pgE, { email: 'eli@example.test', next: '/today' });
+  await pgE.goto(`${B}/today`);
+  await pgE.locator('[data-discord-card-dismiss]:visible').click();
+  await pgE.locator('[data-section="discord"]:visible').waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});
+  check('today: Dismiss hides the card', (await pgE.locator('[data-section="discord"]:visible').count()) === 0);
+  await pgE.reload();
+  await pgE.waitForLoadState('networkidle').catch(() => {});
+  check('today: it stays hidden for that person, and is saved on their profile', (await pgE.locator('[data-section="discord"]:visible').count()) === 0 && (await mem(Eli))?.discordCardHidden === true);
+  await pgE.goto(`${B}/settings?section=notifications`);
+  check('settings: after Dismiss the Connect button is still in Settings', (await pgE.locator('[data-discord-connect]').count()) === 1);
+  await cxE.close();
+  await brE.close();
 } catch (e) {
   check('discord-v4 (error)', false, e?.stack || String(e));
 }

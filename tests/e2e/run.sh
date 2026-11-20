@@ -114,7 +114,6 @@ agent-start|agent-start.mjs|none|plain
 flow-h2|flow-h2.mjs|none|plain
 claude-usage|claude-usage.mjs|none|plain
 agent-state|agent-state.mjs|none|plain
-flow-b4-team|flow-b4-team.mjs|none|discord
 flow-dc1|flow-dc1.mjs|none|discord
 discord-link|discord-link.mjs|none|discord
 discord-v4|discord-v4.mjs|none|discord

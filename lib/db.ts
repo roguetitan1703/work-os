@@ -572,7 +572,10 @@ export type SettingsDoc = {
   /** The hour (0-23, their zone) their daily digest is sent; missing = 9. */
   digestHour?: number;
   discordId?: string | null;
-  discordLink?: { hash: string; expiresAt: Date } | null;
+  /** The one-time state of a Connect Discord in progress (lib/discord/connect.ts): sha256 of it, and when it stops working (10 minutes). */
+  discordConnect?: { hash: string; expiresAt: Date } | null;
+  /** profile:<userId>: the person hid the Connect Discord card on Today (lib/discord/connect.ts). */
+  discordCardHidden?: boolean;
   /** profile:<userId>: the person hid the first-run checklist on Today. */
   checklistHidden?: boolean;
   /** profile:<userId> (lib/whats-new-seen.ts): ids from lib/whats-new.ts the person dismissed or opened. */
@@ -585,8 +588,6 @@ export type SettingsDoc = {
   items?: { machine: string; path: string; at: Date }[];
   /** discord:<orgId>: the organization's Discord server (set by the operator). */
   guildId?: string | null;
-  /** discord:<orgId>: the Discord channel the team digest goes to (lib/team-digest.ts). */
-  teamChannelId?: string | null;
   /** discord:<orgId>: the id of the :wos: track emoji uploaded to the server (lib/discord/track.ts). */
   trackEmojiId?: string | null;
   /** schedule:<userId> (lib/schedule.ts): the person's week, routine, review questions and own help text. */

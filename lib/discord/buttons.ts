@@ -6,7 +6,7 @@ import { discordUser } from '../profile';
 import { orgWithSetting, orgWide, type Scope } from '../scope';
 import type { Actor } from '../actors';
 import type { TaskDoc } from '../db';
-import { errorText, EPHEMERAL, type Interaction } from './commands';
+import { errorText, EPHEMERAL, type Interaction } from './interaction';
 import { editReply, mdLink, plainName, recordedComponents } from './recorded';
 
 // The buttons under the bot's "Recorded #N" reply (plan v4 section 4): Undo, Done and the select For ▾. A press is an interaction
@@ -64,7 +64,7 @@ export async function handleRecordedPress(i: Interaction, baseUrl: string): Prom
       return update(doneText(ref, baseUrl), []);
     }
     // For ▾
-    if (!me) return ephemeral('Connect Discord in Work OS first (Settings › Connections).');
+    if (!me) return ephemeral('Connect Discord in Work OS first (Settings › Notifications).');
     const pick = i.data?.values?.[0];
     if (!pick || !/^[\w-]{1,100}$/.test(pick)) return ephemeral('Unknown choice.');
     const names = await memberNames(orgId);
