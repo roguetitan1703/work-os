@@ -10,6 +10,14 @@ import { ME, B, SP, EMAIL, check, finish, launch, login, overflow, okO, rawDb, c
 fs.mkdirSync(SP, { recursive: true });
 const OUT = path.dirname(SP);
 const findings = [];
+const searchLog = [];
+const controls = [
+  'Review Need: buttons Accept, Send back (disabled until a reason is typed in the note box) and, when the hand-in left things, Accept and file what is left (components/needs.tsx, data-need-option).',
+  'Give to Claude, phone: task page, ... (More actions) at the top right, then Give to Claude, then a sheet with a Give to Claude button. Desktop: a Give to Claude button on the task page, or a hover-only Bot icon on the task row. Needs a folder linked to the project (else the sheet says Link a folder first).',
+  'Add task with due date: phone + sheet has Due chips (Today, Tomorrow, Friday, Next week), Priority chips, Project chips and Add task / Add & open; no Assignee. Desktop: inline bar with tokens (due:fri), Shift+Enter opens the details form with date pickers for Start and Due; no Assignee. Assignee only on the task page (Assigned row, Who does it sheet).',
+  'Desktop task row: no ... menu. Controls: progress button, hover-only Bot (Give to Claude), Priority select, Status select. Phone row: Actions for (task) button opens the task actions sheet.',
+  'Declutter: project page ... menu (Project menu), then Declutter. Import: Today, More, Import tasks. Day plan: Today, Schedule button (only with a schedule).',
+];
 const index = [];
 const note = (where, what) => { findings.push(`- [${where}] ${what}`); console.log('FINDING', where, what); };
 const now = new Date();
@@ -146,13 +154,14 @@ async function seed() {
   const stdNeeds = () => [
     need('tour-need-1', 1, P.kestrel.id, 'decide', 'The 9 refund lines arrive as negative invoices. How should the payout export treat them before Friday?', { options: [{ id: 'a', label: 'Keep them negative for now', means: 'No data change during close; Acme finance subtracts them by hand.' }, { id: 'b', label: 'Tag them as refunds', means: 'A new type in the export; one more column for Acme to learn.' }, { id: 'c', label: 'Hold the export', means: 'Nothing goes to Acme until the model is settled.' }], from: { actor: { kind: 'agent', name: 'Claude' }, word: 'agent', label: 'Kestrel webhook fix', session: 'tour-s1' } }),
     need('tour-need-2', 2, P.site.id, 'approve', 'Publish the new pricing page copy to the staging site so Priya can read it on her phone?', { options: [{ id: 'yes', label: 'Yes', means: 'Publish to staging only' }, { id: 'no', label: 'No', means: 'Keep it as a draft' }], from: { actor: { kind: 'agent', name: 'Claude' }, word: 'agent', label: 'Pricing page', session: 'tour-s4' } }),
-    need('tour-need-3', 3, P.wos.id, 'review', 'Review the hand-in for the notes search fix.', { taskId: T('Review the hand-in for the notes search fix'), taskRef: REF['Review the hand-in for the notes search fix'].ref, from: { actor: { kind: 'agent', name: 'Claude' }, word: 'agent', label: 'Needs page polish', session: 'tour-s3' }, result: { changed: 'Notes search now matches words in the body, not only the title. The phone list searches live; the laptop list searches on Enter.', checked: 'Ran flow-notes-search at 390 and 1280; the body-only word is found in both and the other note is hidden.', rating: null, where: [{ url: 'https://github.com/delpat-tech/work-os/pull/412', label: 'Pull request 412' }, { url: 'https://example.test/notes?q=zorbulax', label: 'The notes list with the search applied' }], left: ['Highlight the matched word in the list'] } }),
+    need('tour-need-3', 3, P.wos.id, 'review', 'Review the hand-in for the notes search fix.', { options: [{ id: 'accept', label: 'Accept', means: 'It is good: close the task.' }, { id: 'send_back', label: 'Send back', means: 'It needs more work: write what to change.' }, { id: 'accept_file', label: 'Accept and file what is left', means: 'Close the task and make a task from what is left.' }], taskId: T('Review the hand-in for the notes search fix'), taskRef: REF['Review the hand-in for the notes search fix'].ref, from: { actor: { kind: 'agent', name: 'Claude' }, word: 'agent', label: 'Needs page polish', session: 'tour-s3' }, result: { changed: 'Notes search now matches words in the body, not only the title. The phone list searches live; the laptop list searches on Enter.', checked: 'Ran flow-notes-search at 390 and 1280; the body-only word is found in both and the other note is hidden.', rating: null, where: [{ url: 'https://github.com/delpat-tech/work-os/pull/412', label: 'Pull request 412' }, { url: 'https://example.test/notes?q=zorbulax', label: 'The notes list with the search applied' }], left: ['Highlight the matched word in the list'] } }),
     need('tour-need-4', 4, P.kestrel.id, 'approve', 'Run the new payout export against the production Razorpay account to compare totals?', { appOnly: true, options: [{ id: 'yes', label: 'Yes, once', means: 'One read-only run, today' }, { id: 'no', label: 'No', means: 'Stay on the sandbox account' }] }),
   ];
   await rawDb.collection('needs').insertMany(stdNeeds());
   seed.needs = stdNeeds;
   // a computer, so "Start Claude" shows; one block of the timetable is seeded by the owner's legacy week
   await rawDb.collection('devices').insertOne({ _id: 'dev1', name: 'Om-PC', ...placed, hash: 'h1', prefix: 'p1', createdAt: now, lastSeenAt: now, revokedAt: null });
+  await rawDb.collection('workerFolders').insertMany([P.site.id, P.kestrel.id, P.maple.id].map((pid, i) => ({ _id: `tour-fold-${i}`, orgId: ME.orgId, ownerId: ME.userId, deviceId: 'dev1', folderId: `tf${i}`, name: pid, git: true, branch: 'main', projectId: pid, linkedAt: now, seenAt: now, missing: false })));
   await rawDb.collection('settings').updateOne({ _id: 'profile:' + ME.userId }, { $set: { checklistHidden: true } }, { upsert: true });
   return priya;
 }
@@ -291,32 +300,43 @@ async function tour(br, tag) {
     await g(`/settings?section=${s}`);
     await screen(p, tag, `settings-${s}`, `/settings?section=${s}`, { shows: `Settings, ${s}` });
   }
-  // search
-  for (const [word, nm, expect] of [['Kestrel', 'search-kestrel', ['Kestrel Billing', 'Reconcile Kestrel', 'Kestrel migration plan']], ['tessellate', 'search-body-word', ['Kestrel migration plan']]]) {
-    await g('/today');
-    if (phone) await p.locator('button[aria-label=Search]:visible').first().tap();
-    else await p.locator('aside button:has-text("Search")').first().click();
-    const input = p.locator('input[aria-controls=global-search-results]');
-    await input.waitFor({ timeout: 8000 });
-    if (word === 'Kestrel') await screen(p, tag, 'search-open', '/today, opened Search (the header magnifier / sidebar Search)', { shows: 'Search opened, empty', full: false });
-    await input.fill(word);
-    await p.getByRole('option').first().waitFor({ timeout: 6000 }).catch(() => {});
-    await p.waitForTimeout(500);
-    const txt = await p.locator('[role=listbox]').innerText().catch(() => '');
-    for (const e of expect) if (!txt.includes(e)) note(tag, `global search for "${word}" did not list "${e}" (got: ${txt.replace(/\s+/g, ' ').slice(0, 160) || 'nothing'})`);
-    await screen(p, tag, nm, `Opened Search and typed "${word}"`, { shows: `Search results for "${word}"`, full: false });
-    await p.keyboard.press('Escape');
+  // search, the way Om uses it: each place x each kind of query. What came back is recorded in findings.md ("Search" section).
+  const sref = REF['Rewrite pricing page copy'].ref;
+  const QUERIES = [['title-word', 'pricing', 'Rewrite pricing page copy'], ['note-body-word', 'tessellate', 'Kestrel migration plan'], ['project-name', 'Maple', 'Maple Studio'], ['ref', `#${sref}`, 'Rewrite pricing page copy']];
+  const places = phone ? [['phone-header', async () => { await p.locator('button[aria-label=Search]:visible').first().tap(); }]] : [['sidebar', async () => { await p.locator('aside button:has-text("Search")').first().click(); }], ['slash-key', async () => { await p.locator('main').first().click({ position: { x: 5, y: 5 } }).catch(() => {}); await p.keyboard.press('/'); }]];
+  for (const [place, open] of places) {
+    for (const [kind, word, want] of QUERIES) {
+      await g('/today');
+      await open();
+      const input = p.locator('input[aria-controls=global-search-results]');
+      const opened = await input.waitFor({ timeout: 6000 }).then(() => true).catch(() => false);
+      if (!opened) { note(tag, `Search did not open from ${place}`); searchLog.push(`- [${tag}] ${place}, ${kind} "${word}": the search did not open`); continue; }
+      if (place !== 'slash-key' && kind === 'title-word') await screen(p, tag, `search-open-${place}`, `/today, opened Search from ${place}`, { shows: 'Search opened, empty', full: false });
+      await input.fill(word);
+      await p.getByRole('option').first().waitFor({ timeout: 6000 }).catch(() => {});
+      await p.waitForTimeout(600);
+      const txt = (await p.locator('[role=listbox]').innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+      const n = await p.getByRole('option').count();
+      const hit = txt.includes(want);
+      searchLog.push(`- [${tag}] ${place}, ${kind} "${word}": ${n} result${n === 1 ? '' : 's'}; ${hit ? `lists "${want}"` : `DOES NOT list "${want}"`}. Shows: ${txt.slice(0, 200) || 'nothing'} (screenshot search-${place}-${kind}-${tag}-light.png)`);
+      if (!hit) note(tag, `Search from ${place} for ${kind} "${word}" did not list "${want}" (got: ${txt.slice(0, 120) || 'nothing'})`);
+      await screen(p, tag, `search-${place}-${kind}`, `Opened Search from ${place} and typed "${word}"`, { shows: `Search from ${place}, ${kind} "${word}"`, full: false, noRoute: true });
+      await p.keyboard.press('Escape');
+      await p.waitForTimeout(300);
+    }
   }
   // notes list search
   await g('/notes');
   const nbox = phone ? p.locator('input[placeholder="Search notes"]') : p.locator('input[name=q]:visible');
-  for (const [w, want] of [['Kestrel', 'Kestrel migration plan'], ['tessellate', 'Kestrel migration plan'], ['lamination', 'Weekly review']]) {
+  for (const [kind, w, want] of [['title-word', 'migration', 'Kestrel migration plan'], ['note-body-word', 'tessellate', 'Kestrel migration plan'], ['project-name', 'Maple', 'Call notes: Maple Studio'], ['ref', `#${sref}`, 'Rewrite pricing']]) {
     await nbox.fill(w);
     if (!phone) await nbox.press('Enter');
     await p.waitForTimeout(1600);
-    const t = (await p.locator('a[href^="/notes/"]:visible').allInnerTexts()).join(' | ');
-    if (!t.includes(want)) note(tag, `notes list search for "${w}" did not show "${want}" (shows: ${t.slice(0, 120) || 'nothing'})`);
-    if (w === 'tessellate') await screen(p, tag, 'notes-search', `/notes, typed "${w}" in the notes search${phone ? '' : ' and pressed Enter'}`, { shows: 'Notes list filtered by a word that is only in a note body', full: false });
+    const t = (await p.locator('a[href^="/notes/"]:visible').allInnerTexts()).join(' | ').replace(/\s+/g, ' ');
+    const hit = t.includes(want);
+    searchLog.push(`- [${tag}] Notes page search, ${kind} "${w}": ${hit ? `shows "${want}"` : `DOES NOT show "${want}"`}. Rows: ${t.slice(0, 200) || 'nothing'} (screenshot notes-search-${kind}-${tag}-light.png)`);
+    if (!hit && kind !== 'ref') note(tag, `notes list search for "${w}" did not show "${want}" (shows: ${t.slice(0, 120) || 'nothing'})`);
+    await screen(p, tag, `notes-search-${kind}`, `/notes, typed "${w}" in the notes search${phone ? '' : ' and pressed Enter'}`, { shows: `Notes list filtered by ${kind} "${w}"`, full: false, noRoute: true });
     if (!phone) await go(p, '/notes', tag);
   }
   // the + sheet / new task
@@ -332,6 +352,44 @@ async function tour(br, tag) {
     await screen(p, tag, 'plus-sheet', '/today, opened New task', { shows: 'New task (desktop)', full: false });
     await p.keyboard.press('Escape');
   }
+  // dialogs and sheets that were not captured before: Declutter, Import, Day Plan
+  const shut = async () => { await p.keyboard.press('Escape'); await p.waitForTimeout(300); };
+  try {
+    await g(`/projects/${P.kestrel.id}`);
+    await p.locator('[data-project-menu]:visible').first().click({ timeout: 5000 });
+    await p.waitForTimeout(300);
+    await screen(p, tag, 'project-menu', `/projects/${P.kestrel.id}, opened the project ... menu`, { shows: 'The project ... menu (Edit, Declutter, ...)', full: false, noRoute: true });
+    await p.locator('[data-project-declutter]:visible').first().click({ timeout: 5000 });
+    await p.locator('[data-declutter-dialog]').waitFor({ timeout: 8000 });
+    await p.waitForTimeout(1500);
+    await screen(p, tag, 'declutter-dialog', `/projects/${P.kestrel.id}, ... menu, Declutter`, { shows: 'The Declutter dialog', full: false, noRoute: true });
+    await shut();
+  } catch (e) { note(tag, `Declutter dialog not reached: ${String(e.message).split('\n')[0].slice(0, 140)}`); await shut(); }
+  try {
+    await g('/today');
+    await p.getByRole('button', { name: 'More', exact: true }).first().click({ timeout: 5000 });
+    await p.waitForTimeout(400);
+    await screen(p, tag, 'today-more-menu', '/today, tapped More', { shows: 'Today More menu (Import tasks, work/flex day)', full: false, noRoute: true });
+    await p.getByRole('button', { name: /Import tasks/ }).first().click({ timeout: 5000 });
+    await p.waitForTimeout(600);
+    await screen(p, tag, 'import-sheet', '/today, More, Import tasks', { shows: 'The Import tasks sheet, empty', full: false, noRoute: true });
+    await p.locator('textarea[placeholder^="Paste your markdown"]:visible').first().fill('| Task | Priority | Due |\n|---|---|---|\n| Print the label proofs | P2 | 2026-11-28 |\n| Order kraft boxes | P3 | |\n| Call the photographer | P1 | 2026-11-25 |');
+    await p.getByRole('button', { name: 'Preview', exact: true }).first().click({ timeout: 5000 });
+    await p.waitForTimeout(600);
+    await screen(p, tag, 'import-preview', 'Pasted a markdown table, tapped Preview', { shows: 'Import: the preview checklist', full: false, noRoute: true });
+    await shut();
+  } catch (e) { note(tag, `Import sheet not fully reached: ${String(e.message).split('\n')[0].slice(0, 140)}`); await shut(); }
+  try {
+    await g('/today');
+    const sb = p.getByRole('button', { name: 'Schedule', exact: true }).first();
+    if (!(await sb.count())) note(tag, 'Today has no Schedule button (the Day Plan needs a schedule for today); Day Plan not captured');
+    else {
+      await sb.click({ timeout: 5000 });
+      await p.waitForTimeout(800);
+      await screen(p, tag, 'day-plan', '/today, tapped Schedule', { shows: 'The Day Plan sheet', full: false, noRoute: true });
+      await shut();
+    }
+  } catch (e) { note(tag, `Day Plan not reached: ${String(e.message).split('\n')[0].slice(0, 140)}`); await shut(); }
   // links on a few pages: 404 sweep (desktop only, once)
   if (!phone) {
     const seen = new Set();
@@ -366,6 +424,8 @@ async function jobs(br, tag) {
   async function job(n, title, fn) {
     await rawDb.collection('needs').deleteMany({});
     await rawDb.collection('needs').insertMany(seed.needs());
+    await rawDb.collection('tasks').updateMany({}, { $unset: { claude: '' } }); // a job starts with nothing given to Claude
+    await rawDb.collection('tasks').deleteMany({ title: 'Send packaging samples to Riya' });
     await go(p, '/today', tag);
     const J = { n, title, tag, steps: [], taps: 0, routes: 0, awkward: [], failed: null };
     let k = 0, lastPath = new URL(p.url()).pathname + new URL(p.url()).search;
@@ -404,21 +464,29 @@ async function jobs(br, tag) {
     if (!/Kestrel webhook fix/.test(body)) hard('Workers tab does not list the session labels');
     if (!/last:/.test(body)) hard('what each session last did ("last:") is not on the Workers tab; it is on Now or the project page');
   });
+  const BAR = `nav[aria-label=Main]:visible`;
+  const tab = href => T(p.locator(phone ? `${BAR} a[href="${href}"]` : `aside a[href="${href}"]`));
   await job(2, 'Answer a Need that a Claude session asked, then check that session', async ({ step, hard }) => {
-    await step(phone ? 'Needs tab in the bar' : 'Sidebar: Needs', () => T(p.locator(phone ? 'nav[aria-label=Main] a[href="/needs"]' : 'aside a[href="/needs"]')));
-    await step('Pick the first option of the decide Need', () => T(p.locator('main').locator('button', { hasText: /Keep them negative/ })));
-    await step('Confirm if asked (Send / Answer)', async () => { const b = p.getByRole('button', { name: /^(send|answer|confirm|save)/i }); if (await b.count()) await T(b); else hard('the option tap answered at once (no confirm step)'); });
+    await step(phone ? 'Needs tab in the bar' : 'Sidebar: Needs', () => tab('/needs'));
+    await step('Pick the first option of the decide Need', () => T(p.locator('[data-need="1"] [data-need-option="a"]')));
+    await step('Confirm if asked (Send / Answer)', async () => { const b = p.locator('[data-need="1"] [data-need-send]'); if (await b.count()) await T(b); else hard('the option tap answered at once (no confirm step)'); });
     await step(phone ? 'Menu' : 'Sidebar: Claude', () => T(p.locator(phone ? 'a[href="/menu"]:visible' : 'aside a[href="/claude"]')));
     if (phone) await step('Menu: Claude', () => T(p.locator('a[href^="/claude"]:visible')));
     await step('Workers tab: that session now', () => T(p.locator('a[data-tab=workers]')));
     hard('after answering, the session is checked on another page (/claude?tab=workers); the Need page does not show the session state');
   });
   await job(3, 'Give Claude a task (Give to Claude) on an existing task', async ({ step, hard }) => {
-    await step('Tasks', () => T(p.locator(phone ? 'nav[aria-label=Main] a[href="/tasks"]' : 'aside a[href="/tasks"]')));
     const ref = REF['Rewrite pricing page copy'].ref;
+    await step('Tasks', () => tab('/tasks'));
     await step('Open the task', () => T(p.locator(`a[href="/tasks/${ref}"]:visible`)));
-    await step('Give to Claude', async () => { let b = p.getByRole('button', { name: /Give to Claude/ }); if (!(await b.count())) { const more = p.locator('button[aria-label*="More"], button[aria-label*="menu" i]').first(); if (await more.count()) { await T(more); hard('Give to Claude is inside a ... menu on the task page'); b = p.getByText(/Give to Claude/); } } await T(b); });
-    await step('Confirm in the sheet', async () => { const b = p.locator('[data-claude-give], [data-sheet] button, [role=dialog] button').filter({ hasText: /Give to Claude/ }); await T(b.last()); });
+    if (phone) await step('More actions (...) at the top right of the task page', () => T(p.locator('button[aria-label="More actions"]')));
+    await step(phone ? 'Give to Claude (menu item)' : 'Give to Claude (button on the task page)', () => T(phone ? p.getByText('Give to Claude', { exact: true }) : p.locator('main button[data-claude-menu]')));
+    const sheetTxt = await p.locator('[data-claude-sheet]').innerText().catch(() => '');
+    if (!sheetTxt) hard('the Give to Claude sheet did not open');
+    await step('Confirm: Give to Claude in the sheet', () => T(p.locator('[data-claude-give]')));
+    const t = await rawDb.collection('tasks').findOne({ _id: REF['Rewrite pricing page copy'].id });
+    if (t?.claude?.state !== 'queued' && t?.claude?.state !== 'running') hard(`after the confirm the task is not queued for Claude (state: ${t?.claude?.state ?? 'none'})`);
+    if (!phone) hard('desktop task rows: no "..." menu; the controls are a hover-only Bot icon (Give to Claude), a progress button, and inline Priority and Status selects');
   });
   await job(4, 'Start a Claude session on a project (Start Claude)', async ({ step, hard }) => {
     if (phone) { await step('Menu button in the header', () => T(p.locator('a[href="/menu"]:visible'))); await step('Menu: Claude', () => T(p.locator('a[href^="/claude"]:visible'))); }
@@ -428,7 +496,7 @@ async function jobs(br, tag) {
     hard('stopped before the final Start button on purpose: it would launch a real session');
   });
   await job(5, "See a project's goal, next steps and who is working on it", async ({ step, hard }) => {
-    await step(phone ? 'Projects in the bar' : 'Sidebar: Projects', () => T(p.locator(phone ? 'nav[aria-label=Main] a[href="/projects"]' : 'aside a[href="/projects"]')));
+    await step(phone ? 'Projects in the bar' : 'Sidebar: Projects', () => tab('/projects'));
     await step('Open Kestrel Billing', () => T(p.locator(`a[href="/projects/${kid}"]:visible`)));
     const t = await p.locator('main').innerText();
     if (!/Get the October payout/.test(t)) hard('goal (Now) not visible on the project Overview first screen');
@@ -436,8 +504,8 @@ async function jobs(br, tag) {
     if (!/Kestrel webhook fix|Working on it now|session/i.test(t)) hard('who is working on it is not visible on Overview');
   });
   await job(6, 'Find a note by a word in its title or body', async ({ step, hard }) => {
-    await step(phone ? 'Projects in the bar (Notes sit under Projects on the phone)' : 'Sidebar: Notes', () => T(p.locator(phone ? 'nav[aria-label=Main] a[href="/projects"]' : 'aside a[href="/notes"]')));
-    if (phone) { await step('Notes link on the Projects page', () => T(p.locator('a[href="/notes"]:visible'))); }
+    if (phone) { await step('Projects in the bar (Notes sit under Projects on the phone)', () => tab('/projects')); await step('Notes link on the Projects page', () => T(p.locator('a[href="/notes"]:visible'))); }
+    else await step('Sidebar: Notes', () => tab('/notes'));
     const box = phone ? p.locator('input[placeholder="Search notes"]') : p.locator('input[name=q]:visible');
     await step('Type a body word (tessellate)', async () => { await box.fill('tessellate'); if (!phone) await box.press('Enter'); await p.waitForTimeout(1200); }, { tap: true });
     if (!(await p.locator('a[href^="/notes/"]:visible').allInnerTexts()).join('').includes('Kestrel migration plan')) hard('body word not found');
@@ -452,24 +520,40 @@ async function jobs(br, tag) {
     hard('session results ("last:") live on Claude > Workers and the project Claude tab, not on Review');
   });
   await job(8, 'Approve a review Need (look at the work first, then accept)', async ({ step, hard }) => {
-    await step(phone ? 'Needs in the bar' : 'Sidebar: Needs', () => T(p.locator(phone ? 'nav[aria-label=Main] a[href="/needs"]' : 'aside a[href="/needs"]')));
-    const card = p.locator('main').filter({ hasText: /notes search fix/ });
-    if (!(await card.count())) hard('review Need not on the Needs page');
-    await step('Open the work link in the card (look first)', async () => { const a = p.locator('main a[href*="/pull/412"], main a[href*="zorbulax"]').first(); await a.evaluate(el => el.removeAttribute('target')); await T(a).catch(() => {}); await p.goBack().catch(() => {}); hard('the work link opens outside Work OS (new tab / other site)'); }, { tap: true });
-    await step('Accept', () => T(p.getByRole('button', { name: /^Accept$/ })));
+    await step(phone ? 'Needs in the bar' : 'Sidebar: Needs', () => tab('/needs'));
+    if (!(await p.locator('[data-need="3"]').count())) hard('review Need not on the Needs page');
+    hard('the Need has three buttons: Accept, Send back (needs a typed reason), Accept and file what is left; the agent result (Changed, Checked, Where, Left) sits above them');
+    await step('Look at the work link in the card (not opened: it leaves Work OS)', async () => { const a = p.locator('[data-need="3"] a[href*="/pull/412"]').first(); await a.scrollIntoViewIfNeeded(); const tg = await a.getAttribute('target'); hard(`the work link is an external address (${(await a.getAttribute('href')).slice(0, 60)}) and opens in a ${tg === '_blank' ? 'new tab' : 'the same tab'}, leaving Work OS; the card itself has no in-app view of the work`); }, { tap: false });
+    await step('Accept', () => T(p.locator('[data-need="3"] [data-need-option="accept"]')));
+    const t = await rawDb.collection('needs').findOne({ _id: 'tour-need-3' });
+    if (t?.status === 'open') hard('after Accept the Need is still open');
   });
   await job(9, 'Add a task to a project and set due + assignee', async ({ step, hard }) => {
-    await step(phone ? 'Projects in the bar' : 'Sidebar: Projects', () => T(p.locator(phone ? 'nav[aria-label=Main] a[href="/projects"]' : 'aside a[href="/projects"]')));
+    await step(phone ? 'Projects in the bar' : 'Sidebar: Projects', () => tab('/projects'));
     await step('Open Maple Studio', () => T(p.locator(`a[href="/projects/${P.maple.id}"]:visible`)));
-    await step('Add task (on the project)', () => T(p.getByRole('button', { name: /Add task|New task|^Add$/ })));
-    await step('Type a title', async () => { await p.locator('input:visible, textarea:visible').first().fill('Send packaging samples to Riya'); });
-    await step('Look for due and assignee controls', async () => { const dueB = p.getByRole('button', { name: /Tomorrow|Today|Due/ }).first(); if (await dueB.count()) await T(dueB); else hard('no due control in the add-task form'); });
-    if (!(await p.getByText(/assign/i).count())) hard('no assignee control in the add-task form: assignee is set later on the task page');
-    await step('Submit', async () => { const b = p.getByRole('button', { name: /Add task|Add & open|Create|Save/ }).last(); await T(b); });
+    const title = 'Send packaging samples to Riya';
+    if (phone) {
+      await step('Add task (+ Task button on the project)', () => T(p.locator('[data-add-task]:visible')));
+      await step('Type a title', async () => { await p.locator('[data-quick-add] textarea').fill(title); });
+      await step('Due chip: Tomorrow', () => T(p.locator('[data-quick-add] button', { hasText: /^Tomorrow$/ })));
+      hard('the + sheet has Due, Priority and Project chips but no Assignee control; assignee is set on the task page');
+      await step('Add & open', () => T(p.locator('[data-quick-add] button', { hasText: /Add & open/ })));
+    } else {
+      await step('Add task (+ Task button on the project)', () => T(p.locator('[data-add-task]:visible')));
+      await step('Type a title with due:tomorrow, Shift+Enter for details', async () => { const i = p.getByRole('dialog').locator('input[placeholder^="Add a task"]'); await i.fill(title + ' due:tomorrow'); await i.press('Shift+Enter'); await p.locator('input[placeholder=Title]').waitFor(); });
+      hard('quick-add syntax has no assignee token (@ is the project); the details form has Due and Start dates but no Assignee field');
+      await step('Details form: Create & open', () => T(p.getByRole('button', { name: /Create & open/ })));
+    }
+    await p.waitForURL(/\/tasks\//, { timeout: 8000 }).catch(() => hard('did not land on the new task page'));
+    await step('Assigned: open the picker on the task page', () => T(p.locator('[data-assignee-picker]:visible')));
+    await step('Pick Priya Nair', () => T(p.locator('[data-assignee-option]', { hasText: 'Priya' })));
+    await step('Save', () => T(p.locator('[data-assignee-save]')));
+    const t = await rawDb.collection('tasks').findOne({ title });
+    if (!t) hard('the new task was not created'); else if (!t.due) hard('the new task has no due date'); else if (!(t.assigneeIds ?? t.assignees ?? []).length) hard('the new task has no assignee after Save');
   });
   await job(10, 'Change a setting reached from a notice (Discord or alerts)', async ({ step, hard }) => {
     await step(phone ? 'Bell in the Today header' : 'Sidebar: Inbox', () => T(p.locator(phone ? 'a[href="/notifications"]:visible, button[aria-label*="Notif"]:visible' : 'aside a[href="/notifications"]')));
-    const link = p.locator('main a[href*="settings"]').first();
+    const link = p.locator('main a[href*="settings"]:visible').first();
     if (await link.count()) await step('Tap the settings link in the notice', () => T(link));
     else { hard('Inbox has no link to settings; went to Settings by Menu/sidebar'); await step(phone ? 'Menu' : 'Sidebar: Settings', () => T(p.locator(phone ? 'a[href="/menu"]:visible' : 'aside a[href="/settings"]'))); if (phone) await step('Menu: Settings', () => T(p.locator('a[href^="/settings"]:visible'))); }
     await step('Notifications section', async () => { const l = p.locator('a[href*="section=notifications"]:visible').first(); if (await l.count()) await T(l); else hard('already on the section'); });
@@ -511,7 +595,7 @@ function flush() {
 
 fs.writeFileSync(`${OUT}/index.md`, '# UI tour screenshots\n\nFiles are in shots/. Light and dark of each screen; full page where the page scrolls (the browser is made as tall as the page).\n\n' + index.map(i => `- ${i.f}: ${i.text}`).join('\n') + '\n');
 const uniq = [...new Set(findings)];
-fs.writeFileSync(`${OUT}/findings.md`, '# Functional findings from the UI tour\n\n' + (uniq.length ? uniq.join('\n') : 'None found.') + '\n');
+fs.writeFileSync(`${OUT}/findings.md`, '# Functional findings from the UI tour\n\n' + (uniq.length ? uniq.join('\n') : 'None found.') + '\n\n## Search, what each place returns\n\n' + (searchLog.length ? searchLog.join('\n') : 'Not run.') + '\n\n## Controls found by reading the code\n\n' + controls.map(c => '- ' + c).join('\n') + '\n');
 fs.writeFileSync(`${OUT}/jobs.md`, '# Everyday jobs, shortest path the UI allows (each starts from Today)\n\n' + jobLog.map(J => `## Job ${J.n} (${J.tag}): ${J.title}\n\nSteps:\n${J.steps.map(s => '- ' + s).join('\n')}\n\nTaps: ${J.taps}. Route changes: ${J.routes}.${J.failed ? `\nDid not complete: ${J.failed}` : ''}\n\nAwkward:\n${J.awkward.length ? J.awkward.map(a => '- ' + a).join('\n') : '- nothing noted'}\n`).join('\n'));
 
 const has = (pat, tag) => [...captured].some(c => c.startsWith(pat + '|' + tag));
@@ -554,7 +638,7 @@ ${rt.join('\n')}
 Route handlers (no screen): /api/*, /.well-known/oauth-authorization-server, /.well-known/oauth-protected-resource, /icons/[size], /worker/latest.json, /worker/work-os-worker.mjs.
 Legacy redirects in next.config.ts (checked by request, redirect-only, none linked from the UI): ${redirectsSeen.map(r => r.u + ' -> ' + r.status + ' ' + r.to).join('; ')}
 
-Dialogs and sheets captured: + quick-add sheet (phone) or New task (desktop), task row actions sheet, Search, Start Claude project step and Give to Claude (job screenshots 3 and 4). Not captured: Declutter dialog, Import sheet, Day Plan sheet, date pickers, Reauth password dialog.
+Dialogs and sheets captured: + quick-add sheet (phone) or New task (desktop), task row actions sheet, Search, Start Claude project step and Give to Claude (job screenshots 3 and 4). Declutter dialog, Import sheet (empty and preview), Day Plan sheet (when the owner has a schedule) are in the tour. Not captured: date pickers, Reauth password dialog.
 
 Captured route patterns (pattern @ viewport):
 - ${sub}
