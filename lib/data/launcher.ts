@@ -7,6 +7,7 @@ import { afterCommit } from '../db';
 import { quietly, wake, hint, connectedDevice } from '../live';
 import { InputError, NotFoundError } from './errors';
 import { normalizeRemote } from './code-locations';
+import { cleanUsage, saveUsage } from './claude-usage';
 
 // Session launcher, Work OS side (docs/launcher.md). Workers report folders (names + ids, never
 // paths), poll for jobs, and report sessions. The person links folders to projects and starts, resumes
@@ -229,10 +230,11 @@ export function cleanSelfUpdate(v: unknown): DeviceSelfUpdate | undefined {
 }
 
 export async function reportStatus(s: Scope, deviceId: string, body: unknown): Promise<void> {
-  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; bundle?: unknown; allowPrompts?: unknown; allowClone?: unknown; projectsDir?: unknown; hooks?: unknown; selfUpdate?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown; reopen?: unknown };
+  const b = (body ?? {}) as { worker?: { version?: unknown; os?: unknown; bundle?: unknown; allowPrompts?: unknown; allowClone?: unknown; projectsDir?: unknown; hooks?: unknown; selfUpdate?: unknown }; jobs?: unknown; sessions?: unknown; activity?: unknown; claudeSessions?: unknown; reopen?: unknown; usage?: unknown };
   const activity = b.activity === undefined ? null : cleanActivity(b.activity); // validate before any write
   const claudeSessions = b.claudeSessions === undefined ? null : cleanClaudeSessions(b.claudeSessions);
   const reopen = b.reopen === undefined ? undefined : cleanReopen(b.reopen);
+  if (b.usage !== undefined) cleanUsage(b.usage); // validate before any write
   const c = await scoped(s);
   const now = new Date();
   // A heartbeat writes the same rows every couple of minutes; it pushes a hint to the person's Claude page only when
@@ -298,6 +300,8 @@ export async function reportStatus(s: Scope, deviceId: string, body: unknown): P
       if (was && was.state !== state) shown = true;
     }
   });
+  // Claude usage per session (lib/data/claude-usage.ts): token counts of new days; the page reads them when opened.
+  if (b.usage !== undefined) await saveUsage(s, deviceId, b.usage);
   if (shown) afterCommit(() => hint(s.orgId, new Set([s.userId]), 'claude'));
 }
 
