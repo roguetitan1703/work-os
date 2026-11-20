@@ -2,7 +2,7 @@
 // count, and the shape of one proposed change. No imports and no database, so tests/declutter-check.mjs can run it as it is.
 // The database half (reading notes, tasks and Needs, then applying) is lib/data/declutter.ts.
 
-export const GROWTH = { later: 25, next: 10, staleDays: 14, quietDays: 14, noteDays: 30, items: 60, adds: 40, disk: 20, itemText: 300, asksPerHour: 3 } as const;
+export const GROWTH = { later: 60, next: 10, reviewGrowth: 10, staleDays: 14, quietDays: 14, noteDays: 30, items: 60, adds: 40, disk: 20, itemText: 300, asksPerHour: 3 } as const;
 
 const DAY = 86_400_000;
 
@@ -16,7 +16,35 @@ export function itemId(group: 'later' | 'next' | 'note' | 'task' | 'need' | 'add
 }
 
 type Line = { id: string; text: string; ref?: number; waitsOn?: string; at: Date };
-export type StateLike = { next: Line[]; later: Line[]; declutter?: { checkedAt: Date; reasons: string[]; quietUntil?: Date; needId?: string; needRef?: number } };
+export type StateLike = { next: Line[]; later: Line[]; declutter?: { checkedAt: Date; reasons: string[]; quietUntil?: Date; needId?: string; needRef?: number; reviewedAt?: Date; reviewedLater?: number; reviewedNext?: number } };
+
+const CACHED_REASON = /^\d+ notes share a title$/;
+
+/** A line Declutter would propose for being old: nobody waits on it, it is stale, and (a Next line) it has no task. A Next line with an open task never is. */
+const proposableStale = (l: Line, inNext: boolean, now: Date) => isStale(l, now) && !(inNext && l.ref);
+
+/**
+ * The size part of "due": Later or Next over the limit, and the size not reviewed yet or grown by GROWTH.reviewGrowth lines since
+ * the last review (`reviewed: true` on declutter stores the counts). Returns the reasons in the Due words, empty when none.
+ */
+export function sizeReasons(state: Pick<StateLike, 'next' | 'later' | 'declutter'>): string[] {
+  const c = state.declutter;
+  const grew = (now: number, was: number | undefined) => !c?.reviewedAt || was === undefined || now - was >= GROWTH.reviewGrowth;
+  const out: string[] = [];
+  if (state.later.length > GROWTH.later && grew(state.later.length, c?.reviewedLater)) out.push(`Later ${state.later.length} (over ${GROWTH.later})`);
+  if (state.next.length > GROWTH.next && grew(state.next.length, c?.reviewedNext)) out.push(`Next ${state.next.length} (over ${GROWTH.next})`);
+  return out;
+}
+
+/** A line of the size review: the oldest lines first, each with its date, what it waits on and its words. */
+export type ReviewLine = { id: string; date: string; waitsOn?: string; text: string };
+
+/** The Next and Later lines for a size review, oldest first (a line's `at` is when it was last written). */
+export function reviewLines(state: Pick<StateLike, 'next' | 'later'>): { next: ReviewLine[]; later: ReviewLine[] } {
+  const row = (l: Line): ReviewLine => ({ id: l.id, date: l.at.toISOString().slice(0, 10), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), text: clip(l.text, 200) });
+  const byAge = (a: Line, b: Line) => a.at.getTime() - b.at.getTime();
+  return { next: [...state.next].sort(byAge).map(row), later: [...state.later].sort(byAge).map(row) };
+}
 
 /** A line is stale when nobody waits on it and it was last written GROWTH.staleDays or more days ago. A waiting line never is (16.9). */
 export function isStale(l: Pick<Line, 'waitsOn' | 'at'>, now: Date): boolean {
@@ -31,6 +59,8 @@ export type Due = {
   text: string | null;
   /** A declutter Need is open: the brief says so instead of "due". */
   openNeed?: number;
+  /** Size is among the reasons: the declutter read then answers with a size review (review lines and the reviewed step). */
+  review?: boolean;
 };
 
 /**
@@ -45,13 +75,14 @@ export function dueReasons(state: StateLike | null, now: Date, project: string):
   if (!state) return { due: false, reasons: [], text: null };
   if (cache?.quietUntil && cache.quietUntil.getTime() > now.getTime()) return { due: false, reasons: [], text: null };
   const reasons: string[] = [];
-  if (state.later.length > GROWTH.later) reasons.push(`Later ${state.later.length} (over ${GROWTH.later})`);
-  if (state.next.length > GROWTH.next) reasons.push(`Next ${state.next.length} (over ${GROWTH.next})`);
-  const stale = [...state.next, ...state.later].filter(l => isStale(l, now)).length;
+  const size = sizeReasons(state);
+  reasons.push(...size);
+  const stale = state.next.filter(l => proposableStale(l, true, now)).length + state.later.filter(l => proposableStale(l, false, now)).length;
   if (stale) reasons.push(`${stale} line${stale === 1 ? '' : 's'} untouched ${GROWTH.staleDays} days`);
-  for (const r of cache?.reasons ?? []) reasons.push(r);
+  // Only a reason Declutter can still propose a change for: an older cache may hold a retired one ("7 open Claude items").
+  for (const r of cache?.reasons ?? []) if (CACHED_REASON.test(r)) reasons.push(r);
   if (!reasons.length) return { due: false, reasons: [], text: null };
-  return { due: true, reasons, text: `Declutter due: ${reasons.join('; ')}. Call declutter {project: "${project}"}.` };
+  return { due: true, reasons, ...(size.length ? { review: true } : {}), text: `Declutter due: ${reasons.join('; ')}. Call declutter {project: "${project}"}.` };
 }
 
 /**

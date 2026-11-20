@@ -194,15 +194,15 @@ try {
   const stateOf = async pid => rawDb.collection('states').findOne({ projectId: pid });
   const mkLines = async (project, n, from = 0) => { for (let k = 0; k < n; k += 25) await must(cc, 'save_state', { project, ops: Array.from({ length: Math.min(25, n - k) }, (_, j) => ({ op: 'add_later', text: `${project} later number ${from + k + j + 1} with its own words ${'ab'.repeat(from + k + j + 1)}` })) }); };
 
-  // a) thresholds in the brief: 25 Later lines say nothing, 26 say so; the brief carries it once, in the State order
+  // a) thresholds in the brief: 60 Later lines say nothing, 26 say so; the brief carries it once, in the State order
   const D = 'H11 Delta';
   await must(cc, 'add_project', { name: D, visibility: 'org' });
-  await mkLines(D, 25);
+  await mkLines(D, 60);
   const b25 = await start(D, 'h11d1');
-  check('H11 brief: 25 Later lines are not due (no declutter field)', !('declutter' in b25), JSON.stringify(b25.declutter));
-  await mkLines(D, 1, 25);
+  check('H11 brief: 60 Later lines are not due (no declutter field)', !('declutter' in b25), JSON.stringify(b25.declutter));
+  await mkLines(D, 1, 60);
   const b26 = await start(D, 'h11d1');
-  check('H11 brief: 26 Later lines say "Declutter due: Later 26 (over 25)" and name the tool', /^Declutter due: Later 26 \(over 25\)\. Call declutter \{project: "H11 Delta"\}\. If your tools do not list declutter, ask your person to reconnect Work OS \(\/mcp, work-os, Reconnect\)\.$/.test(b26.declutter ?? ''), JSON.stringify(b26.declutter));
+  check('H11 brief: 61 Later lines say "Declutter due: Later 61 (over 60)" and name the tool', /^Declutter due: Later 61 \(over 60\)\. Call declutter \{project: "H11 Delta"\}\. If your tools do not list declutter, ask your person to reconnect Work OS \(\/mcp, work-os, Reconnect\)\.$/.test(b26.declutter ?? ''), JSON.stringify(b26.declutter));
   const keys = Object.keys(b26);
   check('H11 brief: the field sits near state (after state, before the inbox)', keys.indexOf('declutter') > keys.indexOf('state') && keys.indexOf('declutter') < keys.indexOf('inbox'), keys.join(','));
   // a stale line (14 days) on its own makes a project due
@@ -215,10 +215,30 @@ try {
   check('H11 brief: a stale line without a waits-on makes it due, a waiting line never counts', /Declutter due: 1 line untouched 14 days/.test(bE.declutter ?? ''), JSON.stringify(bE.declutter));
   // end_work carries the same text
   const endD = await must(cc, 'end_work', { project: D, state: [{ op: 'set_where', machine: 'h11box', branch: 'x' }], friction: 'none', session: 'h11d1' }, hdr('h11d1'));
-  check('H11 end_work: the answer carries the same declutter line', /Declutter due: Later 26/.test(endD.declutter ?? ''), JSON.stringify(Object.keys(endD)));
+  check('H11 end_work: the answer carries the same declutter line', /Declutter due: Later 61/.test(endD.declutter ?? ''), JSON.stringify(Object.keys(endD)));
   // a claude.ai caller (Claude chat key) gets the line without the Claude Code reconnect steps
   const chatB = await must(MCP, 'start_work', { project: D });
-  check('H11 brief: a claude.ai caller gets the due line without the /mcp reconnect steps', /^Declutter due: Later 26 \(over 25\)\. Call declutter \{project: "H11 Delta"\}\.$/.test(chatB.declutter ?? ''), JSON.stringify(chatB.declutter));
+  check('H11 brief: a claude.ai caller gets the due line without the /mcp reconnect steps', /^Declutter due: Later 61 \(over 60\)\. Call declutter \{project: "H11 Delta"\}\.$/.test(chatB.declutter ?? ''), JSON.stringify(chatB.declutter));
+
+  // a2) the size review (Delta, 61 Later lines) and the session's own apply (Epsilon, one stale Next line)
+  const rvD = await must(cc, 'declutter', { project: D }, hdr('h11d1'));
+  const ages = rvD.review?.later?.map(l => l.date) ?? [];
+  check('H11 review: a size-due project answers review with every Later line, dated, oldest first', rvD.review?.later?.length === 61 && !!rvD.review.later[0].id && /^\d{4}-\d\d-\d\d$/.test(ages[0]) && ages.every((d, k) => !k || ages[k - 1] <= d) && /archive_line/.test(rvD.next) && /reviewed: true/.test(rvD.next), JSON.stringify(rvD).slice(0, 300));
+  const dRv = await must(cc, 'declutter', { project: D, reviewed: true }, hdr('h11d1'));
+  const cacheD = (await rawDb.collection('states').findOne({ projectId: (await rawDb.collection('projects').findOne({ name: D }))._id })).declutter;
+  check('H11 review: reviewed: true stores the counts, and the project is not due any more', cacheD.reviewedLater === 61 && !!cacheD.reviewedAt && dRv.due === 'not due' && !('review' in dRv) && dRv.next === 'Nothing to tidy.' && !('declutter' in (await start(D, 'h11d1'))), JSON.stringify([cacheD, dRv.due]));
+  await mkLines(D, 10, 61);
+  const rvD2 = await must(cc, 'declutter', { project: D }, hdr('h11d1'));
+  check('H11 review: 10 more lines make it due again with a review', /Later 71/.test(rvD2.due) && rvD2.review?.later?.length === 71, JSON.stringify(rvD2.due));
+  const rdE = await must(cc, 'declutter', { project: E }, hdr('h11e1'));
+  const itemE = rdE.items.find(i => i.kind === 'archive_line' && /^next:/.test(i.id));
+  const apE = await must(cc, 'declutter', { project: E, apply: [itemE.id, 'later:l_nothere', 'need:1'] }, hdr('h11e1'));
+  const stE2 = await stateOf((await rawDb.collection('projects').findOne({ name: E }))._id);
+  const arch = (stE2.archived ?? []).find(x => x.text === 'Epsilon stale next');
+  check('H11 apply: the session archived its own stale line as itself with its why; unknown ids come back failed; no Need; not due any more', apE.applied?.includes(itemE.id) && apE.failed?.length === 2 && !!arch && /not touched for/.test(arch.why ?? '') && !stE2.next.some(l => l.text === 'Epsilon stale next') && apE.due === 'not due' && !stE2.declutter?.quietUntil, JSON.stringify([apE, arch]).slice(0, 400));
+  const gsC = await must(cc, 'get_state', { project: D, compact: true }, hdr('h11d1'));
+  const gsF = await must(cc, 'get_state', { project: D }, hdr('h11d1'));
+  check('H11 get_state: lines carry their date; compact is one text line each (id · date · waits on · text) and shorter', /^\d{4}-\d\d-\d\d$/.test(gsF.state.later[0].at) && /^l_\w+ · \d{4}-\d\d-\d\d ·  · /.test(gsC.state.later[0]) && gsC.state.later.length === 71 && JSON.stringify(gsC).length < JSON.stringify(gsF).length, JSON.stringify(gsC).slice(0, 300));
 
   // b) Gamma: stale lines, two pages with one title, 
   const G = 'H11 Gamma';

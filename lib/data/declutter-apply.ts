@@ -10,7 +10,7 @@ import { writeNote } from './notes';
 import { askNeed, withdrawForDeclutter, type Need } from './needs';
 import { buildProposal } from './declutter';
 import { userActor, type Actor } from '../actors';
-import { GROWTH, type DeclutterItem } from '../declutter-core';
+import { GROWTH, type DeclutterItem, type DeclutterKind } from '../declutter-core';
 import type { NeedWord } from '../db';
 
 // Declutter, apply and ask (docs/flows/agent-system.md section 7, H11). Apply runs as the person who answered (their own door:
@@ -29,9 +29,12 @@ class StaleError extends Error {}
  * Applies the items to one project as `s` and records it: the State's quiet window (14 days), the Need no longer open on the
  * State, and one feed row. Returns what was applied and what failed ("id: reason").
  */
-export async function applyDeclutter(s: Scope, project: ProjectDoc, items: DeclutterItem[], now = new Date()): Promise<ApplyResult> {
+export async function applyDeclutter(s: Scope, project: ProjectDoc, items: DeclutterItem[], now = new Date(), own?: { actor: Actor; via: 'code' }): Promise<ApplyResult> {
   const pid = project._id;
-  const actor: Actor = userActor(s.userId);
+  const actor: Actor = own?.actor ?? userActor(s.userId);
+  const via = own?.via ?? 'app';
+  // A session applying its own items says why on each line; the person's apply keeps the one word "Declutter".
+  const whyOf = (i: DeclutterItem) => (own ? i.why.slice(0, 200) : 'Declutter');
   const c = await scoped(s);
   const applied: string[] = [];
   const failed: string[] = [];
@@ -45,7 +48,7 @@ export async function applyDeclutter(s: Scope, project: ProjectDoc, items: Declu
   const batch: { item: DeclutterItem; op: Op }[] = [];
   for (const i of items) {
     if (i.kind === 'archive_line') {
-      if (hasLine(i.target)) batch.push({ item: i, op: { op: 'archive_line', id: i.target, why: 'Declutter' } });
+      if (hasLine(i.target)) batch.push({ item: i, op: { op: 'archive_line', id: i.target, why: whyOf(i) } });
       else applied.push(i.id);
     } else if (i.kind === 'done_next') {
       if (hasNext(i.target)) batch.push({ item: i, op: { op: 'done_next', id: i.target } });
@@ -57,12 +60,12 @@ export async function applyDeclutter(s: Scope, project: ProjectDoc, items: Declu
   for (const chunk of Array.from({ length: Math.ceil(batch.length / 30) }, (_, k) => batch.slice(k * 30, k * 30 + 30))) {
     let r: SaveResult | null = null;
     try {
-      r = await saveState(s, pid, chunk.map(b => b.op), { actor, via: 'app' });
+      r = await saveState(s, pid, chunk.map(b => b.op), { actor, via });
     } catch {
       // One bad item must not hold up the rest: do them one by one.
       for (const b of chunk) {
         try {
-          await saveState(s, pid, [b.op], { actor, via: 'app' });
+          await saveState(s, pid, [b.op], { actor, via });
           applied.push(b.item.id);
         } catch (e) {
           fail(b.item, e);
@@ -96,7 +99,7 @@ export async function applyDeclutter(s: Scope, project: ProjectDoc, items: Declu
           const sc = (t as { subtaskCount?: { total: number; done: number } }).subtaskCount;
           if (!((t.progress ?? 0) >= 100 || (!!sc && sc.total > 0 && sc.done >= sc.total))) throw new StaleError('the task is no longer finished');
         }
-        if (t.status !== 'Done' && t.status !== 'Dropped') await completeTask(s, t.ref, 'Declutter: finished in all but status', actor);
+        if (t.status !== 'Done' && t.status !== 'Dropped') await completeTask(s, t.ref, own ? `Declutter: ${i.why}` : 'Declutter: finished in all but status', actor);
         applied.push(i.id);
       } else if (i.kind === 'withdraw_need') {
         await withdrawForDeclutter(s, pid, Number(i.target));
@@ -110,18 +113,19 @@ export async function applyDeclutter(s: Scope, project: ProjectDoc, items: Declu
     }
   }
 
-  await recordApplied(s, project, applied.length, failed.length, now);
+  await recordApplied(s, project, applied.length, failed.length, now, actor, !own);
   return { applied, failed };
 }
 
 /** The project is quiet for 14 days, the Need (if any) is no longer open on the State, and one feed row says what happened. */
-async function recordApplied(s: Scope, project: ProjectDoc, applied: number, failed: number, now: Date): Promise<void> {
+async function recordApplied(s: Scope, project: ProjectDoc, applied: number, failed: number, now: Date, actor: Actor, quiet: boolean): Promise<void> {
   const c = await scoped(s);
   const st = await c.states.findOne({ _id: project._id }, { projection: { orgId: 1, ownerId: 1, visibility: 1, sharedWith: 1 } });
   if (!st) return;
-  await setQuiet(s, project._id, now);
+  // A session tidying its own lines does not silence the project: only a person's answer does.
+  if (quiet) await setQuiet(s, project._id, now);
   if (applied || failed) {
-    await logChange(c, st, userActor(s.userId), 'declutter_applied', { subject: { kind: 'state', id: project._id, title: 'State' }, projectId: project._id, note: `${applied} change${applied === 1 ? '' : 's'} applied${failed ? `, ${failed} failed` : ''}`, at: now });
+    await logChange(c, st, actor, 'declutter_applied', { subject: { kind: 'state', id: project._id, title: 'State' }, projectId: project._id, note: `${applied} change${applied === 1 ? '' : 's'} applied${failed ? `, ${failed} failed` : ''}`, at: now });
   }
 }
 
@@ -247,4 +251,26 @@ export async function askDeclutter(s: Scope, input: AskDeclutterInput): Promise<
     label: input.label,
   });
   return { need, items: items.length };
+}
+
+/** The kinds a session can apply to itself: what it could do with save_state, write_note and complete_task anyway. Needs other people hold stay with `ask`. */
+const OWN_KINDS: DeclutterKind[] = ['archive_line', 'done_next', 'archive_note', 'complete_task'];
+
+/**
+ * `declutter {apply: [ids]}`: the calling session applies proposed items now, as itself (recorded as Claude with each item's why),
+ * through its own door. No Need and no quiet window. Ids that are not in the current proposal, and kinds a session may not apply
+ * (withdrawing a Need, adding a line or task), come back as failed.
+ */
+export async function applyOwn(s: Scope, project: ProjectDoc, proposed: DeclutterItem[], ids: string[], actor: Actor, now = new Date()): Promise<ApplyResult> {
+  const by = new Map(proposed.map(i => [i.id, i]));
+  const items: DeclutterItem[] = [];
+  const failed: string[] = [];
+  for (const id of [...new Set(ids)]) {
+    const i = by.get(id);
+    if (!i) failed.push(`${id}: not in the current proposal (it changed, or is already done)`);
+    else if (!OWN_KINDS.includes(i.kind)) failed.push(`${id}: ${i.kind === 'withdraw_need' ? 'a Need is withdrawn by the person it is with' : 'not one a session applies itself'}: use ask`);
+    else items.push(i);
+  }
+  const r = items.length ? await applyDeclutter(s, project, items, now, { actor, via: 'code' }) : { applied: [], failed: [] };
+  return { applied: r.applied, failed: [...failed, ...r.failed] };
 }

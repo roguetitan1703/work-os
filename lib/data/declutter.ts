@@ -2,7 +2,7 @@ import 'server-only';
 import { scoped, type Scope } from '../scope';
 import type { ProjectDoc, StateDoc } from '../db';
 import { titleKey } from '../notes-match';
-import { setDeclutterReasons } from './states';
+import { setDeclutterReasons, setDeclutterReviewed } from './states';
 import {
   GROWTH,
   dueReasons,
@@ -13,6 +13,7 @@ import {
   stateItems,
   type Due,
   type DeclutterItem,
+  reviewLines,
   NO_DECLUTTER_TOOL,
 } from '../declutter-core';
 
@@ -53,8 +54,41 @@ export async function refreshCache(s: Scope, project: ProjectDoc, state: StateDo
   return reasons;
 }
 
+/**
+ * Checks the cached reasons again for one project (declutter is called, a task closed): only when the State has cached reasons
+ * to go stale, so a project with none costs one read. No State, an open Need or nothing cached: nothing happens.
+ */
+export async function refreshReasonsFor(s: Scope, projectId: string, now = new Date()): Promise<void> {
+  const c = await scoped(s);
+  const st = await c.states.findOne({ _id: projectId });
+  const project = await c.projects.findOne({ _id: projectId });
+  if (!st || !project || st.declutter?.needId || !st.declutter?.reasons?.length) return;
+  await refreshCache(s, project, st, now);
+}
+
+/** Stores a size review (declutter reviewed: true): the Later and Next counts now, so size makes the project due again only after 10 more lines. */
+export async function markReviewed(s: Scope, projectId: string, state: StateDoc, now = new Date()): Promise<{ later: number; next: number }> {
+  const counts = { later: state.later.length, next: state.next.length };
+  await setDeclutterReviewed(s, projectId, counts, now);
+  return counts;
+}
+
 /** True when the cached check is older than a day (or missing). */
 export const cacheStale = (state: StateDoc | null, now = new Date()) => !!state && (!state.declutter?.checkedAt || now.getTime() - state.declutter.checkedAt.getTime() > DAY);
+
+/** Like dueFor, but the cached reasons are checked again first (the declutter read): what it says is what the proposal holds. */
+export async function dueFresh(s: Scope, project: ProjectDoc, state: StateDoc | null, now = new Date()): Promise<Due> {
+  let st = state;
+  if (st && !st.declutter?.needId) {
+    try {
+      const reasons = await refreshCache(s, project, st, now);
+      st = { ...st, declutter: { ...(st.declutter ?? {}), checkedAt: now, reasons } };
+    } catch (e) {
+      console.error('[declutter cache]', e);
+    }
+  }
+  return dueReasons(st, now, project.name);
+}
 
 /**
  * Is this project due? The brief and end_work call it with the State they already loaded: counts and stale lines cost nothing,
@@ -138,4 +172,20 @@ export async function buildProposal(s: Scope, project: ProjectDoc, now = new Dat
 export async function briefField(s: Scope, project: ProjectDoc, state: StateDoc | null, claudeCode: boolean): Promise<{ declutter?: string }> {
   const d = await dueFor(s, project, state);
   return d.text ? { declutter: d.due && claudeCode ? `${d.text} ${NO_DECLUTTER_TOOL}` : d.text } : {};
+}
+
+/**
+ * The declutter read: the proposal, and a size review when size is why the project is due (or when it is due and nothing is
+ * proposed, which should not happen: a project that says "due" always has something to show). The cached reasons are
+ * checked again first. `next` says what to do.
+ */
+export async function readDeclutter(s: Scope, project: ProjectDoc, state: StateDoc | null, now = new Date()): Promise<{ due: Due; proposal: Proposal; review?: ReturnType<typeof reviewLines>; next: string }> {
+  const due = await dueFresh(s, project, state, now);
+  const proposal = await buildProposal(s, project, now);
+  const review = state && (due.review || (due.due && !proposal.items.length)) ? reviewLines(state) : undefined;
+  const parts: string[] = [];
+  if (proposal.items.length) parts.push('Check the proposed items against the code and the disk. Apply the ones that are clearly done or yours with apply: [ids]');
+  if (review) parts.push('Review the lines: archive lines that are done or no longer matter with save_state archive_line (with why), merge related lines (add one, archive the rest), then call declutter {reviewed: true}');
+  if (proposal.items.length) parts.push('ask: true (skip, add, disk) only for items other people hold');
+  return { due, proposal, ...(review ? { review } : {}), next: parts.length ? `${parts.join('. ')}.` : 'Nothing to tidy.' };
 }

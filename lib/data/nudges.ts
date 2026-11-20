@@ -77,7 +77,7 @@ export function declutterNudge(reasons: string[]): string {
     if (m) return `${m[2]} ${m[1]} lines`;
     return r.replace(/^(\d+) notes share a title$/, '$1 notes with the same title');
   });
-  return `Work OS: this project's State has ${parts.join(', ')} (Declutter is due). Call declutter: it proposes, your person approves on one Need. ${NO_DECLUTTER_TOOL}`;
+  return `Work OS: this project's State has ${parts.join(', ')} (Declutter is due). Call declutter: archive what is finished yourself, and ask only for what other people hold. ${NO_DECLUTTER_TOOL}`;
 }
 
 export type StopNudge = { /** Next lines that wait on nobody (only when the hook said the last message asked something and this session holds work). */ lines?: string[]; /** The Declutter nudge text (only when asked, the Now holder, and due). */ declutter?: string; /** The turn merged or released and did not save the State (only when the hook said so and the project's nudges are on). */ release?: true };

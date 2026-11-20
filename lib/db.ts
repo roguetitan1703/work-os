@@ -331,7 +331,8 @@ export type StateLine = {
 /** A Next or Later line taken off the State with its text kept (archive_line, a removed Later line, Declutter). `by`/`at` are the line's own; `archivedBy`/`archivedAt` say who took it off and when. */
 export type ArchivedLine = { id: string; text: string; from: 'Next' | 'Later'; waitsOn?: string; by: string; at: Date; archivedBy: string; archivedAt: Date; why?: string };
 /** What the daily Declutter check found on a project (lib/data/declutter.ts); written without a version bump, like `where`. */
-export type DeclutterCache = { checkedAt: Date; reasons: string[]; quietUntil?: Date; needId?: string; needRef?: number };
+/** `reviewedAt` and the two counts: the last size review (declutter reviewed: true); size makes a project due again only after 10 more lines. */
+export type DeclutterCache = { checkedAt: Date; reasons: string[]; quietUntil?: Date; needId?: string; needRef?: number; reviewedAt?: Date; reviewedLater?: number; reviewedNext?: number };
 /** A decision recorded on a project (append-only). `by` = who decided (a user id), `via` = chat / code / app / discord. */
 export type StateDecision = { id: string; at: Date; by: string; src?: string; via: string; text: string; archivedAt?: Date; /** The key that recorded it (the hourly limit counts per key). */ key?: string; /** The message it was applied from, who wrote that message and how it came in; `by` is who applied it. */ msg?: string; author?: string; word?: string };
 /** Where the work is on one machine, as the agent reported it from git. */

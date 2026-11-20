@@ -567,6 +567,12 @@ export async function setDeclutterReasons(s: Scope, projectId: string, checkedAt
   await c.states.updateOne({ _id: projectId }, { $set: { 'declutter.checkedAt': checkedAt, 'declutter.reasons': reasons } } as never);
 }
 
+/** A size review was done (declutter reviewed: true): the time and the Later and Next counts at that moment. No version bump, log or feed row. */
+export async function setDeclutterReviewed(s: Scope, projectId: string, counts: { later: number; next: number }, at: Date): Promise<void> {
+  const c = await scoped(s);
+  await c.states.updateOne({ _id: projectId }, { $set: { 'declutter.reviewedAt': at, 'declutter.reviewedLater': counts.later, 'declutter.reviewedNext': counts.next } } as never);
+}
+
 /**
  * A task ended (Done or Dropped): its Next lines come off every State the caller can read, whatever the project. One version
  * bump, a log entry and a feed row per State. Runs in the caller's transaction (tasks.ts updateTaskCore). A State the
@@ -739,8 +745,8 @@ export type StateOut = {
   /** holder: label of the session that holds Now; holderState: its state word (working, idle, ...), set by the page (roster.withLaneMarks). */
   now: { text: string; holder?: string; holderState?: string; at: string; writtenBy?: string } | null;
   /** holder: label of the session that holds the line (set by the page); left: where a released line stood, as one line of text. */
-  next: { id: string; text: string; ref?: number; waitsOn?: string; holder?: string; left?: string; writtenBy?: string }[];
-  later: { id: string; text: string; waitsOn?: string; holder?: string; left?: string; writtenBy?: string }[];
+  next: { id: string; text: string; /** The day the line was last written, YYYY-MM-DD. */ at?: string; ref?: number; waitsOn?: string; holder?: string; left?: string; writtenBy?: string }[];
+  later: { id: string; text: string; at?: string; waitsOn?: string; holder?: string; left?: string; writtenBy?: string }[];
   decisions: { id: string; at: string; by: string; via: string; text: string; message?: string; word?: string; writtenBy?: string }[];
   where: Record<string, { branch?: string; head?: string; dirty?: boolean; worktrees?: string[]; at: string; writtenBy?: string }>;
   updatedAt: string;
@@ -763,11 +769,33 @@ export function stateOut(d: StateDoc, reader: string, names: Names): StateOut {
     version: d.version,
     // holder: the label of the session that holds Now (never its id); a legacy free-text holder is shown until a save replaces it.
     now: d.now ? { text: d.now.text, ...(d.now.hold?.label || d.now.holder ? { holder: d.now.hold?.label || d.now.holder } : {}), at: d.now.at.toISOString(), ...w(d.now.by) } : null,
-    next: d.next.map(l => ({ id: l.id, text: l.text, ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...leftOut(l), ...w(l.by) })),
-    later: d.later.map(l => ({ id: l.id, text: l.text, ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...leftOut(l), ...w(l.by) })),
+    next: d.next.map(l => ({ id: l.id, text: l.text, at: l.at.toISOString().slice(0, 10), ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...leftOut(l), ...w(l.by) })),
+    later: d.later.map(l => ({ id: l.id, text: l.text, at: l.at.toISOString().slice(0, 10), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...leftOut(l), ...w(l.by) })),
     decisions: d.decisions.filter(x => !x.archivedAt).map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', via: x.via, text: x.text, ...(x.msg ? { message: x.msg } : {}), ...(x.word ? { word: x.word } : {}), ...w(x.author ?? x.by) })),
     where: Object.fromEntries(Object.entries(d.where ?? {}).map(([m, v]) => [m, { ...(v.branch ? { branch: v.branch } : {}), ...(v.head ? { head: v.head } : {}), ...(v.dirty !== undefined ? { dirty: v.dirty } : {}), ...(v.worktrees?.length ? { worktrees: v.worktrees } : {}), at: v.at.toISOString(), ...w(v.by) }])),
     updatedAt: d.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * get_state with compact: true: the State as short text, one line each (`id · date · waits on · text`; a line someone else wrote
+ * ends with `(by name)`, a Next line's task as `#12` in front). Lanes, the copy, held and left marks and all but the last 10
+ * decisions are left out; Where stays. About a quarter of the full answer for a State with long Later and Decisions lists.
+ */
+export type StateCompact = { version: number; now: string | null; next: string[]; later: string[]; decisions: string[]; where: StateOut['where']; updatedAt: string };
+export const COMPACT_DECISIONS = 10;
+export function stateCompact(o: StateOut): StateCompact {
+  const by = (w?: string) => (w ? ` (by ${w})` : '');
+  const line = (l: { id: string; text: string; at?: string; ref?: number; waitsOn?: string; writtenBy?: string }) =>
+    [l.id, l.at ?? '', l.waitsOn ?? '', `${l.ref && !l.text.includes(`#${l.ref}`) ? `#${l.ref} ` : ''}${l.text}${by(l.writtenBy)}`].join(' · ');
+  return {
+    version: o.version,
+    now: o.now ? `${o.now.text}${o.now.holder ? ` (held by ${o.now.holder})` : ''}${by(o.now.writtenBy)}` : null,
+    next: o.next.map(line),
+    later: o.later.map(line),
+    decisions: o.decisions.slice(-COMPACT_DECISIONS).map(d => `${d.id} · ${d.at.slice(0, 10)} · ${d.text}${by(d.writtenBy)}`),
+    where: o.where,
+    updatedAt: o.updatedAt,
   };
 }
 
