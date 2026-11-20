@@ -68,7 +68,8 @@ async function suite(vp) {
   await fillLogin(p);
   await click(p.locator('button[type=submit]'));
   await p.waitForURL(u => u.pathname === '/claude', { timeout: 20000 });
-  await p.waitForSelector('[data-tab="now"]');
+  await p.waitForSelector('[data-tab="sessions"]');
+  check(T('two tabs: Sessions and Set up (Now and Workers are one list)'), (await p.locator('nav[aria-label="Claude sections"] a[data-tab]').count()) === 2 && (await p.locator('a[data-tab="sessions"][aria-current="page"]').count()) === 1);
 
   // ── Now ──
   check(T('no Claude is asking block, no answer box (Claude items retired)'), (await p.locator('[data-section="needs-you"]').count()) === 0 && (await p.locator('[data-needs-you]').count()) === 0);
@@ -96,13 +97,30 @@ async function suite(vp) {
   const sec = p.locator('[data-section="sessions"]');
   await sec.waitFor();
   const stx = await sec.innerText();
-  check(T('Sessions heading shows a count'), /Sessions\s*\d+/i.test(stx), stx.slice(0, 80));
+  check(T('Sessions heading shows a count'), /Sessions[^\n]*\n?\s*\d+/i.test(stx), stx.slice(0, 80));
+  check(T('ended sessions sit under Finished today (ended today), not in the live list'), (await p.locator(`[data-section="finished"] [data-session-row="${D1}:${sDead}"]`).count()) === 1 && (await sec.locator(`[data-session-row="${D1}:${sDead}"]`).count()) === 0);
+  // A tap on a row opens its sheet: everything about it and every action.
+  await click(p.locator(`[data-session-row="${D1}:${sRun}"] button`).first());
+  const sh = p.locator(`[data-session-sheet="${D1}:${sRun}"]`);
+  check(T('a row opens its sheet with the folder, the computer and Stop'), await sh.waitFor({ timeout: 6000 }).then(async () => /alpha/.test(await sh.innerText()) && /Om-PC/.test(await sh.innerText()) && (await sh.locator('[data-sheet-action="stop"]').count()) === 1, () => false));
+  if (phone) await click(p.getByRole('dialog').locator('button[aria-label="Close"]').first());
+  else await p.keyboard.press('Escape');
+  check(T('the sheet closes'), await sh.waitFor({ state: 'detached', timeout: 6000 }).then(() => true, () => false));
   const rrow = p.locator(`[data-session-row="${sRun}"]`).first();
   check(T('running session row present'), (await rrow.count()) === 1 || (await p.locator('[data-session-row]').count()) > 0, String(await p.locator('[data-session-row]').count()));
   const keys = await p.locator('[data-session-row]').evaluateAll(els => els.map(e => e.getAttribute('data-session-row') + ':' + e.getAttribute('data-state')));
   console.log('rows', JSON.stringify(keys));
-  const stopBtn = p.locator('[data-session-row] button:has-text("Stop")').first();
-  check(T('a Stop button exists on a live row'), (await stopBtn.count()) > 0);
+  // One control per row, by state: no Stop, Remove, Link or Open in VS Code on a row (they are in its sheet); an ended session
+  // with a project has Resume; a running one the roster does not list (no hook) has none (Message needs the session's own row).
+  check(T('no Stop, Remove, Link or Open in VS Code on any row'), (await p.locator('[data-session-row] [data-session-action="stop"], [data-session-row] [data-session-action="remove"], [data-session-row] [data-link-folder], [data-session-row] [data-open-vscode]').count()) === 0);
+  const deadRow = p.locator(`[data-session-row="${D1}:${sDead}"]`);
+  check(T('an ended session with a project: Resume is its one control'), (await deadRow.locator('[data-session-action]').count()) === 1 && (await deadRow.locator('[data-session-action="resume"]').count()) === 1, await deadRow.innerText().catch(() => ''));
+  await h44(deadRow.locator('[data-session-action="resume"]'), 'Resume');
+  check(T('a running session without a hook row has no control'), (await p.locator(`[data-session-row="${D1}:${sRun}"] [data-session-action]`).count()) === 0);
+  // Stop is in the sheet.
+  await click(p.locator(`[data-session-row="${D1}:${sRun}"] button`).first());
+  const stopBtn = sh.locator('[data-sheet-action="stop"]');
+  await stopBtn.waitFor({ timeout: 6000 }).catch(() => {});
   await h44(stopBtn, 'Stop');
   if (await stopBtn.count()) {
     await click(stopBtn);
@@ -115,9 +133,14 @@ async function suite(vp) {
     await click(stopBtn);
     await click(p.locator('button[data-confirm]'));
     check(T('confirmed Stop creates a stop job'), !!(await wait(async () => (await jobs({ kind: 'stop' })).length === 1)));
+    check(T('and closes the sheet'), await sh.waitFor({ state: 'detached', timeout: 6000 }).then(() => true, () => false));
     await db.collection('workerJobs').updateMany({}, { $set: { doneAt: new Date(), ok: true } });
-  }
-  const rmBtn = p.locator('[data-session-row] button:has-text("Remove")').first();
+  } else check(T('the sheet has Stop'), false);
+  // Remove is in the sheet of an ended session.
+  await click(deadRow.locator('button').first());
+  const dsh = p.locator(`[data-session-sheet="${D1}:${sDead}"]`);
+  const rmBtn = dsh.locator('[data-sheet-action="remove"]');
+  await rmBtn.waitFor({ timeout: 6000 }).catch(() => {});
   if (await rmBtn.count()) {
     const before = await p.locator('[data-session-row]').count();
     await click(rmBtn);
@@ -125,11 +148,11 @@ async function suite(vp) {
     const undo = await toast(/Removed from the list/);
     check(T('Remove hides the row'), !!(await gone()));
     check(T('Remove offers Undo'), undo);
+  } else {
+    check(T("an ended session's sheet has Remove"), false, await dsh.innerText().catch(() => 'no sheet'));
+    if (phone) await click(p.getByRole('dialog').locator('button[aria-label="Close"]').first());
+    else await p.keyboard.press('Escape');
   }
-  const fl = p.locator('button[aria-pressed]:has-text("Started from Work OS")');
-  await click(fl);
-  check(T('filter Started from Work OS toggles'), (await fl.getAttribute('aria-pressed')) === 'true');
-  await click(p.locator('button[aria-pressed]:has-text("All sessions")'));
   check(T('Claude page no horizontal scroll'), await noScroll());
   await p.screenshot({ path: `${SP}/cl-${vp}-sessions.png` });
 
@@ -142,7 +165,7 @@ async function suite(vp) {
   await db.collection('presence').updateOne({ _id: HOOKROW }, { $set: { ccSession: CC, activity: { state: 'waiting', at: new Date(), why: 'prompt' } } });
   await p.goto(B + '/claude'); await p.waitForSelector('[data-section="sessions"]');
   const hrow = p.locator(`[data-session-row="${D1}:${CC}"]`);
-  check(T('hook says waiting at a prompt: the row reads "waiting on you"'), (await hrow.count()) === 1 && /waiting on you/.test(await hrow.innerText()), await hrow.innerText().catch(() => 'no row'));
+  check(T('hook says waiting at a prompt: the row reads "waiting on you"'), (await hrow.count()) === 1 && /waiting on you/i.test(await hrow.innerText()) && (await p.locator(`[data-worker="${HOOKROW}"]`).count()) === 1 && (await p.locator(`[data-worker="${HOOKROW}"][data-session-row="${D1}:${CC}"]`).count()) === 1, await hrow.innerText().catch(() => 'no row'));
   check(T('Claude page no horizontal scroll with the waiting row'), await noScroll());
   await p.screenshot({ path: `${SP}/cl-${vp}-now-waiting.png` });
   await p.evaluate(() => document.documentElement.classList.add('dark'));
@@ -153,7 +176,7 @@ async function suite(vp) {
   check(T('hook says working although the transcript is 20 minutes old: working'), (await p.locator(`[data-session-row="${D1}:${CC}"]`).getAttribute('data-state')) === 'working');
   await db.collection('presence').updateOne({ _id: HOOKROW }, { $set: { activity: { state: 'off', at: new Date() } } });
   await p.goto(B + '/claude'); await p.waitForSelector('[data-section="sessions"]');
-  check(T('hook says off while the worker list still shows it running: closed'), (await p.locator(`[data-session-row="${D1}:${CC}"]`).getAttribute('data-state')) === 'closed');
+  check(T('hook says off while the worker list still shows it running: off, under Finished today'), (await p.locator(`[data-session-row="${D1}:${CC}"]`).getAttribute('data-state')) === 'off' && (await p.locator(`[data-section="finished"] [data-session-row="${D1}:${CC}"]`).count()) === 1);
   await db.collection('presence').deleteOne({ _id: HOOKROW });
   await db.collection('devices').updateOne({ _id: D1 }, { $unset: { claudeSessions: '' } });
 
@@ -162,6 +185,55 @@ async function suite(vp) {
   await p.goto(B + '/claude?tab=setup'); await p.waitForSelector('[data-device="Om-PC"]');
   const dev = p.locator('[data-device="Om-PC"]');
   check(T('Setup lists the computer with online dot and last seen'), (await dev.locator('[aria-label="online"]').count()) === 1 && /seen/.test(await dev.innerText()));
+  // The worker line (docs/launcher.md "Self-update"): its version, then how it updates.
+  {
+    const before = (await db.collection('devices').findOne({ _id: D1 }))?.worker;
+    const served = await (await fetch(B + '/worker/latest.json')).json();
+    const setWorker = w => db.collection('devices').updateOne({ _id: D1 }, { $set: { worker: { version: '0.5.0', os: 'win32', allowPrompts: true, ...w }, lastSeenAt: new Date() } });
+    // Every case here has a tail after "Worker x"; "update available" needs the served release, which loads after the list.
+    const line = async () => {
+      await p.reload(); await p.waitForSelector('[data-device="Om-PC"] [data-worker-line]');
+      await p.waitForFunction(() => document.querySelector('[data-device="Om-PC"] [data-worker-line]')?.textContent?.includes('·'), null, { timeout: 8000 }).catch(() => {});
+      return (await dev.locator('[data-worker-line]').innerText()).trim().replace(/\s+/g, ' ');
+    };
+    await setWorker({ bundle: served.sha256.slice(0, 12), selfUpdate: { updatedAt: new Date(Date.now() - 2 * 3600_000), from: '0.4.0', problem: null } });
+    let t = await line();
+    check(T('worker line: version and when it last updated itself'), /^Worker 0\.5\.0 · updated itself /.test(t), t);
+    await p.screenshot({ path: `${SP}/cl-${vp}-worker-updated.png` });
+    await setWorker({ bundle: 'aaaaaaaaaaaa', selfUpdate: { updatedAt: null, from: null, problem: 'update refused: bad signature' } });
+    t = await line();
+    // A refusal never leads to the install command: its file and checksum come from the server that offered the release.
+    check(T('worker line: a refused update says not to reinstall'), t === "Worker 0.5.0 · Update refused: this release isn't signed by Delpat. Don't reinstall; tell Om.", t);
+    const centre = l => l.evaluate(e => e.scrollIntoView({ block: 'center' })); // clear of the phone's bottom bar
+    const manual = p.locator('[data-manual-update="Om-PC"]');
+    check(T('a refusal is text, not a button, and no install command is on the page'), (await dev.locator('[data-update-problem="refused"]').count()) === 1 && (await dev.locator('[data-worker-line] button').count()) === 0 && (await p.locator('[data-install-command]').count()) === 0);
+    check(T('worker line with a refusal: no horizontal scroll'), await noScroll());
+    await centre(dev.locator('[data-update-problem]'));
+    await p.screenshot({ path: `${SP}/cl-${vp}-worker-refused.png` });
+    await p.evaluate(() => document.documentElement.classList.add('dark'));
+    await p.screenshot({ path: `${SP}/cl-${vp}-worker-refused-dark.png` });
+    await p.evaluate(() => document.documentElement.classList.remove('dark'));
+    await setWorker({ bundle: 'aaaaaaaaaaaa', selfUpdate: { updatedAt: null, from: null, problem: 'update refused: version 20261101.000000 is not newer than 20261120.100000' } });
+    t = await line();
+    check(T('worker line: an older release offered is refused the same way'), t === "Worker 0.5.0 · Update refused: Work OS offered an older release (20261101.000000). Don't reinstall; tell Om.", t);
+    await setWorker({ bundle: 'aaaaaaaaaaaa', selfUpdate: { updatedAt: null, from: null, problem: 'update failed: could not reach Work OS (ECONNREFUSED)' } });
+    t = await line();
+    check(T('worker line: a failed update gives the reason and says it tries again, no command'), t === 'Worker 0.5.0 · update failed: could not reach Work OS (ECONNREFUSED); it will try again' && (await dev.locator('[data-worker-line] button').count()) === 0 && (await p.locator('[data-install-command]').count()) === 0, t);
+    await centre(dev.locator('[data-update-problem]'));
+    await p.screenshot({ path: `${SP}/cl-${vp}-worker-failed.png` });
+    await setWorker({ version: '0.4.0', bundle: 'aaaaaaaaaaaa' });
+    t = await line();
+    check(T('worker line: a worker from before self-update offers the command once'), t === 'Worker 0.4.0 · update available', t);
+    await centre(dev.locator('[data-worker-line] button'));
+    await click(dev.locator('[data-worker-line] button'));
+    check(T('its panel says it updates itself after this run'), await manual.waitFor({ timeout: 5000 }).then(async () => /from then on it updates itself/.test(await manual.innerText()), () => false));
+    await setWorker({ bundle: served.sha256.slice(0, 12), selfUpdate: { updatedAt: null, from: null, problem: null } });
+    check(T('worker line: a current self-updating worker'), (await line()) === 'Worker 0.5.0 · updates itself');
+    await setWorker({});
+    check(T('worker line: a repo run'), (await line()) === 'Worker 0.5.0 · from the repo');
+    await db.collection('devices').updateOne({ _id: D1 }, before ? { $set: { worker: before } } : { $unset: { worker: '' } });
+    await p.reload(); await p.waitForSelector('[data-device="Om-PC"]');
+  }
   await p.fill('input[aria-label="Name for the new computer"]', `new-${vp}`);
   await click(p.locator('button:has-text("Add this PC")'));
   const keyEl = p.locator('code.bg-muted', { hasText: /^wkr_/ });
@@ -273,7 +345,8 @@ async function suite(vp) {
   const depth0 = await p.evaluate(() => history.length);
   await click(p.locator('a[data-start-claude]:visible'));
   await p.waitForSelector('[data-start-step="project"]');
-  check(T('Start Claude on /claude opens step 1 (?start=1, tab kept)'), p.url().includes('start=1') && p.url().includes('tab=workers'));
+  // An old ?tab=workers link lands on the one Sessions list; Start keeps that tab.
+  check(T('Start Claude on /claude opens step 1 (?start=1, tab kept)'), p.url().includes('start=1') && p.url().includes('tab=sessions'), p.url());
   const step = p.locator('[data-start-step="project"]');
   await step.locator('[data-start-project]').first().waitFor();
   const st = await step.innerText();
@@ -313,7 +386,7 @@ async function suite(vp) {
   check(T('flow closed'), await p.locator('[data-start-step]').waitFor({ state: 'detached', timeout: 6000 }).then(() => true, () => false) && !p.url().includes('start='));
   await db.collection('workerJobs').updateMany({}, { $set: { doneAt: new Date(), ok: true } });
   await p.goto(B + '/claude'); await p.waitForSelector('[data-section="sessions"]');
-  check(T('new session shows under Running as starting'), await p.locator(`[data-section="sessions"] [data-session-row$=":${sj.sessionId}"]`).innerText().then(t => /starting/.test(t) && /Alpha/.test(t), () => false));
+  check(T('new session shows under Running as starting'), await p.locator(`[data-section="sessions"] [data-session-row$=":${sj.sessionId}"]`).innerText().then(t => /starting/i.test(t) && /Alpha/.test(t), () => false));
 
   // suggestion only: Bravo
   await p.goto(B + `/claude?start=${Bv}`);
@@ -366,7 +439,7 @@ async function suite(vp) {
   if (!phone) {
     // key S
     await p.goto(B + '/claude'); await p.waitForSelector('a[data-start-claude]:visible');
-    await p.locator('body').click({ position: { x: 700, y: 600 } });
+    await p.locator('main h1:visible').first().click(); // a spot that is not a control (a session row there would open its sheet)
     await p.keyboard.press('s');
     check(T('key S opens the picker'), await p.locator('[data-start-step="project"]').waitFor({ timeout: 5000 }).then(() => true, () => false) && p.url().includes('start=1'));
     check(T('search box focused for typing'), await p.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search projects'));
@@ -400,7 +473,7 @@ async function suite(vp) {
   check(T('Tasks empty: no horizontal scroll'), await noScroll());
   await p.goto(B + '/projects'); await p.waitForSelector('[data-projects-empty]');
   const pe = await p.locator('[data-projects-empty]').innerText();
-  check(T('Projects empty: says what a project is, and Click / Tap by device'), /A project groups tasks, notes and Claude for one client or product\./.test(pe) && (phone ? /Tap \+/.test(pe) && !/Click New project/.test(pe) : /Click New project\./.test(pe) && !/Tap \+/.test(pe)), pe);
+  check(T('Projects empty: says what a project is, and Click / Tap by device'), /A project groups tasks, notes and Claude for one client or product\./.test(pe) && (phone ? /Tap New project/.test(pe) && !/Click New project/.test(pe) : /Click New project\./.test(pe) && !/Tap New project/.test(pe)), pe); // the phone has a New project button (navigation step)
   check(T('no console/page errors'), errs.length === 0, errs.join(' | '));
   await ctx.close();
 }

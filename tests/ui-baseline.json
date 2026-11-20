@@ -1,0 +1,454 @@
+{
+  "app/(app)/claude/advanced-fold.tsx": {
+    "px": 2,
+    "btn": 0
+  },
+  "app/(app)/claude/authorized-apps.tsx": {
+    "px": 2,
+    "btn": 1
+  },
+  "app/(app)/claude/claude-tasks.tsx": {
+    "px": 4,
+    "btn": 2
+  },
+  "app/(app)/claude/computer-folders.tsx": {
+    "px": 5,
+    "btn": 0
+  },
+  "app/(app)/claude/computers.tsx": {
+    "px": 7,
+    "btn": 7
+  },
+  "app/(app)/claude/connect-claude.tsx": {
+    "px": 3,
+    "btn": 0
+  },
+  "app/(app)/claude/dispatcher-setup.tsx": {
+    "px": 7,
+    "btn": 3
+  },
+  "app/(app)/claude/keys.tsx": {
+    "px": 7,
+    "btn": 6
+  },
+  "app/(app)/claude/link-session-folder.tsx": {
+    "px": 1,
+    "btn": 2
+  },
+  "app/(app)/claude/messages-for-you.tsx": {
+    "px": 6,
+    "btn": 6
+  },
+  "app/(app)/claude/quiet-folders.tsx": {
+    "px": 2,
+    "btn": 1
+  },
+  "app/(app)/claude/reference-tab.tsx": {
+    "px": 2,
+    "btn": 1
+  },
+  "app/(app)/claude/reopen-banner.tsx": {
+    "px": 2,
+    "btn": 2
+  },
+  "app/(app)/claude/setup-tab.tsx": {
+    "px": 10,
+    "btn": 0
+  },
+  "app/(app)/claude/ui.ts": {
+    "px": 2,
+    "btn": 0
+  },
+  "app/(app)/claude/worker-install.tsx": {
+    "px": 4,
+    "btn": 3
+  },
+  "app/(app)/notes/[id]/note-editor.tsx": {
+    "px": 1,
+    "btn": 2
+  },
+  "app/(app)/notes/[id]/orders-changes.tsx": {
+    "px": 1,
+    "btn": 1
+  },
+  "app/(app)/notes/[id]/page.tsx": {
+    "px": 1,
+    "btn": 0
+  },
+  "app/(app)/notes/page.tsx": {
+    "px": 3,
+    "btn": 1
+  },
+  "app/(app)/notifications/page.tsx": {
+    "px": 3,
+    "btn": 0
+  },
+  "app/(app)/projects/[id]/add-task-button.tsx": {
+    "px": 1,
+    "btn": 1
+  },
+  "app/(app)/projects/[id]/code-locations.tsx": {
+    "px": 4,
+    "btn": 4
+  },
+  "app/(app)/projects/[id]/declutter-dialog.tsx": {
+    "px": 0,
+    "btn": 2
+  },
+  "app/(app)/projects/[id]/folders.tsx": {
+    "px": 10,
+    "btn": 4
+  },
+  "app/(app)/projects/[id]/nudges-setting.tsx": {
+    "px": 5,
+    "btn": 1
+  },
+  "app/(app)/projects/[id]/old-claude-items.tsx": {
+    "px": 5,
+    "btn": 0
+  },
+  "app/(app)/projects/[id]/page.tsx": {
+    "px": 12,
+    "btn": 0
+  },
+  "app/(app)/projects/[id]/production-setting.tsx": {
+    "px": 10,
+    "btn": 3
+  },
+  "app/(app)/projects/[id]/project-header.tsx": {
+    "px": 2,
+    "btn": 3
+  },
+  "app/(app)/projects/[id]/project-top.tsx": {
+    "px": 2,
+    "btn": 7
+  },
+  "app/(app)/projects/delpat-os-picker.tsx": {
+    "px": 0,
+    "btn": 1
+  },
+  "app/(app)/projects/new-project.tsx": {
+    "px": 2,
+    "btn": 2
+  },
+  "app/(app)/projects/page.tsx": {
+    "px": 4,
+    "btn": 0
+  },
+  "app/(app)/projects/sharing-choice.tsx": {
+    "px": 0,
+    "btn": 2
+  },
+  "app/(app)/review/views.tsx": {
+    "px": 8,
+    "btn": 0
+  },
+  "app/(app)/settings/ai-tools.tsx": {
+    "px": 12,
+    "btn": 0
+  },
+  "app/(app)/settings/blocked-channels.tsx": {
+    "px": 1,
+    "btn": 1
+  },
+  "app/(app)/settings/calendar-section.tsx": {
+    "px": 4,
+    "btn": 6
+  },
+  "app/(app)/settings/connections.tsx": {
+    "px": 3,
+    "btn": 0
+  },
+  "app/(app)/settings/delpat-os-link-buttons.tsx": {
+    "px": 2,
+    "btn": 2
+  },
+  "app/(app)/settings/device-settings.tsx": {
+    "px": 13,
+    "btn": 5
+  },
+  "app/(app)/settings/discord-link.tsx": {
+    "px": 0,
+    "btn": 4
+  },
+  "app/(app)/settings/discord-section.tsx": {
+    "px": 3,
+    "btn": 0
+  },
+  "app/(app)/settings/dismiss-notice.tsx": {
+    "px": 0,
+    "btn": 1
+  },
+  "app/(app)/settings/help.tsx": {
+    "px": 1,
+    "btn": 0
+  },
+  "app/(app)/settings/mail-key.tsx": {
+    "px": 10,
+    "btn": 7
+  },
+  "app/(app)/settings/members-section.tsx": {
+    "px": 11,
+    "btn": 6
+  },
+  "app/(app)/settings/migration-notice.tsx": {
+    "px": 3,
+    "btn": 0
+  },
+  "app/(app)/settings/page.tsx": {
+    "px": 2,
+    "btn": 1
+  },
+  "app/(app)/settings/security-settings.tsx": {
+    "px": 8,
+    "btn": 17
+  },
+  "app/(app)/settings/status-strip.tsx": {
+    "px": 2,
+    "btn": 0
+  },
+  "app/(app)/settings/time-settings.tsx": {
+    "px": 0,
+    "btn": 2
+  },
+  "app/(app)/settings/ui.tsx": {
+    "px": 3,
+    "btn": 0
+  },
+  "app/(app)/settings/usage-section.tsx": {
+    "px": 8,
+    "btn": 0
+  },
+  "app/(app)/tasks/[id]/task-detail-client.tsx": {
+    "px": 1,
+    "btn": 8
+  },
+  "app/(app)/tasks/board-client.tsx": {
+    "px": 5,
+    "btn": 1
+  },
+  "app/(app)/timetable/page.tsx": {
+    "px": 4,
+    "btn": 0
+  },
+  "app/(app)/timetable/schedule-editor.tsx": {
+    "px": 2,
+    "btn": 6
+  },
+  "app/(app)/timetable/schedule-preset.tsx": {
+    "px": 0,
+    "btn": 1
+  },
+  "app/(app)/today/checklist-card.tsx": {
+    "px": 10,
+    "btn": 5
+  },
+  "app/(app)/today/projects-now-card.tsx": {
+    "px": 4,
+    "btn": 0
+  },
+  "app/(app)/today/today-client.tsx": {
+    "px": 14,
+    "btn": 8
+  },
+  "app/(app)/today/whats-new-card.tsx": {
+    "px": 6,
+    "btn": 1
+  },
+  "app/(app)/whats-new/page.tsx": {
+    "px": 3,
+    "btn": 0
+  },
+  "app/accept-invitation/[id]/page.tsx": {
+    "px": 4,
+    "btn": 2
+  },
+  "app/login/reset/reset-form.tsx": {
+    "px": 3,
+    "btn": 1
+  },
+  "app/login/sign-in-form.tsx": {
+    "px": 7,
+    "btn": 8
+  },
+  "app/oauth/consent/consent-form.tsx": {
+    "px": 4,
+    "btn": 2
+  },
+  "app/oauth/consent/page.tsx": {
+    "px": 1,
+    "btn": 0
+  },
+  "components/activity-timeline.tsx": {
+    "px": 2,
+    "btn": 0
+  },
+  "components/actor-badge.tsx": {
+    "px": 1,
+    "btn": 0
+  },
+  "components/assignee-picker.tsx": {
+    "px": 3,
+    "btn": 3
+  },
+  "components/comment-entry.tsx": {
+    "px": 6,
+    "btn": 9
+  },
+  "components/copy-box.tsx": {
+    "px": 0,
+    "btn": 2
+  },
+  "components/day-plan-dialog.tsx": {
+    "px": 0,
+    "btn": 1
+  },
+  "components/declutter-list.tsx": {
+    "px": 4,
+    "btn": 0
+  },
+  "components/give-to-claude.tsx": {
+    "px": 20,
+    "btn": 4
+  },
+  "components/mobile/bell.tsx": {
+    "px": 1,
+    "btn": 0
+  },
+  "components/mobile/full-sheet.tsx": {
+    "px": 1,
+    "btn": 1
+  },
+  "components/mobile/hub-segment.tsx": {
+    "px": 1,
+    "btn": 0
+  },
+  "components/mobile/m-day-plan.tsx": {
+    "px": 9,
+    "btn": 1
+  },
+  "components/mobile/m-import.tsx": {
+    "px": 5,
+    "btn": 6
+  },
+  "components/mobile/m-notes.tsx": {
+    "px": 1,
+    "btn": 2
+  },
+  "components/mobile/m-task-actions.tsx": {
+    "px": 8,
+    "btn": 6
+  },
+  "components/mobile/m-task-detail.tsx": {
+    "px": 42,
+    "btn": 27
+  },
+  "components/mobile/m-task-row.tsx": {
+    "px": 3,
+    "btn": 2
+  },
+  "components/mobile/m-tasks.tsx": {
+    "px": 3,
+    "btn": 7
+  },
+  "components/mobile/quick-add-sheet.tsx": {
+    "px": 2,
+    "btn": 5
+  },
+  "components/mobile/sheet.tsx": {
+    "px": 0,
+    "btn": 2
+  },
+  "components/mobile/sub-header.tsx": {
+    "px": 2,
+    "btn": 0
+  },
+  "components/mobile/tab-bar.tsx": {
+    "px": 0,
+    "btn": 1
+  },
+  "components/mode-help.tsx": {
+    "px": 3,
+    "btn": 1
+  },
+  "components/needs.tsx": {
+    "px": 18,
+    "btn": 2
+  },
+  "components/new-badge.tsx": {
+    "px": 1,
+    "btn": 0
+  },
+  "components/new-note-button.tsx": {
+    "px": 0,
+    "btn": 3
+  },
+  "components/paste-import.tsx": {
+    "px": 0,
+    "btn": 1
+  },
+  "components/private-badge.tsx": {
+    "px": 2,
+    "btn": 0
+  },
+  "components/progress-dialog.tsx": {
+    "px": 1,
+    "btn": 1
+  },
+  "components/purpose-header.tsx": {
+    "px": 11,
+    "btn": 6
+  },
+  "components/quick-add.tsx": {
+    "px": 3,
+    "btn": 1
+  },
+  "components/reauth.tsx": {
+    "px": 0,
+    "btn": 2
+  },
+  "components/responsive-sheet.tsx": {
+    "px": 1,
+    "btn": 2
+  },
+  "components/review-nav.tsx": {
+    "px": 1,
+    "btn": 0
+  },
+  "components/shortcuts.tsx": {
+    "px": 2,
+    "btn": 0
+  },
+  "components/sidebar.tsx": {
+    "px": 3,
+    "btn": 5
+  },
+  "components/start-claude.tsx": {
+    "px": 15,
+    "btn": 6
+  },
+  "components/subtasks.tsx": {
+    "px": 7,
+    "btn": 5
+  },
+  "components/task-place.tsx": {
+    "px": 1,
+    "btn": 0
+  },
+  "components/task-row.tsx": {
+    "px": 5,
+    "btn": 3
+  },
+  "components/ui/card.tsx": {
+    "px": 0,
+    "btn": 1
+  },
+  "components/ui/chip.tsx": {
+    "px": 0,
+    "btn": 1
+  },
+  "components/ui/menu.tsx": {
+    "px": 1,
+    "btn": 0
+  }
+}

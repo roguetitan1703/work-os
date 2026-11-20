@@ -1,7 +1,8 @@
 import Link from '@/components/intent-link';
 import { ChevronRight, Megaphone } from 'lucide-react';
 import { format } from 'date-fns';
-import { SubHeader, MGroupTitle } from '@/components/mobile/sub-header';
+import { MGroupTitle } from '@/components/mobile/sub-header';
+import { ScreenHeader } from '@/components/mobile/tab-bar';
 import { NewBadge } from '@/components/new-badge';
 import { requireCaller } from '@/lib/caller';
 import { whatsNewState } from '@/lib/whats-new-seen';
@@ -17,11 +18,7 @@ export default async function WhatsNewPage() {
   const days = byDate(entries, today);
   return (
     <div className="max-w-xl mx-auto" data-view="whats-new">
-      <SubHeader title="What's new" subtitle="New in Work OS, newest first." />
-      <div className="hidden md:block mb-4">
-        <h1 className="text-2xl font-bold">What&apos;s new</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">New in Work OS, newest first.</p>
-      </div>
+      <ScreenHeader title="What's new" sub="New in Work OS, newest first." back="/menu" backLabel="Menu" className="mb-4" />
       {unseen.length > 0 && <MarkSeen />}
       {days.length === 0 ? (
         <div className="mt-16 flex flex-col items-center text-center text-muted-foreground">

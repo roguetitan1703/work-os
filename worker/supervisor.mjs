@@ -15,9 +15,12 @@ export const LOG_MAX = 1024 * 1024;
 
 const codeFiles = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith('.mjs')).sort();
 
-// mtime + size of every .mjs in the worker folder (tests live in test/ and are not included).
+// mtime + size of every .mjs in the worker folder (tests live in test/ and are not included). null while the folder is
+// being swapped for a new release (bundle/loader.mjs renames the old one away, then the new one in): no restart then.
 export function signature(dir = DIR) {
-  return codeFiles(dir).map((f) => { const s = fs.statSync(path.join(dir, f)); return `${f}:${s.mtimeMs}:${s.size}`; }).join('|');
+  try {
+    return codeFiles(dir).map((f) => { const s = fs.statSync(path.join(dir, f)); return `${f}:${s.mtimeMs}:${s.size}`; }).join('|');
+  } catch { return null; }
 }
 
 export function syntaxOk(dir = DIR, check = (f) => execFileSync(process.execPath, ['--check', f], { stdio: 'ignore', timeout: 15000 })) {
@@ -31,6 +34,7 @@ export function createWatch({ running, now = Date.now, read = signature, ok = sy
     tick() {
       const cur = read();
       if (cur !== seen) { seen = cur; since = now(); return false; }
+      if (cur === null) return false; // the folder is mid-swap
       if (cur === running || cur === rejected || now() - since < STABLE_MS) return false;
       if (!ok()) { rejected = cur; return 'bad'; }
       return true;

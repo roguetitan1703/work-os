@@ -4,7 +4,9 @@ import { PrivateBadge } from '@/components/private-badge';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from '@/components/intent-link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { ArrowUp, FilePlus, Search, X } from 'lucide-react';
+import { ArrowUp, Search } from 'lucide-react';
+import { openSearch } from '../global-search';
+import { Button } from '../ui/button';
 import { toast } from 'sonner';
 import { createNoteAction } from '@/app/(app)/notes/actions';
 import { cn } from '@/lib/utils';
@@ -13,12 +15,11 @@ import { ARCHIVE, SHELVES, UNTITLED } from '@/lib/notes-shelves';
 
 type P = { id: string; name: string; private?: boolean };
 
-/** Phone filters for the notes list: live search and swipeable chips (no Filter button). */
+/** Phone filters for the notes list: swipeable chips (no Filter button). Search opens the global search on Notes. */
 export function MobileNoteFilters({ projects }: { projects: P[] }) {
   const router = useRouter();
   const path = usePathname();
   const sp = useSearchParams();
-  const [q, setQ] = useState(sp.get('q') ?? '');
   const [, start] = useTransition();
   const state = sp.get('state') ?? 'active';
   const kind = sp.get('kind') ?? 'all';
@@ -26,7 +27,7 @@ export function MobileNoteFilters({ projects }: { projects: P[] }) {
   const shelf = sp.get('shelf') ?? '';
 
   const go = (patch: Record<string, string>) => {
-    // Read the live URL: a debounced search can fire after a chip tap, and a stale `sp` would undo it.
+    // Read the live URL, so a stale `sp` never undoes a chip tapped since.
     const u = new URLSearchParams(window.location.search);
     for (const [k, v] of Object.entries(patch)) {
       if (!v || (k === 'state' && v === 'active') || (k === 'kind' && v === 'all')) u.delete(k);
@@ -36,35 +37,11 @@ export function MobileNoteFilters({ projects }: { projects: P[] }) {
     start(() => router.replace(s ? `${path}?${s}` : path, { scroll: false }));
   };
 
-  // Search as you type (debounced).
-  const first = useRef(true);
-  useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    const t = setTimeout(() => go({ q: q.trim() }), 300);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
-
   return (
     <div className="md:hidden space-y-3">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <input
-          value={q}
-          onChange={e => setQ(e.target.value)}
-          placeholder="Search notes"
-          enterKeyHint="search"
-          className="w-full h-11 rounded-xl bg-muted/70 pl-9 pr-9 text-[16px] outline-none placeholder:text-muted-foreground"
-        />
-        {q && (
-          <button onClick={() => setQ('')} aria-label="Clear" className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center text-muted-foreground">
-            <X className="w-4 h-4" />
-          </button>
-        )}
-      </div>
+      <Button variant="ghost" onClick={() => openSearch('notes')} data-notes-search className="w-full h-11 justify-start gap-2 rounded-xl bg-muted/70 px-3 text-base font-normal text-muted-foreground">
+        <Search className="w-4 h-4" /> Search notes
+      </Button>
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {(['active', 'archived', 'all'] as const).map(s => (
           <Chip key={s} on={state === s} onClick={() => go({ state: s })}>
@@ -105,20 +82,8 @@ export function MobileNoteFilters({ projects }: { projects: P[] }) {
   );
 }
 
-/** "+ New" in the Notes header: opens a bottom sheet with a title and project chips. */
-export function NewNoteSheetButton({ projects, defaultProject }: { projects: P[]; defaultProject?: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button onClick={() => setOpen(true)} aria-label="New note" type="button" className="h-11 min-w-11 px-4 rounded-full bg-foreground text-background text-sm font-semibold flex items-center justify-center gap-1.5 touch-manipulation active:opacity-80">
-        <FilePlus className="w-4 h-4" /> New
-      </button>
-      {open && <NewNoteSheet projects={projects} defaultProject={defaultProject} onClose={() => setOpen(false)} />}
-    </>
-  );
-}
-
-function NewNoteSheet({ projects, defaultProject, onClose }: { projects: P[]; defaultProject?: string; onClose: () => void }) {
+/** New note on the phone (the + sheet's New note): a bottom sheet with a title and project chips. */
+export function NewNoteSheet({ projects, defaultProject, onClose }: { projects: P[]; defaultProject?: string; onClose: () => void }) {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [project, setProject] = useState(defaultProject && projects.some(p => p.id === defaultProject) ? defaultProject : (projects[0]?.id ?? ''));

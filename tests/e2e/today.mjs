@@ -96,10 +96,11 @@ for (const kind of ['phone', 'desk']) {
   // Claude card
   const st = (await V.locator('[data-claude-status]').innerText()).replace(/\s+/g, ' ');
   console.log('claude status:', st);
-  check(`${kind}: card "Claude is working · 2 running"`, /^Claude is working · 2 running/.test(st) && !/asking/i.test(st), st);
+  check(`${kind}: card "Claude · 2 sessions" (the Claude page's count)`, /^Claude · 2 sessions\b/.test(st) && !/asking/i.test(st), st);
+  check(`${kind}: card lists the live sessions with the shared session row`, (await V.locator('[data-section=claude-card] [data-session-row]').count()) === 2);
   check(`${kind}: card has no question rows (Claude items retired)`, (await V.locator('[data-needs-you]').count()) === 0 && (await V.locator('input[placeholder="Your answer…"]').count()) === 0);
   const act = await V.locator('[data-activity-total]').innerText();
-  check(`${kind}: activity line`, /2 Claude Code sessions · 3 subagents working/.test(act), act);
+  check(`${kind}: activity line`, /3 subagents working/.test(act), act);
 
   // Start Claude
   await tap(V.locator('[data-start-claude]'), phone);
@@ -159,7 +160,7 @@ for (const kind of ['phone', 'desk']) {
   const V = p.locator(`[data-variant=${kind}]`);
   await p.waitForTimeout(600);
   const st = (await V.locator('[data-claude-status]').innerText()).replace(/\s+/g, ' ');
-  check(`${kind}: empty card "Claude is working · 2 running"`, /^Claude is working · 2 running/.test(st), st);
+  check(`${kind}: empty card "Claude · 2 sessions"`, /^Claude · 2 sessions\b/.test(st), st);
   check(`${kind}: card has no rows when nothing waits`, (await V.locator('[data-needs-you]').count()) === 0);
   check(`${kind}: "Nothing overdue."`, (await V.getByText('Nothing overdue.').count()) === 1);
   const cc = await V.locator('[data-section=claude-card]').boundingBox();

@@ -79,7 +79,7 @@ try {
     check(`ui-p4 (${tag}): a session shows its task "#${a} title"`, (await doing(0).innerText()).trim() === `#${a} Build the roster page`, await row(0).innerText());
     check(`ui-p4 (${tag}): a session with no task shows its last reported result`, (await doing(2).innerText()).trim() === 'Wrote the migration and ran it on the copy', await row(2).innerText());
     check(`ui-p4 (${tag}): a long task title is one line`, await oneLine(doing(1)));
-    check(`ui-p4 (${tag}): the doing line comes before the folder and computer`, await row(0).evaluate(r => { const t = r.innerText; return t.indexOf('#') < t.indexOf('p4main') && t.indexOf('#') < t.indexOf('P4 Laptop'); }));
+    check(`ui-p4 (${tag}): the doing line comes before the computer (the folder is in the sheet)`, await row(0).evaluate(r => { const t = r.innerText; return t.indexOf('#') >= 0 && t.indexOf('#') < t.indexOf('P4 Laptop'); }), await row(0).innerText());
     check(`ui-p4 (${tag}): a private task of another person is not named on its session`, (await doing(3).count()) === 0 && !/SECRET-/.test(await p.locator('body').innerText()));
     o = await overflow(p);
     check(`ui-p4 (${tag}): Claude Now, no sideways scroll`, okO(o), JSON.stringify(o));

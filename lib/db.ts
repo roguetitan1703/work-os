@@ -573,7 +573,9 @@ export type SettingsDoc = {
 // ── Session launcher (docs/launcher.md) ──
 /** A machine running the worker. Only the SHA-256 of its key (wkr_…) is stored. */
 export type DeviceHooks = { version: string | null; events: number; stale: boolean; signIn: 'worker' | 'key' | null };
-export type DeviceDoc = { _id: string; name: string; /** The signed-in user who created it, and their organization (docs/auth.md). Missing on devices from before. */ ownerId?: string; orgId?: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; /** Set each time Replace key made a new key for this computer (history: when, and how many times). */ keyReplacedAt?: Date; keyReplacements?: number; worker?: { version: string; os: string; /** First 12 hex of the sha256 of the downloaded worker bundle (absent when run from the repo). */ bundle?: string; /** The worker passes a first message to Claude (config allowPrompts). The dispatcher needs it. */ allowPrompts?: boolean; /** Turbo mode: this computer clones a project's repo when it is not there (config allowClone), and into projectsDir. */ allowClone?: boolean; projectsDir?: string; /** This PC's Claude Code hooks, as its worker reports them (version: first 12 hex of the hooks version, null when none are installed). */ hooks?: DeviceHooks }; /** Latest counts from the worker (numbers only). `at` is the server's receive time. */ activity?: DeviceActivity; /** Latest named session list from the worker (docs/launcher.md Activity counts). */ claudeSessions?: { at: Date; items: ReportedClaudeSession[] }; /** Sessions that were open before the PC restarted, as the worker remembers them (docs/launcher.md). Cleared when the worker reports none, or on Dismiss. */ reopen?: { at: Date; items: ReopenItem[] } };
+/** A downloaded worker's self-update (worker/update.mjs): when it last installed a signed release and from which version, and the last refusal or failure ("update refused: bad signature"). */
+export type DeviceSelfUpdate = { updatedAt: Date | null; from: string | null; problem: string | null };
+export type DeviceDoc = { _id: string; name: string; /** The signed-in user who created it, and their organization (docs/auth.md). Missing on devices from before. */ ownerId?: string; orgId?: string; hash: string; prefix: string; createdAt: Date; lastSeenAt: Date | null; revokedAt: Date | null; /** Set each time Replace key made a new key for this computer (history: when, and how many times). */ keyReplacedAt?: Date; keyReplacements?: number; worker?: { version: string; os: string; /** First 12 hex of the sha256 of the downloaded worker bundle (absent when run from the repo). */ bundle?: string; /** The worker passes a first message to Claude (config allowPrompts). The dispatcher needs it. */ allowPrompts?: boolean; /** Turbo mode: this computer clones a project's repo when it is not there (config allowClone), and into projectsDir. */ allowClone?: boolean; projectsDir?: string; /** This PC's Claude Code hooks, as its worker reports them (version: first 12 hex of the hooks version, null when none are installed). */ hooks?: DeviceHooks; /** Present when the worker updates itself (a downloaded worker of version 0.5.0 or later). */ selfUpdate?: DeviceSelfUpdate }; /** Latest counts from the worker (numbers only). `at` is the server's receive time. */ activity?: DeviceActivity; /** Latest named session list from the worker (docs/launcher.md Activity counts). */ claudeSessions?: { at: Date; items: ReportedClaudeSession[] }; /** Sessions that were open before the PC restarted, as the worker remembers them (docs/launcher.md). Cleared when the worker reports none, or on Dismiss. */ reopen?: { at: Date; items: ReopenItem[] } };
 /** Where a session was last used: the VS Code extension, a terminal, or something else (the SDK, a script). */
 export type SessionOrigin = 'vscode' | 'cli' | 'desktop' | 'other';
 export type ReportedClaudeSession = { sessionId: string; folder: string; title: string; lastActiveAt: Date; subagentsActive: number; startedByWorkOs: boolean; running: boolean; /** The computer has no evidence of this session's process: `running` is then true (older readers keep working) but the roster's daemon join says nothing. */ unknown?: true; origin?: SessionOrigin };
@@ -666,6 +668,9 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { parentId: 1 }, name: 'parent', sparse: true },
       // The heads of recurring series the alerts cron looks at every 15 minutes (spawnDueOccurrences): only repeating tasks are in it.
       { key: { orgId: 1, nextRef: 1, due: 1 }, name: 'recurring_heads', partialFilterExpression: { recurrence: { $type: 'object' } } },
+      // Search (lib/search/tasks.ts): titles over every task (only matching keys' documents are read), the other fields among the most recently changed.
+      { key: { orgId: 1, title: 1 }, name: 'org_title' },
+      { key: { orgId: 1, updatedAt: -1 }, name: 'org_updated' },
     ]],
     ['activity', [
       { key: { taskId: 1, at: -1 }, name: 'task_at' },
@@ -674,6 +679,8 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { orgId: 1, projectId: 1, at: -1 }, name: 'org_project_at', partialFilterExpression: { projectId: { $type: 'string' } } },
       // A subject's own rows (a Need restamped, a note purged, one note_edited row per editor per hour).
       { key: { 'subject.id': 1, at: -1 }, name: 'subject_at', partialFilterExpression: { 'subject.id': { $type: 'string' } } },
+      // Search over comments (lib/search/tasks.ts): the most recent comments only, not every history row.
+      { key: { orgId: 1, type: 1, at: -1 }, name: 'org_comments_at', partialFilterExpression: { type: 'comment' } },
     ]],
     ['projects', [
       // Names: one per organization among shared projects, one per owner among private ones (docs/multi-user.md).
@@ -699,6 +706,8 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' },
       { key: { orgId: 1, updatedAt: -1 }, name: 'org_updated' },
       { key: { parentId: 1 }, name: 'parent', sparse: true },
+      // Search (lib/search/notes.ts): titles over every note.
+      { key: { orgId: 1, title: 1 }, name: 'org_title' },
     ]],
     ['needs', [
       { key: { orgId: 1, ref: 1 }, unique: true, name: 'org_ref_unique' },
@@ -714,7 +723,7 @@ const INDEXES: [string, IndexDescription[]][] = [
     ]],
     ['devices', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }, { key: { orgId: 1, ownerId: 1 }, name: 'org_owner' }]],
     ['agentSessions', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }, { key: { deviceId: 1, createdAt: -1 }, name: 'device_created' }, { key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }]],
-    ['workerFolders', [{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }]],
+    ['workerFolders', [{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }, { key: { orgId: 1, ownerId: 1 }, name: 'org_owner' }]],
     ['workerJobs', [{ key: { deviceId: 1, doneAt: 1, createdAt: 1 }, name: 'device_pending' }, { key: { createdAt: 1 }, name: 'created_ttl', expireAfterSeconds: 30 * 86_400 }]],
     ['workerSessions', [{ key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' }, { key: { deviceId: 1, state: 1 }, name: 'device_state' }, { key: { 'runKey.hash': 1 }, unique: true, name: 'run_key_hash', partialFilterExpression: { 'runKey.hash': { $type: 'string' } } }]],
     ['policyEvents', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { keyId: 1, kind: 1, at: -1 }, name: 'key_kind_at' }]],

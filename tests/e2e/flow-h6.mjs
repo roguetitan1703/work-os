@@ -187,7 +187,7 @@ try {
   await setRow(R, { activity: { state: 'idle', at: ago(2) }, lastSeen: ago(2) });
   const need = await must(wos, 'ask', { project: 'H6 One', to: 'me', kind: 'approve', ask: 'H6 ship?', session: R.sid });
   const g1 = await stateOf(R.sid);
-  check('idle with an open Need it asked: waiting (on a Need)', g1?.state === 'waiting' && /Waiting on a person/.test(g1.text), JSON.stringify(g1)?.slice(0, 200));
+  check('idle with an open Need it asked: waiting (on a Need)', g1?.state === 'waiting' && /Waiting on (a person|you)/.test(g1.text), JSON.stringify(g1)?.slice(0, 200));
   await setRow(R, { activity: { state: 'working', at: ago(1) }, lastSeen: ago(1) });
   await want('working with an open Need: working (the hook knows better than a quiet session)', R, 'working');
   await must(wos, 'withdraw_need', { id: need.need.ref, session: R.sid });

@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { useApp } from './app-context';
 import { usePhone } from './mobile/use-phone';
 import { MEmpty } from './mobile/sub-header';
+import { StatusBadge, type StatusKey } from './ui/status-badge';
 
 const KIND_LABEL: Record<Need['kind'], string> = { decide: 'Decide', approve: 'Approve', review: 'Review', do: 'Do', chase: 'Chase' };
 
@@ -52,6 +53,7 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
         {need.taskRef && <Link href={`/tasks/${need.taskRef}`} className="hover:text-foreground">· on #{need.taskRef}</Link>}
         <span className="ml-auto"><Ago iso={need.createdAt} /></span>
       </div>
+      {need.session && <SessionChip session={need.session} />}
       <p className={cn('text-foreground leading-snug whitespace-pre-wrap break-words', phone ? 'text-[16px]' : 'text-sm')} data-need-ask>
         {need.ask}
       </p>
@@ -176,6 +178,16 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered }: { need: 
         </p>
       )}
     </article>
+  );
+}
+
+/** The session that asked, as it is now: "Payout export: waiting on you", "Payout export: Working". Opens it on the Claude page. */
+function SessionChip({ session }: { session: NonNullable<Need['session']> }) {
+  const status: StatusKey = session.state === 'waiting' ? 'Waiting on you' : session.state === 'working' ? 'Working' : session.state === 'off' ? 'Off' : session.state === 'on' ? 'On' : 'Idle';
+  return (
+    <Link href={session.href} className="flex max-w-full min-h-11 md:min-h-0 items-center -my-2 md:my-0" data-need-session={session.state} title="Open this session on the Claude page">
+      <StatusBadge status={status} label={`${session.label}: ${session.word}`} className="max-w-full truncate block leading-5" />
+    </Link>
   );
 }
 

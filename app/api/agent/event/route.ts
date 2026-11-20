@@ -41,7 +41,7 @@ import { stateOfProject } from '@/lib/data/states';
 //            name (a /rename), Claude's title for it, the model. Sets the roster row's label and model (lib/data/presence.ts labelPatch:
 //            the session's own name or start_work's label beats Claude's title; a dispatched session keeps its forced label). One line, 120 characters.
 //   result   (protocol 4, the result event only, at most 2,000 characters) a subagent's last message from the SubagentStop hook: kept cleaned and cut to 300
-//            characters as `lastResult` of the token's own row (lib/data/presence.ts setLastResult), shown to the project's readers marked
+//            characters as `lastResult` of the token's own row (lib/data/presence.ts setLastResult), shown only to the session's owner (a teammate sees the state and the task, never this line)
 //            writtenBy. A result event changes no state and no lastSeen (a background subagent ending after the parent's stop must not make it working). Text of the session, so it is the one thing this route takes besides words: own row only, never creates a row, never free.
 //            Protocol 3 hooks (no result) are still accepted.
 // The only row it writes is the token's own presence row (state, turn chain) (the person, the token's session and project), and never creates one.
@@ -74,7 +74,7 @@ const Body = z
     // The Stop hook asks whether this session holds the State's Now (a tool or stop event): the answer carries holdsNow, so its save reminder is the right one.
     holds: z.literal(true).optional(),
     // Protocol 3 (Identity step 4), on a prompt or a stop, only when it changed since the last one: the session's own name, Claude's title for it, the model.
-    // Protocol 4 (Lanes step 3), on a result event: a subagent's last message (SubagentStop). The server cleans it and keeps 300 characters as the lane result of the token's own row.
+    // Protocol 4 (Lanes step 3), on a result event: the main conversation's last message at the end of a turn (Stop; older hooks sent a subagent's, from SubagentStop). The server cleans it and keeps 300 characters as the lane result of the token's own row.
     result: z.string().max(2000).optional(),
     identity: z.object({ title: z.string().max(300).optional(), aiTitle: z.string().max(300).optional(), model: z.string().max(60).optional() }).strict().optional(),
   })

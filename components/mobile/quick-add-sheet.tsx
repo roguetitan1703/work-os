@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import { ArrowUp, Play, Sparkles, X } from 'lucide-react';
+import { ArrowUp, FilePlus, Play, Sparkles, X } from 'lucide-react';
 import { HELP } from '../quick-add';
+import { Button } from '../ui/button';
 import { startClaudeUrl } from '@/lib/nav';
 import { createTaskAction } from '@/app/actions';
 import { parseQuickAdd } from '@/lib/quick-parse';
@@ -26,8 +27,10 @@ const PRIO_TONE: Record<Priority, string> = {
 /**
  * Phone capture: a bottom sheet with one big field and one-tap chips for due date,
  * priority and project. The quick syntax (@project !1 due:fri) still works when typed.
+ * The bar's + is New task, Start Claude and New note in one sheet: the field is the task; while it is empty, Start
+ * Claude and (with `onNewNote`) New note sit under it.
  */
-export function QuickAddSheet({ open, onClose, defaultProject }: { open: boolean; onClose: () => void; defaultProject?: string }) {
+export function QuickAddSheet({ open, onClose, defaultProject, onNewNote }: { open: boolean; onClose: () => void; defaultProject?: string; onNewNote?: () => void }) {
   const { projects, today, hasComputers } = useApp();
   const router = useRouter();
   const [text, setText] = useState('');
@@ -133,31 +136,47 @@ export function QuickAddSheet({ open, onClose, defaultProject }: { open: boolean
         <p className="px-4 -mt-1 text-[11px] text-muted-foreground/70 truncate">{HELP}</p>
 
         {!parsed.title.trim() && (
-          <div className="px-4 pt-2">
+          <div className="px-4 pt-2 flex gap-2">
             {hasComputers ? (
-              <button
-                type="button"
+              <Button
+                variant="outline"
+                size="touch"
                 data-start-claude
                 onClick={() => {
                   onClose();
                   router.push(startClaudeUrl());
                 }}
-                className="w-full h-11 rounded-xl border border-border flex items-center gap-2 px-3 text-[15px] font-medium text-foreground active:bg-muted"
+                className="flex-1 justify-start font-medium"
               >
-                <Play className="w-4 h-4" /> Start Claude
-              </button>
+                <Play /> Start Claude
+              </Button>
             ) : (
-              <button
-                type="button"
+              <Button
+                variant="outline"
+                size="touch"
                 data-set-up-claude
                 onClick={() => {
                   onClose();
                   router.push('/claude?tab=setup');
                 }}
-                className="w-full h-11 rounded-xl border border-border flex items-center gap-2 px-3 text-[15px] font-medium text-foreground active:bg-muted"
+                className="flex-1 justify-start font-medium"
               >
-                <Sparkles className="w-4 h-4" /> Set up Claude
-              </button>
+                <Sparkles /> Set up Claude
+              </Button>
+            )}
+            {onNewNote && (
+              <Button
+                variant="outline"
+                size="touch"
+                data-new-note
+                onClick={() => {
+                  onClose();
+                  onNewNote();
+                }}
+                className="flex-1 justify-start font-medium"
+              >
+                <FilePlus /> New note
+              </Button>
             )}
           </div>
         )}

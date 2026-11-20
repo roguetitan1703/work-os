@@ -64,14 +64,32 @@ try {
       const stray = p.locator(`[data-session-row="${deviceId}:${CC3}"]`);
       check(T(`${scheme}: a session in an unlinked folder reads "No project" where the project goes`), /No project/.test(await unfiled.innerText()) && !/No project/.test(await filed.innerText()), await unfiled.innerText());
       check(T(`${scheme}: the filed session still shows its project`), /Alpha/.test(await filed.innerText()));
-      check(T(`${scheme}: the unfiled session has a Link button; one in a folder the worker never scanned has none`), (await unfiled.locator('[data-link-folder]').count()) === 1 && (await stray.locator('[data-link-folder]').count()) === 0 && /No project/.test(await stray.innerText()));
-      if (phone) { const bb = await unfiled.locator('[data-link-folder]').boundingBox(); check(T(`${scheme}: Link target at least 44px`), bb && bb.height >= 43.5, JSON.stringify(bb)); }
+      // Link to a project is in the session's sheet (a row has one control, by state).
+      const sheetOf = async row => {
+        await click(row.locator('button').first());
+        const sh = p.locator('[data-session-sheet]');
+        await sh.waitFor({ timeout: 6000 });
+        return sh;
+      };
+      const closeSheet = async () => {
+        if (phone) await click(p.getByRole('dialog').locator('button[aria-label="Close"]').first());
+        else await p.keyboard.press('Escape');
+        await p.locator('[data-session-sheet]').waitFor({ state: 'detached', timeout: 6000 }).catch(() => {});
+      };
+      check(T(`${scheme}: no row has a Link button`), (await p.locator('[data-session-row] [data-link-folder]').count()) === 0);
+      const straySheet = await sheetOf(stray);
+      const strayLinks = await straySheet.locator('[data-link-folder]').count();
+      await closeSheet();
+      const unfiledSheet = await sheetOf(unfiled);
+      check(T(`${scheme}: the unfiled session's sheet has Link to a project; one in a folder the worker never scanned has none`), (await unfiledSheet.locator('[data-link-folder]').count()) === 1 && strayLinks === 0 && /No project/.test(await stray.innerText()));
+      if (phone) { const bb = await unfiledSheet.locator('[data-link-folder]').boundingBox(); check(T(`${scheme}: Link target at least 44px`), bb && bb.height >= 43.5, JSON.stringify(bb)); }
+      await closeSheet();
       check(T(`${scheme}: Claude page no horizontal scroll with the No project row`), await noScroll());
       await p.screenshot({ path: `${SP}/h13-${tag}-sessions.png` });
 
       if (scheme === 'light') {
         // The picker: Link needs a choice; choosing links the folder through relinkFolder
-        await click(unfiled.locator('[data-link-folder]'));
+        await click((await sheetOf(unfiled)).locator('[data-link-folder]'));
         const dlg = p.locator('[data-link-session-folder]');
         await dlg.waitFor({ timeout: 6000 });
         const linkBtn = dlg.locator('button[data-confirm]');

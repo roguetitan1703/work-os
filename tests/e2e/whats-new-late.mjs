@@ -29,7 +29,7 @@ try {
     await login(p); await settle(p);
     const aside = p.locator('aside');
     check('sidebar: no "New" badge on Needs after 14 days', (await aside.locator('a[href="/needs"] [data-new-badge]').count()) === 0);
-    check("sidebar: no dot on What's new", (await aside.locator('a[href="/whats-new"] [data-new-dot]').count()) === 0);
+    check("sidebar: no What's new dot on the account button", (await aside.locator('[data-account-button] [data-new-dot]').count()) === 0);
     check('desktop Today: no card', (await p.locator('[data-section="whats-new"]').count()) === 0);
     await ctx.close();
   }

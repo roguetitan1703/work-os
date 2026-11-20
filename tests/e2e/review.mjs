@@ -58,7 +58,7 @@ await runAssertSuite('review', async () => {
     await p.goto(B + '/review?view=stale'); assert.ok((await p.locator('body').innerText()).includes('Old stale idea'));
     assert.deepEqual(errs, []);
     // nav entries
-    if (label === 'desktop') { await p.goto(B + '/today'); await p.locator('aside a[href="/review"]').click(); await p.waitForURL(/\/review/); }
+    if (label === 'desktop') { await p.goto(B + '/today'); await p.locator('aside [data-account-button]').click(); await p.locator('[data-menu-review]').click(); await p.waitForURL(/\/review/); }
     else { await p.goto(B + '/menu'); const vis = p.locator('a[href="/review"]:visible'); assert.equal(await vis.count(), 1); await vis.click(); await p.waitForURL(/\/review/); }
     console.log(label, 'ok', p.url());
   }

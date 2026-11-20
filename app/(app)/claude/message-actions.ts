@@ -5,13 +5,13 @@ import { ZodError } from 'zod';
 import { SafeError } from '@/lib/auth';
 import { requireCaller, withCaller } from '@/lib/caller';
 import { userActor } from '@/lib/actors';
-import { reply, setStatus } from '@/lib/data/messages';
+import { messageOwnSession, reply, setStatus } from '@/lib/data/messages';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 
 // The writes of Messages for you on Claude › Now (Identity step 6), as the signed-in person. A reply carries word `person`: the server sets it,
 // there is no argument for it. Applying a decision adds it to the State's Decisions; a request becomes a task by "Make a task".
 
-export type MessageResult = { ok: true; task?: string } | { ok: false; error: string };
+export type MessageResult = { ok: true; task?: string; note?: string } | { ok: false; error: string };
 
 async function run(fn: (s: { userId: string; orgId: string }) => Promise<MessageResult>): Promise<MessageResult> {
   try {
@@ -39,6 +39,18 @@ export async function makeTaskFromMessageAction(id: string): Promise<MessageResu
   return run(async s => {
     const r = await setStatus(s, String(id), 'applied', { actor: userActor(s.userId), makeTask: true });
     return { ok: true, ...(r.task ? { task: `#${r.task.ref} ${r.task.title}` } : {}) };
+  });
+}
+
+/** A session row's Message: a request to one of the caller's own sessions (lib/data/messages.ts messageOwnSession). */
+export async function messageSessionAction(sessionId: string, body: string): Promise<MessageResult> {
+  const text = String(body ?? '').trim();
+  if (!text) return { ok: false, error: 'Write a message first' };
+  const id = String(sessionId ?? '').slice(0, 200);
+  if (!id) return { ok: false, error: 'No session' };
+  return run(async s => {
+    const r = await messageOwnSession(s, id, text.slice(0, 4000));
+    return { ok: true, note: r.target };
   });
 }
 

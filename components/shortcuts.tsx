@@ -5,16 +5,18 @@ import { useRouter } from 'next/navigation';
 import { openSearch } from '@/components/global-search';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
-const PLACES: Record<string, string> = { '1': '/today', '2': '/tasks', '3': '/projects', '4': '/notes', '5': '/claude' };
+// The sidebar's order (components/sidebar.tsx): Today, Projects, Claude, Needs, Tasks, Notes.
+const PLACES: Record<string, string> = { '1': '/today', '2': '/projects', '3': '/claude', '4': '/needs', '5': '/tasks', '6': '/notes' };
 
 export const SHORTCUTS: [string, string][] = [
   ['N', 'New task'],
   ['S', 'Start Claude'],
   ['1', 'Today'],
-  ['2', 'Tasks'],
-  ['3', 'Projects'],
-  ['4', 'Notes'],
-  ['5', 'Claude'],
+  ['2', 'Projects'],
+  ['3', 'Claude'],
+  ['4', 'Needs'],
+  ['5', 'Tasks'],
+  ['6', 'Notes'],
   ['/', 'Search'],
   ['Ctrl+B', 'Collapse or expand the sidebar'],
   ['Ctrl+,', 'Settings'],
@@ -24,7 +26,7 @@ export const SHORTCUTS: [string, string][] = [
   ['Ctrl+Enter', 'Add comment (in a comment)'],
 ];
 
-/** Desktop keyboard shortcuts: 1-5 go to the five places, / searches, ? shows help. Inactive while typing or with a dialog open. */
+/** Desktop keyboard shortcuts: 1-6 go to the six places, / searches, ? shows help. Inactive while typing or with a dialog open. */
 export function GlobalShortcuts() {
   const router = useRouter();
   const [help, setHelp] = useState(false);

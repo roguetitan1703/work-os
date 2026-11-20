@@ -61,6 +61,8 @@ export type Need = {
   releaseUntil?: string;
   /** A declutter Need: the proposed changes (session text inside them is the agent's), the disk lines, what was unticked and what the server did. */
   declutter?: DeclutterNeed;
+  /** The session that asked, as it is now (lib/data/need-sessions.ts; only on screens that show it): its id (the roster's row id), label, state and the link that opens it on the Claude page. */
+  session?: { id: string; label: string; state: string; word: string; href: string };
 };
 
 export function toNeed(d: NeedDoc): Need {
@@ -91,13 +93,20 @@ export function toNeed(d: NeedDoc): Need {
   };
 }
 
+/** May this viewer read the Need's answer (forViewer's rule; search uses it too)? */
+export function answerVisible(n: { appOnly?: boolean; to: string; from: { actor: object } }, viewerId: string): boolean {
+  return !n.appOnly || viewerId === n.to || ('userId' in n.from.actor && viewerId === (n.from.actor as { userId?: string }).userId);
+}
+/** The same rule as a database filter: Needs whose answer this viewer may read (lib/search/needs.ts). */
+export const answerVisibleFilter = (viewerId: string) => ({ $or: [{ appOnly: { $ne: true } }, { to: viewerId }, { 'from.actor.userId': viewerId }] });
+
 /**
  * An app-only Need's answer is for the addressee and the asker's person (the user the asking key belongs to). Everyone else
  * who can read the project sees that it was answered, by whom and when, never the choice or the text. Every reader below
  * goes through this, so the tool and the page agree.
  */
 export function forViewer(n: Need, viewerId: string): Need {
-  if (!n.appOnly || !n.answer || viewerId === n.to || ('userId' in n.from.actor && viewerId === n.from.actor.userId)) return n;
+  if (!n.answer || answerVisible(n, viewerId)) return n;
   const { releaseUntil: _until, ...rest } = n; // a release window is the answer's choice: hidden with it
   void _until;
   return { ...rest, answer: { ...n.answer, option: '', text: '(answer hidden)' } };

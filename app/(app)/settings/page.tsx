@@ -2,7 +2,7 @@ import Link from '@/components/intent-link';
 import { redirect } from 'next/navigation';
 import { ChevronRight, LogOut } from 'lucide-react';
 import { NavIcon } from '@/components/nav-icons';
-import { SubHeader } from '@/components/mobile/sub-header';
+import { MobileHeader } from '@/components/mobile/tab-bar';
 import { logoutAction } from '@/app/actions';
 import { headers } from 'next/headers';
 import { getAuth } from '@/lib/auth-server';
@@ -68,6 +68,8 @@ export default async function SettingsPage({ searchParams }: Props) {
   const sections = SECTIONS.filter(s => s.id !== 'server' || canSeeServer(caller));
   const asked = sectionIn(sp.section);
   const sec = asked && sections.some(s => s.id === asked) ? asked : null;
+  // A section that does not exist (or one this person may not see): the main settings list, not an empty page.
+  if (sp.section && !sec) redirect('/settings');
   const active: SectionId = sec ?? 'account';
   const def = SECTIONS.find(s => s.id === active)!;
   // The "needs a look" dot is the operator's, on Server only (members cannot fix server health).
@@ -106,7 +108,7 @@ export default async function SettingsPage({ searchParams }: Props) {
 
   return (
     <div className="max-w-5xl mx-auto pb-6" data-settings>
-      {sec ? <SubHeader title={def.label} back="/settings" backLabel="Settings" /> : <SubHeader title="Settings" />}
+      {sec ? <MobileHeader title={def.label} back="/settings" backLabel="Settings" /> : <MobileHeader title="Settings" back="/menu" backLabel="Menu" />}
       <MigrationNotice />
 
       <div className="md:grid md:grid-cols-[14rem_minmax(0,1fr)] md:gap-10 md:mt-2">

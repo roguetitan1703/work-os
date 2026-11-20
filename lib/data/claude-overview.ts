@@ -49,6 +49,8 @@ export type SessionRow = {
   waitingWhy?: 'prompt';
   /** Turbo mode: a new repo cloned but not trusted automatically; Claude Code asks on that computer (first 10 minutes). */
   needsTrust?: boolean;
+  /** Turbo mode: its computer is cloning the repo before the session starts. */
+  cloning?: true;
   error?: string;
   /** Where it was last used (VS Code, a terminal, other), when the worker reports it. */
   origin?: SessionOrigin;
@@ -264,6 +266,7 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
       workOsId: s._id,
       controlProjectId: s.projectId!,
       ...(st === 'starting' && !s.cloning && nowMs - s.updatedAt.getTime() > WAITING_MS ? { waiting: true } : {}),
+      ...(s.cloning && st === 'starting' ? { cloning: true as const } : {}),
       ...(s.needsTrust && isLive && nowMs - s.startedAt.getTime() < 10 * 60_000 ? { needsTrust: true } : {}),
       ...(s.error ? { error: friendlyError(s.error) } : {}),
       ...(s.dispatched ? { dispatched: true as const } : {}),

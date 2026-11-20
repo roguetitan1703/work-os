@@ -3,9 +3,11 @@
 import { PrivateBadge } from '@/components/private-badge';
 import Link from '@/components/intent-link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { ListChecks, Repeat } from 'lucide-react';
+import { openSearch } from '@/components/global-search';
+import { SearchButton } from '@/components/search-button';
 import { updateTaskAction } from '@/app/actions';
 import { useApp, useModes } from '@/components/app-context';
 import { QuickAddBar } from '@/components/quick-add';
@@ -35,24 +37,23 @@ const sel = 'h-8 rounded-lg border border-input bg-transparent px-2 text-sm outl
 type Props = {
   tasks: Task[];
   projects: { id: string; name: string; private?: boolean }[];
-  filters: { project: string; mode: string; due: string; q: string; assigned: string };
+  filters: { project: string; mode: string; due: string; assigned: string };
+  /** ?search=1: open search on Tasks. */
   focusSearch?: boolean;
   /** Under the title (Needs you). */
   top?: React.ReactNode;
 };
 
 export function BoardClient({ tasks, projects, filters, focusSearch = false, top }: Props) {
-  const searchBox = useRef<HTMLInputElement>(null);
   const { modes, color } = useModes();
   useEffect(() => {
-    if (focusSearch) searchBox.current?.focus();
+    if (focusSearch) openSearch('tasks');
   }, [focusSearch]);
   const router = useRouter();
   const params = useSearchParams();
   const [pending, start] = useTransition();
   const [dragId, setDragId] = useState<string | null>(null);
   const [over, setOver] = useState<Status | null>(null);
-  const [q, setQ] = useState(filters.q);
 
   function setFilter(key: string, value: string) {
     const next = new URLSearchParams(params.toString());
@@ -78,15 +79,7 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false, top
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-2xl font-bold text-foreground">Tasks</h1>
         <div className="flex items-center gap-2 flex-wrap">
-          <input
-            ref={searchBox}
-            data-task-search
-            value={q}
-            onChange={e => setQ(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && setFilter('q', q)}
-            placeholder="Search…"
-            className={cn(sel, 'w-40')}
-          />
+          <SearchButton kind="tasks" label="Search tasks" data-task-search className="h-8" />
           <button
             type="button"
             data-assigned-filter
@@ -127,7 +120,7 @@ export function BoardClient({ tasks, projects, filters, focusSearch = false, top
 
       <QuickAddBar defaults={{ project: projectName }} />
 
-      {tasks.length === 0 && !filters.q && !filters.project && !filters.mode && !filters.due && !filters.assigned && (
+      {tasks.length === 0 && !filters.project && !filters.mode && !filters.due && !filters.assigned && (
         <div className="flex items-center gap-3 rounded-xl border border-dashed border-border px-4 py-3" data-tasks-empty>
           <NavIcon icon={PLACE_ICON.tasks} className="text-muted-foreground" />
           <p className="flex-1 text-sm text-muted-foreground">No tasks yet. Add one, or ask Claude to.</p>

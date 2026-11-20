@@ -1,12 +1,12 @@
 'use client';
 
 import { PrivateBadge } from '@/components/private-badge';
-import { BackLink } from '@/components/back-link';
+import { BackButton } from '@/components/ui/page';
 import Link from '@/components/intent-link';
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Archive, ArrowLeft, Bot, Check, ChevronRight, ExternalLink, FileText, MoreHorizontal, Plus, Send, SquareTerminal, Trash2, TrendingUp, X } from 'lucide-react';
+import { Archive, Bot, Check, ChevronRight, ExternalLink, FileText, MoreHorizontal, Plus, Send, SquareTerminal, Trash2, TrendingUp, X } from 'lucide-react';
 import { addCommentAction, checklistAction, completeTaskAction, deleteTaskAction, restoreTaskAction, setArchivedAction, updateTaskAction } from '@/app/actions';
 import { createNoteAction } from '@/app/(app)/notes/actions';
 import { addDays } from '@/lib/dates';
@@ -113,9 +113,7 @@ export function MobileTaskDetail({
       {/* Top bar */}
       <div className="sticky -top-3 z-30 -mx-4 -mt-3 px-2 bg-background/85 backdrop-blur-xl" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="h-14 flex items-center justify-between">
-          <BackLink href="/tasks" aria-label="Back" className="h-11 px-2 flex items-center gap-1 text-[16px] text-foreground active:opacity-60">
-            <ArrowLeft className="w-5 h-5" /> Back
-          </BackLink>
+          <BackButton href="/tasks" label="Back" className="ml-0" />
           <span className="font-mono text-sm text-muted-foreground">#{task.ref}</span>
           <button onClick={() => setMenu(m => !m)} className="w-11 h-11 flex items-center justify-center rounded-full active:bg-muted" aria-label="More actions">
             <MoreHorizontal className="w-5 h-5" />

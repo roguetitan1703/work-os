@@ -472,7 +472,10 @@ When GitHub Actions cannot run (2026-10-25: the account was locked over billing)
 (a `--build-here` build was OOM-killed at its 1.2 GB cap), build on a PC in WSL (Ubuntu) instead:
 
 ```bash
-sudo bash scripts/build-artifact.sh origin/master /mnt/c/Users/<you>/Downloads   # in WSL, from a clone of the repo
+# 1. On Windows (PowerShell or Git Bash, Windows node), in a checkout, after git fetch: sign the worker of the commit
+node scripts/worker-signing-key.mjs sign --ref origin/master --out-dir C:/Users/<you>/Downloads
+# 2. In WSL, from a clone of the repo: build; it picks up the signature from the same folder
+sudo bash scripts/build-artifact.sh origin/master /mnt/c/Users/<you>/Downloads
 ```
 
 It does what the workflow does: a clean clone of the public repo, the commit at `/srv/work-os/releases/<commit>`,
@@ -482,6 +485,14 @@ uploaded to a release and fetched with `curl`), check the SHA-256 there against 
 "deploying it on your word". The PC is x86_64 and the box arm64: `deploy.sh` accepts a build from another CPU type only
 when `.next` holds no native code (`*.node`, `*.so`); `.next` is JavaScript and links, and npm ci installs the box's
 own native packages.
+Step 1 signs the worker release with the key kept under DPAPI for Om's Windows account; the WSL build (which runs
+`npm ci` and `next build` as root) never sees the key. It prints the worker files changed since the last signed
+release, sets the release version from the commit's time (`YYYYMMDD.HHMMSS` UTC) and writes
+`worker-signature-<commit12>.json`; step 2 checks that file against the commit's worker and puts it into the tarball as
+`.next/worker-signature.json`, so downloaded workers update themselves to it (docs/launcher.md "Self-update"). Without
+it the build prints a warning and is unsigned.
+GitHub Actions builds never hold the key: for them, sign with `node scripts/worker-signing-key.mjs sign` and commit
+`worker/bundle/signature.json` before the merge to master.
 
 ### The build's secrets
 

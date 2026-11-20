@@ -460,7 +460,7 @@ async function lanesFor(s: ReturnType<typeof sOf>, projectId: string, names: Rec
   const info = await taskInfo(s, rows.flatMap(p => (p.doing ? [p.doing.taskId] : [])));
   return rows.map(p =>
     laneOut(
-      { ...p, person: p.userId === s.userId ? 'me' : names[p.userId] || 'another member', doing: p.doing ? info.get(p.doing.taskId)?.ref : undefined, lastResult: p.lastResult ?? null, dispatched: !!p.dispatched },
+      { ...p, person: p.userId === s.userId ? 'me' : names[p.userId] || 'another member', doing: p.doing ? info.get(p.doing.taskId)?.ref : undefined, lastResult: p.userId === s.userId ? (p.lastResult ?? null) : null, dispatched: !!p.dispatched },
       now,
       { writtenBy: !readerKey || rowKey(p) !== readerKey },
     ),

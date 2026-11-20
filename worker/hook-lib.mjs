@@ -47,7 +47,7 @@ export const EVENTS = [
   // A subagent starts with the short form of the organization Orders (the first ten rule lines; the full Orders are in its parent's
   // brief). It reads only the session's marker and makes no network call, so a cloud repo's entry has it too.
   { event: 'subagent-start', claudeEvent: 'SubagentStart', matcher: null, timeoutS: 2 },
-  // A subagent ended (Lanes step 3): its last message becomes its parent session's lane result (POST /api/agent/event { result }).
+  // A subagent ended: sends nothing (the lane result is the main conversation's last message, sent by the Stop hook); kept so installs stay valid.
   { event: 'subagent-stop', claudeEvent: 'SubagentStop', matcher: null, timeoutS: 3, localOnly: true },
 ];
 
@@ -193,7 +193,7 @@ const PRESENCE_AFTER = { prompt: 'working', tool: 'working', stop: 'idle', end: 
 /**
  * Tells Work OS what this session just did (POST /api/agent/event, the kept session token only; nothing without one).
  * `event` is prompt, tool, notify, stop or end; `extra` is { kind } for notify. Never throws and sends no text of the
- * session except `extra.result` (a subagent's last message, cleaned and cut by hook-subagent-stop.mjs). Records presence { state, at, postedAt } in the session's marker so the pre-tool hook knows when to ping again:
+ * session except `extra.result` (the main conversation's last message at the end of a turn, cleaned and cut by hook-stop.mjs `resultOf`). Records presence { state, at, postedAt } in the session's marker so the pre-tool hook knows when to ping again:
  * postedAt is set on every try, so a down server is tried once per 5 minutes and not on every tool call. Returns the
  * answer ({ status, b }) or null.
  */
@@ -307,7 +307,7 @@ export function frameInbox(messages) {
  * Extra request headers every hook call sends. X-Work-OS-Hook is the hook protocol version: 2 = this hook fetches the copy
  * itself (get_state copy:true, POST /api/agent/state), so the server's save answers leave out the markdown. An old hook sends
  * nothing and is marked protocol 1 (it still gets the markdown in answers). 3 = the hook also sends the session's identity (its name,
- * Claude's title, the model, the tool) at the start and on change (Identity step 4). 4 = a subagent's last message goes to the server as the lane's `result` (Lanes step 3), and a Bash or PowerShell call's start as `tool-start` (a running tool keeps the session working);
+ * Claude's title, the model, the tool) at the start and on change (Identity step 4). 4 = the session's last message goes to the server as the lane's `result` (Lanes step 3; sent by the Stop hook, never a subagent's), and a Bash or PowerShell call's start as `tool-start` (a running tool keeps the session working);
  * the server still accepts 1 to 3.
  */
 export const HOOK_PROTOCOL = 4;

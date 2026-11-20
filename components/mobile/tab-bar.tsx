@@ -9,26 +9,33 @@ import { cn } from '@/lib/utils';
 import { phoneTabOf } from '@/lib/nav';
 import { useApp } from '../app-context';
 import { QuickAddSheet } from './quick-add-sheet';
+import { NewNoteSheet } from './m-notes';
 import { BellButton } from './bell';
 import { openSearch } from '../global-search';
+import { PageHeader } from '../ui/page';
+import { IconButton } from '../ui/icon-button';
 
-type TabKey = 'today' | 'projects' | 'needs' | 'tasks';
+type TabKey = 'today' | 'projects' | 'needs' | 'claude';
 const TABS: ({ key: TabKey; href: string; label: string; icon: typeof Menu } | null)[] = [
   { key: 'today', href: '/today', label: 'Today', icon: PLACE_ICON.today },
   { key: 'projects', href: '/projects', label: 'Projects', icon: PLACE_ICON.projects },
   null, // + in the middle
   { key: 'needs', href: '/needs', label: 'Needs', icon: PLACE_ICON.needs },
-  { key: 'tasks', href: '/tasks', label: 'Tasks', icon: PLACE_ICON.tasks },
+  { key: 'claude', href: '/claude', label: 'Claude', icon: PLACE_ICON.claude },
 ];
 
-/** Phone navigation: Today, Projects, a centre "add" button, Needs and Tasks, above the home indicator. Claude is in the Menu. */
+/** Phone navigation: Today, Projects, a centre "add" button, Needs and Claude, above the home indicator. Tasks is first in the Menu. */
 export function TabBar() {
   const path = usePathname();
   const router = useRouter();
-  const { badges } = useApp();
+  const { badges, projects } = useApp();
   const [adding, setAdding] = useState(false);
+  const [noting, setNoting] = useState(false);
   const lit = phoneTabOf(path);
-  const count: Record<TabKey, number> = { today: badges.overdue, needs: badges.needs ?? 0, projects: 0, tasks: 0 };
+  // A note can file under any project, active ones first.
+  const open = (s: string) => s === 'active' || s === 'paused';
+  const noteProjects = [...projects.filter(p => open(p.status)), ...projects.filter(p => !open(p.status))].map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }));
+  const count: Record<TabKey, number> = { today: badges.overdue, needs: badges.needs ?? 0, projects: 0, claude: 0 };
   // Home-screen shortcut "New task" opens /today?add=1.
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('add') !== '1') return;
@@ -65,17 +72,14 @@ export function TabBar() {
                   }
                 }}
                 className={cn(
-                  'relative flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors active:scale-95',
+                  'relative flex flex-col items-center justify-center gap-1 text-label font-medium transition-colors active:scale-95',
                   lit === t.key ? 'text-foreground' : 'text-muted-foreground',
                 )}
               >
                 <span className="relative">
                   <t.icon className="w-6 h-6" strokeWidth={lit === t.key ? 2.2 : 1.6} aria-hidden />
                   {count[t.key] > 0 && (
-                    <span
-                      data-badge={t.key}
-                      className="absolute -top-1.5 -right-3 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[11px] font-semibold leading-[18px] text-center"
-                    >
+                    <span data-badge={t.key} className="absolute -top-1.5 -right-3 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-label font-semibold leading-[18px] text-center">
                       {count[t.key] > 99 ? '99+' : count[t.key]}
                     </span>
                   )}
@@ -96,60 +100,100 @@ export function TabBar() {
           )}
         </div>
       </nav>
-      <QuickAddSheet open={adding} onClose={() => setAdding(false)} />
+      <QuickAddSheet open={adding} onClose={() => setAdding(false)} onNewNote={() => setNoting(true)} />
+      {noting && <NewNoteSheet projects={noteProjects} onClose={() => setNoting(false)} />}
     </>
   );
 }
 
 /**
- * Sticky phone header for a top-level screen: title, then search (Tasks search), the Inbox bell and Menu, each 44px.
- * `nav={false}` keeps only the bell (screens reached from a parent, which have their own Back).
+ * One header for both sizes: MobileHeader on the phone, PageHeader from md (the sidebar holds search, bell and menu
+ * there, so the desktop header carries only `actions`). `back` is the phone's parent (the Menu for Menu pages).
+ */
+export function ScreenHeader({
+  title,
+  sub,
+  desktopSub,
+  back,
+  backLabel,
+  right,
+  actions,
+  bell,
+  className,
+}: {
+  title: string;
+  /** Class for the desktop header (spacing below it). */
+  className?: string;
+  sub?: React.ReactNode;
+  /** A longer sub line for the desktop header (defaults to `sub`). */
+  desktopSub?: React.ReactNode;
+  back?: string;
+  backLabel?: string;
+  /** Phone-only controls before Search. */
+  right?: React.ReactNode;
+  /** Desktop-only controls at the right of the title. */
+  actions?: React.ReactNode;
+  bell?: boolean;
+}) {
+  return (
+    <>
+      <MobileHeader title={title} subtitle={sub} back={back} backLabel={backLabel} right={right} bell={bell} />
+      <PageHeader className={cn('hidden md:block', className)} title={title} sub={desktopSub ?? sub} actions={actions} />
+    </>
+  );
+}
+
+/**
+ * The phone header, the same on every screen: an optional back link (`back`, `backLabel`), the big title and one sub
+ * line, then the page's own controls (`right`), Search, the Inbox bell and Menu, each 44px. Built on PageHeader.
+ * `bell={false}` drops the bell (the Inbox itself). Phone only; desktop pages keep their own heading.
  */
 export function MobileHeader({
   title,
   subtitle,
   right,
+  back,
+  backLabel,
   bell = true,
-  nav = true,
 }: {
   title: string;
   subtitle?: React.ReactNode;
   right?: React.ReactNode;
+  back?: string;
+  backLabel?: string;
   bell?: boolean;
-  nav?: boolean;
 }) {
   const path = usePathname();
   const { badges } = useApp();
   // Something inside the Menu wants a look: something new (blue).
   const menuDot = badges.whatsNew ? 'bg-blue-500' : null;
   return (
-    <header
+    <div
+      data-phone-header
       className="md:hidden sticky -top-3 z-30 -mx-4 -mt-3 px-4 pb-3 pt-3 bg-background/85 backdrop-blur-xl"
-      style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
+      style={{ paddingTop: back ? 'env(safe-area-inset-top)' : 'calc(env(safe-area-inset-top) + 0.75rem)' }}
     >
-      <div className="flex items-end justify-between gap-2">
-        <div className="min-w-0">
-          <h1 className="text-[28px] leading-tight font-bold tracking-tight text-foreground truncate">{title}</h1>
-          {subtitle && <div className="text-sm text-muted-foreground mt-0.5">{subtitle}</div>}
-        </div>
-        {(right || bell || nav) && (
-          <div className="flex items-center shrink-0">
+      <PageHeader
+        title={title}
+        sub={subtitle}
+        back={back}
+        backLabel={backLabel}
+        actions={
+          <div className="flex items-center -mr-2 gap-0">
             {right}
-            {nav && (
-              <button type="button" onClick={openSearch} aria-label="Search" className="w-11 h-11 flex items-center justify-center rounded-full active:bg-muted">
-                <Search className="w-[22px] h-[22px]" />
-              </button>
-            )}
+            <IconButton label="Search" onClick={openSearch} className="rounded-full text-foreground">
+              <Search className="size-[22px]" />
+            </IconButton>
             {bell && <BellButton />}
-            {nav && path !== '/menu' && (
-              <Link href="/menu" aria-label={menuDot ? 'Menu, something new' : 'Menu'} className="relative w-11 h-11 -mr-2 flex items-center justify-center rounded-full active:bg-muted">
-                <Menu className="w-[22px] h-[22px]" />
+            {path !== '/menu' && (
+              <Link href="/menu" aria-label={menuDot ? 'Menu, something new' : 'Menu'} className="relative w-11 h-11 flex items-center justify-center rounded-full active:bg-muted">
+                <Menu className="size-[22px]" />
                 {menuDot && <span data-menu-dot className={cn('absolute right-2 top-2.5 w-2 h-2 rounded-full ring-2 ring-background', menuDot)} aria-hidden />}
               </Link>
             )}
           </div>
-        )}
-      </div>
-    </header>
+        }
+      />
+    </div>
   );
 }

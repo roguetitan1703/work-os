@@ -219,7 +219,11 @@ try {
   try {
     check('worker: connects with its device key', !!(await until(() => w.up)));
     await pA.goto(B + '/claude?tab=now');
-    const stopBtn = pA.locator('[data-session-row] button:has-text("Stop")').first();
+    // Stop is in the session's sheet: a tap on the row opens it.
+    const srow = pA.locator('[data-session-row]').first();
+    await srow.waitFor({ timeout: 15000 });
+    await srow.locator('button').first().click();
+    const stopBtn = pA.locator('[data-session-sheet] [data-sheet-action="stop"]');
     await stopBtn.waitFor({ timeout: 15000 });
     const t0 = Date.now();
     await stopBtn.click();

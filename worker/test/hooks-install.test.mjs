@@ -63,11 +63,11 @@ test('install copies the hook, merges ten events (eleven entries), keeps other s
 });
 
 test('remove takes out only the Work OS entries', () => {
-  assert.equal(m.remove(), true);
+  assert.equal(m.remove().hooks, true);
   const s = settings();
   assert.deepEqual(Object.keys(s.hooks), ['Stop']);
   assert.equal(s.hooks.Stop[0].hooks[0].command, 'node other.mjs');
-  assert.equal(m.remove(), false);
+  assert.equal(m.remove().hooks, false);
 });
 
 const hooksOf = (dir) => path.join(dir, 'hooks');
@@ -136,6 +136,18 @@ test('the hooks version changes when any file changes', () => {
   }
 });
 
+test('the hooks version is the same for CRLF (a Windows checkout) and LF (the downloaded bundle) copies of the same files', () => {
+  const lf = path.join(tmp, 'hooks-lf'), crlf = path.join(tmp, 'hooks-crlf');
+  fs.mkdirSync(lf); fs.mkdirSync(crlf);
+  for (const f of m.FILES) {
+    const text = fs.readFileSync(new URL(`../${f}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    fs.writeFileSync(path.join(lf, f), text);
+    fs.writeFileSync(path.join(crlf, f), text.replace(/\n/g, '\r\n'));
+  }
+  assert.equal(m.hooksVersion(lf), m.hooksVersion(crlf));
+  assert.equal(m.hooksVersion(lf), m.hooksVersion());
+});
+
 test('a second worker folder does not take over the global hooks, and its refresh skips them', () => {
   const a = path.join(tmp, 'work-os-worker-a'); const b = path.join(tmp, 'work-os-worker-b');
   process.env.WORK_OS_WORKER_DIR = a;
@@ -197,7 +209,7 @@ test('a worker folder not named work-os-worker: two installs leave no duplicates
     assert.equal(s.hooks.SessionStart.length, 2, 'the brief and the idle wait');
     assert.equal(m.status().events.length, 10);
     assert.equal(m.refreshIfStale(), null);
-    assert.equal(m.remove(), true);
+    assert.equal(m.remove().hooks, true);
     assert.equal(m.status().events.length, 0);
   } finally { process.env.CLAUDE_SETTINGS_PATH = keepS; process.env.WORK_OS_WORKER_DIR = keepD; fs.rmSync(t2, { recursive: true, force: true }); }
 });

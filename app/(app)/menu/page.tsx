@@ -1,7 +1,7 @@
-import Link from '@/components/intent-link';
 import { ChevronRight } from 'lucide-react';
-import { MobileHeader } from '@/components/mobile/tab-bar';
+import { ScreenHeader } from '@/components/mobile/tab-bar';
 import { NavIcon, PLACE_ICON } from '@/components/nav-icons';
+import { List, Row } from '@/components/ui/card';
 import { systemStatusLevel } from '@/lib/data/nav-counts';
 import { unreadCount } from '@/lib/notify';
 import { requireCaller } from '@/lib/caller';
@@ -13,60 +13,51 @@ export const metadata = { title: 'Menu · Work OS' };
 const DOT = { ok: 'bg-green-500', warn: 'bg-amber-500', error: 'bg-red-500' } as const;
 const DOT_TEXT = { ok: 'All systems OK', warn: 'Needs a look', error: 'Problem' } as const;
 
-/** Phone Menu: the things that are not a tab (Claude, Inbox, Review, Schedule, What's new, Settings). Replaces the old More page. */
+/** Phone Menu: one flat list of the places that are not a tab (Tasks first). */
 export default async function MenuPage() {
   const s = await requireCaller();
   // Server health is the operator's: everyone else gets no dot.
   const operator = isOperator(s);
   const [status, unread, news] = await Promise.all([operator ? systemStatusLevel(s).catch(() => 'ok' as const) : Promise.resolve('ok' as const), unreadCount(s).catch(() => 0), whatsNewState(s).catch(() => null)]);
+  const rows: { href: string; label: string; icon: Parameters<typeof NavIcon>[0]['icon']; mark?: React.ReactNode }[] = [
+    { href: '/tasks', label: 'Tasks', icon: PLACE_ICON.tasks },
+    { href: '/notes', label: 'Notes', icon: PLACE_ICON.notes },
+    { href: '/review', label: 'Review', icon: PLACE_ICON.review },
+    { href: '/timetable', label: 'Schedule', icon: PLACE_ICON.schedule },
+    {
+      href: '/notifications',
+      label: 'Inbox',
+      icon: PLACE_ICON.inbox,
+      mark: unread > 0 ? <span data-inbox-count className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-label font-semibold leading-[18px] text-center">{unread > 99 ? '99+' : unread}</span> : undefined,
+    },
+    { href: '/whats-new', label: "What's new", icon: PLACE_ICON.whatsnew, mark: news?.unseen.length ? <span data-new-dot role="img" aria-label="Something new" className="w-2.5 h-2.5 rounded-full bg-blue-500" /> : undefined },
+    {
+      href: '/settings',
+      label: 'Settings',
+      icon: PLACE_ICON.settings,
+      mark: operator && status !== 'ok' ? <span role="img" aria-label={DOT_TEXT[status]} title={DOT_TEXT[status]} data-menu-status className={`w-2.5 h-2.5 rounded-full ${DOT[status]}`} /> : undefined,
+    },
+  ];
   return (
-    <div className="max-w-xl mx-auto">
-      <MobileHeader title="Menu" />
-      <h1 className="hidden md:block text-2xl font-bold mb-4">Menu</h1>
-
-      <Group title="Claude">
-        <Row href="/claude" icon={PLACE_ICON.claude} label="Now · Workers · Set up" />
-      </Group>
-
-      <Group title="Inbox">
-        <Row href="/notifications" icon={PLACE_ICON.inbox} label="Inbox" dot={unread > 0 ? <span className="text-xs rounded-full px-1.5 py-0.5 font-medium bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-300">{unread}</span> : undefined} />
-      </Group>
-
-      <Group title="Review">
-        <Row href="/review" icon={PLACE_ICON.review} label="Done · Activity · Stale · Archive · Trash" />
-      </Group>
-
-      <Group title="Schedule">
-        <Row href="/timetable" icon={PLACE_ICON.schedule} label="Today's blocks and the week" />
-      </Group>
-
-      <Group title="What's new">
-        <Row href="/whats-new" icon={PLACE_ICON.whatsnew} label="New in Work OS" dot={news?.unseen.length ? <span data-new-dot role="img" aria-label="Something new" className="w-2.5 h-2.5 rounded-full bg-blue-500" /> : undefined} />
-      </Group>
-
-      <Group title="Settings">
-        <Row href="/settings" icon={PLACE_ICON.settings} label="Settings" dot={operator && status !== 'ok' ? <span role="img" aria-label={DOT_TEXT[status]} title={DOT_TEXT[status]} data-menu-status className={`w-2.5 h-2.5 rounded-full ${DOT[status]}`} /> : undefined} />
-      </Group>
+    <div className="max-w-xl mx-auto space-y-5">
+      <ScreenHeader title="Menu" />
+      <List data-menu>
+        {rows.map(r => (
+          <Row
+            key={r.href}
+            href={r.href}
+            leading={<NavIcon icon={r.icon} size={20} />}
+            title={
+              // The count or dot and the chevron sit inside the link: the whole row is one target.
+              <span className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate">{r.label}</span>
+                {r.mark}
+                <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground/40" aria-hidden />
+              </span>
+            }
+          />
+        ))}
+      </List>
     </div>
-  );
-}
-
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="mt-5">
-      <h2 className="px-1 mb-1.5 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</h2>
-      <div className="rounded-2xl bg-card border border-border/70 divide-y divide-border/60 overflow-hidden">{children}</div>
-    </section>
-  );
-}
-
-function Row({ href, label, icon, dot }: { href: string; label: string; icon: Parameters<typeof NavIcon>[0]['icon']; dot?: React.ReactNode }) {
-  return (
-    <Link href={href} className="flex items-center gap-3 px-4 h-14 active:bg-muted/60">
-      <NavIcon icon={icon} size={20} className="text-muted-foreground" />
-      <span className="flex-1 min-w-0 truncate text-[16px] text-foreground">{label}</span>
-      {dot}
-      <ChevronRight className="w-4 h-4 text-muted-foreground/40" />
-    </Link>
   );
 }

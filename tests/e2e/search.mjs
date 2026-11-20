@@ -1,4 +1,4 @@
-// Global search: auth, results, literal regex chars, #ref, project hits, keyboard (desktop), phone sheet and Back at 390 and 1280. Seed profile: base.
+// Global search: auth, results, literal regex chars, #ref, project hits, keyboard (desktop), phone sheet and Back at 390 and 1280 (the full search is search-all.mjs). Seed profile: base.
 import { launch, B, PW, SP, db, mc, runAssertSuite, assert, check, fillLogin } from './lib.mjs';
 await runAssertSuite('search', async () => {
   const b = await launch();
@@ -26,9 +26,9 @@ await runAssertSuite('search', async () => {
     assert.ok((await p.locator('[role=listbox]').innerText()).includes('Call notes'), 'literal (v2) found'); // last query "(v2)"
     await input().fill('#2'); await p.waitForTimeout(500);
     assert.ok((await p.locator('[role=option]').first().innerText()).includes('#2'), 'ref first');
-    await input().fill('C12'); await p.getByText('Reorder invoice export').waitFor();
-    await input().fill('akar'); await p.locator('section[aria-label=Projects]').waitFor();
-    const t2 = await p.locator('[role=listbox]').innerText(); assert.ok(/projects/i.test(t2) && t2.includes('AKAR'), t2);
+    // The project is the best match (shown once, on top, as a project).
+    await input().fill('akar'); await p.locator('[role=option][data-kind=projects]', { hasText: 'AKAR' }).first().waitFor();
+    const t2 = await p.locator('[role=listbox]').innerText(); assert.ok(/best match/i.test(t2) && t2.includes('AKAR'), t2);
     if (label === 'desktop') {
       await input().fill('a'); await p.waitForTimeout(600);
       const n = await p.getByRole('option').count(); assert.ok(n >= 2);

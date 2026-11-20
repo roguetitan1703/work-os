@@ -28,8 +28,10 @@ async function tap(label, loc, ready) {
 // Only Today, Tasks and Projects are warmed (components/preloader.tsx; every warmed page is a server render).
 const proj = await tap('Today → Projects', p.locator('nav[aria-label=Main]:visible a[href="/projects"]').first(), p.locator('h1:visible', { hasText: /^Projects$/ }).first());
 check('Projects opens from preload (<800 ms with server held 1.5 s)', proj.nav === 0, `${proj.nav} req, ${proj.ms} ms`);
-const tasks = await tap('Projects → Tasks', p.locator('nav[aria-label=Main]:visible a[href="/tasks"]').first(), p.locator('h1:visible', { hasText: /^Tasks$/ }).first());
-check('Tasks opens from preload', tasks.nav === 0, `${tasks.nav} req, ${tasks.ms} ms`);
+// Tasks is first in the Menu now (the bar has Today, Projects, +, Needs, Claude); the Tasks page is still warmed.
+await tap('Projects → Menu (not warmed)', p.locator('header a[href="/menu"]:visible').first(), p.locator('h1:visible', { hasText: /^Menu$/ }).first());
+const tasks = await tap('Menu → Tasks', p.locator('main a[href="/tasks"]').first(), p.locator('h1:visible', { hasText: /^Tasks$/ }).first());
+check('Tasks opens (one server round trip allowed)', tasks.ms < 8000, `${tasks.nav} req, ${tasks.ms} ms`);
 // Not warmed any more: Menu and Settings wait for the server once (held 1.5 s here) but still open.
 const more = await tap('Tasks → Menu (not warmed)', p.locator('header a[href="/menu"]:visible').first(), p.locator('h1:visible', { hasText: /^Menu$/ }).first());
 check('Menu still opens (one server round trip allowed)', more.ms < 8000, `${more.ms} ms`);

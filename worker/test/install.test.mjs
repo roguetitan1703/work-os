@@ -10,7 +10,6 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildBundle } from '../bundle/build.mjs';
 import { runSetup, checkPrereqs, DEFAULT_SERVER } from '../setup.mjs';
-import { checkForUpdate } from '../update.mjs';
 import { bundleId } from '../config.mjs';
 import { TEST_TOKEN } from './fake-server.mjs';
 
@@ -52,16 +51,6 @@ test('bundle: run once it unpacks beside itself, marks its sha256, and passes ar
     spawnSync(process.execPath, [f, 'status'], { encoding: 'utf8', env });
     assert.ok(!fs.existsSync(path.join(d, 'worker', 'old.mjs')));
   } finally { rm(d); }
-});
-
-test('update check: only a downloaded bundle asks, and only a different sha256 counts', async () => {
-  const cur = 'a'.repeat(64), other = 'b'.repeat(64);
-  const serve = (sha) => async () => ({ status: 200, json: async () => ({ version: '9.9.9', sha256: sha }) });
-  assert.equal(await checkForUpdate({ baseUrl: 'https://x.example', fetchImpl: serve(other), current: null }), null);
-  assert.equal(await checkForUpdate({ baseUrl: 'https://x.example', fetchImpl: serve(cur), current: cur }), null);
-  assert.deepEqual(await checkForUpdate({ baseUrl: 'https://x.example', fetchImpl: serve(other), current: cur }), { current: cur, latest: other, version: '9.9.9' });
-  assert.equal(await checkForUpdate({ baseUrl: 'https://x.example', fetchImpl: async () => ({ status: 404 }), current: cur }), null);
-  assert.equal(await checkForUpdate({ baseUrl: 'https://x.example', fetchImpl: async () => { throw new Error('down'); }, current: cur }), null);
 });
 
 test('prereqs: old Node and missing Claude Code are named with a link', () => {

@@ -1,6 +1,13 @@
 // Backend checks for the session launcher: worker API auth, folder validation, job isolation, rate limit. Seed profile: none.
 import { B, check, db, mkDevice, mkWos, api, mcp, MCP, finish } from './lib.mjs';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID, createHash, generateKeyPairSync } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { bundleFrom, readWorkerFiles } from '../../worker/bundle/build.mjs';
+import { signRelease, verifyRelease, publicKeyText, releaseVersionAt } from '../../worker/release.mjs';
 
 // The worker download: public (no cookie, no key), the same bytes every time, the sha256 the app shows, no secrets.
 {
@@ -16,7 +23,83 @@ import { randomUUID, createHash } from 'node:crypto';
   const other = await fetch(B + '/worker/other.mjs', { redirect: 'manual' });
   check('worker download: only these two paths are public', other.status !== 200, other.status);
 }
+
+// Self-update (docs/launcher.md "Self-update"): latest.json carries the release signature only when one was made for
+// this very bundle, and a downloaded worker carrying the signing key's public half installs that release from the
+// server. A throwaway key; the signature file sits where scripts/build-artifact.sh puts it (.next/worker-signature.json).
+{
+  const ROOT = fileURLToPath(new URL('../../', import.meta.url));
+  const sigFile = path.join(ROOT, '.next', 'worker-signature.json');
+  const saved = fs.existsSync(sigFile) ? fs.readFileSync(sigFile) : null;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-e2e-selfupdate-'));
+  try {
+    fs.rmSync(sigFile, { force: true });
+    const latest0 = await (await fetch(B + '/worker/latest.json')).json();
+    check('self-update: an unsigned release has no signature in latest.json and carries the code version', !('signature' in latest0) && /^0\.\d+\.\d+$/.test(latest0.version), JSON.stringify(latest0).slice(0, 200));
+    const key = generateKeyPairSync('ed25519');
+    const pub = publicKeyText(key.publicKey);
+    const write = (rec) => fs.writeFileSync(sigFile, JSON.stringify(rec));
+    // What the signing step does: the release version from a time, the bundle of these files at that version, signed.
+    const W = fileURLToPath(new URL('../../worker/', import.meta.url));
+    const { files, loader } = readWorkerFiles(W); // the .mjs files and the skills, as the server reads them
+    const V = releaseVersionAt(Date.UTC(2026, 10, 20, 12, 0, 0) / 1000);
+    const rel = bundleFrom(files, loader, V);
+    write({ version: V, sha256: 'a'.repeat(64), signature: signRelease({ version: V, sha256: 'a'.repeat(64) }, key.privateKey) });
+    const other = await (await fetch(B + '/worker/latest.json')).json();
+    check('self-update: a signature made for another bundle is not served', !('signature' in other) && other.sha256 === latest0.sha256);
+    const signature = signRelease(rel, key.privateKey);
+    write({ version: V, sha256: rel.sha256, signature });
+    const latest = await (await fetch(B + '/worker/latest.json')).json();
+    check('self-update: latest.json serves the signed release (its version, its bundle, its signature), and it verifies', latest.version === V && latest.sha256 === rel.sha256 && latest.signature === signature && verifyRelease(latest, [pub]), JSON.stringify(latest).slice(0, 200));
+    const served = await (await fetch(B + '/worker/work-os-worker.mjs')).text();
+    check('self-update: the download is that signed bundle', createHash('sha256').update(served).digest('hex') === rel.sha256);
+
+    // A worker installed from an older signed release that carries the test key updates itself from the server.
+    files['release-keys.mjs'] = `export const RELEASE_KEYS = ['${pub}'];\n`;
+    const old = bundleFrom(files, loader, releaseVersionAt(Date.UTC(2026, 10, 19) / 1000));
+    const file = path.join(tmp, 'work-os-worker.mjs');
+    fs.writeFileSync(file, old.body);
+    const unpacked = spawnSync(process.execPath, [file, 'unpack'], { encoding: 'utf8' });
+    const probe = `const u = await import(${JSON.stringify(pathToFileURL(path.join(tmp, 'worker', 'update.mjs')).href)}); console.log(JSON.stringify(await u.selfUpdate({ baseUrl: ${JSON.stringify(B)}, file: ${JSON.stringify(path.join(tmp, 'status.json'))} })));`;
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', timeout: 120000 });
+    const res = (() => { try { return JSON.parse(r.stdout.trim().split('\n').pop()); } catch { return null; } })();
+    const read = (n) => { try { return fs.readFileSync(path.join(tmp, 'worker', n), 'utf8').trim(); } catch { return ''; } };
+    check('self-update: a downloaded worker with the key installs the signed release from the server', unpacked.status === 0 && res?.result === 'updated' && res.version === V && read('BUNDLE') === rel.sha256 && read('RELEASE') === V, `${r.stderr.slice(0, 300)} ${r.stdout.slice(0, 300)}`);
+    check('self-update: the new code is the server\'s', fs.readFileSync(file, 'utf8') === served);
+    const again = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', timeout: 120000 });
+    check('self-update: the next check finds it current', /"result":"current"/.test(again.stdout), again.stdout.slice(0, 200));
+    // The same worker without the key refuses the release.
+    files['release-keys.mjs'] = `export const RELEASE_KEYS = ['${publicKeyText(generateKeyPairSync('ed25519').publicKey)}'];\n`;
+    const old2 = bundleFrom(files, loader, releaseVersionAt(Date.UTC(2026, 10, 19) / 1000));
+    fs.writeFileSync(file, old2.body);
+    spawnSync(process.execPath, [file, 'unpack'], { encoding: 'utf8' });
+    const r2 = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', timeout: 120000 });
+    const res2 = (() => { try { return JSON.parse(r2.stdout.trim().split('\n').pop()); } catch { return null; } })();
+    check('self-update: a worker without that key refuses it and keeps its code', res2?.result === 'refused' && res2.reason === 'bad signature' && read('BUNDLE') === old2.sha256, r2.stdout.slice(0, 300));
+    // A worker already on a later release refuses this one (no downgrade).
+    files['release-keys.mjs'] = `export const RELEASE_KEYS = ['${pub}'];\n`;
+    const newer = bundleFrom(files, loader, releaseVersionAt(Date.UTC(2026, 10, 21) / 1000));
+    fs.writeFileSync(file, newer.body);
+    spawnSync(process.execPath, [file, 'unpack'], { encoding: 'utf8' });
+    const r3 = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', timeout: 120000 });
+    check('self-update: a worker on a later release refuses an older one', /"result":"refused","reason":"version 20261120\.120000 is not newer than 20261121\.000000"/.test(r3.stdout) && read('BUNDLE') === newer.sha256, r3.stdout.slice(0, 300));
+  } finally {
+    if (saved) fs.writeFileSync(sigFile, saved); else fs.rmSync(sigFile, { force: true });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
 const A = await mkDevice('dev-A'), Bd = await mkDevice('dev-B');
+
+// The self-update block of a worker's status is kept only when it says it is on, each field checked and cut.
+{
+  const S = await mkDevice('dev-selfupdate'); // its own device: the per-device rate limit counts calls
+  const su = async (selfUpdate) => { await api(S.key, 'POST', '/api/worker/status', { worker: { version: '0.5.0', os: 'win32', selfUpdate }, jobs: [], sessions: [] }); return (await db.collection('devices').findOne({ _id: S.id })).worker?.selfUpdate; };
+  const ok = await su({ on: true, updatedAt: '2026-11-20T10:00:00.000Z', from: '0.4.0', problem: 'update refused: bad signature' });
+  check('status: worker.selfUpdate kept (date, version, problem)', ok && ok.updatedAt instanceof Date && ok.updatedAt.toISOString() === '2026-11-20T10:00:00.000Z' && ok.from === '0.4.0' && ok.problem === 'update refused: bad signature', JSON.stringify(ok));
+  const bad = await su({ on: true, updatedAt: 'not a date', from: '1; rm', problem: 'x\u0000\u001b[31m'.padEnd(400, 'y') });
+  check('status: bad selfUpdate fields are dropped or cut', bad && bad.updatedAt === null && bad.from === null && bad.problem.length <= 160 && !/[\u0000-\u001f]/.test(bad.problem), JSON.stringify(bad));
+  check('status: selfUpdate without on is not kept', (await su({ updatedAt: '2026-11-20T10:00:00.000Z' })) === undefined);
+}
 const wos = await mkWos();
 const rev = await mkDevice('dev-revoked'); await db.collection('devices').updateOne({ _id: rev.id }, { $set: { revokedAt: new Date() } });
 

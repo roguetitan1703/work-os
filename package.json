@@ -10,7 +10,9 @@
     "prebuild": "node tests/scope-check.mjs && node --experimental-strip-types --no-warnings tests/words-check.mjs",
     "check:scope": "node tests/scope-check.mjs",
     "check:words": "node --experimental-strip-types --no-warnings tests/words-check.mjs",
+    "check:ui": "node tests/ui-check.mjs",
     "check:notes-match": "node --experimental-strip-types --no-warnings tests/notes-match-check.mjs",
+    "check:search": "node --experimental-strip-types --no-warnings tests/search-check.mjs",
     "check:lanes": "node --experimental-strip-types --no-warnings tests/lanes-check.mjs",
     "check:declutter": "node --experimental-strip-types --no-warnings tests/declutter-check.mjs",
     "check:claude-items-migrate": "node --experimental-strip-types --no-warnings tests/claude-items-migrate-check.mjs"

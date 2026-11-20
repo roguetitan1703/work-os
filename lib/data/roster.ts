@@ -55,6 +55,8 @@ export type WorkerRow = {
   lastResult?: { text: string; at: string };
   /** A builder's orchestrator session id: only on the viewer's own rows (another person's session ids are not shown). */
   parent?: string;
+  /** The viewer's own rows only: Claude Code's session id, which names the same session in the computer's own list (claude-overview.ts), so the two lists merge into one (lib/session-item.ts). */
+  cc?: string;
 };
 
 export type CouldBeRunning = { projectId: string; projectName: string; unblocked: number; first: string };
@@ -128,7 +130,7 @@ export async function taskInfo(s: Scope, ids: string[]): Promise<Map<string, { r
 }
 
 /** What a row is called to someone who does not own it: the row id holds the session id, so they get a one-way label of it. */
-const opaqueId = (rowId: string) => createHash('sha256').update(`worker-row:${rowId}`).digest('hex').slice(0, 16);
+export const opaqueId = (rowId: string) => createHash('sha256').update(`worker-row:${rowId}`).digest('hex').slice(0, 16);
 
 type Ctx = { results?: boolean; tasks: Map<string, { ref: number; title: string }>; names: Record<string, string>; pname: Map<string, string>; needs: Set<string>; nextCount: (projectId: string) => number };
 
@@ -163,9 +165,10 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
         since: st.since.toISOString(),
         nextWork: state === 'idle' && row.projectId ? x.nextCount(row.projectId) : 0,
         lastSeen: row.lastSeen.toISOString(),
-        ...(x.results && row.lastResult?.text ? { lastResult: { text: row.lastResult.text.slice(0, 300), at: row.lastResult.at.toISOString() } } : {}),
+        ...(x.results && mine && row.lastResult?.text ? { lastResult: { text: row.lastResult.text.slice(0, 300), at: row.lastResult.at.toISOString() } } : {}),
         depth: 0 as const,
         ...(row.userId === s.userId && row.parent ? { parent: row.parent } : {}),
+        ...(mine && (row.ccSession ?? row.session) ? { cc: row.ccSession ?? row.session } : {}),
         _parent: row.parent,
         _uid: row.userId,
         _rid: row._id,
@@ -191,9 +194,26 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
   return workers;
 }
 
-/** The roster the viewer may see: workers, builders under their orchestrators, and the projects that could be running and are not. */
-export async function roster(s: Scope): Promise<Roster> {
+/**
+ * The roster the viewer may see: workers, builders under their orchestrators, and the projects that could be running and are not.
+ * `results`: each worker's last reported result too (the Claude page's Sessions list). `lite`: workers only, no idle Next
+ * counts, could-run list or heavy slots (Today's Claude card counts them and needs nothing else).
+ */
+export async function roster(s: Scope, opts: { results?: boolean; lite?: boolean } = {}): Promise<Roster> {
   const raw = await loadRaw(s, LIST_HOURS);
+  if (opts.lite) {
+    if (!raw.length) return { workers: [], couldBeRunning: [], machines: [] };
+    const c = await scoped(s);
+    const projectIds = [...new Set(raw.flatMap(r => (r.row.projectId ? [r.row.projectId] : [])))];
+    const [names, projects, needs, tasks] = await Promise.all([
+      memberNames(s.orgId),
+      projectIds.length ? c.projects.find({ _id: { $in: projectIds } }, { projection: { name: 1 } }).toArray() : Promise.resolve([]),
+      openNeedRows(s, raw.map(r => r.row)),
+      taskInfo(s, raw.flatMap(r => (r.row.doing ? [r.row.doing.taskId] : []))),
+    ]);
+    const pname = new Map(projects.map(p => [p._id, p.name]));
+    return { workers: buildWorkers(s, raw, { results: opts.results, tasks, names, pname, needs, nextCount: () => 0 }), couldBeRunning: [], machines: [] };
+  }
   const c = await scoped(s);
   const names = await memberNames(s.orgId);
   const projectIds = [...new Set(raw.flatMap(r => (r.row.projectId ? [r.row.projectId] : [])))];
@@ -202,7 +222,7 @@ export async function roster(s: Scope): Promise<Roster> {
   const needs = await openNeedRows(s, raw.map(r => r.row));
   const nextByProject = await unblockedNext(s, projectIds);
   const tasks = await taskInfo(s, raw.flatMap(r => (r.row.doing ? [r.row.doing.taskId] : [])));
-  const workers = buildWorkers(s, raw, { tasks, names, pname, needs, nextCount: id => nextByProject.get(id)?.n ?? 0 });
+  const workers = buildWorkers(s, raw, { results: opts.results, tasks, names, pname, needs, nextCount: id => nextByProject.get(id)?.n ?? 0 });
 
   const keyOf = (r: PresenceDoc) => machineKey(r.userId, { machine: r.machine, machineName: r.machineName });
   const machineKeys = [...new Set(raw.filter(r => r.row.machine).map(r => keyOf(r.row)))];
@@ -241,7 +261,7 @@ export async function couldBeRunning(s: Scope, loaded?: Raw[]): Promise<CouldBeR
 
 /**
  * For a project page, which already holds the project, its State, its open tasks and the member names: the workers on
- * it (not off) and whether it could be running and isn't. One read of its own (the presence rows), plus the daemon's
+ * it (off ones too, for "Finished today") and whether it could be running and isn't. One read of its own (the presence rows), plus the daemon's
  * list or open Needs only when there are such rows.
  */
 export async function projectRoster(
@@ -256,7 +276,8 @@ export async function projectRoster(
   const lines = (state?.next ?? []).filter(l => !l.waitsOn && !(l.ref && !live.has(l.ref)));
   const needs = raw.length ? await openNeedRows(s, raw.map(r => r.row)) : new Set<string>();
   const tasks = await taskInfo(s, raw.flatMap(r => (r.row.doing ? [r.row.doing.taskId] : [])));
-  const workers = buildWorkers(s, raw, { results: true, tasks, names, pname: new Map([[project.id, project.name]]), needs, nextCount: () => lines.length }).filter(w => w.state !== 'off');
+  // Off workers stay in: the page lists live sessions first and those that ended today under "Finished today".
+  const workers = buildWorkers(s, raw, { results: true, tasks, names, pname: new Map([[project.id, project.name]]), needs, nextCount: () => lines.length });
   const now = Date.now();
   const anyLive = raw.some(r => workerState(r.row, { now, daemon: r.daemon }) !== 'off');
   return { workers, couldBeRunning: project.status === 'active' && lines.length && !anyLive ? { projectId: project.id, projectName: project.name, unblocked: lines.length, first: lines[0].text.slice(0, 160) } : null };

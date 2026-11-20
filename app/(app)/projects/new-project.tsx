@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Plus } from 'lucide-react';
+import { FolderPlus, Plus } from 'lucide-react';
 import { createProjectAction } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +16,8 @@ import { DelpatOsPicker } from './delpat-os-picker';
 import { AudiencePicker, SharingChoice, SHARING_HELP, type Sharing } from './sharing-choice';
 import { useApp } from '@/components/app-context';
 
-export function NewProjectButton() {
+/** `startOpen` (/projects?new=1, search's New project action): this instance opens at once on its size (the page has one per size). */
+export function NewProjectButton({ startOpen }: { startOpen?: 'phone' | 'desktop' } = {}) {
   const router = useRouter();
   const phone = usePhone();
   const [open, setOpen] = useState(false);
@@ -39,6 +40,11 @@ export function NewProjectButton() {
     setMode('new');
     setOpen(true);
   };
+  useEffect(() => {
+    if (!startOpen || (startOpen === 'phone') !== !window.matchMedia('(min-width: 768px)').matches) return;
+    const t = setTimeout(() => setOpen(true));
+    return () => clearTimeout(t);
+  }, [startOpen]);
   const imported = (id: string) => {
     setOpen(false);
     router.push(`/projects/${id}`);
@@ -69,13 +75,10 @@ export function NewProjectButton() {
   const fieldCls = 'h-12 text-[16px]';
   return (
     <>
-      <button
-        onClick={openIt}
-        aria-label="New project"
-        className="md:hidden w-11 h-11 rounded-full bg-foreground text-background flex items-center justify-center active:scale-95 transition-transform"
-      >
-        <Plus className="w-5 h-5" strokeWidth={2.4} />
-      </button>
+      {/* Phone: a plain outline button beside the Active/All chips, not a second + (the bar's + adds tasks, Claude, notes). */}
+      <Button variant="outline" size="touch" className="md:hidden gap-1.5 rounded-pill font-medium" onClick={openIt} data-new-project>
+        <FolderPlus className="w-4 h-4" /> New project
+      </Button>
       <Button size="sm" className="hidden md:inline-flex gap-1.5" onClick={openIt}>
         <Plus className="w-3.5 h-3.5" /> New project
       </Button>

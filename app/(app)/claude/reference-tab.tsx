@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { ChevronDown, Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { SearchButton } from '@/components/search-button';
 import { CopyBox } from '@/components/copy-box';
 import { cn } from '@/lib/utils';
 import { Card, Disclosure, Field, Label, code } from '../settings/ui';
@@ -9,43 +10,40 @@ import { Card, Disclosure, Field, Label, code } from '../settings/ui';
 export type ToolRow = { name: string; writes: boolean; description: string; example: string };
 export type ToolGroup = { title: string; tools: ToolRow[] };
 
-/** Reference: grouped, searchable tool list; "what Claude is told" and test commands collapsed. */
+/**
+ * Reference: grouped tool list (the global search finds a tool under Pages and opens it here: #tool-<name>); "what Claude
+ * is told" and test commands collapsed.
+ */
 export function ReferenceTab({ groups, instructions, token, url }: { groups: ToolGroup[]; instructions: string; token?: string; url: string }) {
-  const [q, setQ] = useState('');
   const [openName, setOpenName] = useState<string | null>(null);
-  const needle = q.trim().toLowerCase();
-  const shown = groups
-    .map(g => ({ ...g, tools: g.tools.filter(t => !needle || `${t.name} ${t.description} ${t.example}`.toLowerCase().includes(needle)) }))
-    .filter(g => g.tools.length > 0);
+  useEffect(() => {
+    const fromHash = () => {
+      const m = /^#tool-([a-z_]+)$/.exec(window.location.hash);
+      if (m) setOpenName(m[1]);
+    };
+    fromHash();
+    window.addEventListener('hashchange', fromHash);
+    return () => window.removeEventListener('hashchange', fromHash);
+  }, []);
+  const shown = groups.filter(g => g.tools.length > 0);
   const key = token ?? '<your key>';
 
   return (
     <div className="space-y-5">
       <div className="space-y-3">
-        <div className="relative">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-          <input
-            type="search"
-            value={q}
-            onChange={e => setQ(e.target.value)}
-            placeholder="Search tools"
-            aria-label="Search tools"
-            className="w-full h-11 rounded-xl border border-input bg-background dark:bg-input/30 pl-10 pr-3 text-base md:text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-          />
-        </div>
-        {shown.length === 0 && <p className="px-1 text-sm text-muted-foreground">No tool matches &ldquo;{q}&rdquo;.</p>}
+        <SearchButton kind="pages" label="Search tools" data-tool-search className="w-full justify-start h-11 md:h-9" />
         {shown.map(g => (
           <section key={g.title}>
             <Label>{g.title}</Label>
             <Card grouped>
               {g.tools.map(t => {
-                const open = openName === t.name || !!needle;
+                const open = openName === t.name;
                 return (
-                  <div key={t.name}>
+                  <div key={t.name} data-tool={t.name}>
                     <button
                       type="button"
                       aria-expanded={open}
-                      onClick={() => setOpenName(open && !needle ? null : t.name)}
+                      onClick={() => setOpenName(open ? null : t.name)}
                       className="w-full flex items-center gap-2 px-4 min-h-12 text-left active:bg-muted/60"
                     >
                       <code className="text-[13px] font-semibold text-foreground truncate">{t.name}</code>
