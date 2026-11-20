@@ -64,6 +64,7 @@ const TARGETS: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^#state-later-(.+)$/, m => `[data-later-id="${CSS.escape(m[1])}"]`],
   [/^#state-now$/, () => '[data-state-now]'],
   [/^#state-decisions$/, () => '[data-part="decisions"]'],
+  [/^#state-parked$/, () => '[data-part="parked"]'],
   [/^#need-(\d+)$/, m => `[data-need="${m[1]}"]`],
   [/^#tool-([a-z_]+)$/, m => `[data-tool="${m[1]}"]`],
   [/^#code$/, () => '#code'],
