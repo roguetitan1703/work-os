@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 273. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 274. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -15,6 +15,7 @@ Copy of the Work OS state, version 273. WORK-STATE.md is a copy of the State, wr
 7. Next.js: no upgrade needed, already 16.4.6 (c638a01). The build stop came from worktrees with stale installs (wos-b, wos-s, wos-s2, wos-mail, work-os-demo): npm ci in each before its next build.: `next build` now stops once with SecurityFatalError (npm advisories) and passes on retry. The release build (GitHub runner, server-build.yml) may stop the same way at 03:00. Upgrade Next.js to the patched version (Om said yes, 20 Nov): Opus in slot A, full suite, merge, then release at 03:00. — waits on Om's go for the Next.js upgrade
 8. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; (waits on 23 Nov) on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
 9. Context warning per project (Om, 21 Nov; Grant Leads asked): pre-tool hook reads each agent's context locally, warns at the project's line (150k for Grant Leads, off elsewhere), peak context in usage. Plan note 3e92845ac0; Merged to dev 21 Nov after review (method: lead plan + Sonnet; 521 worker tests, 8 suites pass). Ships in the next release; then Om sets Grant Leads to 150k. — waits on builder A's hook-gate merge
+10. Discord issue channel (Om, 21 Nov): #delpat-os for Work OS, #mailloom for Mailloom. The server records each post as a task and replies "Recorded #N"; the lead replies in one line, fixes it with subagents, posts when done. Plan note on the Designs shelf; Sonnet build next. Akash's 8 posts recorded as #316-#323.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -83,4 +84,4 @@ Copy of the Work OS state, version 273. WORK-STATE.md is a copy of the State, wr
 
 ## Parked
 - 1 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:e8e2707a15317c3f5e32653ae75e99a0a3ee421c -->
+<!-- work-os-copy sha1:9c7b23a70a12a651be77cd64e3c1e4e4ab870717 -->
