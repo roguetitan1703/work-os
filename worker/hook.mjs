@@ -26,7 +26,7 @@
 // process are decided there, once, for all of them (RULES).
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EVENTS, clearPromptWait, run } from './hook-lib.mjs';
+import { EVENTS, run } from './hook-lib.mjs';
 import { gate } from './hook-gate.mjs';
 import { timeoutAnswer } from './hook-pre-tool.mjs';
 
@@ -57,9 +57,8 @@ export async function main(event, stdinText, { cloud = false, server = null, pro
     try { input = JSON.parse(stdinText || '{}'); } catch {}
     const g = gate(event, input);
     if (!g.run) {
-      // A subagent's tool call reports nothing, but it means a permission prompt the marker shows was answered: clear that wait
-      // (never set working). Independent review, 21 Nov: a lead left "waiting" while its subagent ran on.
-      if (g.why === 'subagent' && (event === 'tool-batch' || event === 'tool-start')) await clearPromptWait(g.sid);
+      // A gated run reports nothing. A subagent's calls never touch the lead's state: subagent prompts are never posted, so a
+      // permission wait in the marker is the lead's own, and the lead's own next tool call clears it (hook-pre-tool). Review re-check, 21 Nov.
       return '';
     }
     const out = await (await import(`./hook-${event}.mjs`)).handle(input, g);

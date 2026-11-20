@@ -280,7 +280,7 @@ export async function postEvent(sid, event, extra = {}, timeoutMs = 1500) {
       }
       if (event === 'result') { if (down) m.presence = { ...(m.presence || {}), postedAt: at, failed: true }; return m; } // a lane result changes no session state
       const state = event === 'notify' ? (extra.kind === 'idle_prompt' ? 'idle' : 'waiting') : PRESENCE_AFTER[event];
-      // kind: which notify set waiting, so a subagent's later tool call clears only a prompt wait (clearPromptWait)
+      // kind: which notify set waiting (a permission prompt, a dialog, or idle)
       m.presence = ok ? { state, at, postedAt: at, ...(event === 'notify' && extra.kind ? { kind: extra.kind } : {}) } : { ...(m.presence || {}), postedAt: at, ...(down ? { failed: true } : {}) };
       return m;
     });
@@ -323,12 +323,6 @@ export const readMarker = (sid) => {
     return m;
   } catch { return null; }
 };
-/** A subagent's tool call (gated: it reports nothing) ends a permission-prompt wait the marker shows: the person answered it. Clears only, never sets working. */
-export async function clearPromptWait(sid) {
-  const p = sid ? readMarker(sid)?.presence : null;
-  if (p?.state !== 'waiting' || (p.kind !== 'permission_prompt' && p.kind !== 'elicitation_dialog')) return null;
-  return postEvent(sid, 'notify', { kind: 'idle_prompt' });
-}
 /** Writes the whole marker at once (a temp file, then rename), so a hook reading it in parallel never sees half a file. */
 export const writeMarker = (sid, m) => {
   fs.mkdirSync(markerDir(), { recursive: true });

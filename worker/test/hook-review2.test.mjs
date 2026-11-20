@@ -89,7 +89,7 @@ test('2. a down server silences tool events for 5 minutes, never a state change 
   assert.equal(lib.readMarker(SID).presence.state, 'idle');
 });
 
-test('4. a subagent\'s notification posts nothing; its next tool call clears a permission-prompt wait to idle, and never sets working', async () => {
+test('4. a subagent\'s notification posts nothing; its tool calls never touch the lead\'s own permission wait', async () => {
   lib.writeMarker(SID, { presence: { state: 'working', at: Date.now(), postedAt: Date.now() } });
   seen.length = 0;
   await main('notification', { agent_id: 'sub-1', notification_type: 'permission_prompt' });
@@ -98,16 +98,11 @@ test('4. a subagent\'s notification posts nothing; its next tool call clears a p
   assert.equal(events().length, 1);
   assert.deepEqual([lib.readMarker(SID).presence.state, lib.readMarker(SID).presence.kind], ['waiting', 'permission_prompt']);
   seen.length = 0;
+  // Review re-check, 21 Nov: the lead at its own prompt while a subagent runs Bash stays waiting (it must not show idle and take a wake mid-turn).
   await main('tool-batch', { agent_id: 'sub-1', tool_name: 'Bash' });
-  assert.equal(events().length, 1, 'the subagent tool call after the prompt clears it');
-  assert.deepEqual([events()[0].body.event, events()[0].body.kind], ['notify', 'idle_prompt']);
-  assert.equal(lib.readMarker(SID).presence.state, 'idle');
-  seen.length = 0;
   await main('tool-start', { agent_id: 'sub-1', tool_name: 'Bash', tool_input: { command: 'ls' } });
-  assert.equal(events().length, 0, 'idle: a subagent call posts nothing (never working)');
-  lib.writeMarker(SID, { presence: { state: 'waiting', at: Date.now(), postedAt: Date.now(), kind: 'idle_prompt' } });
-  await main('tool-batch', { agent_id: 'sub-1', tool_name: 'Bash' });
-  assert.equal(events().length, 0, 'only a prompt wait is cleared');
+  assert.equal(events().length, 0, 'a subagent call posts nothing');
+  assert.equal(lib.readMarker(SID).presence.state, 'waiting', 'the lead\'s own prompt wait stays');
 });
 
 test('6. markers older than 14 days and copies/ backups older than 30 are pruned, folders kept, at most once a day', () => {
