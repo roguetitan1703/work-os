@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 283. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 285. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -15,7 +15,7 @@ Copy of the Work OS state, version 283. WORK-STATE.md is a copy of the State, wr
 7. Context warning per project (Om, 21 Nov; Grant Leads asked): pre-tool hook reads each agent's context locally, warns at the project's line (150k for Grant Leads, off elsewhere), peak context in usage. Plan note 3e92845ac0; Merged to dev 21 Nov after review (method: lead plan + Sonnet; 521 worker tests, 8 suites pass). Ships in the next release; then Om sets Grant Leads to 150k. — waits on builder A's hook-gate merge
 8. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
 9. Discord issue channel + one bot for everybody (Om, 21 Nov): #delpat-os for Work OS, #mailloom for Mailloom; server records each post as a task, lead replies one line, fixes with subagents, posts done; Build plan v4 (note c7b491432a): live listener, bug channels, track emoji, Undo/Done/For buttons, OAuth link, agent tools, DMs for reels and day-old Needs. Sonnet building in slot S. Plan note c7b491432a; v1 build stopped, kept at e1a92cf on builder-s. — waits on Om's go for plan v2
-10. New Work OS app icon and Discord track emoji (Om, 21 Nov: the tick icon is generic). Three directions at https://claude.ai/artifact/GYgM4PsJTudR7Bf4bQejDK; recommended K (का, the top line is the Now bar). Final art from an open-licence Devanagari font; one set: app 180/192/512, maskable, favicon, 128 px emoji. — waits on Om picks a direction
+10. New Work OS app icon and Discord track emoji: Om chose Stack · Round (decision 21 Nov); Sonnet builds the icon set in slot B, then merge with the Discord work. Old line: (Om, 21 Nov: the tick icon is generic). Three directions at https://claude.ai/artifact/GYgM4PsJTudR7Bf4bQejDK; recommended K (का, the top line is the Now bar). Final art from an open-licence Devanagari font; one set: app 180/192/512, maskable, favicon, 128 px emoji. — waits on Om picks a direction
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -85,4 +85,4 @@ Copy of the Work OS state, version 283. WORK-STATE.md is a copy of the State, wr
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:a38a65072240f3feab0c4de80b36d6fd417c5341 -->
+<!-- work-os-copy sha1:be81d5621b64d29101fc5b37683315e5b42cab23 -->
