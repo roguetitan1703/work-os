@@ -60,14 +60,14 @@ try {
       const o = await overflow(p); check(`no horizontal scroll /today ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
 
       // Try it marks that one seen and goes there
-      // (the second entry: its card is one of the three on the phone)
-      await card.locator('[data-whats-new-try="session-account"]').tap();
+      // (the newest entry: its card is one of the three on the phone)
+      await card.locator('[data-whats-new-try="sessions-true-state"]').tap();
       await p.waitForURL(u => u.pathname === '/claude', { timeout: 10000 });
       check('Try it: opens where the feature lives (/claude)', new URL(p.url()).pathname === '/claude');
-      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['session-account']), JSON.stringify(await seenOf()));
+      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['sessions-true-state']), JSON.stringify(await seenOf()));
       await p.goto(B + '/today'); await settle(p);
       const ids2 = await p.locator('[data-section="whats-new"]:visible [data-whats-new]').evaluateAll(els => els.map(e => e.getAttribute('data-whats-new')));
-      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'session-account').slice(0, 3)), JSON.stringify(ids2));
+      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'sessions-true-state').slice(0, 3)), JSON.stringify(ids2));
       await resetSeen();
     }
 
