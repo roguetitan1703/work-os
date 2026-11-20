@@ -518,6 +518,9 @@ try {
     await rawDb.collection('workerFolders').insertOne({ _id: p.folder, deviceId: p.dev, folderId: 'lkqf0001', name: can(`${p.name.toLowerCase()}folder`, al), path: `C:/${can(`${p.name.toLowerCase()}path`, al)}`, git: true, remote: `${can(`${p.name.toLowerCase()}fremote`, al)}/x`, projectId: p === A ? P.project : null, linkedAt: now, seenAt: now, missing: false, orgId: p.orgId, ownerId: p.userId });
     p.session = randomUUID();
     await rawDb.collection('workerSessions').insertOne({ _id: p.session, orgId: p.orgId, ownerId: p.userId, deviceId: p.dev, folderId: 'lkqf0001', projectId: p === A ? P.project : 'none', state: 'running', startedAt: now, updatedAt: now });
+    // A day of Claude usage on the computer (the `usage` tool): its session title and folder are the owner's alone.
+    const uday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
+    await rawDb.collection('claudeUsage').insertOne({ _id: `${p.dev}:${p.session}:main:claude-opus-4-5:${uday}`, orgId: p.orgId, ownerId: p.userId, deviceId: p.dev, sessionId: p.session, part: 'main', model: 'claude-opus-4-5', day: uday, dayAt: new Date(uday + 'T00:00:00Z'), i: 10, cw: 100, cr: 1000, o: 50, title: can(`${p.name.toLowerCase()}usagetitle`, al), folder: can(`${p.name.toLowerCase()}usagefolder`, al), origin: 'cli', updatedAt: now });
     // The computer's own report of sessions and of what was open before a restart (sent as the worker sends it, with
     // extra fields that must not be kept), so Open in VS Code / Reopen all have something real to act on.
     {
@@ -1384,6 +1387,7 @@ function AUDIT() {
     M('declutter', t => ({ project: t.projectName }), aim(['projectName'], { label: 'read their project' })),
     M('declutter', t => ({ project: t.projectName, ask: true, add: [{ later: 'lkq probe line' }] }), aim(['projectName'], { label: 'ask into their project', control: false })),
   );
+  add('mcp usage', M('usage', {}), M('usage', { range: 'today' }, { label: 'today' }), Mc('usage', {}, { label: 'code key' }));
   add('mcp list_sessions', M('list_sessions', { include_gone: true }), M('list_sessions', t => ({ project: t.project, include_gone: true }), aim(['project'], { label: 'by project', control: false, ok: r => r.ok && r.json?.sessions?.length > 0 })));
   add('mcp slot', M('slot', { action: 'acquire', machine: 'lkq-slot-box' }, { label: 'acquire' }), M('slot', { action: 'release', machine: 'lkq-slot-box' }, { label: 'release' }));
   const dOk = r => r.ok;
