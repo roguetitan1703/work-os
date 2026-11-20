@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 158. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 162. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -9,8 +9,8 @@ Copy of the Work OS state, version 158. WORK-STATE.md is a copy of the State, wr
 1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
 3. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0 items. Due only when there is something to propose; refresh the count when tasks close. Seen 20 Nov after reconnecting the tools.
-4. R9 on dev 11a9344 (UI phases 3-5, Need withdraw fix, Claude page project/VS Code fixes, tools reload without reconnect; phone bar left out for the redesign): full e2e running, rerun failures alone, then ask Om for the release go.
-5. Redesign from the UI review (note c475deb871), six steps measured in taps with ui-tour: 1 library base (S2, running) -> 2 navigation -> 3 sessions first -> 4 Needs and Today; 5 one Spotlight search and 6 tasks beside them once the library exists. Phone bar 22f7b68 is replaced by the review's order.
+4. R9 on dev 11a9344 (UI phases 3-5, Need withdraw fix, Claude page project/VS Code fixes, tools reload without reconnect; phone bar left out for the redesign): full e2e 100/102: oauth passes alone (flake); budgets fails for real (Today page 31 ops vs 29, rsc 26 vs 23, complete 45 vs 43). Today reads States once again (2de0087); dev now measures what R8 does; budgets set to those numbers; auth, flow-ui-p2, p5 pass. Final budgets run going, then ask Om for the release go.
+5. Redesign from the UI review (note c475deb871), six steps measured in taps with ui-tour: 1 library base (done, builder-s2 b2991a4, gallery /dev/ui, check:ui ratchet), 2 navigation (B, running on builder-b) -> 2 navigation -> 3 sessions first -> 4 Needs and Today; 5 one Spotlight search and 6 tasks beside them once the library exists. Phone bar 22f7b68 is replaced by the review's order.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -42,4 +42,7 @@ Copy of the Work OS state, version 158. WORK-STATE.md is a copy of the State, wr
 - Projects now card: a stray space before " · 1 session" after the project name (seen 20 Nov at 390 and 1280).
 - flow-ui-p3: add a check that task #12 gets no Now why when the Now names #123 (pattern fixed in 62acdf7, checked by hand only).
 - ; lane rows say Next 2 twice (chip and the served line). Seen 20 Nov.
-<!-- work-os-copy sha1:e71d76437e66cec98a8337e976690aea02508108 -->
+- Library tokens sit beside the older lib/ui-tokens.ts (row-nav, row-menu): fold the old ones into the new tokens during the screen migrations.
+- tests/live-release.test.mjs fails on a server-only import (seen by builder S2 20 Nov); check on dev and fix.
+- Today's DB ops grew 1-2 between the 23 Oct budgets and R8 (page 30, rsc 25, complete 44); probe.mjs now prints ops per collection; find which read grew (devices=6 on one Today load looks high).
+<!-- work-os-copy sha1:67d002b49ff911952e7be5e04e39e6e6b4b6f3dc -->

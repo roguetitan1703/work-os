@@ -111,7 +111,10 @@ export async function runProbe({ team, person, reps = 10, only = null, log = con
     const p = await rawDb.collection('system.profile').find({ ts: { $gte: t0, $lt: t1 }, ns: { $not: /system\.profile|\$cmd$|\.indexes$|\.requestStats$/ }, op: { $ne: 'getmore' } }).project({ docsExamined: 1, keysExamined: 1, nreturned: 1, planSummary: 1, ns: 1 }).toArray();
     const acc = { ops: p.length, docsExamined: 0, keysExamined: 0, nreturned: 0, collscans: 0, clientKB: kb, sentKB: 0, cpuMs: 0, ms };
     const scans = new Set();
+    const byColl = {}; // ops per collection, so a budget overrun names the read that grew
     for (const d of p) {
+      const coll = d.ns.split('.').slice(1).join('.');
+      byColl[coll] = (byColl[coll] ?? 0) + 1;
       acc.docsExamined += d.docsExamined ?? 0;
       acc.keysExamined += d.keysExamined ?? 0;
       acc.nreturned += d.nreturned ?? 0;
@@ -125,8 +128,10 @@ export async function runProbe({ team, person, reps = 10, only = null, log = con
     for (const k of Object.keys(acc)) r[k] = +(acc[k] / n).toFixed(1);
     r.scans = [...scans];
     r.statuses = [...statuses];
+    r.byColl = Object.fromEntries(Object.entries(byColl).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, +(v / n).toFixed(1)]));
     rows.push(r);
     log(`PROBE ${name.padEnd(30)} ops=${r.ops} docsEx=${r.docsExamined} keysEx=${r.keysExamined} ret=${r.nreturned} scans=${r.collscans}${r.scans.length ? '(' + r.scans.join(',') + ')' : ''} KB=${r.clientKB} sentKB=${r.sentKB} cpuMs=${r.cpuMs} ms=${r.ms}${r.statuses.length ? ' status=' + r.statuses.join(',') : ''}`);
+    log(`      by collection: ${Object.entries(r.byColl).map(([k, v]) => `${k}=${v}`).join(' ')}`);
   }
   return rows;
 }

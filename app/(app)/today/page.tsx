@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation';
 import { getCaller } from '@/lib/caller';
 import { getChecklist } from '@/lib/get-started';
 import { weekdayKey } from '@/lib/schedule';
-import { getSchedule } from '@/lib/user-schedule';
 import { listTasks, unmetDependencies } from '@/lib/data/tasks';
 import { todayStr, weekday } from '@/lib/dates';
 import { TodayClient } from './today-client';
@@ -15,6 +14,7 @@ import { whatsNewState } from '@/lib/whats-new-seen';
 import type { WhatsNewCardData } from './whats-new-card';
 import { projectsNow } from '@/lib/data/today-projects';
 import { placesOfTasks } from '@/lib/data/purpose';
+import { statesOfProjects } from '@/lib/data/states';
 import { PlacesProvider } from '@/components/task-place';
 
 const WHATS_NEW_MAX = 3;
@@ -29,12 +29,16 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const wd = weekday(today);
   const s = { userId: me.userId, orgId: me.orgId };
   const openP = listTasks(s, { open: true, forList: true });
-  const [open, schedule, overview, checklist] = await Promise.all([openP, getSchedule(s), claudeOverview(me, { card: true }).catch(() => null), openP.then(o => getChecklist(me, { skipIfHidden: true, hasOpenTask: o.length > 0 })).catch(() => null)]);
+  const [open, overview, checklist] = await Promise.all([openP, claudeOverview(me, { card: true }).catch(() => null), openP.then(o => getChecklist(me, { skipIfHidden: true, hasOpenTask: o.length > 0 })).catch(() => null)]);
   const [waiting, notes, needs, news] = await Promise.all([unmetDependencies(s, open), taskIdsWithNotes(s, open.map(t => t.id)), openNeedsToMe(s).catch(() => []), whatsNewState(me).catch(() => null)]);
-  const places = await placesOfTasks(s, open).catch(() => ({}));
+  // One States read for the task chips and the Projects card: every project of an open task or a Need to me.
+  const stateIds = [...new Set([...open.map(t => t.projectId), ...needs.map(n => n.projectId)].filter((x): x is string => !!x))];
+  const states = await statesOfProjects(s, stateIds).then(r => ({ ...Object.fromEntries(stateIds.map(id => [id, { now: null, next: [], later: [] }])), ...r })).catch(() => undefined);
+  const places = await placesOfTasks(s, open, states).catch(() => ({}));
   const projectRows = await projectsNow(s, {
     needProjects: needs.map(n => n.projectId),
     taskProjects: open.filter(t => t.projectId && t.assigneeIds.includes(me.userId)).map(t => t.projectId as string),
+    states,
   }).catch(() => []);
   const whatsNew: WhatsNewCardData | null = news?.unseen.length ? { entries: news.unseen.slice(0, WHATS_NEW_MAX), more: Math.max(0, news.unseen.length - WHATS_NEW_MAX) } : null;
   const waitingRefs = Object.fromEntries([...waiting].map(([id, deps]) => [id, deps.map(d => `#${d.ref}`)]));

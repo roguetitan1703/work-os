@@ -3,6 +3,7 @@ import { scoped, type Scope } from '../scope';
 import { GONE_MIN, presenceState } from './presence-state';
 import { listProjectsNav } from './projects';
 import { nowOfProjects } from './states';
+import type { StateDoc } from '../db';
 
 /** One row of Today's "Projects now" card. */
 export type ProjectNowRow = { id: string; name: string; now: string | null; next: string | null; sessions: number; need: boolean };
@@ -15,7 +16,15 @@ export const PROJECTS_NOW_MAX = 5;
  * live presence rows, the Now and first Next of the chosen projects), all through the caller's door, so a project the
  * caller cannot read never appears.
  */
-export async function projectsNow(s: Scope, o: { needProjects: string[]; taskProjects: string[] }): Promise<ProjectNowRow[]> {
+export async function projectsNow(
+  s: Scope,
+  o: {
+    needProjects: string[];
+    taskProjects: string[];
+    /** States the caller already read (Today's task chips): their Now and first Next are used, and only the other chosen projects are read here. */
+    states?: Record<string, Pick<StateDoc, 'now' | 'next'>>;
+  },
+): Promise<ProjectNowRow[]> {
   const projects = await listProjectsNav(s);
   if (!projects.length) return [];
   const ids = projects.map(p => p.id);
@@ -32,6 +41,9 @@ export async function projectsNow(s: Scope, o: { needProjects: string[]; taskPro
     .sort((a, b) => Number(needs.has(b.id)) - Number(needs.has(a.id)) || (sessions.get(b.id) ?? 0) - (sessions.get(a.id) ?? 0) || a.name.localeCompare(b.name))
     .slice(0, PROJECTS_NOW_MAX);
   if (!chosen.length) return [];
-  const goals = await nowOfProjects(s, chosen.map(p => p.id));
+  const have = o.states ?? {};
+  const read = await nowOfProjects(s, chosen.map(p => p.id).filter(id => !have[id]));
+  const goals: Record<string, { now: string | null; next: string | null }> = { ...read };
+  for (const id of Object.keys(have)) goals[id] = { now: have[id].now?.text ?? null, next: have[id].next?.[0]?.text ?? null };
   return chosen.map(p => ({ id: p.id, name: p.name, now: goals[p.id]?.now ?? null, next: goals[p.id]?.next ?? null, sessions: sessions.get(p.id) ?? 0, need: needs.has(p.id) }));
 }
