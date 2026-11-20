@@ -50,7 +50,9 @@ export type SessionRow = {
   error?: string;
   /** Where it was last used (VS Code, a terminal, other), when the worker reports it. */
   origin?: SessionOrigin;
-  /** The computer is online, so Open in VS Code can be sent. */
+  /** Started by the task dispatcher: it runs on its own run key, so it opens only with Resume (never in VS Code). */
+  dispatched?: true;
+  /** The computer is online and it is not a dispatched run, so Open in VS Code can be sent. */
   canVscode: boolean;
   canStop: boolean;
   canResume: boolean;
@@ -210,7 +212,8 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
         ...(own?.needsTrust && isLive && nowMs - own.startedAt.getTime() < 10 * 60_000 ? { needsTrust: true } : {}),
         ...(own?.error ? { error: friendlyError(own.error) } : {}),
         ...(it.origin ? { origin: it.origin } : {}),
-        canVscode: dev.online,
+        ...(doc?.dispatched ? { dispatched: true as const } : {}),
+        canVscode: dev.online && !doc?.dispatched, // a dispatched run opens with its own key only (Resume), never with the person's in VS Code
         canStop: !!own?.projectId && (isLive || state === 'unknown'),
         canResume: !!own?.projectId && linked && !isLive && state !== 'unknown',
         canRemove: !!own?.projectId && !isLive,
@@ -246,6 +249,7 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
       ...(st === 'starting' && !s.cloning && nowMs - s.updatedAt.getTime() > WAITING_MS ? { waiting: true } : {}),
       ...(s.needsTrust && isLive && nowMs - s.startedAt.getTime() < 10 * 60_000 ? { needsTrust: true } : {}),
       ...(s.error ? { error: friendlyError(s.error) } : {}),
+      ...(s.dispatched ? { dispatched: true as const } : {}),
       canVscode: false, // not in the computer's own list: it has no transcript to open
       canStop: isLive || st === 'unknown',
       canResume: linked && !isLive,

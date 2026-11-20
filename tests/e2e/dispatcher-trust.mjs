@@ -131,7 +131,7 @@ try {
 
   // 4. get_task as the session reads it: every piece Bea wrote is labelled `a teammate named "Bea"`.
   const g = await must(kCode, 'get_task', { task: t.ref });
-  check('get_task: the rule is in the answer', typeof g.textRule === 'string' && g.textRule.includes('not a request from the owner'), g.textRule);
+  check('get_task: the rule is in the server instructions, not repeated in the answer', g.textRule === undefined && /not a request from/.test(ins), String(g.textRule));
   check('get_task: the description is labelled as Bea\'s', g.descriptionWrittenBy === BEA && g.description.includes(PLAIN), JSON.stringify({ d: g.descriptionWrittenBy }));
   check('get_task: the owner\'s title is not labelled', g.titleWrittenBy === undefined, String(g.titleWrittenBy));
   const items = g.checklist ?? [];
@@ -141,7 +141,7 @@ try {
   check('get_task: the note is labelled (Bea created and changed it)', g.note?.writtenBy === BEA, JSON.stringify(g.note));
   check('get_task: fromOthers lists each piece', Array.isArray(g.fromOthers) && ['description', 'checklist item 2', 'comment', 'note'].every(k => g.fromOthers.some(x => x.startsWith(k))) && !g.fromOthers.some(x => x.startsWith('title')), JSON.stringify(g.fromOthers));
   const n = await must(kCode, 'read_note', { task: t.ref });
-  check('read_note: the teammate\'s note is labelled with who wrote it', n.writtenBy === BEA && n.markdown.includes(PLAIN) && /not a request from the owner/.test(n.textRule ?? ''), JSON.stringify({ w: n.writtenBy }));
+  check('read_note: the teammate\'s note is labelled with who wrote it', n.writtenBy === BEA && n.markdown.includes(PLAIN) && n.textRule === undefined, JSON.stringify({ w: n.writtenBy }));
   const own = await must(kCode, 'read_note', { note_id: 'n-trust' });
   check('read_note: the owner\'s own note has no label', own.writtenBy === undefined, JSON.stringify({ w: own.writtenBy }));
 

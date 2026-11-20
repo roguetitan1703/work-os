@@ -753,7 +753,7 @@ try {
     const aSees = await mcpCall(A.chat, 'needs', { project: q, status: 'all' });
     check('declutter: the proposal holds the private task title of the owner (so the check below means something)', JSON.stringify(doc?.declutter?.items ?? []).includes(marker), JSON.stringify(doc?.declutter?.items ?? []).slice(0, 200));
     check('declutter: a teammate reading the proposal does not name the private task', tRead.ok && !tRead.text.includes(marker), tRead.text.slice(0, 200));
-    check('declutter: a teammate asking works and its answer holds counts, not the title', tAsk.ok && !tAsk.text.includes(marker) && /"changes": [1-9]/.test(tAsk.text), tAsk.text.slice(0, 200));
+    check('declutter: a teammate asking works and its answer holds counts, not the title', tAsk.ok && !tAsk.text.includes(marker) && /"changes":[1-9]/.test(tAsk.text), tAsk.text.slice(0, 200));
     check('declutter: the Need is private to the owner (stamped, not shared)', doc?.visibility === 'private' && doc.ownerId === A.userId && !(doc.sharedWith ?? []).length, JSON.stringify([doc?.visibility, doc?.ownerId === A.userId]));
     check('declutter: the Needs reads of the teammate (this project, all, the project page) show no title and not the Need', ![tNeeds, tAll, tProj].some(r => r.text.includes(marker) || /Declutter lkqdeclproj/.test(r.text)), [tNeeds, tAll, tProj].map(r => r.text.length).join(','));
     check('declutter: the owner sees it', aSees.ok && /Declutter lkqdeclproj/.test(aSees.text), aSees.text.slice(0, 120));
@@ -904,7 +904,7 @@ try {
     const pidNm = (await rawDb.collection('projects').findOne({ orgId: A.orgId, name: nm }))._id;
     const decId = (await mustMcp(A.chat, 'get_state', { project: nm })).state.decisions[0].id;
     const viaMcp = await mcpCall(A.chat, 'save_state', { project: nm, ops: [{ op: 'archive_decision', id: decId }] });
-    check('State: archive_decision through MCP is refused, even for the owner', !viaMcp.ok && /in the app/.test(viaMcp.text), viaMcp.text.slice(0, 200));
+    check('State: archive_decision through MCP is refused, even for the owner', !viaMcp.ok && /archive_decision|op/.test(viaMcp.text), viaMcp.text.slice(0, 200));
     const archAct = (who) => action('app/(app)/projects/[id]/state-actions.ts#saveStateAction', [pidNm, [{ op: 'archive_decision', id: decId }]], { cookie: who.cookie });
     const tArch = await archAct(T);
     check('State: a teammate who does not own the project cannot archive a decision in the app', tArch.value?.ok === false && /owner/.test(tArch.value?.error ?? ''), JSON.stringify(tArch.value));
@@ -1042,6 +1042,7 @@ try {
     const disp = await mcpCall(A.code, 'write_note', { note_id: S.ordersNote, append: 'lkq dispatched injected', why: 'lkq audit', session: 'lkqdispsess' }, { 'X-Work-OS-Session': 'lkqdispsess' });
     check('Orders: a session the dispatcher started (label "worker · #ref") cannot change the Orders (unchanged)', !disp.ok && /Orders/.test(disp.text) && !(await rawDb.collection('notes').findOne({ _id: S.ordersNote })).body.includes('lkq dispatched injected'), disp.text.slice(0, 200));
     await mustMcp(A.code, 'start_work', { project: S.projectName, label: 'lkq interactive', session: 'lkqintsess' });
+    await rawDb.collection('presence').updateMany({ session: 'lkqintsess' }, { $set: { ccSession: randomUUID() } }); // as the hook's start route does
     const ownerCode = await mcpCall(A.code, 'write_note', { note_id: S.ordersNote, append: 'lkq owner code orders', why: 'lkq audit' }, { 'X-Work-OS-Session': 'lkqintsess' });
     check('Orders: the owner’s Claude Code key in a real session changes the Orders with a why (version 3)', ownerCode.ok && ownerCode.json?.orders?.version === 3 && (await rawDb.collection('notes').findOne({ _id: S.ordersNote })).body.includes('lkq owner code orders'), ownerCode.text.slice(0, 200));
     const start = await mcpCall(T.chat, 'start_work', { project: S.projectName });
@@ -1645,6 +1646,14 @@ function AUDIT() {
   add('route GET /api/timetable/today', route('GET', '/api/timetable/today'), route('GET', '/api/timetable/today', { label: 'chat key', useKey: true }));
   add('route POST /api/worker/folders', worker('POST', '/api/worker/folders', () => ({ folders: [{ id: 'lkqf0001', name: 'lkq probe folder', path: 'C:/lkq', git: false }] }), { label: 'own scan' }));
   add('route GET /api/worker/jobs', worker('GET', '/api/worker/jobs'));
+  // A run key only for the computer's own dispatched session (A's session is an ordinary one: "not dispatched" for the owner too; the
+  // mint itself is in tests/e2e/dispatch-key.mjs). Another persona naming A's session gets the made-up id's answer and writes nothing.
+  add(
+    'route POST /api/worker/run-key',
+    worker('POST', '/api/worker/run-key', t => ({ sessionId: t.session }), { label: 'their session id', ok: r => two(r.status) && /wdr_/.test(r.text), controlOk: r => r.status === 200 && /"dispatched":false/.test(r.text) && !/wdr_/.test(r.text) }),
+    worker('POST', '/api/worker/run-key', t => ({ sessionIds: [t.session] }), { label: 'their session id, batched', ok: r => two(r.status) && /wdr_|"refused"/.test(r.text), controlOk: r => r.status === 200 && /"dispatched":false/.test(r.text) && !/wdr_/.test(r.text) }),
+    worker('POST', '/api/worker/run-key', t => ({ sessionId: t.session, check: true }), { label: 'their session id, check', ok: r => two(r.status) && /"dispatched":true/.test(r.text), controlOk: r => r.status === 200 && /"dispatched":false/.test(r.text) }),
+  );
   add('route POST /api/worker/status', worker('POST', '/api/worker/status', t => ({ worker: { version: '0.1.0', os: 'win32', allowPrompts: false }, jobs: [{ id: t.job, ok: false, error: 'lkq' }], sessions: [{ sessionId: t.session, state: 'dead' }] }), { label: 'their job and session ids', controlOk: r => two(r.status), stage: 1 }));
   add('route GET /api/worker/stream', { kind: 'worker', ok: r => r.status === 200, call: ({ p }) => streamPeek('/api/worker/stream', p.wkr ? { authorization: `Bearer ${p.wkr}` } : {}) });
   // The hook's sign-in (device key): A's private project by its folder (the hook sends the worker folder ids; the remote is information).
@@ -1813,6 +1822,7 @@ function MISUSE({ A, T, X, R }) {
   L('Better Auth OAuth client creation (not served)', () => req('POST', '/api/auth/oauth2/create-client', { cookie: A.cookie, body: { redirect_uris: ['https://evil.example/cb'] } }), r => r.status === 404);
   L('Better Auth OAuth consent list (not served)', () => req('GET', '/api/auth/oauth2/get-consents', { cookie: A.cookie }), r => r.status === 404);
   L('a made-up wos_ key on /api/mcp', () => req('POST', '/api/mcp', { bearer: 'wos_' + 'a'.repeat(48), headers: mh, body: tl }));
+  L('a made-up wdr_ run key on /api/mcp', () => req('POST', '/api/mcp', { bearer: 'wdr_' + 'a'.repeat(43), headers: mh, body: tl }));
   L('a chat key in the URL (MCP_ALLOW_URL_TOKEN off)', () => req('POST', `/api/mcp/${A.chat}`, { headers: mh, body: tl }));
   L('a chat key in X-API-Key on a page', () => req('GET', '/today', { headers: { 'x-api-key': A.chat } }), r => toLogin(r) || no(r));
   L('a chat key as Bearer on a page', () => req('GET', '/tasks', { bearer: A.chat }), r => toLogin(r) || no(r));

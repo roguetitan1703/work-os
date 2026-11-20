@@ -228,7 +228,7 @@ export async function handleCloneJob(job, deps) {
     if (trust) trustFolder(dir, log);
     else { const o = ownerKey(key); if (o && !state.untrustedOwners.includes(o)) state.untrustedOwners.push(o); } // Claude Code asks on first run
     await launcher({ kind: 'start', folder: dir, sessionId: job.sessionId, projectName: job.projectName, prompt: getConfig().allowPrompts !== false ? job.prompt || undefined : undefined, dispatched: Number.isInteger(job.dispatched) ? job.dispatched : undefined });
-    state.sessions[job.sessionId] = { folderId, state: 'running', startedAt: now() };
+    state.sessions[job.sessionId] = { folderId, state: 'running', startedAt: now(), ...(Number.isInteger(job.dispatched) ? { dispatched: job.dispatched } : {}) };
     save();
     return { id, ok: true, folderId, ...(trust ? {} : { untrusted: true }) };
   } catch (e) {

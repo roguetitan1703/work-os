@@ -480,13 +480,23 @@ async function guardOrders(s: Scope, actor: Actor, ids: (string | null | undefin
     // A Claude Code session the dispatcher started on a task (its text can come from a teammate), or any Claude Code call that
     // names no session, never edits Orders: only the holder's own interactive Claude Code or chat session does.
     if (!isPerson(actor) && actor.kind === 'agent' && actor.agent === 'claude-code') {
-      const row = session ? await (await scoped(s)).presence.findOne({ userId: s.userId, $or: [{ session }, { key: session }] }, { projection: { label: 1 } }) : null;
-      if (!session || !row || DISPATCHED_LABEL.test(row.label)) throw new InputError('This page holds Orders; a Claude Code session started for a task (or one that names no session) cannot change them. Ask its holder in a session of their own, or use propose_order.');
+      if (!(await isHookedInteractive(s, session))) throw new InputError('This page holds Orders; a Claude Code session started for a task (or one that names no session) cannot change them. A dispatched run proposes nothing either: tell the person in your report what you would change. Any other session: name your own session.');
     }
   }
 }
 /** The dispatcher names its sessions "<Project> · worker · #<ref>" (docs/dispatcher.md). */
 const DISPATCHED_LABEL = /·\s*worker\s*·\s*#\d+/i;
+
+/**
+ * Is this session one the holder's own hook started, and not the dispatcher? Every presence row of it must carry `ccSession` (Claude Code's
+ * own session UUID: only the hook's start route writes it; start_work over MCP cannot), no `dispatched` mark and no worker label.
+ * A row made by a bare start_work with an invented id has no ccSession and never qualifies.
+ */
+async function isHookedInteractive(s: Scope, session: string | undefined): Promise<boolean> {
+  if (!session) return false;
+  const rows = await (await scoped(s)).presence.find({ userId: s.userId, $or: [{ session }, { key: session }] }, { projection: { label: 1, ccSession: 1, dispatched: 1 } }).limit(20).toArray();
+  return rows.length > 0 && rows.every(r => !!r.ccSession && !r.dispatched && !DISPATCHED_LABEL.test(r.label ?? ''));
+}
 
 /** The words of an Orders text that the Words retired (docs/HANDOVER.md section 3), for a warning. */
 const retiredIn = (text: string): string[] => RETIRED.map(re => re.exec(text)?.[0]).filter((x): x is string => !!x);

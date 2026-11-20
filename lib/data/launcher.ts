@@ -314,7 +314,7 @@ function deviceViewChanged(before: { activity?: unknown; claudeSessions?: unknow
 // ── The person's side ───────────────────────────────────────────────────────────────
 
 export type FolderView = { key: string; /** Project it is linked to, if any. */ projectId: string | null; deviceId: string; deviceName: string; folderId: string; name: string; remote?: string; branch?: string; missing: boolean; online: boolean; /** When its computer last reported (ISO), or null. */ lastSeenAt: string | null };
-export type SessionView = { id: string; deviceId: string; deviceName: string; folderName: string; state: WorkerSessionDoc['state'] | 'unknown'; startedAt: string; updatedAt: string; error?: string; /** Folder is still linked to this project. Resume only makes sense then. */ linked: boolean; /** Still "starting" after WAITING_MS: probably sitting at a prompt in the terminal. */ waiting: boolean; /** Turbo mode: its computer is cloning the repo first. */ cloning?: boolean; /** Turbo mode: a new repo not trusted automatically; Claude Code asks on this computer. */ needsTrust?: boolean };
+export type SessionView = { id: string; deviceId: string; deviceName: string; folderName: string; state: WorkerSessionDoc['state'] | 'unknown'; startedAt: string; updatedAt: string; error?: string; /** Folder is still linked to this project. Resume only makes sense then. */ linked: boolean; /** Still "starting" after WAITING_MS: probably sitting at a prompt in the terminal. */ waiting: boolean; /** Turbo mode: its computer is cloning the repo first. */ cloning?: boolean; /** Turbo mode: a new repo not trusted automatically; Claude Code asks on this computer. */ needsTrust?: boolean; /** Started by the task dispatcher: opens only with Resume (its own run key), never in VS Code. */ dispatched?: true };
 
 const ONLINE_MS = 2 * 60_000;
 
@@ -379,6 +379,7 @@ export async function projectLauncher(scope: DeviceScope, projectId: string): Pr
       startedAt: s.startedAt.toISOString(),
       updatedAt: s.updatedAt.toISOString(),
       ...(s.error ? { error: friendlyError(s.error) } : {}),
+      ...(s.dispatched ? { dispatched: true as const } : {}),
     })),
   };
 }
@@ -582,8 +583,16 @@ export async function resumeSession(scope: DeviceScope, projectId: string, sessi
   if (!(await c.workerFolders.findOne({ deviceId: s.deviceId, folderId: s.folderId, projectId }, { projection: { _id: 1 } }))) throw new InputError('That folder is no longer linked to this project; link it again first');
   // H15: a session the dispatcher started stays marked when the person resumes it (Reopen all included), so its hooks keep the refusals.
   const task = s.dispatched && s.taskId ? await c.tasks.findOne({ _id: s.taskId }, { projection: { ref: 1 } }) : null;
-  await addJob(scope, s.deviceId, { kind: 'resume', sessionId, folderId: s.folderId, projectId, ...(task && Number.isInteger(task.ref) ? { dispatched: task.ref } : {}) });
+  // A dispatched session whose task is gone (trashed or deleted) has no ref and could get no run key: it is never resumed as an ordinary one.
+  if (s.dispatched && !(task && Number.isInteger(task.ref))) throw new InputError("This session was started for a task that is gone, so it can't be resumed");
+  // The row is starting before the job exists: a worker woken at once asks for its run key while the row is no longer failed or dead.
   await c.workerSessions.updateOne({ _id: sessionId }, { $set: { state: 'starting', updatedAt: new Date() }, $unset: { error: '' } });
+  try {
+    await addJob(scope, s.deviceId, { kind: 'resume', sessionId, folderId: s.folderId, projectId, ...(task && Number.isInteger(task.ref) ? { dispatched: task.ref } : {}) });
+  } catch (e) {
+    await c.workerSessions.updateOne({ _id: sessionId, state: 'starting' }, { $set: { state: s.state, updatedAt: new Date(), ...(s.error ? { error: s.error } : {}) } });
+    throw e;
+  }
 }
 
 export async function stopSession(scope: DeviceScope, projectId: string, sessionId: string): Promise<void> {
@@ -611,6 +620,7 @@ export async function unhideSession(scope: DeviceScope, projectId: string, sessi
 // ── VS Code, and reopening after a restart ───────────────────────────────────
 
 const STALE_REPORT_MS = 6 * 3600_000;
+export const DISPATCHED_NO_VSCODE = 'This session was started for a task and runs on its own key: use Resume, not VS Code';
 
 /**
  * "Open in VS Code" for a session this computer reported (any session, not only Work OS ones). The job carries only the
@@ -624,6 +634,9 @@ export async function openSessionInVscode(scope: DeviceScope, deviceId: string, 
   const sid = sessionId.toLowerCase();
   const known = (d.claudeSessions?.items ?? []).some(i => i.sessionId === sid) || (d.reopen?.items ?? []).some(i => i.sessionId === sid);
   if (!known) throw new NotFoundError('That session is not on this computer');
+  // A dispatched run runs on its own run key only (docs/dispatcher.md "Run keys"); VS Code would open it with the person's own
+  // config and key. Resume opens it as a dispatched run. The worker asks the server again before it opens anything.
+  if (await c.workerSessions.findOne({ _id: sid, ownerId: scope.userId, dispatched: true }, { projection: { _id: 1 } })) throw new InputError(DISPATCHED_NO_VSCODE);
   return addJob(scope, deviceId, { kind: 'vscode', sessionId: sid });
 }
 

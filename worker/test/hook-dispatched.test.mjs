@@ -109,7 +109,7 @@ test('the worker passes the task ref on: the wrapper argument, the macOS script,
   const disp = launch.windowsWtArgs('C:/f', 'T', 'C:/claude.exe', ['--session-id', 'x'], 'node', 'wrap.mjs', 290);
   assert.ok(!plain.some((a) => /dispatched/.test(a)), 'an ordinary start has no marker');
   assert.deepEqual(disp.slice(disp.indexOf('wrap.mjs')), ['wrap.mjs', '--work-os-dispatched=290', 'C:/claude.exe', '--session-id', 'x']);
-  assert.match(macScript('/f', '/c/claude', ['a'], 290), /&& WORK_OS_DISPATCHED=290 '\/c\/claude'/);
+  assert.match(macScript('/f', '/c/claude', ['a'], 290), /&& env -u WORK_OS_KEY WORK_OS_DISPATCHED=290 '\/c\/claude'/);
   assert.ok(!/WORK_OS_DISPATCHED/.test(macScript('/f', '/c/claude', ['a'])));
   // the wrapper itself: a fake "claude" prints what it sees
   const wrapper = fileURLToPath(new URL('../run-claude.mjs', import.meta.url));

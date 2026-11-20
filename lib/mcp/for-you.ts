@@ -235,7 +235,7 @@ function addLines(r: ToolResult, lines: string[]): unknown {
     try {
       const body = JSON.parse(first.text);
       if (body && typeof body === 'object' && !Array.isArray(body)) {
-        return { ...r, content: [{ ...first, text: JSON.stringify({ ...body, forYou: lines }, null, 1) }, ...(r.content ?? []).slice(1)] };
+        return { ...r, content: [{ ...first, text: JSON.stringify({ ...body, forYou: lines }) }, ...(r.content ?? []).slice(1)] };
       }
     } catch {
       /* not JSON: add a block instead */

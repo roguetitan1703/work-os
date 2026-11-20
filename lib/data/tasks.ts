@@ -35,7 +35,7 @@ import {
   type TaskSource,
 } from '../types';
 import { DEFAULT_TZ, addDays, addMonths, dateInTz, resolveDate, todayStr, weekday, weekStart } from '../dates';
-import { placeIn, placeNotes, placeOf, placeTasks, resolveProject, samePlace, toProject, type Placement } from './projects';
+import { placeIn, placeNotes, placeOf, placeTasks, requireProject, resolveProject, samePlace, toProject, type Placement } from './projects';
 import { InputError, NotFoundError } from './errors';
 import { MAX_ASSIGNEES, assignedTo, assigneesOf, canBeAssigned, unassigned } from '../assignees';
 import { canonicalMode } from '../org-modes';
@@ -273,6 +273,12 @@ function normalizeLinks(links: (string | { url: string; label?: string })[] | un
     const who = prev ? prev.by : by;
     return { ...link, ...(who ? { by: who } : {}) };
   });
+}
+
+/** The project a task goes in: an existing one, else a new one unless the caller said not to create (then an error naming the closest). */
+async function projectFor(c: Collections, s: Scope, name: string, actor: Actor, createProject: boolean | undefined): Promise<ProjectDoc> {
+  if (createProject === false) return requireProject(c, name);
+  return (await resolveProject(c, s, name, { create: true, actor }))!;
 }
 
 function dateField(value: string | null | undefined, field: string): string | null {
@@ -538,7 +544,7 @@ export async function createTask(
   s: Scope,
   input: TaskInput,
   actor: Actor,
-  opts: { note?: string; source?: TaskSource; authors?: TextAuthors } = {},
+  opts: { note?: string; source?: TaskSource; authors?: TextAuthors; createProject?: boolean } = {},
 ): Promise<Task> {
   const data = TaskInputSchema.parse(input);
   // Decision 4: an agent cannot create code, data or client work already finished (or dropped): that would skip the review Need.
@@ -546,7 +552,7 @@ export async function createTask(
     throw new InputError(`A task with result kind ${data.resultKind} cannot be created as ${data.status} by an agent: create it, then hand it in so its owner reviews it.`);
   }
   const c = await scoped(s);
-  return toTask(await insertTask(c, s, data, actor, { note: opts.note, source: opts.source, authors: opts.authors }));
+  return toTask(await insertTask(c, s, data, actor, { note: opts.note, source: opts.source, authors: opts.authors, createProject: opts.createProject }));
 }
 
 /**
@@ -570,7 +576,7 @@ async function insertTask(
   s: Scope,
   data: ReturnType<typeof TaskInputSchema.parse>,
   actor: Actor,
-  opts: { note?: string; source?: TaskSource; ownerId?: string; authors?: TextAuthors; quietAssign?: boolean } = {},
+  opts: { note?: string; source?: TaskSource; ownerId?: string; authors?: TextAuthors; quietAssign?: boolean; /** false: an unknown project name is refused, not created (MCP; default true). */ createProject?: boolean } = {},
 ): Promise<TaskDoc> {
   const au = opts.authors ?? {};
   const now = new Date();
@@ -578,7 +584,7 @@ async function insertTask(
   const mode = (await canonicalMode(s, data.mode)) ?? null;
   // A subtask goes in its parent's project (docs/subtasks.md).
   const parent = data.parent != null ? await parentFor(c, data.parent) : null;
-  const project = parent ? await parentProject(c, s, parent, data.project) : data.project ? await resolveProject(c, s, data.project, { create: true, actor }) : null;
+  const project = parent ? await parentProject(c, s, parent, data.project) : data.project ? await projectFor(c, s, data.project, actor, opts.createProject) : null;
   const status: Status = data.status ?? (data.blockedReason?.trim() ? 'Blocked' : 'Not Started');
   const done = status === 'Done';
   const id = randomUUID();
@@ -632,10 +638,10 @@ async function insertTask(
 }
 
 /** A parent and its subtasks in one atomic write (MCP add_task subtasks). */
-export async function createTaskWithSubtasks(s: Scope, input: TaskInput, subtasks: TaskInput[], actor: Actor, opts: { note?: string } = {}): Promise<{ task: Task; subtasks: Task[] }> {
+export async function createTaskWithSubtasks(s: Scope, input: TaskInput, subtasks: TaskInput[], actor: Actor, opts: { note?: string; createProject?: boolean } = {}): Promise<{ task: Task; subtasks: Task[] }> {
   if (subtasks.length && input.parent != null) throw new InputError('A subtask cannot have subtasks of its own: give either parent or subtasks');
   return inTransaction(async () => {
-    const task = await createTask(s, input, actor, { note: opts.note });
+    const task = await createTask(s, input, actor, { note: opts.note, createProject: opts.createProject });
     const kids: Task[] = [];
     for (const k of subtasks) kids.push(await createTask(s, { ...k, parent: task.id }, actor, { note: opts.note }));
     return { task: kids.length ? ((await getTask(s, task.id)) ?? task) : task, subtasks: kids };
@@ -652,6 +658,8 @@ export async function bulkCreateTasks(s: Scope, inputs: TaskInput[], actor: Acto
 
 type UpdateOpts = {
   note?: string;
+  /** false: an unknown project name is refused, not created (MCP; default true). */
+  createProject?: boolean;
   /** 'progress' logs the change as a progress update rather than an edit. */
   kind?: 'progress';
 };
@@ -749,7 +757,7 @@ async function updateTaskCore(s: Scope, key: string | number, data: ReturnType<t
     if (parentSet) target = p;
   } else if (data.project !== undefined) {
     // (Taken out from under its parent, a task stays in the project it is in unless one is given.)
-    target = data.project ? await resolveProject(c, s, data.project, { create: true, actor }) : null;
+    target = data.project ? await projectFor(c, s, data.project, actor, opts.createProject) : null;
   }
 
   let moveTo: Placement | null = null;

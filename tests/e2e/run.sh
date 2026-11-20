@@ -37,6 +37,7 @@ dispatcher-backend|dispatcher-backend.mjs|none|plain
 dispatcher-backend-2|dispatcher-backend-2.mjs|base|plain
 dispatcher-ui|dispatcher-ui.mjs|none|plain
 dispatcher-trust|dispatcher-trust.mjs|none|discord
+dispatch-key|dispatch-key.mjs|none|plain
 launcher-backend|launcher-backend.mjs|none|plain
 turbo|turbo.mjs|none|plain
 vscode-reopen|vscode-reopen.mjs|none|plain
@@ -106,6 +107,7 @@ flow-n3|flow-n3.mjs|none|plain
 flow-n4|flow-n4.mjs|none|plain
 flow-notes-search|flow-notes-search.mjs|none|plain
 flow-r1|flow-r1.mjs|none|plain
+flow-r8a|flow-r8a.mjs|none|plain
 delpat-os|delpat-os.mjs|none|delpat
 mail|mail.mjs|none|mail
 mail-paste|mail-paste.mjs|none|mailpaste

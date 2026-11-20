@@ -7,16 +7,21 @@ import { insideRoot } from './validate.mjs';
 import { promisify } from 'node:util';
 import { macScript, asEscape } from './quote.mjs';
 import { lstartTicks } from './hook-identity.mjs';
+import { writeRunFiles, removeRunConfig } from './dispatch-run.mjs';
 
 const execFileP = promisify(execFile);
 
 // claude args: --session-id|--resume <id>, --name <projectName>,
 // --remote-control=<name> (one token, so the optional name can never swallow the next argument), optional prompt last.
 // mcpConfig (config.json, optional): only the MCP servers in that file, e.g. a demo copy of Work OS.
-export function claudeArgs({ kind, sessionId, projectName, prompt, mcpConfig }) {
+// runFiles: a dispatched run's own files (dispatch-run.mjs writeRunFiles): its MCP config replaces mcpConfig (always strict), and
+// its settings blank the person's Work OS key in the settings env block.
+export function claudeArgs({ kind, sessionId, projectName, prompt, mcpConfig, runFiles }) {
   // No --permission-mode: the user's own Claude default applies (the user's choice).
   const a = [kind === 'resume' ? '--resume' : '--session-id', sessionId];
-  if (mcpConfig) a.push('--strict-mcp-config', '--mcp-config', mcpConfig);
+  const mcp = runFiles ? runFiles.mcpConfig : mcpConfig;
+  if (mcp) a.push('--strict-mcp-config', '--mcp-config', mcp);
+  if (runFiles) a.push('--settings', runFiles.settings);
   const name = String(projectName || 'claude').replace(/\s+/g, ' ').slice(0, 120);
   if (projectName) a.push('--name', name);
   a.push('--remote-control=' + name);
@@ -83,22 +88,34 @@ function spawnDetached(cmd, args, opts = {}) {
   });
 }
 
-export async function launch({ kind, folder, sessionId, projectName, prompt, claudePath, mcpConfig, dispatched }) {
+// run: a dispatched run's own key ({ key }, dispatch-run.mjs runFor); baseUrl: the Work OS address. A dispatched run (dispatched set)
+// is never started without one: it runs with only that key (strict MCP config), never the person's own credential.
+// deps (tests): spawn (Windows), runDir and home replace the real spawn, the temp folder and the home folder.
+export async function launch({ kind, folder, sessionId, projectName, prompt, claudePath, mcpConfig, dispatched, run, baseUrl }, deps = {}) {
   if (!claudePath) throw new Error('claude not found on PATH outside the allowed roots');
+  const isRun = Number.isInteger(dispatched);
+  if (isRun && !(run && run.key)) throw new Error('a dispatched run needs its own Work OS key; not started');
   if (mcpConfig && !(path.isAbsolute(mcpConfig) && fs.existsSync(mcpConfig))) throw new Error('mcpConfig must be an existing absolute path');
-  const cargs = claudeArgs({ kind, sessionId, projectName, prompt, mcpConfig });
+  const runFiles = isRun ? writeRunFiles({ sessionId, baseUrl, key: run.key, folder, ...(deps.runDir ? { dir: deps.runDir } : {}), ...(deps.home ? { home: deps.home } : {}) }) : null;
+  const cargs = claudeArgs({ kind, sessionId, projectName, prompt, mcpConfig, runFiles });
   const title = projectName || 'claude';
-  if (process.platform === 'win32') {
-    try {
-      await spawnDetached('wt.exe', windowsWtArgs(folder, title, claudePath, cargs, process.execPath, WRAPPER, dispatched));
-    } catch (e) {
-      if (e && e.code === 'ENOENT') throw new Error('Install Windows Terminal (wt.exe)');
-      throw e;
-    }
-  } else if (process.platform === 'darwin') {
-    const cmd = macScript(folder, claudePath, cargs.map((c) => c.replace(/\r?\n/g, ' ')), dispatched) + '; exit';
-    await execFileP('osascript', ['-e', `tell application "Terminal" to do script "${asEscape(cmd)}"`]);
-  } else throw new Error('unsupported platform');
+  const spawnIt = deps.spawn || spawnDetached;
+  try {
+    if (process.platform === 'win32') {
+      try {
+        await spawnIt('wt.exe', windowsWtArgs(folder, title, claudePath, cargs, process.execPath, WRAPPER, dispatched));
+      } catch (e) {
+        if (e && e.code === 'ENOENT') throw new Error('Install Windows Terminal (wt.exe)');
+        throw e;
+      }
+    } else if (process.platform === 'darwin') {
+      const cmd = macScript(folder, claudePath, cargs.map((c) => c.replace(/\r?\n/g, ' ')), dispatched) + '; exit';
+      await execFileP('osascript', ['-e', `tell application "Terminal" to do script "${asEscape(cmd)}"`]);
+    } else throw new Error('unsupported platform');
+  } catch (e) {
+    if (runFiles) { removeRunConfig(runFiles.mcpConfig); removeRunConfig(runFiles.settings); } // not started: nothing will read them
+    throw e;
+  }
 }
 
 // [{pid, ppid, name?, cmd, start?}] for claude.exe processes (Windows; start = the process start time as FILETIME ticks, a string) or everything (macOS).

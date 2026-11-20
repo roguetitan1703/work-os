@@ -305,6 +305,11 @@ function SessionLine({ s, busy, onStop, onRemove, onResume, onVscode, onLink }: 
             {s.title}
           </span>
           {s.workOs && <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground font-medium">Work OS</span>}
+          {s.dispatched && (
+            <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded bg-foreground/10 text-foreground font-medium" title="Started for a task: it runs on its own key, so it opens with Resume, not in VS Code" data-dispatched>
+              For a task
+            </span>
+          )}
           {s.origin === 'vscode' && <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 font-medium" data-origin-badge>VS Code</span>}
         </div>
         {/* Phone: one meta line under the title. Desktop shows these as columns. */}

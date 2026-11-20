@@ -61,6 +61,15 @@ export async function readerRow(s: Scope, i: Ident): Promise<PresenceDoc | null>
   return null;
 }
 
+/**
+ * Whether `sid` names one of this person's sessions that is not a dispatched run on `taskId`. A run key (lib/run-keys.ts) acts only
+ * as its own sessions: one start_work marked for the task, or none yet (start_work then makes it, marked).
+ */
+export async function namesOtherSession(s: Scope, sid: string, taskId: string): Promise<boolean> {
+  const rows = await (await scoped(s)).presence.find({ userId: s.userId, $or: [{ session: sid }, { key: sid }] }, { projection: { dispatched: 1 } }).limit(20).toArray();
+  return rows.some(r => r.dispatched?.taskId !== taskId);
+}
+
 /** The row id of a hook session: the person, the session token's id and the project (the shape rowId makes for a session id). */
 export const hookRowId = (userId: string, sid: string, projectId: string | null) => `${userId}:s:${sid}:${projectId ?? 'none'}`;
 const rowId = (i: Ident, projectId: string | null) => (i.session ? hookRowId(i.userId, i.session, projectId) : `${i.userId}:k:${i.keyId ?? i.agent}:${projectId ?? 'none'}`);

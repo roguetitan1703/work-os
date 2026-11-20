@@ -16,6 +16,7 @@ import { openInDesktop } from './desktop.mjs';
 import { connectPush } from './push.mjs';
 import { startUpdateCheck } from './update.mjs';
 import * as hooksInstall from './hooks-install.mjs';
+import { runFor, sweepRunConfigs } from './dispatch-run.mjs';
 
 const log = (m) => console.log(`${new Date().toISOString()} ${m}`);
 
@@ -25,9 +26,12 @@ async function run() {
   let claudePath = resolveClaude(loadConfig().roots);
   if (!claudePath) log('warning: claude not found outside the allowed roots; will look again at the next start');
   // Not found at startup (e.g. PATH not ready at logon): look again on each start/resume until found.
-  const launcher = (a) => {
+  // A dispatched run gets its own Work OS key first (dispatch-run.mjs); without one it is not started.
+  const launcher = async (a) => {
     if (!claudePath) claudePath = resolveClaude(loadConfig().roots);
-    return launch({ ...a, claudePath, mcpConfig: loadConfig().mcpConfig || null });
+    const cfg = loadConfig();
+    const run = await runFor(a, api);
+    return launch({ ...a, claudePath, mcpConfig: cfg.mcpConfig || null, ...(run ? { run, baseUrl: checkBaseUrl(cfg.baseUrl) } : {}) });
   };
   let codePath = resolveCode(loadConfig().roots);
   const openVscode = ({ folder, sessionId }) => {
@@ -37,7 +41,7 @@ async function run() {
   const openDesktop = ({ folder, prompt }) => openInDesktop({ folder, prompt });
   const onlyRoots = () => { const c = loadConfig(); return c.sessionsInRootsOnly ? c.roots : null; };
   const hooksStatus = () => { const h = hooksInstall.status(); return { version: h.version, events: h.events.length, stale: h.stale, signIn: h.signIn }; };
-  const core = createCore({ hooksStatus, getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, sessionLocal: (sid) => sessionLocal(sid), openVscode, openDesktop, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots(), procDir: path.join(hooksInstall.hooksDir(), 'sessions') }) });
+  const core = createCore({ hooksStatus, sweepRuns: (keep) => sweepRunConfigs(keep), getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, sessionLocal: (sid) => sessionLocal(sid), openVscode, openDesktop, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots(), procDir: path.join(hooksInstall.hooksDir(), 'sessions') }) });
   let loop = null;
   const push = connectPush({ getCfg: loadConfig, getToken, onWake: () => loop?.wake(), onUp: (up) => { log(up ? 'push connected' : 'push disconnected'); loop?.wake(); }, log });
   loop = createLoop({ core, getConfig: loadConfig, state, log, pushUp: () => push.up });

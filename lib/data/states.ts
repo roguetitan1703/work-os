@@ -68,6 +68,15 @@ export const StateOpSchema = z.discriminatedUnion('op', [
   }),
 ]);
 export type StateOp = z.infer<typeof StateOpSchema>;
+
+/**
+ * The ops an agent sees in the MCP schema: no archive_decision (app only) and no set_now `holder` (Work OS records the session
+ * that sets Now). The server still checks both, for any other path in.
+ */
+export const AgentStateOpSchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('set_now'), text: text(LIMITS.now) }),
+  ...StateOpSchema.options.filter(o => o.shape.op.value !== 'set_now' && o.shape.op.value !== 'archive_decision'),
+]);
 export const StateOpsSchema = z.array(StateOpSchema).min(1).max(30);
 /** The ops that need base_version: set_now overwrites what a teammate may have just changed. The others are checked per line. */
 const VERSIONED = new Set(['set_now']);

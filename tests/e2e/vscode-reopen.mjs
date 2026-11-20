@@ -1,7 +1,8 @@
 // "Open in VS Code" on a session row, the "N sessions were open before your PC restarted" prompt, and readable failure
 // reasons (Claude page and the project's Sessions). The worker is played over the real worker API (device key). Seed profile: none.
 import { randomUUID, randomBytes } from 'node:crypto';
-import { check, db, mcp, api, sha, B, ME, launch, finish, fillLogin } from './lib.mjs';
+import path from 'node:path';
+import { check, db, mcp, api, sha, B, ME, SP, launch, finish, fillLogin } from './lib.mjs';
 
 const browser = await launch();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -57,6 +58,32 @@ async function suite(vp) {
   const g2 = (await worker()).find(j => j.kind === 'vscode');
   await status({ jobs: [{ id: g2.id, ok: true }] });
   check(T('a successful open toasts Opened in VS Code'), !!j2 && (await toast(/Opened in VS Code/)));
+
+  // ── a dispatched run (started for a task) runs on its own key: no Open in VS Code (Resume opens it), a "For a task" badge ──
+  const sD = randomUUID();
+  await db.collection('workerSessions').insertOne({ _id: sD, orgId: ME.orgId, ownerId: ME.userId, deviceId: dev, folderId: 'f_alpha1', projectId: pid, state: 'running', dispatched: true, taskId: 'vr-task', startedAt: new Date(), updatedAt: new Date() });
+  await status({ claudeSessions: [item(sV, 'Fix the login page', 'vscode'), item(sC, 'Terminal chat', 'cli'), item(sD, 'Task run', 'cli')] });
+  await p.goto(B + '/claude?tab=now');
+  const drow = p.locator(`[data-session-row="${dev}:${sD}"]`);
+  await drow.waitFor();
+  check(T('Claude page: a dispatched run has no Open in VS Code and shows "For a task"'), (await drow.locator('[data-open-vscode]').count()) === 0 && /For a task/.test(await drow.locator('[data-dispatched]').innerText().catch(() => '')) && (await crow.locator('[data-open-vscode]').count()) === 1);
+  for (const scheme of ['light', 'dark']) {
+    await p.emulateMedia({ colorScheme: scheme });
+    await drow.scrollIntoViewIfNeeded();
+    await p.screenshot({ path: path.join(SP, `vscode-dispatched-claude-${vp}-${scheme}.png`) });
+  }
+  await p.emulateMedia({ colorScheme: 'light' });
+  await p.goto(B + `/projects/${pid}?tab=claude`);
+  const prow = p.locator(`[data-session="${sD}"]`);
+  await prow.waitFor();
+  check(T('project Sessions: a dispatched run has no Open in VS Code and says "for a task"'), (await prow.locator('[data-open-vscode]').count()) === 0 && /for a task/.test(await prow.innerText()));
+  for (const scheme of ['light', 'dark']) {
+    await p.emulateMedia({ colorScheme: scheme });
+    await prow.scrollIntoViewIfNeeded();
+    await p.screenshot({ path: path.join(SP, `vscode-dispatched-project-${vp}-${scheme}.png`) });
+  }
+  await p.emulateMedia({ colorScheme: 'light' });
+  await db.collection('workerSessions').deleteOne({ _id: sD });
 
   // ── a failed session shows why, in plain words ──
   await p.goto(B + '/claude?tab=now');

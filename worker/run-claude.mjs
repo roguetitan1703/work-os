@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { scrubEnv, runFilesOf, removeRunConfig } from './dispatch-run.mjs';
 
 const argv = process.argv.slice(2);
 const dm = /^--work-os-dispatched=([0-9]{1,9})$/.exec(argv[0] || ''); // a dispatcher-started run: the hooks read this (hook-pre-tool.mjs)
@@ -24,10 +25,15 @@ function markEnded(why) {
   } catch {}
 }
 try { if (sidOf) fs.rmSync(path.join(os.tmpdir(), 'work-os-ended', sidOf), { force: true }); } catch {} // a note from an earlier run of this session is stale
-for (const sig of ['SIGHUP', 'SIGTERM', 'SIGBREAK']) process.on(sig, () => { markEnded('window closed'); process.exit(0); });
-const env = { ...process.env };
+// A dispatched run never sees its person's own Work OS credential (dispatch-run.mjs): WORK_OS_KEY and any variable holding a Work OS
+// credential are dropped (the tab's environment may come from an already running Terminal; its --settings file blanks the same in the
+// person's settings env block), and its own files (the MCP config with the run key, the settings) are deleted when claude ends.
+const runFiles = dm ? runFilesOf(args) : [];
+const cleanup = () => { for (const f of runFiles) removeRunConfig(f); };
+for (const sig of ['SIGHUP', 'SIGTERM', 'SIGBREAK']) process.on(sig, () => { markEnded('window closed'); cleanup(); process.exit(0); });
+const env = dm ? scrubEnv(process.env) : { ...process.env };
 delete env.WORK_OS_DISPATCHED; // never inherited from the terminal; only the worker's job sets it
 if (dm) env.WORK_OS_DISPATCHED = dm[1];
 const child = spawn(claudePath, args, { stdio: 'inherit', shell: false, env });
-child.once('error', (e) => { console.error('could not start claude: ' + e.message); process.exit(1); });
-child.once('exit', (code) => { if (code === 0) markEnded('clean exit'); process.exit(0); });
+child.once('error', (e) => { console.error('could not start claude: ' + e.message); cleanup(); process.exit(1); });
+child.once('exit', (code) => { if (code === 0) markEnded('clean exit'); cleanup(); process.exit(0); });
