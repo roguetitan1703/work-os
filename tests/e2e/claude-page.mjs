@@ -69,7 +69,7 @@ async function suite(vp) {
   await click(p.locator('button[type=submit]'));
   await p.waitForURL(u => u.pathname === '/claude', { timeout: 20000 });
   await p.waitForSelector('[data-tab="sessions"]');
-  check(T('three tabs: Sessions, Usage and Set up (Now and Workers are one list)'), (await p.locator('nav[aria-label="Claude sections"] a[data-tab]').count()) === 3 && (await p.locator('a[data-tab="sessions"][aria-current="page"]').count()) === 1);
+  check(T('two tabs: Sessions and Set up (Now and Workers are one list)'), (await p.locator('nav[aria-label="Claude sections"] a[data-tab]').count()) === 2 && (await p.locator('a[data-tab="sessions"][aria-current="page"]').count()) === 1);
 
   // ── Now ──
   check(T('no Claude is asking block, no answer box (Claude items retired)'), (await p.locator('[data-section="needs-you"]').count()) === 0 && (await p.locator('[data-needs-you]').count()) === 0);
