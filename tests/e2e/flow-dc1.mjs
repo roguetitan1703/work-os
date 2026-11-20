@@ -46,7 +46,8 @@ try {
   await setOrgGuild(ME.orgId, G1);
   const mate = await makeUser({ email: 'dc1-mate@example.test', name: 'DC Mate', orgId: ME.orgId, role: 'member' });
   // profiles first (the app caches them a minute); no quiet hours so any hour delivers
-  await setProfile(ME, { discordId: D_ME, quietStart: 0, quietEnd: 0, timezone: 'Asia/Kolkata' });
+  // a review Need reaches Discord only in the daily digest (reachesPhone), so the digest hour is 0: the run does not depend on the time of day
+  await setProfile(ME, { discordId: D_ME, quietStart: 0, quietEnd: 0, timezone: 'Asia/Kolkata', digestHour: 0 });
   await setProfile(mate, { discordId: D_MATE, quietStart: 0, quietEnd: 0, timezone: 'Asia/Kolkata' });
 
   await must(MCP, 'add_project', { name: 'DC Shared' });
