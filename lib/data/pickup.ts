@@ -120,9 +120,15 @@ function pickTarget(live: PresenceDoc[], holder: string | undefined, excludeId: 
   return h ?? live.find(r => r._id !== excludeId) ?? null;
 }
 
+/**
+ * A claude.ai chat's row (OAuth, no session id: its connector is its session). A chat is never swept, never followed past and never takes
+ * another session's work: it may be quiet for hours and still be the one to answer, and what is sent to it (a reply) must reach it.
+ */
+export const isChatRow = (r: Pick<PresenceDoc, 'session' | 'keyId'>): boolean => !r.session && !!r.keyId?.startsWith('oauth_');
+
 async function liveRows(c: Coll, projectId: string, userId: string, now: number): Promise<PresenceDoc[]> {
   const cutoff = new Date(now - GONE_MIN * 60_000);
-  return (await c.presence.find({ projectId, userId, lastSeen: { $gte: cutoff } } as never).sort({ lastSeen: -1 }).limit(20).toArray()).filter(r => presenceState(r, { now }).state !== 'off');
+  return (await c.presence.find({ projectId, userId, lastSeen: { $gte: cutoff } } as never).sort({ lastSeen: -1 }).limit(20).toArray()).filter(r => !isChatRow(r) && presenceState(r, { now }).state !== 'off');
 }
 
 /**
@@ -142,7 +148,7 @@ export async function followMoved(s: Scope, projectId: string | null, key: strin
     if (hop === MAX_HOPS || !row?.movedTo || row.movedTo === cur || presenceState(row, { now }).state !== 'off') break;
     cur = row.movedTo;
   }
-  if (projectId && row && presenceState(row, { now }).state === 'off') {
+  if (projectId && row && !isChatRow(row) && presenceState(row, { now }).state === 'off') {
     const st = await c.states.findOne({ _id: projectId }, { projection: { now: 1 } });
     const t = pickTarget(await liveRows(c, projectId, userId, now), st?.now?.hold?.key, row._id);
     if (t) return holdKey(t);
@@ -181,10 +187,10 @@ export async function sweepGone(s: Scope, projectId: string, selfRowId: string, 
   const c = await scoped(s);
   const cutoff = new Date(now - GONE_MIN * 60_000);
   const cands = (await c.presence
-    .find({ projectId, userId: s.userId, _id: { $ne: selfRowId }, lastSeen: { $lt: cutoff }, $or: [{ swept: { $exists: false } }, { $expr: { $lt: ['$swept', '$lastSeen'] } }] } as never)
+    .find({ projectId, userId: s.userId, _id: { $ne: selfRowId }, lastSeen: { $lt: cutoff }, $nor: [{ session: { $exists: false }, keyId: { $regex: '^oauth_' } }], $or: [{ swept: { $exists: false } }, { $expr: { $lt: ['$swept', '$lastSeen'] } }] } as never)
     .sort({ lastSeen: -1 })
     .limit(20)
-    .toArray()).filter(r => goneFor30(r, now)).slice(0, SWEEP_ROWS);
+    .toArray()).filter(r => !isChatRow(r) && goneFor30(r, now)).slice(0, SWEEP_ROWS);
   if (!cands.length) return out;
   const st = await c.states.findOne({ _id: projectId }, { projection: { now: 1, next: 1, later: 1, where: 1 } });
   const live = await liveRows(c, projectId, s.userId, now);

@@ -2,7 +2,7 @@ import 'server-only';
 import type { PresenceDoc } from '../db';
 import { scoped, type Scope } from '../scope';
 import { claimCursor, countWrite, presentRow, resetWrites, rowKey, sessionKey, touchPresence, type Ident } from '../data/presence';
-import { frameLine, unreadFor, type MessageOut } from '../data/messages';
+import { frameLine, unreadAddressed, unreadFor, unreadLine, type MessageOut } from '../data/messages';
 import { memberNames } from '../people';
 import { answeredNeedsSince, newNeedsForMe } from '../data/needs';
 import { ordersChangesFor } from '../data/orders';
@@ -131,32 +131,12 @@ export const SOURCES: ForYouSource[] = [newMessages, newTasks, newNext, needs, o
 export const SAVE_NUDGE = 10;
 const SAVES = new Set<ToolName>(['save_state', 'import_state', 'end_work']);
 
-/**
- * A caller with no presence row (claude.ai chat that never called start_work) hears of messages addressed to its own key (a
- * reply to it) once each, from a small in-memory memory per key (this process; at most 2,000 keys; a restart names them once
- * more), checked at most every 10 seconds. Ids, kind and sender only, like the row-based line.
- */
-const REPLY_CHECK_MS = 10_000;
-const replies = new Map<string, { checked: number; named: Set<string> }>();
-async function replyLines(s: Scope, ident: Ident): Promise<string[]> {
-  const key = sessionKey(ident);
-  let e = replies.get(key);
-  if (!e) {
-    if (replies.size >= 2000) replies.delete(replies.keys().next().value!);
-    e = { checked: 0, named: new Set() };
-    replies.set(key, e);
-  }
-  if (Date.now() - e.checked < REPLY_CHECK_MS) return [];
-  e.checked = Date.now();
-  const mine = e;
-  const ms = (await unreadFor(s, { key, userId: s.userId, row: null }, { since: new Date(Date.now() - 86_400_000) })).filter(m => m.toSids?.includes(key) && !mine.named.has(m._id));
-  if (!ms.length) return [];
-  for (const m of ms.slice(0, 40)) mine.named.add(m._id);
-  if (mine.named.size > 200) for (const id of [...mine.named].slice(0, mine.named.size - 200)) mine.named.delete(id);
-  const names = await memberNames(s.orgId);
-  const byProject = new Map<string, typeof ms>();
-  for (const m of ms) if (m.projectId) byProject.set(m.projectId, [...(byProject.get(m.projectId) ?? []), m]); // a message of two no-project sessions has no project's line
-  return [...byProject].slice(0, 3).map(([p, list]) => messageLine(list, names, s.userId, p));
+/** The unread line for a session without the hook, or null when nothing is unread for it. */
+async function unreadLineOf(s: Scope, ident: Ident, row: PresenceDoc | null): Promise<string | null> {
+  // A call with no session id is the most recent row of its key (presentRow), as everywhere in forYou: that row's key is the reader.
+  const key = row ? rowKey(row) : sessionKey(ident);
+  const r = await unreadAddressed(s, { key, userId: s.userId, row }, { limit: 5 });
+  return r.messages.length ? unreadLine(r.messages, r.more, await memberNames(s.orgId), s.userId) : null;
 }
 
 export type Pending = { s: Scope; /** Null for a caller with no presence row (it only hears replies). */ row: PresenceDoc | null; startedAt: Date; lines: string[]; ids: string[] };
@@ -166,20 +146,23 @@ export async function forYouBefore(s: Scope, ident: Ident, tool: ToolName): Prom
   if (tool === 'start_work') return null; // the brief carries everything; it registers the session itself
   try {
     const row = await presentRow(s, ident);
-    if (!row) {
-      const lines = await replyLines(s, ident);
-      return lines.length ? { s, row: null, startedAt: new Date(), lines, ids: [] } : null;
-    }
+    // A session without the Work OS hook (a claude.ai chat, a Claude Code without the hook) is never handed a message's text into the
+    // session, so every answer says what is unread for it (ids only) until it reads them (message_status with no id).
+    const hookless = !row || (!row.ccSession && !row.activity);
+    const unread = hookless && tool !== 'message_status' ? await unreadLineOf(s, ident, row) : null;
+    if (!row) return unread ? { s, row: null, startedAt: new Date(), lines: [unread], ids: [] } : null;
     const startedAt = new Date();
     const c = await scoped(s);
     // A session with no project (Identity step 5) hears nothing from a project; a project the caller can no longer read (made private, taken off) names nothing.
-    if (!row.projectId) return null;
+    if (!row.projectId) return unread ? { s, row, startedAt, lines: [unread], ids: [] } : null;
     const here = { ...row, projectId: row.projectId };
-    if (!(await c.projects.findOne({ _id: here.projectId }, { projection: { _id: 1 } }))) return null;
+    if (!(await c.projects.findOne({ _id: here.projectId }, { projection: { _id: 1 } }))) return unread ? { s, row, startedAt, lines: [unread], ids: [] } : null;
     const named = new Set(row.named ?? []);
-    const lines: string[] = [];
+    const lines: string[] = unread ? [unread] : [];
     const ids: string[] = [];
     for (const src of SOURCES) {
+      // The unread line already says what is unread for a session without the hook.
+      if (hookless && src.id === 'messages') continue;
       const r = await src.collect({ s, row: here, since: row.forYouCursor, projectId: here.projectId, src: sessionKey(ident), named });
       lines.push(...r.lines);
       ids.push(...r.ids);
@@ -205,7 +188,8 @@ export async function forYouAfter(p: Pending | null, tool: ToolName, writes: boo
     // The cursor moves to just before the start of the call (never to its end), when something was named or it is a minute stale.
     const back = new Date(p.startedAt.getTime() - SKEW_MS);
     const to = back > p.row.forYouCursor ? back : p.row.forYouCursor; // never backwards
-    if (lines.length || back.getTime() - p.row.forYouCursor.getTime() > 60_000) {
+    // The unread line of a session without the hook names nothing (it repeats until read), so it alone moves no cursor.
+    if (p.ids.length || back.getTime() - p.row.forYouCursor.getTime() > 60_000) {
       if (!(await claimCursor(p.s, p.row, to, [...(p.row.named ?? []), ...p.ids]).catch(() => false))) lines = [];
     }
     if (!failed) {

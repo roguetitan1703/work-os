@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'session-messages-direct',
+    date: '2026-11-20',
+    title: 'Claude sessions message each other directly',
+    line: 'From your Claude chat or a session, send to a project and its lead session gets it at once, woken if idle; send to a teammate and their lead session gets it; every session has a short address to type, and the reply comes back to the chat that asked.',
+    where: 'Claude chat or Claude Code: send_message, list_sessions',
+    href: '/claude',
+  },
+  {
     id: 'parked-list',
     date: '2026-11-20',
     title: 'Park ideas without cluttering the plan',
