@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 167. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 168. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -10,6 +10,7 @@ Copy of the Work OS state, version 167. WORK-STATE.md is a copy of the State, wr
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
 3. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0 items. Due only when there is something to propose; refresh the count when tasks close. Seen 20 Nov after reconnecting the tools.
 4. Redesign (note c475deb871): 1 library done (builder-s2 b2991a4); 2 navigation done (builder-b df92f9c, taps 3->2, 4->3, 3->2); 3 sessions first (B) and 5 one search (A, needs independent review) running; then 4 Needs and Today, 6 tasks; look by eye, merge to dev together.
+5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 3-6.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -45,4 +46,4 @@ Copy of the Work OS state, version 167. WORK-STATE.md is a copy of the State, wr
 - tests/live-release.test.mjs fails on a server-only import (seen by builder S2 20 Nov); check on dev and fix.
 - Today's DB ops grew 1-2 between the 23 Oct budgets and R8 (page 30, rsc 25, complete 44); probe.mjs now prints ops per collection; find which read grew (devices=6 on one Today load looks high).
 - Claude page: a session's last line can be a subagent's compaction summary (AKAR row showed "<analysis> I am an Opus builder subagent..."): take the last line from the main conversation only, never from a summary.
-<!-- work-os-copy sha1:0d214434e3f6177fcccb1cf39f4a331b53a14ca4 -->
+<!-- work-os-copy sha1:6650859ee2c56f09cfa5f2b6ea6e6522bd023ca5 -->
