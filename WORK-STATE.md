@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 242. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 243. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -75,5 +75,4 @@ Copy of the Work OS state, version 242. WORK-STATE.md is a copy of the State, wr
 - Messaging: one teammate can use up another person's 6 session wakes an hour with fyis (review, Low). Add a per-sender cap on waking other people's sessions (about 2 an hour per sender per target) only if it happens in real use. — waits on a real case
 - Short address collisions are refused (efc6646) but not covered by a test: a collision can't be forced in e2e without a seam for shortAddress. — waits on nothing; small
 - ui-tour findings that predate step 4: the session sheet doesn't open from ?s= at 390 and 1280; the desktop task row has no visible menu button (step 6 covers task rows). — waits on nothing
-- Bug: the Work OS wait hook (hook.mjs wait, asyncRewake) keeps long-polling after its Claude process dies, so it can take a message meant for a dead session; a -p session never exits while it runs. Make it exit when its parent pid is gone. — waits on nothing; small, slot A
-<!-- work-os-copy sha1:89e82a9e9f4b43f159dfc2036f835341bc5884aa -->
+<!-- work-os-copy sha1:a123f32f900377165bf72a0939d05ce90d47e429 -->
