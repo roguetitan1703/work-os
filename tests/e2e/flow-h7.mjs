@@ -141,9 +141,10 @@ try {
   void fyiS;
   const stop1 = await deliver('stop');
   const st1 = stop1.json?.deliver?.text ?? '';
-  check('e: a stop event hands over the request that is still unread (it may wake) and not the fyi', stop1.status === 200 && /only for project one/.test(st1) && !/just so you know/.test(st1) && stop1.json.deliver.wakeable === true, stop1.text.slice(0, 300));
+  // 20 Nov: every kind may wake, so a stop hands over the fyi too
+  check('e: a stop event hands over what is still unread, the request and the fyi (every kind may wake)', stop1.status === 200 && /only for project one/.test(st1) && /just so you know/.test(st1) && stop1.json.deliver.wakeable === true, stop1.text.slice(0, 300));
   const stop2 = await deliver('stop');
-  check('e: a stop with only an fyi unread delivers nothing', !('deliver' in (stop2.json ?? {})), stop2.text);
+  check('e: a stop with nothing left unread delivers nothing', !('deliver' in (stop2.json ?? {})), stop2.text);
   const late = await deliver('tool');
   check('e: the fyi is still handed over inside a turn', /just so you know/.test(late.json?.deliver?.text ?? ''));
 
@@ -196,9 +197,9 @@ try {
   const quietWait = timed(wait(S.token));
   const s2wait = timed(wait(s2.json.token));
   await pause(400);
-  const fyiIdle = await send('an fyi to the idle session', 'fyi');
-  await must(kT, 'send_message', { to: 'E2E Owner', project: 'H7 One', kind: 'request', body: 'a request to the person, not to a session' });
-  check('h: an fyi to the session and a request to the person never wake it (still waiting after 6 s)', (await settled(quietWait, 6000)) === undefined);
+  // 20 Nov: every kind wakes (flow-ms6), so the quiet one is a message at the end of the wake chain: an agent's that names no session
+  const fyiIdle = await must(kA, 'send_message', { project: 'H7 One', kind: 'fyi', body: 'an fyi to the idle session', to: S.sid });
+  check('h: a message at the end of the wake chain never wakes it (still waiting after 6 s)', (await settled(quietWait, 6000)) === undefined);
   // a request addressed to the session wakes it within a few seconds, once, with the frame
   await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:${S.sid}:${ONE}` }, { $unset: { wokeAt: '' } });
   const w1 = timed(wait(S.token));
@@ -278,7 +279,7 @@ try {
   const nt1 = await send('note check request', 'request');
   check('i: the target note for an idle session: "a direct request wakes it"', /H7 · builder B: idle; a direct request wakes it/.test(nt1.target), nt1.target);
   const nt2 = await send('note check fyi', 'fyi');
-  check('i: …an fyi: it does not wake it, it gets it on its next turn', /idle; an fyi does not wake it, it gets this on its next turn/.test(nt2.target), nt2.target);
+  check('i: …an fyi wakes it too (every kind, 20 Nov)', /H7 · builder B: idle; a direct fyi wakes it/.test(nt2.target), nt2.target);
   await ev(S.token, { event: 'prompt' });
   const nt3 = await send('note check working', 'request');
   check('i: a working session: "gets it after its next step"', /H7 · builder B: working; it gets this after its next step/.test(nt3.target), nt3.target);
@@ -296,13 +297,15 @@ try {
   check('i: setup: the chat has no presence row', (await rawDb.collection('presence').countDocuments({ keyId: { $regex: '^oauth_' } })) === 0);
   const rep = await mcpH(kA, 'reply', { id: chatSent.id, body: 'yes, merged', session: other.session });
   check('i: the reply goes to the chat’s own key', (await rawDb.collection('messages').findOne({ _id: rep.json?.id }))?.toSids?.[0]?.startsWith(`${ME.userId}:oauth_`), rep.text);
-  await pause(11_000); // a chat is checked at most every 10 s
   const c1 = await mcpH(chatTok, 'list_tasks', { project: 'H7 One' });
   const cl = (c1.json?.forYou ?? []).join(' ');
-  check('i: the chat’s next Work OS answer names the reply: kind, sender, id, no text', /1 fyi from me on project/.test(cl) && cl.includes(rep.json?.id) && !/merged/.test(cl), JSON.stringify(c1.json?.forYou ?? c1.text.slice(0, 200)));
-  await pause(11_000);
+  check('i: the chat’s next Work OS answer names the reply: count, sender, id, no text', /1 unread message for this session from me/.test(cl) && cl.includes(rep.json?.id) && !/merged/.test(cl), JSON.stringify(c1.json?.forYou ?? c1.text.slice(0, 200)));
+  // 20 Nov: the line repeats on every answer until the chat reads it (message_status with no id), then it is gone
+  const c2a = await mcpH(chatTok, 'list_tasks', { project: 'H7 One' });
+  check('i: …it repeats until read', JSON.stringify(c2a.json?.forYou ?? []).includes(rep.json?.id), JSON.stringify(c2a.json?.forYou));
+  await must(chatTok, 'message_status', {});
   const c2 = await mcpH(chatTok, 'list_tasks', { project: 'H7 One' });
-  check('i: …and only once', !('forYou' in (c2.json ?? {})), JSON.stringify(c2.json?.forYou));
+  check('i: …and is gone once read', !('forYou' in (c2.json ?? {})), JSON.stringify(c2.json?.forYou));
 
 
   // ---- j) real hook processes against this server: tool-batch, user-prompt and the idle wait ----

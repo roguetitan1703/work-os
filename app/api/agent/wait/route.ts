@@ -17,7 +17,7 @@ import { waitFor } from '@/lib/live';
 //                                The token's owner must still be a member of its organization, and the project must still have
 //                                a folder on the token's computer, on every call.
 //   Holds up to WAIT_MS (nginx's /api read timeout is 120 s) until something may wake the session, then answers:
-//     200 { wake: true, text }   a request, question or decision addressed to the session (never an fyi, never an untargeted
+//     200 { wake: true, text }   a message of any kind addressed to the session (never an untargeted
 //                                project message, never a message at chain 2 or more), or an answer to a Need it asked: handed
 //                                over as read (lib/data/deliver.ts), framed, the session's wokeAt set. At most 6 an hour.
 //     200 { wake: true, text }   also the idle nudge (lib/data/nudges.ts, note ce434ed759): a main session idle 20 minutes that holds Now,
