@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 259. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 261. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -18,6 +18,7 @@ Copy of the Work OS state, version 259. WORK-STATE.md is a copy of the State, wr
 10. Per-key limit raised 300 to 1,000/h live 41b928a (worker 20261120.184656), deployed 21 Nov at Om's ask. Slot A: session+tool per call, top sessions in the refusal, State saves never blocked; review. (300 calls/h on the shared key) blocked Grant Leads' save_state on 20 Nov (message m_a143da3e7b6f): find what counts, name top sessions in the refusal, never block a State save for another session's use. Slot A (Opus), independent review.
 11. Session states on the Sessions list (Om, 21 Nov): one state table with word, colour and live dot; On merged into Idle; a lead with running subagents reads as working; Quiet after 2 h with no activity (opening a session isn't activity); default filter mine + active; person on the subline. Slot B (Opus) building.
 12. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
+13. Context warning per project (Om, 21 Nov; Grant Leads asked): pre-tool hook reads each agent's context locally, warns at the project's line (150k for Grant Leads, off elsewhere), peak context in usage. Plan note 3e92845ac0; Sonnet builds after A's hook merge. — waits on builder A's hook-gate merge
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -83,4 +84,4 @@ Copy of the Work OS state, version 259. WORK-STATE.md is a copy of the State, wr
 
 ## Parked
 - 1 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:31cbea7a453f3003be747bd7e98ecad11993e7b2 -->
+<!-- work-os-copy sha1:e8bc1a06e242afc71abd80b2259f51646fca94ff -->
