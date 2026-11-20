@@ -1,6 +1,7 @@
 import Link from '@/components/intent-link';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Section } from '@/components/ui/section';
 import { oneSentence } from '@/lib/format';
 import type { ProjectNowRow } from '@/lib/data/today-projects';
 
@@ -12,8 +13,8 @@ import type { ProjectNowRow } from '@/lib/data/today-projects';
 export function ProjectsNowCard({ rows, phone }: { rows: ProjectNowRow[]; phone: boolean }) {
   if (!rows.length) return null;
   return (
-    <section data-section="projects-now" className={phone ? 'mt-3' : ''}>
-      <h2 className={cn('font-semibold uppercase tracking-wider text-muted-foreground', phone ? 'px-1 mb-1.5 text-[13px]' : 'mb-1.5 text-xs')}>Projects now</h2>
+    <div data-section="projects-now" className={phone ? 'mt-3' : ''}>
+      <Section label="Projects now">
       <div className={cn('border bg-card overflow-hidden divide-y divide-border/60', phone ? 'rounded-2xl border-border/70' : 'rounded-lg border-border')}>
         {rows.map(r => (
           <Link
@@ -41,6 +42,7 @@ export function ProjectsNowCard({ rows, phone }: { rows: ProjectNowRow[]; phone:
           </Link>
         ))}
       </div>
-    </section>
+      </Section>
+    </div>
   );
 }

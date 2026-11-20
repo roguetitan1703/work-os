@@ -477,6 +477,15 @@ async function jobs(br, tag) {
     await p.locator('[data-need="1"][data-need-status="answered"]').waitFor({ timeout: 8000 }).catch(() => {});
     const n1 = await rawDb.collection('needs').findOne({ _id: 'tour-need-1' });
     if (n1?.status !== 'answered' || n1?.answer?.option !== 'a') hard(`the recommended-answer button did not answer with option a (${n1?.status})`);
+    // Open the row: its session chip says what the session does now (Working once answered) and links to it.
+    await openNeed(p, 1);
+    const chip = p.locator('[data-need="1"] [data-need-session]');
+    await chip.waitFor({ timeout: 8000 }).catch(() => {});
+    await p.locator('[data-need="1"] [data-need-session="working"]').waitFor({ timeout: 8000 }).catch(() => {});
+    const after = await chip.innerText().catch(() => '');
+    if (!/Kestrel webhook fix: Working/.test(after)) hard(`after the answer the session chip does not read Working ("${after}")`);
+    const href = await chip.getAttribute('href').catch(() => '');
+    if (!/^\/claude\?s=/.test(href ?? '')) hard('the session chip does not link to the session');
   });
   await job(3, 'Give Claude a task (Give to Claude) on an existing task', async ({ step, hard }) => {
     const ref = REF['Rewrite pricing page copy'].ref;

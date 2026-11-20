@@ -42,7 +42,7 @@ function closedLine(need: Need): string {
   return need.status === 'withdrawn' ? 'Withdrawn by the asker' : 'Replaced by a newer ask';
 }
 
-/** One Need: who asked, the ask, an example, the options as buttons and a text box. Answerable only by the person it is addressed to. `inRow`: opened inside its NeedRow, which shows the meta line and the session. */
+/** One Need: who asked, the ask, an example, the options as buttons and a text box. Answerable only by the person it is addressed to. `inRow`: opened inside its NeedRow, which shows the meta line. */
 export function NeedCard({ need, phone, canAnswer = true, onAnswered, inRow = false }: { need: Need; phone: boolean; canAnswer?: boolean; onAnswered?: (id: string) => void; inRow?: boolean }) {
   const { people, me, projectName } = useApp();
   const [text, setText] = useState('');
@@ -70,7 +70,7 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered, inRow = fa
         <span className="ml-auto"><Ago iso={need.createdAt} /></span>
       </div>
       )}
-      {!inRow && need.session && <SessionChip session={need.session} />}
+      {need.session && <SessionChip session={need.session} />}
       <p className={cn('text-foreground leading-snug whitespace-pre-wrap break-words', phone ? 'text-[16px]' : 'text-sm')} data-need-ask={inRow ? undefined : ''}>
         {need.ask}
       </p>
@@ -253,14 +253,14 @@ export function NeedRow({ need, canAnswer = true, onAnswered, defaultOpen = fals
   const [open, setOpen] = useState(defaultOpen);
   const isOpen = need.status === 'open';
   const first = need.options[0];
-  const quick = isOpen && canAnswer && need.kind === 'decide' && !!first && !need.declutter;
+  const quick = !open && isOpen && canAnswer && need.kind === 'decide' && !!first && !need.declutter;
   const { answer, pending } = useAnswerNeed(need, '', new Set(), onAnswered);
   const project = projectName(need.projectId);
   const meta = (
     <>
       <span className="font-mono">#{need.ref}</span> · {KIND_LABEL[need.kind]}
       {project ? ` · ${project}` : ''}
-      {isOpen ? (need.session ? ` · ${need.session.label}: ${need.session.word}` : '') : ` · ${closedLine(need)}`} · <Ago iso={need.createdAt} />
+      {isOpen ? (need.session && !open ? ` · ${need.session.label}: ${need.session.word}` : '') : ` · ${closedLine(need)}`} · <Ago iso={need.createdAt} />
     </>
   );
   return (
@@ -268,13 +268,13 @@ export function NeedRow({ need, canAnswer = true, onAnswered, defaultOpen = fals
       <Row
         className="pr-2"
         leading={<HandHelping className={cn('w-4 h-4', open && isOpen ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')} aria-hidden />}
-        title={<span data-need-ask>{firstLine(need.ask)}</span>}
+        title={<span data-need-ask className="block whitespace-normal line-clamp-2 md:whitespace-nowrap md:line-clamp-1">{firstLine(need.ask)}</span>}
         meta={meta}
         onClick={() => setOpen(o => !o)}
         trailing={
           quick ? (
-            <Button size="touch" className="max-w-[8.5rem] sm:max-w-[16rem]" disabled={pending} data-need-quick={first.id} aria-label={`Answer #${need.ref}: ${first.label}`} title={first.label} onClick={() => answer(first.id)}>
-              <span className="truncate">{first.label}</span>
+            <Button size="touch" className="max-w-[42%] h-auto min-h-11 py-1.5 whitespace-normal text-left leading-tight text-meta md:max-w-[16rem] md:h-row md:min-h-0 md:py-0 md:whitespace-nowrap md:text-center" disabled={pending} data-need-quick={first.id} aria-label={`Answer #${need.ref}: ${first.label}`} title={first.label} onClick={() => answer(first.id)}>
+              <span className="line-clamp-2 md:line-clamp-1">{first.label}</span>
             </Button>
           ) : isOpen ? (
             <Button variant="ghost" size="touch" className="text-muted-foreground px-3" data-need-toggle aria-expanded={open} aria-label={`${open ? 'Fold' : 'Open'} #${need.ref}`} onClick={() => setOpen(o => !o)}>
@@ -315,7 +315,7 @@ export function NeedsYou({ needs, phone, max = 3 }: { needs: Need[]; phone: bool
   if (!list.length) return null;
   return (
     <div data-section="needs-you" className={phone ? 'mt-3' : ''}>
-      <Section label="Needs you" count={list.length} seeAll={list.length > shown.length ? '/needs' : undefined}>
+      <Section label="Needs you" count={list.length} seeAll={list.length > shown.length ? '/needs' : undefined} seeAllData="data-needs-see-all">
         <List as="ul">
           {shown.map(n => (
             <NeedRow key={n === linked ? `${n.id}-linked` : n.id} need={n} defaultOpen={n === linked} onAnswered={id => setGone(g => new Set(g).add(id))} />

@@ -172,7 +172,7 @@ for (const kind of ['phone', 'desk']) {
   const block = V.locator('[data-section="needs-you"]');
   await block.waitFor();
   await p.waitForTimeout(500);
-  check(`${kind}: four open Needs show 3 rows and See all`, (await block.locator('[data-need-row]').count()) === 3 && (await block.locator('a[href="/needs"]').count()) === 1 && /Needs you\s+4\b/.test(await block.innerText()), await block.innerText());
+  check(`${kind}: four open Needs show 3 rows and See all`, (await block.locator('[data-need-row]').count()) === 3 && (await block.locator('[data-needs-see-all][href="/needs"]').count()) === 1 && /Needs you\s+4\b/.test(await block.innerText()), await block.innerText());
   check(`${kind}: the oldest Need is the one left out`, (await block.locator('[data-need="9801"]').count()) === 0 && (await block.locator('[data-need="9802"]').count()) === 1);
   check(`${kind}: a Need is one line: no options or note box until it is opened`, (await block.locator('[data-need-option], [data-need-text]').count()) === 0);
   const review = block.locator('[data-need="9803"]');

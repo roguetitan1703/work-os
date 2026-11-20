@@ -90,7 +90,7 @@ try {
     // Tasks: Needs you on top, three of four, See all
     await p.goto(B + '/tasks'); await settle(p);
     const ny = p.locator('[data-section="needs-you"]:visible');
-    check(`tasks ${tag}: Needs you on top with 3 of 4 and See all`, (await ny.count()) === 1 && (await ny.locator('[data-need]').count()) === 3 && /Needs you\s+4\b/.test(await ny.innerText()) && (await ny.locator('a[href="/needs"]').count()) === 1);
+    check(`tasks ${tag}: Needs you on top with 3 of 4 and See all`, (await ny.count()) === 1 && (await ny.locator('[data-need]').count()) === 3 && /Needs you\s+4\b/.test(await ny.innerText()) && (await ny.locator('[data-needs-see-all][href="/needs"]').count()) === 1);
     await shot(p, `tasks-${tag}`);
     o = await overflow(p); check(`no horizontal scroll /tasks ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
 
@@ -187,7 +187,7 @@ try {
 
     await p.goto(B + '/tasks'); await settle(p);
     const ny = p.locator('[data-section="needs-you"]:visible');
-    check(`desktop tasks ${tag}: Needs you on top with 3 of 4 and See all`, (await ny.count()) === 1 && (await ny.locator('[data-need]').count()) === 3 && (await ny.locator('a[href="/needs"]').count()) === 1);
+    check(`desktop tasks ${tag}: Needs you on top with 3 of 4 and See all`, (await ny.count()) === 1 && (await ny.locator('[data-need]').count()) === 3 && (await ny.locator('[data-needs-see-all][href="/needs"]').count()) === 1);
     await shot(p, `tasks-${tag}`);
     o = await overflow(p); check(`no horizontal scroll /tasks ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
     await needsItem.click(); await p.waitForURL(u => u.pathname === '/needs'); await settle(p);
