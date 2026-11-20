@@ -1,6 +1,6 @@
 import 'server-only';
 import type { ClaudeUsageDoc, ClaudeUsageEventDoc, SessionOrigin } from '../db';
-import { addDays, clockInTz, dateInTz, isTimeZone } from '../dates';
+import { addDays, clockInTz, dateInTz, isTimeZone, startOfDay } from '../dates';
 import { getUserSetting, scoped, setUserSetting, type Scope } from '../scope';
 import { quietly } from '../live';
 import { InputError } from './errors';
@@ -351,8 +351,8 @@ export async function usageReport(s: Scope, opts: { range?: string; tz: string; 
   // Peak context per (computer, session, part) from the 5-minute buckets (the last 7 days): the largest context one call carried.
   const peak = new Map<string, number>();
   try {
-    const bks = (await c.claudeUsageBuckets.find({ at: { $gte: new Date(from + 'T00:00:00Z') }, peakCtx: { $gt: 0 } }, { projection: { deviceId: 1, sessionId: 1, part: 1, peakCtx: 1 } }).limit(20000).toArray()) as { deviceId: string; sessionId: string; part: string; peakCtx?: number }[];
-    for (const x of bks) { if (revoked.has(x.deviceId)) continue; const k = `${x.deviceId}|${x.sessionId}|${x.part}`; peak.set(k, Math.max(peak.get(k) ?? 0, x.peakCtx ?? 0)); }
+    const bks = (await c.claudeUsageBuckets.aggregate([{ $match: { at: { $gte: startOfDay(from, opts.tz) }, peakCtx: { $gt: 0 } } }, { $group: { _id: { deviceId: '$deviceId', sessionId: '$sessionId', part: '$part' }, peakCtx: { $max: '$peakCtx' } } }]).toArray()) as { _id: { deviceId: string; sessionId: string; part: string }; peakCtx: number }[];
+    for (const x of bks) { if (revoked.has(x._id.deviceId)) continue; peak.set(`${x._id.deviceId}|${x._id.sessionId}|${x._id.part}`, x.peakCtx); }
   } catch { /* no buckets: no peaks */ }
   const bySession: UsageSession[] = [];
   const byProject = new Map<string, { name: string; weight: number }>();

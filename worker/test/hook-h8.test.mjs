@@ -324,9 +324,11 @@ test('session start keeps the brief contextWarn as ctxWarn; an answer without it
   ctxWarnAnswer = 150;
   assert.ok(await startSid('cw1'));
   assert.equal(readMarkerFile('cw1').ctxWarn, 150);
+  { const mf = path.join(process.env.WORK_OS_HOOK_DIR, 'cw1.json'); const m = JSON.parse(fs.readFileSync(mf, 'utf8')); fs.writeFileSync(mf, JSON.stringify({ ...m, ctxSteps: { main: 1, abc: 0 } })); }
   ctxWarnAnswer = undefined;
   assert.ok(await dev.main('session-start', JSON.stringify({ session_id: 'cw1', cwd: onMaster, transcript_path: transcript, source: 'compact' })));
   assert.equal(readMarkerFile('cw1').ctxWarn, 150, 'an answer without the field keeps it');
+  assert.deepEqual(readMarkerFile('cw1').ctxSteps, { abc: 0 }, 'a compaction drops the main agent step: it is warned again');
   ctxWarnAnswer = null;
   assert.ok(await dev.main('session-start', JSON.stringify({ session_id: 'cw1', cwd: onMaster, transcript_path: transcript, source: 'compact' })));
   assert.equal('ctxWarn' in readMarkerFile('cw1'), false, 'null (the setting turned off) clears it');
