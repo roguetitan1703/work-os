@@ -50,6 +50,7 @@ const RULES = {
   workerFolders: OWNER,
   workerJobs: OWNER,
   workerSessions: OWNER,
+  claudeUsage: OWNER,
   notifications: RECIPIENT,
   pushSubs: RECIPIENT,
   alertLog: RECIPIENT,

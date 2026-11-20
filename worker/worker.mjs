@@ -11,6 +11,7 @@ import { scanRoots, publicFolder } from './scan.mjs';
 import { install, uninstall } from './install.mjs';
 import { runSetup, checkPrereqs } from './setup.mjs';
 import { collectActivity, sessionLocal } from './activity.mjs';
+import { collectUsage } from './usage.mjs';
 import { openInVscode, resolveCode } from './vscode.mjs';
 import { openInDesktop } from './desktop.mjs';
 import { connectPush } from './push.mjs';
@@ -42,7 +43,7 @@ async function run() {
   const openDesktop = ({ folder, prompt }) => openInDesktop({ folder, prompt });
   const onlyRoots = () => { const c = loadConfig(); return c.sessionsInRootsOnly ? c.roots : null; };
   const hooksStatus = () => { const h = hooksInstall.status(); return { version: h.version, events: h.events.length, stale: h.stale, signIn: h.signIn }; };
-  const core = createCore({ hooksStatus, selfUpdate: () => updateReport(), sweepRuns: (keep) => sweepRunConfigs(keep), getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, sessionLocal: (sid) => sessionLocal(sid), openVscode, openDesktop, activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots(), procDir: path.join(hooksInstall.hooksDir(), 'sessions') }) });
+  const core = createCore({ hooksStatus, selfUpdate: () => updateReport(), sweepRuns: (keep) => sweepRunConfigs(keep), getConfig: loadConfig, state, save: () => saveState(state), api, launcher, listProcesses, killPid, log, sessionLocal: (sid) => sessionLocal(sid), openVscode, openDesktop, usage: (st) => collectUsage({ st: (st.usage ||= {}), tz: loadConfig().timezone, onlyRoots: onlyRoots() }), activity: (ids) => collectActivity({ listProcesses, workOsIds: ids, withSessions: true, onlyRoots: onlyRoots(), procDir: path.join(hooksInstall.hooksDir(), 'sessions') }) });
   let loop = null;
   const push = connectPush({ getCfg: loadConfig, getToken, onWake: () => loop?.wake(), onUp: (up) => { log(up ? 'push connected' : 'push disconnected'); loop?.wake(); }, log });
   loop = createLoop({ core, getConfig: loadConfig, state, log, pushUp: () => push.up });

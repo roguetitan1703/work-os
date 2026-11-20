@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { scanRoots, publicFolder } from './scan.mjs';
 import { sessionProcs } from './activity.mjs';
+import { SCAN_EVERY_MS } from './usage.mjs';
 import { trackOpenSet, reopenReport } from './openset.mjs';
 import { validateJob, insideRoot } from './validate.mjs';
 import { matchesClaudeProcess } from './launch.mjs';
@@ -51,6 +52,8 @@ export function createCore(deps) {
   let lastSent = '';
   let tracked = false; // the first session list since this worker started has been compared with the remembered open set
   let savedOpen = '';
+  let lastUsageScan = 0; // Claude usage (usage.mjs): scanned at most every SCAN_EVERY_MS
+  let usageCommit = null; // remembers what the report in flight carries, once the server took it
 
   const roots = () => getConfig().roots;
   const errMsg = (e) => String((e && e.message) || e).slice(0, 300);
@@ -308,6 +311,15 @@ export function createCore(deps) {
         } else body.activity = a;
       } catch (e) { log('activity count failed: ' + errMsg(e)); }
     }
+    // Claude usage per session (usage.mjs): token counts only, new days since the last accepted report.
+    if (deps.usage && now() - lastUsageScan >= (state.usage ? SCAN_EVERY_MS : 30_000)) {
+      try {
+        lastUsageScan = now();
+        const u = deps.usage(state);
+        if (u && u.rows.length) { body.usage = { rows: u.rows, sessions: u.sessions }; usageCommit = u.commit; }
+        else if (u) u.commit(); // only offsets moved (nothing in a counted day): remember them
+      } catch (e) { log('usage scan failed: ' + errMsg(e)); }
+    }
     return body;
   }
 
@@ -321,6 +333,7 @@ export function createCore(deps) {
       await api.postStatus(withoutDesktop(body));
     }
     lastSent = statusKey(body);
+    if (body.usage && usageCommit) { usageCommit(); usageCommit = null; save(); }
     pendingResults = [];
     lastStatus = now();
     for (const sid of Object.keys(state.sessions)) if (state.sessions[sid].state !== 'running') delete state.sessions[sid];
@@ -340,7 +353,7 @@ export function createCore(deps) {
       return true;
     }
     const body = await buildStatus();
-    if (statusKey(body) === lastSent && now() - lastStatus < STATUS_IDLE_MS) return false;
+    if (!body.usage && statusKey(body) === lastSent && now() - lastStatus < STATUS_IDLE_MS) return false;
     await sendStatus(body);
     return true;
   }

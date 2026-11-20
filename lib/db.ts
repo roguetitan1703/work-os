@@ -557,6 +557,8 @@ export type SettingsDoc = {
   checklistHidden?: boolean;
   /** profile:<userId> (lib/whats-new-seen.ts): ids from lib/whats-new.ts the person dismissed or opened. */
   whatsNewSeen?: string[];
+  /** profile:<userId> (lib/data/claude-usage.ts): when their Claude plan's week starts over (weekday 0 = Sunday, time 'HH:MM' in `tz`). */
+  claudePlanReset?: { weekday: number; time: string; tz: string };
   /** mail:<userId> (lib/mail/keys.ts): the person's own Mailloom agent key, sealed, with its visible prefix and the mailbox it opens. */
   mail?: { sealed: string; prefix: string; email: string; savedAt: Date; /** Granted at Connect (lib/mail/connect.ts); absent for a pasted key. */ scopes?: string[]; keyId?: string; via?: 'connect' | 'paste' } | null;
   /** quietFolders:<userId> (lib/data/quiet-folders.ts): folders on a computer the person said are not Work OS (path stored through normalizePath; a folder covers its subfolders). */
@@ -595,6 +597,12 @@ export type WorkerJobDoc = { _id: string; orgId: string; ownerId: string; device
 export type WorkerSessionDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; /** '' while its repo is still being cloned (turbo mode). */ folderId: string; projectId: string | null; /** Turbo mode: still cloning `repo` (owner/name). */ cloning?: boolean; repo?: string; /** Turbo mode: cloned but not trusted automatically; Claude Code asks the person on first run. */ needsTrust?: boolean; state: 'starting' | 'running' | 'dead' | 'stopped' | 'failed'; startedAt: Date; updatedAt: Date; error?: string; /** Its owner removed it from the list; the doc is kept. */ hidden?: boolean; /** Started by the dispatcher for `taskId`. */ dispatched?: boolean; taskId?: string; /** The run's own Work OS key (lib/run-keys.ts): only its hash; one live key per run, replaced at every start or resume. */ runKey?: RunKeyDoc };
 /** A dispatched run's key (lib/run-keys.ts). keyHash: the computer's device key hash when it was made (a key replace ends it). */
 export type RunKeyDoc = { hash: string; keyHash: string; ref: number; at: Date; expiresAt: Date; /** The ended state this key's mint moved the row out of (to starting): a release (launch failed) puts it back. */ from?: 'stopped' | 'dead' };
+/**
+ * Claude usage (lib/data/claude-usage.ts, Work OS note a289ffec58): one row per computer, session, part (the main conversation or one
+ * subagent), model and day, with that day's whole token counts as the worker read them from the transcript's usage records.
+ * Never any message text. Owner only. `dayAt` (the day at UTC midnight) is what the 90 day TTL index goes by.
+ */
+export type ClaudeUsageDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; sessionId: string; part: string; partName?: string; model: string; day: string; dayAt: Date; i: number; cw: number; cr: number; o: number; title: string; folder: string; origin: SessionOrigin; updatedAt: Date };
 /** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
 export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker' | 'mail_trash' | 'mail_send' | 'intake' | 'agent'; at: Date; n?: number };
 /**
@@ -727,6 +735,7 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['workerFolders', [{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }, { key: { orgId: 1, ownerId: 1 }, name: 'org_owner' }]],
     ['workerJobs', [{ key: { deviceId: 1, doneAt: 1, createdAt: 1 }, name: 'device_pending' }, { key: { createdAt: 1 }, name: 'created_ttl', expireAfterSeconds: 30 * 86_400 }]],
     ['workerSessions', [{ key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' }, { key: { deviceId: 1, state: 1 }, name: 'device_state' }, { key: { 'runKey.hash': 1 }, unique: true, name: 'run_key_hash', partialFilterExpression: { 'runKey.hash': { $type: 'string' } } }]],
+    ['claudeUsage', [{ key: { orgId: 1, ownerId: 1, day: -1 }, name: 'org_owner_day' }, { key: { dayAt: 1 }, name: 'day_ttl', expireAfterSeconds: 90 * 86_400 }]],
     ['policyEvents', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { keyId: 1, kind: 1, at: -1 }, name: 'key_kind_at' }]],
     ['intake', [{ key: { source: 1, reportId: 1 }, unique: true, name: 'source_report_unique' }]],
     ['mailLog', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { kind: 1, at: -1 }, name: 'kind_at' }, { key: { kind: 1, to: 1, at: -1 }, name: 'kind_to_at' }]],
@@ -810,6 +819,7 @@ export async function collections() {
     workerFolders: db.collection<WorkerFolderDoc>('workerFolders'),
     workerJobs: db.collection<WorkerJobDoc>('workerJobs'),
     workerSessions: db.collection<WorkerSessionDoc>('workerSessions'),
+    claudeUsage: db.collection<ClaudeUsageDoc>('claudeUsage'),
     messages: db.collection<MessageDoc>('messages'),
     states: db.collection<StateDoc>('states'),
     presence: db.collection<PresenceDoc>('presence'),

@@ -21,6 +21,8 @@ export async function releaseMember(orgId: string, userId: string): Promise<{ co
     await theirs.devices.updateMany({ _id: { $in: devices.map(d => d._id) } }, { $set: { revokedAt: now } });
     await theirs.workerJobs.updateMany({ deviceId: { $in: devices.map(d => d._id) }, doneAt: null }, { $set: { doneAt: now, ok: false, error: 'member removed' } });
   }
+  // Their Claude usage rows in this organization (lib/data/claude-usage.ts) go with them.
+  await theirs.claudeUsage.deleteMany({});
   // Alerts queued for them and not sent yet (an assignment, a finished Claude task) are dropped.
   await theirs.alertQueue.deleteMany({ sentAt: null });
   // System work over the whole organization: their claims may sit on shared tasks, and assignments are on others' tasks.

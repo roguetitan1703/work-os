@@ -12,6 +12,7 @@ import { addQuietFolder, quietFolder } from '../data/quiet-folders';
 import { devicesLinked, linkFolder, ownFolderById } from '../data/launcher';
 import { authorLabel, isMine, outsideTitleLabel, taskAuthors } from '../data/authors';
 import * as needsData from '../data/needs';
+import * as usageData from '../data/claude-usage';
 import * as productionData from '../data/production';
 import * as results from '../data/results';
 import { InputError, NotFoundError } from '../data/errors';
@@ -47,7 +48,7 @@ import { forYouAfter, forYouBefore } from './for-you';
 import { requestContext, runWithRequestContext, sessionHeader } from '../request-context';
 import { noteRefusal, recentRefusals } from './refusals';
 import { dispatchedOfToken } from '../agent-sessions';
-import { addDays, isDateStr, resolveDate, resolvePastDate, startOfDay, todayStr, weekday } from '../dates';
+import { addDays, currentTz, isDateStr, resolveDate, resolvePastDate, startOfDay, todayStr, weekday } from '../dates';
 import { ModeSchema, PrioritySchema, ProjectStatusSchema, RATINGS, RESULT_KINDS, RecurrenceSchema, StatusSchema, VisibilitySchema, type Task, type TaskPatch } from '../types';
 
 /**
@@ -1100,6 +1101,22 @@ export function createMcpServer(ctx: Ctx): McpServer {
         since: since?.toISOString(),
         count: list.length,
         events,
+      };
+    }),
+  );
+
+  tool(
+    'usage',
+    {
+      inputSchema: { range: z.enum(['week', '7d', 'today']).optional().describe('Default week: since your plan week starts (Claude › Usage)') },
+      annotations: { readOnlyHint: true },
+    },
+    handler(async a => {
+      const r = await usageData.usageReport(s, { range: a.range, tz: currentTz() });
+      return {
+        ...r,
+        bySession: r.bySession.slice(0, 20).map(x => ({ ...x, subagents: { ...x.subagents, items: x.subagents.items.slice(0, 10) } })),
+        note: 'Estimated share of your own Claude use from token counts; not a share of your plan limit.',
       };
     }),
   );

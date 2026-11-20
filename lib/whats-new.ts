@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'claude-usage',
+    date: '2026-11-20',
+    title: 'See what used your Claude',
+    line: 'Claude › Usage shows which sessions, subagents and models used your Claude this week.',
+    where: 'Claude › Usage',
+    href: '/claude?tab=usage',
+  },
+  {
     id: 'sessions-first',
     date: '2026-11-20',
     title: 'One list of sessions, and what finished today',
