@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 151. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 152. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -11,7 +11,7 @@ Copy of the Work OS state, version 151. WORK-STATE.md is a copy of the State, wr
 3. R9 on dev 90042a9: UI revamp phases 3-5 (task why, sessions say why, Now/Next/Later chips). Add the withdraw_need fix and the phone bar, run the full e2e, then ask Om.
 4. Work OS feels like a task app (Om 20 Nov): design c5b8ebd9fd. Step A (phone bar Today, Claude, +, Needs, Projects) done on builder-s 22f7b68 (nav suites pass), held off dev until the UX review; B (Today as your desk) and C (+ starts work, results feed) wait on Om's pick. — waits on Om: A only, A+B, or all of C
 5. UX review (Om 20 Nov): capture 1 done on builder-s2 62905c7 (258 shots, 21 routes, /modes/[mode] stale); builder S2 Sonnet finishing phone jobs, real controls, search as Om uses it; capturing every screen at 390/1280 light+dark with real-looking data (tests/e2e/ui-tour.mjs, shots in builds/tmp/ui-review); then a Fable reviewer writes the review and the UI library plan as a note; then A+B+C wait on it.
-6. Sessions get new Work OS tools without a reconnect (Om 20 Nov; design note 'sessions get new Work OS tools'): start_work answers carry tools/list_changed so Claude Code re-lists; hint text as fallback. Builder B Opus building on builder-b, proving it with a real claude -p session; independent review after (transport serves OAuth).
+6. Sessions get new Work OS tools without a reconnect (Om 20 Nov; design note 'sessions get new Work OS tools'): start_work answers carry tools/list_changed so Claude Code re-lists; hint text as fallback. Built on builder-b afd1a9e: real Claude Code 2.1.327 re-listed tools after start_work (probe 7/7, mcp-relist 31, leak-audit 268). Independent Opus review running; merge after.
 7. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0 items. Due only when there is something to propose; refresh the count when tasks close. Seen 20 Nov after reconnecting the tools.
 
 ## Later
@@ -44,4 +44,4 @@ Copy of the Work OS state, version 151. WORK-STATE.md is a copy of the State, wr
 - Projects now card: a stray space before " · 1 session" after the project name (seen 20 Nov at 390 and 1280).
 - flow-ui-p3: add a check that task #12 gets no Now why when the Now names #123 (pattern fixed in 62acdf7, checked by hand only).
 - ; lane rows say Next 2 twice (chip and the served line). Seen 20 Nov.
-<!-- work-os-copy sha1:bf13dbd2d6ebbdcd6a05ac8c27d66fc8e7c22249 -->
+<!-- work-os-copy sha1:7204c5451be9500ee1e77ba9ce7c0c36bb67e5f5 -->
