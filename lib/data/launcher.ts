@@ -223,7 +223,7 @@ export function cleanSelfUpdate(v: unknown): DeviceSelfUpdate | undefined {
   const u = v as Record<string, unknown>;
   if (u.on !== true) return undefined;
   const at = typeof u.updatedAt === 'string' && u.updatedAt.length <= 40 ? new Date(u.updatedAt) : null;
-  const from = typeof u.from === 'string' && /^\d{1,6}(\.\d{1,6}){0,3}$/.test(u.from) ? u.from : null;
+  const from = typeof u.from === 'string' && /^\d{1,9}(\.\d{1,9}){0,3}$/.test(u.from) ? u.from : null;
   const problem = typeof u.problem === 'string' ? u.problem.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 160) || null : null;
   return { updatedAt: at && !Number.isNaN(at.getTime()) ? at : null, from, problem };
 }

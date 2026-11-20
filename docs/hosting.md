@@ -482,9 +482,10 @@ uploaded to a release and fetched with `curl`), check the SHA-256 there against 
 "deploying it on your word". The PC is x86_64 and the box arm64: `deploy.sh` accepts a build from another CPU type only
 when `.next` holds no native code (`*.node`, `*.so`); `.next` is JavaScript and links, and npm ci installs the box's
 own native packages.
-It also signs the worker release with the key on the PC (`WORKER_SIGNING_KEY`, else the Windows user's
-`%APPDATA%\work-os-release\worker-signing.key`) into `.next/worker-signature.json`, so downloaded workers update
-themselves to it (docs/launcher.md "Self-update"); without the key it prints a warning and the build is unsigned.
+It also signs the worker release on its own, no extra command, whenever the key is on the PC (`WORKER_SIGNING_KEY`,
+else the Windows user's `%APPDATA%\work-os-release\worker-signing.key`): the release version is the commit's time
+(`YYYYMMDD.HHMMSS` UTC) and the record goes into `.next/worker-signature.json`, so downloaded workers update themselves
+to it (docs/launcher.md "Self-update"); without the key it prints a warning and the build is unsigned.
 GitHub Actions builds never hold the key: for them, sign with `node scripts/worker-signing-key.mjs sign` and commit
 `worker/bundle/signature.json` before the merge to master.
 

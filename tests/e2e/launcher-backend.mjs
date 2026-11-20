@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { bundleFrom } from '../../worker/bundle/build.mjs';
-import { signRelease, verifyRelease, publicKeyText } from '../../worker/release.mjs';
+import { signRelease, verifyRelease, publicKeyText, releaseVersionAt } from '../../worker/release.mjs';
 
 // The worker download: public (no cookie, no key), the same bytes every time, the sha256 the app shows, no secrets.
 {
@@ -35,42 +35,56 @@ import { signRelease, verifyRelease, publicKeyText } from '../../worker/release.
   try {
     fs.rmSync(sigFile, { force: true });
     const latest0 = await (await fetch(B + '/worker/latest.json')).json();
-    check('self-update: an unsigned release has no signature in latest.json', !('signature' in latest0), JSON.stringify(latest0).slice(0, 200));
+    check('self-update: an unsigned release has no signature in latest.json and carries the code version', !('signature' in latest0) && /^0\.\d+\.\d+$/.test(latest0.version), JSON.stringify(latest0).slice(0, 200));
     const key = generateKeyPairSync('ed25519');
     const pub = publicKeyText(key.publicKey);
     const write = (rec) => fs.writeFileSync(sigFile, JSON.stringify(rec));
-    write({ version: latest0.version, sha256: 'a'.repeat(64), signature: signRelease({ version: latest0.version, sha256: 'a'.repeat(64) }, key.privateKey) });
-    const other = await (await fetch(B + '/worker/latest.json')).json();
-    check('self-update: a signature made for another bundle is not served', !('signature' in other));
-    const signature = signRelease(latest0, key.privateKey);
-    write({ version: latest0.version, sha256: latest0.sha256, signature });
-    const latest = await (await fetch(B + '/worker/latest.json')).json();
-    check('self-update: latest.json serves the signature of this bundle, and it verifies', latest.signature === signature && verifyRelease(latest, [pub]) && latest.sha256 === latest0.sha256);
-
-    // A worker installed from an older release (version 0.0.1) that carries the test key updates itself from the server.
+    // What the signing step does: the release version from a time, the bundle of these files at that version, signed.
     const W = fileURLToPath(new URL('../../worker/', import.meta.url));
+    const loader = fs.readFileSync(path.join(W, 'bundle', 'loader.mjs'), 'utf8');
     const files = {};
     for (const f of fs.readdirSync(W).filter((n) => n.endsWith('.mjs'))) files[f] = fs.readFileSync(path.join(W, f), 'utf8');
-    files['core.mjs'] = files['core.mjs'].replace(/VERSION = '[^']+'/, "VERSION = '0.0.1'");
+    const V = releaseVersionAt(Date.UTC(2026, 10, 20, 12, 0, 0) / 1000);
+    const rel = bundleFrom(files, loader, V);
+    write({ version: V, sha256: 'a'.repeat(64), signature: signRelease({ version: V, sha256: 'a'.repeat(64) }, key.privateKey) });
+    const other = await (await fetch(B + '/worker/latest.json')).json();
+    check('self-update: a signature made for another bundle is not served', !('signature' in other) && other.sha256 === latest0.sha256);
+    const signature = signRelease(rel, key.privateKey);
+    write({ version: V, sha256: rel.sha256, signature });
+    const latest = await (await fetch(B + '/worker/latest.json')).json();
+    check('self-update: latest.json serves the signed release (its version, its bundle, its signature), and it verifies', latest.version === V && latest.sha256 === rel.sha256 && latest.signature === signature && verifyRelease(latest, [pub]), JSON.stringify(latest).slice(0, 200));
+    const served = await (await fetch(B + '/worker/work-os-worker.mjs')).text();
+    check('self-update: the download is that signed bundle', createHash('sha256').update(served).digest('hex') === rel.sha256);
+
+    // A worker installed from an older signed release that carries the test key updates itself from the server.
     files['release-keys.mjs'] = `export const RELEASE_KEYS = ['${pub}'];\n`;
-    const old = bundleFrom(files, fs.readFileSync(path.join(W, 'bundle', 'loader.mjs'), 'utf8'));
+    const old = bundleFrom(files, loader, releaseVersionAt(Date.UTC(2026, 10, 19) / 1000));
     const file = path.join(tmp, 'work-os-worker.mjs');
     fs.writeFileSync(file, old.body);
     const unpacked = spawnSync(process.execPath, [file, 'unpack'], { encoding: 'utf8' });
-    const probe = `const u = await import(${JSON.stringify(pathToFileURL(path.join(tmp, 'worker', 'update.mjs')).href)}); console.log(JSON.stringify(await u.selfUpdate({ baseUrl: ${JSON.stringify(B)}, version: '0.0.1', file: ${JSON.stringify(path.join(tmp, 'status.json'))} })));`;
+    const probe = `const u = await import(${JSON.stringify(pathToFileURL(path.join(tmp, 'worker', 'update.mjs')).href)}); console.log(JSON.stringify(await u.selfUpdate({ baseUrl: ${JSON.stringify(B)}, file: ${JSON.stringify(path.join(tmp, 'status.json'))} })));`;
     const r = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', timeout: 120000 });
     const res = (() => { try { return JSON.parse(r.stdout.trim().split('\n').pop()); } catch { return null; } })();
-    const marker = (() => { try { return fs.readFileSync(path.join(tmp, 'worker', 'BUNDLE'), 'utf8').trim(); } catch { return ''; } })();
-    check('self-update: a downloaded worker with the key installs the signed release from the server', unpacked.status === 0 && res?.result === 'updated' && res.version === latest.version && marker === latest.sha256, `${r.stderr.slice(0, 300)} ${r.stdout.slice(0, 300)}`);
-    check('self-update: the new code is the server\'s', fs.readFileSync(file, 'utf8') === (await (await fetch(B + '/worker/work-os-worker.mjs')).text()));
+    const read = (n) => { try { return fs.readFileSync(path.join(tmp, 'worker', n), 'utf8').trim(); } catch { return ''; } };
+    check('self-update: a downloaded worker with the key installs the signed release from the server', unpacked.status === 0 && res?.result === 'updated' && res.version === V && read('BUNDLE') === rel.sha256 && read('RELEASE') === V, `${r.stderr.slice(0, 300)} ${r.stdout.slice(0, 300)}`);
+    check('self-update: the new code is the server\'s', fs.readFileSync(file, 'utf8') === served);
+    const again = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', timeout: 120000 });
+    check('self-update: the next check finds it current', /"result":"current"/.test(again.stdout), again.stdout.slice(0, 200));
     // The same worker without the key refuses the release.
     files['release-keys.mjs'] = `export const RELEASE_KEYS = ['${publicKeyText(generateKeyPairSync('ed25519').publicKey)}'];\n`;
-    const old2 = bundleFrom(files, fs.readFileSync(path.join(W, 'bundle', 'loader.mjs'), 'utf8'));
+    const old2 = bundleFrom(files, loader, releaseVersionAt(Date.UTC(2026, 10, 19) / 1000));
     fs.writeFileSync(file, old2.body);
     spawnSync(process.execPath, [file, 'unpack'], { encoding: 'utf8' });
     const r2 = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', timeout: 120000 });
     const res2 = (() => { try { return JSON.parse(r2.stdout.trim().split('\n').pop()); } catch { return null; } })();
-    check('self-update: a worker without that key refuses it and keeps its code', res2?.result === 'refused' && res2.reason === 'bad signature' && fs.readFileSync(path.join(tmp, 'worker', 'BUNDLE'), 'utf8').trim() === old2.sha256, r2.stdout.slice(0, 300));
+    check('self-update: a worker without that key refuses it and keeps its code', res2?.result === 'refused' && res2.reason === 'bad signature' && read('BUNDLE') === old2.sha256, r2.stdout.slice(0, 300));
+    // A worker already on a later release refuses this one (no downgrade).
+    files['release-keys.mjs'] = `export const RELEASE_KEYS = ['${pub}'];\n`;
+    const newer = bundleFrom(files, loader, releaseVersionAt(Date.UTC(2026, 10, 21) / 1000));
+    fs.writeFileSync(file, newer.body);
+    spawnSync(process.execPath, [file, 'unpack'], { encoding: 'utf8' });
+    const r3 = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', timeout: 120000 });
+    check('self-update: a worker on a later release refuses an older one', /"result":"refused","reason":"version 20261120\.120000 is not newer than 20261121\.000000"/.test(r3.stdout) && read('BUNDLE') === newer.sha256, r3.stdout.slice(0, 300));
   } finally {
     if (saved) fs.writeFileSync(sigFile, saved); else fs.rmSync(sigFile, { force: true });
     fs.rmSync(tmp, { recursive: true, force: true });

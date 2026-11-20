@@ -5,22 +5,26 @@
 //
 //   node scripts/worker-signing-key.mjs new [--label TEXT]      make the key (once); adds its public key to worker/release-keys.mjs
 //   node scripts/worker-signing-key.mjs sign [--ref REF]        sign the worker of a commit (default HEAD): writes worker/bundle/signature.json
-//   node scripts/worker-signing-key.mjs sign --dir DIR --out F  sign the worker files in DIR (scripts/build-artifact.sh)
+//   node scripts/worker-signing-key.mjs sign --dir DIR --out F [--at UNIXSECONDS]   sign the worker files in DIR (scripts/build-artifact.sh)
 //   node scripts/worker-signing-key.mjs check [--ref REF | --dir DIR] [--sig F]   does the signature fit that worker and a listed key?
 //
 // WORKER_SIGNING_KEY: the private key file. Default %APPDATA%/work-os-release/worker-signing.key on Windows,
 // ~/.config/work-os-release/worker-signing.key elsewhere (from WSL pass the Windows file: /mnt/c/Users/<you>/AppData/...).
-// What is signed: "work-os-worker release", the worker VERSION (worker/core.mjs) and the sha256 of the bundle Work OS
-// serves for that code (worker/bundle/build.mjs). Bundles are built from the committed files (LF line endings), never
-// from a Windows working copy, so the sha256 is the one the server computes.
+//
+// The version is set here, never by a person: the commit time of the release commit (--ref; build-artifact.sh passes it
+// as --at), else now, as YYYYMMDD.HHMMSS UTC (worker/release.mjs releaseVersionAt). It is written into the bundle
+// (worker/bundle/build.mjs), and "work-os-worker release", the version and the bundle's sha256 are signed. A version not
+// above the last one this key signed is refused (the same version and bundle again is fine): the last one is kept beside
+// the key (<key file>.last.json) and in the signature file being replaced. Bundles are built from the committed files (LF
+// line endings), never from a Windows working copy, so the sha256 is the one the server computes.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { bundleFrom, buildBundle } from '../worker/bundle/build.mjs';
-import { signRelease, verifyRelease, publicKeyText, compareVersions } from '../worker/release.mjs';
+import { bundleFrom, readWorkerFiles } from '../worker/bundle/build.mjs';
+import { signRelease, verifyRelease, publicKeyText, compareVersions, releaseVersionAt, VERSION_RE, SHA_RE } from '../worker/release.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const KEYS_FILE = path.join(ROOT, 'worker', 'release-keys.mjs');
@@ -34,19 +38,18 @@ export function keyPath(env = process.env, platform = process.platform) {
   return path.join(os.homedir(), '.config', 'work-os-release', 'worker-signing.key');
 }
 
-/** The bundle and the release key list of the worker at a git ref, from the committed blobs (no checkout, no CRLF). */
+/** The worker files, release key list and commit time of a git ref, from the committed blobs (no checkout, no CRLF). */
 function fromRef(ref) {
   const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const names = git('ls-tree', '--name-only', ref, 'worker/').split('\n').map((s) => s.trim()).filter((s) => /^worker\/[A-Za-z0-9._-]+\.mjs$/.test(s));
   const files = {};
   for (const n of names) files[n.slice('worker/'.length)] = git('cat-file', 'blob', `${ref}:${n}`);
-  const bundle = bundleFrom(files, git('cat-file', 'blob', `${ref}:worker/bundle/loader.mjs`));
-  return { bundle, keys: keysIn(files['release-keys.mjs'] ?? '') };
+  return { files, loader: git('cat-file', 'blob', `${ref}:worker/bundle/loader.mjs`), keys: keysIn(files['release-keys.mjs'] ?? ''), at: Number(git('log', '-1', '--format=%ct', ref).trim()) };
 }
 async function fromDir(dir) {
-  const bundle = buildBundle(dir);
+  const { files, loader } = readWorkerFiles(dir);
   const { RELEASE_KEYS } = await import(pathToFileURL(path.join(dir, 'release-keys.mjs')).href);
-  return { bundle, keys: RELEASE_KEYS };
+  return { files, loader, keys: RELEASE_KEYS, at: null };
 }
 /** The keys listed in a release-keys.mjs text (the quoted base64 strings inside RELEASE_KEYS). */
 function keysIn(text) {
@@ -59,12 +62,12 @@ function readKey(file) {
   try { pem = fs.readFileSync(file, 'utf8'); } catch (e) { die(`no signing key at ${file} (${e.code || e.message}); set WORKER_SIGNING_KEY, or make one with: node scripts/worker-signing-key.mjs new`); }
   try { return crypto.createPrivateKey(pem); } catch { die(`${file} is not a private key`); }
 }
+const readJson = (f) => { try { const j = JSON.parse(fs.readFileSync(f, 'utf8')); return j && VERSION_RE.test(String(j.version)) && SHA_RE.test(String(j.sha256)) ? j : null; } catch { return null; } };
 
 async function source() {
   const dir = arg('--dir');
   if (dir) return { ...(await fromDir(path.resolve(dir))), previousFile: path.join(path.resolve(dir), 'bundle', 'signature.json') };
-  const ref = arg('--ref') || 'HEAD';
-  return { ...fromRef(ref), ref, previousFile: path.join(ROOT, 'worker', 'bundle', 'signature.json') };
+  return { ...fromRef(arg('--ref') || 'HEAD'), previousFile: path.join(ROOT, 'worker', 'bundle', 'signature.json') };
 }
 
 async function main(cmd) {
@@ -86,35 +89,46 @@ async function main(cmd) {
     return;
   }
   if (cmd === 'sign') {
-    const key = readKey(keyPath());
-    const { bundle, keys, previousFile } = await source();
+    const keyFile = keyPath();
+    const key = readKey(keyFile);
+    const src = await source();
     const pub = publicKeyText(key);
-    if (!keys.includes(pub)) die('this key is not in that worker\'s release-keys.mjs: add it (and commit) first, or workers would refuse the release');
-    let previous = null;
-    try { previous = JSON.parse(fs.readFileSync(previousFile, 'utf8')); } catch {}
-    if (previous && previous.sha256 !== bundle.sha256 && compareVersions(bundle.version, String(previous.version)) <= 0) {
-      die(`the worker changed but its VERSION (${bundle.version}) is not above the last signed one (${previous.version}): raise VERSION in worker/core.mjs`);
+    if (!src.keys.includes(pub)) die('this key is not in that worker\'s release-keys.mjs: add it (and commit) first, or workers would refuse the release');
+    const atArg = arg('--at');
+    const at = atArg !== null ? Number(atArg) : src.at ?? Math.floor(Date.now() / 1000);
+    let version;
+    try { version = releaseVersionAt(at); } catch { die(`--at must be a time in unix seconds (got ${atArg})`); }
+    const bundle = bundleFrom(src.files, src.loader, version);
+    // Never below or equal to a release signed before (the same release again is fine): workers refuse those anyway.
+    const lastFile = `${keyFile}.last.json`;
+    for (const prev of [readJson(lastFile), readJson(src.previousFile)]) {
+      if (!prev) continue;
+      const c = compareVersions(version, prev.version);
+      if (c < 0 || (c === 0 && prev.sha256 !== bundle.sha256)) die(`version ${version} is not above the last signed release ${prev.version}: sign a newer commit`);
     }
     const signature = signRelease(bundle, key);
-    if (!verifyRelease({ ...bundle, signature }, keys)) die('the signature does not verify');
+    if (!verifyRelease({ ...bundle, signature }, src.keys)) die('the signature does not verify');
     const out = arg('--out') || path.join(ROOT, 'worker', 'bundle', 'signature.json');
-    const record = { version: bundle.version, sha256: bundle.sha256, signature, key: crypto.createHash('sha256').update(pub).digest('hex').slice(0, 16), signedAt: new Date().toISOString() };
+    const record = { version, sha256: bundle.sha256, signature, key: crypto.createHash('sha256').update(pub).digest('hex').slice(0, 16), signedAt: new Date().toISOString() };
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, JSON.stringify(record, null, 2) + '\n');
-    console.log(`signed worker ${bundle.version} (bundle ${bundle.sha256.slice(0, 12)}): ${path.relative(process.cwd(), out) || out}`);
+    const last = readJson(lastFile);
+    if (!last || compareVersions(version, last.version) > 0) fs.writeFileSync(lastFile, JSON.stringify({ version, sha256: bundle.sha256 }) + '\n');
+    console.log(`signed worker release ${version} (bundle ${bundle.sha256.slice(0, 12)}): ${path.relative(process.cwd(), out) || out}`);
     return;
   }
   if (cmd === 'check') {
-    const { bundle, keys } = await source();
+    const src = await source();
     const file = arg('--sig') || path.join(ROOT, 'worker', 'bundle', 'signature.json');
-    let rec;
-    try { rec = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { die(`no signature at ${file}`); }
-    if (rec.version !== bundle.version || rec.sha256 !== bundle.sha256) die(`the signature is for worker ${rec.version} (${String(rec.sha256).slice(0, 12)}), this worker is ${bundle.version} (${bundle.sha256.slice(0, 12)}): sign it again`);
-    if (!verifyRelease(rec, keys)) die('bad signature: no key in that worker\'s release-keys.mjs made it');
-    console.log(`good: worker ${bundle.version} (bundle ${bundle.sha256.slice(0, 12)}) is signed`);
+    const rec = readJson(file);
+    if (!rec) die(`no signature at ${file}`);
+    const bundle = bundleFrom(src.files, src.loader, rec.version);
+    if (rec.sha256 !== bundle.sha256) die(`the signature is for another bundle (${rec.sha256.slice(0, 12)}); this worker at release ${rec.version} is ${bundle.sha256.slice(0, 12)}: sign it again`);
+    if (!verifyRelease(rec, src.keys)) die('bad signature: no key in that worker\'s release-keys.mjs made it');
+    console.log(`good: worker release ${rec.version} (bundle ${bundle.sha256.slice(0, 12)}) is signed`);
     return;
   }
-  die('usage: node scripts/worker-signing-key.mjs new [--label TEXT] | sign [--ref REF | --dir DIR] [--out FILE] | check [--ref REF | --dir DIR] [--sig FILE]');
+  die('usage: node scripts/worker-signing-key.mjs new [--label TEXT] | sign [--ref REF | --dir DIR --out FILE [--at UNIXSECONDS]] | check [--ref REF | --dir DIR] [--sig FILE]');
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main(args[0]);

@@ -6,8 +6,9 @@
 #   sudo work-os-deploy <commit> --artifact work-os-<commit12>.tar.gz
 # A build made here is x86_64: that is fine, .next holds no native code (deploy.sh checks), and the server installs
 # its own native packages with npm ci.
-# It also signs the worker release when the release key is on this PC (docs/launcher.md "Self-update"): the signature
-# goes into the tarball as .next/worker-signature.json and the server serves it in /worker/latest.json. The key file:
+# It also signs the worker release on its own when the release key is on this PC (docs/launcher.md "Self-update"): no
+# extra command. The release version is the commit's time (YYYYMMDD.HHMMSS UTC); the signature goes into the tarball as
+# .next/worker-signature.json and the server serves it in /worker/latest.json. The key file:
 # WORKER_SIGNING_KEY, else %APPDATA%/work-os-release/worker-signing.key of the Windows user (asked from cmd.exe).
 # Without the key it warns and the build carries no signature: workers then do not update to it.
 #
@@ -66,7 +67,9 @@ if [ -z "$KEY" ] && [ -x /mnt/c/Windows/System32/cmd.exe ]; then
   [ -n "$WIN_APPDATA" ] && [ "$WIN_APPDATA" != '%APPDATA%' ] && KEY="$(wslpath -u "$WIN_APPDATA" 2>/dev/null || true)/work-os-release/worker-signing.key"
 fi
 if [ -n "$KEY" ] && [ -r "$KEY" ]; then
-  if ! WORKER_SIGNING_KEY="$KEY" node scripts/worker-signing-key.mjs sign --dir "$REL/worker" --out "$REL/.next/worker-signature.json"; then
+  # The release version is the commit time of this commit (YYYYMMDD.HHMMSS UTC), set by the script, not by a person.
+  if ! WORKER_SIGNING_KEY="$KEY" node scripts/worker-signing-key.mjs sign --dir "$REL/worker" --out "$REL/.next/worker-signature.json" \
+      --at "$(git -C "$SRC" log -1 --format=%ct "$SHA")"; then
     rm -f "$REL/.next/worker-signature.json"
     echo "!!! WARNING: the worker release was NOT signed (see above). Workers will not update to this build." >&2
   fi

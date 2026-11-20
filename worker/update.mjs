@@ -10,7 +10,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { bundleId, checkBaseUrl, configDir } from './config.mjs';
+import { bundleId, releaseVersion, checkBaseUrl, configDir } from './config.mjs';
 import { RELEASE_KEYS } from './release-keys.mjs';
 import { VERSION_RE, SHA_RE, verifyRelease, compareVersions } from './release.mjs';
 
@@ -56,9 +56,10 @@ const short = (e) => String(e?.code || e?.message || e).split('\n')[0].slice(0, 
 
 /**
  * One check. Returns { result: 'repo' | 'current' | 'updated' | 'refused' | 'failed', reason?, version? }.
- * workerDir: the unpacked `worker` folder (the download sits in its parent). version: the running worker's VERSION.
+ * workerDir: the unpacked `worker` folder (the download sits in its parent). version: the installed release's version
+ * (worker/RELEASE, set by the signing step and carried in the bundle); a bundle without one counts as 0, below every release.
  */
-export async function selfUpdate({ baseUrl, version, workerDir = HERE, current = bundleId(workerDir), keys = RELEASE_KEYS, fetchImpl = fetch, unpack = unpackWith, file = statusFile(), now = () => new Date(), log = () => {} }) {
+export async function selfUpdate({ baseUrl, workerDir = HERE, version = releaseVersion(workerDir) ?? '0', current = bundleId(workerDir), keys = RELEASE_KEYS, fetchImpl = fetch, unpack = unpackWith, file = statusFile(), now = () => new Date(), log = () => {} }) {
   if (!current) return { result: 'repo' };
   const prior = readUpdateStatus(file);
   const done = (result, reason, offered) => {
@@ -115,13 +116,13 @@ export async function selfUpdate({ baseUrl, version, workerDir = HERE, current =
 }
 
 /** At start and every 6 hours (downloaded bundles only). */
-export function startSelfUpdate({ getBaseUrl, version, log, every = EVERY_MS, ...rest }) {
+export function startSelfUpdate({ getBaseUrl, log, every = EVERY_MS, ...rest }) {
   if (!(rest.current ?? bundleId(rest.workerDir ?? HERE))) return null;
   let running = false;
   const once = async () => {
     if (running) return;
     running = true;
-    try { await selfUpdate({ baseUrl: getBaseUrl(), version, log, ...rest }); } catch (e) { log(`update failed: ${short(e)}`); } finally { running = false; }
+    try { await selfUpdate({ baseUrl: getBaseUrl(), log, ...rest }); } catch (e) { log(`update failed: ${short(e)}`); } finally { running = false; }
   };
   once();
   const t = setInterval(once, every);

@@ -28,6 +28,11 @@ export function bundleId(dir = path.dirname(fileURLToPath(import.meta.url))) {
   try { const s = fs.readFileSync(path.join(dir, 'BUNDLE'), 'utf8').trim(); return /^[0-9a-f]{64}$/.test(s) ? s : null; } catch { return null; }
 }
 
+/** The version of the downloaded release this code was unpacked from (worker/RELEASE, written by the loader), or null (repo run, or a bundle from before 0.5.0). */
+export function releaseVersion(dir = path.dirname(fileURLToPath(import.meta.url))) {
+  try { const s = fs.readFileSync(path.join(dir, 'RELEASE'), 'utf8').trim(); return /^\d{1,9}(\.\d{1,9}){0,3}$/.test(s) ? s : null; } catch { return null; }
+}
+
 export function checkBaseUrl(u) {
   let url;
   try { url = new URL(u); } catch { throw new Error('baseUrl is not a valid URL'); }

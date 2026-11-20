@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig, loadState, saveState, configPath, checkBaseUrl, bundleId } from './config.mjs';
 import { getToken, setToken, readSecretFromStdin } from './secret.mjs';
 import { makeApi } from './api.mjs';
-import { createCore, VERSION } from './core.mjs';
+import { createCore, runningVersion } from './core.mjs';
 import { createLoop } from './loop.mjs';
 import { launch, listProcesses, killPid, resolveClaude } from './launch.mjs';
 import { scanRoots, publicFolder } from './scan.mjs';
@@ -45,11 +45,11 @@ async function run() {
   let loop = null;
   const push = connectPush({ getCfg: loadConfig, getToken, onWake: () => loop?.wake(), onUp: (up) => { log(up ? 'push connected' : 'push disconnected'); loop?.wake(); }, log });
   loop = createLoop({ core, getConfig: loadConfig, state, log, pushUp: () => push.up });
-  log(`work-os-worker ${VERSION} started`);
+  log(`work-os-worker ${runningVersion()} started`);
   // After an update the unpacked code is new: bring the installed hooks up to date too (a no-op when none are installed).
   const refreshed = hooksInstall.refreshIfStale();
   if (refreshed) log(`hooks refreshed to ${refreshed}`);
-  startSelfUpdate({ getBaseUrl: () => loadConfig().baseUrl, version: VERSION, log });
+  startSelfUpdate({ getBaseUrl: () => loadConfig().baseUrl, log });
   await loop.run();
 }
 
@@ -58,7 +58,7 @@ function status() {
   const state = loadState();
   console.log('config file:', configPath());
   console.log(JSON.stringify(cfg, null, 2));
-  console.log('worker code:', `version ${VERSION},`, bundleId() ? `downloaded bundle ${bundleId().slice(0, 12)}` : 'run from the repo');
+  console.log('worker code:', `version ${runningVersion()},`, bundleId() ? `downloaded bundle ${bundleId().slice(0, 12)}` : 'run from the repo');
   if (bundleId()) {
     const u = readUpdateStatus();
     console.log('self-update:', `on${u.updatedAt ? `, last updated ${u.updatedAt} from ${u.from}` : ''}${u.problem ? `; last check: ${u.problem}` : ''}`);

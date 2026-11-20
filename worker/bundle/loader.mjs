@@ -17,6 +17,7 @@ if (major < 22) {
 }
 
 const FILES = /*FILES*/ {};
+const RELEASE = /*RELEASE*/ ''; // this bundle's version (bundle/build.mjs): what a self-update compares with
 const self = fileURLToPath(import.meta.url);
 const dir = path.join(path.dirname(self), 'worker');
 const id = crypto.createHash('sha256').update(fs.readFileSync(self)).digest('hex');
@@ -33,6 +34,7 @@ if (current !== id) {
     fs.renameSync(tmp, path.join(dir, name));
   }
   for (const f of fs.readdirSync(dir)) if (f.endsWith('.mjs') && !(f in FILES)) fs.rmSync(path.join(dir, f), { force: true }); // gone in this version
+  fs.writeFileSync(path.join(dir, 'RELEASE'), RELEASE + '\n');
   fs.writeFileSync(marker, id + '\n');
   console.log(`worker unpacked: ${dir}`);
 }
