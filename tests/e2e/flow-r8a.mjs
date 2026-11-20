@@ -118,7 +118,7 @@ try {
   const ghostDoc = await rawDb.collection('messages').findOne({ body: 'R8 ghost sender' });
   check('F9: an agent message from a session with no row counts as the end of the chain', ghost.isError || (ghostDoc && ghostDoc.chain >= 2), JSON.stringify(ghostDoc ?? ghost.text).slice(0, 200));
   const rf = await rawDb.collection('messages').findOne({ body: 'R8 noted' });
-  check('F9: a reply to an fyi does not wake', rf && !rf.wakes, JSON.stringify(rf));
+  check('F9: a reply to an fyi wakes too (every kind wakes, 20 Nov)', rf && rf.wakes === true, JSON.stringify(rf));
   const ad = await mcpH(cc, 'save_state', { project: NAME, session: 'r8int', ops: [{ op: 'archive_decision', id: 'x' }] });
   check('F3: archive_decision is not in the agent schema', ad.isError && /archive_decision|op/.test(ad.text), ad.text.slice(0, 200));
 } catch (e) {

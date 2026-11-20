@@ -68,10 +68,11 @@ try {
   const crossSeen = await mcpH(kT, 'message_status', { id: omMsg.id, status: 'seen' });
   check('MS3: nor mark it seen', crossSeen.isError);
   const tsent = await must(kT, 'send_message', { to: OM, project: NAME, kind: 'question', body: 'Tess asks the owner' });
-  const rjT = await must(cc, 'message_status', { id: tsent.id, status: 'rejected', note: 'Om says no', commit: 'def5678' });
+  // 20 Nov: a message to a person goes to their lead session (here Om's session sid), so that session closes it
+  const rjT = await must(cc, 'message_status', { id: tsent.id, status: 'rejected', note: 'Om says no', commit: 'def5678', ...SS });
   const tseen = (await must(kT, 'message_status', { id: tsent.id })).message;
   check('MS3: the addressee (the project owner) can reject it, and Tess sees who closed it, with the note labelled', rjT.message.status === 'rejected' && tseen.statusBy && tseen.statusBy !== 'me' && tseen.noteWrittenBy === tseen.statusBy && tseen.note === 'Om says no', JSON.stringify(tseen));
-  const ownView = (await must(cc, 'message_status', { id: tsent.id })).message;
+  const ownView = (await must(cc, 'message_status', { id: tsent.id, ...SS })).message;
   check('MS3: the one who closed it sees it as theirs, not labelled', ownView.statusBy === 'me' && !ownView.noteWrittenBy);
 
   // A decision applied from someone else's message keeps who wrote it and how it came in; by stays the applier

@@ -8,6 +8,12 @@ import { mcpH, must } from './flow-lib.mjs';
 
 const NAME = 'Flow Messages UI';
 const OM = 'E2E Owner';
+// 20 Nov: send_message to a person goes to their lead session, never to Messages for you. The app list stays for messages stored before
+// that (toUser): these are sent the new way and then turned into that old form, so the list and its buttons are still tested.
+const asOld = async r => {
+  await rawDb.collection('messages').updateOne({ _id: r.id }, { $set: { toUser: ME.userId }, $unset: { toSids: '', toSession: '' } });
+  return r;
+};
 try {
   const T = await makeUser({ email: 'tess@example.test', name: 'Tess', orgId: ME.orgId, role: 'member' }); // before the first call: member names are cached for a minute
   await must(MCP, 'add_project', { name: NAME, code: [{ remote: 'acme/flow-messages-ui' }] });
@@ -29,12 +35,14 @@ try {
 
   // A teammate's message to Om (a person): Om's chat reads it labelled as theirs; it is not for any of Om's sessions
   const tm = await must(kT, 'send_message', { to: OM, project: NAME, kind: 'fyi', body: 'Tess here: the staging key rotated', session: tS });
+  check('MS4: a teammate message to Om goes to his lead session on the project (one key), not to the app', JSON.stringify((await rawDb.collection('messages').findOne({ _id: tm.id })).toSids) === JSON.stringify([`${ME.userId}:${omS}`]));
+  await asOld(tm);
   const tmRead = await must(MCP, 'message_status', { id: tm.id });
   check('MS4: a teammate message reaches Om with word agent, labelled with their name, as information', tmRead.message.writtenBy === 'Tess' && tmRead.message.word === 'agent' && /^Information from Tess/.test(tmRead.message.treat) && tmRead.message.from.name === 'Tess', JSON.stringify(tmRead.message));
   const swAfter = await must(cc, 'start_work', { project: NAME, label: 'om session', session: omS });
   check('MS4: …and none of Om’s sessions is handed it (it is for Om, in the app)', !JSON.stringify(swAfter.inbox).includes(tm.id), JSON.stringify(swAfter.inbox).slice(0, 200));
   const long = 'L'.repeat(1200);
-  const forOm = await must(kT, 'send_message', { to: OM, project: NAME, kind: 'fyi', body: long, session: tS });
+  const forOm = await asOld(await must(kT, 'send_message', { to: OM, project: NAME, kind: 'fyi', body: long, session: tS }));
   const tessReads = await must(kT, 'message_status', { id: forOm.id, session: tS });
   check('MS4: the sender reading her own message does not mark it read, and sees her own session id', (await rawDb.collection('messages').findOne({ _id: forOm.id })).status === 'unread' && !!tessReads.message.from.session, JSON.stringify(tessReads.message.from));
   const omReads = await must(MCP, 'message_status', { id: forOm.id });
@@ -53,9 +61,9 @@ try {
       const p = await ctx.newPage();
       await login(p, { phone, next: '/claude?tab=now' });
       // The set for this pass: a teammate's decision, request and fyi, each from her session; plus one between Om's own sessions that must not show
-      const dm = await must(kT, 'send_message', { to: OM, project: NAME, kind: 'decision', body: `Use the new queue (${tag})`, session: tS });
-      const rq = await must(kT, 'send_message', { to: OM, project: NAME, kind: 'request', body: `Please add the export button (${tag})`, session: tS });
-      const fy = await must(kT, 'send_message', { to: OM, project: NAME, kind: 'fyi', body: `Tess again (${tag})`, session: tS });
+      const dm = await asOld(await must(kT, 'send_message', { to: OM, project: NAME, kind: 'decision', body: `Use the new queue (${tag})`, session: tS }));
+      const rq = await asOld(await must(kT, 'send_message', { to: OM, project: NAME, kind: 'request', body: `Please add the export button (${tag})`, session: tS }));
+      const fy = await asOld(await must(kT, 'send_message', { to: OM, project: NAME, kind: 'fyi', body: `Tess again (${tag})`, session: tS }));
       const ownMsg = await must(cc, 'send_message', { to: omS, kind: 'fyi', body: `Between my own sessions (${tag})` });
       await p.goto(`${B}/claude?tab=now`);
       const sec = p.locator('[data-section=messages-for-you]');
