@@ -273,8 +273,8 @@ export function NeedRow({ need, canAnswer = true, onAnswered, defaultOpen = fals
         onClick={() => setOpen(o => !o)}
         trailing={
           quick ? (
-            <Button size="touch" disabled={pending} data-need-quick={first.id} aria-label={`Answer #${need.ref}: ${first.label}`} onClick={() => answer(first.id)}>
-              {first.label}
+            <Button size="touch" className="max-w-[8.5rem] sm:max-w-[16rem]" disabled={pending} data-need-quick={first.id} aria-label={`Answer #${need.ref}: ${first.label}`} title={first.label} onClick={() => answer(first.id)}>
+              <span className="truncate">{first.label}</span>
             </Button>
           ) : isOpen ? (
             <Button variant="ghost" size="touch" className="text-muted-foreground px-3" data-need-toggle aria-expanded={open} aria-label={`${open ? 'Fold' : 'Open'} #${need.ref}`} onClick={() => setOpen(o => !o)}>
