@@ -32,6 +32,7 @@ import { NeedsTab } from '@/components/needs';
 import { StateCard } from './state-card';
 import { PurposeHeader } from '@/components/purpose-header';
 import { CouldBeRunning } from '../../claude/workers-tab';
+import { nextServing } from '@/lib/data/purpose';
 import { projectRoster, withLaneMarks } from '@/lib/data/roster';
 import { archivedOut, stateOfProject, stateOut } from '@/lib/data/states';
 import { memberNames } from '@/lib/people';
@@ -144,9 +145,16 @@ export default async function ProjectPage({ params, searchParams }: Props) {
                     {` · ${w.state === 'working' ? 'working' : w.state === 'waiting' ? 'waiting on a person' : 'idle'}`}
                   </span>
                   {w.doing && (
-                    <Link href={`/tasks/${w.doing.ref}`} className="text-[13px] md:text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline" data-lane-task>
-                      {' · '}#{w.doing.ref}
-                    </Link>
+                    <div className="text-[13px] md:text-xs text-muted-foreground truncate">
+                      <Link href={`/tasks/${w.doing.ref}`} className="hover:text-foreground underline-offset-2 hover:underline" data-lane-task>
+                        #{w.doing.ref} {w.doing.title}
+                      </Link>
+                    </div>
+                  )}
+                  {w.doing && nextServing(w.doing.ref, stateDoc) && (
+                    <div className="text-[13px] md:text-xs text-muted-foreground truncate" data-lane-serves>
+                      {nextServing(w.doing.ref, stateDoc)}
+                    </div>
                   )}
                   {w.lastResult && (
                     <div className="text-[13px] md:text-xs text-muted-foreground" data-lane-result>

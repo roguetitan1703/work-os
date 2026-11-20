@@ -26,6 +26,8 @@ export type SessionRow = {
   key: string;
   title: string;
   folder: string;
+  /** What the session is doing: its set_doing task ("#N title") or the last result it reported; the owner's own sessions only. */
+  doing?: string;
   projectId: string | null;
   projectName: string | null;
   /** H13: no project owns the session's folder ("not filed"); this is the one unlinked folder of that name on its computer, for the Link to project picker. */
@@ -125,12 +127,23 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
   const known = reportedIds.length ? await c.workerSessions.find({ _id: { $in: reportedIds }, deviceId: { $in: mine } }).toArray() : [];
   const wsById = new Map([...known, ...live, ...ended].map(s => [s._id, s]));
   // What each session's own Claude Code hook last reported (the owner's rows only, keyed by Claude Code's session id): it beats guessing from transcript timing.
-  const hookRows = reportedIds.length ? await c.presence.find({ userId: scope.userId, ccSession: { $in: reportedIds }, activity: { $exists: true } }, { projection: { ccSession: 1, activity: 1, endedAt: 1, lastSeen: 1 } }).toArray() : [];
+  const hookRows = reportedIds.length ? await c.presence.find({ userId: scope.userId, ccSession: { $in: reportedIds }, activity: { $exists: true } }, { projection: { ccSession: 1, activity: 1, endedAt: 1, lastSeen: 1, doing: 1, lastResult: 1 } }).toArray() : [];
   const hookOf = new Map<string, (typeof hookRows)[number]>();
   for (const r of hookRows) {
     const prev = r.ccSession ? hookOf.get(r.ccSession) : undefined;
     if (r.ccSession && (!prev || (r.activity?.at.getTime() ?? 0) > (prev.activity?.at.getTime() ?? 0))) hookOf.set(r.ccSession, r);
   }
+
+  // What each session is doing, in one line: its set_doing task ("#N title", read through the scoped door), else the last result it reported.
+  const doingIds = [...new Set(hookRows.flatMap(r => (r.doing ? [r.doing.taskId] : [])))];
+  const doingTasks = doingIds.length ? await c.tasks.find({ _id: { $in: doingIds } }, { projection: { ref: 1, title: 1 } }).toArray() : [];
+  const doingTitle = new Map(doingTasks.map(t => [t._id, `#${t.ref} ${t.title}`]));
+  const doingOf = (r: (typeof hookRows)[number] | undefined): string | undefined => {
+    if (!r) return undefined;
+    const t = r.doing ? doingTitle.get(r.doing.taskId) : undefined;
+    const text = t ?? r.lastResult?.text.replace(/\s+/g, ' ').trim().slice(0, 200);
+    return text || undefined;
+  };
 
   // Folders: name and "still linked" for Work OS sessions; linked folders by (computer, name) to find a reported session's project.
   const wsAll = [...live, ...ended].filter(s => !!s.projectId);
@@ -197,6 +210,7 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
         key: `${d._id}:${it.sessionId}`,
         title: it.title,
         folder: it.folder,
+        ...(doingOf(hook) ? { doing: doingOf(hook) } : {}),
         projectId,
         projectName: projectId ? pname(projectId) : null,
         ...(!projectId && folderKeyFor(d._id, it.folder) ? { folderKey: folderKeyFor(d._id, it.folder) } : {}),

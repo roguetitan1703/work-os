@@ -16,6 +16,12 @@ type T = { ref: number; projectId?: string | null; parentRef?: number | null; pa
 // String.raw: in a plain template literal \w and \d lose their backslash, and #12 would match inside #123.
 const names = (text: string, ref: number) => new RegExp(String.raw`(^|[^\w#])#${ref}(?!\d)`).test(text);
 
+/** The Next line a task serves, as "Next 2: text" (matched by ref, or by the #ref in the text), or null. */
+export function nextServing(ref: number, state: Pick<StateDoc, 'next'> | null): string | null {
+  const i = state?.next.findIndex(l => l.ref === ref || names(l.text, ref)) ?? -1;
+  return state && i >= 0 ? `Next ${i + 1}: ${state.next[i].text}` : null;
+}
+
 /**
  * The task's why, first match wins: the project's Now names its #ref; a Next line carries its ref (or names it); the parent
  * task; the description's first line. `state` is the project's State (already read through the caller's door), or null.

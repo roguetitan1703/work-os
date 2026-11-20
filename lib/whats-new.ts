@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'sessions-say-why',
+    date: '2026-11-20',
+    title: 'Sessions now say what they are doing',
+    line: 'A project lists each Claude session with the task it is on and the Next line it serves, and Claude › Now shows what each session is doing before its folder and computer.',
+    where: 'A project, Working on it now; Claude › Now',
+    href: '/claude',
+  },
+  {
     id: 'task-why',
     date: '2026-11-20',
     title: 'A task now says why it exists',
