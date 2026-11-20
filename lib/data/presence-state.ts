@@ -10,8 +10,8 @@ import type { PresenceState } from '../db';
 //   its last hook event, or its last sign of life (lastSeen: a call it made, or the idle wait that refreshes it each minute)
 //   working               -> working while its last event is under 10 min old, else idle (alive) or off
 //   working, open (tool-start: a Bash or PowerShell call began and has not ended, as far as the hook knows; hook protocol 4)
-//                         -> working while the daemon says running, or for up to 2 hours since the event with no daemon evidence;
-//                            after that the rules above apply. Any later event (tool, stop, end, prompt, notify) replaces activity and clears open.
+//                         -> working for up to 2 hours since the event, daemon or not (hooks review H2: a lost end event, or a
+//                            subagent's call before the gate, must not keep a session working for ever); after that the rules above apply. Any later event (tool, stop, end, prompt, notify) replaces activity and clears open.
 //   waiting at a prompt   -> waiting (why: prompt) while alive, else off
 //   on / idle             -> an open Need makes it waiting (why: need); else on / idle while alive, else off
 // A row with no `activity` (claude.ai chat, API, an old hook, a WORK_OS_KEY hook) keeps the call-based rules:
@@ -20,7 +20,7 @@ import type { PresenceState } from '../db';
 
 export const WORKING_MIN = 10;
 export const GONE_MIN = 30;
-/** How long a running tool (activity.open) keeps a session working without the daemon saying it runs. */
+/** How long a running tool (activity.open) keeps a session working, whatever the daemon says. */
 export const OPEN_TOOL_MIN = 120;
 
 /** What the worker daemon's fresh session list says about the process: running, stopped, or nothing known (no fresh list, or not listed). */
@@ -51,7 +51,7 @@ export function presenceState(row: StateRow, o: { now: number; daemon?: DaemonSa
   if (a.state === 'waiting') return alive ? { state: 'waiting', why: a.why === 'prompt' ? 'prompt' : 'need', since } : { state: 'off', since };
   if (a.state === 'working') {
     if (ageMin <= WORKING_MIN) return { state: 'working', since };
-    if (a.open && (daemon === 'running' || ageMin <= OPEN_TOOL_MIN)) return { state: 'working', since };
+    if (a.open && ageMin <= OPEN_TOOL_MIN) return { state: 'working', since };
     return alive ? { state: 'idle', since } : { state: 'off', since };
   }
   if (!alive) return { state: 'off', since };

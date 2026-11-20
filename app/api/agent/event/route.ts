@@ -37,8 +37,9 @@ import { stateOfProject } from '@/lib/data/states';
 //            was reminded first. copy: 'refused' (tool only): a WORK-STATE.md write the hook refused that never reached this server.
 //            Counted on the token's own row (stopCheck, copyEdits) for the owner's Monday numbers; words and a flag, no text or path.
 //            An event that carries them is never free.
-//   identity (protocol 3) { title?, aiTitle?, model? }, on a prompt or a stop and only when it changed since the last one: the session's own
-//            name (a /rename), Claude's title for it, the model. Sets the roster row's label and model (lib/data/presence.ts labelPatch:
+//   identity (protocol 3) { title?, aiTitle?, model?, account? }, on a prompt or a stop and only when it changed since the last one: the session's own
+//            name (a /rename), Claude's title for it, the model, the Claude account label (the email's part before @; one that looks like an
+//            email or a key is dropped). Sets the roster row's label and model (lib/data/presence.ts labelPatch:
 //            the session's own name or start_work's label beats Claude's title; a dispatched session keeps its forced label). One line, 120 characters.
 //   result   (protocol 4, the result event only, at most 2,000 characters) a subagent's last message from the SubagentStop hook: kept cleaned and cut to 300
 //            characters as `lastResult` of the token's own row (lib/data/presence.ts setLastResult), shown only to the session's owner (a teammate sees the state and the task, never this line)
@@ -76,7 +77,7 @@ const Body = z
     // Protocol 3 (Identity step 4), on a prompt or a stop, only when it changed since the last one: the session's own name, Claude's title for it, the model.
     // Protocol 4 (Lanes step 3), on a result event: the main conversation's last message at the end of a turn (Stop; older hooks sent a subagent's, from SubagentStop). The server cleans it and keeps 300 characters as the lane result of the token's own row.
     result: z.string().max(2000).optional(),
-    identity: z.object({ title: z.string().max(300).optional(), aiTitle: z.string().max(300).optional(), model: z.string().max(60).optional() }).strict().optional(),
+    identity: z.object({ title: z.string().max(300).optional(), aiTitle: z.string().max(300).optional(), model: z.string().max(60).optional(), account: z.string().max(400).optional() }).strict().optional(),
   })
   .strict()
   .refine(b => (b.files === undefined && b.reminded === undefined) || b.event === 'stop', { message: 'files and reminded belong to a stop' })
