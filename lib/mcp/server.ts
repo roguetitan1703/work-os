@@ -502,6 +502,15 @@ export async function registerUnfiledSession(ctx: BriefCtx, sid: string, a: Star
  * here. Used by the start_work tool and by the hook's route (POST /api/agent/start, lib/agent-sessions.ts). `key` is a
  * project name or id the caller can read.
  */
+/**
+ * A session that just took a handover names itself (Orders v7): the handover's project and role, the rest left to the session.
+ * The label of the session that wrote it reads "<Project> · <role> · <what>"; with no role in it the role is left open too.
+ */
+export function nameNowLine(projectName: string, fromLabel: string): string {
+  const role = fromLabel.split(' · ').map(x => x.trim())[1] || '<role>';
+  return `Name this session now: ${projectName} · ${role} · <what you take on>. Pass it as start_work's label and set the session's own title (desktop app: set_session_title; CLI: ask your person to /rename).`;
+}
+
 export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | undefined, a: StartWorkArgs, matchedBy?: { how: string; location: unknown }) {
   const caller = ctx.caller;
   const s = sOf(ctx);
@@ -618,7 +627,9 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     ...(picked ? { pickedUp: handovers.pickUpText(picked.move, picked.again) } : {}),
     ...(pickRefused.text ? { pickUp: { refused: pickRefused.text } } : {}),
     textRule: textRule(),
-    sessionNote: !sid ? 'This connector is your session: no id to pass. Messages for you and the unread count follow it on every call.' : 'Pass this session id as session on every Work OS call (or as the X-Work-OS-Session header, if your client can). Messages for you are handed to the session by the Work OS hook; answer one with reply by its id.',
+    sessionNote:
+      (!sid ? 'This connector is your session: no id to pass. Messages for you and the unread count follow it on every call.' : 'Pass this session id as session on every Work OS call (or as the X-Work-OS-Session header, if your client can). Messages for you are handed to the session by the Work OS hook; answer one with reply by its id.') +
+      (hv.shown.some(h => h.taken) ? ` ${nameNowLine(project.name, hv.shown.find(h => h.taken)!.label)}` : ''),
     orders: orders.length ? orders : 'no Orders set',
     ...(orders.length ? { ordersVersion: orders.map(o => `${o.layer} v${o.version}`).join(', ') } : {}),
     ...(changed.length ? { ordersChanged: changed } : {}),
