@@ -71,9 +71,12 @@ export function NeedCard({ need, phone, canAnswer = true, onAnswered, inRow = fa
       </div>
       )}
       {need.session && <SessionChip session={need.session} />}
-      <p className={cn('text-foreground leading-snug whitespace-pre-wrap break-words', phone ? 'text-[16px]' : 'text-sm')} data-need-ask={inRow ? undefined : ''}>
-        {need.ask}
-      </p>
+      {/* In a row the row's title already shows the first line in full: the card repeats the ask only when it has more lines. */}
+      {(!inRow || need.ask.trim() !== firstLine(need.ask)) && (
+        <p className={cn('text-foreground leading-snug whitespace-pre-wrap break-words', phone ? 'text-[16px]' : 'text-sm')} data-need-ask={inRow ? undefined : ''}>
+          {need.ask}
+        </p>
+      )}
       <p className={cn('text-muted-foreground', phone ? 'text-[13px]' : 'text-xs')} data-need-from>
         Asked by {asker}, {need.from.word === 'person' ? 'in the app' : need.from.word === 'chat' ? 'through chat' : 'by an agent'}
         {need.from.label ? <span className="italic opacity-80" title="Typed by the agent, not checked"> (“{need.from.label}”)</span> : null}
@@ -268,7 +271,7 @@ export function NeedRow({ need, canAnswer = true, onAnswered, defaultOpen = fals
       <Row
         className="pr-2"
         leading={<HandHelping className={cn('w-4 h-4', open && isOpen ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')} aria-hidden />}
-        title={<span data-need-ask className="whitespace-normal line-clamp-2 md:whitespace-nowrap md:line-clamp-1">{firstLine(need.ask)}</span>}
+        title={<span data-need-ask className={open ? 'whitespace-normal' : 'whitespace-normal line-clamp-2 md:whitespace-nowrap md:line-clamp-1'}>{firstLine(need.ask)}</span>}
         meta={meta}
         onClick={() => setOpen(o => !o)}
         trailing={
