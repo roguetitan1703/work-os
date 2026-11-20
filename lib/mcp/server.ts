@@ -551,6 +551,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     ...(ordersWrittenBy(o, names, label) ? { writtenBy: ordersWrittenBy(o, names, label) } : {}),
     text: o.text,
     noteId: o.noteId,
+    ...(o.planFrom ? { workingPlan: `this project's own, from its Orders note ${o.planFrom}` } : {}),
     ...(o.truncated ? { truncated: 'read the note for the rest' } : {}),
   }));
   // What changed in the Orders in the last 48 hours (at most 5, cut to 1,200 characters): who, when, why, the lines out and in.

@@ -6,6 +6,7 @@ import { memberNames } from '../people';
 import { locate } from '../notes-match';
 import { InputError, NotFoundError } from './errors';
 import { requestContext } from '../request-context';
+import { withProjectPlan } from '../orders-plan';
 
 // Orders: standing rules served to every AI that starts work on a project (docs/flows/step-1.md section 2). Three layers,
 // each a note carrying the `orders` field:
@@ -24,7 +25,7 @@ const MAX_TEXT = 20_000;
 /** Version logs hold up to 20 whole earlier texts: list-like reads never load them (ordersHistory does). */
 const NO_LOG = { projection: { ordersLog: 0 } } as const;
 
-export type OrdersNote = { layer: OrdersLayer; noteId: string; title: string; text: string; truncated: boolean; createdBy: unknown; updatedBy: unknown; ownerId: string; ordersBy?: string; /** The page's Orders version (1 until its first change). */ version: number; updatedAt: Date };
+export type OrdersNote = { layer: OrdersLayer; noteId: string; title: string; text: string; truncated: boolean; createdBy: unknown; updatedBy: unknown; ownerId: string; ordersBy?: string; /** The page's Orders version (1 until its first change). */ version: number; updatedAt: Date; /** Org layer only: its "Working plan" section is the project's, from this note. */ planFrom?: string };
 
 /** The Orders in force for a person starting work on a project: organization, project, person, in that order. */
 export async function ordersFor(s: Scope, project: Pick<ProjectDoc, '_id'>): Promise<OrdersNote[]> {
@@ -37,7 +38,7 @@ export async function ordersFor(s: Scope, project: Pick<ProjectDoc, '_id'>): Pro
   ]);
   const out = (layer: OrdersLayer, list: NoteDoc[]): OrdersNote[] =>
     list.map(n => ({ layer, noteId: n._id, title: n.title, text: n.body.slice(0, MAX_TEXT), truncated: n.body.length > MAX_TEXT, createdBy: n.createdBy, updatedBy: n.updatedBy, ownerId: n.ownerId, ordersBy: n.ordersBy, version: n.ordersV ?? 1, updatedAt: n.updatedAt }));
-  return [...out('org', org), ...out('project', proj), ...out('person', mine)];
+  return withProjectPlan([...out('org', org), ...out('project', proj), ...out('person', mine)], s.userId);
 }
 
 /**
