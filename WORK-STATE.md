@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 154. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 155. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -10,7 +10,7 @@ Copy of the Work OS state, version 154. WORK-STATE.md is a copy of the State, wr
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
 3. R9 on dev ec95e84: UI revamp phases 3-5 (task why, sessions say why, Now/Next/Later chips). Add the withdraw_need fix and the phone bar, run the full e2e, then ask Om.
 4. Work OS feels like a task app (Om 20 Nov): design c5b8ebd9fd. Step A (phone bar Today, Claude, +, Needs, Projects) done on builder-s 22f7b68 (nav suites pass), held off dev until the UX review; B (Today as your desk) and C (+ starts work, results feed) wait on Om's pick. — waits on Om: A only, A+B, or all of C
-5. UX review (Om 20 Nov): capture 1 done on builder-s2 62905c7 (258 shots, 21 routes, /modes/[mode] stale); builder S2 Sonnet finishing phone jobs, real controls, search as Om uses it; capturing every screen at 390/1280 light+dark with real-looking data (tests/e2e/ui-tour.mjs, shots in builds/tmp/ui-review); then a Fable reviewer writes the review and the UI library plan as a note; then A+B+C wait on it.
+5. UX review (Om 20 Nov): capture 1 done on builder-s2 62905c7 (258 shots, 21 routes, /modes/[mode] stale); capture done edfe783 (10 jobs both sizes); Fable UX review running (ui-review/review.md); capturing every screen at 390/1280 light+dark with real-looking data (tests/e2e/ui-tour.mjs, shots in builds/tmp/ui-review); then a Fable reviewer writes the review and the UI library plan as a note; then A+B+C wait on it.
 6. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0 items. Due only when there is something to propose; refresh the count when tasks close. Seen 20 Nov after reconnecting the tools.
 
 ## Later
@@ -43,4 +43,4 @@ Copy of the Work OS state, version 154. WORK-STATE.md is a copy of the State, wr
 - Projects now card: a stray space before " · 1 session" after the project name (seen 20 Nov at 390 and 1280).
 - flow-ui-p3: add a check that task #12 gets no Now why when the Now names #123 (pattern fixed in 62acdf7, checked by hand only).
 - ; lane rows say Next 2 twice (chip and the served line). Seen 20 Nov.
-<!-- work-os-copy sha1:30477c8d9da375fa1c1e132c8cd63f105145e584 -->
+<!-- work-os-copy sha1:2cef944ba2c049ad5a575c1568db56325e859edc -->
