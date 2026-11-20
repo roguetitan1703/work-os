@@ -75,10 +75,6 @@
     "px": 16,
     "btn": 0
   },
-  "app/(app)/menu/page.tsx": {
-    "px": 2,
-    "btn": 0
-  },
   "app/(app)/notes/[id]/note-editor.tsx": {
     "px": 1,
     "btn": 2
@@ -140,7 +136,7 @@
     "btn": 3
   },
   "app/(app)/projects/[id]/project-top.tsx": {
-    "px": 3,
+    "px": 2,
     "btn": 7
   },
   "app/(app)/projects/[id]/sessions.tsx": {
@@ -157,7 +153,7 @@
   },
   "app/(app)/projects/new-project.tsx": {
     "px": 2,
-    "btn": 3
+    "btn": 2
   },
   "app/(app)/projects/page.tsx": {
     "px": 4,
@@ -373,14 +369,14 @@
   },
   "components/mobile/m-notes.tsx": {
     "px": 2,
-    "btn": 4
+    "btn": 3
   },
   "components/mobile/m-task-actions.tsx": {
     "px": 8,
     "btn": 6
   },
   "components/mobile/m-task-detail.tsx": {
-    "px": 43,
+    "px": 42,
     "btn": 27
   },
   "components/mobile/m-task-row.tsx": {
@@ -392,20 +388,20 @@
     "btn": 8
   },
   "components/mobile/quick-add-sheet.tsx": {
-    "px": 4,
-    "btn": 7
+    "px": 2,
+    "btn": 5
   },
   "components/mobile/sheet.tsx": {
     "px": 0,
     "btn": 2
   },
   "components/mobile/sub-header.tsx": {
-    "px": 4,
+    "px": 2,
     "btn": 0
   },
   "components/mobile/tab-bar.tsx": {
-    "px": 3,
-    "btn": 2
+    "px": 0,
+    "btn": 1
   },
   "components/mode-help.tsx": {
     "px": 3,

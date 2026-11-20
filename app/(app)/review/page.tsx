@@ -1,4 +1,4 @@
-import { SubHeader } from '@/components/mobile/sub-header';
+import { ScreenHeader } from '@/components/mobile/tab-bar';
 import { ReviewNav, reviewView } from '@/components/review-nav';
 import { Activity, Archived, Completed, Stale, Trash } from './views';
 
@@ -13,11 +13,7 @@ export default async function ReviewPage({ searchParams }: Props) {
   const weeks = Math.min(52, Math.max(1, Number(sp.weeks) || 8));
   return (
     <div className="space-y-5 max-w-5xl">
-      <SubHeader title="Review" subtitle="How work actually moved." />
-      <div className="hidden md:block">
-        <h1 className="text-2xl font-bold text-foreground">Review</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">How work actually moved.</p>
-      </div>
+      <ScreenHeader title="Review" sub="How work actually moved." back="/menu" backLabel="Menu" />
       <ReviewNav active={view} />
       {view === 'done' && <Completed weeks={weeks} />}
       {view === 'activity' && <Activity actor={sp.actor} what={sp.what} />}

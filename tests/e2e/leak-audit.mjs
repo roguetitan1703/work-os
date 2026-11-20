@@ -1589,7 +1589,6 @@ function AUDIT() {
   items['page /projects/[id]'].probes.push(pg(t => `/projects/${t.project}?tab=needs`, aim(['project'], { label: 'needs tab' })));
   add('page /notes', pg('/notes?state=all'), pg(t => `/notes?project=${t.project}&state=all`, { label: 'filtered by project' }));
   add('page /notes/[id]', pg(t => `/notes/${t.note}`, aim(['note'])), pg(t => `/notes/${t.sub}`, aim(['sub'], { label: 'sub-page' })), pg(t => `/notes/${t.taskNote}`, aim(['taskNote'], { label: 'task note' })));
-  add('page /modes/[mode]', pg('/modes/growth', { ok: r => /^redirect \/tasks\?mode=/.test(pageState(r)) }), pg(() => `/modes/${CANARIES.find(c => c.tag === 'xmode').s}`, { label: 'the second org\'s mode', echo: () => [CANARIES.find(c => c.tag === 'xmode').s], ok: r => /^redirect \/tasks\?mode=/.test(pageState(r)), aim: true, aimKeys: [], control: false }));
   add('page /notifications', pg('/notifications'));
   // Needs: the open Needs addressed to the caller and those they answered lately, read through the door (lib/data/needs.ts listNeeds, to = the caller).
   add('page /needs', pg('/needs'));

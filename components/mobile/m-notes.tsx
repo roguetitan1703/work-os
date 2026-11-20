@@ -4,7 +4,7 @@ import { PrivateBadge } from '@/components/private-badge';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from '@/components/intent-link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { ArrowUp, FilePlus, Search, X } from 'lucide-react';
+import { ArrowUp, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { createNoteAction } from '@/app/(app)/notes/actions';
 import { cn } from '@/lib/utils';
@@ -105,20 +105,8 @@ export function MobileNoteFilters({ projects }: { projects: P[] }) {
   );
 }
 
-/** "+ New" in the Notes header: opens a bottom sheet with a title and project chips. */
-export function NewNoteSheetButton({ projects, defaultProject }: { projects: P[]; defaultProject?: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button onClick={() => setOpen(true)} aria-label="New note" type="button" className="h-11 min-w-11 px-4 rounded-full bg-foreground text-background text-sm font-semibold flex items-center justify-center gap-1.5 touch-manipulation active:opacity-80">
-        <FilePlus className="w-4 h-4" /> New
-      </button>
-      {open && <NewNoteSheet projects={projects} defaultProject={defaultProject} onClose={() => setOpen(false)} />}
-    </>
-  );
-}
-
-function NewNoteSheet({ projects, defaultProject, onClose }: { projects: P[]; defaultProject?: string; onClose: () => void }) {
+/** New note on the phone (the + sheet's New note): a bottom sheet with a title and project chips. */
+export function NewNoteSheet({ projects, defaultProject, onClose }: { projects: P[]; defaultProject?: string; onClose: () => void }) {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [project, setProject] = useState(defaultProject && projects.some(p => p.id === defaultProject) ? defaultProject : (projects[0]?.id ?? ''));

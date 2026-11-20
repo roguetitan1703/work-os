@@ -39,9 +39,9 @@ Needs: Windows with MongoDB 8.2 at `C:\Program Files\MongoDB\Server\8.2\bin\mong
 | --- | --- | --- |
 | `today` | today | Today at 390 and 1280: first screen, Claude card (needs-you rows, reply, answered, activity line), Show more, Done and Undo, folds, no duplicate rows, 44px targets on phone, empty states |
 | `claude-page` | none | `/claude` Now (Needs you, sessions), Queue (items, sheet), Setup (devices, folders, linking), Start Claude flow and its steps, at 1280 and 390 |
-| `nav` | nav | Phone bottom bar (order, badges, lit tab, 44px), headers, Menu links and mode chips, `+` sheet, tab/segment switches use replace, Back rules; desktop sidebar (order, badges, Modes, footer clickable), keyboard shortcuts, help dialog, Back |
+| `nav` | nav | Phone bottom bar (Today, Projects, +, Needs, Claude; badges, lit tab, 44px), one header on every page (search, bell, Menu, the one back link), the flat Menu, `+` sheet (Start Claude, New note), no second + on Projects, tab/segment switches use replace, Back rules, `/modes/*` gone; desktop sidebar (order, one badge colour, the bell, account menu with Review, Schedule, What's new, Settings), keyboard shortcuts 1-6, help dialog, Back |
 | `nav-cross` | nav | Start Claude modal from the `+` sheet, sidebar and key `S` on every main page, Back and Escape close it, old-URL redirects, no horizontal scroll on the main pages at 390 and 1280 |
-| `nav-preload-1` | nav | After idling, Today to Projects to Tasks open from the preload (the only warmed pages); Menu and Settings open after one server round trip. Phone |
+| `nav-preload-1` | nav | After idling, Today to Projects opens from the preload; Menu, Menu › Tasks and Settings open within one server round trip. Phone |
 | `nav-preload-2` | nav | Today to Claude, the Claude Now/Queue/Setup tabs and the project overview tabs open (not prefetched in full any more: one server round trip allowed). Phone |
 | `fix-check` | none | Sidebar footer reachable, theme toggle, Day plan dialog (desktop) and sheet (phone), named switches on Settings, Claude item sheet on a project page (note, state, Next) |
 | `settings` | none | Redirects from `/connect` and `/recovery`, status strip, theme (one click), sections (alerts, security, connections, help), alerts table toggle persists, phone Back, no h-scroll |

@@ -456,9 +456,7 @@ async function jobs(br, tag) {
   const L = (sel, name) => p.locator(sel).filter({ hasText: name });
 
   await job(1, 'See what each Claude session is doing right now', async ({ step, hard }) => {
-    if (phone) await step('Menu button in the header', () => T(p.locator('a[href="/menu"]:visible')));
-    if (phone) await step('Menu: Claude', () => T(p.locator('a[href^="/claude"]:visible')));
-    else await step('Sidebar: Claude', () => T(p.locator('aside a[href="/claude"]')));
+    await step(phone ? 'Claude in the bar' : 'Sidebar: Claude', () => T(p.locator(phone ? 'nav[aria-label=Main]:visible a[href="/claude"]' : 'aside a[href="/claude"]')));
     await step('Workers tab (state per session)', () => T(p.locator('a[data-tab=workers]')));
     const body = await p.locator('main').innerText();
     if (!/Kestrel webhook fix/.test(body)) hard('Workers tab does not list the session labels');
@@ -470,14 +468,14 @@ async function jobs(br, tag) {
     await step(phone ? 'Needs tab in the bar' : 'Sidebar: Needs', () => tab('/needs'));
     await step('Pick the first option of the decide Need', () => T(p.locator('[data-need="1"] [data-need-option="a"]')));
     await step('Confirm if asked (Send / Answer)', async () => { const b = p.locator('[data-need="1"] [data-need-send]'); if (await b.count()) await T(b); else hard('the option tap answered at once (no confirm step)'); });
-    await step(phone ? 'Menu' : 'Sidebar: Claude', () => T(p.locator(phone ? 'a[href="/menu"]:visible' : 'aside a[href="/claude"]')));
-    if (phone) await step('Menu: Claude', () => T(p.locator('a[href^="/claude"]:visible')));
+    await step(phone ? 'Claude in the bar' : 'Sidebar: Claude', () => tab('/claude'));
     await step('Workers tab: that session now', () => T(p.locator('a[data-tab=workers]')));
     hard('after answering, the session is checked on another page (/claude?tab=workers); the Need page does not show the session state');
   });
   await job(3, 'Give Claude a task (Give to Claude) on an existing task', async ({ step, hard }) => {
     const ref = REF['Rewrite pricing page copy'].ref;
-    await step('Tasks', () => tab('/tasks'));
+    if (phone) { await step('Menu button in the header', () => T(p.locator('a[href="/menu"]:visible'))); await step('Menu: Tasks', () => T(p.locator('main a[href="/tasks"]:visible'))); }
+    else await step('Sidebar: Tasks', () => tab('/tasks'));
     await step('Open the task', () => T(p.locator(`a[href="/tasks/${ref}"]:visible`)));
     if (phone) await step('More actions (...) at the top right of the task page', () => T(p.locator('button[aria-label="More actions"]')));
     await step(phone ? 'Give to Claude (menu item)' : 'Give to Claude (button on the task page)', () => T(phone ? p.getByText('Give to Claude', { exact: true }) : p.locator('main button[data-claude-menu]')));
@@ -489,9 +487,10 @@ async function jobs(br, tag) {
     if (!phone) hard('desktop task rows: no "..." menu; the controls are a hover-only Bot icon (Give to Claude), a progress button, and inline Priority and Status selects');
   });
   await job(4, 'Start a Claude session on a project (Start Claude)', async ({ step, hard }) => {
-    if (phone) { await step('Menu button in the header', () => T(p.locator('a[href="/menu"]:visible'))); await step('Menu: Claude', () => T(p.locator('a[href^="/claude"]:visible'))); }
-    else await step('Sidebar: Claude', () => T(p.locator('aside a[href="/claude"]')));
-    await step('Start Claude', () => T(p.getByRole('link', { name: /Start Claude/ }).or(p.getByRole('button', { name: /Start Claude/ }))));
+    if (phone) {
+      await step('Claude in the bar', () => tab('/claude'));
+      await step('Start Claude', () => T(p.locator('main').getByRole('link', { name: /Start Claude/ }).or(p.locator('main').getByRole('button', { name: /Start Claude/ }))));
+    } else await step('Sidebar: Start Claude', () => T(p.locator('aside [data-start-claude-button]')));
     await step('Pick the project', () => T(p.locator(`[data-start-project="${kid}"]`)));
     hard('stopped before the final Start button on purpose: it would launch a real session');
   });
@@ -512,8 +511,8 @@ async function jobs(br, tag) {
     await step('Open the note', () => T(p.locator('a[href^="/notes/"]:visible', { hasText: 'Kestrel migration plan' })));
   });
   await job(7, 'Check what Claude finished today', async ({ step, hard }) => {
-    await step(phone ? 'Menu' : 'Sidebar: Review', async () => { if (phone) { await T(p.locator('a[href="/menu"]:visible')); } else await T(p.locator('aside a[href="/review"]')); });
-    if (phone) await step('Menu: Review', () => T(p.locator('a[href^="/review"]:visible')));
+    await step(phone ? 'Menu' : 'Sidebar: account menu', () => T(p.locator(phone ? 'a[href="/menu"]:visible' : 'aside [data-account-button]')));
+    await step(phone ? 'Menu: Review' : 'Account menu: Review', () => T(p.locator(phone ? 'a[href^="/review"]:visible' : '[data-menu-review]')));
     const t = await p.locator('main').innerText();
     if (!/Done|done/.test(t)) hard('no Done list visible on Review');
     if (!/Claude|hand/i.test(t)) hard('Review does not say which finished work was Claude\'s (no hand-ins or results here)');
@@ -556,7 +555,9 @@ async function jobs(br, tag) {
     const link = p.locator('main a[href*="settings"]:visible').first();
     if (await link.count()) await step('Tap the settings link in the notice', () => T(link));
     else { hard('Inbox has no link to settings; went to Settings by Menu/sidebar'); await step(phone ? 'Menu' : 'Sidebar: Settings', () => T(p.locator(phone ? 'a[href="/menu"]:visible' : 'aside a[href="/settings"]'))); if (phone) await step('Menu: Settings', () => T(p.locator('a[href^="/settings"]:visible'))); }
-    await step('Notifications section', async () => { const l = p.locator('a[href*="section=notifications"]:visible').first(); if (await l.count()) await T(l); else hard('already on the section'); });
+    // A settings link that lands on its section needs no further tap.
+    if (!/section=notifications/.test(p.url())) await step('Notifications section', async () => { const l = p.locator('a[href*="section=notifications"]:visible').first(); if (await l.count()) await T(l); else hard('no Notifications link'); });
+    if (!/section=notifications/.test(p.url())) hard(`did not land on the Notifications section (${new URL(p.url()).pathname + new URL(p.url()).search})`);
   });
   await ctx.close();
 }
@@ -581,7 +582,7 @@ async function legacyRedirects() {
   // sign in through the API-free way: reuse the login form
   const p = await ctx.newPage();
   await login(p, { next: '/today' });
-  for (const u of ['/', '/more', '/board', '/connect', '/connect?tab=alerts', '/connect?tab=discord', '/connect?tab=code', '/history', '/history?tab=trash', '/hidden', '/archive', '/recovery', '/modes/code-dev', '/settings?section=device', '/settings?section=security']) {
+  for (const u of ['/', '/more', '/board', '/connect', '/connect?tab=alerts', '/connect?tab=discord', '/connect?tab=code', '/history', '/history?tab=trash', '/hidden', '/archive', '/recovery', '/settings?section=device', '/settings?section=security', '/settings?section=nonsense']) {
     const r = await ctx.request.get(B + u, { maxRedirects: 0, timeout: 10000 }).catch(() => null);
     console.log('redirect', u, r?.status());
     const to = r?.headers()['location'] ?? '';
@@ -604,19 +605,18 @@ const ROUTES = [
   ['/today', 'linked: tab bar, sidebar', '/today'],
   ['/projects', 'linked: tab bar, sidebar', '/projects'],
   ['/projects/[id]', 'linked: project rows. Tabs overview, tasks, claude, needs, notes, info', '/projects/[id]'],
-  ['/tasks', 'linked: tab bar, sidebar', '/tasks'],
+  ['/tasks', 'linked: Menu (first row), sidebar', '/tasks'],
   ['/tasks/[id]', 'linked: every task row', '/tasks/[id]'],
   ['/needs', 'linked: tab bar, sidebar', '/needs'],
-  ['/claude', 'linked: Menu, sidebar. Tabs now, workers, setup', '/claude'],
-  ['/notes', 'linked: Projects page (phone), sidebar', '/notes'],
+  ['/claude', 'linked: tab bar, sidebar. Tabs now, workers, setup', '/claude'],
+  ['/notes', 'linked: Menu, Projects page (phone), sidebar', '/notes'],
   ['/notes/[id]', 'linked: note rows', '/notes/[id]'],
-  ['/menu', 'linked: phone header. Desktop has no link (sidebar holds the same entries)', '/menu', true],
-  ['/notifications', 'linked: bell, Menu, sidebar', '/notifications'],
-  ['/review', 'linked: Menu, sidebar. Views done, activity, stale, archive, trash', '/review'],
-  ['/timetable', 'linked: Menu', '/timetable'],
-  ['/whats-new', 'linked: Menu, sidebar, Today card', '/whats-new'],
-  ['/settings', 'linked: Menu, sidebar. Sections account, notifications, connections, ai-tools, started, team, server', '/settings'],
-  ['/modes/[mode]', 'redirect-only (redirects to /tasks?mode=...) and nothing in the UI links to it (modeHref points at /tasks): a stale screen kept for old links', null],
+  ['/menu', 'linked: phone header. Desktop has no link (sidebar and account menu hold the same entries)', '/menu', true],
+  ['/notifications', 'linked: bell (phone header, sidebar top), Menu', '/notifications'],
+  ['/review', 'linked: Menu, account menu. Views done, activity, stale, archive, trash', '/review'],
+  ['/timetable', 'linked: Menu, account menu', '/timetable'],
+  ['/whats-new', 'linked: Menu, account menu, Today card', '/whats-new'],
+  ['/settings', 'linked: Menu, account menu. Sections account, notifications, connections, ai-tools, started, team, server', '/settings'],
   ['/login', 'signed-out entry', '/login'],
   ['/login/reset', 'linked from the sign-in form and reset emails', '/login/reset'],
   ['/accept-invitation/[id]', 'reached only from the invitation email (no in-app link): captured with an unknown id, so the error state only; a live invitation needs a real emailed id', '/accept-invitation/[id]'],

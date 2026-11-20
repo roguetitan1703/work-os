@@ -2,7 +2,9 @@ import Link from '@/components/intent-link';
 import { Bell, ChevronRight, Settings } from 'lucide-react';
 import { listInbox } from '@/lib/notify';
 import { fmtAgo } from '@/lib/format';
-import { SubHeader } from '@/components/mobile/sub-header';
+import { ScreenHeader } from '@/components/mobile/tab-bar';
+
+const SETTINGS = '/settings?section=notifications';
 import { cn } from '@/lib/utils';
 import { MarkRead } from './mark-read';
 import { requireScope } from '@/lib/caller';
@@ -30,24 +32,25 @@ export default async function NotificationsPage() {
   const unread = items.filter(i => !i.read).length;
   return (
     <div className="max-w-xl mx-auto">
-      <SubHeader
-        back="/today"
-        backLabel="Today"
+      {/* Settings opens on its Notifications section: what these alerts are and where they go. */}
+      <ScreenHeader
+        back="/menu"
+        backLabel="Menu"
         title="Inbox"
         bell={false}
-        subtitle={unread ? `${unread} new` : 'All caught up'}
+        sub={unread ? `${unread} new` : 'All caught up'}
         right={
-          <Link href="/settings" aria-label="Notification settings" className="w-10 h-10 flex items-center justify-center rounded-full active:bg-muted">
+          <Link href={SETTINGS} aria-label="Notification settings" data-notify-settings className="w-11 h-11 flex items-center justify-center rounded-full active:bg-muted">
             <Settings className="w-5 h-5" />
           </Link>
         }
+        actions={
+          <Link href={SETTINGS} data-notify-settings className="text-sm text-muted-foreground hover:text-foreground">
+            Notification settings
+          </Link>
+        }
+        className="mb-3"
       />
-      <div className="hidden md:flex items-center justify-between mb-3">
-        <h1 className="text-2xl font-bold">Inbox</h1>
-        <Link href="/settings" className="text-sm text-muted-foreground hover:text-foreground">
-          Settings
-        </Link>
-      </div>
       {unread > 0 && <MarkRead />}
       {items.length === 0 ? (
         <div className="mt-16 flex flex-col items-center text-center text-muted-foreground">

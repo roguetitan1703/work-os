@@ -453,13 +453,14 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 ### Om
 - **Install:** iPhone: Safari → Share → **Add to Home Screen**. Android: Chrome → **Install app**. Long-press the icon for the **New task** and **Notes** shortcuts. On iPhone, sign in once inside the installed app.
 - **Below 768px wide, the app uses the phone interface;** the laptop view doesn't change.
-  - **Tab bar:** Today, Projects, **+**, Needs (with the count of open Needs for you), Tasks; **Menu** in the header (Claude, Inbox, Review, Schedule, What's new, Settings). Notes sit under Projects on the phone. The Menu button carries an amber dot while Claude waits on you, else a blue dot while something new is unseen.
+  - **Tab bar:** Today, Projects, **+**, Needs (with the count of open Needs for you), Claude; **Menu** in the header. Notes sit under Projects on the phone (and in the Menu). The Menu button carries a blue dot while something new is unseen.
+  - **One header on every screen:** the title and one sub line, then Search, the bell and Menu (the Menu itself has no Menu button, the Inbox no bell). Screens reached from the Menu or a parent add the one back link above the title: a blue chevron and the parent's name (the task page says Back).
   - **Today:**
     - Counts at the top (overdue, due today, in progress) that jump to their section.
     - Cards for Overdue, Due today, In progress, Blocked/waiting, Up next.
     - Tap a circle to complete a task, with **Undo**.
-  - **+ (quick add):**
-    - A big text field.
+  - **+ (New task, Start Claude, New note):**
+    - A big text field for the task; while it is empty, **Start Claude** (or Set up Claude) and **New note** sit under it.
     - One-tap chips for due date (Today, Tomorrow, Friday, Next week), priority and project.
     - "Add task", or "Add & open" to go straight to it.
   - **Tasks:**
@@ -475,9 +476,12 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
     - A sticky **Mark done** button. The ⋯ menu has Drop, Reopen, Archive and Delete (Delete asks for a reason sheet; it goes to the trash).
     - Each comment in history has a **⋯** that opens Edit / Delete (any comment).
   - **Today extras:** the bell with its unread badge, a **Day Plan** button (the day's schedule as a sheet, tick tasks off) and **Import** (paste a markdown table or JSON of tasks).
-  - **Notes:** the same editor, sized for the phone. The list has live search and swipeable chips (Active / Archived / All, projects); **New note** opens a sheet (title, project).
+  - **Notes:** the same editor, sized for the phone. The list has live search and swipeable chips (Active / Archived / All, projects); **+ › New note** opens a sheet (title, project).
+  - **Projects:** Active / All chips and a **New project** button beside them (no second + in the header).
   - **Projects, Review (Done, Activity, Stale, Archive, Trash), Schedule:** each has a phone layout with a back button, task rows like the Tasks tab, and no horizontal scrolling at 360–412px.
-  - **Menu:** Claude (with what waits on you), Inbox, Review, Schedule, What's new (blue dot while something is unseen), Settings (with the server health dot).
+  - **Menu:** one flat list: Tasks, Notes, Review, Schedule, Inbox (with the unread count), What's new (blue dot while something is unseen), Settings (with the server health dot).
+  - **Desktop sidebar:** Search, New task, Start Claude; then Today, Projects, Claude, Needs, Tasks, Notes (keys 1-6), then Recent. The Inbox is the bell at the top beside the collapse button. Review, Schedule, What's new and Settings are in the account menu at the bottom (the avatar carries the blue dot while something is new). Every count is the same red.
+  - **Settings links:** a link to a setting opens its section (`/settings?section=notifications` from the Inbox and from What's new); a section that does not exist lands on the main settings list.
   - **Needs** (the tab; **Needs** in the desktop sidebar, under Inbox, with the count): what waits on you (decisions, approvals, reviews of handed-in work, asks from teammates and Claude), the same cards as Today's "Needs you", answered with a tap; below, what you answered in the last 14 days. Empty, it says what will appear and how. **Tasks** (phone and desktop) shows "Needs you" on top with the first three and **See all** (nothing when none).
   - **What's new:** Today shows a "New in Work OS" card with features shipped in the last 14 days you have not seen (three, then "and N more"): **Try it** opens the feature and marks it seen, **Dismiss** hides them all. The **What's new** page (Menu, sidebar) lists every feature newest first, one line each and where to find it; opening it marks everything seen. A small **New** badge sits on a new feature's sidebar entry for 14 days (Needs now).
   - **Pull to refresh:** pull down at the top of any screen to reload its data (an installed app has no browser refresh). It's ignored while a sheet is open.
@@ -485,13 +489,14 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 
 ### Claude Code
 - **Phone components:** `components/mobile/`
-  - `tab-bar.tsx`: tab bar and `MobileHeader` (Menu button in the header)
+  - `tab-bar.tsx`: tab bar; `MobileHeader` (the phone header, built on `PageHeader`: optional `back`/`backLabel`, title, sub line, the page's `right` controls, Search, bell, Menu); `ScreenHeader` (MobileHeader on the phone, PageHeader from md, for pages that want the same header on both sizes)
   - `quick-add-sheet.tsx`
   - screens: `today/today-client.tsx` (Today for both sizes), `m-tasks.tsx`, `m-task-row.tsx`, `m-task-actions.tsx` (⋯ sheet), `m-task-detail.tsx`, `m-notes.tsx`, `m-day-plan.tsx`, `m-import.tsx`
   - **Shared pieces:**
     - `sheet.tsx` → `BottomSheet`: partial-height sheet for menus, pickers, confirmations
     - `full-sheet.tsx` → `FullSheet`: full-height sheet with a pinned footer, for long forms
-    - `sub-header.tsx` → `SubHeader`: 44px back button and big title for screens reached from More (`back` / `backLabel` for other parents)
+    - `components/ui/page.tsx` → `BackButton`: the one back link (blue chevron and the parent's name, 44px on phones, 36px from md; history back when the last page was in the app). Used by PageHeader, MobileHeader, `MobileBack` (note pages), the task and project pages
+    - `sub-header.tsx` → `MEmpty`, `MGroupTitle`, `MobileBack`
     - `use-phone.ts` → `usePhone()`: true below 768px, false during SSR; use it only when JS must branch (otherwise use CSS)
     - `bell.tsx` → `BellButton`; `pull-to-refresh.tsx` → `PullToRefresh`, mounted once in `app/(app)/layout.tsx` on `#app-main`
 - **Conventions for new phone work:**
@@ -503,7 +508,7 @@ Nothing to call; alerts run on their own. Claude's own changes trigger them like
 - **How pages switch:** a page renders the phone view inside `md:hidden` and the desktop view inside `hidden md:block`. See `today/page.tsx`, `tasks/page.tsx` and `tasks/[id]/page.tsx`.
 - **Menu:** `app/(app)/menu/page.tsx`.
 - **What's new:** one data file, `lib/whats-new.ts` (`WHATS_NEW`, newest first; each entry: stable `id`, `date`, `title`, `line`, `where`, `href`, optional `badge` place from `BADGE_PLACES` and `requires: 'mail' | 'intake'` for features a deployment may not have set up). Shipping a user-facing feature adds one entry (AGENTS.md). An entry is new for `NEW_DAYS` (14) days from its date: Today's card (`today/whats-new-card.tsx`), the nav dot and its `<NewBadge>` (`components/new-badge.tsx`, rendered where the place is, e.g. the sidebar's Needs) all use that window. What each person has seen is `whatsNewSeen` (entry ids only) in their `profile:<userId>` settings (`lib/whats-new-seen.ts`, read once per request with React `cache`, and not at all while no entry is new); written only by `app/(app)/whats-new/actions.ts` (session cookie). The page is `app/(app)/whats-new/page.tsx` (`mark-seen.tsx` marks all seen 1.5 s after opening). The layout passes `needs`, `whatsNew` and `newBadges` in the nav badges (`components/app-context.tsx`). e2e: run.sh pins "today" with `E2E_WHATS_NEW_TODAY` (e2e database only): 2099-01-01 for every suite (nothing is new, so a new entry never changes them), 2026-11-18 for `whats-new`, 2026-12-03 for `whats-new-late` (14 days after the newest entry: no card, dot or badge).
-- **Needs page:** `app/(app)/needs/page.tsx` (open Needs to me via `openNeedsToMe`, answered to me in the last 14 days via `listNeeds`), rendered by `MyNeeds` in `components/needs.tsx` with the shared `NeedCard`. Tasks (`tasks/page.tsx`) passes `NeedsYou` with `max` 3 and `seeAll` to `MobileTasks` / `BoardClient` as `top`. The phone tab bar (`components/mobile/tab-bar.tsx`) has Needs where Claude was; `lib/nav.ts` `phoneTabOf` lights it on `/needs` and nothing on `/claude`. Empty states that say what appears and how: Needs page, project Needs tab, State card (`data-state-empty`), project Inbox (`data-inbox-empty`). e2e `whats-new`, `whats-new-late`, `nav`, `nav-cross`.
+- **Needs page:** `app/(app)/needs/page.tsx` (open Needs to me via `openNeedsToMe`, answered to me in the last 14 days via `listNeeds`), rendered by `MyNeeds` in `components/needs.tsx` with the shared `NeedCard`. Tasks (`tasks/page.tsx`) passes `NeedsYou` with `max` 3 and `seeAll` to `MobileTasks` / `BoardClient` as `top`. The phone tab bar (`components/mobile/tab-bar.tsx`) is Today, Projects, +, Needs, Claude; `lib/nav.ts` `phoneTabOf` lights Needs on `/needs`, Claude on `/claude` and nothing on `/tasks` (Tasks is the first Menu row). Empty states that say what appears and how: Needs page, project Needs tab, State card (`data-state-empty`), project Inbox (`data-inbox-empty`). e2e `whats-new`, `whats-new-late`, `nav`, `nav-cross`.
 - **Claude page tabs** (Now, Workers, Set up) use one layout for both sizes. Workers (`claude/workers-tab.tsx`, data from `lib/data/roster.ts`) is a server component: one row per worker (person, AI client, model, account, machine, project, branch, doing, state, last seen; state is On, Working, Waiting on a person (Waiting on you for the owner's own prompt), Idle or Off, with "since HH:MM" for idle and waiting in the person's timezone), builders indented under their orchestrator, "Could be running and isn't" on top. A project page shows "Working on it now" for that project: one row per lane (label, client, model, branch, slot, task as a #ref link, state, and "last: <result>" in italics, one line, written by that agent). The State card shows "Now · held by <label> (working)" (label only, never a session id), a small "· <label>" mark on a held line, and an unheld line's `left` text under it (`withLaneMarks` in `roster.ts`). Now (`now-tab.tsx`) takes a session's state from its hook when the owner's presence row (matched by `ccSession` to the worker list) has one, else from transcript timing; a hook-reported permission prompt reads "waiting on you" (`waitingWhy: 'prompt'` in `claude-overview.ts`). Checked at 390 and 1280 in `flow-w1` and `claude-page`.
 - **PWA files:**
   - manifest: `app/manifest.ts`

@@ -3,10 +3,10 @@
 import { PrivateBadge } from '@/components/private-badge';
 import Link from '@/components/intent-link';
 import { ActorName } from '@/components/actor-badge';
-import { BackLink } from '@/components/back-link';
+import { BackButton } from '@/components/ui/page';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
-import { ArrowLeft, Archive, ArchiveRestore, Bot, CheckCircle2, SquareTerminal, ChevronRight, ExternalLink, MoreHorizontal, Plus, Trash2, TrendingUp, X } from 'lucide-react';
+import { Archive, ArchiveRestore, Bot, CheckCircle2, SquareTerminal, ChevronRight, ExternalLink, MoreHorizontal, Plus, Trash2, TrendingUp, X } from 'lucide-react';
 import {
   addCommentAction,
   checklistAction,
@@ -75,9 +75,7 @@ export function TaskDetailClient({ purpose, task, projectName, dependencies, dep
 
   return (
     <div className={cn('space-y-5', pending && 'opacity-80')}>
-      <BackLink href="/tasks" className="hidden md:inline-flex items-center gap-1 -mb-2 text-xs text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="w-3 h-3" /> Tasks
-      </BackLink>
+      <BackButton href="/tasks" label="Tasks" className="hidden md:inline-flex -mb-2" />
       {/* Title row */}
       <div className="space-y-2">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">

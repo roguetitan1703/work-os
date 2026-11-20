@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from '@/components/intent-link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ChevronLeft, FolderGit2, ListChecks, MoreHorizontal, Pencil, Archive, Play } from 'lucide-react';
+import { FolderGit2, ListChecks, MoreHorizontal, Pencil, Archive, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { updateProjectAction } from '@/app/actions';
-import { BackLink } from '@/components/back-link';
+import { BackButton } from '@/components/ui/page';
 import { ConfirmSheet, ResponsiveSheet } from '@/components/responsive-sheet';
 import { usePhone } from '@/components/mobile/use-phone';
 import { PROJECT_STATUSES, type Project, type ProjectInput } from '@/lib/types';
@@ -62,11 +62,7 @@ export function ProjectTop({ project, tab }: { project: Project; tab: string }) 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between -mx-2 md:mx-0">
-        <BackLink href="/projects" aria-label="Back to Projects" className="inline-flex items-center h-11 md:h-8 pl-1 pr-3 gap-0.5 rounded-xl text-[16px] md:text-xs text-blue-600 dark:text-blue-400 md:text-muted-foreground md:hover:text-foreground active:opacity-60">
-          <ChevronLeft className="w-6 h-6 md:hidden" strokeWidth={2.2} />
-          <ArrowLeft className="w-3 h-3 hidden md:inline mr-1" />
-          Projects
-        </BackLink>
+        <BackButton href="/projects" label="Projects" className="ml-0" />
         <div className="relative" ref={menuRef}>
           <button type="button" aria-label="Project menu" aria-expanded={menu} onClick={() => setMenu(v => !v)} data-project-menu className="w-11 h-11 md:w-8 md:h-8 rounded-full flex items-center justify-center text-muted-foreground active:bg-muted hover:bg-muted/60">
             <MoreHorizontal className="w-5 h-5" />

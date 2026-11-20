@@ -12,7 +12,7 @@ import { AutoRefresh } from '@/app/(app)/claude/auto-refresh';
 function topicsFor(path: string): string[] | null {
   if (path === '/claude' || path.startsWith('/claude/')) return null;
   if (path === '/today' || path === '/') return ['tasks', 'projects', 'claude', 'inbox'];
-  if (path.startsWith('/tasks') || path.startsWith('/modes/')) return ['tasks', 'projects', 'inbox'];
+  if (path.startsWith('/tasks')) return ['tasks', 'projects', 'inbox'];
   if (path === '/projects') return ['projects', 'tasks', 'inbox'];
   if (path.startsWith('/projects/')) return ['projects', 'tasks', 'notes', 'claude', 'inbox'];
   if (path === '/notes') return ['notes', 'inbox'];
