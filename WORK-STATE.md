@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 175. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 176. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -49,6 +49,6 @@ Copy of the Work OS state, version 175. WORK-STATE.md is a copy of the State, wr
 - Today's DB ops grew 1-2 between the 23 Oct budgets and R8 (page 30, rsc 25, complete 44); probe.mjs now prints ops per collection; find which read grew (devices=6 on one Today load looks high).
 - Claude page: a session's last line can be a subagent's compaction summary (AKAR row showed "<analysis> I am an Opus builder subagent..."): take the last line from the main conversation only, never from a summary.
 - worker test hook-h7 timing flake (failed in a full worker run, passed alone twice, 20 Nov).
-- Search (builder-a c97c00e): GET /api/search, 3 KB per search, ~290 docs examined (was 8.4k); only the 500 newest docs' descriptions/bodies and open tasks' newest comments are searched (older text not found); security review running.
+- Search (builder-a c97c00e): GET /api/search, 3 KB per search, ~290 docs examined (was 8.4k); only the 500 newest docs' descriptions/bodies and open tasks' newest comments are searched (older text not found); security review done and re-checked: app-only Need answers hidden (5b987f9), recent hits per person. Ready to merge with the other steps.
 - Worker trust (20 Nov review): first installs still trust the server's file and sha256 (pin to a GitHub release + key); signed releases never expire; dispatched prompts keep the person's permission mode, so a PC in bypassPermissions lets the server run code unsigned.
-<!-- work-os-copy sha1:ebc8f76493cb8bed561d97d1f67a6e84ed04c6ec -->
+<!-- work-os-copy sha1:97e42490ab7276093a9397a4b5befa88627057cf -->
