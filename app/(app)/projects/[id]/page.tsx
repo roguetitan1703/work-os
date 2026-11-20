@@ -30,14 +30,14 @@ import { asksBySession, withAskerSessions } from '@/lib/data/need-sessions';
 import { NeedsTab } from '@/components/needs';
 import { StateCard } from './state-card';
 import { PurposeHeader } from '@/components/purpose-header';
-import { CouldBeRunning } from '@/components/could-be-running';
-import { SessionList } from '@/components/session-row';
+import { ProjectSessions } from './project-sessions';
 import { List, Row } from '@/components/ui/card';
 import { Section } from '@/components/ui/section';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { ReopenBanner } from '../../claude/reopen-banner';
 import { claudeOverview } from '@/lib/data/claude-overview';
-import { mergeSessions } from '@/lib/session-item';
+import { FILTER_COOKIE, mergeSessions, parseFilter } from '@/lib/session-item';
+import { cookies } from 'next/headers';
 import { nextServing, placeOf } from '@/lib/data/purpose';
 import { PlacesProvider } from '@/components/task-place';
 import { projectRoster, withLaneMarks } from '@/lib/data/roster';
@@ -151,26 +151,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
       <div className="space-y-4 min-w-0">
         {/* Now (the goal) is the purpose header above the tabs; then who works on it, what waits on a person, the rest of the State. */}
         <ReopenBanner prompts={reopen} onlyDevices={folders.map(f => f.deviceId)} />
-        {sessions.live.length > 0 ? (
-          <div data-card="workers">
-            <Section label="Working on it" count={sessions.live.length}>
-              <SessionList items={sessions.live} tz={me.tz} where="project" serves={serves} asks={asksBySession(needs, me.userId)} />
-            </Section>
-          </div>
-        ) : projectWorkers.couldBeRunning ? (
-          <CouldBeRunning list={[projectWorkers.couldBeRunning]} />
-        ) : (
-          <List data-card="no-sessions">
-            <Row title={<span className="text-muted-foreground">No session is working on it</span>} />
-          </List>
-        )}
-        {sessions.finished.length > 0 && (
-          <div data-card="finished">
-            <Section label="Finished today" count={sessions.finished.length} fold defaultOpen={sessions.live.length === 0}>
-              <SessionList items={sessions.finished} tz={me.tz} where="project" serves={serves} />
-            </Section>
-          </div>
-        )}
+        <ProjectSessions view={{ ...sessions, earlier: [] }} filter={parseFilter((await cookies()).get(FILTER_COOKIE)?.value)} tz={me.tz} serves={serves} asks={asksBySession(needs, me.userId)} couldBeRunning={projectWorkers.couldBeRunning} />
         {openNeeds.length > 0 && (
           <div data-card="needs">
             <Section label="Needs" count={openNeeds.length} seeAll={tabHref('needs')}>

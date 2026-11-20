@@ -134,7 +134,7 @@ await new Promise(r => server.listen(PORT, '127.0.0.1', r));
 // ---- helpers ----
 async function signInCookie(email) {
   const r = await fetch(B + '/api/auth/sign-in/email', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PW }), redirect: 'manual' });
-  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).join('; ');
+  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).concat('wos.sessions.filter=11').join('; '); // every session shows (lib.mjs setSessionFilter)
 }
 const linkRow = (orgId, userId) => rawDb.collection('delpatOsLinks').findOne({ _id: `${orgId}:${userId}` });
 const until = async (fn, ms = 15000) => { const end = Date.now() + ms; let v; while (Date.now() < end) { v = await fn(); if (v) return v; await sleep(250); } return v; };

@@ -4,11 +4,12 @@ import Link from '@/components/intent-link';
 import { Play } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { SessionList } from '@/components/session-row';
-import type { SessionItem, SessionsView } from '@/lib/session-item';
+import { useSessionFilter } from '@/components/session-filter';
+import { filterSessions, type SessionFilter, type SessionsView } from '@/lib/session-item';
 import type { Need } from '@/lib/data/needs';
 
-/** The same sessions the Claude page lists (lib/session-item.ts): its counts and the first live ones. */
-export type ClaudeCardData = { hasComputers: boolean; counts: SessionsView['counts']; live: SessionItem[]; tz: string; subagents: number; asks?: Record<string, Need> };
+/** The same sessions the Claude page lists (lib/session-item.ts), live and finished today, shown through the viewer's filter (components/session-filter.tsx). */
+export type ClaudeCardData = { hasComputers: boolean; view: SessionsView; /** The viewer's Sessions filter, from its cookie. */ filter: SessionFilter; tz: string; subagents: number; asks?: Record<string, Need> };
 
 /** How many live sessions the card shows; the rest are on the Claude page. */
 const SHOWN = 3;
@@ -18,7 +19,13 @@ const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? o
 /** Today's Claude card: one status line (the Claude page's counts), the first live sessions, Start Claude. */
 export function ClaudeCard({ data }: { data: ClaudeCardData | null }) {
   if (!data) return null;
-  const { counts } = data;
+  return <Card_ data={data} />;
+}
+
+function Card_({ data }: { data: ClaudeCardData }) {
+  const [filter] = useSessionFilter(data.filter);
+  // The viewer's filter (set on the Claude page): by default their own active sessions.
+  const { counts, live } = filterSessions(data.view, filter);
   const parts = [
     counts.live ? plural(counts.live, 'session') : 'No session running',
     counts.working ? `${counts.working} working` : '',
@@ -50,9 +57,9 @@ export function ClaudeCard({ data }: { data: ClaudeCardData | null }) {
           </Link>
         )}
       </div>
-      {data.live.length > 0 && (
+      {live.length > 0 && (
         <div className="border-t border-border/60">
-          <SessionList items={data.live.slice(0, SHOWN)} tz={data.tz} where="today" asks={data.asks} className="rounded-none border-0" />
+          <SessionList items={live.slice(0, SHOWN)} tz={data.tz} where="today" asks={data.asks} className="rounded-none border-0" />
         </div>
       )}
       {data.subagents > 0 && (

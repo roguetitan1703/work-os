@@ -12,7 +12,8 @@ import type { ClaudeCardData } from './claude-card';
 import { openNeedsToMe } from '@/lib/data/needs';
 import { asksBySession, withAskerSessions } from '@/lib/data/need-sessions';
 import { roster } from '@/lib/data/roster';
-import { mergeSessions } from '@/lib/session-item';
+import { FILTER_COOKIE, mergeSessions, parseFilter } from '@/lib/session-item';
+import { cookies } from 'next/headers';
 import { whatsNewState } from '@/lib/whats-new-seen';
 import type { WhatsNewCardData } from './whats-new-card';
 import { projectsNow } from '@/lib/data/today-projects';
@@ -61,7 +62,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const dayName = format(new Date(today + 'T12:00:00Z'), 'EEEE, MMMM d');
   // eslint-disable-next-line react-hooks/purity -- a server render runs once per request
   const view = overview ? mergeSessions(workers?.workers ?? [], overview.sessions, { tz: me.tz, now: Date.now() }) : null;
-  const claude: ClaudeCardData | null = overview && view ? { hasComputers: overview.hasComputers, counts: view.counts, live: view.live.slice(0, 3), tz: me.tz, subagents: overview.activity.total.subagents, asks: asksBySession(needs, me.userId) } : null;
+  const claude: ClaudeCardData | null = overview && view ? { hasComputers: overview.hasComputers, view: { ...view, earlier: [] }, filter: parseFilter((await cookies()).get(FILTER_COOKIE)?.value), tz: me.tz, subagents: overview.activity.total.subagents, asks: asksBySession(needs, me.userId) } : null;
 
   return (
     <PlacesProvider places={places}>

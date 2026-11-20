@@ -7,10 +7,11 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Section } from '@/components/ui/section';
 import { SessionList } from '@/components/session-row';
+import { SessionFilterChips, useSessionFilter } from '@/components/session-filter';
 import { CouldBeRunning } from '@/components/could-be-running';
 import type { ReopenPrompt } from '@/lib/data/launcher';
 import type { Roster } from '@/lib/data/roster';
-import type { SessionsView } from '@/lib/session-item';
+import { filterSessions, type SessionFilter, type SessionsView } from '@/lib/session-item';
 import type { ClaudeTasks } from '@/lib/data/dispatcher';
 import { write } from './auto-refresh';
 import { dispatcherSettingsAction } from './dispatcher-actions';
@@ -22,6 +23,8 @@ import type { Need } from '@/lib/data/needs';
 
 type Props = {
   view: SessionsView;
+  /** The viewer's Sessions filter, from its cookie (components/session-filter.tsx). */
+  filter: SessionFilter;
   tz: string;
   openId?: string;
   couldBeRunning: Roster['couldBeRunning'];
@@ -38,10 +41,11 @@ type Props = {
  * The Claude page's Sessions tab: one list of every session the person may see (their own computers' and the roster's,
  * merged in lib/session-item.ts), live first; then what finished today; Claude's tasks; older ended sessions folded.
  */
-export function SessionsTab({ view, tz, openId, couldBeRunning, machines, hasComputers, claudeTasks, reopen = [], messages = [], asks }: Props) {
+export function SessionsTab({ view, filter: initialFilter, tz, openId, couldBeRunning, machines, hasComputers, claudeTasks, reopen = [], messages = [], asks }: Props) {
   const [handled, setHandled] = useState<Record<string, true>>({}); // a message dealt with disappears at once; the server copy follows
   const msgs = messages.filter(m => !handled[m.id]);
-  const { live, finished, earlier, counts } = view;
+  const [filter, setFilter] = useSessionFilter(initialFilter);
+  const { live, finished, earlier, counts, more } = filterSessions(view, filter, openId);
   const summary = [counts.working && `${counts.working} working`, counts.waiting && `${counts.waiting} waiting`].filter(Boolean).join(' · ');
   return (
     <div className="space-y-5" data-section="workers">
@@ -51,14 +55,19 @@ export function SessionsTab({ view, tz, openId, couldBeRunning, machines, hasCom
       <CouldBeRunning list={couldBeRunning} />
       <div data-section="sessions">
         <Section label={summary ? `Sessions · ${summary}` : 'Sessions'} count={live.length}>
+          <SessionFilterChips filter={filter} onChange={setFilter} more={more} className="px-1 mb-2" />
           {live.length ? (
             <SessionList items={live} tz={tz} where="claude" asks={asks} openId={openId} data-workers-list />
           ) : (
             <div data-workers-empty>
-              <EmptyState
-                title="No session is running"
-                hint="A Claude Code session with the Work OS hooks shows up here while it works: yours and your teammates' on shared projects."
-              />
+              {more.everyone || more.quiet ? (
+                <EmptyState title="None of your sessions is active" hint="Everyone shows your teammates' sessions; Quiet and off shows the ones that are doing nothing or have ended." />
+              ) : (
+                <EmptyState
+                  title="No session is running"
+                  hint="A Claude Code session with the Work OS hooks shows up here while it works: yours and your teammates' on shared projects."
+                />
+              )}
             </div>
           )}
         </Section>

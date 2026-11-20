@@ -26,7 +26,7 @@ const mark = tag => `actq${tag}${hex(4)}`;
 // ── calls (the same helpers as leak-audit.mjs) ──
 async function signIn(email, password = PW) {
   const r = await fetch(B + '/api/auth/sign-in/email', { method: 'POST', headers: { origin: B, 'content-type': 'application/json' }, body: JSON.stringify({ email, password }), redirect: 'manual' });
-  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).join('; ');
+  return r.headers.getSetCookie().map(c => c.split(';')[0]).filter(c => !/=$/.test(c)).concat('wos.sessions.filter=11').join('; '); // every session shows (lib.mjs setSessionFilter)
 }
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, '.next/server/server-reference-manifest.json'), 'utf8')).node;
 const ACTIONS = {};

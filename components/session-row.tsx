@@ -52,8 +52,9 @@ const isLive = (s: SessionItem) => s.state !== 'off' && s.state !== 'failed';
 function trailOf(s: SessionItem, need?: Need): Trail | null {
   // An open Need to the viewer comes first, even while the session works on beside it: the answer is what it waits for.
   if (need && isLive(s)) return 'answer';
+  if (s.state === 'waiting' && s.ask && s.mine && s.worker) return 'message'; // its turn ended with a question: a message answers it (and wakes it)
   if (s.state === 'waiting') return null; // a permission prompt: nothing in Work OS answers it
-  if (s.mine && s.worker && (s.state === 'working' || s.state === 'on' || s.state === 'idle')) return 'message';
+  if (s.mine && s.worker && (s.state === 'working' || s.state === 'idle' || s.state === 'quiet')) return 'message';
   if (!isLive(s) && s.project && s.control?.canResume) return 'resume';
   return null;
 }
@@ -219,26 +220,27 @@ export function SessionList({
   );
 }
 
-/** The state badge: short words, "since HH:MM" for idle and waiting. Long words (a repo to trust, a clone) go to the meta line instead. */
-function Badge({ s, tz }: { s: SessionItem; tz: string }) {
+/** The state badge: the state's word and its dot (components/ui/status-badge.tsx). Long words (a repo to trust, a clone) go to the meta line instead. */
+function Badge({ s }: { s: SessionItem }) {
   const key = badgeOf(s.state, s.word);
-  const long = s.word.length > 24;
-  return (
-    <StatusBadge
-      status={key}
-      data-worker-state
-      label={
-        <>
-          {long ? key : s.word}
-          {s.since && (
-            <span data-worker-since suppressHydrationWarning>
-              &nbsp;since {clockOf(s.since, tz)}
-            </span>
-          )}
-        </>
-      }
-    />
-  );
+  return <StatusBadge status={key} data-worker-state label={s.word.length > 24 ? key : s.word} />;
+}
+
+/** The subline's time: "since 14:02" for idle and waiting (when that began), "last active 2 days ago" for quiet and ended sessions, nothing while it works. */
+function TimeOf({ s, tz }: { s: SessionItem; tz: string }) {
+  if (s.since)
+    return (
+      <span data-worker-since suppressHydrationWarning>
+        since {clockOf(s.since, tz)}
+      </span>
+    );
+  if ((s.state === 'quiet' || !isLive(s)) && s.lastActiveAt)
+    return (
+      <span data-session-last-active suppressHydrationWarning>
+        last active {fmtAgo(s.lastActiveAt)}
+      </span>
+    );
+  return null;
 }
 
 function SessionRow({
@@ -263,7 +265,16 @@ function SessionRow({
   const c = s.control;
   const long = s.word.length > 24;
   const meta: React.ReactNode[] = [];
+  // The title line is the session's name and its badge only; who, where and when go here.
   if (long) meta.push(<span key="w">{s.word}</span>);
+  if (s.ask)
+    meta.push(
+      <span key="q" className="text-foreground/80" data-session-ask title="The question its turn ended with, written by the agent">
+        {s.ask}
+      </span>,
+    );
+  if (s.since || s.state === 'quiet' || (!isLive(s) && s.lastActiveAt)) meta.push(<TimeOf key="t" s={s} tz={tz} />);
+  if (s.person) meta.push(<span key="who" data-worker-person>{s.person}</span>);
   if (s.doing)
     meta.push(
       <span key="d" className="text-foreground/80" data-worker-doing data-session-doing data-lane-task={where === 'project' && s.doing.ref ? '' : undefined}>
@@ -291,7 +302,6 @@ function SessionRow({
         {ORIGIN_LABEL[s.origin]}
       </span>,
     );
-  if (!isLive(s) && s.lastActiveAt) meta.push(<span key="a" suppressHydrationWarning>{fmtAgo(s.lastActiveAt)}</span>);
   if (c?.error)
     meta.push(
       <span key="e" data-session-error title={c.error}>
@@ -311,11 +321,10 @@ function SessionRow({
       onClick={onOpen}
       title={
         <span className="flex items-center gap-2 min-w-0">
-          <span className="truncate font-medium" data-worker-person>
+          <span className="truncate font-medium" data-session-label>
             {s.label}
-            {s.person && <span className="font-normal text-muted-foreground"> · {s.person}</span>}
           </span>
-          <Badge s={s} tz={tz} />
+          <Badge s={s} />
         </span>
       }
       meta={
@@ -424,7 +433,7 @@ function SessionSheet({
   if (s.branch) facts.push(['Branch', s.branch]);
   if (s.slot) facts.push(['Slot', `slot ${s.slot}`]);
   if (c?.folder) facts.push(['Folder', c.folder]);
-  if (c?.subagents) facts.push(['Subagents', String(c.subagents)]);
+  if (s.subagents) facts.push(['Subagents', String(s.subagents)]);
   if (s.origin && s.origin !== 'workos') facts.push(['Runs in', ORIGIN_LABEL[s.origin]]);
   if (c?.workOs) facts.push(['Started', c.dispatched ? 'From Work OS, for a task (opens with Resume)' : 'From Work OS']);
   if (s.lastActiveAt) facts.push(['Last active', <span key="a" suppressHydrationWarning>{fmtAgo(s.lastActiveAt)}</span>]);
@@ -434,7 +443,10 @@ function SessionSheet({
     <Sheet title={s.label} onClose={onClose}>
       <div className="space-y-4 pb-2" data-session-sheet={s.id}>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge s={s} tz={tz} />
+          <Badge s={s} />
+          <span className="text-meta text-muted-foreground">
+            <TimeOf s={s} tz={tz} />
+          </span>
           {s.word.length > 24 && <span className="text-meta text-muted-foreground">{s.word}</span>}
         </div>
         <dl className="space-y-1 text-meta">
