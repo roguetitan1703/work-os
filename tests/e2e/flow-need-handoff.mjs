@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { B, EMAIL, ME, MCP, PW, check, finish, makeUser, mkDevice, mkKey, rawDb } from './lib.mjs';
+import { api, B, EMAIL, ME, MCP, PW, check, finish, makeUser, mkDevice, mkKey, rawDb } from './lib.mjs';
 import { must, mcpH } from './flow-lib.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -183,6 +183,31 @@ try {
   check('5: a dispatched run: refused', r4.isError && /does not exist, or you did not ask it/.test(r4.text) && (await needDoc(nw4.id)).status === 'open', r4.text.slice(0, 200));
   const r5 = await mcpH(kT, 'withdraw_need', { id: nw5.ref, session: 'nhT' }, hdr('nhT'));
   check('5: another person: refused', r5.isError && /does not exist, or you did not ask it/.test(r5.text) && (await needDoc(nw5.id)).status === 'open', r5.text.slice(0, 200));
+
+  // a real run key: a dispatched run (its own key, not the person's) never withdraws an asker-off Need, even one with no key recorded
+  const tk = (await must(MCP, 'add_task', { title: 'NH run task', project: P })).created;
+  const tkId = (await rawDb.collection('tasks').findOne({ ref: tk.ref }))._id;
+  const runSess = randomUUID();
+  await rawDb.collection('workerSessions').insertOne({ _id: runSess, orgId: ME.orgId, ownerId: ME.userId, deviceId: pc.id, folderId: 'fold1', projectId: PID, state: 'running', startedAt: new Date(), updatedAt: new Date(), dispatched: true, taskId: tkId });
+  const mk = await api(pc.key, 'POST', '/api/worker/run-key', { sessionId: runSess });
+  const runKey = mk.body?.key;
+  check('5: setup: a run key is minted for the dispatched session', mk.status === 200 && /^wdr_/.test(runKey ?? ''), `${mk.status}`);
+  await start(cc, 'nhW6', { label: 'NH W6' });
+  const nw6 = await ask(cc, 'nhW6', 'NH w6: run key');
+  await stop(cc, 'nhW6');
+  await rawDb.collection('needs').updateOne({ _id: nw6.id }, { $unset: { 'from.keyId': '' } }); // only the dispatched rule can refuse it now
+  const r6 = await mcpH(runKey, 'withdraw_need', { id: nw6.ref }, hdr(runSess));
+  check('5: a dispatched run (run key) is refused and the Need stays open', r6.isError && /does not exist, or you did not ask it/.test(r6.text) && (await needDoc(nw6.id)).status === 'open', r6.text.slice(0, 200));
+  const r6b = await mcpH(cc, 'withdraw_need', { id: nw6.ref }, hdr('nhW7'));
+  check('5: control: the same Need is withdrawn by a plain session of the person', !r6b.isError && (await needDoc(nw6.id)).status === 'withdrawn', r6b.text.slice(0, 200));
+
+  // the real case: session A starts and asks, ends; session B starts on the project with the same key and withdraws by number
+  await start(cc, 'nhRA', { label: 'NH RA' });
+  const nr = await ask(cc, 'nhRA', 'NH replay: lead asked, was replaced');
+  await stop(cc, 'nhRA');
+  await start(cc, 'nhRB', { label: 'NH RB' });
+  const rr = await mcpH(cc, 'withdraw_need', { id: `#${nr.ref}` }, hdr('nhRB'));
+  check('5: replay: session B withdraws Need #ref asked by the ended session A', !rr.isError && (await needDoc(nr.id)).status === 'withdrawn', rr.text.slice(0, 200));
 } catch (e) {
   check('suite ran to the end', false, e?.stack || String(e));
 } finally {
