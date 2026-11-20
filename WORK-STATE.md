@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 245. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 246. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -9,7 +9,7 @@ Copy of the Work OS state, version 245. WORK-STATE.md is a copy of the State, wr
 1. Discord setup with Om signed in (checked 20 Nov: not signed in to the Developer Portal in Chrome or the app browser): Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
 3. After R10: Om pastes the signing key backup (D:/Work/Delpat/to-bitwarden/work-os-worker-signing-key.pem, written 20 Nov at his ask) into a Bitwarden secure note, then the file is deleted; Akash ran the Mac install command (20 Nov); his worker now updates itself. — waits on Om, Akash
-4. Redesign (c475deb871): steps 1-3, 5 live in R10; next step 4 Needs and Today: plan a2baa1d159 built on builder-b (6644547), phone fixes reviewed by eye at 390/1280; full suite running on the final code, merge when it passes; then 6 tasks. Held: weekly usage 93% on 20 Nov; Om asked whether to start now on Sonnet or wait. — waits on weekly usage reset 24 Nov 16:30 IST, or Om says start
+4. Redesign (c475deb871): steps 1-3, 5 live in R10; step 4 Needs and Today merged to dev 30d3d4b (13 suites pass; looked at 390/1280 light/dark); next step 6 tasks; then 6 tasks. Held: weekly usage 93% on 20 Nov; Om asked whether to start now on Sonnet or wait. — waits on weekly usage reset 24 Nov 16:30 IST, or Om says start
 5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 4 and 6. — waits on redesign steps 4 and 6
 6. Parked and decisions out of the State document (Om, 20 Nov: they must not live in State directly): own collections, one dated row per entry, no cap, search and paging; State keeps counts; move the existing decisions; build plan note 4a1ccbf69d written 20 Nov (stateParked, stateDecisions; State keeps counts; old clients unchanged; idempotent migration with rollback); three questions in its For Om section (Parked shipped inside State in R11). — waits on Om's go on the storage plan
 7. Usage recording, Fable's 7 steps plus the weekly improve loop (design a289ffec58). Build plan 1 (account tag, limit hits, compactions, 5-minute buckets, note e6036c777f) merged to dev 4922e5b after independent review and re-check, 20 Nov; server ships before the worker. Plan 2 (steps 3, 5-7, weekly report) after it. (design in note a289ffec58): Opus plan, then Sonnet build — waits on Om's account switch
@@ -75,4 +75,4 @@ Copy of the Work OS state, version 245. WORK-STATE.md is a copy of the State, wr
 - Messaging: one teammate can use up another person's 6 session wakes an hour with fyis (review, Low). Add a per-sender cap on waking other people's sessions (about 2 an hour per sender per target) only if it happens in real use. — waits on a real case
 - Short address collisions are refused (efc6646) but not covered by a test: a collision can't be forced in e2e without a seam for shortAddress. — waits on nothing; small
 - ui-tour findings that predate step 4: the session sheet doesn't open from ?s= at 390 and 1280; the desktop task row has no visible menu button (step 6 covers task rows). — waits on nothing
-<!-- work-os-copy sha1:a57cbbab588069173887718fac8756cc15a0afb9 -->
+<!-- work-os-copy sha1:c85b383f6b10c40f66f3d75a35c9a542484c8ead -->
