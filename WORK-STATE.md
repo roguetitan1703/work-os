@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 189. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 190. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -6,12 +6,12 @@ Copy of the Work OS state, version 189. WORK-STATE.md is a copy of the State, wr
 - Make Work OS feel like your team at work, not a task app: the six-step redesign from the UI review (note c475deb871): UI library, navigation, sessions first, Needs and Today, one Spotlight search, tasks. R9 is live (20 Nov). H16 measuring until about 3 Dec, then H17.
 
 ## Next
-1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
+1. Discord setup with Om signed in (checked 20 Nov: not signed in to the Developer Portal in Chrome or the app browser): Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
-3. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0 items. Due only when there is something to propose; refresh the count when tasks close. Seen 20 Nov after reconnecting the tools.
-4. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 3-6.
-5. Redesign (c475deb871): steps 1-3, 5 live in R10; next step 4 Needs and Today (B, Opus, from dev), then 6 tasks. Held: weekly usage 93% on 20 Nov (resets 24 Nov 16:30 IST); no new builders until Om says go or the reset.
-6. After R10: Om pastes the signing key backup (D:/Work/Delpat/to-bitwarden/work-os-worker-signing-key.pem, written 20 Nov at his ask) into a Bitwarden secure note, then the file is deleted; Akash runs the Mac install command from Work OS one last time, then his worker updates itself. — waits on Om, Akash
+3. After R10: Om pastes the signing key backup (D:/Work/Delpat/to-bitwarden/work-os-worker-signing-key.pem, written 20 Nov at his ask) into a Bitwarden secure note, then the file is deleted; Akash runs the Mac install command from Work OS one last time, then his worker updates itself. — waits on Om, Akash
+4. Redesign (c475deb871): steps 1-3, 5 live in R10; next step 4 Needs and Today (B, Opus, from dev), then 6 tasks. Held: weekly usage 93% on 20 Nov; Om asked whether to start now on Sonnet or wait. — waits on weekly usage reset 24 Nov 16:30 IST, or Om says start
+5. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0. Due only when there is something to propose; refresh the count when tasks close. — waits on weekly usage reset 24 Nov (needs a test run)
+6. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 4 and 6. — waits on redesign steps 4 and 6
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -57,4 +57,4 @@ Copy of the Work OS state, version 189. WORK-STATE.md is a copy of the State, wr
 - scripts/build-artifact.sh fails in WSL from a Windows checkout (CRLF: 'pipefail: invalid option'); R10 ran an LF copy. Add .gitattributes eol=lf for *.sh. — waits on next small fix batch
 - R10 deploy printed 'previous: 43ec8df01225' and 'removed release 43ec8df01225'; only 6d5bce0d8f77 is in /srv/work-os/releases, so --rollback may have nothing to go back to. Check deploy.sh keep count. — waits on next release
 - Switch worker self-update from the signing key to a GitHub file check (the worker compares the update with the files at that commit on GitHub; no key to keep). Om, 20 Nov: later, not now. — waits on Om says when
-<!-- work-os-copy sha1:d403fed3ca719df41a95feb55ff6b1c657dbd70b -->
+<!-- work-os-copy sha1:9812a37d600ae9e26686922470a2724030422814 -->
