@@ -13,7 +13,8 @@ export type TaskPurposeOut = { why: TaskPurpose; now: string | null; projectId: 
 
 type T = { ref: number; projectId?: string | null; parentRef?: number | null; parentTitle?: string | null; description?: string | null };
 
-const names = (text: string, ref: number) => new RegExp(`(^|[^\w#])#${ref}(?!\d)`).test(text);
+// String.raw: in a plain template literal \w and \d lose their backslash, and #12 would match inside #123.
+const names = (text: string, ref: number) => new RegExp(String.raw`(^|[^\w#])#${ref}(?!\d)`).test(text);
 
 /**
  * The task's why, first match wins: the project's Now names its #ref; a Next line carries its ref (or names it); the parent
