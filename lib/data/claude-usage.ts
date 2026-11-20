@@ -91,7 +91,7 @@ export function cleanUsage(raw: unknown): { rows: CleanRow[]; sessions: Map<stri
     sessions.set(o.sessionId, { title: line(o.title, 80), folder: line(o.folder, 80) || 'unknown', origin: ORIGINS.includes(o.origin as SessionOrigin) ? (o.origin as SessionOrigin) : 'other' });
   }
   const rows: CleanRow[] = [];
-  const earliest = Date.now() - 100 * 86_400_000;
+  const earliest = Date.now() - 35 * 86_400_000; // the worker sends at most 30 days back
   for (const x of b.rows.slice(0, MAX_ROWS)) {
     const o = (x ?? {}) as Record<string, unknown>;
     if (typeof o.sessionId !== 'string' || !SID.test(o.sessionId) || typeof o.part !== 'string' || !PART.test(o.part)) continue;
@@ -177,13 +177,16 @@ export async function usageReport(s: Scope, opts: { range?: string; tz: string; 
   const { from, label } = rangeFrom(range, reset, opts.tz, now);
   const to = dateInTz(now, opts.tz);
   const c = await scoped(s);
-  const docs = (await c.claudeUsage.find({ day: { $gte: from } }).limit(20000).toArray()) as ClaudeUsageDoc[];
+  const found = (await c.claudeUsage.find({ day: { $gte: from } }).limit(20000).toArray()) as ClaudeUsageDoc[];
   const any = (await c.claudeUsage.findOne({}, { projection: { _id: 1 } })) !== null;
 
   // Computer names, and which project owns each folder (the folder's name on that computer).
-  const deviceIds = [...new Set(docs.map(d => d.deviceId))];
-  const devices = deviceIds.length ? await c.devices.find({ _id: { $in: deviceIds } }, { projection: { name: 1 } }).toArray() : [];
+  const deviceIds = [...new Set(found.map(d => d.deviceId))];
+  const devices = deviceIds.length ? await c.devices.find({ _id: { $in: deviceIds } }, { projection: { name: 1, revokedAt: 1 } }).toArray() : [];
   const deviceName = new Map(devices.map(d => [d._id, d.name]));
+  // A report in flight when its computer was revoked can land after revokeDevice deleted the rows: a revoked computer's rows never count.
+  const revoked = new Set(devices.filter(d => d.revokedAt).map(d => d._id));
+  const docs = revoked.size ? found.filter(d => !revoked.has(d.deviceId)) : found;
   const folders = deviceIds.length ? await c.workerFolders.find({ deviceId: { $in: deviceIds }, projectId: { $ne: null } }, { projection: { deviceId: 1, name: 1, projectId: 1 } }).toArray() : [];
   const projectOfFolder = new Map(folders.map(f => [`${f.deviceId}|${f.name}`, f.projectId as string]));
   const projIds = [...new Set(projectOfFolder.values())];
