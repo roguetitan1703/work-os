@@ -1,5 +1,5 @@
 // Parked and the decision log (plan note 82ae5908f1): the ops park, park_line and unpark, edit_line and archive_line on Parked
-// lines, the 1000-line limit, list_parked and list_decisions, the short State for agents (latest 10 decisions, a Parked count),
+// lines, no limit (Parked and decisions are rows of their own), list_parked and list_decisions, the short State for agents (latest 10 decisions, a Parked count),
 // the compact answer and the WORK-STATE.md copy, import of a Parked section, and the State card. Seed profile: none.
 import { B, ME, MCP, check, finish, launch, login, overflow, rawDb, SP } from './lib.mjs';
 import { mkdirSync } from 'node:fs';
@@ -10,7 +10,13 @@ mkdirSync(SP, { recursive: true });
 const NAME = 'Flow Parked';
 const texts = l => l.map(x => x.text);
 const stateOf = async project => (await must(MCP, 'get_state', { project })).state;
-const docOf = async project => rawDb.collection('states').findOne({ projectId: (await rawDb.collection('projects').findOne({ name: project }))._id });
+// The State document with its Parked rows as `parked` (oldest first): the lines live in stateParked now (plan note 4a1ccbf69d).
+const docOf = async project => {
+  const projectId = (await rawDb.collection('projects').findOne({ name: project }))._id;
+  const d = await rawDb.collection('states').findOne({ projectId });
+  const rows = await rawDb.collection('stateParked').find({ projectId }).sort({ parkedAt: 1, id: 1 }).toArray();
+  return { ...d, parked: rows.map(({ _id: _i, projectId: _j, orgId: _x, ownerId: _y, visibility: _z, sharedWith: _u, parkedAt: _k, ...l }) => l) };
+};
 let browser;
 try {
   const P = (await must(MCP, 'add_project', { name: NAME })).project;
@@ -82,19 +88,21 @@ try {
   doc = await docOf(NAME);
   check('archive_line: by find reaches a Parked line too', !arch2.isError && doc.archived.some(a => a.from === 'Parked' && a.text.includes('tablet app')) && doc.parked.length === 1, arch2.text.slice(0, 200));
 
-  // the limit
+  // no limit: Parked lines are rows, there is no cap
   const LIM = 'Flow Parked Limit';
   await must(MCP, 'add_project', { name: LIM });
   await must(MCP, 'save_state', { project: LIM, ops: [{ op: 'park', text: 'first' }] });
   const limDoc = await docOf(LIM);
-  const lines = Array.from({ length: 1000 }, (_, i) => ({ id: `l_fill${i}`, text: `filler ${i}`, by: ME.userId, at: new Date() }));
-  await rawDb.collection('states').updateOne({ _id: limDoc._id }, { $set: { parked: lines } });
-  const over = await mcpH(MCP, 'save_state', { project: LIM, ops: [{ op: 'park', text: 'one too many' }] });
-  check('limit: the 1001st Parked line is refused with the message', over.isError && /Parked would hold 1001 lines \(max 1000\)/.test(over.text), over.text.slice(0, 200));
+  const place = { orgId: limDoc.orgId, ownerId: limDoc.ownerId, visibility: limDoc.visibility, ...(limDoc.sharedWith ? { sharedWith: limDoc.sharedWith } : {}) };
+  const lines = Array.from({ length: 1000 }, (_, i) => ({ _id: `fill${i}`, projectId: limDoc.projectId, id: `l_fill${i}`, text: `filler ${i}`, by: ME.userId, at: new Date(), parkedAt: new Date(Date.now() - 100000 + i), ...place }));
+  await rawDb.collection('stateParked').insertMany(lines);
+  await rawDb.collection('states').updateOne({ _id: limDoc._id }, { $set: { parkedCount: 1001 } });
+  const over = await mcpH(MCP, 'save_state', { project: LIM, ops: [{ op: 'park', text: 'one more' }] });
+  check('no limit: the 1002nd Parked line is taken', !over.isError, over.text.slice(0, 200));
   const stillOk = await mcpH(MCP, 'save_state', { project: LIM, ops: [{ op: 'unpark', id: 'l_fill7', to: 'later' }, { op: 'park', text: 'fits now' }] });
-  check('limit: after an unpark in the same call one more fits', !stillOk.isError, stillOk.text.slice(0, 200));
+  check('no limit: an unpark and a park in one call work', !stillOk.isError, stillOk.text.slice(0, 200));
   const bigS = await must(MCP, 'start_work', { project: LIM, session: 'fpk-lim' });
-  check('limit: start_work on a project with 1000 parked lines carries a count and no lines', bigS.state.parkedTotal === 1000 && !bigS.state.parked && JSON.stringify(bigS).length < 60000, String(JSON.stringify(bigS).length));
+  check('no limit: start_work on a project with 1002 parked lines carries a count and no lines', bigS.state.parkedTotal === 1002 && !bigS.state.parked && JSON.stringify(bigS).length < 60000, String(JSON.stringify(bigS).length));
 
   // list_parked
   await must(MCP, 'save_state', { project: NAME, ops: [{ op: 'park', text: 'Alpha idea about pricing', when: 'pricing is revisited' }, { op: 'park', text: 'Beta idea about the API' }, { op: 'park', text: 'Gamma idea about pricing tiers' }] });

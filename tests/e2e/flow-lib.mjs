@@ -24,7 +24,7 @@ export async function must(key, name, args = {}, headers = {}) {
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
 /** Removes everything a flow suite creates (it runs on an emptied database, but the owner and key stay). */
 export async function clean() {
-  for (const c of ['states', 'presence', 'policyEvents']) await rawDb.collection(c).deleteMany({});
+  for (const c of ['states', 'stateParked', 'stateDecisions', 'presence', 'policyEvents']) await rawDb.collection(c).deleteMany({});
 }
 /** Marks a note as a layer of Orders directly (the app does it through setOrders; there is no MCP tool for it). */
 export const markOrders = async (noteId, layer, by) => rawDb.collection('notes').updateOne({ _id: noteId }, { $set: { orders: layer, ordersBy: by ?? (await rawDb.collection('notes').findOne({ _id: noteId })).ownerId } });

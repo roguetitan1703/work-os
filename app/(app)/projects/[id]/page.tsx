@@ -41,7 +41,7 @@ import { mergeSessions } from '@/lib/session-item';
 import { nextServing, placeOf } from '@/lib/data/purpose';
 import { PlacesProvider } from '@/components/task-place';
 import { projectRoster, withLaneMarks } from '@/lib/data/roster';
-import { archivedOut, stateOfProject, stateOut } from '@/lib/data/states';
+import { archivedOut, stateOfProject, stateOutPage } from '@/lib/data/states';
 import { memberNames } from '@/lib/people';
 
 const TABS = [
@@ -98,7 +98,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     }),
   );
   const openNeeds = needs.filter(n => n.status === 'open');
-  const stateView = stateDoc ? await withLaneMarks(sc, project.id, stateDoc, await withNeedWaits(sc, project.id, stateOut(stateDoc, me.userId, names, { decisions: 'all', parked: true }), names)) : null;
+  const stateView = stateDoc ? await withLaneMarks(sc, project.id, stateDoc, await withNeedWaits(sc, project.id, await stateOutPage(sc, stateDoc, me.userId, names), names)) : null;
   const needsOpenForMe = needs.filter(n => n.status === 'open' && n.to === me.userId).length;
   const turbo = await turboInfo(me, project.id, launcher);
   // A project's notes sit on shelves (lib/notes-shelves.ts); task notes, sub-pages and archived notes sit elsewhere.

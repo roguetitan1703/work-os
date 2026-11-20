@@ -7,14 +7,11 @@ import { requireCaller, withCaller } from '@/lib/caller';
 import { userActor } from '@/lib/actors';
 import { memberNames } from '@/lib/people';
 import { withLaneMarks } from '@/lib/data/roster';
-import { archivedOut, restoreLine, saveState, stateOut, type ArchivedOut, type StateOut } from '@/lib/data/states';
+import { archivedOut, moreArchivedDecisions, moreDecisions, moreParked, restoreLine, saveState, stateOutPage, type ArchivedOut, type DecisionOut, type ParkedOut, type StateOut } from '@/lib/data/states';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 
 // The State card's writes: the same versioned save as the MCP tool (lib/data/states.ts), as the signed-in person.
 // A stale base_version writes nothing and returns the current State, which the card shows.
-
-/** The page shows every decision and the Parked lines; agents get the latest 10 and a count. */
-const PAGE = { decisions: 'all', parked: true } as const;
 
 export type StateResult = { ok: true; state: StateOut } | { ok: false; error: string; conflict?: true; state?: StateOut | null };
 
@@ -25,8 +22,8 @@ export async function saveStateAction(projectId: string, ops: unknown, baseVersi
     const r = await withCaller(caller, () => saveState(s, projectId, ops, { baseVersion, actor: userActor(caller.userId), via: 'app' }));
     const names = await memberNames(caller.orgId);
     revalidatePath(`/projects/${projectId}`);
-    if (r.conflict) return { ok: false, conflict: true, error: 'Someone changed the State since you opened it. It is refreshed: try again.', state: r.state ? await withLaneMarks(s, projectId, r.state, stateOut(r.state, caller.userId, names, PAGE)) : null };
-    return { ok: true, state: await withLaneMarks(s, projectId, r.state, stateOut(r.state, caller.userId, names, PAGE)) };
+    if (r.conflict) return { ok: false, conflict: true, error: 'Someone changed the State since you opened it. It is refreshed: try again.', state: r.state ? await withLaneMarks(s, projectId, r.state, await stateOutPage(s, r.state, caller.userId, names)) : null };
+    return { ok: true, state: await withLaneMarks(s, projectId, r.state, await stateOutPage(s, r.state, caller.userId, names)) };
   } catch (err) {
     if (err instanceof ZodError) return { ok: false, error: err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') };
     if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
@@ -48,7 +45,48 @@ export async function restoreLineAction(projectId: string, archivedId: string): 
     const r = await withCaller(caller, () => restoreLine(s, String(projectId), String(archivedId), userActor(caller.userId)));
     const names = await memberNames(caller.orgId);
     revalidatePath(`/projects/${projectId}`);
-    return { ok: true, state: await withLaneMarks(s, projectId, r.state, stateOut(r.state, caller.userId, names, PAGE)), archived: archivedOut(r.state, names) };
+    return { ok: true, state: await withLaneMarks(s, projectId, r.state, await stateOutPage(s, r.state, caller.userId, names)), archived: archivedOut(r.state, names) };
+  } catch (err) {
+    if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
+    console.error(err);
+    return { ok: false, error: err instanceof SafeError ? err.message : 'Something went wrong' };
+  }
+}
+
+export type MoreResult<T> = ({ ok: true; next?: string } & T) | { ok: false; error: string };
+
+/** "Show more" on Parked: the next older lines, read through the caller's own door. */
+export async function moreParkedAction(projectId: string, before: string): Promise<MoreResult<{ parked: ParkedOut[] }>> {
+  try {
+    const caller = await requireCaller();
+    const r = await withCaller(caller, () => moreParked({ userId: caller.userId, orgId: caller.orgId }, String(projectId), String(before)));
+    return { ok: true, ...r };
+  } catch (err) {
+    if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
+    console.error(err);
+    return { ok: false, error: err instanceof SafeError ? err.message : 'Something went wrong' };
+  }
+}
+
+/** "Show more" under Archived decisions. */
+export async function moreArchivedAction(projectId: string, before: string): Promise<MoreResult<{ archived: NonNullable<StateOut['archivedDecisions']> }>> {
+  try {
+    const caller = await requireCaller();
+    const r = await withCaller(caller, () => moreArchivedDecisions({ userId: caller.userId, orgId: caller.orgId }, String(projectId), String(before)));
+    return { ok: true, ...r };
+  } catch (err) {
+    if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
+    console.error(err);
+    return { ok: false, error: err instanceof SafeError ? err.message : 'Something went wrong' };
+  }
+}
+
+/** "Show more" on Decisions: the next older decisions. */
+export async function moreDecisionsAction(projectId: string, before: string): Promise<MoreResult<{ decisions: DecisionOut[] }>> {
+  try {
+    const caller = await requireCaller();
+    const r = await withCaller(caller, () => moreDecisions({ userId: caller.userId, orgId: caller.orgId }, String(projectId), String(before)));
+    return { ok: true, ...r };
   } catch (err) {
     if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
     console.error(err);

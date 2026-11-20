@@ -89,7 +89,7 @@ try {
       // Apply the decision: lands in Decisions with the message id, by the signed-in person
       await sec.locator(`[data-message-for-you="${dm.id}"] [data-msg-apply]`).click();
       await p.locator(`[data-message-for-you="${dm.id}"]`).waitFor({ state: 'detached', timeout: 15000 });
-      const st = await rawDb.collection('states').findOne({ _id: project._id });
+      const st = { decisions: await rawDb.collection('stateDecisions').find({ projectId: project._id }).sort({ at: 1 }).toArray() }; // decisions are rows of their own
       const dec = st.decisions.find(d => d.msg === dm.id);
       check(`MS4 app (${tag}): Apply adds the decision to the State with the message id, by the signed-in person, and the row goes away`, dec?.text === `Use the new queue (${tag})` && dec.by === ME.userId, JSON.stringify(st.decisions.slice(-1)));
 
