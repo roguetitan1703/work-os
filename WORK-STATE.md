@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 173. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 174. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -11,8 +11,8 @@ Copy of the Work OS state, version 173. WORK-STATE.md is a copy of the State, wr
 3. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0 items. Due only when there is something to propose; refresh the count when tasks close. Seen 20 Nov after reconnecting the tools.
 4. Redesign (note c475deb871): 1 library done (builder-s2 b2991a4); 2 navigation done (builder-b df92f9c, taps 3->2, 4->3, 3->2); 3 sessions first (B) and 5 one search (A, needs independent review) running; then 4 Needs and Today, 6 tasks; look by eye, merge to dev together.
 5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 3-6.
-6. Signed worker auto-update (Om yes 20 Nov): built on builder-s (2f92fb5 + Mac fixes 7b552dc: same hooks version on Windows and bundle, setup prints full path); making the version automatic, then independent security review, then I make the signing key on Om's PC and Om backs it up; then an independent security review, then the signing key made on Om's PC and the first signed release.
-7. Work OS skills installed by the worker (/transfer and /declutter only): give to the slot S builder right after signed auto-update (same install code); skill text in the repo; a design note first.
+6. Signed worker auto-update (Om yes 20 Nov): built on builder-s (2f92fb5 + Mac fixes 7b552dc: same hooks version on Windows and bundle, setup prints full path); version automatic from commit time and build-artifact.sh signs on its own (519b44b); security review running, then I make the signing key on Om's PC and Om backs it up; then an independent security review, then the signing key made on Om's PC and the first signed release.
+7. Work OS skills installed by the worker (/transfer and /declutter only): slot S builder building it now on builder-s (marked folders only, --adopt for Om's own transfer); skill text in the repo; a design note first.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -50,4 +50,4 @@ Copy of the Work OS state, version 173. WORK-STATE.md is a copy of the State, wr
 - Claude page: a session's last line can be a subagent's compaction summary (AKAR row showed "<analysis> I am an Opus builder subagent..."): take the last line from the main conversation only, never from a summary.
 - worker test hook-h7 timing flake (failed in a full worker run, passed alone twice, 20 Nov).
 - Search (builder-a c97c00e): GET /api/search, 3 KB per search, ~290 docs examined (was 8.4k); only the 500 newest docs' descriptions/bodies and open tasks' newest comments are searched (older text not found); security review running.
-<!-- work-os-copy sha1:1a99eb5b5ec5d2b1fbd3e42e018716d8beb9dca8 -->
+<!-- work-os-copy sha1:ab597f07ddc6c01f904d775e612ff2e5315ad083 -->
