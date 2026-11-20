@@ -128,3 +128,41 @@ test('a server that does not know ask yet (400): the stop is sent again without 
   assert.equal(stops().length, 2);
   assert.equal(stops()[1].body.ask, undefined);
 });
+
+test('wrapUpAsk skips a subagent\'s lines (isSidechain)', () => {
+  const side = (o) => line({ ...JSON.parse(o), isSidechain: true });
+  assert.equal(stopMod.wrapUpAsk(tx('side1.jsonl', [prompt, use(WRAP, { ask: Q }), result, side(use('Bash', { command: 'ls' })), side(result), said('Done.')])), Q, 'a subagent call after the wrap_up does not hide it');
+  assert.equal(stopMod.wrapUpAsk(tx('side2.jsonl', [prompt, use('Bash', { command: 'ls' }), result, side(use(WRAP, { ask: Q }))])), '', 'a subagent\'s wrap_up is not the turn\'s');
+  assert.equal(stopMod.wrapUpAsk(tx('side3.jsonl', [prompt, use(WRAP, { ask: Q }), side(prompt)])), Q, 'a subagent\'s prompt is not the person\'s');
+});
+
+test('the save reminder blocks the first stop: the ask found then goes with the stop that answers the block, then is cleared', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const repo = path.join(tmp, 'repo');
+  fs.mkdirSync(repo);
+  const git = (...a) => execFileSync('git', a, { cwd: repo, stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+  git('init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(repo, 'a.txt'), '1');
+  git('add', '.');
+  git('commit', '-qm', 'init');
+  const sid = 'ask-4';
+  lib.keepToken(sid, TOKEN);
+  lib.writeMarker(sid, { status: lib.statusHash(repo), offset: 0, project: 'p1' });
+  fs.writeFileSync(path.join(repo, 'a.txt'), '2'); // a file changed, no save: the first stop is blocked
+  const t1 = tx('b1.jsonl', [prompt, use(WRAP, { recap: 'r', ask: Q }), result, said('Done.')]);
+  seen.length = 0;
+  const out = JSON.parse(await dev.main('stop', JSON.stringify({ cwd: repo, session_id: sid, transcript_path: t1 })));
+  assert.equal(out.decision, 'block');
+  assert.equal(stops().length, 0);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(process.env.WORK_OS_HOOK_DIR, `${sid}.json`), 'utf8')).pendingAsk, Q, 'kept in the marker');
+  // the session saves State and stops again: its last call is the save, not wrap_up
+  const t2 = tx('b2.jsonl', [prompt, use(WRAP, { recap: 'r', ask: Q }), result, said('Done.'), use('mcp__work-os__save_state', {}), result, said('Saved.')]);
+  seen.length = 0;
+  await dev.main('stop', JSON.stringify({ cwd: repo, session_id: sid, transcript_path: t2, stop_hook_active: true }));
+  assert.equal(stops().length, 1);
+  assert.equal(stops()[0].body.ask, Q, 'the kept ask goes with the again stop');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(process.env.WORK_OS_HOOK_DIR, `${sid}.json`), 'utf8')).pendingAsk, undefined, 'cleared once sent');
+  seen.length = 0;
+  await dev.main('stop', JSON.stringify({ cwd: repo, session_id: sid, transcript_path: t2, stop_hook_active: true }));
+  assert.equal(stops()[0].body.ask, undefined, 'sent once');
+});

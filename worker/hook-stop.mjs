@@ -12,7 +12,11 @@ import { cleanResult, lastAssistantText as lastMainText, notAResult } from './ho
 export async function stop(input, g) {
   const sid = input.session_id;
   const r = await decide(input);
+  const person = !!g && !g.subagent && !g.quiet && !g.dispatched; // the main conversation of a session with a person
   if (r) {
+    // The save reminder blocks this stop: a wrap_up ask found now is kept for the stop that answers the block (its last call is the save).
+    const q0 = sid && person ? wrapUpAsk(input.transcript_path) : '';
+    if (q0) updateMarker(sid, (m2) => ({ ...m2, pendingAsk: q0 }));
     const a = sid ? await postEvent(sid, 'tool', { deliver: true, holds: true }) : null; // still working: it is delivered inside the turn; holds: does this session hold Now
     // The marker did not know (no tool answer named this session): the server's answer decides, so a non-holder is not told to save the whole State.
     if (a?.status === 200 && a.b?.holdsNow === false && r.reason === NAG_HOLDER) { r.reason = NAG_LANE; updateMarker(sid, (m2) => ({ ...m2, holdsNow: false })); }
@@ -29,10 +33,14 @@ export async function stop(input, g) {
   const nudge = asks || quiet || released ? { nudge: { ...(asks ? { asks: true } : {}), ...(quiet ? { quiet: true } : {}), ...(released ? { released: true } : {}) } } : {};
   const counts = stopCounts(input, sid);
   // The question the turn ended with (the app's wrap_up ask): the session waits on its person. Main conversation with a person only.
-  const q = g && !g.subagent && !g.quiet && !g.dispatched ? wrapUpAsk(input.transcript_path) : '';
+  // A stop that answers a block also sends the ask kept when the block came; any stop clears the kept one.
+  const kept = readMarker(sid)?.pendingAsk;
+  const q = person ? wrapUpAsk(input.transcript_path) || (again && typeof kept === 'string' ? kept : '') : '';
   const ask = q ? { ask: q } : {};
   let a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...counts, ...nudge, ...ask });
   if (a?.status === 400 && (nudge.nudge || q)) a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...counts }); // a server that does not know nudges or ask yet
+  // Cleared once sent, or by any stop that does not answer a block (a new turn: the kept ask is stale).
+  if (kept !== undefined && (!again || a?.status === 200)) updateMarker(sid, (m2) => { const { pendingAsk: _, ...rest } = m2; return rest; });
   if (!again && a?.status === 200) await sendResult(input, sid);
   const d =a?.status === 200 ? a.b?.deliver : null;
   if (!again && d?.wakeable === true && deliverText(a)) {
@@ -97,6 +105,7 @@ export function wrapUpAsk(f, startMs = Date.now()) {
       if (!lines[i].trim()) continue;
       let o;
       try { o = JSON.parse(lines[i]); } catch { continue; }
+      if (o?.isSidechain === true) continue; // a subagent's line, not the main conversation's
       const c = o?.message?.content;
       if (o?.type === 'user') { if (Array.isArray(c) && c.length && c.every((b) => b?.type === 'tool_result')) continue; return ''; } // the person's prompt: no call this turn
       if (o?.type !== 'assistant' || !Array.isArray(c)) continue;
