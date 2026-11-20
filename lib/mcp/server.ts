@@ -38,7 +38,7 @@ import { ordersChangesFor, ordersFor, ordersWrittenBy, shortFormForSubagent } fr
 import { cleanLabel, endPresence, namesOtherSession, rowKey, setOrdersSeen, othersPresent, presentRow, readerRow, registerPresence, resolveMachine, rowFor, sessionKey, setDoing, type Ident } from '../data/presence';
 import { presenceState } from '../data/presence-state';
 import { laneOut, type LaneOut } from '../data/lanes';
-import { clientWord, roster, taskInfo } from '../data/roster';
+import { clientWord, opaqueId, roster, taskInfo } from '../data/roster';
 import * as handovers from '../data/handovers';
 import * as declutterData from '../data/declutter';
 import * as declutterApply from '../data/declutter-apply';
@@ -1729,13 +1729,21 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ws = ws.filter(w => w.project?.id === project._id);
       }
       if (!a.include_off && !a.include_gone) ws = ws.filter(w => w.state !== 'off');
+      ws = ws.slice(0, 30);
+      // Which row is its project's lead session (the one send_message {project} with no to reaches; hooks review, addendum A).
+      const leads = new Set<string>();
+      for (const pid of [...new Set(ws.map(w => w.project?.id).filter((x): x is string => !!x))].slice(0, 15)) {
+        const lead = await messageData.leadOf(s, { _id: pid }).catch(() => null);
+        if (lead) leads.add(lead.userId === s.userId ? lead._id : opaqueId(lead._id));
+      }
       const now = Date.now();
       return {
-        sessions: ws.slice(0, 30).map(w => ({
+        sessions: ws.map(w => ({
           // The short address of every session (send_message's to); the session id for your own sessions only, and only when it has one.
           address: w.address,
           ...(w.mine && w.session ? { session: w.session } : {}),
           name: w.label,
+          ...(leads.has(w.id) ? { lead: true } : {}),
           person: w.mine ? 'me' : w.person,
           tool: w.tool || w.ai, // desktop, vscode or terminal when the hook said; else the kind of client
           model: w.model,

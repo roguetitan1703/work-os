@@ -233,7 +233,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   list_sessions: {
     title: 'List sessions',
     description:
-      'The sessions working on the projects you can read, as the roster shows them: address (a short s-… address for every session, yours or a teammate’s: send_message takes it as to), session id (your own sessions only), name (its label), person, tool, model, account (the Claude account, e.g. om), machine, project, branch, doing (task), state (on, working, waiting, idle or off), minutesAgo and parent (for a builder), plus how full each machine is (machines). project: only that project; include_off: true also lists sessions that are off. At most 30. Use it to see who is on what before you start; it never shows other organizations or projects you cannot read.',
+      'The sessions working on the projects you can read, as the roster shows them: address (a short s-… address for every session, yours or a teammate’s: send_message takes it as to), session id (your own sessions only), name (its label), lead (true on the project’s lead session), person, tool, model, account (the Claude account, e.g. om), machine, project, branch, doing (task), state (on, working, waiting, idle or off), minutesAgo and parent (for a builder), plus how full each machine is (machines). project: only that project; include_off: true also lists sessions that are off. At most 30. Use it to see who is on what before you start; it never shows other organizations or projects you cannot read. To reach a project’s lead you do not need this: send_message {project} with no to.',
     writes: false,
     example: 'Who is working on Grant Leads right now?',
   },
