@@ -34,14 +34,15 @@ export async function searchSessions(ctx: Ctx): Promise<KindResult> {
     const machine = r.machineName ?? r.machine;
     const project = projectName(ctx, r.projectId);
     const label = r.label || 'Session';
-    if (!matchesAll([label, project, r.branch, machine, task?.title, task ? `#${task.ref}` : null, r.lastResult?.text], words)) continue;
+    const mineRow = r.userId === s.userId; // a session's last line is its owner's alone
+    if (!matchesAll([label, project, r.branch, machine, task?.title, task ? `#${task.ref}` : null, mineRow ? r.lastResult?.text : null], words)) continue;
     const st = presenceState(r, { now }).state;
     hits.push({
       kind: 'sessions',
       id: r._id,
       title: label,
       meta: join(task && `#${task.ref} ${task.title}`, r.branch, machine),
-      snippet: r.lastResult?.text ? r.lastResult.text.slice(0, 140) : undefined,
+      snippet: mineRow && r.lastResult?.text ? r.lastResult.text.slice(0, 140) : undefined,
       right: join(project, WORD[st]),
       href: r.projectId ? `/projects/${encodeURIComponent(r.projectId)}` : '/claude',
       tier: tierOf(label, query),

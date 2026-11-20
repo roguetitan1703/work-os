@@ -41,7 +41,7 @@ import { stateOfProject } from '@/lib/data/states';
 //            name (a /rename), Claude's title for it, the model. Sets the roster row's label and model (lib/data/presence.ts labelPatch:
 //            the session's own name or start_work's label beats Claude's title; a dispatched session keeps its forced label). One line, 120 characters.
 //   result   (protocol 4, the result event only, at most 2,000 characters) a subagent's last message from the SubagentStop hook: kept cleaned and cut to 300
-//            characters as `lastResult` of the token's own row (lib/data/presence.ts setLastResult), shown to the project's readers marked
+//            characters as `lastResult` of the token's own row (lib/data/presence.ts setLastResult), shown only to the session's owner (a teammate sees the state and the task, never this line)
 //            writtenBy. A result event changes no state and no lastSeen (a background subagent ending after the parent's stop must not make it working). Text of the session, so it is the one thing this route takes besides words: own row only, never creates a row, never free.
 //            Protocol 3 hooks (no result) are still accepted.
 // The only row it writes is the token's own presence row (state, turn chain) (the person, the token's session and project), and never creates one.

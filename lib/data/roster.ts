@@ -165,7 +165,7 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
         since: st.since.toISOString(),
         nextWork: state === 'idle' && row.projectId ? x.nextCount(row.projectId) : 0,
         lastSeen: row.lastSeen.toISOString(),
-        ...(x.results && row.lastResult?.text ? { lastResult: { text: row.lastResult.text.slice(0, 300), at: row.lastResult.at.toISOString() } } : {}),
+        ...(x.results && mine && row.lastResult?.text ? { lastResult: { text: row.lastResult.text.slice(0, 300), at: row.lastResult.at.toISOString() } } : {}),
         depth: 0 as const,
         ...(row.userId === s.userId && row.parent ? { parent: row.parent } : {}),
         ...(mine && (row.ccSession ?? row.session) ? { cc: row.ccSession ?? row.session } : {}),
