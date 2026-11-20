@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 212. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 213. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -15,7 +15,7 @@ Copy of the Work OS state, version 212. WORK-STATE.md is a copy of the State, wr
 7. When Parked and list_decisions are live: rewrite the Orders start bullet (Later for findings to pick up soon, Parked with when for features set aside, add_decision, list_decisions, list_parked); not before, or sessions are told about tools that don't exist yet. — waits on the release with Parked
 8. Parked and decisions out of the State document (Om, 20 Nov: they must not live in State directly): own collections, one dated row per entry, no cap, search and paging; State keeps counts; move the existing decisions. Before releasing Parked. — waits on Om's go on the storage plan
 9. Usage recording, Fable's 7 steps plus the weekly improve loop (design in note a289ffec58): Opus plan, then Sonnet build — waits on Om's account switch
-10. Messaging fixes from Om's chat failing to reach the lead (20 Nov): one short unique address per session shown everywhere; a name that matches several or no live session is refused with the list; a chat gets its own session on its first send so replies reach it; teammates' sessions addressable on a shared project; prompt-submit hook says N unread. Design note first, then build — waits on Om's account switch
+10. Messaging fixes (Om's chat, 20 Nov): send_message with only a project is refused today (to is needed): deliver it to the session holding that project's Now, else its live sessions; find out why the chat saw no session ids in list_sessions; one short address per session; a chat gets a session so replies reach it; teammates' sessions on shared projects. Design note first — waits on Om's account switch
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -69,4 +69,4 @@ Copy of the Work OS state, version 212. WORK-STATE.md is a copy of the State, wr
 - Messages sent to a session name that matched no session (m_c5acf64b5e63, m_83aca68c72ce from Om's chat) sit unread and only the sender can open them: refuse unknown names on production too, and let the owner see and re-address stranded ones — waits on check whether production still accepts waiting labels
 - Monitoring service on the Oracle Micro (Akash): Work OS needs a public /health endpoint (today only /api/live); alerts may later become Work OS messages (Om's chat, m_c7651765f8d6)
 - Full run on e8b392f: Claude › Set up phone check overflowed once (summary row of a Disclosure) and Today complete ran 47 database ops against a budget of 45; both rerun alone on a52351f before the release
-<!-- work-os-copy sha1:2956635204cae9686b7c53ca3b07e333c035c6c8 -->
+<!-- work-os-copy sha1:e65dc2dfa4dbbd38ea025ddace95eb49a31a92cc -->
