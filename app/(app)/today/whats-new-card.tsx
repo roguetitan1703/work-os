@@ -15,7 +15,7 @@ const btn = 'h-11 md:h-9 px-4 rounded-lg text-sm font-medium shrink-0 inline-fle
 /**
  * "New in Work OS" on Today: up to three entries from lib/whats-new.ts the person has not seen, shipped in the last
  * NEW_DAYS (14) days, each with Try it; "N more" goes to /whats-new. Try it marks that one seen, Dismiss marks them all. Hidden when none.
- * Looks like Today's other side cards (Now & next on the desktop, the Claude card on the phone).
+ * Looks like Today's other side cards (Schedule on the desktop, the Claude card on the phone).
  */
 export function WhatsNewCard({ data, phone }: { data: WhatsNewCardData | null; phone: boolean }) {
   const router = useRouter();

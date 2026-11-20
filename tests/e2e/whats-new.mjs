@@ -18,7 +18,7 @@ const settle = (p, ms = 700) => p.waitForTimeout(ms);
 const seenOf = async () => (await rawDb.collection('settings').findOne({ _id: `profile:${ME.userId}` }))?.whatsNewSeen ?? [];
 const resetSeen = () => rawDb.collection('settings').updateOne({ _id: `profile:${ME.userId}` }, { $unset: { whatsNewSeen: '' } });
 const shot = (p, name) => p.screenshot({ path: `${SP}/whats-new-${name}.png`, fullPage: true });
-const ALL = ['project-goal-first', 'lanes', 'claude-moves-on', 'messages-to-sessions', 'sessions-everywhere', 'dispatcher-restart-once', 'notes-shelves', 'quiet-phone-monday-numbers', 'declutter-project', 'orders-versions', 'folder-decides-project', 'agents-feedback', 'agents-ask-before-production', 'messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
+const ALL = ['today-projects-now', 'project-goal-first', 'lanes', 'claude-moves-on', 'messages-to-sessions', 'sessions-everywhere', 'dispatcher-restart-once', 'notes-shelves', 'quiet-phone-monday-numbers', 'declutter-project', 'orders-versions', 'folder-decides-project', 'agents-feedback', 'agents-ask-before-production', 'messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
 
 const b = await launch();
 try {
@@ -60,7 +60,7 @@ try {
       const o = await overflow(p); check(`no horizontal scroll /today ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
 
       // Try it marks that one seen and goes there
-      // (the newest entry: its card is the first of three on the phone)
+      // (the second entry: its card is one of the three on the phone)
       await card.locator('[data-whats-new-try="project-goal-first"]').tap();
       await p.waitForURL(u => u.pathname === '/projects', { timeout: 10000 });
       check('Try it: opens where the feature lives (/projects)', new URL(p.url()).pathname === '/projects');
@@ -180,7 +180,7 @@ try {
     const heights = await aside.locator('nav a').evaluateAll(els => [...new Set(els.slice(0, 10).map(e => Math.round(e.getBoundingClientRect().height)))]);
     check(`sidebar ${tag}: Needs and What's new rows are the height of their neighbours`, heights.length === 1, JSON.stringify(heights));
     const card = p.locator('[data-section="whats-new"]:visible');
-    check(`desktop Today ${tag}: the card shows beside Now & next`, (await card.count()) === 1 && (await card.locator('[data-whats-new]').count()) === 3);
+    check(`desktop Today ${tag}: the card shows beside Schedule`, (await card.count()) === 1 && (await card.locator('[data-whats-new]').count()) === 3);
     await shot(p, `today-${tag}`);
     let o = await overflow(p); check(`no horizontal scroll /today ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
 

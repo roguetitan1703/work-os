@@ -69,7 +69,7 @@ for (const kind of ['phone', 'desk']) {
     const cols = await V.locator('[data-section=overdue]').evaluate(e => e.getBoundingClientRect().width);
     const right = await box(V.locator('[data-section=now-next]'));
     console.log('left col width', Math.round(cols), 'right x', Math.round(right.x), 'w', Math.round(right.width));
-    check('desk: right column holds Claude card and Now & next', right && cc && cc.x > 600 && right.x > 600);
+    check('desk: right column holds Claude card and Schedule', right && cc && cc.x > 600 && right.x > 600);
     check('desk: 3 next blocks + Full schedule link', (await V.locator('[data-next-block]').count()) === 3 && (await V.locator('a[href="/timetable"]').count()) === 1);
   }
 
