@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 190. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 192. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -10,7 +10,7 @@ Copy of the Work OS state, version 190. WORK-STATE.md is a copy of the State, wr
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
 3. After R10: Om pastes the signing key backup (D:/Work/Delpat/to-bitwarden/work-os-worker-signing-key.pem, written 20 Nov at his ask) into a Bitwarden secure note, then the file is deleted; Akash runs the Mac install command from Work OS one last time, then his worker updates itself. — waits on Om, Akash
 4. Redesign (c475deb871): steps 1-3, 5 live in R10; next step 4 Needs and Today (B, Opus, from dev), then 6 tasks. Held: weekly usage 93% on 20 Nov; Om asked whether to start now on Sonnet or wait. — waits on weekly usage reset 24 Nov 16:30 IST, or Om says start
-5. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0. Due only when there is something to propose; refresh the count when tasks close. — waits on weekly usage reset 24 Nov (needs a test run)
+5. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0. Same on AKAR (Later 177, items []; AKAR lead feedback 20 Nov). Fix: let declutter ask take agent-proposed archive/done line ids with a why; when due by size, propose oldest lines past the cap; no 'due' or Stop nudge when the proposal is empty; refresh counts. — waits on weekly usage reset 24 Nov (needs a test run)
 6. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 4 and 6. — waits on redesign steps 4 and 6
 
 ## Later
@@ -57,4 +57,5 @@ Copy of the Work OS state, version 190. WORK-STATE.md is a copy of the State, wr
 - scripts/build-artifact.sh fails in WSL from a Windows checkout (CRLF: 'pipefail: invalid option'); R10 ran an LF copy. Add .gitattributes eol=lf for *.sh. — waits on next small fix batch
 - R10 deploy printed 'previous: 43ec8df01225' and 'removed release 43ec8df01225'; only 6d5bce0d8f77 is in /srv/work-os/releases, so --rollback may have nothing to go back to. Check deploy.sh keep count. — waits on next release
 - Switch worker self-update from the signing key to a GitHub file check (the worker compares the update with the files at that commit on GitHub; no key to keep). Om, 20 Nov: later, not now. — waits on Om says when
-<!-- work-os-copy sha1:9812a37d600ae9e26686922470a2724030422814 -->
+- get_state is 50-65 KB in one line on Work OS and AKAR (too big for one tool call) and its lines carry no `at`, so agents can't see a line's age; add a compact mode (ids, text, waitsOn, at) or paging. — waits on with the declutter fix
+<!-- work-os-copy sha1:eda33dd2a47b0e472a3c8345899af8512f688cf3 -->
