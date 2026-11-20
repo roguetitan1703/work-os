@@ -762,21 +762,29 @@ async function answeredText(s: Scope, n: NeedDoc): Promise<string> {
 }
 
 /** Who is withdrawing: the app (the person), or an MCP call with the word the server gave it and the session / key behind it. */
-export type Withdrawer = 'app' | { word: NeedWord; session?: string; keyId?: string };
+export type Withdrawer = 'app' | { word: NeedWord; session?: string; keyId?: string; dispatched?: boolean };
 
 /**
  * The asker takes a Need back, while it is open. From the app, the person who asked. From an agent call: only a Need of the
- * same word and, where recorded, the same session and the same key / OAuth client (a session id alone is only a name); a person's own Needs
+ * same word and, where recorded, the same session and the same key / OAuth client (a session id alone is only a name), or an open one whose asking
+ * session is off (same person, word and key; never from a dispatched run); a person's own Needs
  * are taken back in the app only, and a review Need (slice 5) is never taken back by an agent. Any miss reads as "no such Need".
  */
 export async function withdrawNeed(s: Scope, id: string, by: Withdrawer = 'app'): Promise<Need> {
   return inTransaction(async () => {
     const c = await scoped(s);
     const cur = await c.needs.findOne({ _id: id, 'from.actor.userId': s.userId });
-    const mine =
+    let mine =
       !!cur &&
       (by === 'app' ||
         (cur.from.word !== 'person' && cur.kind !== 'review' && cur.from.word === by.word && (!cur.from.session || cur.from.session === by.session) && (!cur.from.keyId || cur.from.keyId === by.keyId)));
+    // A new session of the same person, word and key may take back an open Need whose asking session is off (it was replaced).
+    // Never a dispatched run (its key or its session row), a review or a person's own Need.
+    if (cur && !mine && by !== 'app' && cur.status === 'open' && cur.from.word !== 'person' && cur.kind !== 'review' && cur.from.word === by.word && by.session && cur.from.session && cur.from.session !== by.session && (!cur.from.keyId || cur.from.keyId === by.keyId) && !by.dispatched) {
+      const o = await orgWide(s.orgId);
+      const mineRows = await o.presence.find({ userId: s.userId, session: by.session }).limit(5).toArray();
+      if (!mineRows.some(r => r.dispatched) && (await askerIsOff(o, cur.projectId, s.userId, cur.from.session, Date.now()))) mine = true;
+    }
     if (!cur || !mine) throw new NotFoundError('That Need does not exist, or you did not ask it.');
     if (cur.status === 'answered') throw new InputError(await answeredText(s, cur));
     if (cur.status !== 'open') {

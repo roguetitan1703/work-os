@@ -101,6 +101,7 @@ try {
   // ======== withdraw_need: who may take one back ========
   {
     const x = await ask(kA, 'Eve', { ask: 'Session one asks' });
+    await must(kA, 'start_work', { project: 'N4 Shared', session: 's1' }, H('s1')); // s1 is on, so another session of the key may not take its Need back
     const x1 = (await must(kA, 'ask', { project: 'N4 Shared', to: 'Bea', kind: 'do', ask: 'Pinned to session s1' }, H('s1'))).need;
     const other = await mcpH(kB, 'withdraw_need', { id: x1.ref }, H('s1'));
     check('withdraw: another key cannot take it back, even naming the same session', other.isError && /did not ask/.test(other.text), other.text.slice(0, 120));
