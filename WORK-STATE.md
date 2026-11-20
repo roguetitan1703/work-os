@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 204. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 206. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -11,9 +11,8 @@ Copy of the Work OS state, version 204. WORK-STATE.md is a copy of the State, wr
 3. After R10: Om pastes the signing key backup (D:/Work/Delpat/to-bitwarden/work-os-worker-signing-key.pem, written 20 Nov at his ask) into a Bitwarden secure note, then the file is deleted; Akash runs the Mac install command from Work OS one last time, then his worker updates itself. — waits on Om, Akash
 4. Redesign (c475deb871): steps 1-3, 5 live in R10; next step 4 Needs and Today (B, Opus, from dev), then 6 tasks. Held: weekly usage 93% on 20 Nov; Om asked whether to start now on Sonnet or wait. — waits on weekly usage reset 24 Nov 16:30 IST, or Om says start
 5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 4 and 6. — waits on redesign steps 4 and 6
-6. Parked and the decision log (Om, 20 Nov; plan note 82ae5908f1, building on builder-s, Sonnet): a Parked list per project beside Next/Later, not loaded at start (brief shows the count), park/unpark ops, each line one tap to a task; declutter moves lines to Parked; brief shows only recent decisions. Design note first, after the declutter fix merges. — waits on declutter fix on builder-s merged
-7. Release dev (declutter fix, usage per session 629b267, then Parked when merged; signed worker update for the usage reader and hook text) to production; AKAR and every session keep getting the old 'due' nudge until then. — waits on Om's yes
-8. When Parked and list_decisions are live: rewrite the Orders start bullet (Later for findings to pick up soon, Parked with when for features set aside, add_decision, list_decisions, list_parked); not before, or sessions are told about tools that don't exist yet. — waits on the release with Parked
+6. Release dev (declutter fix, usage per session 629b267, then Parked when merged; signed worker update for the usage reader and hook text) to production; AKAR and every session keep getting the old 'due' nudge until then. — waits on Om's yes
+7. When Parked and list_decisions are live: rewrite the Orders start bullet (Later for findings to pick up soon, Parked with when for features set aside, add_decision, list_decisions, list_parked); not before, or sessions are told about tools that don't exist yet. — waits on the release with Parked
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -63,4 +62,4 @@ Copy of the Work OS state, version 204. WORK-STATE.md is a copy of the State, wr
 - Goals above tasks (Om, 20 Nov: e.g. 'Phase 3' with its tasks under it; Now points at the current goal). Bigger change; after Parked.
 - Claude page in dark (e2e shots 20 Nov, Sessions and Usage tabs): the selected tab pill is light with white text, and Start Claude is dark on dark. Older than the usage change; check on the real app in dark, then fix in redesign step 7.
 - Om's worker runs from dev and now holds the usage reader; production ignores `usage` until the release, but the worker marks rows sent once the post succeeds. If it restarted before the release, clear its usage offsets after the release so the 30-day backfill goes again. — waits on the usage release
-<!-- work-os-copy sha1:7f45f03a9fba12ee61bfa640e261877829daa253 -->
+<!-- work-os-copy sha1:9560cf4fd9197a16b7fead537dcec46e8cdea8bb -->
