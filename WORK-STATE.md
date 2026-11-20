@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 176. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 177. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -13,6 +13,7 @@ Copy of the Work OS state, version 176. WORK-STATE.md is a copy of the State, wr
 5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 3-6.
 6. Signed worker auto-update (Om yes 20 Nov): built on builder-s (2f92fb5 + Mac fixes 7b552dc: same hooks version on Windows and bundle, setup prints full path); version automatic (519b44b); review done, fixing: no install command on a refused update, key DPAPI-protected and signed outside the WSL build, capped download, unpack-then-swap, then I make the signing key on Om's PC and Om backs it up; then an independent security review, then the signing key made on Om's PC and the first signed release.
 7. Work OS skills installed by the worker (/transfer and /declutter only): slot S builder building it now on builder-s (marked folders only, --adopt for Om's own transfer); skill text in the repo; a design note first.
+8. Redesign integration: redesign-int in wos-int = dev + builder-b (steps 1-3) + builder-a (search); Sonnet builder resolving 6 conflicts, full e2e and ui-tour shots; then I look at the screens, Message security review (running) must pass, then merge to dev. Step 4 starts from redesign-int after that.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -51,4 +52,5 @@ Copy of the Work OS state, version 176. WORK-STATE.md is a copy of the State, wr
 - worker test hook-h7 timing flake (failed in a full worker run, passed alone twice, 20 Nov).
 - Search (builder-a c97c00e): GET /api/search, 3 KB per search, ~290 docs examined (was 8.4k); only the 500 newest docs' descriptions/bodies and open tasks' newest comments are searched (older text not found); security review done and re-checked: app-only Need answers hidden (5b987f9), recent hits per person. Ready to merge with the other steps.
 - Worker trust (20 Nov review): first installs still trust the server's file and sha256 (pin to a GitHub release + key); signed releases never expire; dispatched prompts keep the person's permission mode, so a PC in bypassPermissions lets the server run code unsigned.
-<!-- work-os-copy sha1:97e42490ab7276093a9397a4b5befa88627057cf -->
+- Step 3 (builder-b 8b53acf) taps: see sessions 3->1, answer a Need and see the session 6->2, project goal no scroll, finished today 2->1, message a session 2, answer from a session row 2. live-release.test.mjs fails on dev too (not checked on dev).
+<!-- work-os-copy sha1:e57a1fff4d6de74851670c455e6546b624579683 -->
