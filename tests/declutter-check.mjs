@@ -42,7 +42,7 @@ check('a waiting line alone does not make it due', !due({ next: [], later: [line
 const cache = (o = {}) => ({ checkedAt: NOW, reasons: [], ...o });
 check('cached reasons are added to the count reasons', due({ next: lines(11), later: [], declutter: cache({ reasons: ['2 notes share a title'] }) }).reasons.join('|') === 'Next 11 (over 10)|2 notes share a title');
 check('cached reasons alone make it due', due({ next: [], later: [], declutter: cache({ reasons: ['3 pages share a title'] }) }).due);
-check('the text names the project and the tool', due({ next: lines(11), later: [] }).text === 'Declutter due: Next 11 (over 10). Call declutter {project: "Work OS"}. If your tools do not list declutter, ask your person to reconnect Work OS (/mcp, work-os, Reconnect).');
+check('the text names the project and the tool', due({ next: lines(11), later: [] }).text === 'Declutter due: Next 11 (over 10). Call declutter {project: "Work OS"}.');
 const quiet = { next: lines(30), later: lines(40), declutter: cache({ reasons: ['x'], quietUntil: new Date(NOW.getTime() + 86_400_000) }) };
 check('quiet: nothing is said while quietUntil is in the future', !due(quiet).due && due(quiet).text === null);
 check('quiet is over once quietUntil has passed', due({ ...quiet, declutter: { ...quiet.declutter, quietUntil: new Date(NOW.getTime() - 1) } }).due);

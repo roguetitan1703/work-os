@@ -71,9 +71,9 @@ function unauthorized(req: Request): Response {
 // Claude Code reads a server's tool list once, when it connects, so a long-running session never saw tools added later (and
 // kept removed ones). The server says tools can change (capability tools.listChanged), and a Claude Code session's start_work
 // (also the one after a compaction) and get_state are answered as a short SSE stream: notifications/tools/list_changed first,
-// then the result. Claude Code then reads tools/list again. Only for a Claude Code caller whose client made the MCP handshake
-// (it sends Mcp-Protocol-Version) and not for the Work OS hook (X-Work-OS-Hook; installed hooks read the first data line as
-// the answer). Every other request, the claude.ai connector's included, stays one JSON answer as before.
+// then the result. Claude Code then reads tools/list again. Only for Claude Code itself (mayRelist: its User-Agent, after the
+// MCP handshake) and not for the Work OS hook (X-Work-OS-Hook; installed hooks read the first data line as the answer).
+// Every other request, the claude.ai connector's and other apps' included, stays one JSON answer as before.
 const RELIST_ON = new Set(['start_work', 'get_state']);
 const PEEK_MAX = 64 * 1024;
 const LIST_CHANGED = { jsonrpc: '2.0' as const, method: 'notifications/tools/list_changed' };
@@ -101,9 +101,13 @@ async function peekBody(req: Request): Promise<unknown> {
   }
 }
 
-/** A Claude Code client after the MCP handshake, not the Work OS hook: its start_work and get_state may be answered as SSE. */
+/**
+ * Claude Code itself after the MCP handshake: a Claude Code caller (key, run key or a non-claude.ai OAuth client) whose
+ * User-Agent is Claude Code's ("claude-code/2.1.327 (...)"), that sent Mcp-Protocol-Version, and is not the Work OS hook.
+ * Only it gets start_work and get_state as SSE: another app or script on such a key may read only the first data line.
+ */
 function mayRelist(req: Request, caller: Authorized): boolean {
-  return caller.agent === 'claude-code' && !!req.headers.get('mcp-protocol-version') && !req.headers.get('x-work-os-hook');
+  return caller.agent === 'claude-code' && /^claude-code\//.test(req.headers.get('user-agent') ?? '') && !!req.headers.get('mcp-protocol-version') && !req.headers.get('x-work-os-hook');
 }
 
 /** The id of a tools/call of start_work or get_state (one message, not a batch), or null. */
@@ -152,7 +156,7 @@ async function handle(req: Request, ctx: Ctx): Promise<Response> {
   const relist = eligible ? relistId(body) : null;
   if (trace) {
     const m = body as { method?: string; params?: { name?: string } } | null;
-    console.log(`[mcp trace] ${caller.agent} ${Array.isArray(m) ? 'batch' : (m?.method ?? '?')}${m?.params?.name ? ` ${m.params.name}` : ''} -> ${relist === null ? 'json' : 'sse+list_changed'}`);
+    console.log(`[mcp trace] ${caller.agent} ${Array.isArray(m) ? 'batch' : (m?.method ?? '?')}${m?.params?.name ? ` ${m.params.name}` : ''} -> ${relist === null ? 'json' : 'sse+list_changed'} (${(req.headers.get('user-agent') ?? '').slice(0, 24)})`);
   }
   const { server, release } = await acquireMcpServer(base, caller);
   syncTestHiddenTool(server);

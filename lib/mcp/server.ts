@@ -627,7 +627,7 @@ export async function startWorkBrief(ctx: BriefCtx, key: string, sid: string | u
     // After a pick-up the Now hold may just have moved to this session: read it again.
     holdsNow: stateData.holdsNowOf(picked?.move?.moved ? (await stateData.getState(s, key)).state : state, rowKey(row)),
     lanes: await lanesFor(s, project._id, names, rowKey(row)),
-    ...(await declutterData.briefField(s, project, state)),
+    ...(await declutterData.briefField(s, project, state, ctx.caller.agent === 'claude-code')),
     inbox: inb.messages.length ? { unread: inb.unread, messages: inb.messages.map(m => messageData.messageOut(m, s.userId, names, { cut: 500, unread: inb.unreadIds.has(m._id) })) } : 'no messages',
     openTasks: { total: open.length, tasks: open.slice(0, 25).map(t => briefTask(t, pn, { baseUrl: ctx.baseUrl, who })), ...(open.length > 25 ? { more: `${open.length - 25} more: list_tasks project:"${project.name}"` } : {}) },
     alsoHere: others.length ? others : 'nobody else in the last 30 minutes',
@@ -1554,7 +1554,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
         ...(archivedHandovers.length ? { archivedHandovers } : {}),
         ...(handover ? { handover } : {}),
         ...(handoverError ? { handoverError } : {}),
-        ...(await declutterData.briefField(s, r.project, r.state)),
+        ...(await declutterData.briefField(s, r.project, r.state, caller.agent === 'claude-code')),
       };
     }),
   );

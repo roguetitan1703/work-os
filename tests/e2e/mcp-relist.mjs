@@ -8,7 +8,8 @@
 //   - a plain tools/call of another tool: JSON, as before
 //   - a client that ignores the notification (SDK client without a handler, raw fetch): still gets the result
 //   - the claude.ai connector (chat key, claude.ai OAuth): JSON; Claude Code over OAuth: the stream
-//   - the Work OS hook (X-Work-OS-Hook) and callers without Mcp-Protocol-Version (installed hooks, raw scripts): JSON
+//   - the Work OS hook (X-Work-OS-Hook), callers without Mcp-Protocol-Version (installed hooks, raw scripts) and clients
+//     whose User-Agent is not Claude Code's (other apps and scripts on a Claude Code key or OAuth client): JSON
 //   - parallel start_works all answer, and pooled servers keep working after a stream
 // Seed profile: none.
 import fs from 'node:fs';
@@ -26,14 +27,16 @@ const hide = name => fs.writeFileSync(HIDE, name);
 const show = () => fs.rmSync(HIDE, { force: true });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SSE = 'text/event-stream';
+/** What Claude Code sends (claude-code/2.1.327 (claude-desktop, agent-sdk/0.3.325) on this PC, 20 Nov). */
+const CC_UA = 'claude-code/2.1.327 (cli)';
 const JSONT = 'application/json';
 
 /** A client like Claude Code: on list_changed it reads tools/list again (unless relist is false). Logs each POST and its answer type. */
-async function session(key, { relist = true } = {}) {
+async function session(key, { relist = true, ua = CC_UA } = {}) {
   const log = [];
   const client = new Client({ name: 'relist-probe', version: '1' });
   const transport = new StreamableHTTPClientTransport(new URL(B + '/api/mcp'), {
-    requestInit: { headers: { authorization: `Bearer ${key}` } },
+    requestInit: { headers: { authorization: `Bearer ${key}`, ...(ua ? { 'user-agent': ua } : {}) } },
     fetch: async (url, init) => {
       let body = null;
       try { body = init?.body ? JSON.parse(String(init.body)) : null; } catch { /* not JSON */ }
@@ -73,7 +76,7 @@ async function raw(key, name, args = {}, headers = {}) {
   const result = msgs.find(m => m.id === id);
   return { status: r.status, type, msgs, id, result, text: result?.result?.content?.[0]?.text ?? '' };
 }
-const PV = { 'mcp-protocol-version': '2025-06-18' };
+const PV = { 'mcp-protocol-version': '2025-06-18', 'user-agent': CC_UA };
 const isListChanged = m => m?.method === 'notifications/tools/list_changed' && m.id === undefined;
 
 /** An OAuth token from a client that is not claude.ai's (so the route treats it as Claude Code). */
@@ -164,6 +167,12 @@ try {
   check('6: the hook (X-Work-OS-Hook) start_work: JSON, so installed hooks read the answer', hk.type === JSONT && hk.msgs.length === 1 && JSON.parse(hk.text)?.project?.name === P, hk.type);
   const np = await raw(cc, 'start_work', { project: P, session: 'rlN1' });
   check('6: no Mcp-Protocol-Version (raw scripts, old hooks): JSON', np.type === JSONT && np.msgs.length === 1 && JSON.parse(np.text)?.project?.name === P, np.type);
+  const ua = await raw(cc, 'start_work', { project: P, session: 'rlU1' }, { ...PV, 'user-agent': 'my-script/1.0' });
+  check('6: Mcp-Protocol-Version but another User-Agent (another app or script on the key): JSON', ua.type === JSONT && ua.msgs.length === 1 && JSON.parse(ua.text)?.project?.name === P, ua.type);
+  const sdk = await session(cc, { ua: null });
+  sessions.push(sdk);
+  await sdk.call('start_work', { project: P, session: 'rlU2' });
+  check('6: the SDK client with its own User-Agent: start_work is JSON, no notification', sdk.notes.length === 0 && sdk.log[lastPost(sdk, 'tools/call', 'start_work')]?.type === JSONT, JSON.stringify(sdk.log.slice(-1)));
   const batch = await fetch(B + '/api/mcp', { method: 'POST', headers: { 'content-type': JSONT, accept: `${JSONT}, ${SSE}`, authorization: `Bearer ${cc}`, ...PV }, body: JSON.stringify([{ jsonrpc: '2.0', id: 91, method: 'tools/call', params: { name: 'start_work', arguments: { project: P, session: 'rlBt' } } }]) });
   check('6: a batch is never streamed', (batch.headers.get('content-type') || '').startsWith(JSONT) || batch.status >= 400, `${batch.status} ${batch.headers.get('content-type')}`);
   await batch.text();

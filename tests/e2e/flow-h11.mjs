@@ -3,7 +3,7 @@
 // what was archived. Putting a line back is a person's action in the app (restoreLine): checked in the UI part (step 5).
 // Later parts are added by the later steps. Seed profile: none.
 import { randomUUID } from 'node:crypto';
-import { B, ME, check, finish, launch, login, makeUser, mkKey, rawDb } from './lib.mjs';
+import { B, MCP, ME, check, finish, launch, login, makeUser, mkKey, rawDb } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
 
 const P = 'H11 Alpha';
@@ -216,6 +216,9 @@ try {
   // end_work carries the same text
   const endD = await must(cc, 'end_work', { project: D, state: [{ op: 'set_where', machine: 'h11box', branch: 'x' }], friction: 'none', session: 'h11d1' }, hdr('h11d1'));
   check('H11 end_work: the answer carries the same declutter line', /Declutter due: Later 26/.test(endD.declutter ?? ''), JSON.stringify(Object.keys(endD)));
+  // a claude.ai caller (Claude chat key) gets the line without the Claude Code reconnect steps
+  const chatB = await must(MCP, 'start_work', { project: D });
+  check('H11 brief: a claude.ai caller gets the due line without the /mcp reconnect steps', /^Declutter due: Later 26 \(over 25\)\. Call declutter \{project: "H11 Delta"\}\.$/.test(chatB.declutter ?? ''), JSON.stringify(chatB.declutter));
 
   // b) Gamma: stale lines, two pages with one title, 
   const G = 'H11 Gamma';
