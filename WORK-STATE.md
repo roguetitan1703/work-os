@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 206. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 207. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -13,6 +13,7 @@ Copy of the Work OS state, version 206. WORK-STATE.md is a copy of the State, wr
 5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 4 and 6. — waits on redesign steps 4 and 6
 6. Release dev (declutter fix, usage per session 629b267, then Parked when merged; signed worker update for the usage reader and hook text) to production; AKAR and every session keep getting the old 'due' nudge until then. — waits on Om's yes
 7. When Parked and list_decisions are live: rewrite the Orders start bullet (Later for findings to pick up soon, Parked with when for features set aside, add_decision, list_decisions, list_parked); not before, or sessions are told about tools that don't exist yet. — waits on the release with Parked
+8. Parked and decisions out of the State document (Om, 20 Nov: they must not live in State directly): own collections, one dated row per entry, no cap, search and paging; State keeps counts; move the existing decisions. Before releasing Parked. — waits on Om's go on the storage plan
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -62,4 +63,4 @@ Copy of the Work OS state, version 206. WORK-STATE.md is a copy of the State, wr
 - Goals above tasks (Om, 20 Nov: e.g. 'Phase 3' with its tasks under it; Now points at the current goal). Bigger change; after Parked.
 - Claude page in dark (e2e shots 20 Nov, Sessions and Usage tabs): the selected tab pill is light with white text, and Start Claude is dark on dark. Older than the usage change; check on the real app in dark, then fix in redesign step 7.
 - Om's worker runs from dev and now holds the usage reader; production ignores `usage` until the release, but the worker marks rows sent once the post succeeds. If it restarted before the release, clear its usage offsets after the release so the 30-day backfill goes again. — waits on the usage release
-<!-- work-os-copy sha1:9560cf4fd9197a16b7fead537dcec46e8cdea8bb -->
+<!-- work-os-copy sha1:552a79200e5f545933ed8742a533ae61751eabec -->
