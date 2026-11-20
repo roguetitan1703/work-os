@@ -164,6 +164,8 @@ export async function resolveTo(s: Scope, to: string, projectKey?: string): Prom
     const seen = await c.presence.find({ lastSeen: { $gt: new Date(Date.now() - WEEK_MS) }, ...(project ? { projectId: project._id } : {}) }).sort({ lastSeen: -1 }).limit(500).toArray();
     const hit = seen.filter(r => shortAddress(r) === raw.toLowerCase() && (r.projectId || r.userId === s.userId));
     if (!hit.length) throw new InputError(`No session you can see has the address ${raw.slice(0, 20)}${project ? ` on ${project.name}` : ''}: list_sessions shows the addresses.`);
+    // An address names one session. Two sessions sharing it (a rare hash collision) is refused, never sent to both or to a guess.
+    if (new Set(hit.map(rowKey)).size > 1) throw new InputError(`Two sessions you can see share the address ${raw.slice(0, 20)}: use the session's name or id (your own sessions) or pass project.`);
     const pid = hit[0].projectId;
     const rows = hit.filter(r => r.projectId === pid);
     const doc = pid ? (project ?? (await c.projects.findOne({ _id: pid }))) : null;
