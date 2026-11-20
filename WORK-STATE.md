@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 194. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 195. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -13,6 +13,7 @@ Copy of the Work OS state, version 194. WORK-STATE.md is a copy of the State, wr
 5. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0. Building on builder-s (Sonnet, 20 Nov): Later limit 60, size review (reviewed: true), apply without a Need, dated and compact get_state. Fix: let declutter ask take agent-proposed archive/done line ids with a why; when due by size, propose oldest lines past the cap; no 'due' or Stop nudge when the proposal is empty; refresh counts. — waits on weekly usage reset 24 Nov (needs a test run)
 6. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 4 and 6. — waits on redesign steps 4 and 6
 7. Claude usage per session (design note a289ffec58, Om asked 20 Nov): building on builder-b (Sonnet): worker reads usage numbers from transcripts, Claude > Usage page, MCP usage tool; then independent review (owner-only, tenant scope), merge to dev.
+8. Parked (Om, 20 Nov: State is RAM; parked features don't belong in it): a Parked list per project beside Next/Later, not loaded at start (brief shows the count), park/unpark ops, each line one tap to a task; declutter moves lines to Parked; brief shows only recent decisions. Design note first, after the declutter fix merges. — waits on declutter fix on builder-s merged
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -59,4 +60,5 @@ Copy of the Work OS state, version 194. WORK-STATE.md is a copy of the State, wr
 - R10 deploy printed 'previous: 43ec8df01225' and 'removed release 43ec8df01225'; only 6d5bce0d8f77 is in /srv/work-os/releases, so --rollback may have nothing to go back to. Check deploy.sh keep count. — waits on next release
 - Switch worker self-update from the signing key to a GitHub file check (the worker compares the update with the files at that commit on GitHub; no key to keep). Om, 20 Nov: later, not now. — waits on Om says when
 - get_state is 50-65 KB in one line on Work OS and AKAR (too big for one tool call) and its lines carry no `at`, so agents can't see a line's age; add a compact mode (ids, text, waitsOn, at) or paging. — waits on with the declutter fix
-<!-- work-os-copy sha1:8541ebc9e8951f90584375327eada65620b9de19 -->
+- Goals above tasks (Om, 20 Nov: e.g. 'Phase 3' with its tasks under it; Now points at the current goal). Bigger change; after Parked.
+<!-- work-os-copy sha1:563488f59499a17406277be856d25aaa91d3ae53 -->
