@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 211. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 212. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -68,4 +68,5 @@ Copy of the Work OS state, version 211. WORK-STATE.md is a copy of the State, wr
 - Mail: mail_draft / mail_reply_draft that saves to Drafts, threaded on the original, for outside-domain mail a person sends himself (Om's chat, 20 Nov, m_d4b1a5e5731c) — waits on Om's account switch
 - Messages sent to a session name that matched no session (m_c5acf64b5e63, m_83aca68c72ce from Om's chat) sit unread and only the sender can open them: refuse unknown names on production too, and let the owner see and re-address stranded ones — waits on check whether production still accepts waiting labels
 - Monitoring service on the Oracle Micro (Akash): Work OS needs a public /health endpoint (today only /api/live); alerts may later become Work OS messages (Om's chat, m_c7651765f8d6)
-<!-- work-os-copy sha1:58f721c49970346b274325081e375d68de9b3a7d -->
+- Full run on e8b392f: Claude › Set up phone check overflowed once (summary row of a Disclosure) and Today complete ran 47 database ops against a budget of 45; both rerun alone on a52351f before the release
+<!-- work-os-copy sha1:2956635204cae9686b7c53ca3b07e333c035c6c8 -->
