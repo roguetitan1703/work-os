@@ -19,6 +19,8 @@ delete process.env.WORK_OS_KEY;
 delete process.env.WORK_OS_URL;
 process.env.CLAUDE_CODE_ENTRYPOINT = 'claude-vscode';
 process.env.CLAUDE_PID = String(process.pid); // stands for the claude process: any live process will do
+process.env.CLAUDE_CODE_USER_EMAIL = 'made-up@example.com'; // the account label comes from here, never from the real ~/.claude.json
+delete process.env.CLAUDE_CODE_ACCOUNT_UUID;
 const { FILES } = await import('../hooks-install.mjs');
 
 const WKR = 'wkr_' + 'D'.repeat(43);
@@ -92,10 +94,23 @@ test('a prompt with nothing changed sends no identity; after a rename and a new 
   fs.appendFileSync(transcript, rec({ type: 'custom-title', customTitle: 'Renamed later' }) + rec({ type: 'assistant', message: { model: 'made-up-model-2', content: [] } }));
   seen.length = 0;
   await event('user-prompt', { prompt: 'again' });
-  assert.deepEqual(events()[0].body.identity, { title: 'Renamed later', aiTitle: 'Made-up AI title', model: 'made-up-model-2' });
+  assert.deepEqual(events()[0].body.identity, { title: 'Renamed later', aiTitle: 'Made-up AI title', model: 'made-up-model-2', account: 'made-up' });
   seen.length = 0;
   await event('user-prompt', { prompt: 'and again' });
   assert.ok(!('identity' in events()[0].body), 'sent once per change');
+});
+
+test('a login switch mid-session sends the new account label once (hooks review M9)', async () => {
+  process.env.CLAUDE_CODE_USER_EMAIL = 'other-made-up@example.com';
+  try {
+    seen.length = 0;
+    await event('user-prompt', { prompt: 'after the switch' });
+    assert.equal(events()[0].body.identity?.account, 'other-made-up');
+    assert.ok(!JSON.stringify(events()[0].body).includes('example.com'), 'never the full email');
+    seen.length = 0;
+    await event('user-prompt', { prompt: 'once more' });
+    assert.ok(!('identity' in events()[0].body), 'sent once per change');
+  } finally { process.env.CLAUDE_CODE_USER_EMAIL = 'made-up@example.com'; }
 });
 
 test('a stop sends a changed identity too; a tool-batch event never does', async () => {

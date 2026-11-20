@@ -20,3 +20,17 @@ export function readAccount(file = path.join(os.homedir(), '.claude.json')) {
     return { id: hashAccount(a.accountUuid), label: oneLine(mail.split('@')[0], 40) };
   } catch { return null; }
 }
+
+/**
+ * The account THIS session runs under (hooks review M9): the hook environment first (CLAUDE_CODE_USER_EMAIL and
+ * CLAUDE_CODE_ACCOUNT_UUID, set by Claude Code for its hooks), then $CLAUDE_CONFIG_DIR/.claude.json (the usual way to run a
+ * second account), then ~/.claude.json. A file given (tests) is read alone. { id?, label } or null.
+ */
+export function sessionAccount(env = process.env, file) {
+  if (file) return readAccount(file);
+  const mail = typeof env.CLAUDE_CODE_USER_EMAIL === 'string' ? env.CLAUDE_CODE_USER_EMAIL.trim() : '';
+  const uuid = typeof env.CLAUDE_CODE_ACCOUNT_UUID === 'string' ? env.CLAUDE_CODE_ACCOUNT_UUID.trim() : '';
+  if (mail.includes('@')) return { ...(uuid ? { id: hashAccount(uuid) } : {}), label: oneLine(mail.split('@')[0], 40) };
+  if (env.CLAUDE_CONFIG_DIR) { const a = readAccount(path.join(env.CLAUDE_CONFIG_DIR, '.claude.json')); if (a) return a; }
+  return readAccount();
+}

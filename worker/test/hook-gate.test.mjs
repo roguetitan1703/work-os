@@ -1,5 +1,5 @@
 // The one gate every hook passes (hook-gate.mjs): each hook of EVENTS run through hook.mjs main against each case (the
-// person's own call, a subagent's call, a claude -p / SDK run, and for the wait a parent claude process that is gone), on an
+// person's own call, a subagent's call, a dispatched run, a claude -p / SDK run, and for the wait a parent claude process that is gone), on an
 // installed copy against a stub server. A skipped hook prints nothing and makes no call at all; the cases a hook runs in reach
 // its handler. Every EVENTS row has a RULES row.
 import { test, after } from 'node:test';
@@ -73,7 +73,6 @@ const INPUTS = {
   notification: { notification_type: 'permission_prompt' },
   'session-end': { reason: 'exit' },
   'subagent-start': { agent_type: 'general-purpose' },
-  'subagent-stop': { agent_type: 'general-purpose' },
 };
 /** The hooks that post the session's state for the person's own call (each reaches the server in the plain case). */
 const POSTS = new Set(['user-prompt', 'tool-start', 'tool-batch', 'wait', 'notification', 'session-end']);
@@ -106,6 +105,13 @@ for (const event of Object.keys(g.RULES)) {
       assert.equal(sub.calls, 0, `${event}: a subagent makes no call`);
       assert.equal(sub.exit, 0);
     }
+    // a run the task dispatcher started (WORK_OS_DISPATCHED): it reports like a session, but never waits (Om's default, 21 Nov)
+    process.env.WORK_OS_DISPATCHED = '17';
+    let d;
+    try { d = await runHook(event); } finally { delete process.env.WORK_OS_DISPATCHED; }
+    if (rule.dispatched === 'skip') {
+      assert.deepEqual([d.out, d.calls, d.exit], ['', 0, 0], `${event}: a dispatched run does nothing`);
+    } else if (POSTS.has(event)) assert.ok(d.calls > 0, `${event}: a dispatched run still reports`);
     // a claude -p or SDK run
     for (const env of ['sdk-cli', 'sdk-ts', 'sdk-py']) {
       const q = await runHook(event, {}, env);

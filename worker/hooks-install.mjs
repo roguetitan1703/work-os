@@ -49,7 +49,9 @@ export function installedVersion() {
   try { return fs.readFileSync(path.join(hooksDir(), VERSION_FILE), 'utf8').trim() || null; } catch { return null; }
 }
 // Every entry we write runs <some folder>/hooks/hook.mjs <event>; the folder's name is not ours to rely on (WORK_OS_WORKER_DIR).
-const OURS_RE = new RegExp('[\\\\/]hooks[\\\\/]hook\\.mjs"\\s+(' + EVENTS.map((e) => e.event).join('|') + ')(\\s|$)');
+// Events a past install wrote and this one no longer does (hooks review 18, 21 Nov: subagent-stop): still ours, so an install removes them.
+const RETIRED_EVENTS = ['subagent-stop'];
+const OURS_RE = new RegExp('[\\\\/]hooks[\\\\/]hook\\.mjs"\\s+(' + [...EVENTS.map((e) => e.event), ...RETIRED_EVENTS].join('|') + ')(\\s|$)');
 
 /** The hook entries, by Claude Code event. `hook` is the absolute path of the installed hook.mjs; `flags` is appended to each command (a repo's: ` --cloud --server <url>`). */
 export function entries(hook, flags = '', { cloud = false } = {}) {

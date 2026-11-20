@@ -324,7 +324,7 @@ try {
     fsx.mkdirSync(markers);
     const CC = randomUUID();
     fsx.writeFileSync(pathx.join(wh, 'hooks', 'sessions', `${CC}.json`), JSON.stringify({ token: S.token, until: Date.now() + 3_600_000 }));
-    const env = { ...process.env, WORK_OS_HOOK_DIR: markers };
+    const env = { ...process.env, WORK_OS_HOOK_DIR: markers, CLAUDE_PID: String(process.pid) }; // the wait needs a live parent (hooks review M8): this suite's own process
     delete env.WORK_OS_KEY;
     const marker = state => { let ack; try { ack = JSON.parse(fsx.readFileSync(pathx.join(markers, `${CC}.json`), 'utf8')).ack; } catch { /* none yet */ } fsx.writeFileSync(pathx.join(markers, `${CC}.json`), JSON.stringify({ project: 'H7 One', presence: { state, at: Date.now(), postedAt: Date.now() }, ...(ack ? { ack } : {}) })); };
     const hookArgs = ev => [pathx.join(wh, 'hooks', 'hook.mjs'), ev];

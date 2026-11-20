@@ -13,7 +13,7 @@
 //                 network). That session has no token, so it sends no state events.
 import os from 'node:os';
 import { identityKey, identityOf } from './hook-identity.mjs';
-import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, keepProc, mcpCall, postAgent, quietPath, readKept, readMarker, keepToken, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, SESSION_TOKEN_RE, cut, deps, folderCandidates, frameInbox, git, keepProc, mcpCall, postAgent, quietPath, readKept, readMarker, keepToken, withinDeadline, repoFacts, run, sizeOf, statusHash, str, unfiledText, workerHome, writeMarker } from './hook-lib.mjs';
 
 // The folder decides the project (H13): the body carries the ids of the worker folders that contain the session's folder
 // (`folders`, longest first); the server takes the first one linked on this PC. The git remote is sent as information only.
@@ -65,7 +65,7 @@ function whereOf(cwd) {
 /** The marker of a session whose brief was shown: the baseline, project, production block and presence. */
 function briefMarker(sid, input, cwd, old, r, reports, dispatched) {
   const transcript = typeof input.transcript_path === 'string' && input.transcript_path ? input.transcript_path : old?.transcript;
-  writeMarker(sid, { ...(old?.promptAt ? { promptAt: old.promptAt } : {}), ...(transcript ? { transcript, ident: identityKey(identityOf(transcript)) } : {}), ...(dispatched ?? old?.dispatched ? { dispatched: dispatched ?? old.dispatched } : {}), status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(Array.isArray(r.orders) ? { orders: r.orders.map((o) => o && o.noteId).filter((i) => typeof i === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(i)).slice(0, 10) } : old?.orders ? { orders: old.orders } : {}), ...(sameFolderText(r.sameFolder) ? { sameFolder: sameFolderText(r.sameFolder) } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
+  writeMarker(sid, { ...(old?.promptAt ? { promptAt: old.promptAt } : {}), ...(transcript ? { transcript, ident: identityKey(identityOf(transcript)) } : {}), ...(dispatched ?? old?.dispatched ? { dispatched: dispatched ?? old.dispatched } : {}), status: old?.status ?? statusHash(cwd), offset: old?.offset ?? sizeOf(input.transcript_path), stopped: old?.stopped ?? false, project: r.project.name || old?.project, ...('production' in r ? (r.production ? { production: r.production } : {}) : old?.production ? { production: old.production } : {}), ...(typeof r.shortOrders === 'string' && r.shortOrders ? { short: r.shortOrders.slice(0, 1200), ...(Number.isInteger(r.shortOrdersVersion) ? { shortV: r.shortOrdersVersion } : {}) } : {}), ...(Array.isArray(r.orders) ? { orders: r.orders.map((o) => o && o.noteId).filter((i) => typeof i === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(i)).slice(0, 10) } : old?.orders ? { orders: old.orders } : {}), ...(sameFolderText(r.sameFolder) ? { sameFolder: sameFolderText(r.sameFolder), sharedFolder: true } : old?.sharedFolder ? { sharedFolder: true } : {}), ...(reports ? { presence: { state: input.source === 'compact' ? 'working' : 'on', at: Date.now(), postedAt: Date.now() } } : old?.presence ? { presence: old.presence } : {}) });
 }
 
 /**
@@ -90,12 +90,21 @@ const transcriptOf = (input) => (typeof input.transcript_path === 'string' ? inp
 
 /** SessionStart: the hook's JSON answer (or null for "print nothing"). */
 export async function sessionStart(input) {
+  try {
+    return await startBrief(input);
+  } finally {
+    // Which process the session runs in, for the worker (Identity step 3) and the wait's parent check; every start, so a resume names
+    // its new process. After the brief and only with time left (hooks review M7): on Windows it is a PowerShell call.
+    if (input.session_id && withinDeadline(5000) > 1500) keepProc(input.session_id);
+  }
+}
+
+async function startBrief(input) {
   const cwd = input.cwd || process.cwd();
   const sid = input.session_id;
   const { remote, where } = whereOf(cwd);
   const folders = folderCandidates(cwd);
   const old = sid ? readMarker(sid) : null; // after compaction the baseline stays the one from the real start
-  if (sid) keepProc(sid); // which process the session runs in, for the worker (Identity step 3); every start, so a resume names its new process
   let r;
   let reports = false; // signed in with the worker (a session token): Work OS gets this session's state events
   let unfiled = null; // { candidates } when no project owns the folder

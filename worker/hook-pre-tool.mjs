@@ -90,7 +90,7 @@ export async function preTool(input) {
   if (!hitsCopy(input)) {
     const blocked = await productionBlock(input);
     if (blocked) return blocked;
-    await pingWorking(input);
+    if (!input.agent_id) await pingWorking(input); // a subagent's call never reports its parent's state (hooks review M4; hook-gate.mjs)
     return null;
   }
   const seen = { reached: false };
