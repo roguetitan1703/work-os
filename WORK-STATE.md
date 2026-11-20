@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 218. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 220. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -11,11 +11,10 @@ Copy of the Work OS state, version 218. WORK-STATE.md is a copy of the State, wr
 3. After R10: Om pastes the signing key backup (D:/Work/Delpat/to-bitwarden/work-os-worker-signing-key.pem, written 20 Nov at his ask) into a Bitwarden secure note, then the file is deleted; Akash runs the Mac install command from Work OS one last time, then his worker updates itself. — waits on Om, Akash
 4. Redesign (c475deb871): steps 1-3, 5 live in R10; next step 4 Needs and Today (B, Opus, from dev), then 6 tasks. Held: weekly usage 93% on 20 Nov; Om asked whether to start now on Sonnet or wait. — waits on weekly usage reset 24 Nov 16:30 IST, or Om says start
 5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 4 and 6. — waits on redesign steps 4 and 6
-6. Release dev (declutter fix, usage per session 629b267, then Parked when merged; signed worker update for the usage reader and hook text) to production; AKAR and every session keep getting the old 'due' nudge until then. — waits on Om's yes
-7. When Parked and list_decisions are live: rewrite the Orders start bullet (Later for findings to pick up soon, Parked with when for features set aside, add_decision, list_decisions, list_parked); not before, or sessions are told about tools that don't exist yet. — waits on the release with Parked
-8. Parked and decisions out of the State document (Om, 20 Nov: they must not live in State directly): own collections, one dated row per entry, no cap, search and paging; State keeps counts; move the existing decisions. Before releasing Parked. — waits on Om's go on the storage plan
-9. Usage recording, Fable's 7 steps plus the weekly improve loop (design in note a289ffec58): Opus plan, then Sonnet build — waits on Om's account switch
-10. Messaging fixes (Om's chat, 20 Nov): send_message with only a project is refused today (to is needed): deliver it to one session only, the project's lead (holds Now), never to all; instant: every kind wakes an idle recipient; find out why the chat saw no session ids in list_sessions; one short address per session; a chat gets a session so replies reach it; any session to any session across people; a person's message goes to their lead session. Design first — waits on Om's account switch
+6. When Parked and list_decisions are live: rewrite the Orders start bullet (Later for findings to pick up soon, Parked with when for features set aside, add_decision, list_decisions, list_parked); not before, or sessions are told about tools that don't exist yet. — waits on the release with Parked
+7. Parked and decisions out of the State document (Om, 20 Nov: they must not live in State directly): own collections, one dated row per entry, no cap, search and paging; State keeps counts; move the existing decisions (Parked shipped inside State in R11). — waits on Om's go on the storage plan
+8. Usage recording, Fable's 7 steps plus the weekly improve loop (design in note a289ffec58): Opus plan, then Sonnet build — waits on Om's account switch
+9. Messaging fixes (Om's chat, 20 Nov): send_message with only a project is refused today (to is needed): deliver it to one session only, the project's lead (holds Now), never to all; instant: every kind wakes an idle recipient; find out why the chat saw no session ids in list_sessions; one short address per session; a chat gets a session so replies reach it; any session to any session across people; a person's message goes to their lead session. Design first — waits on Om's account switch
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -72,4 +71,4 @@ Copy of the Work OS state, version 218. WORK-STATE.md is a copy of the State, wr
 - Claude chat feedback 20 Nov: its Work OS tool list is from before 19 Nov (quotes the removed to_session text), claude.ai does not refresh it; also read-only get_message, say whether chats call start_work, state the no-teammate-sessions rule in send_message, a one-line glossary, server instructions get truncated, recent_activity says hook where chats have none — waits on messaging design note after Om's switch
 - Bug: a Claude chat's start_work on Work OS (no pick_up) attached the lead's 13:49 handover and stamped it picked up by the chat; a chat must never take over a Code session's handover; check whether Needs or held lines moved (Om's chat, m_890469b90393)
 - Bug: Om's chat (registered with start_work) called recent_activity after my reply m_a00bcc9d0ca3 and got no forYou line, though every tool goes through forYouBefore/After (lib/mcp/for-you.ts). Cause not checked: maybe no session passed, so presentRow finds no row. Replay: chat registers, lead replies, chat calls any tool, must see the line — waits on messaging design after Om's switch
-<!-- work-os-copy sha1:a60fae9e2aba0616cbb62c469a2590e023f79958 -->
+<!-- work-os-copy sha1:110481a13e00e67a755125e46d238f1dd0b0f835 -->
