@@ -69,6 +69,7 @@ flow-ui-p1|flow-ui-p1.mjs|none|plain
 flow-ui-p2|flow-ui-p2.mjs|today|plain
 flow-ui-p3|flow-ui-p3.mjs|none|plain
 flow-ui-p4|flow-ui-p4.mjs|none|plain
+flow-ui-p5|flow-ui-p5.mjs|none|plain
 flow-ms1|flow-ms1.mjs|none|plain
 flow-ms2|flow-ms2.mjs|none|plain
 flow-ms3|flow-ms3.mjs|none|plain

@@ -8,6 +8,8 @@ import { taskIdsWithNotes } from '@/lib/data/notes';
 import { requireScope } from '@/lib/caller';
 import { openNeedsToMe } from '@/lib/data/needs';
 import { NeedsYou } from '@/components/needs';
+import { placesOfTasks } from '@/lib/data/purpose';
+import { PlacesProvider } from '@/components/task-place';
 
 /** Tasks shows this many of the Needs waiting on you; See all opens the Needs page. */
 const NEEDS_MAX = 3;
@@ -34,9 +36,9 @@ export default async function BoardPage({ searchParams }: Props) {
   ]);
   const active = projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }));
   const all = [...open, ...doneThisWeek];
-  const notes = await taskIdsWithNotes(s, all.map(t => t.id));
+  const [notes, places] = await Promise.all([taskIdsWithNotes(s, all.map(t => t.id)), placesOfTasks(s, all)]);
   return (
-    <>
+    <PlacesProvider places={places}>
       <div className="md:hidden">
         <MobileTasks top={needs.length ? <NeedsYou needs={needs} phone max={NEEDS_MAX} seeAll="/needs" /> : null} focusSearch={sp.search === '1'} tasks={all} projects={active} noteTaskIds={[...notes]} filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', q: sp.q ?? '', assigned }} />
       </div>
@@ -48,6 +50,6 @@ export default async function BoardPage({ searchParams }: Props) {
       filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', q: sp.q ?? '', assigned }}
     />
       </div>
-    </>
+    </PlacesProvider>
   );
 }

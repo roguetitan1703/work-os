@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'task-place-chips',
+    date: '2026-11-20',
+    title: 'Task rows show where they sit in the plan',
+    line: "A small chip on a task says Now, Next 2 or Later when the project's State names it, so you see what matters before you open it.",
+    where: 'Tasks, a project, Today',
+    href: '/tasks',
+  },
+  {
     id: 'sessions-say-why',
     date: '2026-11-20',
     title: 'Sessions now say what they are doing',

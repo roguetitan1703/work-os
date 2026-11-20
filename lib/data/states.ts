@@ -114,6 +114,13 @@ export async function nowOfProjects(s: Scope, ids: string[]): Promise<Record<str
   return Object.fromEntries(rows.map(d => [String(d._id), { now: d.now?.text ?? null, next: d.next?.[0]?.text ?? null, version: d.version }]));
 }
 
+/** The lines of many projects' States in one query (task chips): only now.text, next and later, through the caller's door. */
+export async function statesOfProjects(s: Scope, ids: string[]): Promise<Record<string, Pick<StateDoc, 'now' | 'next' | 'later'>>> {
+  if (!ids.length) return {};
+  const rows = await (await scoped(s)).states.find({ _id: { $in: ids } }, { projection: { 'now.text': 1, 'next.text': 1, 'next.ref': 1, 'later.text': 1, 'later.ref': 1 } }).toArray();
+  return Object.fromEntries(rows.map(d => [String(d._id), { now: d.now ?? null, next: d.next ?? [], later: d.later ?? [] }])) as Record<string, Pick<StateDoc, 'now' | 'next' | 'later'>>;
+}
+
 /** A session's key as holds name it (`userId:key`): an MCP src already has the form, the hook's State route sends a bare session id. */
 export function holdKeyOf(userId: string, src: string | undefined | null): string | undefined {
   if (!src) return undefined;

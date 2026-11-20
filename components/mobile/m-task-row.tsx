@@ -17,6 +17,7 @@ import { ParentLine, SubtaskChip, useCloseSubtasks } from '../subtasks';
 import { useSynced } from '@/components/use-synced';
 import { AssigneeDots } from '@/components/assignee-picker';
 import { NeedChip } from '@/components/need-chip';
+import { TaskPlaceChip } from '@/components/task-place';
 
 const PRIO_RING: Record<Priority, string> = {
   P1: 'border-red-500',
@@ -137,6 +138,7 @@ export function MTaskRow({ task, showProject = true, hint, hasNote }: { task: Ta
               </span>
             )}
             <SubtaskChip task={task} className="[&_svg]:w-3.5 [&_svg]:h-3.5" />
+            <TaskPlaceChip taskId={task.id} />
             <ClaudeBadge task={task} />
             <AssigneeDots ids={task.assigneeIds} />
             {task.recurrence && <Repeat className="w-3.5 h-3.5" aria-label="Recurring" />}
