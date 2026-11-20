@@ -606,7 +606,13 @@ export type RunKeyDoc = { hash: string; keyHash: string; ref: number; at: Date; 
  * subagent), model and day, with that day's whole token counts as the worker read them from the transcript's usage records.
  * Never any message text. Owner only. `dayAt` (the day at UTC midnight) is what the 90 day TTL index goes by.
  */
-export type ClaudeUsageDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; sessionId: string; part: string; partName?: string; model: string; day: string; dayAt: Date; i: number; cw: number; cr: number; o: number; title: string; folder: string; origin: SessionOrigin; updatedAt: Date };
+export type ClaudeUsageDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; sessionId: string; part: string; partName?: string; model: string; day: string; dayAt: Date; i: number; cw: number; cr: number; o: number; title: string; folder: string; origin: SessionOrigin; updatedAt: Date; /** The Claude account (a hash, lib/data/claude-usage.ts) the day was used under. */ acct?: string; /** The organization's Orders version when it was written. */ ov?: number };
+/** Claude usage in 5-minute buckets (last 7 days; the plan of note e6036c777f): counts per computer, session, part, model and bucket start. Owner only; TTL 35 days on `at`. */
+export type ClaudeUsageBucketDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; sessionId: string; part: string; model: string; at: Date; acct: string; i: number; cw: number; cw1h: number; cr: number; o: number; n: number; ov: number; updatedAt: Date };
+/** A limit hit or a compaction seen in a transcript (never its text). Written once (a repeat changes nothing). Owner only; TTL 120 days on `at`. */
+export type ClaudeUsageEventDoc = { _id: string; orgId: string; ownerId: string; deviceId: string; sessionId: string; part: string; kind: 'limit' | 'compact'; at: Date; acct: string; which?: '5h' | 'weekly' | 'other'; resetAt?: Date | null; trigger?: string; pre?: number; post?: number; ov: number; createdAt: Date };
+/** The label (the part of the email before @) of a Claude account id a worker reported. Owner only. */
+export type ClaudeAccountDoc = { _id: string; orgId: string; ownerId: string; id: string; label: string; lastSeen: Date };
 /** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
 export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker' | 'mail_trash' | 'mail_send' | 'intake' | 'agent'; at: Date; n?: number };
 /**
@@ -740,6 +746,8 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['workerJobs', [{ key: { deviceId: 1, doneAt: 1, createdAt: 1 }, name: 'device_pending' }, { key: { createdAt: 1 }, name: 'created_ttl', expireAfterSeconds: 30 * 86_400 }]],
     ['workerSessions', [{ key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' }, { key: { deviceId: 1, state: 1 }, name: 'device_state' }, { key: { 'runKey.hash': 1 }, unique: true, name: 'run_key_hash', partialFilterExpression: { 'runKey.hash': { $type: 'string' } } }]],
     ['claudeUsage', [{ key: { orgId: 1, ownerId: 1, day: -1 }, name: 'org_owner_day' }, { key: { dayAt: 1 }, name: 'day_ttl', expireAfterSeconds: 90 * 86_400 }]],
+    ['claudeUsageBuckets', [{ key: { orgId: 1, ownerId: 1, at: -1 }, name: 'org_owner_at' }, { key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 35 * 86_400 }]],
+    ['claudeUsageEvents', [{ key: { orgId: 1, ownerId: 1, at: -1 }, name: 'org_owner_at' }, { key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 120 * 86_400 }]],
     ['policyEvents', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { keyId: 1, kind: 1, at: -1 }, name: 'key_kind_at' }]],
     ['intake', [{ key: { source: 1, reportId: 1 }, unique: true, name: 'source_report_unique' }]],
     ['mailLog', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { kind: 1, at: -1 }, name: 'kind_at' }, { key: { kind: 1, to: 1, at: -1 }, name: 'kind_to_at' }]],
@@ -824,6 +832,9 @@ export async function collections() {
     workerJobs: db.collection<WorkerJobDoc>('workerJobs'),
     workerSessions: db.collection<WorkerSessionDoc>('workerSessions'),
     claudeUsage: db.collection<ClaudeUsageDoc>('claudeUsage'),
+    claudeUsageBuckets: db.collection<ClaudeUsageBucketDoc>('claudeUsageBuckets'),
+    claudeUsageEvents: db.collection<ClaudeUsageEventDoc>('claudeUsageEvents'),
+    claudeAccounts: db.collection<ClaudeAccountDoc>('claudeAccounts'),
     messages: db.collection<MessageDoc>('messages'),
     states: db.collection<StateDoc>('states'),
     presence: db.collection<PresenceDoc>('presence'),

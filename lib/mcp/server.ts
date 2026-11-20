@@ -1113,10 +1113,28 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const r = await usageData.usageReport(s, { range: a.range, tz: currentTz() });
+      // Two short lines each for accounts, limit hits and compactions (the lists are in byAccount, limits and compactions).
+      const tz = currentTz();
+      const local = (iso: string) => {
+        const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso)).map(x => [x.type, x.value]));
+        return `${p.weekday} ${p.hour}:${p.minute}`;
+      };
+      const pct = (n: number) => `${Math.round(n * 100)}%`;
+      const lastLimit = r.limits[0];
+      const mostCompacted = r.compactions.sessions[0];
+      const summary = [
+        `By account: ${r.byAccount.length ? r.byAccount.map(x => `${x.name} ${pct(x.share)}`).join(', ') : 'none yet'}.`,
+        'Accounts are counted like sessions: an estimate from token counts; days recorded before accounts were kept show as Unknown account.',
+        `Limit hits: ${r.limits.length} in this range.`,
+        lastLimit ? `Latest: ${lastLimit.which} at ${local(lastLimit.at)}, resets ${lastLimit.resetAt ? local(lastLimit.resetAt) : 'at a time the notice did not give'} (${lastLimit.account}, ${lastLimit.session}).` : 'Latest: none.',
+        `Compactions: ${r.compactions.total} in ${r.compactions.sessions.length} session(s).`,
+        mostCompacted ? `Most: ${mostCompacted.title}, ${mostCompacted.count} time(s), about ${mostCompacted.avgPre} tokens before and ${mostCompacted.avgPost} after.` : 'Most: none.',
+      ];
       return {
         ...r,
         bySession: r.bySession.slice(0, 20).map(x => ({ ...x, subagents: { ...x.subagents, items: x.subagents.items.slice(0, 10) } })),
         note: 'Estimated share of your own Claude use from token counts; not a share of your plan limit.',
+        summary,
       };
     }),
   );

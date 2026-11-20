@@ -48,9 +48,10 @@ const first = await report(dev, [
 check('the report is accepted', first.status === 200, JSON.stringify(first.body));
 const docs = await rawDb.collection('claudeUsage').find({}).toArray();
 check('five rows are stored, the two bad ones dropped', docs.length === 5, String(docs.length));
-const FIELDS = ['_id', 'orgId', 'ownerId', 'deviceId', 'sessionId', 'part', 'partName', 'model', 'day', 'dayAt', 'i', 'cw', 'cr', 'o', 'title', 'folder', 'origin', 'updatedAt'];
+const FIELDS = ['_id', 'orgId', 'ownerId', 'deviceId', 'sessionId', 'part', 'partName', 'model', 'day', 'dayAt', 'i', 'cw', 'cr', 'o', 'title', 'folder', 'origin', 'updatedAt', 'ov'];
 check('only the known fields are stored', docs.every(d => Object.keys(d).every(k => FIELDS.includes(k))), JSON.stringify(docs.map(d => Object.keys(d)).flat().filter(k => !FIELDS.includes(k))));
 check('each row is the owner\'s, in their organization, on this computer', docs.every(d => d.ownerId === ME.userId && d.orgId === ME.orgId && d.deviceId === dev.id));
+check('with no Orders yet, ov is 0 on every row', docs.every(d => d.ov === 0));
 check('a bad shape is refused', (await api(dev.key, 'POST', '/api/worker/status', { usage: { rows: 'x' } })).status === 400);
 
 // ── 2. The `usage` tool, as the owner ──
@@ -84,4 +85,98 @@ for (const [who, key] of [['member of the same organization', kB], ['another org
   const m = await mcpH(key, 'usage', {});
   check(`${who}: the usage tool returns no sessions`, !m.isError && m.json.bySession.length === 0 && m.json.total === 0, m.text.slice(0, 200));
 }
+
+// ── 5. Account, 5-minute buckets, limit hits, compactions (plan note e6036c777f) ──
+const ACCT_A = 'aaaaaaaaaaaaaaaa';
+const ACCT_B = 'bbbbbbbbbbbbbbbb';
+const floor5 = (ms) => new Date(Math.floor(ms / 300_000) * 300_000);
+const at1 = floor5(Date.now() - 3600_000);
+const at2 = new Date(at1.getTime() - 300_000);
+const nowIso = () => new Date(Date.now() - 600_000).toISOString();
+const E1 = randomUUID();
+const E2 = randomUUID();
+const E3 = randomUUID();
+const E4 = randomUUID();
+const resetAt = new Date(Date.now() + 3600_000).toISOString();
+// The organization's Orders (version 3): ov must be that number.
+await rawDb.collection('notes').insertOne({ _id: 'orders-org-usage', orgId: ME.orgId, ownerId: ME.userId, visibility: 'org', orders: 'org', ordersV: 3, title: 'Orders', body: 'x', createdAt: new Date(), updatedAt: new Date(), deletedAt: null, archived: false, blocks: [] });
+const bucketOf = (o) => ({ sessionId: S1, part: 'main', model: OPUS, i: 10, cw: 20, cw1h: 5, cr: 30, o: 4, n: 2, acct: ACCT_A, ...o });
+const withAcct = await api(dev.key, 'POST', '/api/worker/status', {
+  usage: {
+    rows: [{ ...row(S1, 'main', OPUS, today, C1), acct: ACCT_A }, { ...row(S2, 'main', SONNET, today, C2), acct: 'not-a-hash' }],
+    sessions,
+    buckets: [
+      bucketOf({ at: at1.toISOString() }),
+      bucketOf({ at: at2.toISOString(), acct: ACCT_B, extra: 'dropped' }),
+      bucketOf({ at: new Date(at1.getTime() + 1000).toISOString() }), // not on a 5-minute boundary: dropped
+      bucketOf({ at: new Date(Date.now() - 20 * 86_400_000).toISOString() }), // too old: dropped
+      bucketOf({ at: at1.toISOString(), part: 'bad part' }), // dropped
+    ],
+    events: [
+      { kind: 'limit', id: E1, sessionId: S1, part: 'main', at: nowIso(), acct: ACCT_A, which: 'weekly', resetAt },
+      { kind: 'compact', id: E2, sessionId: S1, part: 'main', at: nowIso(), acct: ACCT_A, trigger: 'auto', pre: 150000, post: 12000 },
+      { kind: 'compact', id: E3, sessionId: S1, part: 'main', at: nowIso(), acct: ACCT_A, trigger: 'manual', pre: 50000, post: 8000 },
+      { kind: 'limit', id: 'not-an-id', sessionId: S1, part: 'main', at: nowIso(), acct: ACCT_A, which: '5h' }, // dropped
+      { kind: 'other', id: E4, sessionId: S1, part: 'main', at: nowIso(), acct: ACCT_A }, // dropped
+    ],
+    accounts: [{ id: ACCT_A, label: 'pat' }, { id: ACCT_B, label: '' }, { id: 'bad', label: 'x' }],
+  },
+});
+check('the report with buckets and events is accepted', withAcct.status === 200, JSON.stringify(withAcct.body));
+const bks = await rawDb.collection('claudeUsageBuckets').find({}).toArray();
+check('two buckets are stored, the three bad ones dropped', bks.length === 2, String(bks.length));
+const BFIELDS = ['_id', 'orgId', 'ownerId', 'deviceId', 'sessionId', 'part', 'model', 'at', 'acct', 'i', 'cw', 'cw1h', 'cr', 'o', 'n', 'ov', 'updatedAt'];
+check('buckets keep only the known fields, owner and organization set', bks.every(b => Object.keys(b).every(k => BFIELDS.includes(k)) && b.ownerId === ME.userId && b.orgId === ME.orgId && b.deviceId === dev.id), JSON.stringify(bks[0]));
+const b1 = bks.find(b => b.at.getTime() === at1.getTime());
+check('a bucket has its counts, account and cw1h', b1 && b1.i === 10 && b1.cw === 20 && b1.cw1h === 5 && b1.cr === 30 && b1.o === 4 && b1.n === 2 && b1.acct === ACCT_A, JSON.stringify(b1));
+const evs = await rawDb.collection('claudeUsageEvents').find({}).toArray();
+check('three events are stored, the two bad ones dropped', evs.length === 3, String(evs.length));
+const EFIELDS = ['_id', 'orgId', 'ownerId', 'deviceId', 'sessionId', 'part', 'kind', 'at', 'acct', 'which', 'resetAt', 'trigger', 'pre', 'post', 'ov', 'createdAt'];
+check('events keep only the known fields', evs.every(e => Object.keys(e).every(k => EFIELDS.includes(k))), JSON.stringify(evs.map(e => Object.keys(e)).flat().filter(k => !EFIELDS.includes(k))));
+const lim = evs.find(e => e._id === `${dev.id}:${E1}`);
+check('the limit hit has its kind and reset time', lim && lim.which === 'weekly' && lim.resetAt.toISOString() === resetAt, JSON.stringify(lim));
+const rowsNow = await rawDb.collection('claudeUsage').find({}).toArray();
+const rA = rowsNow.find(d => d.sessionId === S1 && d.part === 'main' && d.day === today);
+const rB = rowsNow.find(d => d.sessionId === S2 && d.part === 'main' && d.day === today);
+check('a good acct is kept on the row', rA?.acct === ACCT_A, JSON.stringify(rA?.acct));
+check('a bad acct is dropped but the row is kept', rB && rB.acct === undefined && rB.i === C2.i, JSON.stringify(rB));
+check('ov equals the organization Orders version on rows, buckets and events', [rA, rB, ...bks, ...evs].every(d => d.ov === 3));
+const accts = await rawDb.collection('claudeAccounts').find({}).toArray();
+check('two accounts are stored (the bad id dropped), keyed by organization, owner and id', accts.length === 2 && accts.every(a => a._id === `${ME.orgId}:${ME.userId}:${a.id}` && a.ownerId === ME.userId), JSON.stringify(accts));
+// The same account id for the same user in another organization (and a doc in the old _id form) does not fail the report.
+await rawDb.collection('claudeAccounts').insertMany([
+  { _id: `other-org:${ME.userId}:${ACCT_B}`, orgId: 'other-org', ownerId: ME.userId, id: ACCT_B, label: 'elsewhere', lastSeen: new Date() },
+  { _id: `${ME.userId}:${ACCT_B}`, orgId: 'other-org', ownerId: ME.userId, id: ACCT_B, label: 'old form', lastSeen: new Date() },
+]);
+const twoOrgs = await api(dev.key, 'POST', '/api/worker/status', { usage: { rows: [], sessions, accounts: [{ id: ACCT_B, label: 'bea' }] } });
+check('the same account id in two organizations does not fail the report', twoOrgs.status === 200, JSON.stringify(twoOrgs.body));
+check('the label is saved under this organization', (await rawDb.collection('claudeAccounts').findOne({ _id: `${ME.orgId}:${ME.userId}:${ACCT_B}` }))?.label === 'bea');
+
+// A repeated event changes nothing; an empty label never replaces a label.
+const before = JSON.stringify(await rawDb.collection('claudeUsageEvents').find({}).sort({ _id: 1 }).toArray());
+await api(dev.key, 'POST', '/api/worker/status', { usage: { rows: [], sessions, events: [{ kind: 'limit', id: E1, sessionId: S1, part: 'main', at: nowIso(), acct: ACCT_B, which: '5h', resetAt: null }], accounts: [{ id: ACCT_A, label: '' }] } });
+check('a repeated event changes nothing', JSON.stringify(await rawDb.collection('claudeUsageEvents').find({}).sort({ _id: 1 }).toArray()) === before);
+check('an empty label does not replace a label', (await rawDb.collection('claudeAccounts').findOne({ id: ACCT_A }))?.label === 'pat');
+// The same bucket again is replaced, not added.
+await api(dev.key, 'POST', '/api/worker/status', { usage: { rows: [], sessions, buckets: [bucketOf({ at: at1.toISOString(), i: 11 })] } });
+check('a bucket sent again is replaced, not added', (await rawDb.collection('claudeUsageBuckets').countDocuments({})) === 2 && (await rawDb.collection('claudeUsageBuckets').findOne({ at: at1 }))?.i === 11);
+
+// The usage tool: byAccount, limits, compactions and their two-line summary.
+const rep5 = await mcpH(MCP, 'usage', {});
+const jr = rep5.json ?? {};
+check('byAccount names the account by label, and the unknown one', (jr.byAccount ?? []).some(a => a.name === 'pat') && (jr.byAccount ?? []).some(a => a.name === 'Unknown account'), JSON.stringify(jr.byAccount));
+check('limits has the weekly hit with its account and session', jr.limits?.length === 1 && jr.limits[0].which === 'weekly' && jr.limits[0].account === 'pat' && jr.limits[0].session === 'Build the usage page' && jr.limits[0].resetAt === resetAt, JSON.stringify(jr.limits));
+check('compactions: two in one session, the averages', jr.compactions?.total === 2 && jr.compactions.sessions[0]?.count === 2 && jr.compactions.sessions[0].avgPre === 100000 && jr.compactions.sessions[0].avgPost === 10000, JSON.stringify(jr.compactions));
+check('the summary shows times as the person\'s local day and time, not ISO', !/\d{4}-\d{2}-\d{2}T/.test(jr.summary?.[3] ?? '') && /^Latest: weekly at [A-Z][a-z]{2} \d{2}:\d{2}, resets [A-Z][a-z]{2} \d{2}:\d{2}/.test(jr.summary?.[3] ?? ''), JSON.stringify(jr.summary?.[3]));
+check('a bucket up to two days ahead is accepted', (await api(dev.key, 'POST', '/api/worker/status', { usage: { rows: [], sessions, buckets: [bucketOf({ at: floor5(Date.now() + 86_400_000).toISOString() })] } })).status === 200 && (await rawDb.collection('claudeUsageBuckets').countDocuments({})) === 3);
+check('the answer text has the account, limit and compaction lines', (jr.summary ?? []).length === 6 && /^By account: /.test(jr.summary[0]) && /^Limit hits: 1/.test(jr.summary[2]) && /^Compactions: 2 in 1 session/.test(jr.summary[4]), JSON.stringify(jr.summary));
+console.log('SAMPLE usage summary:', JSON.stringify(jr.summary));
+
+// Nobody else sees the buckets, events or accounts, and nothing of them changes their answer.
+for (const [who, key] of [['member of the same organization', kB], ['another organization', kC]]) {
+  const m = await mcpH(key, 'usage', {});
+  check(`${who}: no accounts, limit hits or compactions`, !m.isError && m.json.byAccount.length === 0 && m.json.limits.length === 0 && m.json.compactions.total === 0, m.text.slice(0, 200));
+}
+const aB = await rawDb.collection('claudeAccounts').countDocuments({ ownerId: { $ne: ME.userId } });
+check('their own collections hold none of it', aB === 0);
 await finish();

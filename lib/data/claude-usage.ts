@@ -1,5 +1,5 @@
 import 'server-only';
-import type { ClaudeUsageDoc, SessionOrigin } from '../db';
+import type { ClaudeUsageDoc, ClaudeUsageEventDoc, SessionOrigin } from '../db';
 import { addDays, clockInTz, dateInTz, isTimeZone } from '../dates';
 import { getUserSetting, scoped, setUserSetting, type Scope } from '../scope';
 import { quietly } from '../live';
@@ -9,6 +9,8 @@ import { InputError } from './errors';
 // conversation or one subagent) and model, read from Claude Code's own transcripts: counts only, never message text.
 // The page and the `usage` tool show an ESTIMATED share of the person's own use: weight = tokens × the price ratio of
 // the model × the price ratio of the kind of token. It is not a share of any limit: Anthropic does not publish the limit.
+// Besides the day rows a worker also sends 5-minute buckets (last 7 days), limit hits and compactions (each once) and the
+// label of its Claude account (a hash id and the part of the email before @); all owner only (note e6036c777f).
 
 // Price ratios (Sonnet = 1): Opus and Fable cost 5/3 of Sonnet, Haiku 1/3; a cache write costs 1.25 input tokens, a
 // cache read 0.1, an output token 5.
@@ -80,9 +82,31 @@ const MAX_SESSIONS = 100;
 const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.min(Math.round(v), 1e12) : 0);
 const line = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, n) : '');
 
-type CleanRow = { sessionId: string; part: string; partName: string; model: string; day: string; i: number; cw: number; cr: number; o: number };
-export function cleanUsage(raw: unknown): { rows: CleanRow[]; sessions: Map<string, { title: string; folder: string; origin: SessionOrigin }> } {
-  const b = (raw ?? {}) as { rows?: unknown; sessions?: unknown };
+const ACCT = /^[0-9a-f]{16}$/;
+const EVENT_ID = /^[0-9a-f-]{36}$/i;
+const MAX_BUCKETS = 1000;
+const MAX_EVENTS = 200;
+const MAX_ACCOUNTS = 10;
+const BUCKET_MS = 5 * 60_000;
+const acctOf = (v: unknown) => (typeof v === 'string' && ACCT.test(v) ? v : '');
+const dateOf = (v: unknown): Date | null => {
+  if (typeof v !== 'string' || v.length > 40) return null;
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? null : new Date(t);
+};
+
+type CleanRow = { sessionId: string; part: string; partName: string; model: string; day: string; i: number; cw: number; cr: number; o: number; acct: string };
+type CleanBucket = { sessionId: string; part: string; model: string; at: Date; acct: string; i: number; cw: number; cw1h: number; cr: number; o: number; n: number };
+type CleanEvent = { id: string; sessionId: string; part: string; kind: 'limit' | 'compact'; at: Date; acct: string; which?: '5h' | 'weekly' | 'other'; resetAt?: Date | null; trigger?: string; pre?: number; post?: number };
+type Cleaned = {
+  rows: CleanRow[];
+  sessions: Map<string, { title: string; folder: string; origin: SessionOrigin }>;
+  buckets: CleanBucket[];
+  events: CleanEvent[];
+  accounts: { id: string; label: string }[];
+};
+export function cleanUsage(raw: unknown): Cleaned {
+  const b = (raw ?? {}) as { rows?: unknown; sessions?: unknown; buckets?: unknown; events?: unknown; accounts?: unknown };
   if (!Array.isArray(b.rows) || (b.sessions !== undefined && !Array.isArray(b.sessions))) throw new InputError('usage must have rows and sessions as arrays');
   const sessions = new Map<string, { title: string; folder: string; origin: SessionOrigin }>();
   for (const x of ((b.sessions as unknown[]) ?? []).slice(0, MAX_SESSIONS)) {
@@ -98,31 +122,123 @@ export function cleanUsage(raw: unknown): { rows: CleanRow[]; sessions: Map<stri
     if (typeof o.day !== 'string' || !DAY.test(o.day) || Number.isNaN(Date.parse(o.day + 'T00:00:00Z')) || Date.parse(o.day + 'T00:00:00Z') < earliest || Date.parse(o.day + 'T00:00:00Z') > Date.now() + 2 * 86_400_000) continue;
     const model = line(o.model, 80);
     if (!model || model === '<synthetic>') continue;
-    rows.push({ sessionId: o.sessionId, part: o.part, partName: o.part === 'main' ? '' : line(o.partName, 80) || o.part, model, day: o.day, i: count(o.i), cw: count(o.cw), cr: count(o.cr), o: count(o.o) });
+    rows.push({ sessionId: o.sessionId, part: o.part, partName: o.part === 'main' ? '' : line(o.partName, 80) || o.part, model, day: o.day, i: count(o.i), cw: count(o.cw), cr: count(o.cr), o: count(o.o), acct: acctOf(o.acct) });
   }
-  return { rows, sessions };
+
+  // 5-minute buckets: a worker from before them sends none.
+  const buckets: CleanBucket[] = [];
+  const bEarliest = Date.now() - 8 * 86_400_000;
+  for (const x of Array.isArray(b.buckets) ? b.buckets.slice(0, MAX_BUCKETS) : []) {
+    const o = (x ?? {}) as Record<string, unknown>;
+    if (typeof o.sessionId !== 'string' || !SID.test(o.sessionId) || typeof o.part !== 'string' || !PART.test(o.part)) continue;
+    const at = dateOf(o.at);
+    if (!at || at.getTime() % BUCKET_MS !== 0 || at.getTime() < bEarliest || at.getTime() > Date.now() + 2 * 86_400_000) continue;
+    const model = line(o.model, 80);
+    if (!model || model === '<synthetic>') continue;
+    buckets.push({ sessionId: o.sessionId, part: o.part, model, at, acct: acctOf(o.acct), i: count(o.i), cw: count(o.cw), cw1h: count(o.cw1h), cr: count(o.cr), o: count(o.o), n: count(o.n) });
+  }
+
+  // Limit hits and compactions.
+  const events: CleanEvent[] = [];
+  const eEarliest = Date.now() - 35 * 86_400_000;
+  for (const x of Array.isArray(b.events) ? b.events.slice(0, MAX_EVENTS) : []) {
+    const o = (x ?? {}) as Record<string, unknown>;
+    if (o.kind !== 'limit' && o.kind !== 'compact') continue;
+    if (typeof o.id !== 'string' || !EVENT_ID.test(o.id)) continue;
+    if (typeof o.sessionId !== 'string' || !SID.test(o.sessionId) || typeof o.part !== 'string' || !PART.test(o.part)) continue;
+    const at = dateOf(o.at);
+    if (!at || at.getTime() < eEarliest || at.getTime() > Date.now() + 2 * 86_400_000) continue;
+    const e: CleanEvent = { id: o.id, sessionId: o.sessionId, part: o.part, kind: o.kind, at, acct: acctOf(o.acct) };
+    if (o.kind === 'limit') {
+      e.which = o.which === '5h' || o.which === 'weekly' ? o.which : 'other';
+      e.resetAt = dateOf(o.resetAt);
+    } else {
+      e.trigger = o.trigger === 'auto' || o.trigger === 'manual' ? o.trigger : 'other';
+      e.pre = count(o.pre);
+      e.post = count(o.post);
+    }
+    events.push(e);
+  }
+
+  const accounts: { id: string; label: string }[] = [];
+  for (const x of Array.isArray(b.accounts) ? b.accounts.slice(0, MAX_ACCOUNTS) : []) {
+    const o = (x ?? {}) as Record<string, unknown>;
+    if (typeof o.id !== 'string' || !ACCT.test(o.id)) continue;
+    accounts.push({ id: o.id, label: line(o.label, 40) });
+  }
+  return { rows, sessions, buckets, events, accounts };
+}
+
+/** The organization's Orders version now (0 when it has no Orders): stamped on what a report writes, so a later reading can tell which Orders were in force. */
+async function ordersVersion(c: Awaited<ReturnType<typeof scoped>>): Promise<number> {
+  const n = await c.notes.findOne({ orders: 'org', visibility: 'org', deletedAt: null, archived: false }, { sort: { createdAt: 1 }, projection: { ordersV: 1 } });
+  return n ? (n.ordersV ?? 1) : 0;
 }
 
 /** Takes a worker's usage rows: a day's total replaces the one stored (the worker sends whole days). Quiet: no page refresh. */
 export async function saveUsage(s: Scope, deviceId: string, raw: unknown): Promise<void> {
-  const { rows, sessions } = cleanUsage(raw);
-  if (!rows.length) return;
+  const { rows, sessions, buckets, events, accounts } = cleanUsage(raw);
+  if (!rows.length && !buckets.length && !events.length && !accounts.length) return;
   const c = await scoped(s);
   const now = new Date();
+  const ov = await ordersVersion(c);
   await quietly(async () => {
-    await c.claudeUsage.bulkWrite(
+    if (rows.length) await c.claudeUsage.bulkWrite(
       rows.map(r => {
         const meta = sessions.get(r.sessionId) ?? { title: '', folder: 'unknown', origin: 'other' as SessionOrigin };
         return {
           updateOne: {
             filter: { _id: `${deviceId}:${r.sessionId}:${r.part}:${r.model}:${r.day}` },
-            update: { $set: { deviceId, sessionId: r.sessionId, part: r.part, ...(r.partName ? { partName: r.partName } : {}), model: r.model, day: r.day, dayAt: new Date(r.day + 'T00:00:00Z'), i: r.i, cw: r.cw, cr: r.cr, o: r.o, title: meta.title, folder: meta.folder, origin: meta.origin, updatedAt: now } },
+            update: { $set: { deviceId, sessionId: r.sessionId, part: r.part, ...(r.partName ? { partName: r.partName } : {}), model: r.model, day: r.day, dayAt: new Date(r.day + 'T00:00:00Z'), i: r.i, cw: r.cw, cr: r.cr, o: r.o, title: meta.title, folder: meta.folder, origin: meta.origin, updatedAt: now, ov, ...(r.acct ? { acct: r.acct } : {}) } },
             upsert: true,
           },
         };
       }) as never,
       { ordered: false },
     );
+    if (buckets.length) {
+      await c.claudeUsageBuckets.bulkWrite(
+        buckets.map(x => ({
+          updateOne: {
+            filter: { _id: `${deviceId}:${x.sessionId}:${x.part}:${x.model}:${x.at.toISOString()}` },
+            update: { $set: { deviceId, sessionId: x.sessionId, part: x.part, model: x.model, at: x.at, acct: x.acct, i: x.i, cw: x.cw, cw1h: x.cw1h, cr: x.cr, o: x.o, n: x.n, ov, updatedAt: now } },
+            upsert: true,
+          },
+        })) as never,
+        { ordered: false },
+      );
+    }
+    if (events.length) {
+      // Written once: a repeat of an event (the worker sends it again after a failed report) changes nothing.
+      await c.claudeUsageEvents.bulkWrite(
+        events.map(e => ({
+          updateOne: {
+            filter: { _id: `${deviceId}:${e.id}` },
+            update: { $setOnInsert: { deviceId, sessionId: e.sessionId, part: e.part, kind: e.kind, at: e.at, acct: e.acct, ...(e.kind === 'limit' ? { which: e.which, resetAt: e.resetAt ?? null } : { trigger: e.trigger, pre: e.pre, post: e.post }), ov, createdAt: now } },
+            upsert: true,
+          },
+        })) as never,
+        { ordered: false },
+      );
+    }
+    if (accounts.length) {
+      // A label write never fails the report.
+      try {
+      await c.claudeAccounts.bulkWrite(
+        accounts.map(a => ({
+          updateOne: {
+            filter: { _id: `${s.orgId}:${s.userId}:${a.id}` },
+            // An empty label never replaces one already stored.
+            update: a.label ? { $set: { id: a.id, label: a.label, lastSeen: now } } : { $set: { id: a.id, lastSeen: now }, $setOnInsert: { label: '' } },
+            upsert: true,
+          },
+        })) as never,
+        { ordered: false },
+      );
+      } catch (err) {
+        console.error('[usage] account labels not saved:', err instanceof Error ? err.message : err);
+      }
+    }
   });
 }
 
@@ -154,6 +270,12 @@ export type UsageReport = {
   bySession: UsageSession[];
   byModel: UsageSlice[];
   byDay: { day: string; weight: number; share: number }[];
+  /** Weight per Claude account (its label, else its id; 'Unknown account' for days recorded before accounts were). */
+  byAccount: UsageSlice[];
+  /** The range's limit hits, newest first (at most 20). */
+  limits: { at: string; which: string; resetAt: string | null; account: string; session: string }[];
+  /** Compactions in the range: the total and, per session, the count and the average tokens before and after (at most 10 sessions). */
+  compactions: { total: number; sessions: { sessionId: string; title: string; count: number; avgPre: number; avgPost: number }[] };
   hasAny: boolean;
   updatedAt: string | null;
 };
@@ -197,6 +319,7 @@ export async function usageReport(s: Scope, opts: { range?: string; tz: string; 
   const sessions = new Map<string, Acc>();
   const byModel = new Map<string, { name: string; weight: number }>();
   const byDay = new Map<string, number>();
+  const byAcct = new Map<string, { name: string; weight: number }>();
   let total = 0;
   let tokens = 0;
   let updated = 0;
@@ -207,6 +330,7 @@ export async function usageReport(s: Scope, opts: { range?: string; tz: string; 
     updated = Math.max(updated, d.updatedAt?.getTime() ?? 0);
     bump(byModel, familyOf(d.model) === 'Other' ? d.model : modelName(d.model), familyOf(d.model) === 'Other' ? d.model : modelName(d.model), w);
     byDay.set(d.day, (byDay.get(d.day) ?? 0) + w);
+    bump(byAcct, d.acct || 'unknown', d.acct || 'unknown', w);
     const key = `${d.deviceId}|${d.sessionId}`;
     let a = sessions.get(key);
     if (!a) sessions.set(key, (a = { meta: d, total: 0, tokens: 0, models: new Map(), parts: new Map(), lastDay: d.day }));
@@ -255,6 +379,40 @@ export async function usageReport(s: Scope, opts: { range?: string; tz: string; 
     });
   }
   bySession.sort((x, y) => y.weight - x.weight);
+
+  // Accounts by label; limit hits and compactions of the range.
+  const labelRows = await c.claudeAccounts.find({}, { projection: { id: 1, label: 1 } }).limit(100).toArray();
+  const labelOf = new Map(labelRows.map(a => [a.id, a.label]));
+  const accountName = (id: string) => (id ? labelOf.get(id) || id : 'Unknown account');
+  const byAccount = new Map<string, { name: string; weight: number }>();
+  for (const [k, v] of byAcct) bump(byAccount, k, k === 'unknown' ? 'Unknown account' : accountName(k), v.weight);
+  const sinceAt = new Date(new Date(from + 'T00:00:00Z').getTime() - 86_400_000);
+  const evDocs = ((await c.claudeUsageEvents.find({ at: { $gte: sinceAt } }).sort({ at: -1 }).limit(2000).toArray()) as ClaudeUsageEventDoc[]).filter(e => !revoked.has(e.deviceId) && dateInTz(e.at, opts.tz) >= from);
+  const titleOf = new Map<string, string>();
+  for (const a of sessions.values()) titleOf.set(a.meta.sessionId, a.meta.title || a.meta.folder);
+  const sessionName = (id: string) => titleOf.get(id) || id.slice(0, 8);
+  const limits = evDocs
+    .filter(e => e.kind === 'limit')
+    .slice(0, 20)
+    .map(e => ({ at: e.at.toISOString(), which: e.which ?? 'other', resetAt: e.resetAt ? e.resetAt.toISOString() : null, account: accountName(e.acct), session: sessionName(e.sessionId) }));
+  const comp = new Map<string, { n: number; pre: number; post: number }>();
+  let compTotal = 0;
+  for (const e of evDocs) {
+    if (e.kind !== 'compact') continue;
+    compTotal++;
+    const x = comp.get(e.sessionId) ?? { n: 0, pre: 0, post: 0 };
+    x.n++;
+    x.pre += e.pre ?? 0;
+    x.post += e.post ?? 0;
+    comp.set(e.sessionId, x);
+  }
+  const compactions = {
+    total: compTotal,
+    sessions: [...comp.entries()]
+      .sort((a, b) => b[1].n - a[1].n)
+      .slice(0, 10)
+      .map(([sessionId, x]) => ({ sessionId, title: sessionName(sessionId), count: x.n, avgPre: Math.round(x.pre / x.n), avgPost: Math.round(x.post / x.n) })),
+  };
   const days: { day: string; weight: number; share: number }[] = [];
   for (let d = from; d <= to && days.length < 100; d = addDays(d, 1)) days.push({ day: d, weight: Math.round(byDay.get(d) ?? 0), share: total ? (byDay.get(d) ?? 0) / total : 0 });
   return {
@@ -269,6 +427,9 @@ export async function usageReport(s: Scope, opts: { range?: string; tz: string; 
     bySession: bySession.slice(0, MAX_SESSIONS_OUT),
     byModel: slices(byModel, total, 12),
     byDay: days,
+    byAccount: slices(byAccount, total, 10),
+    limits,
+    compactions,
     hasAny: any,
     updatedAt: updated ? new Date(updated).toISOString() : null,
   };
