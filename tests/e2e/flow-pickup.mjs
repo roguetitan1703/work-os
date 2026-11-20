@@ -52,7 +52,8 @@ try {
 
   // ── 1. moves when A is off: A holds Needs (open and answered), an unread message, Now and a line; B picks up A's handover
   await start(cc, 'pkA', { label: 'PK A', machine: 'pkbox', branch: 'br-pkA' });
-  await start(cc, 'pkS', { label: 'PK S' });
+  const sStart = await start(cc, 'pkS', { label: 'PK S' });
+  check('name: a plain start (no handover) is not told to name itself', !sStart.handover && !sStart.sessionNote.includes('Name this session now'), sStart.sessionNote);
   const n1 = await ask(cc, 'pkA', 'PK A answered question?');
   const n2 = await ask(cc, 'pkA', 'PK A open question?');
   await answer(n1);
@@ -64,6 +65,9 @@ try {
   const vBefore = (await stateDoc()).version;
   const bStart = await start(ccB, 'pkB', { label: 'PK B', machine: 'pkbox', branch: 'br-pkB' });
   check('B: its brief shows the handover', bStart.handover?.some(h => h.id === hA.handover.id), JSON.stringify(bStart.handover)?.slice(0, 200));
+  check('name: taking a handover at a fresh start tells the session its name, project filled in, role open (the writer has no role in its label)', bStart.sessionNote.includes(`Name this session now: ${P} · <role> · <what you take on>. Pass it as start_work's label`) && bStart.sessionNote.includes('set_session_title') && bStart.sessionNote.includes('/rename'), bStart.sessionNote);
+  const bAgain = await start(ccB, 'pkB', { label: 'PK B' });
+  check('name: the same session starting again (after compaction) sees the handover but no name line', !!bAgain.handover?.some(h => h.id === hA.handover.id) && !bAgain.sessionNote.includes('Name this session now'), bAgain.sessionNote);
   const rowB = await row('pkB');
   const n1b = await needDoc(n1.id);
   const n2b = await needDoc(n2.id);
@@ -252,6 +256,14 @@ try {
   check('pick_up: the same session asking again says so and moves nothing more', !again.isError && /already picked this handover up/.test(again.json?.pickedUp ?? ''), again.text.slice(0, 200));
   const other = await mcpH(ccC, 'start_work', { project: P, session: 'pkU4', pick_up: hU.handover.id }, hdr('pkU4'));
   check('pick_up: a handover another session already picked up is refused', !other.isError && /already picked up/.test(other.json?.pickUp?.refused ?? ''), other.text.slice(0, 200));
+  check('name: pick_up tells the session its name', upj?.sessionNote?.includes(`Name this session now: ${P} · <role> · <what you take on>`), upj?.sessionNote);
+  check('name: a repeated pick_up and a refused one carry no name line', !again.json?.sessionNote?.includes('Name this session now') && !other.json?.sessionNote?.includes('Name this session now') && !wp.json?.sessionNote?.includes('Name this session now'), [again.json?.sessionNote, other.json?.sessionNote].join(' | '));
+  check('name: the note itself does not get the name line', !(await rawDb.collection('notes').findOne({ _id: hU.handover.id })).body.includes('Name this session now'));
+  // a writer labelled "<Project> · <role> · <what>": the role is carried over, the rest left to the new session
+  await start(cc, 'pkR1', { label: `${P} · lead · old work` });
+  const hR = await handover(cc, 'pkR1', 'Handover: PK R1');
+  const upR = await mcpH(ccB, 'start_work', { project: P, session: 'pkR2', pick_up: hR.handover.id }, hdr('pkR2'));
+  check('name: the role from the handover label is filled in', !upR.isError && upR.json?.sessionNote?.includes(`Name this session now: ${P} · lead · <what you take on>.`), upR.isError ? upR.text.slice(0, 200) : upR.json?.sessionNote);
   void noteBefore;
   // an old handover (over 24 hours) moves the Need but no holds; the count line says 0 held lines and no Now hold
   await start(cc, 'pkU5', { label: 'PK U5' });

@@ -93,7 +93,7 @@ async function pickUpWork(s: Scope, projectId: string, by: string, from: string,
   }
 }
 
-export type BriefHandover ={ id: string; title: string; label: string; by: string; at: Date; markdown: string; /** Who created and who last edited the note (read before the pick-up line is appended): any text by someone else is labelled for the reader. */ createdBy: Actor; updatedBy: Actor };
+export type BriefHandover ={ id: string; title: string; label: string; by: string; at: Date; markdown: string; /** Who created and who last edited the note (read before the pick-up line is appended): any text by someone else is labelled for the reader. */ createdBy: Actor; updatedBy: Actor; /** True when this call took the handover (not a re-call after compaction, not a busy writer): the session names itself now. */ taken?: boolean };
 
 /**
  * The handovers a start_work shows (newest first, at most 2 in full, the rest as id and title). `me` is the caller's
@@ -131,7 +131,7 @@ export async function handoversForBrief(s: Scope, projectId: string, o: { me: st
       // The note shows who took it; a failed rewrite must not hide the handover from the session that was handed it.
       await writeNote(s, { noteId: d._id, append: `\n\n${line}` }, o.actor).catch(() => null);
     }
-    shown.push({ id: d._id, title: d.title, label: h.label ?? '', by: h.by, at: d.updatedAt, markdown: body, createdBy: d.createdBy, updatedBy: d.updatedBy });
+    shown.push({ id: d._id, title: d.title, label: h.label ?? '', by: h.by, at: d.updatedAt, markdown: body, createdBy: d.createdBy, updatedBy: d.updatedBy, ...(h.pickedUp ? {} : { taken: true }) });
   }
   const more = eligible.slice(2).map(d => ({ id: d._id, title: d.title }));
   return { shown, more };
@@ -167,7 +167,9 @@ export async function pickUpHandover(s: Scope, projectId: string, noteId: string
   if (!again && move && !move.moved && move.reason === 'busy') {
     // The writer is still working: leave the handover unclaimed so a later pick-up can move its work.
     await c.notes.updateOne({ _id: d._id, 'handover.pickedUp.session': o.me, 'handover.pickedUp.by': s.userId }, { $unset: { 'handover.pickedUp': '' } });
-  } else if (!again) {
+  }
+  const taken = !again && !(move && !move.moved && move.reason === 'busy');
+  if (taken) {
     const line = `Picked up by ${o.label || 'a session'}, ${claim.at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
     body = `${body}
 
@@ -176,7 +178,7 @@ ${line}`;
 
 ${line}` }, o.actor).catch(() => null);
   }
-  return { brief: { id: d._id, title: d.title, label: h.label ?? '', by: h.by, at: d.updatedAt, markdown: body, createdBy: d.createdBy, updatedBy: d.updatedBy }, move, again };
+  return { brief: { id: d._id, title: d.title, label: h.label ?? '', by: h.by, at: d.updatedAt, markdown: body, createdBy: d.createdBy, updatedBy: d.updatedBy, ...(taken ? { taken: true } : {}) }, move, again };
 }
 
 /** What a pick-up moved, in plain words. */
