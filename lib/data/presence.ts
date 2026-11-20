@@ -123,7 +123,7 @@ export function labelPatch(ex: Pick<PresenceDoc, 'label' | 'labelSource' | 'disp
 }
 
 /** `fresh`: this call made the row (a new session), not a re-call of one that was there (after compaction, or a later start_work). */
-export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc | null, o: { machine?: string; label?: string; /** Where `label` comes from (default: start_work's own label). */ labelSource?: LabelSource; /** Claude Code's own session UUID (the hook's start only). */ ccSession?: string; /** The state this start puts the session in (the hook's start only: on, or working after a compaction). */ activity?: 'on' | 'working'; /** H15: the task the dispatcher started it for. */ dispatched?: { taskId: string; ref: number } } & RosterReport): Promise<PresenceDoc & { fresh: boolean }> {
+export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc | null, o: { machine?: string; label?: string; /** Where `label` comes from (default: start_work's own label). */ labelSource?: LabelSource; /** Claude Code's own session UUID (the hook's start only). */ ccSession?: string; /** The state this start puts the session in (the hook's start only: on, or working after a compaction). */ activity?: 'on' | 'working'; /** A fresh start (startup, clear, compact, a pick-up), not a resume: the session counts as active from now (presence-state.ts lastActive). */ active?: boolean; /** H15: the task the dispatcher started it for. */ dispatched?: { taskId: string; ref: number } } & RosterReport): Promise<PresenceDoc & { fresh: boolean }> {
   const c = await scoped(s);
   const now = new Date();
   const _id = rowId(i, project?._id ?? null);
@@ -161,6 +161,7 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc |
         ...(o.ccSession ? { ccSession: o.ccSession } : {}),
         ...(o.dispatched ? { dispatched: o.dispatched } : {}),
         ...(o.activity ? { activity: { state: o.activity, at: now } } : {}),
+        ...(o.active ? { activeAt: now } : {}),
         lastSeen: now,
         // start_work hands over everything there is, so what is "new for you" starts here.
         forYouCursor: now,
@@ -282,12 +283,12 @@ const REPEAT_MS = 60_000;
  * recorded less than a minute ago? Such an event is answered from the row without a write and costs no hourly budget, so a
  * session making many tool calls never runs out of events. `state` is null when the row is gone (not free: it is charged).
  */
-export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string | null }, ev: { event: EventName; kind?: EventKind; files?: StopFiles; copy?: 'refused'; identity?: object; result?: string; nudge?: object }): Promise<{ free: boolean; state: PresenceState | null; ignored?: boolean }> {
+export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string | null }, ev: { event: EventName; kind?: EventKind; files?: StopFiles; copy?: 'refused'; identity?: object; result?: string; nudge?: object; ask?: string }): Promise<{ free: boolean; state: PresenceState | null; ignored?: boolean }> {
   const next = eventState(ev);
   const row = await (await scoped(s)).presence.findOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { projection: { activity: 1 } });
   if (!row) return { free: false, state: null };
   // An event that carries a count (a stop check, a refused copy write) is never free: it is written and charged.
-  if (ev.files || ev.copy || ev.identity || ev.result !== undefined || ev.nudge) return { free: false, state: row.activity?.state ?? null };
+  if (ev.files || ev.copy || ev.identity || ev.result !== undefined || ev.nudge || ev.ask) return { free: false, state: row.activity?.state ?? null };
   const a = row.activity;
   if (!next) return { free: true, state: a?.state ?? null, ignored: true };
   // A tool-start is a repeat only of an already open working row; any other event is a repeat only when nothing is open (it must clear `open`).
@@ -310,7 +311,7 @@ const copyInc = (what: 'refused' | 'forwarded') => ({ [`copyEdits.${what}`]: 1, 
 export async function recordEvent(
   s: Scope,
   r: { sid: string; projectId: string | null },
-  ev: { event: EventName; kind?: EventKind; at?: number; files?: StopFiles; reminded?: boolean; copy?: 'refused' },
+  ev: { event: EventName; kind?: EventKind; at?: number; files?: StopFiles; reminded?: boolean; copy?: 'refused'; ask?: string },
 ): Promise<{ state: PresenceState | null; changed: boolean; ignored?: boolean }> {
   const out = await recordState(s, r, ev);
   // The counts (H12): numbers and two words, on the token's own row only, never created here, whatever the state did.
@@ -327,6 +328,8 @@ export async function recordEvent(
 }
 
 export const LAST_RESULT_MAX = 300;
+/** The question a turn ended with (a stop's `ask`), as stored. */
+export const ASK_MAX = 200;
 /** A lane result as stored: control characters and line breaks to spaces, one line, at most 300 characters (an ellipsis counts). */
 export function cleanResult(v: string | undefined | null): string {
   const t = (v ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -353,12 +356,17 @@ export async function countCopyEdit(s: Scope, r: { sid: string; projectId: strin
   await (await scoped(s)).presence.updateOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { $inc: copyInc(what) });
 }
 
+/** The events that are activity (Last active): a prompt, a tool use, a turn end. Not a notification or the end. */
+const ACTIVE_EVENTS = new Set<EventName>(['prompt', 'tool', 'tool-start', 'stop']);
+
 async function recordState(
   s: Scope,
   r: { sid: string; projectId: string | null },
-  ev: { event: EventName; kind?: EventKind; at?: number },
+  ev: { event: EventName; kind?: EventKind; at?: number; ask?: string },
 ): Promise<{ state: PresenceState | null; changed: boolean; ignored?: boolean }> {
-  const next = eventState(ev);
+  // A turn that ended asking its person something (the hook's stop `ask`) waits on them until the next prompt replaces it.
+  const ask = ev.event === 'stop' && ev.ask ? cleanResult(ev.ask).slice(0, ASK_MAX) : '';
+  const next: { state: PresenceState; why?: 'prompt' | 'question' } | null = ask ? { state: 'waiting', why: 'question' } : eventState(ev);
   const c = await scoped(s);
   const _id = hookRowId(s.userId, r.sid, r.projectId);
   if (!next) {
@@ -369,7 +377,7 @@ async function recordState(
   const at = new Date(Math.min(now + SKEW_MS, Math.max(now - SKEW_MS, Number.isFinite(ev.at) ? ev.at! : now)));
   const before = await c.presence.findOneAndUpdate(
     { _id, userId: s.userId, $or: [{ activity: { $exists: false } }, { 'activity.at': { $lt: at } }] },
-    { $set: { activity: { state: next.state, at, ...(next.why ? { why: next.why } : {}), ...(ev.event === 'tool-start' ? { open: true as const } : {}) }, lastSeen: new Date(now), ...(ev.event === 'prompt' ? { promptAt: at } : {}) } },
+    { $set: { activity: { state: next.state, at, ...(next.why ? { why: next.why } : {}), ...(ask ? { ask } : {}), ...(ev.event === 'tool-start' ? { open: true as const } : {}) }, lastSeen: new Date(now), ...(ev.event === 'prompt' ? { promptAt: at } : {}), ...(ACTIVE_EVENTS.has(ev.event) ? { activeAt: at } : {}) } },
     { returnDocument: 'before', projection: { activity: 1 } },
   );
   if (before) return { state: next.state, changed: before.activity?.state !== next.state };

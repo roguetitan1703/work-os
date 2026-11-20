@@ -28,11 +28,11 @@ export type DaemonSays = 'running' | 'stopped' | 'unknown';
 
 export type StateRow = {
   lastSeen: Date;
-  activity?: { state: PresenceState; at: Date; why?: 'prompt'; open?: boolean } | null;
+  activity?: { state: PresenceState; at: Date; why?: 'prompt' | 'question'; open?: boolean } | null;
   endedAt?: Date | null;
 };
 
-export type StateResult = { state: PresenceState; /** Only for waiting. */ why?: 'need' | 'prompt'; /** When the state began: activity.at, else lastSeen. */ since: Date };
+export type StateResult = { state: PresenceState; /** Only for waiting. */ why?: 'need' | 'prompt' | 'question'; /** When the state began: activity.at, else lastSeen. */ since: Date };
 
 export function presenceState(row: StateRow, o: { now: number; daemon?: DaemonSays; needs?: boolean }): StateResult {
   const daemon = o.daemon ?? 'unknown';
@@ -48,7 +48,7 @@ export function presenceState(row: StateRow, o: { now: number; daemon?: DaemonSa
   const ageMin = (o.now - a.at.getTime()) / 60_000;
   const quietMin = (o.now - Math.max(a.at.getTime(), row.lastSeen.getTime())) / 60_000;
   const alive = daemon === 'running' || quietMin <= GONE_MIN;
-  if (a.state === 'waiting') return alive ? { state: 'waiting', why: a.why === 'prompt' ? 'prompt' : 'need', since } : { state: 'off', since };
+  if (a.state === 'waiting') return alive ? { state: 'waiting', why: a.why ?? 'need', since } : { state: 'off', since }; // question: a stop that asked its person (presence.ts recordState)
   if (a.state === 'working') {
     if (ageMin <= WORKING_MIN) return { state: 'working', since };
     if (a.open && (daemon === 'running' || ageMin <= OPEN_TOOL_MIN)) return { state: 'working', since };
@@ -56,7 +56,7 @@ export function presenceState(row: StateRow, o: { now: number; daemon?: DaemonSa
   }
   if (!alive) return { state: 'off', since };
   if (o.needs) return { state: 'waiting', why: 'need', since };
-  return { state: a.state === 'on' ? 'on' : 'idle', since };
+  return { state: 'idle', since }; // on (started, no prompt yet) and idle are one state: open, not working
 }
 
 /** What the hook reports (POST /api/agent/event). The server decides the state from the event; the hook never sends one. */
@@ -83,4 +83,26 @@ export function eventState(ev: { event: EventName; kind?: EventKind }): { state:
       if (ev.kind === 'idle_prompt') return { state: 'idle' };
       return null;
   }
+}
+
+// Last active and Quiet (the Sessions list, roster.ts; Om 21 Nov). Last active is the last prompt, tool use or turn end
+// (activeAt, written by recordEvent), or a fresh start (startup, clear, compact, a pick-up). Opening or resuming an old session
+// and the idle wait refreshing lastSeen each minute are not activity. A row with no hook (claude.ai chat, API) is active at each call.
+// An idle session with no activity for over 2 hours is quiet: left out of the default list, never a lead candidate. Display only:
+// messages and wakes treat it as idle.
+
+export const QUIET_MIN = 120;
+
+export type ActiveRow = { lastSeen: Date; activity?: { state: PresenceState; at: Date } | null; activeAt?: Date; promptAt?: Date; createdAt?: Date };
+
+/** When the session last did something. Rows from before activeAt: the last prompt, or a working event; with neither, when the row was made. */
+export function lastActive(row: ActiveRow): Date {
+  if (!row.activity) return row.lastSeen;
+  const t = Math.max(row.activeAt?.getTime() ?? 0, row.promptAt?.getTime() ?? 0, row.activity.state === 'working' ? row.activity.at.getTime() : 0);
+  return t > 0 ? new Date(t) : (row.createdAt ?? row.lastSeen);
+}
+
+/** Idle and nothing done for over 2 hours. */
+export function isQuiet(state: PresenceState, row: ActiveRow, now: number): boolean {
+  return (state === 'idle' || state === 'on') && now - lastActive(row).getTime() > QUIET_MIN * 60_000;
 }

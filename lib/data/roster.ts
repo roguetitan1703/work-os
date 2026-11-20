@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import type { PresenceDoc, PresenceState, StateLine } from '../db';
 import { orgWide, scoped, type Scope } from '../scope';
 import { memberNames } from '../people';
-import { presenceState, WORKING_MIN, GONE_MIN, type DaemonSays } from './presence-state';
+import { presenceState, isQuiet, lastActive, WORKING_MIN, GONE_MIN, type DaemonSays } from './presence-state';
 import { lineHolder } from './lanes';
 import { shortAddress } from './presence';
 import { openNeedRows } from './roster-needs';
@@ -46,9 +46,17 @@ export type WorkerRow = {
   doing: { ref: number; title: string; /** false when the worker is off: nobody holds the task */ held: boolean } | null;
   state: WorkerState;
   /** For a waiting worker: an open Need, or (own sessions only) a permission prompt in its terminal. */
-  waitingOn?: 'need' | 'prompt';
+  waitingOn?: 'need' | 'prompt' | 'question';
+  /** Own rows only, waiting with why question: the question its turn ended with (written by the agent, never checked). */
+  ask?: string;
   /** When the state began (the hook's last event, else the last call). */
   since: string;
+  /** The last prompt, tool use or turn end (presence-state.ts lastActive); never a resume or the idle wait. '' when none is known. */
+  lastActive: string;
+  /** Idle with no activity for over 2 hours (presence-state.ts isQuiet): left out of the default Sessions list. */
+  quiet: boolean;
+  /** Subagents running for it: the worker daemon's count, or its builders that work (shown under it), whichever is more. */
+  subagents: number;
   /** For an idle worker: how many unblocked Next lines its project has. */
   nextWork: number;
   lastSeen: string;
@@ -65,7 +73,7 @@ export type WorkerRow = {
 export type CouldBeRunning = { projectId: string; projectName: string; unblocked: number; first: string };
 export type Roster = { workers: WorkerRow[]; couldBeRunning: CouldBeRunning[]; machines: { machine: string; held: number; cap: number }[] };
 
-type Raw = { row: PresenceDoc; daemon: DaemonSays };
+type Raw = { row: PresenceDoc; daemon: DaemonSays; /** Subagents the daemon counts for its process (0 when it says nothing). */ subagents: number };
 
 /** Pure: the state of one worker at `now` (presenceState). `daemon` = what the worker daemon's fresh list says about its process; `needs` = it has an open Need. */
 export function workerState(row: Pick<PresenceDoc, 'lastSeen' | 'activity'> & { endedAt?: Date | null }, o: { now: number; daemon?: DaemonSays; needs?: boolean }): WorkerState {
@@ -109,16 +117,21 @@ async function loadRaw(s: Scope, hours: number, projectId?: string): Promise<Raw
   const ccOf = (r: PresenceDoc) => r.ccSession ?? r.session;
   const check = rows.filter(r => ccOf(r) && r.machineName && (r.activity || nowMs - r.lastSeen.getTime() > GONE_MIN * 60_000));
   const says = new Map<string, DaemonSays>();
+  const subs = new Map<string, number>();
   if (check.length) {
     // A device counts only for the person who owns it (a session cannot claim someone else's computer).
     const devs = await (await orgWide(s.orgId)).devices.find({ $or: check.map(r => ({ _id: r.machine, ownerId: r.userId })), revokedAt: null }, { projection: { claudeSessions: 1 } }).toArray();
     for (const d of devs) {
       const list = d.claudeSessions;
       if (!list || nowMs - list.at.getTime() > DAEMON_FRESH_MS) continue;
-      for (const it of list.items) if (!it.unknown) says.set(`${d._id}:${it.sessionId}`, it.running ? 'running' : 'stopped'); // unknown: the computer has no word on it
+      for (const it of list.items) {
+        if (it.unknown) continue; // the computer has no word on it
+        says.set(`${d._id}:${it.sessionId}`, it.running ? 'running' : 'stopped');
+        if (it.running && it.subagentsActive > 0) subs.set(`${d._id}:${it.sessionId}`, it.subagentsActive);
+      }
     }
   }
-  return rows.map(row => ({ row, daemon: (ccOf(row) && says.get(`${row.machine}:${ccOf(row)}`)) || 'unknown' }));
+  return rows.map(row => ({ row, daemon: (ccOf(row) && says.get(`${row.machine}:${ccOf(row)}`)) || 'unknown', subagents: (ccOf(row) && subs.get(`${row.machine}:${ccOf(row)}`)) || 0 }));
 }
 
 /** The kind of client, for people who are not the key's owner (a key's name is its owner's own label). */
@@ -142,7 +155,7 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
   const now = Date.now();
   const rows: (WorkerRow & { _parent?: string; _uid: string; _rid: string; _sess: string | null })[] = raw
     .filter(r => r.row.projectId === null || x.pname.has(r.row.projectId))
-    .map(({ row, daemon }) => {
+    .map(({ row, daemon, subagents }) => {
       const st = presenceState(row, { now, daemon, needs: x.needs.has(row._id) });
       const state = st.state;
       const mine = row.userId === s.userId;
@@ -165,8 +178,12 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
         doing: row.doing && x.tasks.get(row.doing.taskId) ? { ...x.tasks.get(row.doing.taskId)!, held: state !== 'off' } : null,
         state,
         // A permission prompt is the owner's business; teammates see only that it waits on a person.
-        ...(state === 'waiting' ? { waitingOn: st.why === 'prompt' && !mine ? ('need' as const) : st.why } : {}),
+        ...(state === 'waiting' ? { waitingOn: (st.why === 'prompt' || st.why === 'question') && !mine ? ('need' as const) : st.why } : {}),
+        ...(state === 'waiting' && st.why === 'question' && mine && row.activity?.ask ? { ask: row.activity.ask } : {}),
         since: st.since.toISOString(),
+        lastActive: lastActive(row).getTime() > 0 ? lastActive(row).toISOString() : '', // '' : a hook row that never did anything we know of
+        quiet: isQuiet(state, row, now),
+        subagents: state === 'off' ? 0 : subagents,
         nextWork: state === 'idle' && row.projectId ? x.nextCount(row.projectId) : 0,
         lastSeen: row.lastSeen.toISOString(),
         ...(x.results && mine && row.lastResult?.text ? { lastResult: { text: row.lastResult.text.slice(0, 300), at: row.lastResult.at.toISOString() } } : {}),
@@ -192,8 +209,12 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
   const cmp = (a: WorkerRow, b: WorkerRow) => rank[a.state] - rank[b.state] || b.lastSeen.localeCompare(a.lastSeen);
   const workers: WorkerRow[] = [];
   for (const t of tops.sort(cmp)) {
-    workers.push(strip(t, 0));
-    for (const k of (kids.get(t._rid) ?? []).sort(cmp)) workers.push(strip(k, 1));
+    const ks = (kids.get(t._rid) ?? []).sort(cmp);
+    // A lead whose builders work has its subagents running, whether or not the daemon counted them.
+    const busy = t.state === 'off' ? 0 : ks.filter(k => k.state === 'working').length;
+    const subagents = Math.max(t.subagents, busy);
+    workers.push(strip({ ...t, subagents, quiet: t.quiet && subagents === 0 }, 0));
+    for (const k of ks) workers.push(strip(k, 1));
   }
   return workers;
 }
@@ -310,7 +331,7 @@ export async function withLaneMarks<T extends { now: { holder?: string; holderSt
   const live = rows.map(r => ({ ...r, key: `${r.userId}:${r.key}`, ref: r.doing ? tasks.get(r.doing.taskId)?.ref : undefined }));
   const word = (r: (typeof live)[number]) => {
     const st = presenceState(r, { now });
-    return st.state === 'waiting' ? 'waiting' : st.state;
+    return isQuiet(st.state, r, now) ? 'quiet' : st.state;
   };
   const holder = (l: StateLine) => {
     const r = lineHolder(l, live, x => x.ref, now);

@@ -461,11 +461,13 @@ export type PresenceDoc = Placed & {
   swept?: Date;
   /** Nudges: when a prompt event last reached the server for this session (typed or not), the last idle nudge handed out, how many today (nudgeDay, UTC YYYY-MM-DD). Counters only. */
   promptAt?: Date;
+  /** Last active (presence-state.ts lastActive): the last prompt, tool use or turn end the hook reported, or a fresh start. Never a resume, an idle wait or an idle notification. */
+  activeAt?: Date;
   nudgeAt?: Date;
   nudgeCount?: number;
   nudgeDay?: string;
   /** The state the Claude Code hook last reported (POST /api/agent/event; the server decides it from the event). Absent for sessions with no hook token. */
-  activity?: { state: PresenceState; at: Date; why?: 'prompt'; /** A Bash or PowerShell call began (tool-start) and no later event came: keeps the session working (presenceState). */ open?: boolean };
+  activity?: { state: PresenceState; at: Date; /** prompt: a permission prompt in its terminal; question: its turn ended asking its person something (`ask`, the question, cleaned, at most 200 characters). */ why?: 'prompt' | 'question'; ask?: string; /** A Bash or PowerShell call began (tool-start) and no later event came: keeps the session working (presenceState). */ open?: boolean };
   /** The last Stop the hook counted (H12, the Monday numbers): were the changed files saved to the State, and was the session reminded first. Last stop wins. Counts only, never text. */
   stopCheck?: { files: 'saved' | 'unsaved'; reminded?: true; at: Date };
   /** WORK-STATE.md hand edits of this session (H12): refused (by the hook or the server), and forwarded to the State. Counts only. */
