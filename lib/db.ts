@@ -323,13 +323,15 @@ export type HandoverMeta = {
 /** A line of a project's State (Next, Later): `by` is who wrote it (a user id), shown labelled to everyone else. */
 export type StateLine = {
   id: string; text: string; ref?: number; waitsOn?: string; by: string; src?: string; at: Date;
+  /** Parked lines only: "bring back when". */
+  when?: string;
   /** Lanes: the session that holds the line (key = presence row key); a hold from set_doing is derived at read from presence `doing`. */
   hold?: { key: string; at: Date };
   /** Lanes: set when a hold was released because its session left (label of the session, where it stood). */
   left?: { label: string; branch?: string; head?: string; log?: string; at: Date };
 };
 /** A Next or Later line taken off the State with its text kept (archive_line, a removed Later line, Declutter). `by`/`at` are the line's own; `archivedBy`/`archivedAt` say who took it off and when. */
-export type ArchivedLine = { id: string; text: string; from: 'Next' | 'Later'; waitsOn?: string; by: string; at: Date; archivedBy: string; archivedAt: Date; why?: string };
+export type ArchivedLine = { id: string; text: string; from: 'Next' | 'Later' | 'Parked'; waitsOn?: string; by: string; at: Date; archivedBy: string; archivedAt: Date; why?: string };
 /** What the daily Declutter check found on a project (lib/data/declutter.ts); written without a version bump, like `where`. */
 /** `reviewedAt` and the two counts: the last size review (declutter reviewed: true); size makes a project due again only after 10 more lines. */
 export type DeclutterCache = { checkedAt: Date; reasons: string[]; quietUntil?: Date; needId?: string; needRef?: number; reviewedAt?: Date; reviewedLater?: number; reviewedNext?: number };
@@ -345,6 +347,8 @@ export type StateDoc = Placed & {
   now: { text: string; holder?: string; hold?: { key: string; label: string; at: Date }; by: string; at: Date } | null;
   next: StateLine[];
   later: StateLine[];
+  /** Features and ideas set aside, never in the start brief (read as `?? []`). */
+  parked?: StateLine[];
   decisions: StateDecision[];
   where: Record<string, StateWhere>;
   /** Lines taken off Next or Later, text kept, put back from the State card (the newest 300). */

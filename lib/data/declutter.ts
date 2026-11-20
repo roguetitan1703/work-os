@@ -185,7 +185,7 @@ export async function readDeclutter(s: Scope, project: ProjectDoc, state: StateD
   const review = state && (due.review || (due.due && !proposal.items.length)) ? reviewLines(state) : undefined;
   const parts: string[] = [];
   if (proposal.items.length) parts.push('Check the proposed items against the code and the disk. Apply the ones that are clearly done or yours with apply: [ids]');
-  if (review) parts.push('Review the lines: archive lines that are done or no longer matter with save_state archive_line (with why), merge related lines (add one, archive the rest), then call declutter {reviewed: true}');
+  if (review) parts.push('Review the lines: a feature or idea set aside goes to Parked with save_state park_line (with when to bring it back); what is done or no longer matters is archived with save_state archive_line (with why), merge related lines (add one, archive the rest), then call declutter {reviewed: true}');
   if (proposal.items.length) parts.push('ask: true (skip, add, disk) only for items other people hold');
   return { due, proposal, ...(review ? { review } : {}), next: parts.length ? `${parts.join('. ')}.` : 'Nothing to tidy.' };
 }

@@ -9,7 +9,7 @@ Installed by the Work OS worker (it replaces this folder when a newer version sh
 2. Check each proposed item against the code and the disk (is the line really done, is the page really a repeat?).
 3. Apply your own clear items now: call `declutter` with `apply: [item ids]`. It archives lines, finishes Next lines, archives pages and completes tasks as you, recorded with each item's why. No Need. Nothing is deleted: an archived line can be put back from the State card.
 4. If the answer has `review` (the State is long), go through its Next and Later lines, oldest first (each has id, date, waitsOn, text):
-   - archive lines that are done or no longer matter with `save_state` `archive_line {id, why}`;
+   - a feature or idea that is set aside goes to Parked with `save_state` `park_line {id, when}` (when: what would bring it back); what is done or no longer matters is archived with `archive_line {id, why}`;
    - merge related lines: `add_later` (or `add_next`) one line, then `archive_line` the rest;
    - then call `declutter` with `reviewed: true`. The project is due for size again only after 10 more lines.
 5. Ask only for what other people hold: lines another session or a person holds, other people's tasks and Needs, pages, and anything you are not sure of.

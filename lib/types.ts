@@ -188,6 +188,7 @@ export const ACTIVITY_TYPES = [
   'next_added',
   'next_done',
   'later_added',
+  'line_parked',
   'line_archived',
   'declutter_applied',
   'decision',

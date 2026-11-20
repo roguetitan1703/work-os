@@ -13,6 +13,9 @@ import { InputError, NotFoundError } from '@/lib/data/errors';
 // The State card's writes: the same versioned save as the MCP tool (lib/data/states.ts), as the signed-in person.
 // A stale base_version writes nothing and returns the current State, which the card shows.
 
+/** The page shows every decision and the Parked lines; agents get the latest 10 and a count. */
+const PAGE = { decisions: 'all', parked: true } as const;
+
 export type StateResult = { ok: true; state: StateOut } | { ok: false; error: string; conflict?: true; state?: StateOut | null };
 
 export async function saveStateAction(projectId: string, ops: unknown, baseVersion?: number): Promise<StateResult> {
@@ -22,8 +25,8 @@ export async function saveStateAction(projectId: string, ops: unknown, baseVersi
     const r = await withCaller(caller, () => saveState(s, projectId, ops, { baseVersion, actor: userActor(caller.userId), via: 'app' }));
     const names = await memberNames(caller.orgId);
     revalidatePath(`/projects/${projectId}`);
-    if (r.conflict) return { ok: false, conflict: true, error: 'Someone changed the State since you opened it. It is refreshed: try again.', state: r.state ? await withLaneMarks(s, projectId, r.state, stateOut(r.state, caller.userId, names)) : null };
-    return { ok: true, state: await withLaneMarks(s, projectId, r.state, stateOut(r.state, caller.userId, names)) };
+    if (r.conflict) return { ok: false, conflict: true, error: 'Someone changed the State since you opened it. It is refreshed: try again.', state: r.state ? await withLaneMarks(s, projectId, r.state, stateOut(r.state, caller.userId, names, PAGE)) : null };
+    return { ok: true, state: await withLaneMarks(s, projectId, r.state, stateOut(r.state, caller.userId, names, PAGE)) };
   } catch (err) {
     if (err instanceof ZodError) return { ok: false, error: err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') };
     if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
@@ -45,7 +48,7 @@ export async function restoreLineAction(projectId: string, archivedId: string): 
     const r = await withCaller(caller, () => restoreLine(s, String(projectId), String(archivedId), userActor(caller.userId)));
     const names = await memberNames(caller.orgId);
     revalidatePath(`/projects/${projectId}`);
-    return { ok: true, state: await withLaneMarks(s, projectId, r.state, stateOut(r.state, caller.userId, names)), archived: archivedOut(r.state, names) };
+    return { ok: true, state: await withLaneMarks(s, projectId, r.state, stateOut(r.state, caller.userId, names, PAGE)), archived: archivedOut(r.state, names) };
   } catch (err) {
     if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
     console.error(err);

@@ -33,10 +33,11 @@ import type { Priority } from '../types';
 //   Held lines (done_next, edit_line, archive_line, promote_later): only by the line's holder (its `hold`, or a live session on
 //     its task by set_doing), the Now holder or a person. edit_line by a session holds the line.
 
-export const LIMITS = { line: 500, now: 1000, decision: 1000, next: 100, later: 300, decisions: 500 } as const;
+export const LIMITS = { line: 500, now: 1000, decision: 1000, next: 100, later: 300, decisions: 500, parked: 1000, when: 200 } as const;
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const waits = z.string().trim().min(1).max(200).optional();
+const when = z.string().trim().min(1).max(LIMITS.when).optional();
 const lineId = z.string().trim().min(1).max(40).optional();
 // `find`: text inside exactly one line (case-sensitive substring), in place of `id`.
 const findText = z.string().min(1).max(LIMITS.line).optional();
@@ -48,6 +49,12 @@ export const StateOpSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('done_next'), id: lineId, find: findText }),
   z.object({ op: z.literal('add_later'), text: text(LIMITS.line), waits_on: waits }),
   z.object({ op: z.literal('promote_later'), id: lineId, find: findText, priority: z.enum(['P1', 'P2', 'P3', 'P4']).optional() }),
+  // A feature or idea set aside: Parked is a dated list outside the start brief (list_parked), each line with when to bring it back.
+  z.object({ op: z.literal('park'), text: text(LIMITS.line), when }),
+  // Moves a Next or Later line to the end of Parked (id, text, author, date, task and waits-on kept; hold and left dropped).
+  z.object({ op: z.literal('park_line'), id: lineId, find: findText, when }),
+  // Moves a Parked line to the end of Later (default) or Next; its `when` is dropped.
+  z.object({ op: z.literal('unpark'), id: lineId, find: findText, to: z.enum(['later', 'next']).optional() }),
   z.object({ op: z.literal('add_decision'), text: text(LIMITS.decision) }),
   // Takes a decision off the State's list (it stays in the log): the project's owner or an owner of the organization only.
   z.object({ op: z.literal('archive_decision'), id: lineId, find: findText }),
@@ -191,7 +198,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
       // The first write makes the State, stamped with the project's placement.
       await c.states.updateOne(
         { _id: project._id },
-        { $setOnInsert: { ...placeIn(project, s.userId), projectId: project._id, now: null, next: [], later: [], decisions: [], where: {}, version: 0, createdAt: now, updatedAt: now } },
+        { $setOnInsert: { ...placeIn(project, s.userId), projectId: project._id, now: null, next: [], later: [], parked: [], decisions: [], where: {}, version: 0, createdAt: now, updatedAt: now } },
         { upsert: true },
       );
       cur = await c.states.findOne({ _id: project._id });
@@ -267,7 +274,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
      * hold). Its holder and a person always may. The Now holder (merges) and a session on the line's task (set_doing) may only while
      * that holder is not busy. `move`: reordering, which only a busy holder's line refuses, and never to the Now holder.
      */
-    const checkLine = async (l: StateLine, list: 'Next' | 'Later', o2: { move?: boolean } = {}): Promise<boolean> => {
+    const checkLine = async (l: StateLine, list: 'Next' | 'Later' | 'Parked', o2: { move?: boolean } = {}): Promise<boolean> => {
       if (person) return false;
       if (!l.hold && l.ref == null) return false;
       const t = Date.now();
@@ -281,7 +288,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
         if (l.ref != null && live.some(r => r.key === me && r.ref === l.ref && presenceState(r, { now: t }).state !== 'off')) return true;
       }
       const text = lineHeldText({ id: l.id, text: l.text, label: labelOf(h), state: stateWord(presenceState(h, { now: t })), ref: l.ref, nowHolder: nowHold?.label });
-      throw new InputError(list === 'Later' ? text.replace(/^Next line/, 'Later line') : text);
+      throw new InputError(list === 'Next' ? text : text.replace(/^Next line/, `${list} line`));
     };
     const log: NonNullable<StateDoc['log']> = ops.map(op => ({ at: now, by, ...(rc.keyId ? { key: rc.keyId } : {}), ...(src ? { src } : {}), via: o.via, op: op.op, ...('id' in op && op.id ? { id: op.id } : {}) }));
     // At most 30 decisions an hour from one key: a runaway agent cannot bury the real ones.
@@ -294,11 +301,13 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     let decisionsEdited = false;
     const next = [...cur.next];
     const later = [...cur.later];
+    const parked = [...(cur.parked ?? [])];
     const nextAdds: StateLine[] = [];
     const laterAdds: StateLine[] = [];
+    const parkedAdds: StateLine[] = [];
     const decisions: StateDoc['decisions'] = [];
     const archivedAdds: ArchivedLine[] = [];
-    const archive = (l: StateLine, from: 'Next' | 'Later', why?: string) => {
+    const archive = (l: StateLine, from: 'Next' | 'Later' | 'Parked', why?: string) => {
       archivedAdds.push({ id: l.id, text: l.text, from, ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), by: l.by, at: l.at, archivedBy: by, archivedAt: now, ...(why ? { why } : {}) });
       feed.push({ type: 'line_archived', text: `${from} line: ${l.text}`, by: l.by });
     };
@@ -306,11 +315,12 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     let nowSet: StateDoc['now'] | undefined;
     let nextEdited = false;
     let laterEdited = false;
+    let parkedEdited = false;
     const done: string[] = [];
     const dropped: string[] = [];
     const promoted: { ref: number; title: string }[] = [];
     // The activity feed: one row per change worth reading (Now, a Next line added or done, a Later line, a decision).
-    const feed: { type: 'state_now' | 'next_added' | 'next_done' | 'later_added' | 'line_archived' | 'decision'; text: string; by?: string }[] = [];
+    const feed: { type: 'state_now' | 'next_added' | 'next_done' | 'later_added' | 'line_parked' | 'line_archived' | 'decision'; text: string; by?: string }[] = [];
     const take = (list: StateLine[], id: string, what: string): StateLine => {
       const i = list.findIndex(l => l.id === id);
       if (i < 0) throw new InputError(`${what} has no line ${id} (read the State again for current ids)`);
@@ -318,12 +328,13 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     };
     type Hit = { where: string; line?: StateLine; i: number; id?: string; text: string };
     // The one line holding `find` (case-sensitive substring) among the given lists; zero or several matches throw, naming the candidates.
-    const findLine = (find: string, where: ('Now' | 'Next' | 'Later' | 'Decisions')[], onlyId?: string): Hit => {
+    const findLine = (find: string, where: ('Now' | 'Next' | 'Later' | 'Parked' | 'Decisions')[], onlyId?: string): Hit => {
       const hits: Hit[] = [];
       const cn = nowSet ?? cur!.now;
       if (where.includes('Now') && !onlyId && cn && cn.text.includes(find)) hits.push({ where: 'Now', i: 0, text: cn.text });
       if (where.includes('Next')) next.forEach((l, i) => l.text.includes(find) && (!onlyId || l.id === onlyId) && hits.push({ where: 'Next', line: l, i, id: l.id, text: l.text }));
       if (where.includes('Later')) later.forEach((l, i) => l.text.includes(find) && (!onlyId || l.id === onlyId) && hits.push({ where: 'Later', line: l, i, id: l.id, text: l.text }));
+      if (where.includes('Parked')) parked.forEach((l, i) => l.text.includes(find) && (!onlyId || l.id === onlyId) && hits.push({ where: 'Parked', line: l, i, id: l.id, text: l.text }));
       if (where.includes('Decisions')) decisionsAll.forEach((d, i) => !d.archivedAt && d.text.includes(find) && hits.push({ where: 'Decisions', i, id: d.id, text: d.text }));
       const quote = (t: string) => `"${t.length > 80 ? t.slice(0, 77) + '...' : t}"`;
       if (!hits.length) throw new InputError(`find ${quote(find)} matches no line in ${onlyId ? `line ${onlyId}` : where.join(', ')} (case-sensitive; read the State again). Nothing was written.`);
@@ -331,7 +342,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
       return hits[0];
     };
     for (const [oi, op] of ops.entries()) {
-      if (op.op === 'move_next' || op.op === 'done_next' || op.op === 'promote_later' || op.op === 'archive_decision' || op.op === 'archive_line') {
+      if (op.op === 'move_next' || op.op === 'done_next' || op.op === 'promote_later' || op.op === 'archive_decision' || op.op === 'archive_line' || op.op === 'park_line' || op.op === 'unpark') {
         if (op.find !== undefined && op.id) throw new InputError(`${op.op}: give id or find, not both.`);
         if (op.find === undefined && !op.id) throw new InputError(`${op.op} needs id or find.`);
       }
@@ -375,6 +386,56 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           feed.push({ type: 'later_added', text: op.text });
           break;
         }
+        case 'park': {
+          const l: StateLine = { id: lid(), text: op.text, ...(op.when ? { when: op.when } : {}), ...stamp, at: now };
+          parkedAdds.push(l);
+          parked.push(l);
+          feed.push({ type: 'line_parked', text: op.text });
+          break;
+        }
+        case 'park_line': {
+          let from: 'Next' | 'Later';
+          let pid: string;
+          if (op.find !== undefined) {
+            const h = findLine(op.find, ['Next', 'Later']);
+            from = h.where as 'Next' | 'Later';
+            pid = h.id!;
+          } else if (next.some(l => l.id === op.id)) {
+            from = 'Next';
+            pid = op.id!;
+          } else if (later.some(l => l.id === op.id)) {
+            from = 'Later';
+            pid = op.id!;
+          } else throw new InputError(`Next and Later have no line ${op.id} (read the State again for current ids)`);
+          const l = take(from === 'Next' ? next : later, pid, from);
+          await checkLine(l, from);
+          if (from === 'Next') nextEdited = true;
+          else laterEdited = true;
+          log[oi].id = l.id;
+          parkedEdited = true;
+          parked.push({ id: l.id, text: l.text, ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...(op.when ? { when: op.when } : {}), by: l.by, at: l.at });
+          feed.push({ type: 'line_parked', text: l.text, by: l.by });
+          break;
+        }
+        case 'unpark': {
+          const pid = op.find !== undefined ? findLine(op.find, ['Parked']).id! : op.id!;
+          const l = take(parked, pid, 'Parked');
+          await checkLine(l, 'Parked');
+          parkedEdited = true;
+          log[oi].id = l.id;
+          const { when: oldWhen, ...rest } = l;
+          void oldWhen;
+          if (op.to === 'next') {
+            nextEdited = true;
+            next.push(rest);
+            feed.push({ type: 'next_added', text: l.text, by: l.by });
+          } else {
+            laterEdited = true;
+            later.push(rest);
+            feed.push({ type: 'later_added', text: l.text, by: l.by });
+          }
+          break;
+        }
         case 'promote_later': {
           laterEdited = true;
           const l = take(later, op.find !== undefined ? findLine(op.find, ['Later']).id! : op.id!, 'Later');
@@ -402,7 +463,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           break;
         }
         case 'edit_line': {
-          const h = findLine(op.find, ['Now', 'Next', 'Later'], op.id);
+          const h = findLine(op.find, ['Now', 'Next', 'Later', 'Parked'], op.id);
           const replaced = h.text.replace(op.find, () => op.new).trim();
           if (h.where === 'Now') {
             if (!replaced) throw new InputError('Now cannot be removed: replace it with set_now.');
@@ -417,14 +478,15 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
             break;
           }
           if (replaced.length > LIMITS.line) throw new InputError(`The line would be ${replaced.length} characters (max ${LIMITS.line}).`);
-          const heldByOther = await checkLine(h.line!, h.where as 'Next' | 'Later');
-          const list = h.where === 'Next' ? next : later;
+          const heldByOther = await checkLine(h.line!, h.where as 'Next' | 'Later' | 'Parked');
+          const list = h.where === 'Next' ? next : h.where === 'Parked' ? parked : later;
           if (h.where === 'Next') nextEdited = true;
+          else if (h.where === 'Parked') parkedEdited = true;
           else laterEdited = true;
           log[oi].id = h.id;
           if (!replaced) {
             list.splice(h.i, 1);
-            if (h.where === 'Later') archive(h.line!, 'Later', 'removed with edit_line');
+            if (h.where === 'Later' || h.where === 'Parked') archive(h.line!, h.where, 'removed with edit_line');
             (h.where === 'Next' ? done : dropped).push(h.text);
             if (h.where === 'Next' && h.line!.ref) doneRefs.push(h.line!.ref);
             if (h.where === 'Next') feed.push({ type: 'next_done', text: h.text, by: h.line!.by });
@@ -439,11 +501,11 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           break;
         }
         case 'archive_line': {
-          let from: 'Next' | 'Later';
+          let from: 'Next' | 'Later' | 'Parked';
           let lid2: string;
           if (op.find !== undefined) {
-            const h = findLine(op.find, ['Next', 'Later']);
-            from = h.where as 'Next' | 'Later';
+            const h = findLine(op.find, ['Next', 'Later', 'Parked']);
+            from = h.where as 'Next' | 'Later' | 'Parked';
             lid2 = h.id!;
           } else if (next.some(l => l.id === op.id)) {
             from = 'Next';
@@ -451,10 +513,14 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           } else if (later.some(l => l.id === op.id)) {
             from = 'Later';
             lid2 = op.id!;
-          } else throw new InputError(`Next and Later have no line ${op.id} (read the State again for current ids)`);
-          const l = take(from === 'Next' ? next : later, lid2, from);
+          } else if (parked.some(l => l.id === op.id)) {
+            from = 'Parked';
+            lid2 = op.id!;
+          } else throw new InputError(`Next, Later and Parked have no line ${op.id} (read the State again for current ids)`);
+          const l = take(from === 'Next' ? next : from === 'Parked' ? parked : later, lid2, from);
           await checkLine(l, from);
           if (from === 'Next') nextEdited = true;
+          else if (from === 'Parked') parkedEdited = true;
           else laterEdited = true;
           log[oi].id = l.id;
           archive(l, from, op.why);
@@ -468,6 +534,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     }
     if (next.length > LIMITS.next) throw new InputError(`Next would hold ${next.length} lines (max ${LIMITS.next}): finish or drop some first.`);
     if (later.length > LIMITS.later) throw new InputError(`Later would hold ${later.length} lines (max ${LIMITS.later}): promote or drop some first.`);
+    if (parked.length > LIMITS.parked) throw new InputError(`Parked would hold ${parked.length} lines (max ${LIMITS.parked})`);
     if (cur.decisions.filter(x => !x.archivedAt).length + decisions.length > LIMITS.decisions) throw new InputError(`Decisions would hold more than ${LIMITS.decisions} entries.`);
     if (Object.keys(cur.where).length + Object.keys(where).filter(k => !Object.hasOwn(cur.where, k.slice(6))).length > 40) throw new InputError('Where tracks at most 40 machines.');
 
@@ -485,6 +552,8 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     else if (nextAdds.length) push.next = { $each: nextAdds };
     if (laterEdited) set.later = later;
     else if (laterAdds.length) push.later = { $each: laterAdds };
+    if (parkedEdited) set.parked = parked;
+    else if (parkedAdds.length) push.parked = { $each: parkedAdds };
     if (decisionsEdited) set.decisions = [...decisionsAll, ...decisions];
     else if (decisions.length) push.decisions = { $each: decisions };
     if (archivedAdds.length) push.archived = { $each: archivedAdds, $slice: -ARCHIVED_KEEP };
@@ -520,7 +589,7 @@ async function tellOldHolder(s: Scope, project: ProjectDoc, state: StateDoc, fro
   try {
     const { sendMessage } = await import('./messages');
     const goal = state.now?.text ?? '';
-    const body = `"${from.label}" took over Now on ${project.name}: ${goal.length > 200 ? `${goal.slice(0, 200)}…` : goal}. You no longer hold Now. Keep your lane: set_doing your task, log_progress, add_next or add_decision; send_message "${from.label}" if Now should change.`;
+    const body = `"${from.label}" took over Now on ${project.name}: ${goal.length > 200 ? `${goal.slice(0, 200)}…` : goal}. You no longer hold Now. Keep your lane: set_doing your task, log_progress, add_next, park or add_decision; send_message "${from.label}" if Now should change.`;
     await sendMessage(s, { kind: 'session', rows: [from.row], project }, { kind: 'fyi', body }, { word: o.via === 'chat' ? 'chat' : 'agent', ...(from.mine?.session ? { session: from.mine.session } : {}), label: from.label, ...(from.mine?.keyId ? { keyId: from.mine.keyId } : {}), src: me, actor: o.actor });
   } catch (e) {
     console.error('[state now moved]', e instanceof Error ? e.name : 'error');
@@ -611,13 +680,15 @@ export async function setWhere(s: Scope, projectId: string, machine: string, w: 
 
 // ── Import: a repo's WORK-STATE.md, once ────────────────────────────────────
 
-export type ParsedWorkState = { now: string; next: { text: string; waitsOn?: string }[]; later: { text: string; waitsOn?: string }[]; skipped: { section: string; lines: number }[]; /** Lines (and Now) that were over the limit and cut. */ shortened: number };
+export type ParsedWorkState = { now: string; next: { text: string; waitsOn?: string }[]; later: { text: string; waitsOn?: string }[]; parked: { text: string; when?: string }[]; skipped: { section: string; lines: number }[]; /** Lines (and Now) that were over the limit and cut. */ shortened: number };
 
 /** Sections that are a record of the past, not the plan: never imported (they would flood Later). They belong in docs/history.md. */
 const PAST = /^(history|log|changelog|change log|changes|done|completed|shipped|archive|journal|timeline|session log|progress log|releases?)\b/i;
 
 const BULLET = /^\s{0,3}(?:[-*+]|\d+[.)])\s+(.*)$/;
 const HEADING = /^#{1,6}\s+(.*?)\s*#*\s*$/;
+/** A Parked line's "bring back when": "— bring back when X" or "(when X)" at the end. */
+const WHEN = /\s+(?:[—–-]{1,2}\s+bring back when\s+(.+?)|\(when\s+(.+?)\))\.?\s*$/i;
 const WAITS = /\s+[—–-]{1,2}\s+(?:waits|waiting) on\s+(.+?)\.?\s*$/i;
 
 /**
@@ -637,12 +708,12 @@ export function fitLine(raw: string, max: number): { text: string; cut: boolean 
 
 /** Now / Next / Later sections of a WORK-STATE.md. Lines in other sections come back as Later lines, so nothing is lost; text above Now is skipped and counted; History, log and similar sections (PAST) are skipped and counted. */
 export function parseWorkState(md: string): ParsedWorkState {
-  type Sec = 'pre' | 'now' | 'next' | 'later' | 'other' | 'past';
+  type Sec = 'pre' | 'now' | 'next' | 'later' | 'parked' | 'other' | 'past';
   let sec: Sec = 'pre';
   let other = '';
   const skipped: { section: string; lines: number }[] = [];
   let level = 0; // heading level of the skipped section: deeper headings stay inside it
-  const items: Record<'now' | 'next' | 'later' | 'stray' | 'above', string[]> = { now: [], next: [], later: [], stray: [], above: [] };
+  const items: Record<'now' | 'next' | 'later' | 'parked' | 'stray' | 'above', string[]> = { now: [], next: [], later: [], parked: [], stray: [], above: [] };
   const last: { at: { into: keyof typeof items; i: number } | null } = { at: null };
   const add = (into: keyof typeof items, t: string) => {
     items[into].push(t.trim());
@@ -662,7 +733,8 @@ export function parseWorkState(md: string): ParsedWorkState {
     if (h) {
       const name = h[1].trim().toLowerCase();
       last.at = null;
-      if (PAST.test(name)) {
+      if (/parked|parking lot/.test(name)) sec = 'parked';
+      else if (PAST.test(name)) {
         sec = 'past';
         level = depth;
         skipped.push({ section: h[1].trim().slice(0, 80), lines: 0 });
@@ -675,7 +747,7 @@ export function parseWorkState(md: string): ParsedWorkState {
       continue;
     }
     if (/^[>_*\s]*Copy of the Work OS state/i.test(raw)) continue; // the header save_state writes
-    const target: keyof typeof items = sec === 'now' ? 'now' : sec === 'next' ? 'next' : sec === 'later' ? 'later' : sec === 'pre' ? 'above' : 'stray';
+    const target: keyof typeof items = sec === 'now' ? 'now' : sec === 'next' ? 'next' : sec === 'later' ? 'later' : sec === 'parked' ? 'parked' : sec === 'pre' ? 'above' : 'stray';
     const prefix = sec === 'other' && other ? `[${other}] ` : '';
     const b = raw.match(BULLET);
     if (b && !/^\s{2,}/.test(raw)) add(target, prefix + b[1]);
@@ -689,6 +761,10 @@ export function parseWorkState(md: string): ParsedWorkState {
     return f.text;
   };
   const lines = (list: string[]) => list.map(x => fit(x, LIMITS.line)).map(x => ({ text: x, ...(WAITS.exec(x) ? { waitsOn: WAITS.exec(x)![1].slice(0, 200) } : {}) }));
+  const parked = items.parked.map(x => fit(x, LIMITS.line)).map(x => {
+    const m = WHEN.exec(x);
+    return m ? { text: x.slice(0, m.index).trim() || x, when: (m[1] ?? m[2]).slice(0, LIMITS.when) } : { text: x };
+  });
   if (items.above.length) skipped.push({ section: 'Text above Now', lines: items.above.length });
   // What does not fit stays whole: Next lines past the cap and stray lines go to Later. A cut line's rest is dropped, never a new line.
   const nextAll = lines(items.next);
@@ -696,12 +772,13 @@ export function parseWorkState(md: string): ParsedWorkState {
     now: fit(items.now.join(' '), LIMITS.now),
     next: nextAll.slice(0, LIMITS.next),
     later: [...nextAll.slice(LIMITS.next), ...lines(items.later), ...lines(items.stray)].slice(0, LIMITS.later),
+    parked: parked.slice(0, LIMITS.parked),
     skipped,
     shortened,
   };
 }
 
-export async function importState(s: Scope, projectKey: string, markdown: string, o: { actor: Actor }): Promise<{ state: StateDoc; project: ProjectDoc; imported: { now: boolean; next: number; later: number }; skipped: ParsedWorkState['skipped']; shortened: number }> {
+export async function importState(s: Scope, projectKey: string, markdown: string, o: { actor: Actor }): Promise<{ state: StateDoc; project: ProjectDoc; imported: { now: boolean; next: number; later: number; parked: number }; skipped: ParsedWorkState['skipped']; shortened: number }> {
   if (!markdown.trim()) throw new InputError('markdown is empty');
   if (markdown.length > 200_000) throw new InputError('markdown is over 200,000 characters');
   void o;
@@ -715,6 +792,7 @@ export async function importState(s: Scope, projectKey: string, markdown: string
     const now = new Date();
     const by = s.userId;
     const line = (l: { text: string; waitsOn?: string }): StateLine => ({ id: lid(), text: l.text, ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), by, at: now });
+    const parkedLine = (l: { text: string; when?: string }): StateLine => ({ id: lid(), text: l.text, ...(l.when ? { when: l.when } : {}), by, at: now });
     const doc: StateDoc = {
       _id: project._id,
       orgId: s.orgId,
@@ -723,6 +801,7 @@ export async function importState(s: Scope, projectKey: string, markdown: string
       now: p.now ? { text: p.now, by, at: now } : null,
       next: p.next.map(line),
       later: p.later.map(line),
+      parked: p.parked.map(parkedLine),
       decisions: [],
       where: {},
       version: 1,
@@ -730,7 +809,7 @@ export async function importState(s: Scope, projectKey: string, markdown: string
       updatedAt: now,
     };
     await c.states.insertOne(doc);
-    return { state: doc, project, imported: { now: !!p.now, next: doc.next.length, later: doc.later.length }, skipped: p.skipped, shortened: p.shortened };
+    return { state: doc, project, imported: { now: !!p.now, next: doc.next.length, later: doc.later.length, parked: doc.parked!.length }, skipped: p.skipped, shortened: p.shortened };
   });
 }
 
@@ -747,7 +826,12 @@ export type StateOut = {
   /** holder: label of the session that holds the line (set by the page); left: where a released line stood, as one line of text. */
   next: { id: string; text: string; /** The day the line was last written, YYYY-MM-DD. */ at?: string; ref?: number; waitsOn?: string; holder?: string; left?: string; writtenBy?: string }[];
   later: { id: string; text: string; at?: string; waitsOn?: string; holder?: string; left?: string; writtenBy?: string }[];
+  /** Parked lines: only when asked for (the project page); agents get `parkedTotal` and read the lines with list_parked. */
+  parked?: { id: string; text: string; at: string; when?: string; ref?: number; writtenBy?: string }[];
+  parkedTotal: number;
+  /** The latest 10 live decisions for agents (all of them for the project page); `decisionsTotal` is how many there are (list_decisions reads the rest). */
   decisions: { id: string; at: string; by: string; via: string; text: string; message?: string; word?: string; writtenBy?: string }[];
+  decisionsTotal: number;
   where: Record<string, { branch?: string; head?: string; dirty?: boolean; worktrees?: string[]; at: string; writtenBy?: string }>;
   updatedAt: string;
 };
@@ -760,7 +844,12 @@ const leftOut = (l: StateLine): { left?: string } => {
 };
 
 /** The State as plain data (dates as ISO strings), lines by anyone but the reader labelled `writtenBy`. */
-export function stateOut(d: StateDoc, reader: string, names: Names): StateOut {
+export const AGENT_DECISIONS = 10;
+export function stateOut(d: StateDoc, reader: string, names: Names, opts: { decisions?: 'all' | number; parked?: boolean } = {}): StateOut {
+  const liveDecisions = d.decisions.filter(x => !x.archivedAt);
+  const keep = opts.decisions ?? AGENT_DECISIONS;
+  const shownDecisions = keep === 'all' ? liveDecisions : liveDecisions.slice(-keep);
+  const parkedAll = d.parked ?? [];
   const w = (by: string) => {
     const l = label(names, reader, by);
     return l ? { writtenBy: l } : {};
@@ -771,7 +860,10 @@ export function stateOut(d: StateDoc, reader: string, names: Names): StateOut {
     now: d.now ? { text: d.now.text, ...(d.now.hold?.label || d.now.holder ? { holder: d.now.hold?.label || d.now.holder } : {}), at: d.now.at.toISOString(), ...w(d.now.by) } : null,
     next: d.next.map(l => ({ id: l.id, text: l.text, at: l.at.toISOString().slice(0, 10), ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...leftOut(l), ...w(l.by) })),
     later: d.later.map(l => ({ id: l.id, text: l.text, at: l.at.toISOString().slice(0, 10), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...leftOut(l), ...w(l.by) })),
-    decisions: d.decisions.filter(x => !x.archivedAt).map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', via: x.via, text: x.text, ...(x.msg ? { message: x.msg } : {}), ...(x.word ? { word: x.word } : {}), ...w(x.author ?? x.by) })),
+    ...(opts.parked ? { parked: parkedAll.map(l => ({ id: l.id, text: l.text, at: l.at.toISOString().slice(0, 10), ...(l.when ? { when: l.when } : {}), ...(l.ref ? { ref: l.ref } : {}), ...w(l.by) })) } : {}),
+    parkedTotal: parkedAll.length,
+    decisionsTotal: liveDecisions.length,
+    decisions: shownDecisions.map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', via: x.via, text: x.text, ...(x.msg ? { message: x.msg } : {}), ...(x.word ? { word: x.word } : {}), ...w(x.author ?? x.by) })),
     where: Object.fromEntries(Object.entries(d.where ?? {}).map(([m, v]) => [m, { ...(v.branch ? { branch: v.branch } : {}), ...(v.head ? { head: v.head } : {}), ...(v.dirty !== undefined ? { dirty: v.dirty } : {}), ...(v.worktrees?.length ? { worktrees: v.worktrees } : {}), at: v.at.toISOString(), ...w(v.by) }])),
     updatedAt: d.updatedAt.toISOString(),
   };
@@ -782,7 +874,7 @@ export function stateOut(d: StateDoc, reader: string, names: Names): StateOut {
  * ends with `(by name)`, a Next line's task as `#12` in front). Lanes, the copy, held and left marks and all but the last 10
  * decisions are left out; Where stays. About a quarter of the full answer for a State with long Later and Decisions lists.
  */
-export type StateCompact = { version: number; now: string | null; next: string[]; later: string[]; decisions: string[]; where: StateOut['where']; updatedAt: string };
+export type StateCompact = { version: number; now: string | null; next: string[]; later: string[]; parked?: string; decisionsTotal: number; decisions: string[]; where: StateOut['where']; updatedAt: string };
 export const COMPACT_DECISIONS = 10;
 export function stateCompact(o: StateOut): StateCompact {
   const by = (w?: string) => (w ? ` (by ${w})` : '');
@@ -793,14 +885,42 @@ export function stateCompact(o: StateOut): StateCompact {
     now: o.now ? `${o.now.text}${o.now.holder ? ` (held by ${o.now.holder})` : ''}${by(o.now.writtenBy)}` : null,
     next: o.next.map(line),
     later: o.later.map(line),
+    ...(o.parkedTotal > 0 ? { parked: `${o.parkedTotal} lines: list_parked` } : {}),
+    decisionsTotal: o.decisionsTotal,
     decisions: o.decisions.slice(-COMPACT_DECISIONS).map(d => `${d.id} · ${d.at.slice(0, 10)} · ${d.text}${by(d.writtenBy)}`),
     where: o.where,
     updatedAt: o.updatedAt,
   };
 }
 
+/** list_parked: the project's Parked lines, newest first. `query` is a case-insensitive substring of the text or the "bring back when". */
+export async function listParked(s: Scope, key: string, o: { query?: string; limit?: number } = {}): Promise<{ project: string; total: number; parked: { id: string; date: string; when?: string; text: string; writtenBy?: string }[] }> {
+  const { project, state } = await getState(s, key);
+  const names = await memberNames(s.orgId);
+  const q = o.query?.trim().toLowerCase();
+  const all = [...(state?.parked ?? [])].reverse();
+  const hit = q ? all.filter(l => l.text.toLowerCase().includes(q) || (l.when ?? '').toLowerCase().includes(q)) : all;
+  const limit = Math.min(Math.max(o.limit ?? 100, 1), 500);
+  return { project: project.name, total: all.length, parked: hit.slice(0, limit).map(l => ({ id: l.id, date: l.at.toISOString().slice(0, 10), ...(l.when ? { when: l.when } : {}), text: l.text, ...w2(names, s.userId, l.by) })) };
+}
+
+/** list_decisions: the project's live decisions, newest first (the State carries only the latest 10). */
+export async function listDecisions(s: Scope, key: string, o: { since?: Date; query?: string; limit?: number } = {}): Promise<{ project: string; total: number; decisions: { id: string; date: string; text: string; by: string; via: string; writtenBy?: string }[] }> {
+  const { project, state } = await getState(s, key);
+  const names = await memberNames(s.orgId);
+  const q = o.query?.trim().toLowerCase();
+  const all = (state?.decisions ?? []).filter(x => !x.archivedAt).reverse();
+  const hit = all.filter(x => (!o.since || x.at >= o.since) && (!q || x.text.toLowerCase().includes(q)));
+  const limit = Math.min(Math.max(o.limit ?? 50, 1), 500);
+  return { project: project.name, total: all.length, decisions: hit.slice(0, limit).map(x => ({ id: x.id, date: x.at.toISOString().slice(0, 10), text: x.text, by: names[x.by] || 'a former member', via: x.via, ...w2(names, s.userId, x.author ?? x.by) })) };
+}
+const w2 = (names: Names, reader: string, by: string) => {
+  const l = label(names, reader, by);
+  return l ? { writtenBy: l } : {};
+};
+
 /** An archived line as the State card shows it (the page only: the MCP State and the brief never carry archived lines). */
-export type ArchivedOut = { id: string; text: string; from: 'Next' | 'Later'; waitsOn?: string; archivedAt: string; archivedBy: string; why?: string };
+export type ArchivedOut = { id: string; text: string; from: 'Next' | 'Later' | 'Parked'; waitsOn?: string; archivedAt: string; archivedBy: string; why?: string };
 
 /** The newest 50 archived lines, newest first, with who archived them as a name. */
 export function archivedOut(d: StateDoc, names: Names): ArchivedOut[] {
@@ -845,6 +965,8 @@ export function stateMarkdown(d: StateDoc, o: { projectName: string; url: string
   const later = rows.filter(r => r.section === 'Later');
   if (later.length) for (const r of later) out.push(r.line);
   else out.push('- (empty)');
+  const parkedN = d.parked?.length ?? 0;
+  if (parkedN > 0) out.push('', '## Parked', `- ${parkedN} lines in Work OS: list_parked, or the project page.`);
   const live = o.decisions ? d.decisions.filter(x => !x.archivedAt) : [];
   if (live.length) {
     out.push('', '## Decisions');

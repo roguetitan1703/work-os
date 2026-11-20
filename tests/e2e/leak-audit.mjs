@@ -1343,6 +1343,8 @@ function AUDIT() {
     M('start_work', { project: 'constructor' }, { label: 'prototype key', aim: true, aimKeys: [], control: false }),
   );
   add('mcp get_state', M('get_state', t => ({ project: t.project }), aim(['project'])), M('get_state', t => ({ project: t.projectName }), aim(['projectName'], { label: 'by name' })), Mc('get_state', t => ({ project: t.project }), aim(['project'], { label: 'code key' })));
+  add('mcp list_parked', M('list_parked', t => ({ project: t.project }), aim(['project'])), M('list_parked', t => ({ project: t.projectName }), aim(['projectName'], { label: 'by name' })), Mc('list_parked', t => ({ project: t.project }), aim(['project'], { label: 'code key' })));
+  add('mcp list_decisions', M('list_decisions', t => ({ project: t.project }), aim(['project'])), M('list_decisions', t => ({ project: t.projectName }), aim(['projectName'], { label: 'by name' })), Mc('list_decisions', t => ({ project: t.project }), aim(['project'], { label: 'code key' })));
   add('mcp save_state',
     M('save_state', t => ({ project: t.project, ops: [{ op: 'add_next', text: 'lkq sneaked line' }] }), aim(['project'])),
     M('save_state', t => ({ project: t.project, base_version: 0, ops: [{ op: 'set_now', text: 'lkq sneaked goal' }] }), aim(['project'], { label: 'set_now' })),
