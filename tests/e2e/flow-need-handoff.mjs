@@ -4,6 +4,8 @@
 //   2. start_work lists, for that person on that project, answered Needs whose asking session is off and that nobody was handed
 //      (max 5, one line each) and marks them handed to the starting session; a second start lists none of them;
 //   3. withdraw_need on an answered / withdrawn Need says which, with the answer and the time, and changes nothing.
+//   4. withdraw_need by a new session takes back an open Need whose asking session is off (same person, word and key); refused while
+//      the asker is on, from another key, another person, or a dispatched run.
 // Seed profile: none.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -160,6 +162,27 @@ try {
   check('4: the Need is still unhanded, for Om\'s own next start_work', !(await needDoc(n6.id)).handedTo);
   const s5 = await start(ccS, 'nhS5', { label: 'NH S5' });
   check('4: Om\'s next start_work lists it', !!s5.needs?.answeredWhileAway?.lines?.some(l => l.includes(`Need #${n6.ref}`)), JSON.stringify(s5.needs?.answeredWhileAway));
+
+  // ── 5. a new session withdraws an open Need its ended predecessor asked (same key); every other case reads as no such Need
+  await start(cc, 'nhW1', { label: 'NH W1' });
+  await start(cc, 'nhW2', { label: 'NH W2' });
+  const nw1 = await ask(cc, 'nhW1', 'NH w1: replaced session');
+  const nw2 = await ask(cc, 'nhW1', 'NH w2: asker still on');
+  const nw3 = await ask(cc, 'nhW1', 'NH w3: other key');
+  const nw4 = await ask(cc, 'nhW1', 'NH w4: dispatched run');
+  const nw5 = await ask(cc, 'nhW1', 'NH w5: another person');
+  // asker still on: refused
+  const r2 = await mcpH(cc, 'withdraw_need', { id: nw2.ref, session: 'nhW2' }, hdr('nhW2'));
+  check('5: the asking session still on: refused as no such Need', r2.isError && /does not exist, or you did not ask it/.test(r2.text) && (await needDoc(nw2.id)).status === 'open', r2.text.slice(0, 200));
+  await stop(cc, 'nhW1'); // the predecessor ends
+  const r1 = await mcpH(cc, 'withdraw_need', { id: nw1.ref, session: 'nhW2' }, hdr('nhW2'));
+  check('5: a new session withdraws what its ended predecessor asked (same key)', !r1.isError && (await needDoc(nw1.id)).status === 'withdrawn', r1.text.slice(0, 200));
+  const r3 = await mcpH(ccS, 'withdraw_need', { id: nw3.ref, session: 'nhW3' }, hdr('nhW3'));
+  check('5: another key of the same person: refused', r3.isError && /does not exist, or you did not ask it/.test(r3.text) && (await needDoc(nw3.id)).status === 'open', r3.text.slice(0, 200));
+  const r4 = await mcpH(cc, 'withdraw_need', { id: nw4.ref, session: 'nhD' }, hdr('nhD')); // nhD is a dispatched run's session row
+  check('5: a dispatched run: refused', r4.isError && /does not exist, or you did not ask it/.test(r4.text) && (await needDoc(nw4.id)).status === 'open', r4.text.slice(0, 200));
+  const r5 = await mcpH(kT, 'withdraw_need', { id: nw5.ref, session: 'nhT' }, hdr('nhT'));
+  check('5: another person: refused', r5.isError && /does not exist, or you did not ask it/.test(r5.text) && (await needDoc(nw5.id)).status === 'open', r5.text.slice(0, 200));
 } catch (e) {
   check('suite ran to the end', false, e?.stack || String(e));
 } finally {

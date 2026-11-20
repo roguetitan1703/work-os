@@ -2178,7 +2178,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     handler(async a => {
       const n = await needsData.findNeed(s, a.id);
       if (!n) throw new NotFoundError('That Need does not exist, or you did not ask it.');
-      return { need: await needOut(await needsData.withdrawNeed(s, n.id, { word: wordFor(requestContext().sid), session: requestContext().sid, keyId: caller.keyId })) };
+      return { need: await needOut(await needsData.withdrawNeed(s, n.id, { word: wordFor(requestContext().sid), session: requestContext().sid, keyId: caller.keyId, dispatched: !!caller.dispatched })) };
     }),
   );
 

@@ -467,7 +467,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   withdraw_need: {
     title: 'Withdraw a Need',
-    description: 'Take back a Need you asked while it is still open (id or number such as #7). Only the asker can withdraw it; there is no tool to answer one. A Need already answered, withdrawn or replaced says which, with the answer and the time, and nothing changes.',
+    description: 'Take back a Need you asked while it is still open (id or number such as #7). Only the asker can withdraw it, or one a session of yours that has ended asked; there is no tool to answer one. A Need already answered, withdrawn or replaced says which, with the answer and the time, and nothing changes.',
     writes: true,
     example: 'Withdraw Need #7, the question no longer matters',
   },
