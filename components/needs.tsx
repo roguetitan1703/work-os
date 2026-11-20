@@ -268,7 +268,7 @@ export function NeedRow({ need, canAnswer = true, onAnswered, defaultOpen = fals
       <Row
         className="pr-2"
         leading={<HandHelping className={cn('w-4 h-4', open && isOpen ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')} aria-hidden />}
-        title={<span data-need-ask className="block whitespace-normal line-clamp-2 md:whitespace-nowrap md:line-clamp-1">{firstLine(need.ask)}</span>}
+        title={<span data-need-ask className="whitespace-normal line-clamp-2 md:whitespace-nowrap md:line-clamp-1">{firstLine(need.ask)}</span>}
         meta={meta}
         onClick={() => setOpen(o => !o)}
         trailing={
