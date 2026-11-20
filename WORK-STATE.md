@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 228. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 230. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -71,4 +71,5 @@ Copy of the Work OS state, version 228. WORK-STATE.md is a copy of the State, wr
 - Bug: a Claude chat's start_work on Work OS (no pick_up) attached the lead's 13:49 handover and stamped it picked up by the chat; a chat must never take over a Code session's handover; check whether Needs or held lines moved (Om's chat, m_890469b90393)
 - Bug: Om's chat (registered with start_work) called recent_activity after my reply m_a00bcc9d0ca3 and got no forYou line, though every tool goes through forYouBefore/After (lib/mcp/for-you.ts). Cause not checked: maybe no session passed, so presentRow finds no row. Replay: chat registers, lead replies, chat calls any tool, must see the line — waits on messaging design after Om's switch
 - Tool feedback from Cutroom lead, 20 Nov: write_note with an unknown markdown field made an empty note with no error (refuse unknown fields); edit_line over 500 chars should say find replaces only the matched text; send_message: to_session still shown as 'session id or label' to some sessions; list_sessions gives no id for a teammate's session (with the messaging design) — waits on messaging design after Om's switch
-<!-- work-os-copy sha1:ef91a02b328c16346b554dc674ad4641942194e7 -->
+- start_work with pick_up: its answer names the session to set (the handover's project and role) and says how (set_session_title / /rename), so the Orders rule has a prompt at the moment it applies. Small; slot A after the messaging fixes (both touch start_work). — waits on messaging fixes merged
+<!-- work-os-copy sha1:af451d35443447058f6332b942b2a09bc3386a48 -->
