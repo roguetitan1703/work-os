@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 240. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 241. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -71,8 +71,7 @@ Copy of the Work OS state, version 240. WORK-STATE.md is a copy of the State, wr
 - Bug: a Claude chat's start_work on Work OS (no pick_up) attached the lead's 13:49 handover and stamped it picked up by the chat; a chat must never take over a Code session's handover; check whether Needs or held lines moved (Om's chat, m_890469b90393)
 - Bug: Om's chat (registered with start_work) called recent_activity after my reply m_a00bcc9d0ca3 and got no forYou line, though every tool goes through forYouBefore/After (lib/mcp/for-you.ts). Cause not checked: maybe no session passed, so presentRow finds no row. Replay: chat registers, lead replies, chat calls any tool, must see the line — waits on messaging design after Om's switch
 - Tool feedback from Cutroom lead, 20 Nov: write_note with an unknown markdown field made an empty note with no error (refuse unknown fields); edit_line over 500 chars should say find replaces only the matched text; send_message: to_session still shown as 'session id or label' to some sessions; list_sessions gives no id for a teammate's session (with the messaging design) — waits on messaging design after Om's switch
-- start_work with pick_up: its answer names the session to set (the handover's project and role) and says how (set_session_title / /rename), so the Orders rule has a prompt at the moment it applies. Small; slot A after the messaging fixes (both touch start_work). — waits on messaging fixes merged
 - Messaging: one teammate can use up another person's 6 session wakes an hour with fyis (review, Low). Add a per-sender cap on waking other people's sessions (about 2 an hour per sender per target) only if it happens in real use. — waits on a real case
 - Short address collisions are refused (efc6646) but not covered by a test: a collision can't be forced in e2e without a seam for shortAddress. — waits on nothing; small
 - ui-tour findings that predate step 4: the session sheet doesn't open from ?s= at 390 and 1280; the desktop task row has no visible menu button (step 6 covers task rows). — waits on nothing
-<!-- work-os-copy sha1:d85682315d57764f9d9a24ff145bfa33f48e6c47 -->
+<!-- work-os-copy sha1:8055ada4d5dee905efd7c22cefc4faa5842d2363 -->
