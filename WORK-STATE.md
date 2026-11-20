@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 253. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 254. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -15,7 +15,7 @@ Copy of the Work OS state, version 253. WORK-STATE.md is a copy of the State, wr
 7. Usage recording, Fable's 7 steps plus the weekly improve loop (design a289ffec58). Build plan 1 (account tag, limit hits, compactions, 5-minute buckets, note e6036c777f) merged to dev 4922e5b after independent review and re-check, 20 Nov; server ships before the worker. Plan 2 (steps 3, 5-7, weekly report) after it. (design in note a289ffec58): Opus plan, then Sonnet build — waits on Om's account switch
 8. Next.js: no upgrade needed, already 16.4.6 (c638a01). The build stop came from worktrees with stale installs (wos-b, wos-s, wos-s2, wos-mail, work-os-demo): npm ci in each before its next build.: `next build` now stops once with SecurityFatalError (npm advisories) and passes on retry. The release build (GitHub runner, server-build.yml) may stop the same way at 03:00. Upgrade Next.js to the patched version (Om said yes, 20 Nov): Opus in slot A, full suite, merge, then release at 03:00. — waits on Om's go for the Next.js upgrade
 9. Lead not woken by a Work OS message while a background subagent runs (Om saw it 21 Nov): a subagent's Bash tool-start marks the lead working, so the wait hook gives up. Fix: tool-start ignores subagent calls. Slot A (Opus), then worker release.
-10. Per-key rate limit (300 calls/h on the shared key) blocked Grant Leads' save_state on 20 Nov (message m_a143da3e7b6f): find what counts, name top sessions in the refusal, never block a State save for another session's use. Slot A (Opus), independent review.
+10. Per-key limit raised 300 to 1,000/h on dev 41b928a (Om, 21 Nov); master waits on Om's yes. Slot A: session+tool per call, top sessions in the refusal, State saves never blocked; review. (300 calls/h on the shared key) blocked Grant Leads' save_state on 20 Nov (message m_a143da3e7b6f): find what counts, name top sessions in the refusal, never block a State save for another session's use. Slot A (Opus), independent review.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -77,7 +77,8 @@ Copy of the Work OS state, version 253. WORK-STATE.md is a copy of the State, wr
 - Short address collisions are refused (efc6646) but not covered by a test: a collision can't be forced in e2e without a seam for shortAddress. — waits on nothing; small
 - ui-tour findings that predate step 4: the session sheet doesn't open from ?s= at 390 and 1280; the desktop task row has no visible menu button (step 6 covers task rows). — waits on nothing
 - After the 03:00 deploy (R12, master 43102b0; Actions locked over billing, so built in WSL and uploaded to manual-builds, worker release 20261120.182819 signed inside): check work.delpat.in serves it, worker/latest.json shows 20261120.182751, and the PC's worker updated itself; then reinstall nothing (hook files ship with the worker).
+- Hooks handle edge cases unevenly (subagent, headless, dead parent): Opus review of all worker hooks plus messaging tool choice running 21 Nov, report D:/Work/Delpat/builds/tmp/review-hooks/hooks-review.md; slot A applies it through one shared hook gate.
 
 ## Parked
 - 1 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:2ad3f4fc2d67773e16d258ac9efb6a15f0d94fc2 -->
+<!-- work-os-copy sha1:ee9502c908d424ba9b88e40d92bc84295e72e13f -->
