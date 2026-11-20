@@ -182,6 +182,8 @@ export type NeedStatus = 'open' | 'answered' | 'withdrawn' | 'replaced';
 export type NeedOption = { id: string; label: string; means: string };
 export type NeedDoc = Placed & {
   _id: string;
+  /** The Discord DM for a Need that waited over a day was sent (once; lib/alerts.ts dmOldNeeds). */
+  discordDmAt?: Date;
   /** Per organization, like a task number. */
   ref: number;
   projectId: string;

@@ -1,4 +1,3 @@
-import { handleNeedPress } from '@/lib/discord/need-buttons';
 import { handleRecordedPress, RECORDED_PRESS } from '@/lib/discord/buttons';
 import { NextResponse } from 'next/server';
 import { ephemeral, InteractionType, type Interaction } from '@/lib/discord/interaction';
@@ -6,7 +5,7 @@ import { ephemeral, InteractionType, type Interaction } from '@/lib/discord/inte
 // Discord HTTP interactions endpoint (set as "Interactions Endpoint URL" in the Developer Portal).
 // Authenticated by Discord's Ed25519 signature, not by the app's proxy. The server it came from picks the organization
 // (discord:<orgId>.guildId). Only buttons arrive here: the ones under the bot's Recorded reply (lib/discord/buttons.ts, who
-// may press what is decided there) and, until they go, the Need buttons in a direct message. Every answer is immediate.
+// may press what is decided there). Needs are not answered in Discord. Every answer is immediate.
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -60,12 +59,6 @@ export async function POST(req: Request) {
     return new NextResponse('bad request', { status: 400 });
   }
   if (i.type === InteractionType.PING) return NextResponse.json({ type: 1 });
-
-  // A button pressed in a DM (a Need's options): no server, no member, only `user`. The Need names the organization and the
-  // person; the press counts only from the addressee's linked Discord account (lib/discord/need-buttons.ts).
-  if (i.type === InteractionType.COMPONENT && !i.guild_id && i.user?.id && (i.data?.custom_id ?? '').startsWith('wo:need:')) {
-    return NextResponse.json(await handleNeedPress(i, (process.env.APP_URL || new URL(req.url).origin).replace(/\/+$/, '')));
-  }
 
   // The buttons and the select on the bot's Recorded reply. The poster may Undo without being linked, so who may do what is
   // decided in lib/discord/buttons.ts, not here.

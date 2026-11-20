@@ -3,7 +3,7 @@ import { roleOf } from '../caller';
 import { completeTask, trashTask, updateTask } from '../data/tasks';
 import { memberNames } from '../people';
 import { discordUser } from '../profile';
-import { orgWithSetting, orgWide, type Scope } from '../scope';
+import { orgWithSetting, orgWide, scoped, type Scope } from '../scope';
 import type { Actor } from '../actors';
 import type { TaskDoc } from '../db';
 import { errorText, EPHEMERAL, type Interaction } from './interaction';
@@ -15,7 +15,7 @@ import { editReply, mdLink, plainName, recordedComponents } from './recorded';
 // recorded, and every change runs in the task owner's scope with the actor { kind: 'discord', userId? }.
 //   Undo: the poster, the person who reacted, the people on it, and the organization's owners; it goes to the trash.
 //   Done: the people on it and the owners.
-//   For:  any linked member; sets who the task is for (a task with no project is private to one person and cannot be given away).
+//   For:  any linked member who can read the task; sets who the task is for (a task with no project is private to one person and cannot be given away).
 
 export const RECORDED_PRESS = /^wo:(undo|done|for):(\d{1,9})$/;
 
@@ -41,14 +41,21 @@ export async function handleRecordedPress(i: Interaction, baseUrl: string): Prom
   const orgId = await orgWithSetting('discord', { guildId });
   if (!orgId) return ephemeral('Not available.');
   const ref = Number(m[2]);
-  const t = await recordedTask(orgId, ref);
-  if (!t || t.source?.kind !== 'discord') return ephemeral(`#${ref} is not there any more.`);
-  const src = t.source;
   const me = await discordUser(guildId, discordId);
-  const owner = me ? (await roleOf(me.userId, orgId)) === 'owner' : false;
+  // Someone not linked cannot choose who it is for, whatever the task is.
+  if (m[1] === 'for' && !me) return ephemeral('Connect Discord in Work OS first (Settings › Notifications).');
+  const t = await recordedTask(orgId, ref);
+  const notThere = () => ephemeral(`#${ref} not found. It may have been removed.`);
+  if (!t || t.source?.kind !== 'discord') return notThere();
+  const src = t.source;
+  // Owners, the reactor and For need the task to be one this person can read through their own door (a private project's task is not theirs to change).
+  const sees = !!me && !!(await (await scoped(me)).tasks.findOne({ _id: t._id }, { projection: { _id: 1 } }));
+  const owner = sees && me ? (await roleOf(me.userId, orgId)) === 'owner' : false;
   const onIt = !!me && peopleOn(t).includes(me.userId);
-  const reactor = !!me && src.reactorId === me.userId;
+  const reactor = sees && !!me && src.reactorId === me.userId;
   const poster = src.authorId === discordId;
+  // A task this person may not read (and did not post) answers exactly as one that is not there: no way to find out which numbers exist.
+  if (!sees && !poster) return notThere();
   const actor: Actor = { kind: 'discord', ...(me ? { userId: me.userId } : {}) };
   const taskOwner: Scope = { userId: t.ownerId, orgId };
   const refuse = () => ephemeral(`Only the people on #${ref} can do that.`);
@@ -64,13 +71,14 @@ export async function handleRecordedPress(i: Interaction, baseUrl: string): Prom
       return update(doneText(ref, baseUrl), []);
     }
     // For ▾
-    if (!me) return ephemeral('Connect Discord in Work OS first (Settings › Notifications).');
+    if (!me || !sees) return refuse();
     const pick = i.data?.values?.[0];
     if (!pick || !/^[\w-]{1,100}$/.test(pick)) return ephemeral('Unknown choice.');
     const names = await memberNames(orgId);
     if (!names[pick]) return ephemeral('That person is not in this organization.');
-    if (t.visibility === 'private') return ephemeral(`#${ref} has no project, so it is private to one person. Put it in a project in Work OS to give it to someone else.`);
-    await updateTask(taskOwner, ref, { assignees: [pick] }, actor);
+    // A task that is private to one person (no project, or a private project) cannot be given to someone else; naming that person again changes nothing.
+    if (t.visibility === 'private' && pick !== t.ownerId) return ephemeral(`#${ref} is private to one person, so it cannot be given to someone else. Put it in a shared project in Work OS first.`);
+    if (!(peopleOn(t).length === 1 && peopleOn(t)[0] === pick)) await updateTask(taskOwner, ref, { assignees: [pick] }, actor);
     const project = t.projectId ? await (await orgWide(orgId)).projects.findOne({ _id: t.projectId }, { projection: { name: 1 } }) : null;
     const where = project ? plainName(project.name) : '';
     const content = `Recorded ${mdLink(`#${ref}`, taskUrl(baseUrl, ref))} · ${plainName(names[pick])}${where ? ` · ${where}` : ''}`;

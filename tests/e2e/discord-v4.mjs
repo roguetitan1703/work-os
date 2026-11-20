@@ -1,7 +1,7 @@
 // Work OS in Discord, plan v4 (Work OS note c7b491432a). The relay the live listener posts to, the bug channels, the track
 // emoji, the buttons on the bot's reply, Connect Discord (OAuth), the agent tools and the DMs, against a stub Discord API
 // (discord-stub.mjs) with signed interactions. Seed profile: none, server mode discord. Each section adds its checks here.
-import { B, CRON, ME, call, check, finish, launch, login, makeUser, mcp, mcpAs, mkKey, pick, rawDb, setOrgGuild, setProfile } from './lib.mjs';
+import { B, CRON, ME, call, cron, check, finish, launch, login, makeUser, mcp, mcpAs, mkKey, pick, rawDb, setOrgGuild, setProfile } from './lib.mjs';
 import { createPrivateKey, sign } from 'node:crypto';
 import { startStub, BOT } from './discord-stub.mjs';
 
@@ -338,7 +338,7 @@ try {
   const rDoneX = await press(DX, `wo:done:${ref1}`);
   check('buttons: the poster who is not linked cannot mark it Done', eph(rDoneX) && (await taskOf(u1.m.id)).status !== 'Done', JSON.stringify(rDoneX.body));
   const rGone = await press(DA, 'wo:done:999999');
-  check('buttons: a task that is not there is said so', eph(rGone) && /not there/.test(rGone.body.data.content), JSON.stringify(rGone.body));
+  check('buttons: a task that is not there is said so', eph(rGone) && /not found/.test(rGone.body.data.content), JSON.stringify(rGone.body));
   const rOther = await press(DA, `wo:done:${ref1}`, undefined, '444444444444444499');
   check('buttons: a press from a server no organization has set does nothing', (await taskOf(u1.m.id)).status !== 'Done', JSON.stringify(rOther.body));
   // For
@@ -366,7 +366,7 @@ try {
   const rUndoOwner = await press(DA, `wo:undo:${u4.t.ref}`);
   check('buttons: Undo by an organization owner works', rUndoOwner.body?.type === 7 && (await taskOf(u4.m.id)) === null, JSON.stringify(rUndoOwner.body));
   const again = await press(DA, `wo:undo:${u4.t.ref}`);
-  check('buttons: a second Undo says it is not there', eph(again) && /not there/.test(again.body.data.content));
+  check('buttons: a second Undo says it is not there', eph(again) && /not found/.test(again.body.data.content));
   const u5 = await track4('The avatar upload stalls at 99 percent');
   const rDoneOwner = await press(DA, `wo:done:${u5.t.ref}`);
   check('buttons: Done by an organization owner works', rDoneOwner.body?.type === 7 && (await taskOf(u5.m.id)).status === 'Done', JSON.stringify(rDoneOwner.body));
@@ -448,7 +448,7 @@ try {
   await pgD.waitForLoadState('networkidle').catch(() => {});
   check('today: the card is gone once connected', (await pgD.locator('[data-section="discord"]:visible').count()) === 0);
   const asDee = await press(DD, `wo:undo:${ke1.ref}`);
-  check('connect: the new link is what the buttons use (Dee is not on the task, so she is refused as Dee)', eph(asDee) && /Only the people/.test(asDee.body.data.content), JSON.stringify(asDee.body));
+  check('connect: the new link is what the buttons use (Dee is not on the task, so she is refused as Dee)', eph(asDee) && /Only the people|not found/.test(asDee.body.data.content), JSON.stringify(asDee.body));
   // one Discord account belongs to one person: Dee unlinks, then connects Bea's account, which moves to her
   await pgD.goto(`${B}/settings?section=notifications`);
   await pgD.locator('[data-discord-unlink]').click();
@@ -489,6 +489,40 @@ try {
   check('settings: after Dismiss the Connect button is still in Settings', (await pgE.locator('[data-discord-connect]').count()) === 1);
   await cxE.close();
   await brE.close();
+  // ---- 7. DMs: only a Need that waited over a day (reels are owner alerts, lib/owner-alert.ts) ----
+  const dmsTo = id => st.dms.filter(d => d.to === id);
+  const dm0 = dmsTo(DA).length;
+  const needNew = (await call('ask', { project: 'Delpat OS', to: 'me', kind: 'approve', ask: 'Ship the Safari fix this week?' })).need;
+  const needOld = (await call('ask', { project: 'Delpat OS', to: 'me', kind: 'approve', ask: 'Rotate the staging keys before Friday?' })).need;
+  check('dm: two Needs were asked', !!needNew?.id && !!needOld?.id, JSON.stringify({ n: needNew, o: needOld }));
+  await rawDb.collection('needs').updateOne({ _id: needOld.id }, { $set: { createdAt: new Date(Date.now() - 25 * 3_600_000) } });
+  // an alert of another kind (a task unblocked) is not sent to Discord any more
+  const blocker = (await call('add_task', { title: 'DM test blocker' })).created.ref;
+  await call('add_task', { title: 'DM test waiter', depends_on: [blocker] });
+  await call('complete_task', { task: blocker, note: 'done' });
+  await cron();
+  await sleep(800);
+  const got = dmsTo(DA).slice(dm0);
+  const oldDm = got.filter(d => d.content.includes(`Need #${needOld.ref}`));
+  check('dm: a Need open over 24 hours is sent once to the person\'s Discord', oldDm.length === 1 && /Waiting over a day/.test(oldDm[0].content) && /Rotate the staging keys/.test(oldDm[0].content), JSON.stringify(got.map(d => d.content)));
+  check('dm: it has no buttons (Needs are answered in the app)', !oldDm[0]?.components, JSON.stringify(oldDm[0]?.components));
+  check('dm: a Need open for less than a day gets none', !got.some(d => d.content.includes(`Need #${needNew.ref}`)));
+  check('dm: other kinds (unblocked and the rest) are not sent to Discord', got.length === 1, JSON.stringify(got.map(d => d.content.slice(0, 80))));
+  const marked = await rawDb.collection('needs').findOne({ _id: needOld.id });
+  check('dm: the Need is marked, so it is never sent twice', !!marked?.discordDmAt);
+  await cron();
+  await cron();
+  await sleep(500);
+  check('dm: later runs send nothing more for it', dmsTo(DA).slice(dm0).filter(d => d.content.includes(`Need #${needOld.ref}`)).length === 1);
+  // the person's switch for Discord DMs
+  await rawDb.collection('settings').updateOne({ _id: `notify:${A.userId}` }, { $set: { area: 'notify', orgId: A.orgId, userId: A.userId, notify: { channels: { push: true, discord: false }, kinds: {} } } }, { upsert: true });
+  const needOff = (await call('ask', { project: 'Delpat OS', to: 'me', kind: 'approve', ask: 'Does the pricing page need a rewrite?' })).need;
+  await rawDb.collection('needs').updateOne({ _id: needOff.id }, { $set: { createdAt: new Date(Date.now() - 30 * 3_600_000) } });
+  await sleep(100);
+  await cron();
+  await sleep(500);
+  const offMarked = await rawDb.collection('needs').findOne({ _id: needOff.id });
+  check('dm: with the Discord switch off, an old Need is not sent', !dmsTo(DA).some(d => d.content.includes(`Need #${needOff.ref}`)) && !offMarked?.discordDmAt, JSON.stringify(dmsTo(DA).map(d => d.content.slice(0, 60))));
 } catch (e) {
   check('discord-v4 (error)', false, e?.stack || String(e));
 }

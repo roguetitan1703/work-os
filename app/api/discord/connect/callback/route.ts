@@ -14,7 +14,8 @@ const SETTINGS = '/settings?section=notifications';
 
 export async function GET(req: NextRequest) {
   const base = appBaseUrl() ?? new URL(req.url).origin;
-  const caller = await callerFromHeaders(req.headers, true);
+  const found = await callerFromHeaders(req.headers, true);
+  const caller = found?.via === 'session' ? found : null; // only a signed-in browser: an API key cannot connect a Discord account
   if (!caller) return NextResponse.redirect(`${base}/login?next=${encodeURIComponent(SETTINGS)}`, { status: 303, headers: NO_STORE });
   const q = req.nextUrl.searchParams;
   const back = (word: string) => NextResponse.redirect(`${base}${SETTINGS}&discord=${word}`, { status: 303, headers: NO_STORE });

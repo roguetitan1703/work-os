@@ -294,7 +294,7 @@ export function AlertsTable({
                 <div className="flex justify-center"><Switch label="Phone notifications (push)" on={s.channels.push} onChange={v => save({ ...s, channels: { ...s.channels, push: v } })} /></div>
               </td>
               <td className="pr-3 pl-1 text-center">
-                <div className="flex justify-center"><Switch label="Discord DMs" on={s.channels.discord} disabled={!discordReady} onChange={v => save({ ...s, channels: { ...s.channels, discord: v } })} /></div>
+                <div className="flex justify-center"><Switch label="Discord DMs: reels, and Needs waiting over a day" on={s.channels.discord} disabled={!discordReady} onChange={v => save({ ...s, channels: { ...s.channels, discord: v } })} /></div>
               </td>
             </tr>
             {kinds.map(k => {
@@ -313,7 +313,7 @@ export function AlertsTable({
                   </th>
                   <td className="px-1 text-center">{mark(on, `${k.label} in-app`)}</td>
                   <td className="px-1 text-center">{mark(on && !inboxOnly && pushOn, `${k.label} push`)}</td>
-                  <td className="pr-3 pl-1 text-center">{mark(on && !inboxOnly && discordOn, `${k.label} Discord`)}</td>
+                  <td className="pr-3 pl-1 text-center">{mark(on && !inboxOnly && discordOn && k.kind === 'need', `${k.label} Discord`)}</td>
                 </tr>
               );
             })}
@@ -327,7 +327,7 @@ export function AlertsTable({
           {!pushReady ? 'not set up on the server (VAPID keys missing).' : !s.channels.push ? 'switched off above.' : devices === 0 ? 'on, but no device has turned it on yet (This device).' : `on, ${devices} device${devices === 1 ? '' : 's'} receiving.`}
         </li>
         <li>
-          <b>Discord:</b> {!discordReady ? 'the Discord bot is not set up (Connections).' : s.channels.discord ? 'on, sent as a direct message from the bot.' : 'switched off above.'}
+          <b>Discord:</b> {!discordReady ? 'the Discord bot is not set up (Connections).' : s.channels.discord ? 'on: reel messages, and a Need that has waited over a day, come as a direct message from the bot. Nothing else is sent to Discord.' : 'switched off above.'}
         </li>
         <li>Claude Code changes and questions from Claude are inbox-only.</li>
       </ul>
