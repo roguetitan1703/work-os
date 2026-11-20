@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 264. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 265. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -82,7 +82,8 @@ Copy of the Work OS state, version 264. WORK-STATE.md is a copy of the State, wr
 - After the 03:00 deploy (R12, master 43102b0; Actions locked over billing, so built in WSL and uploaded to manual-builds, worker release 20261120.182819 signed inside): check work.delpat.in serves it, worker/latest.json shows 20261120.182751, and the PC's worker updated itself; then reinstall nothing (hook files ship with the worker).
 - Hooks handle edge cases unevenly (subagent, headless, dead parent): Opus review of all worker hooks plus messaging tool choice running 21 Nov, report D:/Work/Delpat/builds/tmp/review-hooks/hooks-review.md; slot A applies it through one shared hook gate.
 - Token weight (measured 21 Nov): the start brief is small (~2K tokens), but the Work OS tool text is ~72K chars (~18K tokens, 59 tools, lib/mcp/docs.ts 50K) re-read by every agent on every call, and a full get_state answer can be 46K chars. Cut the descriptions (shorter, mail/discord tools only where used) and measure before/after.
+- Partial tools (Om, 21 Nov): agents should see a small core of Work OS tools and load the rest when needed. First check whether Claude Code's deferred tool loading (tool search) already does this for leads and subagents, by measuring tool text per call. If not: the server exposes about 12 core tools plus the rest on request (tools list_changed), measured before and after.
 
 ## Parked
 - 1 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:2759a32d9f8dad9a0fc6dd78273d2ed2cc2b46ed -->
+<!-- work-os-copy sha1:313c920aa5ff9835de02486e65049d868dad8e00 -->
