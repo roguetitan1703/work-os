@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 125. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 127. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -6,7 +6,7 @@ Copy of the Work OS state, version 125. WORK-STATE.md is a copy of the State, wr
 - Ship Harness end to end (#276, docs/flows/agent-system.md): R6 and R7 are live. Now: the Fable tool-calling review and its fixes, H16 measuring until about 3 Dec, then H17. Per part: Opus plans, Sonnet builds in its slot, Opus reviews, dev, tests; production per release with Om's go.
 
 ## Next
-1. UI revamp so the purpose of the work always shows first (Om 18 Nov): design note b961e1600e (purpose header A, then Today B, then chips C; 5 phases). Phase 1 built on builder-s 32374a5 (flow-ui-p1 52; looked at 390/1280 light and dark): merge with R8.
+1. UI revamp so the purpose of the work always shows first (Om 18 Nov; phase 1 on dev 1ce66ba; phase 2 Today starts when the dev e2e frees a heavy slot): design note b961e1600e (purpose header A, then Today B, then chips C; 5 phases). Phase 1 built on builder-s 32374a5 (flow-ui-p1 52; looked at 390/1280 light and dark): merge with R8.
 2. Need answers reach whoever holds the work now (design e62ea121eb; built on builder-s2 7379510, flow-need-handoff 21/21 + 12 Needs suites pass; merges into dev with R8): a Need asked by a session that is off is delivered to the project's Now holder or the session that picked up its handover, and start_work lists answered Needs since the last lead's session; withdraw_need on an answered or closed Need says so with the answer and time. Fold into the lanes design (note after 2afd68cb00).
 3. R8 (note 954f4550f8): batch A, the stopgap (ab06462) and run keys for dispatched runs (2cfc999) merged in wos-int branch r8-int; tsc, words and worker 424 pass. Re-reviews: Reopen all and resume closed; builder A fixing the Open in VS Code HIGH; then a final check, full e2e, dev, and ask Om.
 4. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
@@ -38,4 +38,5 @@ Copy of the Work OS state, version 125. WORK-STATE.md is a copy of the State, wr
 - Declutter cache still counted "7 open Claude items" on 20 Nov after the migration moved them all: the cached daily reasons are not refreshed after a migration or apply. — waits on a fix slot (small)
 - Run keys, small leftovers from the final re-check (09277d5): the release update has no state guard (run-keys.ts:73); a worker crash mid Reopen-all leaves rows in starting with live keys until 24 h; the worker trusts the server on a resume job with no dispatched flag. — waits on a fix slot (small)
 - The idle nudge says "add waits_on (save_state edit_line)", but edit_line silently ignores waits_on (20 Nov): an agent following the nudge changes nothing. Make edit_line take waits_on, or fix the nudge text. Unknown op fields are stripped with no error. — waits on R8 batch B or H17
-<!-- work-os-copy sha1:78357ab8dae4c49cedab70988e9043d3f4db8b62 -->
+- flow-dc1 review-Need DM check failed twice in a row on R8 (20 Nov); builder S (Sonnet) finding the cause on builder-s.
+<!-- work-os-copy sha1:abc64c54b1d25f8c955aa4179ec629888d2622e6 -->
