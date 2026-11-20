@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 196. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 197. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -12,8 +12,8 @@ Copy of the Work OS state, version 196. WORK-STATE.md is a copy of the State, wr
 4. Redesign (c475deb871): steps 1-3, 5 live in R10; next step 4 Needs and Today (B, Opus, from dev), then 6 tasks. Held: weekly usage 93% on 20 Nov; Om asked whether to start now on Sonnet or wait. — waits on weekly usage reset 24 Nov 16:30 IST, or Om says start
 5. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0. Building on builder-s (Sonnet, 20 Nov): Later limit 60, size review (reviewed: true), apply without a Need, dated and compact get_state. Fix: let declutter ask take agent-proposed archive/done line ids with a why; when due by size, propose oldest lines past the cap; no 'due' or Stop nudge when the proposal is empty; refresh counts. — waits on weekly usage reset 24 Nov (needs a test run)
 6. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 4 and 6. — waits on redesign steps 4 and 6
-7. Claude usage per session (design note a289ffec58, Om asked 20 Nov): part 1 (worker + data, d2b85d6) reviewed; part 2 building on builder-b (Sonnet) from Opus plan note 5c4bed1176; then independent review (owner-only, tenant scope), merge to dev.
-8. Parked (Om, 20 Nov: State is RAM; parked features don't belong in it): a Parked list per project beside Next/Later, not loaded at start (brief shows the count), park/unpark ops, each line one tap to a task; declutter moves lines to Parked; brief shows only recent decisions. Design note first, after the declutter fix merges. — waits on declutter fix on builder-s merged
+7. Parked (Om, 20 Nov: State is RAM; parked features don't belong in it): a Parked list per project beside Next/Later, not loaded at start (brief shows the count), park/unpark ops, each line one tap to a task; declutter moves lines to Parked; brief shows only recent decisions. Design note first, after the declutter fix merges. — waits on declutter fix on builder-s merged
+8. Claude usage per session (design a289ffec58): part 1 (worker + data, d2b85d6) reviewed; part 2 building on builder-b (Sonnet) from Opus plan 5c4bed1176; then my diff review, independent review (owner-only, tenant scope), merge to dev. — waits on builder-b's report (running)
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -61,4 +61,4 @@ Copy of the Work OS state, version 196. WORK-STATE.md is a copy of the State, wr
 - Switch worker self-update from the signing key to a GitHub file check (the worker compares the update with the files at that commit on GitHub; no key to keep). Om, 20 Nov: later, not now. — waits on Om says when
 - get_state is 50-65 KB in one line on Work OS and AKAR (too big for one tool call) and its lines carry no `at`, so agents can't see a line's age; add a compact mode (ids, text, waitsOn, at) or paging. — waits on with the declutter fix
 - Goals above tasks (Om, 20 Nov: e.g. 'Phase 3' with its tasks under it; Now points at the current goal). Bigger change; after Parked.
-<!-- work-os-copy sha1:9bc3c7d4649344f59c8a1cbac2844fe4b0e72de5 -->
+<!-- work-os-copy sha1:8813f09339fe706575eb65b09256f4e5ba1a25d9 -->
