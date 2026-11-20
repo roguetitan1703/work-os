@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 239. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 240. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -13,8 +13,7 @@ Copy of the Work OS state, version 239. WORK-STATE.md is a copy of the State, wr
 5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 4 and 6. — waits on redesign steps 4 and 6
 6. Parked and decisions out of the State document (Om, 20 Nov: they must not live in State directly): own collections, one dated row per entry, no cap, search and paging; State keeps counts; move the existing decisions; build plan note 4a1ccbf69d written 20 Nov (stateParked, stateDecisions; State keeps counts; old clients unchanged; idempotent migration with rollback); three questions in its For Om section (Parked shipped inside State in R11). — waits on Om's go on the storage plan
 7. Usage recording, Fable's 7 steps plus the weekly improve loop (design a289ffec58). Build plan 1 (account tag, limit hits, compactions, 5-minute buckets, note e6036c777f) merged to dev 4922e5b after independent review and re-check, 20 Nov; server ships before the worker. Plan 2 (steps 3, 5-7, weekly report) after it. (design in note a289ffec58): Opus plan, then Sonnet build — waits on Om's account switch
-8. Show which Claude account each session runs under (Om, 20 Nov: "om" or "tools", the email's part before @): the hook fills start_work's account from ~/.claude.json (reuse readAccount from the usage build), the session row shows it in its meta line, list_sessions returns it. Plan note ee2c502603; built on builder-s (18e786c + lead fix), reviewed; merge when the agent-start re-run passes (running now); ships with the next signed worker.
-9. Next.js 16.4.2 has a known security advisory: `next build` now stops once with SecurityFatalError (npm advisories) and passes on retry. The release build (GitHub runner, server-build.yml) may stop the same way at 03:00. Upgrade Next.js to the patched version on a builder slot, run the full suite, then release. — waits on Om's go for the Next.js upgrade
+8. Next.js 16.4.2 has a known security advisory: `next build` now stops once with SecurityFatalError (npm advisories) and passes on retry. The release build (GitHub runner, server-build.yml) may stop the same way at 03:00. Upgrade Next.js to the patched version on a builder slot, run the full suite, then release. — waits on Om's go for the Next.js upgrade
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -76,4 +75,4 @@ Copy of the Work OS state, version 239. WORK-STATE.md is a copy of the State, wr
 - Messaging: one teammate can use up another person's 6 session wakes an hour with fyis (review, Low). Add a per-sender cap on waking other people's sessions (about 2 an hour per sender per target) only if it happens in real use. — waits on a real case
 - Short address collisions are refused (efc6646) but not covered by a test: a collision can't be forced in e2e without a seam for shortAddress. — waits on nothing; small
 - ui-tour findings that predate step 4: the session sheet doesn't open from ?s= at 390 and 1280; the desktop task row has no visible menu button (step 6 covers task rows). — waits on nothing
-<!-- work-os-copy sha1:082d14dac1b3a0a83348f06eae8730f8858c1eba -->
+<!-- work-os-copy sha1:d85682315d57764f9d9a24ff145bfa33f48e6c47 -->
