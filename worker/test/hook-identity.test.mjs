@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { transcriptMeta, toolOf, identityOf, identityKey, META_BYTES } from '../hook-identity.mjs';
+import { sessionAccount, hashAccount } from '../claude-account.mjs';
 
 const rec = (o) => JSON.stringify(o) + '\n';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wos-ident-'));
@@ -69,8 +70,20 @@ test('identityOf: the account label from the account file (the part before @), n
   assert.equal(i.account, 'pat');
   const json = JSON.stringify(i);
   assert.ok(!json.includes(UUID) && !json.includes('example.com') && !json.includes('@'));
-  assert.equal(identityKey(i), identityKey({ ...i, account: 'other' })); // an account never makes an event carry the identity again
+  assert.notEqual(identityKey(i), identityKey({ ...i, account: 'other' })); // a login switch mid-session sends the identity again (hooks review M9)
   assert.ok(!('account' in identityOf(f, {}, path.join(dir, 'missing.json'))));
   fs.writeFileSync(acct, JSON.stringify({ oauthAccount: { accountUuid: UUID, emailAddress: '@example.com' } }));
   assert.ok(!('account' in identityOf(f, {}, acct)), 'an empty label sends nothing');
+});
+
+test('sessionAccount (hooks review M9): the hook environment first, then CLAUDE_CONFIG_DIR, never the full email or uuid', () => {
+  const UUID = 'bbbbbbbb-0000-4000-8000-123456789abc';
+  assert.deepEqual(sessionAccount({ CLAUDE_CODE_USER_EMAIL: 'kim@example.com', CLAUDE_CODE_ACCOUNT_UUID: UUID }), { id: hashAccount(UUID), label: 'kim' });
+  const cfg = fs.mkdtempSync(path.join(dir, 'cfg-'));
+  fs.writeFileSync(path.join(cfg, '.claude.json'), JSON.stringify({ oauthAccount: { accountUuid: UUID, emailAddress: 'second@example.com' } }));
+  assert.equal(sessionAccount({ CLAUDE_CONFIG_DIR: cfg }).label, 'second');
+  assert.equal(sessionAccount({ CLAUDE_CODE_USER_EMAIL: 'kim@example.com', CLAUDE_CONFIG_DIR: cfg }).label, 'kim', 'the environment wins');
+  const f = file(rec({ type: 'custom-title', customTitle: 'A' }), asst('m1'));
+  assert.equal(identityOf(f, { CLAUDE_CONFIG_DIR: cfg }).account, 'second');
+  assert.ok(!JSON.stringify(sessionAccount({ CLAUDE_CODE_USER_EMAIL: 'kim@example.com', CLAUDE_CODE_ACCOUNT_UUID: UUID })).includes('example.com'));
 });

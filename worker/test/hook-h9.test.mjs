@@ -49,6 +49,7 @@ test('formatBrief: no section without changes, and it stays inside 1,200 charact
 
 // ---- step 4: changes handed into running sessions ----
 const lib = await import('../hook-lib.mjs');
+lib.deps.userUrl = () => process.env.WORK_OS_URL || ''; // tests only: the key path's server would come from the person's ~/.claude/settings.json
 
 test('keepAck: the ids to acknowledge include the Orders versions handed over', () => {
   lib.writeMarker('h9-ack', { status: 'x' });

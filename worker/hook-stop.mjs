@@ -1,6 +1,6 @@
 // Stop hook: files changed since the session started and no save_state since: block once.
 import fs from 'node:fs';
-import { MAX_BRIEF, cut, deliverText, keepAck, postEvent, readMarker, sizeOf, statusHash, writeMarker } from './hook-lib.mjs';
+import { MAX_BRIEF, cut, deliverText, keepAck, postEvent, readMarker, sizeOf, statusHash, updateMarker, writeMarker } from './hook-lib.mjs';
 import { cleanResult, lastAssistantText as lastMainText, notAResult } from './hook-subagent-stop.mjs';
 
 /**
@@ -15,7 +15,7 @@ export async function stop(input) {
   if (r) {
     const a = sid ? await postEvent(sid, 'tool', { deliver: true, holds: true }) : null; // still working: it is delivered inside the turn; holds: does this session hold Now
     // The marker did not know (no tool answer named this session): the server's answer decides, so a non-holder is not told to save the whole State.
-    if (a?.status === 200 && a.b?.holdsNow === false && r.reason === NAG_HOLDER) { r.reason = NAG_LANE; const m2 = readMarker(sid); if (m2) writeMarker(sid, { ...m2, holdsNow: false }); }
+    if (a?.status === 200 && a.b?.holdsNow === false && r.reason === NAG_HOLDER) { r.reason = NAG_LANE; updateMarker(sid, (m2) => ({ ...m2, holdsNow: false })); }
     const text = deliverText(a);
     if (text) keepAck(sid, a);
     return text ? { ...r, reason: `${r.reason}\n\n${text}`.slice(0, MAX_BRIEF) } : r;
@@ -81,7 +81,7 @@ async function sendResult(input, sid) {
     const m = readMarker(sid);
     if (m?.lastResultSent === text) return;
     const r = await postEvent(sid, 'result', { result: text });
-    if (r?.status === 200 && m) writeMarker(sid, { ...readMarker(sid), lastResultSent: text });
+    if (r?.status === 200) updateMarker(sid, (m2) => ({ ...m2, lastResultSent: text })); // a fresh read; no marker: nothing written (never a marker of one field)
   } catch { /* fail open */ }
 }
 
@@ -193,6 +193,9 @@ async function decide(input) {
   if (!sid || input.stop_hook_active) return null;
   const m = readMarker(sid);
   if (!m || m.stopped) return null; // asked already since the last save
+  // Another live session works in this folder (the brief said so): its edits are in this git status too, so this session is not
+  // asked to save State for them (hooks review 13). The same-folder warning already told it to use a worktree.
+  if (m.sharedFolder) return null;
   const cwd = input.cwd || process.cwd();
   const now = statusHash(cwd);
   if (now === m.status) return null; // nothing changed since the start or the last save

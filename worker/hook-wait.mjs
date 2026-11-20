@@ -6,27 +6,22 @@
 // look (the server also ends the older call). It never wakes a session whose marker says working, ends 2 minutes before the hook's
 // timeout (no heartbeat: after that a message waits for the next turn), backs off 30 s up to 5 min on an error or the hourly
 // limit, and never prints the token. No token (no worker sign-in, a cloud session): nothing to wait for.
-// It waits only while the Claude Code process that started it lives: that process is found once at the start (CLAUDE_PID, which
-// Claude Code puts in its hooks' environment; else the nearest claude ancestor, past any cmd or bash shim) and checked before every
-// poll and every 2 s while a poll is open. Gone: the open poll is cancelled (the server offers nothing to a cancelled call) and the
-// wait ends with exit 0, so no message is taken for a dead session. A `claude -p` or Agent SDK run (CLAUDE_CODE_ENTRYPOINT sdk-cli,
-// sdk-ts, sdk-py: Claude Code sets sdk-cli for -p itself) has nobody to wake: no wait at all, so the run can exit.
+// It waits only while the Claude Code process that started it lives (hook-gate.mjs parentGone: found once, then checked before every
+// poll and every 2 s while a poll is open). Gone: the open poll is cancelled (the server offers nothing to a cancelled call) and the
+// wait ends with exit 0, so no message is taken for a dead session. A subagent's Stop and a `claude -p` or SDK run never get here
+// (hook-gate.mjs RULES), so such a run can exit.
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { EVENTS, HERE, MAX_BRIEF, claudeProcess, postAgent, quietRun, readKept, readMarker, run, writeMarker } from './hook-lib.mjs';
+import { EVENTS, HERE, MAX_BRIEF, postAgent, readKept, readMarker, run, updateMarker } from './hook-lib.mjs';
+import { gate, parent } from './hook-gate.mjs';
+
+export { parent }; // what tests replace
 
 const POLL_TIMEOUT_MS = 55_000; // the server holds a poll 50 s
 const LEAVE_S = 120;
 const SETTLE_TRIES = 6; // a turn that just ended may still say working for a moment (the stop hook posts in parallel)
 const SETTLE_MS = 2_000;
-/** The Claude Code process this wait belongs to: found once, then checked (what tests replace). */
-export const parent = {
-  quiet: quietRun,
-  find: (env = process.env) => (/^\d{1,10}$/.test(env.CLAUDE_PID || '') && Number(env.CLAUDE_PID) > 0 ? { pid: Number(env.CLAUDE_PID) } : claudeProcess(env)),
-  alive: (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } },
-  everyMs: 2_000,
-};
 /** What tests replace to run fast. */
 export const clock = { sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: () => Date.now(), backoffStart: 30_000, backoffMax: 300_000 };
 
@@ -42,57 +37,67 @@ const dropLock = (sid, id) => { try { if (holds(sid, id)) fs.rmSync(lockFile(sid
 const working = (sid) => readMarker(sid)?.presence?.state === 'working';
 
 /** The wait: returns nothing; a wake sets run.exitCode = 2 and run.stderr. */
-export async function wait(input) {
+export async function wait(input, g = gate('wait', input)) {
   const sid = input.session_id;
-  if (!sid || input.agent_id) return null;
+  if (!sid || !g.run) return null;
   const token = readKept(sid);
-  if (!token || parent.quiet()) return null;
-  let owner = null;
-  try { owner = parent.find(); } catch { owner = null; }
-  // No process found (an unknown shell, a platform without ps): wait as before, bounded by the hook's timeout.
-  const gone = () => !!owner && !parent.alive(owner.pid);
+  if (!token) return null;
+  // No parent process found (an unknown shell, node-run claude on macOS): no wait at all. A waiter that cannot tell when its
+  // session died would keep the dead session's row alive and could take a wake for it (hooks review M8).
+  if (!g.hasParent()) return null;
+  const gone = g.parentGone;
   const row = EVENTS.find((e) => e.event === 'wait');
   const end = clock.now() + ((row?.timeoutS ?? 3600) - LEAVE_S) * 1000;
   const lock = takeLock(sid);
   let backoff = clock.backoffStart;
   let settle = 0;
+  // After a few busy answers in a row the waiter does not give up (a busy answer can be wrong: a slow stop hook, a background
+  // subagent): it keeps the lock and asks again less often, 30 s doubling to 5 minutes, while the parent lives (hooks review H3).
+  let busyBackoff = clock.backoffStart;
+  const settleOrBackOff = async () => {
+    if (++settle <= SETTLE_TRIES) return clock.sleep(SETTLE_MS);
+    await clock.sleep(Math.min(busyBackoff, Math.max(0, end - clock.now())));
+    busyBackoff = Math.min(busyBackoff * 2, clock.backoffMax);
+  };
   try {
     for (;;) {
       if (!holds(sid, lock)) return null; // a newer waiter took over
       if (gone()) return null; // the session's Claude Code process ended: nobody to wake, take nothing
       if (clock.now() + POLL_TIMEOUT_MS > end) return null;
-      if (working(sid)) {
-        if (++settle > SETTLE_TRIES) return null; // a turn is running: delivery inside it has the messages
-        await clock.sleep(SETTLE_MS);
+      // A turn is running (delivery inside it has the messages) or the marker is behind. After the settle tries the server is asked
+      // instead: it answers busy when the session really works, and a stale marker never stops the wait (independent review, 21 Nov).
+      if (working(sid) && settle < SETTLE_TRIES) {
+        await settleOrBackOff();
         continue;
       }
+      const pollAt = clock.now();
       let r = null;
       const ack = readMarker(sid)?.ack;
       const sent = Array.isArray(ack) && ack.length ? ack.slice(0, 12) : null;
       const stop = new AbortController();
-      const watch = owner ? setInterval(() => { if (gone()) stop.abort(); }, parent.everyMs) : null;
+      const watch = setInterval(() => { if (gone()) stop.abort(); }, parent.everyMs);
       watch?.unref?.();
       try { r = await postAgent('/api/agent/wait', token, sent ? { ack: sent } : {}, POLL_TIMEOUT_MS, stop.signal); } catch { r = null; } finally { if (watch) clearInterval(watch); }
       if (stop.signal.aborted || gone()) return null; // it ended while the poll was open: a wake that still came is not printed
-      if (sent && r?.status === 200) { const k = readMarker(sid); if (k) { delete k.ack; writeMarker(sid, k); } }
+      if (sent && r?.status === 200) updateMarker(sid, (k) => { const left = Array.isArray(k.ack) ? k.ack.filter((id) => !sent.includes(id)) : []; if (left.length) k.ack = left; else delete k.ack; return k; });
       if (!holds(sid, lock)) return null;
       if (r?.status === 200 && r.b) {
         backoff = clock.backoffStart;
         if (r.b.wake === true && typeof r.b.text === 'string' && r.b.text) {
-          if (working(sid)) return null; // a turn began while the call was open: the text was handed over and is in the inbox
-          const m = readMarker(sid);
+          const p = readMarker(sid)?.presence;
+          if (p?.state === 'working' && (p.at || 0) >= pollAt) return null; // a turn began while the call was open: the text was handed over and is in the inbox
           const ids = Array.isArray(r.b.ack) ? r.b.ack.filter((i) => typeof i === 'string').slice(0, 12) : [];
-          if (m) writeMarker(sid, { ...m, wokeAt: clock.now(), ...(ids.length ? { ack: ids } : {}) });
+          updateMarker(sid, (m) => ({ ...m, wokeAt: clock.now(), ...(ids.length ? { ack: ids } : {}) }));
           run.stderr = r.b.text.slice(0, MAX_BRIEF);
           run.exitCode = 2;
           return null;
         }
         if (r.b.busy === true) {
-          if (++settle > SETTLE_TRIES) return null;
-          await clock.sleep(SETTLE_MS);
+          await settleOrBackOff();
           continue;
         }
-        settle = 0; // again: ask again (not sooner than the server says when it has too many waiters)
+        settle = 0;
+        busyBackoff = clock.backoffStart; // again: ask again (not sooner than the server says when it has too many waiters)
         if (typeof r.b.retryAfter === 'number' && r.b.retryAfter > 0) await clock.sleep(Math.min(r.b.retryAfter, 300) * 1000);
         continue;
       }

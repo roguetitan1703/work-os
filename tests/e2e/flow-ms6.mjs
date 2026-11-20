@@ -128,6 +128,7 @@ try {
   await must(kA, 'start_work', { project: 'MS6 Nobody', label: 'nobody two' });
   const none = await mcpH(chat, 'send_message', { project: 'MS6 Nobody', kind: 'fyi', body: 'ms6: nobody holds Now' });
   check('1: a project where nobody holds Now is refused, and nothing is stored (never sent to all)', none.isError && /No session holds Now/.test(none.text) && !(await rawDb.collection('messages').findOne({ body: 'ms6: nobody holds Now' })), none.text.slice(0, 200));
+  check('1: …and the refusal names the next call with its arguments (hooks review, addendum A)', /call list_sessions \{project: "MS6 Nobody"\} and pass one session’s address as to/.test(none.text), none.text.slice(0, 240));
   const noWho = await mcpH(chat, 'send_message', { kind: 'fyi', body: 'ms6: no one' });
   check('1: neither to nor project is refused', noWho.isError && /Say who it is for/.test(noWho.text), noWho.text.slice(0, 160));
   const ghost = await mcpH(chat, 'send_message', { project: 'MS6 No Such', kind: 'fyi', body: 'x' });
@@ -140,6 +141,17 @@ try {
   check('3: the chat’s list_sessions shows the session id of each of Om’s own sessions', lead?.session === L.sid && ls.sessions.find(x => x.name === 'MS6 second')?.session === O2.sid, JSON.stringify(ls.sessions).slice(0, 400));
   check('4: every session has a short address; a teammate’s has no session id', ls.sessions.every(x => ADDR.test(x.address)) && !!tess && !tess.session && !JSON.stringify(ls).includes(TL.sid), JSON.stringify(ls.sessions.map(x => [x.name, x.address, x.session])));
   check('4: the addresses differ and stay the same', new Set(ls.sessions.map(x => x.address)).size === ls.sessions.length && (await must(kA, 'list_sessions', { project: NAME })).sessions.find(x => x.name === 'MS6 lead')?.address === lead.address);
+  check('3: list_sessions marks the lead session (lead: true) and no other', lead?.lead === true && ls.sessions.filter(x => x.lead).length === 1, JSON.stringify(ls.sessions.map(x => [x.name, x.lead])));
+  // The lead itself sends to its own project: refused, never sent back to itself (hooks review, addendum A)
+  const self = await mcpH(kA, 'send_message', { project: NAME, session: L.sid, kind: 'fyi', body: 'ms6: lead to own project' });
+  check('3: the lead sending to its own project is refused with the call to make, and nothing is stored', self.isError && /You are the lead session of MS6 Work/.test(self.text) && /list_sessions \{project: "MS6 Work"\}/.test(self.text) && !(await rawDb.collection('messages').findOne({ body: 'ms6: lead to own project' })), self.text.slice(0, 240));
+  // A reply to a message that came from no session names send_message with its arguments
+  const srcless = { ...(await msg(c1.id)), _id: 'm_ms6nosrc01', thread: 'm_ms6nosrc01' };
+  delete srcless.src;
+  await rawDb.collection('messages').insertOne(srcless);
+  const rNo = await mcpH(kA, 'reply', { id: 'm_ms6nosrc01', session: L.sid, body: 'ms6: answer to nobody' });
+  check('3: a reply to a message from no session is refused and names send_message {to, project}', rNo.isError && /send_message \{to: "[^"]+", project: "MS6 Work"/.test(rNo.text), rNo.text.slice(0, 240));
+  await rawDb.collection('messages').deleteOne({ _id: 'm_ms6nosrc01' });
   const byAddr = await must(chat, 'send_message', { to: lead.address.toUpperCase(), kind: 'fyi', body: 'ms6: by address' });
   check('4: send_message takes an address (any case) for one’s own session', JSON.stringify((await msg(byAddr.id)).toSids) === JSON.stringify([`${ME.userId}:${L.sid}`]), byAddr.target);
   const byId = await must(chat, 'send_message', { to: L.sid, kind: 'fyi', body: 'ms6: by id' });

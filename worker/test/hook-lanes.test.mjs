@@ -87,12 +87,11 @@ test('pre-tool: the timeout answer denies a subagent State write the same way an
   assert.equal(pre.timeoutAnswer(JSON.stringify({ session_id: 'l-1', tool_name: 'mcp__work-os__save_state' })), null);
 });
 
-test('the hook rows: pre-tool matches the State writes, post-tool the lane calls, subagent-stop is a local row, protocol 4', () => {
+test('the hook rows: pre-tool matches the State writes, post-tool the lane calls, no subagent-stop row, protocol 4', () => {
   const row = (e) => lib.EVENTS.find((r) => r.event === e);
   for (const t of ['save_state', 'import_state', 'end_work']) assert.ok(new RegExp(`^(${row('pre-tool').matcher})$`).test(`mcp__work-os__${t}`), t);
   for (const t of ['save_state', 'import_state', 'get_state', 'end_work', 'log_progress', 'set_doing', 'hand_in', 'complete_task']) assert.ok(new RegExp(`^(${row('post-tool').matcher})$`).test(`mcp__work-os__${t}`), t);
-  assert.equal(row('subagent-stop').claudeEvent, 'SubagentStop');
-  assert.equal(row('subagent-stop').localOnly, true);
+  assert.equal(row('subagent-stop'), undefined, 'SubagentStop runs no Work OS hook');
   assert.equal(lib.HOOK_PROTOCOL, 4);
   assert.deepEqual(lib.hookHeaders(), { 'x-work-os-hook': '4' });
 });
@@ -312,4 +311,19 @@ test('stop: a marker with holdsNow unknown gets the holder text unless the serve
     fs.rmSync(path.join(repo, `${sid}.txt`));
   }
   eventReply = null;
+});
+
+test('stop: a session that shares its folder with another live session is not asked to save State for the files (hooks review 13)', async () => {
+  const sid = 'l-shared';
+  start(sid, { sharedFolder: true });
+  fs.writeFileSync(path.join(repo, `${sid}.txt`), 'x');
+  try {
+    assert.equal(await run('stop', { session_id: sid }), '', 'no block: the changes may be the other session\'s');
+    start('l-alone');
+    fs.writeFileSync(path.join(repo, 'l-alone.txt'), 'x');
+    assert.equal(JSON.parse(await run('stop', { session_id: 'l-alone' })).decision, 'block', 'a session alone in its folder is still asked');
+  } finally {
+    fs.rmSync(path.join(repo, `${sid}.txt`), { force: true });
+    fs.rmSync(path.join(repo, 'l-alone.txt'), { force: true });
+  }
 });

@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import { answerOf, copyState, markSaved, stateMarkdown } from './hook-copy.mjs';
-import { git, mcpCall, postAgent, readKept, readMarker, repoFacts, writeMarker } from './hook-lib.mjs';
+import { git, mcpCall, postAgent, readKept, readMarker, repoFacts, updateMarker } from './hook-lib.mjs';
 
 /** The copy (WORK-STATE.md text) of `project` from the server, or null. */
 async function fetchCopy(input, cwd, project, saving) {
@@ -50,7 +50,7 @@ export async function postTool(input) {
     const m = readMarker(input.session_id);
     const token = m && ans.project === m.project && typeof ans.holdsNowFor === 'string' ? readKept(input.session_id) : null;
     const mine = token && ans.holdsNowFor === createHash('sha256').update(token, 'utf8').digest('hex').slice(0, 32);
-    if (mine && m.holdsNow !== ans.holdsNow) writeMarker(input.session_id, { ...m, holdsNow: ans.holdsNow });
+    if (mine && m.holdsNow !== ans.holdsNow) updateMarker(input.session_id, (m2) => ({ ...m2, holdsNow: ans.holdsNow }));
   }
   const saved = saving && !!ans && (ans.saved === true || ans.ended === true || !!ans.imported);
   const marked = saved || (saving && !!stateMarkdown(input.tool_response));

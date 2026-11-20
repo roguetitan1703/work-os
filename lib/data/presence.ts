@@ -183,16 +183,20 @@ export async function registerPresence(s: Scope, i: Ident, project: ProjectDoc |
  * What the hook reports about a session that changed (POST /api/agent/event identity): its own name (a /rename), Claude's title and the model.
  * Only the token's own row; never creates one. Returns whether anything changed.
  */
-export async function setIdentity(s: Scope, r: { sid: string; projectId: string | null }, id: { title?: string; aiTitle?: string; model?: string }): Promise<boolean> {
+export async function setIdentity(s: Scope, r: { sid: string; projectId: string | null }, id: { title?: string; aiTitle?: string; model?: string; account?: string }): Promise<boolean> {
   const c = await scoped(s);
   const _id = hookRowId(s.userId, r.sid, r.projectId);
-  const ex = await c.presence.findOne({ _id, userId: s.userId }, { projection: { label: 1, labelSource: 1, dispatched: 1, model: 1 } });
+  const ex = await c.presence.findOne({ _id, userId: s.userId }, { projection: { label: 1, labelSource: 1, dispatched: 1, model: 1, account: 1 } });
   if (!ex) return false;
   const set: Record<string, unknown> = {};
   const lp = (id.title ? labelPatch(ex, id.title, 'title') : null) ?? (id.aiTitle ? labelPatch(ex, id.aiTitle, 'ai') : null);
   if (lp && (lp.label !== ex.label || lp.labelSource !== ex.labelSource)) Object.assign(set, lp);
   const model = clip(id.model, 60);
   if (model && /^[A-Za-z0-9._:/-]+$/.test(model) && model !== ex.model) set.model = model;
+  // The Claude account label (hooks review M9: it changes when the person logs in to another account mid-session). The same test as
+  // the start route's: a label that looks like an email or a key is dropped.
+  const account = id.account?.trim();
+  if (account && account.length <= 40 && !/@|^\s*(sk-|wkr_|wos_|ghp_|xox)/i.test(account) && !/[A-Za-z0-9_-]{32,}/.test(account) && account !== ex.account) set.account = account;
   if (!Object.keys(set).length) return false;
   await c.presence.updateOne({ _id, userId: s.userId }, { $set: set });
   return true;
@@ -291,7 +295,10 @@ export async function isFreeEvent(s: Scope, r: { sid: string; projectId: string 
   const a = row.activity;
   if (!next) return { free: true, state: a?.state ?? null, ignored: true };
   // A tool-start is a repeat only of an already open working row; any other event is a repeat only when nothing is open (it must clear `open`).
-  const same = !!a && a.state === next.state && a.why === next.why && Date.now() - a.at.getTime() < REPEAT_MS && !!a.open === (ev.event === 'tool-start');
+  // A tool event (a batch ended) on a row a tool-start opened in the last minute is a repeat too and keeps `open` (hooks review H4:
+  // every batch after a Bash call was charged, and a busy hour ran past the event budget); stop, prompt, notify and end clear it.
+  const fresh = !!a && a.state === next.state && a.why === next.why && Date.now() - a.at.getTime() < REPEAT_MS;
+  const same = fresh && (!!a.open === (ev.event === 'tool-start') || (ev.event === 'tool' && !!a.open));
   return { free: same, state: a?.state ?? null };
 }
 

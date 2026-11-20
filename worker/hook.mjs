@@ -13,7 +13,7 @@
 //   notification   Notification (permission_prompt|idle_prompt|elicitation_dialog, async): waiting at a prompt, or idle. No output.
 //   session-end    SessionEnd: tell Work OS the session is off. No output.
 //   subagent-start SubagentStart: the short form of the organization Orders (from the session's marker, no network) as context.
-//   subagent-stop  SubagentStop: sends nothing (the lane result is the main conversation's last message, sent by stop as event { result }).
+//                  (No SubagentStop hook: the lane result is the main conversation's last message, sent by stop as event { result }.)
 //                  These and the stop and pre-tool pings use POST /api/agent/event with the session token (postEvent in
 //                  hook-lib.mjs); no token (WORK_OS_KEY, cloud) sends nothing, and a failure is silent.
 //   Flags: --cloud (do nothing unless CLAUDE_CODE_REMOTE=true), --server <url> and --project <id> (the project a cloud repo's
@@ -22,10 +22,12 @@
 // no matching project, a timeout or anything unexpected prints nothing and exits 0, so a hook can never stop a session.
 // `node worker.mjs hooks install` (worker/hooks-install.mjs) copies this file and the files it needs (FILES there) to
 // <worker config dir>/hooks and adds the entries to ~/.claude/settings.json. How the start brief signs in: see
-// hook-session-start.mjs.
+// hook-session-start.mjs. Every hook passes the one gate first (hook-gate.mjs): a subagent's call, a -p or SDK run and the parent
+// process are decided there, once, for all of them (RULES).
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EVENTS, run } from './hook-lib.mjs';
+import { gate } from './hook-gate.mjs';
 import { timeoutAnswer } from './hook-pre-tool.mjs';
 
 // What tests and flows import from here.
@@ -48,12 +50,23 @@ export async function main(event, stdinText, { cloud = false, server = null, pro
     if (cloud && process.env.CLAUDE_CODE_REMOTE !== 'true') return '';
     run.server = server;
     run.project = project;
+    // Every network call of this run fits inside Claude Code's timeout for the hook, less a margin (hooks review M7).
+    const row = EVENTS.find((e) => e.event === event);
+    run.deadline = Date.now() + (row?.timeoutS ?? 3) * 1000 - 700;
     let input = {};
     try { input = JSON.parse(stdinText || '{}'); } catch {}
-    const out = await (await import(`./hook-${event}.mjs`)).handle(input);
+    const g = gate(event, input);
+    if (!g.run) {
+      // A gated run reports nothing. A subagent's calls never touch the lead's state: subagent prompts are never posted, so a
+      // permission wait in the marker is the lead's own, and the lead's own next tool call clears it (hook-pre-tool). Review re-check, 21 Nov.
+      return '';
+    }
+    const out = await (await import(`./hook-${event}.mjs`)).handle(input, g);
     return out ? JSON.stringify(out) : '';
   } catch {
     return '';
+  } finally {
+    run.deadline = 0; // one run's deadline never limits a later call in the same process (tests, the flows)
   }
 }
 
