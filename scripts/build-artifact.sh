@@ -6,14 +6,15 @@
 #   sudo work-os-deploy <commit> --artifact work-os-<commit12>.tar.gz
 # A build made here is x86_64: that is fine, .next holds no native code (deploy.sh checks), and the server installs
 # its own native packages with npm ci.
-# It also signs the worker release on its own when the release key is on this PC (docs/launcher.md "Self-update"): no
-# extra command. The release version is the commit's time (YYYYMMDD.HHMMSS UTC); the signature goes into the tarball as
-# .next/worker-signature.json and the server serves it in /worker/latest.json. The key file:
-# WORKER_SIGNING_KEY, else %APPDATA%/work-os-release/worker-signing.key of the Windows user (asked from cmd.exe).
-# Without the key it warns and the build carries no signature: workers then do not update to it.
+# The worker release signature (docs/launcher.md "Self-update") is made before, in a separate step on Windows with
+# Windows node, which reads the key from DPAPI; this build never sees the key (npm ci and next build run code from the
+# release's dependencies as root here). The build only picks the signature file up from <out dir>, checks that it fits
+# this commit's worker, and puts it into the tarball as .next/worker-signature.json. Without it the build warns and
+# carries no signature: workers then do not update to it.
 #
-#   sudo bash scripts/build-artifact.sh [<ref>] [<out dir>]     ref: default origin/master; out: default the current dir
-#   sudo WORKER_SIGNING_KEY=/mnt/c/Users/<you>/AppData/Roaming/work-os-release/worker-signing.key bash scripts/build-artifact.sh
+#   1. On Windows, in a checkout:   node scripts/worker-signing-key.mjs sign --ref <commit> --out-dir <out dir>
+#   2. In WSL:                      sudo bash scripts/build-artifact.sh [<ref>] [<out dir>]
+#      ref: default origin/master; out: default the current dir (the same folder as step 1, e.g. /mnt/d/...)
 set -euo pipefail
 REF="${1:-origin/master}"
 OUT="$(cd "${2:-.}" && pwd)"
@@ -60,22 +61,18 @@ node -v > BUILD_NODE
 if [ -n "$(find .next -type f \( -name '*.node' -o -name '*.so' \) -print -quit)" ]; then
   echo ".next holds native code: this build only runs on $(uname -m); build on arm64 instead" >&2; exit 1
 fi
-# Sign the worker of this commit (its files as the server will have them: this same git archive).
-KEY="${WORKER_SIGNING_KEY:-}"
-if [ -z "$KEY" ] && [ -x /mnt/c/Windows/System32/cmd.exe ]; then
-  WIN_APPDATA="$(cd /mnt/c && /mnt/c/Windows/System32/cmd.exe /c 'echo %APPDATA%' 2>/dev/null | tr -d '\r' || true)"
-  [ -n "$WIN_APPDATA" ] && [ "$WIN_APPDATA" != '%APPDATA%' ] && KEY="$(wslpath -u "$WIN_APPDATA" 2>/dev/null || true)/work-os-release/worker-signing.key"
-fi
-if [ -n "$KEY" ] && [ -r "$KEY" ]; then
-  # The release version is the commit time of this commit (YYYYMMDD.HHMMSS UTC), set by the script, not by a person.
-  if ! WORKER_SIGNING_KEY="$KEY" node scripts/worker-signing-key.mjs sign --dir "$REL/worker" --out "$REL/.next/worker-signature.json" \
-      --at "$(git -C "$SRC" log -1 --format=%ct "$SHA")"; then
-    rm -f "$REL/.next/worker-signature.json"
-    echo "!!! WARNING: the worker release was NOT signed (see above). Workers will not update to this build." >&2
+# The worker signature made in step 1 (never the key): it must fit this commit's worker as the server will have it.
+SIG="$OUT/worker-signature-$SHORT.json"
+rm -f "$REL/.next/worker-signature.json"
+if [ -f "$SIG" ]; then
+  if node scripts/worker-signing-key.mjs check --dir "$REL/worker" --sig "$SIG"; then
+    cp "$SIG" "$REL/.next/worker-signature.json"
+  else
+    echo "!!! WARNING: $SIG does not fit this commit's worker (see above). This build carries no signature." >&2
   fi
 else
-  echo "!!! WARNING: no worker release key at ${KEY:-<unset>} (set WORKER_SIGNING_KEY). This build carries no" >&2
-  echo "!!! signature, so no worker updates itself to it. Make the key once: node scripts/worker-signing-key.mjs new" >&2
+  echo "!!! WARNING: no worker signature at $SIG. This build carries no signature, so no worker updates itself to it." >&2
+  echo "!!! Sign first, on Windows: node scripts/worker-signing-key.mjs sign --ref $SHORT --out-dir <this out dir>" >&2
 fi
 NAME="work-os-$SHORT.tar.gz"
 tar -czf "$OUT/$NAME" --exclude=.next/cache .next REVISION BUILD_ARCH BUILD_NODE
