@@ -58,9 +58,14 @@ export function placeOf(ref: number, state: Pick<StateDoc, 'now' | 'next' | 'lat
 }
 
 /** The chips for many task rows: one batched State read for the projects shown (through the caller's door), none per row. */
-export async function placesOfTasks(s: Scope, tasks: { id: string; ref: number; projectId?: string | null }[]): Promise<Record<string, NonNullable<TaskPlace>>> {
+export async function placesOfTasks(
+  s: Scope,
+  tasks: { id: string; ref: number; projectId?: string | null }[],
+  /** States the caller already read (Today shares one read with its Projects card); read here when left out. */
+  loaded?: Record<string, Pick<StateDoc, 'now' | 'next' | 'later'>>,
+): Promise<Record<string, NonNullable<TaskPlace>>> {
   const ids = [...new Set(tasks.map(t => t.projectId).filter((x): x is string => !!x))];
-  const states = await statesOfProjects(s, ids);
+  const states = loaded ?? (await statesOfProjects(s, ids));
   const out: Record<string, NonNullable<TaskPlace>> = {};
   for (const t of tasks) {
     const p = t.projectId ? placeOf(t.ref, states[t.projectId] ?? null) : null;
