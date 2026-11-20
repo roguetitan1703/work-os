@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 252. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 253. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -14,6 +14,8 @@ Copy of the Work OS state, version 252. WORK-STATE.md is a copy of the State, wr
 6. Parked and decisions out of the State document (Om, 20 Nov: they must not live in State directly): own collections, one dated row per entry, no cap, search and paging; State keeps counts; move the existing decisions; build plan note 4a1ccbf69d written 20 Nov (stateParked, stateDecisions; State keeps counts; old clients unchanged; idempotent migration with rollback); Om: yes x3; Sonnet in slot S (Parked shipped inside State in R11). — waits on Om's go on the storage plan
 7. Usage recording, Fable's 7 steps plus the weekly improve loop (design a289ffec58). Build plan 1 (account tag, limit hits, compactions, 5-minute buckets, note e6036c777f) merged to dev 4922e5b after independent review and re-check, 20 Nov; server ships before the worker. Plan 2 (steps 3, 5-7, weekly report) after it. (design in note a289ffec58): Opus plan, then Sonnet build — waits on Om's account switch
 8. Next.js: no upgrade needed, already 16.4.6 (c638a01). The build stop came from worktrees with stale installs (wos-b, wos-s, wos-s2, wos-mail, work-os-demo): npm ci in each before its next build.: `next build` now stops once with SecurityFatalError (npm advisories) and passes on retry. The release build (GitHub runner, server-build.yml) may stop the same way at 03:00. Upgrade Next.js to the patched version (Om said yes, 20 Nov): Opus in slot A, full suite, merge, then release at 03:00. — waits on Om's go for the Next.js upgrade
+9. Lead not woken by a Work OS message while a background subagent runs (Om saw it 21 Nov): a subagent's Bash tool-start marks the lead working, so the wait hook gives up. Fix: tool-start ignores subagent calls. Slot A (Opus), then worker release.
+10. Per-key rate limit (300 calls/h on the shared key) blocked Grant Leads' save_state on 20 Nov (message m_a143da3e7b6f): find what counts, name top sessions in the refusal, never block a State save for another session's use. Slot A (Opus), independent review.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -78,4 +80,4 @@ Copy of the Work OS state, version 252. WORK-STATE.md is a copy of the State, wr
 
 ## Parked
 - 1 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:7121628c8648f65f9d6453d3e993fe9298ca2976 -->
+<!-- work-os-copy sha1:2ad3f4fc2d67773e16d258ac9efb6a15f0d94fc2 -->
