@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 236. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 237. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -74,4 +74,6 @@ Copy of the Work OS state, version 236. WORK-STATE.md is a copy of the State, wr
 - start_work with pick_up: its answer names the session to set (the handover's project and role) and says how (set_session_title / /rename), so the Orders rule has a prompt at the moment it applies. Small; slot A after the messaging fixes (both touch start_work). — waits on messaging fixes merged
 - Messaging: one teammate can use up another person's 6 session wakes an hour with fyis (review, Low). Add a per-sender cap on waking other people's sessions (about 2 an hour per sender per target) only if it happens in real use. — waits on a real case
 - Short address collisions are refused (efc6646) but not covered by a test: a collision can't be forced in e2e without a seam for shortAddress. — waits on nothing; small
-<!-- work-os-copy sha1:ed9e392e00e122fea78a07ed597b5e497b20f6fb -->
+- Next.js build output (builders, 20 Nov) recommends a security upgrade (`next upgrade --agent=security`) after an intermittent SecurityFatalError on build; not acted on. Check the advisory against our Next version and plan the upgrade on a builder slot. — waits on Om's go for a framework upgrade
+- ui-tour findings that predate step 4: the session sheet doesn't open from ?s= at 390 and 1280; the desktop task row has no visible menu button (step 6 covers task rows). — waits on nothing
+<!-- work-os-copy sha1:0e83439fe115d47767c1e45fadcc6b6c3ca35058 -->
