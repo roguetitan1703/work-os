@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 220. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 221. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -71,4 +71,5 @@ Copy of the Work OS state, version 220. WORK-STATE.md is a copy of the State, wr
 - Claude chat feedback 20 Nov: its Work OS tool list is from before 19 Nov (quotes the removed to_session text), claude.ai does not refresh it; also read-only get_message, say whether chats call start_work, state the no-teammate-sessions rule in send_message, a one-line glossary, server instructions get truncated, recent_activity says hook where chats have none — waits on messaging design note after Om's switch
 - Bug: a Claude chat's start_work on Work OS (no pick_up) attached the lead's 13:49 handover and stamped it picked up by the chat; a chat must never take over a Code session's handover; check whether Needs or held lines moved (Om's chat, m_890469b90393)
 - Bug: Om's chat (registered with start_work) called recent_activity after my reply m_a00bcc9d0ca3 and got no forYou line, though every tool goes through forYouBefore/After (lib/mcp/for-you.ts). Cause not checked: maybe no session passed, so presentRow finds no row. Replay: chat registers, lead replies, chat calls any tool, must see the line — waits on messaging design after Om's switch
-<!-- work-os-copy sha1:110481a13e00e67a755125e46d238f1dd0b0f835 -->
+- Tool feedback from Cutroom lead, 20 Nov: write_note with an unknown markdown field made an empty note with no error (refuse unknown fields); edit_line over 500 chars should say find replaces only the matched text; send_message: to_session still shown as 'session id or label' to some sessions; list_sessions gives no id for a teammate's session (with the messaging design) — waits on messaging design after Om's switch
+<!-- work-os-copy sha1:0b2b4ef22caf099194140665790801903c46e5fc -->
