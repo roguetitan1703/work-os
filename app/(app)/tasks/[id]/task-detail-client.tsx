@@ -32,13 +32,15 @@ import { RECURRENCE_OPTIONS } from '@/lib/recurrence-options';
 import { PartOf, SubtasksSection, useCloseSubtasks } from '@/components/subtasks';
 import { useSynced } from '@/components/use-synced';
 import { NeedChip } from '@/components/need-chip';
+import { TaskPurposeHeader } from '@/components/purpose-header';
+import type { TaskPurposeOut } from '@/lib/data/purpose';
 
 const field =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring dark:bg-input/30';
 
-type Props = { task: Task; projectName: string | null; dependencies: Task[]; dependents: Task[]; subtasks: Task[] };
+type Props = { purpose: TaskPurposeOut; task: Task; projectName: string | null; dependencies: Task[]; dependents: Task[]; subtasks: Task[] };
 
-export function TaskDetailClient({ task, projectName, dependencies, dependents, subtasks }: Props) {
+export function TaskDetailClient({ purpose, task, projectName, dependencies, dependents, subtasks }: Props) {
   const { projects, today, people, me } = useApp();
   const { modes, color } = useModes();
   const [pending, start] = useTransition();
@@ -97,6 +99,7 @@ export function TaskDetailClient({ task, projectName, dependencies, dependents, 
           onBlur={() => title.trim() && title !== task.title && patch({ title: title.trim() }, 'Title saved')}
           className={cn('w-full bg-transparent text-2xl font-bold outline-none', closed && 'line-through text-muted-foreground')}
         />
+        <TaskPurposeHeader purpose={purpose} />
       </div>
 
       {/* Primary controls */}

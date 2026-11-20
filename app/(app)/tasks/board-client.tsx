@@ -21,6 +21,7 @@ import { Select } from '@/components/ui/select';
 import { ParentLine, SubtaskChip } from '@/components/subtasks';
 import { AssigneeDots } from '@/components/assignee-picker';
 import { NeedChip } from '@/components/need-chip';
+import { TaskPlaceChip } from '@/components/task-place';
 
 const COLUMNS: { status: Status; label: string; tone: string }[] = [
   { status: 'Not Started', label: 'To do', tone: 'bg-muted-foreground/40' },
@@ -207,6 +208,7 @@ function Card({ task, onDragStart }: { task: Task; onDragStart: () => void }) {
         {task.projectId && <span className="truncate max-w-[110px]">{projectName(task.projectId)}{isPrivateProject(task.projectId) && <PrivateBadge compact className="ml-1" />}</span>}
         {task.due && <span className={overdue ? 'text-red-600 dark:text-red-400 font-medium' : ''}>{fmtDue(task.due, today)}</span>}
         {task.recurrence && <Repeat className="w-3 h-3 shrink-0" aria-label="Recurring" />}
+        <TaskPlaceChip taskId={task.id} />
         <ClaudeBadge task={task} />
         <AssigneeDots ids={task.assigneeIds} />
         {task.checklist.length > 0 && (

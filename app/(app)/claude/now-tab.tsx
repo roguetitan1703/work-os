@@ -312,6 +312,11 @@ function SessionLine({ s, busy, onStop, onRemove, onResume, onVscode, onLink }: 
           )}
           {s.origin === 'vscode' && <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 font-medium" data-origin-badge>VS Code</span>}
         </div>
+        {s.doing && (
+          <div className="text-[13px] md:text-xs text-foreground/80 truncate" data-session-doing>
+            {s.doing}
+          </div>
+        )}
         {/* Phone: one meta line under the title. Desktop shows these as columns. */}
         <div className="md:hidden text-[13px] text-muted-foreground truncate" data-session-meta suppressHydrationWarning>
           <span className={st.tone}>{st.label}</span>

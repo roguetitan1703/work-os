@@ -130,3 +130,25 @@ export function PurposeHeader({ projectId, initial, description }: { projectId: 
     </section>
   );
 }
+
+/**
+ * The task's why, under its title on both task screens: one line (clamped to two) and, in smaller type, the project's Now.
+ * Read-only: the project's header is where Now is changed.
+ */
+export function TaskPurposeHeader({ purpose }: { purpose: { why: { kind: string; text: string } | null; now: string | null; projectId: string | null } }) {
+  if (!purpose.why && !purpose.now) return null;
+  return (
+    <section className={`${CARD} px-4 md:px-3 py-3 md:py-2.5 space-y-1`} data-card="task-purpose">
+      {purpose.why && (
+        <p className="text-[15px] md:text-sm leading-snug break-words line-clamp-2" data-task-why={purpose.why.kind}>
+          {purpose.why.text}
+        </p>
+      )}
+      {purpose.now && (
+        <p className="text-[13px] md:text-xs text-muted-foreground line-clamp-2 break-words" data-task-project-now>
+          Project Now: {purpose.now}
+        </p>
+      )}
+    </section>
+  );
+}

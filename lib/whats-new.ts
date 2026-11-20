@@ -37,6 +37,30 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'task-place-chips',
+    date: '2026-11-20',
+    title: 'Task rows show where they sit in the plan',
+    line: "A small chip on a task says Now, Next 2 or Later when the project's State names it, so you see what matters before you open it.",
+    where: 'Tasks, a project, Today',
+    href: '/tasks',
+  },
+  {
+    id: 'sessions-say-why',
+    date: '2026-11-20',
+    title: 'Sessions now say what they are doing',
+    line: 'A project lists each Claude session with the task it is on and the Next line it serves, and Claude › Now shows what each session is doing before its folder and computer.',
+    where: 'A project, Working on it now; Claude › Now',
+    href: '/claude',
+  },
+  {
+    id: 'task-why',
+    date: '2026-11-20',
+    title: 'A task now says why it exists',
+    line: "Under its title, a task shows why it matters: that it is the project's Now, which Next line it is, the task it is part of, or the first line of its description, with the project's Now below; on the phone the description now comes right after.",
+    where: 'The top of any task',
+    href: '/tasks',
+  },
+  {
     id: 'today-projects-now',
     date: '2026-11-20',
     title: 'Today shows the goal of each project',

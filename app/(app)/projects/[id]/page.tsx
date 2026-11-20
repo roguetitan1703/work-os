@@ -32,6 +32,8 @@ import { NeedsTab } from '@/components/needs';
 import { StateCard } from './state-card';
 import { PurposeHeader } from '@/components/purpose-header';
 import { CouldBeRunning } from '../../claude/workers-tab';
+import { nextServing, placeOf } from '@/lib/data/purpose';
+import { PlaceChip, PlacesProvider } from '@/components/task-place';
 import { projectRoster, withLaneMarks } from '@/lib/data/roster';
 import { archivedOut, stateOfProject, stateOut } from '@/lib/data/states';
 import { memberNames } from '@/lib/people';
@@ -144,9 +146,18 @@ export default async function ProjectPage({ params, searchParams }: Props) {
                     {` · ${w.state === 'working' ? 'working' : w.state === 'waiting' ? 'waiting on a person' : 'idle'}`}
                   </span>
                   {w.doing && (
-                    <Link href={`/tasks/${w.doing.ref}`} className="text-[13px] md:text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline" data-lane-task>
-                      {' · '}#{w.doing.ref}
-                    </Link>
+                    <div className="text-[13px] md:text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
+                      <Link href={`/tasks/${w.doing.ref}`} className="truncate min-w-0 hover:text-foreground underline-offset-2 hover:underline" data-lane-task>
+                        #{w.doing.ref} {w.doing.title}
+                      </Link>
+                      {/* a Next place is already said by the served line below */}
+                      {placeOf(w.doing.ref, stateDoc)?.kind !== 'next' && <PlaceChip place={placeOf(w.doing.ref, stateDoc)} />}
+                    </div>
+                  )}
+                  {w.doing && nextServing(w.doing.ref, stateDoc) && (
+                    <div className="text-[13px] md:text-xs text-muted-foreground truncate" data-lane-serves>
+                      {nextServing(w.doing.ref, stateDoc)}
+                    </div>
                   )}
                   {w.lastResult && (
                     <div className="text-[13px] md:text-xs text-muted-foreground" data-lane-result>
@@ -205,7 +216,9 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     </div>
   );
 
+  const places = Object.fromEntries([...open, ...done].flatMap(t => { const p = placeOf(t.ref, stateDoc); return p ? [[t.id, p]] : []; }));
   return (
+    <PlacesProvider places={places}>
     <div className="max-w-6xl space-y-3 min-w-0">
       <h1 className="sr-only">{project.name}</h1>
       <ProjectTop project={project} tab={tab} />
@@ -306,5 +319,6 @@ export default async function ProjectPage({ params, searchParams }: Props) {
         </div>
       )}
     </div>
+    </PlacesProvider>
   );
 }

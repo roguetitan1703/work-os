@@ -14,6 +14,8 @@ import { openNeedsToMe } from '@/lib/data/needs';
 import { whatsNewState } from '@/lib/whats-new-seen';
 import type { WhatsNewCardData } from './whats-new-card';
 import { projectsNow } from '@/lib/data/today-projects';
+import { placesOfTasks } from '@/lib/data/purpose';
+import { PlacesProvider } from '@/components/task-place';
 
 const WHATS_NEW_MAX = 3;
 
@@ -29,6 +31,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const openP = listTasks(s, { open: true, forList: true });
   const [open, schedule, overview, checklist] = await Promise.all([openP, getSchedule(s), claudeOverview(me, { card: true }).catch(() => null), openP.then(o => getChecklist(me, { skipIfHidden: true, hasOpenTask: o.length > 0 })).catch(() => null)]);
   const [waiting, notes, needs, news] = await Promise.all([unmetDependencies(s, open), taskIdsWithNotes(s, open.map(t => t.id)), openNeedsToMe(s).catch(() => []), whatsNewState(me).catch(() => null)]);
+  const places = await placesOfTasks(s, open).catch(() => ({}));
   const projectRows = await projectsNow(s, {
     needProjects: needs.map(n => n.projectId),
     taskProjects: open.filter(t => t.projectId && t.assigneeIds.includes(me.userId)).map(t => t.projectId as string),
@@ -39,6 +42,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const claude: ClaudeCardData | null = overview ? { hasComputers: overview.hasComputers, running: overview.sessions.filter(r => r.state === 'working' || r.state === 'open' || r.state === 'idle' || r.state === 'starting').length, activity: overview.activity } : null;
 
   return (
+    <PlacesProvider places={places}>
     <TodayClient
       dayName={dayName}
       isNaturallyWeekend={wd === 0 || wd === 6}
@@ -53,5 +57,6 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       whatsNew={whatsNew}
       welcome={sp.welcome ? `Welcome, ${(me.name || me.email).split(/[ @]/)[0]}.` : null}
     />
+    </PlacesProvider>
   );
 }

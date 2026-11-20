@@ -9,6 +9,7 @@ import { Trash2 } from 'lucide-react';
 import { ActivityTimeline } from '@/components/activity-timeline';
 import { TaskDetailClient } from './task-detail-client';
 import { FileText } from 'lucide-react';
+import { purposeForTask } from '@/lib/data/purpose';
 import { noteIndex } from '@/lib/data/notes';
 import { NewNoteButton } from '@/components/new-note-button';
 import { MobileTaskDetail } from '@/components/mobile/m-task-detail';
@@ -27,6 +28,7 @@ export default async function TaskPage({ params }: Props) {
     return <TrashedTask item={trashed} />;
   }
   const { task, project, activity, dependencies, dependents, subtasks } = detail;
+  const purpose = await purposeForTask(s, task);
   const note = (await noteIndex(s, { taskIds: [task.id] })).byTask.get(task.id);
 
   const dep = (t: { id: string; ref: number; title: string; status: typeof task.status }) => ({ id: t.id, ref: t.ref, title: t.title, status: t.status });
@@ -35,6 +37,7 @@ export default async function TaskPage({ params }: Props) {
     <div className="md:hidden">
       <MobileTaskDetail
         task={task}
+        purpose={purpose}
         activity={activity}
         note={note ? { id: note.id, title: note.title, firstLine: note.firstLine } : null}
         dependencies={dependencies.map(dep)}
@@ -43,7 +46,7 @@ export default async function TaskPage({ params }: Props) {
       />
     </div>
     <div className="hidden md:grid grid-cols-1 lg:grid-cols-[minmax(0,_1.6fr)_minmax(0,_1fr)] gap-6 items-start max-w-6xl">
-      <TaskDetailClient task={task} projectName={project?.name ?? null} dependencies={dependencies} dependents={dependents} subtasks={subtasks} />
+      <TaskDetailClient task={task} purpose={purpose} projectName={project?.name ?? null} dependencies={dependencies} dependents={dependents} subtasks={subtasks} />
       <aside className="space-y-3 lg:sticky lg:top-0">
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Note</h2>
         {note ? (
