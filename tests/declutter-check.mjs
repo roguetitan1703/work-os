@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const core = await import(pathToFileURL(join(ROOT, 'lib/declutter-core.ts')).href);
 const { titleKey } = await import(pathToFileURL(join(ROOT, 'lib/notes-match.ts')).href);
-const { GROWTH, dueReasons, duplicateGroups, itemId, noteItems, dupNoteCount, stateItems, isStale } = core;
+const { GROWTH, dueReasons, duplicateGroups, itemId, noteItems, dupNoteCount, stateItems, isStale, sizeReasons, reviewLines } = core;
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -22,9 +22,9 @@ const line = (o = {}) => ({ id: `l_${++n}`, text: `line number ${n} distinct wor
 const lines = (k, o) => Array.from({ length: k }, () => line(o));
 const due = (st, now = NOW) => dueReasons(st, now, 'Work OS');
 
-// 1. Counts: Later 25/26, Next 10/11
-check('Later 25 is not due', !due({ next: [], later: lines(25) }).due);
-check('Later 26 is due and says so', due({ next: [], later: lines(26) }).reasons[0] === 'Later 26 (over 25)', JSON.stringify(due({ next: [], later: lines(26) })));
+// 1. Counts: Later 60/61, Next 10/11
+check('Later 60 is not due', !due({ next: [], later: lines(60) }).due);
+check('Later 61 is due and says so', due({ next: [], later: lines(61) }).reasons[0] === 'Later 61 (over 60)' && due({ next: [], later: lines(61) }).review === true, JSON.stringify(due({ next: [], later: lines(61) })));
 check('Next 10 is not due', !due({ next: lines(10), later: [] }).due);
 check('Next 11 is due', due({ next: lines(11), later: [] }).reasons[0] === 'Next 11 (over 10)');
 check('nothing in the State: not due, no text', due({ next: [], later: [] }).text === null);
@@ -41,9 +41,10 @@ check('a waiting line alone does not make it due', !due({ next: [], later: [line
 // 3. Cache, quiet window, open Need
 const cache = (o = {}) => ({ checkedAt: NOW, reasons: [], ...o });
 check('cached reasons are added to the count reasons', due({ next: lines(11), later: [], declutter: cache({ reasons: ['2 notes share a title'] }) }).reasons.join('|') === 'Next 11 (over 10)|2 notes share a title');
-check('cached reasons alone make it due', due({ next: [], later: [], declutter: cache({ reasons: ['3 pages share a title'] }) }).due);
+check('cached reasons alone make it due', due({ next: [], later: [], declutter: cache({ reasons: ['3 notes share a title'] }) }).due);
+check('a retired cached reason ("7 open Claude items") never makes it due', !due({ next: [], later: [], declutter: cache({ reasons: ['7 open Claude items'] }) }).due);
 check('the text names the project and the tool', due({ next: lines(11), later: [] }).text === 'Declutter due: Next 11 (over 10). Call declutter {project: "Work OS"}.');
-const quiet = { next: lines(30), later: lines(40), declutter: cache({ reasons: ['x'], quietUntil: new Date(NOW.getTime() + 86_400_000) }) };
+const quiet = { next: lines(30), later: lines(70), declutter: cache({ reasons: ['x'], quietUntil: new Date(NOW.getTime() + 86_400_000) }) };
 check('quiet: nothing is said while quietUntil is in the future', !due(quiet).due && due(quiet).text === null);
 check('quiet is over once quietUntil has passed', due({ ...quiet, declutter: { ...quiet.declutter, quietUntil: new Date(NOW.getTime() - 1) } }).due);
 const open = due({ next: lines(30), later: [], declutter: cache({ needId: 'n1', needRef: 14 }) });
@@ -99,7 +100,38 @@ check('item ids carry a group and the target', itemId('later', 'l_x') === 'later
 check('item text stays within the limit', stateItems({ next: [], later: [line({ text: 'y'.repeat(500), at: exactly(40) })] }, NOW, new Set(), titleKey)[0].text.length <= GROWTH.itemText);
 
 // 7. Limits
-check('the limits are the plan numbers', GROWTH.later === 25 && GROWTH.next === 10 && GROWTH.staleDays === 14 && GROWTH.quietDays === 14 && GROWTH.noteDays === 30 && GROWTH.items === 60 && GROWTH.adds === 40 && GROWTH.disk === 20);
+check('the limits are the plan numbers', GROWTH.later === 60 && GROWTH.reviewGrowth === 10 && GROWTH.next === 10 && GROWTH.staleDays === 14 && GROWTH.quietDays === 14 && GROWTH.noteDays === 30 && GROWTH.items === 60 && GROWTH.adds === 40 && GROWTH.disk === 20);
+
+// 8. Size review: due only when over the limit and not reviewed, or grown by 10 since the review
+const rv = (later, next, reviewedLater, reviewedNext) => ({ next: lines(next), later: lines(later), declutter: cache({ reviewedAt: ago(2), reviewedLater, reviewedNext }) });
+check('review: over the limit and never reviewed is due', sizeReasons({ next: [], later: lines(61) }).length === 1);
+check('review: reviewed at 61, now 61: not due', !due(rv(61, 0, 61, 0)).due);
+check('review: reviewed at 61, now 70: not due', !due(rv(70, 0, 61, 0)).due);
+check('review: reviewed at 61, now 71 (grew by 10): due again', due(rv(71, 0, 61, 0)).review === true);
+check('review: Next is reviewed the same way', !due(rv(0, 15, 0, 12)).due && due(rv(0, 22, 0, 12)).due);
+check('review: a stale line still makes it due after a review, without a size review', (() => { const d = due({ ...rv(70, 0, 61, 0), next: [line({ at: exactly(20) })] }); return d.due && !d.review; })());
+const rl = reviewLines({ next: [line({ text: 'n new', at: ago(1) }), line({ text: 'n old', at: exactly(40), waitsOn: 'Om' })], later: [line({ text: 'l new', at: ago(2) }), line({ text: 'l old', at: exactly(90) })] });
+check('review lines: oldest first with date, waitsOn and text', rl.next[0].text === 'n old' && rl.next[0].date === '2026-10-10' && rl.next[0].waitsOn === 'Om' && rl.later[0].text === 'l old' && rl.later[1].waitsOn === undefined && /^\d{4}-\d\d-\d\d$/.test(rl.later[1].date));
+
+// 9. Invariant: whenever dueReasons says due, a declutter read has something to show: a proposed item or a size review.
+// (The cached note reason counts as an item: the read checks it again before it answers.)
+let seed = 7;
+const rnd = k => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % k; };
+let bad = 0;
+let dueCount = 0;
+for (let t = 0; t < 400; t++) {
+  const mk = inNext => Array.from({ length: [0, 3, 12, 30, 61, 90][rnd(6)] }, () => line({ at: exactly([0, 1, 13, 14, 40, 200][rnd(6)]), ...(rnd(4) === 0 ? { waitsOn: 'Akash' } : {}), ...(inNext && rnd(3) === 0 ? { ref: 1 + rnd(4) } : {}), ...(rnd(5) === 0 ? { text: 'same words here' } : {}) }));
+  const state = { next: mk(true), later: mk(false) };
+  if (rnd(2)) state.declutter = cache({ reviewedAt: ago(3), reviewedLater: rnd(70), reviewedNext: rnd(15), reasons: rnd(2) ? ['2 notes share a title'] : [] });
+  const closed = new Set([1, 2].filter(() => rnd(2)));
+  const d = due(state);
+  if (!d.due) continue;
+  dueCount++;
+  const items = stateItems(state, NOW, closed, titleKey).length + (state.declutter?.reasons?.length ?? 0);
+  if (!(items > 0 || d.review)) { bad++; console.log('invariant broken', JSON.stringify(d)); }
+}
+check('invariant: every due State shows at least one item or a size review (' + dueCount + ' due of 400 random States)', bad === 0 && dueCount > 50);
+check('a young State (Later 44, Next 6, lines fresh or waiting) is not due', !due({ next: lines(6), later: lines(44) }).due);
 
 console.log(failed ? `${failed} FAILED` : 'declutter check: ok');
 process.exit(failed ? 1 : 0);

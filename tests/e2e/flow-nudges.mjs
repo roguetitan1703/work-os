@@ -43,7 +43,7 @@ try {
   const wait = tok => call('/api/agent/wait', tok, {});
   const ev = (tok, body) => call('/api/agent/event', tok, body);
 
-  // State: Next with a line that waits, a long line, and plenty of lines that wait on nobody. Later with 30 lines (Declutter is due above 25).
+  // State: Next with a line that waits, a long line, and plenty of lines that wait on nobody. Later with 65 lines (Declutter is due above 60).
   const LONG = 'ng long line ' + 'x'.repeat(200);
   await must(kA, 'save_state', { project: NAME, ops: [
     { op: 'add_next', text: 'ng line A' },
@@ -72,10 +72,10 @@ try {
   await rawDb.collection('states').updateOne({ _id: PID, 'next.text': 'ng line E' }, { $unset: { 'next.$.hold': '' } });
   const a6 = await ev(S.token, { event: 'stop', nudge: { quiet: true } });
   check('a: Declutter is not due on a short State: no nudge', a6.status === 200 && !('nudge' in (a6.json ?? {})), a6.text);
-  const later = Array.from({ length: 30 }, (_, i) => ({ id: `l_ng${i}`, text: `ng later ${i}`, by: ME.userId, at: new Date() }));
+  const later = Array.from({ length: 65 }, (_, i) => ({ id: `l_ng${i}`, text: `ng later ${i}`, by: ME.userId, at: new Date() }));
   await rawDb.collection('states').updateOne({ _id: PID }, { $set: { later } });
   const a7 = await ev(S.token, { event: 'stop', nudge: { quiet: true } });
-  check('a: the Now holder on a quiet turn with 30 Later lines: the Declutter nudge, exact words', a7.status === 200 && a7.json?.nudge?.declutter === "Work OS: this project's State has 30 Later lines (Declutter is due). Call declutter: it proposes, your person approves on one Need. If your tools do not list declutter, ask your person to reconnect Work OS (/mcp, work-os, Reconnect)." && !a7.json.nudge.lines, a7.text.slice(0, 400));
+  check('a: the Now holder on a quiet turn with 65 Later lines: the Declutter nudge, exact words', a7.status === 200 && a7.json?.nudge?.declutter === "Work OS: this project's State has 65 Later lines (Declutter is due). Call declutter: archive what is finished yourself, and ask only for what other people hold. If your tools do not list declutter, ask your person to reconnect Work OS (/mcp, work-os, Reconnect)." && !a7.json.nudge.lines, a7.text.slice(0, 400));
   const a8 = await ev(S.token, { event: 'stop', nudge: { asks: true, quiet: true } });
   check('a: both facts: lines and Declutter come together (the hook picks the order)', a8.status === 200 && a8.json?.nudge?.lines?.length === 3 && typeof a8.json.nudge.declutter === 'string', a8.text.slice(0, 200));
   check('a: nudge on a prompt or a tool event is a 400 (a stop only); an unknown key is a 400', (await ev(S.token, { event: 'tool', nudge: { asks: true } })).status === 400 && (await ev(S.token, { event: 'stop', nudge: { asks: true, text: 'x' } })).status === 400);

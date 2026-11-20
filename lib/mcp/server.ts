@@ -1423,11 +1423,15 @@ export function createMcpServer(ctx: Ctx): McpServer {
 
   tool(
     'get_state',
-    { inputSchema: { project: z.string().describe('Project name or id'), copy: z.boolean().optional().describe('For the Work OS hook: also answer the WORK-STATE.md copy') }, annotations: { readOnlyHint: true } },
+    { inputSchema: { project: z.string().describe('Project name or id'), copy: z.boolean().optional().describe('For the Work OS hook: also answer the WORK-STATE.md copy'), compact: z.boolean().optional().describe('Short form: Now, Next and Later as one text line each (id · date · waits on · text), the last 10 decisions and Where; no lanes') }, annotations: { readOnlyHint: true } },
     handler(async a => {
       const { project, state } = await stateData.getState(s, a.project);
       if (!state) return { project: project.name, state: NO_STATE, version: 0 };
       const names = await memberNames(s.orgId);
+      if (a.compact && !a.copy) {
+        const out = await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names);
+        return { project: project.name, ...laneExtra({ holdsNow: stateData.holdsNowOf(state, requestContext().src) }, identOf('get_state', [a]).session), state: stateData.stateCompact(out) };
+      }
       const markdown = a.copy ? await stateData.stateCopy(s, project, state, ctx.baseUrl) : await legacyCopy(a, project, state);
       return { project: project.name, version: state.version, ...laneExtra({ holdsNow: stateData.holdsNowOf(state, requestContext().src) }, identOf('get_state', [a]).session), lanes: await lanesFor(s, project._id, names, requestContext().src), state: await needsData.withNeedWaits(s, project._id, stateData.stateOut(state, s.userId, names), names), ...(markdown ? { markdown } : {}) };
     }),
@@ -1585,7 +1589,9 @@ export function createMcpServer(ctx: Ctx): McpServer {
     {
       inputSchema: {
         project: z.string().describe('Project name or id'),
-        ask: z.boolean().optional().describe('true: file the proposal as one Need to the project owner (default: only read the proposal)'),
+        apply: z.array(z.string().max(80)).max(60).optional().describe('Item ids to apply now, as yourself (archived lines, done Next lines, archived pages, finished tasks); no Need. Other items stay for ask'),
+        reviewed: z.boolean().optional().describe('true: the size review is done (you archived or merged the lines that no longer matter); the project is due for size again only after 10 more lines'),
+        ask: z.boolean().optional().describe('true: file the proposal as one Need to the project owner, for items other people hold (default: only read the proposal)'),
         skip: z.array(z.string().max(80)).max(100).optional().describe('Item ids to leave out (with ask)'),
         add: z
           .array(z.object({ later: z.string().max(500).optional().describe('A Later line to add'), waits_on: z.string().max(200).optional().describe('What that Later line waits on'), task: z.string().max(500).optional().describe('Or a task to add') }))
@@ -1598,12 +1604,32 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const ident = identOf('declutter', [a]);
-      if (!a.ask) {
-        // Read only, as the caller: the proposal never names what they cannot read. A project they cannot read is "not found".
+      // The session's own part first: apply the items it names, then store the size review. Both as the caller, through its own door.
+      let result: { applied: string[]; failed: string[] } | undefined;
+      let reviewedCounts: { later: number; next: number } | undefined;
+      if (a.apply?.length) {
+        const { project } = await stateData.getState(s, a.project);
+        result = await declutterApply.applyOwn(s, project, (await declutterData.buildProposal(s, project)).items, a.apply, ACTOR);
+      }
+      if (a.reviewed) {
         const { project, state } = await stateData.getState(s, a.project);
-        const due = await declutterData.dueFor(s, project, state);
-        const p = await declutterData.buildProposal(s, project);
-        return { project: project.name, ...(due.text ? { due: due.text } : { due: 'not due' }), items: p.items, ...(p.fyi.length ? { fyi: p.fyi } : {}), counts: p.counts, next: p.items.length ? 'Check these against the code and the disk, add what you see, then call declutter with ask: true (skip: ids to leave out, add, disk).' : 'Nothing to tidy.' };
+        if (state) reviewedCounts = await declutterData.markReviewed(s, project._id, state);
+      }
+      if (!a.ask) {
+        // Read as the caller: the proposal never names what they cannot read. A project they cannot read is "not found".
+        const { project, state } = await stateData.getState(s, a.project);
+        const read = await declutterData.readDeclutter(s, project, state);
+        return {
+          project: project.name,
+          ...(read.due.text ? { due: read.due.text } : { due: 'not due' }),
+          ...(result ? { applied: result.applied, ...(result.failed.length ? { failed: result.failed } : {}) } : {}),
+          ...(reviewedCounts ? { reviewed: `Size review stored: Later ${reviewedCounts.later}, Next ${reviewedCounts.next}.` } : {}),
+          items: read.proposal.items,
+          ...(read.proposal.fyi.length ? { fyi: read.proposal.fyi } : {}),
+          counts: read.proposal.counts,
+          ...(read.review ? { review: read.review } : {}),
+          next: read.next,
+        };
       }
       const r = await declutterApply.askDeclutter(s, { project: a.project, skip: a.skip, add: a.add, disk: a.disk, actor: ACTOR, word: wordFor(ident.session), session: ident.session, keyId: caller.keyId });
       const owner = (await whoIs())(r.need.to);
