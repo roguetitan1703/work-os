@@ -471,7 +471,8 @@ function Panel({ q, setQ, filter, setFilter, phone, storeKey, onChoose, onClose 
     );
   }
   return (
-    <div onKeyDown={onKey} className="flex flex-col min-h-0 max-h-[70vh]">
+    // min-w-0: DialogContent is a grid, and a grid item without it grows to its widest row and is cut off by the box.
+    <div onKeyDown={onKey} className="flex flex-col min-h-0 min-w-0 max-h-[70vh]">
       {input}
       <div className="flex min-h-0 flex-1">
         {list}

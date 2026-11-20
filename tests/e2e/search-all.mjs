@@ -69,6 +69,8 @@ try {
   await p.waitForTimeout(800);
 
   await openDesktop(p);
+  // Measured once the open animation (zoom-in-95) has settled: mid-animation the box is scaled down.
+  await p.waitForFunction(() => document.querySelector('[data-global-search]')?.getAnimations({ subtree: false }).every(a => a.playState !== 'running') ?? false, null, { timeout: 2000 }).catch(() => {});
   const box = await p.locator('[data-global-search]').boundingBox();
   check('desktop: the dialog is 720px wide', !!box && box.width >= 700 && box.width <= 724, JSON.stringify(box));
   let t = await p.locator('#global-search-results').innerText();
@@ -117,6 +119,13 @@ try {
   // filters: counts, greyed at zero, Tab / Shift+Tab, Show all
   t = await search(p, 'filler');
   const tasksBtn = p.locator('[data-filter=tasks]');
+  // The filter column sits inside the dialog, not cut off by it (a grid item without min-w-0 grew past the 720 px box).
+  const fit = await p.evaluate(() => {
+    const d = document.querySelector('[data-global-search]')?.getBoundingClientRect();
+    const f = document.querySelector('[role=group][aria-label=Filter]')?.getBoundingClientRect();
+    return d && f ? { d: Math.round(d.right), f: Math.round(f.right), w: Math.round(d.width) } : null;
+  });
+  check('filters: the column is inside the dialog at 1280', !!fit && fit.f <= fit.d + 1 && fit.w <= 721, JSON.stringify(fit));
   check('filters: Tasks counts 10', /10/.test(await tasksBtn.innerText()), await tasksBtn.innerText());
   check('filters: Settings greyed at zero', await p.locator('[data-filter=settings]').isDisabled());
   const more = p.locator('[data-more=tasks]');
