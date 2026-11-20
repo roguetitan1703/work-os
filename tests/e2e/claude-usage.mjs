@@ -1,10 +1,9 @@
-// Claude usage per session (Claude › Usage, `usage` tool, POST /api/worker/status `usage`). Covers: rows a worker reports are
-// stored (bad rows dropped, only the known fields, a day's total replaced not added); the Usage tab shows them (sessions by
-// share with the formula of lib/data/claude-usage.ts, subagents under their session, models, ranges); another member of the
-// organization and another organization see nothing (page and `usage` tool); the week-starts form; no overflow at 390 px;
-// screenshots at 390 and 1280, light and dark. Seed profile: none.
+// Claude usage per session, recorded (`usage` tool, POST /api/worker/status `usage`; no page yet). Covers: rows a worker reports
+// are stored (bad rows dropped, only the known fields, a day's total replaced not added); the `usage` tool answers them
+// (sessions by share with the formula of lib/data/claude-usage.ts, subagents under their session, models, ranges); another
+// member of the organization and another organization see nothing. Seed profile: none.
 import { randomUUID } from 'node:crypto';
-import { B, ME, MCP, PW, SP, api, check, finish, launch, login, makeUser, mkDevice, mkKey, okO, overflow, rawDb } from './lib.mjs';
+import { ME, MCP, api, check, finish, makeUser, mkDevice, mkKey, rawDb } from './lib.mjs';
 import { mcpH } from './flow-lib.mjs';
 
 const TZ = 'Asia/Kolkata';
@@ -15,7 +14,6 @@ const OPUS = 'claude-opus-4-5-20251101';
 const SONNET = 'claude-sonnet-4-5-20250929';
 // The weight formula of lib/data/claude-usage.ts: model ratio (Opus 5/3, Sonnet 1) × (input + 1.25 cache write + 0.1 cache read + 5 output).
 const w = (model, c) => (model === OPUS ? 5 / 3 : 1) * (c.i + 1.25 * c.cw + 0.1 * c.cr + 5 * c.o);
-const pct = x => (x < 0.001 ? '<0.1%' : `${Math.round(x * 1000) / 10}%`);
 
 const S1 = randomUUID();
 const S2 = randomUUID();
@@ -55,91 +53,35 @@ check('only the known fields are stored', docs.every(d => Object.keys(d).every(k
 check('each row is the owner\'s, in their organization, on this computer', docs.every(d => d.ownerId === ME.userId && d.orgId === ME.orgId && d.deviceId === dev.id));
 check('a bad shape is refused', (await api(dev.key, 'POST', '/api/worker/status', { usage: { rows: 'x' } })).status === 400);
 
-// ── 2. The page, as the owner ──
+// ── 2. The `usage` tool, as the owner ──
 const total = () => w(OPUS, C1) + w(OPUS, C1b) + w(SONNET, CX) + w(OPUS, CY) + w(SONNET, C2);
 const s1Weight = () => w(OPUS, C1) + w(OPUS, C1b) + w(SONNET, CX) + w(OPUS, CY);
-const b = await launch();
-try {
-  const open = async (p, range = 'week', email, ) => { void email; await p.goto(`${B}/claude?tab=usage&range=${range}`); await p.waitForSelector('[data-section="usage"]'); };
-  for (const vp of [390, 1280]) {
-    const ctx = await b.newContext({ viewport: { width: vp, height: 900 }, ...(vp === 390 ? { isMobile: true, hasTouch: true } : {}) });
-    const p = await ctx.newPage();
-    await login(p, { phone: vp === 390, next: '/claude?tab=usage' });
-    await open(p);
-    const s1 = p.locator(`[data-usage-session="${S1}"]`);
-    const s2 = p.locator(`[data-usage-session="${S2}"]`);
-    const order = await p.locator('[data-usage-sessions] > details').evaluateAll(els => els.map(e => e.getAttribute('data-usage-session')));
-    check(`[${vp}] S1 is above S2`, order[0] === S1 && order[1] === S2, order.join(','));
-    check(`[${vp}] S1's share is the formula's`, (await s1.locator('summary').innerText()).includes(pct(s1Weight() / total())), await s1.locator('summary').innerText());
-    check(`[${vp}] the line says project, computer, where, models and subagents`, /No project · usage-pc · VS Code · Opus 4\.5 [\d.]+%/.test(await s1.innerText()) && /2 subagents \(/.test(await s1.innerText()), await s1.innerText());
-    await s1.locator('summary').click();
-    const body = await s1.textContent();
-    check(`[${vp}] opening S1 lists agent-x and agent-y`, /Explorer X/.test(body) && /Planner Y/.test(body) && (await s1.locator('[data-usage-subagent]').count()) === 2);
-    check(`[${vp}] Models lists Opus and Sonnet`, /Opus 4\.5/.test(await p.locator('main').innerText()) && /Sonnet 4\.5/.test(await p.locator('main').innerText()));
-    check(`[${vp}] the note says estimate, not a share of the limit`, /estimated from your computers' session logs · not a share of your plan limit/.test(await p.locator('[data-usage-note]').innerText()));
-    check(`[${vp}] the Days section has the days since the week start`, (await p.locator('section', { hasText: 'Days' }).first().locator('li').count()) === 4);
-    check(`[${vp}] no horizontal overflow`, okO(await overflow(p)), JSON.stringify(await overflow(p)));
-    await p.screenshot({ path: `${SP}/usage-${vp}-light.png`, fullPage: true });
-    await p.evaluate(() => document.documentElement.classList.add('dark'));
-    await p.screenshot({ path: `${SP}/usage-${vp}-dark.png`, fullPage: true });
-    await p.evaluate(() => document.documentElement.classList.remove('dark'));
-    // today leaves out the row two days ago
-    await open(p, 'today');
-    const t1 = await p.locator(`[data-usage-session="${S1}"] summary`).innerText();
-    const todayS1 = w(OPUS, C1) + w(SONNET, CX) + w(OPUS, CY);
-    const todayTotal = todayS1 + w(SONNET, C2);
-    check(`[${vp}] Today leaves out the row of two days ago`, t1.includes(pct(todayS1 / todayTotal)) && !t1.includes(pct(s1Weight() / total())), t1);
-    await ctx.close();
-  }
-  const r = await mcpH(MCP, 'usage', { range: 'today' });
-  check('the usage tool: today leaves out the older row', !r.isError && r.json.bySession.find(s => s.sessionId === S1)?.weight === Math.round(w(OPUS, C1) + w(SONNET, CX) + w(OPUS, CY)), r.text.slice(0, 300));
+const near = (a, b) => Math.abs(a - b) < 1e-6;
+const week = await mcpH(MCP, 'usage', {});
+const ws = week.json?.bySession ?? [];
+check('the week of the owner: S1 first, then S2', ws.map(s => s.sessionId).join(',') === `${S1},${S2}`, ws.map(s => s.sessionId).join(','));
+check('the share of S1 is the formula', near(ws[0]?.share, s1Weight() / total()), `${ws[0]?.share} vs ${s1Weight() / total()}`);
+const sub = ws[0]?.subagents;
+check('S1 has its two subagents, by name', sub?.count === 2 && sub.items.map(i => i.name).sort().join(',') === 'Explorer X,Planner Y', JSON.stringify(sub));
+check('models: Opus and Sonnet', (week.json?.byModel ?? []).length === 2, JSON.stringify(week.json?.byModel));
+check('the answer says it is an estimate, not a share of the limit', /not a share of your plan limit/.test(week.json?.note ?? ''));
+const todayOnly = await mcpH(MCP, 'usage', { range: 'today' });
+check('today leaves out the row two days ago', near(todayOnly.json?.total, Math.round(total() - w(OPUS, C1b))) || Math.abs(todayOnly.json.total - (total() - w(OPUS, C1b))) <= 1, `${todayOnly.json?.total}`);
 
-  // ── 3. A day's total is replaced, not added ──
-  C2 = { i: 5000, cw: 0, cr: 0, o: 5000 };
-  await report(dev, [row(S2, 'main', SONNET, today, C2)]);
-  check('re-posting a day keeps five rows', (await rawDb.collection('claudeUsage').countDocuments({})) === 5);
-  const ctx2 = await b.newContext({ viewport: { width: 1280, height: 900 } });
-  const p2 = await ctx2.newPage();
-  await login(p2, { next: '/claude?tab=usage' });
-  await open(p2);
-  const order2 = await p2.locator('[data-usage-sessions] > details').evaluateAll(els => els.map(e => e.getAttribute('data-usage-session')));
-  check('the new total replaced the old: S2 now has the larger share', order2[0] === S2 && (await p2.locator(`[data-usage-session="${S2}"] summary`).innerText()).includes(pct(w(SONNET, C2) / total())), order2.join(','));
+// ── 3. A day's total is replaced, not added ──
+C2 = { i: 5000, cw: 30000, cr: 800000, o: 40000 };
+await report(dev, [row(S2, 'main', SONNET, today, C2)]);
+check('still five rows', (await rawDb.collection('claudeUsage').countDocuments({})) === 5);
+const again = await mcpH(MCP, 'usage', {});
+check('the new total replaced the old: S2 now first', again.json?.bySession?.[0]?.sessionId === S2 && near(again.json.bySession[0].share, w(SONNET, C2) / total()), JSON.stringify(again.json?.bySession?.map(s => [s.sessionId, s.share])));
 
-  // ── 5. The week-starts form ──
-  await p2.locator('summary', { hasText: 'Week starts' }).click();
-  await p2.evaluate(() => { const f = document.querySelector('[data-usage-reset]'); f.querySelector('input[name=weekday]').value = '1'; });
-  await p2.fill('[data-usage-reset] input[name=time]', '09:00');
-  await p2.locator('[data-usage-reset] button[type=submit]').click();
-  await p2.waitForFunction(() => /Week starts Monday 09:00/.test(document.body.innerText), null, { timeout: 15000 });
-  check('saving Monday 09:00 changes the label', true);
-  check('the week label says Mon 09:00', /Mon 09:00/.test(await p2.locator('[data-usage-note]').innerText()), await p2.locator('[data-usage-note]').innerText());
-  await p2.evaluate(() => { document.querySelector('[data-usage-reset]').closest('details').open = true; });
-  await p2.evaluate(() => { document.querySelector('[data-usage-reset] input[name=time]').value = '25:00'; });
-  await p2.locator('[data-usage-reset] button[type=submit]').click();
-  await p2.waitForSelector('[data-usage-reset-error]', { timeout: 15000 });
-  check('a time that is not a time shows the error', /hours and minutes/.test(await p2.locator('[data-usage-reset-error]').innerText()));
-  await ctx2.close();
-
-  // ── 4. Nobody else sees it ──
-  const B_ = await makeUser({ email: 'usage-b@example.test', name: 'Bea', orgId: ME.orgId, role: 'member' });
-  const C_ = await makeUser({ email: 'usage-c@example.test', name: 'Cy', orgName: 'Usage C Org' });
-  const kB = await mkKey({ userId: B_.userId, orgId: B_.orgId });
-  const kC = await mkKey({ userId: C_.userId, orgId: C_.orgId });
-  for (const [who, email, key] of [['member of the same organization', 'usage-b@example.test', kB], ['another organization', 'usage-c@example.test', kC]]) {
-    const ctx = await b.newContext({ viewport: { width: 1280, height: 900 } });
-    const p = await ctx.newPage();
-    await login(p, { email, password: PW, next: '/claude?tab=usage' });
-    await open(p);
-    const text = await p.locator('main').innerText();
-    check(`${who}: the page says No usage yet`, /No usage yet/.test(text) && !text.includes('Build the usage page'), text.slice(0, 200));
-    const m = await mcpH(key, 'usage', {});
-    check(`${who}: the usage tool returns no sessions`, !m.isError && m.json.bySession.length === 0 && m.json.total === 0, m.text.slice(0, 200));
-    await ctx.close();
-  }
-  const mine = await mcpH(MCP, 'usage', {});
-  const ids = (mine.json?.bySession ?? []).map(s => s.sessionId);
-  check('the owner\'s usage tool returns S1 and S2', ids.includes(S1) && ids.includes(S2) && /not a share of your plan limit/.test(mine.json.note), mine.text.slice(0, 200));
-  const sub = mine.json.bySession.find(s => s.sessionId === S1)?.subagents;
-  check('the tool shows S1\'s two subagents', sub?.count === 2 && sub.items.length === 2, JSON.stringify(sub));
-} finally { await b.close(); }
+// ── 4. Nobody else sees it ──
+const B_ = await makeUser({ email: 'usage-b@example.test', name: 'Bea', orgId: ME.orgId, role: 'member' });
+const C_ = await makeUser({ email: 'usage-c@example.test', name: 'Cy', orgName: 'Usage C Org' });
+const kB = await mkKey({ userId: B_.userId, orgId: B_.orgId });
+const kC = await mkKey({ userId: C_.userId, orgId: C_.orgId });
+for (const [who, key] of [['member of the same organization', kB], ['another organization', kC]]) {
+  const m = await mcpH(key, 'usage', {});
+  check(`${who}: the usage tool returns no sessions`, !m.isError && m.json.bySession.length === 0 && m.json.total === 0, m.text.slice(0, 200));
+}
 await finish();

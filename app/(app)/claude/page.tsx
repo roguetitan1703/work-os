@@ -1,13 +1,12 @@
 import Link from '@/components/intent-link';
 import { redirect } from 'next/navigation';
 import { getCaller } from '@/lib/caller';
-import { Activity, BarChart3, Play, SlidersHorizontal } from 'lucide-react';
+import { Activity, Play, SlidersHorizontal } from 'lucide-react';
 import { NavIcon } from '@/components/nav-icons';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { claudeOverview } from '@/lib/data/claude-overview';
 import { claudeTasks } from '@/lib/data/dispatcher';
 import { deviceMap } from '@/lib/data/launcher';
-import { usageReport } from '@/lib/data/claude-usage';
 import { roster } from '@/lib/data/roster';
 import { mergeSessions } from '@/lib/session-item';
 import { cn } from '@/lib/utils';
@@ -15,7 +14,6 @@ import { baseUrl } from '../settings/base-url';
 import { AutoRefresh } from './auto-refresh';
 import { SessionsTab } from './now-tab';
 import { SetupTab } from './setup-tab';
-import { UsageTab } from './usage-tab';
 import { messagesForYou } from '@/lib/data/messages';
 import { openNeedsToMe } from '@/lib/data/needs';
 import { asksBySession, withAskerSessions } from '@/lib/data/need-sessions';
@@ -24,17 +22,16 @@ export const metadata = { title: 'Claude · Work OS' };
 
 const TABS = [
   { id: 'sessions', label: 'Sessions', icon: Activity },
-  { id: 'usage', label: 'Usage', icon: BarChart3 },
   { id: 'setup', label: 'Set up', icon: SlidersHorizontal },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
-type Props = { searchParams: Promise<{ tab?: string; s?: string; range?: string }> };
+type Props = { searchParams: Promise<{ tab?: string; s?: string }> };
 
 export default async function ClaudePage({ searchParams }: Props) {
   const sp = await searchParams;
   // Old links: Now and Workers were two lists of the same sessions; both land on the one Sessions list.
-  const tab: TabId = sp.tab === 'setup' ? 'setup' : sp.tab === 'usage' ? 'usage' : 'sessions';
+  const tab: TabId = sp.tab === 'setup' ? 'setup' : 'sessions';
   const me = await getCaller();
   if (!me) redirect('/login');
   const sc = { userId: me.userId, orgId: me.orgId };
@@ -42,7 +39,6 @@ export default async function ClaudePage({ searchParams }: Props) {
     tab === 'sessions'
       ? await Promise.all([claudeOverview(me), claudeTasks(me), roster(sc, { results: true }), messagesForYou(sc), openNeedsToMe(sc).then(n => withAskerSessions(sc, n))])
       : [null, null, null, [], []];
-  const usage = tab === 'usage' ? await usageReport(sc, { range: sp.range, tz: me.tz }) : null;
   const asks = asksBySession(needs, me.userId);
   // Start Claude has nothing to start on until a computer exists; until then the page offers Set up Claude instead.
   const hasComputers = overview ? overview.hasComputers : (await deviceMap(me)).size > 0;
@@ -117,7 +113,6 @@ export default async function ClaudePage({ searchParams }: Props) {
           asks={asks}
         />
       )}
-      {tab === 'usage' && usage && <UsageTab report={usage} />}
       {tab === 'setup' && <SetupTab url={url} />}
     </div>
   );
