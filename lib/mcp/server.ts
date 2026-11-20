@@ -1703,7 +1703,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
       const now = Date.now();
       return {
         sessions: ws.slice(0, 30).map(w => ({
-          // Session ids are shown for your own sessions only (a session id addresses a message).
+          // The short address of every session (send_message's to); the session id for your own sessions only, and only when it has one.
+          address: w.address,
           ...(w.mine && w.session ? { session: w.session } : {}),
           name: w.label,
           person: w.mine ? 'me' : w.person,
@@ -1772,8 +1773,8 @@ export function createMcpServer(ctx: Ctx): McpServer {
     'send_message',
     {
       inputSchema: {
-        to: z.string().min(1).max(messageData.TO_MAX).optional().describe('Who it is for: a session of yours (its id or name from list_sessions; never another person’s session) or a person of your organization (then project is needed, one you both read)'),
-        project: z.string().optional().describe('Project name or id. For a person: the project you both read. For a session: only when its name is on several projects'),
+        to: z.string().min(1).max(messageData.TO_MAX).optional().describe('Who it is for: a session (its address s-… from list_sessions, or for your own sessions its id or name) or a person of your organization (then project is needed: it goes to their lead session there). Leave it out to send to the project’s lead session'),
+        project: z.string().optional().describe('Project name or id. Alone: its lead session (the one that holds Now). For a person: the project you both read. For a session: only when its name is on several projects'),
         kind: z.enum(messageData.KINDS).describe('decision, request, question or fyi'),
         body: z.string().min(1).max(messageData.MSG_LIMITS.body),
         refs: messageData.RefsSchema.optional().describe('{tasks: [task numbers], commits: [...], files: [...]}'),
@@ -1784,7 +1785,6 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const to = a.to ?? a.to_session;
-      if (!to) throw new InputError('to is needed: a session of yours (its id or name from list_sessions) or a person.');
       return sentOut(await messageData.sendTo(s, { to, project: a.project, kind: a.kind, body: a.body, refs: a.refs, sender_commit: a.sender_commit }, await fromOf('send_message', a)));
     }),
   );
@@ -1793,7 +1793,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
     'message_status',
     {
       inputSchema: {
-        id: z.string().min(1).max(40).describe('Message id (m_…)'),
+        id: z.string().min(1).max(40).optional().describe('Message id (m_…); leave it out to read this session’s unread messages'),
         status: z.enum(messageData.STATUSES).optional().describe('seen, applied or rejected; leave it out to read the message’s full text'),
         note: z.string().max(500).optional().describe('Why (shown to the sender)'),
         commit: z.string().max(80).optional().describe('The commit that did it'),
@@ -1803,6 +1803,15 @@ export function createMcpServer(ctx: Ctx): McpServer {
     },
     handler(async a => {
       const names = await memberNames(s.orgId);
+      if (!a.id) {
+        // No id: the unread messages addressed to this session, on any project (the light read for a session without the hook); read by it now.
+        if (a.status || a.note || a.commit || a.make_task) throw new InputError('status, note, commit and make_task need id: the message they are about.');
+        // Reading marks read, so it never borrows a sibling session's row (MS5 g4): a session passes its id, a chat is its key.
+        const r = await messageData.unreadAddressed(s, await readerOf('message_status', a), { markRead: true });
+        return r.messages.length
+          ? { messages: r.messages.map(m => messageData.messageOut(m, s.userId, names, { unread: true })), ...(r.more ? { more: `${r.more} more: call again` } : {}) }
+          : { messages: [], note: 'No unread messages for this session.' };
+      }
       if (!a.status) {
         // No status: read the message (the one it is for, or its sender): the full text, in its frame of who wrote it and what to do with it.
         const m = await messageData.readMessage(s, a.id, await readerOf('message_status', a));

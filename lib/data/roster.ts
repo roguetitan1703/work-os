@@ -5,6 +5,7 @@ import { orgWide, scoped, type Scope } from '../scope';
 import { memberNames } from '../people';
 import { presenceState, WORKING_MIN, GONE_MIN, type DaemonSays } from './presence-state';
 import { lineHolder } from './lanes';
+import { shortAddress } from './presence';
 import { openNeedRows } from './roster-needs';
 import { slotHolders, machineKey } from './slots';
 
@@ -27,6 +28,8 @@ export type WorkerState = PresenceState;
 export type WorkerRow = {
   id: string;
   session: string | null;
+  /** The session's short address (lib/data/presence.ts shortAddress): shown for every row, since it never shows the session id. */
+  address: string;
   person: string;
   mine: boolean;
   ai: string;
@@ -147,6 +150,7 @@ function buildWorkers(s: Scope, raw: Raw[], x: Ctx): WorkerRow[] {
         // Another person's session id never leaves the server: their row gets an opaque id and no session.
         id: mine ? row._id : opaqueId(row._id),
         session: mine ? (row.session ?? null) : null,
+        address: shortAddress(row),
         person: x.names[row.userId] || 'a member',
         mine,
         ai: mine ? row.ai : clientWord(row.agent), // a key name is its owner's label: others see the kind of client

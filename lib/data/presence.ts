@@ -47,6 +47,21 @@ export function matchSessions(allRows: PresenceDoc[], to: string, userId?: strin
   return pick(r => (r.ai ?? '').trim().toLowerCase() === q);
 }
 
+/**
+ * A session's short address ("s-k3f9q"): one per session key (the same on every project it is on), short enough to type, derived one way
+ * (HMAC with the server secret) so it never shows the session id. list_sessions shows it for every session the reader can see; send_message
+ * takes it as `to`. Letters and digits that are easy to tell apart.
+ */
+const ADDR_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';
+export function shortAddress(r: Pick<PresenceDoc, 'userId' | 'key'>): string {
+  const h = createHmac('sha256', authSecret() || 'wos-addr').update(`wos-addr.v1\n${rowKey(r)}`).digest();
+  let out = '';
+  for (let i = 0; i < 5; i++) out += ADDR_CHARS[h[i] % ADDR_CHARS.length];
+  return `s-${out}`;
+}
+/** Is this a short address (shortAddress), whatever its case? */
+export const addrShaped = (v: string) => /^s-[a-z2-9]{5}$/i.test(v.trim());
+
 /** Does this look like a session id (a UUID, or the 32 hex of a hook session) rather than a label? Such a value is never kept as a label. */
 export const idShaped = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.trim()) || /^[0-9a-f]{32}$/i.test(v.trim());
 
