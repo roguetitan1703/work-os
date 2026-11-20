@@ -2,6 +2,7 @@ import 'server-only';
 import { orgWithSetting } from '../scope';
 import type { RawMessage } from './client';
 import { catchUp, onMessageCreate } from './issues';
+import { ensureTrackEmoji, onReactionAdd } from './track';
 
 // What the live listener relays (deploy/discord-gateway.mjs -> app/api/discord/gateway). One entry point, handleGatewayEvent:
 // it finds the organization that owns the guild and hands the event to the part that knows what to do with it. Everything
@@ -17,7 +18,9 @@ async function afterGap(data: Record<string, unknown>, baseUrl: string): Promise
   const ids = Array.isArray(data.guildIds) ? (data.guildIds as unknown[]).filter((x): x is string => typeof x === 'string' && SNOWFLAKE.test(x)) : [];
   for (const guildId of ids.slice(0, 50)) {
     const orgId = await orgWithSetting('discord', { guildId });
-    if (orgId) await catchUp(orgId, guildId, baseUrl);
+    if (!orgId) continue;
+    await ensureTrackEmoji(orgId, guildId);
+    await catchUp(orgId, guildId, baseUrl);
   }
 }
 
@@ -28,4 +31,5 @@ export async function handleGatewayEvent(event: GatewayEvent, data: Record<strin
   const orgId = await orgWithSetting('discord', { guildId });
   if (!orgId) return;
   if (event === 'MESSAGE_CREATE') await onMessageCreate(orgId, guildId, data as unknown as RawMessage, baseUrl);
+  else if (event === 'MESSAGE_REACTION_ADD') await onReactionAdd(orgId, guildId, data, baseUrl);
 }

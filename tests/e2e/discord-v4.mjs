@@ -229,6 +229,74 @@ try {
   check('switch off: a post is not recorded', (await taskOf(off.id)) === null && botPostsTo(off.id).length === 0);
   await ctx.close();
   await br.close();
+
+  // ---- 3. the track emoji ----
+  const setting = await rawDb.collection('settings').findOne({ _id: `discord:${A.orgId}` });
+  const WOS = setting?.trackEmojiId;
+  check('emoji: the server has :wos:, uploaded once through the bot, its id kept', !!WOS && st.emojis.length === 1 && st.emojis[0].name === 'wos' && /^data:image\/png;base64,/.test(st.emojis[0].image), JSON.stringify({ WOS, n: st.emojis.length }));
+  await relay('READY', { guildIds: [G1], userId: BOT });
+  await sleep(800);
+  check('emoji: a second READY does not upload again', st.emojis.length === 1);
+  const react = (user, m, emoji = { id: WOS, name: 'wos' }, channel = m.channel_id) =>
+    relay('MESSAGE_REACTION_ADD', { user_id: user, channel_id: channel, message_id: m.id, guild_id: G1, emoji, member: { user: { id: user, bot: false } } });
+  const mention = (id, name) => ({ id, username: name.toLowerCase(), global_name: name });
+
+  // no @mention: the reactor; no project: private to them
+  const e1 = put(raw({ channel: GEN, content: 'We should rotate the staging API keys this week' }));
+  await react(DA, e1);
+  const ke1 = await waitFor(() => taskOf(e1.id));
+  check('emoji: a message with no @mention is for the person who reacted', !!ke1 && (ke1.assigneeIds ?? []).join() === A.userId, JSON.stringify(ke1?.assigneeIds));
+  check('emoji: with no project it is private to them, no project', ke1?.projectId === null && ke1.visibility === 'private' && ke1.ownerId === A.userId, JSON.stringify({ p: ke1?.projectId, v: ke1?.visibility }));
+  check('emoji: the title is drafted from the message and the source is the message', ke1?.title === 'We should rotate the staging API keys this week' && ke1.source?.tracked === 'emoji' && ke1.source.reactorId === A.userId, JSON.stringify({ t: ke1?.title, s: ke1?.source }));
+  const re1 = await waitFor(() => botPostsTo(e1.id)[0]);
+  check('emoji: the bot replies "Recorded #N · name" with the buttons', new RegExp(`^Recorded \\[#${ke1?.ref}\\]\\(<[^>]*/tasks/${ke1?.ref}>\\) · E2E Owner$`).test(re1?.body.content ?? '') && re1.body.components?.length === 2, re1?.body.content);
+  await react(DB, e1);
+  await react(DA, e1, { id: null, name: '📌' });
+  await sleep(1500);
+  check('emoji: a second reaction on a tracked message does nothing', (await rawDb.collection('tasks').countDocuments({ 'source.messageId': e1.id })) === 1 && botPostsTo(e1.id).length === 1);
+
+  // @mentions: the linked people mentioned; the unlinked and bots are not people here
+  const e2 = put(raw({ channel: GEN, content: 'Bea can you check the invoice export', mentions: [mention(DB, 'Bea (Discord)'), mention(DX, 'Akash'), { ...mention(BOT, 'bot'), bot: true }] }));
+  await react(DA, e2, { id: null, name: '📌' });
+  const ke2 = await waitFor(() => taskOf(e2.id));
+  check('emoji: the pin works too; a mentioned linked person is the assignee (not the reactor)', !!ke2 && (ke2.assigneeIds ?? []).join() === Bu.userId, JSON.stringify(ke2?.assigneeIds));
+  check('emoji: with no project it is private to that assignee', ke2?.visibility === 'private' && ke2.ownerId === Bu.userId, JSON.stringify({ v: ke2?.visibility, o: ke2?.ownerId }));
+  const re2 = await waitFor(() => botPostsTo(e2.id)[0]);
+  check('emoji: the reply names the assignee', /· Bea Rao$/.test(re2?.body.content ?? ''), re2?.body.content);
+  // two linked people mentioned, in the project's channel: both are on it, in the project
+  const e3 = put(raw({ channel: BUG, content: 'Login and signup both need the new copy', mentions: [mention(DB, 'Bea'), mention(DA, 'Om')], author: { id: DB, username: 'bea', global_name: 'Bea' } }));
+  await react(DA, e3);
+  const ke3 = await waitFor(() => taskOf(e3.id));
+  check('emoji: in the project\'s channel it belongs to the project, shared like the project', ke3?.projectId === PID && ke3.visibility === 'org', JSON.stringify({ p: ke3?.projectId, v: ke3?.visibility }));
+  check('emoji: several mentioned people are all on it', !!ke3 && [...(ke3.assigneeIds ?? [])].sort().join() === [A.userId, Bu.userId].sort().join(), JSON.stringify(ke3?.assigneeIds));
+  const re3 = await waitFor(() => botPostsTo(e3.id)[0]);
+  check('emoji: the reply names the people and the project', /^Recorded \[#\d+\]\(<[^>]*>\) · [A-Za-z0-9 ,]+ · Delpat OS$/.test(re3?.body.content ?? ''), re3?.body.content);
+  // other emoji, the bot's own messages and a sensitive channel
+  const e4 = put(raw({ channel: GEN, content: 'a thumbs up is not a task' }));
+  await react(DA, e4, { id: null, name: '👍' });
+  const e5 = put(raw({ channel: GEN, content: 'the bot said this', author: { id: BOT, username: 'workos-bot', bot: true } }));
+  await react(DA, e5);
+  const e6 = put(raw({ channel: BLK, content: 'the staging password is in the vault' }));
+  await react(DA, e6);
+  await sleep(1500);
+  check('emoji: another emoji, the bot\'s own message and a sensitive channel give nothing', [e4, e5, e6].every(m => !st.posts.some(p => p.body.message_reference?.message_id === m.id)) && (await rawDb.collection('tasks').countDocuments({ 'source.messageId': { $in: [e4.id, e5.id, e6.id] } })) === 0);
+  // someone who is not linked
+  const e7 = put(raw({ channel: GEN, content: 'please look at the onboarding email' }));
+  const postsBefore7 = st.posts.length;
+  await react(DX, e7);
+  const note7 = await waitFor(() => st.posts.slice(postsBefore7).find(p => p.body.message_reference?.message_id === e7.id));
+  check('emoji: an unlinked reactor makes no task and is told to connect', !!note7 && /Connect Discord in Work OS first/.test(note7.body.content) && note7.body.content.startsWith(`<@${DX}>`) && (await taskOf(e7.id)) === null, note7?.body.content);
+  check('emoji: the note mentions only that person and has no buttons', JSON.stringify(note7?.body.allowed_mentions?.users) === JSON.stringify([DX]) && !note7?.body.components, JSON.stringify(note7?.body.allowed_mentions));
+  const e8 = put(raw({ channel: GEN, content: 'and another one' }));
+  const postsBefore8 = st.posts.length;
+  await react(DX, e8);
+  await sleep(1200);
+  check('emoji: the same person is not told again within the hour', st.posts.length === postsBefore8 && (await taskOf(e8.id)) === null);
+  // an issue post is already tracked: the emoji on it does nothing
+  const taskTotal = await rawDb.collection('tasks').countDocuments({});
+  await react(DA, n1);
+  await sleep(1000);
+  check('emoji: a post already recorded as an issue is not tracked twice', (await rawDb.collection('tasks').countDocuments({ 'source.messageId': n1.id })) === 1 && (await rawDb.collection('tasks').countDocuments({})) === taskTotal);
 } catch (e) {
   check('discord-v4 (error)', false, e?.stack || String(e));
 }

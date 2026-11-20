@@ -33,6 +33,8 @@ export type MessageTaskOverrides = {
   emptyTitle?: string;
   /** No guess of a due date from the words. */
   noDue?: boolean;
+  /** Who the task is for (Work OS user ids). */
+  assignees?: string[];
 };
 
 export type MessageTaskResult = { task: Task; existing: boolean };
@@ -143,6 +145,7 @@ export async function taskFromMessage(
       project: overrides.project !== undefined ? overrides.project : await guessProject(s, ctx.channel, text),
       mode: overrides.mode !== undefined ? overrides.mode : await guessMode(s, `${channelName} ${ctx.channel?.parentName ?? ''} ${ctx.channel?.category ?? ''}`),
       priority: overrides.priority ?? 'P2',
+      ...(overrides.assignees?.length ? { assignees: overrides.assignees } : {}),
       due: overrides.due !== undefined ? overrides.due : overrides.noDue ? null : explicitDue(text),
       links: [{ url, label: `Discord: ${where}` }, ...(overrides.attachmentLinks ? m.attachments.slice(0, 8).map(a => ({ url: a.url, label: a.filename.slice(0, 80) })) : [])],
     },

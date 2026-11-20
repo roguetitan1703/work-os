@@ -587,6 +587,8 @@ export type SettingsDoc = {
   guildId?: string | null;
   /** discord:<orgId>: the Discord channel the team digest goes to (lib/team-digest.ts). */
   teamChannelId?: string | null;
+  /** discord:<orgId>: the id of the :wos: track emoji uploaded to the server (lib/discord/track.ts). */
+  trackEmojiId?: string | null;
   /** schedule:<userId> (lib/schedule.ts): the person's week, routine, review questions and own help text. */
   schedule?: unknown;
   /** modes:<orgId> (lib/modes.ts): the organization's modes of work. */
