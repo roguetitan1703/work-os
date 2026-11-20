@@ -155,6 +155,13 @@ try {
   await must(MCP, 'save_state', { project: NAME, ops: [{ op: 'add_decision', text: 'Use the zebra pattern' }] });
   const dec = await mcpH(MCP, 'save_state', { project: NAME, base_version: pr.version + 1, ops: [{ op: 'edit_line', find: 'zebra', new: 'horse' }] });
   check('edit_line does not touch Decisions', dec.isError && /no line/.test(dec.text), dec.text.slice(0, 200));
+
+  // Now is one sentence: a 150-character Now is saved, and the answer carries the warning
+  const longNow = 'Ship the editor so every line can be changed in place, with the old text kept in the feed, and check it on the real build at two widths first.'.slice(0, 150).padEnd(150, '.');
+  const ln = await mcpH(MCP, 'save_state', { project: NAME, session: 'fse1', base_version: (await must(MCP, 'get_state', { project: NAME })).state.version, ops: [{ op: 'set_now', text: longNow }] });
+  const lnj = ln.json ?? {};
+  check('a 150-character Now is saved', !ln.isError && (await must(MCP, 'get_state', { project: NAME })).state.now.text === longNow, ln.text?.slice(0, 200));
+  check('...and the answer says Now is 150 characters and to keep it one sentence', /Now is 150 characters\. Keep it one sentence, about 120 at most; put the detail in Next or a note\./.test(lnj.note ?? ln.text ?? ''), (lnj.note ?? ln.text ?? '').slice(0, 300));
 } catch (e) {
   check('flow-state-edit (error)', false, e?.stack || String(e));
 }

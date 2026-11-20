@@ -180,6 +180,14 @@ function loadPlaywright() {
 }
 export const { chromium } = loadPlaywright();
 const CHROME = process.env.CHROME_EXE || [process.env.LOCALAPPDATA && process.env.LOCALAPPDATA + '/ms-playwright/chromium-1243/chrome-win64/chrome.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(p => p && fs.existsSync(p)) || '';
+/** A Need is one line until its row is opened: wait for the row of Need `ref` under `root` (a page or a locator) and open it unless it is open. */
+export async function openNeed(root, ref) {
+  const row = root.locator(`[data-need="${ref}"]`).first();
+  await row.waitFor({ timeout: 20000 });
+  if (!(await row.locator('article').count())) await row.locator('[data-need-ask]').click();
+  return row;
+}
+
 export const launch = (opts = {}) => chromium.launch({ ...(CHROME && fs.existsSync(CHROME) ? { executablePath: CHROME } : {}), ...opts });
 
 // ---- results ----

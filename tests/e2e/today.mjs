@@ -153,6 +153,53 @@ for (const kind of ['phone', 'desk']) {
   await p.context().close();
 }
 
+// Needs on Today (redesign step 4): a Need is one line, Today shows three, the recommended answer is the row's button, a hash link opens one.
+for (const kind of ['phone', 'desk']) {
+  const phone = kind === 'phone';
+  const t0 = Date.now();
+  const PID = 'today-needs-proj';
+  const GOAL = 'Ship the Needs rows so each is one line with its answer.';
+  const needOf = (ref, kindOf, ask, ageMin) => ({ _id: `today-need-${ref}`, ref, orgId: ME.orgId, ownerId: ME.userId, visibility: 'org', projectId: PID, taskId: null, taskRef: null, to: ME.userId, from: { actor: { kind: 'agent', name: 'Claude' }, word: 'agent', label: 'today' }, kind: kindOf, ask, options: kindOf === 'review' ? [{ id: 'accept', label: 'Accept' }, { id: 'send_back', label: 'Send back' }] : [{ id: 'a', label: 'Option one' }, { id: 'b', label: 'Option two' }], status: 'open', appOnly: false, createdAt: new Date(t0 - ageMin * 60_000), answeredAt: null });
+  const clean = async () => { for (const c of ['needs', 'projects', 'states']) await rawDb.collection(c).deleteMany({ $or: [{ _id: /^today-need/ }, { projectId: PID }, { _id: PID }] }); };
+  await clean();
+  const nowD = new Date();
+  await rawDb.collection('projects').insertOne({ _id: PID, name: 'Today Needs', nameLower: 'today needs', client: '', description: '', status: 'active', orgId: ME.orgId, ownerId: ME.userId, visibility: 'org', createdAt: nowD, updatedAt: nowD });
+  await rawDb.collection('states').insertOne({ _id: PID, projectId: PID, orgId: ME.orgId, ownerId: ME.userId, visibility: 'org', now: { text: GOAL + ' Then check them on the real build in both themes at two widths before anything else goes in.', by: ME.userId, at: nowD }, next: [], later: [], decisions: [], where: {}, version: 2, createdAt: nowD, updatedAt: nowD });
+  await rawDb.collection('needs').insertMany([needOf(9801, 'decide', 'Fourth question, the oldest?', 40), needOf(9802, 'decide', 'Third question?', 30), needOf(9804, 'decide', 'Second question?', 20), needOf(9803, 'review', 'Review the Needs rows', 10)]);
+  console.log(`\n=== needs on Today (${kind}) ===`);
+  const { p, errs } = await open(kind);
+  const V = p.locator(`[data-variant=${kind}]`);
+  const block = V.locator('[data-section="needs-you"]');
+  await block.waitFor();
+  await p.waitForTimeout(500);
+  check(`${kind}: four open Needs show 3 rows and See all`, (await block.locator('[data-need-row]').count()) === 3 && (await block.locator('a[href="/needs"]').count()) === 1 && /Needs you\s+4\b/.test(await block.innerText()), await block.innerText());
+  check(`${kind}: the oldest Need is the one left out`, (await block.locator('[data-need="9801"]').count()) === 0 && (await block.locator('[data-need="9802"]').count()) === 1);
+  check(`${kind}: a Need is one line: no options or note box until it is opened`, (await block.locator('[data-need-option], [data-need-text]').count()) === 0);
+  const review = block.locator('[data-need="9803"]');
+  check(`${kind}: a review Need has Open, not a quick answer`, (await review.locator('[data-need-quick]').count()) === 0 && (await review.locator('[data-need-toggle]').innerText()).trim() === 'Open');
+  const quick = block.locator('[data-need="9804"] [data-need-quick]');
+  check(`${kind}: a decide Need's button is its first option`, (await quick.getAttribute('data-need-quick')) === 'a' && (await quick.innerText()).trim() === 'Option one');
+  if (phone) console.log('phone page height with 4 Needs:', await p.evaluate(() => document.documentElement.scrollHeight));
+  await tap(quick, phone);
+  await block.locator('[data-need="9804"]').waitFor({ state: 'detached', timeout: 15000 });
+  const d = await rawDb.collection('needs').findOne({ ref: 9804 });
+  check(`${kind}: the quick button answers with option 1 and the row goes`, d?.status === 'answered' && d?.answer?.option === 'a' && d?.answer?.via === 'app', JSON.stringify(d?.answer));
+  await p.waitForTimeout(500);
+  check(`${kind}: the next Need takes its place (3 rows again)`, (await block.locator('[data-need-row]').count()) === 3 && (await block.locator('[data-need="9801"]').count()) === 1);
+  const goal = await V.locator(`[data-project-row=${PID}] [data-project-row-now]`).innerText();
+  check(`${kind}: Projects now shows one sentence of a long Now`, goal === GOAL, goal);
+  check(`${kind}: no console errors`, errs.length === 0, errs.join(' | '));
+  await rawDb.collection('needs').insertOne(needOf(9800, 'decide', 'Oldest of all?', 50)); // a fourth open Need again, past the first three
+  await p.goto(`${B}/today#need-9800`);
+  await p.reload();
+  const b2 = p.locator(`[data-variant=${kind}] [data-section="needs-you"]`);
+  await b2.waitFor();
+  await p.waitForTimeout(800);
+  check(`${kind}: /today#need-<ref> of a Need past the first three shows it first, open`, (await b2.locator('[data-need-row]').first().getAttribute('data-need')) === '9800' && (await b2.locator('[data-need="9800"] [data-need-option]').count()) === 2 && (await b2.locator('[data-need-row]').count()) === 3);
+  await p.context().close();
+  await clean();
+}
+
 // Empty states: finish overdue tasks directly in the test DB
 await db.collection('tasks').updateMany({ title: /^Overdue task/ }, { $set: { status: 'Done' } });
 for (const kind of ['phone', 'desk']) {

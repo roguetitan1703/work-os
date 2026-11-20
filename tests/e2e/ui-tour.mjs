@@ -5,7 +5,7 @@
 // Not run by default: name it (tests/e2e/run.sh ui-tour). Seed profile: none; server mode: whatsnew.
 import fs from 'node:fs';
 import path from 'node:path';
-import { ME, B, SP, EMAIL, check, finish, launch, login, overflow, okO, rawDb, call, makeUser } from './lib.mjs';
+import { ME, B, SP, EMAIL, check, finish, launch, login, overflow, okO, rawDb, call, makeUser, openNeed } from './lib.mjs';
 
 fs.mkdirSync(SP, { recursive: true });
 const OUT = path.dirname(SP);
@@ -470,14 +470,13 @@ async function jobs(br, tag) {
   const tab = href => T(p.locator(phone ? `${BAR} a[href="${href}"]` : `aside a[href="${href}"]`));
   await job(2, 'Answer a Need that a Claude session asked, then check that session', async ({ step, hard }) => {
     await step(phone ? 'Needs tab in the bar' : 'Sidebar: Needs', () => tab('/needs'));
-    const before = await p.locator('[data-need="1"] [data-need-session]').innerText().catch(() => '');
-    if (!/Kestrel webhook fix: waiting on you/.test(before)) hard(`the Need does not name the session that asked ("${before}")`);
-    await step('Pick the first option of the decide Need', () => T(p.locator('[data-need="1"] [data-need-option="a"]')));
-    await p.locator('[data-need="1"][data-need-status="answered"] [data-need-session]').waitFor({ timeout: 8000 }).catch(() => {});
-    const after = await p.locator('[data-need="1"] [data-need-session]').innerText().catch(() => '');
-    if (!/Kestrel webhook fix: Working/.test(after)) hard(`after the answer the session chip does not read Working ("${after}")`);
-    const href = await p.locator('[data-need="1"] [data-need-session]').getAttribute('href').catch(() => '');
-    if (!/^\/claude\?s=/.test(href ?? '')) hard('the session chip does not link to the session');
+    // The row names the session that asked in its meta line; the recommended answer is the row's one button.
+    const before = await p.locator('[data-need="1"]').first().innerText().catch(() => '');
+    if (!/Kestrel webhook fix: waiting on you/i.test(before)) hard(`the Need row does not name the session that asked ("${before.replace(/\s+/g, ' ')}")`);
+    await step('Press the recommended answer on the decide Need row', () => T(p.locator('[data-need="1"] [data-need-quick="a"]')));
+    await p.locator('[data-need="1"][data-need-status="answered"]').waitFor({ timeout: 8000 }).catch(() => {});
+    const n1 = await rawDb.collection('needs').findOne({ _id: 'tour-need-1' });
+    if (n1?.status !== 'answered' || n1?.answer?.option !== 'a') hard(`the recommended-answer button did not answer with option a (${n1?.status})`);
   });
   await job(3, 'Give Claude a task (Give to Claude) on an existing task', async ({ step, hard }) => {
     const ref = REF['Rewrite pricing page copy'].ref;
@@ -530,6 +529,7 @@ async function jobs(br, tag) {
   await job(8, 'Approve a review Need (look at the work first, then accept)', async ({ step, hard }) => {
     await step(phone ? 'Needs in the bar' : 'Sidebar: Needs', () => tab('/needs'));
     if (!(await p.locator('[data-need="3"]').count())) hard('review Need not on the Needs page');
+    await openNeed(p, 3);
     hard('the Need has three buttons: Accept, Send back (needs a typed reason), Accept and file what is left; the agent result (Changed, Checked, Where, Left) sits above them');
     await step('Look at the work link in the card (not opened: it leaves Work OS)', async () => { const a = p.locator('[data-need="3"] a[href*="/pull/412"]').first(); await a.scrollIntoViewIfNeeded(); const tg = await a.getAttribute('target'); hard(`the work link is an external address (${(await a.getAttribute('href')).slice(0, 60)}) and opens in a ${tg === '_blank' ? 'new tab' : 'the same tab'}, leaving Work OS; the card itself has no in-app view of the work`); }, { tap: false });
     await step('Accept', () => T(p.locator('[data-need="3"] [data-need-option="accept"]')));

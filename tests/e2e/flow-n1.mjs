@@ -151,6 +151,7 @@ try {
     const block = V.locator('[data-section="needs-you"]');
     check(`${label}: Today shows "Needs you" with my two open Needs`, (await block.locator('[data-need]').count()) === 2 && /needs you/i.test(await block.locator('h2').innerText()), String(await block.locator('[data-need]').count()));
     const card = block.locator(`[data-need="${a3.need.ref}"]`);
+    await card.locator('[data-need-ask]').click(); // a Need is one line until its row is opened
     check(`${label}: the card holds the ask, who asked, and the options as buttons`, /Tuesday morning/.test(await card.locator('[data-need-ask]').innerText()) && /Claude Code/.test(await card.locator('[data-need-from]').innerText()) && (await card.locator('[data-need-option]').count()) === 2 && (await card.locator('[data-need-text]').count()) === 1);
     check(`${label}: the replaced Need is not shown`, (await block.locator(`[data-need="${a1.need.ref}"]`).count()) === 0);
     const first = block.locator('[data-need]').first();
@@ -176,6 +177,7 @@ try {
     await login(p, { phone: false, next: '/today' });
     const card = p.locator(`[data-variant=desk] [data-need="${typed.ref}"]`);
     await card.waitFor({ timeout: 20000 });
+    await card.locator('[data-need-ask]').click();
     check('typed: no Send button while the box is empty', (await card.locator('[data-need-send]').count()) === 0);
     await card.locator('[data-need-text]').fill('Neither: wait until Friday');
     await card.locator('[data-need-send]').click();

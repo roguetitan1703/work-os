@@ -82,7 +82,8 @@ try {
     const alpha = card.locator('[data-project-row=ui2-a]');
     check(`ui-p2 (${tag}): Alpha shows its Now, the first Next and "2 sessions"`, (await alpha.locator('[data-project-row-now]').innerText()).startsWith('Ship the new Today page') && (await alpha.locator('[data-project-row-next]').innerText()) === 'Next: Check the clamp' && (await alpha.locator('[data-project-sessions]').innerText()).includes('2 sessions'));
     const cl = await alpha.locator('[data-project-row-now]').evaluate(el => ({ clamp: getComputedStyle(el).webkitLineClamp, h: el.getBoundingClientRect().height, lh: parseFloat(getComputedStyle(el).lineHeight) }));
-    check(`ui-p2 (${tag}): a long Now is clamped to two lines`, cl.clamp === '2' && cl.h <= cl.lh * 2 + 1, JSON.stringify(cl));
+    const nowText = await alpha.locator('[data-project-row-now]').innerText();
+    check(`ui-p2 (${tag}): a long Now shows as one sentence on one line`, cl.h <= cl.lh + 1 && nowText.length <= 121 && nowText.endsWith('…'), JSON.stringify([cl, nowText.length]));
     check(`ui-p2 (${tag}): only Beta has the amber dot`, (await card.locator('[data-project-need]').count()) === 1 && (await card.locator('[data-project-row=ui2-b] [data-project-need]').count()) === 1);
     check(`ui-p2 (${tag}): the ended session is not counted`, !ids.includes('ui2-g') || (await card.locator('[data-project-row=ui2-g] [data-project-sessions]').innerText()).includes('1 session'));
     check(`ui-p2 (${tag}): no other person's private project shows`, !/SECRET-|Secret Other/.test(await V.innerText()) && !ids.includes('ui2-secret'), body.slice(0, 200));

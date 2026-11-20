@@ -3,7 +3,7 @@
 // hook, and the grant route POST /api/agent/release (wst_ token only). The hook half is worker/test/hook-h8.test.mjs.
 // Seed profile: none.
 import { randomUUID } from 'node:crypto';
-import { B, ME, MCP, check, finish, launch, login, makeUser, mkDevice, mkKey, rawDb } from './lib.mjs';
+import { B, ME, MCP, check, finish, launch, login, makeUser, mkDevice, mkKey, openNeed, rawDb } from './lib.mjs';
 import { mcpH, mkOAuth, must } from './flow-lib.mjs';
 
 const call = async (url, cred, body = {}, { headers = {}, raw, method = 'POST' } = {}) => {
@@ -111,6 +111,7 @@ try {
   await login(page, { phone: false, next: '/needs' });
   const answerUI = async (ref, option) => {
     await page.goto(`${B}/needs`);
+    await openNeed(page, ref);
     const btn = page.locator(`[data-need="${ref}"] [data-need-option="${option}"]`);
     await btn.waitFor({ timeout: 20000 });
     await btn.click();
@@ -126,6 +127,7 @@ try {
   const yes = await rel(sess.token, { what: 'push', name: 'main' });
   const hrs = ms => ms / 3_600_000;
   check('d: "Yes, release" opens production for about 1 hour: allowed true, until, the Need number', yes.status === 200 && yes.json?.allowed === true && yes.json?.need === d1.ref && Math.abs(hrs(Date.parse(yes.json.until) - Date.now()) - 1) < 0.05, yes.text);
+  await openNeed(page, d1.ref);
   const openLine = await page.locator(`[data-need="${d1.ref}"] [data-need-release]`).first().innerText().catch(() => '');
   check('d: the answered Need says "Release open until HH:MM" in its closed line', /Release open until (\w{3} )?\d\d:\d\d/.test(openLine), openLine);
   await page.locator(`[data-need="${d1.ref}"]`).first().screenshot({ path: `${process.env.E2E_SHOTS || 'D:/Work/Delpat/builds/e2e-h8/shots'}/h8-needs-answered-open-desk-light.png` }).catch(() => {});
@@ -154,6 +156,7 @@ try {
   const a9 = await mcpH(kOm, 'ask', { project: 'H8 One', kind: 'approve', release: true, ask: 'Release, typed answer' });
   const d9 = await needDoc(a9.json.need.ref);
   await page.goto(`${B}/needs`);
+  await openNeed(page, d9.ref);
   const box = page.locator(`[data-need="${d9.ref}"] [data-need-text]`);
   await box.waitFor({ timeout: 20000 });
   await box.fill('yes, go ahead');
@@ -193,7 +196,8 @@ try {
     const p = await c.newPage();
     await login(p, { phone, next: '/needs' });
     // the Needs page: an open release Need beside an ordinary approve Need, and an answered one with its window
-    await p.locator(`[data-need="${d10.ref}"]`).waitFor({ timeout: 20000 });
+    await openNeed(p, d10.ref);
+    await openNeed(p, d1.ref);
     const relLine = await p.locator(`[data-need="${d1.ref}"] [data-need-release]`).first().innerText().catch(() => '');
     check(`f: ${kind} ${scheme}: the answered release Need says its window ended (the test expired it)`, /Release ended/.test(relLine), relLine);
     const openCard = p.locator(`[data-need="${d10.ref}"]`);

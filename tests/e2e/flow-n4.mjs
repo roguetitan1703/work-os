@@ -208,6 +208,7 @@ try {
       await login(p, { next: '/today' });
       const card = p.locator(`[data-variant=desk] [data-section="needs-you"] [data-need="${n.ref}"]`);
       await card.waitFor({ timeout: 20000 });
+      await card.locator('[data-need-ask]').click();
       pages.push({ ctx, p, card });
     }
     await Promise.all([pages[0].card.locator('[data-need-option="a"]').click(), pages[1].card.locator('[data-need-option="b"]').click()]);

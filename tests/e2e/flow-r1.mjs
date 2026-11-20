@@ -160,6 +160,7 @@ try {
       const n = await reviewOf(taskRef);
       const c = card(n.ref);
       await c.waitFor({ timeout: 20000 });
+      await c.locator('[data-need-ask]').click();
       if (text) await c.locator('[data-need-text]').fill(text);
       await c.locator(`[data-need-option="${option}"]`).click();
       await c.waitFor({ state: 'detached', timeout: 20000 });
@@ -172,6 +173,7 @@ try {
     await p.goto(`${B}/today`);
     const wc = card((await reviewOf(withResult.ref)).ref);
     await wc.waitFor({ timeout: 20000 });
+    await wc.locator('[data-need-ask]').click();
     const txt = await wc.innerText();
     check('review card: it shows what changed, how it was checked, the verdict, the link and what is left', /Moved the button/.test(txt) && /Clicked it twice/.test(txt) && /awkward/.test(txt) && /Preview/.test(txt) && /Dark mode/.test(txt), txt.replace(/\s+/g, ' ').slice(0, 300));
     check('review card: Send back needs a line (the button waits for one)', await wc.locator('[data-need-option="send_back"]').isDisabled());
