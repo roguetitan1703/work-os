@@ -119,7 +119,7 @@ try {
   check('the idle wait left why question and the ask', (await prow(S.sid)).activity.why === 'question' && (await prow(S.sid)).activity.ask === q.ask);
   // Cleaning (review fix 3): bidi and zero-width characters dropped; cut at 200 with an ellipsis, never inside a surrogate pair.
   await ev(S.token, { event: 'prompt' });
-  await ev(S.token, { event: 'stop', ask: 'Ship​ ‮it⁦ now?' });
+  await ev(S.token, { event: 'stop', ask: 'Ship\u200b \u202eit\u2066 now?' });
   check('the ask drops bidi and zero-width characters', (await prow(S.sid)).activity.ask === 'Ship it now?', (await prow(S.sid)).activity.ask);
   await ev(S.token, { event: 'prompt' });
   await ev(S.token, { event: 'stop', ask: 'a'.repeat(198) + '\u{1F600}' + 'b'.repeat(50) });
