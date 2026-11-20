@@ -56,7 +56,7 @@ export async function sessionRow(s: Scope, sid: string, projectId: string | null
 
 /** Answers to Needs this session asked that it has not been handed yet (oldest first, at most 5). */
 async function answeredNeeds(s: Scope, sid: string, projectId: string): Promise<NeedDoc[]> {
-  return (await scoped(s)).needs.find({ projectId, 'from.session': sid, 'from.actor.userId': s.userId, status: 'answered', briefedAt: { $exists: false } }).sort({ answeredAt: 1 }).limit(5).toArray();
+  return (await scoped(s)).needs.find({ projectId, $or: [{ 'from.session': sid }, { handedTo: sid }], 'from.actor.userId': s.userId, status: 'answered', briefedAt: { $exists: false } }).sort({ answeredAt: 1 }).limit(5).toArray();
 }
 
 const VIA = { app: 'in the app', phone: 'on the phone', discord: 'in Discord', chat: 'in chat' } as const;
