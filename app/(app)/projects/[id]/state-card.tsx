@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { ArchiveRestore, ArrowUp, Check, Pencil, Plus, SquareArrowOutUpRight } from 'lucide-react';
+import { ArchiveRestore, ArrowUp, Check, Plus, SquareArrowOutUpRight } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ArchivedOut, StateOut } from '@/lib/data/states';
 import { restoreLineAction, saveStateAction } from './state-actions';
@@ -14,7 +14,7 @@ const H3 = 'text-[13px] md:text-xs font-semibold text-muted-foreground uppercase
 type Op = Record<string, unknown>;
 
 /**
- * The project's State (docs/flows/step-1.md): Now, Next, Later, Decisions. Edits are the same versioned writes the MCP
+ * The project's State (docs/flows/step-1.md): Next, Later, Decisions (Now is the purpose header's, components/purpose-header.tsx). Edits are the same versioned writes the MCP
  * tool makes: Now and reordering carry the version the card was drawn from, so a change a teammate or an agent made in the
  * meantime is never overwritten silently (the card then shows the current State and asks again). Lines someone else wrote
  * say who.
@@ -30,8 +30,6 @@ export function StateCard({ projectId, initial, archived: archivedInitial = [] }
     setArchived(archivedInitial);
   }
   const [pending, start] = useTransition();
-  const [editNow, setEditNow] = useState(false);
-  const [nowText, setNowText] = useState('');
   const [nextText, setNextText] = useState('');
   const [laterText, setLaterText] = useState('');
   const [decisionText, setDecisionText] = useState('');
@@ -64,48 +62,9 @@ export function StateCard({ projectId, initial, archived: archivedInitial = [] }
       <div className="border-t border-border/60 px-4 md:px-3 py-3 space-y-4">
         {!state && (
           <p className="text-sm text-muted-foreground" data-state-empty>
-            No State yet. Sessions save Now, Next, Later and Decisions here as they work, so the next session picks up where the last one left off. You can set Now and add lines below too.
+            No State yet. Sessions save Now, Next, Later and Decisions here as they work, so the next session picks up where the last one left off. You can set Now above and add lines below too.
           </p>
         )}
-        <div className="space-y-1.5" data-part="now">
-          <div className="flex items-center gap-1">
-            <h3 className={H3}>Now</h3>
-            {!editNow && (
-              <button type="button" aria-label="Change Now" disabled={pending} onClick={() => (setNowText(state?.now?.text ?? ''), setEditNow(true))} className={icon} data-state-edit-now>
-                <Pencil className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-          {editNow ? (
-            <form
-              className="flex gap-2"
-              onSubmit={e => {
-                e.preventDefault();
-                if (nowText.trim()) save([{ op: 'set_now', text: nowText.trim() }], () => setEditNow(false));
-              }}
-            >
-              <input className={field} value={nowText} onChange={e => setNowText(e.target.value)} aria-label="Now" maxLength={1000} autoFocus />
-              <button type="submit" disabled={pending} className="h-11 md:h-9 px-4 rounded-full md:rounded-md bg-foreground text-background text-sm font-semibold disabled:opacity-50">
-                Save
-              </button>
-            </form>
-          ) : state?.now ? (
-            <p className="text-[16px] md:text-sm" data-state-now>
-              {state.now.text}
-              {state.now.holder && (
-                <span className="text-muted-foreground" data-now-holder>
-                  {' '}
-                  · held by {state.now.holder}
-                  {state.now.holderState ? ` (${state.now.holderState})` : ''}
-                </span>
-              )}
-              {state.now.writtenBy && <span className="text-muted-foreground"> · by {state.now.writtenBy}</span>}
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">Nothing set. One goal for this project, in a line.</p>
-          )}
-        </div>
-
         <div className="space-y-1" data-part="next">
           <h3 className={H3}>Next{state?.next.length ? ` · ${state.next.length}` : ''}</h3>
           {state?.next.length ? (

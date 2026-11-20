@@ -30,6 +30,7 @@ import { ClaudeCard } from './claude-card';
 import { projectNeeds, withNeedWaits } from '@/lib/data/needs';
 import { NeedsTab } from '@/components/needs';
 import { StateCard } from './state-card';
+import { PurposeHeader } from '@/components/purpose-header';
 import { CouldBeRunning } from '../../claude/workers-tab';
 import { projectRoster, withLaneMarks } from '@/lib/data/roster';
 import { archivedOut, stateOfProject, stateOut } from '@/lib/data/states';
@@ -208,6 +209,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     <div className="max-w-6xl space-y-3 min-w-0">
       <h1 className="sr-only">{project.name}</h1>
       <ProjectTop project={project} tab={tab} />
+      <PurposeHeader projectId={project.id} initial={stateView} description={project.description?.trim() || undefined} />
 
       <nav aria-label="Project sections" className="grid grid-cols-6 gap-0.5 md:inline-flex md:gap-1 rounded-2xl bg-muted/60 p-1 md:max-w-full">
         {TABS.map(t => (

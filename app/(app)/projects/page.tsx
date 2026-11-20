@@ -2,6 +2,7 @@ import { PeopleBadge, PrivateBadge } from '@/components/private-badge';
 import Link from '@/components/intent-link';
 import { PLACE_ICON, NavIcon } from '@/components/nav-icons';
 import { listProjects } from '@/lib/data/projects';
+import { nowOfProjects } from '@/lib/data/states';
 import { fmtAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { MEmpty } from '@/components/mobile/sub-header';
@@ -18,6 +19,7 @@ export default async function ProjectsPage({ searchParams }: Props) {
   const { all } = await searchParams;
   const s = await requireScope();
   const projects = await listProjects(s, { includeInactive: all === '1' });
+  const goals = await nowOfProjects(s, projects.map(p => p.id));
 
   return (
     <div className="space-y-5 max-w-6xl">
@@ -84,18 +86,17 @@ export default async function ProjectsPage({ searchParams }: Props) {
               </div>
               {p.status !== 'active' && <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{p.status}</span>}
             </div>
-            <div className="space-y-1">
-              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                <div className="h-full bg-green-500" style={{ width: `${p.stats.completion}%` }} />
-              </div>
-              <div className="flex justify-between text-xs md:text-[11px] text-muted-foreground">
-                <span>
-                  {p.stats.done} done · {p.stats.open} open
-                </span>
-                <span>{p.stats.completion}%</span>
-              </div>
-            </div>
+            {goals[p.id]?.now ? (
+              <p className="text-[15px] md:text-sm text-foreground leading-snug line-clamp-2 break-words" data-project-now>
+                {goals[p.id].now}
+              </p>
+            ) : p.description.trim() ? (
+              <p className="text-[15px] md:text-sm text-muted-foreground leading-snug line-clamp-2 break-words" data-project-description>
+                {p.description.trim()}
+              </p>
+            ) : null}
             <div className="flex items-center gap-3 text-xs flex-wrap">
+              <span className="text-muted-foreground">{p.stats.done} done · {p.stats.open} open</span>
               {p.stats.overdue > 0 && <span className="text-red-600 dark:text-red-400 font-medium">{p.stats.overdue} overdue</span>}
               {p.stats.inProgress > 0 && <span className="text-blue-600 dark:text-blue-400">{p.stats.inProgress} in progress</span>}
               {p.stats.blocked > 0 && <span className="text-red-600 dark:text-red-400">{p.stats.blocked} blocked</span>}

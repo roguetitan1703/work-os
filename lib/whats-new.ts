@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'project-goal-first',
+    date: '2026-11-20',
+    title: 'Each project now opens on its goal',
+    line: 'A project shows its Now (the goal), who holds it and the next step at the top of every tab, and the Projects list shows the goal on each card instead of a progress bar.',
+    where: 'Projects, and the top of any project',
+    href: '/projects',
+  },
+  {
     id: 'lanes',
     date: '2026-11-19',
     title: 'One plan, many sessions',
