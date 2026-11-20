@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'new-app-icon',
+    date: '2026-11-21',
+    title: 'A new Work OS icon',
+    line: 'A new Work OS icon: one plan, many sessions.',
+    where: 'The browser tab, the sidebar and the installed app',
+    href: '/today',
+  },
+  {
     id: 'context-warning',
     date: '2026-11-21',
     title: 'Context warning per project',
