@@ -4,9 +4,11 @@
 //   aiTitle   the title Claude made for it (the latest `ai-title` record)
 //   model     the model of the latest assistant message (`message.model`)
 //   tool      where it runs: desktop, vscode or terminal (from CLAUDE_CODE_ENTRYPOINT; anything else sends none)
-// Only these four short values leave the machine: titles are one line, cut to 120 characters; the model name is at most 60 characters of
+//   account   the Claude account's label: the email's part before @ (claude-account.mjs; never the id, uuid or email)
+// Only these five short values leave the machine: titles are one line, cut to 120 characters; the model name is at most 60 characters of
 // [A-Za-z0-9._:/-]. Nothing else from the transcript is kept or sent. The transcript is read from its last 256 KB only.
 import fs from 'node:fs';
+import { readAccount } from './claude-account.mjs';
 
 export const META_BYTES = 256 * 1024;
 export const MAX_TITLE = 120;
@@ -49,10 +51,11 @@ const TOOLS = { 'claude-desktop': 'desktop', 'claude-vscode': 'vscode', cli: 'te
 /** Where this session runs, from the environment Claude Code gives its hooks: 'desktop', 'vscode', 'terminal', or undefined. */
 export const toolOf = (env = process.env) => TOOLS[String(env.CLAUDE_CODE_ENTRYPOINT || '')];
 
-/** What the start (and later events) say about the session: { title?, aiTitle?, model?, tool? } from the transcript and the environment. */
-export function identityOf(transcript, env = process.env) {
+/** What the start (and later events) say about the session: { title?, aiTitle?, model?, tool?, account? } from the transcript, the environment and the account file. */
+export function identityOf(transcript, env = process.env, accountFile) {
   const t = toolOf(env);
-  return { ...transcriptMeta(transcript), ...(t ? { tool: t } : {}) };
+  const account = readAccount(accountFile)?.label;
+  return { ...transcriptMeta(transcript), ...(t ? { tool: t } : {}), ...(account ? { account } : {}) };
 }
 
 /** A short fingerprint of the identity, so an event carries it only when it changed. */

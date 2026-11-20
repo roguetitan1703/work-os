@@ -157,7 +157,7 @@ async function suite(vp) {
   await p.screenshot({ path: `${SP}/cl-${vp}-sessions.png` });
 
   // A session whose Claude Code hook says it waits at a permission prompt reads "waiting on you" (the hook beats transcript timing); working stays working
-  await mcp('start_work', { project: 'Alpha', session: 'cp-hook', label: 'Claude page hook row' });
+  await mcp('start_work', { project: 'Alpha', session: 'cp-hook', label: 'Claude page hook row', account: 'tools' });
   const HOOKROW = `${ME.userId}:s:cp-hook:${A}`;
   const CC = 'cc-' + randomUUID();
   const hookItems = () => [{ sessionId: CC, folder: 'alpha', title: 'Hook session', lastActiveAt: new Date(Date.now() - 20 * 60_000), subagentsActive: 0, startedByWorkOs: false, running: true }];
@@ -166,6 +166,7 @@ async function suite(vp) {
   await p.goto(B + '/claude'); await p.waitForSelector('[data-section="sessions"]');
   const hrow = p.locator(`[data-session-row="${D1}:${CC}"]`);
   check(T('hook says waiting at a prompt: the row reads "waiting on you"'), (await hrow.count()) === 1 && /waiting on you/i.test(await hrow.innerText()) && (await p.locator(`[data-worker="${HOOKROW}"]`).count()) === 1 && (await p.locator(`[data-worker="${HOOKROW}"][data-session-row="${D1}:${CC}"]`).count()) === 1, await hrow.innerText().catch(() => 'no row'));
+  check(T('the row shows the Claude account'), (await hrow.locator('[data-session-account]').count()) === 1 && (await hrow.locator('[data-session-account]').innerText()) === 'tools', await hrow.innerText().catch(() => 'no row'));
   check(T('Claude page no horizontal scroll with the waiting row'), await noScroll());
   await p.screenshot({ path: `${SP}/cl-${vp}-now-waiting.png` });
   await p.evaluate(() => document.documentElement.classList.add('dark'));

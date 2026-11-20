@@ -54,8 +54,23 @@ test('the tool comes from the entrypoint: desktop, vscode, terminal; sdk and unk
 
 test('identityOf joins the transcript and the tool; identityKey changes only with title, ai title or model', () => {
   const f = file(rec({ type: 'custom-title', customTitle: 'A' }), asst('m1'));
-  const i = identityOf(f, { CLAUDE_CODE_ENTRYPOINT: 'cli' });
+  const i = identityOf(f, { CLAUDE_CODE_ENTRYPOINT: 'cli' }, path.join(dir, 'no-such-claude.json')); // a fixture: never the real account file
   assert.deepEqual(i, { title: 'A', model: 'm1', tool: 'terminal' });
   assert.equal(identityKey(i), identityKey({ ...i, tool: 'vscode' }));
   assert.notEqual(identityKey(i), identityKey({ ...i, model: 'm2' }));
+});
+
+test('identityOf: the account label from the account file (the part before @), never the uuid, id or email; no file, no account', () => {
+  const f = file(rec({ type: 'custom-title', customTitle: 'A' }), asst('m1'));
+  const acct = path.join(dir, 'claude-account.json');
+  const UUID = 'aaaaaaaa-0000-4000-8000-123456789abc';
+  fs.writeFileSync(acct, JSON.stringify({ oauthAccount: { accountUuid: UUID, emailAddress: 'pat@example.com' } }));
+  const i = identityOf(f, {}, acct);
+  assert.equal(i.account, 'pat');
+  const json = JSON.stringify(i);
+  assert.ok(!json.includes(UUID) && !json.includes('example.com') && !json.includes('@'));
+  assert.equal(identityKey(i), identityKey({ ...i, account: 'other' })); // an account never makes an event carry the identity again
+  assert.ok(!('account' in identityOf(f, {}, path.join(dir, 'missing.json'))));
+  fs.writeFileSync(acct, JSON.stringify({ oauthAccount: { accountUuid: UUID, emailAddress: '@example.com' } }));
+  assert.ok(!('account' in identityOf(f, {}, acct)), 'an empty label sends nothing');
 });

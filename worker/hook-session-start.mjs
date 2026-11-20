@@ -105,7 +105,7 @@ export async function sessionStart(input) {
   const ids = { ...(UUID_RE.test(sid || '') ? { ccSession: sid } : {}), ...(SOURCES.includes(input.source) ? { source: input.source } : {}) };
   // Protocol 3: who the session is. The worker route takes title, aiTitle, model and tool; start_work (the key path) takes the name as its label and the model.
   const identity = identityOf(input.transcript_path);
-  const keyIdentity = { ...(identity.title || identity.aiTitle ? { label: identity.title || identity.aiTitle } : {}), ...(identity.model ? { model: identity.model } : {}) };
+  const keyIdentity = { ...(identity.title || identity.aiTitle ? { label: identity.title || identity.aiTitle } : {}), ...(identity.model ? { model: identity.model } : {}), ...(identity.account ? { account: identity.account } : {}) };
   let a = null;
   if (workerHome()) {
     try { a = await agentStart({ ...where, folders, ...repoFacts(cwd), ...ids, ...identity }, sid ? readKept(sid) : null); } catch { a = null; }

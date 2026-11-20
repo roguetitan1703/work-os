@@ -1,7 +1,6 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { hashAccount, readAccount } from './claude-account.mjs';
 import { defaultProjectsRoot, readSessionMeta, rootsFilter } from './activity.mjs';
 
 // Claude usage per session (Work OS note a289ffec58). From each `type: "assistant"` record of the transcripts
@@ -30,20 +29,8 @@ const MAX_FILES = 20000;
 const SID_FILE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
 
 const num = (v) => (Number.isFinite(v) && v > 0 ? Math.min(Math.round(v), 1e12) : 0);
+export { readAccount };
 const oneLine = (s, n) => String(s).replace(/\s+/g, ' ').trim().slice(0, n);
-
-const hashAccount = (uuid) => crypto.createHash('sha256').update('work-os-acct:' + uuid).digest('hex').slice(0, 16);
-
-/** The Claude account this computer is signed in to: { id, label } (id a hash, label the email's part before @), or null. Read only. */
-export function readAccount(file = path.join(os.homedir(), '.claude.json')) {
-  try {
-    const j = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const a = j && j.oauthAccount;
-    if (!a || typeof a.accountUuid !== 'string' || !a.accountUuid) return null;
-    const mail = typeof a.emailAddress === 'string' ? a.emailAddress : '';
-    return { id: hashAccount(a.accountUuid), label: oneLine(mail.split('@')[0], 40) };
-  } catch { return null; }
-}
 
 /** The instant (ms) at which the wall clock of `tz` (the local zone when missing or wrong) shows y-m-d h:min. */
 function wallInstant(y, mo, d, h, min, tz) {

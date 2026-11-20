@@ -55,6 +55,8 @@ const Body = z
     machine: z.string().max(40).optional(),
     label: z.string().max(120).optional(),
     model: z.string().max(60).optional(),
+    // The Claude account's label (the email's part before @, worker/claude-account.mjs); one that looks like an email or a key is dropped, the start goes on.
+    account: z.string().max(400).optional(), // longer than 40 is dropped below: a label never fails a start
     // Hook protocol 3 (Identity step 4): the session's own name (a /rename), Claude's title for it and where it runs. One line each, cut to 120 characters on the server.
     title: z.string().max(300).optional(),
     aiTitle: z.string().max(300).optional(),
@@ -123,6 +125,7 @@ export async function POST(req: Request): Promise<Response> {
     const parsed = Body.safeParse(raw);
     if (!parsed.success) return reply(400, { error: 'The body has fields this route does not take, or values that are too long.' });
     const b = parsed.data;
+    if (b.account && (b.account.length > 40 || /@|^\s*(sk-|wkr_|wos_|ghp_|xox)/i.test(b.account) || /[A-Za-z0-9_-]{32,}/.test(b.account))) delete b.account; // the same test as start_work's account
 
     const hook = hookHeader(req.headers.get('x-work-os-hook'));
     const tz = await timezoneOf(s);
@@ -146,7 +149,7 @@ export async function POST(req: Request): Promise<Response> {
           sid = made.id;
           until = made.expiresAt;
         }
-        await registerUnfiledSession(ctx0, sid, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model }, folderName);
+        await registerUnfiledSession(ctx0, sid, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, account: b.account }, folderName);
         return reply(200, { unfiled: true, ...(quiet ? { quiet: true } : {}), ...(token ? { token } : {}), expiresAt: until.toISOString() });
       };
       let projectId: string;
@@ -178,7 +181,7 @@ export async function POST(req: Request): Promise<Response> {
       // Where this session works: no version bump (lib/data/states.ts setWhere). Only when the hook sent something to show.
       if (b.head || b.dirty !== undefined || b.worktrees || b.branch) await setWhere(s, projectId, b.machine || device.name, { branch: b.branch, head: b.head, dirty: b.dirty, worktrees: b.worktrees });
       // Hook protocol: the X-Work-OS-Hook header; a start without it is the old hook (1, still gets the copy in answers).
-      const brief = await startWorkBrief(ctx, projectId, session.id, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, ...(dispatched ? { dispatched } : {}) });
+      const brief = await startWorkBrief(ctx, projectId, session.id, { hook: hook ?? 1, viaHook: true, branch: b.branch, machine: device.id, ccSession: b.ccSession, source: b.source, label: b.label, title: b.title, aiTitle: b.aiTitle, tool: b.tool, model: b.model, account: b.account, ...(dispatched ? { dispatched } : {}) });
       // Lanes step 6: the folder's key (sha1 of the computer and the path, never the path) goes on the row; another live session in it is the brief's sameFolder.
       const fk = folderKeyOf(device.id, b.path);
       await setFolderKey(s, { sid: session.id, projectId }, fk);

@@ -278,6 +278,7 @@ function SessionRow({
   if (serves) meta.push(<span key="n" data-lane-serves>{serves}</span>);
   if (where !== 'project') meta.push(<span key="p" data-session-project={s.project ? undefined : 'none'}>{s.project?.name ?? 'No project'}</span>);
   if (s.machine) meta.push(<span key="m">{s.machine}</span>);
+  if (s.account) meta.push(<span key="acct" data-session-account>{s.account}</span>);
   if (s.origin)
     meta.push(
       <span

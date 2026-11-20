@@ -493,7 +493,7 @@ export async function registerUnfiledSession(ctx: BriefCtx, sid: string, a: Star
   const caller = ctx.caller;
   const s = sOf(ctx);
   const mach = await resolveMachine(s, a.machine);
-  await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, null, { machine: mach.machine, machineName: mach.machineName, ...labelFor(cleanLabel(folderName) || 'Claude Code', a, null), tool: a.tool, model: a.model, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
+  await registerPresence(s, { userId: s.userId, agent: caller.agent, keyId: caller.keyId, keyName: caller.keyName, session: sid }, null, { machine: mach.machine, machineName: mach.machineName, ...labelFor(cleanLabel(folderName) || 'Claude Code', a, null), tool: a.tool, model: a.model, account: a.account, branch: a.branch, hook: a.hook, ...(a.ccSession ? { ccSession: a.ccSession, activity: a.source === 'compact' ? ('working' as const) : ('on' as const) } : {}) });
 }
 
 /**
@@ -1728,6 +1728,7 @@ export function createMcpServer(ctx: Ctx): McpServer {
           person: w.mine ? 'me' : w.person,
           tool: w.tool || w.ai, // desktop, vscode or terminal when the hook said; else the kind of client
           model: w.model,
+          ...(w.account ? { account: w.account } : {}),
           machine: w.machine,
           project: w.project?.name ?? 'No project', // a session whose folder no project owns (only its own person sees it)
           branch: w.branch,
