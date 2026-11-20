@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 216. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 217. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -68,7 +68,7 @@ Copy of the Work OS state, version 216. WORK-STATE.md is a copy of the State, wr
 - Mail: mail_draft / mail_reply_draft that saves to Drafts, threaded on the original, for outside-domain mail a person sends himself (Om's chat, 20 Nov, m_d4b1a5e5731c) — waits on Om's account switch
 - Messages sent to a session name that matched no session (m_c5acf64b5e63, m_83aca68c72ce from Om's chat) sit unread and only the sender can open them: refuse unknown names on production too, and let the owner see and re-address stranded ones — waits on check whether production still accepts waiting labels
 - Monitoring service on the Oracle Micro (Akash): Work OS needs a public /health endpoint (today only /api/live); alerts may later become Work OS messages (Om's chat, m_c7651765f8d6)
-- Full run on e8b392f: Claude › Set up phone check overflowed once (summary row of a Disclosure) and Today complete ran 47 database ops against a budget of 45; both rerun alone on a52351f before the release
+- Full run on e8b392f: Claude › Set up phone check overflowed once and passed on rerun (flake) (summary row of a Disclosure) and Today complete ran 47 database ops against a budget of 45; both rerun alone on a52351f before the release
 - Claude chat feedback 20 Nov: its Work OS tool list is from before 19 Nov (quotes the removed to_session text), claude.ai does not refresh it; also read-only get_message, say whether chats call start_work, state the no-teammate-sessions rule in send_message, a one-line glossary, server instructions get truncated, recent_activity says hook where chats have none — waits on messaging design note after Om's switch
 - Bug: a Claude chat's start_work on Work OS (no pick_up) attached the lead's 13:49 handover and stamped it picked up by the chat; a chat must never take over a Code session's handover; check whether Needs or held lines moved (Om's chat, m_890469b90393)
-<!-- work-os-copy sha1:bdae1bcb823c2aeec7898ab00e6df2bfc4183fc3 -->
+<!-- work-os-copy sha1:d9312de19042a3d6a66480612048d5f2d1b2360f -->
