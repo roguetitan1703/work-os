@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 203. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 204. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -62,4 +62,5 @@ Copy of the Work OS state, version 203. WORK-STATE.md is a copy of the State, wr
 - get_state is 50-65 KB in one line on Work OS and AKAR (too big for one tool call) and its lines carry no `at`, so agents can't see a line's age; add a compact mode (ids, text, waitsOn, at) or paging. — waits on with the declutter fix
 - Goals above tasks (Om, 20 Nov: e.g. 'Phase 3' with its tasks under it; Now points at the current goal). Bigger change; after Parked.
 - Claude page in dark (e2e shots 20 Nov, Sessions and Usage tabs): the selected tab pill is light with white text, and Start Claude is dark on dark. Older than the usage change; check on the real app in dark, then fix in redesign step 7.
-<!-- work-os-copy sha1:302f004e69570e990584301a7b902cab9eb61df1 -->
+- Om's worker runs from dev and now holds the usage reader; production ignores `usage` until the release, but the worker marks rows sent once the post succeeds. If it restarted before the release, clear its usage offsets after the release so the 30-day backfill goes again. — waits on the usage release
+<!-- work-os-copy sha1:7f45f03a9fba12ee61bfa640e261877829daa253 -->
