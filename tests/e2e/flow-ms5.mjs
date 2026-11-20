@@ -40,7 +40,8 @@ try {
   check('MS5 a: the message stores the addressed key and a label for display, not the raw id', mDoc.toSids?.length === 1 && mDoc.toSids[0] === `${ME.userId}:${b.session}` && mDoc.toSession === 'Work OS · builder B' && Array.isArray(mDoc.seenBy) && mDoc.seenBy.length === 0, JSON.stringify([mDoc.toSids, mDoc.toSession, mDoc.seenBy]));
   const fyB = await peek(kA, PA, b.session);
   const fyA = await peek(kA, PA, a.session);
-  check('MS5 a: forYou names the message on B once and not on A', fyB?.forYou?.some(l => /1 request from me on project/.test(l)) && !(fyA && 'forYou' in fyA), JSON.stringify([fyB?.forYou, fyA?.forYou]));
+  // 20 Nov: a session without the hook gets the unread line (ids, count, sender) until it reads it
+  check('MS5 a: forYou names the message on B and not on A', fyB?.forYou?.some(l => /^1 unread message for this session from me/.test(l) && l.includes(sent.id)) && !(fyA && 'forYou' in fyA), JSON.stringify([fyB?.forYou, fyA?.forYou]));
   check('MS5 a: …and B’s forYou carries no body text', !JSON.stringify(fyB.forYou).includes('rebuild'));
   check('MS5 a: A has nothing unread (it sent it)', (await unreadOf(kA, PA, a.session)) === 0);
   const inbB = (await must(kA, 'start_work', { project: PA, session: b.session })).inbox;
@@ -123,8 +124,8 @@ try {
   const l1 = await must(kT, 'send_message', { kind: 'fyi', body: 'legacy seen', to: OM, project: PE, session: te.session });
   const l2 = await must(kT, 'send_message', { kind: 'fyi', body: 'legacy unread', to: OM, project: PE, session: te.session });
   // as if they were stored before per-session read state and addressing: no seenBy, toSids, toUser or src
-  await rawDb.collection('messages').updateOne({ _id: l1.id }, { $set: { status: 'seen' }, $unset: { seenBy: '', toSids: '', toUser: '', src: '' } });
-  await rawDb.collection('messages').updateOne({ _id: l2.id }, { $unset: { seenBy: '', toSids: '', toUser: '', src: '' } });
+  await rawDb.collection('messages').updateOne({ _id: l1.id }, { $set: { status: 'seen' }, $unset: { seenBy: '', toSids: '', toUser: '', toSession: '', src: '' } });
+  await rawDb.collection('messages').updateOne({ _id: l2.id }, { $unset: { seenBy: '', toSids: '', toUser: '', toSession: '', src: '' } });
   const li = (await must(kA, 'start_work', { project: PE, session: ls.session })).inbox;
   check('MS5 e: a legacy seen message is unread for nobody; a legacy unread one is unread once', li.unread === 1 && li.messages.find(m => m.id === l2.id)?.unread === true && !li.messages.find(m => m.id === l1.id)?.unread, JSON.stringify(li.messages?.map(m => [m.id, m.unread])));
   check('MS5 e: after reading it is 0', (await unreadOf(kA, PE, ls.session)) === 0);
@@ -158,7 +159,7 @@ try {
   const tg = await must(kT, 'start_work', { project: PG, session: ghostId });
   check('MS5 g2: another member starting with that id gets her own key and nothing', tg.inbox === 'no messages' || tg.inbox.unread === 0);
 
-  // g3: a message to a person is for the person (Claude › Now), not for any of their sessions
+  // g3: a message to a person goes to one of their sessions
   const PH = 'Flow Sessions H';
   await proj(PH);
   const h1 = await must(kA, 'start_work', { project: PH, label: 'h one' });
@@ -166,7 +167,10 @@ try {
   const toOmP = await must(kT, 'send_message', { kind: 'fyi', body: 'for the project owner', to: OM, project: PH });
   const h3 = await must(kA, 'start_work', { project: PH, label: 'h three (late)' });
   check('MS5 g3: a session that starts after a message to the person has no backlog', h3.inbox === 'no messages' || h3.inbox.unread === 0, JSON.stringify(h3.inbox).slice(0, 160));
-  check('MS5 g3: neither earlier session of the person gets it (it is for the person, in the app)', (await unreadOf(kA, PH, h1.session)) === 0 && (await unreadOf(kA, PH, h2.session)) === 0 && (await rawDb.collection('messages').findOne({ _id: toOmP.id })).toUser === ME.userId);
+  // 20 Nov: a message to a person goes to ONE session of theirs (nobody holds Now: their latest live one, h two), never to all, never to an inbox
+  const dOmP = await rawDb.collection('messages').findOne({ _id: toOmP.id });
+  check('MS5 g3: it went to one session of the person (the latest live one), not to the app', !dOmP.toUser && JSON.stringify(dOmP.toSids) === JSON.stringify([`${ME.userId}:${h2.session}`]), JSON.stringify([dOmP.toUser, dOmP.toSids]));
+  check('MS5 g3: the other earlier session does not get it; the one it is for does', (await unreadOf(kA, PH, h1.session)) === 0 && (await unreadOf(kA, PH, h2.session)) === 1);
 
   // g4: a call with no session id does not borrow a sibling's row
   const PI = 'Flow Sessions I';

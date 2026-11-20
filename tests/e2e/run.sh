@@ -82,6 +82,7 @@ flow-ms2|flow-ms2.mjs|none|plain
 flow-ms3|flow-ms3.mjs|none|plain
 flow-ms4|flow-ms4.mjs|none|plain
 flow-ms5|flow-ms5.mjs|none|plain
+flow-ms6|flow-ms6.mjs|none|plain
 messages-word|messages-word.mjs|none|plain
 detection|detection.mjs|none|plain
 worker-process|worker-process.mjs|none|plain

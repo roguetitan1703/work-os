@@ -18,7 +18,7 @@ try {
   const idA = prime.session;
 
   const none = await mcpH(MCP, 'send_message', { project: NAME, kind: 'request', body: 'Rebuild the client after the API change' });
-  check('MS1: a message with no `to` is refused (it is for a session or a person)', none.isError && /to is needed/.test(none.text), none.text.slice(0, 160));
+  check('MS1: a message with only a project, when no session holds Now, is refused (never sent to every session) and nothing is stored', none.isError && /No session holds Now/.test(none.text) && !(await rawDb.collection('messages').findOne({ projectId: project._id })), none.text.slice(0, 160));
   const first = await must(MCP, 'send_message', { to: 'Cutroom Prime', kind: 'request', body: 'Rebuild the client after the API change', word: 'person' });
   check('MS1: `to` as a session name (any case) reaches that session, and the answer says who is on the receiving end', first.sent === true && /^cutroom prime: /.test(first.target) && !/cutroom other/.test(first.target) && /^m_/.test(first.id), JSON.stringify(first));
   const d1 = await rawDb.collection('messages').findOne({ _id: first.id });

@@ -146,7 +146,7 @@ try {
   const stop2 = await deliver('stop');
   check('e: a stop with nothing left unread delivers nothing', !('deliver' in (stop2.json ?? {})), stop2.text);
   const late = await deliver('tool');
-  check('e: the fyi is still handed over inside a turn', /just so you know/.test(late.json?.deliver?.text ?? ''));
+  check('e: the fyi handed over at the stop is not handed over again in the next turn', !/just so you know/.test(late.json?.deliver?.text ?? ''), late.text.slice(0, 200));
 
   // ---- f) the chain ----
   await rawDb.collection('presence').updateOne({ _id: `${ME.userId}:s:${S.sid}:${ONE}` }, { $set: { turnChain: 1 } });

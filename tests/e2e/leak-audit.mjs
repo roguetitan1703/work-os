@@ -922,7 +922,12 @@ try {
     check('Orders: a member marks their own page as their person Orders', fp.value?.ok === true, JSON.stringify(fp.value));
     const mcn = `lkqmvmsg${hex(4)}`;
     CANARIES.push({ s: mcn, tag: 'mvmsg', allow: new Set(['A', 'T']) });
+    // 20 Nov: a message to a person goes to her lead session on the project, so she starts one first. It is then turned into the old form
+    // (toUser, Messages for you), which messages stored before still have, so that form stays covered here.
+    const tStart = await mcpCall(T.code, 'start_work', { project: nm, machine: 'lkqmvt', label: 'tess' });
     const mm = await mustMcp(A.chat, 'send_message', { to: T.person, project: nm, kind: 'fyi', body: mcn, word: 'person' });
+    check('Messages: a message to a teammate goes to her session on the shared project, by its key', JSON.stringify((await rawDb.collection('messages').findOne({ _id: mm.id })).toSids) === JSON.stringify([`${T.userId}:${tStart.json?.session}`]), '');
+    await rawDb.collection('messages').updateOne({ _id: mm.id }, { $set: { toUser: T.userId }, $unset: { toSids: '', toSession: '' } });
     check('Messages: word is set by the server, an argument for it is ignored', mm.word === 'agent' && (await rawDb.collection('messages').findOne({ _id: mm.id })).from.word === 'agent', JSON.stringify(mm));
     const tm = await mcpCall(T.code, 'send_message', { to: 'E2E Owner', project: nm, kind: 'fyi', body: 'lkq from T', word: 'person' });
     check('Messages: a teammate can send to a person on a shared project, and their word is agent whatever they pass', tm.ok && JSON.parse(tm.text).word === 'agent', tm.text.slice(0, 200));
@@ -937,7 +942,6 @@ try {
     const tBefore = await mcpCall(T.chat, 'get_state', { project: nm });
     scan('T', 'mv get_state (before)', tBefore.text);
     check('State: a teammate reads a shared project’s State', tBefore.ok && tBefore.text.includes(cn), tBefore.text.slice(0, 200));
-    const tStart = await mcpCall(T.code, 'start_work', { project: nm, machine: 'lkqmvt', label: 'tess' });
     check('State: a teammate can start work on it (presence is theirs)', tStart.ok, tStart.text.slice(0, 200));
     // H3: read state and addressing never leave the server, and nobody else's session id reaches a teammate (alsoHere, target, messages)
     const aSessions = (await rawDb.collection('presence').find({ userId: A.userId, projectId: (await rawDb.collection('projects').findOne({ orgId: A.orgId, name: nm }))._id }).toArray()).map(p => p.session).filter(Boolean);

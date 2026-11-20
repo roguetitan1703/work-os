@@ -1,7 +1,7 @@
 // Identity step 6: a message goes to a session of yours (by id or name) or to a person. A session with no project is a session like any other
 // for messages: the message is private to its person (placed private, owned by them, nobody else reads it or finds it), it is handed to the
 // session by the hook (deliver on an event, a wake on wait), the session answers with reply, and a teammate can neither send to it by its id
-// nor read what was sent. A message to a person shows on her Claude > Now (flow MS4 does the buttons). Seed profile: none.
+// nor read what was sent. A message to a person goes to her lead session on the project (20 Nov). Seed profile: none.
 import { randomUUID } from 'node:crypto';
 import { B, MCP, ME, check, finish, makeUser, mkDevice, mkKey, rawDb } from './lib.mjs';
 import { must, mcpH } from './flow-lib.mjs';
@@ -101,10 +101,10 @@ try {
   const repT = await must(kA, 'reply', { id: fromT.id, body: 'Yes, ready', session: pSid });
   check('a reply to a teammate’s live session does not say "gone"', typeof repT.target === 'string' && !/gone/.test(repT.target) && /tess live/.test(repT.target), String(repT.target).slice(0, 200));
 
-  // A message to a person: shows on her Claude > Now, not for any session of hers
+  // A message to a person (20 Nov): goes to ONE session of hers, her lead on the project (here her one live session), never to an inbox
   const toT = await must(kA, 'send_message', { to: 'Tess', project: 'M2S Project', kind: 'fyi', body: 'Tess: the planner is ready', session: pSid });
   const dt = await rawDb.collection('messages').findOne({ _id: toT.id });
-  check('a message to a person carries her id and the project, and no session key', dt.toUser === TESS.userId && !dt.toSids?.length && dt.visibility === 'org', JSON.stringify([dt.toUser, dt.toSids, dt.visibility]));
+  check('a message to a person goes to her lead session on the project (one key), not to an inbox', !dt.toUser && JSON.stringify(dt.toSids) === JSON.stringify([`${TESS.userId}:${tRow.key}`]) && dt.visibility === 'org' && /Tess’s lead session/.test(toT.target), JSON.stringify([dt.toUser, dt.toSids, dt.visibility, toT.target]));
   const noProj = await mcpH(kA, 'send_message', { to: 'Tess', kind: 'fyi', body: 'no project given' });
   check('a message to a person needs a project you both read', noProj.isError && /needs a project/.test(noProj.text), noProj.text.slice(0, 160));
   const priv = await must(kA, 'add_project', { name: 'M2S Private', visibility: 'private' });
@@ -113,7 +113,7 @@ try {
   const unknown = await mcpH(kA, 'send_message', { to: 'Nobody Atall', kind: 'fyi', body: 'x' });
   check('a name that is no session of yours and no person is refused', unknown.isError && /not a session of yours/.test(unknown.text), unknown.text.slice(0, 160));
   const noTo = await mcpH(kA, 'send_message', { kind: 'fyi', body: 'x' });
-  check('a message with no `to` is refused', noTo.isError && /to is needed/.test(noTo.text), noTo.text.slice(0, 160));
+  check('a message with no `to` and no project is refused', noTo.isError && /Say who it is for/.test(noTo.text), noTo.text.slice(0, 160));
   const self = await mcpH(kA, 'send_message', { to: ME.userId, project: 'M2S Project', kind: 'fyi', body: 'x' });
   check('a message cannot go to yourself as a person', self.isError, self.text.slice(0, 160));
 } catch (e) {
