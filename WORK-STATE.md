@@ -1,9 +1,9 @@
-Copy of the Work OS state, version 166. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 167. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
 ## Now
-- Make Work OS feel like your team at work, not a task app (Om 20 Nov): a Fable UX review of every screen and 10 everyday jobs, then a job-based redesign with one shared UI library and a Spotlight-style Ctrl+K search over everything. Meanwhile ship R9 (UI phases 3-5, Need withdraw fix, Claude page fixes, tools reload without reconnect). R8 is live. H16 measuring until about 3 Dec, then H17.
+- Make Work OS feel like your team at work, not a task app: the six-step redesign from the UI review (note c475deb871): UI library, navigation, sessions first, Needs and Today, one Spotlight search, tasks. R9 is live (20 Nov). H16 measuring until about 3 Dec, then H17.
 
 ## Next
 1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
@@ -45,4 +45,4 @@ Copy of the Work OS state, version 166. WORK-STATE.md is a copy of the State, wr
 - tests/live-release.test.mjs fails on a server-only import (seen by builder S2 20 Nov); check on dev and fix.
 - Today's DB ops grew 1-2 between the 23 Oct budgets and R8 (page 30, rsc 25, complete 44); probe.mjs now prints ops per collection; find which read grew (devices=6 on one Today load looks high).
 - Claude page: a session's last line can be a subagent's compaction summary (AKAR row showed "<analysis> I am an Opus builder subagent..."): take the last line from the main conversation only, never from a summary.
-<!-- work-os-copy sha1:7417314ff895d7cfd3423683c4f64dabba39be17 -->
+<!-- work-os-copy sha1:0d214434e3f6177fcccb1cf39f4a331b53a14ca4 -->
