@@ -24,6 +24,14 @@ const GRACE_MS = 45000; // a just-launched session may not show in the process l
 // deps: { getConfig, state, save, api, launcher, listProcesses, killPid, now?, log? }
 // Status (heartbeat, session list, counts) at most this often between jobs: each one is a server request.
 export const STATUS_EVERY_MS = 110_000;
+
+/** The status body names a session made in the Claude desktop app (origin 'desktop', newer than some servers). */
+export const hasDesktop = (b) => [...(b.claudeSessions || []), ...(b.reopen || [])].some((x) => x && x.origin === 'desktop');
+/** The same body with origin 'desktop' sent as 'other', for a server that does not know it yet. */
+export const withoutDesktop = (b) => {
+  const fix = (l) => (Array.isArray(l) ? l.map((x) => (x && x.origin === 'desktop' ? { ...x, origin: 'other' } : x)) : l);
+  return { ...b, ...(b.claudeSessions ? { claudeSessions: fix(b.claudeSessions) } : {}), ...(b.reopen ? { reopen: fix(b.reopen) } : {}) };
+};
 // With push up (push.mjs) and no Work OS session running, a status goes out only when what it says has changed; the
 // open stream already tells the server the computer is on. At least this often anyway.
 export const STATUS_IDLE_MS = 30 * 60_000;
@@ -299,7 +307,13 @@ export function createCore(deps) {
 
   async function sendStatus(prebuilt) {
     const body = prebuilt || (await buildStatus());
-    await api.postStatus(body);
+    try {
+      await api.postStatus(body);
+    } catch (e) {
+      // A server from before origin 'desktop' answers the whole report with 400: send those sessions as 'other' once.
+      if (e?.status !== 400 || !hasDesktop(body)) throw e;
+      await api.postStatus(withoutDesktop(body));
+    }
     lastSent = statusKey(body);
     pendingResults = [];
     lastStatus = now();

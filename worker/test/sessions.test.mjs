@@ -205,6 +205,26 @@ test('large transcript: title found in the tail without reading the whole file',
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('folder is where the session started: a later cd into a subfolder does not move it (AKAR/server, 20 Nov)', () => {
+  const { root, put } = tree();
+  try {
+    const later = rec({ type: 'user', cwd: 'D:\\Work\\AKAR\\server', entrypoint: 'claude-desktop', message: { content: 'x'.repeat(2000) } }).repeat(1500); // tail only sees server
+    const f = put('p1', uuid(1), 1000, [rec({ type: 'user', cwd: 'D:\\Work\\AKAR', entrypoint: 'claude-desktop', message: { content: 'start' } }), later, rec({ type: 'ai-title', aiTitle: 'AKAR lead' })]);
+    assert.deepEqual(readSessionMeta(f), { title: 'AKAR lead', folder: 'AKAR', origin: 'desktop' });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a status body with desktop sessions falls back to other for an older server', async () => {
+  const { hasDesktop, withoutDesktop } = await import('../core.mjs');
+  const b = { worker: {}, claudeSessions: [{ sessionId: 'a', origin: 'desktop' }, { sessionId: 'b', origin: 'vscode' }], reopen: [{ sessionId: 'a', origin: 'desktop' }] };
+  assert.equal(hasDesktop(b), true);
+  const w = withoutDesktop(b);
+  assert.deepEqual(w.claudeSessions.map((x) => x.origin), ['other', 'vscode']);
+  assert.deepEqual(w.reopen.map((x) => x.origin), ['other']);
+  assert.equal(hasDesktop(w), false);
+  assert.equal(b.claudeSessions[0].origin, 'desktop'); // the original is not changed
+});
+
 test('lastSegment', () => {
   assert.equal(lastSegment('C:\\a\\b\\c\\'), 'c');
   assert.equal(lastSegment('/a/b'), 'b');

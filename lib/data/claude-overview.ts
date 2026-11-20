@@ -127,7 +127,7 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
   const known = reportedIds.length ? await c.workerSessions.find({ _id: { $in: reportedIds }, deviceId: { $in: mine } }).toArray() : [];
   const wsById = new Map([...known, ...live, ...ended].map(s => [s._id, s]));
   // What each session's own Claude Code hook last reported (the owner's rows only, keyed by Claude Code's session id): it beats guessing from transcript timing.
-  const hookRows = reportedIds.length ? await c.presence.find({ userId: scope.userId, ccSession: { $in: reportedIds }, activity: { $exists: true } }, { projection: { ccSession: 1, activity: 1, endedAt: 1, lastSeen: 1, doing: 1, lastResult: 1 } }).toArray() : [];
+  const hookRows = reportedIds.length ? await c.presence.find({ userId: scope.userId, ccSession: { $in: reportedIds }, activity: { $exists: true } }, { projection: { ccSession: 1, projectId: 1, activity: 1, endedAt: 1, lastSeen: 1, doing: 1, lastResult: 1 } }).toArray() : [];
   const hookOf = new Map<string, (typeof hookRows)[number]>();
   for (const r of hookRows) {
     const prev = r.ccSession ? hookOf.get(r.ccSession) : undefined;
@@ -202,7 +202,8 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
         else if (h.state === 'on' || h.state === 'idle') state = it.subagentsActive > 0 ? 'working' : state === 'idle' ? 'idle' : 'open';
       }
       if (stale && state !== 'closed' && state !== 'stopped' && state !== 'failed') state = 'unknown';
-      const projectId = own?.projectId ?? projectFor(d._id, it.folder);
+      // The session's own start_work (its hook row) names its project; the folder name is only a guess (a `cd` into a subfolder breaks it).
+      const projectId = own?.projectId ?? hook?.projectId ?? projectFor(d._id, it.folder);
       const f = own ? folderOf.get(`${own.deviceId}:${own.folderId}`) : undefined;
       const linked = !!own && !!f && f.projectId === own.projectId;
       const isLive = state === 'working' || state === 'open' || state === 'idle' || state === 'starting';
@@ -227,7 +228,9 @@ export async function claudeOverview(scope: DeviceScope, opts: { card?: boolean 
         ...(own?.error ? { error: friendlyError(own.error) } : {}),
         ...(it.origin ? { origin: it.origin } : {}),
         ...(doc?.dispatched ? { dispatched: true as const } : {}),
-        canVscode: dev.online && !doc?.dispatched, // a dispatched run opens with its own key only (Resume), never with the person's in VS Code
+        // A dispatched run opens with its own key only (Resume), never with the person's in VS Code. A Claude desktop app session
+        // lives in the app: opening it in VS Code as well would run one conversation in two places.
+        canVscode: dev.online && !doc?.dispatched && it.origin !== 'desktop',
         canStop: !!own?.projectId && (isLive || state === 'unknown'),
         canResume: !!own?.projectId && linked && !isLive && state !== 'unknown',
         canRemove: !!own?.projectId && !isLive,

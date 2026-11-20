@@ -187,7 +187,7 @@ function inspect(text, found) {
 // is taken (the last one in the text), nothing else on those lines. 'claude-vscode' = the VS Code extension, 'cli' = a terminal.
 const ENTRY_RE = /"entrypoint":"([a-z0-9_-]{1,32})"/g;
 export function originOf(entrypoint) {
-  return entrypoint === 'claude-vscode' ? 'vscode' : entrypoint === 'cli' ? 'cli' : 'other';
+  return entrypoint === 'claude-vscode' ? 'vscode' : entrypoint === 'cli' ? 'cli' : entrypoint === 'claude-desktop' ? 'desktop' : 'other';
 }
 export function lastEntrypoint(text) {
   let last = null;
@@ -197,15 +197,14 @@ export function lastEntrypoint(text) {
 
 export function readSessionMeta(file) {
   const found = { titles: {}, cwdName: '' };
+  // The head first: its first cwd is the folder the session started in (its project's folder); a later `cd` in the
+  // session (into AKAR/server, say) must not move it. The tail's titles then win (later lines win).
+  const head = readChunk(file, HEAD_BYTES, false);
+  inspect(head, found);
   const tail = readChunk(file, TAIL_BYTES, true);
   inspect(tail, found);
-  let entry = lastEntrypoint(tail);
+  const entry = lastEntrypoint(tail) ?? lastEntrypoint(head);
   const best = () => TITLE_KINDS.map(([t]) => found.titles[t]).find(Boolean) || '';
-  if (!best() || !found.cwdName || !entry) {
-    const head = readChunk(file, HEAD_BYTES, false);
-    inspect(head, found);
-    if (!entry) entry = lastEntrypoint(head);
-  }
   return { title: best(), folder: found.cwdName, origin: originOf(entry) };
 }
 
