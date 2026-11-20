@@ -79,7 +79,7 @@ const settle = p => p.waitForTimeout(700);
   check('Projects header: no second + (New project is a labelled button)', (await p.locator('header:visible button[aria-label="New project"]').count()) === 0 && (await p.locator('main [data-new-project]:visible').count()) === 1);
   // Menu: one flat list, Tasks first
   await p.goto(B + '/menu'); await settle(p);
-  const hrefs = await p.locator('main a').evaluateAll(els => els.map(e => e.getAttribute('href')));
+  const hrefs = await p.locator('main [data-menu] a').evaluateAll(els => els.map(e => e.getAttribute('href')));
   check("menu is Tasks, Notes, Review, Schedule, Inbox, What's new, Settings, in that order", JSON.stringify(hrefs) === JSON.stringify(['/tasks', '/notes', '/review', '/timetable', '/notifications', '/whats-new', '/settings']), JSON.stringify(hrefs));
   check('menu: one list, no group headings', (await p.locator('main h2').count()) === 0 && (await p.locator('main [data-menu]').count()) === 1);
   const mrows = await p.locator('main [data-menu] > div').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().height)));
