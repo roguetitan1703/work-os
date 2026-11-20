@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 209. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 210. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -64,4 +64,6 @@ Copy of the Work OS state, version 209. WORK-STATE.md is a copy of the State, wr
 - Goals above tasks (Om, 20 Nov: e.g. 'Phase 3' with its tasks under it; Now points at the current goal). Bigger change; after Parked.
 - Claude page in dark (e2e shots 20 Nov, Sessions and Usage tabs): the selected tab pill is light with white text, and Start Claude is dark on dark. Older than the usage change; check on the real app in dark, then fix in redesign step 7.
 - Om's worker runs from dev and now holds the usage reader; production ignores `usage` until the release, but the worker marks rows sent once the post succeeds. If it restarted before the release, clear its usage offsets after the release so the 30-day backfill goes again. — waits on the usage release
-<!-- work-os-copy sha1:e19725a03f8809e53fed9f0534f73b94568ecd91 -->
+- Mail: mail_draft / mail_reply_draft that saves to Drafts, threaded on the original, for outside-domain mail a person sends himself (Om's chat, 20 Nov, m_d4b1a5e5731c) — waits on Om's account switch
+- Messages sent to a session name that matched no session (m_c5acf64b5e63, m_83aca68c72ce from Om's chat) sit unread and only the sender can open them: refuse unknown names on production too, and let the owner see and re-address stranded ones — waits on check whether production still accepts waiting labels
+<!-- work-os-copy sha1:9118431b52896e1d68965ea3160145ae4032feea -->
