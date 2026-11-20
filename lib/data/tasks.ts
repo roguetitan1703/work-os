@@ -910,6 +910,8 @@ async function updateTaskCore(s: Scope, key: string | number, data: ReturnType<t
     }
   }
   for (const a of added) await queueAssigned(s, next, a, actor);
+  // A task the Discord bot recorded: its reply there says Done (lib/discord/buttons.ts, best effort).
+  if (statusChanged && status === 'Done' && cur.status !== 'Done' && next.source?.kind === 'discord' && next.source.replyId) void import('../discord/buttons').then(m => m.settleDone(next));
   if (tookBack) next.claude = (await c.tasks.findOne({ _id: cur._id }, { projection: { claude: 1 } }))?.claude ?? next.claude;
   // A task someone gave to Claude: Done or Blocked ends the dispatcher's run (docs/dispatcher.md).
   if (statusChanged && next.claude?.state === 'running') await onTaskChanged(c, s, next);

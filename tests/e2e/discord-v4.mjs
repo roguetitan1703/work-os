@@ -2,6 +2,7 @@
 // emoji, the buttons on the bot's reply, Connect Discord (OAuth), the agent tools and the DMs, against a stub Discord API
 // (discord-stub.mjs) with signed interactions. Seed profile: none, server mode discord. Each section adds its checks here.
 import { B, CRON, ME, call, check, finish, launch, login, makeUser, mcp, pick, rawDb, setOrgGuild, setProfile } from './lib.mjs';
+import { createPrivateKey, sign } from 'node:crypto';
 import { startStub, BOT } from './discord-stub.mjs';
 
 const G1 = '444444444444444451';
@@ -75,6 +76,10 @@ try {
   await setOrgGuild(A.orgId, G1);
   await setProfile(A, { discordId: DA, quietStart: 0, quietEnd: 0 });
   await setProfile(Bu, { discordId: DB, quietStart: 0, quietEnd: 0 });
+  // Cy is made here, before the server first reads the member list (it is cached for a while): a linked member who is on no task.
+  const DC = '111111111111111134';
+  const Cy = await makeUser({ email: 'cy@example.test', name: 'Cy Nair', orgId: A.orgId, role: 'member' });
+  await setProfile(Cy, { discordId: DC, quietStart: 0, quietEnd: 0 });
   const ch = (id, name, extra = {}) => ({ id, type: 0, name, guild_id: G1, parent_id: null, position: 0, permission_overwrites: [], ...extra });
   st.guilds[G1] = {
     channels: [ch(GEN, 'general'), ch(BUG, 'delpat-os'), ch(BLK, 'secrets')],
@@ -136,7 +141,7 @@ try {
   check('first set: the bot replies under the post with the task number and a link', !!reply1 && new RegExp(`^Recorded \\[#${k1?.ref}\\]\\(<[^>]*/tasks/${k1?.ref}>\\)$`).test(reply1.body.content), reply1?.body.content);
   const btns = reply1?.body.components ?? [];
   check('first set: the reply has Undo, Done and a For select', btns[0]?.components?.map(c => c.custom_id).join() === `wo:undo:${k1?.ref},wo:done:${k1?.ref}` && btns[1]?.components?.[0]?.custom_id === `wo:for:${k1?.ref}`, JSON.stringify(btns).slice(0, 300));
-  check('first set: the For select lists the organization\'s members', (btns[1]?.components?.[0]?.options ?? []).length === 2, JSON.stringify(btns[1]?.components?.[0]?.options));
+  check('first set: the For select lists the organization\'s members', (btns[1]?.components?.[0]?.options ?? []).length === 3, JSON.stringify(btns[1]?.components?.[0]?.options));
   check('first set: the reply is saved on the task', k1?.source?.replyId === reply1?.id, JSON.stringify(k1?.source));
   const c1 = await rawDb.collection('activity').find({ taskId: k1?._id, type: 'comment' }).toArray();
   check('first set: a reply in the window is a comment on its issue', c1.length === 1 && /iOS too/.test(c1[0].note ?? ''), JSON.stringify(c1.map(c => c.note)));
@@ -297,6 +302,76 @@ try {
   await react(DA, n1);
   await sleep(1000);
   check('emoji: a post already recorded as an issue is not tracked twice', (await rawDb.collection('tasks').countDocuments({ 'source.messageId': n1.id })) === 1 && (await rawDb.collection('tasks').countDocuments({})) === taskTotal);
+  // ---- 4. the buttons on the bot's reply ----
+  const DZ = '111111111111111135'; // no link, not the poster
+  const pkey = createPrivateKey({ key: Buffer.from(process.env.E2E_DISCORD_PRIV || '', 'base64'), format: 'der', type: 'pkcs8' });
+  let tn = 0;
+  const press = async (user, customId, values, guild = G1) => {
+    const body = JSON.stringify({ id: String(++tn), application_id: '999999999999999999', type: 3, token: `btn${tn}`, guild_id: guild, channel_id: BUG, member: { user: { id: user } }, data: { custom_id: customId, component_type: values ? 3 : 2, ...(values ? { values } : {}) } });
+    const ts = String(Math.floor(Date.now() / 1000));
+    const r = await fetch(`${B}/api/discord/interactions`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-signature-ed25519': sign(null, Buffer.from(ts + body), pkey).toString('hex'), 'x-signature-timestamp': ts }, body });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  };
+  const eph = r => r.body?.type === 4 && r.body.data?.flags === 64;
+  const trashed = ref => rawDb.collection('trash').countDocuments({ ref });
+  const track4 = async (content, reactor = DB) => {
+    const m = put(raw({ channel: BUG, content, author: { id: DX, username: 'akash', global_name: 'Akash' } }));
+    await react(reactor, m);
+    const t = await waitFor(() => taskOf(m.id));
+    await waitFor(() => botPostsTo(m.id)[0]);
+    return { m, t };
+  };
+  const u1 = await track4('The export button does nothing on Safari');
+  const ref1 = u1.t?.ref;
+  check('buttons: the task has its reactor and poster recorded', !!u1.t && u1.t.source.reactorId === Bu.userId && u1.t.source.authorId === DX && !!u1.t.source.replyId, JSON.stringify(u1.t?.source));
+  // refused
+  const rUndo = await press(DC, `wo:undo:${ref1}`);
+  check('buttons: Undo by a member who is not on it is refused, privately', eph(rUndo) && new RegExp(`Only the people on #${ref1} can do that`).test(rUndo.body.data.content) && (await taskOf(u1.m.id)) !== null, JSON.stringify(rUndo.body));
+  const rDone = await press(DC, `wo:done:${ref1}`);
+  check('buttons: Done by a member who is not on it is refused', eph(rDone) && (await taskOf(u1.m.id)).status !== 'Done', JSON.stringify(rDone.body));
+  const rUndoZ = await press(DZ, `wo:undo:${ref1}`);
+  check('buttons: Undo by someone not linked and not the poster is refused', eph(rUndoZ) && (await taskOf(u1.m.id)) !== null, JSON.stringify(rUndoZ.body));
+  const rDoneX = await press(DX, `wo:done:${ref1}`);
+  check('buttons: the poster who is not linked cannot mark it Done', eph(rDoneX) && (await taskOf(u1.m.id)).status !== 'Done', JSON.stringify(rDoneX.body));
+  const rGone = await press(DA, 'wo:done:999999');
+  check('buttons: a task that is not there is said so', eph(rGone) && /not there/.test(rGone.body.data.content), JSON.stringify(rGone.body));
+  const rOther = await press(DA, `wo:done:${ref1}`, undefined, '444444444444444499');
+  check('buttons: a press from a server no organization has set does nothing', (await taskOf(u1.m.id)).status !== 'Done', JSON.stringify(rOther.body));
+  // For
+  const rForOk = await press(DC, `wo:for:${ref1}`, [Cy.userId]);
+  const afterFor = await taskOf(u1.m.id);
+  check('buttons: For by any linked member sets who it is for, and the reply is rewritten with the buttons', rForOk.body?.type === 7 && (afterFor.assigneeIds ?? []).join() === Cy.userId && /· Cy Nair/.test(rForOk.body.data.content) && rForOk.body.data.components?.length === 2, JSON.stringify({ b: rForOk.body, a: afterFor?.assigneeIds }));
+  const rForZ = await press(DZ, `wo:for:${ref1}`, [Bu.userId]);
+  check('buttons: For by someone not linked is refused and asks them to connect', eph(rForZ) && /Connect Discord/.test(rForZ.body.data.content) && ((await taskOf(u1.m.id)).assigneeIds ?? []).join() === Cy.userId, JSON.stringify(rForZ.body));
+  const rForBad = await press(DC, `wo:for:${ref1}`, ['not-a-member']);
+  check('buttons: For with someone outside the organization changes nothing', eph(rForBad) && ((await taskOf(u1.m.id)).assigneeIds ?? []).join() === Cy.userId, JSON.stringify(rForBad.body));
+  const rForPriv = await press(DA, `wo:for:${ke1.ref}`, [Bu.userId]);
+  check('buttons: For on a task with no project (private) says so and changes nothing', eph(rForPriv) && /private/.test(rForPriv.body.data.content) && ((await taskOf(e1.id)).assigneeIds ?? []).join() === A.userId, JSON.stringify(rForPriv.body));
+  // Done
+  const rDoneOk = await press(DC, `wo:done:${ref1}`);
+  const doneDoc = await taskOf(u1.m.id);
+  check('buttons: Done by a person on it completes it and the reply says Done with no buttons', rDoneOk.body?.type === 7 && doneDoc.status === 'Done' && new RegExp(`^Done \\[#${ref1}\\]`).test(rDoneOk.body.data.content) && rDoneOk.body.data.components?.length === 0, JSON.stringify(rDoneOk.body));
+  // Undo
+  const u2 = await track4('Footer links are broken on the pricing page');
+  const rUndoPoster = await press(DX, `wo:undo:${u2.t.ref}`);
+  check('buttons: Undo by the poster (not linked) removes the task and the reply says Removed', rUndoPoster.body?.type === 7 && /^Removed #/.test(rUndoPoster.body.data.content) && rUndoPoster.body.data.components?.length === 0 && (await taskOf(u2.m.id)) === null && (await trashed(u2.t.ref)) === 1, JSON.stringify(rUndoPoster.body));
+  const u3 = await track4('Newsletter signup shows the wrong month');
+  const rUndoReactor = await press(DB, `wo:undo:${u3.t.ref}`);
+  check('buttons: Undo by the person who reacted works', rUndoReactor.body?.type === 7 && (await taskOf(u3.m.id)) === null, JSON.stringify(rUndoReactor.body));
+  const u4 = await track4('The invite email goes to spam');
+  const rUndoOwner = await press(DA, `wo:undo:${u4.t.ref}`);
+  check('buttons: Undo by an organization owner works', rUndoOwner.body?.type === 7 && (await taskOf(u4.m.id)) === null, JSON.stringify(rUndoOwner.body));
+  const again = await press(DA, `wo:undo:${u4.t.ref}`);
+  check('buttons: a second Undo says it is not there', eph(again) && /not there/.test(again.body.data.content));
+  const u5 = await track4('The avatar upload stalls at 99 percent');
+  const rDoneOwner = await press(DA, `wo:done:${u5.t.ref}`);
+  check('buttons: Done by an organization owner works', rDoneOwner.body?.type === 7 && (await taskOf(u5.m.id)).status === 'Done', JSON.stringify(rDoneOwner.body));
+  // completing anywhere edits the reply
+  const u6 = await track4('Search results ignore the date filter');
+  const edits0 = st.edits.length;
+  const done6 = await call('complete_task', { task: u6.t.ref, note: 'fixed' });
+  const edit6 = await waitFor(() => st.edits.slice(edits0).find(e => e.body.content?.startsWith('Done')));
+  check('buttons: completing the task elsewhere edits the bot reply to Done, with no buttons', !done6.ERROR && !!edit6 && new RegExp(`^Done \\[#${u6.t.ref}\\]`).test(edit6.body.content) && Array.isArray(edit6.body.components) && edit6.body.components.length === 0 && edit6.channel === BUG, JSON.stringify({ e: edit6, d: done6 }));
 } catch (e) {
   check('discord-v4 (error)', false, e?.stack || String(e));
 }

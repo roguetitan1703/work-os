@@ -1,4 +1,5 @@
 import { handleNeedPress } from '@/lib/discord/need-buttons';
+import { handleRecordedPress, RECORDED_PRESS } from '@/lib/discord/buttons';
 import { after, NextResponse } from 'next/server';
 import { discordConfig } from '@/lib/discord/client';
 import { flushQueuedAlerts } from '@/lib/alerts';
@@ -77,6 +78,11 @@ export async function POST(req: Request) {
   const discordId = i.member?.user?.id; // only in a server (commands are registered per server)
   if (!cfg || !guildId || !discordId) return NextResponse.json(notAvailable(i));
   if (i.type === InteractionType.COMMAND && i.data?.name === 'link') return NextResponse.json(await linkAccount(i));
+
+  // The buttons on the bot's Recorded reply: the poster may Undo without being linked, so this comes before the link check.
+  if (i.type === InteractionType.COMPONENT && RECORDED_PRESS.test(i.data?.custom_id ?? '')) {
+    return NextResponse.json(await handleRecordedPress(i, (process.env.APP_URL || new URL(req.url).origin).replace(/\/+$/, '')));
+  }
 
   // The Work OS person this Discord account is linked to, in the organization that owns the server.
   const s = await discordUser(guildId, discordId);
