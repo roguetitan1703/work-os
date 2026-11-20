@@ -51,8 +51,14 @@ export function dueReasons(state: StateLike | null, now: Date, project: string):
   if (stale) reasons.push(`${stale} line${stale === 1 ? '' : 's'} untouched ${GROWTH.staleDays} days`);
   for (const r of cache?.reasons ?? []) reasons.push(r);
   if (!reasons.length) return { due: false, reasons: [], text: null };
-  return { due: true, reasons, text: `Declutter due: ${reasons.join('; ')}. Call declutter {project: "${project}"}.` };
+  return { due: true, reasons, text: `Declutter due: ${reasons.join('; ')}. Call declutter {project: "${project}"}. ${NO_DECLUTTER_TOOL}` };
 }
+
+/**
+ * The fallback after "Call declutter": a session that connected before the tool existed and has not re-read its tool list
+ * (start_work tells Claude Code to, app/api/mcp/[[...key]]/route.ts) cannot call it until Work OS is reconnected.
+ */
+export const NO_DECLUTTER_TOOL = 'If your tools do not list declutter, ask your person to reconnect Work OS (/mcp, work-os, Reconnect).';
 
 /**
  * Groups of rows that share a title key (two or more). `key` is lib/notes-match.ts titleKey. An empty key and "untitled" are

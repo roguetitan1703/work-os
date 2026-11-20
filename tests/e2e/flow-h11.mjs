@@ -202,7 +202,7 @@ try {
   check('H11 brief: 25 Later lines are not due (no declutter field)', !('declutter' in b25), JSON.stringify(b25.declutter));
   await mkLines(D, 1, 25);
   const b26 = await start(D, 'h11d1');
-  check('H11 brief: 26 Later lines say "Declutter due: Later 26 (over 25)" and name the tool', /^Declutter due: Later 26 \(over 25\)\. Call declutter \{project: "H11 Delta"\}\.$/.test(b26.declutter ?? ''), JSON.stringify(b26.declutter));
+  check('H11 brief: 26 Later lines say "Declutter due: Later 26 (over 25)" and name the tool', /^Declutter due: Later 26 \(over 25\)\. Call declutter \{project: "H11 Delta"\}\. If your tools do not list declutter, ask your person to reconnect Work OS \(\/mcp, work-os, Reconnect\)\.$/.test(b26.declutter ?? ''), JSON.stringify(b26.declutter));
   const keys = Object.keys(b26);
   check('H11 brief: the field sits near state (after state, before the inbox)', keys.indexOf('declutter') > keys.indexOf('state') && keys.indexOf('declutter') < keys.indexOf('inbox'), keys.join(','));
   // a stale line (14 days) on its own makes a project due

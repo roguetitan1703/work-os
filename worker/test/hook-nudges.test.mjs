@@ -170,7 +170,7 @@ test('the turn-end check beats Declutter: a question and a quiet turn, the serve
 });
 
 test('Declutter: the Now holder, a turn that changed no files, once a day (the day is in the marker)', async () => {
-  const D = "Work OS: this project's State has 66 Later lines (Declutter is due). Call declutter: it proposes, your person approves on one Need.";
+  const D = "Work OS: this project's State has 66 Later lines (Declutter is due). Call declutter: it proposes, your person approves on one Need. If your tools do not list declutter, ask your person to reconnect Work OS (/mcp, work-os, Reconnect).";
   const sid = 'n-6';
   start(sid, { holdsNow: true, turnStatus: lib.statusHash(repo) });
   reset();

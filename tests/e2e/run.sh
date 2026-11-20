@@ -24,6 +24,7 @@ SUITES="
 today|today.mjs|today|plain
 claude-page|claude-page.mjs|none|plain
 mcp-get|mcp-get.mjs|none|plain
+mcp-relist|mcp-relist.mjs|none|plain
 nav|nav.mjs|nav|plain
 nav-cross|nav-cross.mjs|nav|plain
 nav-preload-1|nav-preload-1.mjs|nav|plain
@@ -161,7 +162,7 @@ cleanup() {
   if [ "$STARTED_MONGO" = 1 ]; then kill_port "$MPORT"; sleep 1; fi
   if [ "$MOVED" = 1 ] && [ -e "$ENVBAK" ]; then mv "$ENVBAK" "$ENVFILE"; fi
   if [ -n "${E2E_LOGS:-}" ] && [ -e "$TMP/server.log" ]; then cp "$TMP/server.log" "$LOGS/server.log"; fi
-  rm -rf "$TMP/db" "$TMP/shots" "$TMP/mongod.log" "$TMP/server.log" "$TMP/build.log" "$TMP/mail" "$TMP/state.json" "$TMP/team.json"
+  rm -rf "$TMP/db" "$TMP/hidden-tool" "$TMP/shots" "$TMP/mongod.log" "$TMP/server.log" "$TMP/build.log" "$TMP/mail" "$TMP/state.json" "$TMP/team.json"
   if [ -z "${E2E_LOGS:-}" ]; then rm -rf "$LOGS"; fi
   rmdir "$TMP" 2>/dev/null
 }
@@ -198,6 +199,8 @@ export NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$(node -e "console.log(require('crypt
 # The e2e owner runs the deployment (lib/operator.ts): health, Discord registration and servers, Usage.
 export OPERATOR_EMAILS=e2e-owner@example.test
 export APP_TZ=Asia/Kolkata
+# A file the mcp-relist suite writes a tool name into to hide that tool from tools/list (lib/mcp/server.ts syncTestHiddenTool).
+export E2E_HIDDEN_TOOL_FILE="$TMP/hidden-tool"
 # No default quiet hours (lib/profile.ts): the profile cache is shared across suites, so a suite run at night would
 # otherwise see 23:00–08:00 from an earlier suite and hold its alerts. Suites that test quiet hours set them per person.
 export DEFAULT_QUIET_HOURS=none
