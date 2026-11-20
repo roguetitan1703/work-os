@@ -153,14 +153,15 @@ export function Computers({ initial }: { initial?: DeviceInfo[] }) {
         </div>
         <QuietFolders />
         {(() => {
+          // Only for a worker from before self-update (it has no signature check yet: the command is its first install of
+          // one). A worker that updates itself never gets the command here: after a refused or failed update it would
+          // fetch the same file from the same server it just refused.
           const d = showUpdate && info ? devices?.find(x => x.id === showUpdate) : null;
-          if (!d || !info) return null;
+          if (!d || !info || d.selfUpdate) return null;
           return (
             <div className="mt-3 rounded-lg border border-border/70 p-3 space-y-2" data-manual-update={d.name}>
               <p className="text-[13px] text-foreground">
-                {d.selfUpdate
-                  ? `"${d.name}" keeps running worker ${d.version} (${d.selfUpdate.problem ?? 'no update yet'}). To update it by hand, run this on it. Its settings and key are kept: press Enter at each question.`
-                  : `"${d.name}" runs a worker from before self-update. Run this on it once (its settings and key are kept: press Enter at each question); from then on it updates itself.`}
+                {`"${d.name}" runs a worker from before self-update. Run this on it once (its settings and key are kept: press Enter at each question); from then on it updates itself.`}
               </p>
               <InstallCommands info={info} />
             </div>
@@ -212,7 +213,20 @@ function hooksText(h: NonNullable<DeviceInfo['hooks']>): string {
 }
 
 /** A downloaded worker other than the one this site serves (repo runs and not-yet-reported ones never show it). */
-const stale = (d: DeviceInfo, info: InstallInfo | null) => !!info && !!d.bundle && d.bundle !== info.sha256.slice(0, 12);
+/**
+ * What a self-update problem (worker/update.mjs: "update refused: <why>" or "update failed: <why>") tells the person. A
+ * refusal means the server offered a release the worker's own keys did not sign (or an older one): never reinstall from
+ * that server, tell Om. A failure (network, disk) clears itself: the worker tries again.
+ */
+function updateProblem(problem: string): { kind: 'refused' | 'failed'; text: string } {
+  const failed = /^update failed: (.+)$/.exec(problem);
+  if (failed) return { kind: 'failed', text: `update failed: ${failed[1]}; it will try again` };
+  const older = /^update refused: version (\S+) is not newer/.exec(problem);
+  if (older) return { kind: 'refused', text: `Update refused: Work OS offered an older release (${older[1]}). Don't reinstall; tell Om.` };
+  return { kind: 'refused', text: "Update refused: this release isn't signed by Delpat. Don't reinstall; tell Om." };
+}
+
+const stale = (d: DeviceInfo, info: InstallInfo | null) =>!!info && !!d.bundle && d.bundle !== info.sha256.slice(0, 12);
 
 /**
  * The row's second line: the worker version and how it updates (worker/update.mjs). A downloaded worker from 0.5.0 on
@@ -223,12 +237,15 @@ function WorkerLine({ d, info, onUpdate }: { d: DeviceInfo; info: InstallInfo | 
   const u = d.selfUpdate;
   let tail: ReactNode = null;
   if (!d.bundle) tail = 'from the repo';
-  else if (u?.problem)
+  else if (u?.problem) {
+    // No install command after a refusal or a failure: its file and checksum come from the same server.
+    const p = updateProblem(u.problem);
     tail = (
-      <button type="button" className={`${link} text-red-600 dark:text-red-400`} onClick={onUpdate} data-update-problem>
-        {u.problem}
-      </button>
+      <span className="text-red-600 dark:text-red-400" data-update-problem={p.kind}>
+        {p.text}
+      </span>
     );
+  }
   else if (u && stale(d, info)) tail = `updates itself to ${info?.version} within 6 hours`;
   else if (u?.updatedAt) tail = <Ago iso={u.updatedAt} prefix="updated itself " />;
   else if (u) tail = 'updates itself';

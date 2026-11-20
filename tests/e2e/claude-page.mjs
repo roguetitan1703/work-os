@@ -179,17 +179,25 @@ async function suite(vp) {
     await p.screenshot({ path: `${SP}/cl-${vp}-worker-updated.png` });
     await setWorker({ bundle: 'aaaaaaaaaaaa', selfUpdate: { updatedAt: null, from: null, problem: 'update refused: bad signature' } });
     t = await line();
-    check(T('worker line: a refused update says why'), t === 'Worker 0.5.0 · update refused: bad signature', t);
+    // A refusal never leads to the install command: its file and checksum come from the server that offered the release.
+    check(T('worker line: a refused update says not to reinstall'), t === "Worker 0.5.0 · Update refused: this release isn't signed by Delpat. Don't reinstall; tell Om.", t);
     const centre = l => l.evaluate(e => e.scrollIntoView({ block: 'center' })); // clear of the phone's bottom bar
-    await centre(dev.locator('[data-update-problem]'));
-    await click(dev.locator('[data-update-problem]'));
     const manual = p.locator('[data-manual-update="Om-PC"]');
-    check(T('tapping the refusal shows the hand-update command for that computer'), await manual.waitFor({ timeout: 5000 }).then(async () => /keeps running worker 0\.5\.0 \(update refused: bad signature\)/.test(await manual.innerText()) && (await manual.locator('[data-install-command]').count()) === 1, () => false));
-    check(T('worker line with the hand-update command: no horizontal scroll'), await noScroll());
+    check(T('a refusal is text, not a button, and no install command is on the page'), (await dev.locator('[data-update-problem="refused"]').count()) === 1 && (await dev.locator('[data-worker-line] button').count()) === 0 && (await p.locator('[data-install-command]').count()) === 0);
+    check(T('worker line with a refusal: no horizontal scroll'), await noScroll());
+    await centre(dev.locator('[data-update-problem]'));
     await p.screenshot({ path: `${SP}/cl-${vp}-worker-refused.png` });
     await p.evaluate(() => document.documentElement.classList.add('dark'));
     await p.screenshot({ path: `${SP}/cl-${vp}-worker-refused-dark.png` });
     await p.evaluate(() => document.documentElement.classList.remove('dark'));
+    await setWorker({ bundle: 'aaaaaaaaaaaa', selfUpdate: { updatedAt: null, from: null, problem: 'update refused: version 20261101.000000 is not newer than 20261120.100000' } });
+    t = await line();
+    check(T('worker line: an older release offered is refused the same way'), t === "Worker 0.5.0 · Update refused: Work OS offered an older release (20261101.000000). Don't reinstall; tell Om.", t);
+    await setWorker({ bundle: 'aaaaaaaaaaaa', selfUpdate: { updatedAt: null, from: null, problem: 'update failed: could not reach Work OS (ECONNREFUSED)' } });
+    t = await line();
+    check(T('worker line: a failed update gives the reason and says it tries again, no command'), t === 'Worker 0.5.0 · update failed: could not reach Work OS (ECONNREFUSED); it will try again' && (await dev.locator('[data-worker-line] button').count()) === 0 && (await p.locator('[data-install-command]').count()) === 0, t);
+    await centre(dev.locator('[data-update-problem]'));
+    await p.screenshot({ path: `${SP}/cl-${vp}-worker-failed.png` });
     await setWorker({ version: '0.4.0', bundle: 'aaaaaaaaaaaa' });
     t = await line();
     check(T('worker line: a worker from before self-update offers the command once'), t === 'Worker 0.4.0 · update available', t);
