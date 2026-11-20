@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 201. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 202. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -12,7 +12,7 @@ Copy of the Work OS state, version 201. WORK-STATE.md is a copy of the State, wr
 4. Redesign (c475deb871): steps 1-3, 5 live in R10; next step 4 Needs and Today (B, Opus, from dev), then 6 tasks. Held: weekly usage 93% on 20 Nov; Om asked whether to start now on Sonnet or wait. — waits on weekly usage reset 24 Nov 16:30 IST, or Om says start
 5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 4 and 6. — waits on redesign steps 4 and 6
 6. Parked and the decision log (Om, 20 Nov; plan note 82ae5908f1, building on builder-s, Sonnet): a Parked list per project beside Next/Later, not loaded at start (brief shows the count), park/unpark ops, each line one tap to a task; declutter moves lines to Parked; brief shows only recent decisions. Design note first, after the declutter fix merges. — waits on declutter fix on builder-s merged
-7. Claude usage per session (design a289ffec58): part 1 (worker + data, d2b85d6) reviewed; part 2 building on builder-b (Sonnet) from Opus plan 5c4bed1176; then my diff review, independent review (owner-only, tenant scope), merge to dev. — waits on builder-b's report (running)
+7. Claude usage per session (design a289ffec58): part 1 (worker + data, d2b85d6) reviewed; part 2 built (fa97c7d; claude-usage e2e 35/0, claude-page 220/0; looked at 1280 light and 390 dark); independent review running; then my diff review, independent review (owner-only, tenant scope), merge to dev. — waits on builder-b's report (running)
 8. Release dev (declutter fix b1ef134, then usage per session when merged) to production; AKAR and every session keep getting the old 'due' nudge until then. — waits on Om's yes
 9. When Parked and list_decisions are live: rewrite the Orders start bullet (Later for findings to pick up soon, Parked with when for features set aside, add_decision, list_decisions, list_parked); not before, or sessions are told about tools that don't exist yet. — waits on the release with Parked
 
@@ -62,4 +62,5 @@ Copy of the Work OS state, version 201. WORK-STATE.md is a copy of the State, wr
 - Switch worker self-update from the signing key to a GitHub file check (the worker compares the update with the files at that commit on GitHub; no key to keep). Om, 20 Nov: later, not now. — waits on Om says when
 - get_state is 50-65 KB in one line on Work OS and AKAR (too big for one tool call) and its lines carry no `at`, so agents can't see a line's age; add a compact mode (ids, text, waitsOn, at) or paging. — waits on with the declutter fix
 - Goals above tasks (Om, 20 Nov: e.g. 'Phase 3' with its tasks under it; Now points at the current goal). Bigger change; after Parked.
-<!-- work-os-copy sha1:170141d7edc0bb97350ffecd2d1c34abe1cd07ca -->
+- Claude page in dark (e2e shots 20 Nov, Sessions and Usage tabs): the selected tab pill is light with white text, and Start Claude is dark on dark. Older than the usage change; check on the real app in dark, then fix in redesign step 7.
+<!-- work-os-copy sha1:a1e8e22a8f7ccbdaa32bf8c7f43c13e921f54b3b -->
