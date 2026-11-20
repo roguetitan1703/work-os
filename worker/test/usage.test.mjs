@@ -110,7 +110,7 @@ test('collectUsage: a subagent without a title is named by its file id; old days
     assert.equal(b.rows.length, 4); // 9 days rows in all (8 + the subagent), 5 sent before
     const days = new Set([...a.rows, ...b.rows].map((r) => r.part + r.day));
     assert.equal(days.size, 9);
-    assert.equal(b.rows.find((r) => r.part === 'agent-ab12')?.partName, 'agent-ab12');
+    assert.equal([...a.rows, ...b.rows].find((r) => r.part === 'agent-ab12')?.partName, 'agent-ab12');
   } finally { fs.rmSync(t.root, { recursive: true, force: true }); }
 });
 

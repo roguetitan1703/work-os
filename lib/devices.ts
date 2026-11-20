@@ -69,12 +69,13 @@ export async function replaceDeviceKey(caller: Caller, id: string): Promise<{ ke
   return { key, info: toInfo(doc) };
 }
 
-/** Revoking also cancels the device's pending jobs. Its folders and session history stay. */
+/** Revoking also cancels the device's pending jobs. Its folders and session history stay; its Claude usage rows are deleted. */
 export async function revokeDevice(caller: Caller, id: string): Promise<void> {
   const c = await collections(); // scope-ok: computers: every query filters by the caller (mine) or the key's hash
   const r = await c.devices.updateOne({ _id: id, ...mine(caller) }, { $set: { revokedAt: new Date() } });
   if (!r.matchedCount) throw new SafeError('That device is already revoked or does not exist.');
   await c.workerJobs.updateMany({ deviceId: id, doneAt: null }, { $set: { doneAt: new Date(), ok: false, error: 'device revoked' } });
+  await c.claudeUsage.deleteMany({ deviceId: id, ownerId: caller.userId, orgId: caller.orgId }); // scope-ok: the caller's own device's rows; its usage rows (lib/data/claude-usage.ts) go with it
   closeDevice(id); // its push stream ends now; a reconnect is refused (revoked key)
   await endDeviceSessions(id); // the hook's session tokens too (they are also refused for a revoked computer)
 }

@@ -9,7 +9,7 @@ export const PROJECT_INSTRUCTIONS = `My team tracks work in Work OS (connected a
 - Never drop or archive tasks without asking me first.`;
 
 export const GROUPS: { title: string; tools: ToolName[] }[] = [
-  { title: 'Overview', tools: ['daily_summary', 'recent_activity'] },
+  { title: 'Overview', tools: ['daily_summary', 'recent_activity', 'usage'] },
   { title: 'Tasks', tools: ['list_tasks', 'get_task', 'add_task', 'update_task', 'log_progress', 'complete_task', 'add_comment', 'update_checklist'] },
   { title: 'Starting work and State', tools: ['start_work', 'get_state', 'save_state', 'import_state', 'end_work', 'feedback', 'declutter'] },
   { title: 'Messages', tools: ['send_message', 'message_status', 'reply'] },

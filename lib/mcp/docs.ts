@@ -73,6 +73,7 @@ export type ToolName =
   | 'update_project'
   | 'daily_summary'
   | 'recent_activity'
+  | 'usage'
   | 'discord_needs_attention'
   | 'discord_list_channels'
   | 'discord_read_messages'
@@ -470,6 +471,13 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
     description: 'Take back a Need you asked while it is still open (id or number such as #7). Only the asker can withdraw it, or one a session of yours that has ended asked; there is no tool to answer one. A Need already answered, withdrawn or replaced says which, with the answer and the time, and nothing changes.',
     writes: true,
     example: 'Withdraw Need #7, the question no longer matters',
+  },
+  usage: {
+    title: 'Claude usage',
+    description:
+      'Which of your sessions, their subagents, models, projects and days used your Claude, as an estimated share from token counts (weighted by model and kind of token; not a share of your plan limit). Your own sessions only. range: week (since your plan week starts, set in Claude › Usage; the default), 7d or today. Sessions are cut to 20, subagents to 10 per session.',
+    writes: false,
+    example: 'Which of my sessions used the most this week?',
   },
   recent_activity: {
     title: 'Recent activity',
