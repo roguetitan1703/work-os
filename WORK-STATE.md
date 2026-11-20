@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 282. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 283. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -81,7 +81,8 @@ Copy of the Work OS state, version 282. WORK-STATE.md is a copy of the State, wr
 - Partial tools (Om, 21 Nov): agents should see a small core of Work OS tools and load the rest when needed. First check whether Claude Code's deferred tool loading (tool search) already does this for leads and subagents, by measuring tool text per call. If not: the server exposes about 12 core tools plus the rest on request (tools list_changed), measured before and after.
 - Release hook (21 Nov): Om's "Yes, release now" in chat was refused for the master push about 40 min later (a release Need was asked instead), though the same hook let a chat yes through earlier that night. Check how long a chat yes counts, and say it in the refusal.
 - Delete the state-lists backup on the box (~/backups/state-lists-20261120-2056) after 5 Dec.
+- Slot tool is advisory: an agent refused a slot can carry on anyway, and nothing is logged (no record it ever refused anyone, checked 21 Nov). Proposal: the worker's Bash pre-tool hook counts real heavy processes on the PC (next build, e2e run.sh, headless Chrome, Blender, mongod) and makes a 3rd heavy command wait, with no agent cooperation; then remove the slot tool (one less tool, ties to #315). — waits on Om's go
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:6abdd31443bdc2e78fe35104569e430fb98318eb -->
+<!-- work-os-copy sha1:a38a65072240f3feab0c4de80b36d6fd417c5341 -->
