@@ -2,16 +2,22 @@
 
 export type PlanRow = { layer: 'org' | 'project' | 'person'; noteId: string; text: string; ordersBy?: string; createdBy: unknown; updatedBy: unknown; planFrom?: string };
 
-const PLAN_HEADING = /^##\s+working plan\b.*$/im;
-
-/** The "## Working plan" section of an Orders text (its heading to the next "## " heading or the end), or null. */
+/**
+ * The "## Working plan" section of an Orders text (its heading to the next "#" or "##" heading, or the end), or null. Lines
+ * inside ``` fences are never headings.
+ */
 export function planSection(text: string): { start: number; end: number; section: string } | null {
-  const m = PLAN_HEADING.exec(text);
-  if (!m) return null;
-  const after = m.index + m[0].length;
-  const next = /^##\s/m.exec(text.slice(after));
-  const end = next ? after + next.index : text.length;
-  return { start: m.index, end, section: text.slice(m.index, end).trimEnd() };
+  let start = -1, end = text.length, fenced = false, pos = 0;
+  for (const line of text.split('\n')) {
+    const at = pos;
+    pos += line.length + 1;
+    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; continue; }
+    if (fenced) continue;
+    if (start < 0 && /^##\s+working plan\b/i.test(line)) { start = at; continue; }
+    if (start >= 0 && /^#{1,2}\s/.test(line)) { end = at; break; }
+  }
+  if (start < 0) return null;
+  return { start, end, section: text.slice(start, end).trimEnd() };
 }
 
 /**
@@ -31,6 +37,6 @@ export function withProjectPlan<T extends PlanRow>(list: T[], reader: string): T
   const projText = `${proj.text.slice(0, projPlan.start)}${proj.text.slice(projPlan.end).trimStart()}`.trim();
   return list.flatMap(o =>
     o === org ? [{ ...o, text: orgText, planFrom: proj.noteId }]
-    : o === proj ? (projText ? [{ ...o, text: projText }] : [])
+    : o === proj ? [{ ...o, text: projText || 'This project\'s Working plan is shown in the organization Orders above.' }]
     : [o]);
 }

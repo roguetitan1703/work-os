@@ -37,8 +37,13 @@ check('heading match ignores case and a suffix', !!planSection('## Working Plan 
 }
 {
   const out = withProjectPlan([org, proj('## Working plan\n\n* only a plan')], 'om');
-  check('project row dropped when the plan was all it held', out.length === 1 && out[0].text.includes('* only a plan'));
+  check('project row kept (with a pointer) when the plan was all it held', out.length === 2 && out[0].text.includes('* only a plan') && out[1].noteId === 'p1' && /shown in the organization Orders/.test(out[1].text));
 }
+check('a fenced "## Working plan" is not a heading', planSection('## Repo\n\n```\n## Working plan\n```\n') === null);
+check('a fence inside the plan stays whole', planSection('## Working plan\n\n```\n## not a heading\n```\n* b\n## Next')?.section === '## Working plan\n\n```\n## not a heading\n```\n* b');
+check('an H1 ends the section', planSection('## Working plan\n\n* a\n# Repo\n\n* b')?.section === '## Working plan\n\n* a');
+check('### Working plan is not the section', planSection('### Working plan\n\n* a') === null);
+check('CRLF text', planSection('## Working plan\r\n\r\n* a\r\n## Next\r\n')?.section === '## Working plan\r\n\r\n* a');
 {
   const list = [org, proj('## Repo\n\n* npm test')];
   check('no project plan: served as is', withProjectPlan(list, 'om') === list);

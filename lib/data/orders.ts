@@ -38,7 +38,13 @@ export async function ordersFor(s: Scope, project: Pick<ProjectDoc, '_id'>): Pro
   ]);
   const out = (layer: OrdersLayer, list: NoteDoc[]): OrdersNote[] =>
     list.map(n => ({ layer, noteId: n._id, title: n.title, text: n.body.slice(0, MAX_TEXT), truncated: n.body.length > MAX_TEXT, createdBy: n.createdBy, updatedBy: n.updatedBy, ownerId: n.ownerId, ordersBy: n.ordersBy, version: n.ordersV ?? 1, updatedAt: n.updatedAt }));
-  return withProjectPlan([...out('org', org), ...out('project', proj), ...out('person', mine)], s.userId);
+  return [...out('org', org), ...out('project', proj), ...out('person', mine)];
+}
+
+/** The Orders as an agent's start brief shows them: ordersFor with the project's own Working plan in place of the organization's
+ * (lib/orders-plan.ts). Versions, change notices, seen marks and proposals keep using ordersFor, the stored notes. */
+export async function ordersServed(s: Scope, project: Pick<ProjectDoc, '_id'>): Promise<OrdersNote[]> {
+  return withProjectPlan(await ordersFor(s, project), s.userId);
 }
 
 /**
