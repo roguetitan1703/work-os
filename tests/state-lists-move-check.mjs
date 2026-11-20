@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-const { moveLegacyLists } = await import(pathToFileURL(join(ROOT, 'lib/state-lists-move.ts')).href);
+const { moveLegacyLists, idProblems } = await import(pathToFileURL(join(ROOT, 'lib/state-lists-move.ts')).href);
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -12,7 +12,7 @@ const check = (name, ok, extra = '') => {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${ok ? '' : ' ' + extra}`);
 };
 
-const matches = (doc, filter) => Object.entries(filter).every(([k, v]) => (v === null ? doc[k] === undefined || doc[k] === null : doc[k] === v));
+const matches = (doc, filter) => Object.entries(filter).every(([k, v]) => (v === null ? doc[k] === undefined || doc[k] === null : v && typeof v === 'object' && v.$in ? v.$in.includes(doc[k]) : doc[k] === v));
 const col = () => {
   const rows = [];
   return {
@@ -86,6 +86,17 @@ c.states.rows.length = 0;
 c.states.rows.push(again);
 r = await moveLegacyLists(c, again);
 check('the same arrays again add no rows and keep the counts', r?.decisionRows === 0 && c.decisions.rows.length === 2 && again.decisionsCount === 1);
+
+// Repeated or missing ids: the move throws before writing and the arrays stay.
+c = setup({ ...base, parked: [{ id: 'x', text: 'a', by: 'u1', at: T(0) }, { id: 'x', text: 'b', by: 'u1', at: T(1) }] });
+let threw = false;
+try {
+  await moveLegacyLists(c, c.st);
+} catch {
+  threw = true;
+}
+check('repeated ids: the move throws, no rows, the arrays stay', threw && c.parked.rows.length === 0 && c.st.parked.length === 2 && !('parkedCount' in c.st));
+check('idProblems names repeated and missing ids', /repeated Parked/.test(idProblems({ parked: [{ id: 'a' }, { id: 'a' }] }) ?? '') && /without an id/.test(idProblems({ decisions: [{ text: 'x' }] }) ?? '') && idProblems({ parked: [{ id: 'a' }] }) === null);
 
 if (failed) {
   console.log(`\n${failed} check(s) failed`);

@@ -8,7 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Chip, ChipGroup } from '@/components/ui/chip';
 import { IconButton } from '@/components/ui/icon-button';
 import type { ArchivedOut, DecisionOut, ParkedOut, StateOut } from '@/lib/data/states';
-import { moreDecisionsAction, moreParkedAction, restoreLineAction, saveStateAction } from './state-actions';
+import { moreArchivedAction, moreDecisionsAction, moreParkedAction, restoreLineAction, saveStateAction } from './state-actions';
 
 const field =
   'w-full min-w-0 h-11 md:h-9 rounded-control border border-input bg-background dark:bg-input/30 px-3 text-base md:text-meta text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
@@ -38,8 +38,8 @@ const NEXT_SHOWN = 3;
 export function StateCard({ projectId, initial, archived: archivedInitial = [] }: { projectId: string; initial: StateOut | null; archived?: ArchivedOut[] }) {
   // The page's State follows the server: a new version (a teammate's or an agent's save, or ours coming back) replaces the local copy.
   // "Show more" pages (older Parked lines and decisions) sit beside the State's first 50 and go whenever the State is replaced.
-  type More = { parked: ParkedOut[]; parkedNext?: string; decisions: DecisionOut[]; decisionsNext?: string };
-  const fresh = (st: StateOut | null): More => ({ parked: [], parkedNext: st?.parkedNext, decisions: [], decisionsNext: st?.decisionsNext });
+  type More = { parked: ParkedOut[]; parkedNext?: string; decisions: DecisionOut[]; decisionsNext?: string; archived: NonNullable<StateOut['archivedDecisions']>; archivedNext?: string };
+  const fresh = (st: StateOut | null): More => ({ parked: [], parkedNext: st?.parkedNext, decisions: [], decisionsNext: st?.decisionsNext, archived: [], archivedNext: st?.archivedDecisionsNext });
   const [state, setStateRaw] = useState<StateOut | null>(initial);
   const [more, setMore] = useState<More>(() => fresh(initial));
   const setState = (st: StateOut | null) => {
@@ -312,12 +312,30 @@ export function StateCard({ projectId, initial, archived: archivedInitial = [] }
             <details className="group/arch pt-1" data-part="archived-decisions">
               <summary className={`${H3} cursor-pointer min-h-11 md:min-h-9 flex items-center list-none [&::-webkit-details-marker]:hidden`}>Archived · {state.archivedDecisionsTotal ?? state.archivedDecisions.length}</summary>
               <ul className="space-y-1">
-                {state.archivedDecisions.map(d => (
+                {[...state.archivedDecisions, ...more.archived].map(d => (
                   <li key={d.id} className="text-body md:text-meta text-muted-foreground" data-archived-decision-id={d.id}>
-                    {d.at.slice(0, 10)} · {d.text} · {d.by}, archived {d.archivedAt.slice(0, 10)} by {d.archivedBy}
+                    {d.at.slice(0, 10)} · {d.text} · {d.by}, archived {d.archivedAt.slice(0, 10)}{d.archivedBy ? ` by ${d.archivedBy}` : ''}
                   </li>
                 ))}
               </ul>
+              {more.archivedNext && (
+                <Button
+                  variant="ghost"
+                  size="touch"
+                  className="-ml-3 px-3 text-muted-foreground"
+                  disabled={pending}
+                  onClick={() =>
+                    start(async () => {
+                      const r = await moreArchivedAction(projectId, more.archivedNext!);
+                      if (!r.ok) return void toast.error(r.error);
+                      setMore(m => ({ ...m, archived: [...m.archived, ...r.archived], archivedNext: r.next }));
+                    })
+                  }
+                  data-archived-more
+                >
+                  Show more
+                </Button>
+              )}
             </details>
           ) : null}
         </div>

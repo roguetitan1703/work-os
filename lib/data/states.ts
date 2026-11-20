@@ -2,7 +2,7 @@ import 'server-only';
 import { requestContext } from '../request-context';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { inTransaction, type ArchivedLine, type DeclutterCache, type PresenceDoc, type ProjectDoc, type StateDecisionDoc, type StateDoc, type StateLine, type StateParkedDoc } from '../db';
+import { inTransaction, inTransactionNow, type ArchivedLine, type DeclutterCache, type PresenceDoc, type ProjectDoc, type StateDecisionDoc, type StateDoc, type StateLine, type StateParkedDoc } from '../db';
 import { moveLegacyLists } from '../state-lists-move';
 import { scoped, type Scope } from '../scope';
 import { isPerson, userActor, type Actor } from '../actors';
@@ -34,6 +34,10 @@ import type { Priority } from '../types';
 //   Held lines (done_next, edit_line, archive_line, promote_later): only by the line's holder (its `hold`, or a live session on
 //     its task by set_doing), the Now holder or a person. edit_line by a session holds the line.
 
+/** Parked lines one key may add an hour. */
+export const PARK_PER_HOUR = 200;
+/** import_state takes at most this many Parked lines. */
+export const IMPORT_PARKED_MAX = 1000;
 export const LIMITS = { line: 500, now: 1000, decision: 1000, next: 100, later: 300, when: 200 } as const;
 
 const text = (max: number) => z.string().trim().min(1).max(max);
@@ -204,6 +208,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
   // A person (the app, Discord, Declutter) is never refused by a hold and never takes one.
   const person = isPerson(o.actor) || o.actor.kind === 'discord';
   const me = holdKeyOf(s.userId, rc0.src) ?? `${s.userId}:${rc0.keyId ?? 'agent'}`;
+  const nested = inTransactionNow(); // inside a caller's transaction a conflict must abort it, not commit what was written
   const r = await inTransaction(async () => {
     doneRefs.length = 0;
     took.from = null;
@@ -330,6 +335,12 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
       const recent = await c.stateDecisions.countDocuments({ projectId: project._id, ...(rc.keyId ? { key: rc.keyId } : { by }), at: { $gt: hourAgo } } as never);
       if (recent + ops.filter(x => x.op === 'add_decision').length > 30) throw new InputError('That is more than 30 decisions an hour from one key. Wait a while, or record fewer.');
     }
+    // At most 200 Parked lines an hour from one key (Parked has no cap, so a runaway agent is stopped by rate).
+    const parkOps = ops.filter(x => x.op === 'park' || x.op === 'park_line').length;
+    if (parkOps) {
+      const recentP = await c.stateParked.countDocuments({ projectId: project._id, ...(rc.keyId ? { key: rc.keyId } : { by }), parkedAt: { $gt: new Date(now.getTime() - 3_600_000) } } as never);
+      if (recentP + parkOps > PARK_PER_HOUR) throw new InputError(`That is more than ${PARK_PER_HOUR} Parked lines an hour from one key. Wait a while, or park fewer.`);
+    }
     // Parked lines and decisions are rows of their own, written as the ops run (the whole call is one transaction); only the counts go on the State.
     const placement = { ownerId: cur.ownerId, visibility: cur.visibility, ...(cur.sharedWith ? { sharedWith: cur.sharedWith } : {}) };
     let parkedDelta = 0;
@@ -337,7 +348,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     let rowTick = 0; // rows made in one call get distinct milliseconds, so their order is kept
     const parkedLine = (r: StateParkedDoc): StateLine => ({ id: r.id, text: r.text, ...(r.ref ? { ref: r.ref } : {}), ...(r.waitsOn ? { waitsOn: r.waitsOn } : {}), ...(r.when ? { when: r.when } : {}), by: r.by, ...(r.src ? { src: r.src } : {}), at: r.at });
     const addParked = async (l: StateLine, when: string | undefined) => {
-      await c.stateParked.insertOne({ _id: rowId(), projectId: project._id, id: l.id, text: l.text, ...(when ? { when } : {}), ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), by: l.by, ...(l.src ? { src: l.src } : {}), at: l.at, parkedAt: new Date(now.getTime() + rowTick++), ...placement } as never);
+      await c.stateParked.insertOne({ _id: rowId(), projectId: project._id, id: l.id, text: l.text, ...(when ? { when } : {}), ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), by: l.by, ...(l.src ? { src: l.src } : {}), ...(rc.keyId ? { key: rc.keyId } : {}), at: l.at, parkedAt: new Date(now.getTime() + rowTick++), ...placement } as never);
       parkedDelta++;
     };
     const takeParked = async (id: string): Promise<StateLine> => {
@@ -621,7 +632,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     return { state, project, holdsNow: !person && holdsNowOf(state, me), notes, done, dropped, promoted, closedTasks: [] as number[], sentForReview: [] as number[], leftOpen: [] as string[] };
   }).catch(e => {
     // A conflict found after rows were written: the transaction is rolled back, so nothing of the call stays.
-    if (e instanceof ConflictAbort) return e.result;
+    if (e instanceof ConflictAbort && !nested) return e.result;
     throw e;
   });
   if (!r.conflict && took.from) await tellOldHolder(s, r.project, r.state, took.from, me, o);
@@ -831,7 +842,7 @@ export function parseWorkState(md: string): ParsedWorkState {
     now: fit(items.now.join(' '), LIMITS.now),
     next: nextAll.slice(0, LIMITS.next),
     later: [...nextAll.slice(LIMITS.next), ...lines(items.later), ...lines(items.stray)].slice(0, LIMITS.later),
-    parked,
+    parked: parked.slice(0, IMPORT_PARKED_MAX),
     skipped,
     shortened,
   };
@@ -901,7 +912,9 @@ export type StateOut = {
   /** The page only: the cursor for the next older decisions, when there are more than `decisions` holds. */
   decisionsNext?: string;
   /** The page only: the newest archived decisions (hidden from agents and the copy) and how many there are. */
-  archivedDecisions?: { id: string; at: string; by: string; text: string; archivedAt: string; archivedBy: string }[];
+  archivedDecisions?: { id: string; at: string; by: string; text: string; archivedAt: string; archivedBy?: string }[];
+  /** The page only: the cursor for older archived decisions (moreArchivedDecisions). */
+  archivedDecisionsNext?: string;
   archivedDecisionsTotal?: number;
   where: Record<string, { branch?: string; head?: string; dirty?: boolean; worktrees?: string[]; at: string; writtenBy?: string }>;
   updatedAt: string;
@@ -937,13 +950,24 @@ export async function stateLists(s: Scope, projectId: string, o: { decisions: nu
   const c = await scoped(s);
   const page = o.decisions === 'page';
   const dn = page ? PAGE_ROWS : (o.decisions as number);
-  const [decs, parked, archived, archivedTotal] = await Promise.all([
-    c.stateDecisions.find({ projectId, archivedAt: null } as never).sort({ at: -1, id: -1 }).limit(dn).toArray(),
-    o.parked ? c.stateParked.find({ projectId } as never).sort({ parkedAt: -1, id: -1 }).limit(o.parked).toArray() : Promise.resolve(undefined),
-    o.archived ? c.stateDecisions.find({ projectId, archivedAt: { $ne: null } } as never).sort({ archivedAt: -1, id: -1 }).limit(o.archived).toArray() : Promise.resolve(undefined),
-    o.archived ? c.stateDecisions.countDocuments({ projectId, archivedAt: { $ne: null } } as never) : Promise.resolve(0),
+  // The page reads one row more than it shows: that row's existence, not the stored counts, decides whether "Show more" is there.
+  const extra = page ? 1 : 0;
+  const [decs, parked, archived] = await Promise.all([
+    c.stateDecisions.find({ projectId, archivedAt: null } as never).sort({ at: -1, id: -1 }).limit(dn + extra).toArray(),
+    o.parked ? c.stateParked.find({ projectId } as never).sort({ parkedAt: -1, id: -1 }).limit(o.parked + extra).toArray() : Promise.resolve(undefined),
+    o.archived ? c.stateDecisions.find({ projectId, archivedAt: { $ne: null } } as never).sort({ archivedAt: -1, id: -1 }).limit(o.archived + extra).toArray() : Promise.resolve(undefined),
   ]);
-  return { decisionsList: (decs as StateDecisionDoc[]).reverse(), ...(parked ? { parkedList: parked as StateParkedDoc[] } : {}), ...(page ? { page } : {}), ...(archived ? { archivedList: archived as StateDecisionDoc[], archivedTotal } : {}) };
+  const archivedTotal = o.archived ? await c.stateDecisions.countDocuments({ projectId, archivedAt: { $ne: null } } as never) : 0;
+  const decsMore = decs.length > dn;
+  const parkedMore = !!parked && parked.length > (o.parked ?? 0);
+  const archivedMore = !!archived && archived.length > (o.archived ?? 0);
+  const decShown = (decs as StateDecisionDoc[]).slice(0, dn);
+  return {
+    decisionsList: decShown.reverse(),
+    ...(parked ? { parkedList: (parked as StateParkedDoc[]).slice(0, o.parked) } : {}),
+    ...(page ? { page, ...(decsMore ? { decisionsMore: true } : {}), ...(parkedMore ? { parkedMore: true } : {}) } : {}),
+    ...(archived ? { archivedList: (archived as StateDecisionDoc[]).slice(0, o.archived), archivedTotal, ...(archivedMore ? { archivedNext: cursorOf(projectId, archived[o.archived! - 1].archivedAt as Date, archived[o.archived! - 1].id) } : {}) } : {}),
+  };
 }
 /** The rows the State card shows before "Show more". */
 export const PAGE_ROWS = 50;
@@ -969,6 +993,10 @@ export type StateLists = {
   page?: boolean;
   archivedList?: StateDecisionDoc[];
   archivedTotal?: number;
+  /** The page read a row past what it shows: there is more of each. */
+  decisionsMore?: boolean;
+  parkedMore?: boolean;
+  archivedNext?: string;
 };
 
 const parkedRow = (l: StateLine | StateParkedDoc, w: (by: string) => { writtenBy?: string }): ParkedOut => ({ id: l.id, text: l.text, at: l.at.toISOString().slice(0, 10), ...(l.when ? { when: l.when } : {}), ...(l.ref ? { ref: l.ref } : {}), ...w(l.by) });
@@ -990,12 +1018,12 @@ export function stateOut(d: StateDoc, reader: string, names: Names, lists?: Stat
     now: d.now ? { text: d.now.text, ...(d.now.hold?.label || d.now.holder ? { holder: d.now.hold?.label || d.now.holder } : {}), at: d.now.at.toISOString(), ...w(d.now.by) } : null,
     next: d.next.map(l => ({ id: l.id, text: l.text, at: l.at.toISOString().slice(0, 10), ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...leftOut(l), ...w(l.by) })),
     later: d.later.map(l => ({ id: l.id, text: l.text, at: l.at.toISOString().slice(0, 10), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...leftOut(l), ...w(l.by) })),
-    ...(parkedShown ? { parked: parkedShown.map(l => parkedRow(l, w)), ...(lists?.page && parkedShown.length && parkedShown.length < parkedTotal ? { parkedNext: cursorOf(d.projectId, parkedShown[parkedShown.length - 1].parkedAt, parkedShown[parkedShown.length - 1].id) } : {}) } : {}),
+    ...(parkedShown ? { parked: parkedShown.map(l => parkedRow(l, w)), ...(lists?.parkedMore && parkedShown.length ? { parkedNext: cursorOf(d.projectId, parkedShown[parkedShown.length - 1].parkedAt, parkedShown[parkedShown.length - 1].id) } : {}) } : {}),
     parkedTotal,
     decisionsTotal,
     decisions: shownDecisions.map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', via: x.via, text: x.text, ...(x.msg ? { message: x.msg } : {}), ...(x.word ? { word: x.word } : {}), ...w(x.author ?? x.by) })),
-    ...(lists?.page && shownDecisions.length && shownDecisions.length < decisionsTotal ? { decisionsNext: cursorOf(d.projectId, shownDecisions[0].at, shownDecisions[0].id) } : {}),
-    ...(lists?.archivedList ? { archivedDecisions: lists.archivedList.map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', text: x.text, archivedAt: x.archivedAt!.toISOString(), archivedBy: (x.archivedBy && names[x.archivedBy]) || 'a former member' })), archivedDecisionsTotal: lists.archivedTotal ?? lists.archivedList.length } : {}),
+    ...(lists?.decisionsMore && shownDecisions.length ? { decisionsNext: cursorOf(d.projectId, shownDecisions[0].at, shownDecisions[0].id) } : {}),
+    ...(lists?.archivedList ? { archivedDecisions: lists.archivedList.map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', text: x.text, archivedAt: x.archivedAt!.toISOString(), ...(x.archivedBy ? { archivedBy: names[x.archivedBy] || 'a former member' } : {}) })), ...(lists.archivedNext ? { archivedDecisionsNext: lists.archivedNext } : {}), archivedDecisionsTotal: lists.archivedTotal ?? lists.archivedList.length } : {}),
     where: Object.fromEntries(Object.entries(d.where ?? {}).map(([m, v]) => [m, { ...(v.branch ? { branch: v.branch } : {}), ...(v.head ? { head: v.head } : {}), ...(v.dirty !== undefined ? { dirty: v.dirty } : {}), ...(v.worktrees?.length ? { worktrees: v.worktrees } : {}), at: v.at.toISOString(), ...w(v.by) }])),
     updatedAt: d.updatedAt.toISOString(),
   };
@@ -1085,6 +1113,21 @@ export async function moreParked(s: Scope, projectId: string, before: string): P
   const r = await parkedPage(s, projectId, { before, limit: PAGE_ROWS });
   const w = (by: string) => w2(names, s.userId, by);
   return { parked: r.rows.map(l => parkedRow(l, w)), ...(r.next ? { next: r.next } : {}) };
+}
+
+/** The State card's "Show more" under Archived: the next older archived decisions. */
+export async function moreArchivedDecisions(s: Scope, projectId: string, before: string): Promise<{ archived: NonNullable<StateOut['archivedDecisions']>; next?: string }> {
+  projectId = (await getState(s, projectId)).project._id; // not found for a project the caller cannot read
+  const c = await scoped(s);
+  const names = await memberNames(s.orgId);
+  const cur = readCursor(projectId, before);
+  const filter = { projectId, archivedAt: { $ne: null }, ...(cur ? { $or: [{ archivedAt: { $lt: cur.t } }, { archivedAt: cur.t, id: { $lt: cur.i } }] } : {}) };
+  const rows = (await c.stateDecisions.find(filter as never).sort({ archivedAt: -1, id: -1 }).limit(PAGE_ROWS + 1).toArray()) as StateDecisionDoc[];
+  const page = rows.slice(0, PAGE_ROWS);
+  return {
+    archived: page.map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', text: x.text, archivedAt: x.archivedAt!.toISOString(), ...(x.archivedBy ? { archivedBy: names[x.archivedBy] || 'a former member' } : {}) })),
+    ...(rows.length > PAGE_ROWS ? { next: cursorOf(projectId, page[page.length - 1].archivedAt as Date, page[page.length - 1].id) } : {}),
+  };
 }
 
 /** The State card's "Show more": the next page of decisions (newest first), as the card draws them. */

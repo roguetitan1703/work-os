@@ -908,7 +908,7 @@ try {
     const cn = `lkqmvstate${hex(4)}`;
     CANARIES.push({ s: cn, tag: 'mvstate', allow: new Set(['A', 'T']) });
     await mustMcp(A.chat, 'add_project', { name: nm });
-    await mustMcp(A.chat, 'save_state', { project: nm, ops: [{ op: 'add_next', text: cn }, { op: 'add_decision', text: cn + 'd' }, { op: 'park', text: cn + 'p' }] });
+    await mustMcp(A.chat, 'save_state', { project: nm, ops: [{ op: 'add_next', text: cn }, { op: 'add_decision', text: cn + 'd' }, { op: 'park', text: cn + 'p' }, { op: 'park', text: cn + 'q' }] });
     const aSid = (await mustMcp(A.chat, 'start_work', { project: nm, machine: 'lkqmv', label: cn + 'p' })).session;
     // Archiving a decision: the app only, and only the project's owner (or an organization owner)
     const pidNm = (await rawDb.collection('projects').findOne({ orgId: A.orgId, name: nm }))._id;
@@ -994,7 +994,18 @@ try {
     const pr = await rawDb.collection('presence').find({ projectId: pid }).toArray();
     check('State: a project made private takes its State along (placed private, owned by its owner)', sd?.visibility === 'private' && sd.ownerId === A.userId, JSON.stringify(sd && [sd.visibility, sd.ownerId]));
     const sRows = [...(await rawDb.collection('stateParked').find({ projectId: pid }).toArray()), ...(await rawDb.collection('stateDecisions').find({ projectId: pid }).toArray())];
-    check('State: …and its Parked and decision rows (placed private, owned by its owner)', sRows.length === 2 && sRows.every(r => r.visibility === 'private' && r.ownerId === A.userId), JSON.stringify(sRows.map(r => [r.visibility, r.ownerId])));
+    check('State: …and its Parked and decision rows (placed private, owned by its owner)', sRows.length === 3 && sRows.every(r => r.visibility === 'private' && r.ownerId === A.userId), JSON.stringify(sRows.map(r => [r.visibility, r.ownerId])));
+    // …and back: the rows follow the project both ways (counted by visibility after each switch)
+    const rowVis = async () => { const rs = [...(await rawDb.collection('stateParked').find({ projectId: pid }).toArray()), ...(await rawDb.collection('stateDecisions').find({ projectId: pid }).toArray())]; return rs.reduce((m, r) => ((m[r.visibility] = (m[r.visibility] ?? 0) + 1), m), {}); };
+    await mustMcp(A.chat, 'update_project', { project: nm, visibility: 'org' });
+    const visOrg = await rowVis();
+    await mustMcp(A.chat, 'update_project', { project: nm, visibility: 'private' });
+    const visPriv = await rowVis();
+    check('State: switched shared and back, the Parked and decision rows follow the project each way', visOrg.org === 3 && Object.keys(visOrg).length === 1 && visPriv.private === 3 && Object.keys(visPriv).length === 1, JSON.stringify([visOrg, visPriv]));
+    // a cursor from one project never returns rows of another
+    const curA = (await mustMcp(A.chat, 'list_parked', { project: nm, limit: 1 })).next;
+    const foreignCur = await mcpCall(A.chat, 'list_parked', { project: P.projectName, before: curA });
+    check('State: a before cursor from one project returns nothing of another project', !!curA && !foreignCur.ok && !foreignCur.text.includes(cn), String(curA) + foreignCur.text.slice(0, 150));
     check('State: …and the presence rows (both sessions) with it', pr.length === 2 && pr.every(p => p.visibility === 'private' && p.ownerId === A.userId), JSON.stringify(pr.map(p => [p.visibility, p.ownerId])));
     const mvd = await rawDb.collection('messages').find({ projectId: pid }).toArray();
     check('Messages: a project made private takes its messages along (placed private, owned by its owner)', mvd.length === 2 && mvd.every(m => m.visibility === 'private' && m.ownerId === A.userId), JSON.stringify(mvd.map(m => [m.visibility, m.ownerId])));
@@ -1513,6 +1524,7 @@ function AUDIT() {
   add(`action ${SA}restoreLineAction`, act(SA + 'restoreLineAction', t => [t.project, 'lkqnoline'], aim(['project'], { control: false })));
   // Parked and decisions are rows of their own (plan note 4a1ccbf69d): "Show more" reads them through the caller's door; a project the caller cannot read answers as a made-up one.
   add(`action ${SA}moreParkedAction`, act(SA + 'moreParkedAction', t => [t.project, 'lkqnocursor'], aim(['project'], { control: false })));
+  add(`action ${SA}moreArchivedAction`, act(SA + 'moreArchivedAction', t => [t.project, 'lkqnocursor'], aim(['project'], { control: false })));
   add(`action ${SA}moreDecisionsAction`, act(SA + 'moreDecisionsAction', t => [t.project, 'lkqnocursor'], aim(['project'], { control: false })));
   add(`action ${OA}setOrdersAction`, act(OA + 'setOrdersAction', t => [t.ordersNote, 'project'], aim(['ordersNote'])), act(OA + 'setOrdersAction', t => [t.ordersNote, null], aim(['ordersNote'], { label: 'clearing it' })));
   // H9: undo writes the text before a version back; the holder only. The probe's page is not Orders (the flag on it is the setOrdersAction probe's), so the owner's control is answered "not found", the same as everyone's.

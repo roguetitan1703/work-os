@@ -7,7 +7,7 @@ import { requireCaller, withCaller } from '@/lib/caller';
 import { userActor } from '@/lib/actors';
 import { memberNames } from '@/lib/people';
 import { withLaneMarks } from '@/lib/data/roster';
-import { archivedOut, moreDecisions, moreParked, restoreLine, saveState, stateOutPage, type ArchivedOut, type DecisionOut, type ParkedOut, type StateOut } from '@/lib/data/states';
+import { archivedOut, moreArchivedDecisions, moreDecisions, moreParked, restoreLine, saveState, stateOutPage, type ArchivedOut, type DecisionOut, type ParkedOut, type StateOut } from '@/lib/data/states';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 
 // The State card's writes: the same versioned save as the MCP tool (lib/data/states.ts), as the signed-in person.
@@ -60,6 +60,19 @@ export async function moreParkedAction(projectId: string, before: string): Promi
   try {
     const caller = await requireCaller();
     const r = await withCaller(caller, () => moreParked({ userId: caller.userId, orgId: caller.orgId }, String(projectId), String(before)));
+    return { ok: true, ...r };
+  } catch (err) {
+    if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };
+    console.error(err);
+    return { ok: false, error: err instanceof SafeError ? err.message : 'Something went wrong' };
+  }
+}
+
+/** "Show more" under Archived decisions. */
+export async function moreArchivedAction(projectId: string, before: string): Promise<MoreResult<{ archived: NonNullable<StateOut['archivedDecisions']> }>> {
+  try {
+    const caller = await requireCaller();
+    const r = await withCaller(caller, () => moreArchivedDecisions({ userId: caller.userId, orgId: caller.orgId }, String(projectId), String(before)));
     return { ok: true, ...r };
   } catch (err) {
     if (err instanceof InputError || err instanceof NotFoundError) return { ok: false, error: err.message };

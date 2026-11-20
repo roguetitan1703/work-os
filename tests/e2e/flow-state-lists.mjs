@@ -159,6 +159,25 @@ try {
   const thirtyOne = await mcpH(kR, 'save_state', { project: 'SL Rate', ops: [{ op: 'add_decision', text: 'Rate 31' }] });
   check('rate limit: 30 decisions in an hour are taken, the 31st is refused with the message', !thirty.isError && thirtyOne.isError && /more than 30 decisions an hour/.test(thirtyOne.text) && (await rawDb.collection('stateDecisions').countDocuments({ projectId: R.id })) === 30, thirty.text.slice(0, 150) + thirtyOne.text.slice(0, 150));
 
+  // 12b: an hourly limit on Parked lines too (200 a key)
+  const kP = await mkKey({ agent: 'claude-code', name: 'sl-park-rate' });
+  const PR = await projectOf('SL Park Rate');
+  const park1 = await mcpH(kP, 'save_state', { project: 'SL Park Rate', ops: [{ op: 'park', text: 'PR first' }] });
+  const first = await rawDb.collection('stateParked').findOne({ projectId: PR.id });
+  const placePR = await placeOf(PR.id);
+  await rawDb.collection('stateParked').insertMany(Array.from({ length: 199 }, (_, i) => ({ ...parkedRow(PR.id, placePR, 1000 + i, `PR raw ${i}`), parkedAt: new Date(), key: first.key })));
+  await rawDb.collection('states').updateOne({ projectId: PR.id }, { $set: { parkedCount: 200 } });
+  const parkOver = await mcpH(kP, 'save_state', { project: 'SL Park Rate', ops: [{ op: 'park', text: 'PR one too many' }] });
+  check('park rate limit: the 201st Parked line in an hour from one key is refused', !park1.isError && !!first.key && parkOver.isError && /more than 200 Parked lines an hour/.test(parkOver.text), parkOver.text.slice(0, 200));
+
+  // 12c: duplicate ids in a legacy array: the move is refused, the arrays stay, the dry run names the problem
+  const DUP = await projectOf('SL Dup');
+  await legacyState(DUP.id, [{ id: 'l_same', text: 'a', by: ME.userId, at: new Date(T0) }, { id: 'l_same', text: 'b', by: ME.userId, at: new Date(T0 + 1) }], []);
+  const dupGet = await mcpH(MCP, 'get_state', { project: 'SL Dup' });
+  const dupDoc = await doc(DUP.id);
+  check('duplicate ids: the move throws, the arrays stay and no rows are written', dupGet.isError && Array.isArray(dupDoc.parked) && dupDoc.parked.length === 2 && (await rawDb.collection('stateParked').countDocuments({ projectId: DUP.id })) === 0, dupGet.text.slice(0, 200));
+  await rawDb.collection('states').deleteOne({ projectId: DUP.id }); // so the migration checks below see only their own projects
+
   // 13: the copy lists the last 30 decisions as before
   const C = await projectOf('SL Copy');
   const many = {
@@ -192,7 +211,11 @@ try {
   const ap3 = run('--apply');
   const m1r = await doc(M1.id);
   check('migration: the counts are repaired after drift', ap3.status === 0 && m1r.parkedCount === 3 && m1r.decisionsCount === 11, ap3.stdout + ap3.stderr);
+  const EM = await projectOf('SL Empty');
+  await must(MCP, 'save_state', { project: 'SL Empty', ops: [{ op: 'add_next', text: 'no rows here' }] });
   const ap4 = run('--rollback');
+  const emDoc = await doc(EM.id);
+  check('migration: --rollback gives a State with no rows empty arrays, so the old code meets none missing', ap4.status === 0 && Array.isArray(emDoc.parked) && emDoc.parked.length === 0 && Array.isArray(emDoc.decisions) && emDoc.decisions.length === 0 && emDoc.parkedCount === undefined, JSON.stringify([emDoc.parked, emDoc.decisions]));
   const back = await doc(M1.id);
   const same = (x, y) => JSON.stringify(Object.entries(x).sort()) === JSON.stringify(Object.entries(y).sort());
   check('migration: rollback arrays equal the originals', ap4.status === 0 && back.parked.length === 3 && back.parked.every((x, i) => same(x, m1.parked[i])) && back.decisions.length === 12 && back.decisions.every((x, i) => same(x, m1.decisions[i])) && back.parkedCount === undefined && (await rawDb.collection('stateParked').countDocuments({ projectId: M1.id })) === 0, ap4.stdout + ap4.stderr + JSON.stringify(back.decisions?.[0]));

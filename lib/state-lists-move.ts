@@ -28,6 +28,19 @@ const rowId = (): string => {
   return Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
 };
 
+/** What is wrong with the ids of the legacy arrays (a missing or repeated id), as text; null when they are fine. The dry run reports it per project. */
+export function idProblems(st: Pick<LegacyState, 'parked' | 'decisions'>): string | null {
+  const out: string[] = [];
+  for (const [name, list] of [['Parked', st.parked], ['decisions', st.decisions]] as const) {
+    const ids = (list ?? []).map(x => x.id);
+    const missing = ids.filter(i => typeof i !== 'string' || !i).length;
+    const dup = ids.length - new Set(ids).size;
+    if (missing) out.push(`${missing} ${name} entries without an id`);
+    if (dup) out.push(`${dup} repeated ${name} ids`);
+  }
+  return out.length ? out.join(', ') : null;
+}
+
 /**
  * Moves `st.parked` and `st.decisions` into rows and sets the counts. With `recount` it also runs on a State that has no arrays
  * (the migration script's repair of drifted counts); otherwise such a State is left alone (returns null).
@@ -40,6 +53,9 @@ export async function moveLegacyLists(cols: MoveCols, st: LegacyState, o: { sess
   const org = o.door ? {} : { orgId: st.orgId };
   // orgId comes from the filter's equality on upsert (and the door refuses it in an update), so it is not repeated here.
   const place = { ownerId: st.ownerId, visibility: st.visibility, ...(st.sharedWith ? { sharedWith: st.sharedWith } : {}) };
+  // Before anything is written: every id must be there and distinct, or the arrays stay (throwing rolls the transaction back).
+  const bad = idProblems(st);
+  if (bad) throw new Error(`State ${st._id}: ${bad}; the arrays are left as they are`);
   let parkedRows = 0;
   let decisionRows = 0;
   // Parked: in array order. parkedAt is the line's own date, pushed up by a millisecond where it would not come after the previous line, so the order is kept.
@@ -60,6 +76,11 @@ export async function moveLegacyLists(cols: MoveCols, st: LegacyState, o: { sess
     const r = await cols.decisions.updateOne({ ...org, projectId, id: d.id }, { $setOnInsert: row }, { upsert: true, ...opt });
     decisionRows += r.upsertedCount ?? 0;
   }
+  // Every id of the arrays must now have its row.
+  const wantP = (st.parked ?? []).length;
+  const wantD = (st.decisions ?? []).length;
+  if (wantP && (await cols.parked.countDocuments({ ...org, projectId, id: { $in: st.parked!.map(l => l.id) } }, opt)) !== wantP) throw new Error(`State ${st._id}: a Parked line has no row; the arrays are left as they are`);
+  if (wantD && (await cols.decisions.countDocuments({ ...org, projectId, id: { $in: st.decisions!.map(d => d.id) } }, opt)) !== wantD) throw new Error(`State ${st._id}: a decision has no row; the arrays are left as they are`);
   const parkedCount = await cols.parked.countDocuments({ ...org, projectId }, opt);
   const decisionsCount = await cols.decisions.countDocuments({ ...org, projectId, archivedAt: null }, opt);
   await cols.states.updateOne({ _id: st._id }, { $set: { parkedCount, decisionsCount }, $unset: { parked: '', decisions: '' } }, opt);
