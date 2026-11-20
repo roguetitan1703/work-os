@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 171. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 172. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -11,7 +11,7 @@ Copy of the Work OS state, version 171. WORK-STATE.md is a copy of the State, wr
 3. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0 items. Due only when there is something to propose; refresh the count when tasks close. Seen 20 Nov after reconnecting the tools.
 4. Redesign (note c475deb871): 1 library done (builder-s2 b2991a4); 2 navigation done (builder-b df92f9c, taps 3->2, 4->3, 3->2); 3 sessions first (B) and 5 one search (A, needs independent review) running; then 4 Needs and Today, 6 tasks; look by eye, merge to dev together.
 5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 3-6.
-6. Signed worker auto-update (Om yes 20 Nov), builder in wos-s (Opus); then an independent security review, then the signing key made on Om's PC and the first signed release.
+6. Signed worker auto-update (Om yes 20 Nov): built on builder-s (2f92fb5 + Mac fixes 7b552dc: same hooks version on Windows and bundle, setup prints full path); making the version automatic, then independent security review, then I make the signing key on Om's PC and Om backs it up; then an independent security review, then the signing key made on Om's PC and the first signed release.
 7. Work OS skills installed by the worker (/transfer and /declutter only): give to the slot S builder right after signed auto-update (same install code); skill text in the repo; a design note first.
 
 ## Later
@@ -48,4 +48,6 @@ Copy of the Work OS state, version 171. WORK-STATE.md is a copy of the State, wr
 - tests/live-release.test.mjs fails on a server-only import (seen by builder S2 20 Nov); check on dev and fix.
 - Today's DB ops grew 1-2 between the 23 Oct budgets and R8 (page 30, rsc 25, complete 44); probe.mjs now prints ops per collection; find which read grew (devices=6 on one Today load looks high).
 - Claude page: a session's last line can be a subagent's compaction summary (AKAR row showed "<analysis> I am an Opus builder subagent..."): take the last line from the main conversation only, never from a summary.
-<!-- work-os-copy sha1:866e2ae1637ed2e92f274dcab8b711f3afa12f48 -->
+- worker test hook-h7 timing flake (failed in a full worker run, passed alone twice, 20 Nov).
+- Search (builder-a): leak-audit flags /dev/ui; each search re-renders the page (~420 KB) and examines ~9k docs; builder A fixing before the security review.
+<!-- work-os-copy sha1:0acc5debd8faa281fdc8185d9b2554abb6dde574 -->
