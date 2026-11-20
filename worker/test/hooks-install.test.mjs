@@ -136,6 +136,18 @@ test('the hooks version changes when any file changes', () => {
   }
 });
 
+test('the hooks version is the same for CRLF (a Windows checkout) and LF (the downloaded bundle) copies of the same files', () => {
+  const lf = path.join(tmp, 'hooks-lf'), crlf = path.join(tmp, 'hooks-crlf');
+  fs.mkdirSync(lf); fs.mkdirSync(crlf);
+  for (const f of m.FILES) {
+    const text = fs.readFileSync(new URL(`../${f}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    fs.writeFileSync(path.join(lf, f), text);
+    fs.writeFileSync(path.join(crlf, f), text.replace(/\n/g, '\r\n'));
+  }
+  assert.equal(m.hooksVersion(lf), m.hooksVersion(crlf));
+  assert.equal(m.hooksVersion(lf), m.hooksVersion());
+});
+
 test('a second worker folder does not take over the global hooks, and its refresh skips them', () => {
   const a = path.join(tmp, 'work-os-worker-a'); const b = path.join(tmp, 'work-os-worker-b');
   process.env.WORK_OS_WORKER_DIR = a;

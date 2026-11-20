@@ -33,10 +33,11 @@ function signIn(settings) {
   try { if (loadConfig().baseUrl) return 'worker'; } catch { /* no worker config */ }
   return settings.env?.WORK_OS_KEY || process.env.WORK_OS_KEY ? 'key' : null;
 }
-/** The hooks version: a short hash of the hook files this worker carries (changes whenever any of them does). */
+/** The hooks version: a short hash of the hook files this worker carries (changes whenever any of them does). Line endings
+ * do not count: a Windows checkout (CRLF) and the downloaded bundle (LF) of the same commit get the same version. */
 export function hooksVersion(dir = here) {
   const h = crypto.createHash('sha256');
-  for (const f of FILES) h.update(fs.readFileSync(path.join(dir, f)));
+  for (const f of FILES) h.update(fs.readFileSync(path.join(dir, f), 'utf8').replace(/\r\n/g, '\n'), 'utf8');
   return h.digest('hex').slice(0, 12);
 }
 /** The version of the installed copy (what was written at install), or null. */
