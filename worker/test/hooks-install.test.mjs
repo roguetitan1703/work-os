@@ -112,6 +112,11 @@ test('the entries equal the strings older workers wrote, except the PostToolUse 
   });
 });
 
+test('FILES carries claude-account.mjs (hook-identity.mjs imports it) and every FILES entry exists', () => {
+  assert.ok(m.FILES.includes('claude-account.mjs'));
+  for (const f of m.FILES) assert.ok(fs.existsSync(new URL(`../${f}`, import.meta.url)), f);
+});
+
 test('every EVENTS row has its hook file, its FILES entry and exactly one settings entry', async () => {
   const { EVENTS } = await import('../hook-lib.mjs');
   const e = m.entries('C:/x/hooks/hook.mjs');

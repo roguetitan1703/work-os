@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'session-account',
+    date: '2026-11-20',
+    title: 'See which Claude account a session uses',
+    line: 'Each session shows the account it runs under, like om or tools.',
+    where: "Claude page and a project's sessions",
+    href: '/claude',
+  },
+  {
     id: 'parked-list',
     date: '2026-11-20',
     title: 'Park ideas without cluttering the plan',
