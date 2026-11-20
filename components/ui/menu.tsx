@@ -42,7 +42,7 @@ function MenuContent({
 
 const item = cn(ui.row, 'cursor-default select-none text-foreground data-highlighted:bg-muted data-highlighted:text-foreground');
 
-function MenuItem({ icon, hint, children, className, ...props }: Omit<MenuPrimitive.Item.Props, 'className'> & { icon?: React.ReactNode; hint?: string; className?: string }) {
+function MenuItem({ icon, hint, children, className, ...props }: Omit<MenuPrimitive.Item.Props, 'className'> & { icon?: React.ReactNode; /** A key hint, or a small mark (a dot) at the right. */ hint?: React.ReactNode; className?: string }) {
   return (
     <MenuPrimitive.Item {...props} className={cn(item, className)}>
       {icon}

@@ -89,7 +89,7 @@ try {
         const l = await p.locator('a[aria-label$="new notifications"]').first().getAttribute('aria-label', { timeout: 500 }).catch(() => null);
         return l ? parseInt(l, 10) : 0;
       }
-      const s = await p.locator('aside a:has-text("Inbox") span.rounded-full').first().innerText({ timeout: 500 }).catch(() => '0');
+      const s = await p.locator('aside a[data-sidebar-bell] [data-badge=inbox]').first().innerText({ timeout: 500 }).catch(() => '0');
       return parseInt(s, 10) || 0;
     };
     const u0 = await unread();

@@ -17,7 +17,6 @@ import { oldItems } from '@/lib/data/claude-items';
 import { projectLauncher, reopenPrompts } from '@/lib/data/launcher';
 import { turboInfo } from '@/lib/data/turbo';
 import { OldClaudeItems } from './old-claude-items';
-import { ProjectSessions } from './sessions';
 import { CodeLocations } from './code-locations';
 import { ProductionSetting } from './production-setting';
 import { getProduction } from '@/lib/data/production';
@@ -26,14 +25,21 @@ import { NudgesSetting } from './nudges-setting';
 import { FolderLinks } from './folders';
 import { ProjectDetails } from './project-header';
 import { ProjectTop } from './project-top';
-import { ClaudeCard } from './claude-card';
 import { projectNeeds, withNeedWaits } from '@/lib/data/needs';
+import { asksBySession, withAskerSessions } from '@/lib/data/need-sessions';
 import { NeedsTab } from '@/components/needs';
 import { StateCard } from './state-card';
 import { PurposeHeader } from '@/components/purpose-header';
-import { CouldBeRunning } from '../../claude/workers-tab';
+import { CouldBeRunning } from '@/components/could-be-running';
+import { SessionList } from '@/components/session-row';
+import { List, Row } from '@/components/ui/card';
+import { Section } from '@/components/ui/section';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { ReopenBanner } from '../../claude/reopen-banner';
+import { claudeOverview } from '@/lib/data/claude-overview';
+import { mergeSessions } from '@/lib/session-item';
 import { nextServing, placeOf } from '@/lib/data/purpose';
-import { PlaceChip, PlacesProvider } from '@/components/task-place';
+import { PlacesProvider } from '@/components/task-place';
 import { projectRoster, withLaneMarks } from '@/lib/data/roster';
 import { archivedOut, stateOfProject, stateOut } from '@/lib/data/states';
 import { memberNames } from '@/lib/people';
@@ -41,7 +47,6 @@ import { memberNames } from '@/lib/people';
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'tasks', label: 'Tasks' },
-  { id: 'claude', label: 'Claude' },
   { id: 'needs', label: 'Needs' },
   { id: 'notes', label: 'Notes' },
   { id: 'info', label: 'Info' },
@@ -61,12 +66,12 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const sc = { userId: me.userId, orgId: me.orgId };
   const project = await getProjectWithStats(sc, decodeURIComponent(id));
   if (!project) notFound();
-  // Old links (?claude=C12) land on the Claude tab.
-  const tab: TabId = TABS.find(t => t.id === sp.tab)?.id ?? (sp.claude ? 'claude' : 'overview');
+  // The sessions are on Overview (an old ?tab=claude lands there); old Claude items (?claude=C12) sit in Info.
+  const tab: TabId = TABS.find(t => t.id === sp.tab)?.id ?? (sp.claude ? 'info' : 'overview');
   const base = `/projects/${encodeURIComponent(project.id)}`;
   const tabHref = (t: TabId) => `${base}?tab=${t}`;
 
-  const [open, done, activity, notes, oldClaudeItems, launcher, reopen, stateDoc, names, needs] = await Promise.all([
+  const [open, done, activity, notes, oldClaudeItems, launcher, reopen, stateDoc, names, needsRaw, computers] = await Promise.all([
     listTasks(sc, { project: project.id, open: true }),
     listTasks(sc, { project: project.id, status: ['Done', 'Dropped'], sort: 'done', limit: 30 }),
     listActivity(sc, { project: project.id, limit: 40 }),
@@ -77,8 +82,22 @@ export default async function ProjectPage({ params, searchParams }: Props) {
     stateOfProject(sc, project.id),
     memberNames(me.orgId),
     projectNeeds(sc, project.id),
+    claudeOverview(me, { card: true }).catch(() => null),
   ]);
-  const projectWorkers = await projectRoster(sc, { id: project.id, name: project.name, status: project.status }, stateDoc, names, open);
+  const [projectWorkers, needs] = await Promise.all([
+    projectRoster(sc, { id: project.id, name: project.name, status: project.status }, stateDoc, names, open),
+    withAskerSessions(sc, needsRaw),
+  ]);
+  // The sessions on this project, the same rows as the Claude page (lib/session-item.ts): live first, then those that ended today.
+  // eslint-disable-next-line react-hooks/purity -- a server render runs once per request
+  const sessions = mergeSessions(projectWorkers.workers, computers?.sessions ?? [], { tz: me.tz, now: Date.now(), projectId: project.id });
+  const serves = Object.fromEntries(
+    [...sessions.live, ...sessions.finished].flatMap(i => {
+      const line = i.doing?.ref ? nextServing(i.doing.ref, stateDoc) : null;
+      return line ? [[i.id, line]] : [];
+    }),
+  );
+  const openNeeds = needs.filter(n => n.status === 'open');
   const stateView = stateDoc ? await withLaneMarks(sc, project.id, stateDoc, await withNeedWaits(sc, project.id, stateOut(stateDoc, me.userId, names), names)) : null;
   const needsOpenForMe = needs.filter(n => n.status === 'open' && n.to === me.userId).length;
   const turbo = await turboInfo(me, project.id, launcher);
@@ -90,8 +109,6 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const s = project.stats;
   const repos = project.code ?? [];
   const folders = launcher.folders.filter(f => !f.missing);
-
-  const running = launcher.sessions.filter(x => x.state === 'running' || x.state === 'starting' || x.state === 'unknown');
 
   const noteList = (list: typeof projectNotes, dense?: boolean) => (
     <ul className="divide-y divide-border/60 md:divide-border">
@@ -132,46 +149,51 @@ export default async function ProjectPage({ params, searchParams }: Props) {
   const overview = (
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,_1.7fr)_minmax(0,_1fr)] gap-4 lg:gap-6 items-start" data-view="overview">
       <div className="space-y-4 min-w-0">
-        <StateCard projectId={project.id} initial={stateView} archived={stateDoc ? archivedOut(stateDoc, names) : []} />
-        {projectWorkers.workers.length > 0 && (
-          <section className="space-y-1.5" data-card="workers">
-            <h2 className={H2}>Working on it now</h2>
-            <ul className={cn(CARD, 'divide-y divide-border/60')}>
-              {projectWorkers.workers.map(w => (
-                <li key={w.id} className={cn('px-4 md:px-3 py-2 text-[15px] md:text-sm', w.depth === 1 && 'pl-8 bg-muted/20')} data-project-worker={w.id}>
-                  <span className="font-semibold">{w.label ? `${w.label} · ${w.person}` : w.person}</span> · {[w.ai, w.model].filter(Boolean).join(' · ')}
-                  <span className="text-muted-foreground text-[13px] md:text-xs">
-                    {w.branch ? ` · ${w.branch}` : ''}
-                    {w.slot ? ` · slot ${w.slot}` : ''}
-                    {` · ${w.state === 'working' ? 'working' : w.state === 'waiting' ? 'waiting on a person' : 'idle'}`}
-                  </span>
-                  {w.doing && (
-                    <div className="text-[13px] md:text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
-                      <Link href={`/tasks/${w.doing.ref}`} className="truncate min-w-0 hover:text-foreground underline-offset-2 hover:underline" data-lane-task>
-                        #{w.doing.ref} {w.doing.title}
-                      </Link>
-                      {/* a Next place is already said by the served line below */}
-                      {placeOf(w.doing.ref, stateDoc)?.kind !== 'next' && <PlaceChip place={placeOf(w.doing.ref, stateDoc)} />}
-                    </div>
-                  )}
-                  {w.doing && nextServing(w.doing.ref, stateDoc) && (
-                    <div className="text-[13px] md:text-xs text-muted-foreground truncate" data-lane-serves>
-                      {nextServing(w.doing.ref, stateDoc)}
-                    </div>
-                  )}
-                  {w.lastResult && (
-                    <div className="text-[13px] md:text-xs text-muted-foreground" data-lane-result>
-                      <div className="italic truncate" title="Written by the agent, not checked">last: {w.lastResult.text.replace(/\s+/g, ' ')}</div>
-                      <div className="text-[11px]" data-lane-result-by>written by {w.ai || 'the agent'} of {w.person}, not checked</div>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
+        {/* Now (the goal) is the purpose header above the tabs; then who works on it, what waits on a person, the rest of the State. */}
+        <ReopenBanner prompts={reopen} onlyDevices={folders.map(f => f.deviceId)} />
+        {sessions.live.length > 0 ? (
+          <div data-card="workers">
+            <Section label="Working on it" count={sessions.live.length}>
+              <SessionList items={sessions.live} tz={me.tz} where="project" serves={serves} asks={asksBySession(needs, me.userId)} />
+            </Section>
+          </div>
+        ) : projectWorkers.couldBeRunning ? (
+          <CouldBeRunning list={[projectWorkers.couldBeRunning]} />
+        ) : (
+          <List data-card="no-sessions">
+            <Row title={<span className="text-muted-foreground">No session is working on it</span>} />
+          </List>
         )}
-        {projectWorkers.couldBeRunning && <CouldBeRunning list={[projectWorkers.couldBeRunning]} compact />}
-        <ClaudeCard projectId={project.id} tabHref={tabHref('claude')} running={running} hasComputers={launcher.devices.length > 0} />
+        {sessions.finished.length > 0 && (
+          <div data-card="finished">
+            <Section label="Finished today" count={sessions.finished.length} fold defaultOpen={sessions.live.length === 0}>
+              <SessionList items={sessions.finished} tz={me.tz} where="project" serves={serves} />
+            </Section>
+          </div>
+        )}
+        {openNeeds.length > 0 && (
+          <div data-card="needs">
+            <Section label="Needs" count={openNeeds.length} seeAll={tabHref('needs')}>
+              <List>
+                {openNeeds.slice(0, 3).map(n => (
+                  <Row
+                    key={n.id}
+                    data-need-row={n.ref}
+                    href={tabHref('needs')}
+                    title={
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span className="truncate">{n.ask}</span>
+                        <StatusBadge status={n.kind} />
+                      </span>
+                    }
+                    meta={[n.to === me.userId ? 'For you' : `For ${names[n.to] ?? 'a member'}`, n.session ? `${n.session.label}: ${n.session.word}` : '', n.taskRef ? `on #${n.taskRef}` : ''].filter(Boolean).join(' · ')}
+                  />
+                ))}
+              </List>
+            </Section>
+          </div>
+        )}
+        <StateCard projectId={project.id} initial={stateView} archived={stateDoc ? archivedOut(stateDoc, names) : []} />
         <section className="space-y-1.5" data-card="tasks">
           <div className="flex items-center gap-2 px-1 md:px-0 min-h-11 md:min-h-0 -mb-1 md:mb-0">
             <h2 className={H2}>Tasks</h2>
@@ -224,7 +246,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
       <ProjectTop project={project} tab={tab} />
       <PurposeHeader projectId={project.id} initial={stateView} description={project.description?.trim() || undefined} />
 
-      <nav aria-label="Project sections" className="grid grid-cols-6 gap-0.5 md:inline-flex md:gap-1 rounded-2xl bg-muted/60 p-1 md:max-w-full">
+      <nav aria-label="Project sections" className="grid grid-cols-5 gap-0.5 md:inline-flex md:gap-1 rounded-2xl bg-muted/60 p-1 md:max-w-full">
         {TABS.map(t => (
           <Link
             key={t.id}
@@ -257,13 +279,6 @@ export default async function ProjectPage({ params, searchParams }: Props) {
             <h2 className={`${H2} px-1 md:px-0`}>Recently finished</h2>
             <TaskList tasks={done} showProject={false} empty="Nothing finished yet." />
           </section>
-        </div>
-      )}
-
-      {tab === 'claude' && (
-        <div className="space-y-5 max-w-3xl" data-view="claude">
-          <ProjectSessions projectId={project.id} {...launcher} turbo={turbo} reopen={reopen} />
-          <OldClaudeItems items={oldClaudeItems} openRef={Number(sp.claude?.replace(/^C/i, '')) || undefined} />
         </div>
       )}
 
@@ -311,6 +326,7 @@ export default async function ProjectPage({ params, searchParams }: Props) {
                 <FolderLinks projectId={project.id} folders={launcher.folders} suggestions={launcher.suggestions} devices={launcher.devices} turbo={turbo} />
               </div>
             </section>
+            <OldClaudeItems items={oldClaudeItems} openRef={Number(sp.claude?.replace(/^C/i, '')) || undefined} />
           </div>
           <section className="space-y-2 min-w-0">
             <h2 className={`${H2} px-1 md:px-0`}>Activity</h2>

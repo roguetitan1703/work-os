@@ -23,7 +23,7 @@ export default async function ProjectsPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-5 max-w-6xl">
-      <MobileHeader title="Projects" subtitle={`${projects.length} ${all === '1' ? 'total' : 'active or paused'}`} right={<NewProjectButton />} />
+      <MobileHeader title="Projects" subtitle={`${projects.length} ${all === '1' ? 'total' : 'active or paused'}`} />
       <HubSegment active="projects" />
       <div className="md:hidden flex gap-2">
         {[
@@ -39,6 +39,9 @@ export default async function ProjectsPage({ searchParams }: Props) {
             {c.label}
           </Link>
         ))}
+        <span className="ml-auto">
+          <NewProjectButton />
+        </span>
       </div>
 
       <div className="hidden md:flex items-center justify-between">
@@ -57,7 +60,7 @@ export default async function ProjectsPage({ searchParams }: Props) {
       {projects.length === 0 && (
         <div data-projects-empty>
           <div className="md:hidden">
-            <MEmpty icon={<NavIcon icon={PLACE_ICON.projects} size={20} />} title="No projects yet" hint="Tap + to create your first one. A project groups tasks, notes and Claude for one client or product." />
+            <MEmpty icon={<NavIcon icon={PLACE_ICON.projects} size={20} />} title="No projects yet" hint="Tap New project to create your first one. A project groups tasks, notes and Claude for one client or product." />
           </div>
           <div className="hidden md:block">
             <MEmpty icon={<NavIcon icon={PLACE_ICON.projects} size={20} />} title="No projects yet" hint="Click New project. A project groups tasks, notes and Claude for one client or product." />

@@ -1,6 +1,7 @@
 // Stop hook: files changed since the session started and no save_state since: block once.
 import fs from 'node:fs';
 import { MAX_BRIEF, cut, deliverText, keepAck, postEvent, readMarker, sizeOf, statusHash, writeMarker } from './hook-lib.mjs';
+import { cleanResult, lastAssistantText as lastMainText, notAResult } from './hook-subagent-stop.mjs';
 
 /**
  * Stop: the hook's JSON answer (or null). The save check blocks at most once per session; messages that came during the turn ride
@@ -29,7 +30,8 @@ export async function stop(input) {
   const counts = stopCounts(input, sid);
   let a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...counts, ...nudge });
   if (a?.status === 400 && nudge.nudge) a = await postEvent(sid, 'stop', { ...(again ? {} : { deliver: true }), ...counts }); // a server that does not know nudges yet
-  const d = a?.status === 200 ? a.b?.deliver : null;
+  if (!again && a?.status === 200) await sendResult(input, sid);
+  const d =a?.status === 200 ? a.b?.deliver : null;
   if (!again && d?.wakeable === true && deliverText(a)) {
     const m = readMarker(sid);
     if (m) writeMarker(sid, { ...m, lastTool: 0 }); // the turn goes on: the next tool batch tells Work OS it is working again
@@ -60,6 +62,28 @@ export async function stop(input) {
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * The session's last line (its lane result, `lastResult`): the main conversation's own last message at the end of a turn, cleaned to
+ * one line of at most 300 characters. Never a subagent's report, a compaction summary or an analysis block. '' when there is none.
+ */
+export function resultOf(input) {
+  const m = input?.last_assistant_message;
+  const given = typeof m === 'string' && m.trim() && !notAResult(m) ? m : '';
+  return cleanResult(given || lastMainText(input?.transcript_path));
+}
+
+/** Sends the turn's result as its own event (it changes no state), once per text: the marker keeps the last one sent. Fails open. */
+async function sendResult(input, sid) {
+  try {
+    const text = resultOf(input);
+    if (!text) return;
+    const m = readMarker(sid);
+    if (m?.lastResultSent === text) return;
+    const r = await postEvent(sid, 'result', { result: text });
+    if (r?.status === 200 && m) writeMarker(sid, { ...readMarker(sid), lastResultSent: text });
+  } catch { /* fail open */ }
+}
 
 const TURN_END_PER_DAY = 3;
 

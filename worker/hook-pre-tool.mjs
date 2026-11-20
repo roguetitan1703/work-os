@@ -107,7 +107,7 @@ export async function preTool(input) {
  * hook input of a subagent's tool calls (and not in the main session's); with it, the State writes are refused. Main sessions are unaffected.
  */
 const STATE_WRITE = /^mcp__.+__(save_state|import_state|end_work)$/;
-export const SUBAGENT_REASON = "Work OS: you are a subagent; your parent session records the State (save_state, import_state, end_work). Nothing was sent. Put what you found in your final message: it becomes your parent's lane result.";
+export const SUBAGENT_REASON = "Work OS: you are a subagent; your parent session records the State (save_state, import_state, end_work). Nothing was sent. Put what you found in your final message: your parent reads it.";
 export function subagentDeny(input) {
   try {
     if (!input.agent_id || !STATE_WRITE.test(String(input.tool_name || ''))) return null;

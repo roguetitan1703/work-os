@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Plus } from 'lucide-react';
+import { FolderPlus, Plus } from 'lucide-react';
 import { createProjectAction } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -69,13 +69,10 @@ export function NewProjectButton() {
   const fieldCls = 'h-12 text-[16px]';
   return (
     <>
-      <button
-        onClick={openIt}
-        aria-label="New project"
-        className="md:hidden w-11 h-11 rounded-full bg-foreground text-background flex items-center justify-center active:scale-95 transition-transform"
-      >
-        <Plus className="w-5 h-5" strokeWidth={2.4} />
-      </button>
+      {/* Phone: a plain outline button beside the Active/All chips, not a second + (the bar's + adds tasks, Claude, notes). */}
+      <Button variant="outline" size="touch" className="md:hidden gap-1.5 rounded-pill font-medium" onClick={openIt} data-new-project>
+        <FolderPlus className="w-4 h-4" /> New project
+      </Button>
       <Button size="sm" className="hidden md:inline-flex gap-1.5" onClick={openIt}>
         <Plus className="w-3.5 h-3.5" /> New project
       </Button>

@@ -7,6 +7,7 @@ import { MobileTasks } from '@/components/mobile/m-tasks';
 import { taskIdsWithNotes } from '@/lib/data/notes';
 import { requireScope } from '@/lib/caller';
 import { openNeedsToMe } from '@/lib/data/needs';
+import { withAskerSessions } from '@/lib/data/need-sessions';
 import { NeedsYou } from '@/components/needs';
 import { placesOfTasks } from '@/lib/data/purpose';
 import { PlacesProvider } from '@/components/task-place';
@@ -32,7 +33,9 @@ export default async function BoardPage({ searchParams }: Props) {
     listTasks(s, { ...common, open: true, forList: true }),
     listTasks(s, { ...common, due: undefined, status: ['Done'], doneFrom: weekStart(todayStr()), sort: 'done', forList: true }),
     listProjectsBasic(s),
-    openNeedsToMe(s).catch(() => []),
+    openNeedsToMe(s)
+      .then(l => withAskerSessions(s, l))
+      .catch(() => []),
   ]);
   const active = projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }));
   const all = [...open, ...doneThisWeek];

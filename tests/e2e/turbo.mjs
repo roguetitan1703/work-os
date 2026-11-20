@@ -123,7 +123,7 @@ try {
   await p.goto(B + '/projects/tp3?tab=claude');
   await p.locator(`[data-session="${s3._id}"]`).waitFor();
   const row3 = await p.locator(`[data-session="${s3._id}"]`).innerText();
-  check('the row shows failed and the reason, not "folder unlinked"', /failed/.test(row3) && row3.includes(msg) && !/folder unlinked/.test(row3), row3);
+  check('the row shows failed and the reason, not "folder unlinked"', /failed/i.test(row3) && row3.includes(msg) && !/folder unlinked/.test(row3), row3);
   check('no Resume on a session with no folder', (await p.locator(`[data-session="${s3._id}"] [aria-label="Resume"]`).count()) === 0);
   const f3 = await db.collection('workerFolders').countDocuments({ projectId: 'tp3' });
   check('a failed clone links nothing', f3 === 0);

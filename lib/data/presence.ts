@@ -317,14 +317,18 @@ export function cleanResult(v: string | undefined | null): string {
   const t = (v ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim();
   return t.length > LAST_RESULT_MAX ? t.slice(0, LAST_RESULT_MAX - 1) + '\u2026' : t;
 }
+/** A compaction summary or an analysis block is never a session's last line (older hooks sent a subagent's report, which can start so). */
+export const notAResult = (text: string): boolean =>
+  /^\s*<(analysis|summary)>/i.test(text) || /^\s*This session is being continued from a previous conversation/i.test(text);
 /**
- * A subagent's last message (the hook's SubagentStop, POST /api/agent/event result): the lane result of the token's own presence row,
- * cleaned and cut at 300 characters. Only that row, never created here; an empty text changes nothing. Returns whether it was written.
+ * The main conversation's last message at the end of a turn (the hook's Stop, POST /api/agent/event result): the lane result of the
+ * token's own presence row, cleaned and cut at 300 characters. Only that row, never created here; an empty text, a compaction summary
+ * or an analysis block changes nothing. Returns whether it was written.
  */
 // Readers see this as agent-written text (marked writtenBy, Step 5); it is cleaned of control characters and cut, not scanned for secrets.
 export async function setLastResult(s: Scope, r: { sid: string; projectId: string | null }, text: string): Promise<boolean> {
   const t = cleanResult(text);
-  if (!t) return false;
+  if (!t || notAResult(t)) return false;
   const res = await (await scoped(s)).presence.updateOne({ _id: hookRowId(s.userId, r.sid, r.projectId), userId: s.userId }, { $set: { lastResult: { text: t, at: new Date() } } });
   return res.matchedCount > 0;
 }

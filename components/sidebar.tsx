@@ -4,7 +4,7 @@ import Link from '@/components/intent-link';
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
-import { ChevronDown, ChevronsUpDown, Download, LogOut, Monitor, Moon, PanelLeft, Play, Plus, Search, Settings, Sparkles, Sun, type LucideIcon } from 'lucide-react';
+import { Bell, ChevronDown, ChevronsUpDown, Download, LogOut, Monitor, Moon, PanelLeft, Play, Plus, Search, Settings, Sparkles, Sun, type LucideIcon } from 'lucide-react';
 import { logoutAction } from '@/app/actions';
 import { placeOf, startClaudeUrl } from '@/lib/nav';
 import { cn } from '@/lib/utils';
@@ -100,6 +100,24 @@ export function Sidebar({ showSignOut = true }: { showSignOut?: boolean }) {
           <img src="/icons/192" alt="" width={24} height={24} className="w-6 h-6 rounded-md shrink-0" />
           {!rail && <span className="font-semibold text-[15px] tracking-tight text-foreground truncate">Work OS</span>}
         </div>
+        {/* The Inbox is the bell: empty most days, so it needs no row. Same red count as the phone's bell. */}
+        <RailTip on={rail} label={unread ? `Inbox, ${unread} new` : 'Inbox'}>
+          <Link
+            href="/notifications"
+            data-sidebar-bell
+            aria-label={unread ? `Inbox, ${unread} new` : 'Inbox'}
+            aria-current={place === 'inbox' ? 'page' : undefined}
+            title={rail ? undefined : 'Inbox'}
+            className={cn('relative w-9 h-9 grid place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/60', place === 'inbox' && 'bg-muted text-foreground')}
+          >
+            <NavIcon icon={Bell} />
+            {unread > 0 && (
+              <span data-badge="inbox" className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-label font-semibold leading-4 text-center">
+                {unread > 99 ? '99+' : unread}
+              </span>
+            )}
+          </Link>
+        </RailTip>
         <RailTip on={rail} label="Expand sidebar" hint="Ctrl+B">
           <button
             type="button"
@@ -116,6 +134,17 @@ export function Sidebar({ showSignOut = true }: { showSignOut?: boolean }) {
       </div>
 
       <div className="p-2 pb-1 space-y-0.5">
+        <RailTip on={rail} label="Search" hint="/">
+          <button type="button" onClick={openSearch} data-search-button aria-label={rail ? 'Search' : undefined} className={cn(ui.row, ui.rowOff, rail && 'justify-center px-0')}>
+            <NavIcon icon={Search} className="text-muted-foreground" />
+            {!rail && (
+              <>
+                Search
+                <kbd className={ui.kbd}>/</kbd>
+              </>
+            )}
+          </button>
+        </RailTip>
         <QuickAddLauncher
           render={open => (
             <RailTip on={rail} label="New task" hint="N">
@@ -131,17 +160,6 @@ export function Sidebar({ showSignOut = true }: { showSignOut?: boolean }) {
             </RailTip>
           )}
         />
-        <RailTip on={rail} label="Search" hint="/">
-          <button type="button" onClick={openSearch} data-search-button aria-label={rail ? 'Search' : undefined} className={cn(ui.row, ui.rowOff, rail && 'justify-center px-0')}>
-            <NavIcon icon={Search} className="text-muted-foreground" />
-            {!rail && (
-              <>
-                Search
-                <kbd className={ui.kbd}>/</kbd>
-              </>
-            )}
-          </button>
-        </RailTip>
         {hasComputers ? (
           <RailTip on={rail} label="Start Claude" hint="S">
             <button type="button" onClick={() => router.push(startClaudeUrl())} data-start-claude-button aria-label={rail ? 'Start Claude' : undefined} className={cn(ui.row, ui.rowOff, rail && 'justify-center px-0')}>
@@ -165,19 +183,14 @@ export function Sidebar({ showSignOut = true }: { showSignOut?: boolean }) {
       </div>
 
       <nav className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 pt-1" aria-label="Main">
+        {/* The places, in the order of the keys 1-6. Review, Schedule, What's new and Settings are in the account menu. */}
         <Group>
-          <NavItem rail={rail} href="/today" icon={PLACE_ICON.today} on={place === 'today'} count={badges.overdue} tone="red" keyHint="1">Today</NavItem>
-          <NavItem rail={rail} href="/tasks" icon={PLACE_ICON.tasks} on={place === 'tasks'} keyHint="2">Tasks</NavItem>
-          <NavItem rail={rail} href="/projects" icon={PLACE_ICON.projects} on={place === 'projects'} keyHint="3">Projects</NavItem>
-          <NavItem rail={rail} href="/notes" icon={PLACE_ICON.notes} on={place === 'notes'} keyHint="4">Notes</NavItem>
-          <NavItem rail={rail} href="/claude" icon={PLACE_ICON.claude} on={place === 'claude'} keyHint="5">Claude</NavItem>
-        </Group>
-        <Group>
-          <NavItem rail={rail} href="/notifications" icon={PLACE_ICON.inbox} on={place === 'inbox'} count={unread} tone="red">Inbox</NavItem>
-          <NavItem rail={rail} href="/needs" icon={PLACE_ICON.needs} on={place === 'needs'} count={badges.needs} tone="amber" isNew={badges.newBadges?.includes('nav:needs')}>Needs</NavItem>
-          <NavItem rail={rail} href="/review" icon={PLACE_ICON.review} on={place === 'review'}>Review</NavItem>
-          <NavItem rail={rail} href="/timetable" icon={PLACE_ICON.schedule} on={place === 'schedule'}>Schedule</NavItem>
-          <NavItem rail={rail} href="/whats-new" icon={PLACE_ICON.whatsnew} on={place === 'whatsnew'} dot={badges.whatsNew}>What&apos;s new</NavItem>
+          <NavItem rail={rail} href="/today" icon={PLACE_ICON.today} on={place === 'today'} count={badges.overdue} keyHint="1">Today</NavItem>
+          <NavItem rail={rail} href="/projects" icon={PLACE_ICON.projects} on={place === 'projects'} keyHint="2">Projects</NavItem>
+          <NavItem rail={rail} href="/claude" icon={PLACE_ICON.claude} on={place === 'claude'} keyHint="3">Claude</NavItem>
+          <NavItem rail={rail} href="/needs" icon={PLACE_ICON.needs} on={place === 'needs'} count={badges.needs} keyHint="4" isNew={badges.newBadges?.includes('nav:needs')}>Needs</NavItem>
+          <NavItem rail={rail} href="/tasks" icon={PLACE_ICON.tasks} on={place === 'tasks'} keyHint="5">Tasks</NavItem>
+          <NavItem rail={rail} href="/notes" icon={PLACE_ICON.notes} on={place === 'notes'} keyHint="6">Notes</NavItem>
         </Group>
         {!rail && recent.length > 0 && (
           <section className="pt-3" data-recent>
@@ -279,6 +292,8 @@ function AccountMenu({ rail, showSignOut }: { rail: boolean; showSignOut: boolea
                 {initials(account.name || account.email)}
               </span>
               {dot && <span role="img" data-status-dot aria-label={STATUS_TEXT[badges.status]} title={STATUS_TEXT[badges.status]} className={cn('absolute -right-0.5 -top-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-black', dot)} />}
+              {/* What's new lives in this menu: its blue dot shows on the avatar while something is unseen. */}
+              {badges.whatsNew && <span role="img" data-new-dot aria-label="Something new" className="absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full bg-blue-500 ring-2 ring-white dark:ring-black" />}
             </span>
             {!rail && (
               <>
@@ -293,9 +308,25 @@ function AccountMenu({ rail, showSignOut }: { rail: boolean; showSignOut: boolea
         </RailTip>
         <MenuContent side={rail ? 'right' : 'top'} align={rail ? 'end' : 'start'} testId="account" className="w-64">
           <MenuLabel>{account.email}</MenuLabel>
+          {/* The places you visit now and then (the phone has them in the Menu). */}
+          <MenuItem icon={<NavIcon icon={PLACE_ICON.review} className="text-muted-foreground" />} onClick={() => router.push('/review')} data-menu-review>
+            Review
+          </MenuItem>
+          <MenuItem icon={<NavIcon icon={PLACE_ICON.schedule} className="text-muted-foreground" />} onClick={() => router.push('/timetable')} data-menu-schedule>
+            Schedule
+          </MenuItem>
+          <MenuItem
+            icon={<NavIcon icon={PLACE_ICON.whatsnew} className="text-muted-foreground" />}
+            hint={badges.whatsNew ? <span data-new-dot role="img" aria-label="Something new" className="block w-2 h-2 rounded-full bg-blue-500" /> : undefined}
+            onClick={() => router.push('/whats-new')}
+            data-menu-whats-new
+          >
+            What&apos;s new
+          </MenuItem>
           <MenuItem icon={<NavIcon icon={Settings} className="text-muted-foreground" />} hint="Ctrl+," onClick={() => router.push('/settings')} data-menu-settings>
             Settings
           </MenuItem>
+          <MenuSeparator />
           <MenuSubmenu>
             <MenuSubmenuTrigger icon={<NavIcon icon={theme === 'dark' ? Moon : theme === 'light' ? Sun : Monitor} className="text-muted-foreground" />} data-menu-theme>
               Theme
@@ -351,7 +382,6 @@ function NavItem({
   icon,
   on,
   count,
-  tone,
   keyHint,
   rail,
   dot,
@@ -361,8 +391,8 @@ function NavItem({
   children: string;
   icon: LucideIcon;
   on?: boolean;
+  /** Something waiting on you: one red count everywhere (sidebar, bell, phone bar). */
   count?: number;
-  tone?: 'red' | 'amber';
   keyHint?: string;
   rail: boolean;
   /** A small blue dot instead of a count (something new to look at). */
@@ -370,13 +400,6 @@ function NavItem({
   /** A "New" badge (lib/whats-new.ts) after the label. */
   isNew?: boolean;
 }) {
-  const toneCls =
-    tone === 'red'
-      ? 'bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-300'
-      : tone === 'amber'
-        ? 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300'
-        : 'bg-muted text-muted-foreground';
-  const dotCls = tone === 'amber' ? 'bg-amber-500' : 'bg-red-500';
   return (
     <RailTip on={rail} label={children} hint={keyHint}>
       <Link
@@ -389,9 +412,9 @@ function NavItem({
         <NavIcon icon={icon} className="text-muted-foreground" />
         {!rail && children}
         {!rail && isNew && <NewBadge className={count || dot ? '' : 'ml-auto'} />}
-        {!rail && count ? <span className={cn(ui.badge, toneCls)}>{count}</span> : null}
+        {!rail && count ? <span data-count className={cn(ui.badge, 'bg-red-500 text-white')}>{count > 99 ? '99+' : count}</span> : null}
         {!rail && !count && dot ? <span data-new-dot role="img" aria-label="Something new" className="ml-auto mr-1 w-2 h-2 rounded-full bg-blue-500" /> : null}
-        {rail && count ? <span data-badge-dot className={cn('absolute right-2 top-1.5 w-2 h-2 rounded-full', dotCls)} aria-hidden /> : null}
+        {rail && count ? <span data-badge-dot className="absolute right-2 top-1.5 w-2 h-2 rounded-full bg-red-500" aria-hidden /> : null}
         {rail && !count && dot ? <span data-new-dot className="absolute right-2 top-1.5 w-2 h-2 rounded-full bg-blue-500" aria-hidden /> : null}
       </Link>
     </RailTip>

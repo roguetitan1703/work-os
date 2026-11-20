@@ -244,6 +244,21 @@ export async function sendTo(
   return sendMessage(s, t, { kind: a.kind, body: a.body, refs: a.refs, sender_commit: a.sender_commit }, from);
 }
 
+/**
+ * The app's Message on a session row (docs/HANDOVER.md section 8, "Sessions"): a request from the signed-in person to one session of
+ * their own, by its presence row id (the id the roster gives their own rows). Only the caller's own rows are read, so another person's
+ * session cannot be named, whatever id is passed. The same path as send_message: its hook hands it over at its next tool call.
+ */
+export async function messageOwnSession(s: Scope, rowId: string, body: string): Promise<{ message: MessageDoc; target: string }> {
+  const c = await scoped(s);
+  const row = await c.presence.findOne({ _id: rowId, userId: s.userId });
+  if (!row) throw new NotFoundError('That is not one of your sessions');
+  const project = row.projectId ? await c.projects.findOne({ _id: row.projectId }) : null;
+  if (row.projectId && !project) throw new NotFoundError('Project not found');
+  const r = await sendMessage(s, { kind: 'session', rows: [row], project }, { kind: 'request', body }, { word: 'person', ai: 'Work OS app', actor: userActor(s.userId) });
+  return { message: r.message, target: r.target };
+}
+
 export async function reply(s: Scope, id: string, body: string, from: From, reader?: Reader): Promise<{ message: MessageDoc; project: ProjectDoc | null; target: string }> {
   const c = await scoped(s);
   const parent = await c.messages.findOne({ _id: String(id).slice(0, 40) });

@@ -6,7 +6,7 @@ const under = (path: string, base: string) => path === base || path.startsWith(b
 /** Which place owns this page. Null for pages that belong to none (login, offline). */
 export function placeOf(path: string): Place | null {
   if (under(path, '/today')) return 'today';
-  if (under(path, '/tasks') || under(path, '/tasks') || under(path, '/modes')) return 'tasks';
+  if (under(path, '/tasks')) return 'tasks';
   if (under(path, '/projects')) return 'projects';
   if (under(path, '/notes')) return 'notes';
   if (under(path, '/claude')) return 'claude';
@@ -20,10 +20,10 @@ export function placeOf(path: string): Place | null {
   return null;
 }
 
-/** The phone tab a page lights. Notes belong to Projects; Claude, Inbox, What's new, Review, Schedule, Settings and Menu light nothing. */
-export function phoneTabOf(path: string): 'today' | 'projects' | 'needs' | 'tasks' | null {
+/** The phone tab a page lights. Notes belong to Projects; Tasks (first in the Menu), Inbox, What's new, Review, Schedule, Settings and Menu light nothing. */
+export function phoneTabOf(path: string): 'today' | 'projects' | 'needs' | 'claude' | null {
   const p = placeOf(path);
-  if (p === 'today' || p === 'needs' || p === 'tasks' || p === 'projects') return p;
+  if (p === 'today' || p === 'needs' || p === 'claude' || p === 'projects') return p;
   if (p === 'notes') return 'projects';
   return null;
 }

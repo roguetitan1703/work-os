@@ -31,6 +31,9 @@ const buttonVariants = cva(
         "icon-sm":
           "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
         "icon-lg": "size-9",
+        /** 44px touch size on phones, 36px from md: for new work (rows, forms). */
+        touch: "h-row gap-1.5 rounded-control px-4 text-body md:text-meta",
+        "icon-touch": "size-11 rounded-control md:size-9",
       },
     },
     defaultVariants: {

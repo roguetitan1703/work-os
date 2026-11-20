@@ -10,6 +10,7 @@
 #   E2E_LOGS=<dir>     keep each suite's log there (default: temp dir, deleted at the end); the app server log too
 #   E2E_WAIT=<s>       idle time of the nav-preload suites (default 65)
 #   E2E_EXTRA='name|file|seed|plain'   one extra throwaway suite (a probe), run after the others
+#   ui-tour is a capture suite for design review: it runs only when named (ONLY_WHEN_NAMED below), never in the default full run.
 # Never touches the real database: it starts its own mongod on 27281 and the app on 3281, and cleans both up.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,6 +19,9 @@ MONGOD="${MONGOD:-/c/Program Files/MongoDB/Server/8.2/bin/mongod.exe}"
 MPORT=${E2E_MPORT:-27281}
 APORT=${E2E_APORT:-3281}
 DPORT=${E2E_DPORT:-4401}
+
+# Suites that run only when named on the command line (they take minutes and write screenshots for people).
+ONLY_WHEN_NAMED=" ui-tour "
 
 # name | file | seed profile | server mode
 SUITES="
@@ -123,6 +127,7 @@ intake-off|intake-off.mjs|none|plain
 whats-new|whats-new.mjs|none|whatsnew
 whats-new-late|whats-new-late.mjs|none|whatsnewlate
 delpat-os-off|delpat-os-off.mjs|none|plain
+ui-tour|ui-tour.mjs|none|whatsnew
 ${E2E_EXTRA:-}
 "
 
@@ -306,6 +311,7 @@ FAILED_SUITES=0
 while IFS='|' read -r name file profile mode; do
   [ -z "$name" ] && continue
   if [ $# -gt 0 ] && [[ "$WANT" != *" $name "* ]]; then continue; fi
+  if [ $# -eq 0 ] && [[ "$ONLY_WHEN_NAMED" == *" $name "* ]]; then continue; fi
   if [ "$mode" != "$MODE" ]; then stop_server; start_server "$mode" || exit 3; MODE=$mode; fi
   echo "--- $name (seed: $profile)"
   start=$SECONDS

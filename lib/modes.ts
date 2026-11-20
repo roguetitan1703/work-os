@@ -97,11 +97,3 @@ export function findMode(modes: readonly ModeDef[], name: string): ModeDef | und
   const v = name.trim().toLowerCase();
   return modes.find(m => m.name.toLowerCase() === v);
 }
-
-export function modeToSlug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-}
-
-export function slugToMode(modes: readonly ModeDef[], slug: string): string | undefined {
-  return modes.find(m => modeToSlug(m.name) === slug)?.name;
-}

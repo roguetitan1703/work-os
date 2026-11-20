@@ -18,7 +18,7 @@ const settle = (p, ms = 700) => p.waitForTimeout(ms);
 const seenOf = async () => (await rawDb.collection('settings').findOne({ _id: `profile:${ME.userId}` }))?.whatsNewSeen ?? [];
 const resetSeen = () => rawDb.collection('settings').updateOne({ _id: `profile:${ME.userId}` }, { $unset: { whatsNewSeen: '' } });
 const shot = (p, name) => p.screenshot({ path: `${SP}/whats-new-${name}.png`, fullPage: true });
-const ALL = ['task-place-chips', 'sessions-say-why', 'task-why', 'today-projects-now', 'project-goal-first', 'lanes', 'claude-moves-on', 'messages-to-sessions', 'sessions-everywhere', 'dispatcher-restart-once', 'notes-shelves', 'quiet-phone-monday-numbers', 'declutter-project', 'orders-versions', 'folder-decides-project', 'agents-feedback', 'agents-ask-before-production', 'messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
+const ALL = ['claude-in-the-bar', 'task-place-chips', 'sessions-say-why', 'task-why', 'today-projects-now', 'project-goal-first', 'lanes', 'claude-moves-on', 'messages-to-sessions', 'sessions-everywhere', 'dispatcher-restart-once', 'notes-shelves', 'quiet-phone-monday-numbers', 'declutter-project', 'orders-versions', 'folder-decides-project', 'agents-feedback', 'agents-ask-before-production', 'messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
 
 const b = await launch();
 try {
@@ -61,29 +61,29 @@ try {
 
       // Try it marks that one seen and goes there
       // (the second entry: its card is one of the three on the phone)
-      await card.locator('[data-whats-new-try="task-why"]').tap();
+      await card.locator('[data-whats-new-try="task-place-chips"]').tap();
       await p.waitForURL(u => u.pathname === '/tasks', { timeout: 10000 });
       check('Try it: opens where the feature lives (/tasks)', new URL(p.url()).pathname === '/tasks');
-      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['task-why']), JSON.stringify(await seenOf()));
+      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['task-place-chips']), JSON.stringify(await seenOf()));
       await p.goto(B + '/today'); await settle(p);
       const ids2 = await p.locator('[data-section="whats-new"]:visible [data-whats-new]').evaluateAll(els => els.map(e => e.getAttribute('data-whats-new')));
-      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'task-why').slice(0, 3)), JSON.stringify(ids2));
+      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'task-place-chips').slice(0, 3)), JSON.stringify(ids2));
       await resetSeen();
     }
 
-    // The bar: Needs in place of Claude, with the open count
+    // The bar: Today, Projects, Add, Needs (with the open count), Claude
     const bar = p.locator('nav[aria-label=Main]:visible');
     // A tab's count sits on its icon, before its label in the text ("4Needs"): the label is what is left.
     const labels = await bar.locator('a, button').evaluateAll(els => els.map(e => (e.getAttribute('aria-label') || e.textContent.trim()).replace(/^\d+\+?|\d+\+?$/g, '').trim()));
-    check(`bar ${tag}: Today, Projects, Add, Needs, Tasks`, JSON.stringify(labels) === JSON.stringify(['Today', 'Projects', 'Add', 'Needs', 'Tasks']), JSON.stringify(labels));
+    check(`bar ${tag}: Today, Projects, Add, Needs, Claude`, JSON.stringify(labels) === JSON.stringify(['Today', 'Projects', 'Add', 'Needs', 'Claude']), JSON.stringify(labels));
     check(`bar ${tag}: Needs counts the open Needs (4)`, (await bar.locator('[data-badge=needs]').innerText()).trim() === '4');
 
-    // Menu: Claude row (Claude left the bar), What's new row (dot)
+    // Menu: Tasks row (Tasks left the bar), What's new row (dot)
     await p.goto(B + '/menu'); await settle(p);
-    check(`menu ${tag}: a Claude row`, (await p.locator('main a[href="/claude"]').count()) === 1);
+    check(`menu ${tag}: a Tasks row`, (await p.locator('main a[href="/tasks"]').count()) === 1);
     check(`menu ${tag}: What's new row has the dot`, (await p.locator('main a[href="/whats-new"] [data-new-dot]').count()) === 1);
-    const rows = await p.locator('main section a').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().height)));
-    check(`menu ${tag}: every row is 56px like its neighbours`, rows.every(h => h === 56), JSON.stringify(rows));
+    const rows = await p.locator('main [data-menu] > div').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().height)));
+    check(`menu ${tag}: every row is 44px like its neighbours`, rows.length === 7 && rows.every(h => h === 44), JSON.stringify(rows));
     await shot(p, `menu-${tag}`);
     let o = await overflow(p); check(`no horizontal scroll /menu ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
 
@@ -176,9 +176,10 @@ try {
     const aside = p.locator('aside');
     const needsItem = aside.locator('a[href="/needs"]');
     check(`sidebar ${tag}: Needs with a "New" badge and its count`, (await needsItem.locator('[data-new-badge]').count()) === 1 && /4$/.test((await needsItem.innerText()).trim()), await needsItem.innerText());
-    check(`sidebar ${tag}: What's new has the dot`, (await aside.locator('a[href="/whats-new"] [data-new-dot]').count()) === 1);
-    const heights = await aside.locator('nav a').evaluateAll(els => [...new Set(els.slice(0, 10).map(e => Math.round(e.getBoundingClientRect().height)))]);
-    check(`sidebar ${tag}: Needs and What's new rows are the height of their neighbours`, heights.length === 1, JSON.stringify(heights));
+    // What's new is in the account menu: the avatar carries the blue dot, and so does the menu row.
+    check(`sidebar ${tag}: the account button has the dot`, (await aside.locator('[data-account-button] [data-new-dot]').count()) === 1);
+    const heights = await aside.locator('nav a').evaluateAll(els => [...new Set(els.slice(0, 6).map(e => Math.round(e.getBoundingClientRect().height)))]);
+    check(`sidebar ${tag}: the Needs row is the height of its neighbours`, heights.length === 1, JSON.stringify(heights));
     const card = p.locator('[data-section="whats-new"]:visible');
     check(`desktop Today ${tag}: the card shows beside Schedule`, (await card.count()) === 1 && (await card.locator('[data-whats-new]').count()) === 3);
     await shot(p, `today-${tag}`);
@@ -196,12 +197,14 @@ try {
     await shot(p, `needs-${tag}`);
     o = await overflow(p); check(`no horizontal scroll /needs ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
 
-    await aside.locator('a[href="/whats-new"]').click(); await p.waitForURL(u => u.pathname === '/whats-new'); await settle(p);
+    await aside.locator('[data-account-button]').click(); await p.locator('[data-menu=account]').waitFor();
+    check(`account menu ${tag}: What's new has the dot`, (await p.locator('[data-menu-whats-new] [data-new-dot]').count()) === 1);
+    await p.locator('[data-menu-whats-new]').click(); await p.waitForURL(u => u.pathname === '/whats-new'); await settle(p);
     check(`desktop whats-new ${tag}: every entry listed`, (await p.locator('[data-whats-new-entry]').count()) === ALL.length);
     await shot(p, `page-${tag}`);
     await p.waitForTimeout(2500);
     await p.goto(B + '/notes'); await settle(p);
-    check(`sidebar ${tag}: the dot is gone once seen`, (await aside.locator('a[href="/whats-new"] [data-new-dot]').count()) === 0);
+    check(`sidebar ${tag}: the dot is gone once seen`, (await aside.locator('[data-account-button] [data-new-dot]').count()) === 0);
 
     await p.goto(`${B}/projects/${quiet}?tab=inbox`); await settle(p);
     check(`desktop project ${tag}: no Inbox tab (rewritten for Identity step 6)`, (await p.locator('[data-tab=inbox]').count()) === 0 && (await p.locator('[data-inbox-empty]').count()) === 0);

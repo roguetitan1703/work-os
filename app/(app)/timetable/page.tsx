@@ -4,7 +4,7 @@ import { colorOf } from '@/lib/modes';
 import { WEEKDAYS, WEEKDAY_LABELS, durationLabel, weekdayKey, type Wd } from '@/lib/schedule';
 import { todayStr, weekday } from '@/lib/dates';
 import { cn } from '@/lib/utils';
-import { SubHeader } from '@/components/mobile/sub-header';
+import { ScreenHeader } from '@/components/mobile/tab-bar';
 import { requireCaller } from '@/lib/caller';
 import { getSchedule } from '@/lib/user-schedule';
 import { getOrgModes } from '@/lib/org-modes';
@@ -29,8 +29,7 @@ export default async function SchedulePage({ searchParams }: Props) {
   if (sp.edit === '1') {
     return (
       <div className="space-y-6">
-        <SubHeader title="Edit schedule" back="/timetable" backLabel="Schedule" />
-        <h1 className="hidden md:block text-2xl font-bold text-foreground">Edit schedule</h1>
+        <ScreenHeader title="Edit schedule" back="/timetable" backLabel="Schedule" />
         <ScheduleEditor initialBlocks={blocks} modes={modes.map(m => m.name)} extraNames={Object.keys(schedule.colors)} />
       </div>
     );
@@ -45,8 +44,7 @@ export default async function SchedulePage({ searchParams }: Props) {
   if (!blocks.length) {
     return (
       <div className="space-y-6" data-schedule-empty>
-        <SubHeader title="Schedule" />
-        <h1 className="hidden md:block text-2xl font-bold text-foreground">Schedule</h1>
+        <ScreenHeader title="Schedule" back="/menu" backLabel="Menu" />
         <NavIcon icon={PLACE_ICON.schedule} size={24} className="mx-1 md:mx-0 text-muted-foreground" />
         <p className="text-[15px] md:text-sm text-muted-foreground px-1 md:px-0">
           Optional: set when you work, and Today shows what to do right now.
@@ -60,14 +58,7 @@ export default async function SchedulePage({ searchParams }: Props) {
 
   return (
     <div className="space-y-6">
-      <SubHeader title="Schedule" subtitle="Saturday and Sunday are flex days" />
-      <div className="hidden md:flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Schedule</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Mon–Fri schedule ({me.tz}). Saturday and Sunday are flex days.</p>
-        </div>
-        {edit}
-      </div>
+      <ScreenHeader title="Schedule" sub="Saturday and Sunday are flex days" desktopSub={`Mon–Fri schedule (${me.tz}). Saturday and Sunday are flex days.`} back="/menu" backLabel="Menu" actions={edit} />
 
       {/* Phone: one day at a time */}
       <div className="md:hidden space-y-4">

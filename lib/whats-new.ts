@@ -37,6 +37,22 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'sessions-first',
+    date: '2026-11-20',
+    title: 'One list of sessions, and what finished today',
+    line: 'Claude shows every session in one list, live first, with what each is on, where it runs and its last line, then what finished today. Each row has one button: Answer when it waits on you, Message to send it a word, Resume when it ended; the rest is a tap away. A Need names the session that asked, and a project opens with who works on it, its Needs and a folded State.',
+    where: 'Claude in the bar; a Need; a project page',
+    href: '/claude',
+  },
+  {
+    id: 'claude-in-the-bar',
+    date: '2026-11-20',
+    title: 'Claude is in the bar, Menu is one list',
+    line: 'On the phone, Claude has its own tab where Tasks was, the Menu is one plain list starting with Tasks and Notes, and + also starts Claude or a new note; on the laptop, Review, Schedule and Settings sit in your account menu and the Inbox is the bell.',
+    where: 'The phone bar and Menu; the sidebar and its account menu',
+    href: '/claude',
+  },
+  {
     id: 'task-place-chips',
     date: '2026-11-20',
     title: 'Task rows show where they sit in the plan',
@@ -129,8 +145,8 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
     date: '2026-11-19',
     title: 'Quieter phone, Monday numbers',
     line: 'Your phone now buzzes only when an agent session is waiting on your answer, a person asks you, or a release needs your yes; the rest waits for the digest, which on Mondays adds four numbers and up to three proposals.',
-    where: 'Settings › Alerts',
-    href: '/settings',
+    where: 'Settings › Notifications',
+    href: '/settings?section=notifications',
   },
   {
     id: 'declutter-project',
@@ -225,8 +241,8 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
     date: '2026-11-18',
     title: 'A shorter morning digest',
     line: 'One message: what needs you (answer from Discord), your top 3 for today, what moved per project and which agents run or stall.',
-    where: 'Your Discord DM and the inbox, once a day (Settings › Alerts)',
-    href: '/settings?section=alerts',
+    where: 'Your Discord DM and the inbox, once a day (Settings › Notifications)',
+    href: '/settings?section=notifications',
   },
   {
     id: 'hook-device-key',

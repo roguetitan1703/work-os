@@ -48,6 +48,11 @@ await runAssertSuite('settings', async () => {
       assert.ok(r.status() < 500 && p.url().includes('/settings') && !p.url().includes('section=' + bad + '&'), 'prototype name ' + bad + ' is not a section: ' + r.status() + ' ' + p.url());
       await p.waitForSelector('[data-settings-search]', { state: 'attached', timeout: 10000 });
     }
+    // A section that does not exist lands on the main settings list (not an empty page).
+    for (const bad of ['nonsense', 'constructor']) {
+      await p.goto(`${B}/settings?section=${bad}`);
+      await p.waitForURL(u => u.pathname === '/settings' && !u.search, { timeout: 10000 });
+    }
     await p.goto(`${B}/settings?section=connections&open=chat`);
     await p.waitForURL(u => u.pathname === '/claude' && u.search === '?tab=setup', { timeout: 10000 });
     await p.goto(`${B}/settings?section=help`); await p.waitForURL(/section=team/); await p.waitForSelector('[data-help]');

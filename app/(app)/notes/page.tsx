@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { NewNoteButton } from '@/components/new-note-button';
 import { MobileHeader } from '@/components/mobile/tab-bar';
 import { HubSegment } from '@/components/mobile/hub-segment';
-import { MobileNoteFilters, NewNoteSheetButton } from '@/components/mobile/m-notes';
+import { MobileNoteFilters } from '@/components/mobile/m-notes';
 import { Suspense } from 'react';
 import { Select } from '@/components/ui/select';
 import { ARCHIVE, SHELVES, shelfLabel, type Shelf } from '@/lib/notes-shelves';
@@ -42,12 +42,11 @@ export default async function NotesPage({ searchParams }: Props) {
     return s ? `/notes?${s}` : '/notes';
   };
   const activeProjects = projects.filter(p => p.status === 'active' || p.status === 'paused');
-  // The New note sheet can file under any project (active first), so it still works when none are active.
-  const sheetProjects = [...activeProjects, ...projects.filter(p => !activeProjects.includes(p))].map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }));
 
   return (
     <div className="space-y-4 md:space-y-5 max-w-4xl">
-      <MobileHeader title="Notes" subtitle={`${total} ${state === 'archived' || shelf === ARCHIVE ? 'archived' : 'notes'}`} right={<NewNoteSheetButton projects={sheetProjects} defaultProject={sp.project} />} />
+      {/* On the phone a new note starts from the + in the bar (New note). */}
+      <MobileHeader title="Notes" subtitle={`${total} ${state === 'archived' || shelf === ARCHIVE ? 'archived' : 'notes'}`} />
       <HubSegment active="notes" />
       <Suspense>
         <MobileNoteFilters projects={activeProjects.map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }))} />

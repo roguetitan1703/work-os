@@ -37,8 +37,8 @@ for (const vp of [{ w: 1280, h: 800 }, { w: 390, h: 844 }]) {
   await p.goto(B + '/settings?section=notifications'); await p.waitForSelector('[role=switch]'); // the alert switches moved into the Alerts section
   const sw = await p.$$eval('[role=switch]', els => els.map(e => e.getAttribute('aria-label') || e.textContent.trim()));
   check(T(`switches named (${sw.length})`), sw.length >= 3 && sw.every(Boolean), JSON.stringify(sw));
-  // old Claude items: a read-only fold on the project's Claude tab (no sheet, no controls)
-  await p.goto(B + '/projects/' + pid + '?tab=claude');
+  // old Claude items: a read-only fold on the project's Info tab (no sheet, no controls)
+  await p.goto(B + '/projects/' + pid + '?tab=info');
   const fold = p.locator('[data-card="old-claude-items"]');
   check(T('Old Claude items fold shows for a project that has items'), (await fold.count()) === 1 && /old claude items/i.test(await fold.innerText()));
   await click(fold.locator('summary'));

@@ -23,13 +23,13 @@ console.log('alpha id', A);
   const p = await mk(390, 844, true); const bar = p.locator('nav[aria-label=Main]:visible');
   await p.goto(B + '/claude'); await p.waitForTimeout(800);
   const cur = await bar.locator('a[aria-current=page]').evaluateAll(e => e.map(x => (x.getAttribute('aria-label') || x.textContent).trim()));
-  // Claude is in the Menu now (the bar has Needs): no tab is lit on it, and the Menu's Claude row counts what asks.
-  check('phone: no tab lit on /claude', cur.length === 0, JSON.stringify(cur));
-  check('phone: no Claude tab in the bar', (await bar.locator('a[href="/claude"]').count()) === 0);
+  // Claude is a tab (Today, Projects, +, Needs, Claude); Tasks is first in the Menu.
+  check('phone: the Claude tab is lit on /claude', JSON.stringify(cur) === JSON.stringify(['Claude']), JSON.stringify(cur));
+  check('phone: no Tasks tab in the bar', (await bar.locator('a[href="/tasks"]').count()) === 0);
   for (const u of ['/claude?tab=workers', '/claude?tab=setup']) {
     await p.goto(B + u); await p.waitForTimeout(500);
     const lit = await bar.locator('a[aria-current=page]').evaluateAll(e => e.map(x => (x.getAttribute('aria-label') || x.textContent).trim()));
-    check(`phone: no tab lit on ${u}`, lit.length === 0, JSON.stringify(lit));
+    check(`phone: the Claude tab stays lit on ${u}`, JSON.stringify(lit) === JSON.stringify(['Claude']), JSON.stringify(lit));
   }
   for (const u of ['/today', '/tasks', `/projects/${A}`, '/claude']) {
     await p.goto(B + u); await p.waitForTimeout(700);
@@ -71,8 +71,8 @@ console.log('alpha id', A);
   await p.goto(B + `/projects/${A}?start=${A}`); await p.waitForTimeout(1200);
   check('direct ?start=<id> shows confirm step', (await p.locator('[data-start-step=confirm]').count()) === 1);
   await p.keyboard.press('Escape'); await p.waitForTimeout(500);
-  await p.goto(B + '/menu'); await p.locator('body').click({ position: { x: 1260, y: 400 } }); await p.keyboard.press('5'); await p.waitForTimeout(900);
-  check('shortcut 5 -> /claude', path(p).startsWith('/claude'), path(p));
+  await p.goto(B + '/menu'); await p.locator('body').click({ position: { x: 1260, y: 400 } }); await p.keyboard.press('3'); await p.waitForTimeout(900);
+  check('shortcut 3 -> /claude', path(p).startsWith('/claude'), path(p));
   await p.keyboard.press('Shift+/'); await p.waitForTimeout(500);
   const help = await p.locator('[role=dialog]:has-text("Keyboard shortcuts")').innerText().catch(() => '');
   check('? help lists S Start Claude', /Start Claude/.test(help) && /\bS\b/.test(help), help.replace(/\n/g, ' | ').slice(0, 200));
@@ -83,7 +83,7 @@ console.log('alpha id', A);
   await p.keyboard.type('buy sausages'); await p.waitForTimeout(300);
   check('typing "s" in quick add does not open Start Claude', !path(p).includes('start='), path(p));
   await p.keyboard.press('Escape'); await p.waitForTimeout(400);
-  for (const [from, re] of [['/more', /^\/menu/], ['/board', /^\/tasks/], ['/modes/code-dev', /^\/tasks\?.*mode=/], ['/modes/growth', /^\/tasks\?.*mode=Growth/], ['/connect?tab=code', /^\/claude\?tab=setup/], ['/connect?tab=devices', /^\/claude\?tab=setup/]]) {
+  for (const [from, re] of [['/more', /^\/menu/], ['/board', /^\/tasks/], ['/connect?tab=code', /^\/claude\?tab=setup/], ['/connect?tab=devices', /^\/claude\?tab=setup/]]) {
     await p.goto(B + from); await p.waitForTimeout(1800);
     check(`redirect ${from}`, re.test(path(p)), path(p));
   }
