@@ -150,7 +150,8 @@ export default async function ProjectPage({ params, searchParams }: Props) {
                       <Link href={`/tasks/${w.doing.ref}`} className="truncate min-w-0 hover:text-foreground underline-offset-2 hover:underline" data-lane-task>
                         #{w.doing.ref} {w.doing.title}
                       </Link>
-                      <PlaceChip place={placeOf(w.doing.ref, stateDoc)} />
+                      {/* a Next place is already said by the served line below */}
+                      {placeOf(w.doing.ref, stateDoc)?.kind !== 'next' && <PlaceChip place={placeOf(w.doing.ref, stateDoc)} />}
                     </div>
                   )}
                   {w.doing && nextServing(w.doing.ref, stateDoc) && (

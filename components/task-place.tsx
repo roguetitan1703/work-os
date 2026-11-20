@@ -20,7 +20,7 @@ export function PlaceChip({ place, className }: { place: PlaceOut | null | undef
       variant="secondary"
       data-place-chip={place.kind}
       title={place.kind === 'now' ? "This is the project's Now" : place.kind === 'next' ? `On the project's ${place.label} line` : "On the project's Later list"}
-      className={cn('h-auto shrink-0 rounded px-1.5 py-0.5 text-[11px]', place.kind === 'now' ? 'bg-primary/15 text-primary' : 'text-muted-foreground', className)}
+      className={cn('h-auto shrink-0 rounded px-1.5 py-0.5 text-[11px]', place.kind === 'now' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground', className)}
     >
       {place.label}
     </Badge>
