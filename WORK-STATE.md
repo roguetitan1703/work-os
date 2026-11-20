@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 267. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 269. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -16,7 +16,7 @@ Copy of the Work OS state, version 267. WORK-STATE.md is a copy of the State, wr
 8. Next.js: no upgrade needed, already 16.4.6 (c638a01). The build stop came from worktrees with stale installs (wos-b, wos-s, wos-s2, wos-mail, work-os-demo): npm ci in each before its next build.: `next build` now stops once with SecurityFatalError (npm advisories) and passes on retry. The release build (GitHub runner, server-build.yml) may stop the same way at 03:00. Upgrade Next.js to the patched version (Om said yes, 20 Nov): Opus in slot A, full suite, merge, then release at 03:00. — waits on Om's go for the Next.js upgrade
 9. Lead not woken by a Work OS message while a background subagent runs (Om saw it 21 Nov): a subagent's Bash tool-start marks the lead working, so the wait hook gives up. Fix: tool-start ignores subagent calls. Merged to dev 313b928 after 2 reviews (hook gate, review fixes, budget, messaging; 11 suites + 503 worker tests pass); worker release with the next deploy.
 10. Per-key limit raised 300 to 1,000/h live 41b928a (worker 20261120.184656), deployed 21 Nov at Om's ask. Slot A: session+tool per call, top sessions in the refusal, State saves never blocked; review. (300 calls/h on the shared key) blocked Grant Leads' save_state on 20 Nov (message m_a143da3e7b6f): find what counts, name top sessions in the refusal, never block a State save for another session's use. Slot A (Opus), independent review.
-11. Session states on the Sessions list (Om, 21 Nov): one state table with word, colour and live dot; On merged into Idle; a lead with running subagents reads as working; Quiet after 2 h with no activity (opening a session isn't activity); default filter mine + active; person on the subline. Slot B (Opus) building.
+11. Session states (Om, 21 Nov): merged to dev d36df82 after 2 reviews (Idle/Quiet/Waiting on you for a question, filter, columns, hook sends the wrap_up ask). Release waits on Need #13.: one state table with word, colour and live dot; On merged into Idle; a lead with running subagents reads as working; Quiet after 2 h with no activity (opening a session isn't activity); default filter mine + active; person on the subline. Slot B (Opus) building.
 12. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
 13. Context warning per project (Om, 21 Nov; Grant Leads asked): pre-tool hook reads each agent's context locally, warns at the project's line (150k for Grant Leads, off elsewhere), peak context in usage. Plan note 3e92845ac0; Sonnet builds after A's hook merge. — waits on builder A's hook-gate merge
 
@@ -82,7 +82,8 @@ Copy of the Work OS state, version 267. WORK-STATE.md is a copy of the State, wr
 - After the 03:00 deploy (R12, master 43102b0; Actions locked over billing, so built in WSL and uploaded to manual-builds, worker release 20261120.182819 signed inside): check work.delpat.in serves it, worker/latest.json shows 20261120.182751, and the PC's worker updated itself; then reinstall nothing (hook files ship with the worker).
 - Hooks handle edge cases unevenly (subagent, headless, dead parent): Opus review of all worker hooks plus messaging tool choice running 21 Nov, report D:/Work/Delpat/builds/tmp/review-hooks/hooks-review.md; slot A applies it through one shared hook gate.
 - Partial tools (Om, 21 Nov): agents should see a small core of Work OS tools and load the rest when needed. First check whether Claude Code's deferred tool loading (tool search) already does this for leads and subagents, by measuring tool text per call. If not: the server exposes about 12 core tools plus the rest on request (tools list_changed), measured before and after.
+- Release hook (21 Nov): Om's "Yes, release now" in chat was refused for the master push about 40 min later (a release Need was asked instead), though the same hook let a chat yes through earlier that night. Check how long a chat yes counts, and say it in the refusal.
 
 ## Parked
 - 1 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:e03c649f4a7dc623251d222d3d545f67b33a8165 -->
+<!-- work-os-copy sha1:81083217a9fcd91f96b2ea8b15e1fd5be7202342 -->
