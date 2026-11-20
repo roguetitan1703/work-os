@@ -20,8 +20,6 @@
 #   4. schedule, modes, timezone, Discord ids as data       scripts/migrate-phase3.mjs (reads DISCORD_GUILD_ID and
 #                                                            DISCORD_OWNER_ID one last time)
 #   5. Discord commands: none any more (kept so step numbers do not change)
-#                                                            (--service starts it first); skipped when Discord is
-#                                                            not configured
 #   6. DISCORD_GUILD_ID and DISCORD_OWNER_ID removed from --env-file (a copy is kept next to it)
 #
 # Options:

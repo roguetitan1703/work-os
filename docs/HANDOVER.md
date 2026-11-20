@@ -302,56 +302,36 @@ One list of words, used in the server instructions, every tool description and a
 
 ## 6. Discord
 
-There's no bot server running all the time and no messages are stored.
-- **Reading:** when Claude asks, Work OS calls Discord directly at that moment, using the bot's token.
-- **Commands:** they arrive at `/api/discord/interactions`, which checks Discord's signature on every request.
-- **Posting:** the bot posts in a channel only for the team digest (`lib/team-digest.ts`: one message a day to the channel an owner or the operator sets in Settings › Server › Discord; the channel must belong to the organization's server, checked when it is saved and again before each send; project names, tasks, Now and who it waits on go through `plainAlertText`, mentions off). It never reacts or changes anything. Its other output is replies that only the asker can see, plus DMs (see section 7), where a Need arrives with its options as buttons.
+Plan: Work OS note c7b491432a ("Build plan: Work OS in Discord v4"). Work OS has no slash commands and no message commands. The bot works from posts, the track emoji and its buttons; everything else is in Work OS.
+- **The live listener:** `deploy/discord-gateway.mjs` (the `work-os-discord` systemd unit, docs/hosting.md) holds the Discord Gateway connection and hands each event it wants (new messages and reactions) to `POST /api/discord/gateway` with the cron secret. The route is `app/api/discord/gateway/route.ts`; the logic is `lib/discord/gateway.ts`. Messages are not stored beyond the tasks and comments they make.
+- **Reading:** when Claude asks, Work OS calls Discord's REST API at that moment with the bot token (`lib/discord/client.ts`: rate-limit retries, at most 4 requests at once, time budgets, channel list and roles cached 90 seconds, permission checks per channel, the blocklist `assertNotBlocked`). Message ids encode a timestamp, which is how "active since" works.
+- **Posting:** the bot posts only under a message: its Recorded reply on a task it made, and `discord_reply` lines. Mentions are always off. Its other messages are DMs (see Alerts).
 
 ### Om
-- **Right-click a message → Apps → Add to Work OS:**
-  - Creates a task with a short title drafted from the message, the quoted message, author, channel and a jump link.
-  - Project and mode are guessed from the channel name; priority is P2; a due date is set only if the message clearly states one.
-  - The reply has a priority dropdown, Due today / Due tomorrow / No due date buttons, and Edit title.
-  - If that message is already a task, it says "Already tracked as #ref" instead.
-- **Slash commands** (replies only you can see):
-  - `/task title [priority] [due] [project] [mode]`: project names autocomplete.
-  - `/today`: overdue, due today, in progress and open P1s.
-  - `/done ref [note]`
-  - `/progress ref percent [note]`: the task number autocompletes from open tasks.
-- **Tag the bot in any message:** nothing happens on Discord. Claude lists it as **"flagged for later"**, with the message you were replying to.
-- **Who can use them:** only your Discord user ID. Anyone else gets "Not available".
-- **Sensitive channels:** Settings › Connections → Discord → "Sensitive channels: never read". Tick channels or whole categories, then Save. They're never listed or scanned, and links or right-clicks into them are refused.
-  - For a hard guarantee, also deny the bot's role **View Channel** in those channels in Discord.
+- **Connect Discord:** Settings › Notifications (id `discord`), or the card on Today (`app/(app)/today/discord-card.tsx`, Dismiss hides it for that person: `profile.discordCardHidden`). It sends the signed-in person to Discord's own sign-in (OAuth, scope `identify`) and back to `/api/discord/connect/callback`, which checks the person is on the organization's server and links the account (`linkDiscordAccount` in `lib/profile.ts`; one account, one person: linking it again moves it). The result shows in Settings as `?discord=linked|failed|notready|notserver|notmember`.
+  - Code: `lib/discord/connect.ts`, `app/api/discord/connect/route.ts`, `app/api/discord/connect/callback/route.ts`. Session only (a key is sent to sign in). The state is random, kept sha256-hashed in `profile.discordConnect` for 10 minutes and taken atomically (`takeUserSetting`) by the same person.
+  - Needs `DISCORD_CLIENT_SECRET` as well as the application id; without it Settings says what is missing.
+- **Bug channels:** a project can name a Discord channel (project row in Settings, `lib/discord/channel-setting.ts`; `project.discordChannel`). Each post there from the last 7 days becomes a task (P2, Code & Dev, the post's author and link, attachments as links) and the bot replies "Recorded #N" with buttons. A reply to an issue in the window is a comment on it. The logic is `lib/discord/issues.ts`.
+- **Track emoji:** the bot adds a custom emoji to the server (`lib/discord/track.ts`); a member reacting with it on any message makes a task from that message (the reactor, if linked, is the owner; the post's author is kept).
+- **Buttons on the Recorded reply** (`lib/discord/buttons.ts`, ids `wo:undo|done|for:<ref>`, `RECORDED_PRESS`): Undo (the poster, even unlinked; the reactor; the people on the task; owners who can read it), Done (the people on the task; owners who can read it), For (a select of the organization's members; any linked member who can read the task; a private task can only go to its owner). A press by someone who cannot read the task gets "#N not found. It may have been removed.", the same words as for a task that is not there. When a task with a reply is completed anywhere, the reply is edited to "Done [#N]" (`settleDone`, from `updateTask`).
+- **Interactions endpoint:** `app/api/discord/interactions/route.ts`: Ed25519 signature check, PING, the button branch; anything else answers "Not available." (`lib/discord/interaction.ts` has the shared types). `POST /api/admin/discord/register` now only clears commands an older version registered; `GET` lists them.
+- **DMs:** only reels and owner alerts (`lib/owner-alert.ts`) and a Need open over 24 hours (`dmOldNeeds` in `lib/alerts.ts`: once per Need, marked `NeedDoc.discordDmAt` first; needs the Discord channel switch, the `need` kind on, and a linked account; no buttons). There is no team digest and there are no need buttons.
+- **Sensitive channels:** Settings › Connections → Discord → "Sensitive channels: never read". Tick channels or whole categories, then Save. They're never listed, scanned or read. For a hard guarantee, also deny the bot's role **View Channel** in those channels in Discord.
+- **Env:** `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_SECRET`; the Developer Portal needs the redirect `<APP_URL>/api/discord/connect/callback`, the Message Content intent switched on for the listener (it asks for Guilds, Guild Messages, Guild Message Reactions and Message Content), and the invite permissions shown in Settings.
 
 ### Claude
-- **`discord_needs_attention`:** one call for "what needs me on Discord", since the start of the last workday (Asia/Kolkata) by default. It lists:
-  - flagged-for-later items
-  - mentions of Om or his roles, @everyone and @here, and replies to Om
-  - new activity in threads Om is in
-  - each marked **handled** if Om posted after it
-  - warnings: Message Content Intent off, channels the bot can't read, scan capped
+- **`discord_needs_attention`:** one call for "what needs me on Discord", since the start of the last workday (Asia/Kolkata) by default: flagged-for-later items (tag the bot in any message), mentions of the person or their roles, @everyone and @here, replies to them, new activity in their threads, each marked **handled** if they posted after; plus warnings (Message Content Intent off, channels the bot can't read, scan capped).
 - **`discord_list_channels`:** channels and active threads with when each last had activity. Can filter to "active since".
-- **`discord_read_messages`:** by channel name, id or link, either since a time or before/after/around a message. For each message:
-  - author, and whether it's Om
-  - time and text
-  - mentions, and the message it replies to
-  - attachment names
-  - thread info and a jump link
-- **`discord_message_to_task`:** creates a task from a message, attributed to Claude. If the message is already a task, it returns that task instead of creating a duplicate.
+- **`discord_read_messages`:** by channel name, id or link, since a time or before/after/around a message. Compact rows: `id`, `author` (the Work OS name when linked), `bot` if a bot, `at` (`YYYY-MM-DD HH:mm` in the person's timezone), `text`, `replyTo` (id and a 60-character excerpt), `attachments` (`[1] name.png`). `links: true` gives the older shape with jump links.
+- **`discord_attachment`:** one file of a message by 1-based index: images and PDFs only, 10 MB at most, only from Discord's own file host; base64 in the answer marked `untrusted`, like `mail_attachment`.
+- **`discord_reply`:** one line (140 characters) on a task that came from Discord. The first call on a bug-channel task edits the Recorded reply to "Recorded #N: text" (its buttons stay); later calls post a reply under the original message. Refused for a task that did not come from Discord. `complete_task` on such a task reminds the agent of it.
+- **Counts:** every MCP tool call is counted by name (`mcp-tool|<name>` in `requestStats`, `recordToolCall` in `lib/usage.ts`; not part of `total`).
 - **Out of reach:** personal DMs and group DMs. Bots can't see them.
 
 ### Claude Code
-- **REST client:** `lib/discord/client.ts`.
-  - Rate-limit retries, at most 4 requests at once, time budgets.
-  - The channel list and roles are cached for 90 seconds.
-  - Permission checks per channel, and the blocklist (`assertNotBlocked`).
-  - Message ids encode a timestamp, which is how "active since" works.
-- **Reads:** `lib/discord/read.ts`. Message → task: `lib/discord/to-task.ts`.
-- **Commands:** `lib/discord/commands.ts`.
-- **Interactions endpoint:** `app/api/discord/interactions/route.ts`. Ed25519 signature check, owner and server check, immediate deferred reply, the work runs in `after()`.
-- **Registering commands:** `POST /api/admin/discord/register` with a Claude chat key of an owner or admin, scoped to the Delpat server. Re-run it whenever commands change.
-- **Blocklist storage:** `settings` collection, document `_id: 'discord'`.
-- **Testing:** set `DISCORD_API_BASE` to point at a fake Discord.
+- **Files:** `lib/discord/{gateway,issues,track,recorded,buttons,reply,to-task,read,channel-setting,connect,interaction,client}.ts`. `to-task.ts` makes the tasks; `recorded.ts` posts and edits the bot's reply.
+- **Blocklist storage:** `settings` collection, document `_id: 'discord'` (`discord:<orgId>`).
+- **Testing:** set `DISCORD_API_BASE` to point at a fake Discord (`tests/e2e/discord-stub.mjs`). `tests/e2e/discord-v4.mjs` covers the relay, bug channels, track emoji, buttons, Connect Discord, the tools and the DMs; `discord-link.mjs` the tools' reads and the blocked list; `alerts-once.mjs` that no alert DM goes out; `tests/discord-gateway.test.mjs` the listener. `leak-audit.mjs` presses the buttons and calls the tools as other people.
 
 ---
 
@@ -372,7 +352,7 @@ There's no bot server running all the time and no messages are stored.
 - **Where an alert goes:** three channels. Each alert type and each channel has a switch in Settings (section 9).
   - **In-app inbox:** always on. Bell with an unread badge on the phone's Today header (the laptop sidebar has a Notifications link, no badge); the **Notifications** screen (`/notifications`, also Menu → Inbox on the phone, Inbox in the laptop sidebar) lists them newest first, and opening it marks all read. Kept 60 days.
   - **Phone push:** a real notification on every device that turned it on in Settings. Tapping it opens the task (or the inbox when several arrived together). **iPhone needs the app added to the Home Screen and iOS 16.4 or later**; it won't offer push in a normal Safari tab.
-  - **Discord DM:** as before.
+  - **Discord DM:** only for reels and owner alerts, and for a Need open over 24 hours (once per Need). The switch in Settings reads "Discord DMs: reels, and Needs waiting over a day".
   - **Send test** (Settings → Notifications) sends one through every enabled channel and shows what reached where.
 - **The daily digest (flow B4, plan-1-3 slice 2):** the person's `digestHour` (profile, default 9) and the alert switch `digest` (on by default; `scripts/migrate-digest.mjs --db <name> [--apply]` saves it on for whoever has Due today on, off for whoever turned it off; idempotent). Redesigned 18 Nov (note "Design - Morning digest redesign"). Sections in order: a header line (date and counts, also the inbox body and push text), **Needs you** (open Needs to the person, oldest first, 8 lines then "+N more"; review Needs folded in as "Review #n"; after the digest, one small message per answerable Need with its option buttons, at most 5, never app-only or review ones), **Today** (top 3 by rule: overdue P1/P2, due today, then Next line 1 of each active project the person owns, most recently touched first; "+N overdue, on Today"), **Since yesterday** (one line per readable project, read from the Activity feed since the last digest (H12): Next lines done/added, Now changed, decisions, tasks done, Needs asked/answered, messages), **Agents** (from `roster(s)`: running, waiting, stalled = idle or gone while the project has unblocked Next lines, stops of dispatched tasks, `couldBeRunning`; at most 5). On Mondays the organization's owner(s) get a last block (H12, `lib/monday.ts`, `mondayBlock`): **Monday numbers** for the 7 days before today (sessions that changed files and saved State, with the target 9 of 10 and how many saved only after the reminder; PCs with no hooks and how many are out of date; WORK-STATE.md edits refused and forwarded; Om's repeats, "not counted yet" while `REPEATS_COUNTED` is false) and up to three **Proposals** (open Needs with `batch: 'monday'` of the last 14 days, oldest first, then friction groups from `feedback` and `session_ended` rows: a tool or rule in 3 or more lines or from 2 or more sessions; "+N more in the app"). Silence means keep: nothing is written. Numbers are org-wide counts naming no one; proposals come only from rows the reader can read. A member who is not an owner, the team channel digest and a Tuesday have none. An empty digest is claimed and not sent.
   - **What it absorbs:** while the digest is on and today's has not gone out, due today, overdue and stalled wait for it (also before its hour) and go into it; their log keys are claimed with it. Once it has gone out, a task that becomes due, overdue or quiet still alerts on its own on the next 15-minute run. Everything else (`due_tomorrow`, `never_started`, `unblocked`, `assigned`, `claude_*`) is unchanged. Switch the digest off and the morning alerts work as before.

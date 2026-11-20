@@ -10,6 +10,7 @@ Atlas. Akash runs the server side with Om. This is the whole runbook, in order; 
 | `deploy/caddy/work-os.caddy` | the Caddy site (the box serves with Caddy): client address header, streams flushed at once, 10 MB bodies, HSTS; imported, adds one site only (section 5) |
 | `deploy/nginx/work-os.conf`, `work-os-default-deny.conf` | the same for a box that serves with nginx (alternative, section 5) |
 | `deploy/systemd/work-os.service` | the app (`next start` on 127.0.0.1:`WORK_OS_PORT`, default 3100), with its own Node 22 and memory caps |
+| `deploy/systemd/work-os-discord.service`, `deploy/discord-gateway.mjs` | the Discord live listener: plain Node 22, holds the gateway connection as the bot and posts new messages and reactions to `/api/discord/gateway` on this box (with `CRON_SECRET`); stops quietly when `DISCORD_BOT_TOKEN` is not set |
 | `deploy/systemd/work-os-alerts.{service,timer}` | the alert check every 15 minutes (was cron-job.org) |
 | `deploy/systemd/work-os-backup.{service,timer}` | nightly encrypted `mongodump` to Cloudflare R2 (section 11) |
 | `deploy/env.template` | every variable the server needs, names only |
@@ -606,7 +607,8 @@ chat or tickets.
 | `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT` | phone push | |
 | `VAPID_PRIVATE_KEY` | phone push | **yes** |
 | `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY` | the Discord bot | |
-| `DISCORD_BOT_TOKEN` | the Discord bot | **yes** |
+| `DISCORD_BOT_TOKEN` | the Discord bot (also read by the live listener) | **yes** |
+| `DISCORD_CLIENT_SECRET` | Connect Discord (OAuth, scope `identify`): Developer Portal → OAuth2 → Client Secret. Add `https://work.delpat.in/api/discord/connect/callback` as a redirect there | **yes** |
 | `DISCORD_BLOCKED_CHANNELS` | extra channels never read (normally set in Settings) | |
 | `DELPAT_OS_CLIENT_ID` | Work OS's client id at Delpat OS (`cli_4hbK4PhW1d2a7AYMtMXV3Q`; not secret). With the secret it switches on Settings › Connections › Delpat OS and New project › From Delpat OS; unset = hidden | |
 | `DELPAT_OS_CLIENT_SECRET` | the client secret, shown once in the Delpat OS UI. Put it in this file only | **yes** |
@@ -686,7 +688,7 @@ every node step runs as `workos`, from the live release (`/srv/work-os/current`,
 | 2 | Om as the first user, organization Delpat, Om owner; old computers revoked | `scripts/migrate-auth.mjs` |
 | 3 | `orgId`/owner/visibility on everything: first `--copy-to <db>_cutover_<time>` (a rehearsal on a copy, run twice to prove there is nothing left), then `--apply` | `scripts/migrate-ownership.mjs` |
 | 4 | schedule, modes, timezone, Discord ids as data | `scripts/migrate-phase3.mjs` |
-| 5 | the app is started; Discord commands registered again (they gain `/link`) through the app's own route, with a temporary operator key deleted right after | `scripts/discord-register.mjs` |
+| 5 | the app is started (Discord has no commands to register any more: a no-op kept so the step numbers stay) | |
 | 6 | `DISCORD_GUILD_ID` and `DISCORD_OWNER_ID` removed from `/etc/work-os/env` (a dated copy is kept beside it; delete it once all is well) | |
 
 It is a dry run unless `--apply`, stops at the first error, and every step is idempotent (`--from N` to resume).
@@ -705,7 +707,7 @@ Then Om:
 2. claude.ai: Settings → Connectors → add (or edit) the custom connector with URL `https://work.delpat.in/api/mcp` and press Connect: he signs in to Work OS and presses Allow (OAuth; no key). Claude Code: `claude mcp add --scope user --transport http work-os https://work.delpat.in/api/mcp`, then `/mcp` → Authenticate. `APP_URL` must be exactly `https://work.delpat.in` (it is the OAuth issuer and resource).
 3. Claude › Setup: Claude Code keys; re-adds each computer and puts the new `wkr_` key and
    `baseUrl: https://work.delpat.in` in the worker config.
-4. Discord Developer Portal: Interactions Endpoint URL → `https://work.delpat.in/api/discord/interactions`.
+4. Discord Developer Portal: Interactions Endpoint URL → `https://work.delpat.in/api/discord/interactions` (the buttons), OAuth2 → Redirects → `https://work.delpat.in/api/discord/connect/callback`, and the Message Content intent on. `work-os-discord.service` (the live listener) runs on the box; `journalctl -u work-os-discord` shows it.
 5. Only then invites the team (Settings › Members).
 
 Later, once all is well: `migrate-auth.mjs --db workos --apply --drop-old` deletes the old auth data, and the

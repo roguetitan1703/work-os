@@ -96,7 +96,7 @@ Comment edits: an agent may edit only entries of the same agent for the same use
 - `by`, `createdBy`, `doneBy` and `updatedBy` are strings as before ('me', 'claude', 'claude-code', 'discord', 'system') for the key's owner. For anyone else they hold the name, e.g. 'Ana' or 'claude-code for Ana'.
 - `recent_activity` `actor` filters the caller's own kinds ('me' = the caller in the app).
 
-**Discord.** Until phase 3 links each person's Discord id, the bot acts for the owner of the first organization (`discordScope()` in lib/people.ts). Commands and Discord-made tasks belong to that person, and if there is no organization they are refused. The four Discord MCP tools work only for keys of that person. The blocked-channel list is `discord:<orgId>`; it can be edited by owners and admins of that organization.
+**Discord.** Until phase 3 links each person's Discord id, the bot acts for the owner of the first organization (`discordScope()` in lib/people.ts). Discord-made tasks belong to that person, and if there is no organization they are refused. The Discord MCP tools work only for keys of linked people. The blocked-channel list is `discord:<orgId>`; it can be edited by owners and admins of that organization.
 
 **Workers and files.**
 - A computer acts as its owner. Computers with no owner are refused (401).
@@ -134,11 +134,11 @@ Order on deploy: deploy the code, then run the migration at once. Until it runs,
 
 **Discord, per person.**
 - One bot for the deployment: `DISCORD_BOT_TOKEN`, `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`. `DISCORD_GUILD_ID` and `DISCORD_OWNER_ID` are no longer read.
-- The operator sets each organization's server in Settings › Connections › Discord, and registers that server's commands (`POST /api/admin/discord/register?org=<id>`; the mode choices are the organization's). A server belongs to one organization.
-- Linking: Settings makes an 8-character code (stored hashed, 10 minutes, used once); the person runs `/link <code>` on the organization's server; the signed interaction proves which Discord account it was. One account links to one person in an organization: linking it again moves it.
-- Interactions: the server picks the organization, the sender's linked account picks the person (who must still be a member). Everything runs as them, in their timezone. Anyone not linked gets "not linked", with how to link.
+- The operator sets each organization's server in Settings › Connections › Discord (there are no slash commands any more: `POST /api/admin/discord/register` only clears what an older version registered). A server belongs to one organization.
+- Linking: Connect Discord (Settings › Notifications, or the Today card) sends the signed-in person to Discord's own sign-in (OAuth, scope `identify`, session only, a random state kept hashed for 10 minutes); the callback checks the person is on the organization's server. One account links to one person in an organization: linking it again moves it.
+- Buttons on the bot's reply (`wo:undo|done|for:<ref>`): the server picks the organization, the sender's linked account picks the person (who must still be a member). A press by someone who cannot read the task gets "not found", the same as for a task that is not there.
 - The Discord MCP tools need the key owner's account linked. Reads show only what that Discord account can see on the server: channel permissions are computed from their own roles. Private threads are shown only to a server administrator, because membership is not known without a call per thread. A channel id not in the list is allowed only for a thread whose parent channel they can see. Blocked channels apply to everyone.
-- Alert DMs go to the recipient's own linked account; no account, no DM.
+- Discord DMs go to the recipient's own linked account (reels and owner alerts, and once per Need open over a day); no account, no DM.
 
 **Dispatcher.** Each person's switch, rules note and cap (phase 2); the cap counts only their own running claims. The tenancy suite checks that two people's caps and switches do not affect each other.
 
@@ -149,7 +149,7 @@ Order on deploy: deploy the code, then run the migration at once. Until it runs,
 - seeds the organization's eight modes, with their original descriptions;
 - turns old reviews into `answers` and `bidsPlaced` into `count`.
 
-Run it after the deploy, then register the Discord commands again (they gain `/link`), then remove the two old Discord variables.
+Run it after the deploy, then remove the two old Discord variables.
 
 ## As built: phase 4, team (2026-10-22)
 
