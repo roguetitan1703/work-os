@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 185. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 186. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -13,7 +13,7 @@ Copy of the Work OS state, version 185. WORK-STATE.md is a copy of the State, wr
 5. Signed worker auto-update (Om yes 20 Nov): built on builder-s (2f92fb5 + Mac fixes 7b552dc: same hooks version on Windows and bundle, setup prints full path); version automatic (519b44b); review fixes done on builder-s (30e36f7, 98ba409, 389e362), re-check running, then I make the signing key on Om's PC and Om backs it up; then an independent security review, then the signing key made on Om's PC and the first signed release.
 6. Work OS skills installed by the worker (/transfer and /declutter only): built on builder-s 34ac854 (marked folders only, --adopt for Om's own transfer), in the re-check; skill text in the repo; a design note first.
 7. Redesign (c475deb871): steps 1-3, 5 in redesign-int; next step 4 Needs and Today (B, Opus, from dev), then 6 tasks. Held: weekly usage 93% on 20 Nov (resets 24 Nov 16:30 IST); no new builders until Om says go or the reset.
-8. R10 release (Om yes 20 Nov): key made (public half committed), master and dev at 6d5bce0 on origin and delpat, worker signed 20261120.125716, WSL build running (builds/tmp/release-r10); then deploy, check live; Om backs the key up; then Akash runs the install command one last time.
+8. After R10: Om backs up the worker signing key (node scripts/worker-signing-key.mjs backup --out <USB file>); Akash runs the Mac install command from Work OS one last time, then his worker updates itself. — waits on Om, Akash
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -56,4 +56,6 @@ Copy of the Work OS state, version 185. WORK-STATE.md is a copy of the State, wr
 - Auto-update small items: cap latest.json read size (update.mjs:105); docs + What's new line: a computer that already runs a worker never needs the install command again; if a page asks for it, tell Om.
 - Redesign raised DB ops (redesign-int 4e0e17b): project page 33->37, Claude 21->23, Today 30->31, complete 44->45 (sessions and Needs on the project page, one Sessions list). Trim with probe.mjs per-collection counts after the merge.
 - The release master push came while the WSL build (not GitHub Actions) is the deploy path; check that nothing at 03:00 rebuilds master unsigned over the signed R10 build. — waits on R10 deploy
-<!-- work-os-copy sha1:4257e9d9e2e4b4dd93ca19ab1e45366ea804ce9d -->
+- scripts/build-artifact.sh fails in WSL from a Windows checkout (CRLF: 'pipefail: invalid option'); R10 ran an LF copy. Add .gitattributes eol=lf for *.sh. — waits on next small fix batch
+- R10 deploy printed 'previous: 43ec8df01225' and 'removed release 43ec8df01225'; only 6d5bce0d8f77 is in /srv/work-os/releases, so --rollback may have nothing to go back to. Check deploy.sh keep count. — waits on next release
+<!-- work-os-copy sha1:775ebcbf6f17637ef04ca9b3a571f269b7003f3e -->
