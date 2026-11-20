@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 226. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 228. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -9,10 +9,10 @@ Copy of the Work OS state, version 226. WORK-STATE.md is a copy of the State, wr
 1. Discord setup with Om signed in (checked 20 Nov: not signed in to the Developer Portal in Chrome or the app browser): Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
 3. After R10: Om pastes the signing key backup (D:/Work/Delpat/to-bitwarden/work-os-worker-signing-key.pem, written 20 Nov at his ask) into a Bitwarden secure note, then the file is deleted; Akash ran the Mac install command (20 Nov); his worker now updates itself. — waits on Om, Akash
-4. Redesign (c475deb871): steps 1-3, 5 live in R10; next step 4 Needs and Today (B, Opus, from dev), then 6 tasks. Held: weekly usage 93% on 20 Nov; Om asked whether to start now on Sonnet or wait. — waits on weekly usage reset 24 Nov 16:30 IST, or Om says start
+4. Redesign (c475deb871): steps 1-3, 5 live in R10; next step 4 Needs and Today: build plan note a2baa1d159, Sonnet builder in slot B since 20 Nov (Om: take it up); then 6 tasks. Held: weekly usage 93% on 20 Nov; Om asked whether to start now on Sonnet or wait. — waits on weekly usage reset 24 Nov 16:30 IST, or Om says start
 5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 4 and 6. — waits on redesign steps 4 and 6
 6. Parked and decisions out of the State document (Om, 20 Nov: they must not live in State directly): own collections, one dated row per entry, no cap, search and paging; State keeps counts; move the existing decisions (Parked shipped inside State in R11). — waits on Om's go on the storage plan
-7. Usage recording, Fable's 7 steps plus the weekly improve loop (design in note a289ffec58): Opus plan, then Sonnet build — waits on Om's account switch
+7. Usage recording, Fable's 7 steps plus the weekly improve loop (design a289ffec58). Build plan 1 (account tag, limit hits, compactions, 5-minute buckets): note e6036c777f; Sonnet builder in slot S since 20 Nov. Plan 2 (steps 3, 5-7, weekly report) after it. (design in note a289ffec58): Opus plan, then Sonnet build — waits on Om's account switch
 8. Messaging fixes (Om's chat, 20 Nov): send_message with only a project is refused today (to is needed): deliver it to one session only, the project's lead (holds Now), never to all; instant: every kind wakes an idle recipient; find out why the chat saw no session ids in list_sessions; one short address per session; a chat gets a session so replies reach it; any session to any session across people; a person's message goes to their lead session. Building: Opus builder A, 20 Nov — waits on Om's account switch
 
 ## Later
@@ -71,4 +71,4 @@ Copy of the Work OS state, version 226. WORK-STATE.md is a copy of the State, wr
 - Bug: a Claude chat's start_work on Work OS (no pick_up) attached the lead's 13:49 handover and stamped it picked up by the chat; a chat must never take over a Code session's handover; check whether Needs or held lines moved (Om's chat, m_890469b90393)
 - Bug: Om's chat (registered with start_work) called recent_activity after my reply m_a00bcc9d0ca3 and got no forYou line, though every tool goes through forYouBefore/After (lib/mcp/for-you.ts). Cause not checked: maybe no session passed, so presentRow finds no row. Replay: chat registers, lead replies, chat calls any tool, must see the line — waits on messaging design after Om's switch
 - Tool feedback from Cutroom lead, 20 Nov: write_note with an unknown markdown field made an empty note with no error (refuse unknown fields); edit_line over 500 chars should say find replaces only the matched text; send_message: to_session still shown as 'session id or label' to some sessions; list_sessions gives no id for a teammate's session (with the messaging design) — waits on messaging design after Om's switch
-<!-- work-os-copy sha1:dd28949dca6983a0b57334c7d88144080e635e8c -->
+<!-- work-os-copy sha1:ef91a02b328c16346b554dc674ad4641942194e7 -->
