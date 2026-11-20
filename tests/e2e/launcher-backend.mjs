@@ -77,6 +77,17 @@ import { signRelease, verifyRelease, publicKeyText } from '../../worker/release.
   }
 }
 const A = await mkDevice('dev-A'), Bd = await mkDevice('dev-B');
+
+// The self-update block of a worker's status is kept only when it says it is on, each field checked and cut.
+{
+  const S = await mkDevice('dev-selfupdate'); // its own device: the per-device rate limit counts calls
+  const su = async (selfUpdate) => { await api(S.key, 'POST', '/api/worker/status', { worker: { version: '0.5.0', os: 'win32', selfUpdate }, jobs: [], sessions: [] }); return (await db.collection('devices').findOne({ _id: S.id })).worker?.selfUpdate; };
+  const ok = await su({ on: true, updatedAt: '2026-11-20T10:00:00.000Z', from: '0.4.0', problem: 'update refused: bad signature' });
+  check('status: worker.selfUpdate kept (date, version, problem)', ok && ok.updatedAt instanceof Date && ok.updatedAt.toISOString() === '2026-11-20T10:00:00.000Z' && ok.from === '0.4.0' && ok.problem === 'update refused: bad signature', JSON.stringify(ok));
+  const bad = await su({ on: true, updatedAt: 'not a date', from: '1; rm', problem: 'x\u0000\u001b[31m'.padEnd(400, 'y') });
+  check('status: bad selfUpdate fields are dropped or cut', bad && bad.updatedAt === null && bad.from === null && bad.problem.length <= 160 && !/[\u0000-\u001f]/.test(bad.problem), JSON.stringify(bad));
+  check('status: selfUpdate without on is not kept', (await su({ updatedAt: '2026-11-20T10:00:00.000Z' })) === undefined);
+}
 const wos = await mkWos();
 const rev = await mkDevice('dev-revoked'); await db.collection('devices').updateOne({ _id: rev.id }, { $set: { revokedAt: new Date() } });
 

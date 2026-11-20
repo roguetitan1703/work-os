@@ -162,6 +162,39 @@ async function suite(vp) {
   await p.goto(B + '/claude?tab=setup'); await p.waitForSelector('[data-device="Om-PC"]');
   const dev = p.locator('[data-device="Om-PC"]');
   check(T('Setup lists the computer with online dot and last seen'), (await dev.locator('[aria-label="online"]').count()) === 1 && /seen/.test(await dev.innerText()));
+  // The worker line (docs/launcher.md "Self-update"): its version, then how it updates.
+  {
+    const before = (await db.collection('devices').findOne({ _id: D1 }))?.worker;
+    const served = await (await fetch(B + '/worker/latest.json')).json();
+    const setWorker = w => db.collection('devices').updateOne({ _id: D1 }, { $set: { worker: { version: '0.5.0', os: 'win32', allowPrompts: true, ...w }, lastSeenAt: new Date() } });
+    const line = async () => { await p.reload(); await p.waitForSelector('[data-device="Om-PC"] [data-worker-line]'); return (await dev.locator('[data-worker-line]').innerText()).trim(); };
+    await setWorker({ bundle: served.sha256.slice(0, 12), selfUpdate: { updatedAt: new Date(Date.now() - 2 * 3600_000), from: '0.4.0', problem: null } });
+    let t = await line();
+    check(T('worker line: version and when it last updated itself'), /^Worker 0\.5\.0 · updated itself /.test(t), t);
+    await p.screenshot({ path: `${SP}/cl-${vp}-worker-updated.png` });
+    await setWorker({ bundle: 'aaaaaaaaaaaa', selfUpdate: { updatedAt: null, from: null, problem: 'update refused: bad signature' } });
+    t = await line();
+    check(T('worker line: a refused update says why'), t === 'Worker 0.5.0 · update refused: bad signature', t);
+    await click(dev.locator('[data-update-problem]'));
+    const manual = p.locator('[data-manual-update="Om-PC"]');
+    check(T('tapping the refusal shows the hand-update command for that computer'), await manual.waitFor({ timeout: 5000 }).then(async () => /keeps running worker 0\.5\.0 \(update refused: bad signature\)/.test(await manual.innerText()) && (await manual.locator('[data-install-command]').count()) === 1, () => false));
+    check(T('worker line with the hand-update command: no horizontal scroll'), await noScroll());
+    await p.screenshot({ path: `${SP}/cl-${vp}-worker-refused.png` });
+    await p.evaluate(() => document.documentElement.classList.add('dark'));
+    await p.screenshot({ path: `${SP}/cl-${vp}-worker-refused-dark.png` });
+    await p.evaluate(() => document.documentElement.classList.remove('dark'));
+    await setWorker({ version: '0.4.0', bundle: 'aaaaaaaaaaaa' });
+    t = await line();
+    check(T('worker line: a worker from before self-update offers the command once'), t === 'Worker 0.4.0 · update available', t);
+    await click(dev.locator('[data-worker-line] button'));
+    check(T('its panel says it updates itself after this run'), await manual.waitFor({ timeout: 5000 }).then(async () => /from then on it updates itself/.test(await manual.innerText()), () => false));
+    await setWorker({ bundle: served.sha256.slice(0, 12), selfUpdate: { updatedAt: null, from: null, problem: null } });
+    check(T('worker line: a current self-updating worker'), (await line()) === 'Worker 0.5.0 · updates itself');
+    await setWorker({});
+    check(T('worker line: a repo run'), (await line()) === 'Worker 0.5.0 · from the repo');
+    await db.collection('devices').updateOne({ _id: D1 }, before ? { $set: { worker: before } } : { $unset: { worker: '' } });
+    await p.reload(); await p.waitForSelector('[data-device="Om-PC"]');
+  }
   await p.fill('input[aria-label="Name for the new computer"]', `new-${vp}`);
   await click(p.locator('button:has-text("Add this PC")'));
   const keyEl = p.locator('code.bg-muted', { hasText: /^wkr_/ });
