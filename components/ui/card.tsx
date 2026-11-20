@@ -24,8 +24,9 @@ export function List({ children, className, ...rest }: React.HTMLAttributes<HTML
 /**
  * One row: leading, title, one meta line, one trailing control. 44px high on phones, 36px from md
  * (taller when a meta line is shown). With `href` or `onClick` the row body is the target; the trailing control stays its own.
- * `detail` is an optional second, quieter line (a session's last line). `as="li"` inside a `List as="ul"`; data-* attributes
- * go on the outer element.
+ * `detail` is an optional second, quieter line (a session's last line). `aside`: columns between the text and the trailing
+ * control (a session's where-it-runs and state columns); the caller says when they show. `as="li"` inside a `List as="ul"`; data-*
+ * attributes go on the outer element.
  */
 export function Row({
   leading,
@@ -33,6 +34,7 @@ export function Row({
   meta,
   detail,
   trailing,
+  aside,
   href,
   onClick,
   className,
@@ -44,6 +46,7 @@ export function Row({
   meta?: React.ReactNode;
   detail?: React.ReactNode;
   trailing?: React.ReactNode;
+  aside?: React.ReactNode;
   href?: string;
   onClick?: () => void;
   className?: string;
@@ -57,6 +60,7 @@ export function Row({
         {meta && <span className="block truncate text-meta text-muted-foreground">{meta}</span>}
         {detail && <span className="block truncate text-meta text-muted-foreground/90">{detail}</span>}
       </span>
+      {aside}
     </>
   );
   const pad = (meta || detail) && 'py-2';

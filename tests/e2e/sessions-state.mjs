@@ -67,13 +67,25 @@ try {
 
     // States, words, dots, tones.
     const lead = mine('lead');
-    check(T('an idle lead whose 3 subagents run reads "Working · 3 subagents", green, a pulsing dot, no since'), (await lead.getAttribute('data-state')) === 'working' && /Working · 3 subagents/.test(await lead.innerText()) && (await lead.locator('[data-worker-since]').count()) === 0 && (await lead.locator('[data-state-dot="pulse"]').count()) === 1 && /green/.test(await lead.locator('[data-worker-state]').getAttribute('class')), await lead.innerText());
+    check(T('an idle lead whose 3 subagents run reads Working with "3 subagents" (phone: first on the subline; desktop: under the badge), green, a pulsing dot, no since'), (await lead.getAttribute('data-state')) === 'working' && (await lead.locator('[data-worker-state]:visible').innerText()).trim() === 'Working' && (await lead.locator('[data-word-rest]:visible').innerText()).trim() === '3 subagents' && (await lead.locator('[data-worker-since]:visible').count()) === 0 && (await lead.locator('[data-state-dot="pulse"]:visible').count()) === 1 && /green/.test(await lead.locator('[data-worker-state]:visible').getAttribute('class')), await lead.innerText());
     const fresh = mine('fresh');
-    check(T('a fresh start with no prompt yet reads Idle (no On), sky, a filled dot, "since" on the subline'), (await fresh.getAttribute('data-state')) === 'idle' && /Idle/.test(await fresh.locator('[data-worker-state]').innerText()) && !/\bOn\b/.test(await fresh.innerText()) && (await fresh.locator('[data-state-dot="solid"]').count()) === 1 && /sky/.test(await fresh.locator('[data-worker-state]').getAttribute('class')) && (await fresh.locator('[data-worker-since]').count()) === 1, await fresh.innerText());
+    check(T('a fresh start with no prompt yet reads Idle (no On), sky, a filled dot, "since" on the subline'), (await fresh.getAttribute('data-state')) === 'idle' && /Idle/.test(await fresh.locator('[data-worker-state]:visible').innerText()) && !/\bOn\b/.test(await fresh.innerText()) && (await fresh.locator('[data-state-dot="solid"]:visible').count()) === 1 && /sky/.test(await fresh.locator('[data-worker-state]:visible').getAttribute('class')) && (await fresh.locator('[data-worker-since]:visible').count()) === 1, await fresh.innerText());
     const wait = mine('wait');
-    check(T('waiting reads "Waiting on you" with a glowing dot'), /Waiting on you/.test(await wait.innerText()) && (await wait.locator('[data-state-dot="glow"]').count()) === 1);
+    check(T('waiting reads "Waiting on you" with a glowing dot'), /Waiting on you/.test(await wait.innerText()) && (await wait.locator('[data-state-dot="glow"]:visible').count()) === 1);
     check(T('the badge holds the word only; the time sits on the subline'), (await p.locator('[data-worker-state] [data-worker-since]').count()) === 0);
-    check(T('the account label is on the subline'), (await mine('idle').locator('[data-session-account]').innerText()) === 'tools');
+    if (phone) {
+      const nb = await lead.locator('[data-session-label]').boundingBox();
+      check(T('on a phone the name keeps its room: the lead name is not cut'), nb && (await lead.locator('[data-session-label]').evaluate(e => e.scrollWidth <= e.clientWidth)), JSON.stringify(nb));
+    }
+    if (!phone) {
+      const col = mine('idle').locator('[data-session-where]');
+      const rb = await mine('idle').boundingBox();
+      const sb = await mine('idle').locator('[data-session-state-col]').boundingBox();
+      const xs = await p.locator('[data-section="sessions"] [data-session-state-col]').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().right)));
+      check(T('desktop: the state columns line up, with or without a button'), new Set(xs).size === 1, JSON.stringify(xs));
+      check(T('desktop: a where-it-runs column (computer; account · app) and a state column at the right'), /Om-PC/.test(await col.innerText()) && /tools · Desktop app/.test(await col.innerText()) && sb && rb && sb.x > rb.x + rb.width / 2, await col.innerText().catch(() => ''));
+    }
+    check(T('the account label is on the subline'), (await mine('idle').locator('[data-session-account]:visible').innerText()) === 'tools');
 
     // Everyone: the teammate's row, the person on the subline, not on the title line.
     await (phone ? ev.tap() : ev.click());
@@ -85,8 +97,9 @@ try {
     await (phone ? qo.tap() : qo.click());
     await p.locator('[data-section="finished"]').waitFor({ timeout: 8000 });
     const re = mine('reopen');
-    check(T('a reopened session with no prompt for 2 days reads Quiet, grey, a hollow dot, "last active 2 days ago"'), (await re.getAttribute('data-state')) === 'quiet' && /Quiet/.test(await re.locator('[data-worker-state]').innerText()) && (await re.locator('[data-state-dot="hollow"]').count()) === 1 && /last active 2 days ago/.test(await re.innerText()), await re.innerText().catch(() => 'no row'));
-    check(T('the ended session is under Finished today with a hollow dot and "last active"'), /last active/.test(await p.locator('[data-section="finished"]').innerText()) && (await p.locator('[data-section="finished"] [data-state-dot="hollow"]').count()) >= 1);
+    check(T('a reopened session with no prompt for 2 days reads Quiet, grey, a hollow dot, "last active 2 days ago"'), (await re.getAttribute('data-state')) === 'quiet' && /Quiet/.test(await re.locator('[data-worker-state]:visible').innerText()) && (await re.locator('[data-state-dot="hollow"]:visible').count()) === 1 && /last active 2 days ago/.test(await re.innerText()), await re.innerText().catch(() => 'no row'));
+    check(T('the ended session is under Finished today with a hollow dot and "last active"'), /last active/.test(await p.locator('[data-section="finished"]').innerText()) && (await p.locator('[data-section="finished"] [data-state-dot="hollow"]:visible').count()) >= 1);
+    check(T('no doubled separators on the Claude page'), !/·\s*·/.test(await p.locator('[data-section="sessions"]').innerText()));
     check(T('no horizontal scroll with every state'), okO(await overflow(p)));
     await p.screenshot({ path: `${SP}/sessions-state-${vp}.png`, fullPage: true });
 
@@ -95,6 +108,7 @@ try {
     check(T('the choice is remembered across a reload'), (await p.locator('[data-session-filter="everyone"][aria-pressed="true"]').count()) === 1 && (await p.locator('[data-session-filter="quiet"][aria-pressed="true"]').count()) === 1);
     await p.goto(B + `/projects/${PID}`);
     await p.locator('[data-card="workers"]').first().waitFor();
+    check(T('the project page rows have no doubled separators'), !/·\s*·/.test(await p.locator('[data-card="workers"]').first().innerText()));
     check(T('the project page shows the same filter with the teammate and the quiet one'), (await p.locator('[data-card="workers"] [data-worker]').filter({ hasText: 'SS teammate' }).count()) >= 1 && (await p.locator('[data-card="workers"] [data-state="quiet"]').count()) >= 1);
     check(T('no script errors'), errs.length === 0, errs.join(' | '));
     await ctx.close();

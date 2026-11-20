@@ -248,7 +248,7 @@ try {
       await p.waitForSelector('[data-section="workers"]');
       const states = await p.locator('[data-worker]').evaluateAll(els => els.map(e => e.getAttribute('data-state')));
       check(T('the states shown: idle (twice: a started one and an idle one), waiting, off beside the working ones; no on'), ['idle', 'waiting', 'off', 'working'].every(x => states.includes(x)) && states.filter(x => x === 'idle').length >= 2 && !states.includes('on'), states.join());
-      check(T('idle and waiting rows say "since HH:MM" on the subline'), (await p.locator('[data-worker-since]').count()) === 3);
+      check(T('idle and waiting rows say "since HH:MM" on the subline'), (await p.locator('[data-worker-since]:visible').count()) === 3);
       const o3 = await overflow(p);
       check(T('no horizontal scroll with five states'), okO(o3), JSON.stringify(o3));
       await p.screenshot({ path: `${SP}/w1-states-${vp}-light.png`, fullPage: true });

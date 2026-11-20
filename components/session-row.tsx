@@ -47,6 +47,8 @@ const TRAIL: Record<Trail, { text: string; icon: React.ReactNode }> = {
 };
 
 const isLive = (s: SessionItem) => s.state !== 'off' && s.state !== 'failed';
+/** The list is a container (SessionList): its rows switch to columns when it is wide, whatever page it sits on. */
+const WIDE_HIDE = '@2xl:hidden';
 
 /** The row's one control, by state. Message only on the viewer's own sessions that the roster lists (its id is their presence row). */
 function trailOf(s: SessionItem, need?: Need): Trail | null {
@@ -169,7 +171,7 @@ export function SessionList({
   const need = answering ? asks?.[answering] : undefined;
   return (
     <>
-      <List as="ul" className={className} {...rest}>
+      <List as="ul" className={cn('@container', className)} {...rest}>
         {shown.map(s => (
           <SessionRow key={s.id} s={s} tz={tz} where={where} serves={serves?.[s.id]} trail={trailOf(s, asks?.[s.id])} busy={busy === s.id} onOpen={() => setOpen(s.id)} onTrail={t => trail(t, s)} />
         ))}
@@ -221,10 +223,19 @@ export function SessionList({
 }
 
 /** The state badge: the state's word and its dot (components/ui/status-badge.tsx). Long words (a repo to trust, a clone) go to the meta line instead. */
-function Badge({ s }: { s: SessionItem }) {
+function Badge({ s, split }: { s: SessionItem; split?: boolean }) {
   const key = badgeOf(s.state, s.word);
-  return <StatusBadge status={key} data-worker-state label={s.word.length > 24 ? key : s.word} />;
+  if (s.word.length > 24) return <StatusBadge status={key} data-worker-state label={key} />;
+  const [head, rest] = wordParts(s.word);
+  // `split` (a row): the badge says the state only; the rest ("3 subagents") leads the phone's subline and sits under the badge from md.
+  return <StatusBadge status={key} data-worker-state label={split && rest ? head : s.word} />;
 }
+
+/** "Working · 3 subagents" -> ["Working", "3 subagents"]. */
+const wordParts = (w: string): [string, string] => {
+  const i = w.indexOf(' · ');
+  return i < 0 ? [w, ''] : [w.slice(0, i), w.slice(i + 3)];
+};
 
 /** The subline's time: "since 14:02" for idle and waiting (when that began), "last active 2 days ago" for quiet and ended sessions, nothing while it works. */
 function TimeOf({ s, tz }: { s: SessionItem; tz: string }) {
@@ -264,19 +275,24 @@ function SessionRow({
 }) {
   const c = s.control;
   const long = s.word.length > 24;
-  const meta: React.ReactNode[] = [];
-  // The title line is the session's name and its badge only; who, where and when go here.
-  if (long) meta.push(<span key="w">{s.word}</span>);
+  const rest = long ? '' : wordParts(s.word)[1];
+  const hasTime = !!(s.since || s.state === 'quiet' || (!isLive(s) && s.lastActiveAt));
+  // Stacked (a phone, a narrow list): one subline. "3 subagents" and the time lead, where it runs trails. In a wide list those move
+  // to the where-it-runs and state columns (aside), so the subline keeps what it is on: the question, person, task, project.
+  const lead: React.ReactNode[] = [];
+  if (rest) lead.push(<span key="r" data-word-rest>{rest}</span>);
+  if (hasTime) lead.push(<TimeOf key="t" s={s} tz={tz} />);
+  const mid: React.ReactNode[] = [];
+  if (long) mid.push(<span key="w">{s.word}</span>);
   if (s.ask)
-    meta.push(
+    mid.push(
       <span key="q" className="text-foreground/80" data-session-ask title="The question its turn ended with, written by the agent">
         {s.ask}
       </span>,
     );
-  if (s.since || s.state === 'quiet' || (!isLive(s) && s.lastActiveAt)) meta.push(<TimeOf key="t" s={s} tz={tz} />);
-  if (s.person) meta.push(<span key="who" data-worker-person>{s.person}</span>);
+  if (s.person) mid.push(<span key="who" data-worker-person>{s.person}</span>);
   if (s.doing)
-    meta.push(
+    mid.push(
       <span key="d" className="text-foreground/80" data-worker-doing data-session-doing data-lane-task={where === 'project' && s.doing.ref ? '' : undefined}>
         {s.doing.text}
         {!s.doing.held && (
@@ -286,28 +302,76 @@ function SessionRow({
         )}
       </span>,
     );
-  if (serves) meta.push(<span key="n" data-lane-serves>{serves}</span>);
-  if (where !== 'project') meta.push(<span key="p" data-session-project={s.project ? undefined : 'none'}>{s.project?.name ?? 'No project'}</span>);
-  if (s.machine) meta.push(<span key="m">{s.machine}</span>);
-  if (s.account) meta.push(<span key="acct" data-session-account>{s.account}</span>);
-  if (s.origin)
-    meta.push(
-      <span
-        key="o"
-        data-origin={s.origin}
-        data-origin-badge={s.origin === 'vscode' ? '' : undefined}
-        data-dispatched={s.origin === 'workos' ? '' : undefined}
-        title={s.origin === 'workos' ? 'Started from Work OS for a task: it runs on its own key, so it opens with Resume' : undefined}
-      >
-        {ORIGIN_LABEL[s.origin]}
-      </span>,
-    );
+  if (serves) mid.push(<span key="n" data-lane-serves>{serves}</span>);
+  if (where !== 'project') mid.push(<span key="p" data-session-project={s.project ? undefined : 'none'}>{s.project?.name ?? 'No project'}</span>);
   if (c?.error)
-    meta.push(
+    mid.push(
       <span key="e" data-session-error title={c.error}>
         {c.error}
       </span>,
     );
+  const origin = s.origin ? (
+    <span
+      data-origin={s.origin}
+      data-origin-badge={s.origin === 'vscode' ? '' : undefined}
+      data-dispatched={s.origin === 'workos' ? '' : undefined}
+      title={s.origin === 'workos' ? 'Started from Work OS for a task: it runs on its own key, so it opens with Resume' : undefined}
+    >
+      {ORIGIN_LABEL[s.origin]}
+    </span>
+  ) : null;
+  const account = s.account ? <span data-session-account>{s.account}</span> : null;
+  const tail: React.ReactNode[] = [];
+  if (s.machine) tail.push(<span key="m">{s.machine}</span>);
+  if (account) tail.push(<span key="acct">{account}</span>);
+  if (origin) tail.push(<span key="o">{origin}</span>);
+  const sep = ' · ';
+  const meta =
+    lead.length || mid.length || tail.length ? (
+      <>
+        {lead.map((m, i) => (
+          <span key={`l${i}`} className={WIDE_HIDE}>
+            {m}
+            {(i < lead.length - 1 || mid.length > 0 || tail.length > 0) && sep}
+          </span>
+        ))}
+        {mid.map((m, i) => (
+          <span key={`m${i}`}>
+            {i > 0 && sep}
+            {m}
+          </span>
+        ))}
+        {tail.map((m, i) => (
+          <span key={`t${i}`} className={WIDE_HIDE}>
+            {(i > 0 || mid.length > 0) && sep /* after lead, lead's own separator stands */}
+            {m}
+          </span>
+        ))}
+      </>
+    ) : undefined;
+  const join = (xs: React.ReactNode[]) =>
+    xs.filter(Boolean).map((x, i) => (
+      <span key={i}>
+        {i > 0 && sep}
+        {x}
+      </span>
+    ));
+  const under = [rest ? <span key="r" data-word-rest>{rest}</span> : null, hasTime ? <TimeOf key="t" s={s} tz={tz} /> : null].filter(Boolean);
+  const below = [account, origin].filter(Boolean);
+  // A wide list (WIDE, over 672px: the Claude page from a laptop up): where it runs (computer; account · app) and the state (badge;
+  // "3 subagents", the time) as fixed columns, like the task rows'. A narrower list (a phone, a project page's column, Today's card) stacks.
+  const aside = (
+    <span className="hidden @2xl:flex shrink-0 items-center gap-4 self-center">
+      <span className="w-[180px] min-w-0 text-meta leading-snug" data-session-where>
+        <span className="block truncate text-foreground/80">{s.machine || '\u00a0'}</span>
+        <span className="block truncate text-muted-foreground">{below.length ? join(below) : '\u00a0'}</span>
+      </span>
+      <span className="w-[170px] min-w-0 flex flex-col items-end text-right text-meta leading-snug" data-session-state-col>
+        <Badge s={s} split />
+        {under.length > 0 && <span className="block max-w-full truncate text-muted-foreground mt-0.5">{join(under)}</span>}
+      </span>
+    </span>
+  );
   return (
     <Row
       as="li"
@@ -324,21 +388,13 @@ function SessionRow({
           <span className="truncate font-medium" data-session-label>
             {s.label}
           </span>
-          <Badge s={s} />
+          <span className={cn(WIDE_HIDE, 'shrink-0 flex')}>
+            <Badge s={s} split />
+          </span>
         </span>
       }
-      meta={
-        meta.length ? (
-          <>
-            {meta.map((m, i) => (
-              <span key={i}>
-                {i > 0 && ' · '}
-                {m}
-              </span>
-            ))}
-          </>
-        ) : undefined
-      }
+      meta={meta}
+      aside={aside}
       detail={
         // With no task, the doing line already is the last result: not twice.
         s.last && !(s.doing && !s.doing.ref) ? (
@@ -348,7 +404,9 @@ function SessionRow({
         ) : undefined
       }
       trailing={
+        // In a wide list the button has a column of its own, held open on rows without one, so the columns line up.
         trail ? (
+          <span className="flex justify-end @2xl:w-[104px]">
           <Button
             variant="ghost"
             size="touch"
@@ -361,7 +419,10 @@ function SessionRow({
             {TRAIL[trail].icon}
             {TRAIL[trail].text}
           </Button>
-        ) : undefined
+          </span>
+        ) : (
+          <span className="hidden @2xl:block @2xl:w-[104px]" aria-hidden />
+        )
       }
     />
   );
