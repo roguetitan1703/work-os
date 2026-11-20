@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 281. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 282. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -14,7 +14,8 @@ Copy of the Work OS state, version 281. WORK-STATE.md is a copy of the State, wr
 6. Next.js: no upgrade needed, already 16.4.6 (c638a01). The build stop came from worktrees with stale installs (wos-b, wos-s, wos-s2, wos-mail, work-os-demo): npm ci in each before its next build.: `next build` now stops once with SecurityFatalError (npm advisories) and passes on retry. The release build (GitHub runner, server-build.yml) may stop the same way at 03:00. Upgrade Next.js to the patched version (Om said yes, 20 Nov): Opus in slot A, full suite, merge, then release at 03:00. — waits on Om's go for the Next.js upgrade
 7. Context warning per project (Om, 21 Nov; Grant Leads asked): pre-tool hook reads each agent's context locally, warns at the project's line (150k for Grant Leads, off elsewhere), peak context in usage. Plan note 3e92845ac0; Merged to dev 21 Nov after review (method: lead plan + Sonnet; 521 worker tests, 8 suites pass). Ships in the next release; then Om sets Grant Leads to 150k. — waits on builder A's hook-gate merge
 8. Method trial (Om, 21 Nov): lead plan + Sonnet build vs Opus builder. Tag each piece of work with its method; on 23 Nov compare usage (usage page) and review findings/rework, report to Om.
-9. Discord issue channel + one bot for everybody (Om, 21 Nov): #delpat-os for Work OS, #mailloom for Mailloom; server records each post as a task, lead replies one line, fixes with subagents, posts done; Review v2 (artifact Kyp4nVcCyqoq253U11Yzrm): bug loop, pin-to-track, reel DMs only, live listener, agent tool gaps. Plan note c7b491432a; v1 build stopped, kept at e1a92cf on builder-s. — waits on Om's go for plan v2
+9. Discord issue channel + one bot for everybody (Om, 21 Nov): #delpat-os for Work OS, #mailloom for Mailloom; server records each post as a task, lead replies one line, fixes with subagents, posts done; Build plan v4 (note c7b491432a): live listener, bug channels, track emoji, Undo/Done/For buttons, OAuth link, agent tools, DMs for reels and day-old Needs. Sonnet building in slot S. Plan note c7b491432a; v1 build stopped, kept at e1a92cf on builder-s. — waits on Om's go for plan v2
+10. New Work OS app icon and Discord track emoji (Om, 21 Nov: the tick icon is generic). Three directions at https://claude.ai/artifact/GYgM4PsJTudR7Bf4bQejDK; recommended K (का, the top line is the Now bar). Final art from an open-licence Devanagari font; one set: app 180/192/512, maskable, favicon, 128 px emoji. — waits on Om picks a direction
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -83,4 +84,4 @@ Copy of the Work OS state, version 281. WORK-STATE.md is a copy of the State, wr
 
 ## Parked
 - 2 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:ffb6d9a03c95b7488be59024be02df09bbfb9e1d -->
+<!-- work-os-copy sha1:6abdd31443bdc2e78fe35104569e430fb98318eb -->
