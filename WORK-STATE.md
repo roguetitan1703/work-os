@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 181. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 182. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -9,11 +9,11 @@ Copy of the Work OS state, version 181. WORK-STATE.md is a copy of the State, wr
 1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
 3. Declutter nudges with nothing to do: 'due' counts Later over 25 and a stale '7 open Claude items' (daily cache) while declutter proposes 0 items. Due only when there is something to propose; refresh the count when tasks close. Seen 20 Nov after reconnecting the tools.
-4. Redesign (note c475deb871): 1 library done (builder-s2 b2991a4); 2 navigation done (builder-b df92f9c, taps 3->2, 4->3, 3->2); 3 sessions first (B) and 5 one search (A, needs independent review) running; then 4 Needs and Today, 6 tasks; look by eye, merge to dev together.
-5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 3-6.
-6. Signed worker auto-update (Om yes 20 Nov): built on builder-s (2f92fb5 + Mac fixes 7b552dc: same hooks version on Windows and bundle, setup prints full path); version automatic (519b44b); review fixes done on builder-s (30e36f7, 98ba409, 389e362), re-check running, then I make the signing key on Om's PC and Om backs it up; then an independent security review, then the signing key made on Om's PC and the first signed release.
-7. Work OS skills installed by the worker (/transfer and /declutter only): built on builder-s 34ac854 (marked folders only, --adopt for Om's own transfer), in the re-check; skill text in the repo; a design note first.
-8. Redesign integration: redesign-int in wos-int = dev + builder-b (steps 1-3) + builder-a (search); Sonnet builder resolving 6 conflicts, full e2e and ui-tour shots; then I look at the screens, Message security review (running) must pass, then merge to dev. Step 4 starts from redesign-int after that.
+4. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 3-6.
+5. Signed worker auto-update (Om yes 20 Nov): built on builder-s (2f92fb5 + Mac fixes 7b552dc: same hooks version on Windows and bundle, setup prints full path); version automatic (519b44b); review fixes done on builder-s (30e36f7, 98ba409, 389e362), re-check running, then I make the signing key on Om's PC and Om backs it up; then an independent security review, then the signing key made on Om's PC and the first signed release.
+6. Work OS skills installed by the worker (/transfer and /declutter only): built on builder-s 34ac854 (marked folders only, --adopt for Om's own transfer), in the re-check; skill text in the repo; a design note first.
+7. Redesign integration: redesign-int in wos-int (af6fab3) = dev + steps 1-3, 5 + builder-s (auto-update, /transfer, /declutter); search suites pass; full e2e running (logs builds/tmp/redesign-int/logs-full); then failures alone, merge to dev, push origin and delpat.
+8. Redesign (c475deb871): steps 1-3, 5 in redesign-int; next step 4 Needs and Today (B, Opus, from dev), then 6 tasks. Held: weekly usage 93% on 20 Nov (resets 24 Nov 16:30 IST); no new builders until Om says go or the reset.
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -55,4 +55,4 @@ Copy of the Work OS state, version 181. WORK-STATE.md is a copy of the State, wr
 - Step 3 (builder-b 8b53acf) taps: see sessions 3->1, answer a Need and see the session 6->2, project goal no scroll, finished today 2->1, message a session 2, answer from a session row 2. live-release.test.mjs fails on dev too (not checked on dev).
 - Auto-update small items: cap latest.json read size (update.mjs:105); docs + What's new line: a computer that already runs a worker never needs the install command again; if a page asks for it, tell Om.
 - Redesign raised DB ops (redesign-int 4e0e17b): project page 33->37, Claude 21->23, Today 30->31, complete 44->45 (sessions and Needs on the project page, one Sessions list). Trim with probe.mjs per-collection counts after the merge.
-<!-- work-os-copy sha1:89092c156ddb1ddaffb7da2ce07866668d43a6d6 -->
+<!-- work-os-copy sha1:13bd64cab7ab2386d5bdc04bfecf8c5d599fc38c -->
