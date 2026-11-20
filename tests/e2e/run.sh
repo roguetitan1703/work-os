@@ -263,11 +263,13 @@ start_server() {
   fi
   # What's new (lib/whats-new-seen.ts): every other suite runs on a day long after every entry, so nothing in
   # lib/whats-new.ts shows and adding an entry never changes them; the whats-new suites pin days around the seeded entries.
+  # The days come from the newest entry's date, so a new entry never breaks them.
+  wn_day() { node -e "const t=require('fs').readFileSync(process.argv[1],'utf8');const d=[...t.matchAll(/date: '(\d{4}-\d{2}-\d{2})'/g)].map(m=>m[1]).sort().pop();const x=new Date(d+'T00:00:00Z');x.setUTCDate(x.getUTCDate()+Number(process.argv[2]));console.log(x.toISOString().slice(0,10))" "$ROOT/lib/whats-new.ts" "$1"; }
   case "$1" in
-    # 2026-11-20: every entry up to 2026-11-19 is live and still new.
-    whatsnew) export E2E_WHATS_NEW_TODAY=2026-11-20 ;;
-    # 2026-12-03: 14 days after the newest entry (2026-11-19), so nothing is new any more.
-    whatsnewlate) export E2E_WHATS_NEW_TODAY=2026-12-03 ;;
+    # The newest entry's day: every entry is live and still new.
+    whatsnew) export E2E_WHATS_NEW_TODAY="$(wn_day 0)" ;;
+    # 14 days after the newest entry, so nothing is new any more.
+    whatsnewlate) export E2E_WHATS_NEW_TODAY="$(wn_day 14)" ;;
     *) export E2E_WHATS_NEW_TODAY=2099-01-01 ;;
   esac
   if [ "$1" = reel ]; then

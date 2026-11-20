@@ -1,5 +1,5 @@
-// What's new, 14 days on (docs/HANDOVER.md "What's new"). run.sh pins "today" to 2026-12-03 (mode whatsnewlate): the
-// newest entry (2026-11-19) is 14 days old, so nothing is new any more even though nobody has seen them:
+// What's new, 14 days on (docs/HANDOVER.md "What's new"). run.sh pins "today" (mode whatsnewlate) to 14 days after
+// the newest entry in lib/whats-new.ts, so it is 14 days old, so nothing is new any more even though nobody has seen them:
 //   - no card on Today, no dot on the Menu row, the Menu button or the sidebar, no "New" badge on Needs;
 //   - /whats-new still lists every entry, without "New". Seed profile: none.
 import fs from 'node:fs';
