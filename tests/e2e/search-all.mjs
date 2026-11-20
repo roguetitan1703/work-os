@@ -5,7 +5,8 @@
 // line opened in place, the list search buttons, 720px on desktop and the phone sheet at 390. A teammate never finds
 // the owner's private project's items, and another organization finds nothing. Screenshots in light and dark.
 // Seed profile: none.
-import { B, ME, MCP, SP, check, finish, launch, login, makeUser, mkKey, rawDb } from './lib.mjs';
+import { B, EMAIL, ME, MCP, PW, SP, check, finish, launch, login, makeUser, mkKey, rawDb } from './lib.mjs';
+import { cookieFor } from '../load/clients.mjs';
 import { must } from './flow-lib.mjs';
 
 const ZAN = 'Zanzibar Launch';
@@ -251,6 +252,27 @@ try {
   t = await search(b, 'wombat');
   check('Bea: the owner\'s folders are not hers', !t.includes('wombat-repo'), t);
   await bctx.close();
+
+  // ================= an app-only Need's answer: only the addressee (Bea) and the asker's person (the owner) find it =================
+  const Dee = await makeUser({ email: 'dee-search@example.test', name: 'Dee', orgId: ME.orgId });
+  const secretNeed = (await must(code, 'ask', { project: ZAN, session: 'srch1', to: 'bea-search@example.test', kind: 'do', ask: 'Rotate the staging credentials please', app_only: true })).need;
+  await rawDb.collection('needs').updateOne({ orgId: ME.orgId, ref: secretNeed.ref }, { $set: { status: 'answered', answeredAt: new Date(), answer: { option: 'done', text: 'Rotated with the quetzalmarimba vault', by: Bea.userId, via: 'app', at: new Date() } } });
+  const apiSearch = async (cookie, q, kind) => { const r = await fetch(`${B}/api/search?q=${encodeURIComponent(q)}${kind ? '&kind=' + kind : ''}`, { headers: { cookie } }); return { status: r.status, text: await r.text() }; };
+  for (const [who, email, sees] of [['Bea (addressee)', 'bea-search@example.test', true], ['the owner (asker)', EMAIL, true], ['Dee (same project, neither)', 'dee-search@example.test', false]]) {
+    const ck = await cookieFor(email, PW);
+    for (const kind of [undefined, 'needs']) {
+      const r = await apiSearch(ck, 'quetzalmarimba', kind);
+      const needs = JSON.parse(r.text).kinds?.needs ?? { hits: [], count: 0 };
+      const found = needs.hits.some(h => h.id === secretNeed.id || h.title.includes('Rotate the staging'));
+      const how = kind ? ' (Needs filter)' : '';
+      if (sees) check(`app-only answer: ${who} finds it by a word of the answer${how}`, r.status === 200 && found && needs.count >= 1, r.text.slice(0, 300));
+      else check(`app-only answer: ${who} gets no hit and count 0${how}`, r.status === 200 && !found && needs.count === 0 && !JSON.stringify(needs).includes('quetzalmarimba') /* the query itself is echoed in "q" */, r.text.slice(0, 300));
+    }
+  }
+  // Dee still finds the Need by its question (the Need is readable; only the answer is not).
+  { const r = await apiSearch(await cookieFor('dee-search@example.test', PW), 'rotate staging');
+    check('app-only answer: Dee finds the Need by its question, with no answer text', r.status === 200 && (JSON.parse(r.text).kinds?.needs?.hits ?? []).some(h => h.title.includes('Rotate the staging')) && !r.text.includes('quetzal'), r.text.slice(0, 300)); }
+  check('fixture: Dee is a member', !!Dee.userId);
 
   // ================= Cy (another organization): nothing =================
   const cctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });

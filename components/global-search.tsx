@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { Bot, CircleHelp, FolderGit2, FolderOpen, History, LayoutList, NotebookText, PanelsTopLeft, Play, Plus, Search, Settings, X, type LucideIcon } from 'lucide-react';
 import { compareHits, isKind, KINDS, marks, parseQuery, SERVER_KINDS, type Hit, type Kind, type KindResult, type SearchResult } from '@/lib/search/match';
 import { matchStatic } from '@/lib/search/static';
+import { recentKey } from '@/lib/search/recent';
+import { useApp } from '@/components/app-context';
 import { startClaudeUrl } from '@/lib/nav';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -35,21 +37,23 @@ const labelOf = (f: Filter) => FILTERS.find(x => x.key === f)!.label;
 const ICON: Record<Kind, LucideIcon> = { tasks: LayoutList, projects: FolderOpen, notes: NotebookText, sessions: Bot, needs: CircleHelp, files: FolderGit2, settings: Settings, pages: PanelsTopLeft };
 /** Hits per group in All. */
 const GROUP = 5;
-const RECENT_KEY = 'wos:search-recent';
 type Recent = Pick<Hit, 'kind' | 'id' | 'title' | 'meta' | 'right' | 'href' | 'action'>;
 
-function readRecent(): Recent[] {
+/** This person's recent hits (key: recentKey, per person and organization; none before the app knows who it is). */
+function readRecent(key: string | null): Recent[] {
+  if (!key) return [];
   try {
-    const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
+    const v = JSON.parse(localStorage.getItem(key) ?? '[]');
     return Array.isArray(v) ? v.filter(r => r && typeof r.href === 'string' && r.href.startsWith('/') && typeof r.title === 'string' && isKind(r.kind)).slice(0, 5) : [];
   } catch {
     return [];
   }
 }
-function remember(h: Hit) {
+function remember(key: string | null, h: Hit) {
+  if (!key) return;
   try {
     const r: Recent = { kind: h.kind, id: h.id, title: h.title, meta: h.meta, right: h.right, href: h.href, action: h.action };
-    localStorage.setItem(RECENT_KEY, JSON.stringify([r, ...readRecent().filter(x => x.href !== r.href || x.title !== r.title)].slice(0, 5)));
+    localStorage.setItem(key, JSON.stringify([r, ...readRecent(key).filter(x => x.href !== r.href || x.title !== r.title)].slice(0, 5)));
   } catch {}
 }
 
@@ -99,6 +103,8 @@ export function GlobalSearch() {
   const [filter, setFilter] = useState<Filter>('all');
   const phone = usePhone();
   const router = useRouter();
+  const { me, orgId } = useApp();
+  const storeKey = me && orgId ? recentKey(orgId, me) : null;
   const pushed = useRef(false);
   const pending = useRef<string | null>(null);
 
@@ -157,7 +163,7 @@ export function GlobalSearch() {
 
   const choose = useCallback(
     (h: Hit, newTab: boolean) => {
-      remember(h);
+      remember(storeKey, h);
       if (h.action === 'quick-add') {
         close();
         setTimeout(() => window.dispatchEvent(new Event('wos:quick-add')), 60);
@@ -165,7 +171,7 @@ export function GlobalSearch() {
       else if (newTab) window.open(h.href, '_blank', 'noopener');
       else close(h.href);
     },
-    [close],
+    [close, storeKey],
   );
 
   /** Esc clears the text first, then closes. */
@@ -175,7 +181,7 @@ export function GlobalSearch() {
   }, [q, dismiss]);
 
   if (!open) return null;
-  const panel = <Panel q={q} setQ={setQ} filter={filter} setFilter={setFilter} phone={phone} onChoose={choose} onClose={dismiss} />;
+  const panel = <Panel q={q} setQ={setQ} filter={filter} setFilter={setFilter} phone={phone} storeKey={storeKey} onChoose={choose} onClose={dismiss} />;
   if (phone) return <PhoneSheet onEscape={escape}>{panel}</PhoneSheet>;
   return (
     <Dialog
@@ -222,14 +228,14 @@ function PhoneSheet({ onEscape, children }: { onEscape: () => void; children: Re
 }
 
 type Item = { type: 'hit'; hit: Hit } | { type: 'more'; kind: Kind; count: string };
-type PanelProps = { q: string; setQ: (v: string) => void; filter: Filter; setFilter: (f: Filter) => void; phone: boolean; onChoose: (h: Hit, newTab: boolean) => void; onClose: () => void };
+type PanelProps = { q: string; setQ: (v: string) => void; filter: Filter; setFilter: (f: Filter) => void; phone: boolean; storeKey: string | null; onChoose: (h: Hit, newTab: boolean) => void; onClose: () => void };
 
-function Panel({ q, setQ, filter, setFilter, phone, onChoose, onClose }: PanelProps) {
+function Panel({ q, setQ, filter, setFilter, phone, storeKey, onChoose, onClose }: PanelProps) {
   const [all, setAll] = useState<SearchResult | null>(null);
   const [one, setOne] = useState<{ q: string; kind: Kind; res: KindResult } | null>(null);
   const [busy, setBusy] = useState(false);
   const [sel, setSel] = useState(0);
-  const [recent] = useState<Recent[]>(() => (typeof window === 'undefined' ? [] : readRecent()));
+  const [recent] = useState<Recent[]>(() => (typeof window === 'undefined' ? [] : readRecent(storeKey)));
   const seq = useRef(0);
   const seqOne = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);

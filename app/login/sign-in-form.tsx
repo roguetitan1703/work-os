@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { forgetSearchRecent } from '@/lib/search/recent';
 import { KeyRound } from 'lucide-react';
 import { authClient, authError } from '@/lib/auth-client';
 
@@ -29,6 +30,9 @@ export function SignInForm({ next, start, resetDone }: { next: string; start: 'p
     setError(null);
   };
   const val = (e: React.FormEvent<HTMLFormElement>, k: string) => String(new FormData(e.currentTarget).get(k) ?? '');
+
+  // Signing out lands here: forget the search's recent hits on this browser (lib/search/recent.ts).
+  useEffect(() => forgetSearchRecent(), []);
 
   useEffect(() => {
     const t = setTimeout(async () => {
