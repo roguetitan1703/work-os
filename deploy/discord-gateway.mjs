@@ -26,6 +26,7 @@ export function startGateway({ token, url = 'wss://gateway.discord.gg', relay, l
   let sock = null;
   let seq = null;
   let sessionId = null;
+  let guildIds = [];
   let resumeUrl = null;
   let acked = true;
   let beat = null;
@@ -150,10 +151,11 @@ export function startGateway({ token, url = 'wss://gateway.discord.gg', relay, l
             sessionId = m.d?.session_id ?? null;
             resumeUrl = m.d?.resume_gateway_url ?? null;
             backoff = 0;
-            push('READY', { guildIds: (m.d?.guilds ?? []).map(g => g.id).filter(Boolean), userId: m.d?.user?.id ?? null });
+            guildIds = (m.d?.guilds ?? []).map(g => g.id).filter(Boolean);
+            push('READY', { guildIds, userId: m.d?.user?.id ?? null });
           } else if (m.t === 'RESUMED') {
             backoff = 0;
-            push('RESUMED', {});
+            push('RESUMED', { guildIds });
           } else if (RELAYED.has(m.t)) push(m.t, m.d);
           break;
       }

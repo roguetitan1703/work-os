@@ -16,6 +16,8 @@ import * as projects from '@/lib/data/projects';
 import * as production from '@/lib/data/production';
 import * as nudges from '@/lib/data/nudges';
 import * as contextWarn from '@/lib/data/context-warn';
+import { setDiscordChannel, type ChannelSetting } from '@/lib/discord/channel-setting';
+import { backfill } from '@/lib/discord/issues';
 import { InputError, NotFoundError } from '@/lib/data/errors';
 import type {
   Activity,
@@ -160,6 +162,21 @@ export async function setNudgesAction(projectId: string, on: boolean): Promise<R
 /** Context warning on a project (note 3e92845ac0): 150, 200 or null (off). The app only, never an agent's tool. */
 export async function setContextWarnAction(projectId: string, line: number | null): Promise<Result<contextWarn.ContextWarn | null>> {
   return run(s => contextWarn.setContextWarn(s, String(projectId), typeof line === 'number' ? line : null));
+}
+
+/** The project's Discord channel and its switch "Every post is an issue" (plan v4 section 2): null clears it. The app only, never an agent's tool. The first set of a channel records its last 7 days after the answer. */
+export async function setDiscordChannelAction(projectId: string, channelId: string | null, everyPost: boolean): Promise<Result<ChannelSetting | null>> {
+  return run(async s => {
+    const r = await setDiscordChannel(s, String(projectId), { channelId: typeof channelId === 'string' ? channelId : null, everyPost: everyPost === true });
+    if (r.backfill && r.guildId) {
+      const guildId = r.guildId;
+      const h = await headers();
+      const host = h.get('x-forwarded-host') ?? h.get('host');
+      const baseUrl = (process.env.APP_URL || (host ? `${h.get('x-forwarded-proto') ?? 'https'}://${host}` : '')).replace(/\/+$/, '');
+      after(() => backfill(s.orgId, guildId, String(projectId), baseUrl).then(() => undefined, e => console.error('[discord] first set failed:', e instanceof Error ? e.message : e)));
+    }
+    return r.setting;
+  });
 }
 
 // ── Session ─────────────────────────────────────────────────────────────────

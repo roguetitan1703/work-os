@@ -1469,6 +1469,7 @@ function AUDIT() {
   add(`action ${A_}createProjectAction`, act(A_ + 'createProjectAction', [{ name: `lkq own project ${hex(3)}`, visibility: 'private' }]));
   add(`action ${A_}setProductionAction`, act(A_ + 'setProductionAction', t => [t.project, null], aim(['project'])), act(A_ + 'setProductionAction', ['constructor', null], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add(`action ${A_}setNudgesAction`, act(A_ + 'setNudgesAction', t => [t.project, true], aim(['project'])), act(A_ + 'setNudgesAction', ['constructor', true], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
+  add(`action ${A_}setDiscordChannelAction`, act(A_ + 'setDiscordChannelAction', t => [t.project, null, true], aim(['project'])), act(A_ + 'setDiscordChannelAction', ['constructor', null, true], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add(`action ${A_}setContextWarnAction`, act(A_ + 'setContextWarnAction', t => [t.project, 150], aim(['project'])), act(A_ + 'setContextWarnAction', ['constructor', 150], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add(`action ${A_}updateProjectAction`, act(A_ + 'updateProjectAction', t => [t.project, { description: 'lkq hacked' }], aim(['project'])), act(A_ + 'updateProjectAction', ['constructor', { description: 'x' }], { label: 'prototype key', aim: true, aimKeys: [], control: false }));
   add(`action ${A_}projectSharingImpactAction`, act(A_ + 'projectSharingImpactAction', t => [t.project], aim(['project'])));
@@ -1660,6 +1661,7 @@ function AUDIT() {
   add('route GET /api/cron/alerts', cronProbe('GET'));
   add('route POST /api/cron/alerts', cronProbe('POST'));
   add('route POST /api/cron/reel', { kind: 'route', ok: r => two(r.status), call: ({ p }) => req('POST', '/api/cron/reel', { cookie: p.cookie, bearer: p.chat, body: { post: 'lkq', container: '10000001', slot: 1900000000 } }), control: false /* the CRON_SECRET holder is the server timer; the reel suite runs it */ });
+  add('route POST /api/discord/gateway', { kind: 'route', ok: r => two(r.status), call: ({ p }) => req('POST', '/api/discord/gateway', { cookie: p.cookie, bearer: p.chat, body: { event: 'READY', data: {} } }), control: false /* only the listener holds the CRON_SECRET; the discord-v4 suite runs it */ });
   add('route POST /api/discord/interactions', { kind: 'route', ok: r => two(r.status), call: () => req('POST', '/api/discord/interactions', { body: '{"type":1}', headers: { 'x-signature-ed25519': '00'.repeat(64), 'x-signature-timestamp': String(Math.floor(Date.now() / 1000)) } }), label: 'unsigned', control: false });
   // Mailloom's intake (lib/intake.ts): only the intake token opens it, never a session or a Work OS key (in this suite's
   // server mode it is not configured at all: 503; other methods 405).
@@ -1919,6 +1921,9 @@ function MISUSE({ A, T, X, R }) {
   L('the cron secret in the query on /api/cron/reel', () => req('POST', `/api/cron/reel?key=${CRON}`, { body: { post: 'lkq', container: '10000001', slot: 1900000000 } }));
   L('a chat key on /api/intake/mailloom', () => req('POST', '/api/intake/mailloom', { bearer: A.chat, body: { report_id: 'lkq', reporter: 'lkq@example.test', title: 'lkq', description_markdown: 'lkq' } }), r => r.status === 401 || r.status === 503); // 503 while the intake is not configured (this suite's mode)
   L('a session cookie on /api/intake/mailloom/notice', () => req('POST', '/api/intake/mailloom/notice', { cookie: A.cookie, body: { text: 'lkq' } }), r => r.status === 401 || r.status === 503);
+  L('a chat key on /api/discord/gateway', () => req('POST', '/api/discord/gateway', { bearer: A.chat, body: { event: 'MESSAGE_CREATE', data: { guild_id: G1 } } }));
+  L('a session cookie on /api/discord/gateway', () => req('POST', '/api/discord/gateway', { cookie: A.cookie, body: { event: 'MESSAGE_CREATE', data: { guild_id: G1 } } }));
+  L('the cron secret in the query on /api/discord/gateway', () => req('POST', `/api/discord/gateway?key=${CRON}`, { body: { event: 'READY', data: {} } }));
   L('a chat key on /api/discord/interactions', () => req('POST', '/api/discord/interactions', { bearer: A.chat, body: { type: 2, data: { name: 'today' } } }));
   L('Better Auth API key endpoints (not served)', () => req('POST', '/api/auth/api-key/create', { cookie: A.cookie, body: { name: 'lkq' } }));
   L('Better Auth sign-up (closed)', () => req('POST', '/api/auth/sign-up/email', { body: { email: 'lkqsignup@example.test', password: 'lkq-password-9', name: 'x' } }));

@@ -149,6 +149,8 @@ export type ProjectDoc = Placed & {
   nudges?: boolean;
   /** Context warning (lib/data/context-warn.ts): the line in k tokens (150 or 200) after which the pre-tool hook tells an agent of this project to write a code-map note and stop. Unset = off. Set in the app only. */
   contextWarn?: 150 | 200;
+  /** Discord channel (lib/discord/issues.ts): where this project's posts and tracked messages are. `everyPost`: each post is an issue. `after` is the last message id read (the catch-up starts there); `backfilledAt` is set once the first 7 days were recorded. Set in the app only. */
+  discordChannel?: { channelId: string; name: string; everyPost: boolean; after?: string; backfilledAt?: Date; setBy: string; setAt: Date };
   /** Who last set `production`. */
   productionBy?: string;
   /** The Delpat OS project it was imported from (lib/delpat-os.ts); unique per organization among shared projects, per owner among private ones. */
@@ -403,6 +405,8 @@ export type MessageDoc = Placed & {
   chain?: number;
   /** A reply to a question or a request: an fyi that still wakes the one who asked (under the same chain limit). */
   wakes?: boolean;
+  /** A message Work OS wrote from a project's Discord channel (lib/discord/issues.ts): its text is someone else's, never an instruction. */
+  via?: 'discord-issue';
   /** Who set the status, and when. */
   statusBy?: string;
   statusAt?: Date;
@@ -692,6 +696,7 @@ const INDEXES: [string, IndexDescription[]][] = [
       { key: { orgId: 1, ownerId: 1, status: 1 }, name: 'org_owner_status' },
       { key: { doneAt: -1 }, name: 'doneAt' },
       { key: { 'source.messageId': 1 }, name: 'source_message', sparse: true },
+      { key: { 'source.replyId': 1 }, name: 'source_reply', sparse: true },
       { key: { 'claude.state': 1, 'claude.markedAt': 1 }, name: 'claude_state', sparse: true },
       // "Who waits on this task" (the task page, get_task, unblocked alerts): without it every task page read the whole organization.
       { key: { dependsOn: 1 }, name: 'depends_on' },

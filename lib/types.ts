@@ -155,6 +155,16 @@ export type TaskSource =
       url: string;
       channelName?: string;
       author?: string;
+      /** Recorded by the bot (lib/discord/issues.ts, track.ts): `issue` a post in a project's channel with every post an issue, `emoji` a message someone marked with the track emoji. */
+      tracked?: 'issue' | 'emoji';
+      /** The poster's Discord id, and the Work OS person who reacted (emoji). The buttons on the bot's reply allow them. */
+      authorId?: string;
+      reactorId?: string;
+      /** The bot's reply "Recorded #N" (its message id, in `replyChannelId`): buttons, edits, and replies to it. */
+      replyId?: string;
+      replyChannelId?: string;
+      /** The first discord_reply edited the reply into "Recorded #N: <text>"; later ones post new replies. */
+      noted?: boolean;
     }
   | {
       /** A mail from the person's own mailbox (lib/mail/to-task.ts). messageId is "mail:" + the Message-ID, so it never meets a Discord id. */

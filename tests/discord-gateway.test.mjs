@@ -89,6 +89,7 @@ test('identifies with the four intents, heartbeats, and relays only the named ev
 
 test('resumes with the session and the last sequence after a drop, and says RESUMED', async () => {
   const relayed = [];
+  const relayedData = [];
   const gw = await fakeGateway((conn, n) => {
     hello(conn);
     if (n === 0) setTimeout(() => {
@@ -97,7 +98,7 @@ test('resumes with the session and the last sequence after a drop, and says RESU
     }, 30);
     else setTimeout(() => conn.send({ op: 0, t: 'RESUMED', s: 8, d: {} }), 60);
   });
-  const g = startGateway({ token: 'T', url: gw.url, relay: async (e) => (relayed.push(e), true) });
+  const g = startGateway({ token: 'T', url: gw.url, relay: async (e, d) => (relayed.push(e), relayedData.push(d), true) });
   try {
     await until(() => relayed.includes('RESUMED'), 8000);
     const second = gw.conns[1];
@@ -105,6 +106,7 @@ test('resumes with the session and the last sequence after a drop, and says RESU
     assert.deepEqual(resume.d, { token: 'T', session_id: 'sessA', seq: 7 });
     assert.ok(!second.got.some(m => m.op === 2), 'no fresh identify');
     assert.deepEqual(relayed, ['READY', 'RESUMED']);
+    assert.deepEqual(relayedData[1], { guildIds: [] }, 'RESUMED carries the guilds of the READY');
   } finally {
     g.stop();
     gw.close();

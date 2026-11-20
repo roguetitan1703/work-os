@@ -4,13 +4,12 @@ import { listProjectsBasic } from '../data/projects';
 import { resolveDate, todayStr, addDays } from '../dates';
 import { matchMode } from '../quick-parse';
 import { getOrgModes } from '../org-modes';
-import type { Actor, Mode, Priority, Task, TaskSource } from '../types';
+import type { Actor, Mode, Priority, Task, TaskSource, TextAuthor } from '../types';
 import type { Scope } from '../scope';
 import { authorName, excerpt, jumpLink, type ChannelInfo, type RawMessage } from './client';
 
-// Turns a Discord message into a Work OS task. Shared by the "Add to Work OS" message
-// command (actor: discord) and the discord_message_to_task MCP tool (actor: claude). The task belongs to s: the
-// Discord-linked user (both callers refuse anyone else).
+// Turns a Discord message into a Work OS task. Used by the bot's own recording (lib/discord/issues.ts: a post in a project's
+// channel; lib/discord/track.ts: a message marked with the track emoji). The task belongs to s.
 
 export type MessageTaskOverrides = {
   title?: string;
@@ -20,6 +19,20 @@ export type MessageTaskOverrides = {
   due?: string | null;
   note?: string;
   createProject?: boolean;
+  /** Recorded by the bot: a post in a project's channel (issue) or a message marked with the track emoji (emoji). */
+  tracked?: 'issue' | 'emoji';
+  /** More fields of the task's source (the poster, the reactor). */
+  sourceExtra?: { authorId?: string; reactorId?: string };
+  /** The Work OS member whose linked Discord account wrote the message: the task's text is theirs, not an outside author's. */
+  authorUser?: string;
+  /** The attachments' links go on the task (name and url). */
+  attachmentLinks?: boolean;
+  /** The author as Work OS shows them (the linked person's name); default the Discord display name. */
+  authorName?: string;
+  /** The title when the message has no text (a screenshot alone). */
+  emptyTitle?: string;
+  /** No guess of a due date from the words. */
+  noDue?: boolean;
 };
 
 export type MessageTaskResult = { task: Task; existing: boolean };
@@ -40,12 +53,12 @@ export function plainText(m: Pick<RawMessage, 'content' | 'mentions'>): string {
 const LEADING_FILLER = /^(hey|hi|hello|yo|ok|okay|so|also|btw|fyi|pls|please|can you|could you|would you|can we|could we|we need to|need to|i need to|you need to|remember to|reminder:?|todo:?|to do:?|task:?)\b[\s,:-]*/i;
 
 /** Short, verb-first-ish title from the message: first sentence, filler stripped, ≤ 80 chars. */
-export function draftTitle(text: string): string {
+export function draftTitle(text: string, empty = 'Follow up on Discord message'): string {
   let t = text.replace(/https?:\/\/\S+/g, '').trim();
   t = t.split(/(?<=[.!?])\s|\n/)[0] ?? t;
   for (let i = 0; i < 3; i++) t = t.replace(LEADING_FILLER, '');
   t = t.replace(/[?.!,;:\s]+$/, '').trim();
-  if (!t) return 'Follow up on Discord message';
+  if (!t) return empty;
   t = t[0].toUpperCase() + t.slice(1);
   return t.length > 80 ? t.slice(0, 79).replace(/\s+\S*$/, '') + '…' : t;
 }
@@ -114,23 +127,24 @@ export async function taskFromMessage(
   const text = plainText(m);
   const channelName = ctx.channel?.name ?? ctx.channelName ?? m.channel_id;
   const url = jumpLink(ctx.guildId, m.channel_id, m.id);
-  const author = authorName(m);
+  const author = overrides.authorName ?? authorName(m);
   const where = ctx.channel?.isThread && ctx.channel.parentName ? `#${ctx.channel.parentName} › ${channelName}` : `#${channelName}`;
   const quote = (m.content.trim() ? m.content.trim() : '(no text)').split('\n').map(l => `> ${l}`).join('\n');
   const files = m.attachments.length ? `\n\nAttachments: ${m.attachments.map(a => a.filename).join(', ')}` : '';
   const replyCtx = m.referenced_message ? `\n\nIn reply to ${authorName(m.referenced_message)}: "${excerpt(m.referenced_message.content, 240)}"` : '';
 
-  const source: TaskSource = { kind: 'discord', guildId: ctx.guildId, channelId: m.channel_id, messageId: m.id, url, channelName, author };
+  const source: TaskSource = { kind: 'discord', guildId: ctx.guildId, channelId: m.channel_id, messageId: m.id, url, channelName, author, ...(overrides.tracked ? { tracked: overrides.tracked } : {}), ...(overrides.sourceExtra ?? {}) };
+  const msgAuthor: TextAuthor = overrides.authorUser ? { kind: 'user', userId: overrides.authorUser } : { kind: 'discord-author', name: author };
   const task = await createTask(
     s,
     {
-      title: overrides.title?.trim() || draftTitle(text),
+      title: overrides.title?.trim() || draftTitle(text, overrides.emptyTitle),
       description: `From Discord, ${author} in ${where} (${m.timestamp.slice(0, 10)}):\n\n${quote}${replyCtx}${files}\n\n${url}`,
       project: overrides.project !== undefined ? overrides.project : await guessProject(s, ctx.channel, text),
       mode: overrides.mode !== undefined ? overrides.mode : await guessMode(s, `${channelName} ${ctx.channel?.parentName ?? ''} ${ctx.channel?.category ?? ''}`),
       priority: overrides.priority ?? 'P2',
-      due: overrides.due !== undefined ? overrides.due : explicitDue(text),
-      links: [{ url, label: `Discord: ${where}` }],
+      due: overrides.due !== undefined ? overrides.due : overrides.noDue ? null : explicitDue(text),
+      links: [{ url, label: `Discord: ${where}` }, ...(overrides.attachmentLinks ? m.attachments.slice(0, 8).map(a => ({ url: a.url, label: a.filename.slice(0, 80) })) : [])],
     },
     actor,
     {
@@ -139,7 +153,7 @@ export async function taskFromMessage(
       source,
       // The message's words are its author's, not the member's who made the task (lib/data/authors.ts): a title the
       // member typed is theirs.
-      authors: { title: overrides.title?.trim() ? actor : { kind: 'discord-author', name: author }, description: { kind: 'discord-author', name: author } },
+      authors: { title: overrides.title?.trim() ? actor : msgAuthor, description: msgAuthor },
     },
   );
   return { task, existing: false };
