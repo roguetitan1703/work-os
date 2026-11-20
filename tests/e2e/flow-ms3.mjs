@@ -82,7 +82,7 @@ try {
   const own2 = await must(MCP, 'send_message', { to: sid, kind: 'decision', body: 'Own decision by chat' });
   await rawDb.collection('messages').updateOne({ _id: own2.id }, { $set: { 'from.word': 'chat' } });
   await must(cc, 'message_status', { id: own2.id, status: 'applied', ...SS });
-  const dd = (await rawDb.collection('states').findOne({ _id: project._id })).decisions.find(x => x.msg === own2.id);
+  const dd = await rawDb.collection('stateDecisions').findOne({ projectId: project._id, msg: own2.id });
   check('MS3: an applied decision stores the message author and word, by is the applier', dd.author === ME.userId && dd.word === 'chat' && dd.by === ME.userId && dd.via === 'chat', JSON.stringify(dd));
 
   // Chosen-people placement: the messages follow the project; the member taken off the list loses them

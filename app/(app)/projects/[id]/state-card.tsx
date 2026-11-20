@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Chip, ChipGroup } from '@/components/ui/chip';
 import { IconButton } from '@/components/ui/icon-button';
-import type { ArchivedOut, StateOut } from '@/lib/data/states';
-import { restoreLineAction, saveStateAction } from './state-actions';
+import type { ArchivedOut, DecisionOut, ParkedOut, StateOut } from '@/lib/data/states';
+import { moreArchivedAction, moreDecisionsAction, moreParkedAction, restoreLineAction, saveStateAction } from './state-actions';
 
 const field =
   'w-full min-w-0 h-11 md:h-9 rounded-control border border-input bg-background dark:bg-input/30 px-3 text-base md:text-meta text-foreground placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
@@ -37,7 +37,15 @@ const NEXT_SHOWN = 3;
  */
 export function StateCard({ projectId, initial, archived: archivedInitial = [] }: { projectId: string; initial: StateOut | null; archived?: ArchivedOut[] }) {
   // The page's State follows the server: a new version (a teammate's or an agent's save, or ours coming back) replaces the local copy.
-  const [state, setState] = useState<StateOut | null>(initial);
+  // "Show more" pages (older Parked lines and decisions) sit beside the State's first 50 and go whenever the State is replaced.
+  type More = { parked: ParkedOut[]; parkedNext?: string; decisions: DecisionOut[]; decisionsNext?: string; archived: NonNullable<StateOut['archivedDecisions']>; archivedNext?: string };
+  const fresh = (st: StateOut | null): More => ({ parked: [], parkedNext: st?.parkedNext, decisions: [], decisionsNext: st?.decisionsNext, archived: [], archivedNext: st?.archivedDecisionsNext });
+  const [state, setStateRaw] = useState<StateOut | null>(initial);
+  const [more, setMore] = useState<More>(() => fresh(initial));
+  const setState = (st: StateOut | null) => {
+    setStateRaw(st);
+    setMore(fresh(st));
+  };
   const [archived, setArchived] = useState<ArchivedOut[]>(archivedInitial);
   const [seen, setSeen] = useState(initial?.version ?? -1);
   if ((initial?.version ?? -1) !== seen) {
@@ -224,7 +232,7 @@ export function StateCard({ projectId, initial, archived: archivedInitial = [] }
         <div className="px-4 pb-2">
           {state?.parked?.length ? (
             <ul className="divide-y divide-border/60">
-              {state.parked.map(l => (
+              {[...state.parked, ...more.parked].map(l => (
                 <li key={l.id} className="flex items-center gap-1 min-h-11 md:min-h-9" data-parked-id={l.id}>
                   <span className="min-w-0 flex-1 text-body md:text-meta">
                     {l.text}
@@ -242,31 +250,94 @@ export function StateCard({ projectId, initial, archived: archivedInitial = [] }
           ) : (
             <p className="text-meta text-muted-foreground py-1">Nothing parked.</p>
           )}
+          {more.parkedNext && (
+            <Button
+              variant="ghost"
+              size="touch"
+              className="-ml-3 px-3 text-muted-foreground"
+              disabled={pending}
+              onClick={() =>
+                start(async () => {
+                  const r = await moreParkedAction(projectId, more.parkedNext!);
+                  if (!r.ok) return void toast.error(r.error);
+                  setMore(m => ({ ...m, parked: [...m.parked, ...r.parked], parkedNext: r.next }));
+                })
+              }
+              data-parked-more
+            >
+              Show more
+            </Button>
+          )}
         </div>
       </details>
 
       <details className={fold} data-part="decisions">
         <summary className={summary}>
-          <h3 className={H3}>Decisions · {state?.decisions.length ?? 0}</h3>
+          <h3 className={H3}>Decisions · {state?.decisionsTotal ?? 0}</h3>
           <ChevronDown className="ml-auto w-4 h-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
         </summary>
-        <div className="px-4 pb-3">
+        <div className="px-4 pb-2">
           {state?.decisions.length ? (
             <ul className="space-y-1">
-              {state.decisions
-                .slice(-5)
-                .reverse()
-                .map(d => (
-                  <li key={d.id} className="text-body md:text-meta">
-                    <span className="text-muted-foreground">{d.at.slice(0, 10)} · </span>
-                    {d.text}
-                    <span className="text-muted-foreground"> · {d.by} ({d.via})</span>
-                  </li>
-                ))}
+              {[...[...state.decisions].reverse(), ...more.decisions].map(d => (
+                <li key={d.id} className="text-body md:text-meta" data-decision-id={d.id}>
+                  <span className="text-muted-foreground">{d.at.slice(0, 10)} · </span>
+                  {d.text}
+                  <span className="text-muted-foreground"> · {d.by} ({d.via})</span>
+                </li>
+              ))}
             </ul>
           ) : (
             <p className="text-meta text-muted-foreground py-1">No decisions recorded.</p>
           )}
+          {more.decisionsNext && (
+            <Button
+              variant="ghost"
+              size="touch"
+              className="-ml-3 px-3 text-muted-foreground"
+              disabled={pending}
+              onClick={() =>
+                start(async () => {
+                  const r = await moreDecisionsAction(projectId, more.decisionsNext!);
+                  if (!r.ok) return void toast.error(r.error);
+                  setMore(m => ({ ...m, decisions: [...m.decisions, ...r.decisions], decisionsNext: r.next }));
+                })
+              }
+              data-decisions-more
+            >
+              Show more
+            </Button>
+          )}
+          {state?.archivedDecisions?.length ? (
+            <details className="group/arch pt-1" data-part="archived-decisions">
+              <summary className={`${H3} cursor-pointer min-h-11 md:min-h-9 flex items-center list-none [&::-webkit-details-marker]:hidden`}>Archived · {state.archivedDecisionsTotal ?? state.archivedDecisions.length}</summary>
+              <ul className="space-y-1">
+                {[...state.archivedDecisions, ...more.archived].map(d => (
+                  <li key={d.id} className="text-body md:text-meta text-muted-foreground" data-archived-decision-id={d.id}>
+                    {d.at.slice(0, 10)} · {d.text} · {d.by}, archived {d.archivedAt.slice(0, 10)}{d.archivedBy ? ` by ${d.archivedBy}` : ''}
+                  </li>
+                ))}
+              </ul>
+              {more.archivedNext && (
+                <Button
+                  variant="ghost"
+                  size="touch"
+                  className="-ml-3 px-3 text-muted-foreground"
+                  disabled={pending}
+                  onClick={() =>
+                    start(async () => {
+                      const r = await moreArchivedAction(projectId, more.archivedNext!);
+                      if (!r.ok) return void toast.error(r.error);
+                      setMore(m => ({ ...m, archived: [...m.archived, ...r.archived], archivedNext: r.next }));
+                    })
+                  }
+                  data-archived-more
+                >
+                  Show more
+                </Button>
+              )}
+            </details>
+          ) : null}
         </div>
       </details>
     </Card>

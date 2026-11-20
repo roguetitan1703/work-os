@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'parked-decisions-no-limit',
+    date: '2026-11-21',
+    title: 'Parked and Decisions have no limit',
+    line: 'Parked and Decisions have no limit now; the project page shows more as you scroll.',
+    where: 'A project › State › Parked and Decisions',
+    href: '/projects',
+  },
+  {
     id: 'needs-one-line',
     date: '2026-11-20',
     title: 'Needs fold to one line',

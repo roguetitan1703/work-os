@@ -42,6 +42,8 @@ const RULES = {
   needs: SHARED,
   trash: SHARED,
   states: SHARED,
+  stateParked: SHARED,
+  stateDecisions: SHARED,
   messages: SHARED,
   presence: SHARED,
   reviews: OWNER,
@@ -234,6 +236,8 @@ const TOPICS: Partial<Record<ScopedName, Topic>> = {
   notes: 'notes',
   claudeItems: 'claude',
   messages: 'projects',
+  stateParked: 'projects',
+  stateDecisions: 'projects',
   states: 'projects', // a saved State refreshes open project pages (the session rows are deliberately left out: a heartbeat refreshes nobody)
   needs: 'tasks',
   devices: 'claude',
