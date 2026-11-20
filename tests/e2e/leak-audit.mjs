@@ -1191,9 +1191,9 @@ try {
     const tr = await mcpCall(T.code, 'start_work', { project: pid, session: sidT, label: 'lane reader' }, { 'X-Work-OS-Session': sidT });
     scan('T', 'start_work lanes', tr.text);
     const lane = (tr.json?.lanes ?? []).find(l => l.label === lbl);
-    check('lanes: a teammate sees the owner's lane by label, its state and task, never its last line', !!lane && lane.writtenBy === true && lane.lastResult === undefined && !tr.text.includes('lkq lane result'), JSON.stringify(tr.json?.lanes ?? tr.text.slice(0, 160)));
+    check("lanes: a teammate sees the owner's lane by label, its state and task, never its last line", !!lane && lane.writtenBy === true && lane.lastResult === undefined && !tr.text.includes('lkq lane result'), JSON.stringify(tr.json?.lanes ?? tr.text.slice(0, 160)));
     const ls = await mcpCall(T.code, 'list_sessions', {});
-    check('lanes: list_sessions for a teammate has no last line of the owner's session', !ls.text.includes('lkq lane result'), ls.text.slice(0, 160));
+    check("lanes: list_sessions for a teammate has no last line of the owner's session", !ls.text.includes('lkq lane result'), ls.text.slice(0, 160));
     const ownGs = await mcpCall(A.code, 'get_state', { project: pid, session: sid }, { 'X-Work-OS-Session': sid });
     const ownLane = (ownGs.json?.lanes ?? []).find(l => l.label === lbl);
     check('lanes: the owner sees the last line of the own session', ownLane?.lastResult?.text === 'lkq lane result', JSON.stringify(ownGs.json?.lanes ?? ownGs.text.slice(0, 160)));
