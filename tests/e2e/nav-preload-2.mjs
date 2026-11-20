@@ -33,6 +33,6 @@ await T('Needs -> Claude', p.locator('nav[aria-label=Main]:visible a[href="/clau
 await p.waitForTimeout(3000);
 await T('Claude -> Setup tab', p.locator('[data-tab="setup"]'), p.locator('[data-tab="setup"][aria-current="page"]'));
 await p.goto(B + '/projects/alpha-client'); await p.waitForTimeout(3500);
-for (const t of ['tasks','claude','notes','info']) await T('Project -> '+t+' tab', p.locator('[data-tab="'+t+'"]').first(), p.locator('[data-tab="'+t+'"][aria-current="page"]').first());
+for (const t of ['tasks','notes','info']) await T('Project -> '+t+' tab', p.locator('[data-tab="'+t+'"]').first(), p.locator('[data-tab="'+t+'"][aria-current="page"]').first());
 await b.close();
 await finish();

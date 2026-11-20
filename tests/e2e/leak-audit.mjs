@@ -606,8 +606,8 @@ try {
   // A second target for owner calls that destroy one (each control needs its own; the attackers aim at the same one)
   Object.assign(TARGET.T, { trashRef2: P.trashRef, trashRef3: P.trashRef, trashRef4: P.trashRef, comment2: P.comment, sub2: P.subNote, invite2: A.invite, boiler: P.projNote, give: P.giveRef });
   Object.assign(TARGET.X, { trashRef2: S.trashRef, trashRef3: S.trashRef, trashRef4: S.trashRef, comment2: S.comment, sub2: P.subNote, invite2: A.invite, boiler: S.note, give: S.taskRef });
-  Object.assign(TARGET.T, { ordersNote: P.ordersNote, msg: P.msg, msgReq: P.msgReq, sid: P.sid });
-  Object.assign(TARGET.X, { ordersNote: S.ordersNote, msg: S.msg, msgReq: S.msgReq, sid: S.sid });
+  Object.assign(TARGET.T, { ordersNote: P.ordersNote, msg: P.msg, msgReq: P.msgReq, sid: P.sid, sidRow: (await rawDb.collection('presence').findOne({ session: P.sid }))?._id });
+  Object.assign(TARGET.X, { ordersNote: S.ordersNote, msg: S.msg, msgReq: S.msgReq, sid: S.sid, sidRow: (await rawDb.collection('presence').findOne({ session: S.sid }))?._id });
   Object.assign(FAKE, { trashRef2: 92001, trashRef3: 92002, trashRef4: 92003, comment2: fakeUuid(), sub2: mutate(P.subNote2), invite2: oid(), boiler: mutate(P.boiler), give: 94000 });
   // Needs: T aims at A's private ones (and at the shared ones it can read but may not answer or withdraw); X and R at the shared ones.
   Object.assign(TARGET.T, { needAns: P.needAns, needAnsS: S.needAns, needWd: P.needWd, needWdS: S.needWd });
@@ -1484,7 +1484,7 @@ function AUDIT() {
   // Messages for you (Identity step 6): the signed-in person acts on what is theirs; another person session message, or one on a project she cannot read, is 'not found' as a made-up id
   add(`action ${MFA}messageStatusAction`, act(MFA + 'messageStatusAction', t => [t.msg, 'applied'], aim(['msg'], { control: false })), act(MFA + 'messageStatusAction', t => [t.msg, 'rejected', 'lkq'], aim(['msg'], { label: 'rejected', control: false })));
   add(`action ${MFA}makeTaskFromMessageAction`, act(MFA + 'makeTaskFromMessageAction', t => [t.msgReq], aim(['msgReq'], { control: false })));
-  add(`action ${MFA}messageSessionAction`, act(MFA + 'messageSessionAction', t => [t.sid, 'lkq action session message'], aim(['sid'])));
+  add(`action ${MFA}messageSessionAction`, act(MFA + 'messageSessionAction', t => [t.sidRow, 'lkq action session message'], aim(['sidRow'])));
   add(`action ${MFA}replyToMessageAction`, act(MFA + 'replyToMessageAction', t => [t.msg, 'lkq action reply'], aim(['msg'])));
   add(`action ${SA}saveStateAction`, act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_next', text: 'lkq action sneak' }]], aim(['project'])), act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_decision', text: 'lkq action decision' }, { op: 'add_later', text: 'lkq action later' }]], aim(['project'], { label: 'decision and later' })));
   // H11: Declutter in the app. The project's owner (the control) sees and applies; a member who is not the owner and anyone without access get the same answer as for a made-up project (not found, or the owner-only line), and a made-up archived line is refused alike.

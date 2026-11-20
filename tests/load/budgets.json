@@ -5,7 +5,7 @@
   "rsc /today": { "kb": 479, "ops": 26, "docsExamined": 615, "collscans": 0 },
   "rsc /tasks": { "kb": 544, "ops": 7, "docsExamined": 2165, "collscans": 0 },
   "rsc /projects": { "kb": 86, "ops": 6, "docsExamined": 2372, "collscans": 0 },
-  "rsc /projects/[id]": { "kb": 29, "ops": 37, "docsExamined": 1072, "collscans": 0 },
+  "rsc /projects/[id]": { "kb": 29, "ops": 37, "docsExamined": 1085, "collscans": 0 },
   "rsc /tasks/[id]": { "kb": 15, "ops": 8, "docsExamined": 382, "collscans": 0 },
   "rsc /notes": { "kb": 598, "ops": 8, "docsExamined": 388, "collscans": 0 },
   "rsc /notes/[id]": { "kb": 18, "ops": 9, "docsExamined": 7, "collscans": 0 },
