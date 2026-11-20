@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 187. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 188. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -58,4 +58,5 @@ Copy of the Work OS state, version 187. WORK-STATE.md is a copy of the State, wr
 - The release master push came while the WSL build (not GitHub Actions) is the deploy path; check that nothing at 03:00 rebuilds master unsigned over the signed R10 build. — waits on R10 deploy
 - scripts/build-artifact.sh fails in WSL from a Windows checkout (CRLF: 'pipefail: invalid option'); R10 ran an LF copy. Add .gitattributes eol=lf for *.sh. — waits on next small fix batch
 - R10 deploy printed 'previous: 43ec8df01225' and 'removed release 43ec8df01225'; only 6d5bce0d8f77 is in /srv/work-os/releases, so --rollback may have nothing to go back to. Check deploy.sh keep count. — waits on next release
-<!-- work-os-copy sha1:8d16caebfebd3a94c80b28a426a9410062551a0a -->
+- Switch worker self-update from the signing key to a GitHub file check (the worker compares the update with the files at that commit on GitHub; no key to keep). Om, 20 Nov: later, not now. — waits on Om says when
+<!-- work-os-copy sha1:938967f5d0656aaec9cfb5ea1283ea9b3517c267 -->
