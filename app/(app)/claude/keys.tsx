@@ -138,7 +138,7 @@ export function ClaudeCodeKeys({ url, agent = 'claude-code', urlKey = false }: {
       <Disclosure title="More about keys" hint="Limits and safety">
         <p>
           Keys cannot change settings, only tasks and notes. Separate keys for Claude Code sessions on your PC. They only open the MCP endpoint (not admin or the rest of the API), and everything they change is marked{' '}
-          <span className="px-1 rounded bg-violet-500/15 text-violet-700 dark:text-violet-300 text-xs font-medium">Claude Code</span>. Limits: 300 calls an hour, 10
+          <span className="px-1 rounded bg-violet-500/15 text-violet-700 dark:text-violet-300 text-xs font-medium">Claude Code</span>. Limits: 1,000 calls an hour, 10
           deletions per 10 minutes, big batches need a dry run first, and you get a notification when one changes or deletes your tasks.
         </p>
       </Disclosure>

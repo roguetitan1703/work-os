@@ -54,7 +54,7 @@ export function ConnectStep({ url, done, lastUsedAt, apps }: { url: string; done
         <CopyBox text={`claude mcp add --scope user --transport http work-os ${url}`} />
         <p>
           Then start Claude Code, type <code className={code}>/mcp</code>, pick <b>work-os</b> and choose <b>Authenticate</b>, or run <code className={code}>claude mcp login work-os</code>. Your browser opens
-          Work OS; press <b>Allow</b>. Claude Code works under the stricter limits (300 calls an hour, deletions limited, notices to task owners).
+          Work OS; press <b>Allow</b>. Claude Code works under the stricter limits (1,000 calls an hour, deletions limited, notices to task owners).
         </p>
       </Disclosure>
       <div className="space-y-2">

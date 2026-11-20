@@ -17,7 +17,7 @@ import { assigneesOf } from '../assignees';
 // (MAIL_LIMITS: 200 deletes/moves and 100 sends per hour per person, every caller kind).
 // Claude Code keys (actor "claude-code") get:
 //   - no permanent deletion and no admin operations (BLOCKED; trash stays restorable)
-//   - at most 300 tool calls per rolling hour per key (policyEvents, Mongo)
+//   - at most 1000 tool calls per rolling hour per key (policyEvents, Mongo)
 //   - at most 10 trash calls (delete_task / delete_note, single or in a batch) per 10 minutes, unless confirmed
 //   - apply_changes that trashes > 10 items or changes > 50 tasks must be dry-run first; the dry run
 //     returns a confirm token (HMAC of the op list + expiry, 10 min, the auth secret) that the real call passes
@@ -35,7 +35,7 @@ const DISPATCHED_REFUSED = /^(mail_|discord_)/;
 export const callerScope = (c: Caller): Scope => ({ userId: c.userId, orgId: c.orgId });
 
 export const LIMITS = {
-  callsPerHour: 300,
+  callsPerHour: 1000,
   trashPerWindow: 10,
   trashWindowMin: 10,
   batchTrashMax: 10,

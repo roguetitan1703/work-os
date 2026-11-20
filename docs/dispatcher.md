@@ -25,7 +25,7 @@ Om marks a real task "for Claude". When a computer has room, the server claims t
 7. **Stuck** = task not Done and the session quiet (worker `lastActiveAt`) for 20 min → one alert. The 3 h / 90 min rule is dropped.
 8. **Cap is global (2)**, checked at claim; a rare overlap of two polls may briefly allow 3 — accepted.
 9. **Order:** the order Om marked them. Folder picker only when the project has more than one linked folder.
-10. Watch the shared `wos_` key's 300 calls/hour in the first week.
+10. Watch the shared `wos_` key's 1,000 calls/hour in the first week.
 
 ## Data (new optional fields, no migration)
 
