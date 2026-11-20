@@ -168,7 +168,7 @@ function fromWorker(w: WorkerRow, c: SessionRow | undefined): SessionItem {
     ...(w.lastResult ? { last: w.lastResult } : {}),
     via,
     ...(whereOf(c, w.tool) ? { origin: whereOf(c, w.tool) } : {}),
-    machine: w.machine,
+    machine: c?.deviceName || w.machine, // the computer's own name when its list has the session
     branch: w.branch,
     account: w.account,
     slot: w.slot,

@@ -50,7 +50,9 @@ const isLive = (s: SessionItem) => s.state !== 'off' && s.state !== 'failed';
 
 /** The row's one control, by state. Message only on the viewer's own sessions that the roster lists (its id is their presence row). */
 function trailOf(s: SessionItem, need?: Need): Trail | null {
-  if (s.state === 'waiting') return need ? 'answer' : null;
+  // An open Need to the viewer comes first, even while the session works on beside it: the answer is what it waits for.
+  if (need && isLive(s)) return 'answer';
+  if (s.state === 'waiting') return null; // a permission prompt: nothing in Work OS answers it
   if (s.mine && s.worker && (s.state === 'working' || s.state === 'on' || s.state === 'idle')) return 'message';
   if (!isLive(s) && s.project && s.control?.canResume) return 'resume';
   return null;

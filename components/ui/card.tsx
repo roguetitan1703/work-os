@@ -59,12 +59,14 @@ export function Row({
       </span>
     </>
   );
-  const base = cn('flex items-center gap-3 px-4 min-h-row min-w-0', (meta || detail) && 'py-2', className);
-  const main = 'flex items-center gap-3 min-w-0 flex-1 self-stretch';
+  const pad = (meta || detail) && 'py-2';
+  const base = cn('flex items-center gap-3 px-4 min-h-row min-w-0', className);
+  // A tappable row: the padding sits inside the link or button, so the whole row height is its target.
+  const main = cn('flex items-center gap-3 min-w-0 flex-1 self-stretch min-h-row', pad);
   const end = trailing ? <span className="shrink-0 flex items-center">{trailing}</span> : null;
   if (!href && !onClick) {
     return (
-      <Tag className={base} {...rest}>
+      <Tag className={cn(base, pad)} {...rest}>
         {body}
         {end}
       </Tag>

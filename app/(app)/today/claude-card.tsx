@@ -29,9 +29,9 @@ export function ClaudeCard({ data }: { data: ClaudeCardData | null }) {
     <Card as="section" data-section="claude-card" aria-label="Claude">
       <div className="flex items-center gap-2 pl-4 pr-2 min-h-row py-1">
         <p className="flex-1 min-w-0 text-body md:text-meta text-muted-foreground" data-claude-status>
-          <Link href="/claude" className="inline-flex items-center min-h-11 md:min-h-0 hover:text-foreground">
-            <span className="font-medium text-foreground">Claude</span>
-            <span>&nbsp;· {parts.join(' · ')} ›</span>
+          {/* One run of text, so it wraps as words at 390 (a flex row split it into two columns). */}
+          <Link href="/claude" className="block py-2.5 md:py-0 min-h-11 md:min-h-0 hover:text-foreground">
+            <span className="font-medium text-foreground">Claude</span> · {parts.join(' · ')} ›
           </Link>
         </p>
         {data.hasComputers ? (

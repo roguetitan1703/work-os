@@ -296,7 +296,8 @@ async function suite(vp) {
   const depth0 = await p.evaluate(() => history.length);
   await click(p.locator('a[data-start-claude]:visible'));
   await p.waitForSelector('[data-start-step="project"]');
-  check(T('Start Claude on /claude opens step 1 (?start=1, tab kept)'), p.url().includes('start=1') && p.url().includes('tab=workers'));
+  // An old ?tab=workers link lands on the one Sessions list; Start keeps that tab.
+  check(T('Start Claude on /claude opens step 1 (?start=1, tab kept)'), p.url().includes('start=1') && p.url().includes('tab=sessions'), p.url());
   const step = p.locator('[data-start-step="project"]');
   await step.locator('[data-start-project]').first().waitFor();
   const st = await step.innerText();
@@ -389,7 +390,7 @@ async function suite(vp) {
   if (!phone) {
     // key S
     await p.goto(B + '/claude'); await p.waitForSelector('a[data-start-claude]:visible');
-    await p.locator('body').click({ position: { x: 700, y: 600 } });
+    await p.locator('main h1:visible').first().click(); // a spot that is not a control (a session row there would open its sheet)
     await p.keyboard.press('s');
     check(T('key S opens the picker'), await p.locator('[data-start-step="project"]').waitFor({ timeout: 5000 }).then(() => true, () => false) && p.url().includes('start=1'));
     check(T('search box focused for typing'), await p.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search projects'));
@@ -423,7 +424,7 @@ async function suite(vp) {
   check(T('Tasks empty: no horizontal scroll'), await noScroll());
   await p.goto(B + '/projects'); await p.waitForSelector('[data-projects-empty]');
   const pe = await p.locator('[data-projects-empty]').innerText();
-  check(T('Projects empty: says what a project is, and Click / Tap by device'), /A project groups tasks, notes and Claude for one client or product\./.test(pe) && (phone ? /Tap \+/.test(pe) && !/Click New project/.test(pe) : /Click New project\./.test(pe) && !/Tap \+/.test(pe)), pe);
+  check(T('Projects empty: says what a project is, and Click / Tap by device'), /A project groups tasks, notes and Claude for one client or product\./.test(pe) && (phone ? /Tap New project/.test(pe) && !/Click New project/.test(pe) : /Click New project\./.test(pe) && !/Tap New project/.test(pe)), pe); // the phone has a New project button (navigation step)
   check(T('no console/page errors'), errs.length === 0, errs.join(' | '));
   await ctx.close();
 }

@@ -571,16 +571,16 @@ async function jobs(br, tag) {
     await rawDb.collection('needs').deleteMany({}); // nothing waits on a Need: the sessions read working
     await rawDb.collection('messages').deleteMany({ body: /^Tour: / });
     await go(p, '/today', tag);
-    const card = p.locator('[data-section="claude-card"]');
+    const card = p.locator('[data-section="claude-card"]:visible'); // Today draws the card in its phone and its desktop layout
     let row = card.locator('[data-worker="tour-lane-1"]');
     if (!(await row.count())) {
       hard("the working session is not on Today's Claude card");
       await step(phone ? 'Claude in the bar' : 'Sidebar: Claude', () => tab('/claude'));
       row = p.locator('[data-section="sessions"] [data-worker="tour-lane-1"]');
     }
-    const ctl = await row.locator('[data-session-action]').getAttribute('data-session-action').catch(() => null);
+    const ctl = await row.first().locator('[data-session-action]').getAttribute('data-session-action').catch(() => null);
     if (ctl !== 'message') hard(`a working session's one control is "${ctl}", not Message`);
-    const idle = await p.locator('[data-worker="tour-lane-3"] [data-session-action]').getAttribute('data-session-action', { timeout: 1000 }).catch(() => null);
+    const idle = await p.locator('[data-worker="tour-lane-3"]:visible [data-session-action]').first().getAttribute('data-session-action', { timeout: 1000 }).catch(() => null);
     if (idle !== null && idle !== 'message') hard(`an idle session's control is "${idle}", not Message`);
     await step('Message on the session row', () => T(row.locator('[data-session-action="message"]')));
     await p.locator('[data-message-input]').fill('Tour: also check the refund path before Friday.');
@@ -591,15 +591,16 @@ async function jobs(br, tag) {
     if (await p.locator('[data-message-sheet]').count()) hard('the message sheet stayed open after Send');
   });
   await job(12, 'Answer a Need on the row of the session that asked', async ({ step, hard }) => {
-    let row = p.locator('[data-section="claude-card"] [data-worker="tour-lane-1"]');
+    let row = p.locator('[data-section="claude-card"]:visible [data-worker="tour-lane-1"]');
     if (!(await row.count())) {
       await step(phone ? 'Claude in the bar (the session is not among the first three on Today)' : 'Sidebar: Claude (the session is not among the first three on Today)', () => tab('/claude'));
       row = p.locator('[data-section="sessions"] [data-worker="tour-lane-1"]');
     }
-    const ctl = await row.locator('[data-session-action]').getAttribute('data-session-action').catch(() => null);
-    if (ctl !== 'answer') hard(`a session waiting on a Need to you has "${ctl}", not Answer`);
-    if (!/Waiting on you/.test(await row.innerText().catch(() => ''))) hard('the session waiting on your Need does not read "Waiting on you"');
-    if (await p.locator('[data-worker="tour-lane-2"] [data-session-action]').count()) hard('a session at a permission prompt has a row control (nothing in Work OS answers a prompt)');
+    const ctl = await row.first().locator('[data-session-action]').getAttribute('data-session-action').catch(() => null);
+    if (ctl !== 'answer') hard(`a session with an open Need to you has "${ctl}", not Answer`);
+    const st = await row.first().getAttribute('data-state').catch(() => null);
+    if (st === 'waiting' && !/Waiting on you/.test(await row.first().innerText().catch(() => ''))) hard('the session waiting on your Need does not read "Waiting on you"');
+    if (await p.locator('[data-worker="tour-lane-2"]:visible [data-session-action]').count()) hard('a session at a permission prompt has a row control (nothing in Work OS answers a prompt)');
     await step('Answer on the session row', () => T(row.locator('[data-session-action="answer"]')));
     if (!(await p.locator('[data-answer-sheet] [data-need]').count())) hard('Answer did not open the Need in place');
     await step('Pick the first option', () => T(p.locator('[data-answer-sheet] [data-need-option="a"]')));
