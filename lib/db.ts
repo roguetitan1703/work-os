@@ -714,7 +714,7 @@ const INDEXES: [string, IndexDescription[]][] = [
     ]],
     ['devices', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }, { key: { orgId: 1, ownerId: 1 }, name: 'org_owner' }]],
     ['agentSessions', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }, { key: { deviceId: 1, createdAt: -1 }, name: 'device_created' }, { key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 }]],
-    ['workerFolders', [{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }]],
+    ['workerFolders', [{ key: { deviceId: 1, name: 1 }, name: 'device_name' }, { key: { projectId: 1 }, name: 'project' }, { key: { remote: 1 }, name: 'remote' }, { key: { orgId: 1, ownerId: 1 }, name: 'org_owner' }]],
     ['workerJobs', [{ key: { deviceId: 1, doneAt: 1, createdAt: 1 }, name: 'device_pending' }, { key: { createdAt: 1 }, name: 'created_ttl', expireAfterSeconds: 30 * 86_400 }]],
     ['workerSessions', [{ key: { projectId: 1, updatedAt: -1 }, name: 'project_updated' }, { key: { deviceId: 1, state: 1 }, name: 'device_state' }, { key: { 'runKey.hash': 1 }, unique: true, name: 'run_key_hash', partialFilterExpression: { 'runKey.hash': { $type: 'string' } } }]],
     ['policyEvents', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 2 * 3600 }, { key: { keyId: 1, kind: 1, at: -1 }, name: 'key_kind_at' }]],

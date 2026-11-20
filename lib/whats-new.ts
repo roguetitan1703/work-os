@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'one-search',
+    date: '2026-11-20',
+    title: 'One search finds everything',
+    line: 'Press Ctrl+K or / and type a few words in any order: tasks, projects and their State lines, notes, sessions, Needs, folders, settings and pages, with filters on the right, #12 for a task and N3 for a Need.',
+    where: 'Search in the sidebar, the search icon on the phone, Ctrl+K anywhere',
+    href: '/today',
+  },
+  {
     id: 'task-place-chips',
     date: '2026-11-20',
     title: 'Task rows show where they sit in the plan',

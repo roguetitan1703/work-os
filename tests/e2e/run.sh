@@ -38,6 +38,7 @@ settings|settings.mjs|none|plain
 get-started|get-started.mjs|none|plain
 review|review.mjs|base|plain
 search|search.mjs|base|plain
+search-all|search-all.mjs|none|plain
 dispatcher-backend|dispatcher-backend.mjs|none|plain
 dispatcher-backend-2|dispatcher-backend-2.mjs|base|plain
 dispatcher-ui|dispatcher-ui.mjs|none|plain

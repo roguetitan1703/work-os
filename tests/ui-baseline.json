@@ -231,10 +231,6 @@
     "px": 8,
     "btn": 17
   },
-  "app/(app)/settings/settings-nav.tsx": {
-    "px": 2,
-    "btn": 0
-  },
   "app/(app)/settings/status-strip.tsx": {
     "px": 2,
     "btn": 0
@@ -347,10 +343,6 @@
     "px": 20,
     "btn": 4
   },
-  "components/global-search.tsx": {
-    "px": 4,
-    "btn": 2
-  },
   "components/mobile/bell.tsx": {
     "px": 1,
     "btn": 0
@@ -372,8 +364,8 @@
     "btn": 6
   },
   "components/mobile/m-notes.tsx": {
-    "px": 2,
-    "btn": 4
+    "px": 1,
+    "btn": 3
   },
   "components/mobile/m-task-actions.tsx": {
     "px": 8,
@@ -388,8 +380,8 @@
     "btn": 2
   },
   "components/mobile/m-tasks.tsx": {
-    "px": 4,
-    "btn": 8
+    "px": 3,
+    "btn": 7
   },
   "components/mobile/quick-add-sheet.tsx": {
     "px": 4,
