@@ -261,9 +261,12 @@ export function shellDeny(input, env = process.env) {
   } catch { return null; }
 }
 
-/** H12: one refused WORK-STATE.md write that never reached Work OS (a count, nothing else). Never throws and never waits long. */
+/**
+ * H12: one refused WORK-STATE.md write that never reached Work OS (a count, nothing else). Never throws and never waits long. Not for a
+ * subagent (agent_id): the count rides on a tool event, which would mark an idle parent working (see hook-tool-start.mjs).
+ */
 async function countRefused(input) {
-  try { if (input.session_id) await postEvent(input.session_id, 'tool', { copy: 'refused' }, COUNT_TIMEOUT_MS); } catch {}
+  try { if (input.session_id && !input.agent_id) await postEvent(input.session_id, 'tool', { copy: 'refused' }, COUNT_TIMEOUT_MS); } catch {}
 }
 
 /** How long after the person's last prompt a session counts as attended (H8, changed 19 Nov). */

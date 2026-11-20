@@ -234,3 +234,14 @@ test('tool-start posts the event alone (never the command) and leaves the marker
   assert.equal(await run('tool-start', 'never-started', { tool_name: 'Bash' }), '');
   assert.equal(seen.length, 0, 'no token: nothing is posted');
 });
+
+test('tool-start: a subagent call (agent_id) after the lead stopped posts nothing, so the idle lead stays idle; a call of the lead itself still does', async () => {
+  reset();
+  await run('stop', UUID);
+  const afterStop = events().length;
+  assert.equal(await run('tool-start', UUID, { tool_name: 'Bash', agent_id: 'sub-1', agent_type: 'general-purpose', tool_input: { command: 'npm test' } }), '');
+  assert.equal(events().length, afterStop, 'a background subagent never marks its parent working');
+  assert.equal(await run('tool-start', UUID, { tool_name: 'Bash', tool_input: { command: 'npm test' } }), '');
+  assert.equal(events().length, afterStop + 1);
+  assert.equal(events().at(-1).body.event, 'tool-start', 'a call of the lead itself marks it working');
+});

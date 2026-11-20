@@ -346,6 +346,11 @@ try {
     // the idle wait: a real process, woken by a message
     await ev(S.token, { event: 'stop' });
     marker('idle');
+    // Om, 21 Nov: a background subagent's Bash call after the lead's Stop must not mark the lead working (it shares the session id),
+    // or the wait is answered busy and the lead can't be woken while any builder runs. The real tool-start hook, with agent_id.
+    const sub = runHook('tool-start', { hook_event_name: 'PreToolUse', tool_name: 'Bash', agent_id: 'sub-e2e', agent_type: 'general-purpose', tool_input: { command: 'npm test' } });
+    const afterSub = await row();
+    check('j: a subagent tool-start after the stop leaves the lead idle (no open working row)', sub.status === 0 && afterSub.activity?.state === 'idle' && !afterSub.activity?.open, JSON.stringify(afterSub.activity));
     const child = spawn(process.execPath, hookArgs('wait'), { env, stdio: ['pipe', 'ignore', 'pipe'] });
     let err = '';
     child.stderr.on('data', d => (err += d));
