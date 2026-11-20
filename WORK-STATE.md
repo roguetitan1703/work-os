@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 234. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 236. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -11,7 +11,7 @@ Copy of the Work OS state, version 234. WORK-STATE.md is a copy of the State, wr
 3. After R10: Om pastes the signing key backup (D:/Work/Delpat/to-bitwarden/work-os-worker-signing-key.pem, written 20 Nov at his ask) into a Bitwarden secure note, then the file is deleted; Akash ran the Mac install command (20 Nov); his worker now updates itself. — waits on Om, Akash
 4. Redesign (c475deb871): steps 1-3, 5 live in R10; next step 4 Needs and Today: build plan note a2baa1d159, Sonnet builder in slot B since 20 Nov (Om: take it up); then 6 tasks. Held: weekly usage 93% on 20 Nov; Om asked whether to start now on Sonnet or wait. — waits on weekly usage reset 24 Nov 16:30 IST, or Om says start
 5. Redesign steps 7 (every other page on the library, until check:ui counts zero) and 8 (second independent review of every page for the same UX), after steps 4 and 6. — waits on redesign steps 4 and 6
-6. Parked and decisions out of the State document (Om, 20 Nov: they must not live in State directly): own collections, one dated row per entry, no cap, search and paging; State keeps counts; move the existing decisions (Parked shipped inside State in R11). — waits on Om's go on the storage plan
+6. Parked and decisions out of the State document (Om, 20 Nov: they must not live in State directly): own collections, one dated row per entry, no cap, search and paging; State keeps counts; move the existing decisions; build plan note 4a1ccbf69d written 20 Nov (stateParked, stateDecisions; State keeps counts; old clients unchanged; idempotent migration with rollback); three questions in its For Om section (Parked shipped inside State in R11). — waits on Om's go on the storage plan
 7. Usage recording, Fable's 7 steps plus the weekly improve loop (design a289ffec58). Build plan 1 (account tag, limit hits, compactions, 5-minute buckets, note e6036c777f) merged to dev 4922e5b after independent review and re-check, 20 Nov; server ships before the worker. Plan 2 (steps 3, 5-7, weekly report) after it. (design in note a289ffec58): Opus plan, then Sonnet build — waits on Om's account switch
 8. Show which Claude account each session runs under (Om, 20 Nov: "om" or "tools", the email's part before @): the hook fills start_work's account from ~/.claude.json (reuse readAccount from the usage build), the session row shows it in its meta line, list_sessions returns it. Plan note ee2c502603; Sonnet builder in slot S since 20 Nov; ships with the next signed worker.
 
@@ -74,4 +74,4 @@ Copy of the Work OS state, version 234. WORK-STATE.md is a copy of the State, wr
 - start_work with pick_up: its answer names the session to set (the handover's project and role) and says how (set_session_title / /rename), so the Orders rule has a prompt at the moment it applies. Small; slot A after the messaging fixes (both touch start_work). — waits on messaging fixes merged
 - Messaging: one teammate can use up another person's 6 session wakes an hour with fyis (review, Low). Add a per-sender cap on waking other people's sessions (about 2 an hour per sender per target) only if it happens in real use. — waits on a real case
 - Short address collisions are refused (efc6646) but not covered by a test: a collision can't be forced in e2e without a seam for shortAddress. — waits on nothing; small
-<!-- work-os-copy sha1:c71f78dccdc6a653ec4653ae89686ce8bd5ef238 -->
+<!-- work-os-copy sha1:ed9e392e00e122fea78a07ed597b5e497b20f6fb -->
