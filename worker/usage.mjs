@@ -62,8 +62,12 @@ function wallInstant(y, mo, d, h, min, tz) {
 
 /** The first "resets 4:30pm" time after `atMs`, as an ISO string (the notice's wall time in `tz`), or null. */
 function resetTime(text, atMs, tz, dayOf) {
+  const epoch = /\|(\d{10})\b/.exec(text); // "limit reached|1763650000": the instant itself, in seconds
+  if (epoch) return new Date(Number(epoch[1]) * 1000).toISOString();
   const m = /resets? ([0-9]{1,2})(?::([0-9]{2}))?\s*(am|pm)/i.exec(text);
   if (!m) return null;
+  const named = /^\s*\(([A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)+)\)/.exec(text.slice(m.index + m[0].length));
+  if (named) { try { new Intl.DateTimeFormat('en-US', { timeZone: named[1] }); tz = named[1]; dayOf = dayMaker(tz); } catch { /* the person's zone */ } }
   const hh = Number(m[1]);
   const min = m[2] ? Number(m[2]) : 0;
   if (hh < 1 || hh > 12 || min > 59) return null;
@@ -131,7 +135,7 @@ export function parseUsage(text, seen, add, dayOf, hooks = {}) {
       // A limit notice. Only its kind and reset time leave this function, never the text.
       if (hooks.event && typeof o.uuid === 'string' && o.uuid && !Number.isNaN(atMs)) {
         const t = textOf(o.message.content);
-        if (/(usage limit|rate limit|limit reached|hit your limit)/i.test(t)) {
+        if (!/^\s*API Error/.test(t) && /(usage limit|limit reached|hit your limit)/i.test(t)) {
           const which = /week/i.test(t) ? 'weekly' : /5-hour|5 hour|session limit/i.test(t) ? '5h' : 'other';
           hooks.event({ kind: 'limit', id: o.uuid, at: new Date(atMs).toISOString(), which, resetAt: resetTime(t, atMs, hooks.tz, dayOf) });
         }
@@ -211,13 +215,14 @@ function listTranscripts(root, keep, cutoffMs, now) {
  * Nothing in `st` is changed until commit() runs, which the caller does once the report was accepted.
  *   rows:     [{ sessionId, part, partName?, model, day, i, cw, cr, o, acct? }]  (a day's whole total for the part and model)
  *   sessions: [{ sessionId, title, folder, origin }] for the sessions in rows
- *   buckets:  [{ sessionId, part, model, at, acct, i, cw, cw1h, cr, o, n }]  (a 5-minute bucket's whole total; the last 7 days)
+ *   buckets:  [{ sessionId, part, model, at, acct, i, cw, cw1h, cr, o, n }]  (a 5-minute bucket's whole total; the last 7 days; acct the latest account that added to it)
  *   events:   [{ kind: 'limit' | 'compact', id, sessionId, part, at, acct, ... }]  (each sent once)
  *   accounts: [{ id, label }] the accounts named in the above
  * accountFile: where readAccount reads (tests give a fixture; never the real file).
  */
 export function collectUsage({ st, root = defaultProjectsRoot(), tz, now = Date.now(), onlyRoots = null, maxRows = MAX_ROWS, bytes = BYTES_PER_SCAN, accountFile }) {
-  const own = readAccount(accountFile);
+  const fresh = readAccount(accountFile);
+  const own = fresh || (st.lastAcct && st.lastAcct.id ? st.lastAcct : null); // a failed read uses the last good one
   const dayOf = dayMaker(tz);
   const firstDay = dayOf(new Date(now - BACKFILL_DAYS * 86_400_000).toISOString());
   const files = listTranscripts(root, rootsFilter(onlyRoots), BACKFILL_DAYS * 86_400_000, now).sort((a, b) => b.mt - a.mt);
@@ -254,9 +259,9 @@ export function collectUsage({ st, root = defaultProjectsRoot(), tz, now = Date.
       const t = Date.parse(extra.at);
       if (t >= firstBucket) {
         const bk0 = new Date(Math.floor(t / BUCKET_MS) * BUCKET_MS).toISOString();
-        const bkey = `${f.sid}|${f.part}|${rec.model}|${bk0}|${acct}`;
+        const bkey = `${f.sid}|${f.part}|${rec.model}|${bk0}`;
         const b = bk[bkey] || (bk[bkey] = { ...(st.bk && st.bk[bkey] ? st.bk[bkey] : { i: 0, cw: 0, cw1h: 0, cr: 0, o: 0, n: 0 }) });
-        b.i += rec.i; b.cw += rec.cw; b.cw1h += extra.cw1h; b.cr += rec.cr; b.o += rec.o; b.n += 1; b.d = 1;
+        b.i += rec.i; b.cw += rec.cw; b.cw1h += extra.cw1h; b.cr += rec.cr; b.o += rec.o; b.n += 1; b.d = 1; b.acct = acct; // the latest account wins
       }
     }
     for (const e of evs) {
@@ -294,9 +299,9 @@ export function collectUsage({ st, root = defaultProjectsRoot(), tz, now = Date.
   bKeys.sort((a, b) => b.split('|')[3].localeCompare(a.split('|')[3]) || (a < b ? -1 : 1));
   const bSend = bKeys.slice(0, MAX_BUCKETS);
   const buckets = bSend.map((k) => {
-    const [sessionId, part, model, at, acct] = k.split('|');
+    const [sessionId, part, model, at] = k.split('|');
     const b = bk[k] || st.bk[k];
-    return { sessionId, part, model, at, acct, i: b.i, cw: b.cw, cw1h: b.cw1h, cr: b.cr, o: b.o, n: b.n };
+    return { sessionId, part, model, at, acct: b.acct || '', i: b.i, cw: b.cw, cw1h: b.cw1h, cr: b.cr, o: b.o, n: b.n };
   });
   // Events: sent once; those over the limit of one report wait in st.ev.
   const evAll = [...(st.ev || []), ...evNew];
@@ -314,6 +319,7 @@ export function collectUsage({ st, root = defaultProjectsRoot(), tz, now = Date.
       st.acc = st.acc || {};
       for (const k of Object.keys(acc)) st.acc[k] = acc[k];
       for (const k of sentKeys) { const a = st.acc[k]; if (a) delete a.d; }
+      if (fresh) st.lastAcct = { id: fresh.id, label: fresh.label };
       st.bk = st.bk || {};
       for (const k of Object.keys(bk)) st.bk[k] = bk[k];
       for (const k of bSend) { const b = st.bk[k]; if (b) delete b.d; }

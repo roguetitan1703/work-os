@@ -132,7 +132,7 @@ export function cleanUsage(raw: unknown): Cleaned {
     const o = (x ?? {}) as Record<string, unknown>;
     if (typeof o.sessionId !== 'string' || !SID.test(o.sessionId) || typeof o.part !== 'string' || !PART.test(o.part)) continue;
     const at = dateOf(o.at);
-    if (!at || at.getTime() % BUCKET_MS !== 0 || at.getTime() < bEarliest || at.getTime() > Date.now() + BUCKET_MS) continue;
+    if (!at || at.getTime() % BUCKET_MS !== 0 || at.getTime() < bEarliest || at.getTime() > Date.now() + 2 * 86_400_000) continue;
     const model = line(o.model, 80);
     if (!model || model === '<synthetic>') continue;
     buckets.push({ sessionId: o.sessionId, part: o.part, model, at, acct: acctOf(o.acct), i: count(o.i), cw: count(o.cw), cw1h: count(o.cw1h), cr: count(o.cr), o: count(o.o), n: count(o.n) });
@@ -222,10 +222,12 @@ export async function saveUsage(s: Scope, deviceId: string, raw: unknown): Promi
       );
     }
     if (accounts.length) {
+      // A label write never fails the report.
+      try {
       await c.claudeAccounts.bulkWrite(
         accounts.map(a => ({
           updateOne: {
-            filter: { _id: `${s.userId}:${a.id}` },
+            filter: { _id: `${s.orgId}:${s.userId}:${a.id}` },
             // An empty label never replaces one already stored.
             update: a.label ? { $set: { id: a.id, label: a.label, lastSeen: now } } : { $set: { id: a.id, lastSeen: now }, $setOnInsert: { label: '' } },
             upsert: true,
@@ -233,6 +235,9 @@ export async function saveUsage(s: Scope, deviceId: string, raw: unknown): Promi
         })) as never,
         { ordered: false },
       );
+      } catch (err) {
+        console.error('[usage] account labels not saved:', err instanceof Error ? err.message : err);
+      }
     }
   });
 }

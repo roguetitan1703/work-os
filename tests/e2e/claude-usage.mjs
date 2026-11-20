@@ -142,7 +142,15 @@ check('a good acct is kept on the row', rA?.acct === ACCT_A, JSON.stringify(rA?.
 check('a bad acct is dropped but the row is kept', rB && rB.acct === undefined && rB.i === C2.i, JSON.stringify(rB));
 check('ov equals the organization Orders version on rows, buckets and events', [rA, rB, ...bks, ...evs].every(d => d.ov === 3));
 const accts = await rawDb.collection('claudeAccounts').find({}).toArray();
-check('two accounts are stored (the bad id dropped), keyed by owner and id', accts.length === 2 && accts.every(a => a._id === `${ME.userId}:${a.id}` && a.ownerId === ME.userId), JSON.stringify(accts));
+check('two accounts are stored (the bad id dropped), keyed by organization, owner and id', accts.length === 2 && accts.every(a => a._id === `${ME.orgId}:${ME.userId}:${a.id}` && a.ownerId === ME.userId), JSON.stringify(accts));
+// The same account id for the same user in another organization (and a doc in the old _id form) does not fail the report.
+await rawDb.collection('claudeAccounts').insertMany([
+  { _id: `other-org:${ME.userId}:${ACCT_B}`, orgId: 'other-org', ownerId: ME.userId, id: ACCT_B, label: 'elsewhere', lastSeen: new Date() },
+  { _id: `${ME.userId}:${ACCT_B}`, orgId: 'other-org', ownerId: ME.userId, id: ACCT_B, label: 'old form', lastSeen: new Date() },
+]);
+const twoOrgs = await api(dev.key, 'POST', '/api/worker/status', { usage: { rows: [], sessions, accounts: [{ id: ACCT_B, label: 'bea' }] } });
+check('the same account id in two organizations does not fail the report', twoOrgs.status === 200, JSON.stringify(twoOrgs.body));
+check('the label is saved under this organization', (await rawDb.collection('claudeAccounts').findOne({ _id: `${ME.orgId}:${ME.userId}:${ACCT_B}` }))?.label === 'bea');
 
 // A repeated event changes nothing; an empty label never replaces a label.
 const before = JSON.stringify(await rawDb.collection('claudeUsageEvents').find({}).sort({ _id: 1 }).toArray());
@@ -159,6 +167,8 @@ const jr = rep5.json ?? {};
 check('byAccount names the account by label, and the unknown one', (jr.byAccount ?? []).some(a => a.name === 'pat') && (jr.byAccount ?? []).some(a => a.name === 'Unknown account'), JSON.stringify(jr.byAccount));
 check('limits has the weekly hit with its account and session', jr.limits?.length === 1 && jr.limits[0].which === 'weekly' && jr.limits[0].account === 'pat' && jr.limits[0].session === 'Build the usage page' && jr.limits[0].resetAt === resetAt, JSON.stringify(jr.limits));
 check('compactions: two in one session, the averages', jr.compactions?.total === 2 && jr.compactions.sessions[0]?.count === 2 && jr.compactions.sessions[0].avgPre === 100000 && jr.compactions.sessions[0].avgPost === 10000, JSON.stringify(jr.compactions));
+check('the summary shows times as the person\'s local day and time, not ISO', !/\d{4}-\d{2}-\d{2}T/.test(jr.summary?.[3] ?? '') && /^Latest: weekly at [A-Z][a-z]{2} \d{2}:\d{2}, resets [A-Z][a-z]{2} \d{2}:\d{2}/.test(jr.summary?.[3] ?? ''), JSON.stringify(jr.summary?.[3]));
+check('a bucket up to two days ahead is accepted', (await api(dev.key, 'POST', '/api/worker/status', { usage: { rows: [], sessions, buckets: [bucketOf({ at: floor5(Date.now() + 86_400_000).toISOString() })] } })).status === 200 && (await rawDb.collection('claudeUsageBuckets').countDocuments({})) === 3);
 check('the answer text has the account, limit and compaction lines', (jr.summary ?? []).length === 6 && /^By account: /.test(jr.summary[0]) && /^Limit hits: 1/.test(jr.summary[2]) && /^Compactions: 2 in 1 session/.test(jr.summary[4]), JSON.stringify(jr.summary));
 console.log('SAMPLE usage summary:', JSON.stringify(jr.summary));
 

@@ -177,7 +177,7 @@ test("collectUsage: limit hits (kind, reset time in the person's zone), compacti
       synth(U(1), SECRET + " You've hit your usage limit. Your limit resets 4:30pm", '2026-11-20T09:30:00Z'), // 15:00 IST: same day 16:30 IST
       synth(U(2), SECRET + ' Weekly limit reached, resets 4:30pm', '2026-11-20T11:30:00Z'), // 17:00 IST: next day
       synth(U(3), SECRET + ' Your 5-hour limit reached, resets 7pm', '2026-11-20T09:30:00Z'),
-      synth(U(4), SECRET + ' some other rate limit text', '2026-11-20T09:30:00Z'),
+      synth(U(4), SECRET + ' some other hit your limit text', '2026-11-20T09:30:00Z'),
       synth(U(5), SECRET + ' nothing about it', '2026-11-20T09:30:00Z'), // not a limit hit
       JSON.stringify({ type: 'assistant', timestamp: '2026-11-20T09:30:00Z', message: { model: '<synthetic>', content: [{ type: 'text', text: 'usage limit ' + SECRET + ' padding' }] } }), // no uuid: dropped
       compact(U(6), '2026-11-20T09:40:00Z', 'auto', 150000, 12000),
@@ -257,4 +257,50 @@ test('collectUsage: 5-minute buckets (floored, cw1h, message count), newest firs
     big.commit();
     assert.equal(collectUsage({ accountFile: own, st: s2, root: t2.root, tz: 'UTC', now: NOW + 1 }).buckets.length, 5);
   } finally { fs.rmSync(t.root, { recursive: true, force: true }); fs.rmSync(t2.root, { recursive: true, force: true }); }
+});
+
+test('collectUsage: a zone in the notice and an epoch in it decide the reset time; an API error is no limit hit', () => {
+  const t = tree();
+  try {
+    const own = acctFile(t.root);
+    fs.writeFileSync(t.main, lines(
+      synth(U(1), SECRET + ' You hit your limit, resets 4:30pm (America/New_York)', '2026-11-20T18:00:00Z'), // 13:00 in New York: 16:30 the same day = 21:30Z
+      synth(U(2), SECRET + ' Claude usage limit reached|1763650000', '2026-11-20T18:00:00Z'),
+      synth(U(3), 'API Error: Rate limit reached ' + SECRET, '2026-11-20T18:00:00Z'),
+      synth(U(4), SECRET + ' Rate limit exceeded somewhere', '2026-11-20T18:00:00Z'),
+    ));
+    const a = collectUsage({ accountFile: own, st: {}, root: t.root, tz: IST, now: NOW });
+    const ev = Object.fromEntries(a.events.map((e) => [e.id, e]));
+    assert.deepEqual(Object.keys(ev).sort(), [U(1), U(2)]);
+    assert.equal(ev[U(1)].resetAt, '2026-11-20T21:30:00.000Z');
+    assert.equal(ev[U(2)].resetAt, new Date(1763650000 * 1000).toISOString());
+  } finally { fs.rmSync(t.root, { recursive: true, force: true }); }
+});
+
+test('collectUsage: a bucket is one bucket when the account changes in its window (latest wins); a failed read uses the last good account', () => {
+  const t = tree();
+  try {
+    const own = acctFile(t.root);
+    const m = (id, ts) => JSON.stringify({ type: 'assistant', timestamp: ts, requestId: 'r' + id, message: { id, model: 'claude-opus-4', content: [], usage: { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 1 } } });
+    fs.writeFileSync(t.main, lines(m('c1', '2026-11-20T09:01:00Z'), bridge(OTHER_UUID), m('c2', '2026-11-20T09:02:00Z')));
+    const st = {};
+    const a = collectUsage({ accountFile: own, st, root: t.root, tz: 'UTC', now: NOW });
+    assert.equal(a.buckets.length, 1);
+    assert.equal(a.buckets[0].n, 2);
+    assert.equal(a.buckets[0].i, 2);
+    assert.equal(a.buckets[0].acct, hash(OTHER_UUID));
+    a.commit();
+    assert.deepEqual(st.lastAcct, { id: hash(UUID), label: 'Pat.Example' });
+    // a file with no bridge record, read when the account file is unreadable: the last good account
+    const t2 = tree();
+    try {
+      fs.writeFileSync(t2.main, lines(m('d1', '2026-11-20T09:01:00Z')));
+      const bad = path.join(t.root, 'bad.json');
+      fs.writeFileSync(bad, '{not json');
+      const b = collectUsage({ accountFile: bad, st, root: t2.root, tz: 'UTC', now: NOW });
+      assert.equal(b.rows[0].acct, hash(UUID));
+      assert.equal(b.buckets[0].acct, hash(UUID));
+      assert.deepEqual(b.accounts, [{ id: hash(UUID), label: 'Pat.Example' }]);
+    } finally { fs.rmSync(t2.root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(t.root, { recursive: true, force: true }); }
 });
