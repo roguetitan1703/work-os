@@ -1,9 +1,11 @@
 import 'server-only';
 import { SHELVES, shelfLabel, shelfOf, type Shelf } from '../notes-shelves';
 import { excerpt, fold, matchesAll, tierOf, wordRegex, type Hit, type KindResult } from './match';
-import { join, ms, projectName, READ, result, type Ctx } from './context';
+import { join, ms, projectName, READ, recentMatching, result, titleFilter, type Ctx } from './context';
 
 type Row = { _id: string; title?: string; body?: string; projectId: string | null; taskId: string | null; parentId?: string | null; shelf?: Shelf; handover?: unknown; orders?: unknown; archived: boolean; ownerId: string; updatedAt: Date };
+
+const PROJ = { title: 1, body: 1, projectId: 1, taskId: 1, parentId: 1, shelf: 1, handover: 1, orders: 1, archived: 1, ownerId: 1, updatedAt: 1 } as const;
 
 /** Notes: title, text (the hit shows the part with the words) and shelf. Deleted notes never. */
 export async function searchNotes(ctx: Ctx): Promise<KindResult> {
@@ -12,17 +14,18 @@ export async function searchNotes(ctx: Ctx): Promise<KindResult> {
   if (!words.length) return { hits: [], count: 0 };
   // A word may name a shelf ("runbooks deploy").
   const filter = {
-    deletedAt: null,
     $and: words.map(w => {
       const shelves = SHELVES.filter(x => fold(x.label).startsWith(w)).map(x => x.id);
       return { $or: [{ title: wordRegex(w) }, { body: wordRegex(w) }, ...(shelves.length ? [{ shelf: { $in: shelves } }] : [])] };
     }),
   };
-  const rows = (await c.notes
-    .find(filter, { projection: { title: 1, body: 1, projectId: 1, taskId: 1, parentId: 1, shelf: 1, handover: 1, orders: 1, archived: 1, ownerId: 1, updatedAt: 1 } })
-    .sort({ updatedAt: -1 })
-    .limit(READ)
-    .toArray()) as Row[];
+  // Titles over every note first (an index); the text and shelf only of the most recently changed notes, and only
+  // when the titles do not already fill the group.
+  const titled = (await c.notes.find({ deletedAt: null, ...titleFilter(words) }, { projection: PROJ, hint: 'org_title' }).limit(READ).toArray()) as Row[];
+  const early = titled.length >= ctx.take;
+  const recent = early ? [] : ((await recentMatching(c.notes, 'updatedAt', { deletedAt: null }, filter, PROJ)) as unknown as Row[]);
+  const seen = new Set<string>();
+  const rows = [...titled, ...recent].filter(n => !seen.has(n._id) && !!seen.add(n._id));
   const hits: Hit[] = [];
   for (const n of rows) {
     const shelf = shelfOf(n);
@@ -42,5 +45,5 @@ export async function searchNotes(ctx: Ctx): Promise<KindResult> {
       at: ms(n.updatedAt),
     });
   }
-  return result(ctx, hits, rows.length);
+  return result(ctx, hits, Math.max(titled.length, recent.length), early);
 }

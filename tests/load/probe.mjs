@@ -39,8 +39,8 @@ function kinds(b, person, ids) {
     ['action complete (Today)', () => { b.path = '/today'; return b.actionOnly('completeTaskAction', [nextOpen()]); }],
     ['action update (Tasks)', () => { b.path = '/tasks'; return b.actionOnly('updateTaskAction', [t, { priority: ['P2', 'P3'][pri++ % 2] }]); }],
     // Global search (lib/search): every kind at once as you type, and one kind with more hits (a filter chosen).
-    ['action search', () => { b.path = '/today'; return b.actionOnly('searchAction', ['pricing page'], 'app/(app)/search-action.ts'); }],
-    ['action search (Tasks)', () => { b.path = '/today'; return b.actionOnly('searchAction', ['pricing page', 'tasks'], 'app/(app)/search-action.ts'); }],
+    ['api search', () => b.get('api', '/api/search?q=pricing%20page')],
+    ['api search (Tasks)', () => b.get('api', '/api/search?q=pricing%20page&kind=tasks')],
     ['stream /api/stream (connect)', async () => { const ac = new AbortController(); const r = await fetch(b.base + '/api/stream', { headers: { cookie: b.cookie }, signal: ac.signal }); const rd = r.body.getReader(); await rd.read(); ac.abort(); }],
     ['api /api/worker/jobs', () => fetch(b.base + '/api/worker/jobs', { headers: { authorization: `Bearer ${person.deviceKey}` } }).then(r => r.text())],
     ['api /api/worker/status', () => fetch(b.base + '/api/worker/status', { method: 'POST', headers: { authorization: `Bearer ${person.deviceKey}`, 'content-type': 'application/json' }, body: JSON.stringify({ worker: { version: '0.1.0', os: 'win32', allowPrompts: false }, jobs: [], sessions: [], activity: { sessions: 1, sessionsWorkOs: 0, sessionsOther: 1, sessionsActive: 0, subagents: 0 }, claudeSessions: [] }) }).then(r => r.text())],

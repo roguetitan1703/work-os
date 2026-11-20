@@ -1512,7 +1512,6 @@ function AUDIT() {
   add(`action ${L_}startProjectsAction`, act(L_ + 'startProjectsAction', []));
   add(`action ${L_}startOptionsAction`, act(L_ + 'startOptionsAction', t => [t.project], aim(['project'], { ok: r => actOk(r) && (r.value.data?.folders?.length > 0 || r.value.data?.suggestions?.length > 0) })));
   add(`action ${L_}linkAndStartAction`, act(L_ + 'linkAndStartAction', t => [t.project, t.folder, 'lkq'], aim(['project', 'folder'], { stage: 1 })));
-  add('action app/(app)/search-action.ts#searchAction', act('app/(app)/search-action.ts#searchAction', ['lkq'], { ok: r => r.status === 200 && !r.error && r.value != null }), { ...act('app/(app)/search-action.ts#searchAction', []), label: 'by ref', aim: true, aimKeys: ['ref'], call: async ({ p, o }) => ({ ...(await action('app/(app)/search-action.ts#searchAction', [`#${o.ref}`], { cookie: p.cookie })), ref: o.ref }), ok: r => r.status === 200 && !!r.value?.kinds?.tasks?.hits?.some(x => x.href === `/tasks/${r.ref}`), shape: r => `${r.status} ${r.value?.kinds?.tasks?.hits?.some(x => x.href === `/tasks/${r.ref}`) ? 'found' : 'none'}` /* "#1" is task 1 only */ });
   const ST = 'app/(app)/settings/actions.ts#';
   add(`action ${ST}subscribePushAction`, act(ST + 'subscribePushAction', () => [{ endpoint: `https://push.example.test/lkqown${hex(6)}`, keys: { p256dh: 'x', auth: 'y' } }, 'lkq probe']));
   add(`action ${ST}listPushDevicesAction`, act(ST + 'listPushDevicesAction', t => [t.push], { controlOk: r => actOk(r) }));
@@ -1595,6 +1594,8 @@ function AUDIT() {
   add('page /needs', pg('/needs'));
   // What's new: the fixed list (lib/whats-new.ts) and the caller's own seen list; the action writes only the caller's own profile.
   add('page /whats-new', pg('/whats-new'));
+  // The UI gallery: hidden in a production build (notFound() unless WOS_DEV_UI=1), which is what this suite runs; in dev it is signed-in only (the (app) layout) and holds sample data, no one's records.
+  add('page /dev/ui', pg('/dev/ui', { controlOk: r => pageState(r) === 'not found' }));
   const WN = 'app/(app)/whats-new/actions.ts#markWhatsNewSeenAction';
   add(`action ${WN}`, act(WN, []), act(WN, ['needs'], { label: 'one entry' }), act(WN, ['lkqnotanentry'], { label: 'an unknown id' }));
   add('page /review', ...['done', 'activity', 'activity&what=state', 'activity&what=notes', 'activity&what=needs', 'activity&what=messages', 'weekly', 'stale', 'archive', 'trash'].map(v => pg(`/review?view=${v}`, { label: v })));
@@ -1640,6 +1641,14 @@ function AUDIT() {
   add('route POST /api/mcp/[[...key]]', mcpRoute('POST'), { kind: 'route', label: 'key in the URL (off)', ok: r => two(r.status), call: ({ p }) => req('POST', `/api/mcp/${p.chat || 'wos_none'}`, { headers: { accept: 'application/json, text/event-stream' }, body: { jsonrpc: '2.0', id: 1, method: 'tools/list' } }), control: false });
   add('route GET /api/mcp/[[...key]]', { ...mcpRoute('GET'), ok: r => two(r.status) && /lkq/.test(r.text), controlOk: r => r.status === 405 /* no stream, no sessions: 405 for every credential, and never any data */ });
   add('route DELETE /api/mcp/[[...key]]', { ...mcpRoute('DELETE'), ok: r => two(r.status) && /lkq/.test(r.text), controlOk: r => r.status === 405 /* no stream, no sessions: 405 for every credential, and never any data */ });
+  // Global search: the session only (a chat key alone is refused by the route); '#12' finds task 12 only.
+  const sj = r => { try { return JSON.parse(r.text); } catch { return null; } };
+  const srHas = (r, ref) => !!sj(r)?.kinds?.tasks?.hits?.some(x => x.href === `/tasks/${ref}`);
+  add('route GET /api/search',
+    route('GET', '/api/search?q=lkq', { ok: r => r.status === 200 && Array.isArray(sj(r)?.kinds?.tasks?.hits) }),
+    { kind: 'route', label: 'by ref', aim: true, aimKeys: ['ref'], call: async ({ p, o }) => ({ ...(await req('GET', `/api/search?q=%23${o.ref}`, { cookie: p.cookie })), ref: o.ref }), ok: r => r.status === 200 && srHas(r, r.ref), shape: r => `${r.status} ${srHas(r, r.ref) ? 'found' : 'none'}` },
+    { kind: 'route', label: 'chat key alone', call: ({ p }) => req('GET', '/api/search?q=lkq', { bearer: p.chat }), ok: r => r.status === 200, controlOk: r => r.status === 401 },
+  );
   add('route GET /api/notes/file', route('GET', t => `/api/notes/file?p=${encodeURIComponent(`notes/${A.orgId}/${t.note}/x.png`)}`, aim(['note'], { ok: r => r.status === 503, controlOk: r => r.status === 503 })));
   add('route POST /api/notes/upload', route('POST', '/api/notes/upload', aim(['note'], { body: t => ({ type: 'blob.generate-client-token', payload: { pathname: `notes/${A.orgId}/${t.note}/x.png`, callbackUrl: B, clientPayload: null, multipart: false } }), ok: r => r.status === 503, controlOk: r => r.status === 503 })));
   add('route GET /api/stream', { kind: 'route', ok: r => r.status === 200, call: ({ p }) => streamPeek('/api/stream', p.cookie ? { cookie: p.cookie } : {}) });
@@ -1767,7 +1776,7 @@ function AUDIT() {
     discDm(t => ({ custom_id: `wo:need:${t.needDcS}:yes`, component_type: 2 }), aim(['needDcS'], { stage: 1, label: 'a Need I can read, addressed to someone else' })),
   );
   // Actions with no result type (void or a bare value) refuse someone signed out by throwing.
-  for (const id of [`action ${N_}searchMentionsAction`, `action ${ST}markAllReadAction`, 'action app/(app)/settings/blocked-actions.ts#saveBlockedChannels', 'action app/(app)/search-action.ts#searchAction']) for (const pr of items[id].probes) pr.throws = true;
+  for (const id of [`action ${N_}searchMentionsAction`, `action ${ST}markAllReadAction`, 'action app/(app)/settings/blocked-actions.ts#saveBlockedChannels']) for (const pr of items[id].probes) pr.throws = true;
   return items;
 }
 
@@ -1828,7 +1837,7 @@ function MISUSE({ A, T, X, R }) {
   L('a chat key as Bearer on a page', () => req('GET', '/tasks', { bearer: A.chat }), r => toLogin(r) || no(r));
   L('a wkr_ key on a page', () => req('GET', '/today', { bearer: A.wkr }), r => toLogin(r) || no(r));
   for (const [label, h] of [['Bearer chat key', { authorization: `Bearer ${A.chat}` }], ['X-API-Key chat key', { 'x-api-key': A.chat }], ['Bearer Claude Code key', { authorization: `Bearer ${A.code}` }], ['Bearer wkr_ key', { authorization: `Bearer ${A.wkr}` }]]) {
-    L(`a server action with a ${label}`, () => action('app/(app)/search-action.ts#searchAction', ['lkq'], { headers: h }), r => toLogin({ ...r, location: r.redirect }) || actNo(r) || r.status === 401);
+    L(`a server action with a ${label}`, () => action('app/(app)/notes/actions.ts#searchMentionsAction', ['lkq'], { headers: h }), r => toLogin({ ...r, location: r.redirect }) || actNo(r) || r.status === 401);
     L(`a writing server action with a ${label}`, () => action('app/actions.ts#createTaskAction', [{ title: 'lkq by key' }], { headers: h }), r => toLogin({ ...r, location: r.redirect }) || actNo(r) || r.status === 401);
   }
   for (const [label, bearer, cookie] of [['a chat key', A.chat, ''], ['a Claude Code key', A.code, ''], ['a session cookie', '', A.cookie], ['another person\'s chat key as a device key', T.chat, ''], ['a removed member\'s computer', R.wkr, '']]) {

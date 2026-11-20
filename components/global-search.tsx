@@ -4,7 +4,6 @@ import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bot, CircleHelp, FolderGit2, FolderOpen, History, LayoutList, NotebookText, PanelsTopLeft, Play, Plus, Search, Settings, X, type LucideIcon } from 'lucide-react';
-import { searchAction } from '@/app/(app)/search-action';
 import { compareHits, isKind, KINDS, marks, parseQuery, SERVER_KINDS, type Hit, type Kind, type KindResult, type SearchResult } from '@/lib/search/match';
 import { matchStatic } from '@/lib/search/static';
 import { startClaudeUrl } from '@/lib/nav';
@@ -14,6 +13,17 @@ import { Chip, ChipGroup } from '@/components/ui/chip';
 import { IconButton } from '@/components/ui/icon-button';
 import { usePhone } from '@/components/mobile/use-phone';
 import { cn } from '@/lib/utils';
+
+/** The server's kinds (app/api/search): every kind, or one with more hits. Null when it failed or was cancelled. */
+async function fetchSearch(q: string, kind: Kind | undefined, signal: AbortSignal): Promise<SearchResult | null> {
+  const p = new URLSearchParams({ q, ...(kind ? { kind } : {}) });
+  try {
+    const r = await fetch(`/api/search?${p}`, { signal, cache: 'no-store' });
+    return r.ok ? ((await r.json()) as SearchResult) : null;
+  } catch {
+    return null;
+  }
+}
 
 export const OPEN_SEARCH_EVENT = 'wos:search';
 /** Open global search from anywhere (header icon, sidebar button, shortcut, a list's search button); `kind` picks the filter. */
@@ -233,27 +243,35 @@ function Panel({ q, setQ, filter, setFilter, phone, onChoose, onClose }: PanelPr
   useEffect(() => {
     if (!text) return;
     const id = ++seq.current;
+    const ac = new AbortController();
     const t = setTimeout(async () => {
       setBusy(true);
       try {
-        const r = await searchAction(text);
+        const r = await fetchSearch(text, undefined, ac.signal);
         if (id === seq.current && r) setAll(r);
       } finally {
         if (id === seq.current) setBusy(false);
       }
     }, 150);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      ac.abort();
+    };
   }, [text]);
   // One kind chosen: more of it.
   useEffect(() => {
     if (!text || filter === 'all' || !SERVER_KINDS.includes(filter)) return;
     const id = ++seqOne.current;
+    const ac = new AbortController();
     const t = setTimeout(async () => {
-      const r = await searchAction(text, filter);
+      const r = await fetchSearch(text, filter, ac.signal);
       const res = r?.kinds[filter];
       if (id === seqOne.current && res) setOne({ q: text, kind: filter, res });
     }, 150);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      ac.abort();
+    };
   }, [text, filter]);
   const [selKey, setSelKey] = useState(`${text}|${filter}`);
   if (selKey !== `${text}|${filter}`) {
