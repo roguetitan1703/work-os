@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 141. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 142. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -8,8 +8,9 @@ Copy of the Work OS state, version 141. WORK-STATE.md is a copy of the State, wr
 ## Next
 1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
 2. Use steps 1-3 for a week on cutroom and Work OS, then step 4 (Assign to anyone, Continue, lid-open resume; design in docs/flows/step-4.md, four questions wait on Om). — waits on a week of use (H16, about 3 Dec)
-3. UI revamp, purpose first (Om 18 Nov; design b961e1600e, 5 phases). Phases 1-2 on dev 799c85f (in R8). Phase 3 task header done on builder-s 62acdf7 (flow-ui-p3 21, task suites pass, seen 390/1280 light+dark): merge into dev after R8 ships. Phase 4 sessions done on builder-s 2aac311 (flow-ui-p4 28, lanes/claude-page/leak-audit pass). Phase 5 chips done (flow-ui-p5 50; Now chip solid, no double Next on lanes). Phases 3-5 seen 390/1280 light+dark; merge builder-s into dev after R8 ships (R9).
-4. withdraw_need: a session may take back an open Need its ended predecessor asked (same person and key). Builder S2 Sonnet on builder-s2. Real case: Grant Leads Need #9.
+3. withdraw_need: a session may take back an open Need its ended predecessor asked (same person and key). Builder S2 Sonnet on builder-s2. Real case: Grant Leads Need #9.
+4. R9 on dev 90042a9: UI revamp phases 3-5 (task why, sessions say why, Now/Next/Later chips). Add the withdraw_need fix and the phone bar, run the full e2e, then ask Om.
+5. Work OS feels like a task app (Om 20 Nov): design c5b8ebd9fd. Step A (Claude back in the phone bar: Today, Claude, +, Needs, Projects) building on builder-s; B (Today as your desk) and C (+ starts work, results feed) wait on Om's pick. — waits on Om: A only, A+B, or all of C
 
 ## Later
 - Off-box backups to R2 (bucket, token, age key) — waits on Om.
@@ -41,4 +42,4 @@ Copy of the Work OS state, version 141. WORK-STATE.md is a copy of the State, wr
 - Projects now card: a stray space before " · 1 session" after the project name (seen 20 Nov at 390 and 1280).
 - flow-ui-p3: add a check that task #12 gets no Now why when the Now names #123 (pattern fixed in 62acdf7, checked by hand only).
 - ; lane rows say Next 2 twice (chip and the served line). Seen 20 Nov.
-<!-- work-os-copy sha1:b98c0c7c24f2cd6bcc6a4739a233a02b086416cc -->
+<!-- work-os-copy sha1:922644ffcaaa9cbe716f25c4d1a5a1636d8b0e52 -->
