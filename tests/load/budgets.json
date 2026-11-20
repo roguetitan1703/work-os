@@ -15,7 +15,7 @@
   "prefetch /tasks/[id]": { "kb": 4, "ops": 3, "docsExamined": 3, "collscans": 0 },
   "prefetch-tree /tasks/[id]": { "kb": 2, "ops": 3, "docsExamined": 3, "collscans": 0 },
   "prefetch /notes/[id]": { "kb": 4, "ops": 6, "docsExamined": 5, "collscans": 0 },
-  "action complete (Today)": { "kb": 510, "ops": 45, "docsExamined": 775, "collscans": 0 },
+  "action complete (Today)": { "kb": 510, "ops": 47, "docsExamined": 775, "collscans": 0 },
   "action update (Tasks)": { "kb": 577, "ops": 24, "docsExamined": 2328, "collscans": 0 },
   "api search": { "kb": 4, "ops": 12, "docsExamined": 360, "collscans": 0 },
   "api search (Tasks)": { "kb": 12, "ops": 3, "docsExamined": 215, "collscans": 0 },

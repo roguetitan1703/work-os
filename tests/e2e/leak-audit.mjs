@@ -249,7 +249,7 @@ const SKIP_COLS = new Set(['requestStats', 'policyEvents', 'rateLimit', 'authLim
 const SHARED = new Set(['projects', 'tasks', 'activity', 'notes', 'claudeItems', 'trash']);
 for (const c of ['states', 'presence', 'messages']) SHARED.add(c); // slice 1: a project's State and the sessions present on it carry the project's placement
 SHARED.add('needs'); // slice 4: a Need follows its project's placement like a task
-const OWNED = new Set(['reviews', 'ritualLogs', 'devices', 'workerFolders', 'workerJobs', 'workerSessions', 'agentSessions']); // agentSessions: the hook's session tokens (hash only), its computer owner's
+const OWNED = new Set(['reviews', 'ritualLogs', 'devices', 'workerFolders', 'workerJobs', 'workerSessions', 'agentSessions', 'claudeUsage']); // agentSessions: the hook's session tokens (hash only), its computer owner's
 const RECIP = new Set(['notifications', 'pushSubs', 'alertLog', 'alertQueue']);
 let WHO = {}; // user id -> persona
 let ORG = {}; // org id -> { members: [personas], admins: [personas] }
