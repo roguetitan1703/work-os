@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 251. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 252. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -74,8 +74,8 @@ Copy of the Work OS state, version 251. WORK-STATE.md is a copy of the State, wr
 - Messaging: one teammate can use up another person's 6 session wakes an hour with fyis (review, Low). Add a per-sender cap on waking other people's sessions (about 2 an hour per sender per target) only if it happens in real use. — waits on a real case
 - Short address collisions are refused (efc6646) but not covered by a test: a collision can't be forced in e2e without a seam for shortAddress. — waits on nothing; small
 - ui-tour findings that predate step 4: the session sheet doesn't open from ?s= at 390 and 1280; the desktop task row has no visible menu button (step 6 covers task rows). — waits on nothing
-- After the 03:00 deploy (R12, master 43102b0): check work.delpat.in serves it, worker/latest.json shows 20261120.182751, and the PC's worker updated itself; then reinstall nothing (hook files ship with the worker).
+- After the 03:00 deploy (R12, master 43102b0; Actions locked over billing, so built in WSL and uploaded to manual-builds, worker release 20261120.182819 signed inside): check work.delpat.in serves it, worker/latest.json shows 20261120.182751, and the PC's worker updated itself; then reinstall nothing (hook files ship with the worker).
 
 ## Parked
 - 1 lines in Work OS: list_parked, or the project page.
-<!-- work-os-copy sha1:d0dc6aa88e485ada45ab53c0e575214a48c51c85 -->
+<!-- work-os-copy sha1:7121628c8648f65f9d6453d3e993fe9298ca2976 -->
