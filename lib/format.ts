@@ -1,6 +1,17 @@
 import { format, parseISO, formatDistanceToNowStrict } from 'date-fns';
 import type { Priority, Status } from './types';
 
+/** One sentence of a goal: whitespace collapsed, cut after the first . ! or ? that ends within `max`, else at the last space before `max` with an ellipsis. */
+export function oneSentence(s: string, max = 120): string {
+  const t = s.replace(/\s+/g, ' ').trim();
+  const m = /[.!?](?=\s|$)/.exec(t);
+  if (m && m.index + 1 <= max) return t.slice(0, m.index + 1);
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const sp = cut.lastIndexOf(' ');
+  return (sp > 0 ? cut.slice(0, sp) : cut).trimEnd() + '…';
+}
+
 export function fmtMins(m: number | null | undefined): string {
   if (!m) return '';
   if (m < 60) return `${m}m`;

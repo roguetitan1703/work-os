@@ -244,7 +244,7 @@
     "btn": 5
   },
   "app/(app)/today/projects-now-card.tsx": {
-    "px": 4,
+    "px": 3,
     "btn": 0
   },
   "app/(app)/today/today-client.tsx": {
@@ -372,7 +372,7 @@
     "btn": 1
   },
   "components/needs.tsx": {
-    "px": 18,
+    "px": 13,
     "btn": 2
   },
   "components/new-badge.tsx": {

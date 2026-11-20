@@ -3,7 +3,7 @@
 // what was archived. Putting a line back is a person's action in the app (restoreLine): checked in the UI part (step 5).
 // Later parts are added by the later steps. Seed profile: none.
 import { randomUUID } from 'node:crypto';
-import { B, MCP, ME, check, finish, launch, login, makeUser, mkKey, rawDb } from './lib.mjs';
+import { B, MCP, ME, check, finish, launch, login, makeUser, mkKey, openNeed, rawDb } from './lib.mjs';
 import { mcpH, must } from './flow-lib.mjs';
 
 const P = 'H11 Alpha';
@@ -139,6 +139,7 @@ try {
   await login(page, { phone: false, next: '/needs' });
   const answerUI = async (ref, option) => {
     await page.goto(`${B}/needs`);
+    await openNeed(page, ref);
     const btn = page.locator(`[data-need="${ref}"] [data-need-option="${option}"]`);
     await btn.waitFor({ timeout: 20000 });
     await btn.click();
@@ -328,6 +329,7 @@ try {
   const askTh = await must(cc, 'declutter', { project: TH, ask: true, disk: ['remove worktree wos-s3 (merged)'] }, hdr('h11th'));
   const thRef = askTh.need.ref;
   await page.goto(`${B}/needs`);
+  await openNeed(page, thRef);
   await page.waitForSelector(`[data-need="${thRef}"] [data-declutter-box]`, { timeout: 20000 });
   const boxes = await page.locator(`[data-need="${thRef}"] [data-declutter-box]`).count();
   check('H11 UI: the Need card lists the 3 changes with a box each, all ticked, and the disk lines under them', boxes === 3 && (await page.locator(`[data-need="${thRef}"] [data-declutter-state="ticked"]`).count()) === 3 && (await page.locator(`[data-need="${thRef}"] [data-declutter-disk] li`).count()) === 1, `boxes ${boxes}`);
@@ -344,6 +346,8 @@ try {
   const thDoc = await rawDb.collection('needs').findOne({ ref: thRef });
   const thState = await stateOf(THID);
   check('H11 UI: Yes with one unticked applies the other two, stores skip, keeps the unticked line', JSON.stringify(thDoc.declutter.skip) === JSON.stringify([keepId]) && thDoc.declutter.result.applied.length === 2 && thState.later.length === 1 && thState.later[0].text.includes('kept by the person') && thState.archived.length === 2, JSON.stringify([thDoc.declutter.skip, thDoc.declutter.result]));
+  await page.locator(`[data-needs-answered] [data-need="${thRef}"]`).waitFor({ timeout: 20000 });
+  await openNeed(page.locator('[data-needs-answered]'), thRef);
   check('H11 UI: the answered card shows what happened: two applied, one left out', (await page.locator(`[data-need="${thRef}"] [data-declutter-state="applied"]`).count()) === 2 && (await page.locator(`[data-need="${thRef}"] [data-declutter-state="left"]`).count()) === 1, '');
   await shotOf(page, `[data-need="${thRef}"]`, 'h11-need-card-answered-desk', 'light');
 
@@ -410,6 +414,7 @@ try {
   for (const l of stK.later) await rawDb.collection('states').updateOne({ _id: stK._id, 'later.id': l.id }, { $set: { 'later.$.at': ago(30) } });
   const askK = await must(cc, 'declutter', { project: TH2, ask: true, disk: ['delete the old branch builder-k'] }, hdr('h11k'));
   await login(pageP, { phone: true, next: '/needs' });
+  await openNeed(pageP, askK.need.ref);
   await pageP.waitForSelector(`[data-need="${askK.need.ref}"] [data-declutter-box]`, { timeout: 20000 });
   await shotOf(pageP, `[data-need="${askK.need.ref}"]`, 'h11-need-card-phone', 'light');
   await shotOf(pageP, `[data-need="${askK.need.ref}"]`, 'h11-need-card-phone', 'dark');
@@ -488,6 +493,7 @@ try {
   const ctxM = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const pageM = await ctxM.newPage();
   await login(pageM, { phone: false, next: '/needs', email: 'una-h11@example.test' });
+  await openNeed(pageM, muAsk.need.ref);
   const mBtn = pageM.locator(`[data-need="${muAsk.need.ref}"] [data-need-option="yes"]`);
   await mBtn.waitFor({ timeout: 20000 });
   await mBtn.click();

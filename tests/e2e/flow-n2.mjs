@@ -57,6 +57,7 @@ try {
     check("teammate: Today has no \"Needs you\" for a Need addressed to someone else", (await p.locator('[data-section="needs-you"]').count()) === 0);
     await p.goto(`${B}/projects/${encodeURIComponent(projId)}?tab=needs`);
     await p.locator('[data-view="needs"] [data-need]').first().waitFor({ timeout: 20000 });
+    for (const t of await p.locator('[data-view="needs"] [data-need-toggle]').all()) await t.click(); // open each row
     check('teammate: the project Needs tab lists them, waiting on the owner, with no answer buttons', (await p.locator('[data-view="needs"] [data-need]').count()) === 2 && (await p.locator('[data-need-option]').count()) === 0 && (await p.locator('[data-need-waiting]').count()) === 2);
     await ctx.close();
   }
@@ -71,6 +72,7 @@ try {
     const V = p.locator('[data-variant=desk]');
     const card = V.locator(`[data-section="needs-you"] [data-need="${n1.ref}"]`);
     await card.waitFor({ timeout: 20000 });
+    await card.locator('[data-need-ask]').click();
     await card.locator('[data-need-text]').fill('Short, but keep the price line.');
     await card.locator('[data-need-option="b"]').click(); // "Long"
     await card.waitFor({ state: 'detached', timeout: 20000 });
@@ -95,6 +97,7 @@ try {
     check('desktop: the answered task shows its percent again', /40%/.test(row1), row1.replace(/\s+/g, ' '));
     // the project tab keeps the answered one as closed history
     await p.goto(`${B}/projects/${encodeURIComponent(projId)}?tab=needs`);
+    await p.locator(`[data-view="needs"] [data-need="${n1.ref}"] [data-need-ask]`).click();
     const hist = p.locator(`[data-view="needs"] [data-need="${n1.ref}"] [data-need-closed]`);
     await hist.waitFor({ timeout: 20000 });
     check('desktop: the Needs tab shows it answered, with the option label, the note and the wait', /Answered: Long/.test(await hist.innerText()) && /keep the price line/.test(await hist.innerText()) && /waited 3 h/.test(await hist.innerText()), await hist.innerText());
@@ -112,6 +115,7 @@ try {
     const V = p.locator('[data-variant=phone]');
     const card = V.locator(`[data-section="needs-you"] [data-need="${n2.ref}"]`);
     await card.waitFor({ timeout: 20000 });
+    await card.locator('[data-need-ask]').click();
     check('phone: the card says it is answered in the app only', /answer in the app only/.test(await card.locator('[data-need-from]').innerText()));
     const optH = await card.locator('[data-need-option]').first().evaluate(e => e.getBoundingClientRect().height);
     check('phone: option buttons are at least 44px tall', optH >= 44, String(optH));

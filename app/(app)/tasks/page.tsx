@@ -43,11 +43,11 @@ export default async function BoardPage({ searchParams }: Props) {
   return (
     <PlacesProvider places={places}>
       <div className="md:hidden">
-        <MobileTasks top={needs.length ? <NeedsYou needs={needs} phone max={NEEDS_MAX} seeAll="/needs" /> : null} focusSearch={sp.search === '1'} tasks={all} projects={active} noteTaskIds={[...notes]} filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', assigned }} />
+        <MobileTasks top={needs.length ? <NeedsYou needs={needs} phone max={NEEDS_MAX} /> : null} focusSearch={sp.search === '1'} tasks={all} projects={active} noteTaskIds={[...notes]} filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', assigned }} />
       </div>
       <div className="hidden md:block">
     <BoardClient focusSearch={sp.search === '1'}
-      top={needs.length ? <NeedsYou needs={needs} phone={false} max={NEEDS_MAX} seeAll="/needs" /> : null}
+      top={needs.length ? <NeedsYou needs={needs} phone={false} max={NEEDS_MAX} /> : null}
       tasks={[...open, ...doneThisWeek]}
       projects={projects.filter(p => p.status === 'active' || p.status === 'paused').map(p => ({ id: p.id, name: p.name, private: p.visibility === 'private' }))}
       filters={{ project: sp.project ?? '', mode: mode ?? '', due: due ?? '', assigned }}

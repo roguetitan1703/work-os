@@ -10,7 +10,7 @@
 //   - 390 and 1280, light and dark: no horizontal scroll; screenshots in E2E_SHOTS.
 // whats-new-late.mjs checks the badges and the card are gone 14 days on. Seed profile: none.
 import fs from 'node:fs';
-import { B, ME, MCP, SP, check, finish, launch, login, makeUser, mkKey, overflow, okO, rawDb } from './lib.mjs';
+import { B, ME, MCP, SP, check, finish, launch, login, makeUser, mkKey, openNeed, overflow, okO, rawDb } from './lib.mjs';
 import { must } from './flow-lib.mjs';
 
 fs.mkdirSync(SP, { recursive: true });
@@ -18,7 +18,7 @@ const settle = (p, ms = 700) => p.waitForTimeout(ms);
 const seenOf = async () => (await rawDb.collection('settings').findOne({ _id: `profile:${ME.userId}` }))?.whatsNewSeen ?? [];
 const resetSeen = () => rawDb.collection('settings').updateOne({ _id: `profile:${ME.userId}` }, { $unset: { whatsNewSeen: '' } });
 const shot = (p, name) => p.screenshot({ path: `${SP}/whats-new-${name}.png`, fullPage: true });
-const ALL = ['parked-list', 'sessions-first', 'claude-in-the-bar', 'one-search', 'transfer-declutter-commands', 'worker-updates-itself', 'task-place-chips', 'sessions-say-why', 'task-why', 'today-projects-now', 'project-goal-first', 'lanes', 'claude-moves-on', 'messages-to-sessions', 'sessions-everywhere', 'dispatcher-restart-once', 'notes-shelves', 'quiet-phone-monday-numbers', 'declutter-project', 'orders-versions', 'folder-decides-project', 'agents-feedback', 'agents-ask-before-production', 'messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
+const ALL = ['needs-one-line', 'parked-list', 'sessions-first', 'claude-in-the-bar', 'one-search', 'transfer-declutter-commands', 'worker-updates-itself', 'task-place-chips', 'sessions-say-why', 'task-why', 'today-projects-now', 'project-goal-first', 'lanes', 'claude-moves-on', 'messages-to-sessions', 'sessions-everywhere', 'dispatcher-restart-once', 'notes-shelves', 'quiet-phone-monday-numbers', 'declutter-project', 'orders-versions', 'folder-decides-project', 'agents-feedback', 'agents-ask-before-production', 'messages-reach-sessions', 'claude-session-state', 'end-work-handover', 'pc-setup-one-go', 'needs-typed-answer', 'activity-everything', 'digest-redesign', 'hook-device-key', 'needs', 'results', 'state', 'messages']; // newest first; the entries that need mail or the intake are not shown here
 
 const b = await launch();
 try {
@@ -61,13 +61,13 @@ try {
 
       // Try it marks that one seen and goes there
       // (the second entry: its card is one of the three on the phone)
-      await card.locator('[data-whats-new-try="claude-in-the-bar"]').tap();
+      await card.locator('[data-whats-new-try="sessions-first"]').tap();
       await p.waitForURL(u => u.pathname === '/claude', { timeout: 10000 });
       check('Try it: opens where the feature lives (/claude)', new URL(p.url()).pathname === '/claude');
-      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['claude-in-the-bar']), JSON.stringify(await seenOf()));
+      check('Try it: marks only that entry seen', JSON.stringify(await seenOf()) === JSON.stringify(['sessions-first']), JSON.stringify(await seenOf()));
       await p.goto(B + '/today'); await settle(p);
       const ids2 = await p.locator('[data-section="whats-new"]:visible [data-whats-new]').evaluateAll(els => els.map(e => e.getAttribute('data-whats-new')));
-      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'claude-in-the-bar').slice(0, 3)), JSON.stringify(ids2));
+      check('phone Today card: the tried entry is gone, the rest stay', JSON.stringify(ids2) === JSON.stringify(ALL.filter(x => x !== 'sessions-first').slice(0, 3)), JSON.stringify(ids2));
       await resetSeen();
     }
 
@@ -90,7 +90,7 @@ try {
     // Tasks: Needs you on top, three of four, See all
     await p.goto(B + '/tasks'); await settle(p);
     const ny = p.locator('[data-section="needs-you"]:visible');
-    check(`tasks ${tag}: Needs you on top with 3 of 4 and See all`, (await ny.count()) === 1 && (await ny.locator('[data-need]').count()) === 3 && /4\s*$/.test(await ny.locator('h2').innerText()) && (await ny.locator('[data-needs-see-all]').getAttribute('href')) === '/needs');
+    check(`tasks ${tag}: Needs you on top with 3 of 4 and See all`, (await ny.count()) === 1 && (await ny.locator('[data-need]').count()) === 3 && /Needs you\s+4\b/.test(await ny.innerText()) && (await ny.locator('[data-needs-see-all][href="/needs"]').count()) === 1);
     await shot(p, `tasks-${tag}`);
     o = await overflow(p); check(`no horizontal scroll /tasks ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
 
@@ -98,7 +98,7 @@ try {
     await bar.locator('a[href="/needs"]').tap(); await p.waitForURL(u => u.pathname === '/needs'); await settle(p);
     check(`needs ${tag}: the Needs tab is lit`, (await bar.locator('a[href="/needs"][aria-current=page]').count()) === 1);
     check(`needs ${tag}: all four open Needs listed`, (await p.locator('[data-view="my-needs"] [data-need]').count()) === 4);
-    const openCard = p.locator(`[data-view="my-needs"] [data-need="${need.ref}"]`);
+    const openCard = await openNeed(p.locator('[data-view="my-needs"]'), need.ref);
     check(`needs ${tag}: the open Need is listed with its options`, (await openCard.count()) === 1 && (await openCard.locator('[data-need-option]').count()) >= 2);
     await shot(p, `needs-open-${tag}`);
     o = await overflow(p); check(`no horizontal scroll /needs ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
@@ -187,12 +187,13 @@ try {
 
     await p.goto(B + '/tasks'); await settle(p);
     const ny = p.locator('[data-section="needs-you"]:visible');
-    check(`desktop tasks ${tag}: Needs you on top with 3 of 4 and See all`, (await ny.count()) === 1 && (await ny.locator('[data-need]').count()) === 3 && (await ny.locator('[data-needs-see-all]').count()) === 1);
+    check(`desktop tasks ${tag}: Needs you on top with 3 of 4 and See all`, (await ny.count()) === 1 && (await ny.locator('[data-need]').count()) === 3 && (await ny.locator('[data-needs-see-all][href="/needs"]').count()) === 1);
     await shot(p, `tasks-${tag}`);
     o = await overflow(p); check(`no horizontal scroll /tasks ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));
     await needsItem.click(); await p.waitForURL(u => u.pathname === '/needs'); await settle(p);
     check(`desktop needs ${tag}: lit in the sidebar`, (await aside.locator('a[href="/needs"][aria-current=page]').count()) === 1);
     check(`desktop needs ${tag}: four open Needs`, (await p.locator('[data-view="my-needs"] [data-need]').count()) === 4);
+    await openNeed(p.locator('[data-view="my-needs"]'), need.ref);
     check(`desktop needs ${tag}: the open Need with its options`, (await p.locator(`[data-view="my-needs"] [data-need="${need.ref}"] [data-need-option]`).count()) >= 2);
     await shot(p, `needs-${tag}`);
     o = await overflow(p); check(`no horizontal scroll /needs ${tag}`, okO(o), JSON.stringify(o).slice(0, 200));

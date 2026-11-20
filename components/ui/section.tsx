@@ -8,6 +8,7 @@ export function Section({
   count,
   seeAll,
   seeAllLabel = 'See all',
+  seeAllData,
   fold,
   defaultOpen = true,
   children,
@@ -17,6 +18,8 @@ export function Section({
   count?: number;
   seeAll?: string;
   seeAllLabel?: string;
+  /** A data-* attribute name for the See all link (tests and scripts find it by it). */
+  seeAllData?: string;
   /** Makes the label a fold toggle. */
   fold?: boolean;
   defaultOpen?: boolean;
@@ -30,7 +33,7 @@ export function Section({
     </>
   );
   const link = seeAll ? (
-    <Link href={seeAll} className="ml-auto h-8 -mr-2 px-2 inline-flex items-center text-meta text-blue-600 dark:text-blue-400 active:opacity-60">
+    <Link href={seeAll} {...(seeAllData ? { [seeAllData]: '' } : {})} className="ml-auto h-8 -mr-2 px-2 inline-flex items-center text-meta text-blue-600 dark:text-blue-400 active:opacity-60">
       {seeAllLabel}
     </Link>
   ) : null;
