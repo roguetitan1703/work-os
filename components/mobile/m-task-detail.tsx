@@ -21,6 +21,8 @@ import { ClaudeBadge, ClaudeMarkSheet, ClaudeOutcome, OpenInClaudeCodeSheet, cla
 import { AssigneePicker, assigneeLabel } from '@/components/assignee-picker';
 import { useSynced } from '@/components/use-synced';
 import { NeedChip } from '@/components/need-chip';
+import { TaskPurposeHeader } from '@/components/purpose-header';
+import type { TaskPurposeOut } from '@/lib/data/purpose';
 import { PartOf, SubtasksSection, useCloseSubtasks } from '../subtasks';
 
 const STATUSES: { s: Status; tone: string }[] = [
@@ -40,6 +42,7 @@ type Dep = { id: string; ref: number; title: string; status: Status };
 
 /** Full-screen task view for phones: one-tap status/priority, native pickers, sticky Done. */
 export function MobileTaskDetail({
+  purpose,
   task,
   activity,
   note,
@@ -47,6 +50,7 @@ export function MobileTaskDetail({
   dependents,
   subtasks,
 }: {
+  purpose: TaskPurposeOut;
   task: Task;
   activity: Activity[];
   note: NoteRef;
@@ -168,6 +172,20 @@ export function MobileTaskDetail({
       </div>
       <ClaudeOutcome task={task} className="mt-1" />
       <PartOf task={task} className="mt-1 text-sm text-muted-foreground max-w-full" />
+      <div className="mt-3"><TaskPurposeHeader purpose={purpose} /></div>
+
+      {/* Description */}
+      <Field label="Description">
+        <textarea
+          value={desc}
+          onChange={e => setDesc(e.target.value)}
+          onBlur={() => desc !== task.description && patch({ description: desc })}
+          rows={Math.min(8, Math.max(2, desc.split('\n').length))}
+          placeholder="A line or two. Longer content goes in the note."
+          className="w-full rounded-2xl border border-border/70 bg-card px-4 py-3 text-[16px] outline-none resize-none"
+        />
+      </Field>
+
       {claudeOpen && <ClaudeMarkSheet task={task} onClose={() => setClaudeOpen(false)} />}
       {ccOpen && <OpenInClaudeCodeSheet task={task} mode={ccOpen} onClose={() => setCcOpen(null)} />}
 
@@ -397,18 +415,6 @@ export function MobileTaskDetail({
             <input value={newItem} onChange={e => setNewItem(e.target.value)} enterKeyHint="done" placeholder="Add item" className="flex-1 bg-transparent text-[16px] outline-none" />
           </form>
         </div>
-      </Field>
-
-      {/* Description */}
-      <Field label="Description">
-        <textarea
-          value={desc}
-          onChange={e => setDesc(e.target.value)}
-          onBlur={() => desc !== task.description && patch({ description: desc })}
-          rows={Math.min(8, Math.max(2, desc.split('\n').length))}
-          placeholder="A line or two. Longer content goes in the note."
-          className="w-full rounded-2xl border border-border/70 bg-card px-4 py-3 text-[16px] outline-none resize-none"
-        />
       </Field>
 
       {/* Links */}

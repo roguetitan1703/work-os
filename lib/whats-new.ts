@@ -37,6 +37,14 @@ export const NEW_DAYS = 14;
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    id: 'task-why',
+    date: '2026-11-20',
+    title: 'A task now says why it exists',
+    line: "Under its title, a task shows why it matters: that it is the project's Now, which Next line it is, the task it is part of, or the first line of its description, with the project's Now below; on the phone the description now comes right after.",
+    where: 'The top of any task',
+    href: '/tasks',
+  },
+  {
     id: 'today-projects-now',
     date: '2026-11-20',
     title: 'Today shows the goal of each project',
