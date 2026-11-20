@@ -273,9 +273,9 @@ export function NeedRow({ need, canAnswer = true, onAnswered, defaultOpen = fals
         onClick={() => setOpen(o => !o)}
         trailing={
           quick ? (
-            <Button size="touch" className="max-w-[42%] h-auto min-h-11 py-1.5 whitespace-normal text-left leading-tight text-meta md:max-w-[16rem] md:h-row md:min-h-0 md:py-0 md:whitespace-nowrap md:text-center" disabled={pending} data-need-quick={first.id} aria-label={`Answer #${need.ref}: ${first.label}`} title={first.label} onClick={() => answer(first.id)}>
+            <span className="block max-w-[9.5rem] md:max-w-[16rem]"><Button size="touch" className="max-w-full h-auto min-h-11 py-1.5 whitespace-normal text-left leading-tight text-meta md:h-row md:min-h-0 md:py-0 md:whitespace-nowrap md:text-center" disabled={pending} data-need-quick={first.id} aria-label={`Answer #${need.ref}: ${first.label}`} title={first.label} onClick={() => answer(first.id)}>
               <span className="line-clamp-2 md:line-clamp-1">{first.label}</span>
-            </Button>
+            </Button></span>
           ) : isOpen ? (
             <Button variant="ghost" size="touch" className="text-muted-foreground px-3" data-need-toggle aria-expanded={open} aria-label={`${open ? 'Fold' : 'Open'} #${need.ref}`} onClick={() => setOpen(o => !o)}>
               {open ? 'Fold' : 'Open'}
