@@ -96,3 +96,9 @@ test('review fix 2: last active is the newer of the session\'s word and the comp
   const b = mergeSessions([worker('w', { cc: 'cc1', lastActive: iso(5) })], [row(iso(90))], { tz, now });
   assert.equal(b.live[0].lastActiveAt, iso(5));
 });
+
+test('review fix 2: a quiet session keeps its own last active (the computer\'s time moves on a reopen)', () => {
+  const row = { key: 'd1:cc1', title: 'x', deviceId: 'd1', folder: 'f', projectId: 'p1', projectName: 'Alpha', deviceName: 'Om-PC', state: 'open', live: true, subagents: 0, lastActiveAt: iso(3), workOs: true, canVscode: false, canStop: false, canResume: false, canRemove: false };
+  const v = mergeSessions([worker('w', { cc: 'cc1', quiet: true, lastActive: iso(2 * 24 * 60) })], [row], { tz, now });
+  assert.equal(v.live[0].lastActiveAt, iso(2 * 24 * 60));
+});

@@ -173,8 +173,9 @@ function fromWorker(w: WorkerRow, c: SessionRow | undefined): SessionItem {
   else if (state === 'idle' && w.quiet) state = 'quiet';
   const via = [TOOL_NAME[w.tool] ?? '', w.ai, w.model].filter(Boolean).join(' · ');
   // Last active is the last prompt, tool use or turn end: the newer of the session's own word and the computer's, then the last call.
+  // A quiet session keeps its own word: the computer's time also moves when a session is only reopened, which is not activity.
   const ms = (t: string | null | undefined) => (t ? Date.parse(t) || 0 : 0);
-  const last = (ms(c?.lastActiveAt) > ms(w.lastActive) ? c?.lastActiveAt : w.lastActive) || w.lastSeen;
+  const last = (!w.quiet && ms(c?.lastActiveAt) > ms(w.lastActive) ? c?.lastActiveAt : w.lastActive) || w.lastSeen;
   return {
     id: w.id,
     worker: w.id,
