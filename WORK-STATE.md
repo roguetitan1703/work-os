@@ -1,9 +1,9 @@
-Copy of the Work OS state, version 155. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 156. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
 ## Now
-- Ship Harness end to end (#276, docs/flows/agent-system.md): R6 and R7 are live. Now: the Fable tool-calling review and its fixes, H16 measuring until about 3 Dec, then H17. Per part: Opus plans, Sonnet builds in its slot, Opus reviews, dev, tests; production per release with Om's go.
+- Make Work OS feel like your team at work, not a task app (Om 20 Nov): a Fable UX review of every screen and 10 everyday jobs, then a job-based redesign with one shared UI library and a Spotlight-style Ctrl+K search over everything. Meanwhile ship R9 (UI phases 3-5, Need withdraw fix, Claude page fixes, tools reload without reconnect). R8 is live. H16 measuring until about 3 Dec, then H17.
 
 ## Next
 1. Discord setup with Om signed in: Interactions URL, Register commands, pick the team digest channel, bot Send Messages on the team channel. — waits on Om signed in to Discord
@@ -43,4 +43,4 @@ Copy of the Work OS state, version 155. WORK-STATE.md is a copy of the State, wr
 - Projects now card: a stray space before " · 1 session" after the project name (seen 20 Nov at 390 and 1280).
 - flow-ui-p3: add a check that task #12 gets no Now why when the Now names #123 (pattern fixed in 62acdf7, checked by hand only).
 - ; lane rows say Next 2 twice (chip and the served line). Seen 20 Nov.
-<!-- work-os-copy sha1:2cef944ba2c049ad5a575c1568db56325e859edc -->
+<!-- work-os-copy sha1:9e7229ac51ad669f2dc97fb66a94d42c58f58aff -->
