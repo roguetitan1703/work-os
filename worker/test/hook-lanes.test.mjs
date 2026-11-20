@@ -1,5 +1,5 @@
-// Lanes step 3 hook side: subagents cannot write the State (pre-tool deny on agent_id), a subagent's last message goes to the server as
-// the lane result (SubagentStop), the SubagentStart preface, the Stop reminder for sessions that do not hold Now, and the lane calls that
+// Lanes step 3 hook side: subagents cannot write the State (pre-tool deny on agent_id), the main conversation's last message goes to the
+// server as the lane result (Stop; SubagentStop sends nothing), the SubagentStart preface, the Stop reminder for sessions that do not hold Now, and the lane calls that
 // count as "Work OS has heard from this session". An installed copy beside a throwaway worker config; a stub server.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -64,7 +64,7 @@ const run = (event, input) => dev.main(event, JSON.stringify({ cwd: repo, transc
 const events = () => seen.filter((s) => s.url === '/api/agent/event');
 const readMarker = (sid) => JSON.parse(fs.readFileSync(path.join(process.env.WORK_OS_HOOK_DIR, `${sid}.json`), 'utf8'));
 const reset = () => { seen.length = 0; };
-const DENY = "Work OS: you are a subagent; your parent session records the State (save_state, import_state, end_work). Nothing was sent. Put what you found in your final message: it becomes your parent's lane result.";
+const DENY = "Work OS: you are a subagent; your parent session records the State (save_state, import_state, end_work). Nothing was sent. Put what you found in your final message: your parent reads it.";
 const reason = (out) => JSON.parse(out).hookSpecificOutput.permissionDecisionReason;
 const toolUse = (tool) => JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: `mcp__work-os__${tool}` }] } }) + NL;
 // A marker as the start hook leaves it: the status of the repo now, the transcript offset now.
@@ -97,54 +97,77 @@ test('the hook rows: pre-tool matches the State writes, post-tool the lane calls
   assert.deepEqual(lib.hookHeaders(), { 'x-work-os-hook': '4' });
 });
 
-test('subagent-stop: last_assistant_message goes to the event route as result, control characters out, 300 characters, protocol 4 header', async () => {
+test('subagent-stop: sends nothing, even with a kept token and a message (a subagent\'s report is never the session\'s last line)', async () => {
   const sid = 'l-sub-1';
   lib.keepToken(sid, TOKEN);
   start(sid);
   reset();
+  const agentFile = path.join(tmp, 'agent.jsonl');
+  fs.writeFileSync(agentFile, JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Found two failing tests.' }] } }) + NL);
+  assert.equal(await run('subagent-stop', { session_id: sid, agent_id: 'a1', last_assistant_message: '<analysis> I am an Opus builder subagent' }), '');
+  assert.equal(await run('subagent-stop', { session_id: sid, agent_id: 'a1', agent_transcript_path: agentFile }), '');
+  assert.equal(events().length, 0);
+  assert.equal(sub.cleanResult('a\u0000b\r\nc'), 'a b c');
+});
+
+const results = () => events().filter((e) => e.body.event === 'result');
+const line = (o) => JSON.stringify(o) + NL;
+const said = (text, extra = {}) => line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] }, ...extra });
+
+test('stop: the turn\'s last message goes to the event route as result after the stop, control characters out, 300 characters, protocol 4 header; once per text', async () => {
+  const sid = 'l-res-1';
+  lib.keepToken(sid, TOKEN);
+  start(sid);
+  reset();
   const long = 'Tests pass.\u0007' + NL + 'second line ' + 'x'.repeat(500);
-  assert.equal(await run('subagent-stop', { session_id: sid, agent_id: 'a1', last_assistant_message: long }), '');
-  assert.equal(events().length, 1);
-  const e = events()[0];
+  assert.equal(await run('stop', { session_id: sid, last_assistant_message: long }), '');
+  assert.deepEqual(events().map((e) => e.body.event), ['stop', 'result'], 'the stop first, then the result');
+  const e = results()[0];
   assert.equal(e.auth, `Bearer ${TOKEN}`);
   assert.equal(e.hook, '4');
-  assert.equal(e.body.event, 'result', 'a dedicated event: it changes no state');
-  assert.equal(readMarker('l-sub-1').presence, undefined, 'and the marker keeps no state from it');
   assert.equal(e.body.result.length, 300);
   assert.doesNotMatch(e.body.result, /[\u0000-\u001f\u007f-\u009f]/);
   assert.match(e.body.result, /^Tests pass\. second line x+/);
+  reset();
+  await run('stop', { session_id: sid, last_assistant_message: long });
+  assert.equal(results().length, 0, 'the same text is not sent twice');
+  await run('stop', { session_id: sid, last_assistant_message: 'Merged into dev.' });
+  assert.equal(results()[0].body.result, 'Merged into dev.');
 });
 
-test('subagent-stop: without last_assistant_message the last assistant text at the end of the transcript is used (the subagent file first)', async () => {
-  const sid = 'l-sub-2';
+test('stop: without last_assistant_message the main conversation\'s last text is used; subagent (sidechain) messages, compaction summaries and analysis blocks never are', async () => {
+  const sid = 'l-res-2';
   lib.keepToken(sid, TOKEN);
   start(sid);
-  const agentFile = path.join(tmp, 'agent.jsonl');
-  fs.writeFileSync(agentFile, [
-    JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'first' }] } }),
-    JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Bash' }] } }),
-    JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Found two failing tests in auth.' }] } }),
-    JSON.stringify({ type: 'user', message: { role: 'user', content: 'ignored' } }),
-  ].join(NL) + NL);
+  fs.writeFileSync(transcript, [
+    '{"type":"user"}' + NL,
+    said('Built the session row; tests pass.'),
+    said('I am an Opus builder subagent. Report: done.', { isSidechain: true }),
+    said('This session is being continued from a previous conversation that ran out of context.', { isCompactSummary: true }),
+    said('<summary>1. Primary request</summary>'),
+    line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Bash' }] } }),
+  ].join(''));
   reset();
-  await run('subagent-stop', { session_id: sid, agent_id: 'a1', agent_transcript_path: agentFile });
-  assert.equal(events()[0].body.result, 'Found two failing tests in auth.');
+  await run('stop', { session_id: sid });
+  assert.equal(results()[0].body.result, 'Built the session row; tests pass.');
   reset();
-  fs.writeFileSync(transcript, JSON.stringify({ type: 'assistant', message: { content: 'From the session file.' } }) + NL);
-  await run('subagent-stop', { session_id: sid, agent_id: 'a1' });
-  assert.equal(events()[0].body.result, 'From the session file.');
+  await run('stop', { session_id: sid, last_assistant_message: '<analysis> I am an Opus builder subagent...' });
+  assert.equal(results().length, 0, 'an analysis message falls back to the transcript, whose text was sent already');
+  assert.equal(stopMod.resultOf({ last_assistant_message: '<analysis> x', transcript_path: transcript }), 'Built the session row; tests pass.');
+  assert.equal(stopMod.resultOf({ last_assistant_message: 'This session is being continued from a previous conversation. Summary...' }), '');
   fs.writeFileSync(transcript, '{"type":"user"}' + NL);
 });
 
-test('subagent-stop: no token, no text or no session id sends nothing', async () => {
+test('stop: no token, no text, no session id or a stop that answers a block sends no result', async () => {
   reset();
-  start('l-sub-3');
-  assert.equal(await run('subagent-stop', { session_id: 'l-sub-3', last_assistant_message: 'hello' }), '', 'no kept token');
-  lib.keepToken('l-sub-4', TOKEN);
-  assert.equal(await run('subagent-stop', { session_id: 'l-sub-4', last_assistant_message: ' \u0007 ' }), '');
-  assert.equal(await run('subagent-stop', { last_assistant_message: 'hello' }), '');
-  assert.equal(events().length, 0);
-  assert.equal(sub.cleanResult('a\u0000b\r\nc'), 'a b c');
+  start('l-res-3');
+  await run('stop', { session_id: 'l-res-3', last_assistant_message: 'hello' });
+  lib.keepToken('l-res-4', TOKEN);
+  start('l-res-4');
+  await run('stop', { session_id: 'l-res-4', last_assistant_message: ' \u0007 ' });
+  await run('stop', { session_id: 'l-res-4', last_assistant_message: 'again', stop_hook_active: true });
+  await run('stop', { last_assistant_message: 'hello' });
+  assert.equal(results().length, 0);
 });
 
 test('subagent-start: the preface line comes before the short form; nothing without one', async () => {

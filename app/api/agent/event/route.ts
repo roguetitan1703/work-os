@@ -74,7 +74,7 @@ const Body = z
     // The Stop hook asks whether this session holds the State's Now (a tool or stop event): the answer carries holdsNow, so its save reminder is the right one.
     holds: z.literal(true).optional(),
     // Protocol 3 (Identity step 4), on a prompt or a stop, only when it changed since the last one: the session's own name, Claude's title for it, the model.
-    // Protocol 4 (Lanes step 3), on a result event: a subagent's last message (SubagentStop). The server cleans it and keeps 300 characters as the lane result of the token's own row.
+    // Protocol 4 (Lanes step 3), on a result event: the main conversation's last message at the end of a turn (Stop; older hooks sent a subagent's, from SubagentStop). The server cleans it and keeps 300 characters as the lane result of the token's own row.
     result: z.string().max(2000).optional(),
     identity: z.object({ title: z.string().max(300).optional(), aiTitle: z.string().max(300).optional(), model: z.string().max(60).optional() }).strict().optional(),
   })

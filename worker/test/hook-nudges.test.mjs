@@ -231,9 +231,10 @@ test('an older server that refuses the nudge field: the stop is sent again witho
   reset();
   status = 'old';
   assert.equal(await run('stop', { session_id: sid, last_assistant_message: Q }), '');
-  assert.equal(events().length, 2);
-  assert.deepEqual(events()[0].body.nudge, { asks: true });
-  assert.equal(events()[1].body.nudge, undefined);
+  const stops = events().filter((e) => e.body.event === 'stop'); // the turn's last line follows as its own result event
+  assert.equal(stops.length, 2);
+  assert.deepEqual(stops[0].body.nudge, { asks: true });
+  assert.equal(stops[1].body.nudge, undefined);
 });
 
 test('a message that wakes goes first: its block is the only one of the stop', async () => {

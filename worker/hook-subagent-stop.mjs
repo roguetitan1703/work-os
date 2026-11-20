@@ -1,18 +1,24 @@
-// SubagentStop hook (Lanes step 3): a subagent ended. Its last message becomes its parent session's lane result: POST /api/agent/event
-// { event: 'result', result } with the parent's session token (the event passes the parent's session_id; the server writes the token's own
-// row only, lastResult, 300 characters). The text is Claude Code's `last_assistant_message`, else the last assistant text at the end of
-// the subagent's transcript (`agent_transcript_path`), else of the session's. Control characters out, one line, 300 characters.
-// No token, no text or any failure sends nothing. Prints nothing.
+// SubagentStop hook: sends nothing. A session's last line (its lane result, `lastResult`) is the main conversation's own last result,
+// sent by the Stop hook (hook-stop.mjs `resultOf`): a subagent's final message is its report to the parent, not what the session did
+// (a live row once read "<analysis> I am an Opus builder subagent..."). The row stays installed so older installs keep a valid entry;
+// the helpers below are shared with the Stop hook.
 import fs from 'node:fs';
-import { cut, postEvent, str } from './hook-lib.mjs';
+import { cut, str } from './hook-lib.mjs';
 
 export const RESULT_MAX = 300;
 const TAIL_BYTES = 128 * 1024;
 
 /** One line for the lane: control characters (and the line breaks) become spaces, runs of spaces one, at most RESULT_MAX characters. */
-export const cleanResult = (v) => cut(str(v).replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]+/g, ' '), RESULT_MAX);
+const SEPARATORS = new RegExp(`[${String.fromCharCode(0x2028, 0x2029)}]+`, 'g'); // the line and paragraph separators
+export const cleanResult = (v) => cut(str(v).replace(/[\x00-\x1f\x7f-\x9f]+/g, ' ').replace(SEPARATORS, ' '), RESULT_MAX);
 
-/** The last assistant text in the tail of a transcript file (JSONL), or ''. */
+/** A compaction summary or a subagent's analysis block is never a session's result. */
+export const notAResult = (text) => /^\s*<(analysis|summary)>/i.test(text) || /^\s*This session is being continued from a previous conversation/i.test(text);
+
+/**
+ * The last assistant text of the main conversation in the tail of a transcript file (JSONL), or ''. Sidechain entries (a subagent's
+ * messages in the parent's file), compaction summaries and analysis blocks are skipped.
+ */
 export function lastAssistantText(file) {
   try {
     if (!file) return '';
@@ -30,23 +36,17 @@ export function lastAssistantText(file) {
     for (let i = lines.length - 1; i >= 0; i--) {
       let o;
       try { o = JSON.parse(lines[i]); } catch { continue; }
-      if (!o || (o.type !== 'assistant' && o.message?.role !== 'assistant')) continue;
+      if (!o || o.isSidechain || o.isCompactSummary || (o.type !== 'assistant' && o.message?.role !== 'assistant')) continue;
       const c = o.message?.content;
       const text = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((p) => p?.type === 'text' && typeof p.text === 'string').map((p) => p.text).join('\n') : '';
-      if (text.trim()) return text;
+      if (text.trim() && !notAResult(text)) return text;
     }
   } catch { /* nothing */ }
   return '';
 }
 
-export async function subagentStop(input) {
-  try {
-    const sid = input.session_id;
-    if (!sid) return null;
-    const text = cleanResult(typeof input.last_assistant_message === 'string' && input.last_assistant_message.trim() ? input.last_assistant_message : (lastAssistantText(input.agent_transcript_path) || lastAssistantText(input.transcript_path)));
-    if (!text) return null;
-    await postEvent(sid, 'result', { result: text }, 2000);
-  } catch { /* fail open */ }
+/** Sends nothing (see the top of this file). */
+export async function subagentStop() {
   return null;
 }
 
