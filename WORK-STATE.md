@@ -1,4 +1,4 @@
-Copy of the Work OS state, version 179. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
+Copy of the Work OS state, version 180. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (https://work.delpat.in/projects/work-os).
 
 # Work state: Work OS
 
@@ -53,4 +53,5 @@ Copy of the Work OS state, version 179. WORK-STATE.md is a copy of the State, wr
 - Search (builder-a c97c00e): GET /api/search, 3 KB per search, ~290 docs examined (was 8.4k); only the 500 newest docs' descriptions/bodies and open tasks' newest comments are searched (older text not found); security review done and re-checked: app-only Need answers hidden (5b987f9), recent hits per person. Ready to merge with the other steps.
 - Worker trust (20 Nov review): first installs still trust the server's file and sha256 (pin to a GitHub release + key); signed releases never expire; dispatched prompts keep the person's permission mode, so a PC in bypassPermissions lets the server run code unsigned.
 - Step 3 (builder-b 8b53acf) taps: see sessions 3->1, answer a Need and see the session 6->2, project goal no scroll, finished today 2->1, message a session 2, answer from a session row 2. live-release.test.mjs fails on dev too (not checked on dev).
-<!-- work-os-copy sha1:73f4ce6101d39d9276859ef918c7d1920a83868a -->
+- Auto-update small items: cap latest.json read size (update.mjs:105); docs + What's new line: a computer that already runs a worker never needs the install command again; if a page asks for it, tell Om.
+<!-- work-os-copy sha1:dc6cbe404064d630a90b7139c42bf23aab079de6 -->
