@@ -277,12 +277,15 @@ try {
   await setRow(TS, { 'activity.at': ago(3 * 60), lastSeen: ago(3 * 60) });
   await want('tool-start 3 hours ago, nothing since, no daemon word: the normal rules (off)', TS, 'off');
   await daemonList([item(await ccOfRow(TS), true)]);
-  await want('tool-start 3 hours ago but the daemon says its process runs: still working', TS, 'working');
+  await want('tool-start 3 hours ago and the daemon says its process runs: idle, an open call does not keep it working for ever (hooks review H2)', TS, 'idle');
   await daemonList([]);
+  await setRow(TS, { 'activity.at': ago(0.2), lastSeen: ago(0.2) });
+  const tq = await ev(TS.token, { event: 'tool' });
+  check('a tool event within a minute of a tool-start is free and keeps open (hooks review H4)', tq.status === 200 && tq.json?.state === 'working' && (await prow(TS.sid)).activity.open === true, JSON.stringify(tq.json));
   await setRow(TS, { 'activity.at': ago(15), lastSeen: ago(15) });
   const tl = await ev(TS.token, { event: 'tool' });
   const tsRow = await prow(TS.sid);
-  check('a tool event after a tool-start clears open (written, not free)', tl.status === 200 && tsRow.activity.open === undefined && tsRow.activity.state === 'working');
+  check('a tool event more than a minute after a tool-start clears open (written, not free)', tl.status === 200 && tsRow.activity.open === undefined && tsRow.activity.state === 'working');
   await setRow(TS, { 'activity.at': ago(15), lastSeen: ago(15) });
   await want('after the tool event, 15 quiet minutes: idle by the normal rules', TS, 'idle');
   const ts3 = await ev(TS.token, { event: 'tool-start' });

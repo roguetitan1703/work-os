@@ -96,8 +96,16 @@ try {
   // State decisions: via "chat" with the key that recorded them (a decision keeps no session id, so the client rule is the one that applies)
   {
     const states = db.collection('states');
+    const rows = db.collection('stateDecisions');
     let found = 0;
     let byClient = 0;
+    // Decisions are rows of their own now (stateDecisions); a State not moved yet may still hold the legacy array, so both are read.
+    for await (const d of rows.find({ via: 'chat', key: { $exists: true } }, { projection: { key: 1 } })) {
+      if ((await agentMade({ keyId: d.key })) !== 'client') continue;
+      found++;
+      byClient++;
+      if (APPLY) await rows.updateOne({ _id: d._id }, { $set: { via: 'code' } });
+    }
     for await (const st of states.find({ 'decisions.via': 'chat' }, { projection: { decisions: 1 } })) {
       const ids = [];
       for (const d of st.decisions ?? []) {

@@ -20,6 +20,7 @@ delete process.env.WORK_OS_URL;
 delete process.env.CLAUDE_CODE_ENTRYPOINT;
 const { FILES } = await import('../hooks-install.mjs');
 const repoHook = await import('../hook.mjs');
+repoHook.deps.userUrl = () => process.env.WORK_OS_URL || ''; // tests only: the key path's server would come from the person's ~/.claude/settings.json
 
 // os.tmpdir() reads these at call time: a folder under `tmp` is "in a temp folder" only while they point at `realTmp` or `tmp`.
 const TMPVARS = ['TEMP', 'TMP', 'TMPDIR'];
@@ -196,6 +197,9 @@ test('SessionStart with a brief: the marker has no unfiled flag and the token is
   assert.ok(lib.readKept('f1'), 'the session token is kept');
 });
 
+/** Five minutes later: an unfiled session asks again at most once per 5 minutes (hooks review 12). */
+const later = (sid) => { const m = marker(sid); delete m.refiledAt; lib.writeMarker(sid, m); };
+
 test('the prompt hook: unfiled, then filed: the token is kept and one line says so', async () => {
   mode = 'unfiled';
   setFolders({ idApp001: app });
@@ -207,6 +211,10 @@ test('the prompt hook: unfiled, then filed: the token is kept and one line says 
   assert.ok(still.includes('idApp001'));
   assert.equal(marker('p1').unfiled, true, 'still unfiled');
   assert.equal(starts().length, 1, 'one new try per prompt');
+  seen.length = 0;
+  assert.ok(text(await prompt('p1', path.join(app, 'src'))).includes('idApp001'), 'a prompt within 5 minutes: the reminder again');
+  assert.equal(starts().length, 0, '…without asking the server again');
+  later('p1');
   mode = 'ok'; seen.length = 0;
   const filed = text(await prompt('p1', path.join(app, 'src')));
   assert.equal(filed, 'Filed under Demo; Work OS hooks are on for this session.');
@@ -232,6 +240,7 @@ test('the prompt hook: marked not Work OS clears the flag quietly; a limit or a 
   assert.equal(await prompt('p3', path.join(app, 'src')), '');
   assert.equal(marker('p3').unfiled, true);
   mode = 'hang';
+  later('p3');
   const t0 = Date.now();
   assert.equal(await prompt('p3', path.join(app, 'src')), '');
   assert.ok(Date.now() - t0 < 3500, 'gives up within the second try\'s budget');
@@ -365,6 +374,7 @@ test('protocol 3: the next prompt signs in again with the kept token (one sessio
 
 test('protocol 3: once the folder is filed the same prompt hook ends the no-project state, with a new token for the project', async () => {
   mode = 'ok'; seen.length = 0;
+  later('n1');
   const filed = text(await prompt('n1', path.join(app, 'src')));
   assert.equal(filed, 'Filed under Demo; Work OS hooks are on for this session.');
   assert.equal(marker('n1').unfiled, undefined);

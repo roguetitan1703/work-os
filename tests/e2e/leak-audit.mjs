@@ -247,7 +247,7 @@ async function interact(guild, user, type, data, extra = {}) {
 // ── snapshots: who may write what ───────────────────────────────────────────
 const SKIP_COLS = new Set(['requestStats', 'policyEvents', 'rateLimit', 'authLimits', 'mailLog', 'verification']);
 const SHARED = new Set(['projects', 'tasks', 'activity', 'notes', 'claudeItems', 'trash']);
-for (const c of ['states', 'presence', 'messages']) SHARED.add(c); // slice 1: a project's State and the sessions present on it carry the project's placement
+for (const c of ['states', 'stateParked', 'stateDecisions', 'presence', 'messages']) SHARED.add(c); // slice 1: a project's State and the sessions present on it carry the project's placement
 SHARED.add('needs'); // slice 4: a Need follows its project's placement like a task
 const OWNED = new Set(['reviews', 'ritualLogs', 'devices', 'workerFolders', 'workerJobs', 'workerSessions', 'agentSessions', 'claudeUsage', 'claudeUsageBuckets', 'claudeUsageEvents', 'claudeAccounts']); // agentSessions: the hook's session tokens (hash only), its computer owner's
 const RECIP = new Set(['notifications', 'pushSubs', 'alertLog', 'alertQueue']);
@@ -477,7 +477,7 @@ try {
     o.stateNext = can(`${tg}statenext`, allow);
     // Started first: Now is set by a session Work OS knows (Lanes)
     o.sid = (await mustMcp(A.chat, 'start_work', { project: o.projectName, machine: can(`${tg}presmach`, allow), label: can(`${tg}preslabel`, allow) })).session;
-    await mustMcp(A.chat, 'save_state', { project: o.projectName, base_version: 0, session: o.sid, ops: [{ op: 'set_now', text: can(`${tg}statenow`, allow) }, { op: 'add_next', text: o.stateNext }, { op: 'add_later', text: can(`${tg}statelater`, allow), waits_on: can(`${tg}statewait`, allow) }, { op: 'add_decision', text: can(`${tg}statedecision`, allow) }, { op: 'set_where', machine: can(`${tg}statemach`, allow), branch: can(`${tg}statebranch`, allow) }] });
+    await mustMcp(A.chat, 'save_state', { project: o.projectName, base_version: 0, session: o.sid, ops: [{ op: 'set_now', text: can(`${tg}statenow`, allow) }, { op: 'add_next', text: o.stateNext }, { op: 'add_later', text: can(`${tg}statelater`, allow), waits_on: can(`${tg}statewait`, allow) }, { op: 'add_decision', text: can(`${tg}statedecision`, allow) }, { op: 'park', text: can(`${tg}stateparked`, allow), when: can(`${tg}statewhen`, allow) }, { op: 'set_where', machine: can(`${tg}statemach`, allow), branch: can(`${tg}statebranch`, allow) }] });
   }
   for (const [o, tg, allow] of [[P, 'pv', ['A']], [S, 'sh', ['A', 'T']]]) {
     // to the owner's own session on the project, sent from that session (so a reply has a session to go back to)
@@ -908,7 +908,7 @@ try {
     const cn = `lkqmvstate${hex(4)}`;
     CANARIES.push({ s: cn, tag: 'mvstate', allow: new Set(['A', 'T']) });
     await mustMcp(A.chat, 'add_project', { name: nm });
-    await mustMcp(A.chat, 'save_state', { project: nm, ops: [{ op: 'add_next', text: cn }, { op: 'add_decision', text: cn + 'd' }] });
+    await mustMcp(A.chat, 'save_state', { project: nm, ops: [{ op: 'add_next', text: cn }, { op: 'add_decision', text: cn + 'd' }, { op: 'park', text: cn + 'p' }, { op: 'park', text: cn + 'q' }] });
     const aSid = (await mustMcp(A.chat, 'start_work', { project: nm, machine: 'lkqmv', label: cn + 'p' })).session;
     // Archiving a decision: the app only, and only the project's owner (or an organization owner)
     const pidNm = (await rawDb.collection('projects').findOne({ orgId: A.orgId, name: nm }))._id;
@@ -993,6 +993,19 @@ try {
     const sd = await rawDb.collection('states').findOne({ _id: pid });
     const pr = await rawDb.collection('presence').find({ projectId: pid }).toArray();
     check('State: a project made private takes its State along (placed private, owned by its owner)', sd?.visibility === 'private' && sd.ownerId === A.userId, JSON.stringify(sd && [sd.visibility, sd.ownerId]));
+    const sRows = [...(await rawDb.collection('stateParked').find({ projectId: pid }).toArray()), ...(await rawDb.collection('stateDecisions').find({ projectId: pid }).toArray())];
+    check('State: …and its Parked and decision rows (placed private, owned by its owner)', sRows.length === 3 && sRows.every(r => r.visibility === 'private' && r.ownerId === A.userId), JSON.stringify(sRows.map(r => [r.visibility, r.ownerId])));
+    // …and back: the rows follow the project both ways (counted by visibility after each switch)
+    const rowVis = async () => { const rs = [...(await rawDb.collection('stateParked').find({ projectId: pid }).toArray()), ...(await rawDb.collection('stateDecisions').find({ projectId: pid }).toArray())]; return rs.reduce((m, r) => ((m[r.visibility] = (m[r.visibility] ?? 0) + 1), m), {}); };
+    await mustMcp(A.chat, 'update_project', { project: nm, visibility: 'org' });
+    const visOrg = await rowVis();
+    await mustMcp(A.chat, 'update_project', { project: nm, visibility: 'private' });
+    const visPriv = await rowVis();
+    check('State: switched shared and back, the Parked and decision rows follow the project each way', visOrg.org === 3 && Object.keys(visOrg).length === 1 && visPriv.private === 3 && Object.keys(visPriv).length === 1, JSON.stringify([visOrg, visPriv]));
+    // a cursor from one project never returns rows of another
+    const curA = (await mustMcp(A.chat, 'list_parked', { project: nm, limit: 1 })).next;
+    const foreignCur = await mcpCall(A.chat, 'list_parked', { project: P.projectName, before: curA });
+    check('State: a before cursor from one project returns nothing of another project', !!curA && !foreignCur.ok && !foreignCur.text.includes(cn), String(curA) + foreignCur.text.slice(0, 150));
     check('State: …and the presence rows (both sessions) with it', pr.length === 2 && pr.every(p => p.visibility === 'private' && p.ownerId === A.userId), JSON.stringify(pr.map(p => [p.visibility, p.ownerId])));
     const mvd = await rawDb.collection('messages').find({ projectId: pid }).toArray();
     check('Messages: a project made private takes its messages along (placed private, owned by its owner)', mvd.length === 2 && mvd.every(m => m.visibility === 'private' && m.ownerId === A.userId), JSON.stringify(mvd.map(m => [m.visibility, m.ownerId])));
@@ -1509,6 +1522,10 @@ function AUDIT() {
   add(`action ${DC}declutterProposalAction`, act(DC + 'declutterProposalAction', t => [t.project], aim(['project'], { ok: r => actOk(r) && Array.isArray(r.value.items) })));
   add(`action ${DC}applyDeclutterAction`, act(DC + 'applyDeclutterAction', t => [t.project, ['later:lkqnone']], aim(['project'], { control: false })));
   add(`action ${SA}restoreLineAction`, act(SA + 'restoreLineAction', t => [t.project, 'lkqnoline'], aim(['project'], { control: false })));
+  // Parked and decisions are rows of their own (plan note 4a1ccbf69d): "Show more" reads them through the caller's door; a project the caller cannot read answers as a made-up one.
+  add(`action ${SA}moreParkedAction`, act(SA + 'moreParkedAction', t => [t.project, 'lkqnocursor'], aim(['project'], { control: false })));
+  add(`action ${SA}moreArchivedAction`, act(SA + 'moreArchivedAction', t => [t.project, 'lkqnocursor'], aim(['project'], { control: false })));
+  add(`action ${SA}moreDecisionsAction`, act(SA + 'moreDecisionsAction', t => [t.project, 'lkqnocursor'], aim(['project'], { control: false })));
   add(`action ${OA}setOrdersAction`, act(OA + 'setOrdersAction', t => [t.ordersNote, 'project'], aim(['ordersNote'])), act(OA + 'setOrdersAction', t => [t.ordersNote, null], aim(['ordersNote'], { label: 'clearing it' })));
   // H9: undo writes the text before a version back; the holder only. The probe's page is not Orders (the flag on it is the setOrdersAction probe's), so the owner's control is answered "not found", the same as everyone's.
   add(`action ${OA}undoOrdersAction`, act(OA + 'undoOrdersAction', t => [t.ordersNote, 2], aim(['ordersNote'], { controlOk: r => actOk(r) || /not found/i.test(r.text) })));

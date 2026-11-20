@@ -50,6 +50,7 @@ fs.mkdirSync(path.join(home, 'hooks'), { recursive: true });
 for (const f of FILES) fs.copyFileSync(fileURLToPath(new URL(`../${f}`, import.meta.url)), path.join(home, 'hooks', f));
 fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ baseUrl: URL_ }));
 const dev = await import(pathToFileURL(path.join(home, 'hooks', 'hook.mjs')).href);
+const lib = await import(pathToFileURL(path.join(home, 'hooks', 'hook-lib.mjs')).href);
 dev.deps.deviceKey = (dir) => (dir === home ? WKR : null);
 
 const sh = (cwd, ...a) => execFileSync('git', a, { cwd, stdio: 'ignore' });
@@ -68,7 +69,9 @@ const UUID2 = '1c7a3d2f-4e5b-4c6d-9eaf-2b3c4d5e6f70';
 const run = (event, sid, extra = {}) => dev.main(event, JSON.stringify({ session_id: sid, cwd: repo, transcript_path: transcript, ...extra }));
 const events = () => seen.filter((s) => s.url === '/api/agent/event');
 const marker = (sid) => JSON.parse(fs.readFileSync(path.join(process.env.WORK_OS_HOOK_DIR, `${sid}.json`), 'utf8'));
-const reset = () => { seen.length = 0; eventMode = 'ok'; };
+// Each test starts with a server that answers: a failed post from an earlier test would silence the session for 5 minutes (hooks review M7).
+const clearDown = (sid) => { try { const m = lib.readMarker(sid); if (m?.presence?.failed) { delete m.presence.failed; lib.writeMarker(sid, m); } } catch {} };
+const reset = () => { seen.length = 0; eventMode = 'ok'; clearDown(UUID); clearDown(UUID2); };
 
 test('session start sends ccSession (UUID session ids only) and source, and records presence on', async () => {
   reset();
@@ -174,12 +177,21 @@ test('pre-tool pings once after waiting, then at most once per 5 minutes while w
     assert.equal(marker(UUID).presence.state, 'working');
     for (let i = 0; i < 5; i++) await run('pre-tool', UUID, { tool_name: 'Bash', tool_input: { command: 'ls' } });
     assert.equal(events().length, 1, 'no network on the next calls');
+    // a subagent's call never pings, even after the lead's permission prompt (hooks review M4)
+    await run('notification', UUID, { notification_type: 'permission_prompt' });
+    const before = events().length;
+    await run('pre-tool', UUID, { tool_name: 'Read', tool_input: { file_path: 'x.txt' }, agent_id: 'sub-1' });
+    assert.equal(events().length, before, 'a subagent call after a prompt: no ping');
+    assert.equal(marker(UUID).presence.state, 'waiting', 'the lead still waits at its prompt');
+    await run('pre-tool', UUID, { tool_name: 'Bash', tool_input: { command: 'ls' } });
+    assert.equal(events().length, before + 1, 'the lead itself pings');
+    reset();
     const t0 = real();
     Date.now = () => t0 + 6 * 60_000;
     assert.equal(await run('pre-tool', UUID, { tool_name: 'Edit', tool_input: { file_path: 'x.txt' } }), '');
-    assert.equal(events().length, 2, 'quiet for 6 minutes: one more ping');
+    assert.equal(events().length, 1, 'quiet for 6 minutes: one more ping');
     await run('pre-tool', UUID, { tool_name: 'Bash', tool_input: { command: 'ls' } });
-    assert.equal(events().length, 2);
+    assert.equal(events().length, 1);
   } finally { Date.now = real; }
 });
 
@@ -233,4 +245,30 @@ test('tool-start posts the event alone (never the command) and leaves the marker
   reset();
   assert.equal(await run('tool-start', 'never-started', { tool_name: 'Bash' }), '');
   assert.equal(seen.length, 0, 'no token: nothing is posted');
+});
+
+test('tool-start: one heartbeat: a second call within 30 s of marking the row open sends nothing (hooks review H4)', async () => {
+  reset();
+  await run('stop', UUID);
+  reset();
+  await run('tool-start', UUID, { tool_name: 'Bash' });
+  await run('tool-start', UUID, { tool_name: 'Bash' });
+  await run('tool-start', UUID, { tool_name: 'PowerShell' });
+  assert.equal(events().length, 1, 'three calls, one post');
+  assert.equal(marker(UUID).presence.open, true);
+  await run('user-prompt', UUID); // any other event clears open
+  reset();
+  await run('tool-start', UUID, { tool_name: 'Bash' });
+  assert.equal(events().length, 1, 'after another event the next call posts again');
+});
+
+test('tool-start: a subagent call (agent_id) after the lead stopped posts nothing, so the idle lead stays idle; a call of the lead itself still does', async () => {
+  reset();
+  await run('stop', UUID);
+  const afterStop = events().length;
+  assert.equal(await run('tool-start', UUID, { tool_name: 'Bash', agent_id: 'sub-1', agent_type: 'general-purpose', tool_input: { command: 'npm test' } }), '');
+  assert.equal(events().length, afterStop, 'a background subagent never marks its parent working');
+  assert.equal(await run('tool-start', UUID, { tool_name: 'Bash', tool_input: { command: 'npm test' } }), '');
+  assert.equal(events().length, afterStop + 1);
+  assert.equal(events().at(-1).body.event, 'tool-start', 'a call of the lead itself marks it working');
 });

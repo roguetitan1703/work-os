@@ -90,7 +90,7 @@ export async function preTool(input) {
   if (!hitsCopy(input)) {
     const blocked = await productionBlock(input);
     if (blocked) return blocked;
-    await pingWorking(input);
+    if (!input.agent_id) await pingWorking(input); // a subagent's call never reports its parent's state (hooks review M4; hook-gate.mjs)
     return null;
   }
   const seen = { reached: false };
@@ -261,9 +261,12 @@ export function shellDeny(input, env = process.env) {
   } catch { return null; }
 }
 
-/** H12: one refused WORK-STATE.md write that never reached Work OS (a count, nothing else). Never throws and never waits long. */
+/**
+ * H12: one refused WORK-STATE.md write that never reached Work OS (a count, nothing else). Never throws and never waits long. Not for a
+ * subagent (agent_id; pre-tool runs for subagents, hook-gate.mjs): the count rides on a tool event, which would mark an idle parent working.
+ */
 async function countRefused(input) {
-  try { if (input.session_id) await postEvent(input.session_id, 'tool', { copy: 'refused' }, COUNT_TIMEOUT_MS); } catch {}
+  try { if (input.session_id && !input.agent_id) await postEvent(input.session_id, 'tool', { copy: 'refused' }, COUNT_TIMEOUT_MS); } catch {}
 }
 
 /** How long after the person's last prompt a session counts as attended (H8, changed 19 Nov). */

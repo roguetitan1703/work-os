@@ -31,7 +31,7 @@ test('install copies the hook, merges ten events (eleven entries), keeps other s
   let s = settings();
   assert.equal(s.model, 'opus');
   assert.deepEqual(s.env, { A: '1' });
-  assert.deepEqual(Object.keys(s.hooks).sort(), ['Notification', 'PostToolBatch', 'PostToolUse', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'SubagentStart', 'SubagentStop', 'UserPromptSubmit']);
+  assert.deepEqual(Object.keys(s.hooks).sort(), ['Notification', 'PostToolBatch', 'PostToolUse', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'SubagentStart', 'UserPromptSubmit']);
   assert.equal(s.hooks.UserPromptSubmit[0].hooks[0].async, undefined, 'the prompt hook is awaited: a message waiting for the session goes into its context');
   assert.equal(s.hooks.UserPromptSubmit[0].hooks[0].timeout, 3);
   assert.equal(s.hooks.PostToolBatch[0].hooks[0].timeout, 3);
@@ -58,7 +58,7 @@ test('install copies the hook, merges ten events (eleven entries), keeps other s
   s = settings();
   assert.equal(s.hooks.Stop.length, 3, 'rerun replaces its own entries, no duplicates');
   assert.equal(s.hooks.SessionStart.length, 2);
-  assert.deepEqual(m.status().events.sort(), ['Notification', 'PostToolBatch', 'PostToolUse', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'SubagentStart', 'SubagentStop', 'UserPromptSubmit']);
+  assert.deepEqual(m.status().events.sort(), ['Notification', 'PostToolBatch', 'PostToolUse', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'SubagentStart', 'UserPromptSubmit']);
   assert.ok(fs.readdirSync(path.dirname(process.env.CLAUDE_SETTINGS_PATH)).some((f) => f.startsWith('settings.json.bak-')), 'a backup is kept');
 });
 
@@ -107,7 +107,6 @@ test('the entries equal the strings older workers wrote, except the PostToolUse 
     Notification: [{ matcher: 'permission_prompt|idle_prompt|elicitation_dialog', hooks: [{ ...c('notification', 3), async: true }] }],
     SessionEnd: [{ hooks: [c('session-end', 2)] }],
     PreToolUse: [...old.PreToolUse, { matcher: 'Bash|PowerShell', hooks: [{ ...c('tool-start', 3), async: true }] }], // a running tool keeps the session working: async, a PC's own hook
-    SubagentStop: [{ hooks: [c('subagent-stop', 3)] }], // Lanes step 3: a PC's own hook (localOnly), so a repo's cloud entries leave it out
     ...sub,
   });
 });
@@ -212,7 +211,7 @@ test('a worker folder not named work-os-worker: two installs leave no duplicates
     const s = JSON.parse(fs.readFileSync(process.env.CLAUDE_SETTINGS_PATH, 'utf8'));
     assert.equal(s.hooks.Stop.length, 2, 'the stop check and the idle wait');
     assert.equal(s.hooks.SessionStart.length, 2, 'the brief and the idle wait');
-    assert.equal(m.status().events.length, 10);
+    assert.equal(m.status().events.length, 9); // no SubagentStop since hooks review 18
     assert.equal(m.refreshIfStale(), null);
     assert.equal(m.remove().hooks, true);
     assert.equal(m.status().events.length, 0);
@@ -245,7 +244,7 @@ test('H8: the production blocks ship with the hooks (hook-release.mjs and remote
   const { EVENTS } = await import('../hook-lib.mjs');
   assert.equal(EVENTS.filter(r => r.event === 'pre-tool').length, 1);
   assert.match(EVENTS.find(r => r.event === 'pre-tool').matcher, /Bash\|PowerShell/, 'the one pre-tool row already covers Bash and PowerShell');
-  assert.equal(EVENTS.length, 13, 'H8 adds no event row (ten, plus H9 subagent-start, plus Lanes step 3 subagent-stop, plus tool-start)');
+  assert.equal(EVENTS.length, 12, 'H8 adds no event row (ten, plus H9 subagent-start, plus tool-start; the subagent-stop row went, hooks review 18)');
 });
 
 test('H13 hooks repo --project: the project id goes into the four entries, a name is refused, none keeps the old entries', () => {
@@ -264,4 +263,11 @@ test('H13 hooks repo --project: the project id goes into the four entries, a nam
     const cmds2 = Object.values(JSON.parse(fs.readFileSync(again.settings, 'utf8')).hooks).flat().flatMap((g) => g.hooks.map((h) => h.command));
     assert.ok(cmds2.every((c) => !c.includes('--project')), 'a rerun without --project replaces the entries without it');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('an install removes the retired SubagentStop entry a past install wrote (hooks review 18)', () => {
+  const old = { hooks: { SubagentStop: [{ hooks: [{ type: 'command', command: 'node "C:/x/hooks/hook.mjs" subagent-stop', timeout: 3 }] }], Stop: [{ hooks: [{ type: 'command', command: 'echo mine' }] }] } };
+  const s = m.withoutOurs(old);
+  assert.equal(s.hooks.SubagentStop, undefined);
+  assert.deepEqual(s.hooks.Stop, old.hooks.Stop, 'the person\'s own hooks stay');
 });

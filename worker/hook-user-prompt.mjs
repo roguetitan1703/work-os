@@ -3,7 +3,7 @@
 // prompt's context. Waits for the answer (0.6 s at most, the hook is given 3); no token, a slow or failed call: no output.
 // A session that started unfiled (no project owns its folder, H13) tries to sign in again first (2 s): once its person filed the folder
 // it gets its token and one line, "Filed under X"; still unfiled it gets a one-line reminder; marked not Work OS it is left alone.
-import { deliverOut, postEvent, readKept, readMarker, statusHash, unfiledReminder, workerHome, writeMarker } from './hook-lib.mjs';
+import { deliverOut, postEvent, readKept, readMarker, statusHash, unfiledReminder, updateMarker, workerHome, writeMarker } from './hook-lib.mjs';
 import { refile } from './hook-session-start.mjs';
 
 const WOKE_MS = 60_000;
@@ -11,9 +11,13 @@ const WOKE_MS = 60_000;
 const PROMPT_POST_MS = 600;
 /** The second try of an unfiled session: its own budget (the hook is given 3 s, the prompt call after it 0.6). */
 const REFILE_MS = 2000;
+/** An unfiled session asks again at most once per 5 minutes (hooks review 12): each try is a start, from a small hourly budget. */
+export const REFILE_EVERY_MS = 5 * 60_000;
 
 /** The line a session is shown for its unfiled folder on this prompt, or '' (nothing to say, or it was just filed: then the line says so). */
 async function unfiledStep(input, m) {
+  if (typeof m.refiledAt === 'number' && Date.now() - m.refiledAt < REFILE_EVERY_MS) return unfiledReminder(m.folder, !!workerHome());
+  updateMarker(input.session_id, (x) => ({ ...x, refiledAt: Date.now() }));
   const r = await refile(input, REFILE_MS).catch(() => null);
   if (r?.filed) return `Filed under ${r.filed}; Work OS hooks are on for this session.`;
   if (r?.unfiled && r.quiet) { const { unfiled, ...rest } = readMarker(input.session_id) ?? m; void unfiled; writeMarker(input.session_id, rest); return ''; }
@@ -33,7 +37,7 @@ export const typedByPerson = (input) => typeof input?.prompt === 'string' && inp
 
 export async function userPrompt(input) {
   const sid = input.session_id;
-  if (!sid || input.agent_id) return null;
+  if (!sid) return null; // a subagent's prompt never gets here (hook-gate.mjs)
   const m = readMarker(sid);
   const line = m?.unfiled ? await unfiledStep(input, m) : '';
   const now = line.startsWith('Filed') ? readMarker(sid) : m;

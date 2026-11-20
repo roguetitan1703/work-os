@@ -2,7 +2,8 @@ import 'server-only';
 import { requestContext } from '../request-context';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { inTransaction, type ArchivedLine, type DeclutterCache, type PresenceDoc, type ProjectDoc, type StateDoc, type StateLine } from '../db';
+import { inTransaction, inTransactionNow, type ArchivedLine, type DeclutterCache, type PresenceDoc, type ProjectDoc, type StateDecisionDoc, type StateDoc, type StateLine, type StateParkedDoc } from '../db';
+import { idProblems, moveLegacyLists } from '../state-lists-move';
 import { scoped, type Scope } from '../scope';
 import { isPerson, userActor, type Actor } from '../actors';
 import { busy, dispatchedText, lineHeldText, lineHolder, nowHeldText, stateWord } from './lanes';
@@ -33,7 +34,11 @@ import type { Priority } from '../types';
 //   Held lines (done_next, edit_line, archive_line, promote_later): only by the line's holder (its `hold`, or a live session on
 //     its task by set_doing), the Now holder or a person. edit_line by a session holds the line.
 
-export const LIMITS = { line: 500, now: 1000, decision: 1000, next: 100, later: 300, decisions: 500, parked: 1000, when: 200 } as const;
+/** Parked lines one key may add an hour. */
+export const PARK_PER_HOUR = 200;
+/** import_state takes at most this many Parked lines. */
+export const IMPORT_PARKED_MAX = 1000;
+export const LIMITS = { line: 500, now: 1000, decision: 1000, next: 100, later: 300, when: 200 } as const;
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const waits = z.string().trim().min(1).max(200).optional();
@@ -100,12 +105,35 @@ export async function getState(s: Scope, key: string): Promise<{ project: Projec
   const c = await scoped(s);
   const project = await resolveProject(c, s, key, { create: false });
   if (!project) throw new NotFoundError(`Project "${key.trim().slice(0, 120)}" not found`);
-  return { project, state: await c.states.findOne({ _id: project._id }) };
+  return { project, state: await movedState(s, await c.states.findOne({ _id: project._id })) };
+}
+
+export const escRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const rowId = () => randomBytes(12).toString('hex');
+
+/**
+ * A State that still holds its Parked and decisions as arrays (from before they had their own collections) is moved on this first
+ * touch: rows are written and the arrays unset in one transaction (lib/state-lists-move.ts). Returns the State as it is after.
+ */
+async function movedState(s: Scope, st: StateDoc | null): Promise<StateDoc | null> {
+  if (!st || (!st.parked && !st.decisions)) return st;
+  try {
+    return await inTransaction(async () => {
+      const c = await scoped(s);
+      const cur = await c.states.findOne({ _id: st._id });
+      if (cur && (cur.parked || cur.decisions)) await moveLegacyLists({ states: c.states, parked: c.stateParked, decisions: c.stateDecisions } as never, cur as never, { door: true });
+      return c.states.findOne({ _id: st._id });
+    });
+  } catch (e) {
+    // A list that cannot be moved (a repeated or missing id) stays as it is: the State is read from its arrays, and a save says what to fix.
+    console.error('[state lists move]', e instanceof Error ? e.message : 'error');
+    return st;
+  }
 }
 
 /** The State of a project the caller reads, or null (none yet, or not visible). For pages. */
 export async function stateOfProject(s: Scope, projectId: string): Promise<StateDoc | null> {
-  return (await scoped(s)).states.findOne({ _id: projectId });
+  return movedState(s, await (await scoped(s)).states.findOne({ _id: projectId }));
 }
 
 /** One project's goal for the Projects list: Now's text, the first Next line and the State version. */
@@ -170,6 +198,12 @@ export type SaveResult =
       leftOpen: string[];
     };
 
+class ConflictAbort extends Error {
+  constructor(readonly result: { conflict: true; state: StateDoc | null; project: ProjectDoc; holdsNow: boolean }) {
+    super('conflict');
+  }
+}
+
 export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o: { baseVersion?: number; actor: Actor; via: Via; msg?: { id: string; author: string; word: string } }): Promise<SaveResult> {
   const ops = StateOpsSchema.parse(rawOps);
   // Refs of Next lines finished by this call: their tasks finish after the transaction (the line is gone already, so there is no loop back).
@@ -180,6 +214,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
   // A person (the app, Discord, Declutter) is never refused by a hold and never takes one.
   const person = isPerson(o.actor) || o.actor.kind === 'discord';
   const me = holdKeyOf(s.userId, rc0.src) ?? `${s.userId}:${rc0.keyId ?? 'agent'}`;
+  const nested = inTransactionNow(); // inside a caller's transaction a conflict must abort it, not commit what was written
   const r = await inTransaction(async () => {
     doneRefs.length = 0;
     took.from = null;
@@ -187,6 +222,13 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     const project = await resolveProject(c, s, projectKey, { create: false });
     if (!project) throw new NotFoundError(`Project "${projectKey.trim().slice(0, 120)}" not found`);
     let cur = await c.states.findOne({ _id: project._id });
+    // Parked and decisions live in their own collections: a State from before is moved on this first touch (counts missing = recount).
+    if (cur && (cur.parked || cur.decisions || cur.parkedCount === undefined || cur.decisionsCount === undefined)) {
+      const bad = idProblems(cur);
+      if (bad) throw new InputError(`This project's Parked or decisions list has ${bad}, so it cannot be moved yet and nothing was written. Fix the ids (scripts/migrate-state-lists.mjs names the project), then save again.`);
+      await moveLegacyLists({ states: c.states, parked: c.stateParked, decisions: c.stateDecisions } as never, cur as never, { recount: true, door: true });
+      cur = await c.states.findOne({ _id: project._id });
+    }
     if (ops.some(x => VERSIONED.has(x.op))) {
       if (o.baseVersion === undefined) throw new InputError('set_now needs base_version: the version of the State you read (start_work, get_state and every save_state answer carry it).');
       // Nothing is written; the caller merges and retries.
@@ -202,7 +244,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
       // The first write makes the State, stamped with the project's placement.
       await c.states.updateOne(
         { _id: project._id },
-        { $setOnInsert: { ...placeIn(project, s.userId), projectId: project._id, now: null, next: [], later: [], parked: [], decisions: [], where: {}, version: 0, createdAt: now, updatedAt: now } },
+        { $setOnInsert: { ...placeIn(project, s.userId), projectId: project._id, now: null, next: [], later: [], parkedCount: 0, decisionsCount: 0, where: {}, version: 0, createdAt: now, updatedAt: now } },
         { upsert: true },
       );
       cur = await c.states.findOne({ _id: project._id });
@@ -297,19 +339,39 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     const log: NonNullable<StateDoc['log']> = ops.map(op => ({ at: now, by, ...(rc.keyId ? { key: rc.keyId } : {}), ...(src ? { src } : {}), via: o.via, op: op.op, ...('id' in op && op.id ? { id: op.id } : {}) }));
     // At most 30 decisions an hour from one key: a runaway agent cannot bury the real ones.
     if (ops.some(x => x.op === 'add_decision')) {
-      const hourAgo = now.getTime() - 3_600_000;
-      const recent = cur.decisions.filter(d => d.at.getTime() > hourAgo && (rc.keyId ? d.key === rc.keyId : d.by === by)).length;
+      const hourAgo = new Date(now.getTime() - 3_600_000);
+      const recent = await c.stateDecisions.countDocuments({ projectId: project._id, ...(rc.keyId ? { key: rc.keyId } : { by }), at: { $gt: hourAgo } } as never);
       if (recent + ops.filter(x => x.op === 'add_decision').length > 30) throw new InputError('That is more than 30 decisions an hour from one key. Wait a while, or record fewer.');
     }
-    const decisionsAll = [...cur.decisions];
-    let decisionsEdited = false;
+    // At most 200 Parked lines an hour from one key (Parked has no cap, so a runaway agent is stopped by rate).
+    const parkOps = ops.filter(x => x.op === 'park' || x.op === 'park_line').length;
+    if (parkOps) {
+      const recentP = await c.stateParked.countDocuments({ projectId: project._id, ...(rc.keyId ? { key: rc.keyId } : { parkedBy: by }), parkedAt: { $gt: new Date(now.getTime() - 3_600_000) } } as never);
+      if (recentP + parkOps > PARK_PER_HOUR) throw new InputError(`That is more than ${PARK_PER_HOUR} Parked lines an hour from one key. Wait a while, or park fewer.`);
+    }
+    // Parked lines and decisions are rows of their own, written as the ops run (the whole call is one transaction); only the counts go on the State.
+    const placement = { ownerId: cur.ownerId, visibility: cur.visibility, ...(cur.sharedWith ? { sharedWith: cur.sharedWith } : {}) };
+    let parkedDelta = 0;
+    let decisionsDelta = 0;
+    let rowTick = 0; // rows made in one call get distinct milliseconds, so their order is kept
+    const parkedLine = (r: StateParkedDoc): StateLine => ({ id: r.id, text: r.text, ...(r.ref ? { ref: r.ref } : {}), ...(r.waitsOn ? { waitsOn: r.waitsOn } : {}), ...(r.when ? { when: r.when } : {}), by: r.by, ...(r.src ? { src: r.src } : {}), at: r.at });
+    const addParked = async (l: StateLine, when: string | undefined) => {
+      await c.stateParked.insertOne({ _id: rowId(), projectId: project._id, id: l.id, text: l.text, ...(when ? { when } : {}), ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), by: l.by, ...(l.src ? { src: l.src } : {}), ...(rc.keyId ? { key: rc.keyId } : {}), parkedBy: by, at: l.at, parkedAt: new Date(now.getTime() + rowTick++), ...placement } as never);
+      parkedDelta++;
+    };
+    const takeParked = async (id: string): Promise<StateLine> => {
+      const r = await c.stateParked.findOne({ projectId: project._id, id } as never);
+      if (!r) throw new InputError(`Parked has no line ${id} (read the State again for current ids)`);
+      return parkedLine(r as StateParkedDoc);
+    };
+    const dropParked = async (id: string) => {
+      await c.stateParked.deleteOne({ projectId: project._id, id } as never);
+      parkedDelta--;
+    };
     const next = [...cur.next];
     const later = [...cur.later];
-    const parked = [...(cur.parked ?? [])];
     const nextAdds: StateLine[] = [];
     const laterAdds: StateLine[] = [];
-    const parkedAdds: StateLine[] = [];
-    const decisions: StateDoc['decisions'] = [];
     const archivedAdds: ArchivedLine[] = [];
     const archive = (l: StateLine, from: 'Next' | 'Later' | 'Parked', why?: string) => {
       archivedAdds.push({ id: l.id, text: l.text, from, ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), by: l.by, at: l.at, archivedBy: by, archivedAt: now, ...(why ? { why } : {}) });
@@ -319,7 +381,6 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     let nowSet: StateDoc['now'] | undefined;
     let nextEdited = false;
     let laterEdited = false;
-    let parkedEdited = false;
     const done: string[] = [];
     const dropped: string[] = [];
     const promoted: { ref: number; title: string }[] = [];
@@ -332,17 +393,28 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     };
     type Hit = { where: string; line?: StateLine; i: number; id?: string; text: string };
     // The one line holding `find` (case-sensitive substring) among the given lists; zero or several matches throw, naming the candidates.
-    const findLine = (find: string, where: ('Now' | 'Next' | 'Later' | 'Parked' | 'Decisions')[], onlyId?: string): Hit => {
+    const findLine = async (find: string, where: ('Now' | 'Next' | 'Later' | 'Parked' | 'Decisions')[], onlyId?: string): Promise<Hit> => {
       const hits: Hit[] = [];
       const cn = nowSet ?? cur!.now;
       if (where.includes('Now') && !onlyId && cn && cn.text.includes(find)) hits.push({ where: 'Now', i: 0, text: cn.text });
       if (where.includes('Next')) next.forEach((l, i) => l.text.includes(find) && (!onlyId || l.id === onlyId) && hits.push({ where: 'Next', line: l, i, id: l.id, text: l.text }));
       if (where.includes('Later')) later.forEach((l, i) => l.text.includes(find) && (!onlyId || l.id === onlyId) && hits.push({ where: 'Later', line: l, i, id: l.id, text: l.text }));
-      if (where.includes('Parked')) parked.forEach((l, i) => l.text.includes(find) && (!onlyId || l.id === onlyId) && hits.push({ where: 'Parked', line: l, i, id: l.id, text: l.text }));
-      if (where.includes('Decisions')) decisionsAll.forEach((d, i) => !d.archivedAt && d.text.includes(find) && hits.push({ where: 'Decisions', i, id: d.id, text: d.text }));
+      let more = 0; // matches in the collections beyond the six read
+      if (where.includes('Parked')) {
+        const q = { projectId: project._id, text: { $regex: escRe(find) }, ...(onlyId ? { id: onlyId } : {}) };
+        const rows = await c.stateParked.find(q as never).sort({ parkedAt: 1, id: 1 }).limit(6).toArray();
+        more += (await c.stateParked.countDocuments(q as never)) - rows.length;
+        for (const r of rows) hits.push({ where: 'Parked', line: parkedLine(r as StateParkedDoc), i: 0, id: r.id, text: r.text });
+      }
+      if (where.includes('Decisions')) {
+        const q = { projectId: project._id, archivedAt: null, text: { $regex: escRe(find) } };
+        const rows = await c.stateDecisions.find(q as never).sort({ at: 1, id: 1 }).limit(6).toArray();
+        more += (await c.stateDecisions.countDocuments(q as never)) - rows.length;
+        for (const d of rows) hits.push({ where: 'Decisions', i: 0, id: d.id, text: d.text });
+      }
       const quote = (t: string) => `"${t.length > 80 ? t.slice(0, 77) + '...' : t}"`;
       if (!hits.length) throw new InputError(`find ${quote(find)} matches no line in ${onlyId ? `line ${onlyId}` : where.join(', ')} (case-sensitive; read the State again). Nothing was written.`);
-      if (hits.length > 1) throw new InputError(`find ${quote(find)} matches ${hits.length} lines: ${hits.slice(0, 6).map(h => `${h.where} ${quote(h.text)}`).join('; ')}. Use more of the line's text so it matches one. Nothing was written.`);
+      if (hits.length + more > 1) throw new InputError(`find ${quote(find)} matches ${hits.length + more} lines: ${hits.slice(0, 6).map(h => `${h.where} ${quote(h.text)}`).join('; ')}. Use more of the line's text so it matches one. Nothing was written.`);
       return hits[0];
     };
     for (const [oi, op] of ops.entries()) {
@@ -367,7 +439,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
         }
         case 'move_next': {
           nextEdited = true;
-          const l = take(next, op.find !== undefined ? findLine(op.find, ['Next']).id! : op.id!, 'Next');
+          const l = take(next, op.find !== undefined ? (await findLine(op.find, ['Next'])).id! : op.id!, 'Next');
           await checkLine(l, 'Next', { move: true });
           log[oi].id = l.id;
           const at = op.to === 'top' ? 0 : op.to === 'bottom' ? next.length : Math.min(op.to - 1, next.length);
@@ -376,7 +448,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
         }
         case 'done_next': {
           nextEdited = true;
-          const l = take(next, op.find !== undefined ? findLine(op.find, ['Next']).id! : op.id!, 'Next');
+          const l = take(next, op.find !== undefined ? (await findLine(op.find, ['Next'])).id! : op.id!, 'Next');
           await checkLine(l, 'Next');
           log[oi].id = l.id;
           if (l.ref) doneRefs.push(l.ref);
@@ -392,9 +464,8 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           break;
         }
         case 'park': {
-          const l: StateLine = { id: lid(), text: op.text, ...(op.when ? { when: op.when } : {}), ...stamp, at: now };
-          parkedAdds.push(l);
-          parked.push(l);
+          const l: StateLine = { id: lid(), text: op.text, ...stamp, at: now };
+          await addParked(l, op.when);
           feed.push({ type: 'line_parked', text: op.text });
           break;
         }
@@ -402,7 +473,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           let from: 'Next' | 'Later';
           let pid: string;
           if (op.find !== undefined) {
-            const h = findLine(op.find, ['Next', 'Later']);
+            const h = await findLine(op.find, ['Next', 'Later']);
             from = h.where as 'Next' | 'Later';
             pid = h.id!;
           } else if (next.some(l => l.id === op.id)) {
@@ -417,16 +488,15 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           if (from === 'Next') nextEdited = true;
           else laterEdited = true;
           log[oi].id = l.id;
-          parkedEdited = true;
-          parked.push({ id: l.id, text: l.text, ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...(op.when ? { when: op.when } : {}), by: l.by, at: l.at });
+          await addParked({ id: l.id, text: l.text, ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), by: l.by, at: l.at }, op.when);
           feed.push({ type: 'line_parked', text: l.text, by: l.by });
           break;
         }
         case 'unpark': {
-          const pid = op.find !== undefined ? findLine(op.find, ['Parked']).id! : op.id!;
-          const l = take(parked, pid, 'Parked');
+          const pid = op.find !== undefined ? (await findLine(op.find, ['Parked'])).id! : op.id!;
+          const l = await takeParked(pid);
           await checkLine(l, 'Parked');
-          parkedEdited = true;
+          await dropParked(pid);
           log[oi].id = l.id;
           const { when: oldWhen, ...rest } = l;
           void oldWhen;
@@ -443,7 +513,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
         }
         case 'promote_later': {
           laterEdited = true;
-          const l = take(later, op.find !== undefined ? findLine(op.find, ['Later']).id! : op.id!, 'Later');
+          const l = take(later, op.find !== undefined ? (await findLine(op.find, ['Later'])).id! : op.id!, 'Later');
           await checkLine(l, 'Later');
           log[oi].id = l.id;
           // It becomes a task in this project, by the caller (the line's words become the title).
@@ -452,23 +522,24 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           break;
         }
         case 'add_decision':
-          decisions.push({ id: lid(), at: now, ...stamp, via: o.via, text: op.text, ...(rc.keyId ? { key: rc.keyId } : {}), ...(o.msg ? { msg: o.msg.id, author: o.msg.author, word: o.msg.word } : {}) });
+          await c.stateDecisions.insertOne({ _id: rowId(), projectId: project._id, id: lid(), at: new Date(now.getTime() + rowTick++), ...stamp, via: o.via, text: op.text, ...(rc.keyId ? { key: rc.keyId } : {}), ...(o.msg ? { msg: o.msg.id, author: o.msg.author, word: o.msg.word } : {}), ...placement } as never);
+          decisionsDelta++;
           feed.push({ type: 'decision', text: op.text, ...(o.msg ? { by: o.msg.author } : {}) });
           break;
         case 'archive_decision': {
           if (!isPerson(o.actor)) throw new InputError('A decision is archived by a person in the app, not through MCP.');
-          const did = op.find !== undefined ? findLine(op.find, ['Decisions']).id : op.id;
-          const d = decisionsAll.find(x => x.id === did && !x.archivedAt);
+          const did = op.find !== undefined ? (await findLine(op.find, ['Decisions'])).id : op.id;
+          const d = await c.stateDecisions.findOne({ projectId: project._id, id: did, archivedAt: null } as never);
           if (!d) throw new InputError(`Decisions has no open entry ${did}`);
           log[oi].id = d.id;
           const may = project.ownerId === s.userId || (await (await import('../caller')).roleOf(s.userId, s.orgId)) === 'owner';
           if (!may) throw new InputError("Only the project's owner or an owner of the organization can archive a decision.");
-          d.archivedAt = now;
-          decisionsEdited = true;
+          const u = await c.stateDecisions.updateOne({ projectId: project._id, id: d.id, archivedAt: null } as never, { $set: { archivedAt: now, archivedBy: by } } as never);
+          if (u.matchedCount) decisionsDelta--;
           break;
         }
         case 'edit_line': {
-          const h = findLine(op.find, ['Now', 'Next', 'Later', 'Parked'], op.id);
+          const h = await findLine(op.find, ['Now', 'Next', 'Later', 'Parked'], op.id);
           const replaced = h.text.replace(op.find, () => op.new).trim();
           if (h.where === 'Now') {
             if (!replaced) throw new InputError('Now cannot be removed: replace it with set_now.');
@@ -476,7 +547,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
             // An edit of Now by a session overwrites the goal like set_now: the same base_version rule, the same conflict answer. A
             // person in the app is never refused.
             if (!person && o.baseVersion === undefined) throw new InputError('edit_line on Now needs base_version: the version of the State you read (start_work, get_state and every save_state answer carry it). Nothing was written.');
-            if (!person && st0.version !== o.baseVersion) return { conflict: true as const, state: st0, project, holdsNow: holdsNowOf(st0, me) };
+            if (!person && st0.version !== o.baseVersion) throw new ConflictAbort({ conflict: true as const, state: st0, project, holdsNow: holdsNowOf(st0, me) });
             await claimNow();
             nowSet = { text: replaced, ...(nowHold ? { hold: nowHold } : {}), by, at: now };
             if (replaced.length > NOW_ADVISED) notes.push(nowLongNote(replaced.length));
@@ -485,17 +556,20 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           }
           if (replaced.length > LIMITS.line) throw new InputError(`The line would be ${replaced.length} characters (max ${LIMITS.line}).`);
           const heldByOther = await checkLine(h.line!, h.where as 'Next' | 'Later' | 'Parked');
-          const list = h.where === 'Next' ? next : h.where === 'Parked' ? parked : later;
+          const list = h.where === 'Next' ? next : later;
           if (h.where === 'Next') nextEdited = true;
-          else if (h.where === 'Parked') parkedEdited = true;
-          else laterEdited = true;
+          else if (h.where === 'Later') laterEdited = true;
           log[oi].id = h.id;
           if (!replaced) {
-            list.splice(h.i, 1);
+            if (h.where === 'Parked') await dropParked(h.id!);
+            else list.splice(h.i, 1);
             if (h.where === 'Later' || h.where === 'Parked') archive(h.line!, h.where, 'removed with edit_line');
             (h.where === 'Next' ? done : dropped).push(h.text);
             if (h.where === 'Next' && h.line!.ref) doneRefs.push(h.line!.ref);
             if (h.where === 'Next') feed.push({ type: 'next_done', text: h.text, by: h.line!.by });
+          } else if (h.where === 'Parked') {
+            // A Parked line is a row: its words, writer and date change; its place in the list (parkedAt) does not.
+            await c.stateParked.updateOne({ projectId: project._id, id: h.id } as never, { $set: { text: replaced, by, ...(src ? { src } : {}), at: now } } as never);
           } else {
             const { src: oldSrc, hold: oldHold, left: oldLeft, ...rest } = h.line!;
             void oldSrc;
@@ -510,7 +584,7 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           let from: 'Next' | 'Later' | 'Parked';
           let lid2: string;
           if (op.find !== undefined) {
-            const h = findLine(op.find, ['Next', 'Later', 'Parked']);
+            const h = await findLine(op.find, ['Next', 'Later', 'Parked']);
             from = h.where as 'Next' | 'Later' | 'Parked';
             lid2 = h.id!;
           } else if (next.some(l => l.id === op.id)) {
@@ -519,14 +593,14 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
           } else if (later.some(l => l.id === op.id)) {
             from = 'Later';
             lid2 = op.id!;
-          } else if (parked.some(l => l.id === op.id)) {
+          } else if (await c.stateParked.countDocuments({ projectId: project._id, id: op.id } as never)) {
             from = 'Parked';
             lid2 = op.id!;
           } else throw new InputError(`Next, Later and Parked have no line ${op.id} (read the State again for current ids)`);
-          const l = take(from === 'Next' ? next : from === 'Parked' ? parked : later, lid2, from);
+          const l = from === 'Parked' ? await takeParked(lid2) : take(from === 'Next' ? next : later, lid2, from);
           await checkLine(l, from);
           if (from === 'Next') nextEdited = true;
-          else if (from === 'Parked') parkedEdited = true;
+          else if (from === 'Parked') await dropParked(lid2);
           else laterEdited = true;
           log[oi].id = l.id;
           archive(l, from, op.why);
@@ -540,8 +614,6 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     }
     if (next.length > LIMITS.next) throw new InputError(`Next would hold ${next.length} lines (max ${LIMITS.next}): finish or drop some first.`);
     if (later.length > LIMITS.later) throw new InputError(`Later would hold ${later.length} lines (max ${LIMITS.later}): promote or drop some first.`);
-    if (parked.length > LIMITS.parked) throw new InputError(`Parked would hold ${parked.length} lines (max ${LIMITS.parked})`);
-    if (cur.decisions.filter(x => !x.archivedAt).length + decisions.length > LIMITS.decisions) throw new InputError(`Decisions would hold more than ${LIMITS.decisions} entries.`);
     if (Object.keys(cur.where).length + Object.keys(where).filter(k => !Object.hasOwn(cur.where, k.slice(6))).length > 40) throw new InputError('Where tracks at most 40 machines.');
 
     // An unheld Now (set before Lanes) is taken by the first save of a session that may hold it: a main session (not dispatched, not
@@ -558,18 +630,18 @@ export async function saveState(s: Scope, projectKey: string, rawOps: unknown, o
     else if (nextAdds.length) push.next = { $each: nextAdds };
     if (laterEdited) set.later = later;
     else if (laterAdds.length) push.later = { $each: laterAdds };
-    if (parkedEdited) set.parked = parked;
-    else if (parkedAdds.length) push.parked = { $each: parkedAdds };
-    if (decisionsEdited) set.decisions = [...decisionsAll, ...decisions];
-    else if (decisions.length) push.decisions = { $each: decisions };
     if (archivedAdds.length) push.archived = { $each: archivedAdds, $slice: -ARCHIVED_KEEP };
     push.log = { $each: log, $slice: -200 };
-    const r = await c.states.updateOne({ _id: cur._id, version: cur.version }, { $set: set, $inc: { version: 1 }, ...(Object.keys(push).length ? { $push: push } : {}) } as never);
+    const r = await c.states.updateOne({ _id: cur._id, version: cur.version }, { $set: set, $inc: { version: 1, ...(parkedDelta ? { parkedCount: parkedDelta } : {}), ...(decisionsDelta ? { decisionsCount: decisionsDelta } : {}) }, ...(Object.keys(push).length ? { $push: push } : {}) } as never);
     if (!r.matchedCount) throw new InputError('The State changed while you saved: read it again and retry.');
     // Placed like the State (its project's readers), and moved with the project (setProjectPlacement, by projectId).
     for (const f of feed) await logChange(c, cur, o.actor, f.type, { subject: { kind: 'state', id: project._id, title: 'State' }, projectId: project._id, note: f.text, ...(f.by ? { textBy: f.by } : {}), at: now });
     const state = (await c.states.findOne({ _id: cur._id }))!;
     return { state, project, holdsNow: !person && holdsNowOf(state, me), notes, done, dropped, promoted, closedTasks: [] as number[], sentForReview: [] as number[], leftOpen: [] as string[] };
+  }).catch(e => {
+    // A conflict found after rows were written: the transaction is rolled back, so nothing of the call stays.
+    if (e instanceof ConflictAbort && !nested) return e.result;
+    throw e;
   });
   if (!r.conflict && took.from) await tellOldHolder(s, r.project, r.state, took.from, me, o);
   if (r.conflict || !doneRefs.length) return r;
@@ -778,7 +850,7 @@ export function parseWorkState(md: string): ParsedWorkState {
     now: fit(items.now.join(' '), LIMITS.now),
     next: nextAll.slice(0, LIMITS.next),
     later: [...nextAll.slice(LIMITS.next), ...lines(items.later), ...lines(items.stray)].slice(0, LIMITS.later),
-    parked: parked.slice(0, LIMITS.parked),
+    parked: parked.slice(0, IMPORT_PARKED_MAX),
     skipped,
     shortened,
   };
@@ -807,15 +879,17 @@ export async function importState(s: Scope, projectKey: string, markdown: string
       now: p.now ? { text: p.now, by, at: now } : null,
       next: p.next.map(line),
       later: p.later.map(line),
-      parked: p.parked.map(parkedLine),
-      decisions: [],
+      parkedCount: p.parked.length,
+      decisionsCount: 0,
       where: {},
       version: 1,
       createdAt: now,
       updatedAt: now,
     };
     await c.states.insertOne(doc);
-    return { state: doc, project, imported: { now: !!p.now, next: doc.next.length, later: doc.later.length, parked: doc.parked!.length }, skipped: p.skipped, shortened: p.shortened };
+    const placement = { ownerId: doc.ownerId, visibility: doc.visibility, ...(doc.sharedWith ? { sharedWith: doc.sharedWith } : {}) };
+    if (p.parked.length) await c.stateParked.insertMany(p.parked.map((l, i) => ({ ...parkedLine(l), _id: rowId(), projectId: project._id, parkedAt: new Date(now.getTime() + i), ...placement })) as never);
+    return { state: doc, project, imported: { now: !!p.now, next: doc.next.length, later: doc.later.length, parked: p.parked.length }, skipped: p.skipped, shortened: p.shortened };
   });
 }
 
@@ -825,6 +899,9 @@ export async function importState(s: Scope, projectKey: string, markdown: string
 export type Names = Record<string, string>;
 const label = (names: Names, reader: string, by: string): string | undefined => (by === reader ? undefined : names[by] || 'a former member');
 
+export type ParkedOut = { id: string; text: string; at: string; when?: string; ref?: number; writtenBy?: string };
+export type DecisionOut = { id: string; at: string; by: string; via: string; text: string; message?: string; word?: string; writtenBy?: string };
+
 export type StateOut = {
   version: number;
   /** holder: label of the session that holds Now; holderState: its state word (working, idle, ...), set by the page (roster.withLaneMarks). */
@@ -832,12 +909,21 @@ export type StateOut = {
   /** holder: label of the session that holds the line (set by the page); left: where a released line stood, as one line of text. */
   next: { id: string; text: string; /** The day the line was last written, YYYY-MM-DD. */ at?: string; ref?: number; waitsOn?: string; holder?: string; left?: string; writtenBy?: string }[];
   later: { id: string; text: string; at?: string; waitsOn?: string; holder?: string; left?: string; writtenBy?: string }[];
-  /** Parked lines: only when asked for (the project page); agents get `parkedTotal` and read the lines with list_parked. */
-  parked?: { id: string; text: string; at: string; when?: string; ref?: number; writtenBy?: string }[];
+  /** Parked lines, newest first: only when asked for (the project page); agents get `parkedTotal` and read the lines with list_parked. */
+  parked?: ParkedOut[];
   parkedTotal: number;
+  /** The page only: the cursor for the next older Parked lines, when there are more than `parked` holds. */
+  parkedNext?: string;
   /** The latest 10 live decisions for agents (all of them for the project page); `decisionsTotal` is how many there are (list_decisions reads the rest). */
-  decisions: { id: string; at: string; by: string; via: string; text: string; message?: string; word?: string; writtenBy?: string }[];
+  decisions: DecisionOut[];
   decisionsTotal: number;
+  /** The page only: the cursor for the next older decisions, when there are more than `decisions` holds. */
+  decisionsNext?: string;
+  /** The page only: the newest archived decisions (hidden from agents and the copy) and how many there are. */
+  archivedDecisions?: { id: string; at: string; by: string; text: string; archivedAt: string; archivedBy?: string }[];
+  /** The page only: the cursor for older archived decisions (moreArchivedDecisions). */
+  archivedDecisionsNext?: string;
+  archivedDecisionsTotal?: number;
   where: Record<string, { branch?: string; head?: string; dirty?: boolean; worktrees?: string[]; at: string; writtenBy?: string }>;
   updatedAt: string;
 };
@@ -849,13 +935,89 @@ const leftOut = (l: StateLine): { left?: string } => {
   return { left: parts.join(' · ') };
 };
 
+// A paging cursor: opaque text naming the project and the last row read (its sort time and id). One from another project is refused.
+function cursorOf(projectId: string, at: Date, id: string): string {
+  return Buffer.from(JSON.stringify({ p: projectId, t: at.getTime(), i: id })).toString('base64url');
+}
+function readCursor(projectId: string, raw: string | undefined): { t: Date; i: string } | null {
+  if (!raw) return null;
+  try {
+    const c = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as { p?: unknown; t?: unknown; i?: unknown };
+    if (c.p === projectId && typeof c.t === 'number' && Number.isFinite(c.t) && typeof c.i === 'string') return { t: new Date(c.t), i: c.i };
+  } catch {
+    /* falls through */
+  }
+  throw new InputError('That cursor (before) is not from this project’s list: use the next value from the last answer.');
+}
+
+/**
+ * The rows a State answer shows: the latest live decisions (oldest first; `'all'` is the project page's 50 with cursors) and the
+ * newest Parked lines, read with indexed queries through the caller's door. A State that is not moved yet answers from its arrays.
+ */
+export async function stateLists(s: Scope, projectId: string, o: { decisions: number | 'page'; parked?: number; archived?: number }): Promise<StateLists> {
+  const c = await scoped(s);
+  const page = o.decisions === 'page';
+  const dn = page ? PAGE_ROWS : (o.decisions as number);
+  // The page reads one row more than it shows: that row's existence, not the stored counts, decides whether "Show more" is there.
+  const extra = page ? 1 : 0;
+  const [decs, parked, archived] = await Promise.all([
+    c.stateDecisions.find({ projectId, archivedAt: null } as never).sort({ at: -1, id: -1 }).limit(dn + extra).toArray(),
+    o.parked ? c.stateParked.find({ projectId } as never).sort({ parkedAt: -1, id: -1 }).limit(o.parked + extra).toArray() : Promise.resolve(undefined),
+    o.archived ? c.stateDecisions.find({ projectId, archivedAt: { $ne: null } } as never).sort({ archivedAt: -1, id: -1 }).limit(o.archived + extra).toArray() : Promise.resolve(undefined),
+  ]);
+  const archivedTotal = o.archived ? await c.stateDecisions.countDocuments({ projectId, archivedAt: { $ne: null } } as never) : 0;
+  const decsMore = decs.length > dn;
+  const parkedMore = !!parked && parked.length > (o.parked ?? 0);
+  const archivedMore = !!archived && archived.length > (o.archived ?? 0);
+  const decShown = (decs as StateDecisionDoc[]).slice(0, dn);
+  return {
+    decisionsList: decShown.reverse(),
+    ...(parked ? { parkedList: (parked as StateParkedDoc[]).slice(0, o.parked) } : {}),
+    ...(page ? { page, ...(decsMore ? { decisionsMore: true } : {}), ...(parkedMore ? { parkedMore: true } : {}) } : {}),
+    ...(archived ? { archivedList: (archived as StateDecisionDoc[]).slice(0, o.archived), archivedTotal, ...(archivedMore ? { archivedNext: cursorOf(projectId, archived[o.archived! - 1].archivedAt as Date, archived[o.archived! - 1].id) } : {}) } : {}),
+  };
+}
+/** The rows the State card shows before "Show more". */
+export const PAGE_ROWS = 50;
+
+/** The State as an agent reads it: the latest 10 live decisions and the counts. */
+export async function stateOutAgent(s: Scope, d: StateDoc, reader: string, names: Names): Promise<StateOut> {
+  return stateOut(d, reader, names, await stateLists(s, d.projectId, { decisions: AGENT_DECISIONS }));
+}
+/** The State as the project page reads it: the newest 50 Parked lines and decisions, cursors for more, and the archived decisions. */
+export async function stateOutPage(s: Scope, d: StateDoc, reader: string, names: Names): Promise<StateOut> {
+  return stateOut(d, reader, names, await stateLists(s, d.projectId, { decisions: 'page', parked: PAGE_ROWS, archived: 20 }));
+}
+
 /** The State as plain data (dates as ISO strings), lines by anyone but the reader labelled `writtenBy`. */
 export const AGENT_DECISIONS = 10;
-export function stateOut(d: StateDoc, reader: string, names: Names, opts: { decisions?: 'all' | number; parked?: boolean } = {}): StateOut {
-  const liveDecisions = d.decisions.filter(x => !x.archivedAt);
-  const keep = opts.decisions ?? AGENT_DECISIONS;
-  const shownDecisions = keep === 'all' ? liveDecisions : liveDecisions.slice(-keep);
-  const parkedAll = d.parked ?? [];
+/** What `stateLists` read: the rows a State answer shows (the State document holds only their counts). */
+export type StateLists = {
+  /** The newest live decisions, oldest first. */
+  decisionsList: StateDecisionDoc[];
+  /** The newest Parked lines, newest first; absent when the answer carries none. */
+  parkedList?: StateParkedDoc[];
+  /** The page: also the cursors for "Show more" and the archived decisions. */
+  page?: boolean;
+  archivedList?: StateDecisionDoc[];
+  archivedTotal?: number;
+  /** The page read a row past what it shows: there is more of each. */
+  decisionsMore?: boolean;
+  parkedMore?: boolean;
+  archivedNext?: string;
+};
+
+const parkedRow = (l: StateLine | StateParkedDoc, w: (by: string) => { writtenBy?: string }): ParkedOut => ({ id: l.id, text: l.text, at: l.at.toISOString().slice(0, 10), ...(l.when ? { when: l.when } : {}), ...(l.ref ? { ref: l.ref } : {}), ...w(l.by) });
+
+export function stateOut(d: StateDoc, reader: string, names: Names, lists?: StateLists): StateOut {
+  // A State not moved yet (no counts) still answers from its legacy arrays.
+  const legacyLive = (d.decisions ?? []).filter(x => !x.archivedAt);
+  // A State still holding its arrays (not moved: counts missing, or a move that was refused) answers from them.
+  const unmoved = !!(d.parked || d.decisions);
+  const shownDecisions = unmoved ? legacyLive.slice(-(lists?.page ? PAGE_ROWS : AGENT_DECISIONS)) : (lists?.decisionsList ?? []);
+  const parkedShown = unmoved ? (lists?.parkedList ? [...(d.parked ?? [])].reverse().slice(0, PAGE_ROWS).map(l => ({ ...l, parkedAt: l.at })) : undefined) : lists?.parkedList;
+  const parkedTotal = d.parkedCount ?? d.parked?.length ?? 0;
+  const decisionsTotal = d.decisionsCount ?? legacyLive.length;
   const w = (by: string) => {
     const l = label(names, reader, by);
     return l ? { writtenBy: l } : {};
@@ -866,10 +1028,12 @@ export function stateOut(d: StateDoc, reader: string, names: Names, opts: { deci
     now: d.now ? { text: d.now.text, ...(d.now.hold?.label || d.now.holder ? { holder: d.now.hold?.label || d.now.holder } : {}), at: d.now.at.toISOString(), ...w(d.now.by) } : null,
     next: d.next.map(l => ({ id: l.id, text: l.text, at: l.at.toISOString().slice(0, 10), ...(l.ref ? { ref: l.ref } : {}), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...leftOut(l), ...w(l.by) })),
     later: d.later.map(l => ({ id: l.id, text: l.text, at: l.at.toISOString().slice(0, 10), ...(l.waitsOn ? { waitsOn: l.waitsOn } : {}), ...leftOut(l), ...w(l.by) })),
-    ...(opts.parked ? { parked: parkedAll.map(l => ({ id: l.id, text: l.text, at: l.at.toISOString().slice(0, 10), ...(l.when ? { when: l.when } : {}), ...(l.ref ? { ref: l.ref } : {}), ...w(l.by) })) } : {}),
-    parkedTotal: parkedAll.length,
-    decisionsTotal: liveDecisions.length,
+    ...(parkedShown ? { parked: parkedShown.map(l => parkedRow(l, w)), ...(lists?.parkedMore && parkedShown.length ? { parkedNext: cursorOf(d.projectId, parkedShown[parkedShown.length - 1].parkedAt, parkedShown[parkedShown.length - 1].id) } : {}) } : {}),
+    parkedTotal,
+    decisionsTotal,
     decisions: shownDecisions.map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', via: x.via, text: x.text, ...(x.msg ? { message: x.msg } : {}), ...(x.word ? { word: x.word } : {}), ...w(x.author ?? x.by) })),
+    ...(lists?.decisionsMore && shownDecisions.length ? { decisionsNext: cursorOf(d.projectId, shownDecisions[0].at, shownDecisions[0].id) } : {}),
+    ...(lists?.archivedList ? { archivedDecisions: lists.archivedList.map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', text: x.text, archivedAt: x.archivedAt!.toISOString(), ...(x.archivedBy ? { archivedBy: names[x.archivedBy] || 'a former member' } : {}) })), ...(lists.archivedNext ? { archivedDecisionsNext: lists.archivedNext } : {}), archivedDecisionsTotal: lists.archivedTotal ?? lists.archivedList.length } : {}),
     where: Object.fromEntries(Object.entries(d.where ?? {}).map(([m, v]) => [m, { ...(v.branch ? { branch: v.branch } : {}), ...(v.head ? { head: v.head } : {}), ...(v.dirty !== undefined ? { dirty: v.dirty } : {}), ...(v.worktrees?.length ? { worktrees: v.worktrees } : {}), at: v.at.toISOString(), ...w(v.by) }])),
     updatedAt: d.updatedAt.toISOString(),
   };
@@ -899,26 +1063,89 @@ export function stateCompact(o: StateOut): StateCompact {
   };
 }
 
-/** list_parked: the project's Parked lines, newest first. `query` is a case-insensitive substring of the text or the "bring back when". */
-export async function listParked(s: Scope, key: string, o: { query?: string; limit?: number } = {}): Promise<{ project: string; total: number; parked: { id: string; date: string; when?: string; text: string; writtenBy?: string }[] }> {
-  const { project, state } = await getState(s, key);
-  const names = await memberNames(s.orgId);
-  const q = o.query?.trim().toLowerCase();
-  const all = [...(state?.parked ?? [])].reverse();
-  const hit = q ? all.filter(l => l.text.toLowerCase().includes(q) || (l.when ?? '').toLowerCase().includes(q)) : all;
+/**
+ * One page of a project's Parked lines, newest first. `query` is a case-insensitive piece of the text or of the "bring back when"
+ * (taken literally, run in the database); `before` is the `next` of the last page. `total` counts all the project's lines.
+ */
+async function parkedPage(s: Scope, projectId: string, o: { query?: string; limit?: number; before?: string }): Promise<{ total: number; rows: StateParkedDoc[]; next?: string }> {
+  const c = await scoped(s);
   const limit = Math.min(Math.max(o.limit ?? 100, 1), 500);
-  return { project: project.name, total: all.length, parked: hit.slice(0, limit).map(l => ({ id: l.id, date: l.at.toISOString().slice(0, 10), ...(l.when ? { when: l.when } : {}), text: l.text, ...w2(names, s.userId, l.by) })) };
+  const q = o.query?.trim();
+  const cur = readCursor(projectId, o.before);
+  const filter = {
+    projectId,
+    ...(q ? { $or: [{ text: { $regex: escRe(q), $options: 'i' } }, { when: { $regex: escRe(q), $options: 'i' } }] } : {}),
+    ...(cur ? { $and: [{ $or: [{ parkedAt: { $lt: cur.t } }, { parkedAt: cur.t, id: { $lt: cur.i } }] }] } : {}),
+  };
+  const [rows, total] = await Promise.all([c.stateParked.find(filter as never).sort({ parkedAt: -1, id: -1 }).limit(limit + 1).toArray(), c.stateParked.countDocuments({ projectId } as never)]);
+  const page = rows.slice(0, limit) as StateParkedDoc[];
+  return { total, rows: page, ...(rows.length > limit ? { next: cursorOf(projectId, page[page.length - 1].parkedAt, page[page.length - 1].id) } : {}) };
 }
 
-/** list_decisions: the project's live decisions, newest first (the State carries only the latest 10). */
-export async function listDecisions(s: Scope, key: string, o: { since?: Date; query?: string; limit?: number } = {}): Promise<{ project: string; total: number; decisions: { id: string; date: string; text: string; by: string; via: string; writtenBy?: string }[] }> {
-  const { project, state } = await getState(s, key);
+/** list_parked: the project's Parked lines, newest first, a page at a time (`next` is the `before` of the following page). */
+export async function listParked(s: Scope, key: string, o: { query?: string; limit?: number; before?: string } = {}): Promise<{ project: string; total: number; parked: { id: string; date: string; when?: string; text: string; writtenBy?: string }[]; next?: string }> {
+  const { project } = await getState(s, key);
   const names = await memberNames(s.orgId);
-  const q = o.query?.trim().toLowerCase();
-  const all = (state?.decisions ?? []).filter(x => !x.archivedAt).reverse();
-  const hit = all.filter(x => (!o.since || x.at >= o.since) && (!q || x.text.toLowerCase().includes(q)));
+  const r = await parkedPage(s, project._id, o);
+  return { project: project.name, total: r.total, parked: r.rows.map(l => ({ id: l.id, date: l.at.toISOString().slice(0, 10), ...(l.when ? { when: l.when } : {}), text: l.text, ...w2(names, s.userId, l.by) })), ...(r.next ? { next: r.next } : {}) };
+}
+
+/** One page of a project's live decisions, newest first. */
+async function decisionsPage(s: Scope, projectId: string, o: { since?: Date; query?: string; limit?: number; before?: string }): Promise<{ total: number; rows: StateDecisionDoc[]; next?: string }> {
+  const c = await scoped(s);
   const limit = Math.min(Math.max(o.limit ?? 50, 1), 500);
-  return { project: project.name, total: all.length, decisions: hit.slice(0, limit).map(x => ({ id: x.id, date: x.at.toISOString().slice(0, 10), text: x.text, by: names[x.by] || 'a former member', via: x.via, ...w2(names, s.userId, x.author ?? x.by) })) };
+  const q = o.query?.trim();
+  const cur = readCursor(projectId, o.before);
+  const filter = {
+    projectId,
+    archivedAt: null,
+    ...(o.since ? { at: { $gte: o.since } } : {}),
+    ...(q ? { text: { $regex: escRe(q), $options: 'i' } } : {}),
+    ...(cur ? { $and: [{ $or: [{ at: { $lt: cur.t } }, { at: cur.t, id: { $lt: cur.i } }] }] } : {}),
+  };
+  const [rows, total] = await Promise.all([c.stateDecisions.find(filter as never).sort({ at: -1, id: -1 }).limit(limit + 1).toArray(), c.stateDecisions.countDocuments({ projectId, archivedAt: null } as never)]);
+  const page = rows.slice(0, limit) as StateDecisionDoc[];
+  return { total, rows: page, ...(rows.length > limit ? { next: cursorOf(projectId, page[page.length - 1].at, page[page.length - 1].id) } : {}) };
+}
+
+/** list_decisions: the project's live decisions, newest first, a page at a time (the State carries only the latest 10). */
+export async function listDecisions(s: Scope, key: string, o: { since?: Date; query?: string; limit?: number; before?: string } = {}): Promise<{ project: string; total: number; decisions: { id: string; date: string; text: string; by: string; via: string; writtenBy?: string }[]; next?: string }> {
+  const { project } = await getState(s, key);
+  const names = await memberNames(s.orgId);
+  const r = await decisionsPage(s, project._id, o);
+  return { project: project.name, total: r.total, decisions: r.rows.map(x => ({ id: x.id, date: x.at.toISOString().slice(0, 10), text: x.text, by: names[x.by] || 'a former member', via: x.via, ...w2(names, s.userId, x.author ?? x.by) })), ...(r.next ? { next: r.next } : {}) };
+}
+
+/** The State card's "Show more": the next page of Parked lines, as the card draws them. */
+export async function moreParked(s: Scope, projectId: string, before: string): Promise<{ parked: ParkedOut[]; next?: string }> {
+  projectId = (await getState(s, projectId)).project._id; // not found for a project the caller cannot read
+  const names = await memberNames(s.orgId);
+  const r = await parkedPage(s, projectId, { before, limit: PAGE_ROWS });
+  const w = (by: string) => w2(names, s.userId, by);
+  return { parked: r.rows.map(l => parkedRow(l, w)), ...(r.next ? { next: r.next } : {}) };
+}
+
+/** The State card's "Show more" under Archived: the next older archived decisions. */
+export async function moreArchivedDecisions(s: Scope, projectId: string, before: string): Promise<{ archived: NonNullable<StateOut['archivedDecisions']>; next?: string }> {
+  projectId = (await getState(s, projectId)).project._id; // not found for a project the caller cannot read
+  const c = await scoped(s);
+  const names = await memberNames(s.orgId);
+  const cur = readCursor(projectId, before);
+  const filter = { projectId, archivedAt: { $ne: null }, ...(cur ? { $or: [{ archivedAt: { $lt: cur.t } }, { archivedAt: cur.t, id: { $lt: cur.i } }] } : {}) };
+  const rows = (await c.stateDecisions.find(filter as never).sort({ archivedAt: -1, id: -1 }).limit(PAGE_ROWS + 1).toArray()) as StateDecisionDoc[];
+  const page = rows.slice(0, PAGE_ROWS);
+  return {
+    archived: page.map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', text: x.text, archivedAt: x.archivedAt!.toISOString(), ...(x.archivedBy ? { archivedBy: names[x.archivedBy] || 'a former member' } : {}) })),
+    ...(rows.length > PAGE_ROWS ? { next: cursorOf(projectId, page[page.length - 1].archivedAt as Date, page[page.length - 1].id) } : {}),
+  };
+}
+
+/** The State card's "Show more": the next page of decisions (newest first), as the card draws them. */
+export async function moreDecisions(s: Scope, projectId: string, before: string): Promise<{ decisions: DecisionOut[]; next?: string }> {
+  projectId = (await getState(s, projectId)).project._id; // not found for a project the caller cannot read
+  const names = await memberNames(s.orgId);
+  const r = await decisionsPage(s, projectId, { before, limit: PAGE_ROWS });
+  return { decisions: r.rows.map(x => ({ id: x.id, at: x.at.toISOString(), by: names[x.by] || 'a former member', via: x.via, text: x.text, ...(x.msg ? { message: x.msg } : {}), ...(x.word ? { word: x.word } : {}), ...w2(names, s.userId, x.author ?? x.by) })), ...(r.next ? { next: r.next } : {}) };
 }
 const w2 = (names: Names, reader: string, by: string) => {
   const l = label(names, reader, by);
@@ -958,7 +1185,7 @@ export function copyLines(d: StateDoc): CopyLine[] {
  * "(by X)"), so two PCs never commit different copies, and no Where (it changes with every session's head). Decisions are
  * listed only when `decisions` is true: leave them out for a public repo (lib/data/repo-visibility.ts).
  */
-export function stateMarkdown(d: StateDoc, o: { projectName: string; url: string; names: Names; decisions?: boolean; /** Ignored: kept so older callers still compile. */ reader?: string }): string {
+export function stateMarkdown(d: StateDoc, o: { projectName: string; url: string; names: Names; decisions?: boolean; /** The latest live decisions, oldest first (the copy lists the last 30). */ decisionsList?: { at: Date; text: string; by: string; via: string }[]; /** The project's Parked count (the State's own when left out). */ parkedCount?: number; /** Ignored: kept so older callers still compile. */ reader?: string }): string {
   const rows = copyLines(d);
   const out: string[] = [`Copy of the Work OS state, version ${d.version}. WORK-STATE.md is a copy of the State, written by the Work OS hook; never edit it. Change the State in Work OS (${o.url}).`, '', `# Work state: ${o.projectName}`, '', '## Now'];
   const now = rows.find(r => r.section === 'Now');
@@ -971,9 +1198,9 @@ export function stateMarkdown(d: StateDoc, o: { projectName: string; url: string
   const later = rows.filter(r => r.section === 'Later');
   if (later.length) for (const r of later) out.push(r.line);
   else out.push('- (empty)');
-  const parkedN = d.parked?.length ?? 0;
+  const parkedN = o.parkedCount ?? d.parkedCount ?? d.parked?.length ?? 0;
   if (parkedN > 0) out.push('', '## Parked', `- ${parkedN} lines in Work OS: list_parked, or the project page.`);
-  const live = o.decisions ? d.decisions.filter(x => !x.archivedAt) : [];
+  const live = o.decisions ? o.decisionsList ?? (d.decisions ?? []).filter(x => !x.archivedAt) : [];
   if (live.length) {
     out.push('', '## Decisions');
     for (const x of live.slice(-30)) out.push(`- ${x.at.toISOString().slice(0, 10)}: ${x.text} (${o.names[x.by] || 'a former member'}, ${x.via})`);
@@ -984,7 +1211,8 @@ export function stateMarkdown(d: StateDoc, o: { projectName: string; url: string
 /** The copy of a project's State for a reader: the same text for everyone, Decisions only for a repo known to be private. */
 export async function stateCopy(s: Scope, project: ProjectDoc, d: StateDoc, baseUrl: string): Promise<string> {
   const [names, decisions] = await Promise.all([memberNames(s.orgId), decisionsInCopy(s, project)]);
-  return stateMarkdown(d, { projectName: project.name, url: `${baseUrl}/projects/${project._id}`, names, decisions });
+  const decisionsList = decisions ? (await stateLists(s, project._id, { decisions: 30 })).decisionsList : undefined;
+  return stateMarkdown(d, { projectName: project.name, url: `${baseUrl}/projects/${project._id}`, names, decisions, ...(decisionsList ? { decisionsList } : {}) });
 }
 
 /**

@@ -13,7 +13,8 @@ process.env.WORK_OS_WORKER_DIR = path.join(tmp, 'cfg'); // no worker config: the
 const KEY = 'wos_' + 'k'.repeat(40);
 const { main } = await import('../hook.mjs');
 const { FILES } = await import('../hooks-install.mjs');
-const { run: libRun } = await import('../hook-lib.mjs');
+const { run: libRun, deps: libDeps } = await import('../hook-lib.mjs');
+libDeps.userUrl = () => process.env.WORK_OS_URL || ''; // tests only: the key path's server would come from the person's ~/.claude/settings.json
 const HOOK = fileURLToPath(new URL('../hook.mjs', import.meta.url));
 
 // A stub of the MCP endpoint: start_work answers per `mode`.
@@ -300,8 +301,12 @@ test('worker and key: the worker path keeps its token and posts state events; th
   agentMode = 'ok';
 });
 
+// A child process reads the key path's server from its user settings file (never from WORK_OS_URL): a home folder of its own with one.
+const fakeHome = path.join(tmp, 'home');
 const run = (arg, input) => new Promise((resolve) => {
-  const c = spawn(process.execPath, [HOOK, arg], { env: { ...process.env } });
+  fs.mkdirSync(path.join(fakeHome, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(fakeHome, '.claude', 'settings.json'), JSON.stringify({ env: { WORK_OS_URL: process.env.WORK_OS_URL } }));
+  const c = spawn(process.execPath, [HOOK, arg], { env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome } });
   let out = '';
   c.stdout.on('data', (d) => (out += d));
   c.on('close', (status) => resolve({ status, out }));

@@ -17,7 +17,9 @@ import { assigneesOf } from '../assignees';
 // (MAIL_LIMITS: 200 deletes/moves and 100 sends per hour per person, every caller kind).
 // Claude Code keys (actor "claude-code") get:
 //   - no permanent deletion and no admin operations (BLOCKED; trash stays restorable)
-//   - at most 1000 tool calls per rolling hour per key (policyEvents, Mongo)
+//   - tool calls per rolling hour (policyEvents, Mongo; CALLS below): a key's sessions share 1,000 (reads and most writes are
+//     refused past it) and each session has a share of 300; a write that saves State (SAVING_TOOLS) still goes through past
+//     1,000 while its session is under 400 and the key under 1,500 (the hard cap: a session id is the caller's own word, so it never lifts that)
 //   - at most 10 trash calls (delete_task / delete_note, single or in a batch) per 10 minutes, unless confirmed
 //   - apply_changes that trashes > 10 items or changes > 50 tasks must be dry-run first; the dry run
 //     returns a confirm token (HMAC of the op list + expiry, 10 min, the auth secret) that the real call passes
@@ -35,6 +37,7 @@ const DISPATCHED_REFUSED = /^(mail_|discord_)/;
 export const callerScope = (c: Caller): Scope => ({ userId: c.userId, orgId: c.orgId });
 
 export const LIMITS = {
+  /** The budget a key's sessions share for reads and most writes (CALLS.key; kept for older readers). */
   callsPerHour: 1000,
   trashPerWindow: 10,
   trashWindowMin: 10,
@@ -42,6 +45,17 @@ export const LIMITS = {
   batchTaskChangesMax: 50,
   confirmTtlMin: 10,
 } as const;
+
+/**
+ * The hourly call budget of a Claude Code key. Every MCP tool call counts once, reads included (subagents use their parent's key,
+ * so their calls count too; the hook's /api/agent/* calls and the wait have their own budgets per session token and never count
+ * here). All sessions of one key share `key`; one session (the session id it passes, else the key itself) may use `session`. A
+ * write that saves State (SAVING_TOOLS) is never refused by the shared `key` budget while its session is under `sessionSave`:
+ * only `hard` (all calls of the key) stops it.
+ */
+export const CALLS = { key: LIMITS.callsPerHour, session: 300, sessionSave: 400, hard: 1500 } as const;
+/** The writes that save a session's work: a busy sibling session never blocks these. */
+export const SAVING_TOOLS = new Set(['save_state', 'end_work', 'set_doing', 'log_progress', 'complete_task', 'hand_in']);
 
 /** Policy refusals; their message is shown to the caller. */
 export class PolicyError extends InputError {
@@ -104,18 +118,74 @@ export function watchTarget(op: string, a: Record<string, unknown>): WatchTarget
 
 type EventKind = 'call' | 'trash' | 'mail_trash' | 'mail_send' | 'intake' | 'agent';
 
-async function countSince(keyId: string, kind: EventKind, since: Date): Promise<number> {
+async function countSince(keyId: string, kind: EventKind, since: Date, sid?: string): Promise<number> {
   const c = await collections(); // scope-ok: rate-limit events per API key
   const r = await c.policyEvents
-    .aggregate<{ n: number }>([{ $match: { keyId, kind, at: { $gte: since } } }, { $group: { _id: null, n: { $sum: { $ifNull: ['$n', 1] } } } }])
+    .aggregate<{ n: number }>([{ $match: { keyId, kind, at: { $gte: since }, ...(sid !== undefined ? { sid } : {}) } }, { $group: { _id: null, n: { $sum: { $ifNull: ['$n', 1] } } } }])
     .toArray();
   return r[0]?.n ?? 0;
 }
 
-async function record(keyId: string, kind: EventKind, n = 1): Promise<string> {
+async function record(keyId: string, kind: EventKind, n = 1, sid?: string): Promise<string> {
   const _id = randomUUID();
-  await (await collections()).policyEvents.insertOne({ _id, keyId, kind, at: new Date(), ...(n !== 1 ? { n } : {}) }); // scope-ok: rate-limit events per API key
+  await (await collections()).policyEvents.insertOne({ _id, keyId, kind, at: new Date(), ...(n !== 1 ? { n } : {}), ...(sid !== undefined ? { sid } : {}) }); // scope-ok: rate-limit events per API key
   return _id;
+}
+
+type CallCount = { key: number; session: number };
+type CallOver = 'hard' | 'session' | 'key';
+/**
+ * Why a call is over budget, or null when it fits (the counts include the call itself). A call with no session id (the key's own
+ * fallback: a client that passes no session) has no share of its own: it gets the key's budget, and no saving-write exemption,
+ * since no share bounds it (independent review, 21 Nov).
+ */
+function overCall(t: CallCount, saving: boolean, hasSession: boolean): CallOver | null {
+  if (t.key > CALLS.hard) return 'hard';
+  if (!hasSession) return t.key > CALLS.key ? 'key' : null;
+  if (t.session > (saving ? CALLS.sessionSave : CALLS.session)) return 'session';
+  if (t.key > CALLS.key && !saving) return 'key';
+  return null;
+}
+
+/** One call slot of a key for one session (`sid`): the race-safe reserve below, with the session's share and the saving-write rule. */
+async function reserveCall(keyId: string, sid: string, saving: boolean, hasSession: boolean): Promise<{ id: string } | { id: null; why: CallOver; total: CallCount }> {
+  const count = async (): Promise<CallCount> => {
+    const since = new Date(Date.now() - 3_600_000);
+    const [key, session] = await Promise.all([countSince(keyId, 'call', since), countSince(keyId, 'call', since, sid)]);
+    return { key, session };
+  };
+  let total: CallCount = { key: 0, session: 0 };
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const id = await record(keyId, 'call', 1, sid);
+    total = await count();
+    if (!overCall(total, saving, hasSession)) return { id };
+    await unrecord(id);
+    await new Promise(r => setTimeout(r, 10 + Math.random() * 40 * (attempt + 1)));
+    const settled = await count();
+    const why = overCall({ key: settled.key + 1, session: settled.session + 1 }, saving, hasSession);
+    if (why) return { id: null, why, total: settled };
+  }
+  return { id: null, why: overCall(total, saving, hasSession) ?? 'key', total: { key: total.key - 1, session: total.session - 1 } };
+}
+
+/** The 3 sessions of this key with the most calls this hour, by label. A key is one person's, so these are the caller's own sessions. */
+async function topSessions(caller: Caller, keyId: string): Promise<string> {
+  try {
+    const c = await collections(); // scope-ok: rate-limit events per API key
+    const top = await c.policyEvents
+      .aggregate<{ _id: string | null; n: number }>([{ $match: { keyId, kind: 'call', at: { $gte: new Date(Date.now() - 3_600_000) } } }, { $group: { _id: '$sid', n: { $sum: 1 } } }, { $sort: { n: -1 } }, { $limit: 3 }])
+      .toArray();
+    if (!top.length) return '';
+    const keys = top.map(t => t._id).filter((k): k is string => typeof k === 'string');
+    const rows = keys.length ? await (await scoped(callerScope(caller))).presence.find({ userId: caller.userId, key: { $in: keys } }, { projection: { key: 1, label: 1, lastSeen: 1 } }).sort({ lastSeen: -1 }).toArray() : [];
+    const name = (k: string | null) => {
+      const l = rows.find(r => r.key === k && r.label)?.label;
+      return l ? `"${l.slice(0, 60)}"` : k === caller.keyId ? 'calls with no session id' : 'a session with no name';
+    };
+    return ` Most calls this hour: ${top.map(t => `${name(t._id)} ${t.n}`).join(', ')}.`;
+  } catch {
+    return '';
+  }
 }
 
 async function unrecord(id: string | undefined): Promise<void> {
@@ -214,15 +284,25 @@ async function mailGuard(caller: Caller, tool: string): Promise<void> {
 }
 
 /** Runs before every tool call. Throws PolicyError to refuse. */
-export async function beforeTool(caller: Caller, tool: string): Promise<void> {
+export async function beforeTool(caller: Caller, tool: string, o: { session?: string } = {}): Promise<void> {
   if (!isCode(caller)) return mailGuard(caller, tool);
   const keyId = budgetKey(caller);
   if (BLOCKED.has(tool)) throw new PolicyError(`${tool} is not available to Claude Code keys (permanent deletion and admin stay with you, in the app).`);
   if (caller.dispatched && DISPATCHED_REFUSED.test(tool)) throw new PolicyError(`${tool} is not available to a dispatched run (task #${caller.dispatched.ref}): mail and Discord stay with the person. add_comment on the task if you need something from them.`);
   if (caller.dispatched && tool === 'propose_order') throw new PolicyError(`A dispatched run (task #${caller.dispatched.ref}) changes no Orders and proposes none: tell the person in your report what you would change.`);
-  const call = await reserve(keyId, 'call', 1, new Date(Date.now() - 3_600_000), LIMITS.callsPerHour);
-  if (!call.id) {
-    throw new PolicyError(`Rate limit: this key made ${call.total} Work OS calls in the last hour (max ${LIMITS.callsPerHour}). Wait a few minutes, or batch work with apply_changes.`);
+  const saving = SAVING_TOOLS.has(tool);
+  const call = await reserveCall(keyId, o.session || caller.keyId || caller.agent, saving, !!o.session);
+  if (call.id === null) {
+    const t = call.total;
+    const head =
+      call.why === 'session'
+        ? `Rate limit: this session made ${t.session} Work OS calls in the last hour (its share is ${CALLS.session}, or ${CALLS.sessionSave} for a write that saves State).`
+        : call.why === 'hard'
+          ? `Rate limit: this key made ${t.key} Work OS calls in the last hour (max ${CALLS.hard}, shared by every session of the key; this session made ${t.session}).`
+          : !o.session
+            ? `Rate limit: this key made ${t.key} Work OS calls in the last hour (max ${CALLS.key}, shared by every session of the key). This call passed no session, so it has no share of its own: pass session (the id start_work gave you) to get one.`
+            : `Rate limit: this key made ${t.key} Work OS calls in the last hour (max ${CALLS.key} for reads and most writes, shared by every session of the key; this session made ${t.session}). Saving State (save_state, end_work, set_doing, log_progress, complete_task, hand_in) still works while this session is under ${CALLS.sessionSave}.`;
+    throw new PolicyError(`${head}${await topSessions(caller, keyId)} Wait a few minutes, or batch work with apply_changes.`);
   }
   if (TRASH_TOOLS.has(tool)) {
     const t = await reserve(keyId, 'trash', 1, trashWindowStart(), LIMITS.trashPerWindow);

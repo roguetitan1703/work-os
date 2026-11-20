@@ -30,8 +30,9 @@ test('an open row at 3 hours with something heard lately falls back to idle', ()
   assert.equal(presenceState(row(180, { open: true }, 5), { now }).state, 'idle');
 });
 
-test('an open row at 3 hours with the daemon running stays working', () => {
-  assert.equal(presenceState(row(180, { open: true }), { now, daemon: 'running' }).state, 'working');
+test('an open row at 3 hours with the daemon running is idle, not working for ever (hooks review H2)', () => {
+  assert.equal(presenceState(row(180, { open: true }), { now, daemon: 'running' }).state, 'idle');
+  assert.equal(presenceState(row(100, { open: true }), { now, daemon: 'running' }).state, 'working');
 });
 
 test('the daemon saying stopped, or an ended row, is off at once even when open', () => {

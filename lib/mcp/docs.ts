@@ -233,7 +233,7 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   list_sessions: {
     title: 'List sessions',
     description:
-      'The sessions working on the projects you can read, as the roster shows them: address (a short s-… address for every session, yours or a teammate’s: send_message takes it as to), session id (your own sessions only), name (its label), person, tool, model, account (the Claude account, e.g. om), machine, project, branch, doing (task), state (working, waiting, idle or off; a session that started and has had no prompt yet is idle), minutesAgo and parent (for a builder), plus how full each machine is (machines). project: only that project; include_off: true also lists sessions that are off. At most 30. Use it to see who is on what before you start; it never shows other organizations or projects you cannot read.',
+      'The sessions working on the projects you can read, as the roster shows them: address (a short s-… address for every session, yours or a teammate’s: send_message takes it as to), session id (your own sessions only), name (its label), lead (true on the project’s lead session), person, tool, model, account (the Claude account, e.g. om), machine, project, branch, doing (task), state (working, waiting, idle or off; a session that started and has had no prompt yet is idle), minutesAgo and parent (for a builder), plus how full each machine is (machines). project: only that project; include_off: true also lists sessions that are off. At most 30. Use it to see who is on what before you start; it never shows other organizations or projects you cannot read. To reach a project’s lead you do not need this: send_message {project} with no to.',
     writes: false,
     example: 'Who is working on Grant Leads right now?',
   },
@@ -245,13 +245,13 @@ export const TOOLS: Record<ToolName, { title: string; description: string; write
   },
   list_parked: {
     title: 'List parked lines',
-    description: 'The project’s Parked lines, newest first: features and ideas set aside, each with its id, date, when to bring it back (when) and text. The State and the start brief carry only the count (parkedTotal), never these lines. project (required); query (a case-insensitive piece of the text or of when); limit (default 100, at most 500). Move a line back with save_state unpark {id|find, to?: later|next}.',
+    description: 'The project’s Parked lines, newest first: features and ideas set aside, each with its id, date, when to bring it back (when) and text. The State and the start brief carry only the count (parkedTotal), never these lines. project (required); query (a case-insensitive piece of the text or of when); limit (default 100, at most 500); before (the next value of the previous answer: it carries more when there are more lines; there is no limit on how many lines are parked). Move a line back with save_state unpark {id|find, to?: later|next}.',
     writes: false,
     example: 'What did we park on this project?',
   },
   list_decisions: {
     title: 'List decisions',
-    description: 'The project’s decision log, newest first: every decision still on the State, with id, date, text, who decided and how (via). The State carries only the latest 10 and decisionsTotal; this reads the rest. project (required); since (like recent_activity: 24h, 7d or a date); query (a case-insensitive piece of the text); limit (default 50, at most 500).',
+    description: 'The project’s decision log, newest first: every decision still on the State, with id, date, text, who decided and how (via). The State carries only the latest 10 and decisionsTotal; this reads the rest. project (required); since (like recent_activity: 24h, 7d or a date); query (a case-insensitive piece of the text); limit (default 50, at most 500); before (the next value of the previous answer: it carries more when there are more decisions; there is no limit on how many are kept).',
     writes: false,
     example: 'What did we decide about pricing?',
   },

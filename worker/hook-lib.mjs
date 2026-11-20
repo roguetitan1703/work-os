@@ -10,9 +10,20 @@ import { fileURLToPath } from 'node:url';
 import { checkBaseUrl, loadConfig } from './config.mjs';
 import { getToken } from './secret.mjs';
 import { identityKey, lstartTicks, transcriptMeta } from './hook-identity.mjs';
+import { sessionAccount } from './claude-account.mjs';
 
 /** What the device-key path reads the key with; tests replace it (in process only, never from the environment). */
-export const deps = { deviceKey: (dir) => getToken(dir) };
+/**
+ * The WORK_OS_URL of the person's own user settings (~/.claude/settings.json env), or ''. Read from that file only: never from the
+ * environment (a project's .claude/settings.json env block reaches the hooks' environment) and never from CLAUDE_CONFIG_DIR (which
+ * that env block could also set). Independent review, 21 Nov.
+ */
+export function userSettingsUrl(file = path.join(os.homedir(), '.claude', 'settings.json')) {
+  try { const u = JSON.parse(fs.readFileSync(file, 'utf8'))?.env?.WORK_OS_URL; return typeof u === 'string' ? u.trim() : ''; } catch { return ''; }
+}
+export const DEFAULT_URL = 'https://work.delpat.in';
+/** What tests replace: the worker's key store, and where the WORK_OS_KEY path finds its server when no worker config exists. */
+export const deps = { deviceKey: (dir) => getToken(dir), userUrl: () => userSettingsUrl() };
 export const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The worker config folder this copy was installed into (<dir>/hooks/hook.mjs), or null when it runs from elsewhere. */
 export const workerHome = () => (path.basename(HERE) === 'hooks' && fs.existsSync(path.join(path.dirname(HERE), 'config.json')) ? path.dirname(HERE) : null);
@@ -47,8 +58,7 @@ export const EVENTS = [
   // A subagent starts with the short form of the organization Orders (the first ten rule lines; the full Orders are in its parent's
   // brief). It reads only the session's marker and makes no network call, so a cloud repo's entry has it too.
   { event: 'subagent-start', claudeEvent: 'SubagentStart', matcher: null, timeoutS: 2 },
-  // A subagent ended: sends nothing (the lane result is the main conversation's last message, sent by the Stop hook); kept so installs stay valid.
-  { event: 'subagent-stop', claudeEvent: 'SubagentStop', matcher: null, timeoutS: 3, localOnly: true },
+  // No SubagentStop row (hooks review 18, 21 Nov): it sent nothing and cost a node process per subagent. An install removes the old entry.
 ];
 
 export const SESSION_TOKEN_RE = /^wst_[A-Za-z0-9_-]{43}$/;
@@ -62,7 +72,26 @@ export function keepToken(sid, token, until) {
   const dir = path.dirname(tokenFile(sid));
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(tokenFile(sid), JSON.stringify({ token, until: until || Date.now() + 24 * 3600e3 }), { mode: 0o600 });
-  try { for (const f of fs.readdirSync(dir)) { const p = path.join(dir, f); if (Date.now() - fs.statSync(p).mtimeMs > 2 * 86_400_000) fs.rmSync(p, { force: true }); } } catch {}
+  pruneFiles(dir, 2 * 86_400_000);
+}
+
+/** Deletes the files (never folders) in `dir` older than `ms`. */
+function pruneFiles(dir, ms, now = Date.now()) {
+  try { for (const f of fs.readdirSync(dir)) { try { const p = path.join(dir, f); const st = fs.statSync(p); if (st.isFile() && now - st.mtimeMs > ms) fs.rmSync(p, { force: true }); } catch {} } } catch {}
+}
+export const MARKER_KEEP_MS = 14 * 86_400_000;
+export const COPIES_KEEP_MS = 30 * 86_400_000;
+/** The marker folder and its copies/ backups are pruned on their own schedule (independent review, 21 Nov): markers after 14 days, backups after 30; at most once a day. */
+export function pruneOld(now = Date.now()) {
+  try {
+    const dir = markerDir();
+    const stamp = path.join(dir, '.pruned');
+    try { if (now - fs.statSync(stamp).mtimeMs < 86_400_000) return; } catch {}
+    pruneFiles(dir, MARKER_KEEP_MS, now);
+    pruneFiles(path.join(dir, 'copies'), COPIES_KEEP_MS, now);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(stamp, '');
+  } catch {}
 }
 
 // ── The session's claude process (Identity step 3) ─────────────────────────────────────────────────────────────────────────
@@ -75,7 +104,7 @@ const procFile = (sid) => path.join(HERE, 'sessions', String(sid).toLowerCase() 
 const isClaudeImage = (n) => /^claude(\.exe)?$/i.test(String(n || '').replace(/^"|"$/g, '').split(/[\\/]/).pop());
 
 /** Process facts for `pid`, or null: { ppid, name, start? }. One short PowerShell or ps call. */
-function processFacts(pid) {
+export function processFacts(pid) {
   try {
     if (process.platform === 'win32') {
       const script = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${Number(pid)}'; if ($p) { @{ ppid = $p.ParentProcessId; name = $p.Name; start = [string]$p.CreationDate.ToFileTimeUtc() } | ConvertTo-Json -Compress }`;
@@ -111,6 +140,9 @@ export function claudeProcess(env = process.env, facts = processFacts, ppid = pr
 }
 
 /** Writes the .proc file for a session (an installed copy only). Never throws. Returns what it wrote, or null. */
+/** The claude process from CLAUDE_PID alone, with no process lookup: what session-start writes first (cheap and local); the start time follows after the brief. */
+export const quickProcess = (env = process.env) => (/^\d{1,10}$/.test(env.CLAUDE_PID || '') && Number(env.CLAUDE_PID) > 0 ? { pid: Number(env.CLAUDE_PID) } : null);
+
 export function keepProc(sid, claude = claudeProcess) {
   try {
     if (!workerHome() || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sid || ''))) return null;
@@ -204,40 +236,111 @@ export async function postEvent(sid, event, extra = {}, timeoutMs = 1500) {
     const at = Date.now();
     let r = null;
     const m0 = readMarker(sid);
-    const ack = m0?.ack;
+    // Server trouble: one failed post silences this session's tool events for 5 minutes (sync hooks never stall on a down server). A
+    // state change (prompt, stop, notify, end) is always tried, within the hook's deadline, so the state is never left behind.
+    if ((event === 'tool' || event === 'tool-start' || event === 'result') && serverDown(m0, at)) return null;
+    const ms = withinDeadline(timeoutMs);
+    if (ms < 150) return null; // the hook's own time is up
+    // Acks go with a state event only (a tool-start or a lane result returns before the marker is written, so they would be sent again and again).
+    const ack = event === 'result' || event === 'tool-start' ? null : m0?.ack;
     const sent = Array.isArray(ack) && ack.length ? ack.slice(0, 12) : null;
     // Protocol 3: the session's own name, Claude's title and the model go with a prompt or a stop, once per change (the start sent the first).
     let ident = null;
     if ((event === 'prompt' || event === 'stop') && typeof m0?.transcript === 'string') {
-      const meta = transcriptMeta(m0.transcript);
+      // The account is read again each time (hooks review M9): a session outlives a login switch, and CLAUDE_CONFIG_DIR picks the account.
+      // A server that refused the account field (an older server: its identity schema is strict) is not sent it again for a day.
+      const acct = typeof m0.noAccountAt === 'number' && at - m0.noAccountAt < 86_400_000 ? null : sessionAccount()?.label;
+      const meta = { ...transcriptMeta(m0.transcript), ...(acct ? { account: acct } : {}) };
       const k = identityKey(meta);
-      if (k !== (m0.ident ?? '')) ident = { key: k, send: { ...(meta.title ? { title: meta.title } : {}), ...(meta.aiTitle ? { aiTitle: meta.aiTitle } : {}), ...(meta.model ? { model: meta.model } : {}) } };
+      if (k !== (m0.ident ?? '')) ident = { key: k, send: { ...(meta.title ? { title: meta.title } : {}), ...(meta.aiTitle ? { aiTitle: meta.aiTitle } : {}), ...(meta.model ? { model: meta.model } : {}), ...(meta.account ? { account: meta.account } : {}) } };
     }
-    try { r = await postAgent('/api/agent/event', token, { event, ...extra, ...(ident && Object.keys(ident.send).length ? { identity: ident.send } : {}), ...(sent ? { ack: sent } : {}), at }, timeoutMs); } catch {}
-    const m = readMarker(sid);
-    if (m && ident && r?.status === 200) m.ident = ident.key; // the server has it
-    if (m && sent && r?.status === 200) delete m.ack; // the server has it
-    if (m) {
-      if (event === 'result' || event === 'tool-start') return r; // a lane result changes no session state
+    const body = (id) => ({ event, ...extra, ...(id && Object.keys(id).length ? { identity: id } : {}), ...(sent ? { ack: sent } : {}), at });
+    try { r = await postAgent('/api/agent/event', token, body(ident?.send), ms); } catch {}
+    let noAccount = false;
+    if (r?.status === 400 && ident?.send.account) {
+      // A new hook against an older server: once more without the account, and remember not to send it.
+      noAccount = true;
+      const { account: _a, ...rest } = ident.send;
+      ident = { key: identityKey(rest), send: rest };
+      const ms2 = withinDeadline(timeoutMs);
+      if (ms2 >= 150) { try { r = await postAgent('/api/agent/event', token, body(rest), ms2); } catch { r = null; } }
+    }
+    const ok = r?.status === 200;
+    // Down means no answer, or a 5xx: a 4xx is the server answering (a refused field, a used-up budget), so the next try may go at once.
+    const down = !r || r.status >= 500;
+    updateMarker(sid, (m) => {
+      if (ident && ok) m.ident = ident.key; // the server has it
+      if (noAccount) m.noAccountAt = at;
+      if (sent && ok && Array.isArray(m.ack)) m.ack = m.ack.filter((id) => !sent.includes(id)); // the server has these; newer ids stay
+      if (Array.isArray(m.ack) && !m.ack.length) delete m.ack;
+      if (event === 'tool-start') {
+        // tool-start marks the row open: the shared heartbeat (hook-tool-start.mjs) skips repeats while it is open
+        m.presence = ok ? { state: 'working', at, postedAt: at, open: true } : { ...(m.presence || {}), postedAt: at, ...(down ? { failed: true } : {}) };
+        return m;
+      }
+      if (event === 'result') { if (down) m.presence = { ...(m.presence || {}), postedAt: at, failed: true }; return m; } // a lane result changes no session state
       const state = event === 'notify' ? (extra.kind === 'idle_prompt' ? 'idle' : 'waiting') : PRESENCE_AFTER[event];
-      writeMarker(sid, { ...m, presence: r?.status === 200 ? { state, at, postedAt: at } : { ...(m.presence || {}), postedAt: at, failed: true } });
-    }
+      // kind: which notify set waiting (a permission prompt, a dialog, or idle)
+      m.presence = ok ? { state, at, postedAt: at, ...(event === 'notify' && extra.kind ? { kind: extra.kind } : {}) } : { ...(m.presence || {}), postedAt: at, ...(down ? { failed: true } : {}) };
+      return m;
+    });
     return r;
   } catch { return null; }
 }
 
 /** Set by hook.mjs from the command line: the server address a cloud repo's settings name (--server), used when WORK_OS_URL is not set. `exitCode` and `stderr`: what the process ends with (the idle wait: 2 and the message, which wakes the session). */
-export const run = { server: null, /** Set by hook.mjs from --project (a cloud repo's entries, `hooks repo --project`): the project this repo's cloud sessions start on, so the key path calls start_work { project }. */ project: null, exitCode: 0, stderr: '', /** Set by the pre-tool hook once it found a production action, before it asks Work OS: if the hook then runs out of time, hook.mjs refuses (hook-release.mjs). */ prod: null };
+export const run = { /** Set by hook.mjs: when this hook run must be done (Claude Code's timeout less a margin); every network call fits inside it. */ deadline: 0, server: null, /** Set by hook.mjs from --project (a cloud repo's entries, `hooks repo --project`): the project this repo's cloud sessions start on, so the key path calls start_work { project }. */ project: null, exitCode: 0, stderr: '', /** Set by the pre-tool hook once it found a production action, before it asks Work OS: if the hook then runs out of time, hook.mjs refuses (hook-release.mjs). */ prod: null };
 
 export const TIMEOUT_MS = 5000;
+/** A network call's timeout, cut to what is left of the hook run's deadline (hook.mjs sets run.deadline). */
+export const withinDeadline = (ms, now = Date.now()) => (run.deadline ? Math.min(ms, run.deadline - now) : ms);
+/** How long one failed post silences a session's hooks (the same 5 minutes as the pre-tool ping always had). */
+export const DOWN_MS = 5 * 60_000;
+/** The server failed this session's last post less than 5 minutes ago. */
+export const serverDown = (m, now = Date.now()) => !!m?.presence?.failed && typeof m.presence.postedAt === 'number' && now - m.presence.postedAt < DOWN_MS;
 export const MAX_BRIEF = 9500; // Claude Code caps a hook context string at 10,000 characters
-export const markerDir = () => process.env.WORK_OS_HOOK_DIR || path.join(os.tmpdir(), 'work-os-hooks');
+// An installed copy keeps its markers beside the hook (<hooks>/sessions/markers), out of the temp folder that Storage Sense
+// empties (a marker holds the production list, the dispatched mark and the Orders). WORK_OS_HOOK_DIR still wins (tests, a copy run from the repo).
+export const markerDir = () => process.env.WORK_OS_HOOK_DIR || (workerHome() ? path.join(HERE, 'sessions', 'markers') : path.join(os.tmpdir(), 'work-os-hooks'));
 const markerFile = (sid) => path.join(markerDir(), String(sid).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80) + '.json');
 
 export const git = (cwd, args) => { try { return execFileSync('git', args, { cwd, encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return ''; } };
 export const statusHash = (cwd) => createHash('sha1').update(git(cwd, ['status', '--porcelain'])).digest('hex');
-export const readMarker = (sid) => { try { return JSON.parse(fs.readFileSync(markerFile(sid), 'utf8')); } catch { return null; } };
-export const writeMarker = (sid, m) => { fs.mkdirSync(markerDir(), { recursive: true }); fs.writeFileSync(markerFile(sid), JSON.stringify(m)); };
+/**
+ * The session's marker, or null. A session that began before the markers moved beside the hook still has its marker in
+ * %TEMP%/work-os-hooks: it is read from there once and moved over, so the session keeps its production guard and presence across
+ * the update (independent review, 21 Nov).
+ */
+export const readMarker = (sid) => {
+  try { return JSON.parse(fs.readFileSync(markerFile(sid), 'utf8')); } catch {}
+  if (process.env.WORK_OS_HOOK_DIR || !workerHome()) return null;
+  try {
+    const old = path.join(os.tmpdir(), 'work-os-hooks', path.basename(markerFile(sid)));
+    const m = JSON.parse(fs.readFileSync(old, 'utf8'));
+    if (!m || typeof m !== 'object') return null;
+    writeMarker(sid, m);
+    try { fs.rmSync(old, { force: true }); } catch {}
+    return m;
+  } catch { return null; }
+};
+/** Writes the whole marker at once (a temp file, then rename), so a hook reading it in parallel never sees half a file. */
+export const writeMarker = (sid, m) => {
+  fs.mkdirSync(markerDir(), { recursive: true });
+  const f = markerFile(sid);
+  const t = `${f}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  fs.writeFileSync(t, JSON.stringify(m));
+  try { fs.renameSync(t, f); } catch { try { fs.renameSync(t, f); } catch { try { fs.rmSync(t, { force: true }); } catch {} } } // Windows: a reader may hold it a moment
+};
+/** Read, change and write the marker: `fn(m)` gets a fresh copy and returns the new one; nothing is written when there is no marker (a failed read never wipes it). */
+export const updateMarker = (sid, fn) => {
+  try {
+    const m = readMarker(sid);
+    if (!m) return null;
+    const next = fn(m);
+    if (next) writeMarker(sid, next);
+    return next ?? null;
+  } catch { return null; }
+};
 export const sizeOf = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };
 export const str = (v) => (typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v));
 export const cut = (s, n) => { s = str(s).replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
@@ -339,12 +442,18 @@ export function repoFacts(cwd) {
 export async function mcpCall(name, args) {
   const key = process.env.WORK_OS_KEY || '';
   if (!/^wos_[A-Za-z0-9_-]{8,}$/.test(key)) return null;
-  const base = checkBaseUrl(process.env.WORK_OS_URL || run.server || loadConfig().baseUrl);
+  // The key goes only to a server the person chose: the worker's config; else WORK_OS_URL from their own user settings file; else
+  // Work OS itself. Never WORK_OS_URL from the environment (a repo's .claude/settings.json env block reaches it), and a repo's
+  // --server only in a Claude Code cloud session, which runs the repo's own code anyway (independent review, 21 Nov).
+  const cloud = process.env.CLAUDE_CODE_REMOTE === 'true';
+  const base = checkBaseUrl(workerHome() ? loadConfig(workerHome()).baseUrl : deps.userUrl() || (cloud && run.server) || DEFAULT_URL);
+  const ms = withinDeadline(TIMEOUT_MS);
+  if (ms < 300) return null;
   const res = await fetch(base + '/api/mcp', {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${key}`, ...hookHeaders() },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(ms),
   });
   if (!res.ok) return null;
   const t = await res.text();
@@ -368,7 +477,7 @@ export async function postAgent(apiPath, cred, body, timeoutMs = TIMEOUT_MS, sig
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${cred}`, ...hookHeaders() },
     body: JSON.stringify(body),
-    signal: signal ? AbortSignal.any([AbortSignal.timeout(timeoutMs), signal]) : AbortSignal.timeout(timeoutMs),
+    signal: signal ? AbortSignal.any([AbortSignal.timeout(Math.max(1, withinDeadline(timeoutMs))), signal]) : AbortSignal.timeout(Math.max(1, withinDeadline(timeoutMs))),
     redirect: 'error',
   });
   let b = null;

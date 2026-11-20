@@ -1,5 +1,5 @@
 // Identity step 4: a session's name, model and tool from the hook (protocol 3). POST /api/agent/start takes title, aiTitle, tool and
-// model; POST /api/agent/event takes identity { title?, aiTitle?, model? } on a prompt or a stop. The label order is the session's own
+// model; POST /api/agent/event takes identity { title?, aiTitle?, model?, account? } on a prompt or a stop. The label order is the session's own
 // name -> start_work's label -> Claude's title -> "<project> · Claude Code"; of the two explicit ones the last written wins; Claude's
 // title only fills where nothing explicit is set; an old hook's plain "Claude Code" is no name; a dispatched session keeps its forced
 // label; titles are one line of at most 120 characters; the roster shows the name, model and tool. Seed profile: none.
@@ -68,7 +68,14 @@ try {
   const tooBig = await call('/api/agent/event', A.token, { event: 'tool', identity: { title: 'x' } });
   check('event: identity belongs to a prompt or a stop (a tool event with it is a 400)', tooBig.status === 400, `${tooBig.status}`);
   const extra = await call('/api/agent/event', A.token, { event: 'prompt', identity: { title: 'x', secret: 'y' } });
-  check('event: identity takes nothing but title, aiTitle and model', extra.status === 400, `${extra.status}`);
+  check('event: identity takes nothing but title, aiTitle, model and account', extra.status === 400, `${extra.status}`);
+  // the account label follows a login switch mid-session (hooks review M9); one that looks like an email or a key is dropped
+  await ev(A, 'prompt', { account: 'second' });
+  r = await row(A.sid);
+  check('event: the account label follows the session (a login switch)', r.account === 'second', JSON.stringify(r.account));
+  const badAcct = await ev(A, 'stop', { account: 'pat@example.com' });
+  r = await row(A.sid);
+  check('event: an account that looks like an email is dropped, the event still accepted', badAcct.status === 200 && r.account === 'second', `${badAcct.status} ${r.account}`);
 
   // start_work (the agent's own label) and the rename: the last written wins
   const agent = await mkKey({ agent: 'claude-code', name: 'ident agent' });

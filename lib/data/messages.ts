@@ -132,7 +132,7 @@ const WEEK_MS = 7 * 86_400_000;
  * For a person: their session that holds Now, else their most recent live main session on the project, else their most recent session
  * there (off; handed on the same way). Null when they had no session on it this week.
  */
-export async function leadOf(s: Scope, project: ProjectDoc, userId?: string): Promise<PresenceDoc | null> {
+export async function leadOf(s: Scope, project: Pick<ProjectDoc, '_id'>, userId?: string): Promise<PresenceDoc | null> {
   const c = await scoped(s);
   const st = await c.states.findOne({ _id: project._id }, { projection: { now: 1 } });
   const hold = st?.now?.hold?.key;
@@ -191,7 +191,8 @@ export async function resolveTo(s: Scope, to: string, projectKey?: string): Prom
   let found = people.filter(([, n]) => n.trim().toLowerCase() === lower);
   if (!found.length) found = people.filter(([, n]) => n.trim().split(/\s+/)[0]?.toLowerCase() === lower);
   if (found.length > 1) throw new InputError(`More than one person is called "${raw.slice(0, 60)}": use the full name.`);
-  if (!found.length) throw new InputError(`"${raw.slice(0, 60)}" is not a session of yours (list_sessions) or a person in your organization; a teammate’s session is reached by its address (s-…).`);
+  // Every refusal names the next call with its arguments (hooks review, addendum A).
+  if (!found.length) throw new InputError(`"${raw.slice(0, 60)}" is not a session of yours or a person in your organization. A teammate’s session is reached by its address: call list_sessions {project: "${project ? project.name : '<the project>'}"} and pass that session’s address (s-…) as to.`);
   const [userId, name] = found[0];
   if (!project) throw new InputError(`A message to ${name} needs a project you both read: pass project. It goes to their lead session there.`);
   const theirs = await scoped(forUser(s, userId));
@@ -207,7 +208,7 @@ export async function resolveLead(s: Scope, projectKey: string): Promise<Resolve
   const project = await resolveProject(c, s, projectKey, { create: false });
   if (!project) throw new NotFoundError(`Project "${projectKey.trim().slice(0, 120)}" not found`);
   const lead = await leadOf(s, project);
-  if (!lead) throw new InputError(`No session holds Now on ${project.name}, so it has no lead session: pass to (a session’s address from list_sessions, or a person).`);
+  if (!lead) throw new InputError(`No session holds Now on ${project.name}, so it has no lead session: call list_sessions {project: "${project.name}"} and pass one session’s address as to (or pass a person’s name as to).`);
   const names = lead.userId === s.userId ? null : await memberNames(s.orgId);
   return { kind: 'session', rows: [lead], project, via: `the lead session of ${project.name}${names ? ` (${names[lead.userId] || 'a member'}’s)` : ''}` };
 }
@@ -300,6 +301,11 @@ export async function sendTo(
 ): Promise<{ message: MessageDoc; project: ProjectDoc | null; target: string }> {
   if (!a.to?.trim() && !a.project?.trim()) throw new InputError('Say who it is for: to (a session’s address, id or name from list_sessions, or a person), or only project for its lead session.');
   const t = a.to?.trim() ? await resolveTo(s, a.to, a.project) : await resolveLead(s, a.project!);
+  // The sender is the lead itself: a message to the project would come straight back (hooks review, addendum A).
+  if (!a.to?.trim() && t.kind === 'session' && from.src && t.rows.some(r => rowKey(r) === from.src)) {
+    const name = t.project?.name ?? a.project!.trim().slice(0, 120);
+    throw new InputError(`You are the lead session of ${name}, so a message to the project would come back to you. To reach a teammate, call list_sessions {project: "${name}"} and pass their session’s address as to.`);
+  }
   return sendMessage(s, t, { kind: a.kind, body: a.body, refs: a.refs, sender_commit: a.sender_commit }, from);
 }
 
@@ -326,7 +332,11 @@ export async function reply(s: Scope, id: string, body: string, from: From, read
   const owner = parent.projectId ? (await c.projects.findOne({ _id: parent.projectId }, { projection: { ownerId: 1 } }))?.ownerId : undefined;
   if (parent.from.userId !== s.userId && !addressed(parent, reader ?? { key: s.userId, userId: s.userId, row: null }, owner)) throw new NotFoundError(`Message ${String(id).slice(0, 40)} not found`);
   // A reply goes back to the sender's session, in the same thread: addressed by the session key, the label is for display. A message that came from no session (a person in the app, a chat) has no session to answer.
-  if (!parent.src) throw new InputError('This message came from no session, so there is no session to answer; send a new message to the person instead.');
+  if (!parent.src) {
+    const who = parent.from.userId === s.userId ? null : (await memberNames(s.orgId))[parent.from.userId];
+    const pname = parent.projectId ? (await c.projects.findOne({ _id: parent.projectId }, { projection: { name: 1 } }))?.name : undefined;
+    throw new InputError(`This message came from no session, so there is no session to answer. Send a new message instead: send_message {to: "${who || '<their name>'}"${pname ? `, project: "${pname}"` : ''}, kind, body}.`);
+  }
   const project = parent.projectId ? await c.projects.findOne({ _id: parent.projectId }) : null;
   if (parent.projectId && !project) throw new NotFoundError('Project not found');
   const to = parent.from.label || parent.from.ai;

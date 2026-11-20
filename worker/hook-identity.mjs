@@ -8,7 +8,7 @@
 // Only these five short values leave the machine: titles are one line, cut to 120 characters; the model name is at most 60 characters of
 // [A-Za-z0-9._:/-]. Nothing else from the transcript is kept or sent. The transcript is read from its last 256 KB only.
 import fs from 'node:fs';
-import { readAccount } from './claude-account.mjs';
+import { sessionAccount } from './claude-account.mjs';
 
 export const META_BYTES = 256 * 1024;
 export const MAX_TITLE = 120;
@@ -54,12 +54,12 @@ export const toolOf = (env = process.env) => TOOLS[String(env.CLAUDE_CODE_ENTRYP
 /** What the start (and later events) say about the session: { title?, aiTitle?, model?, tool?, account? } from the transcript, the environment and the account file. */
 export function identityOf(transcript, env = process.env, accountFile) {
   const t = toolOf(env);
-  const account = readAccount(accountFile)?.label;
+  const account = sessionAccount(env, accountFile)?.label;
   return { ...transcriptMeta(transcript), ...(t ? { tool: t } : {}), ...(account ? { account } : {}) };
 }
 
-/** A short fingerprint of the identity, so an event carries it only when it changed. */
-export const identityKey = (i) => [i.title || '', i.aiTitle || '', i.model || ''].join('\u0001');
+/** A short fingerprint of the identity, so an event carries it only when it changed (the account too: a session may outlive a login switch). */
+export const identityKey = (i) => [i.title || '', i.aiTitle || '', i.model || '', i.account || ''].join('\u0001');
 
 const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
 /**

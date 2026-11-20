@@ -604,7 +604,7 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   const owned = next.visibility === 'private' ? { ownerId: p.ownerId, visibility: next.visibility, sharedWith: [] } : { visibility: next.visibility, sharedWith: next.sharedWith };
   const offList = next.visibility === 'members' ? { ownerId: { $nin: next.sharedWith } } : null;
   // Off-list owners first: until the placement lands they are still placed as before (no one gains a way in meanwhile).
-  const move = async (name: 'tasks' | 'activity' | 'notes' | 'claudeItems' | 'needs' | 'trash' | 'states' | 'presence' | 'messages', filter: Record<string, unknown>) => {
+  const move = async (name: 'tasks' | 'activity' | 'notes' | 'claudeItems' | 'needs' | 'trash' | 'states' | 'stateParked' | 'stateDecisions' | 'presence' | 'messages', filter: Record<string, unknown>) => {
     const col = c[name] as unknown as Collections['tasks'];
     // A person's own Orders must not become someone else's when their page changes owner (to the project's owner): the flag goes first.
     if (name === 'notes') {
@@ -642,6 +642,8 @@ async function setProjectPlacement(c: Collections, p: ProjectDoc, next: Placemen
   await move('trash', { 'task.projectId': p._id });
   // The project's State and the sessions present on it (docs/flows/step-1.md section 1): same placement, so the door shows them to the project's readers only.
   await move('states', { projectId: p._id });
+  await move('stateParked', { projectId: p._id });
+  await move('stateDecisions', { projectId: p._id });
   await move('presence', { projectId: p._id });
   await move('messages', { projectId: p._id });
 }

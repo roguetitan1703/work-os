@@ -337,6 +337,10 @@ export type ArchivedLine = { id: string; text: string; from: 'Next' | 'Later' | 
 export type DeclutterCache = { checkedAt: Date; reasons: string[]; quietUntil?: Date; needId?: string; needRef?: number; reviewedAt?: Date; reviewedLater?: number; reviewedNext?: number };
 /** A decision recorded on a project (append-only). `by` = who decided (a user id), `via` = chat / code / app / discord. */
 export type StateDecision = { id: string; at: Date; by: string; src?: string; via: string; text: string; archivedAt?: Date; /** The key that recorded it (the hourly limit counts per key). */ key?: string; /** The message it was applied from, who wrote that message and how it came in; `by` is who applied it. */ msg?: string; author?: string; word?: string };
+/** One Parked line as its own row (collection `stateParked`), placed like its project. `at` is the line's own date; `parkedAt` is when it was parked (the sort key). */
+export type StateParkedDoc = Placed & { _id: string; projectId: string; id: string; text: string; when?: string; ref?: number; waitsOn?: string; by: string; src?: string; at: Date; parkedAt: Date; /** The key that parked it, and the caller (user id) who did: the hourly limit counts by them. */ key?: string; parkedBy?: string };
+/** One decision as its own row (collection `stateDecisions`), placed like its project. An archived decision keeps its row with `archivedAt`. */
+export type StateDecisionDoc = Placed & StateDecision & { _id: string; projectId: string; archivedBy?: string };
 /** Where the work is on one machine, as the agent reported it from git. */
 export type StateWhere = { branch?: string; head?: string; dirty?: boolean; worktrees?: string[]; at: Date; by: string };
 /** The project's live memory (docs/flows/step-1.md): one per project, `_id` = the project id, stamped with the project's placement. */
@@ -347,9 +351,13 @@ export type StateDoc = Placed & {
   now: { text: string; holder?: string; hold?: { key: string; label: string; at: Date }; by: string; at: Date } | null;
   next: StateLine[];
   later: StateLine[];
-  /** Features and ideas set aside, never in the start brief (read as `?? []`). */
+  /** Legacy: moved to `stateParked` rows on first touch (lib/state-lists-move.ts); never written. */
   parked?: StateLine[];
-  decisions: StateDecision[];
+  /** Legacy: moved to `stateDecisions` rows on first touch; never written. */
+  decisions?: StateDecision[];
+  /** How many Parked rows and live (not archived) decision rows the project has; the rows hold the text. Missing on a State not moved yet. */
+  parkedCount?: number;
+  decisionsCount?: number;
   where: Record<string, StateWhere>;
   /** Lines taken off Next or Later, text kept, put back from the State card (the newest 300). */
   archived?: ArchivedLine[];
@@ -616,7 +624,7 @@ export type ClaudeUsageEventDoc = { _id: string; orgId: string; ownerId: string;
 /** The label (the part of the email before @) of a Claude account id a worker reported. Owner only. */
 export type ClaudeAccountDoc = { _id: string; orgId: string; ownerId: string; id: string; label: string; lastSeen: Date };
 /** Policy counters for API keys (rate limit, trash limit). TTL index keeps 2 hours. */
-export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker' | 'mail_trash' | 'mail_send' | 'intake' | 'agent'; at: Date; n?: number };
+export type PolicyEventDoc = { _id: string; keyId: string; kind: 'call' | 'trash' | 'worker' | 'mail_trash' | 'mail_send' | 'intake' | 'agent'; at: Date; n?: number; /** A call's session (its presence key: the session id it passed, else the key): the session's share and the top-3 line. */ sid?: string };
 /**
  * One report sent in through an intake (lib/intake.ts): the sender's own id, so the same report sent again finds its task.
  * Unique on (source, reportId). taskId and ref are null while the task is being made (`claimedAt` says since when).
@@ -758,6 +766,13 @@ const INDEXES: [string, IndexDescription[]][] = [
     ['calendarFeeds', [{ key: { hash: 1 }, unique: true, name: 'hash_unique' }]],
     ['messages', [{ key: { orgId: 1, projectId: 1, at: -1 }, name: 'org_project_at' }, { key: { orgId: 1, thread: 1, at: 1 }, name: 'org_thread' }]],
     ['states', [{ key: { orgId: 1, projectId: 1 }, unique: true, name: 'org_project_unique' }]],
+    // Parked lines and decisions: one row each, no cap (lib/state-lists-move.ts). The State keeps only the counts.
+    ['stateParked', [{ key: { orgId: 1, projectId: 1, id: 1 }, unique: true, name: 'org_project_id' }, { key: { orgId: 1, projectId: 1, parkedAt: -1, id: -1 }, name: 'org_project_parked' }]],
+    ['stateDecisions', [
+      { key: { orgId: 1, projectId: 1, id: 1 }, unique: true, name: 'org_project_id' },
+      { key: { orgId: 1, projectId: 1, archivedAt: 1, at: -1, id: -1 }, name: 'org_project_live_at' },
+      { key: { orgId: 1, key: 1, at: -1 }, name: 'org_key_at', partialFilterExpression: { key: { $exists: true } } },
+    ]],
     ['presence', [{ key: { orgId: 1, projectId: 1, lastSeen: -1 }, name: 'org_project_seen' }, { key: { lastSeen: 1 }, name: 'seen_ttl', expireAfterSeconds: 7 * 86_400 }]],
     ['slots', [{ key: { orgId: 1, machine: 1 }, name: 'org_machine' }, { key: { touchedAt: 1 }, name: 'touched_ttl', expireAfterSeconds: 86_400 }]],
     ['authLimits', [{ key: { at: 1 }, name: 'at_ttl', expireAfterSeconds: 3600 }, { key: { key: 1, at: -1 }, name: 'key_at' }]],
@@ -839,6 +854,8 @@ export async function collections() {
     claudeAccounts: db.collection<ClaudeAccountDoc>('claudeAccounts'),
     messages: db.collection<MessageDoc>('messages'),
     states: db.collection<StateDoc>('states'),
+    stateParked: db.collection<StateParkedDoc>('stateParked'),
+    stateDecisions: db.collection<StateDecisionDoc>('stateDecisions'),
     presence: db.collection<PresenceDoc>('presence'),
     slots: db.collection<SlotDoc>('slots'),
   };

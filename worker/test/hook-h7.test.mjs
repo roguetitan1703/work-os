@@ -92,9 +92,8 @@ test('setup: a session with a kept token', async () => {
   assert.ok(lib.readKept(SID));
   // no waiting on real time in these tests
   waiter.clock.sleep = async () => {};
-  // the parent process and the run kind are set by the tests that check them (not this test runner's own environment)
-  waiter.parent.quiet = () => false;
-  waiter.parent.find = () => null;
+  // the parent process is set by the tests that check it (not this test runner's own environment)
+  waiter.parent.find = () => ({ pid: process.pid }); // alive: this test process
 });
 
 test('user-prompt: the text the server handed over goes into the prompt context, as the server framed it', async () => {
@@ -144,6 +143,10 @@ test('ack: what was printed is acknowledged on the next call (and kept when that
   assert.deepEqual(events()[1].body.ack, ['m_1', 'n_1']);
   assert.deepEqual(marker(SID).ack, ['m_1', 'n_1'], 'not cleared when the server did not answer');
   eventDelay = 0;
+  // the failed call silences this session's posts for 5 minutes (hooks review M7): nothing is sent meanwhile
+  assert.equal(await lib.postEvent(SID, 'tool', {}), null);
+  assert.equal(events().length, 2, 'no post while the server counts as down');
+  setMarker(SID, { presence: { ...marker(SID).presence, postedAt: Date.now() - 6 * 60_000 } }); // 6 minutes later
   await lib.postEvent(SID, 'tool', {});
   assert.deepEqual(events()[2].body.ack, ['m_1', 'n_1']);
   assert.equal(marker(SID).ack, undefined, 'cleared once the server answered 200');
@@ -271,22 +274,35 @@ test('wait: a wake keeps the ids to acknowledge; the next poll sends them; retry
   void p;
 });
 
-test('wait: busy ends it (after a short settle for a turn that just ended); local working stops it without a call', async () => {
+test('wait: busy answers no longer end it (hooks review H3): a short settle, then it backs off 30 s doubling to 5 min and a later wake still wakes; a marker that stays working is checked with the server after the settle', async () => {
   reset();
   setMarker(SID, { presence: { state: 'idle', at: Date.now(), postedAt: Date.now() } });
-  waitAnswers.push({ status: 200, body: { busy: true } }, { status: 200, body: { again: true } });
   const slept = [];
-  waiter.clock.sleep = async (ms) => { slept.push(ms); };
-  waitAnswers.push(...Array.from({ length: 10 }, () => ({ status: 200, body: { busy: true } })));
-  assert.equal(await run('wait', SID), '');
-  assert.equal(lib.run.exitCode, 0);
-  assert.ok(slept.length >= 5, 'it looked again a few times before giving up');
-  reset();
-  setMarker(SID, { presence: { state: 'working', at: Date.now(), postedAt: Date.now() } });
-  assert.equal(await run('wait', SID), '');
-  assert.equal(waits().length, 0, 'a working session: no call');
-  assert.equal(lib.run.exitCode, 0);
-  waiter.clock.sleep = async () => {};
+  let fake = Date.now();
+  const realNow = waiter.clock.now;
+  waiter.clock.now = () => fake;
+  waiter.clock.sleep = async (ms) => { slept.push(ms); fake += ms; };
+  try {
+    waitAnswers.push(...Array.from({ length: 10 }, () => ({ status: 200, body: { busy: true } })), { status: 200, body: { wake: true, text: framed } });
+    assert.equal(await run('wait', SID), '');
+    assert.equal(lib.run.exitCode, 2, 'the wake after ten busy answers still wakes the session');
+    assert.equal(waits().length, 11);
+    assert.deepEqual(slept.slice(0, 6), [2000, 2000, 2000, 2000, 2000, 2000], 'six short settles first');
+    assert.ok(slept.length >= 9 && JSON.stringify(slept.slice(6)) === JSON.stringify([30000, 60000, 120000, 240000].slice(0, slept.length - 6)), `then the back-off, doubling: ${slept}`);
+    reset();
+    slept.length = 0;
+    // A marker that says working (a stop hook that never posted): six settles, then the server is asked (independent review, 21 Nov)
+    setMarker(SID, { presence: { state: 'working', at: fake, postedAt: fake } });
+    waitAnswers.push({ status: 200, body: { busy: true } }, { status: 200, body: { wake: true, text: framed } });
+    assert.equal(await run('wait', SID), '');
+    assert.deepEqual(slept.slice(0, 6), [2000, 2000, 2000, 2000, 2000, 2000], 'six settles on the working marker, no call');
+    assert.equal(waits().length, 2, 'then the server is asked: busy (backed off), then the wake');
+    assert.equal(slept[6], 30000, 'a busy answer backs off');
+    assert.equal(lib.run.exitCode, 2, 'a stale working marker never stops a wake');
+  } finally {
+    waiter.clock.now = realNow;
+    waiter.clock.sleep = async () => {};
+  }
 });
 
 test('wait: a wake that arrives after the session began working is dropped, not printed', async () => {
@@ -377,7 +393,7 @@ test('frameText and frameInbox: markers and control characters in a text cannot 
 const withParent = async (alive, fn) => {
   const keep = { ...waiter.parent };
   waiter.parent.find = () => ({ pid: 4242 });
-  waiter.parent.alive = (pid) => { assert.equal(pid, 4242); return alive(); };
+  waiter.parent.alive = (owner) => { assert.equal(owner.pid, 4242); return alive(); };
   waiter.parent.everyMs = 20;
   try { await fn(); } finally { Object.assign(waiter.parent, keep); }
 };
@@ -431,10 +447,8 @@ test('wait: the parent dies while a poll is open: the poll is cancelled, the mes
 test('wait: a claude -p or Agent SDK run (CLAUDE_CODE_ENTRYPOINT sdk-*) does not wait at all', async () => {
   reset();
   setMarker(SID, { presence: { state: 'idle', at: Date.now(), postedAt: Date.now() } });
-  const keep = waiter.parent.quiet;
   const was = process.env.CLAUDE_CODE_ENTRYPOINT;
   try {
-    waiter.parent.quiet = lib.quietRun;
     for (const e of ['sdk-cli', 'sdk-ts', 'sdk-py']) {
       process.env.CLAUDE_CODE_ENTRYPOINT = e;
       waitAnswers.push({ status: 200, body: { wake: true, text: framed } });
@@ -446,13 +460,12 @@ test('wait: a claude -p or Agent SDK run (CLAUDE_CODE_ENTRYPOINT sdk-*) does not
     assert.equal(await run('wait', SID), '');
     assert.equal(lib.run.exitCode, 2, 'an interactive session still waits');
   } finally {
-    waiter.parent.quiet = keep;
     if (was === undefined) delete process.env.CLAUDE_CODE_ENTRYPOINT; else process.env.CLAUDE_CODE_ENTRYPOINT = was;
   }
 });
 
 test('wait: the parent is CLAUDE_PID when Claude Code gives it, without a process lookup', () => {
   assert.deepEqual(findParent({ CLAUDE_PID: '31337' }), { pid: 31337 });
-  assert.equal(waiter.parent.alive(process.pid), true);
-  assert.equal(waiter.parent.alive(2 ** 22 + 12345), false);
+  assert.equal(waiter.parent.alive({ pid: process.pid }), true);
+  assert.equal(waiter.parent.alive({ pid: 2 ** 22 + 12345 }), false);
 });

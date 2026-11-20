@@ -30,7 +30,7 @@ export const settingsPath = () => process.env.CLAUDE_SETTINGS_PATH || path.join(
 export const hooksDir = () => path.join(configDir(), 'hooks');
 // The files the installed copy runs: the router, one file per event (and hook-lib, hook-copy), config.mjs and secret.mjs (the
 // start hook reads this PC's device key with it: the worker's own code, so the key stays in DPAPI / Keychain).
-export const FILES = ['hook.mjs', 'hook-lib.mjs', 'hook-identity.mjs', 'claude-account.mjs', 'hook-copy.mjs', 'hook-release.mjs', 'remote.mjs', 'hook-session-start.mjs', 'hook-stop.mjs', 'hook-pre-tool.mjs', 'hook-post-tool.mjs', 'hook-user-prompt.mjs', 'hook-notification.mjs', 'hook-session-end.mjs', 'hook-subagent-start.mjs', 'hook-subagent-stop.mjs', 'hook-tool-batch.mjs', 'hook-tool-start.mjs', 'hook-wait.mjs', 'config.mjs', 'secret.mjs'];
+export const FILES = ['hook.mjs', 'hook-lib.mjs', 'hook-identity.mjs', 'claude-account.mjs', 'hook-copy.mjs', 'hook-release.mjs', 'remote.mjs', 'hook-session-start.mjs', 'hook-stop.mjs', 'hook-pre-tool.mjs', 'hook-post-tool.mjs', 'hook-user-prompt.mjs', 'hook-notification.mjs', 'hook-session-end.mjs', 'hook-subagent-start.mjs', 'hook-subagent-stop.mjs', 'hook-tool-batch.mjs', 'hook-tool-start.mjs', 'hook-wait.mjs', 'hook-gate.mjs', 'config.mjs', 'secret.mjs'];
 const VERSION_FILE = 'hooks.version';
 /** How the start brief signs in on this PC, first choice: 'worker' (the worker is set up; a WORK_OS_KEY is only its fallback), 'key' (WORK_OS_KEY set, no worker), or null. */
 function signIn(settings) {
@@ -49,7 +49,9 @@ export function installedVersion() {
   try { return fs.readFileSync(path.join(hooksDir(), VERSION_FILE), 'utf8').trim() || null; } catch { return null; }
 }
 // Every entry we write runs <some folder>/hooks/hook.mjs <event>; the folder's name is not ours to rely on (WORK_OS_WORKER_DIR).
-const OURS_RE = new RegExp('[\\\\/]hooks[\\\\/]hook\\.mjs"\\s+(' + EVENTS.map((e) => e.event).join('|') + ')(\\s|$)');
+// Events a past install wrote and this one no longer does (hooks review 18, 21 Nov: subagent-stop): still ours, so an install removes them.
+const RETIRED_EVENTS = ['subagent-stop'];
+const OURS_RE = new RegExp('[\\\\/]hooks[\\\\/]hook\\.mjs"\\s+(' + [...EVENTS.map((e) => e.event), ...RETIRED_EVENTS].join('|') + ')(\\s|$)');
 
 /** The hook entries, by Claude Code event. `hook` is the absolute path of the installed hook.mjs; `flags` is appended to each command (a repo's: ` --cloud --server <url>`). */
 export function entries(hook, flags = '', { cloud = false } = {}) {
