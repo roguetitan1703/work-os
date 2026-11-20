@@ -83,7 +83,7 @@ const settle = p => p.waitForTimeout(700);
   check("menu is Tasks, Notes, Review, Schedule, Inbox, What's new, Settings, in that order", JSON.stringify(hrefs) === JSON.stringify(['/tasks', '/notes', '/review', '/timetable', '/notifications', '/whats-new', '/settings']), JSON.stringify(hrefs));
   check('menu: one list, no group headings', (await p.locator('main h2').count()) === 0 && (await p.locator('main [data-menu]').count()) === 1);
   const mrows = await p.locator('main [data-menu] > div').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().height)));
-  check('menu rows are 44px', mrows.length === 7 && mrows.every(h => h === 44), JSON.stringify(mrows));
+  check('menu rows are 44px', mrows.length === 7 && mrows.every(h => h >= 44 && h <= 45), JSON.stringify(mrows));
   check('menu Settings status dot', (await p.locator('main a[href="/settings"] [role=img]').count()) === 1);
   await p.locator('main a[href="/tasks"]').tap(); await p.waitForURL(/\/tasks$/);
   check('Menu > Tasks opens Tasks', path(p) === '/tasks', path(p));

@@ -1194,7 +1194,7 @@ try {
     check("lanes: a teammate sees the owner's lane by label, its state and task, never its last line", !!lane && lane.writtenBy === true && lane.lastResult === undefined && !tr.text.includes('lkq lane result'), JSON.stringify(tr.json?.lanes ?? tr.text.slice(0, 160)));
     const ls = await mcpCall(T.code, 'list_sessions', {});
     check("lanes: list_sessions for a teammate has no last line of the owner's session", !ls.text.includes('lkq lane result'), ls.text.slice(0, 160));
-    const ownGs = await mcpCall(A.code, 'get_state', { project: pid, session: sid }, { 'X-Work-OS-Session': sid });
+    const ownGs = await mcpCall(A.code, 'start_work', { project: pid, session: sid, label: lbl }, { 'X-Work-OS-Session': sid });
     const ownLane = (ownGs.json?.lanes ?? []).find(l => l.label === lbl);
     check('lanes: the owner sees the last line of the own session', ownLane?.lastResult?.text === 'lkq lane result', JSON.stringify(ownGs.json?.lanes ?? ownGs.text.slice(0, 160)));
     check('lanes: no session id of the owner appears in the teammate\'s brief', !tr.text.includes(sid), tr.text.slice(0, 160));
@@ -1484,6 +1484,7 @@ function AUDIT() {
   // Messages for you (Identity step 6): the signed-in person acts on what is theirs; another person session message, or one on a project she cannot read, is 'not found' as a made-up id
   add(`action ${MFA}messageStatusAction`, act(MFA + 'messageStatusAction', t => [t.msg, 'applied'], aim(['msg'], { control: false })), act(MFA + 'messageStatusAction', t => [t.msg, 'rejected', 'lkq'], aim(['msg'], { label: 'rejected', control: false })));
   add(`action ${MFA}makeTaskFromMessageAction`, act(MFA + 'makeTaskFromMessageAction', t => [t.msgReq], aim(['msgReq'], { control: false })));
+  add(`action ${MFA}messageSessionAction`, act(MFA + 'messageSessionAction', t => [t.sid, 'lkq action session message'], aim(['sid'])));
   add(`action ${MFA}replyToMessageAction`, act(MFA + 'replyToMessageAction', t => [t.msg, 'lkq action reply'], aim(['msg'])));
   add(`action ${SA}saveStateAction`, act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_next', text: 'lkq action sneak' }]], aim(['project'])), act(SA + 'saveStateAction', t => [t.project, [{ op: 'add_decision', text: 'lkq action decision' }, { op: 'add_later', text: 'lkq action later' }]], aim(['project'], { label: 'decision and later' })));
   // H11: Declutter in the app. The project's owner (the control) sees and applies; a member who is not the owner and anyone without access get the same answer as for a made-up project (not found, or the owner-only line), and a made-up archived line is refused alike.
